@@ -267,7 +267,12 @@ impl ExitRecoveryExt for ServiceContext {
         fresh_provider: Option<&str>,
     ) -> Result<RestartOutcome, RestartAttemptError> {
         let shell = self.exited_shell(tab_id, attempt)?;
-        let restart_claim = self.claim_restart(tab_id, automatic)?;
+        let admission = if automatic {
+            super::RestartAdmission::AutomaticRecovery
+        } else {
+            super::RestartAdmission::Standard
+        };
+        let mut restart_claim = self.claim_restart(tab_id, admission)?;
         let records = self.lifecycle_journal.load().records;
         let recovery = select_journal_recovery_session(&records, tab_id, None, &shell.lineage)
             .and_then(|session_id| {
@@ -294,6 +299,7 @@ impl ExitRecoveryExt for ServiceContext {
             role_profile: shell.role_profile,
             handoff_history: None,
         };
+        restart_claim.remember_target(&snap);
         if snap.session_id.is_none() && fresh_provider.is_some() {
             return self.recover_general_agent_fresh(&snap, force);
         }
@@ -367,7 +373,7 @@ impl ExitRecoveryExt for ServiceContext {
             None,
             snap.session_id.clone(),
         );
-        drop(restart_claim);
+        restart_claim.begin_settling();
 
         let ready = self.finish_observed_restart(
             outcome,

@@ -125,27 +125,35 @@ export function StatusLineModelPicker({
   const configModel = modelSection?.applyTarget.kind === "config";
   if (descriptor) descriptor = pickerDescriptor(descriptor, settings);
   if (effortSection?.applyTarget.kind === "config") currentEffort = effortSection.current;
-  const gate = statusLineSwitchGate(descriptor, facts);
   const currentModel = configModel ? modelSection.current || runtimeControls?.model : currentModelId(descriptor, [runtimeControls?.model, ...modelCandidates]);
   const [open, setOpen] = useState(false);
   const [applied, setApplied] = useState<PickerSelection | null>(null);
   const [applying, setApplying] = useState(false);
   const [failure, setFailure] = useState<{ message: string; selection: PickerSelection; busy?: boolean } | null>(null);
   const appliedRef = useRef<PickerSelection | null>(null);
+  const latestApply = useRef(0);
   appliedRef.current = applied;
+  const restartBased = descriptor?.model_switch === "restart_resume";
+  const gate = statusLineSwitchGate(descriptor, {
+    hasSession: facts.hasSession || (restartBased && (applying || Boolean(pendingSelection))),
+  });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const actions = useContext(MultiplexerActionsContext);
   const commitRef = useRef<(selection: PickerSelection, restart: boolean) => Promise<void>>(async () => undefined);
   useEffect(() => {
-    if (descriptor && applied && selectionReached(descriptor, applied, currentModel, currentEffort, currentServiceTier, currentRuntimeMode)) {
+    if (!descriptor || !applied || (restartBased && applying)) return;
+    const pendingReached = restartBased && pendingSelection
+      && selectionReached(descriptor, applied, pendingSelection.model, pendingSelection.effort ?? undefined, currentServiceTier, currentRuntimeMode);
+    if (pendingReached || selectionReached(descriptor, applied, currentModel, currentEffort, currentServiceTier, currentRuntimeMode)) {
       setApplied(null);
     }
-  }, [descriptor, applied, currentModel, currentEffort, currentServiceTier, currentRuntimeMode]);
+  }, [descriptor, applied, restartBased, applying, pendingSelection, currentModel, currentEffort, currentServiceTier, currentRuntimeMode]);
   const close = useCallback(() => {
     setOpen(false);
     triggerRef.current?.focus({ preventScroll: true });
   }, []);
   const commit = useCallback(async (selection: PickerSelection, restart: boolean) => {
+    const request = ++latestApply.current;
     const previous = appliedRef.current;
     setApplied(selection.controls ? null : selection);
     setApplying(true);
@@ -159,7 +167,7 @@ export function StatusLineModelPicker({
         if (section.applyTarget.kind === "host_approvals") await setHostApprovals(tabId, value === "allow_all");
         else await selectRuntimeControl(tabId, target, section.applyTarget.kind === "config" ? section.applyTarget.id : "", value, section.applyTarget.kind === "session");
       }
-      if (selection.model === (currentModel ?? "") && selection.effort === currentEffort && selection.runtimeMode === currentRuntimeMode && selection.serviceTier?.id === currentServiceTier?.id) return;
+      if (!(restartBased && (applying || pendingSelection)) && selection.model === (currentModel ?? "") && selection.effort === currentEffort && selection.runtimeMode === currentRuntimeMode && selection.serviceTier?.id === currentServiceTier?.id) return;
       const api = getTabModelApi();
       if (configModel) {
         if (modelSection?.applyTarget.kind === "config" && selection.model !== modelSection.current) await selectRuntimeControl(tabId, target, modelSection.applyTarget.id, selection.model);
@@ -167,14 +175,15 @@ export function StatusLineModelPicker({
       } else if (restart) {
         if (!api.restartAndSwitchModel) throw new Error("Restart fallback is unavailable");
         const result = await api.restartAndSwitchModel(tabId, selection.model, selection.effort, selection.runtimeMode);
-        if (result?.staged) setApplied(null);
+        if (result?.staged && !restartBased && request === latestApply.current) setApplied(null);
       } else {
         const result = selection.runtimeMode === undefined && selection.serviceTier === undefined
           ? await api.switchModel(tabId, selection.model, selection.effort)
           : await api.switchModel(tabId, selection.model, selection.effort, selection.runtimeMode, selection.serviceTier);
-        if (result?.staged) setApplied(null);
+        if (result?.staged && !restartBased && request === latestApply.current) setApplied(null);
       }
     } catch (error) {
+      if (request !== latestApply.current) return;
       setApplied(previous);
       const failure = modelSwitchFailure(error, descriptor?.transport === "chat_backend");
       const busy = runtimeBusy(error);
@@ -191,19 +200,20 @@ export function StatusLineModelPicker({
         lifetimeMs: busy ? 6000 : 15000,
         actions: restart || !failure.restartAvailable ? undefined : [{ label: "Restart and resume", run: () => void commitRef.current(selection, true) }] });
     } finally {
-      setApplying(false);
+      if (request === latestApply.current) setApplying(false);
     }
-  }, [actions, close, descriptor?.transport, tabId, tab, configModel, modelSection, effortSection, settings, currentModel, currentEffort, currentRuntimeMode, currentServiceTier]);
+  }, [actions, applying, close, descriptor?.transport, tabId, tab, configModel, modelSection, effortSection, settings, currentModel, currentEffort, currentRuntimeMode, currentServiceTier, restartBased, pendingSelection]);
   commitRef.current = commit;
 
-  const selection = pendingSelection ? { model: pendingSelection.model, effort: pendingSelection.effort ?? undefined }
-    : applied ?? { model: currentModel ?? "", effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor?.agent_runtime?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) };
+  const pending = pendingSelection ? { model: pendingSelection.model, effort: pendingSelection.effort ?? undefined } : undefined;
+  const selection = (restartBased ? applied : null) ?? pending ?? applied
+    ?? { model: currentModel ?? "", effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor?.agent_runtime?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) };
   const modelName = descriptor?.available_models.find((model) => matchesModel(model, selection.model))?.display_name
     || selection.model;
   const afterTurn = Boolean(pendingSelection);
   const confirmedModelName = modelName;
   const tierLabel = serviceTierLabel(descriptor, currentServiceTier);
-  const selectionStatus = pendingSelection?.confirmation_pending ? "Switch sent; confirms when this turn ends" : afterTurn ? "after this turn" : undefined;
+  const selectionStatus = pendingSelection?.confirmation_pending ? "Switch sent; confirms when this turn ends" : afterTurn ? (restartBased ? "pending" : "after this turn") : undefined;
   // The logo names the agent; the agent's reported name and version live only in the tooltip, never in the label.
   const providerName = descriptor?.display_name ?? label.split(" · ")[0];
   const displayedLabel = tabMetaParts(confirmedModelName || providerName, tierLabel, selection.effort, selectionStatus).join(" · ");
@@ -255,12 +265,12 @@ export function StatusLineModelPicker({
           hostAskScope={hostAskScope}
           hostFullAccess={hostFullAccess}
           triggerRef={triggerRef}
-          currentModel={currentModel}
+          currentModel={restartBased && (pending || applied) ? selection.model : currentModel}
           currentServiceTier={selection.serviceTier}
           currentRuntimeMode={selection.runtimeMode}
           serviceTierAvailability={serviceTierAvailability}
           currentEffort={selection.effort}
-          busy={applying}
+          busy={applying && !restartBased}
           failure={failure}
           onCommit={(selection, restart) => void commit(selection, restart)}
           onClose={() => {

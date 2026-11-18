@@ -353,6 +353,8 @@ impl LiveCommandSwitchExt for ServiceContext {
                     .ext::<crate::service::agent_restart::RestartTracker>()
                     .clone(),
                 tab_id: snap.tab_id.clone(),
+                settling: false,
+                remembers_target: false,
             }
         };
         let deadline = Instant::now() + Duration::from_secs(MODEL_OBSERVE_TIMEOUT_SECS);

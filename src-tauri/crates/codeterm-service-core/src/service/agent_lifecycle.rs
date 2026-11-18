@@ -21,7 +21,7 @@ pub use account_restart::{AccountRestartBinding, AccountRestartTarget};
 
 pub use model_switch::{
     ControlChange, ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence,
-    ModelSwitchOutcome,
+    ModelSwitchOutcome, QueuedModelSwitch,
 };
 
 /// Minimum seconds between consecutive restarts for a single tab.
@@ -40,11 +40,44 @@ pub struct RestartTrackerState {
     sleep_transitions: HashMap<String, Arc<sleep_transition::SleepTransition>>,
     pub staged_models: staged_switches::PendingSwitches,
     pub last_restart: HashMap<String, Instant>,
+    pub last_automatic_restart: HashMap<String, Instant>,
     pub in_progress: HashSet<String>,
+    pub settling_restarts: HashMap<String, usize>,
+    pub restart_targets: HashMap<String, (String, Option<String>)>,
+    pub running_model_switches:
+        HashMap<String, Option<crate::multiplexer::types::PendingModelSelection>>,
+    pub queued_model_switches: HashMap<String, QueuedModelSwitch>,
     pub command_ptys: HashMap<String, (String, String)>,
     pub switch_confirmations: HashMap<String, Arc<crate::pty::screen_state::ScreenChangeSignal>>,
     pub pending_command_observers:
         HashMap<String, (String, Arc<crate::pty::screen_state::ScreenChangeSignal>)>,
+}
+
+impl RestartTrackerState {
+    pub fn model_switch_busy(&self, tab_id: &str) -> bool {
+        self.in_progress.contains(tab_id)
+            || self.settling_restarts.contains_key(tab_id)
+            || self.running_model_switches.contains_key(tab_id)
+            || self
+                .staged_models
+                .0
+                .get(tab_id)
+                .is_some_and(|staged| staged.claimed)
+    }
+
+    pub fn pending_restart_model(
+        &self,
+        tab_id: &str,
+    ) -> Option<&crate::multiplexer::types::PendingModelSelection> {
+        self.queued_model_switches
+            .get(tab_id)
+            .map(|request| &request.selection)
+            .or_else(|| {
+                self.running_model_switches
+                    .get(tab_id)
+                    .and_then(Option::as_ref)
+            })
+    }
 }
 
 pub type RestartTracker = Arc<Mutex<RestartTrackerState>>;

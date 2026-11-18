@@ -1,5 +1,7 @@
 use super::*;
+use crate::service::agent_lifecycle::{ModelSwitchConfirmation, RestartTracker};
 use crate::service::agent_restart::model_switch::ModelSwitchExt;
+use std::time::{Duration, Instant};
 
 #[test]
 fn restart_resume_model_selection_reloads_the_exact_runtime_thread_without_live_control() {
@@ -58,6 +60,100 @@ fn restart_resume_model_selection_reloads_the_exact_runtime_thread_without_live_
             "selected-model"
         );
     }
+}
+
+#[test]
+fn consecutive_restart_resume_switches_apply_without_cooldown() {
+    let fixture = RuntimeFixture::new();
+    let svc = &fixture.service;
+    let tab = &fixture.tab;
+    for model in ["first-model", "last-model"] {
+        let outcome = svc.agent_switch_model(tab, model).unwrap();
+        assert!(outcome.restart.as_ref().unwrap().agent_ready);
+        assert!(
+            matches!(outcome.confirmation, ModelSwitchConfirmation::Observed { model: observed, .. } if observed == model)
+        );
+    }
+    assert_eq!(resumed_models(&fixture), ["first-model", "last-model"]);
+    assert_eq!(
+        svc.mux
+            .read()
+            .get_tab(tab)
+            .unwrap()
+            .restorable_launch
+            .model
+            .as_deref(),
+        Some("last-model")
+    );
+}
+
+#[test]
+fn queued_restart_resume_switches_coalesce_until_the_restart_settles() {
+    let fixture = RuntimeFixture::new();
+    let svc = &fixture.service;
+    let tab = &fixture.tab;
+    let (entered, release) = agent_runtime::engine::hold_publication_for_test(tab);
+    std::thread::scope(|scope| {
+        let first = scope.spawn(|| svc.agent_switch_model(tab, "first-model"));
+        if let Err(error) = entered.recv_timeout(Duration::from_secs(5)) {
+            let _ = release.send(());
+            panic!("first switch did not reach runtime publication: {error}");
+        }
+        let queued =
+            ["superseded-model", "last-model"].map(|model| svc.agent_switch_model(tab, model));
+        let pending = svc
+            .mux
+            .read()
+            .get_tab(tab)
+            .unwrap()
+            .pending_model_selection
+            .clone();
+        release.send(()).unwrap();
+        let first = first.join().unwrap().unwrap();
+        assert!(first.restart.as_ref().unwrap().agent_ready);
+        for outcome in queued {
+            assert_eq!(
+                outcome.unwrap().confirmation,
+                ModelSwitchConfirmation::AfterTurn
+            );
+        }
+        assert_eq!(pending.unwrap().model, "last-model");
+    });
+    assert!(crate::service::boot_wait::wait_until(
+        Instant::now() + Duration::from_secs(5),
+        || {
+            let busy = svc.ext::<RestartTracker>().lock().model_switch_busy(tab);
+            !busy
+                && svc.mux.read().get_tab(tab).is_some_and(|tab| {
+                    tab.pending_model_selection.is_none()
+                        && tab.restorable_launch.model.as_deref() == Some("last-model")
+                })
+        }
+    ));
+    assert_eq!(resumed_models(&fixture), ["first-model", "last-model"]);
+    assert_eq!(
+        svc.mux
+            .read()
+            .get_tab(tab)
+            .unwrap()
+            .agent_session_id
+            .as_deref(),
+        Some("own-thread")
+    );
+}
+
+fn resumed_models(fixture: &RuntimeFixture) -> Vec<String> {
+    fixture
+        .requests()
+        .into_iter()
+        .filter(|frame| frame["method"] == "resumeThread")
+        .filter_map(|frame| {
+            frame["params"]["settings"]["model"]
+                .as_str()
+                .map(str::to_owned)
+        })
+        .filter(|model| model != "supplied-model")
+        .collect()
 }
 
 #[test]

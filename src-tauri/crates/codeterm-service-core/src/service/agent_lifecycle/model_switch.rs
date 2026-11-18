@@ -1,6 +1,16 @@
 use super::{AgentRestartError, RestartAttemptError, RestartOutcome};
 use crate::agent::provider::ModelSwitchMode;
 
+pub struct QueuedModelSwitch {
+    pub selection: crate::multiplexer::types::PendingModelSelection,
+    pub requested_model: String,
+    pub provider: String,
+    pub session_id: Option<String>,
+    pub force: bool,
+    pub restart_fallback: bool,
+    pub cancelled: std::sync::Arc<tokio::sync::Notify>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModelSwitchEvidence {
     LiveSessionRecord,

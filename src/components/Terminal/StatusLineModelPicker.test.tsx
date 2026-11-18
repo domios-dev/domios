@@ -352,6 +352,39 @@ test("restarting providers confirm first and the effort list follows the staged 
   }
 });
 
+test("restart-based selections can change again while an earlier switch is applying", async () => {
+  const calls: string[] = [];
+  let releaseFirst = () => {};
+  __setTabModelApiForTest({
+    switchModel: async (_tab, model) => {
+      calls.push(model);
+      if (calls.length === 1) await new Promise<void>((resolve) => { releaseFirst = resolve; });
+      return { mode_used: "restart_resume", model_confirmation: "pending", staged: true };
+    },
+  });
+  const view = await mount(descriptor("restart_resume"));
+  try {
+    async function chooseAndConfirm(model: string) {
+      await act(async () => view.trigger()!.click());
+      await act(async () => view.option(model).click());
+      await act(async () => button("Apply").click());
+      await act(async () => button("Restart and switch").click());
+    }
+    await chooseAndConfirm("Fast");
+    assert.match(view.trigger()!.getAttribute("aria-label")!, /Fast/);
+    await chooseAndConfirm("Deep");
+    assert.deepEqual(calls, ["fast", "deep"]);
+    await view.setPendingSelection({ model: "deep", effort: "high" });
+    await act(async () => releaseFirst());
+    assert.match(view.trigger()!.getAttribute("aria-label")!, /Deep.*pending/);
+    assert.deepEqual(toasts, []);
+  } finally {
+    releaseFirst();
+    await view.unmount();
+    __setTabModelApiForTest(null);
+  }
+});
+
 test("a provider without live switching renders plain text with a reason", async () => {
   const calls = recordSwitches();
   const view = await mount(descriptor("unsupported"));

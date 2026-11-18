@@ -20,6 +20,7 @@ pub mod first_turn;
 pub(in crate::service::agent_restart) use first_turn::SessionlessTeardownError;
 pub mod live_command;
 pub mod next_turn;
+mod queued;
 mod runtime;
 pub mod staging;
 
@@ -401,13 +402,13 @@ impl ModelSwitchExt for ServiceContext {
                     .and_then(|tab| tab.session_binding_nonce.clone())
             })
         };
-        let result = self.execute_model_switch(
+        let result = queued::request(
+            self,
             tab_id,
             requested,
             requested_effort,
             force,
             restart_fallback,
-            None,
         );
         self.record_product_model_switch(&result, nonce.as_deref());
         result
@@ -518,7 +519,7 @@ impl ModelSwitchExt for ServiceContext {
                 request.require_snapshot(&snap)?;
                 request.require_current(self)?;
             } else {
-                self.cancel_staged_model_switch(&snap.tab_id);
+                self.clear_model_turn_staging(&snap.tab_id);
             }
             return self.switch_model_before_first_turn(
                 snap,
@@ -560,7 +561,7 @@ impl ModelSwitchExt for ServiceContext {
                 },
             );
         } else {
-            self.cancel_staged_model_switch(&snap.tab_id);
+            self.clear_model_turn_staging(&snap.tab_id);
         }
         if declared_mode == ModelSwitchMode::LiveCommand {
             return self
@@ -871,10 +872,11 @@ impl ModelSwitchExt for ServiceContext {
                     });
                     return true;
                 }
-                false
-            } else {
-                false
             }
+            self.ext::<super::RestartTracker>()
+                .lock()
+                .queued_model_switches
+                .contains_key(tab_id)
         });
         observed.or(mismatched_report)
     }
