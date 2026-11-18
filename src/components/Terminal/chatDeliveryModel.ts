@@ -147,6 +147,11 @@ function claimsRowRecord(send: DeliverySend, row: NormalizedChatMessage): boolea
   return send.matchedRow != null && matchesMatchedRow(row, send.matchedRow);
 }
 
+function ownsBubble(send: DeliverySend, row: NormalizedChatMessage): boolean {
+  return row.id === send.id || (row.sourceMessageId === send.id && row.correlationId != null
+    && row.correlationId === send.correlationId && row.inheritedFromSessionId == null);
+}
+
 /** A claim links by echo only to its session's rows whose record identity cannot contradict it. */
 function echoesRow(send: DeliverySend, row: NormalizedChatMessage): boolean {
   return (!send.matchedRow || outsideClaimedRecordSpace(row, send.matchedRow)) && deliveryState(send) !== "failed"
@@ -156,7 +161,7 @@ function echoesRow(send: DeliverySend, row: NormalizedChatMessage): boolean {
 /** Every send a row settles: one merged record can carry several, while a local bubble belongs to its send alone. */
 export function sendsForRow(sends: readonly DeliverySend[], row: NormalizedChatMessage): DeliverySend[] {
   if (row.type !== "user" && row.type !== "local_command") return [];
-  const own = sends.find(send => send.id === row.id);
+  const own = sends.find(send => ownsBubble(send, row));
   if (own) return [own];
   return sends.filter(send => ownsRowToken(send, row) || claimsRowRecord(send, row) || echoesRow(send, row));
 }
@@ -164,7 +169,7 @@ export function sendsForRow(sends: readonly DeliverySend[], row: NormalizedChatM
 /** The send whose identity a row carries; a merged record prefers a send the owner kept. */
 export function sendForRow(sends: readonly DeliverySend[], row: NormalizedChatMessage): DeliverySend | undefined {
   if (row.type !== "user" && row.type !== "local_command") return;
-  const own = sends.find(send => send.id === row.id);
+  const own = sends.find(send => ownsBubble(send, row));
   if (own) return own;
   const owners = [...sends.filter(send => ownsRowToken(send, row)), ...sends.filter(send => claimsRowRecord(send, row))];
   return owners.find(send => !send.dismissed) ?? owners[0] ?? sends.find(send => echoesRow(send, row));
