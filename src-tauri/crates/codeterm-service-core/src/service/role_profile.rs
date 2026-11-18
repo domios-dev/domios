@@ -84,8 +84,13 @@ impl SpawnAgentParams {
         role_team: Option<&str>,
     ) -> Result<Self, String> {
         let (role, role_profile) = role_type_pair(role_team, json_str(params, "role").as_deref())?;
+        let account_id = match params.get("account_id") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(serde_json::Value::String(id)) => Some(id.clone()),
+            Some(_) => return Err("account_id must be a string".into()),
+        };
         let mut out = Self {
-            account_id: None,
+            account_id,
             account_namespace: None,
             agent: json_str(params, "agent"),
             agent_name: json_str(params, "agent_name"),
