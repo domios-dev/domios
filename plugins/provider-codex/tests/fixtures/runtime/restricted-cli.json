@@ -240,27 +240,6 @@
       "action": {
         "kind": "request",
         "call": {
-          "method": "configRequirements/read",
-          "params": null
-        }
-      }
-    },
-    {
-      "direction": "inbound",
-      "operation": 1,
-      "reply": {
-        "kind": "success",
-        "value": {
-          "requirements": null
-        }
-      }
-    },
-    {
-      "direction": "outbound",
-      "operation": 1,
-      "action": {
-        "kind": "request",
-        "call": {
           "method": "thread/resume",
           "params": {
             "cwd": "/work/project",
@@ -274,7 +253,6 @@
               "sandbox_workspace_write.exclude_slash_tmp": true,
               "sandbox_workspace_write.network_access": false,
               "model_reasoning_effort": "high",
-              "windows.sandbox": "mxc",
               "project_root_markers": [],
               "projects": {
                 "/work/project": {

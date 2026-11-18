@@ -2794,11 +2794,14 @@ function codexNeedsWindowsSandboxSelection(raw, needsSplitRoots = false) {
   return true;
 }
 function codexNeedsSplitWindowsRoots(ctx) {
-  const policy = ctx.restrictedCli;
-  return ctx.settings.mode === "read-only-with-writable-roots" && policy !== void 0 && "splitWindowsRoots" in policy && policy.splitWindowsRoots === true;
+  return ctx.settings.mode === "read-only-with-writable-roots" && ctx.restrictedCli?.splitWindowsRoots === true;
 }
 function codexManagedMxcRefusal(error) {
-  return error.code === -32600 && error.message.startsWith("failed to load configuration: invalid value for `windows.sandbox`: `Some(Mxc)` is not in the allowed set windows.allow_mxc = false (set by ");
+  const prefix = "failed to load configuration: invalid value for `windows.sandbox`: `Some(Mxc)` is not in the allowed set windows.allow_mxc = false (set by ";
+  if (error.code !== -32600 || !error.message.startsWith(prefix) || !error.message.endsWith(")")) return false;
+  const source = error.message.slice(prefix.length, -1);
+  if (!source.trim() || source.length > 4096 || /[\r\n\u2028\u2029]/.test(source)) return false;
+  return /^(?:[^()]|\([^()]*\))+$/.test(source);
 }
 function codexWindowsSandboxOverride(raw) {
   const root = object2(raw);
@@ -3858,7 +3861,9 @@ function respondOperation(ctx, op, raw, reply) {
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (state.stage === "windowsSandboxConfig") {
       codexValidateCliTrust(ctx, value);
-      return continuation(codexNeedsWindowsSandboxSelection(value, codexNeedsSplitWindowsRoots(ctx)) ? request("configRequirements/read", null, { stage: "windowsSandboxRequirements" }) : threadPlan(ctx, op));
+      const needsSplitRoots = codexNeedsSplitWindowsRoots(ctx);
+      const maySelectBackend = !ctx.restrictedCli || needsSplitRoots;
+      return continuation(maySelectBackend && codexNeedsWindowsSandboxSelection(value, needsSplitRoots) ? request("configRequirements/read", null, { stage: "windowsSandboxRequirements" }) : threadPlan(ctx, op));
     }
     if (state.stage === "windowsSandboxRequirements") return continuation(threadPlan(ctx, op, codexWindowsSandboxOverride(value)));
   }

@@ -14,7 +14,8 @@ const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 function planned(ctx: RuntimeContext, operation: Operation): RuntimePlan {
   let plan = plain(provider.runtimePlan(ctx,operation));
   if (plan.action.kind === "request" && plan.action.call.method === "config/read") {
-    for (const value of [{config:{}},{requirements:null}] as JsonValue[]) {
+    for (const [method,value] of [["config/read",{config:{}}],["configRequirements/read",{requirements:null}]] as [string,JsonValue][]) {
+      if (plan.action.kind !== "request" || plan.action.call.method !== method) break;
       const step = plain(provider.runtimeResponse(ctx,operation,plan.state,{kind:"success",value}));
       if (step.kind !== "continue") throw new Error("Sandbox selection did not continue");
       plan = step.plan;
@@ -50,15 +51,18 @@ for (const [mode, splitWindowsRoots] of [
   assert.equal(config.CODEX_HOME,undefined);
 
   const initial = plain(provider.runtimePlan(ctx,operation));
-  const unelevated = plain(provider.runtimeResponse(ctx,operation,initial.state,{kind:"success",value:{config:{windows:{sandbox:"unelevated",allow_mxc:null}}}}));
-  if (unelevated.kind !== "continue" || unelevated.plan.action.kind !== "request") throw new Error("Missing sandbox continuation");
   if (!splitWindowsRoots) {
-    assert.equal(unelevated.plan.action.call.method,"thread/resume");
-    const inherited = {...config};
-    delete inherited["windows.sandbox"];
-    assert.deepEqual(unelevated.plan.action.call.params,{...params,config:inherited});
+    assert.equal(config["windows.sandbox"],undefined);
+    for (const windows of [{},{sandbox:"unelevated",allow_mxc:null}]) {
+      const inherited = plain(provider.runtimeResponse(ctx,operation,initial.state,{kind:"success",value:{config:{windows}}}));
+      if (inherited.kind !== "continue" || inherited.plan.action.kind !== "request") throw new Error("Missing inherited backend request");
+      assert.equal(inherited.plan.action.call.method,"thread/resume");
+      assert.deepEqual(inherited.plan.action.call.params,params);
+    }
     continue;
   }
+  const unelevated = plain(provider.runtimeResponse(ctx,operation,initial.state,{kind:"success",value:{config:{windows:{sandbox:"unelevated",allow_mxc:null}}}}));
+  if (unelevated.kind !== "continue" || unelevated.plan.action.kind !== "request") throw new Error("Missing sandbox continuation");
   assert.equal(unelevated.plan.action.call.method,"configRequirements/read");
   for (const [requirements, backend] of [
     [null,"mxc"],
@@ -81,7 +85,8 @@ const managedCwd = "C:/fixture/friend";
 const managedPin = {tabId:context.tabId,bindingNonce:context.bindingNonce,epoch:context.epoch,cwd:managedCwd,metadataDirectory:".codex",
   executable:"C:/trusted/cli.exe",executableSha256:"a".repeat(64),configSha256:"b".repeat(64),ruleSha256:"c".repeat(64),splitWindowsRoots:true};
 const managedCtx = {...context,cwd:managedCwd,settings:managedSettings,restrictedCli:managedPin};
-const managedError = {kind:"error" as const,error:{code:-32600,message:"failed to load configuration: invalid value for `windows.sandbox`: `Some(Mxc)` is not in the allowed set windows.allow_mxc = false (set by C:/fixture/requirements.toml)"}};
+const managedErrorPrefix = "failed to load configuration: invalid value for `windows.sandbox`: `Some(Mxc)` is not in the allowed set windows.allow_mxc = false (set by ";
+const managedError = {kind:"error" as const,error:{code:-32600,message:managedErrorPrefix+"C:/Program Files (x86)/fixture/requirements.toml)"}};
 for (const operation of [
   {kind:"openThread" as const,settings:managedSettings},
   {kind:"resumeThread" as const,threadId:"opaque-thread",settings:managedSettings},
@@ -99,7 +104,18 @@ for (const operation of [
   assert.equal(fallback.plan.action.call.method,selected.plan.action.call.method);
   assert.deepEqual(fallback.plan.action.call.params,{...params,config:inherited});
   assert.equal(plain(provider.runtimeResponse(managedCtx,operation,fallback.plan.state,managedError)).kind,"refused");
-  assert.equal(plain(provider.runtimeResponse(managedCtx,operation,selected.plan.state,{kind:"error",error:{code:-32600,message:"unrelated refusal"}})).kind,"refused");
+  for (const message of [
+    "unrelated refusal",
+    managedErrorPrefix,
+    managedErrorPrefix+")",
+    managedErrorPrefix+"C:/fixture/requirements.toml",
+    managedErrorPrefix+"x".repeat(4097)+")",
+    managedError.error.message+": extra diagnostic (details)",
+    managedError.error.message+"\n",
+  ]) {
+    const rejected = plain(provider.runtimeResponse(managedCtx,operation,selected.plan.state,{kind:"error",error:{code:-32600,message}}));
+    assert.equal(rejected.kind,"refused");
+  }
 }
 for (const [mode, type] of [[capability.readOnly!, "readOnly"], [capability.mutating!, "workspaceWrite"]] as const) {
   const settings: RuntimeSettings = { mode: mode.runtimeMode!, additionalDirectories: [], networkAccess: false };

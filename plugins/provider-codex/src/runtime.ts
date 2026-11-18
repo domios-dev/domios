@@ -247,7 +247,9 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (state.stage === "windowsSandboxConfig") {
       codexValidateCliTrust(ctx,value);
-      return continuation(codexNeedsWindowsSandboxSelection(value,codexNeedsSplitWindowsRoots(ctx))
+      const needsSplitRoots = codexNeedsSplitWindowsRoots(ctx);
+      const maySelectBackend = !ctx.restrictedCli || needsSplitRoots;
+      return continuation(maySelectBackend && codexNeedsWindowsSandboxSelection(value,needsSplitRoots)
         ? request("configRequirements/read",null,{stage:"windowsSandboxRequirements"}) : threadPlan(ctx,op));
     }
     if (state.stage === "windowsSandboxRequirements") return continuation(threadPlan(ctx,op,codexWindowsSandboxOverride(value)));
