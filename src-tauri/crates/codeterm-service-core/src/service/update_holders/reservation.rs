@@ -1,7 +1,7 @@
 use super::*;
 use crate::pty::write_queue::UpdateWriteReservation;
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 const RESERVED: &str =
@@ -16,6 +16,7 @@ struct Reservation {
 struct GateState {
     reservation: Option<Reservation>,
     active: HashMap<String, usize>,
+    retiring: HashSet<String>,
 }
 
 #[derive(Default)]
@@ -47,6 +48,17 @@ pub(crate) struct ActiveUpdateInput {
     tab: String,
 }
 
+pub struct PtyInputRetirement {
+    gate: Arc<Mutex<GateState>>,
+    tab: String,
+}
+
+impl Drop for PtyInputRetirement {
+    fn drop(&mut self) {
+        self.gate.lock().retiring.remove(&self.tab);
+    }
+}
+
 impl Drop for ActiveUpdateInput {
     fn drop(&mut self) {
         let mut gate = self.gate.lock();
@@ -60,11 +72,34 @@ impl Drop for ActiveUpdateInput {
 }
 
 impl super::super::ServiceContext {
+    pub fn reserve_pty_input_retirement(
+        &self,
+        claim: &crate::service::TabPtyClaim,
+    ) -> Result<PtyInputRetirement, String> {
+        let tab = claim.tab_id();
+        let gate = self.ext_or_init(Gate::default).0.clone();
+        let mut state = gate.lock();
+        if state.reservation.is_some() {
+            return Err(RESERVED.into());
+        }
+        if state.active.contains_key(tab) || !state.retiring.insert(tab.into()) {
+            return Err("Input is already in progress on the selected account".into());
+        }
+        drop(state);
+        Ok(PtyInputRetirement {
+            gate,
+            tab: tab.into(),
+        })
+    }
+
     pub(crate) fn admit_update_input(&self, tab_id: &str) -> Result<ActiveUpdateInput, String> {
         let gate = self.ext_or_init(Gate::default).0.clone();
         let mut state = gate.lock();
         if state.reservation.is_some() {
             return Err(RESERVED.into());
+        }
+        if state.retiring.contains(tab_id) {
+            return Err("tab_busy_refused: the PTY is being retired for account rollback".into());
         }
         if let Some(pty_id) = self
             .mux
@@ -176,6 +211,9 @@ fn reserve_with(
             return Err(RESERVED.into());
         }
         for tab in expected {
+            if state.retiring.contains(&tab.tab_id) {
+                return Err(changed(tab, "PTY retirement is in progress"));
+            }
             if Some(tab.tab_id.as_str()) != initiating && state.active.contains_key(&tab.tab_id) {
                 return Err(changed(tab, "input admission is in flight"));
             }

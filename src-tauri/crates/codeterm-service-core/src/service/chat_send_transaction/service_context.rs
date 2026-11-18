@@ -179,6 +179,7 @@ impl crate::service::ServiceContext {
                 );
         }
         // This short reservation is the service ordering point, before asynchronous preparation.
+        let _input = self.admit_update_input(tab_id)?;
         self.pending_delivery_payloads
             .user_sends
             .reserve_with_replay_only(authority, client_token, replay_only, || {

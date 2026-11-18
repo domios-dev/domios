@@ -25,7 +25,16 @@ function AccountTransition({tab,displayName}:{tab:Tab;displayName:string}) {
   if(transition.status==="waiting" || transition.status==="switching")return <div role="status"><BusyState inline label={transition.cause==="reauth"?"Updating sign-in":"Switching account"}/></div>;
   const all=transition.status==="allExhausted";
   const verification=transition.cause==="verification";
-  if(transition.status==="failed" && transition.continuation!=="unsupported")return <div role="status"><InlineErrorNotice description={{title:verification?`Couldn't try ${transition.nextIdentity ?? "this account"}.`:`Couldn't switch to ${transition.nextIdentity ?? "this account"}.`,cause:"",actions:[],raw:transition.reason ?? ""}}/></div>;
+  if (transition.status === "failed" && transition.continuation !== "unsupported") {
+    const target = transition.nextIdentity ?? "this account";
+    const reason = transition.reason ?? "";
+    return <InlineErrorNotice description={{
+      title: verification ? `Couldn't try ${target}.` : `Couldn't switch to ${target}.`,
+      cause: transition.sourceAccountRestored ? `The conversation is back on ${transition.accountIdentity}.` : reason,
+      actions: [],
+      raw: reason,
+    }} />;
+  }
   const limit=transition.cause==="limit";
   const supported=transition.continuation==="proven" && transition.turnId!=null;
   const next=transition.nextAccountId;

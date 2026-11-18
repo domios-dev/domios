@@ -246,9 +246,13 @@ impl Switches {
         Decision::Switch(claim)
     }
 
-    pub fn current(&self, claim: &Claim) -> bool {
+    pub(super) fn owns(&self, claim: &Claim) -> bool {
         self.claims.get(&claim.source.tab) == Some(claim)
             && self.bindings.get(&claim.source.tab) == Some(&claim.source)
+    }
+
+    pub fn current(&self, claim: &Claim) -> bool {
+        self.owns(claim)
             && self
                 .accounts
                 .get(&(claim.source.provider.clone(), claim.source.account.clone()))

@@ -140,6 +140,24 @@ fn server_reservation_blocks_agent_and_shell_admission_and_requires_its_release_
 }
 
 #[test]
+fn pty_retirement_fences_input_only_while_it_owns_the_tab() {
+    let (mux, tab) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    let claim = svc.pty_ownership.acquire(&tab).unwrap();
+
+    let input = svc.admit_update_input(&tab).unwrap();
+    assert!(svc.reserve_pty_input_retirement(&claim).is_err());
+    drop(input);
+
+    let retirement = svc.reserve_pty_input_retirement(&claim).unwrap();
+    assert!(svc.admit_update_input(&tab).is_err());
+    assert!(svc.admit_update_input("another-tab").is_ok());
+    drop(retirement);
+    assert!(svc.admit_update_input(&tab).is_ok());
+}
+
+#[test]
 fn changed_holder_identity_cannot_authorize_shutdown() {
     for change in ["process", "pty", "generation"] {
         let queue = WriteQueue::new(Box::new(std::io::sink()));

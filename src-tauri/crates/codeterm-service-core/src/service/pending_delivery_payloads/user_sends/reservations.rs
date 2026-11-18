@@ -1,6 +1,11 @@
 use super::*;
 
 impl UserSendStore {
+    pub(crate) fn admission_generation(&self, tab_id: &str) -> u64 {
+        let tab = self.tabs.lock().get(tab_id).cloned();
+        tab.map_or(0, |tab| tab.admissions.lock().next)
+    }
+
     #[cfg(test)]
     pub(crate) fn reserve(
         &self,

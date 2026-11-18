@@ -19,6 +19,7 @@ mod limits;
 mod pty_input;
 mod requests;
 pub(super) use dispatch::dispatch;
+pub use pty_input::PtyInputRevision;
 pub(crate) use pty_input::{admit_pty_input, admit_pty_write, pty_input_witness};
 pub(super) use requests::evacuate;
 pub(super) use requests::reauthenticated;
