@@ -7,6 +7,10 @@
     "credentialFiles": [
       ".credentials.json"
     ],
+    "onboardingFlag": {
+      "file": ".claude.json",
+      "key": "hasCompletedOnboarding"
+    },
     "homeEnvironment": "CLAUDE_CONFIG_DIR",
     "defaultHome": "~/.claude",
     "secretEnvironment": [
@@ -24,6 +28,7 @@
       "settings.json",
       ".claude.json"
     ],
+    "processRegistryDirectory": "sessions",
     "sharedPaths": [
       {
         "path": "projects",
@@ -32,10 +37,6 @@
       {
         "path": "history.jsonl",
         "kind": "file"
-      },
-      {
-        "path": "sessions",
-        "kind": "directory"
       }
     ],
     "sharedIndexPaths": [

@@ -65,6 +65,8 @@ fn account_home_declared_constructor_requires_a_home_and_excludes_inherited_auth
     let root = tempfile::tempdir().unwrap();
     let capability = storage::AccountCapability {
         credential_files: vec![],
+        onboarding_flag: None,
+        process_registry_directory: None,
         home_environment: "FIXTURE_HOME".into(),
         default_home: "~/.fixture".into(),
         secret_environment: vec!["FIXTURE_TOKEN".into()],

@@ -17,6 +17,7 @@ fn detected(
             session_id: session.into(),
             source,
         },
+        invocation: None,
     }
 }
 

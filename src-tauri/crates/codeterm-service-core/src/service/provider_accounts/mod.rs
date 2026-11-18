@@ -68,7 +68,7 @@ impl Default for State {
     }
 }
 
-fn mutate_config(
+pub(super) fn mutate_config(
     svc: &super::ServiceContext,
     update: impl FnOnce(&mut crate::config::schema::AppConfig) -> Result<(), String>,
 ) -> Result<crate::config::schema::AppConfig, String> {
@@ -527,15 +527,61 @@ fn invocation_at_typed(
     let state = svc.ext_or_init::<State>(State::default);
     let _provisioning = state.provisioning.lock();
     let usual = storage::usual_home(&capability)?;
-    storage::provision_namespace(
+    let invocation = storage::provision_namespace(
         &state.root,
         provider,
         account,
         namespace.ok_or("The selected account credential context is unavailable")?,
         &capability,
         &usual,
-    )
-    .map(Some)
+    )?;
+    Ok(Some(invocation))
+}
+
+pub(crate) fn prepare_named_session_hook(
+    svc: &super::ServiceContext,
+    invocation: &InvocationContext,
+) -> Option<bool> {
+    let provider = invocation.provider();
+    let _integration_write = codeterm_notifications::provider_hooks::lock_integration_changes();
+    let consent = super::provider_hooks::integration_consent(svc, provider);
+    if consent == Some(false) {
+        return Some(false);
+    }
+    let capability = capability(svc, provider)?;
+    let home = invocation
+        .environment_entries()
+        .find(|(key, _)| *key == capability.home_environment)
+        .and_then(|(_, value)| value)?;
+    let repair = consent == Some(true);
+    let state = svc.ext_or_init::<State>(State::default);
+    let _provisioning = state.provisioning.lock();
+    match svc.agent_registry.with_provider(provider, |provider| {
+        provider.named_account_session_hook(std::path::Path::new(home), repair)
+    })? {
+        Ok(available) => available,
+        Err(error) => {
+            log::debug!("[provider-accounts] {provider} named session hook unavailable: {error}");
+            Some(false)
+        }
+    }
+}
+
+pub(super) fn uninstall_named_integrations(
+    svc: &super::ServiceContext,
+    provider_id: &str,
+) -> Result<(), String> {
+    let Some(provider) = svc.agent_registry.provider_arc(provider_id) else {
+        return Err(format!("Unknown provider: {provider_id}"));
+    };
+    if provider.account_capability().is_none() {
+        return Ok(());
+    }
+    let state = svc.ext_or_init::<State>(State::default);
+    let _provisioning = state.provisioning.lock();
+    storage::visit_existing_homes(&state.root, provider_id, |home| {
+        provider.uninstall_named_account_integration(home)
+    })
 }
 
 pub fn for_tab(

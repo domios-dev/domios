@@ -2,7 +2,7 @@
 //! its binding deadline, the provider reads its own record of this tab's launch.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::lock_hold::TimedMutex;
@@ -10,6 +10,7 @@ use crate::lock_hold::TimedMutex;
 use super::ServiceContext;
 use crate::agent::provider::{LaunchSessionDetection, LaunchSessionEvidence, LaunchSessionSource};
 use crate::session::lifecycle::{AgentTypeWriteOrigin, BindingSource};
+use codeterm_plugin::provider_account::{with_context, InvocationContext};
 
 static LAUNCH_MARKERS: LazyLock<TimedMutex<HashMap<String, String>>> =
     LazyLock::new(|| TimedMutex::new("launch_markers", HashMap::new()));
@@ -20,6 +21,7 @@ struct DetectedLaunchSession {
     provider_id: String,
     binding_nonce: String,
     detection: LaunchSessionDetection,
+    invocation: Option<Arc<InvocationContext>>,
 }
 
 pub(crate) fn binding_source(source: LaunchSessionSource) -> BindingSource {
@@ -974,12 +976,14 @@ impl ServiceContext {
                 .then_some(detected);
             }
         }
-        let owns_session = self
-            .agent_registry
-            .with_provider(&provider_id, |provider| {
-                provider_owns_resume_session(provider, &cwd, &session_id)
-            })
-            .unwrap_or(false);
+        let invocation = super::provider_accounts::for_tab(self, tab_id).ok()?;
+        let owns_session = with_context(invocation.clone(), || {
+            self.agent_registry
+                .with_provider(&provider_id, |provider| {
+                    provider_owns_resume_session(provider, &cwd, &session_id)
+                })
+                .unwrap_or(false)
+        });
         log::debug!("[resume-session-evidence] tab={tab_id} session={session_id} owns_session={owns_session}");
         owns_session.then_some(DetectedLaunchSession {
             provider_id,
@@ -988,6 +992,7 @@ impl ServiceContext {
                 session_id,
                 source: LaunchSessionSource::LaunchMarker,
             },
+            invocation,
         })
     }
 
@@ -1029,16 +1034,39 @@ impl ServiceContext {
             launched_at_ms,
             processes: super::process_tree::launch_processes(root_pid),
         };
-        let detection = self
-            .agent_registry
-            .with_provider(&provider_id, |provider| {
-                provider.detect_launch_session(&evidence)
-            })
-            .flatten()?;
+        self.detect_launch_from_evidence(tab_id, provider_id, pty_id, binding_nonce, evidence)
+    }
+
+    fn detect_launch_from_evidence(
+        &self,
+        tab_id: &str,
+        provider_id: String,
+        pty_id: String,
+        binding_nonce: String,
+        evidence: LaunchSessionEvidence,
+    ) -> Option<DetectedLaunchSession> {
+        let invocation = super::provider_accounts::for_tab(self, tab_id).ok()?;
+        let current = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.agent_type.as_deref() == Some(provider_id.as_str())
+                && tab.pty_id.as_deref() == Some(pty_id.as_str())
+                && tab.session_binding_nonce.as_deref() == Some(binding_nonce.as_str())
+                && !tab.launch_session_authenticated()
+        });
+        if !current {
+            return None;
+        }
+        let detection = with_context(invocation.clone(), || {
+            self.agent_registry
+                .with_provider(&provider_id, |provider| {
+                    provider.detect_launch_session(&evidence)
+                })
+                .flatten()
+        })?;
         Some(DetectedLaunchSession {
             provider_id,
             binding_nonce,
             detection,
+            invocation,
         })
     }
 
@@ -1047,6 +1075,7 @@ impl ServiceContext {
             provider_id,
             binding_nonce,
             detection,
+            invocation,
         } = detected;
         let source = binding_source(detection.source);
         let session_id = detection.session_id;
@@ -1056,15 +1085,17 @@ impl ServiceContext {
         let session = session_id.clone();
         let nonce = binding_nonce.clone();
         let committed = crate::async_runtime::spawn_blocking(move || {
-            service.commit_session_binding_custody(&target, || {
-                crate::service::hook_session_binding::bind_detected_session(
-                    &service.mux,
-                    service.agent_registry.as_ref(),
-                    &target,
-                    &provider,
-                    &session,
-                    &nonce,
-                )
+            with_context(invocation, || {
+                service.commit_session_binding_custody(&target, || {
+                    crate::service::hook_session_binding::bind_detected_session(
+                        &service.mux,
+                        service.agent_registry.as_ref(),
+                        &target,
+                        &provider,
+                        &session,
+                        &nonce,
+                    )
+                })
             })
         })
         .await;

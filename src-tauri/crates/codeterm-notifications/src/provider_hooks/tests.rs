@@ -171,8 +171,7 @@ fn concurrent_startup_reconciliation_waits_for_the_existing_writer_completion() 
         Ok(()),
         serde_json::json!({}),
     ));
-    let joined =
-        super::spawn_reconciliation(provider.clone(), Default::default(), None, None).unwrap();
+    let joined = super::spawn_reconciliation(provider.clone(), None, None).unwrap();
     assert!(Arc::ptr_eq(&completion, &joined));
     assert!(!*joined.finished.lock());
     assert!(!joined.wait_until(std::time::Instant::now()));
@@ -209,9 +208,7 @@ fn startup_reconciliation_machine_owner_false_never_calls_provider_or_changes_co
             toml::Value::Boolean(true),
         );
     let before = serde_json::to_value(&*config.lock()).unwrap();
-    let consented = config.lock().agents.clone();
-
-    let _ = super::spawn_reconciliation(provider.clone(), consented, Some(config.clone()), None);
+    let _ = super::spawn_reconciliation(provider.clone(), Some(config.clone()), None);
 
     assert!(provider.integration_calls.lock().unwrap().is_empty());
     assert!(provider.install_thread.lock().unwrap().is_none());
@@ -220,12 +217,46 @@ fn startup_reconciliation_machine_owner_false_never_calls_provider_or_changes_co
 }
 
 #[test]
+fn startup_reconciliation_honors_explicit_opt_out_even_with_an_owned_install() {
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    env.set("CODETERM_MACHINE_OWNER", "true");
+    env.set("CODETERM_API_PORT", "7686");
+    let id = "opted-out-fixture";
+    let provider = Arc::new(InstallProbeProvider::with_kind(
+        id,
+        IntegrationKind::ProviderManaged,
+        Ok(()),
+        serde_json::json!({"integration_owned": true, "hook_contract_current": false}),
+    ));
+    let config = empty_config();
+    config
+        .lock()
+        .agents
+        .entry(id.into())
+        .or_default()
+        .extra
+        .insert(
+            crate::config::schema::INTEGRATION_CONSENT_GRANTED.into(),
+            toml::Value::Boolean(false),
+        );
+    let completion = super::spawn_reconciliation(provider.clone(), Some(config.clone()), None)
+        .expect("installable provider returns a reconciliation receipt");
+    assert!(completion.wait_until(std::time::Instant::now() + Duration::from_secs(5)));
+    assert_eq!(*provider.integration_calls.lock().unwrap(), vec!["kind"]);
+    assert_eq!(
+        config.lock().agents[id].extra[crate::config::schema::INTEGRATION_CONSENT_GRANTED]
+            .as_bool(),
+        Some(false)
+    );
+}
+
+#[test]
 fn startup_reconciliation_machine_owner_true_keeps_provider_capability_check() {
     let mut env = codeterm_util::test_env::EnvGuard::lock();
     env.set("CODETERM_MACHINE_OWNER", "true");
     let provider = Arc::new(InstallProbeProvider::new("owner-no-integration", Ok(())));
 
-    let _ = super::spawn_reconciliation(provider.clone(), Default::default(), None, None);
+    let _ = super::spawn_reconciliation(provider.clone(), None, None);
 
     assert_eq!(*provider.integration_calls.lock().unwrap(), vec!["kind"]);
 }

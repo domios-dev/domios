@@ -6,6 +6,7 @@ import { restoreStageView, transcriptLoadingStageView } from "../../lib/restoreS
 import type { Tab } from "../../lib/types";
 import { ChatSetupState } from "./ChatSetupState";
 import { chatLaunchFailureDescription, chatSetupView } from "./chatSetupModel";
+import { chatBodyView, composerVisible } from "./chatBodyVisibility";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import { tabActivity } from "../../lib/tabActivity";
 import { takeNeighborFocus } from "../Neighbors/neighborFocus";
@@ -14,6 +15,41 @@ const reason = "SessionBindingNotObserved: launch readiness deadline elapsed";
 const starting: Tab = { id: "launch-fixture", title: "Fixture", cwd: "/fixture", pty_id: "own-pty", tab_type: "Terminal",
   agent_type: "fixture", backing: { kind: "pty" }, boot_stage: "agent_launching", agent_booting: true };
 const failed: Tab = { ...starting, boot_stage: "spawn_failed", boot_failure_reason: reason };
+
+it.each([false, true])("opens the terminal for a pre-session PTY prompt with retained history %s", async (retained) => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const waiting: Tab = { ...starting, boot_stage: "agent_ready", pending_prompt_kind: "provider",
+    pending_prompt: { question: "Opaque startup question", options: [] },
+    session_binding_nonce: "current-launch",
+    ...(retained ? { agent_session_id: "retained-session", session_bound: true,
+      reported_session_binding_nonce: "previous-launch" } : {}) };
+  const openTerminal = vi.fn();
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = async (tab: Tab, attached: boolean) => {
+    const view = chatBodyView({
+      snapshotReady: attached, hasTranscript: false, chatLoading: !attached, unavailable: null,
+      bootView: chatSetupView(tab, attached),
+    });
+    expect(composerVisible(view)).toBe(attached);
+    await act(async () => root.render(<ChatSetupState tab={tab} view={view} providerName="Fixture" onOpenTerminal={openTerminal} />));
+  };
+  try {
+    await render(waiting, false);
+    expect(host.querySelector("[role=status]")).not.toBeNull();
+    expect(host.querySelector("[role=progressbar]")).toBeNull();
+    const button = [...host.querySelectorAll("button")].find(item => item.textContent === "Open terminal");
+    await act(async () => button!.click());
+    expect(openTerminal).toHaveBeenCalledOnce();
+    await render({ ...waiting, agent_session_id: "own-session", session_bound: true,
+      reported_session_binding_nonce: "current-launch" }, true);
+    expect(host.querySelector("button")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
 
 it("shows the launch provider question, answers exact values, and opens the terminal without cancel keys", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

@@ -260,17 +260,89 @@ fn link_shared(target: &Path, link: &Path, directory: bool) -> Result<(), Provis
     })
 }
 
-fn home_path(data_root: &Path, provider: &str, account: &str) -> Result<PathBuf, String> {
+fn retire_shared_directory_link(path: &Path, previous_target: &Path) -> Result<(), String> {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+    };
+    #[cfg(windows)]
+    let is_link = {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    };
+    #[cfg(not(windows))]
+    let is_link = metadata.file_type().is_symlink();
+    if !is_link
+        || !previous_target.is_dir()
+        || !std::fs::canonicalize(previous_target)
+            .is_ok_and(|target| std::fs::canonicalize(path).ok().as_ref() == Some(&target))
+    {
+        return Ok(());
+    }
+    #[cfg(windows)]
+    let removed = std::fs::remove_dir(path);
+    #[cfg(not(windows))]
+    let removed = std::fs::remove_file(path);
+    removed.map_err(|error| error.to_string())
+}
+
+fn provider_root(data_root: &Path, provider: &str) -> Result<PathBuf, String> {
     codeterm_plugin::plugin_id::validate(provider)?;
+    absolute(data_root.into())?;
+    Ok(data_root.join("provider-accounts").join(provider))
+}
+
+fn home_path(data_root: &Path, provider: &str, account: &str) -> Result<PathBuf, String> {
     if !codeterm_types::config::provider_accounts::valid_account_id(account) || account == "default"
     {
         return Err("A named account requires a non-default portable identity".into());
     }
-    absolute(data_root.into())?;
-    Ok(data_root
-        .join("provider-accounts")
-        .join(provider)
-        .join(account))
+    Ok(provider_root(data_root, provider)?.join(account))
+}
+
+pub(super) fn visit_existing_homes(
+    data_root: &Path,
+    provider: &str,
+    mut visit: impl FnMut(&Path) -> Result<(), String>,
+) -> Result<(), String> {
+    let provider_root = provider_root(data_root, provider)?;
+    let accounts_root = data_root.join("provider-accounts");
+    for path in [&accounts_root, &provider_root] {
+        match codeterm_util::private_file::open_directory_owner_only(path) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    let mut errors = Vec::new();
+    let entries = std::fs::read_dir(&provider_root).map_err(|error| error.to_string())?;
+    for (index, entry) in entries.enumerate() {
+        if index >= 128 {
+            errors.push("Account storage limit exceeded".into());
+            break;
+        }
+        let entry = entry.map_err(|error| error.to_string())?;
+        let name = entry.file_name();
+        let Some(namespace) = name.to_str().filter(|name| {
+            *name != "default" && codeterm_types::config::provider_accounts::valid_account_id(name)
+        }) else {
+            continue;
+        };
+        let path = entry.path();
+        let result = codeterm_util::private_file::open_directory_owner_only(&path)
+            .map_err(|error| error.to_string())
+            .and_then(|_| visit(&path));
+        if let Err(error) = result {
+            errors.push(format!("{namespace}: {error}"));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join(", "))
+    }
 }
 
 pub(super) fn discard(data_root: &Path, provider: &str, account: &str) -> Result<(), String> {
@@ -336,6 +408,11 @@ pub(super) fn provision_namespace(
     private_directory(&provider_root)?;
     private_directory(&home)?;
     let canonical_home = std::fs::canonicalize(&home).map_err(|error| error.to_string())?;
+    if let Some(registry) = &capability.process_registry_directory {
+        let path = home.join(registry);
+        retire_shared_directory_link(&path, &usual.join(registry))?;
+        private_directory(&path)?;
+    }
     for isolated in &capability.isolated_paths {
         let path = relative(&home, isolated);
         if !codeterm_util::project_roots::canonical_target(&path)
@@ -343,6 +420,9 @@ pub(super) fn provision_namespace(
         {
             return Err("An isolated account path escapes its account home".into());
         }
+    }
+    if let Some(outcome) = capability.seed_named_onboarding(&home) {
+        log::debug!("[provider-accounts] provider={provider} onboarding seed: {outcome:?}");
     }
     let mut environment = BTreeMap::from([(
         capability.home_environment.clone(),

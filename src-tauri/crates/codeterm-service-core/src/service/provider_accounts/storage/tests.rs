@@ -4,6 +4,8 @@ use codeterm_plugin::provider_account::{self, storage::AccountContinuation};
 fn capability() -> AccountCapability {
     AccountCapability {
         credential_files: vec![],
+        onboarding_flag: None,
+        process_registry_directory: None,
         home_environment: "ACCOUNT_STORAGE_TEST_HOME".into(),
         default_home: "~/.fixture".into(),
         secret_environment: vec!["ACCOUNT_STORAGE_TEST_TOKEN".into()],

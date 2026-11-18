@@ -49,7 +49,7 @@ fn session_start_evidence_belongs_to_the_launch_nonce_it_carried() {
     assert_eq!(session_start(None, "launch-2"), SessionStart::Awaited);
     let previous_launch = TabSessionStart {
         reported_nonce: Some("launch-1".into()),
-        hookless_nonce: Some("launch-1".into()),
+        availability: Some(("launch-1".into(), false)),
     };
     assert_eq!(
         session_start(Some(&previous_launch), "launch-2"),
@@ -58,7 +58,7 @@ fn session_start_evidence_belongs_to_the_launch_nonce_it_carried() {
     );
     let reported = TabSessionStart {
         reported_nonce: Some("launch-2".into()),
-        hookless_nonce: None,
+        availability: None,
     };
     assert_eq!(
         session_start(Some(&reported), "launch-2"),
@@ -66,11 +66,19 @@ fn session_start_evidence_belongs_to_the_launch_nonce_it_carried() {
     );
     let hookless = TabSessionStart {
         reported_nonce: Some("launch-1".into()),
-        hookless_nonce: Some("launch-2".into()),
+        availability: Some(("launch-2".into(), false)),
     };
     assert_eq!(
         session_start(Some(&hookless), "launch-2"),
         SessionStart::HooksUnavailable
+    );
+    let installed = TabSessionStart {
+        reported_nonce: Some("launch-1".into()),
+        availability: Some(("launch-2".into(), true)),
+    };
+    assert_eq!(
+        session_start(Some(&installed), "launch-2"),
+        SessionStart::Awaited
     );
 }
 

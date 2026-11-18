@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 pub use codeterm_types::config::provider_accounts::AccountIdentity;
 
@@ -13,10 +14,24 @@ pub struct AccountCapability {
     pub isolated_paths: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub credential_files: Vec<String>,
+    // Provisioning consumes this host-only manifest field.
+    #[serde(default, skip_serializing)]
+    #[ts(skip)]
+    pub onboarding_flag: Option<AccountOnboardingFlag>,
+    #[serde(default, skip_serializing)]
+    #[ts(skip)]
+    pub process_registry_directory: Option<String>,
     pub shared_paths: Vec<SharedStoragePath>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shared_index_paths: Vec<String>,
     pub continuation: AccountContinuation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccountOnboardingFlag {
+    file: String,
+    key: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
@@ -80,6 +95,40 @@ impl AccountCapability {
             || self.credential_files.iter().any(|path| {
                 !relative(path) || path.contains(['/', '\\']) || !self.isolated_paths.contains(path)
             })
+            || self.onboarding_flag.as_ref().is_some_and(|flag| {
+                !relative(&flag.file)
+                    || flag.file.contains(['/', '\\'])
+                    || !flag.file.ends_with(".json")
+                    || !self.isolated_paths.contains(&flag.file)
+                    || self
+                        .credential_files
+                        .iter()
+                        .any(|path| path.eq_ignore_ascii_case(&flag.file))
+                    || flag.key.is_empty()
+                    || flag.key.len() > 64
+                    || !flag
+                        .key
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            })
+            || self
+                .process_registry_directory
+                .as_ref()
+                .is_some_and(|path| {
+                    !relative(path)
+                        || path.contains(['/', '\\'])
+                        || self
+                            .isolated_paths
+                            .iter()
+                            .any(|isolated| isolated.eq_ignore_ascii_case(path))
+                        || self.shared_paths.iter().any(|shared| {
+                            shared
+                                .path
+                                .split(['/', '\\'])
+                                .next()
+                                .is_some_and(|part| part.eq_ignore_ascii_case(path))
+                        })
+                })
             || self.shared_paths.len() > 64
             || self.shared_index_paths.len() > 64
             || self.secret_environment.len() > 64
@@ -107,5 +156,13 @@ impl AccountCapability {
             return Err("invalid provider account storage declaration".into());
         }
         Ok(())
+    }
+
+    pub fn seed_named_onboarding(&self, home: &Path) -> Option<crate::provider::PreTrustOutcome> {
+        let flag = self.onboarding_flag.as_ref()?;
+        Some(crate::json_boolean_record::seed_true(
+            &home.join(&flag.file),
+            std::slice::from_ref(&flag.key),
+        ))
     }
 }

@@ -70,6 +70,12 @@ export function ChatSetupState({
   if (view.kind === "locked") {
     return lock ? <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} /> : null;
   }
+  if (view.kind === "terminal_prompt") {
+    return visible ? <section role="status" className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-[var(--ct-bg)] p-6">
+      <p>The agent is waiting for input in the terminal.</p>
+      {onOpenTerminal && <button type="button" data-terminal-fallback-toggle="true" onClick={onOpenTerminal}>Open terminal</button>}
+    </section> : null;
+  }
   if (tab?.boot_stage === "awaiting_owner_prompt" && tab.pending_prompt_kind === "provider" && tab.pending_prompt) {
     return visible ? <LaunchProviderQuestion key={JSON.stringify(tab.pending_prompt)} tabId={tab.id}
       prompt={tab.pending_prompt} readOnly={isReadOnlyTab(tab)} onOpenTerminal={onOpenTerminal} /> : null;
