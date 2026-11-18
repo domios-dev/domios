@@ -8,6 +8,57 @@ fn shared_mux() -> (MuxState, String) {
     (Arc::new(TimedRwLock::new("mux-test", state)), tab_id)
 }
 
+#[tokio::test]
+async fn snapshot_rechecks_binding_after_own_history_completion_during_first_read() {
+    let events = crate::events::EventBroadcaster::new();
+    let receiver = events.subscribe();
+    let mut reads = 0;
+    let ready = serde_json::json!({"count": 1, "pending": false});
+    let response = await_snapshot("own", receiver, || {
+        reads += 1;
+        let result = if reads == 1 {
+            for (tab_id, state, history) in [
+                ("foreign", "loaded", "complete"),
+                ("own", "loading", "loading"),
+                ("own", "loaded", "loading"),
+                ("own", "loaded", "complete"),
+            ] {
+                let event = SystemEvent::Generic {
+                    event_type: "agent-runtime-state".into(),
+                    data: serde_json::json!({
+                        "tab_id": tab_id,
+                        "state": {"state": state, "history": history},
+                    }),
+                };
+                assert_eq!(
+                    recheck_binding_on(&event, "own"),
+                    tab_id == "own" && history == "complete"
+                );
+                events.publish(event);
+            }
+            Err(snapshot_failure(
+                "own",
+                "runtime_history_binding_changed: opaque".into(),
+            ))
+        } else {
+            Ok(Json(ready.clone()))
+        };
+        std::future::ready(result)
+    })
+    .await
+    .unwrap();
+    assert_eq!(reads, 2);
+    assert_eq!(response.0, ready);
+}
+
+#[test]
+fn runtime_binding_change_is_reported_as_restoring() {
+    let error = snapshot_failure("own", "runtime_history_binding_changed: opaque".into());
+    assert_eq!(error.0, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(error.1.state, "restoring");
+    assert_eq!(error.1.code, BINDING_CHANGED);
+}
+
 #[test]
 fn transcript_contention_leaves_the_runtime_available() {
     use codeterm_service_core::service::test_fixture::ServiceFixture;
