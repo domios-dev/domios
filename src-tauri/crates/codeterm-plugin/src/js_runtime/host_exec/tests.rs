@@ -71,18 +71,18 @@ fn agent_task_wait_observes_cancellation_without_waiting_for_job_completion() {
 fn exec_output_retains_only_the_bounded_prefix() {
     let bytes = vec![b'x'; 256 * 1024];
     let mut reader = std::io::Cursor::new(bytes);
-    let (output, truncated) = bounded_output(&mut reader);
-    assert_eq!(output.len(), 128 * 1024);
-    assert!(truncated);
+    let result = output::result(0, output::capture(&mut reader), Default::default(), None);
+    assert_eq!(result.stdout.unwrap().len(), 128 * 1024);
+    assert_eq!(result.truncated, Some(true));
     assert_eq!(reader.position(), 256 * 1024);
 }
 
 #[test]
 fn exec_output_at_the_cap_is_complete() {
     let mut reader = std::io::Cursor::new(vec![b'x'; 128 * 1024]);
-    let (output, truncated) = bounded_output(&mut reader);
-    assert_eq!(output.len(), 128 * 1024);
-    assert!(!truncated);
+    let result = output::result(0, output::capture(&mut reader), Default::default(), None);
+    assert_eq!(result.stdout.unwrap().len(), 128 * 1024);
+    assert!(result.truncated.is_none());
 }
 
 #[test]
