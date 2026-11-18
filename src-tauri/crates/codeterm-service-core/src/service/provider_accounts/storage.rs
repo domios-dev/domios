@@ -459,6 +459,7 @@ pub(super) fn provision_namespace(
     exclusions.sort();
     exclusions.dedup();
     let mut grants = Vec::new();
+    let mut directory_links = BTreeMap::new();
     for layout in &capability.shared_paths {
         if layout
             .configuration
@@ -505,7 +506,11 @@ pub(super) fn provision_namespace(
                     }
                 }
                 let pinned = SharedReadGrant::from_layout(layout, &root)?.pin(&exclusions)?;
-                link_shared(pinned.resolved(), &relative(&home, &layout.path), directory)?;
+                let link = relative(&home, &layout.path);
+                link_shared(pinned.resolved(), &link, directory)?;
+                if directory {
+                    directory_links.insert(link, pinned.resolved().to_owned());
+                }
             }
         }
     }
@@ -519,7 +524,7 @@ pub(super) fn provision_namespace(
     )?
     .with_isolated_storage_paths(&isolated)?
     .with_shared_exclusions(exclusions)?
-    .with_shared_reads(grants)
+    .with_provisioned_shared_reads(grants, directory_links)
     .map_err(Into::into)
 }
 

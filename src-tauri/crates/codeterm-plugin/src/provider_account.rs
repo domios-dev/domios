@@ -19,6 +19,7 @@ pub struct InvocationContext {
     read_roots: Vec<PathBuf>,
     protected_roots: Vec<PathBuf>,
     shared_reads: Vec<PinnedSharedReadGrant>,
+    shared_directory_links: BTreeMap<PathBuf, PathBuf>,
     shared_exclusions: Vec<PathBuf>,
     pinned_read_roots: Vec<PathBuf>,
     isolation: isolation::Isolation,
@@ -79,6 +80,7 @@ impl InvocationContext {
             read_roots,
             protected_roots,
             shared_reads: Vec::new(),
+            shared_directory_links: BTreeMap::new(),
             shared_exclusions: Vec::new(),
             pinned_read_roots,
             isolation: Default::default(),
@@ -98,6 +100,7 @@ impl InvocationContext {
             &self.read_roots,
             &self.protected_roots,
             &self.shared_reads,
+            &self.shared_directory_links,
             &self.shared_exclusions,
             &self.pinned_read_roots,
             &self.credential_secret_scope,
@@ -112,6 +115,15 @@ impl InvocationContext {
         self: Arc<Self>,
         grants: Vec<SharedReadGrant>,
     ) -> Result<Arc<Self>, String> {
+        self.with_provisioned_shared_reads(grants, BTreeMap::new())
+    }
+
+    /// Records the canonical targets used when provisioning the account's declared links.
+    pub fn with_provisioned_shared_reads(
+        self: Arc<Self>,
+        grants: Vec<SharedReadGrant>,
+        directory_links: BTreeMap<PathBuf, PathBuf>,
+    ) -> Result<Arc<Self>, String> {
         if grants.len() > 64 {
             return Err("shared storage authority limit".into());
         }
@@ -121,8 +133,23 @@ impl InvocationContext {
                 grant.pin_with_identities(&self.shared_exclusions, &self.isolation.identities())
             })
             .collect::<Result<Vec<_>, _>>()?;
+        if directory_links.iter().any(|(link, target)| {
+            !self.read_roots.iter().any(|root| {
+                link.strip_prefix(root).is_ok_and(|relative| {
+                    !relative.as_os_str().is_empty()
+                        && relative
+                            .components()
+                            .all(|part| matches!(part, std::path::Component::Normal(_)))
+                })
+            }) || !pinned
+                .iter()
+                .any(|grant| grant.directory_target() == Some(target.as_path()))
+        }) {
+            return Err("Provisioned shared directory has no matching pinned grant".into());
+        }
         let mut context = (*self).clone();
         context.shared_reads = pinned;
+        context.shared_directory_links = directory_links;
         context.cache_key = context.identity()?;
         Ok(Arc::new(context))
     }
@@ -413,6 +440,29 @@ pub fn environment(name: &str) -> Option<OsString> {
 
 pub(crate) fn read_allowed(path: &Path) -> bool {
     current().is_none_or(|context| context.read_access(path) != Some(false))
+}
+
+pub(crate) fn exact_session_read_root(provider: &str, root: &Path) -> Option<PathBuf> {
+    let Some(context) = current().filter(|context| context.provider() == provider) else {
+        return Some(root.to_owned());
+    };
+    let Some(target) = context.shared_directory_links.get(root) else {
+        return Some(root.to_owned());
+    };
+    if codeterm_util::project_roots::canonical_target(target).as_ref() != Some(target)
+        || !context
+            .shared_reads
+            .iter()
+            .any(|grant| grant.directory_target() == Some(target.as_path()) && grant.allows(target))
+        || context.read_access(target) != Some(true)
+    {
+        log::debug!(
+            "[session-store] provider={provider} provisioned shared root denied: {}",
+            target.display()
+        );
+        return None;
+    }
+    Some(target.clone())
 }
 
 pub(crate) fn open_read(path: impl AsRef<Path>) -> std::io::Result<std::fs::File> {
