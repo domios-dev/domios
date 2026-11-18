@@ -30,8 +30,8 @@ fn json_spawn_account_reaches_pty_and_chat_launch_environments() {
     let nonce = svc.rotate_session_binding_nonce(&tab_id);
 
     for (provider, home_key) in [
-        ("claude-account-fixture", "CLAUDE_CONFIG_DIR"),
-        ("codex-account-fixture", "CODEX_HOME"),
+        ("fixture-account-a", "FIXTURE_PROVIDER_HOME_A"),
+        ("fixture-account-b", "FIXTURE_PROVIDER_HOME_B"),
     ] {
         let manifest = PluginManifest::from_json_str(
             &json!({
