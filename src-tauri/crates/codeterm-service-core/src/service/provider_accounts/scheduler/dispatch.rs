@@ -5,7 +5,7 @@ pub(in crate::service::provider_accounts) fn dispatch(svc: &ServiceContext, tab:
     let Some(state) = svc.try_ext::<State>() else {
         return;
     };
-    let pending = {
+    let (pending, transition_id) = {
         let mut scheduler = state.scheduler.lock();
         let Some(pending) = scheduler.pending.get(tab) else {
             return;
@@ -26,6 +26,13 @@ pub(in crate::service::provider_accounts) fn dispatch(svc: &ServiceContext, tab:
         if !scheduler.book.current(&pending.claim) || !bound(svc, tab, &pending.target.expected) {
             let pending = scheduler.pending.remove(tab).unwrap();
             scheduler.book.cancel(&pending.claim);
+            if let Some(transition) = scheduler.transitions.get_mut(tab) {
+                transition.status = "failed";
+                transition.reason =
+                    Some("The tab changed before the account switch could start".into());
+            }
+            drop(scheduler);
+            emit(svc, tab);
             return;
         }
         if pending.resume_work
@@ -66,10 +73,12 @@ pub(in crate::service::provider_accounts) fn dispatch(svc: &ServiceContext, tab:
             }
         }
         let pending = scheduler.pending.remove(tab).unwrap();
-        if let Some(transition) = scheduler.transitions.get_mut(tab) {
-            transition.status = "switching";
-        }
-        pending
+        let Some(transition) = scheduler.transitions.get_mut(tab) else {
+            scheduler.book.cancel(&pending.claim);
+            return;
+        };
+        transition.status = "switching";
+        (pending, transition.id.clone())
     };
     emit(svc, tab);
     let owner = svc.clone();
@@ -78,22 +87,24 @@ pub(in crate::service::provider_accounts) fn dispatch(svc: &ServiceContext, tab:
     crate::async_runtime::spawn(async move {
         let worker = owner.clone();
         let target = tab.clone();
+        let id = transition_id.clone();
         let result = codeterm_plugin::js_runtime::spawn_blocking(move || {
             let _receipt = receipt;
-            finish(&worker, &target, pending)
+            finish(&worker, &target, &id, pending)
         })
         .await;
         if result.is_err() {
             failed(
                 &owner,
                 &tab,
+                &transition_id,
                 "The account transition could not finish".into(),
             );
         }
     });
 }
 
-fn finish(svc: &ServiceContext, tab: &str, pending: Pending) {
+fn finish(svc: &ServiceContext, tab: &str, transition_id: &str, pending: Pending) {
     let Pending {
         claim,
         target,
@@ -103,6 +114,7 @@ fn finish(svc: &ServiceContext, tab: &str, pending: Pending) {
         verify,
     } = pending;
     let mut source_restored = false;
+    let mut source_reservation = None;
     let result = (|| {
         if !svc
             .ext_or_init::<State>(State::default)
@@ -113,6 +125,25 @@ fn finish(svc: &ServiceContext, tab: &str, pending: Pending) {
         {
             return Err("The account transition was canceled".into());
         }
+        let cross_account = claim.source.account != claim.target;
+        if cross_account {
+            use codeterm_plugin::provider_account::storage::AccountContinuation;
+            match super::super::continuation(svc, &target.expected.provider) {
+                AccountContinuation::Proven => {}
+                AccountContinuation::Unverified if verify => {}
+                _ => {
+                    return Err(
+                        "This harness cannot move the conversation to the selected account".into(),
+                    )
+                }
+            }
+        }
+        source_reservation = target
+            .expected
+            .runtime_epoch
+            .is_none()
+            .then(|| super::super::admission::retain_pty_switch_source(svc, tab, &target.expected))
+            .transpose()?;
         let outcome = match svc.lifecycle_port().agent_restart_observed_with_options(
             tab,
             RestartOptions {
@@ -126,17 +157,18 @@ fn finish(svc: &ServiceContext, tab: &str, pending: Pending) {
                 reason,
                 timed_out,
             }) => {
-                if outcome.account_target_refused && !timed_out {
+                let confirmed_refusal = outcome.account_target_refused && !timed_out;
+                if confirmed_refusal || outcome.source_account_restored {
                     if outcome.tab_id != tab
                         || outcome.provider != target.expected.provider
                         || outcome.session_id.as_deref() != Some(&target.expected.session_id)
                         || outcome.session_was_stale
                     {
                         return Err(
-                            "The account refusal belongs to a different restart attempt".into()
+                            "The account failure belongs to a different restart attempt".into()
                         );
                     }
-                    if claim.source.account != claim.target {
+                    if confirmed_refusal && cross_account {
                         svc.ext_or_init::<State>(State::default)
                             .continuation_refusals
                             .lock()
@@ -144,9 +176,7 @@ fn finish(svc: &ServiceContext, tab: &str, pending: Pending) {
                     }
                     if outcome.source_account_restored {
                         let restored = capture(svc, tab)?;
-                        if outcome.tab_id != tab
-                            || outcome.provider != target.expected.provider
-                            || !outcome.agent_ready
+                        if !outcome.agent_ready
                             || !outcome.binding_restored
                             || restored.provider != target.expected.provider
                             || restored.account_id != target.expected.account_id
@@ -158,15 +188,15 @@ fn finish(svc: &ServiceContext, tab: &str, pending: Pending) {
                         }
                         let mut scheduler =
                             svc.ext_or_init::<State>(State::default).scheduler.lock();
-                        if !scheduler.book.current(&claim) {
-                            return Err("The account check changed during restoration".into());
+                        if scheduler.book.owns(&claim) {
+                            let restored_binding = binding(&restored, tab, &scheduler.book);
+                            scheduler.book.bind(restored_binding);
                         }
-                        scheduler.book.cancel(&claim);
-                        let restored_binding = binding(&restored, tab, &scheduler.book);
-                        scheduler.book.bind(restored_binding);
                         source_restored = true;
                     }
-                    super::super::receipt::record_refusal(svc, tab, &target, &outcome)?;
+                    if confirmed_refusal {
+                        super::super::receipt::record_refusal(svc, tab, &target, &outcome)?;
+                    }
                 }
                 return Err(reason);
             }
@@ -234,19 +264,24 @@ fn finish(svc: &ServiceContext, tab: &str, pending: Pending) {
     let state = svc.ext_or_init::<State>(State::default);
     {
         let mut scheduler = state.scheduler.lock();
+        let transition = scheduler
+            .transitions
+            .get_mut(tab)
+            .filter(|transition| transition.id == transition_id);
         if let Err(reason) = result {
-            scheduler.book.cancel(&claim);
-            if let Some(transition) = scheduler.transitions.get_mut(tab) {
+            if let Some(transition) = transition {
                 transition.status = "failed";
                 transition.reason = Some(reason);
                 transition.source_account_restored = source_restored;
                 transition.continuation = super::super::continuation(svc, &claim.source.provider);
             }
-        } else if let Some(transition) = scheduler.transitions.get_mut(tab) {
+            scheduler.book.cancel(&claim);
+        } else if let Some(transition) = transition {
             transition.status = "continued";
             transition.continuation = super::super::continuation(svc, &claim.source.provider);
         }
     }
+    drop(source_reservation);
     drop(reservation_guard);
     super::super::removal::schedule(svc, &claim.source.provider);
     emit(svc, tab);
@@ -312,9 +347,15 @@ fn append_notice(svc: &ServiceContext, tab: &str) {
     svc.emit_state_changed(crate::service::MuxEmitCause::TabLifecycle);
 }
 
-fn failed(svc: &ServiceContext, tab: &str, reason: String) {
+fn failed(svc: &ServiceContext, tab: &str, transition_id: &str, reason: String) {
     if let Some(state) = svc.try_ext::<State>() {
-        if let Some(transition) = state.scheduler.lock().transitions.get_mut(tab) {
+        if let Some(transition) = state
+            .scheduler
+            .lock()
+            .transitions
+            .get_mut(tab)
+            .filter(|transition| transition.id == transition_id)
+        {
             transition.status = "failed";
             transition.reason = Some(reason);
         }

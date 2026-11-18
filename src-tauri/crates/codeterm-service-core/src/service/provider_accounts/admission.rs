@@ -1,4 +1,5 @@
 use super::State;
+use crate::service::agent_lifecycle::AccountRestartBinding;
 use crate::service::ServiceContext;
 use std::collections::BTreeMap;
 
@@ -57,13 +58,41 @@ pub(crate) fn reserve(
     {
         return Err("This account is being removed".into());
     }
+    Ok(reserve_key(svc, &mut admissions, key))
+}
+
+pub(super) fn retain_pty_switch_source(
+    svc: &ServiceContext,
+    tab_id: &str,
+    source: &AccountRestartBinding,
+) -> Result<Reservation, String> {
+    let mut admissions = svc.ext_or_init::<State>(State::default).admissions.lock();
+    let mux = svc.mux.read();
+    source.validate(mux.get_tab(tab_id).ok_or("The account tab closed")?, None)?;
+    let account = source
+        .account_id
+        .as_deref()
+        .unwrap_or(super::IMPLICIT_ACCOUNT);
+    Ok(reserve_key(
+        svc,
+        &mut admissions,
+        (source.provider.clone(), account.into()),
+    ))
+}
+
+fn reserve_key(
+    svc: &ServiceContext,
+    admissions: &mut Admissions,
+    key: (String, String),
+) -> Reservation {
     let id = uuid::Uuid::new_v4().to_string();
+    let provider = key.0.clone();
     admissions.reservations.insert(id.clone(), key);
-    Ok(Reservation {
+    Reservation {
         svc: svc.clone(),
         id,
-        provider: provider.into(),
-    })
+        provider,
+    }
 }
 
 pub(super) fn available(svc: &ServiceContext, provider: &str, account: &str) -> bool {

@@ -116,9 +116,11 @@ fn logout_revokes_pending_claim_even_after_sign_in() {
     let pending = claim(&mut switches, &policy, &binding);
     switches.set_authentication("fixture", "account-b", Authentication::SignedOut);
     assert!(!switches.current(&pending));
+    assert!(switches.owns(&pending));
     switches.set_authentication("fixture", "account-b", Authentication::Ready);
     assert!(!switches.finish(&pending, resumed(&pending)));
     switches.cancel(&pending);
+    assert!(!switches.owns(&pending));
     assert_eq!(
         switches.exhausted(&binding, "turn-one", None, &policy, true),
         Decision::AlreadyHandled

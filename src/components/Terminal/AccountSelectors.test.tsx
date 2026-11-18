@@ -158,10 +158,15 @@ it.each(["unverified", "unsupported"] as const)("keeps alternative live-tab acco
   expect(fixture.tabAccounts.choose).not.toHaveBeenCalled();
 });
 
-it("disables duplicate/current tab choices and excludes removing accounts", () => {
-  const menu = tabAccountSubmenu({ ...fixture.tabAccounts, switching: true }, "Fixture")!;
-  expect(menu.entries).toHaveLength(3);
-  expect(menu.entries.every(entry => entry.kind === "item" && entry.disabled && entry.action === null)).toBe(true);
+it("reopens eligible choices after a switch returns to its original account", () => {
+  const switching = tabAccountSubmenu({ ...fixture.tabAccounts, switching: true }, "Fixture")!;
+  expect(switching.entries).toHaveLength(3);
+  expect(switching.entries.every(entry => entry.kind === "item" && entry.disabled && entry.action === null)).toBe(true);
+  const restored = tabAccountSubmenu(fixture.tabAccounts, "Fixture")!;
+  expect(restored.entries).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: "account-default", selected: true, action: null }),
+    expect.objectContaining({ id: "account-work", disabled: false, action: { type: "switchAccount", accountId: "work" } }),
+  ]));
 });
 
 it("surfaces a tab switch refusal through the existing toast path", async () => {
