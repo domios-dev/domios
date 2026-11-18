@@ -585,7 +585,7 @@ impl WorkerInterruptionExt for super::ServiceContext {
 }
 
 fn git(worktree: &Path, args: &[&str]) -> Result<String, String> {
-    let mut command = codeterm_util::process_util::git_command();
+    let mut command = crate::process_util::git_command();
     command.args(args).current_dir(worktree);
 
     let output = command
