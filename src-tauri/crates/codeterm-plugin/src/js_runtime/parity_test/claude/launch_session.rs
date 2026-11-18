@@ -137,7 +137,6 @@ fn exact_switch_preflight_reads_shared_transcript_without_a_pid_record() {
             );
         });
     }
-    std::fs::remove_file(&transcript).unwrap();
     #[cfg(unix)]
     std::fs::remove_file(&shared_link).unwrap();
     #[cfg(windows)]
@@ -147,10 +146,17 @@ fn exact_switch_preflight_reads_shared_transcript_without_a_pid_record() {
     std::fs::create_dir_all(&decoy_project).unwrap();
     std::fs::write(decoy_project.join(format!("{id}.jsonl")), "{}\n").unwrap();
     codeterm_util::fs_links::directory_link(&decoy, &shared_link).unwrap();
+    assert!(transcript.is_file());
+    assert_eq!(
+        shared_link.canonicalize().unwrap(),
+        decoy.canonicalize().unwrap()
+    );
     with_context(Some(invocation), || {
+        assert!(provider_account::read_allowed(&transcript));
         assert!(!provider_account::read_allowed(&shared_link));
         for provider in [&native as &dyn AgentProvider, &js as &dyn AgentProvider] {
-            assert_eq!(provider.session_exists("/actual-project", id), Some(false));
+            assert_eq!(provider.session_exists("/actual-project", id), None);
+            assert_eq!(provider.session_exists("/stale-tab-cwd", id), None);
         }
     });
 }
