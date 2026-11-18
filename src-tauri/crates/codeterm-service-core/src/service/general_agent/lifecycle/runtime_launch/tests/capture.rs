@@ -28,9 +28,14 @@ fn capture_launch(version: &str, bootstrap: Option<&str>) {
             serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         if manifest.general_agent_offer_when_absent
             && manifest.capabilities.chat_backend.enabled()
-            && manifest.capabilities.agent_runtime.as_ref().is_some_and(|runtime| {
-                runtime.runtime == codeterm_plugin::agent_runtime::AgentRuntimeProtocol::StdioJsonrpc
-            })
+            && manifest
+                .capabilities
+                .agent_runtime
+                .as_ref()
+                .is_some_and(|runtime| {
+                    runtime.runtime
+                        == codeterm_plugin::agent_runtime::AgentRuntimeProtocol::StdioJsonrpc
+                })
         {
             runtimes.push((directory, manifest));
         }
