@@ -1,4 +1,4 @@
-import { useRef, type RefObject } from "react";
+import { useRef, useState, type RefObject } from "react";
 import { Download, Image as ImageIcon, X } from "lucide-react";
 import { ZoomCanvas } from "./ZoomCanvas";
 import { useImageCanvasGallery } from "./useImageCanvasGallery";
@@ -6,7 +6,8 @@ import { CanvasHeader } from "./CanvasHeader";
 import { CANVAS_GHOST_BUTTON } from "./CanvasToolbar";
 import { DeferredLoader } from "./DeferredLoader";
 import { FullscreenOverlay } from "./FullscreenOverlay";
-import { localArtifactOpeningAvailable, openLocalArtifact } from "./localArtifactLoader";
+import { loadLocalArtifact, localArtifactOpeningAvailable, openLocalArtifact } from "./localArtifactLoader";
+import { useLocalArtifactTabId } from "./LocalArtifactScope";
 
 export interface FullscreenImage {
   name: string;
@@ -21,6 +22,37 @@ export function revealLocalFile(path: string) {
 }
 
 export const REVEAL_UNAVAILABLE = "Revealing files is available only in the desktop app";
+
+function SaveImage({ name, src, path }: FullscreenImage) {
+  const tabId = useLocalArtifactTabId();
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const label = `Save ${name}`;
+  const contents = <><Download size={13} aria-hidden /><span className="@max-[560px]:hidden">Save</span></>;
+  if (!path) return <a className={CANVAS_GHOST_BUTTON} href={src} download={name} aria-label={label} title={label}>{contents}</a>;
+
+  async function save(sourcePath: string) {
+    setSaving(true);
+    setFailed(false);
+    try {
+      const file = await loadLocalArtifact(sourcePath, "image-original", tabId);
+      if (!file.data.startsWith(`data:${file.media_type};base64,`)) throw new Error("Original image unavailable");
+      const link = document.createElement("a");
+      link.href = file.data;
+      link.download = name;
+      link.click();
+    } catch {
+      setFailed(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <>
+    <button type="button" className={CANVAS_GHOST_BUTTON} disabled={saving} aria-label={label} title={label} onClick={() => void save(path)}>{contents}</button>
+    {failed && <span role="alert">Original image unavailable</span>}
+  </>;
+}
 
 export function ImageFullscreen({ image, images, anchorRef, onClose, onImageError }: {
   images?: FullscreenImage[];
@@ -46,7 +78,7 @@ export function ImageFullscreen({ image, images, anchorRef, onClose, onImageErro
           view={controls}
           actions={<>
             {path && !selected.error && localArtifactOpeningAvailable() && <button type="button" className={CANVAS_GHOST_BUTTON} onClick={() => revealLocalFile(path)} aria-label={`Reveal ${selected.name}`} title="Reveal in file manager">Reveal</button>}
-            {selected.src && <a className={CANVAS_GHOST_BUTTON} href={selected.src} download={selected.name} aria-label={`Save ${selected.name}`} title={`Save ${selected.name}`}><Download size={13} aria-hidden /><span className="@max-[560px]:hidden">Save</span></a>}
+            {selected.src && <SaveImage key={selected.path ?? active} {...selected} />}
           </>}
           close={<button type="button" className={CANVAS_GHOST_BUTTON} onClick={onClose} aria-label="Close image"><X size={13} aria-hidden /></button>}
         />}>

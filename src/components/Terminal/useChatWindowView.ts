@@ -138,6 +138,9 @@ export function useChatWindowView({
     conversationEntries(allMessages, enrichmentCacheRef.current), liveSends, projection.echoes, deliveryMemory.current,
     projection.outside,
   ), [allMessages, liveSends, projection.echoes, projection.outside, windowKey]);
+  const documentAttachmentNames = useMemo(() => new Map(
+    baseEntries.flatMap(({ msg }) => msg.attachmentNames ? [[msg.sourceMessageId ?? msg.id, msg.attachmentNames] as const] : []),
+  ), [baseEntries]);
   const gapEntries = useMemo(() => gaps.project(baseEntries), [baseEntries, gaps.project]);
   const leadingGap = gapEntries[0]?.msg.timelineMarker?.kind === "history_gap" ? gapEntries[0].msg : null;
   const allEntries = useMemo(() => leadingGap ? gapEntries.slice(1) : gapEntries, [gapEntries, leadingGap]);
@@ -328,6 +331,7 @@ export function useChatWindowView({
     addOptimistic,
     compactionFailure: compaction.failure ? `Compaction history could not be saved: ${compaction.failure}` : undefined,
     allMessages,
+    documentAttachmentNames,
     backfillLoading,
     backfillNotice,
     canBackfillOlder,

@@ -119,18 +119,42 @@ pub fn read_local_preview_file_guarded(
     let mut source = PreviewSource::open(path, &guard)?;
     let (media_type, limit) = media(&source.path, kind)?;
     let bytes = source.read(limit)?;
-    let data = if kind == "image" || kind == "video" {
-        format!(
-            "data:{media_type};base64,{}",
-            base64::engine::general_purpose::STANDARD.encode(bytes)
-        )
-    } else {
-        preview_text(bytes)?
-    };
+    if kind == "image" || kind == "video" {
+        return Ok(binary_file(media_type, &bytes));
+    }
     Ok(LocalPreviewFile {
-        data,
+        data: preview_text(bytes)?,
         media_type: media_type.into(),
     })
+}
+
+fn binary_file(media_type: &str, bytes: &[u8]) -> LocalPreviewFile {
+    LocalPreviewFile {
+        data: format!(
+            "data:{media_type};base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        ),
+        media_type: media_type.into(),
+    }
+}
+
+pub fn read_original_image_file(
+    path: &str,
+    policy: &crate::PreviewPolicy,
+    limit: u64,
+) -> Result<LocalPreviewFile, String> {
+    let mut source =
+        PreviewSource::open(path, &|path, canonical| policy.authorize(path, canonical))?;
+    let media_type = match extension(&source.path).as_str() {
+        "heic" => "image/heic",
+        "heif" => "image/heif",
+        "tif" | "tiff" => "image/tiff",
+        "dng" | "raw" | "cr2" | "cr3" | "nef" | "arw" | "orf" | "rw2" | "raf" | "pef" | "srw" => {
+            "application/octet-stream"
+        }
+        _ => media(&source.path, "image")?.0,
+    };
+    Ok(binary_file(media_type, &source.read(limit)?))
 }
 
 pub fn read_local_image_file(

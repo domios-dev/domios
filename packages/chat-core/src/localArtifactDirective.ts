@@ -1,7 +1,7 @@
 import { parseDsBlocks, type DsBlock } from "./dsBlocks";
 export type LocalArtifactKind = "page" | "image" | "video" | "document" | "canvas";
 /** `view` names the view a `<ds-canvas src>` card opens on. */
-export interface LocalArtifactDirective { kind: LocalArtifactKind; path: string; paths?: string[]; view?: string }
+export interface LocalArtifactDirective { kind: LocalArtifactKind; path: string; paths?: string[]; view?: string; name?: string; previewPath?: string }
 export function localArtifactFromBlock(block: DsBlock): LocalArtifactDirective | null {
   if (block.kind === "image") return { kind: block.kind, path: block.sources[0], ...(block.sources.length > 1 ? { paths: block.sources } : {}) };
   if (block.kind === "canvas") return "src" in block ? { kind: block.kind, path: block.src, ...(block.view !== undefined ? { view: block.view } : {}) } : null;

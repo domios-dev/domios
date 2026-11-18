@@ -896,6 +896,7 @@ export function useChatSession({
     retry,
     setError,
     allMessages: view.allMessages,
+    documentAttachmentNames: view.documentAttachmentNames,
     enrichedMessages: view.enrichedMessages,
     hiddenMessageCount: view.hiddenMessageCount,
     olderMessageLabel: view.olderMessageLabel,

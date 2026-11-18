@@ -9,7 +9,7 @@ mod headers;
 
 const MODEL_EDGE: u32 = 2000;
 const MODEL_BYTES: u64 = 4 * 1024 * 1024;
-const MAX_SOURCE_BYTES: u64 = 150 * 1024 * 1024;
+pub(super) const MAX_SOURCE_BYTES: u64 = 150 * 1024 * 1024;
 const MAX_DECODE_PIXELS: u64 = 100_000_000;
 
 #[derive(Debug, PartialEq, Eq)]
