@@ -5,6 +5,7 @@
 
 mod protocol;
 use protocol::{ExecPollResult, ExecResult};
+mod output;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -187,13 +188,13 @@ pub(super) fn run_with_host_env(
     let (err_tx, err_rx) = std::sync::mpsc::channel();
     if let Some(mut s) = child.stdout.take() {
         child.add_reader(std::thread::spawn(move || {
-            let buf = bounded_output(&mut s);
+            let buf = output::capture(&mut s);
             let _ = out_tx.send(buf);
         }));
     }
     if let Some(mut s) = child.stderr.take() {
         child.add_reader(std::thread::spawn(move || {
-            let buf = bounded_output(&mut s);
+            let buf = output::capture(&mut s);
             let _ = err_tx.send(buf);
         }));
     }
@@ -217,18 +218,11 @@ pub(super) fn run_with_host_env(
     if let Err(error) = child.finish() {
         return err(&format!("reap {}: {error}", opts.bin));
     }
-    let (out, stdout_truncated) = out_rx.recv().unwrap_or_default();
-    let (errout, stderr_truncated) = err_rx.recv().unwrap_or_default();
+    let out = out_rx.recv().unwrap_or_default();
+    let errout = err_rx.recv().unwrap_or_default();
     drop(registration);
-    serde_json::to_string(&ExecResult {
-        code: Some(status_code),
-        stdout: Some(out),
-        stderr: Some(errout),
-        error: timeout_error,
-        truncated: (stdout_truncated || stderr_truncated).then_some(true),
-        ..Default::default()
-    })
-    .unwrap_or_else(|_| "null".into())
+    serde_json::to_string(&output::result(status_code, out, errout, timeout_error))
+        .unwrap_or_else(|_| "null".into())
 }
 
 fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> String {
@@ -398,24 +392,6 @@ fn json_rpc_response_id(line: &str) -> Option<u64> {
         .as_u64()
 }
 
-fn bounded_output(reader: &mut impl Read) -> (String, bool) {
-    const LIMIT: usize = 128 * 1024;
-    let mut kept = Vec::new();
-    let mut truncated = false;
-    let mut chunk = [0u8; 8192];
-    loop {
-        match reader.read(&mut chunk) {
-            Ok(0) | Err(_) => break,
-            Ok(count) => {
-                let retain = count.min(LIMIT.saturating_sub(kept.len()));
-                truncated |= retain < count;
-                kept.extend_from_slice(&chunk[..retain]);
-            }
-        }
-    }
-    (String::from_utf8_lossy(&kept).into_owned(), truncated)
-}
-
 /// Extract the binary name from an exec-opts JSON blob, for the permission check.
 pub(super) fn bin_of(opts_json: &str) -> Option<String> {
     serde_json::from_str::<serde_json::Value>(opts_json)
@@ -459,6 +435,7 @@ struct ExecJob {
     stdout: Option<String>,
     stderr: Option<String>,
     error: Option<String>,
+    output_too_large: Option<protocol::ExecOutputTooLarge>,
     truncated: bool,
     result: Option<serde_json::Value>,
     process: Arc<control::Process>,
@@ -601,6 +578,7 @@ pub(super) fn poll(plugin_id: &str, job_id: &str) -> String {
             stdout: job.stdout.clone(),
             stderr: job.stderr.clone(),
             error: job.error.clone(),
+            output_too_large: job.output_too_large.clone(),
             truncated: job.truncated.then_some(true),
             ..Default::default()
         },
@@ -1004,6 +982,9 @@ fn finish_exec_job(job_id: &str, value: &serde_json::Value) {
             .get("error")
             .and_then(|v| v.as_str())
             .map(String::from);
+        job.output_too_large = value
+            .get("outputTooLarge")
+            .and_then(|value| serde_json::from_value(value.clone()).ok());
         job.done_event.signal();
         for waiter in &job.waiters {
             waiter.notify_change();

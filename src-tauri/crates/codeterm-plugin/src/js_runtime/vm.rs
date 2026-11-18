@@ -122,6 +122,9 @@ pub enum VmError {
     CallCancelled,
     AdmissionBusy,
     IoUnconfirmed,
+    ContinuationLimit {
+        limit: usize,
+    },
     OffRuntimeRequired,
 }
 
@@ -147,6 +150,7 @@ impl std::fmt::Display for VmError {
             VmError::OffRuntimeRequired => write!(f, "synchronous plugin dispatch requires a blocking worker on a current-thread runtime"),
             VmError::CallCancelled => write!(f, "plugin call cancelled"),
             VmError::AdmissionBusy => write!(f, "plugin call admission is busy"),
+            VmError::ContinuationLimit { limit } => write!(f, "continuation_limit: plugin exceeded {limit} host I/O continuations; batch repeated host reads"),
         }
     }
 }
@@ -687,10 +691,6 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
     let mut continuations = 0;
     while let Some(pending) = parse_await(&result_json) {
         continuations += 1;
-        if continuations > 256 {
-            awaits::discard(vm, &pending);
-            return Err(VmError::Script("await continuation limit reached".into()));
-        }
         awaits::validate(vm, method, &pending, &operation)?;
         // No guard is held here: the frame unwound to produce the marker, so the
         // context is idle and this wait costs no other caller.
@@ -711,6 +711,10 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
                 return Err(VmError::AsyncJobTimedOut);
             }
         };
+        if continuations > 256 {
+            awaits::discard(vm, &pending);
+            return Err(VmError::ContinuationLimit { limit: 256 });
+        }
         let _resume = crate::surface_invocation::ResumeScope::enter(
             &pending.continuation,
             &pending.job,
