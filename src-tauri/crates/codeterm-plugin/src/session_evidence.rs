@@ -28,6 +28,22 @@ pub fn valid_session_id(session_id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
 }
 
+pub(crate) fn exact_transcript_exists(root: &Path, path: &Path, filename: &str) -> bool {
+    if path.file_name().and_then(|name| name.to_str()) != Some(filename)
+        || !crate::provider_account::read_allowed(path)
+    {
+        return false;
+    }
+    root.canonicalize()
+        .ok()
+        .zip(path.canonicalize().ok())
+        .is_some_and(|(root, path)| {
+            path.starts_with(root)
+                && path.file_name().and_then(|name| name.to_str()) == Some(filename)
+                && path.is_file()
+        })
+}
+
 fn record_path(session_id: &str) -> Option<PathBuf> {
     valid_session_id(session_id).then(|| evidence_dir().join(format!("{session_id}.json")))
 }

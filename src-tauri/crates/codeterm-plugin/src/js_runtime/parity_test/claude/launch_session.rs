@@ -27,6 +27,68 @@ fn evidence(processes: Vec<LaunchProcess>) -> LaunchSessionEvidence {
 }
 
 #[test]
+fn exact_claude_switch_preflight_reads_shared_transcript_without_a_pid_record() {
+    use crate::provider_account::{with_context, InvocationContext, SharedReadGrant};
+    if require_plugins().is_none() {
+        return;
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let usual = temp.path().join("usual");
+    let named = temp.path().join("named");
+    let projects = usual.join("projects");
+    let project = projects.join("-actual-project");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::create_dir_all(named.join("sessions")).unwrap();
+    codeterm_util::fs_links::directory_link(&projects, &named.join("projects")).unwrap();
+    let evidence = temp.path().join("evidence");
+    let _env = EnvGuard::new(&[
+        ("CLAUDE_CONFIG_DIR", usual.to_str().unwrap()),
+        (
+            crate::session_evidence::EVIDENCE_DIR_ENV,
+            evidence.to_str().unwrap(),
+        ),
+    ]);
+    let invocation = InvocationContext::new(
+        "claude".into(),
+        "named".into(),
+        [(
+            "CLAUDE_CONFIG_DIR".into(),
+            Some(named.to_string_lossy().into_owned()),
+        )]
+        .into(),
+        vec![named],
+        vec![usual],
+    )
+    .unwrap()
+    .with_shared_reads(vec![SharedReadGrant::Directory { path: projects }])
+    .unwrap();
+    let id = "d3028899-74bc-4921-824b-5332bef83182";
+    let transcript = project.join(format!("{id}.jsonl"));
+    std::fs::write(&transcript, "{}\n").unwrap();
+    let (native, js) = pair();
+    assert!(crate::session_evidence::record(
+        id,
+        transcript.to_str().unwrap()
+    ));
+    for provider in [&native as &dyn AgentProvider, &js as &dyn AgentProvider] {
+        assert_eq!(provider.session_exists("/actual-project", id), Some(true));
+        with_context(Some(invocation.clone()), || {
+            assert_eq!(provider.session_exists("/stale-tab-cwd", id), Some(true));
+            assert_eq!(
+                provider.session_exists("/actual-project", "other-session"),
+                Some(false)
+            );
+        });
+    }
+    std::fs::remove_file(&transcript).unwrap();
+    with_context(Some(invocation), || {
+        for provider in [&native as &dyn AgentProvider, &js as &dyn AgentProvider] {
+            assert_eq!(provider.session_exists("/actual-project", id), Some(false));
+        }
+    });
+}
+
+#[test]
 fn launch_session_detection_native_js_parity() {
     if require_plugins().is_none() {
         return;

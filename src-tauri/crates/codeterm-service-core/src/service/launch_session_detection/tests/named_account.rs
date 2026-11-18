@@ -1,7 +1,8 @@
 use super::*;
-use crate::agent::provider::LaunchProcess;
+use crate::agent::provider::{LaunchProcess, LaunchSessionEvidence};
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::boot_stage::BootStage;
+use crate::service::launch_readiness::LaunchAttempt;
 use crate::service::orchestrator::launch_test_support::FakeRegisteredLaunch;
 use crate::service::{
     provider_accounts, provider_hooks, test_fixture::ServiceFixture, AgentLaunchOrigin,
@@ -10,6 +11,110 @@ use codeterm_types::config::provider_accounts::ProviderAccountConfig;
 use serde_json::{json, Value};
 use std::fs;
 use std::time::{Duration, Instant};
+
+#[test]
+fn named_claude_without_hooks_binds_the_shell_child_on_input_attach() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("claude".into());
+    tab.pty_id = Some("named-pty".into());
+    tab.session_binding_nonce = Some("named-nonce".into());
+    tab.boot_stage = Some(BootStage::ProviderReady);
+    tab.restorable_launch.account_id = Some("second".into());
+    tab.restorable_launch.account_namespace = Some("second-home".into());
+    let fixture = ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    let root = fixture.temp.path();
+    let usual = root.join("usual");
+    let home = root.join("data/provider-accounts/claude/second-home");
+    fs::create_dir(&usual).unwrap();
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    env.set("CLAUDE_CONFIG_DIR", &usual);
+    provider_accounts::test_support::configure(svc, root.join("data"), root.join("config.toml"))
+        .unwrap();
+    svc.agent_registry.register_provider(Box::new(
+        codeterm_plugin::agent_claude::ClaudeProvider::new(),
+    ));
+    {
+        let mut config = svc.ext::<crate::config::ConfigState>().lock();
+        let accounts = config
+            .agents
+            .entry("claude".into())
+            .or_default()
+            .accounts
+            .get_or_insert_with(Default::default);
+        accounts.order.push("second".into());
+        accounts.profiles.insert(
+            "second".into(),
+            ProviderAccountConfig {
+                credential_namespace: Some("second-home".into()),
+                ..Default::default()
+            },
+        );
+    }
+    let invocation = provider_accounts::for_tab(svc, &tab_id).unwrap().unwrap();
+    let settings = r#"{"hooks":{}}"#;
+    fs::write(home.join("settings.json"), settings).unwrap();
+    svc.prepare_launch_session_hook(&tab_id, "named-nonce", &invocation);
+
+    let start = chrono::DateTime::parse_from_rfc3339("2026-11-18T14:01:51.000789Z")
+        .unwrap()
+        .timestamp_micros();
+    let start_token = start.to_string();
+    let recorded = if cfg!(target_os = "macos") {
+        "Wed Nov 18 14:01:51 2026"
+    } else {
+        &start_token
+    };
+    let session = "88000e56-6afd-4363-8344-07b48fd61b61";
+    let registry = home.join("sessions");
+    assert!(!fs::symlink_metadata(&registry).unwrap().is_symlink());
+    let file = fs::File::create(registry.join("75610.json")).unwrap();
+    serde_json::to_writer(
+        &file,
+        &json!({
+            "pid": 75610, "sessionId": session, "procStart": recorded, "kind": "interactive",
+        }),
+    )
+    .unwrap();
+    file.set_modified(std::time::UNIX_EPOCH + Duration::from_millis(start as u64 / 1000 + 2089))
+        .unwrap();
+    svc.ext_or_init(|| super::super::probe::FixtureProcessTree {
+        pty_id: "named-pty".into(),
+        processes: vec![
+            LaunchProcess {
+                pid: 74609,
+                depth: 0,
+                start_token: (start - 1_000_000).to_string(),
+            },
+            LaunchProcess {
+                pid: 75610,
+                depth: 1,
+                start_token,
+            },
+        ],
+    });
+    let attempt = LaunchAttempt::current(&svc.mux, &tab_id, "named-pty").unwrap();
+    svc.emit_boot_stage(&tab_id, BootStage::AgentReady, None);
+    assert!(!svc.hookless_launch_has_input(&attempt));
+    assert_eq!(
+        svc.mux.read().get_tab(&tab_id).unwrap().agent_session_id,
+        None
+    );
+    svc.screen_state.process("named-pty", b"\x1b[?2004h");
+    assert!(crate::service::boot_wait::wait_until(
+        Instant::now() + Duration::from_secs(5),
+        || { svc.mux.read().get_tab(&tab_id).unwrap().boot_stage == Some(BootStage::AgentReady) }
+    ));
+    let mux = svc.mux.read();
+    let tab = mux.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.agent_session_id.as_deref(), Some(session));
+    assert!(tab.launch_session_authenticated());
+    assert_eq!(
+        fs::read_to_string(home.join("settings.json")).unwrap(),
+        settings
+    );
+}
 
 #[tokio::test]
 async fn named_claude_home_skips_onboarding_installs_consented_hooks_and_binds_exact_launch() {

@@ -224,11 +224,38 @@ impl ServiceContext {
             self.session_start_hooks().tabs.lock().get(&attempt.tab_id),
             attempt,
         );
+        if started == SessionStart::HooksUnavailable
+            && signal == InputAttachSignal::SessionStartAndBracketedPaste
+            && self.supports_exact_launch_detection(&attempt.tab_id)
+        {
+            return false;
+        }
         input_ready(
             signal,
             self.screen_state.bracketed_paste_mode(&attempt.pty_id),
             started,
         )
+    }
+
+    pub(crate) fn prepare_launch_session_hook(
+        &self,
+        tab_id: &str,
+        nonce: &str,
+        invocation: &codeterm_plugin::provider_account::InvocationContext,
+    ) {
+        if let Some(available) =
+            super::provider_accounts::prepare_named_session_hook(self, invocation)
+        {
+            self.record_launch_session_hook(tab_id, nonce, available);
+        }
+    }
+
+    pub(crate) fn hookless_launch_has_input(&self, attempt: &LaunchAttempt) -> bool {
+        session_start(
+            self.session_start_hooks().tabs.lock().get(&attempt.tab_id),
+            attempt,
+        ) == SessionStart::HooksUnavailable
+            && self.screen_state.bracketed_paste_mode(&attempt.pty_id) == Some(true)
     }
 
     pub(crate) fn record_launch_session_hook(&self, tab_id: &str, nonce: &str, available: bool) {
@@ -340,6 +367,11 @@ impl ServiceContext {
         await_attach(
             || {
                 generation.set(change.generation());
+                if signal == InputAttachSignal::SessionStartAndBracketedPaste
+                    && self.hookless_launch_has_input(attempt)
+                {
+                    self.detect_exact_launch_attempt(attempt);
+                }
                 self.launch_input_ready(attempt, signal)
             },
             || {

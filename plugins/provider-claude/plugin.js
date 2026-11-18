@@ -1201,35 +1201,46 @@ function registryDir() {
   const home = host.homeDir();
   return effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), home ? home + sep + ".claude" + sep + "sessions" : null, "sessions", sep);
 }
-function registryStartMatches(recorded, token, modifiedMs) {
-  if (!token) return false;
-  if (recorded === token) return true;
-  if (modifiedMs === void 0 || !/^\d+$/.test(token)) return false;
+function registryStartRefusal(recorded, token, modifiedMs) {
+  if (!token) return "missing_live_start";
+  if (recorded === token) return null;
+  if (!/^\d+$/.test(token)) return "invalid_live_start";
   const micros = Number(token);
-  if (!Number.isSafeInteger(micros) || modifiedMs <= Math.floor(micros / 1e3)) return false;
+  if (!Number.isSafeInteger(micros)) return "invalid_live_start";
   const start = new Date(Math.floor(micros / 1e6) * 1e3);
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const time = [start.getUTCHours(), start.getUTCMinutes(), start.getUTCSeconds()].map((value) => String(value).padStart(2, "0")).join(":");
-  return recorded === `${weekdays[start.getUTCDay()]} ${months[start.getUTCMonth()]} ${String(start.getUTCDate()).padStart(2, " ")} ${time} ${start.getUTCFullYear()}`;
+  const expected = `${weekdays[start.getUTCDay()]} ${months[start.getUTCMonth()]} ${String(start.getUTCDate()).padStart(2, " ")} ${time} ${start.getUTCFullYear()}`;
+  if (recorded !== expected) return "start_mismatch";
+  if (modifiedMs === void 0) return "missing_record_mtime";
+  return modifiedMs <= Math.floor(micros / 1e3) ? "stale_record" : null;
 }
-function registrySessionId(raw, pid, startToken, modifiedMs) {
+function validateRegistrySession(raw, pid, startToken, modifiedMs) {
   let record3;
   try {
     record3 = JSON.parse(raw);
   } catch (_) {
-    return null;
+    return { refusal: "invalid_json" };
   }
-  if (!record3 || typeof record3 !== "object" || record3.pid !== pid) return null;
-  if (typeof record3.kind === "string" && record3.kind !== "interactive") return null;
-  if (typeof record3.procStart !== "string") return null;
-  if (!registryStartMatches(record3.procStart.trim(), startToken, modifiedMs)) return null;
+  if (!record3 || typeof record3 !== "object" || record3.pid !== pid) return { refusal: "pid_mismatch" };
+  if (typeof record3.kind === "string" && record3.kind !== "interactive") return { refusal: "non_interactive" };
+  if (typeof record3.procStart !== "string") return { refusal: "missing_recorded_start" };
+  const refusal = registryStartRefusal(record3.procStart.trim(), startToken, modifiedMs);
+  if (refusal) return { refusal };
   const sessionId = typeof record3.sessionId === "string" ? record3.sessionId.trim() : "";
-  return sessionId || null;
+  return sessionId ? { sessionId } : { refusal: "missing_session_id" };
 }
 function* detectClaudeLaunchSession(evidence) {
   const dir = registryDir();
-  if (!dir || !evidence || !Array.isArray(evidence.processes)) return null;
+  if (!dir) {
+    host.log("debug", "[claude-pid-registry] refused: registry_directory_unavailable");
+    return null;
+  }
+  if (!evidence?.processes?.length) {
+    host.log("debug", "[claude-pid-registry] refused: process_tree_empty");
+    return null;
+  }
   const platform = host.platform();
   const sep = platform === "windows" ? "\\" : "/";
   const processes = evidence.processes.slice().sort((a, b) => a.depth - b.depth || a.pid - b.pid);
@@ -1238,23 +1249,32 @@ function* detectClaudeLaunchSession(evidence) {
     const name = proc.pid + ".json";
     const path = dir + sep + name;
     const raw = yield* host.io.fs.readFile(path);
-    if (typeof raw !== "string") continue;
-    const token = String(proc.startToken || "");
-    const sessionId = registrySessionId(raw, proc.pid, token);
-    if (sessionId) return { sessionId, source: "pid_registry" };
-    if (platform !== "macos") continue;
-    try {
-      const entries = yield* host.io.fs.readDir(dir);
-      const modifiedMs = entries.find((entry) => entry.name === name && entry.isFile)?.modifiedMs;
-      const freshSession = registrySessionId(raw, proc.pid, token, modifiedMs ?? void 0);
-      if (freshSession && raw === (yield* host.io.fs.readFile(path))) {
-        return { sessionId: freshSession, source: "pid_registry" };
-      }
-    } catch (error) {
-      if (!(error instanceof RangeError)) throw error;
+    if (typeof raw !== "string") {
+      logRefusal(proc.pid, "record_unavailable");
+      continue;
     }
+    const token = String(proc.startToken || "");
+    let result = validateRegistrySession(raw, proc.pid, token);
+    if ("refusal" in result && result.refusal === "missing_record_mtime" && platform === "macos") {
+      try {
+        const entries = yield* host.io.fs.readDir(dir);
+        const modifiedMs = entries.find((entry) => entry.name === name && entry.isFile)?.modifiedMs;
+        result = validateRegistrySession(raw, proc.pid, token, modifiedMs ?? void 0);
+        if ("sessionId" in result && raw !== (yield* host.io.fs.readFile(path))) {
+          result = { refusal: "record_changed" };
+        }
+      } catch (error) {
+        if (!(error instanceof RangeError)) throw error;
+        result = { refusal: "registry_listing_limit" };
+      }
+    }
+    if ("sessionId" in result) return { sessionId: result.sessionId, source: "pid_registry" };
+    logRefusal(proc.pid, result.refusal);
   }
   return null;
+}
+function logRefusal(pid, reason) {
+  host.log("debug", `[claude-pid-registry] pid=${pid} refused: ${reason}`);
 }
 
 // plugins/provider-claude/src/credentials.ts

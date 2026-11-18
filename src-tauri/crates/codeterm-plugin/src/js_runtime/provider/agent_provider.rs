@@ -558,6 +558,9 @@ impl AgentProvider for JsProvider {
                 .try_call::<Option<bool>>("sessionExists", &[json!(cwd), json!(session_id)])
                 .flatten();
         }
+        if self.manifest.sessions.is_some() && !self.has_js("sessionFilePath") {
+            return self.manifest_session_exists(cwd, session_id);
+        }
         self.owned_session_file_path(cwd, session_id)?
             .try_exists()
             .ok()
