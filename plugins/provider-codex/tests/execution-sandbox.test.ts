@@ -22,13 +22,19 @@ function planned(ctx: RuntimeContext, operation: Operation): RuntimePlan {
   }
   return plan;
 }
-for (const mode of ["workspace-write", "read-only-with-writable-roots"]) {
+for (const [mode, splitWindowsRoots] of [
+  ["workspace-write",undefined],
+  ["read-only-with-writable-roots",undefined],
+  ["read-only-with-writable-roots",true],
+] as const) {
   const cwd = "C:/Users/fixture/existing-git/friend";
   const settings: RuntimeSettings = {mode,networkAccess:false,additionalDirectories:["C:/own-pad"]};
-  const ctx: RuntimeContext = {...context,threadId:"pre-existing-session",cwd,settings,restrictedCli:{
+  const restrictedCli = {
     tabId:context.tabId,bindingNonce:context.bindingNonce,epoch:context.epoch,cwd,metadataDirectory:".codex",
     executable:"C:/trusted/cli.exe",executableSha256:"a".repeat(64),configSha256:"b".repeat(64),ruleSha256:"c".repeat(64),
-  }};
+    ...(splitWindowsRoots ? {splitWindowsRoots:true} : {}),
+  };
+  const ctx: RuntimeContext = {...context,threadId:"pre-existing-session",cwd,settings,restrictedCli};
   const operation: Operation = {kind:"resumeThread",threadId:"pre-existing-session",instructions:"opaque",settings};
   const plan = planned(ctx,operation);
   if (plan.action.kind !== "request") throw new Error("Missing resume request");
@@ -42,6 +48,58 @@ for (const mode of ["workspace-write", "read-only-with-writable-roots"]) {
   assert.deepEqual(config["sandbox_workspace_write.writable_roots"],settings.additionalDirectories);
   assert.equal(config["sandbox_workspace_write.network_access"],false);
   assert.equal(config.CODEX_HOME,undefined);
+
+  const initial = plain(provider.runtimePlan(ctx,operation));
+  const unelevated = plain(provider.runtimeResponse(ctx,operation,initial.state,{kind:"success",value:{config:{windows:{sandbox:"unelevated",allow_mxc:null}}}}));
+  if (unelevated.kind !== "continue" || unelevated.plan.action.kind !== "request") throw new Error("Missing sandbox continuation");
+  if (!splitWindowsRoots) {
+    assert.equal(unelevated.plan.action.call.method,"thread/resume");
+    const inherited = {...config};
+    delete inherited["windows.sandbox"];
+    assert.deepEqual(unelevated.plan.action.call.params,{...params,config:inherited});
+    continue;
+  }
+  assert.equal(unelevated.plan.action.call.method,"configRequirements/read");
+  for (const [requirements, backend] of [
+    [null,"mxc"],
+    [{allowedWindowsSandboxImplementations:["unelevated"],allowedSandboxModes:["workspace-write"]},undefined],
+  ] as const) {
+    const reply = {kind:"success" as const,value:{requirements:JSON.parse(JSON.stringify(requirements))}};
+    const next = plain(provider.runtimeResponse(ctx,operation,unelevated.plan.state,reply));
+    if (next.kind !== "continue" || next.plan.action.kind !== "request") throw new Error("Missing checked resume");
+    assert.equal(next.plan.action.call.method,"thread/resume");
+    const selected = next.plan.action.call.params as {config:Record<string,unknown>;runtimeWorkspaceRoots:string[]};
+    assert.equal(selected.config["windows.sandbox"],backend);
+    assert.deepEqual(selected.runtimeWorkspaceRoots,["C:/own-pad"]);
+    assert.deepEqual(selected.config["sandbox_workspace_write.writable_roots"],["C:/own-pad"]);
+    assert.equal(selected.config["sandbox_workspace_write.network_access"],false);
+  }
+}
+
+const managedSettings: RuntimeSettings = {mode:"read-only-with-writable-roots",networkAccess:false,additionalDirectories:["C:/own-pad"]};
+const managedCwd = "C:/fixture/friend";
+const managedPin = {tabId:context.tabId,bindingNonce:context.bindingNonce,epoch:context.epoch,cwd:managedCwd,metadataDirectory:".codex",
+  executable:"C:/trusted/cli.exe",executableSha256:"a".repeat(64),configSha256:"b".repeat(64),ruleSha256:"c".repeat(64),splitWindowsRoots:true};
+const managedCtx = {...context,cwd:managedCwd,settings:managedSettings,restrictedCli:managedPin};
+const managedError = {kind:"error" as const,error:{code:-32600,message:"failed to load configuration: invalid value for `windows.sandbox`: `Some(Mxc)` is not in the allowed set windows.allow_mxc = false (set by C:/fixture/requirements.toml)"}};
+for (const operation of [
+  {kind:"openThread" as const,settings:managedSettings},
+  {kind:"resumeThread" as const,threadId:"opaque-thread",settings:managedSettings},
+]) {
+  const initial = plain(provider.runtimePlan(managedCtx,operation));
+  const requirements = plain(provider.runtimeResponse(managedCtx,operation,initial.state,{kind:"success",value:{config:{windows:{sandbox:"unelevated",allow_mxc:null}}}}));
+  if (requirements.kind !== "continue") throw new Error("Missing managed requirements request");
+  const selected = plain(provider.runtimeResponse(managedCtx,operation,requirements.plan.state,{kind:"success",value:{requirements:null}}));
+  if (selected.kind !== "continue" || selected.plan.action.kind !== "request") throw new Error("Missing MXC request");
+  const {config: override, ...params} = selected.plan.action.call.params as {config:Record<string,unknown>};
+  const {"windows.sandbox": backend,...inherited} = override;
+  assert.equal(backend,"mxc");
+  const fallback = plain(provider.runtimeResponse(managedCtx,operation,selected.plan.state,managedError));
+  if (fallback.kind !== "continue" || fallback.plan.action.kind !== "request") throw new Error("Missing inherited backend request");
+  assert.equal(fallback.plan.action.call.method,selected.plan.action.call.method);
+  assert.deepEqual(fallback.plan.action.call.params,{...params,config:inherited});
+  assert.equal(plain(provider.runtimeResponse(managedCtx,operation,fallback.plan.state,managedError)).kind,"refused");
+  assert.equal(plain(provider.runtimeResponse(managedCtx,operation,selected.plan.state,{kind:"error",error:{code:-32600,message:"unrelated refusal"}})).kind,"refused");
 }
 for (const [mode, type] of [[capability.readOnly!, "readOnly"], [capability.mutating!, "workspaceWrite"]] as const) {
   const settings: RuntimeSettings = { mode: mode.runtimeMode!, additionalDirectories: [], networkAccess: false };

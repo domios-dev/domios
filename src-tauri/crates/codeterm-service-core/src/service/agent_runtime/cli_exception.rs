@@ -255,6 +255,7 @@ fn provision(
         executable,
         config_sha256: digest(CONFIG),
         rule_sha256: digest(&rule_bytes),
+        split_windows_roots: None,
     };
     let (directory, config, rule) = paths(&policy);
     fs::create_dir(&directory).map_err(|_| DENIED)?;
@@ -305,18 +306,18 @@ fn remove_owned(policy: &RestrictedCliPolicy) {
     let _ = fs::remove_dir(directory);
 }
 
-pub fn sandbox(
+fn sandbox(
     svc: &ServiceContext,
     context: &RuntimeContext,
-) -> Result<Option<ExecutionSandboxPolicy>, String> {
+) -> Result<Option<(ExecutionSandboxPolicy, Option<bool>)>, String> {
     let mux = svc.mux.read();
     let tab = mux.get_tab(&context.tab_id).ok_or(DENIED)?;
     if tab.session_binding_nonce.as_deref() != Some(context.binding_nonce.as_str()) {
         return Err(DENIED.into());
     }
-    if tab.neighbor_authority.is_none() {
+    let Some(authority) = &tab.neighbor_authority else {
         return Ok(None);
-    }
+    };
     if tab.restorable_launch.permission_bypass_requested {
         if tab.restorable_launch.execution_sandbox.is_some() {
             return Err(DENIED.into());
@@ -346,7 +347,10 @@ pub fn sandbox(
         &context.settings,
         &context.cwd,
     )?;
-    Ok(Some(policy.clone()))
+    let split_windows_roots = (authority.root_tab_id.is_none()
+        && policy.intent == ExecutionIntent::ReadOnly)
+        .then_some(true);
+    Ok(Some((policy.clone(), split_windows_roots)))
 }
 
 fn metadata_directory(svc: &ServiceContext, provider: &str) -> Result<Option<String>, String> {
@@ -389,7 +393,7 @@ pub(super) fn prepare(
     let Some(metadata_directory) = metadata_directory(svc, provider)? else {
         return Ok(None);
     };
-    let Some(sandbox) = sandbox(svc, context)? else {
+    let Some((sandbox, split_windows_roots)) = sandbox(svc, context)? else {
         return Ok(None);
     };
     let _policy_io = POLICY_IO.lock();
@@ -401,6 +405,7 @@ pub(super) fn prepare(
     if let Some(mut lease) = existing {
         if lease.provider != provider
             || lease.sandbox != sandbox
+            || lease.policy.split_windows_roots != split_windows_roots
             || lease.policy.metadata_directory != metadata_directory
             || lease.policy.binding_nonce != context.binding_nonce
             || command_path(&executable.canonicalize().map_err(|_| DENIED)?)?
@@ -423,10 +428,14 @@ pub(super) fn prepare(
         return Ok(Some(policy));
     }
     let executable_pin = pin_executable(&executable)?;
-    let policy = provision(context, &sandbox, &executable, &metadata_directory)?;
-    if !self::sandbox(svc, context).is_ok_and(|current| current.as_ref() == Some(&sandbox))
-        || !self::metadata_directory(svc, provider)
-            .is_ok_and(|current| current.as_deref() == Some(metadata_directory.as_str()))
+    let mut policy = provision(context, &sandbox, &executable, &metadata_directory)?;
+    policy.split_windows_roots = split_windows_roots;
+    if !self::sandbox(svc, context).is_ok_and(|current| {
+        current.is_some_and(|(current, preference)| {
+            current == sandbox && preference == split_windows_roots
+        })
+    }) || !self::metadata_directory(svc, provider)
+        .is_ok_and(|current| current.as_deref() == Some(metadata_directory.as_str()))
     {
         remove_owned(&policy);
         return Err(DENIED.into());
@@ -448,10 +457,11 @@ pub(super) fn validate(svc: &ServiceContext, context: &RuntimeContext) -> Result
     let Some(policy) = &context.restricted_cli else {
         return Ok(());
     };
-    let current = sandbox(svc, context)?.ok_or(DENIED)?;
+    let (current, split_windows_roots) = sandbox(svc, context)?.ok_or(DENIED)?;
     let lease = LEASES.lock().get(&context.tab_id).cloned().ok_or(DENIED)?;
     if lease.policy != *policy
         || lease.sandbox != current
+        || policy.split_windows_roots != split_windows_roots
         || !binding_matches(policy, context)
         || metadata_directory(svc, &lease.provider)?.as_deref()
             != Some(policy.metadata_directory.as_str())
@@ -479,11 +489,12 @@ pub(super) fn validate_binding(
     let Some(policy) = &context.restricted_cli else {
         return Ok(());
     };
-    let current = sandbox(svc, context)?.ok_or(DENIED)?;
+    let (current, split_windows_roots) = sandbox(svc, context)?.ok_or(DENIED)?;
     let leases = LEASES.lock();
     let lease = leases.get(&context.tab_id).ok_or(DENIED)?;
     if lease.policy != *policy
         || lease.sandbox != current
+        || policy.split_windows_roots != split_windows_roots
         || !binding_matches(policy, context)
         || metadata_directory(svc, &lease.provider)?.as_deref()
             != Some(policy.metadata_directory.as_str())

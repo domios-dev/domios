@@ -2765,7 +2765,7 @@ function codexValidateCliTrust(ctx, raw) {
       throw { code: "provider_refused", message: "Configured project trust refuses the restricted CLI exception" };
   }
 }
-function codexNeedsWindowsSandboxSelection(raw) {
+function codexNeedsWindowsSandboxSelection(raw, needsSplitRoots = false) {
   const root = object2(raw);
   if (root.config === null || typeof root.config !== "object" || Array.isArray(root.config))
     throw { code: "invalid_schema", message: "Windows sandbox configuration was not reported" };
@@ -2776,9 +2776,9 @@ function codexNeedsWindowsSandboxSelection(raw) {
   if (windows.sandbox != null) {
     if (!["mxc", "elevated", "unelevated"].includes(String(windows.sandbox)))
       throw { code: "invalid_schema", message: "Unknown configured Windows sandbox" };
-    return false;
+    if (windows.sandbox !== "unelevated" || !needsSplitRoots) return false;
   }
-  if (windows.allow_mxc !== void 0) {
+  if (windows.allow_mxc !== void 0 && !(needsSplitRoots && windows.allow_mxc === null)) {
     if (typeof windows.allow_mxc !== "boolean") throw { code: "invalid_schema", message: "Invalid Windows MXC policy" };
     if (!windows.allow_mxc) return false;
   }
@@ -2792,6 +2792,13 @@ function codexNeedsWindowsSandboxSelection(raw) {
     }
   }
   return true;
+}
+function codexNeedsSplitWindowsRoots(ctx) {
+  const policy = ctx.restrictedCli;
+  return ctx.settings.mode === "read-only-with-writable-roots" && policy !== void 0 && "splitWindowsRoots" in policy && policy.splitWindowsRoots === true;
+}
+function codexManagedMxcRefusal(error) {
+  return error.code === -32600 && error.message.startsWith("failed to load configuration: invalid value for `windows.sandbox`: `Some(Mxc)` is not in the allowed set windows.allow_mxc = false (set by ");
 }
 function codexWindowsSandboxOverride(raw) {
   const root = object2(raw);
@@ -3633,9 +3640,10 @@ function settingsParams(ctx, settings, instructions, windowsSandbox) {
     ...instructions !== void 0 ? { developerInstructions: instructions } : {}
   };
 }
-function threadPlan(ctx, op, windowsSandbox) {
+function threadPlan(ctx, op, windowsSandbox, unarchived = false) {
   const params = settingsParams(ctx, op.settings, op.instructions, windowsSandbox);
-  return op.kind === "openThread" ? request("thread/start", params) : request("thread/resume", { ...params, threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", ...windowsSandbox ? { windowsSandbox } : {} });
+  const backend = windowsSandbox ? { windowsSandbox } : {};
+  return op.kind === "openThread" ? request("thread/start", params, { stage: "thread/start", ...backend }) : request("thread/resume", { ...params, threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", ...backend, ...unarchived ? { unarchived } : {} });
 }
 function turnParams(ctx, op) {
   const input = [{ type: "text", text: op.input.text }];
@@ -3826,6 +3834,8 @@ function respondOperation(ctx, op, raw, reply) {
     return pagedHistoryResponse(op, state, reply);
   }
   if (reply.kind === "error") {
+    if ((op.kind === "openThread" && state.stage === "thread/start" || op.kind === "resumeThread" && state.stage === "thread/resume") && state.windowsSandbox === "mxc" && codexNeedsSplitWindowsRoots(ctx) && codexManagedMxcRefusal(reply.error))
+      return continuation(threadPlan(ctx, op, void 0, state.unarchived === true));
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && missingRollout(reply.error, op.threadId))
       return { kind: "refused", reason: { code: "thread_not_found", message: "The provider's saved conversation rollout is unavailable." }, beforeAcceptance: true };
     if (op.kind === "control" && op.action === "serviceTiers") return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: { serviceTierAvailability: {} } }] };
@@ -3848,7 +3858,7 @@ function respondOperation(ctx, op, raw, reply) {
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (state.stage === "windowsSandboxConfig") {
       codexValidateCliTrust(ctx, value);
-      return continuation(codexNeedsWindowsSandboxSelection(value) ? request("configRequirements/read", null, { stage: "windowsSandboxRequirements" }) : threadPlan(ctx, op));
+      return continuation(codexNeedsWindowsSandboxSelection(value, codexNeedsSplitWindowsRoots(ctx)) ? request("configRequirements/read", null, { stage: "windowsSandboxRequirements" }) : threadPlan(ctx, op));
     }
     if (state.stage === "windowsSandboxRequirements") return continuation(threadPlan(ctx, op, codexWindowsSandboxOverride(value)));
   }
@@ -3870,7 +3880,7 @@ function respondOperation(ctx, op, raw, reply) {
       return { kind: "complete", result: { kind: "threadLoaded", threadId, settings: codexEffectiveSettings(op.settings, value) } };
     }
     case "resumeThread": {
-      if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions, state.windowsSandbox === "mxc" ? "mxc" : void 0), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true, ...state.windowsSandbox === "mxc" ? { windowsSandbox: "mxc" } : {} }));
+      if (state.stage === "unarchive") return continuation(threadPlan(ctx, op, state.windowsSandbox === "mxc" ? "mxc" : void 0, true));
       if (!userThread(value, op.threadId)) return refused("Resumed thread identity unverified");
       if (state.stage !== "verify" && op.settings.mode === "workspace-write" && !codexWorkspaceWriteConfirmed(value)) return refused("Provider did not confirm the requested workspace-write sandbox");
       if (state.stage !== "verify" && !codexWritableRootsConfirmed(op.settings, value)) return refused("Provider did not confirm the exact read-only writable roots");

@@ -108,6 +108,7 @@ struct ChatSendLedgerState {
     /// Opaque client correlation token per send — echoed verbatim onto every
     /// emitted status, never read by evidence/confirm/retry logic.
     token_by_id: HashMap<String, String>,
+    neighbor_message_by_send: HashMap<String, String>,
     anchor_by_id: HashMap<String, SendEvidenceAnchor>,
     rpc_by_id: HashMap<String, SendLiveBinding>,
     live_binding_by_id: HashMap<String, SendLiveBinding>,
@@ -137,6 +138,7 @@ impl Default for ChatSendLedgerState {
             payload_by_id: HashMap::new(),
             turn_normalization_by_id: HashMap::new(),
             token_by_id: HashMap::new(),
+            neighbor_message_by_send: HashMap::new(),
             anchor_by_id: HashMap::new(),
             rpc_by_id: HashMap::new(),
             live_binding_by_id: HashMap::new(),
@@ -911,6 +913,7 @@ impl ChatSendLedger {
             state.payload_by_id.remove(&expired);
             state.turn_normalization_by_id.remove(&expired);
             state.token_by_id.remove(&expired);
+            state.neighbor_message_by_send.remove(&expired);
             state.anchor_by_id.remove(&expired);
             state.rpc_by_id.remove(&expired);
             state.live_binding_by_id.remove(&expired);

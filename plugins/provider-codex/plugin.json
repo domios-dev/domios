@@ -1,10 +1,12 @@
 {
   "id": "codex",
-  "version": "1.14.77",
+  "version": "1.14.79",
   "minCodeterm": "1.20.2",
   "hostApi": 2,
   "accounts": {
-    "credentialFiles": ["auth.json"],
+    "credentialFiles": [
+      "auth.json"
+    ],
     "homeEnvironment": "CODEX_HOME",
     "defaultHome": "~/.codex",
     "secretEnvironment": [
@@ -12,7 +14,11 @@
       "CODEX_API_KEY",
       "CODEX_AUTH_TOKEN"
     ],
-    "excludedEnvironment": ["CODETERM_CODEX_SESSIONS_ROOT", "CODETERM_CODEX_SESSION_INDEX_PATH", "CODETERM_CODEX_STATE_DB_PATH"],
+    "excludedEnvironment": [
+      "CODETERM_CODEX_SESSIONS_ROOT",
+      "CODETERM_CODEX_SESSION_INDEX_PATH",
+      "CODETERM_CODEX_STATE_DB_PATH"
+    ],
     "isolatedPaths": [
       "auth.json",
       "config.toml",
@@ -39,7 +45,11 @@
         "path": "state_",
         "kind": "versioned_sqlite",
         "rootEnvironment": "CODEX_SQLITE_HOME",
-        "configuration": {"file": "config.toml", "format": "toml", "key": "sqlite_home"}
+        "configuration": {
+          "file": "config.toml",
+          "format": "toml",
+          "key": "sqlite_home"
+        }
       }
     ],
     "continuation": "unverified"

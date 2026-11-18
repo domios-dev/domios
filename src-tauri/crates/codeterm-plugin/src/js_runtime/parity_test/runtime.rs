@@ -721,6 +721,7 @@ async fn restricted_cli_context_native_quickjs_authority_parity() {
         ..Default::default()
     };
     ctx.restricted_cli = Some(RestrictedCliPolicy {
+        split_windows_roots: None,
         tab_id: ctx.tab_id.clone(),
         binding_nonce: ctx.binding_nonce.clone(),
         epoch: ctx.epoch,

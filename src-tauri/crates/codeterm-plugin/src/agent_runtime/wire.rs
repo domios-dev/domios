@@ -367,6 +367,9 @@ pub struct RestrictedCliPolicy {
     pub executable_sha256: String,
     pub config_sha256: String,
     pub rule_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub split_windows_roots: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
