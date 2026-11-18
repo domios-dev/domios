@@ -2446,7 +2446,7 @@ function v2Response(ctx, op, state, reply) {
       if (typeof value.interrupted !== "boolean") return refused("OpenCode did not acknowledge the interrupt");
       return done();
     case "answer":
-      return body === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
+      return reply.value === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
     case "control":
       if (op.action === "auth") {
         if (state.stage === "authProviders") {

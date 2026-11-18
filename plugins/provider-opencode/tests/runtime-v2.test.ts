@@ -239,6 +239,8 @@ check("permission and form responses retain exact request identities",()=>{
     const op:Operation={kind:"answer",requestId:frame.requestId,answer:{kind:"choice",values:[frame.method === "permission.asked" ? "once" : "0:1"]}};
     const plan=runtimePlan(ctx,op);assert.equal(plan.action.kind,"reply");
     if(plan.action.kind === "reply") assert.deepEqual(plan.action.result,{kind:"success",value:frame.method === "permission.asked" ? {decision:"once"} : {answer:{choice:"beta"}}});
+    assert.deepEqual(runtimeResponse(ctx,op,plan.state,{kind:"success",value:null}),{kind:"complete",result:{kind:"done"},events:[]});
+    assert.equal(runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:404,message:"Request expired"}}).kind,"refused");
     assert.throws(()=>runtimePlan(ctx,{...op,requestId:"foreign"}));
   }
 });
