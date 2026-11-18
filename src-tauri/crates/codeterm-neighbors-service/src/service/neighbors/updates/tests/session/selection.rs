@@ -494,14 +494,25 @@ async fn implicit_first_assignment_never_replays_when_local_preparation_is_pendi
 async fn account_or_runtime_retirement_after_commit_preserves_assignment_without_late_effects() {
     for runtime_retirement in [false, true] {
         let mut setup = selection_fixture().await;
+        let friends_list_calls = || {
+            setup
+                .calls
+                .trace
+                .lock()
+                .iter()
+                .filter(|route| *route == "friendsList")
+                .count()
+        };
         let select = setup
             .fixture
             .service
             .neighbor_runtime(selection_command(), None, None);
         let retire = async {
             setup.enrollment.recv().await.unwrap();
+            assert_eq!(friends_list_calls(), 3, "pre-enrollment receiver reads");
             setup.calls.release.add_permits(1);
             owner_event(&mut setup.owner_events, "confirmation_waiting").await;
+            assert!(setup.calls.committed.load(Ordering::SeqCst));
             if runtime_retirement {
                 setup.fixture.service.neighbor_identity_changed();
             } else {
@@ -524,15 +535,6 @@ async fn account_or_runtime_retirement_after_commit_preserves_assignment_without
             .as_object()
             .unwrap()
             .is_empty());
-        assert_eq!(
-            setup
-                .calls
-                .trace
-                .lock()
-                .iter()
-                .filter(|route| *route == "friendsList")
-                .count(),
-            2
-        );
+        assert_eq!(friends_list_calls(), 3, "no late receiver reads");
     }
 }
