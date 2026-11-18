@@ -1,3 +1,4 @@
+import { RELEASE_BRANCH, RELEASE_REF } from './release-version.mjs';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
@@ -105,7 +106,7 @@ export async function qualificationRepositories(action) {
 export function requireQualificationPush(tag, sourceSha, runId, env = process.env) {
   qualificationTag(tag, runId);
   draftNotes(sourceSha, runId);
-  if (env.GITHUB_EVENT_NAME !== 'push' || env.GITHUB_REF !== `refs/heads/release/${tag.slice(1)}` ||
+  if (env.GITHUB_EVENT_NAME !== 'push' || env.GITHUB_REF !== RELEASE_REF ||
       env.GITHUB_SHA !== sourceSha || env.GITHUB_RUN_ID !== String(runId) ||
       env.GITHUB_ACTOR !== 'rollacode' || env.GITHUB_TRIGGERING_ACTOR !== 'rollacode') throw new Error('Not an owner qualification push');
 }
@@ -135,7 +136,7 @@ export async function resetPlatform({ tag, sourceSha, runId, platform, repositor
 
 async function main([verb, tag, sourceSha, runId, platform]) {
   requireQualificationPush(tag, sourceSha, runId);
-  const current = (await gh(['api', `repos/${sourceRepository()}/git/ref/heads/release/${tag.slice(1)}`, '--jq', '.object.sha'])).trim();
+  const current = (await gh(['api', `repos/${sourceRepository()}/git/ref/heads/${RELEASE_BRANCH}`, '--jq', '.object.sha'])).trim();
   if (current !== sourceSha) throw new Error('Superseded release head');
   if (verb === 'prepare') await qualificationRepositories((repository, env) => prepareDraft({ tag, sourceSha, runId, repository, env }));
   else if (verb === 'seal') await qualificationRepositories((repository, env) => sealDraft({ tag, sourceSha, runId, repository, env }));

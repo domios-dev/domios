@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: precheck-${{ github.ref }}
+  group: release-precheck
   cancel-in-progress: false
 jobs:
   precheck:

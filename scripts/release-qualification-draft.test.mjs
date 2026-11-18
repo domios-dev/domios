@@ -41,11 +41,12 @@ test('capture can load draft helpers while its manifest module is still evaluati
   assert.equal(captured.status, 0, captured.stderr);
 });
 
-test('qualification mutation rejects dispatches, foreign actors, sources and versions', () => {
-  const env = { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/release/1.20.1', GITHUB_SHA: sourceSha,
+test('qualification mutation rejects dispatches, foreign refs, actors and sources', () => {
+  const env = { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/release/next', GITHUB_SHA: sourceSha,
     GITHUB_RUN_ID: runId, GITHUB_ACTOR: 'rollacode', GITHUB_TRIGGERING_ACTOR: 'rollacode' };
   assert.doesNotThrow(() => requireQualificationPush(tag, sourceSha, runId, env));
   for (const changed of [{ GITHUB_EVENT_NAME: 'workflow_dispatch' }, { GITHUB_REF: 'refs/heads/master' },
+    { GITHUB_REF: 'refs/heads/release/1.20.1' },
     { GITHUB_SHA: 'b'.repeat(40) }, { GITHUB_RUN_ID: '124' }, { GITHUB_ACTOR: 'other' }, { GITHUB_TRIGGERING_ACTOR: 'other' }]) {
     assert.throws(() => requireQualificationPush(tag, sourceSha, runId, { ...env, ...changed }));
   }

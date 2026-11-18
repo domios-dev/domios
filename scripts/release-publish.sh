@@ -19,10 +19,10 @@ json() { node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const 
 step "qualified run $RUN_ID"
 run="$(gh api "repos/$SOURCE_REPO/actions/runs/$RUN_ID")"
 SHA="$(json head_sha <<<"$run")"; BRANCH="$(json head_branch <<<"$run")"
-[ "$BRANCH" = "release/$VER" ] || { echo "::error::run $RUN_ID ran on $BRANCH, not release/$VER"; exit 1; }
+[ "$BRANCH" = release/next ] || { echo "::error::run $RUN_ID ran on $BRANCH, expected release/next"; exit 1; }
 node scripts/release-promote.mjs check "$RUN_ID" "$SHA" "$BRANCH"
 if gh release view "$TAG" --repo "$SOURCE_REPO" --json isDraft --jq .isDraft 2>/dev/null | grep -qx false; then
-  [ "$MODE" = rehearsal ] || { echo "::error::$TAG is already published; a further change needs release/X.Y.(Z+1)"; exit 1; }
+  [ "$MODE" = rehearsal ] || { echo "::error::$TAG is already published; a further change needs a new package version"; exit 1; }
   echo "::notice::$TAG is already published; the rehearsal only reads"
 fi
 work="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/release-publish.XXXXXX")"

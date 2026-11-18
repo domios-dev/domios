@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { RELEASE_REF } from './release-version.mjs';
 import {bashInterpreter} from './bash-interpreter.mjs';
 import { writeLegacyRefusals } from './legacy-updater-refusal.mjs';
 import { createHash } from 'node:crypto';
@@ -154,7 +155,7 @@ export async function capture({ tag, platform, sourceSha, artifactDirectory, hea
 }
 
 export function parseSources(text, runId) {
-  const prefix = `${runId}/release-dry-run/`;
+  const prefix = platformEvidencePrefix(runId);
   const locations = new Map();
   for (const line of text.split('\n').filter(Boolean)) {
     const [key, location] = line.split('\t');
@@ -231,9 +232,13 @@ export async function aggregate({ tag, sourceSha, inputDirectory, outputDirector
   } finally { await rm(scratch, { recursive: true, force: true }); }
 }
 
+function platformEvidencePrefix(runId) {
+  return `${runId}/release-dry-run/`;
+}
+
 export async function fetchPlatformEvidence(runId, inputDirectory, fetch = storeAsync) {
   await Promise.all(PLATFORMS.map(platform =>
-    fetch('get-prefix', `${runId}/release-dry-run/${platform}/`, path.join(inputDirectory, platform), { bytes: PLATFORM_EVIDENCE_BYTES })));
+    fetch('get-prefix', `${platformEvidencePrefix(runId)}${platform}/`, path.join(inputDirectory, platform), { bytes: PLATFORM_EVIDENCE_BYTES })));
 }
 
 export async function fetchAndAggregate({ tag, sourceSha, runId, inputDirectory, outputDirectory, fetch = storeAsync }) {
@@ -252,7 +257,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (verb === 'capture') {
       const [platform, artifactDirectory, headlessDirectory, outputDirectory] = args;
       const receipt = await capture({ tag, sourceSha, platform, artifactDirectory, headlessDirectory, outputDirectory });
-      if (process.env.GITHUB_EVENT_NAME === 'push' && process.env.GITHUB_REF === `refs/heads/release/${tag.slice(1)}`) {
+      if (process.env.GITHUB_EVENT_NAME === 'push' && process.env.GITHUB_REF === RELEASE_REF) {
         const { uploadDraft, qualificationRepositories, requireQualificationPush } = await import('./release-qualification-draft.mjs');
         requireQualificationPush(tag, sourceSha, runId);
         await qualificationRepositories((repository, env) => uploadDraft({ tag, sourceSha, runId, directory: outputDirectory, receipt, repository, env }));
@@ -261,7 +266,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         Number(left === 'dry-run-evidence.json') - Number(right === 'dry-run-evidence.json'));
       for (const file of stored) {
         const local = path.join(outputDirectory, file);
-        store('put', `${runId}/release-dry-run/${platform}/${file}`, local, { bytes: (await lstat(local)).size });
+        store('put', `${platformEvidencePrefix(runId)}${platform}/${file}`, local, { bytes: (await lstat(local)).size });
       }
     } else if (verb === 'aggregate') {
       const [inputDirectory, outputDirectory] = args;

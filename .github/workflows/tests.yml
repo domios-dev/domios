@@ -1,11 +1,11 @@
 name: CI
 on:
   push:
-    branches: ['release/[0-9]+.[0-9]+.[0-9]+']
+    branches: [release/next]
   workflow_dispatch:
     inputs:
       source_ref:
-        description: Full 40-hex commit SHA already on master, develop or the dispatching release/X.Y.Z branch
+        description: Full 40-hex commit SHA already on master, develop or the release/next branch
         required: true
         type: string
       scope:
@@ -18,11 +18,12 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ${{ github.event_name == 'push' && format('tests-push-{0}', github.ref) || format('tests-dispatch-{0}', github.run_id) }}
+  group: ${{ github.event_name == 'push' && !github.event.deleted && 'release-qualification-push' || format('tests-dispatch-{0}', github.run_id) }}
   cancel-in-progress: true
 jobs:
   admission:
     name: Select CI owner
+    if: ${{ !github.event.deleted }}
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 5
     permissions:
@@ -42,17 +43,16 @@ jobs:
           script: |-
             const owner = ['rollacode', 'domios-dev'].includes(context.repo.owner) &&
               context.actor === 'rollacode' && process.env.GITHUB_TRIGGERING_ACTOR === 'rollacode';
-            const release = context.eventName === 'push' && /^refs\/heads\/release\/\d+\.\d+\.\d+$/.test(context.ref);
-            if (!owner || !(release || context.eventName === 'workflow_dispatch'))
+            const trusted = context.ref === 'refs/heads/release/next';
+            const release = context.eventName === 'push' && trusted;
+            if (!owner || !trusted || !(release || context.eventName === 'workflow_dispatch'))
               throw new Error('CI requires an owner release push or diagnostic dispatch');
             const source = release ? context.sha : process.env.SOURCE_REF;
             if (!release) {
               // Diagnostics run with farm secrets: only commits already on an owner-only branch are admitted.
-              const trusted = /^refs\/heads\/(release\/\d+\.\d+\.\d+)$/.exec(context.ref)?.[1];
-              if (!trusted) throw new Error('Dispatch diagnostics from release/X.Y.Z');
               if (!/^[0-9a-f]{40}$/.test(source)) throw new Error('source_ref must be a full 40-hex commit SHA');
               let reachable = false;
-              for (const branch of new Set([trusted, 'develop', 'master'])) {
+              for (const branch of ['release/next', 'develop', 'master']) {
                 const status = await github.rest.repos.compareCommitsWithBasehead({...context.repo,
                   basehead: source + '...' + branch, per_page: 1}).then(response => response.data.status, error => {
                   if (error.status === 404) return 'missing';
@@ -160,14 +160,14 @@ jobs:
       actions: write
       pull-requests: write
     secrets: inherit
-    if: ${{ needs.admission.outputs.run != 'false' }}
+    if: ${{ needs.admission.outputs.run == 'true' }}
     # Starts beside the repository guards; CI result still requires them.
     needs: [admission]
   rust:
     name: Rust tests
     # Starts with the push, beside the guards and the fast tier.
     needs: [admission]
-    if: ${{ !cancelled() && inputs.scope != 'fast' && github.event_name == 'push' && needs.admission.outputs.run != 'false' }}
+    if: ${{ !cancelled() && inputs.scope != 'fast' && github.event_name == 'push' && needs.admission.outputs.run == 'true' }}
     uses: ./.github/workflows/tests-rust.yml
     with:
       source_ref: ${{ needs.admission.outputs.source_sha }}
@@ -281,7 +281,6 @@ jobs:
       issues: write
       pull-requests: write
     with:
-      tag: ${{ github.ref_name }}
       source_sha: ${{ needs.admission.outputs.source_sha }}
       dry_run: true
       mirror: false
@@ -289,7 +288,7 @@ jobs:
   result:
     # A diagnostic attaches to the dispatching branch head, so it never shares the push context name.
     name: ${{ github.event_name == 'push' && 'CI result' || 'CI diagnostic result' }}
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && !github.event.deleted }}
     needs:
       - admission
       - policy
