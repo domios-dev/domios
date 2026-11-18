@@ -210,7 +210,7 @@ export function StatusLineModelPicker({
   }, [actions, applying, close, descriptor?.transport, tabId, tab, configModel, modelSection, effortSection, settings, currentModel, currentEffort, currentRuntimeMode, currentServiceTier, restartBased, pendingSelection]);
   commitRef.current = commit;
 
-  const pending = pendingSelection ? { model: pendingSelection.model, effort: pendingSelection.effort ?? undefined } : undefined;
+  const pending: PickerSelection | undefined = pendingSelection ? { model: pendingSelection.model, effort: pendingSelection.effort ?? undefined } : undefined;
   const selection = (restartBased ? applied : null) ?? pending ?? applied
     ?? { model: currentModel ?? "", effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor?.agent_runtime?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) };
   const modelName = descriptor?.available_models.find((model) => matchesModel(model, selection.model))?.display_name

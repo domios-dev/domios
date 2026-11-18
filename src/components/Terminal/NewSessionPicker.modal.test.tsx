@@ -602,8 +602,8 @@ it("passes the selected account after the launch-profile position for a single-p
   expect(fixture.actions.spawnAgentTab).toHaveBeenCalledExactlyOnceWith("workspace", "opencode", "/workspace", undefined, undefined, undefined, undefined, undefined, undefined, "work");
 });
 
-it("binds Team account choices to their own seats and hides both selectors for a single account", async () => {
-  fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode", available_models: [], reasoning_efforts: [], accounts: {} }] as never[];
+it("keeps grouped Team model pickers beside independent account controls and hides a single account", async () => {
+  fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode", available_models: [{ id: "alpha", display_name: "Alpha", group: "Family one" }, { id: "beta", display_name: "Beta", group: "Family two" }], reasoning_efforts: [], accounts: {} }] as never[];
   const onlyAccount = { id: "default", identity: "home@example.test", status: "ready", tabsInUse: 0 } as const;
   const otherAccount = { id: "work", identity: "other@example.test", status: "ready", tabsInUse: 0 } as const;
   fixture.accounts.snapshot = { providerId: "opencode", revision: "opaque", accounts: [onlyAccount],
@@ -618,6 +618,18 @@ it("binds Team account choices to their own seats and hides both selectors for a
   fixture.accounts.snapshot = { ...fixture.accounts.snapshot, accounts: [onlyAccount, otherAccount] };
   await renderPicker();
   const [orchestrator, planner] = accountButtons();
+  expect(accountButtons()).toHaveLength(2);
+  const groupedPicker = buttonNamed("Orchestrator model");
+  expect(groupedPicker?.getAttribute("aria-haspopup")).toBe("dialog");
+  expect(groupedPicker?.disabled).toBe(false);
+  await act(async () => groupedPicker!.click());
+  const modelDialog = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).at(-1)!;
+  const secondGroup = Array.from(modelDialog.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"))
+    .find(button => button.getAttribute("aria-label")?.startsWith("Family two,"));
+  expect(secondGroup).toBeDefined();
+  await act(async () => secondGroup!.click());
+  expect(secondGroup?.getAttribute("aria-expanded")).toBe("true");
+  await act(async () => modelDialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })));
   expect(accountButtons()).toHaveLength(2);
   expect(orchestrator.getAttribute("aria-label")).toBe("Account: home@example.test");
   await act(async () => planner.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
