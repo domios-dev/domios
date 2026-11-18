@@ -17,9 +17,10 @@ import {
   type EssenceMapNode,
 } from "./essenceMapModel";
 
-vi.mock("../../hooks/useAgentProviders", () => ({
-  useAgentProviders: () => ({ providers: [], loading: false, error: null, refetch: () => {} }),
-}));
+vi.mock("../../hooks/useAgentProviders", () => {
+  const catalogue = { providers: [], loading: false, error: null, refetch: () => {} };
+  return { useAgentProviders: () => catalogue };
+});
 
 vi.mock("../../hooks/useConfig", () => ({
   useConfig: () => ({

@@ -6,7 +6,7 @@ Commands: `domios plugin browser <verb> [args]`. `help`/`--help` works before op
 
 Use this browser for web tasks and UI verification while the user watches. Use HTTP/APIs for plain data.
 
-Delegate multi-step flows over 10,000 output characters to a Worker for a short result/evidence/blocker report to its parent. Set command/time bounds; stop at bot/auth walls. Scope direct checks with grep and `--out`.
+Delegate flows over 10,000 output characters to a Worker for a short evidence report. Bound commands, stop at bot/auth walls and scope output with `--grep` or `--out`.
 
 ## Your browser
 
@@ -53,17 +53,17 @@ Stop when `status` reports `needs human` other than `none`: captcha, missing log
 
 ## Device viewport and capture metrics
 
-Each browser keeps its own fixed viewport. When a viewer starts it, that surface's initial size sets the viewport; an agent-started browser uses its initial desktop size until explicitly changed. Other viewers scale and letterbox the stream to fit, preserving its aspect ratio.
+The starting viewer sets a fixed viewport. Agent-started browsers use their initial desktop size. Other viewers scale and letterbox the stream.
 
-**Take control** sets the viewport to that client's current surface size and makes that client the size owner. Layout changes, focus, visibility, tab switches, disconnects and reconnects never resize the browser or transfer ownership. Press Take control again to match a changed screen.
+**Take control** grants size ownership and fits the viewport to that client. Layout, focus, visibility, tab switches and reconnects leave it fixed. Use Take control again after resizing.
 
-Actions show a cursor and typing ring; secrets stay masked. Viewer input hides them without waiting on the page. Evidence omits them unless `--include-overlay` is requested.
+Viewer input hides the action cursor and typing ring. Evidence omits them unless you use `--include-overlay`. Secrets stay masked.
 
-`viewport set 390 844 --mobile --dpr 2` applies mobile device metrics to your owned target. Attached application targets refuse device emulation. The size and mobile mode stay fixed until another explicit viewport command or Take control.
+`viewport set 390 844 --mobile --dpr 2` applies fixed mobile metrics to an owned target. Attached application targets refuse device emulation.
 
-Owned mobile viewports enable touch emulation; use viewport commands to change modes, as external CDP emulation changes are outside the browser's state contract.
+Mobile viewports enable touch. Change modes with viewport commands.
 
-Screenshot replies report CSS viewport width/height and DPR; recheck coordinates after resizing. `screenshot phone.png --viewport 390x844 --mobile --dpr 2 --restore --metrics-json` adds layout/content/CDP metrics. `--restore` restores prior metrics even after failure; otherwise they stay active.
+Screenshots report CSS dimensions and DPR. Recheck coordinates after resizing. `screenshot phone.png --viewport 390x844 --mobile --dpr 2 --restore --metrics-json` includes layout/content/CDP metrics and restores prior settings even on failure.
 
 ## Scoped atomic actions
 

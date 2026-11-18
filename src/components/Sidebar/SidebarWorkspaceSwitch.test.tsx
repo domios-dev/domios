@@ -27,7 +27,10 @@ vi.mock("../../store/multiplexer/hooks", async () => {
     useMuxSelector: (select: (state: object) => unknown) => select(useSyncExternalStore(subscribe, () => mux.state)),
   };
 });
-vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false }) }));
+vi.mock("../../hooks/useAgentProviders", () => {
+  const catalogue = { providers: [], loading: false };
+  return { useAgentProviders: () => catalogue };
+});
 vi.mock("../../hooks/useTouchOptimizedUi", () => ({ useTouchOptimizedUi: () => false }));
 vi.mock("../../lib/bridge", async (actual) => ({ ...await actual<object>(), invoke: vi.fn().mockResolvedValue([]), listen: vi.fn().mockResolvedValue(() => {}) }));
 vi.mock("../../lib/outputStream", async actual => ({ ...await actual<object>(), subscribeTabOutput: vi.fn(() => () => {}) }));

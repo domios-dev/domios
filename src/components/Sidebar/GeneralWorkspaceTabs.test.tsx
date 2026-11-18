@@ -112,7 +112,7 @@ async function run() {
     const spawns = requests.filter((request) => request.command === "spawn_general_agent_session");
     assert.deepEqual(spawns, [{ command: "spawn_general_agent_session", args: { params: {
       workspaceId: "general", providerId: "chosen-provider", cwd: "/instance/general",
-      model: "chosen-model", reasoningEffort: "high", preset: undefined,
+      model: "chosen-model", reasoningEffort: "high", preset: undefined, accountId: undefined,
       role: "general_agent", intent: "fresh_general",
     } } }]);
     assert(!requests.some((request) => request.command === "mux_spawn_tab"));
