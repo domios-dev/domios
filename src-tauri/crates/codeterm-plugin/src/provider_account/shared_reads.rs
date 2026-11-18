@@ -143,6 +143,10 @@ impl PinnedSharedReadGrant {
         &self.resolved
     }
 
+    pub(super) fn directory_target(&self) -> Option<&Path> {
+        matches!(self.grant, SharedReadGrant::Directory { .. }).then_some(self.resolved.as_path())
+    }
+
     pub(super) fn allows(&self, target: &Path) -> bool {
         codeterm_util::project_roots::canonical_target(self.grant.root()).as_deref()
             == Some(self.resolved.as_path())

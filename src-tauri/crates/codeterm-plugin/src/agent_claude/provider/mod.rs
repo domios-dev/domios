@@ -366,16 +366,19 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn session_exists(&self, cwd: &str, session_id: &str) -> Option<bool> {
-        let dir = sessions::sessions_dir(cwd)?;
-        let root = dir.parent()?;
+        let root = read_home::config_root()?.join("projects");
+        let root = crate::provider_account::exact_session_read_root(self.id(), &root)?;
         let filename = format!("{session_id}.jsonl");
         let exists = |path: &std::path::Path| {
-            crate::session_evidence::exact_transcript_exists(root, path, &filename)
+            crate::session_evidence::exact_transcript_exists(&root, path, &filename)
         };
         Some(
             crate::session_evidence::stored_transcript_path(session_id)
                 .is_some_and(|path| exists(&path))
-                || exists(&dir.join(&filename)),
+                || {
+                    let project = sessions::encode_cwd(&codeterm_paths::canonical_cwd(cwd));
+                    exists(&root.join(project).join(&filename))
+                },
         )
     }
 
