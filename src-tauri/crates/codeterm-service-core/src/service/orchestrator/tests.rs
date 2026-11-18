@@ -381,13 +381,13 @@ fn test_build_claude_no_task() {
         assert!(cmd.contains("[System.Text.Encoding]::UTF8"));
         assert!(cmd.contains(" claude --dangerously-skip-permissions --settings "));
     } else {
-        let program = if cfg!(target_os = "macos") {
-            "LC_ALL=C TZ=UTC0 claude"
+        let locale = if cfg!(target_os = "macos") {
+            "LC_ALL=C TZ=UTC0 "
         } else {
-            "claude"
+            ""
         };
         assert!(cmd.starts_with(&format!(
-            "unset CLAUDECODE && {program} --dangerously-skip-permissions --settings "
+            "unset CLAUDECODE && {locale}claude --dangerously-skip-permissions --settings "
         )));
     }
 }

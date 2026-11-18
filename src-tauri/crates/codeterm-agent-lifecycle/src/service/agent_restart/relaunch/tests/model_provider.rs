@@ -24,6 +24,14 @@ fn model_provider_fresh_pty_resume_keeps_tab_session_and_transcript() {
     let manifest: PluginManifest =
         serde_json::from_slice(&std::fs::read(plugin.join("plugin.json")).unwrap()).unwrap();
     let mut source = std::fs::read_to_string(plugin.join("plugin.js")).unwrap();
+    source.push_str(
+        r#"
+host.io.exec = function* (options) {
+    if (options.args[0] === "--help") return {code: 0, stdout: "--hostname --port --model"};
+    throw new Error("unexpected command in legacy resume fixture");
+};
+"#,
+    );
     source.push_str(&format!(
         "\nconst priorEnvGet = host.envGet; host.envGet = name => name === 'OPENCODE_DB' ? {} : priorEnvGet(name);",
         serde_json::to_string(db.to_str().unwrap()).unwrap(),
