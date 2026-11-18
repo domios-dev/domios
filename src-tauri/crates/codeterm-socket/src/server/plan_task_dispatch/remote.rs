@@ -12,6 +12,7 @@ pub(super) mod brief;
 // The peer creates a lane and launches the Worker before answering; a busy Windows peer
 // outlives the 5s unary default, which closed live attempts as peer_offline.
 const WORKER_DISPATCH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
+const WORKER_LANE_BUNDLE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
 fn encoded_bundle_size_allowed(encoded_size: usize, max_bundle_bytes: usize) -> bool {
     encoded_size <= max_bundle_bytes.div_ceil(3) * 4
@@ -552,9 +553,12 @@ pub(crate) fn merge_lane(
         "attempt_id": attempt_id,
         "report_sha": report_sha,
     });
-    let response = codeterm_service_core::async_runtime::block_on(
-        peer_client.auth_post_json("/api/mesh/worker-lane-bundle", &request),
-    );
+    let response =
+        codeterm_service_core::async_runtime::block_on(peer_client.auth_post_json_within(
+            "/api/mesh/worker-lane-bundle",
+            &request,
+            Some(WORKER_LANE_BUNDLE_DEADLINE),
+        ));
     let response = match response {
         Ok(response) => response,
         Err(error) => {
@@ -819,11 +823,14 @@ mod tests {
 
     #[test]
     fn mesh_remote_dispatch_peer_refusal_is_not_relay_lost() {
-        let refused = remote_error_state(
-            "HTTP error: peer_worker_spawn_failed: startup supervisor unavailable",
-        );
-        assert_eq!(refused.0, RemoteDispatchState::PeerRefused);
-        assert_ne!(refused.0, RemoteDispatchState::RelayLost);
+        for detail in [
+            "HTTP error: 500 Internal Server Error: peer_worker_spawn_failed: startup supervisor unavailable",
+            "HTTP error: 413 Payload Too Large: worker lane bundle exceeds 32 MiB",
+        ] {
+            let (state, label) = remote_error_state(detail);
+            assert_eq!(state, RemoteDispatchState::PeerRefused);
+            assert!(remote_failure(label, "attempt", detail).message.ends_with(detail));
+        }
         assert_eq!(
             remote_error_state("Bad response: expected value").0,
             RemoteDispatchState::RelayLost,
