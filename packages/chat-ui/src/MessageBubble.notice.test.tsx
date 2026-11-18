@@ -3,6 +3,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 
 import { formatAttachmentMarker, type NormalizedChatMessage } from "@codeterm/chat-core";
+import { configureLocalArtifactLoader } from "./localArtifactLoader";
 import { MessageBubble } from "./MessageBubble";
 
 const windowInstance = new Window({ url: "http://localhost/chat-ui-notice-tests" });
@@ -27,6 +28,9 @@ const snip = [
   "**User says:** what is inside?",
 ].join("\n");
 
+const logPath = "/tmp/run.log";
+const logPreview = "job finished";
+
 async function run() {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -35,9 +39,14 @@ async function run() {
   const fileNotice: NormalizedChatMessage = {
     id: "file-notice",
     type: "user",
-    content: `Logs attached\n${formatAttachmentMarker("/tmp/run.log", "file")}`,
+    content: `Logs attached\n${formatAttachmentMarker(logPath, "file")}`,
     inboundKind: "system",
   };
+
+  configureLocalArtifactLoader(async (path, kind) => {
+    if (path !== logPath || kind !== "document") throw new Error("Unexpected attachment read");
+    return { data: logPreview, media_type: "text/plain" };
+  });
 
   await act(async () => {
     root.render(
@@ -60,7 +69,13 @@ async function run() {
   assert(bold.includes("Page:") && bold.includes("User says:"), "markdown bold renders after the marker line");
   assert(!snipCard.textContent?.includes("**Page:**"), "no raw markdown asterisks remain");
   assert(snipCard.querySelector("code")?.textContent === "https://developer.apple.com/", "inline code renders");
-  assert(fileCard?.querySelector('button[aria-label="Preview file run.log"]'), "a notice's file marker renders as a file chip");
+  assert(fileCard, "the file notice renders");
+  const fileChip = fileCard.querySelector<HTMLButtonElement>('button[aria-label="run.log, file"]');
+  assert(fileChip, "a notice's file marker renders as a file chip");
+  assert(!fileCard.textContent?.includes("<domios"), "the file marker never shows as raw text");
+  await act(async () => fileChip.click());
+  const preview = document.querySelector('[role="region"][aria-label="Preview run.log"]');
+  assert(preview?.textContent?.includes(logPreview), "the file chip opens the notice attachment preview");
 
   for (const [id, body, fragment] of [
     ["worker-reminder", '<codeterm-worker-charter task="task_q">\nworker-frag\n</codeterm-worker-charter>', "worker-frag"],
@@ -89,6 +104,7 @@ async function run() {
   }
 
   await act(async () => root.unmount());
+  configureLocalArtifactLoader(null);
   host.remove();
   console.log("ok - notice cards render markdown and attachments");
 }

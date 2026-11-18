@@ -453,6 +453,7 @@ test("model dropdown groups models into collapsible provider sections", async ()
     { id: "beta/one", display_name: "Beta One", group: "beta" },
     { id: "alpha/two", display_name: "Alpha Two", group: "alpha" },
   ];
+  const changes: string[] = [];
   const { host, root } = await render(
     <OrchestrationRoleRow
       label="Agent"
@@ -460,44 +461,38 @@ test("model dropdown groups models into collapsible provider sections", async ()
       providerId="provider-x"
       modelId="alpha/one"
       onProviderChange={() => {}}
-      onModelChange={() => {}}
+      onModelChange={(model) => changes.push(model)}
       modelTestId="grouped-model"
     />,
   );
-  await openDropdown(host.querySelector('[data-testid="grouped-model"]')!);
-
-  const headers = Array.from(
-    document.querySelectorAll('[data-testid^="grouped-model-group-"]'),
-  ) as HTMLButtonElement[];
+  await click(host.querySelector('[data-testid="grouped-model"]'));
+  const picker = document.querySelector('[role="dialog"]');
+  assert(picker, "the grouped model control opens a dialog");
+  const headers = Array.from(picker.querySelectorAll('button[aria-expanded][aria-controls]'));
   assert(headers.length === 2, `expected two provider sections, got ${headers.length}`);
+  const alpha = picker.querySelector('[role="listbox"][aria-label="alpha"]');
+  const beta = picker.querySelector('[role="listbox"][aria-label="beta"]');
+  assert(alpha && beta, "the listboxes use the provider's group names");
+  const alphaHeader = headers.find((header) => header.getAttribute("aria-controls") === alpha.id);
+  const betaHeader = headers.find((header) => header.getAttribute("aria-controls") === beta.id);
+  assert(alphaHeader && betaHeader, "each group button controls its own listbox");
+  assert(alphaHeader.getAttribute("aria-expanded") === "true", "the current model's group starts expanded");
+  assert(betaHeader.getAttribute("aria-expanded") === "false", "the other group starts collapsed");
   assert(
-    document.querySelector('[data-testid="grouped-model-option-alpha/two"]') !== null,
-    "a section lists every model that declares it",
+    [...alpha.querySelectorAll('[role="option"]')].map((option) => option.getAttribute("aria-label")).join("|") === "Alpha One, current|Alpha Two",
+    "the current section lists every model that declares it",
   );
-  assert(
-    headers[0].getAttribute("aria-expanded") === "true",
-    "sections start expanded",
-  );
+  assert(beta.hasAttribute("hidden") && !beta.querySelector('[role="option"]'), "the collapsed group hides its options");
+  await click(betaHeader);
+  await click(alphaHeader);
+  assert(alphaHeader.getAttribute("aria-expanded") === "false", "the collapsed header reports its state");
+  assert(alpha.hasAttribute("hidden") && !alpha.querySelector('[role="option"]'), "collapsing a section hides its models");
+  assert(beta.querySelector('[role="option"][aria-label="Beta One"]'), "collapsing one section leaves the others open");
 
-  await click(headers[0]);
-  assert(
-    document.querySelector('[data-testid="grouped-model-option-alpha/one"]') === null,
-    "collapsing a section hides its models",
-  );
-  assert(
-    document.querySelector('[data-testid="grouped-model-option-beta/one"]') !== null,
-    "collapsing one section leaves the others open",
-  );
-  assert(
-    headers[0].getAttribute("aria-expanded") === "false",
-    "the collapsed header reports its state",
-  );
-
-  await click(headers[0]);
-  assert(
-    document.querySelector('[data-testid="grouped-model-option-alpha/one"]') !== null,
-    "expanding a section restores its models",
-  );
+  await click(alphaHeader);
+  assert(alphaHeader.getAttribute("aria-expanded") === "true", "the reopened header reports its state");
+  await click(alpha.querySelector('[role="option"][aria-label="Alpha Two"]'));
+  assert(changes.join(",") === "alpha/two", "the restored option commits the exact model");
   await act(async () => root.unmount());
 });
 

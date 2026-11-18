@@ -1,7 +1,8 @@
 // Run: npx tsx src/store/multiplexer/index.test.tsx
 // codeterm#336 part B: mux_get_state call counts against an injected fake, gated on observed signals only.
 
-export {};
+import type { RemotePeerTabs } from "../../lib/remoteTabPortal";
+import type { MeshPeersResponse, Tab } from "../../lib/types";
 
 process.env.VITE_CODETERM_TEST = "1";
 
@@ -104,6 +105,22 @@ interface Deferred<T> {
   reject: (error: unknown) => void;
 }
 
+const onlinePeer: MeshPeersResponse["paired"][number] = {
+  instance_id: "peer",
+  instance_name: "Peer",
+  addresses: [],
+  api_port: 7685,
+  public_key: "",
+  paired_at: "2026-01-01T00:00:00Z",
+  last_seen: null,
+  online: true,
+  is_primary: false,
+  access_level: "full",
+  web_ui: null,
+  relay_protocol_version: 1,
+  last_active_ms: null,
+};
+
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;
@@ -122,7 +139,7 @@ async function mountProvider(options: {
   storageUnavailableInitialMux?: boolean;
   pairedPeerCount?: number;
   selectedLeaf?: boolean;
-  ordinaryTabs?: () => unknown[];
+  ordinaryTabs?: () => Tab[];
 } = {}) {
   (globalThis as unknown as { localStorage: FakeStorage }).localStorage.clear();
   (globalThis as unknown as { sessionStorage: FakeStorage }).sessionStorage.clear();
@@ -158,7 +175,17 @@ async function mountProvider(options: {
       return { orchestrator_tab_id: "new-lead", planner_tab_id: "new-planner" } as T;
     }
     if (cmd === "mesh_list_peers" && options.pairedPeerCount !== undefined) {
-      return { paired: Array.from({ length: options.pairedPeerCount }, () => ({ instance_id: "peer" })) } as T;
+      const response: MeshPeersResponse = {
+        paired: Array.from({ length: options.pairedPeerCount }, () => onlinePeer),
+        local_instance_name: "Local",
+      };
+      return response as T;
+    }
+    if (cmd === "mesh_peer_tabs_list") {
+      const peerId = args?.peerId;
+      if (peerId !== onlinePeer.instance_id) throw new Error(`Unexpected peer tab read: ${peerId}`);
+      const response: RemotePeerTabs = { peer_id: peerId, peer_name: onlinePeer.instance_name, tabs: [] };
+      return response as T;
     }
     if (cmd === "mux_get_state") {
       muxGetStateCalls++;
@@ -443,19 +470,22 @@ test("telemetry-only mux pushes skip the ordinary tab list for paired peers", as
 
 test("a remote peer tab appears on remote-workers-changed and leaves on mesh-state-changed", async () => {
   const remoteId = "mesh:peer/worker";
-  let peerTabs: unknown[] = [];
+  let peerTabs: Tab[] = [];
   const harness = await mountProvider({ pairedPeerCount: 1, ordinaryTabs: () => peerTabs });
-  assert(!harness.tabIds.includes(remoteId), "no remote tab before the peer registers one");
+  try {
+    assert(!harness.tabIds.includes(remoteId), "no remote tab before the peer registers one");
 
-  peerTabs = [{ id: remoteId, title: "Worker", pty_id: null, tab_type: "Terminal", cwd: null,
-    workspace_id: "ws-renewal", remote_peer_id: "peer", remote_tab_id: "worker", parent_tab_id: "lead" }];
-  await harness.act(async () => { harness.emit("remote-workers-changed", { orchestrator_tab_id: "lead", workers: {} }); });
-  await waitUntil(() => harness.tabIds.includes(remoteId), harness.act);
+    peerTabs = [{ id: remoteId, title: "Worker", pty_id: null, tab_type: "Terminal", cwd: null,
+      workspace_id: "ws-renewal", remote_peer_id: onlinePeer.instance_id, remote_tab_id: "worker", parent_tab_id: "lead" }];
+    await harness.act(async () => { harness.emit("remote-workers-changed", { orchestrator_tab_id: "lead", workers: {} }); });
+    assert(harness.tabIds.includes(remoteId), "the worker event adds the online peer's tab");
 
-  peerTabs = [];
-  await harness.act(async () => { harness.emit("mesh-state-changed"); });
-  await waitUntil(() => !harness.tabIds.includes(remoteId), harness.act);
-  await harness.unmount();
+    peerTabs = [];
+    await harness.act(async () => { harness.emit("mesh-state-changed"); });
+    assert(!harness.tabIds.includes(remoteId), "the mesh event removes the vanished tab while the peer is still online");
+  } finally {
+    await harness.unmount();
+  }
 });
 
 async function resyncCase(name: string, fire: () => Promise<void> | void) {
