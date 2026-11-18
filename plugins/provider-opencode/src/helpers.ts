@@ -440,21 +440,30 @@ export function* opencodeDbStamp(db: string): HostIoSteps<string | null> {
 }
 
 export function* withOpencodeGroupUsage<T>(then: (usage: ModelGroupUsage[]) => T | HostIoSteps<T>): HostIoSteps<T> {
+  let rows: ModelUsageRow[] = [];
+  try { rows = yield* readGroupUsageRows(); } catch { /* Balance remains readable without local spend history. */ }
+  const balance = yield* readDeepseekBalance();
+  return yield* ioResolve(then(groupUsageFromRows(rows, balance)));
+}
+
+function* readGroupUsageRows(): HostIoSteps<ModelUsageRow[]> {
   const db = opencodeDbPath();
-  if (!db || !(yield* host.io.fs.fileExists(db))) return yield* ioResolve(then([]));
+  if (!db || !(yield* host.io.fs.fileExists(db))) return [];
   const stamp = (yield* opencodeDbStamp(db));
   const cached = groupUsageCache;
   if (stamp && cached && cached.stamp === stamp && host.unixNowMs() - cached.atMs < GROUP_USAGE_TTL_MS) {
-    return yield* withGroupBalances(cached.rows, function*() { return (yield* ioResolve(then(groupUsageFromRows(cached.rows)))); });
+    return cached.rows;
   }
-  return (yield* ioSqlite<ModelUsageRow, T>(host.io.fs, db, GROUP_USAGE_SQL, [], function* (rows) {
+  return yield* ioSqlite<ModelUsageRow, ModelUsageRow[]>(host.io.fs, db, GROUP_USAGE_SQL, [], function* (rows) {
     const currentStamp = yield* opencodeDbStamp(db);
     groupUsageCache = stamp && currentStamp === stamp ? { stamp, atMs: host.unixNowMs(), rows } : null;
-    return yield* withGroupBalances(rows, function*() { return (yield* ioResolve(then(groupUsageFromRows(rows)))); });
-  }));
+    return rows;
+  });
 }
 
-function groupUsageFromRows(rows: ModelUsageRow[]): ModelGroupUsage[] {
+const DEEPSEEK_GROUP = "deepseek";
+
+function groupUsageFromRows(rows: ModelUsageRow[], balance: number | null): ModelGroupUsage[] {
   const out: ModelGroupUsage[] = [];
   for (let i = 0; i < rows.length; i++) {
     const group = rows[i].g;
@@ -470,52 +479,47 @@ function groupUsageFromRows(rows: ModelUsageRow[]): ModelGroupUsage[] {
       cost_micros: costMicros,
     };
     if (costMicros > 0) entry.spend_cents = Math.round(costMicros / 10_000);
-    const remaining = cachedBalanceCents(group);
-    if (remaining != null) entry.spend_remaining_cents = remaining;
+    if (group === DEEPSEEK_GROUP && balance != null) entry.spend_remaining_cents = balance;
     out.push(entry);
+  }
+  if (balance != null && !out.some(entry => entry.group === DEEPSEEK_GROUP)) {
+    out.push({
+      group: DEEPSEEK_GROUP,
+      messages: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      cost_micros: 0,
+      spend_remaining_cents: balance,
+    });
   }
   return out;
 }
 
-const BALANCE_BY_GROUP: Record<string, { url: string; secret: string }> = {
-  deepseek: { url: "https://api.deepseek.com/user/balance", secret: "deepseekKey" },
-};
-const BALANCE_CREDENTIAL = "opencodeAuth";
 const BALANCE_TTL_MS = 60_000;
 const BALANCE_TIMEOUT_MS = 4000;
-let balanceCache: { group: string; atMs: number; cents: number | null } | null = null;
-
-function balanceFresh(group: string, now: number): boolean {
-  return !!balanceCache && balanceCache.group === group && now - balanceCache.atMs < BALANCE_TTL_MS;
-}
-
-function cachedBalanceCents(group: string): number | null {
-  return BALANCE_BY_GROUP[group] && balanceCache && balanceCache.group === group ? balanceCache.cents : null;
-}
-
-// A stale balance is refreshed through a yielded fetch before the usage is built.
+let balanceCache: { atMs: number; cents: number | null } | null = null;
 let balanceRequestGeneration = 0;
 
-function* withGroupBalances<T>(rows: ModelUsageRow[], then: () => T | HostIoSteps<T>): HostIoSteps<T> {
-  const now = host.unixNowMs();
-  const group = rows.map(row => row.g).find(group => typeof group === "string" && BALANCE_BY_GROUP[group] && !balanceFresh(group, now));
-  if (typeof group !== "string") return yield* ioResolve(then());
+function* readDeepseekBalance(): HostIoSteps<number | null> {
+  if (balanceCache && host.unixNowMs() - balanceCache.atMs < BALANCE_TTL_MS) return balanceCache.cents;
   const generation = ++balanceRequestGeneration;
   let response: import("@codeterm/plugin-sdk").FetchResult | null = null;
-  try { response = yield* host.io.fetch(balanceRequest(group)); } catch { /* An unavailable balance stays unknown. */ }
-  if (generation === balanceRequestGeneration) balanceCache = { group, atMs: host.unixNowMs(), cents: balanceCentsFrom(response) };
-  return yield* ioResolve(then());
+  try { response = yield* host.io.fetch(deepseekBalanceRequest()); } catch { /* An unavailable balance stays unknown. */ }
+  const cents = balanceCentsFrom(response);
+  if (generation === balanceRequestGeneration) balanceCache = { atMs: host.unixNowMs(), cents };
+  return cents;
 }
 
-function balanceRequest(group: string): FetchOpts {
-  const spec = BALANCE_BY_GROUP[group];
+function deepseekBalanceRequest(): FetchOpts {
   return {
-    url: spec.url,
+    url: "https://api.deepseek.com/user/balance",
     method: "GET",
     timeoutMs: BALANCE_TIMEOUT_MS,
     credential: {
-      id: BALANCE_CREDENTIAL,
-      headers: { Authorization: "Bearer {" + spec.secret + "}" },
+      id: "opencodeAuth",
+      headers: { Authorization: "Bearer {deepseekKey}" },
     },
   };
 }
@@ -526,14 +530,11 @@ function balanceCentsFrom(response: { status?: number; body?: string } | null): 
     | { balance_infos?: Array<{ currency?: string; total_balance?: string }> }
     | null;
   const infos = body && Array.isArray(body.balance_infos) ? body.balance_infos : [];
-  let chosen: { currency?: string; total_balance?: string } | null = null;
-  for (let i = 0; i < infos.length; i++) {
-    if (infos[i] && infos[i].currency === "USD") { chosen = infos[i]; break; }
-  }
-  if (!chosen && infos.length > 0) chosen = infos[0];
-  if (!chosen || typeof chosen.total_balance !== "string") return null;
-  const total = parseFloat(chosen.total_balance);
-  return Number.isFinite(total) ? Math.round(total * 100) : null;
+  // The spend snapshot renders USD amounts.
+  const total = infos.find(info => info?.currency === "USD")?.total_balance;
+  if (typeof total !== "string" || !/^-?\d+(?:\.\d+)?$/.test(total)) return null;
+  const cents = Math.round(Number(total) * 100);
+  return Number.isSafeInteger(cents) ? cents : null;
 }
 
 // Utility functions

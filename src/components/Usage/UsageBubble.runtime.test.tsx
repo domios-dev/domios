@@ -124,6 +124,25 @@ const button=container.querySelector("button")!;
 assert.equal(button.getAttribute("aria-label"),"usage 120 tokens · $0.02");
 await act(async()=>button.dispatchEvent(new MouseEvent("click",{bubbles:true})));
 assert.match(document.querySelector('[role="status"]')?.textContent ?? "",/cached input: 30/);
+groupUsage = [{ group: "deepseek", spend_remaining_cents: 0 }];
+const renderModelSpend = (modelId: string) => act(async () => root.render(
+  <UsageBubble key="model-spend" provider="fixture" tabId="own" threadId="thread" trackingEnabled groupOnly
+    modelId={modelId} modelGroups={[{ id: "deepseek", label: "DeepSeek" }]} />,
+));
+await renderModelSpend("deepseek/deepseek-flash");
+assert.ok(container.querySelector('[aria-label="usage $0.00 left"]'), "a balance-only group shows alongside runtime usage");
+await act(async () => namedButton("usage $0.00 left").click());
+const balanceDetail = document.querySelector('[role="dialog"][aria-label="usage details"]');
+assert.match(balanceDetail?.textContent ?? "", /\$0\.00 left/);
+assert.doesNotMatch(balanceDetail?.textContent ?? "", /spend|spent/);
+groupUsage = [{ group: "deepseek", spend_cents: 34 }];
+await act(async () => emit());
+assert.ok(container.querySelector('[aria-label="usage $0.34"]'), "known spend survives an unknown balance");
+assert.match(balanceDetail?.textContent ?? "", /\$0\.34recorded spend/);
+assert.doesNotMatch(balanceDetail?.textContent ?? "", /left/);
+await renderModelSpend("another/model");
+assert.equal(container.querySelector("button"), null, "a different group cannot see the DeepSeek balance");
+groupUsage = [];
 const {useProviderModelUsageState} = await import("../../hooks/useProviderModelUsage");
 function GroupProbe() { const {usage} = useProviderModelUsageState("fixture"); return <output>{JSON.stringify(usage)}</output>; }
 await act(async()=>root.render(<GroupProbe/>));
