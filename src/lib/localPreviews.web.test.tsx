@@ -1,4 +1,4 @@
-import { type DaemonFake, muxMockFetch } from "./muxMockFetch.testdata";
+import { type DaemonFake, muxMockFetch, settleDaemon } from "./muxMockFetch.testdata";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -14,6 +14,7 @@ import { selfHost, setTokenFor } from "./webApi";
 let root: Root | null = null;
 let host: HTMLDivElement;
 let fetchMock: ReturnType<typeof vi.fn>;
+let retryOriginal: Promise<Response> | undefined;
 const requests: { path: string; body: unknown }[] = [];
 const previewImage = "data:image/jpeg;base64,cHJldmlldw==";
 const originalImage = "data:image/png;base64,cGl4ZWw=";
@@ -22,6 +23,7 @@ beforeEach(() => {
   __setListenForTest(async () => () => {});
   expect(IS_WEB).toBe(true);
   requests.length = 0;
+  retryOriginal = undefined;
   localStorage.clear();
   setTokenFor(selfHost(), "preview-fixture-token");
   configureLocalPreviews();
@@ -33,7 +35,9 @@ beforeEach(() => {
     if (path.endsWith("/preview/prepare")) return new Response(JSON.stringify({ state: "ready", index_id: "fixture" }), { headers: { "Content-Type": "application/json" } });
     requests.push({ path, body });
     if (body.path === "/work/forbidden.md") return new Response('{"error":"Preview unavailable"}', { status: 404 });
-    if (body.kind === "image-original" && body.path === "/work/forbidden.png") return new Response('{"error":"Preview unavailable"}', { status: 404 });
+    if (body.kind === "image-original" && body.path === "/work/forbidden.png") {
+      return retryOriginal ?? new Response('{"error":"Preview unavailable"}', { status: 404 });
+    }
     const data = body.path === "/work/current.ts" ? { data: "const current = 42;", media_type: "text/plain" } : body.paths ? { paths: body.paths, home: "/home/fixture" }
       : body.kind === "image" ? { data: previewImage, media_type: "image/jpeg" }
       : body.kind === "image-original" ? { data: originalImage, media_type: "image/png" }
@@ -147,14 +151,29 @@ it.each(["Documents", "message capsule"])("downloads the scoped original from %s
   }
 });
 
-it("shows an original read refusal without downloading the preview", async () => {
+it("shows an original read refusal and clears it while retrying the original", async () => {
   await act(async () => root?.render(<LocalArtifactScope tabId="image-owner"><AttachmentCapsule attachment={{ kind: "image", path: "/work/forbidden.png" }} /></LocalArtifactScope>));
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Open image forbidden.png"]')!.click());
   const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
   try {
-    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Save forbidden.png"]')!.click());
+    const dialog = document.querySelector('[role="dialog"]')!;
+    const save = dialog.querySelector<HTMLButtonElement>('button[aria-label="Save forbidden.png"]')!;
+    expect(dialog.querySelector('button[aria-label="Close image"]')).not.toBeNull();
+    await act(async () => save.click());
     expect(click).not.toHaveBeenCalled();
-    expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toBe("Original image unavailable");
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toBe("Couldn't save the original image.");
+
+    let resolveRetry!: (response: Response) => void;
+    retryOriginal = new Promise<Response>(resolve => { resolveRetry = resolve; });
+    await act(async () => save.click());
+    expect(dialog.querySelector('[role="alert"]')).toBeNull();
+    expect(save.disabled).toBe(true);
+    await act(async () => {
+      resolveRetry(Response.json({ data: originalImage, media_type: "image/png" }));
+      await settleDaemon();
+    });
+    expect(click).toHaveBeenCalledOnce();
+    expect(save.disabled).toBe(false);
   } finally {
     click.mockRestore();
   }

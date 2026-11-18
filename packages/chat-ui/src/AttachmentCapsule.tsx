@@ -3,6 +3,7 @@ import { Fragment, useCallback, useContext, useId, useLayoutEffect, useRef, useS
 import { Button } from "./Button";
 import { AnchoredPopover } from "./AnchoredPopover";
 import { X, Maximize2, Mic, Diff, Film, File as FileIcon, FileText, Folder, FolderOpen, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
+import { CANVAS_GHOST_BUTTON } from "./CanvasToolbar";
 import { attachmentPreviewKind, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, visibleAttachmentLabel, inlineAttachmentSrc, type ChatAttachment, type PlacedAttachmentSegment } from "@codeterm/chat-core";
 import { capsuleSelectionText } from "./capsuleClipboard";
 import { DsRenderContext } from "./blocks/DsRenderContext";
@@ -70,6 +71,7 @@ export function CapsulePreview({ kind, path, label, actions, onClose, closeLabel
   const snippet = useLocalTextPreview(attachmentPreviewKind({ kind, path }) === "document" ? path : undefined);
   const Icon = CAPSULE_ICONS[kind];
   const touchClose = onClose && typeof window !== "undefined" && window.matchMedia?.("(hover: none)").matches ? onClose : undefined;
+  const imageActions = kind === "image" ? actions : undefined;
   return (
     <div role="region" aria-label={`Preview ${name}`} data-copy-skip
       className="select-none flex w-max max-w-[min(24rem,80vw)] flex-col gap-1.5 overflow-hidden rounded-xl border p-1.5 text-xs shadow-lg backdrop-blur-md"
@@ -79,7 +81,7 @@ export function CapsulePreview({ kind, path, label, actions, onClose, closeLabel
         color: "var(--ct-fg)",
       }}
     >
-      {(actions || touchClose) && <div role="group" aria-label="Preview actions" className="flex shrink-0 items-center justify-end gap-1">{actions}{touchClose && <Button variant="icon" aria-label={closeLabel} onClick={touchClose} style={{ minWidth: 44, minHeight: 44 }}><X size={18} aria-hidden /></Button>}</div>}
+      {(imageActions || touchClose) && <div role="group" aria-label="Preview actions" className="flex shrink-0 items-center justify-end gap-1">{imageActions}{touchClose && <Button variant="icon" aria-label={closeLabel} onClick={touchClose} style={{ minWidth: 44, minHeight: 44 }}><X size={18} aria-hidden /></Button>}</div>}
       {kind === "image" && (
         <div className="flex min-h-16 min-w-24 items-center justify-center overflow-hidden rounded-lg" style={{ background: "color-mix(in srgb, var(--ct-bg, #0d1117) 75%, transparent)" }}>
           {image.src
@@ -87,10 +89,11 @@ export function CapsulePreview({ kind, path, label, actions, onClose, closeLabel
             : image.failed ? <span role="alert">Image unavailable <button type="button" aria-label={`Retry image ${name}`} onClick={image.retry}>Retry</button></span> : <ImageIcon size={18} aria-hidden className="opacity-40" />}
         </div>
       )}
-      {kind !== "image" && <div className="flex min-w-0 items-center gap-1.5 px-1">
+      {kind !== "image" && <div className="flex min-w-0 flex-nowrap items-center gap-1.5 whitespace-nowrap px-1">
         <Icon size={12} aria-hidden className="shrink-0 opacity-70" />
         <span className="shrink-0 font-medium">{KIND_NAMES[kind]}</span>
         <span className="min-w-0 truncate font-mono text-[11px]" style={CAPSULE_DETAIL_STYLE} title={path}>{STORED_CONTEXT.has(kind) ? label : fileName(path)}</span>
+        {actions && <div role="group" aria-label="Preview actions" className="-my-1.5 ml-auto flex shrink-0 items-center gap-1">{actions}</div>}
       </div>}
       {snippet && (
         <pre
@@ -165,6 +168,8 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
   const opensImage = kind === "image" && Boolean(image.src);
   const opensFilePreview = filePreview !== undefined;
   const canReveal = localArtifactOpeningAvailable();
+  const showReveal = opensFilePreview && canReveal;
+  const showExpand = opensImage || kind === "video";
   const restoringFocus = useRef(false);
   const skipPreviewFocus = useRef(false);
   const closePreview = useCallback(() => {
@@ -219,9 +224,9 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
         <CapsuleContent attachment={attachment} labelContent={labelContent} decoration={decoration} spanProps={spanProps} />
       </button>
       <AnchoredPopover open={previewing && !open && !playing && !(kind === "image" && image.failed)} anchor={triggerRef} floatingRef={previewRef} placement="top-start" gap={0} onClose={closePreview} style={{ overflow: "auto" }} onPointerEnter={() => setPreviewing(true)} onPointerLeave={(event) => { if (event.pointerType === "mouse") setPreviewing(false); }}>
-          <CapsulePreview kind={kind} path={path} label={label} image={image} onClose={closePreview} closeLabel={`Close preview ${accessibleName}`} actions={<>{actions}
-            {opensFilePreview && canReveal && <Button ref={revealRef} variant="icon" aria-label={`Reveal ${accessibleName}`} title="Reveal in file manager" onClick={() => { closePreview(); revealLocalFile(path); }} style={{ minWidth: 44, minHeight: 44 }}><FolderOpen size={16} aria-hidden /></Button>}
-            {(opensImage || kind === "video") && <Button variant="icon" aria-label={`Expand ${kind} ${accessibleName}`} title="Expand" onClick={() => { triggerRef.current?.focus(); skipPreviewFocus.current = true; setPreviewing(false); if (kind === "video") setPlaying(true); else if (image.src) setOpen({ name: accessibleName, src: image.src, path }); }} style={{ minWidth: 44, minHeight: 44 }}><Maximize2 size={16} aria-hidden /></Button>}
+          <CapsulePreview kind={kind} path={path} label={label} image={image} onClose={closePreview} closeLabel={`Close preview ${accessibleName}`} actions={(actions || showReveal || showExpand) && <>{actions}
+            {showReveal && <button ref={revealRef} type="button" className={CANVAS_GHOST_BUTTON} aria-label={`Reveal ${accessibleName}`} title="Reveal in file manager" onClick={() => { closePreview(); revealLocalFile(path); }} style={{ minWidth: 44, minHeight: 44 }}><FolderOpen size={13} aria-hidden /><span className="@max-[560px]:hidden">Reveal</span></button>}
+            {showExpand && <Button variant="icon" aria-label={`Expand ${kind} ${accessibleName}`} title="Expand" onClick={() => { triggerRef.current?.focus(); skipPreviewFocus.current = true; setPreviewing(false); if (kind === "video") setPlaying(true); else if (image.src) setOpen({ name: accessibleName, src: image.src, path }); }} style={{ minWidth: 44, minHeight: 44 }}><Maximize2 size={16} aria-hidden /></Button>}
           </>} />
       </AnchoredPopover>
       {open && <ImageFullscreen image={open} anchorRef={anchorRef} onClose={close} onImageError={() => { image.markFailed(); close(); }} />}
