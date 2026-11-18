@@ -5,11 +5,11 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ${{ format('docker-smoke-{0}', github.ref) }}
+  group: release-docker-smoke
   cancel-in-progress: true
 jobs:
   smoke:
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/release/') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/release/next' }}
     strategy:
       fail-fast: false
       matrix:
