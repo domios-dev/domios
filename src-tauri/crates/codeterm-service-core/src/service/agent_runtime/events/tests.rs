@@ -293,15 +293,13 @@ fn append_requires_the_exact_thread_row_and_byte_offset() {
             content: "suffix".into(),
             offset,
         };
-        let event = translate_with_items(&source, &mut maps, true).unwrap();
-        assert!(matches!(event, RuntimeEvent::Notice { .. }));
-        fold(&mut maps, 1, &event);
+        assert!(translate_with_items(&source, &mut maps, true).is_none());
         assert_eq!(maps.items[0].item.content, "🌍");
     }
 }
 
 #[test]
-fn settled_turn_appends_are_refused_once_per_row() {
+fn settled_turn_appends_are_dropped_with_one_diagnostic_per_row() {
     let mut maps = RuntimeMaps::default();
     let turn = |id: &str, state| {
         translate(&AgentRuntimeEvent::TurnState {
@@ -327,13 +325,10 @@ fn settled_turn_appends_are_refused_once_per_row() {
         content: "late".into(),
         offset: 4,
     };
-    assert!(matches!(
-        translate_with_items(&append, &mut maps, false),
-        Some(RuntimeEvent::Notice { .. })
-    ));
     for _ in 0..100 {
         assert!(translate_with_items(&append, &mut maps, false).is_none());
     }
+    assert_eq!(maps.reconciliation_misses.len(), 1);
     assert_eq!(maps.items[0].item.content, "🌍");
     assert!(matches!(
         translate_with_items(&append, &mut maps, true),
@@ -395,9 +390,7 @@ fn tool_patches_cannot_blank_or_retype_conversation_rows() {
                 ..Default::default()
             },
         };
-        let event = translate_with_items(&patch, &mut maps, false).unwrap();
-        assert!(matches!(event, RuntimeEvent::Notice { .. }));
-        fold(&mut maps, 1, &event);
+        assert!(translate_with_items(&patch, &mut maps, false).is_none());
         assert_eq!(maps.items[0].item, original);
     }
 }

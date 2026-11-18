@@ -172,11 +172,17 @@ fn create_lane_bundle_with_limit(
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let bundle_path = temp.path().join("worker-lane.bundle");
     let mut command = codeterm_util::process_util::git_command();
-    let output = command
+    command
         .current_dir(&checkout)
         .args(["bundle", "create"])
         .arg(&bundle_path)
-        .arg(&reference)
+        .arg(&reference);
+    if request.base_commit == lane_tip {
+        command.arg("--max-count=1");
+    } else {
+        command.arg(format!("^{}", request.base_commit));
+    }
+    let output = command
         .output()
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     if !output.status.success() {
@@ -274,6 +280,8 @@ mod tests {
     use crate::routes::AppState;
     use codeterm_service_core::mesh::types::AccessLevel;
     use codeterm_service_core::service::test_fixture::ServiceFixture;
+
+    mod bundle_range;
 
     fn app_state(fixture: &ServiceFixture) -> crate::routes::AppState {
         let config = codeterm_service_core::config::schema::AppConfig::default();

@@ -1036,6 +1036,320 @@
     },
     "providerSettings": {}
   },
+  "streamAndInterrupt": {
+    "source": "OpenCode 2.3.0 Windows binary above, isolated XDG homes and loopback model. Ordered wire subset from a reasoning, shell and text turn followed by a second execution interrupted while active. Session ID and location normalized.",
+    "frames": [
+      {
+        "kind": "notification",
+        "method": "http/event",
+        "params": {
+          "id": "evt_1ed93e078001PCBJtnuxdW60Zp",
+          "created": 1794987253880,
+          "type": "session.execution.started",
+          "data": {
+            "sessionID": "ses_owned"
+          },
+          "durable": {
+            "aggregateID": "ses_owned",
+            "seq": 2,
+            "version": 1
+          }
+        }
+      },
+      {
+        "kind": "notification",
+        "method": "http/event",
+        "params": {
+          "id": "evt_1ed93e107001CzQmankRnoofik",
+          "created": 1794987254023,
+          "type": "session.reasoning.started",
+          "location": {
+            "directory": "/fixture"
+          },
+          "data": {
+            "sessionID": "ses_owned",
+            "assistantMessageID": "msg_1ed93e0ae0015idd9EQU6bDR92",
+            "ordinal": 0,
+            "native": {
+              "reasoningField": "reasoning_content"
+            }
+          },
+          "durable": {
+            "aggregateID": "ses_owned",
+            "seq": 7,
+            "version": 1
+          }
+        }
+      },
+      {
+        "kind": "notification",
+        "method": "http/event",
+        "params": {
+          "id": "evt_1ed93e10b001TyybNXgvDI56Im",
+          "created": 1794987254027,
+          "type": "session.reasoning.delta",
+          "location": {
+            "directory": "/fixture"
+          },
+          "data": {
+            "sessionID": "ses_owned",
+            "assistantMessageID": "msg_1ed93e0ae0015idd9EQU6bDR92",
+            "ordinal": 0,
+            "delta": "Thinking before tool."
+          }
+        }
+      },
+      {
+        "kind": "notification",
+        "method": "http/event",
+        "params": {
+          "id": "evt_1ed93e10b002J9vfl51Ph8gifk",
+          "created": 1794987254027,
+          "type": "session.tool.input.started",
+          "location": {
+            "directory": "/fixture"
+          },
+          "data": {
+            "sessionID": "ses_owned",
+            "assistantMessageID": "msg_1ed93e0ae0015idd9EQU6bDR92",
+            "id": "call_fixture",
+            "name": "shell"
+          },
+          "durable": {
+            "aggregateID": "ses_owned",
+            "seq": 8,
+            "version": 1
+          }
+        }
+      },
+      {
+        "kind": "notification",
+        "method": "http/event",
+        "params": {
+          "id": "evt_1ed93e10f0014hY93Hh65TQSns",
+          "created": 1794987254031,
+          "type": "session.reasoning.ended",
+          "location": {
+            "directory": "/fixture"
+          },
+          "data": {
+            "sessionID": "ses_owned",
+            "assistantMessageID": "msg_1ed93e0ae0015idd9EQU6bDR92",
+            "ordinal": 0,
+            "text": "Thinking before tool.",
+            "native": {
+              "reasoningField": "reasoning_content"
+            }
+          },
+          "durable": {
+            "aggregateID": "ses_owned",
+            "seq": 9,
+            "version": 1
+          }
+        }
+      },
+      {
+        "kind": "notification",
+        "method": "http/event",
+        "params": {
+          "id": "evt_1ed93e113001dCuiAT265Fd391",
+          "created": 1794987254035,
+          "type": "session.tool.called",
+          "location": {
+            "directory": "/fixture"
+          },
+          "data": {
+            "sessionID": "ses_owned",
+            "assistantMessageID": "msg_1ed93e0ae0015idd9EQU6bDR92",
+            "id": "call_fixture",
+            "input": {
+              "command": "echo fixture-stream",
+              "description": "Fixture shell",
+              "timeout": 1000
+            },
+            "executed": false
+          },
+          "durable": {
+            "aggregateID": "ses_owned",
+            "seq": 11,
+            "version": 1
+          }
+        }
+      },
+      {
+        "kind": "notification",
+        "method": "http/event",
+        "params": {
+          "id": "evt_1ed93e38f0024uY7XMvW8VYDEL",
+          "created": 1794987254671,
+          "type": "session.tool.progress",
+          "location": {
+            "directory": "/fixture"
+          },
+          "data": {
+            "sessionID": "ses_owned",
+            "assistantMessageID": "msg_1ed93e0ae0015idd9EQU6bDR92",
+            "id": "call_fixture",
+            "metadata": {
+              "shellID": "sh_1ed93e11c001NbFN5vpfOMa6QE"
+            }
+          }
+        }
+      },
+      {
+        "kind": "notification",
+        "method": "http/event",
+        "params": {
+          "id": "evt_1ed93e548001nUxbq1LLeVf7Qy",
+          "created": 1794987255112,
+          "type": "session.tool.success",
+          "location": {
+            "directory": "/fixture"
+          },
+          "data": {
+            "sessionID": "ses_owned",
+            "assistantMessageID": "msg_1ed93e0ae0015idd9EQU6bDR92",
+            "id": "call_fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "fixture-stream\r\n"
+              }
+            ],
+            "metadata": {
+              "status": "completed",
+              "truncated": false,
+              "exit": 0
+            },
+            "executed": false
+          },
+          "durable": {
+            "aggregateID": "ses_owned",
+            "seq": 13,
+            "version": 2
+          }
+        }
+      },
+      {
+        "kind": "notification",
+        "method": "http/event",
+        "params": {
+          "id": "evt_1ed93e56b001qTu156YvKQhzx0",
+          "created": 1794987255147,
+          "type": "session.text.started",
+          "location": {
+            "directory": "/fixture"
+          },
+          "data": {
+            "sessionID": "ses_owned",
+            "assistantMessageID": "msg_1ed93e559001ZRboNE9JohHRnk",
+            "ordinal": 0
+          },
+          "durable": {
+            "aggregateID": "ses_owned",
+            "seq": 17,
+            "version": 1
+          }
+        }
+      },
+      {
+        "kind": "notification",
+        "method": "http/event",
+        "params": {
+          "id": "evt_1ed93e56f0010ADkdaCeEZ1l6v",
+          "created": 1794987255151,
+          "type": "session.text.delta",
+          "location": {
+            "directory": "/fixture"
+          },
+          "data": {
+            "sessionID": "ses_owned",
+            "assistantMessageID": "msg_1ed93e559001ZRboNE9JohHRnk",
+            "ordinal": 0,
+            "delta": "Fixture response after shell."
+          }
+        }
+      },
+      {
+        "kind": "notification",
+        "method": "http/event",
+        "params": {
+          "id": "evt_1ed93e56f002SElr8oa0AH7G57",
+          "created": 1794987255151,
+          "type": "session.text.ended",
+          "location": {
+            "directory": "/fixture"
+          },
+          "data": {
+            "sessionID": "ses_owned",
+            "assistantMessageID": "msg_1ed93e559001ZRboNE9JohHRnk",
+            "ordinal": 0,
+            "text": "Fixture response after shell."
+          },
+          "durable": {
+            "aggregateID": "ses_owned",
+            "seq": 18,
+            "version": 1
+          }
+        }
+      },
+      {
+        "kind": "notification",
+        "method": "http/event",
+        "params": {
+          "id": "evt_1ed93e577001BKyzIIU4AAyQiG",
+          "created": 1794987255159,
+          "type": "session.execution.succeeded",
+          "data": {
+            "sessionID": "ses_owned"
+          },
+          "durable": {
+            "aggregateID": "ses_owned",
+            "seq": 21,
+            "version": 1
+          }
+        }
+      },
+      {
+        "kind": "notification",
+        "method": "http/event",
+        "params": {
+          "id": "evt_1ed93e582001fa0UYTE2PFNMow",
+          "created": 1794987255170,
+          "type": "session.execution.started",
+          "data": {
+            "sessionID": "ses_owned"
+          },
+          "durable": {
+            "aggregateID": "ses_owned",
+            "seq": 23,
+            "version": 1
+          }
+        }
+      },
+      {
+        "kind": "notification",
+        "method": "http/event",
+        "params": {
+          "id": "evt_1ed93e5c0001MaRRLzLMFM8jcS",
+          "created": 1794987255233,
+          "type": "session.execution.interrupted",
+          "data": {
+            "sessionID": "ses_owned",
+            "reason": "user"
+          },
+          "durable": {
+            "aggregateID": "ses_owned",
+            "seq": 27,
+            "version": 1
+          }
+        }
+      }
+    ],
+    "interrupt": {
+      "interrupted": true
+    }
+  },
   "capability": {
     "runtime": "http-sse",
     "command": {

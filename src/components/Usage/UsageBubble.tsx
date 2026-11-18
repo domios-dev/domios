@@ -39,6 +39,7 @@ interface UsageBubbleProps {
   /// Provider-declared model groups, so a group-spend capsule matches by id
   /// without core knowing any vendor.
   modelGroups?: ModelGroup[];
+  groupOnly?: boolean;
   /// The tab's reported context fill (`tab.context`). A harness with no quota windows shows it as the bubble value.
   context?: unknown;
   /// The harness name for the popover title.
@@ -58,6 +59,7 @@ export function UsageBubble({
   trackingEnabled = false,
   modelId = null,
   modelGroups,
+  groupOnly = false,
   context,
   providerLabel,
   borrowedAccount = false,
@@ -66,7 +68,7 @@ export function UsageBubble({
   // provider-scoped polled snapshot: it is the tab's own upstream group.
   const { usage: modelUsage, refresh: refreshModelUsage } = useProviderModelUsageState(
     provider,
-    trackingEnabled,
+    trackingEnabled && modelId != null && !borrowedAccount,
     accountId,
   );
   const groupUsage = modelId ? usageForModel(modelUsage, modelGroups, modelId) : null;
@@ -77,10 +79,10 @@ export function UsageBubble({
   const { snapshot, refresh, refetch } = useUsageSnapshot({
     provider,
     accountId,
-    enabled: trackingEnabled,
+    enabled: trackingEnabled && !groupOnly,
   });
-  const runtime = borrowedAccount ? null : ownRuntimeUsage(snapshot,tabId,threadId);
-  const active = borrowedAccount ? accountUsageSnapshot(snapshot) : runtime || snapshot?.runtime_usage
+  const runtime = borrowedAccount || groupOnly ? null : ownRuntimeUsage(snapshot,tabId,threadId);
+  const active = groupOnly ? groupSnapshot : borrowedAccount ? accountUsageSnapshot(snapshot) : runtime || snapshot?.runtime_usage
     ? latestUsageSnapshot(snapshot, tabId, threadId)
     : groupSnapshot ?? latestUsageSnapshot(snapshot);
   // The reading whose account rows (credits, session resets) this popover shows; a borrowing tab shows the native tab's.
@@ -134,11 +136,10 @@ export function UsageBubble({
   if (!active.parsed_ok && ageMs > ONE_HOUR_MS) return null;
 
   const isStale = ageMs > STALE_MS;
-  // to threshold against — render the cycle spend as a neutral pill.
-  const isSpend = active.spend_cents != null && active.session_pct == null && active.weekly_pct == null;
   const spendLabel = active.spend_remaining_cents != null
     ? `${formatSpend(active.spend_remaining_cents)} left`
-    : formatSpend(active.spend_cents ?? 0);
+    : active.spend_cents != null ? formatSpend(active.spend_cents) : null;
+  const isSpend = spendLabel != null && active.session_pct == null && active.weekly_pct == null;
   const sessionState = classify(active.session_pct);
   const weeklyState = classify(active.weekly_pct);
   const metrics = visibleUsageMetrics(active);
@@ -226,6 +227,7 @@ export function UsageBubble({
       {!tokenSession && isSpend && (
         <UsageSpendDetail
           snapshot={active}
+          spendCaption={active === groupSnapshot && active.spend_resets_at == null ? "recorded spend" : undefined}
           accountCreditsLabel={accountCreditsLabel}
           resetSection={resetSection}
           onRefresh={refreshUsage}

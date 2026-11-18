@@ -178,7 +178,8 @@ export function UsageDetail({ snapshot, accountCreditsLabel, onRefresh, onOpenHi
 }
 
 // the cycle spend and reset instead of the gauge/projection machinery.
-export function UsageSpendDetail({ snapshot, accountCreditsLabel, onRefresh, resetSection }: UsageDetailProps) {
+export function UsageSpendDetail({ snapshot, accountCreditsLabel, onRefresh, resetSection, spendCaption = "spent this cycle" }:
+  UsageDetailProps & { spendCaption?: string }) {
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
   const now = Date.now();
@@ -228,12 +229,14 @@ export function UsageSpendDetail({ snapshot, accountCreditsLabel, onRefresh, res
       {isStale && <StaleBanner snapshot={snapshot} now={now} />}
 
       <div className="ct-usage-spend">
-        <span className="amount">{formatSpend(snapshot.spend_cents ?? 0)}</span>
-        <span className="caption">spent this cycle</span>
+        {snapshot.spend_cents != null && <>
+          <span className="amount">{formatSpend(snapshot.spend_cents)}</span>
+          <span className="caption">{spendCaption}</span>
+        </>}
         {hasQuota && (
           <div className="quota">
-            <span>{remainingCents != null ? formatSpend(remainingCents) : "—"} left</span>
-            <span>{limitCents != null ? `${formatSpend(limitCents)} limit` : "limit —"}</span>
+            {remainingCents != null && <span>{formatSpend(remainingCents)} left</span>}
+            {limitCents != null && <span>{formatSpend(limitCents)} limit</span>}
           </div>
         )}
         <span className="reset">

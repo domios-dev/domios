@@ -84,7 +84,7 @@ import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "
 import { chatProjectionMonitor, chatResponsivenessTrace, scheduleAfterPaint } from "./chatProjectionDiagnostics";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
-import { PluginIcon } from "../Extensions/PluginIcon";
+import { OriginProviderAvatar, OriginPluginAvatar } from "./ChatOriginAvatar";
 import { getPluginProviderMeta, pluginProviderMetaVersion, subscribePluginProviderMeta } from "../../lib/pluginProviderMeta";
 import { usePluginDisplayNameResolver } from "../../hooks/usePluginProviderMeta";
 import type { ChatOrigin } from "../../lib/chatPrefixes";
@@ -129,6 +129,7 @@ import { requestChatMessageReveal } from "../../lib/chatMessageReveal";
 
 interface Props {
   inputStatus?: ReactNode;
+  modelUsage?: ReactNode;
   tabId: string;
   api?: ApiConfig;
   onError?: (msg: string) => void;
@@ -165,47 +166,13 @@ function rowReports(own: readonly OutboundReportEntry[] | undefined, following: 
 const NO_ASKS: readonly Notification[] = [];
 
 
-function OriginProviderAvatar({ providerId }: { providerId: string | null | undefined }) {
-  if (!providerId) return null;
-  return (
-    <span
-      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border"
-      style={{
-        background: "color-mix(in srgb, var(--ct-surface, #161b22) 86%, var(--ct-accent, #58a6ff) 14%)",
-        borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 28%, transparent)",
-        color: "var(--ct-fg)",
-      }}
-      aria-hidden
-    >
-      <AgentIcon providerId={providerId} className="text-[15px]" />
-    </span>
-  );
-}
-
-function OriginPluginAvatar({ pluginId, iconSvg }: { pluginId: string; iconSvg?: string | null }) {
-  const meta = getPluginProviderMeta(pluginId);
-  const resolvedIcon = iconSvg ?? meta?.iconSvg;
-  return (
-    <span
-      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border"
-      style={{
-        background: "color-mix(in srgb, var(--ct-surface, #161b22) 86%, var(--ct-accent, #58a6ff) 14%)",
-        borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 28%, transparent)",
-        color: "var(--ct-fg)",
-      }}
-      aria-hidden="true"
-    >
-      <PluginIcon plugin={{ icon_svg: resolvedIcon, icon_color: meta?.iconColor }} size={14} />
-    </span>
-  );
-}
-
 export function TabSessionChat(props: Props) {
   return <ComposerIssuesProvider key={props.tabId}><TabSessionChatBody {...props} /></ComposerIssuesProvider>;
 }
 
 function TabSessionChatBody({
   inputStatus,
+  modelUsage,
   tabId,
   api,
   onError,
@@ -1136,6 +1103,7 @@ function TabSessionChatBody({
             ? () => setBindingRecoveryOpen(true)
             : undefined}
           renderIdentity={tab ? (label) => <TabStatusLineModelPicker tab={tab} label={label} /> : undefined}
+          modelUsage={modelUsage}
           recovery={showRemoteState || (readOnly && !isConciergeTab(tab)) || launchedFailure ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
         />        {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
