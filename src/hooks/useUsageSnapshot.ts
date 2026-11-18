@@ -27,34 +27,36 @@ export interface UseUsageSnapshotResult {
 
 export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapshotResult {
   const { provider, accountId = null, enabled = true } = opts;
-  const [snapshot, setSnapshot] = useState<UsageLatestView | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+  const scope = JSON.stringify([provider, accountId]);
+  const [reading, setReading] = useState<{ scope: string; snapshot: UsageLatestView | null } | null>(null);
+  const [loadingScope, setLoadingScope] = useState<string | null>(null);
+  const [readError, setReadError] = useState<{ scope: string; message: string } | null>(null);
   // Held apart from read errors: the read that follows a failed refresh must not erase its cause.
-  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<{ scope: string; message: string } | null>(null);
   const [resetTick, setResetTick] = useState(0);
   const cancelledRef = useRef(false);
   const readSequence = useRef(0);
+  const snapshot = enabled && reading?.scope === scope ? reading.snapshot : null;
   const snapshotKey = snapshot ? JSON.stringify(snapshot) : null;
 
   const refetch = useCallback(async (event?: UsageSnapshotEvent) => {
     if (!enabled) return;
     const read = ++readSequence.current;
-    setLoading(true);
-    setError(null);
+    setLoadingScope(scope);
+    setReadError(null);
     try {
       const row = await readUsageOnEvent<UsageLatestView | null>(event, "usage_latest", {
         provider,
         accountId: accountId ?? undefined,
       }, invoke);
-      if (!cancelledRef.current && read === readSequence.current) setSnapshot(row ?? null);
+      if (!cancelledRef.current && read === readSequence.current) setReading({ scope, snapshot: row ?? null });
     } catch (e) {
       if (DEV_BUILD) console.debug("Background usage snapshot read failed", e);
-      if (!cancelledRef.current && read === readSequence.current) setError(String(e));
+      if (!cancelledRef.current && read === readSequence.current) setReadError({ scope, message: String(e) });
     } finally {
-      if (!cancelledRef.current && read === readSequence.current) setLoading(false);
+      if (!cancelledRef.current && read === readSequence.current) setLoadingScope(null);
     }
-  }, [provider, accountId, enabled]);
+  }, [provider, accountId, enabled, scope]);
 
   const refresh = useCallback(async () => {
     setRefreshError(null);
@@ -62,9 +64,9 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
       await invoke("usage_refresh", { provider, accountId: accountId ?? undefined });
     } catch (e) {
       if (DEV_BUILD) console.debug("Background provider usage refresh failed", e);
-      setRefreshError(String(e));
+      setRefreshError({ scope, message: String(e) });
     }
-  }, [provider, accountId]);
+  }, [provider, accountId, scope]);
 
   useEffect(() => {
     cancelledRef.current = false;
@@ -101,15 +103,16 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
       if (cancelledRef.current) return;
       const rolled = zeroExpiredResets(snapshot, Date.now());
       if (rolled !== snapshot) {
-        setSnapshot(rolled);
+        setReading({ scope, snapshot: rolled });
         refresh();
       }
       setResetTick((v) => v + 1);
     }, delay);
     return () => clearTimeout(t);
-  }, [snapshotKey, enabled, refresh, resetTick]);
+  }, [snapshotKey, enabled, refresh, resetTick, scope]);
 
-  return { snapshot, loading, error: error ?? refreshError, refetch, refresh };
+  const error = [readError, refreshError].find(entry => entry?.scope === scope)?.message ?? null;
+  return { snapshot, loading: enabled && loadingScope === scope, error: enabled ? error : null, refetch, refresh };
 }
 
 export interface UseUsageHistoryOptions {

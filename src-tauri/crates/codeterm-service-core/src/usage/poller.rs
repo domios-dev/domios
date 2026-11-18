@@ -382,13 +382,21 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
     {
         let svc = inner.svc.clone();
         let provider = key.provider.clone();
-        let fetched = tokio::task::spawn_blocking(move || {
-            svc.agent_registry
-                .with_provider(&provider, |p| p.model_group_usage())
+        let account = key.account_id.clone();
+        let fetched = codeterm_plugin::js_runtime::spawn_blocking(move || {
+            let invocation =
+                crate::service::provider_accounts::invocation(&svc, &provider, account.as_deref())?;
+            Ok::<_, String>(codeterm_plugin::provider_account::with_context(
+                invocation,
+                || {
+                    svc.agent_registry
+                        .with_provider(&provider, |p| p.model_group_usage())
+                },
+            ))
         })
         .await;
         match fetched {
-            Ok(Some(_)) => {
+            Ok(Ok(Some(_))) => {
                 on_success(&inner, &key);
                 emit_event(&inner.svc, &key, 0);
             }

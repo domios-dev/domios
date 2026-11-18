@@ -14,7 +14,7 @@ export function usageNormalize(raw: string): string {
 
 interface UsageBlock { pct: number | null; resetsMs: number | null }
 
-type UsageHost = Pick<import("@codeterm/plugin-sdk").Host, "io" | "expandHome" | "envGet" | "platform">;
+type UsageHost = Parameters<typeof readClaudeOAuthToken>[0];
 
 const CLAUDE_USAGE_KIND = "codeterm_usage_v1";
 
