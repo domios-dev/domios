@@ -225,7 +225,7 @@ fn receiver_grants_select_a_signed_client_using_the_opaque_mesh_account() {
         instance_id: "source-instance".into(),
         instance_name: "Source".into(),
         addresses: vec![PeerAddress {
-            ip: "100.84.159.37".into(),
+            ip: "192.0.2.21".into(),
             is_tailscale: true,
         }],
         api_port: 7707,
