@@ -221,6 +221,28 @@ describe("NewSessionPicker modal", () => {
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
   });
 
+  it("opens grouped agent models in the shared picker and selects a model immediately", async () => {
+    fixture.providers.providers = [{
+      id: "opencode", display_name: "OpenCode", default_model: "first", reasoning_efforts: [],
+      available_models: [
+        { id: "first", display_name: "First", group: "Primary" },
+        { id: "chosen", display_name: "Chosen", group: "Alternative" },
+      ],
+    }] as never[];
+    await renderPicker();
+    await act(async () => buttonNamed("Agent model")!.click());
+    const picker = dialog().querySelector<HTMLElement>('[role="dialog"][aria-labelledby]')!;
+    const primary = picker.querySelector<HTMLButtonElement>('button[aria-label="Primary, 1 model, expanded"]');
+    const alternative = picker.querySelector<HTMLButtonElement>('button[aria-label="Alternative, 1 model, collapsed"]')!;
+    expect(primary?.getAttribute("aria-expanded")).toBe("true");
+    expect(alternative.getAttribute("aria-expanded")).toBe("false");
+    expect(picker.querySelector('[role="option"][aria-label="Chosen"]')).toBeNull();
+    await act(async () => alternative.click());
+    await act(async () => picker.querySelector<HTMLElement>('[role="option"][aria-label="Chosen"]')!.click());
+    expect(picker.isConnected).toBe(false);
+    expect(buttonNamed("Agent model")?.getAttribute("data-value")).toBe("chosen");
+  });
+
   it("spawns the selected owned preset with its model once", async () => {
     fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode",
       available_models: [{ id: "live-model", display_name: "Live model" }], default_model: "live-model", reasoning_efforts: [] }] as never[];
