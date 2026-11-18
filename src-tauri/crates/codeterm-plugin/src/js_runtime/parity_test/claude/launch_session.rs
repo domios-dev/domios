@@ -4,7 +4,7 @@
 use super::*;
 use crate::agent_claude::provider::launch_session::PROCESS_REGISTRY_DIR_ENV;
 use crate::provider::{
-    AgentProvider, LaunchProcess, LaunchSessionDetection, LaunchSessionEvidence,
+    AgentLaunchParams, AgentProvider, LaunchProcess, LaunchSessionDetection, LaunchSessionEvidence,
     LaunchSessionSource,
 };
 use serde_json::json;
@@ -55,7 +55,11 @@ fn launch_session_detection_native_js_parity() {
         500,
         json!({"pid": 500, "sessionId": "sid-print", "procStart": "7000", "kind": "print"}),
     );
-    let _env = EnvGuard::new(&[(PROCESS_REGISTRY_DIR_ENV, registry.path().to_str().unwrap())]);
+    let _env = EnvGuard::new(&[
+        (PROCESS_REGISTRY_DIR_ENV, registry.path().to_str().unwrap()),
+        ("LC_ALL", "fr_FR.UTF-8"),
+        ("TZ", "America/New_York"),
+    ]);
     let (native, js) = pair();
 
     let own = Some(LaunchSessionDetection {
@@ -78,28 +82,69 @@ fn launch_session_detection_native_js_parity() {
     ];
     if cfg!(target_os = "macos") {
         use chrono::TimeZone;
-        let start = chrono::Local
-            .with_ymd_and_hms(2026, 11, 18, 11, 44, 8)
+        let fresh = AgentLaunchParams::default();
+        let resume = crate::provider::AgentResumeParams {
+            session_id: "own".into(),
+            ..Default::default()
+        };
+        for provider in [&native as &dyn AgentProvider, &js as &dyn AgentProvider] {
+            for params in [
+                crate::provider::LaunchSpecParams::Fresh(&fresh),
+                crate::provider::LaunchSpecParams::Resume(&resume),
+            ] {
+                let spec = provider.launch_spec(&params).unwrap();
+                assert_eq!(spec.env_set.get("LC_ALL").map(String::as_str), Some("C"));
+                assert_eq!(spec.env_set.get("TZ").map(String::as_str), Some("UTC0"));
+            }
+            for command in [
+                provider.build_launch_command(&fresh),
+                provider.build_resume_command_with_context(&resume).unwrap(),
+            ] {
+                assert!(command.contains("LC_ALL=C TZ=UTC0 "));
+            }
+        }
+        let start = chrono::Utc
+            .with_ymd_and_hms(2026, 11, 1, 5, 30, 0)
             .single()
             .unwrap()
             .timestamp_micros();
-        write(
-            2860,
-            json!({"pid":2860,"sessionId":"sid-macos","procStart":"Wed Nov 18 11:44:08 2026","kind":"interactive"}),
-        );
+        let later = start + 3_600_000_000;
+        for (pid, timestamp) in [
+            (2860, "Sun Nov  1 05:30:00 2026"),
+            (2861, "Sun Nov  1 06:30:00 2026"),
+            (2862, "Sun Nov  1 01:30:00 2026"),
+            (2863, "dim.  1 nov. 01:30:00 2026"),
+        ] {
+            write(
+                pid,
+                json!({"pid":pid,"sessionId":format!("sid-{pid}"),"procStart":timestamp,"kind":"interactive"}),
+            );
+        }
         cases.extend([
             (
                 evidence(vec![process(2860, 1, &start.to_string())]),
                 Some(LaunchSessionDetection {
-                    session_id: "sid-macos".into(),
+                    session_id: "sid-2860".into(),
                     source: LaunchSessionSource::PidRegistry,
                 }),
             ),
+            (evidence(vec![process(2860, 1, &later.to_string())]), None),
             (
-                evidence(vec![process(2860, 1, &(start + 1_000_000).to_string())]),
-                None,
+                evidence(vec![process(2861, 1, &later.to_string())]),
+                Some(LaunchSessionDetection {
+                    session_id: "sid-2861".into(),
+                    source: LaunchSessionSource::PidRegistry,
+                }),
             ),
         ]);
+        for timestamp in [start, later] {
+            for pid in [2862, 2863] {
+                cases.push((
+                    evidence(vec![process(pid, 1, &timestamp.to_string())]),
+                    None,
+                ));
+            }
+        }
     }
     for (index, (evidence, expected)) in cases.into_iter().enumerate() {
         assert_eq!(

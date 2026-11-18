@@ -35,7 +35,7 @@ pub(crate) enum SessionStart {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct TabSessionStart {
     reported_nonce: Option<String>,
-    hookless_nonce: Option<String>,
+    availability: Option<(String, bool)>,
 }
 
 #[derive(Default)]
@@ -49,7 +49,11 @@ pub(crate) fn session_start(record: Option<&TabSessionStart>, launch_nonce: &str
     };
     if record.reported_nonce.as_deref() == Some(launch_nonce) {
         SessionStart::Reported
-    } else if record.hookless_nonce.as_deref() == Some(launch_nonce) {
+    } else if record
+        .availability
+        .as_ref()
+        .is_some_and(|(nonce, available)| nonce == launch_nonce && !available)
+    {
         SessionStart::HooksUnavailable
     } else {
         SessionStart::Awaited
@@ -197,34 +201,43 @@ impl ServiceContext {
         )
     }
 
-    /// Reads the provider's install report once for this launch; without hooks in
-    /// place no session-start report can come, so readiness follows the input attach.
-    fn settle_hookless_launch(&self, attempt: &LaunchAttempt, agent: &str) {
-        let available =
-            match super::provider_accounts::named_session_hook_for_tab(self, &attempt.tab_id) {
-                Ok(Some(available)) => available,
-                Ok(None) => crate::service::integration_silence::read_provider_facts(
-                    &self.agent_registry,
-                    agent,
-                    false,
-                )
-                .is_some_and(|(facts, _)| session_start_hooks_available(&facts)),
-                Err(_) => false,
-            };
-        if available {
+    pub(crate) fn record_launch_session_hook(&self, tab_id: &str, nonce: &str, available: bool) {
+        let mux = self.mux.read();
+        if !mux
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.session_binding_nonce.as_deref() == Some(nonce))
+        {
             return;
         }
-        log::info!(
-            "[launch-input-attach] tab={} pty={} session-start hooks unavailable at launch; readiness follows the input attach",
-            attempt.tab_id,
-            attempt.pty_id
-        );
         self.session_start_hooks()
             .tabs
             .lock()
-            .entry(attempt.tab_id.clone())
+            .entry(tab_id.to_string())
             .or_default()
-            .hookless_nonce = Some(attempt.binding_nonce.clone());
+            .availability = Some((nonce.to_string(), available));
+    }
+
+    fn settle_hookless_launch(&self, attempt: &LaunchAttempt, agent: &str) {
+        let recorded = self
+            .session_start_hooks()
+            .tabs
+            .lock()
+            .get(&attempt.tab_id)
+            .and_then(|record| record.availability.as_ref())
+            .is_some_and(|(nonce, _)| nonce == &attempt.binding_nonce);
+        if recorded {
+            return;
+        }
+        let named = self.mux.read().get_tab(&attempt.tab_id).is_some_and(|tab| {
+            super::provider_accounts::selected_account(tab)
+                != codeterm_types::config::provider_accounts::IMPLICIT_ACCOUNT
+        });
+        let available = !named
+            && super::integration_silence::read_provider_facts(&self.agent_registry, agent, false)
+                .is_some_and(|(facts, _)| session_start_hooks_available(&facts));
+        if !available {
+            self.record_launch_session_hook(&attempt.tab_id, &attempt.binding_nonce, false);
+        }
     }
 
     fn input_attach_candidate(&self, tab_id: &str) -> Option<(LaunchAttempt, String)> {

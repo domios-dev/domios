@@ -66,15 +66,12 @@ fn registry_start_matches(recorded: &str, token: &str, macos: bool) -> bool {
     if !macos || !token.bytes().all(|byte| byte.is_ascii_digit()) {
         return false;
     }
-    // The macOS registry uses the local, second-resolution format of ps -o lstart=.
+    // The launch pins C/UTC so ps lstart cannot repeat a DST fold.
     token
         .parse::<i64>()
         .ok()
         .and_then(chrono::DateTime::from_timestamp_micros)
-        .is_some_and(|start| {
-            let local_start = start.with_timezone(&chrono::Local);
-            recorded == local_start.format("%a %b %e %T %Y").to_string()
-        })
+        .is_some_and(|start| recorded == start.format("%a %b %e %T %Y").to_string())
 }
 
 #[cfg(test)]
@@ -133,21 +130,33 @@ mod tests {
     }
 
     #[test]
-    fn macos_registry_start_matches_the_local_second_and_rejects_a_different_start() {
+    fn macos_registry_start_matches_the_utc_second_and_rejects_fold_and_localized_records() {
         use chrono::TimeZone;
-        let start = chrono::Local
-            .with_ymd_and_hms(2026, 11, 18, 11, 44, 8)
+        let start = chrono::Utc
+            .with_ymd_and_hms(2026, 11, 1, 5, 30, 0)
             .single()
             .unwrap()
             .timestamp_micros()
             + 789;
-        let recorded = "Wed Nov 18 11:44:08 2026";
+        let recorded = "Sun Nov  1 05:30:00 2026";
         assert!(registry_start_matches(recorded, &start.to_string(), true));
         assert!(!registry_start_matches(
             recorded,
             &(start + 1_000_000).to_string(),
             true
         ));
+        let later = (start + 3_600_000_000).to_string();
+        assert!(registry_start_matches(
+            "Sun Nov  1 06:30:00 2026",
+            &later,
+            true
+        ));
+        assert!(!registry_start_matches(recorded, &later, true));
+        for token in [start.to_string(), later] {
+            for unpinned in ["Sun Nov  1 01:30:00 2026", "dim.  1 nov. 01:30:00 2026"] {
+                assert!(!registry_start_matches(unpinned, &token, true));
+            }
+        }
         assert!(!registry_start_matches(recorded, &start.to_string(), false));
     }
 }

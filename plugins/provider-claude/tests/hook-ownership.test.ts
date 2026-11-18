@@ -42,6 +42,7 @@ const CURRENT_PERMISSION = GUARD
 const CURRENT_STOP = GUARD
   + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/stop" '
   + "-H 'Content-Type: application/json' " + AUTH + " -d '{}' || true; fi";
+const MARKED_COMMAND = `echo "${MARKER_HEADER}"`;
 const CURRENT_PRECOMPACT = GUARD
   + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/mem/flush" '
   + "-H 'Content-Type: application/json' " + AUTH
@@ -287,7 +288,8 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
   const foreign = { type: "command", command: "foreign-shared-group", timeout: 1234 };
   const group = { matcher: "*", hooks: [...entry("", CURRENT_PRECOMPACT, "codeterm-hook-v3").hooks!, foreign] };
   for (const operation of ["install", "uninstall"]) {
-    const files = settingsWith({ PreCompact: [group] });
+    const owned = operation === "install" ? group.hooks[0] : { ...group.hooks[0], command: MARKED_COMMAND };
+    const files = settingsWith({ PreCompact: [{ ...group, hooks: [owned, foreign] }] });
     const provider = loadClaude(files);
     const result = operation === "install"
       ? provider.installIntegration(7686, { consent: true, repair: true })
@@ -315,6 +317,16 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
   eq(provider.checkIntegration().hook_contract_current, false, "millisecond-shaped timeouts require consented repair");
   provider.installIntegration(7685, { consent: true, repair: true });
   eq(files.get(SETTINGS_PATH), before, "repair is instance independent and preserves foreign hooks");
+}
+
+{
+  const foreign = { type: "command", command: "foreign-session-hook", _source: "codeterm-hook-v3" };
+  const owned = { type: "command", command: MARKED_COMMAND };
+  const files = settingsWith({ SessionStart: [{ matcher: "*", hooks: [owned, foreign] }] });
+  assert(loadClaude(files).uninstallIntegration().ok === true, "uninstall accepts a mixed SessionStart group");
+  const cleaned = JSON.parse(files.get(SETTINGS_PATH) as string);
+  eq(cleaned.hooks.SessionStart, [{ matcher: "*", hooks: [foreign] }],
+    "uninstall checks the command marker and keeps the foreign sibling");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

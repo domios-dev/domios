@@ -2,7 +2,10 @@ use super::*;
 use crate::agent::provider::LaunchProcess;
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::boot_stage::BootStage;
-use crate::service::{provider_accounts, test_fixture::ServiceFixture};
+use crate::service::orchestrator::launch_test_support::FakeRegisteredLaunch;
+use crate::service::{
+    provider_accounts, provider_hooks, test_fixture::ServiceFixture, AgentLaunchOrigin,
+};
 use codeterm_types::config::provider_accounts::ProviderAccountConfig;
 use serde_json::{json, Value};
 use std::fs;
@@ -68,10 +71,10 @@ async fn named_claude_home_skips_onboarding_installs_consented_hooks_and_binds_e
     );
     assert!(!home.join(".credentials.json").exists());
     assert!(!home.join("settings.json").exists());
-    assert_eq!(
-        provider_accounts::named_session_hook_for_tab(svc, &tab_id).unwrap(),
-        Some(false)
-    );
+    let typical_registry = usual.join("sessions");
+    fs::create_dir(&typical_registry).unwrap();
+    fs::remove_dir(home.join("sessions")).unwrap();
+    codeterm_util::fs_links::directory_link(&typical_registry, &home.join("sessions")).unwrap();
 
     let named_settings = json!({"theme": "dark", "hooks":{"SessionStart":[{"matcher":"","hooks":[
         {"type":"command","command":"foreign-command","_source":"codeterm-hook-v3"},
@@ -97,10 +100,14 @@ async fn named_claude_home_skips_onboarding_installs_consented_hooks_and_binds_e
             crate::config::schema::INTEGRATION_CONSENT_GRANTED.into(),
             toml::Value::Boolean(true),
         );
-    assert_eq!(
-        provider_accounts::named_session_hook_for_tab(svc, &tab_id).unwrap(),
-        Some(true)
-    );
+    let invocation = provider_accounts::for_tab(svc, &tab_id).unwrap().unwrap();
+    assert_eq!(read_json("settings.json"), named_settings);
+    let launch = codeterm_plugin::provider_account::with_context(Some(invocation.clone()), || {
+        FakeRegisteredLaunch::register(svc, &tab_id, "own-pty", AgentLaunchOrigin::RestoredSnapshot)
+    })
+    .unwrap();
+    let nonce = launch.attempt().binding_nonce;
+    svc.mux.write().get_tab_mut(&tab_id).unwrap().boot_stage = Some(BootStage::SpawnFailed);
     let settings = read_json("settings.json");
     assert_eq!(settings["theme"], "dark");
     assert!(settings.get("env").is_none());
@@ -136,13 +143,18 @@ async fn named_claude_home_skips_onboarding_installs_consented_hooks_and_binds_e
         record("foreign-session", "1000"),
     )
     .unwrap();
+    fs::write(
+        typical_registry.join("2860.json"),
+        record("foreign-default-session", "1000"),
+    )
+    .unwrap();
     let named_registry = home.join("sessions/2860.json");
     let probe = || {
         svc.detect_launch_from_evidence(
             &tab_id,
             "claude".into(),
             "own-pty".into(),
-            "own-nonce".into(),
+            nonce.clone(),
             LaunchSessionEvidence {
                 processes: vec![LaunchProcess {
                     pid: 2860,
@@ -153,6 +165,14 @@ async fn named_claude_home_skips_onboarding_installs_consented_hooks_and_binds_e
             },
         )
     };
+    assert_ne!(
+        fs::canonicalize(home.join("sessions")).unwrap(),
+        fs::canonicalize(&typical_registry).unwrap(),
+    );
+    assert!(
+        probe().is_none(),
+        "the default home's valid PID record carries no named-account authority"
+    );
     fs::write(&named_registry, record(session, "900")).unwrap();
     assert!(probe().is_none());
     fs::write(&named_registry, record(session, "1000")).unwrap();
@@ -160,9 +180,46 @@ async fn named_claude_home_skips_onboarding_installs_consented_hooks_and_binds_e
     assert_eq!(detected.detection.session_id, session);
     drop(env);
     svc.commit_detected_launch_session(&tab_id, detected).await;
-    let mux = svc.mux.read();
-    let tab = mux.get_tab(&tab_id).unwrap();
-    assert_eq!(tab.agent_session_id.as_deref(), Some(session));
-    assert!(tab.launch_session_authenticated());
-    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+    {
+        let mux = svc.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.agent_session_id.as_deref(), Some(session));
+        assert!(tab.launch_session_authenticated());
+        assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+    }
+
+    let retired = home.with_file_name("retired-namespace");
+    codeterm_util::private_file::create_dir_owner_only(&retired).unwrap();
+    fs::write(retired.join("settings.json"), settings.to_string()).unwrap();
+    provider_hooks::uninstall_integrations(svc, "claude", || {
+        assert_eq!(
+            provider_hooks::integration_consent(svc, "claude"),
+            Some(false)
+        );
+        Ok(())
+    })
+    .unwrap();
+    let saved_config = fs::read_to_string(root.join("config.toml")).unwrap();
+    assert!(saved_config.contains("integration_consent_granted = false"));
+    for path in [home.join("settings.json"), retired.join("settings.json")] {
+        let cleaned: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(cleaned["theme"], "dark");
+        assert_eq!(
+            cleaned["hooks"]["SessionStart"],
+            json!([{"matcher":"","hooks":[
+                {"type":"command","command":"foreign-command","_source":"codeterm-hook-v3"}
+            ]}])
+        );
+        assert!(!cleaned.to_string().contains("X-CodeTerm-Hook"));
+    }
+    let cleaned = fs::read(home.join("settings.json")).unwrap();
+    assert_eq!(
+        provider_accounts::prepare_named_session_hook(svc, &invocation),
+        Some(false)
+    );
+    assert_eq!(fs::read(home.join("settings.json")).unwrap(), cleaned);
+    assert_eq!(
+        fs::read_to_string(typical_registry.join("2860.json")).unwrap(),
+        record("foreign-default-session", "1000")
+    );
 }

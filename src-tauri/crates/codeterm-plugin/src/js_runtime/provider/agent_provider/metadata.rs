@@ -46,6 +46,17 @@ macro_rules! js_provider_metadata {
             }
         }
 
+        fn uninstall_named_account_integration(
+            &self,
+            home: &std::path::Path,
+        ) -> Result<(), String> {
+            self.native()
+                .filter(|provider| provider.integration_kind() == self.integration_kind())
+                .map_or(Ok(()), |native| {
+                    native.uninstall_named_account_integration(home)
+                })
+        }
+
         fn general_agent_offer_when_absent(&self) -> bool {
             self.manifest.general_agent_offer_when_absent
         }

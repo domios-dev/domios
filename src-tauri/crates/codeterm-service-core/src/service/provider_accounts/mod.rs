@@ -67,7 +67,7 @@ impl Default for State {
     }
 }
 
-fn mutate_config(
+pub(super) fn mutate_config(
     svc: &super::ServiceContext,
     update: impl FnOnce(&mut crate::config::schema::AppConfig) -> Result<(), String>,
 ) -> Result<crate::config::schema::AppConfig, String> {
@@ -534,53 +534,53 @@ fn invocation_at_typed(
         &capability,
         &usual,
     )?;
-    let consented = svc
-        .configuration()
-        .agents
-        .get(provider)
-        .is_some_and(|config| {
-            config
-                .extra
-                .get(crate::config::schema::INTEGRATION_CONSENT_GRANTED)
-                .and_then(toml::Value::as_bool)
-                == Some(true)
-        });
-    if consented {
-        if let Err(error) = named_session_hook(svc, &invocation, &capability, true) {
-            log::debug!("[provider-accounts] {provider} named session hook unavailable: {error}");
-        }
-    }
     Ok(Some(invocation))
 }
 
-fn named_session_hook(
+pub(crate) fn prepare_named_session_hook(
     svc: &super::ServiceContext,
     invocation: &InvocationContext,
-    capability: &AccountCapability,
-    repair_consented: bool,
-) -> Result<Option<bool>, String> {
+) -> Option<bool> {
+    let provider = invocation.provider();
+    let _integration_write = codeterm_notifications::provider_hooks::lock_integration_changes();
+    let consent = super::provider_hooks::integration_consent(svc, provider);
+    if consent == Some(false) {
+        return Some(false);
+    }
+    let capability = capability(svc, provider)?;
     let home = invocation
         .environment_entries()
         .find(|(key, _)| *key == capability.home_environment)
-        .and_then(|(_, value)| value)
-        .ok_or("Named account home is unavailable")?;
-    svc.agent_registry
-        .with_provider(invocation.provider(), |provider| {
-            provider.named_account_session_hook(std::path::Path::new(home), repair_consented)
-        })
-        .ok_or_else(|| "Named account provider is unavailable".to_string())?
+        .and_then(|(_, value)| value)?;
+    let repair = consent == Some(true);
+    let state = svc.ext_or_init::<State>(State::default);
+    let _provisioning = state.provisioning.lock();
+    match svc.agent_registry.with_provider(provider, |provider| {
+        provider.named_account_session_hook(std::path::Path::new(home), repair)
+    })? {
+        Ok(available) => available,
+        Err(error) => {
+            log::debug!("[provider-accounts] {provider} named session hook unavailable: {error}");
+            Some(false)
+        }
+    }
 }
 
-pub(crate) fn named_session_hook_for_tab(
+pub(super) fn uninstall_named_integrations(
     svc: &super::ServiceContext,
-    tab: &str,
-) -> Result<Option<bool>, String> {
-    let Some(invocation) = for_tab(svc, tab)? else {
-        return Ok(None);
+    provider_id: &str,
+) -> Result<(), String> {
+    let Some(provider) = svc.agent_registry.provider_arc(provider_id) else {
+        return Err(format!("Unknown provider: {provider_id}"));
     };
-    let capability =
-        capability(svc, invocation.provider()).ok_or("Named account declaration is unavailable")?;
-    named_session_hook(svc, &invocation, &capability, false)
+    if provider.account_capability().is_none() {
+        return Ok(());
+    }
+    let state = svc.ext_or_init::<State>(State::default);
+    let _provisioning = state.provisioning.lock();
+    storage::visit_existing_homes(&state.root, provider_id, |home| {
+        provider.uninstall_named_account_integration(home)
+    })
 }
 
 pub fn for_tab(

@@ -16,10 +16,13 @@ const starting: Tab = { id: "launch-fixture", title: "Fixture", cwd: "/fixture",
   agent_type: "fixture", backing: { kind: "pty" }, boot_stage: "agent_launching", agent_booting: true };
 const failed: Tab = { ...starting, boot_stage: "spawn_failed", boot_failure_reason: reason };
 
-it("opens the terminal for a pre-session PTY prompt and clears the prompt when Chat attaches", async () => {
+it.each([false, true])("opens the terminal for a pre-session PTY prompt with retained history %s", async (retained) => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const waiting: Tab = { ...starting, boot_stage: "agent_ready", pending_prompt_kind: "provider",
-    pending_prompt: { question: "Opaque startup question", options: [] } };
+    pending_prompt: { question: "Opaque startup question", options: [] },
+    session_binding_nonce: "current-launch",
+    ...(retained ? { agent_session_id: "retained-session", session_bound: true,
+      reported_session_binding_nonce: "previous-launch" } : {}) };
   const openTerminal = vi.fn();
   const host = document.createElement("div");
   document.body.append(host);
@@ -39,7 +42,8 @@ it("opens the terminal for a pre-session PTY prompt and clears the prompt when C
     const button = [...host.querySelectorAll("button")].find(item => item.textContent === "Open terminal");
     await act(async () => button!.click());
     expect(openTerminal).toHaveBeenCalledOnce();
-    await render({ ...waiting, agent_session_id: "own-session", session_bound: true }, true);
+    await render({ ...waiting, agent_session_id: "own-session", session_bound: true,
+      reported_session_binding_nonce: "current-launch" }, true);
     expect(host.querySelector("button")).toBeNull();
   } finally {
     await act(async () => root.unmount());

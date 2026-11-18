@@ -69,6 +69,10 @@ macro_rules! agent_provider_integration {
             Ok(None)
         }
 
+        fn uninstall_named_account_integration(&self, _home: &std::path::Path) -> Result<(), String> {
+            Ok(())
+        }
+
         /// Install CodeTerm's provider integration. `api_port` targets local callback
         /// routes when the integration uses hooks. Default no-op.
         fn install_integration(

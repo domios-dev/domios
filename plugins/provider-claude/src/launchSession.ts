@@ -21,10 +21,10 @@ function registryStartMatches(recorded: string, token: string, macos: boolean): 
   const start = new Date(Math.floor(micros / 1_000_000) * 1_000);
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const time = [start.getHours(), start.getMinutes(), start.getSeconds()]
+  const time = [start.getUTCHours(), start.getUTCMinutes(), start.getUTCSeconds()]
     .map(value => String(value).padStart(2, "0")).join(":");
-  // macOS Claude records the local, second-resolution format of ps -o lstart=.
-  return recorded === `${weekdays[start.getDay()]} ${months[start.getMonth()]} ${String(start.getDate()).padStart(2, " ")} ${time} ${start.getFullYear()}`;
+  // Claude inherits C/UTC from the launch so ps lstart cannot repeat a DST fold.
+  return recorded === `${weekdays[start.getUTCDay()]} ${months[start.getUTCMonth()]} ${String(start.getUTCDate()).padStart(2, " ")} ${time} ${start.getUTCFullYear()}`;
 }
 
 export function registrySessionId(raw: string, pid: number, startToken: string, macos = false): string | null {

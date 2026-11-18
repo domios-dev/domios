@@ -37,15 +37,18 @@ fn marked_command(hook: &Json) -> bool {
         .is_some_and(command_carries_marker)
 }
 
-fn remove_owned(entries: &mut Vec<Json>) {
+pub(super) fn remove_owned(entries: &mut Vec<Json>) -> bool {
+    let mut changed = false;
     entries.retain_mut(|entry| {
         let Some(hooks) = entry.get_mut("hooks").and_then(Json::as_array_mut) else {
             return true;
         };
         let before = hooks.len();
         hooks.retain(|hook| !marked_command(hook));
+        changed |= hooks.len() != before;
         hooks.len() == before || !hooks.is_empty()
     });
+    changed
 }
 
 fn has_exact_hook(entries: &[Json], expected: &Json) -> bool {
@@ -70,6 +73,40 @@ fn has_exact_hook(entries: &[Json], expected: &Json) -> bool {
         }
     }
     matcher == &expected["matcher"] && hook == expected_hook && owned.next().is_none()
+}
+
+pub(crate) fn uninstall(home: &Path) -> Result<(), String> {
+    let path = home.join("settings.json");
+    let Some(original) = read_settings(&path)? else {
+        return Ok(());
+    };
+    let mut settings: Json =
+        serde_json::from_str(&original).map_err(|_| "Named account settings are malformed")?;
+    let root = settings
+        .as_object_mut()
+        .ok_or("Named account settings must be an object")?;
+    let Some(hooks) = root.get_mut("hooks") else {
+        return Ok(());
+    };
+    let hooks = hooks
+        .as_object_mut()
+        .ok_or("Named account hooks must be an object")?;
+    let mut changed = false;
+    for entries in hooks.values_mut().filter_map(Json::as_array_mut) {
+        changed |= remove_owned(entries);
+    }
+    if changed {
+        replace_settings(&path, Some(&original), &settings)?;
+    }
+    Ok(())
+}
+
+fn replace_settings(path: &Path, original: Option<&str>, settings: &Json) -> Result<(), String> {
+    if read_settings(path)?.as_deref() != original {
+        return Err("Named account settings changed during hook update".into());
+    }
+    let bytes = serde_json::to_vec_pretty(settings).map_err(|error| error.to_string())?;
+    codeterm_util::private_file::write_atomic(path, &bytes).map_err(|error| error.to_string())
 }
 
 pub(crate) fn session_hook(home: &Path, repair_consented: bool) -> Result<bool, String> {
@@ -110,12 +147,7 @@ pub(crate) fn session_hook(home: &Path, repair_consented: bool) -> Result<bool, 
         }
     }
     if changed {
-        if read_settings(&path)? != original {
-            return Err("Named account settings changed during hook repair".into());
-        }
-        let bytes = serde_json::to_vec_pretty(&settings).map_err(|error| error.to_string())?;
-        codeterm_util::private_file::write_atomic(&path, &bytes)
-            .map_err(|error| error.to_string())?;
+        replace_settings(&path, original.as_deref(), &settings)?;
     }
     Ok(current_session_hook)
 }

@@ -477,6 +477,10 @@ function hasResume(input) {
   const resume = input.resume;
   return typeof resume === "object" && resume !== null && "sessionId" in resume && typeof resume.sessionId === "string";
 }
+var MACOS_REGISTRY_ENVIRONMENT = { LC_ALL: "C", TZ: "UTC0" };
+function claudeShellProgram() {
+  return host.platform() === "macos" ? "LC_ALL=C TZ=UTC0 claude" : "claude";
+}
 function* buildClaudeLaunchSpec(input) {
   if ("resume" in input && !hasResume(input)) return null;
   const params = hasResume(input) ? {
@@ -502,13 +506,13 @@ function* buildClaudeLaunchSpec(input) {
     const framed = params.starterPromptPrefix ? params.starterPromptPrefix + prompt + "</domios>" : prompt;
     args.push("--", framed);
   }
-  return { program: "claude", args, envSet: {}, envUnset: ["CLAUDECODE"] };
+  return { program: "claude", args, envSet: host.platform() === "macos" ? MACOS_REGISTRY_ENVIRONMENT : {}, envUnset: ["CLAUDECODE"] };
 }
 function* buildClaudeLaunchCommand(params) {
   const spec = yield* buildClaudeLaunchSpec(params);
   if (!spec) return "";
   const unset = host.platform() === "windows" ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';" : "unset CLAUDECODE &&";
-  const parts = [unset, spec.program];
+  const parts = [unset, claudeShellProgram()];
   let previous = "";
   for (const arg of spec.args) {
     if (previous === "--") parts.push(quoteNativeArgument(arg, host.platform(), host.shell.quoteFor));
@@ -1205,8 +1209,8 @@ function registryStartMatches(recorded, token, macos) {
   const start = new Date(Math.floor(micros / 1e6) * 1e3);
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const time = [start.getHours(), start.getMinutes(), start.getSeconds()].map((value) => String(value).padStart(2, "0")).join(":");
-  return recorded === `${weekdays[start.getDay()]} ${months[start.getMonth()]} ${String(start.getDate()).padStart(2, " ")} ${time} ${start.getFullYear()}`;
+  const time = [start.getUTCHours(), start.getUTCMinutes(), start.getUTCSeconds()].map((value) => String(value).padStart(2, "0")).join(":");
+  return recorded === `${weekdays[start.getUTCDay()]} ${months[start.getUTCMonth()]} ${String(start.getUTCDate()).padStart(2, " ")} ${time} ${start.getUTCFullYear()}`;
 }
 function registrySessionId(raw, pid, startToken, macos = false) {
   let record3;
@@ -2914,10 +2918,10 @@ function isBrailleSpinner(ch) {
   const code = ch.charCodeAt(0);
   return code >= BRAILLE_LO && code <= BRAILLE_HI || code >= QUARTER_CIRCLE_LO && code <= QUARTER_CIRCLE_HI || ch === "\u2733" || ch === "\u273B";
 }
-function retainForeignPrecompactEntry(entry) {
+function retainForeignCommands(entry, owned) {
   if (!entry || !Array.isArray(entry.hooks)) return true;
   const previous = entry.hooks;
-  const remaining = previous.filter((hook) => !isCodetermHook({ hooks: [hook] }));
+  const remaining = previous.filter((hook) => !owned(hook));
   if (remaining.length === previous.length) return true;
   entry.hooks = remaining;
   return remaining.length > 0;
@@ -3390,7 +3394,7 @@ var plugin = {
           return { ok: false, error: "hooks." + k + " is not an array" };
         }
         const existing = Array.isArray(json.hooks[k]) ? json.hooks[k].filter((entry) => {
-          const retained = k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isCodetermHook(entry);
+          const retained = k === "PreCompact" ? retainForeignCommands(entry, (hook) => isCodetermHook({ hooks: [hook] })) : !isCodetermHook(entry);
           if (retained) preservedUnclassified++;
           return retained;
         }) : [];
@@ -3427,13 +3431,16 @@ var plugin = {
       if (!current.ok) return current;
       const json = current.settings;
       if (json.hooks === void 0) return { ok: true };
-      const keys = INTEGRATION_HOOK_KEYS;
-      for (let i = 0; i < keys.length; i++) {
-        const k = keys[i];
-        if (Array.isArray(json.hooks[k])) {
-          json.hooks[k] = json.hooks[k].filter((entry) => k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isCodetermHook(entry));
-        }
+      let changed = false;
+      for (const key of INTEGRATION_HOOK_KEYS) {
+        if (!Array.isArray(json.hooks[key])) continue;
+        json.hooks[key] = json.hooks[key].filter((entry) => retainForeignCommands(entry, (hook) => {
+          const owned = typeof hook?.command === "string" && commandCarriesMarker(hook.command);
+          changed || (changed = owned);
+          return owned;
+        }));
       }
+      if (!changed) return { ok: true };
       const ok = yield* host.io.fs.writeJson(path, json);
       if (ok) {
         host.log("info", "[claude-plugin] hooks removed from " + path);
@@ -3494,7 +3501,7 @@ function quoteArg(arg) {
 function resumeBase(sessionId, skipPermissions) {
   const win = host.platform() === "windows";
   const unset = win ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';" : "unset CLAUDECODE &&";
-  const parts = [unset, "claude"];
+  const parts = [unset, claudeShellProgram()];
   if (skipPermissions) parts.push("--dangerously-skip-permissions");
   parts.push("--resume");
   parts.push(host.shell.quoteFor(sessionId, host.platform()));

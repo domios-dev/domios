@@ -28,6 +28,7 @@
       "settings.json",
       ".claude.json"
     ],
+    "processRegistryDirectory": "sessions",
     "sharedPaths": [
       {
         "path": "projects",
@@ -36,10 +37,6 @@
       {
         "path": "history.jsonl",
         "kind": "file"
-      },
-      {
-        "path": "sessions",
-        "kind": "directory"
       }
     ],
     "sharedIndexPaths": [

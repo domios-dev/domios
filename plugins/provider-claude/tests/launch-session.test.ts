@@ -72,11 +72,21 @@ eq(registrySessionId(record(200, "sid", 5000), 200, "5000"), null, "a numeric pr
 eq(registrySessionId(record(200, "sid", "5000"), 200, ""), null, "an unknown live start names nothing");
 eq(registrySessionId("{not json", 200, "5000"), null, "an unreadable record names nothing");
 
-const macStart = new Date(2026, 10, 18, 11, 44, 8).getTime() * 1_000 + 789;
-const macRecord = record(2860, "sid-macos", "Wed Nov 18 11:44:08 2026");
-eq(registrySessionId(macRecord, 2860, String(macStart), true), "sid-macos", "macOS matches the registry's local timestamp");
+const macStart = Date.UTC(2026, 10, 1, 5, 30, 0) * 1_000 + 789;
+const macRecord = record(2860, "sid-macos", "Sun Nov  1 05:30:00 2026");
+eq(registrySessionId(macRecord, 2860, String(macStart), true), "sid-macos", "macOS matches the registry's pinned UTC timestamp");
 eq(registrySessionId(macRecord, 2860, String(macStart + 1_000_000), true), null, "macOS rejects a reused pid with a different start");
 eq(registrySessionId(macRecord, 2860, String(macStart)), null, "the macOS format is platform scoped");
+const later = macStart + 3_600_000_000;
+eq(registrySessionId(macRecord, 2860, String(later), true), null, "UTC keeps both sides of the DST fold distinct");
+eq(registrySessionId(record(2860, "later", "Sun Nov  1 06:30:00 2026"), 2860, String(later), true), "later",
+  "a process started after the DST transition has its own UTC second");
+for (const token of [macStart, later]) {
+  eq(registrySessionId(record(2860, "stale", "Sun Nov  1 01:30:00 2026"), 2860, String(token), true), null,
+    "a legacy local timestamp in the DST fold cannot identify either process");
+  eq(registrySessionId(record(2860, "unpin", "dim.  1 nov. 01:30:00 2026"), 2860, String(token), true), null,
+    "a localized legacy timestamp cannot identify either process");
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

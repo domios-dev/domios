@@ -476,22 +476,21 @@ pub fn uninstall_integration_at(path: &std::path::Path) -> Result<(), String> {
             return Err(format!("hooks.{event} is not an array"));
         }
     }
+    let mut changed = false;
     for event in roster
         .iter()
         .map(|binding| binding.event.as_str())
         .chain(std::iter::once("PreCompact"))
     {
         if let Some(arr) = hooks.get_mut(event).and_then(|value| value.as_array_mut()) {
-            if event == "PreCompact" {
-                remove_retired_precompact_commands(arr);
-            } else {
-                arr.retain(|hook| !is_codeterm_hook(hook));
-            }
+            changed |= named_account::remove_owned(arr);
         }
     }
 
-    write_json_atomic(path, &json)?;
-    log::info!("[agent-claude] hooks removed");
+    if changed {
+        write_json_atomic(path, &json)?;
+        log::info!("[agent-claude] hooks removed");
+    }
     Ok(())
 }
 
