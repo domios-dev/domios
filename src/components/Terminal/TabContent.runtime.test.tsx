@@ -37,6 +37,7 @@ it("places recovery after the cached transcript with the diagnostic behind Detai
   const loaded: Tab = {
     id: "docked-notice", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null, agent_type: "fixture",
     agent_session_id: "docked-session", session_binding_nonce: "docked-binding", boot_stage: "agent_ready",
+    agent_session_model: "deepseek/deepseek-flash", agent_provider_resolved_model: "other/earlier-model",
     backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "docked-session" },
     agent_runtime_state: { state: "loaded", epoch: 1 },
   };
@@ -44,12 +45,19 @@ it("places recovery after the cached transcript with the diagnostic behind Detai
   let state: ExtendedState = { workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
     notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [] };
   const store = createMuxStateStore(() => state);
+  setAgentDescriptors([{
+    schema_version: 1, id: "fixture", display_name: "Fixture", transport: "chat_backend", system_prompt_delivery: "external",
+    available_models: [], notifications_schema: [], supports_lazy_skills: false, has_hooks: false,
+    settings_schema: [{ kind: "toggle", key: "usage_tracking_enabled", label: "Usage tracking", default: true }],
+    agent_runtime: { usage: true }, model_groups: [{ id: "deepseek", label: "DeepSeek" }],
+  }], false);
   __setListenForTest(async () => () => {});
   __setInvokeForTest(<T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
     if (command === "chat_start") return Promise.resolve({ text: "", offset: 1, start_offset: 0, pending: false,
       source_session_id: "docked-session", session_binding_nonce: "docked-binding", subscription_id: String(args?.subscriptionId),
       messages: [{ id: "docked-row", type: "assistant", content: "opaque retained reply" }] } as T);
-    const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
+    const value = command === "provider_model_usage" ? [{ group: "deepseek", spend_remaining_cents: 917 }]
+      : command === "delayed_send_list" || command === "list_agent_providers" ? []
       : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] } : {};
     return Promise.resolve(value as T);
   });
@@ -64,6 +72,12 @@ it("places recovery after the cached transcript with the diagnostic behind Detai
   ));
   try {
     await render();
+    const balance = 'button[aria-label="DeepSeek balance, $9.17 left"]';
+    expect(host.querySelector(`[data-testid="tab-top-bar"] ${balance}`)?.textContent).toBe("$9.17");
+    const composerStatus = host.querySelector('[data-testid="agent-state"]');
+    expect(composerStatus).not.toBeNull();
+    expect(composerStatus?.textContent).not.toContain("$9.17");
+    expect(host.querySelectorAll(balance)).toHaveLength(1);
     tab = { ...loaded, agent_runtime_state: { state: "degraded", epoch: 2, failureCode: "provider_refused", reason } };
     state = { ...state, tabs: { [tab.id]: tab } };
     await act(async () => store.notify());
@@ -81,6 +95,7 @@ it("places recovery after the cached transcript with the diagnostic behind Detai
     expect(host.querySelector('[data-testid="session-status-row"] [role="status"]')).toBeNull();
   } finally {
     await act(async () => root.unmount()); host.remove();
+    setAgentDescriptors([], false);
     __setInvokeForTest(null); __setListenForTest(null);
   }
 });
