@@ -49,7 +49,7 @@ impl AccountMesh {
         if installation_id != &self.config.installation_id {
             return Err(AccountMeshRefusal::Invalid);
         }
-        let signed = self.signed(None).await.inspect_err(|refusal| {
+        let mut signed = self.signed(None).await.inspect_err(|refusal| {
             log::debug!("Entitlement proof failed: stage=session kind={refusal:?}");
         })?;
         if signed.session.identity.uid != session.identity.uid
@@ -57,12 +57,25 @@ impl AccountMesh {
         {
             return Err(AccountMeshRefusal::Cancelled);
         }
-        let generation = self.generation(&signed).await.inspect_err(|refusal| {
-            log::debug!("Entitlement proof failed: stage=enrollment kind={refusal:?}");
-        })?;
+        let generation = self
+            .entitlements_generation(&mut signed)
+            .await
+            .inspect_err(|refusal| {
+                log::debug!("Entitlement proof failed: stage=enrollment kind={refusal:?}");
+            })?;
+        self.prove_entitlements(&signed, installation_id, generation)
+            .await
+    }
+
+    async fn prove_entitlements(
+        &self,
+        signed: &Signed,
+        installation_id: &crate::InstallationId,
+        generation: u64,
+    ) -> Outcome<InstallationProof> {
         let body = serde_json::json!({"installation_id": installation_id});
         let proof = self
-            .prove(&signed, ProofEndpoint::GetEntitlements, &body, generation)
+            .prove(signed, ProofEndpoint::GetEntitlements, &body, generation)
             .await
             .inspect_err(|refusal| {
                 log::debug!("Entitlement proof failed: stage=challenge kind={refusal:?}");
@@ -71,6 +84,98 @@ impl AccountMesh {
             return Err(AccountMeshRefusal::Cancelled);
         }
         Ok(proof)
+    }
+
+    async fn entitlements_generation(&self, signed: &mut Signed) -> Outcome<u64> {
+        let _guard = self.key_lock.lock().await;
+        signed.key = self.with(|inner| {
+            if !inner.is_current(signed.epoch) {
+                return Err(AccountMeshRefusal::Cancelled);
+            }
+            inner.key.clone().ok_or(AccountMeshRefusal::Unavailable)
+        })?;
+        self.generation_locked(signed).await
+    }
+
+    pub async fn replacement_entitlements_proof(
+        &self,
+        session: &Session,
+        installation_id: &crate::InstallationId,
+        generation: u64,
+    ) -> Option<InstallationProof> {
+        tokio::time::timeout(
+            self.config.call_deadline,
+            self.replacement_entitlements_proof_once(session, installation_id, generation),
+        )
+        .await
+        .inspect_err(|_| log::debug!("Entitlement replacement proof reached its deadline"))
+        .ok()
+        .flatten()
+    }
+
+    async fn replacement_entitlements_proof_once(
+        &self,
+        session: &Session,
+        installation_id: &crate::InstallationId,
+        generation: u64,
+    ) -> Option<InstallationProof> {
+        if installation_id != &self.config.installation_id {
+            return None;
+        }
+        let (epoch, captured, account, trust) = self.signed_session(None).await.ok()?;
+        if captured.identity.uid != session.identity.uid
+            || captured.login_generation != session.login_generation
+        {
+            return None;
+        }
+        let (mut signed, replacement_generation) = {
+            let _guard = self.key_lock.lock().await;
+            let (cached_key, binding) = self.with(|inner| {
+                if !inner.is_current(epoch)
+                    || inner.state.last_refusal == Some(AccountMeshRefusal::ReauthRequired)
+                {
+                    return None;
+                }
+                let binding = inner.record.keys.get(&account)?;
+                (binding.generation > generation).then(|| (inner.key.clone(), binding.clone()))
+            })?;
+            let key = match cached_key {
+                Some(key) => key,
+                None => {
+                    let secret = self.ports.keys.load().await.ok()??;
+                    Arc::new(InstallationKey::from_secret(&secret)?)
+                }
+            };
+            if binding.key_id != key.key_id() {
+                return None;
+            }
+            (
+                Signed {
+                    epoch,
+                    session: captured,
+                    account,
+                    trust,
+                    key,
+                },
+                binding.generation,
+            )
+        };
+        signed.session = self.ports.sessions.session().await.ok()??;
+        if signed.session.identity.uid != session.identity.uid
+            || signed.session.login_generation != session.login_generation
+            || !self.with(|inner| inner.is_current(signed.epoch))
+        {
+            return None;
+        }
+        let proof = self
+            .prove_entitlements(&signed, installation_id, replacement_generation)
+            .await
+            .ok()?;
+        let current = self.ports.sessions.session().await.ok()??;
+        (current.identity.uid == session.identity.uid
+            && current.login_generation == session.login_generation
+            && self.with(|inner| inner.is_current(signed.epoch)))
+        .then_some(proof)
     }
 
     pub(super) fn installation(&self) -> String {
@@ -132,6 +237,21 @@ impl AccountMesh {
 
     /// Captures the session only if it still belongs to the signed-in account of `epoch`.
     pub(super) async fn signed(&self, epoch: Option<u64>) -> Outcome<Signed> {
+        let (epoch, session, account, trust) = self.signed_session(epoch).await?;
+        let key = self.key().await?;
+        Ok(Signed {
+            epoch,
+            session,
+            account,
+            trust,
+            key,
+        })
+    }
+
+    async fn signed_session(
+        &self,
+        epoch: Option<u64>,
+    ) -> Outcome<(u64, Session, String, MembershipTrust)> {
         if self.state().last_refusal == Some(AccountMeshRefusal::ReauthRequired) {
             return Err(AccountMeshRefusal::ReauthRequired);
         }
@@ -160,14 +280,7 @@ impl AccountMesh {
         if account != signed_in || !self.with(|inner| inner.is_current(epoch)) {
             return Err(AccountMeshRefusal::Cancelled);
         }
-        let key = self.key().await?;
-        Ok(Signed {
-            epoch,
-            session,
-            account,
-            trust,
-            key,
-        })
+        Ok((epoch, session, account, trust))
     }
 
     pub(super) async fn prove<T: Serialize>(
@@ -210,6 +323,10 @@ impl AccountMesh {
     /// The server key generation for this account, enrolling the installation key once.
     pub(super) async fn generation(&self, signed: &Signed) -> Outcome<u64> {
         let _guard = self.key_lock.lock().await;
+        self.generation_locked(signed).await
+    }
+
+    async fn generation_locked(&self, signed: &Signed) -> Outcome<u64> {
         if self.state().last_refusal == Some(AccountMeshRefusal::ReauthRequired) {
             return Err(AccountMeshRefusal::ReauthRequired);
         }
