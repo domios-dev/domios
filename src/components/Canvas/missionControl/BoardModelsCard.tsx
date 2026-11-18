@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { BoardPanel, BoardPanelSection, ShowAll } from "./BoardPanel";
 import { formatCompact } from "../../../lib/formatCompact";
+import { useAgentDescriptors } from "../../../lib/useAgentDescriptor";
 import {
   formatSharePct,
   MODELS_PREVIEW,
@@ -19,7 +20,8 @@ const NO_MACHINE_SPEND: MissionControlSpend = {
 
 /** Models ranked by new input, the spend that costs; the long tail waits behind Show all. */
 export function ModelsCard({ spend = NO_MACHINE_SPEND, teamSpend = null }: { spend?: MissionControlSpend; teamSpend?: TeamSpend | null }) {
-  const rows = teamSpend ? teamModelRows(teamSpend) : modelSpendRows(spend);
+  const catalogue = useAgentDescriptors();
+  const rows = teamSpend ? teamModelRows(teamSpend, catalogue) : modelSpendRows(spend, catalogue);
   const [showAll, setShowAll] = useState(false);
   const tableId = useId();
   const visible = showAll ? rows : rows.slice(0, MODELS_PREVIEW);
@@ -59,8 +61,10 @@ export function ModelsCard({ spend = NO_MACHINE_SPEND, teamSpend = null }: { spe
                     className="mc-board-models-row"
                   >
                     <th scope="row" className="mc-board-models-name">
-                      <span aria-hidden="true" className="mc-board-swatch" data-tone={row.tone} />
-                      {row.label}
+                      <span className="mc-board-model-label">
+                        <span aria-hidden="true" className="mc-board-swatch" data-tone={row.tone} />
+                        <span>{row.label}</span>
+                      </span>
                     </th>
                     <td className="mc-board-models-num">
                       <AnimatedNumber value={row.newInput} format={formatCompact} />

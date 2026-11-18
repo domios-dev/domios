@@ -3,6 +3,7 @@ import { AnimatedNumber } from "./AnimatedNumber";
 import { BoardPanel, BoardPanelSection, ShowAll } from "./BoardPanel";
 import { SpendChart } from "./BoardSpendChart";
 import { formatCompact } from "../../../lib/formatCompact";
+import { useAgentDescriptors } from "../../../lib/useAgentDescriptor";
 import { formatCount, formatSharePct } from "./missionControlBoardModel";
 import {
   TEAM_SPEND_DAYS,
@@ -57,6 +58,7 @@ export function SpendCard({ teamSpend = null }: { teamSpend?: TeamSpend | null }
 }
 
 function TokensReading({ spend, byModel }: { spend: TeamSpend; byModel: boolean }) {
+  const catalogue = useAgentDescriptors();
   const totals = teamSpendTotals(spend);
   const shares = teamPlanShares(spend);
   const [showAll, setShowAll] = useState(false);
@@ -98,7 +100,7 @@ function TokensReading({ spend, byModel }: { spend: TeamSpend; byModel: boolean 
           </dd>
         </div>
       </dl>
-      <SpendChart data={teamTokensChart(spend, byModel)} label="new input" format={formatCompact} />
+      <SpendChart data={teamTokensChart(spend, byModel, catalogue)} label="new input" format={formatCompact} />
       {shares.length > 1 && (
         <>
           <ul id={listId} data-testid="mc-board-spend-plan-shares" className="mc-board-plan-split" role="list">

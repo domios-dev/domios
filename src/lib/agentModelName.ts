@@ -11,6 +11,19 @@
  * instead of guessed at.
  */
 
+import type { ProviderDescriptor } from "./types";
+
+export type ModelDisplayCatalogue = readonly Pick<ProviderDescriptor, "id" | "available_models">[];
+
+export function resolveModelDisplayName(
+  catalogue: ModelDisplayCatalogue,
+  providerId: string | null,
+  modelId: string,
+): string {
+  const provider = catalogue.find((entry) => entry.id === providerId);
+  return provider?.available_models.find((model) => model.id === modelId)?.display_name || modelId;
+}
+
 /** Catalogue aliases and family tokens, lowercased. */
 export const MODEL_FAMILIES = [
   "opus",
