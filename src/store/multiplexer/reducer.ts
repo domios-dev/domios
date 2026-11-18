@@ -36,7 +36,7 @@ export type Action =
   | { type: "ADD_TAB"; workspaceId: string; tab: Tab }
   | { type: "CLOSE_TAB"; workspaceId: string; tabId: string; removedTabIds: string[] }
   | { type: "SET_ACTIVE_TAB"; workspaceId: string; tabId: string; source: "user" | "program" }
-  | { type: "SET_FOCUSED_TAB"; tabId: string }
+  | { type: "SET_FOCUSED_TAB"; tabId: string | null }
   | { type: "SET_TAB_PTY"; tabId: string; ptyId: string }
   | { type: "ADD_NOTIFICATION"; notification: Notification }
   | { type: "HYDRATE_NOTIFICATIONS"; notifications: Notification[] }

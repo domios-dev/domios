@@ -1,3 +1,4 @@
+import { remoteMachineName } from "../../lib/remoteChatState";
 import { lockedView, type LockedView } from "../billing/freeLimitModel";
 import { isReadOnlyTab } from "../../lib/tabInputPolicy";
 import { isProviderSelectable } from "../../lib/providerAvailability";
@@ -51,7 +52,7 @@ export const TAB_MENU_LABELS = {
 /** Close on a remote tab names the machine it closes on; a local close keeps its plain label. */
 function closeLabel(tab: Tab): string {
   const base = tab.agent_type != null ? TAB_MENU_LABELS.closeSession : TAB_MENU_LABELS.closeTab;
-  return tab.remote_peer_id ? `${base} on ${tab.remote_peer_name ?? "the other machine"}` : base;
+  return tab.remote_peer_id ? `${base} on ${remoteMachineName(tab.remote_peer_id, tab.remote_peer_name)}` : base;
 }
 
 function modelHint(providerName: string): string {
@@ -74,6 +75,7 @@ export type TabMenuAction =
   | { type: "runPlugin"; entry: PluginTabMenuEntry }
   | { type: "openTelegram" }
   | { type: "closeTelegram" }
+  | { type: "removeMachineTabs" }
   | { type: "detach" }
   | { type: "close" };
 

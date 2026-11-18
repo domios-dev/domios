@@ -4,7 +4,11 @@ import { mock } from "node:test";
 import { act } from "react";
 import { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
-import type { Tab } from "../../lib/types";
+import type { PairedPeer, Tab } from "../../lib/types";
+import { resetRemoteChatStatus, updateRemoteChatPeers } from "../../lib/remoteChatStatus";
+import { addChatSend, readChatSends, __setChatSendRepositoryForTest } from "./chatSendStore";
+import { sendTrackedChatMessage } from "./chatSendStatus";
+import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
@@ -202,6 +206,149 @@ async function renderTabSessionChat(
     emitChat: (payload) => chatListener?.({ payload }),
   };
 }
+
+function meshPeer(online: boolean) {
+  updateRemoteChatPeers({ paired: [{ instance_id: "remote-fixture", instance_name: "ROG", online } as PairedPeer],
+    local_instance_name: "Local" });
+}
+
+test("remote chat keeps selectable cached rows and the composer when pairing is removed", async () => {
+  resetRemoteChatStatus();
+  meshPeer(true);
+  const id = "mesh:remote-fixture/cached";
+  const tab = tabBase(id, { remote_peer_id: "remote-fixture", remote_peer_name: "Local label",
+    remote_tab_id: "cached", agent_session_id: "session", session_binding_nonce: "nonce" });
+  const { host, root } = await renderTabSessionChat(id, muxStateFor({ [id]: tab }), () => ({
+    text: "", offset: 1, start_offset: 0, pending: false, messages: [{ id: "reply", type: "assistant", content: "cached reply" }],
+  }));
+  const log = host.querySelector('[role="log"]')!;
+  const composer = host.querySelector("textarea")!;
+  const placeholder = composer.placeholder;
+  try {
+    assert(log.textContent?.includes("cached reply"), "initial attachment populated the log");
+    await act(async () => updateRemoteChatPeers({ paired: [], local_instance_name: "Local" }));
+    const card = log.querySelector('[data-testid="remote-chat-notice"]')!;
+    assert(card.querySelector('[role="status"]')?.textContent === "ROG isn't paired with this computer anymore.", "one named sentence");
+    assert(log.textContent?.includes("cached reply"), "cached transcript stays available");
+    assert(host.querySelector("textarea") === composer && composer.placeholder === placeholder && !composer.disabled, "composer stays usable");
+    const details = [...card.querySelectorAll("button")].find(button => button.textContent === "Details")!;
+    assert(details.getAttribute("aria-expanded") === "false" && !card.querySelector("pre"), "Details starts collapsed");
+    await act(async () => details.click());
+    assert(card.querySelector("pre")?.textContent?.includes("Machine: ROG (remote-f)"), "details name the machine");
+    let meshOpens = 0;
+    const open = () => { meshOpens++; };
+    window.addEventListener("codeterm:open-panel", open, { once: true });
+    await act(async () => [...card.querySelectorAll("button")].find(button => button.textContent === "Open Mesh")!.click());
+    assert(meshOpens === 1, "the single action opens Mesh");
+    await act(async () => meshPeer(true));
+    assert(!log.querySelector('[data-testid="remote-chat-notice"]'), "re-pairing clears the notice");
+    assert(log.textContent?.includes("cached reply"), "recovery preserves cached text");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    resetRemoteChatStatus();
+  }
+});
+
+test("remote retry sends proven offline messages only and checks uncertain delivery without replay", async () => {
+  resetRemoteChatStatus();
+  meshPeer(false);
+  __setChatSendRepositoryForTest(new MemoryChatSendRepository());
+  const id = "mesh:remote-fixture/send";
+  const tab = tabBase(id, { remote_peer_id: "remote-fixture", remote_tab_id: "send",
+    agent_session_id: "session", session_binding_nonce: "nonce" });
+  let writes = 0;
+  let reads = 0;
+  let finishStatus: ((value: unknown) => void) | undefined;
+  let holdStatus = false;
+  const { host, root, commands } = await renderTabSessionChat(id, muxStateFor({ [id]: tab }),
+    undefined, (command, args) => {
+      if (command === "chat_send_status") { reads++; return holdStatus ? new Promise(resolve => { finishStatus = resolve; }) : []; }
+      if (command !== "chat_send_text") return;
+      writes++;
+      if (args?.text === "uncertain payload") throw new Error("relay request timed out");
+      return { tab_id: id, send_id: "one", correlationId: args?.clientToken, state: "delivered", sequence: 1, ledger_id: "fixture", retained_from: 1, error: null };
+    });
+  const card = () => host.querySelector('[role="log"] [data-testid="remote-chat-notice"]')!;
+  const retry = () => [...card().querySelectorAll("button")].find(button => button.textContent === "Try again")!;
+  try {
+    assert(!commands.includes("chat_start"), "known offline skips attachment");
+    assert(!retry(), "offline has no retry before the machine comes back");
+    await act(async () => {
+      addChatSend(id, { id: "offline", correlationId: "offline", content: "offline payload", sentAtMs: 1 });
+      await sendTrackedChatMessage(id, "offline", "offline payload").catch(() => {});
+    });
+    assert(writes === 0 && readChatSends(id)[0]?.requestFailed, "offline retains a failed bubble without transport");
+    assert(host.querySelector('[role="status"][aria-label="Not delivered"]'), "the failed bubble uses the shared delivery state");
+    await act(async () => meshPeer(true));
+    await act(async () => retry().click());
+    assert(Number(writes) === 1, "the proven refusal can be resent once");
+    await act(async () => {
+      addChatSend(id, { id: "uncertain", correlationId: "uncertain", content: "uncertain payload", sentAtMs: 2 });
+      await sendTrackedChatMessage(id, "uncertain", "uncertain payload").catch(() => {});
+    });
+    const cardBefore = card();
+    const button = retry();
+    const readsBefore = reads;
+    holdStatus = true;
+    await act(async () => button.click());
+    assert(button.disabled && button.textContent === "Try again" && card() === cardBefore, "checking updates the shared action in place");
+    holdStatus = false;
+    await act(async () => finishStatus?.([]));
+    assert(reads > readsBefore && Number(writes) === 2, "retry checked status without another write");
+    assert(readChatSends(id).find(send => send.id === "uncertain")?.requestUncertain, "uncertain message stays retained");
+    assert(host.querySelectorAll('[data-testid="remote-chat-notice"]').length === 1, "attempts share one card");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setChatSendRepositoryForTest(null);
+    resetRemoteChatStatus();
+  }
+});
+
+test("machine removal names the actual rows and calls only the local removal action after confirmation", async () => {
+  resetRemoteChatStatus();
+  meshPeer(false);
+  const id = "mesh:remote-fixture/halley";
+  const halley = tabBase(id, { title: "Halley", remote_peer_id: "remote-fixture", remote_tab_id: "halley", role_profile: "orchestrator" });
+  const austen = tabBase("mesh:remote-fixture/austen", { title: "Austen", remote_peer_id: "remote-fixture", remote_tab_id: "austen" });
+  const other = tabBase("mesh:other/other", { remote_peer_id: "other", remote_tab_id: "other" });
+  const local = tabBase("local");
+  const store = createMuxStateStore(() => muxStateFor(Object.fromEntries([halley, austen, other, local].map(tab => [tab.id, tab]))));
+  const remove = mock.fn<NonNullable<MultiplexerActionsContextType["removeRemoteMachineTabs"]>>();
+  const close = mock.fn();
+  const open = mock.fn();
+  const { TabItem } = await import("../Sidebar/TabItem");
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<MuxStateStoreContext.Provider value={store}>
+      <MultiplexerActionsContext.Provider value={muxActions({ removeRemoteMachineTabs: remove })}>
+        <TabItem tab={halley} index={0} isActive={false} onClick={open} onClose={close} canClose workspaceId="fixture" />
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>));
+    const activation = host.querySelector<HTMLButtonElement>('button[aria-label="Halley, Orchestrator on ROG, offline"]');
+    assert(activation, "the named activation stays available");
+    await act(async () => activation.click());
+    assert(open.mock.callCount() === 1, "the unavailable tab opens");
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Tab actions"]')!
+      .dispatchEvent(new window.KeyboardEvent("keydown", { code: "Enter", key: "Enter", bubbles: true })));
+    const command = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === "Remove ROG's tabs");
+    assert(command, "the menu offers local machine removal");
+    await act(async () => command.click());
+    const dialog = document.querySelector('[role="dialog"][aria-label="Remove 2 tabs from ROG?"]')!;
+    assert(dialog.textContent?.includes("They stay on ROG."), "the confirmation says where the tabs stay");
+    assert(remove.mock.callCount() === 0, "opening the dialog does not remove anything");
+    await act(async () => [...dialog.querySelectorAll("button")].find(button => button.textContent === "Remove")!.click());
+    assert(JSON.stringify(remove.mock.calls[0]?.arguments) === JSON.stringify(["remote-fixture", [halley.id, austen.id]]), "confirmation names only the selected peer's records");
+    assert(close.mock.callCount() === 0, "the peer-close action was never called");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    resetRemoteChatStatus();
+  }
+});
 
 const testWindow = setupDom();
 let createRoot: typeof import("react-dom/client").createRoot;

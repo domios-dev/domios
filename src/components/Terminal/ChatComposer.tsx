@@ -49,6 +49,8 @@ import {
   isImeKeyEvent,
 } from "./composerComposition";
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { readRemoteChatStatus } from "../../lib/remoteChatStatus";
 import { failChatSendRequest, readChatSends, setChatSendDraft } from "./chatSendStore";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
 import { composeAttachmentDraft } from "./meshAttachmentHandoff";
@@ -484,7 +486,9 @@ function ChatComposerImpl({
       return;
     }
     try {
-      const fallbackCommand = !startupOverrideNonce && !chatBackend && allAttachments.length === 0
+      const remote = parseCompositeTabId(tabId);
+      const remoteUnavailable = remote && readRemoteChatStatus(tabId, remote.peerId).state;
+      const fallbackCommand = !startupOverrideNonce && !chatBackend && !remoteUnavailable && allAttachments.length === 0
         ? cliFallbackCommandPayload(composed) : null;
       if (fallbackCommand) {
         if (!currentPtyId) throw new Error("Tab has no PTY");

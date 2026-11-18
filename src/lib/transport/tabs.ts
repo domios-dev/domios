@@ -1,4 +1,5 @@
 import { parseCompositeTabId } from "../remoteTabTransport";
+import { PeerTabRelayError } from "../remoteChatState";
 import { childHistorySuffix, currentChildAuthority, type ChildTranscriptAuthority } from "../childTranscript";
 import { backgroundProcessesSuffix, type BackgroundProcessAuthority } from "../backgroundProcesses";
 import type { ShellCommandSnapshot } from "@codeterm/chat-core";
@@ -264,7 +265,13 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                 return relay.data;
             }
             if (!relay.ok) {
-                throw new Error(relay.error ?? "Remote tab unavailable");
+                const refusal = (relay.data as { error?: { code?: string; bytes_written?: boolean } } | null)?.error;
+                throw new PeerTabRelayError(relay.status, "/api/mesh/relay-to", relay.error ?? "Remote tab unavailable",
+                    refusal?.code, refusal?.bytes_written);
+            }
+            if (suffix === "/chat-send" && relay.data != null) {
+                const status = (item: ChatSendStatus): ChatSendStatus => ({ ...item, tab_id: ordinary });
+                return Array.isArray(relay.data) ? relay.data.map(status) : status(relay.data as ChatSendStatus);
             }
             return relay.data;
         },
