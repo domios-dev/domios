@@ -1066,15 +1066,17 @@ fn leaf_creation_acknowledged_defaults_false_for_every_existing_transport() {
 }
 
 #[test]
-fn pair_params_carry_reasoning_effort_for_both_roles() {
+fn pair_params_carry_launch_choices_for_both_roles() {
     let body = serde_json::json!({
         "orchestrator_agent": "harness-c",
         "orchestrator_reasoning_effort": "high",
         "orchestrator_launch_profile": "alpha",
+        "orchestrator_account_id": "work",
         "orchestrator_model": "large",
         "planner_agent": "harness-c",
         "planner_reasoning_effort": "low",
         "planner_launch_profile": "beta",
+        "planner_account_id": "home",
         "planner_model": "small",
     });
     let params: OrchestrationPairParams = serde_json::from_value(body).unwrap();
@@ -1084,6 +1086,8 @@ fn pair_params_carry_reasoning_effort_for_both_roles() {
         Some("high")
     );
     assert_eq!(params.planner_reasoning_effort.as_deref(), Some("low"));
+    assert_eq!(params.orchestrator_account_id.as_deref(), Some("work"));
+    assert_eq!(params.planner_account_id.as_deref(), Some("home"));
     assert_eq!(params.orchestrator_launch_profile.as_deref(), Some("alpha"));
     assert_eq!(params.planner_launch_profile.as_deref(), Some("beta"));
     assert_eq!(params.orchestrator_model.as_deref(), Some("large"));

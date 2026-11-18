@@ -350,6 +350,7 @@ pub enum State {
 #[derive(Debug, Clone, Default, Deserialize, ts_rs::TS)]
 pub struct OrchestrationPairParams {
     pub orchestrator_agent: String,
+    pub orchestrator_account_id: Option<String>,
     #[serde(default)]
     pub orchestrator_launch_profile: Option<String>,
     pub orchestrator_model: Option<String>,
@@ -358,6 +359,7 @@ pub struct OrchestrationPairParams {
     #[serde(default)]
     pub orchestrator_reasoning_effort: Option<String>,
     pub planner_agent: String,
+    pub planner_account_id: Option<String>,
     #[serde(default)]
     pub planner_launch_profile: Option<String>,
     pub planner_model: Option<String>,

@@ -4,6 +4,10 @@ export function accountChoiceName(account: ProviderAccountRow, providerName: str
   return account.name ?? account.identity ?? providerName;
 }
 
+export function accountIdentity(account: ProviderAccountRow, providerName: string): string {
+  return account.identity ?? accountChoiceName(account, providerName);
+}
+
 export function accountChoiceDescription(account: ProviderAccountRow): string | undefined {
   if (account.status === "signedOut") return "Signed out";
   if (account.status === "checking") return "Checking sign-in";
@@ -19,4 +23,10 @@ export function accountChoiceDescription(account: ProviderAccountRow): string | 
 
 export function accountChoices(snapshot: ProviderAccountsSnapshot) {
   return snapshot.accounts.filter(account => account.status !== "removing");
+}
+
+export function tabAccountIndicator(snapshot: ProviderAccountsSnapshot | null, accountId: string) {
+  const choices = snapshot ? accountChoices(snapshot) : [];
+  if (choices.length < 2 || choices[0].id === accountId) return null;
+  return snapshot?.accounts.find(account => account.id === accountId) ?? null;
 }

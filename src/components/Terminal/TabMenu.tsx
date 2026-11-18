@@ -26,6 +26,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { DropdownMenu, type DropdownMenuEntry } from "../shared/DropdownMenu";
+import { AccountAvatar } from "../shared/AccountAvatar";
 import { PluginIcon } from "../Extensions/PluginIcon";
 import { TAB_SESSION_LABELS } from "./tabSessionActions";
 import {
@@ -64,6 +65,7 @@ function menuIcon(icon: TabMenuIcon): ReactNode {
     const Glyph = GLYPHS[icon];
     return <Glyph size={14} strokeWidth={1.9} />;
   }
+  if ("kind" in icon) return <AccountAvatar account={icon.account} other={icon.other} size={16} />;
   return <PluginIcon plugin={{ icon_svg: icon.svg, icon_color: icon.color }} size={14} />;
 }
 
@@ -90,7 +92,8 @@ function leafEntry(entry: TabMenuLeafEntry, onAction: ActionHandler): DropdownMe
     case "item":
       return {
         label: entry.label,
-        icon: entry.selected === undefined
+        labelContent: entry.icon && typeof entry.icon === "object" && "kind" in entry.icon ? entry.label : undefined,
+        icon: entry.icon || entry.selected === undefined
           ? menuIcon(entry.icon)
           : entry.selected ? <Check size={14} strokeWidth={2} /> : <span className="w-3.5 h-3.5" />,
         selected: entry.selected,
@@ -110,6 +113,8 @@ function submenuEntry(entry: TabMenuSubmenuEntry, onAction: ActionHandler): Drop
   return {
     label: entry.label,
     icon: menuIcon(entry.icon),
+    description: entry.rowDescription,
+    truncateDescription: Boolean(entry.rowDescription),
     disabled: entry.disabled,
     title: entry.title,
     "data-testid": entry.testId,
@@ -174,6 +179,7 @@ function TabMenuHead({ identity, session, onAction }: { identity?: TabMenuIdenti
 
 interface TabMenuProps {
   tab?: Tab;
+  accounts?: ReturnType<typeof useTabAccounts>;
   entries: TabMenuEntry[];
   onAction: ActionHandler;
   trigger: ReactNode;
@@ -190,11 +196,21 @@ export function TabMenu(props: TabMenuProps) {
 
 function TabMenuWithAccounts(props: TabMenuProps & { tab: Tab }) {
   const descriptor = useAgentDescriptor(props.tab.agent_type);
-  return descriptor?.accounts ? <AccountTabMenu {...props} providerName={descriptor.display_name} /> : <PlainTabMenu {...props} />;
+  if (!descriptor?.accounts) return <PlainTabMenu {...props} />;
+  if (props.accounts) return <AccountTabMenu {...props} accounts={props.accounts} providerName={descriptor.display_name} />;
+  return <SubscribedTabMenu {...props} providerName={descriptor.display_name} />;
 }
 
-function AccountTabMenu({ tab, entries, onAction, providerName, ...menu }: TabMenuProps & { tab: Tab; providerName: string }) {
-  const accounts = useTabAccounts(tab);
+function SubscribedTabMenu(props: TabMenuProps & { tab: Tab; providerName: string }) {
+  const accounts = useTabAccounts(props.tab);
+  return <AccountTabMenu {...props} accounts={accounts} />;
+}
+
+function AccountTabMenu({ tab, entries, onAction, providerName, accounts, ...menu }: TabMenuProps & {
+  tab: Tab;
+  providerName: string;
+  accounts: ReturnType<typeof useTabAccounts>;
+}) {
   const entry = !isReadOnlyTab(tab) && !tab.locked && !lockedView("agent.tabs", tab).locked
     ? tabAccountSubmenu(accounts, providerName) : null;
   const allEntries = [...entries];
@@ -214,7 +230,7 @@ function AccountTabMenu({ tab, entries, onAction, providerName, ...menu }: TabMe
   }} />;
 }
 
-function PlainTabMenu({ entries, onAction, identity, tab: _tab, accountError, ...menu }: TabMenuProps & { accountError?: string | null }) {
+function PlainTabMenu({ entries, onAction, identity, tab: _tab, accounts: _accounts, accountError, ...menu }: TabMenuProps & { accountError?: string | null }) {
   const header = entries.find((entry): entry is TabMenuHeaderEntry => entry.kind === "header");
   const items = entries.flatMap((entry): DropdownMenuEntry[] => {
     if (entry.kind === "header") return [];

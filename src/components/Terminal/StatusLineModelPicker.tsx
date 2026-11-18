@@ -9,7 +9,9 @@ import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 import type { ProviderDescriptor, Tab } from "../../lib/types";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { useTabAccounts } from "../../hooks/useAccountSelectors";
-import { accountChoices } from "../shared/accountChoices";
+import { accountIdentity, tabAccountIndicator } from "../shared/accountChoices";
+import { AccountAvatar } from "../shared/AccountAvatar";
+import type { ProviderAccountRow } from "../../hooks/providerAccountsTypes";
 import { getModelCatalogueRefreshApi, refreshFailureToast } from "../../lib/modelCatalogueRefresh";
 import { getTabModelApi } from "../Sidebar/tabModelApi";
 import { modelSwitchFailure, runtimeBusy } from "../../lib/modelSwitchFailure";
@@ -58,11 +60,12 @@ export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: stri
 
 function AccountStatusLineModelPicker({ tab, label, descriptor }: { tab: Tab; label: string; descriptor: ProviderDescriptor }) {
   const accounts = useTabAccounts(tab);
+  const account = tabAccountIndicator(accounts.snapshot, accounts.currentAccountId);
   return <TabModelIdentity tab={tab} label={label} descriptor={descriptor}
-    accountIdentity={accounts.snapshot && accountChoices(accounts.snapshot).length > 1 ? accounts.currentIdentity : null} />;
+    account={account} />;
 }
 
-function TabModelIdentity({ tab, label, descriptor, accountIdentity }: { tab: Tab; label: string; descriptor: ProviderDescriptor | undefined; accountIdentity?: string | null }) {
+function TabModelIdentity({ tab, label, descriptor, account }: { tab: Tab; label: string; descriptor: ProviderDescriptor | undefined; account?: ProviderAccountRow | null }) {
   const effort = tab.reasoning_effort_identity;
   return (
     <StatusLineModelPicker
@@ -73,7 +76,7 @@ function TabModelIdentity({ tab, label, descriptor, accountIdentity }: { tab: Ta
       runtimeIdentity={tab.agent_runtime_state}
       facts={{ hasSession: Boolean(tab.pty_id) || tab.backing?.kind === "chat_backend" }}
       label={label}
-      accountIdentity={accountIdentity}
+      account={account}
       modelCandidates={[tab.agent_session_model, tab.agent_provider_resolved_model, tab.agent_requested_model]}
       currentServiceTier={confirmedTabServiceTier(tab, descriptor)}
       serviceTierAvailability={tabServiceTierAvailability(tab)}
@@ -93,7 +96,7 @@ export function StatusLineModelPicker({
   descriptor,
   facts,
   label,
-  accountIdentity,
+  account,
   modelCandidates,
   currentEffort,
   currentServiceTier,
@@ -110,7 +113,7 @@ export function StatusLineModelPicker({
   descriptor: ProviderDescriptor | undefined;
   facts: StatusLineTabFacts;
   label: string;
-  accountIdentity?: string | null;
+  account?: ProviderAccountRow | null;
   modelCandidates: Array<string | null | undefined>;
   currentEffort: string | undefined;
   currentServiceTier?: ServiceTierSelection;
@@ -218,6 +221,9 @@ export function StatusLineModelPicker({
   const selectionStatus = pendingSelection?.confirmation_pending ? "Switch sent; confirms when this turn ends" : afterTurn ? (restartBased ? "pending" : "after this turn") : undefined;
   // The logo names the agent; the agent's reported name and version live only in the tooltip, never in the label.
   const providerName = descriptor?.display_name ?? label.split(" · ")[0];
+  const identity = account ? accountIdentity(account, providerName) : null;
+  const accountTitle = identity ? `Account: ${identity}` : null;
+  const avatar = account && <AccountAvatar account={account} other size={16} />;
   const displayedLabel = tabMetaParts(confirmedModelName || providerName, tierLabel, selection.effort, selectionStatus).join(" · ");
   const harnessTitle = (tab ? runtimeAgentLabel(tab) : null) ?? runtimeAgentTooltip(runtimeIdentity) ?? providerName;
   const glyph = descriptor ? (
@@ -230,9 +236,10 @@ export function StatusLineModelPicker({
   if (!gate.interactive || !descriptor) {
     return (
       <span className="ct-status-identity-wrap">
-        <span className="ct-status-identity ct-status-identity--static" title={[gate.interactive ? harnessTitle : gate.reason, accountIdentity].filter(Boolean).join("\n")}>
+        <span className="ct-status-identity ct-status-identity--static" title={[gate.interactive ? harnessTitle : gate.reason, accountTitle].filter(Boolean).join("\n")}>
           {glyph}
           <span className="ct-status-identity__text">{displayedLabel}</span>
+          {avatar}
         </span>
       </span>
     );
@@ -246,13 +253,14 @@ export function StatusLineModelPicker({
         className="ct-status-identity"
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={`Change model, currently ${displayedLabel}`}
-        title={["Change model", accountIdentity].filter(Boolean).join("\n")}
+        aria-label={`Change model, currently ${displayedLabel}${identity ? `, account ${identity}` : ""}`}
+        title={["Change model", accountTitle].filter(Boolean).join("\n")}
         data-testid="status-model-trigger"
         onClick={() => setOpen((value) => !value)}
       >
         {glyph}
         <span className="ct-status-identity__text">{displayedLabel}</span>
+        {avatar}
         <ChevronDown size={12} strokeWidth={2.25} aria-hidden className="ct-status-identity__chevron" />
       </button>
       {applying && <span className="ct-status-identity__pending" role="status">Applying…</span>}

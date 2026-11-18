@@ -8,10 +8,12 @@ type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>
 export function orchestrationPairParams(input: OrchestrationPairInput) {
   return withTemplate({
     orchestrator_agent: input.orchestratorAgent,
+    orchestrator_account_id: input.orchestratorAccountId,
     orchestrator_launch_profile: input.orchestratorLaunchProfile,
     orchestrator_model: input.orchestratorModel,
     orchestrator_reasoning_effort: input.orchestratorReasoningEffort,
     planner_agent: input.plannerAgent,
+    planner_account_id: input.plannerAccountId,
     planner_launch_profile: input.plannerLaunchProfile,
     planner_model: input.plannerModel,
     planner_reasoning_effort: input.plannerReasoningEffort,

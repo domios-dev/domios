@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
 import { AgentIcon } from "../AgentIcon";
 import { ListChecks, Workflow } from "lucide-react";
-import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
+import { DropdownSelect, TOUCH_SELECT_HEIGHT, type DropdownSelectOption } from "../shared/DropdownMenu";
 import { pickerModelGroups } from "../Terminal/statusLinePickerModel";
 import { reasoningEffortsForModel, resolveEffort } from "../../lib/newSessionChoice";
 import { RoleModelButton } from "./RoleModelButton";
@@ -120,6 +120,7 @@ export function OrchestrationRoleRow({
       <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0">
           <DropdownSelect
+            className={accountSlot ? TOUCH_SELECT_HEIGHT : undefined}
             aria-label={`${label} provider`}
             aria-describedby={providerDescribedBy}
             disabled={disabled}
@@ -141,6 +142,7 @@ export function OrchestrationRoleRow({
         </div>}
         {!pill && !modelSlot && modelControls && !awaitingProvider && <div className="flex-1 min-w-0">
           <DropdownSelect
+            className={accountSlot ? TOUCH_SELECT_HEIGHT : undefined}
             data-testid={modelTestId}
             options={modelOptions}
             value={modelId}
@@ -150,11 +152,12 @@ export function OrchestrationRoleRow({
             menuMaxHeight={MODEL_MENU_MAX_HEIGHT}
           />
         </div>}
-        {accountSlot && <div className="min-w-0 max-w-full">{accountSlot}</div>}
+        {accountSlot}
       </div>
       {(!pill || !compact) && modelControls && efforts.length > 0 && onEffortChange && (
         <div className="min-w-0">
           <DropdownSelect
+            className={accountSlot ? TOUCH_SELECT_HEIGHT : undefined}
             data-testid={effortTestId}
             options={effortOptions}
             value={effortId ?? ""}
@@ -213,8 +216,8 @@ export function OrchestrationPairForm({
   titleField?: ReactNode;
   pairAffordanceTestId?: string;
   roleControls?: {
-    orchestrator?: Pick<RoleRowProps, "modelSlot" | "details">;
-    planner?: Pick<RoleRowProps, "modelSlot" | "details">;
+    orchestrator?: Pick<RoleRowProps, "modelSlot" | "details" | "accountSlot">;
+    planner?: Pick<RoleRowProps, "modelSlot" | "details" | "accountSlot">;
   };
   roleTestIds?: {
     orchestratorProvider?: string;
@@ -252,6 +255,7 @@ export function OrchestrationPairForm({
   const orchestratorRow = (
     <OrchestrationRoleRow
       label="Orchestrator"
+      accountSlot={roleControls?.orchestrator?.accountSlot}
       modelSlot={roleControls?.orchestrator?.modelSlot}
       details={roleControls?.orchestrator?.details}
       modelControls={!roleControls?.orchestrator?.modelSlot}
@@ -282,6 +286,7 @@ export function OrchestrationPairForm({
   const plannerRow = (
     <OrchestrationRoleRow
       label="Planner"
+      accountSlot={roleControls?.planner?.accountSlot}
       modelSlot={roleControls?.planner?.modelSlot}
       details={roleControls?.planner?.details}
       modelControls={!roleControls?.planner?.modelSlot}

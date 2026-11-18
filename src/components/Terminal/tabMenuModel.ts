@@ -8,7 +8,8 @@ import { canMakeOrchestrator } from "../../lib/orchestratorOnboard";
 import { isPlanner } from "../../lib/roleKind";
 import type { ProviderDescriptor, Tab, TabStatus } from "../../lib/types";
 import type { useTabAccounts } from "../../hooks/useAccountSelectors";
-import { accountChoiceDescription, accountChoiceName, accountChoices } from "../shared/accountChoices";
+import { accountChoiceDescription, accountChoiceName, accountChoices, accountIdentity } from "../shared/accountChoices";
+import type { ProviderAccountRow } from "../../hooks/providerAccountsTypes";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { orchestratorRecoveryMenuView, type OrchestratorRecoveryMenuView } from "../Sidebar/orchestratorRecoveryMenu";
 import { tabModelEntryLabel, tabModelMenuView, type TabModelMenuView } from "../Sidebar/tabModelMenu";
@@ -94,7 +95,8 @@ export type TabMenuGlyph =
   | "detach"
   | "close";
 
-export type TabMenuIcon = TabMenuGlyph | { svg: string | null; color: string | null } | null;
+type AccountMenuIcon = { kind: "account"; account: ProviderAccountRow; other: boolean };
+export type TabMenuIcon = TabMenuGlyph | AccountMenuIcon | { svg: string | null; color: string | null } | null;
 
 interface TabMenuEntryBase {
   id: string;
@@ -145,6 +147,7 @@ export interface TabMenuSubmenuEntry extends TabMenuEntryBase {
   label: string;
   icon: TabMenuIcon;
   description?: string;
+  rowDescription?: string;
   showDescription?: boolean;
   disabled?: boolean;
   title?: string;
@@ -160,25 +163,30 @@ export function tabAccountSubmenu(view: Pick<ReturnType<typeof useTabAccounts>, 
   if (!snapshot || accounts.length < 2) return null;
   const canContinue = snapshot.continuation === "proven";
   const ownerTrial = snapshot.continuation === "unverified" && canVerify === true;
-  return { kind: "submenu", id: "account", label: "Account", icon: null,
+  const currentAccount = snapshot.accounts.find(account => account.id === currentAccountId);
+  const currentIdentity = currentAccount ? accountIdentity(currentAccount, providerName) : undefined;
+  const icon = (account: ProviderAccountRow): AccountMenuIcon => ({ kind: "account", account, other: account.id !== accounts[0].id });
+  return { kind: "submenu", id: "account", label: "Account", icon: currentAccount ? icon(currentAccount) : null,
+    rowDescription: currentIdentity, title: currentIdentity ? `Account: ${currentIdentity}` : undefined,
     description: ownerTrial ? "Choosing an account tries this conversation there. Its history stays the same." : undefined,
     showDescription: ownerTrial,
     entries: accounts.map((account): TabMenuItemEntry => {
     const current = account.id === currentAccountId;
+    const description = accountChoiceDescription(account);
+    const row = { kind: "item" as const, id: `account-${account.id}`, label: accountChoiceName(account, providerName),
+      icon: icon(account), selected: current };
     if (snapshot.continuation === "unverified") {
       const canTry = ownerTrial && turnActive === false && !current && account.status === "ready" && !switching;
       const reason = switching ? "Switching account" : !ownerTrial ? blockedReason ?? "Account switching is unavailable."
         : current || turnActive !== false ? "Wait for this turn to finish"
           : account.status === "signedOut" ? "Sign in first"
-            : accountChoiceDescription(account) ?? "This account isn't ready.";
-      return { kind: "item", id: `account-${account.id}`, label: accountChoiceName(account, providerName), icon: null,
-        selected: current, disabled: switching, unavailable: !canTry, hint: canTry ? accountChoiceDescription(account) : reason,
+            : description ?? "This account isn't ready.";
+      return { ...row, disabled: switching, unavailable: !canTry, hint: current ? `Current · ${reason}` : canTry ? description : reason,
         action: canTry ? { type: "switchAccount", accountId: account.id } : null };
     }
     const blocked = !canContinue || Boolean(blockedReason) || account.status === "signedOut";
-    return { kind: "item", id: `account-${account.id}`, label: accountChoiceName(account, providerName), icon: null,
-      selected: current, disabled: switching || current, unavailable: !current && blocked,
-      hint: !current && blocked ? blockedReason ?? (account.status === "signedOut" ? "Sign in to this account first." : "Account switching is unavailable.") : accountChoiceDescription(account),
+    return { ...row, disabled: switching || current, unavailable: !current && blocked,
+      hint: current ? "Current" : blocked ? blockedReason ?? (account.status === "signedOut" ? "Sign in to this account first." : "Account switching is unavailable.") : description,
       action: current || switching || blocked ? null : { type: "switchAccount", accountId: account.id },
     };
   }) };
