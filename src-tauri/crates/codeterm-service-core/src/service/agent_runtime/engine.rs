@@ -696,21 +696,14 @@ pub async fn ensure_locked(
                             reason: error.to_string(),
                         })?,
                 );
-                launch.apply_environment(
+                super::environment::prepare_spawn(
+                    &owner,
+                    &target,
+                    &launch,
                     &mut env,
-                    crate::service::execution_sandbox::environment(&owner, &target),
-                );
-                env.remove(super::cli_exception::SCOPE_ENV);
-                super::environment::mark_runtime_agent(
-                    &mut env,
-                    !capability.turn_scoped_requests.is_empty(),
-                );
-                if restricted_cli {
-                    env.insert(
-                        super::cli_exception::SCOPE_ENV.into(),
-                        super::cli_exception::SCOPE.into(),
-                    );
-                }
+                    restricted_cli,
+                )
+                .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
                 if !super::authority::verifies(&owner, &target, &provider_id, &nonce)
                     || !launch.verifies(&owner, &target)
                 {
