@@ -36,6 +36,10 @@ it("names file references, truncates their basename and previews an existing fil
   await act(async () => file.click());
   expect(document.querySelector('[data-testid="capsule-preview-text"]')?.textContent).toContain("Private preview sentinel");
   expect(reveal).not.toHaveBeenCalled();
+  const action = document.querySelector<HTMLButtonElement>('[role="region"] button[aria-label="Reveal private-neighbor-with-a-long-name.txt"]')!;
+  expect(document.activeElement).toBe(action);
+  await act(async () => action.click());
+  expect(reveal).toHaveBeenCalledWith(path);
 });
 
 it.each(["This file cannot be previewed. It may be missing or access is restricted.", "Local artifact previews are unavailable"])("keeps a file actionable when preview fails: %s", async (reason) => {
