@@ -2625,7 +2625,9 @@ function evidence(ctx, state, part, sequence, events) {
   );
 }
 function runtimeReduce(ctx, raw, frames) {
-  if (binding(ctx).protocol === "v2") return v2Reduce(ctx, raw, frames);
+  const protocol = binding(ctx).protocol;
+  if (!protocol) return { state: raw, events: [] };
+  if (protocol === "v2") return v2Reduce(ctx, raw, frames);
   if (!ctx.threadId) return { state: raw, events: [] };
   const state = stateFor(ctx, raw), events = [];
   for (let index = 0; index < frames.length; index++) {

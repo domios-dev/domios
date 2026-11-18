@@ -16,6 +16,13 @@ function response(ctx:RuntimeContext, op:Operation, state:JsonValue, body:unknow
 function continuation(step:RuntimeStep) {assert.equal(step.kind,"continue");if (step.kind !== "continue") throw new Error("continuation required");return step.plan;}
 function loaded(tab:string) {
   const ctx={...copy(fixture.context),tabId:tab};
+  const initialize:Operation={kind:"initialize"};
+  let handshake=runtimePlan(ctx,initialize);
+  for (const body of [{healthy:true,version:"fixture"},fixture.providers,fixture.auth]) {
+    const step=response(ctx,initialize,handshake.state,body);
+    if (step.kind === "continue") handshake=step.plan;
+    else assert.equal(step.kind,"complete");
+  }
   const op:Operation={kind:"resumeThread",threadId:ctx.threadId!,instructions:"opaque system instructions",settings:ctx.settings};
   const plan=runtimePlan(ctx,op);
   const step=response(ctx,op,plan.state,{id:ctx.threadId,directory:ctx.cwd});

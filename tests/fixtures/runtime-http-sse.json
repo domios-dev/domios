@@ -1,5 +1,6 @@
 {
   "source": {
+    "pluginDirectory": "plugins/provider-opencode",
     "cli": "OpenCode 2.3.0",
     "commit": "a6b15d33daf6ab7d35569f6d711fdb630b9f04e7",
     "binarySha256": "38153a142354634c82b5cfe6c00b19df15a71e6cf8c17ef5f5c1a4cc684a6917",

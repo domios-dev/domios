@@ -1,5 +1,7 @@
 use super::*;
 
+mod restart;
+
 #[test]
 fn http_routes_keep_origin_and_refuse_traversal() {
     let origin = Url::parse("http://127.0.0.1:12345/").unwrap();
