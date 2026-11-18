@@ -130,9 +130,14 @@ impl<'a> PtyAccountSwitch<'a> {
         }
         let prepare = |account: &AccountRestartTarget, label: &str| {
             with_context(account.invocation.clone(), || {
-                if svc.restart_session_exists(&tab, &snap.provider, snap.session_id.as_deref())
-                    != Some(true)
-                {
+                let exists =
+                    svc.restart_session_exists(&tab, &snap.provider, snap.session_id.as_deref());
+                if exists != Some(true) {
+                    log::debug!(
+                        "[account-restart] tab={} provider={} account={label} exact session preflight refused: exists={exists:?}",
+                        snap.tab_id,
+                        snap.provider,
+                    );
                     return Err(AgentRestartError::BadRequest(format!(
                         "The exact conversation is unavailable on the {label} account"
                     )));

@@ -28,7 +28,7 @@ fn evidence(processes: Vec<LaunchProcess>) -> LaunchSessionEvidence {
 
 #[test]
 fn exact_switch_preflight_reads_shared_transcript_without_a_pid_record() {
-    use crate::provider_account::{with_context, InvocationContext, SharedReadGrant};
+    use crate::provider_account::{self, with_context, InvocationContext, SharedReadGrant};
     if require_plugins().is_none() {
         return;
     }
@@ -36,15 +36,29 @@ fn exact_switch_preflight_reads_shared_transcript_without_a_pid_record() {
         &std::fs::read_to_string(plugin_fixture_root().join("plugin.json")).unwrap(),
     )
     .unwrap();
-    let home_environment = manifest.accounts.unwrap().home_environment;
+    let capability = manifest.accounts.unwrap();
+    let home_environment = &capability.home_environment;
     let temp = tempfile::tempdir().unwrap();
     let usual = temp.path().join("usual");
-    let named = temp.path().join("named");
+    let accounts = temp.path().join("provider-accounts");
+    let named = accounts.join("claude/named");
+    let foreign = accounts.join("claude/foreign");
     let projects = usual.join("projects");
     let project = projects.join("-actual-project");
     std::fs::create_dir_all(&project).unwrap();
     std::fs::create_dir_all(named.join("sessions")).unwrap();
+    std::fs::create_dir_all(&foreign).unwrap();
+    std::fs::create_dir_all(usual.join("sessions")).unwrap();
     codeterm_util::fs_links::directory_link(&projects, &named.join("projects")).unwrap();
+    codeterm_util::fs_links::directory_link(&projects, &foreign.join("projects")).unwrap();
+    let id = "d3028899-74bc-4921-824b-5332bef83182";
+    let default_record = usual.join("sessions/123.json");
+    std::fs::write(
+        &default_record,
+        json!({"pid": 123, "sessionId": id}).to_string(),
+    )
+    .unwrap();
+    assert!(!named.join("sessions/123.json").exists());
     let evidence = temp.path().join("evidence");
     let _env = EnvGuard::new(&[
         (home_environment.as_str(), usual.to_str().unwrap()),
@@ -53,20 +67,34 @@ fn exact_switch_preflight_reads_shared_transcript_without_a_pid_record() {
             evidence.to_str().unwrap(),
         ),
     ]);
-    let invocation = InvocationContext::new(
+    let invocation = InvocationContext::from_capability(
         manifest.id,
         "named".into(),
-        [(home_environment, Some(named.to_string_lossy().into_owned()))].into(),
-        vec![named],
-        vec![usual],
+        &capability,
+        [(
+            capability.home_environment.clone(),
+            Some(named.to_string_lossy().into_owned()),
+        )]
+        .into(),
+        vec![named.clone()],
+        vec![usual, accounts.clone()],
     )
+    .unwrap()
+    .with_shared_exclusions(vec![accounts, named.clone(), foreign.clone()])
     .unwrap()
     .with_shared_reads(vec![SharedReadGrant::Directory { path: projects }])
     .unwrap();
-    let id = "d3028899-74bc-4921-824b-5332bef83182";
     let transcript = project.join(format!("{id}.jsonl"));
     std::fs::write(&transcript, "{}\n").unwrap();
     let (native, js) = pair();
+    with_context(Some(invocation.clone()), || {
+        assert!(provider_account::read_allowed(&named.join("projects")));
+        assert!(!provider_account::read_allowed(&foreign.join("projects")));
+        assert!(!provider_account::read_allowed(&default_record));
+        for provider in [&native as &dyn AgentProvider, &js as &dyn AgentProvider] {
+            assert_eq!(provider.session_exists("/actual-project", id), Some(true));
+        }
+    });
     assert!(crate::session_evidence::record(
         id,
         transcript.to_str().unwrap()

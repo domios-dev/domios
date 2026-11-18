@@ -316,9 +316,24 @@ impl InvocationContext {
         {
             return Some(true);
         }
+        // The selected home's namespace exclusions protect shared targets, while
+        // links inside that home may still resolve to a pinned shared grant.
+        let selected_origin = self
+            .read_roots
+            .iter()
+            .zip(&self.pinned_read_roots)
+            .find(|(root, pinned)| {
+                path.strip_prefix(root).is_ok_and(|relative| {
+                    relative
+                        .components()
+                        .all(|part| matches!(part, std::path::Component::Normal(_)))
+                }) && codeterm_util::project_roots::canonical_target(root).as_ref() == Some(*pinned)
+            })
+            .map(|(root, _)| root);
         if self.shared_exclusions.iter().any(|excluded| {
             target.starts_with(excluded)
-                || path.starts_with(excluded)
+                || (path.starts_with(excluded)
+                    && !selected_origin.is_some_and(|root| root.starts_with(excluded)))
                 || codeterm_util::project_roots::canonical_target(excluded)
                     .is_some_and(|excluded| target.starts_with(excluded))
         }) {

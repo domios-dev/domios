@@ -171,6 +171,11 @@ impl JsProvider {
         let overridden = match &cfg.root_environment {
             Some(environment) => {
                 if !self.vm.can_read_environment(&environment.variable) {
+                    log::debug!(
+                        "[session-store] provider={} root selector denied: {}",
+                        self.manifest.id,
+                        environment.variable
+                    );
                     return None;
                 }
                 environment.resolve(crate::provider_account::environment(&environment.variable))
@@ -181,10 +186,22 @@ impl JsProvider {
             crate::provider_account::environment_is_selected(&environment.variable)
         }) && overridden.is_none()
         {
+            log::debug!(
+                "[session-store] provider={} selected root selector is unresolved",
+                self.manifest.id
+            );
             return None;
         }
         let root = overridden.or_else(|| PluginManifest::expand_home(&cfg.root_dir))?;
-        self.vm.can_read_path(&root).then_some(root)
+        if !self.vm.can_read_path(&root) {
+            log::debug!(
+                "[session-store] provider={} root read denied: {}",
+                self.manifest.id,
+                root.display()
+            );
+            return None;
+        }
+        Some(root)
     }
 
     fn manifest_session_metadata(&self, stem: &str, file_path: &Path) -> SessionMetadata {
