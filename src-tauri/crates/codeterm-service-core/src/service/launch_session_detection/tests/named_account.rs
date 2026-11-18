@@ -133,6 +133,17 @@ async fn named_claude_home_skips_onboarding_installs_consented_hooks_and_binds_e
         default_record
     );
 
+    let mut disabled = settings.clone();
+    disabled["disableAllHooks"] = json!(true);
+    let disabled_bytes = serde_json::to_vec_pretty(&disabled).unwrap();
+    let settings_path = home.join("settings.json");
+    fs::write(&settings_path, &disabled_bytes).unwrap();
+    assert_eq!(
+        provider_accounts::prepare_named_session_hook(svc, &invocation),
+        Some(false)
+    );
+    assert_eq!(fs::read(&settings_path).unwrap(), disabled_bytes);
+
     let session = "00000000-0000-4000-8000-000000000002";
     let record = |session_id, start| {
         json!({"pid":2860,"sessionId":session_id,"procStart":start,"kind":"interactive"})
@@ -213,6 +224,7 @@ async fn named_claude_home_skips_onboarding_installs_consented_hooks_and_binds_e
         assert!(!cleaned.to_string().contains("X-CodeTerm-Hook"));
     }
     let cleaned = fs::read(home.join("settings.json")).unwrap();
+    assert_eq!(read_json("settings.json")["disableAllHooks"], true);
     assert_eq!(
         provider_accounts::prepare_named_session_hook(svc, &invocation),
         Some(false)

@@ -109,16 +109,32 @@ fn launch_session_detection_native_js_parity() {
             .unwrap()
             .timestamp_micros();
         let later = start + 3_600_000_000;
-        for (pid, timestamp) in [
-            (2860, "Sun Nov  1 05:30:00 2026"),
-            (2861, "Sun Nov  1 06:30:00 2026"),
-            (2862, "Sun Nov  1 01:30:00 2026"),
-            (2863, "dim.  1 nov. 01:30:00 2026"),
+        let reused_start = chrono::Utc
+            .with_ymd_and_hms(2026, 8, 1, 5, 30, 0)
+            .single()
+            .unwrap()
+            .timestamp_micros();
+        let riga_record_ms = reused_start / 1_000 - 3 * 3_600_000 + 10;
+        let fresh_ms = later / 1_000 + 1;
+        for (pid, timestamp, modified_ms) in [
+            (2860, "Sun Nov  1 05:30:00 2026", start / 1_000 + 1),
+            (2861, "Sun Nov  1 06:30:00 2026", fresh_ms),
+            (2862, "Sun Nov  1 01:30:00 2026", fresh_ms),
+            (2863, "dim.  1 nov. 01:30:00 2026", fresh_ms),
+            (2864, "Sat Aug  1 05:30:00 2026", riga_record_ms),
         ] {
             write(
                 pid,
                 json!({"pid":pid,"sessionId":format!("sid-{pid}"),"procStart":timestamp,"kind":"interactive"}),
             );
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(registry.path().join(format!("{pid}.json")))
+                .unwrap();
+            file.set_modified(
+                std::time::UNIX_EPOCH + std::time::Duration::from_millis(modified_ms as u64),
+            )
+            .unwrap();
         }
         cases.extend([
             (
@@ -129,6 +145,10 @@ fn launch_session_detection_native_js_parity() {
                 }),
             ),
             (evidence(vec![process(2860, 1, &later.to_string())]), None),
+            (
+                evidence(vec![process(2864, 1, &reused_start.to_string())]),
+                None,
+            ),
             (
                 evidence(vec![process(2861, 1, &later.to_string())]),
                 Some(LaunchSessionDetection {

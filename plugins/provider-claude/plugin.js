@@ -1200,19 +1200,19 @@ function registryDir() {
   const home = host.homeDir();
   return effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), home ? home + sep + ".claude" + sep + "sessions" : null, "sessions", sep);
 }
-function registryStartMatches(recorded, token, macos) {
+function registryStartMatches(recorded, token, modifiedMs) {
   if (!token) return false;
   if (recorded === token) return true;
-  if (!macos || !/^\d+$/.test(token)) return false;
+  if (modifiedMs === void 0 || !/^\d+$/.test(token)) return false;
   const micros = Number(token);
-  if (!Number.isSafeInteger(micros)) return false;
+  if (!Number.isSafeInteger(micros) || modifiedMs <= Math.floor(micros / 1e3)) return false;
   const start = new Date(Math.floor(micros / 1e6) * 1e3);
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const time = [start.getUTCHours(), start.getUTCMinutes(), start.getUTCSeconds()].map((value) => String(value).padStart(2, "0")).join(":");
   return recorded === `${weekdays[start.getUTCDay()]} ${months[start.getUTCMonth()]} ${String(start.getUTCDate()).padStart(2, " ")} ${time} ${start.getUTCFullYear()}`;
 }
-function registrySessionId(raw, pid, startToken, macos = false) {
+function registrySessionId(raw, pid, startToken, modifiedMs) {
   let record3;
   try {
     record3 = JSON.parse(raw);
@@ -1222,7 +1222,7 @@ function registrySessionId(raw, pid, startToken, macos = false) {
   if (!record3 || typeof record3 !== "object" || record3.pid !== pid) return null;
   if (typeof record3.kind === "string" && record3.kind !== "interactive") return null;
   if (typeof record3.procStart !== "string") return null;
-  if (!registryStartMatches(record3.procStart.trim(), startToken, macos)) return null;
+  if (!registryStartMatches(record3.procStart.trim(), startToken, modifiedMs)) return null;
   const sessionId = typeof record3.sessionId === "string" ? record3.sessionId.trim() : "";
   return sessionId || null;
 }
@@ -1234,10 +1234,24 @@ function* detectClaudeLaunchSession(evidence) {
   const processes = evidence.processes.slice().sort((a, b) => a.depth - b.depth || a.pid - b.pid);
   for (let i = 0; i < processes.length; i++) {
     const proc = processes[i];
-    const raw = yield* host.io.fs.readFile(dir + sep + proc.pid + ".json");
+    const name = proc.pid + ".json";
+    const path = dir + sep + name;
+    const raw = yield* host.io.fs.readFile(path);
     if (typeof raw !== "string") continue;
-    const sessionId = registrySessionId(raw, proc.pid, String(proc.startToken || ""), platform === "macos");
+    const token = String(proc.startToken || "");
+    const sessionId = registrySessionId(raw, proc.pid, token);
     if (sessionId) return { sessionId, source: "pid_registry" };
+    if (platform !== "macos") continue;
+    try {
+      const entries = yield* host.io.fs.readDir(dir);
+      const modifiedMs = entries.find((entry) => entry.name === name && entry.isFile)?.modifiedMs;
+      const freshSession = registrySessionId(raw, proc.pid, token, modifiedMs ?? void 0);
+      if (freshSession && raw === (yield* host.io.fs.readFile(path))) {
+        return { sessionId: freshSession, source: "pid_registry" };
+      }
+    } catch (error) {
+      if (!(error instanceof RangeError)) throw error;
+    }
   }
   return null;
 }

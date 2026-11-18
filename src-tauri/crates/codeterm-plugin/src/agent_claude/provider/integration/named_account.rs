@@ -120,6 +120,9 @@ pub(crate) fn session_hook(home: &Path, repair_consented: bool) -> Result<bool, 
     let root = settings
         .as_object_mut()
         .ok_or("Named account settings must be an object")?;
+    if root.get("disableAllHooks").and_then(Json::as_bool) == Some(true) {
+        return Ok(false);
+    }
     let hooks = root
         .entry("hooks")
         .or_insert_with(|| serde_json::json!({}))
