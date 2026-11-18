@@ -201,13 +201,19 @@ impl NeighborsExt for ServiceContext {
             })
         };
         let previous = match client {
-            Some(client) => client
+            Some(client) => match client
                 .auth_post_json(
                     "/api/neighbors/runtime",
                     &json!({"operation":"permission","friendship_id":friendship}),
                 )
                 .await
-                .ok(),
+            {
+                Ok(grant) => Some(grant),
+                Err(error) => {
+                    log::debug!("[neighbors] previous receiver grant read unavailable: {error}");
+                    None
+                }
+            },
             None => None,
         };
         self.require_neighbor_generation(generation)?;

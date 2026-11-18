@@ -26,7 +26,7 @@ Receiver loss closes agents to Recently Closed and revokes credentials; return s
 
 Transient setup/listen failures use capped backoff; permanent failures await rearm or account/registry changes. Auth/revocation/off/generation/receiver changes stop. Retry retains cursors; uncertain mutations never replay. Errors:status.watches/neighbors-watch-status; details:API-LIFECYCLE.
 
-Grants stay local. Friend pages show the receiver and its effective access (or unavailable). Only the owner's same-account mesh supplies comparisons; keys/keyrings/files stay put.
+Grants stay local. Friend pages show the receiver and its effective access (or unavailable). Only an admitted Full peer on the owner's current account supplies permission comparisons; this grants no other Neighbor reads or writes. Keys/keyrings/files stay put.
 
 General previews `receive-here FRIENDSHIP_ID --expected-receiver-revision N --preview`. Show both grants (access,folder/writes,memory/workspaces,scope); ask keep/adopt. Warn: fresh session, retained history. Apply once with `--takeover-confirmed --grant-choice keep|adopt --expected-grant-digest DIGEST`. UI shares Apply. Missing/stale choices refuse; refresh/reconfirm. Unreadable grants cannot be adopted.
 
@@ -181,4 +181,4 @@ File API (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_limit`): `d
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 62 -->
+<!-- revision: 63 -->
