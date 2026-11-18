@@ -2368,8 +2368,13 @@ function v2Plan(ctx, op) {
       claimed(ctx, { sendId: op.sendId, messageId: id, turnId: id });
       return prompt(op, id);
     }
-    case "interrupt":
-      return request("v2.session.abort", { path: { sessionID: own(ctx, op.threadId) }, query: { resume: "false" }, body: {} });
+    case "interrupt": {
+      const threadId = own(ctx, op.threadId);
+      const turnId = op.activeTurnId ?? ctx.activeTurns.find((turn) => turn.threadId === threadId)?.turnId;
+      const plan = request("v2.session.abort", { path: { sessionID: threadId }, query: { resume: "false" }, body: {} });
+      if (plan.action.kind === "request") plan.action.call.target = { threadId, ...turnId ? { turnId } : {} };
+      return plan;
+    }
     case "answer":
       return v2Answer(ctx, op);
     case "control":
@@ -2438,7 +2443,7 @@ function v2Response(ctx, op, state, reply) {
     }
     case "interrupt":
       if (typeof value.interrupted !== "boolean") return refused("OpenCode did not acknowledge the interrupt");
-      return done(value.interrupted && op.activeTurnId ? [{ kind: "turnState", threadId: op.threadId, turnId: op.activeTurnId, state: "idle", detail: "interrupted" }] : []);
+      return done();
     case "answer":
       return body === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
     case "control":
@@ -2484,7 +2489,7 @@ function v2Reduce(ctx, raw, frames) {
   const loginEvents = v2LoginEvents(ctx, frames);
   if (!ctx.threadId) return { state: raw, events: loginEvents };
   const state = current(ctx, raw), events = [...loginEvents];
-  const emit = (row, known) => events.push({ kind: known ? "chatItemPatch" : "chatItem", threadId: ctx.threadId, item: row });
+  const emit = (row) => events.push({ kind: "chatItem", threadId: ctx.threadId, item: row });
   for (let index = 0; index < frames.length; index++) {
     const frame = frames[index], event = object2(frame.params), data = object2(event.data), type = String(event.type), id = text(event.id);
     if ((text(data.sessionID) ?? text(object2(data.form).sessionID)) !== ctx.threadId) continue;
@@ -2540,39 +2545,41 @@ function v2Reduce(ctx, raw, frames) {
     }
     if (/^session\.(text|reasoning)\./.test(type) && Number.isSafeInteger(data.ordinal) && Number(data.ordinal) >= 0) {
       const rowId = contentId(message, Number(data.ordinal)), known = state.parts[rowId], kind = type.split(".")[1];
+      if (known?.finished) continue;
       if (type.endsWith(".delta")) {
-        if (known && typeof data.delta === "string") {
+        if (turn && known?.turn === turn && !state.completed.includes(turn) && typeof data.delta === "string") {
           events.push({ kind: "chatItemAppend", threadId: ctx.threadId, itemId: rowId, content: data.delta, offset: known.bytes });
           known.bytes += utf8Length(data.delta);
         }
-      } else {
-        const seq = known?.seq ?? ++state.seq, content = type.endsWith(".ended") ? String(data.text ?? "") : "";
+      } else if (type.endsWith(".ended") || type.endsWith(".started") && !known) {
+        const finished = type.endsWith(".ended"), seq = known?.seq ?? ++state.seq, content = finished ? String(data.text ?? "") : "";
         const row = v2Content(message, { type: kind, text: content }, Number(data.ordinal), seq);
         if (row) {
-          emit(row, false);
-          state.parts[rowId] = { seq, bytes: utf8Length(content), part: {} };
+          emit(row);
+          state.parts[rowId] = { seq, bytes: utf8Length(content), turn, finished, part: {} };
         }
       }
       continue;
     }
     if (type.startsWith("session.tool.") && text(data.id)) {
       const rowId = toolId(message, String(data.id)), known = state.parts[rowId];
-      if (!known && type !== "session.tool.input.started") continue;
+      if (known?.finished || !known && type !== "session.tool.input.started") continue;
       const seq = known?.seq ?? ++state.seq, previous = known?.part ?? {}, previousState = object2(previous.state);
       const part = { ...previous, type: "tool", id: data.id, name: data.name ?? previous.name, time: { ...object2(previous.time) } };
-      if (type === "session.tool.input.started") part.state = { status: "pending", input: {} };
+      const finished = type === "session.tool.success" || type === "session.tool.failed";
+      if (type === "session.tool.input.started" && !known) part.state = { status: "pending", input: {} };
       else if (type === "session.tool.called") {
         part.state = { status: "running", input: object2(data.input) };
         object2(part.time).ran = event.created;
-      } else if (type === "session.tool.success" || type === "session.tool.failed") {
+      } else if (finished) {
         part.state = { ...previousState, status: type.endsWith("success") ? "completed" : "error", ...data.content ? { content: data.content } : {}, ...data.error ? { error: data.error } : {} };
         object2(part.time).completed = event.created;
       } else if (type === "session.tool.progress") part.state = { ...previousState, metadata: data.metadata };
       else continue;
       const row = v2Content(message, part, 0, seq);
       if (row) {
-        emit(row, !!known);
-        state.parts[rowId] = { seq, bytes: 0, part };
+        emit(row);
+        state.parts[rowId] = { seq, bytes: 0, finished, part };
       }
     }
   }

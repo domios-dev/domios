@@ -9,6 +9,7 @@ import {v2Model} from "../src/runtimeV2";
 
 const fixture=JSON.parse(fs.readFileSync(new URL("../../../tests/fixtures/runtime-http-sse.json",import.meta.url),"utf8")) as {
   context:RuntimeContext;health:JsonValue;providers:JsonValue;integrations:JsonValue;session:JsonValue;receipt:JsonValue;history:{data:unknown[]};frames:RuntimeFrame[];interrupt:JsonValue;capability:JsonValue;
+  streamAndInterrupt:{frames:RuntimeFrame[];interrupt:JsonValue};
   credentialFrame:RuntimeFrame;credentialCases:{name:string;createdOffset:number;nowOffset:number;expected:number;directory?:string;integration?:string;newEpoch?:boolean}[];
 };
 const copy=<T>(value:T):T=>JSON.parse(JSON.stringify(value));
@@ -104,6 +105,52 @@ check("recorded stream maps delivery, tool lifecycle, text, forms and usage",()=
   const history=v2History(fixture.history.data);
   for (const final of items.filter(e=>e.item.type !== "user")) if (final.item.toolStatus === "completed" || final.item.content === "Fixture tool turn complete.") assert.ok(history.some(row=>row.id === final.item.id));
   assert.equal(runtimeReduce(ctx,reduced.state,frames).events.length,0);
+});
+check("recorded thinking, shell and text stay reconcilable across an active interrupt",()=>{
+  const ctx=loaded("v2-stream-and-stop"), {frames,interrupt}=fixture.streamAndInterrupt;
+  const type=(frame:RuntimeFrame)=>(frame.params as Record<string,JsonValue>).type;
+  const firstEnd=frames.findIndex(frame=>type(frame) === "session.execution.succeeded");
+  assert.ok(firstEnd > 0);
+  ctx.activeTurnId="first";
+  const first=runtimeReduce(ctx,null,frames.slice(0,firstEnd+1));
+  const snapshots=first.events.filter(e=>e.kind === "chatItem").map(e=>e.item);
+  const thinking=snapshots.findLast(item=>item.type === "thinking");
+  const text=snapshots.findLast(item=>item.type === "assistant");
+  const tool=snapshots.findLast(item=>item.type === "tool_call");
+  assert.equal(thinking?.content,"Thinking before tool.");
+  assert.equal(text?.content,"Fixture response after shell.");
+  assert.equal(tool?.toolStatus,"completed");
+  assert.equal(tool?.toolResult?.trim(),"fixture-stream");
+  assert.deepEqual(snapshots.filter(item=>item.id === tool?.id).map(item=>item.toolStatus),["pending","running","running","completed"]);
+  assert.ok(snapshots.filter(item=>item.id === tool?.id).every(item=>item.seq === tool?.seq));
+  assert.deepEqual(first.events.filter(e=>e.kind === "chatItemAppend").map(e=>[e.itemId,e.offset,e.content]),[
+    [thinking?.id,0,"Thinking before tool."],[text?.id,0,"Fixture response after shell."],
+  ]);
+  assert.ok(first.events.every(e=>e.kind !== "notice" && e.kind !== "chatItemPatch"));
+
+  ctx.activeTurnId="second";
+  ctx.activeTurns=[{threadId:ctx.threadId!,turnId:"second"}];
+  const nextFrames=frames.slice(firstEnd+1);
+  assert.equal(type(nextFrames[0]),"session.execution.started");
+  const lateFrameTypes=["session.reasoning.delta","session.text.delta","session.tool.progress"];
+  const late=lateFrameTypes.map(eventType=>{
+    const frame=copy(frames.find(frame=>type(frame) === eventType)!);
+    (frame.params as Record<string,JsonValue>).id=`late-${eventType}`;
+    return frame;
+  });
+  const working=runtimeReduce(ctx,first.state,[nextFrames[0],...late]);
+  assert.deepEqual(working.events,[{kind:"turnState",threadId:ctx.threadId,turnId:"second",state:"working"}]);
+  const stop:Operation={kind:"interrupt",threadId:ctx.threadId!,activeTurnId:"second"};
+  const plan=runtimePlan(ctx,stop);
+  assert.deepEqual(call(plan),{
+    method:"v2.session.abort",target:{threadId:ctx.threadId,turnId:"second"},
+    params:{path:{sessionID:ctx.threadId},query:{resume:"false"},body:{}},
+  });
+  assert.throws(()=>runtimePlan(ctx,{...stop,threadId:"foreign"}),{code:"binding_mismatch"});
+  assert.deepEqual(response(ctx,stop,plan,interrupt),{kind:"complete",result:{kind:"done"},events:[]});
+  const completed=runtimeReduce(ctx,working.state,nextFrames.slice(1));
+  assert.deepEqual(completed.events,[{kind:"turnState",threadId:ctx.threadId,turnId:"second",state:"idle",detail:"interrupted"}]);
+  assert.deepEqual(runtimeReduce(ctx,completed.state,nextFrames.slice(1)).events,[]);
 });
 check("fresh default session accepts a second send after default effort confirmation",()=>{
   const ctx=initialized("v2-default-second-send","deepseek/deepseek-flash");
