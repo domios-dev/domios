@@ -2,6 +2,17 @@ use super::{RuntimeFailure, ServiceContext, Session};
 
 use codeterm_plugin::agent_runtime::RuntimeFailureCode;
 
+pub(super) fn matches_launch(
+    tab: &crate::multiplexer::types::Tab,
+    provider: &str,
+    account: &str,
+    nonce: &str,
+) -> bool {
+    crate::service::provider_accounts::selected_account(tab) == account
+        && tab.agent_type.as_deref() == Some(provider)
+        && tab.session_binding_nonce.as_deref() == Some(nonce)
+}
+
 pub fn session_load_refused(svc: &ServiceContext, session: &Session) -> bool {
     degraded_unloaded_with(svc, session, &[RuntimeFailureCode::SessionLoadRefused])
 }
@@ -66,14 +77,7 @@ fn validate_binding_inner(
         return Err(RuntimeFailure::Superseded);
     }
     if svc.mux.read().get_tab(&context.tab_id).is_some_and(|tab| {
-        *session.account.lock()
-            == tab
-                .restorable_launch
-                .account_id
-                .as_deref()
-                .unwrap_or("default")
-            && tab.agent_type.as_deref() == Some(session.provider.as_str())
-            && tab.session_binding_nonce.as_deref() == Some(context.binding_nonce.as_str())
+        matches_launch(tab, &session.provider, &account, &context.binding_nonce)
             && (!require_thread
                 || context
                     .thread_id

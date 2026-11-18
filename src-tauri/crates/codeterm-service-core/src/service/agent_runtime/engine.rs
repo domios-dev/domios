@@ -359,7 +359,7 @@ async fn ensure_scoped(
                 .agent_type
                 .clone()
                 .ok_or(RuntimeFailure::Superseded)?,
-            target.restorable_launch.account_id.clone().unwrap_or_else(|| "default".into()),
+            crate::service::provider_accounts::selected_account(target).to_owned(),
             target.agent_session_id.clone(),
             target
                 .session_binding_nonce
@@ -400,6 +400,10 @@ async fn ensure_scoped(
         let mux = svc.mux.read();
         mux.ensure_tab_membership_mutable(tab)
             .map_err(RuntimeFailure::Refused)?;
+        let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
+        if !binding::matches_launch(target, &provider, &account, &nonce) {
+            return Err(RuntimeFailure::Superseded);
+        }
         let mut sessions = SESSIONS.lock();
         if sessions.get(tab).is_some_and(|session| {
             session.context.lock().binding_nonce != nonce
@@ -428,7 +432,7 @@ async fn ensure_scoped(
                     update_recovery_available: std::sync::atomic::AtomicBool::new(false),
                     provider: provider.clone(),
                     account: Mutex::new(account.clone()),
-                    invocation: Mutex::new(codeterm_plugin::provider_account::current()),
+                    invocation: Mutex::new(invocation.clone()),
                     adapter: Mutex::new(None),
                     controls_confirmation: Mutex::new(None),
                     control_changes: tokio::sync::watch::channel(()).0,

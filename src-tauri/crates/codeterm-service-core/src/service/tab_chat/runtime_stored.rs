@@ -12,6 +12,7 @@ pub enum StoredHistoryFailure {
     Missing,
     Corrupt,
     Unavailable,
+    BindingChanged,
 }
 
 impl StoredHistoryFailure {
@@ -20,17 +21,23 @@ impl StoredHistoryFailure {
             Self::Missing => "runtime_history_missing",
             Self::Corrupt => "runtime_history_corrupt",
             Self::Unavailable => "runtime_history_unavailable",
+            Self::BindingChanged => "runtime_history_binding_changed",
         }
     }
 
     pub fn from_error(error: &str) -> Option<Self> {
-        [Self::Missing, Self::Corrupt, Self::Unavailable]
-            .into_iter()
-            .find(|kind| {
-                error
-                    .strip_prefix(kind.tag())
-                    .is_some_and(|tail| tail.starts_with(": "))
-            })
+        [
+            Self::Missing,
+            Self::Corrupt,
+            Self::Unavailable,
+            Self::BindingChanged,
+        ]
+        .into_iter()
+        .find(|kind| {
+            error
+                .strip_prefix(kind.tag())
+                .is_some_and(|tail| tail.starts_with(": "))
+        })
     }
 
     fn projection(error: String) -> String {
