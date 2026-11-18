@@ -11,6 +11,20 @@ vi.mock("../../lib/nativeBridge",()=>({nativeBridge:{openUrl:bridge.openUrl}}));
 vi.mock("../../store/multiplexer/hooks",()=>({useMuxSelector:(select:(state:unknown)=>unknown)=>select({tabs:{owned:{session_binding_nonce:"own-nonce",agent_session_id:"own-session"}}})}));
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
 
+it.each([
+  { state: "loaded", epoch: 1, auth: "signedIn", loginMethods: ["browser"] },
+  { state: "loaded", epoch: 1, authentication: { state: "authenticated", methods: [] } },
+] satisfies AgentRuntimeState[])("renders no sign-in heading or controls for authenticated runtime state", async state => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<RuntimeLoginActions tabId="owned" state={state} />));
+    expect(host.querySelector('h3, button, [role="group"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 it("starts browser login once, opens the native browser, and renders the device result",async()=>{
   const host=document.createElement("div");const root=createRoot(host);
   const state:AgentRuntimeState={state:"degraded",epoch:1,auth:"signedOut",loginMethods:["browser","device","apiKey"],loginProviderName:"Fixture"};

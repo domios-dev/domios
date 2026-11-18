@@ -9,12 +9,11 @@ interface ProviderCardProps {
   provider: ProviderDescriptor;
   selected: boolean;
   onSelect: () => void;
-  signInNeeded?: boolean;
 }
 
-export function ProviderCard({ provider, selected, onSelect, signInNeeded }: ProviderCardProps) {
+export function ProviderCard({ provider, selected, onSelect }: ProviderCardProps) {
   const availability = providerAvailability(provider);
-  const status = providerCardState(provider, signInNeeded);
+  const status = providerCardState(provider);
   return (
     <button
       type="button"
