@@ -20,7 +20,7 @@ it("keeps text and multiple attachments in marker order in one inline flow", asy
   expect(flow.querySelector("pre, p, br")).toBeNull();
 });
 
-it("names file references, truncates their basename, previews an existing file and mutes a missing file", async () => {
+it("names file references, truncates their basename and previews an existing file", async () => {
   const path = "/tmp/private-neighbor-with-a-long-name.txt";
   configureLocalArtifactLoader(vi.fn(async (requested: string) => {
     if (requested !== path) throw new Error("missing");
@@ -28,15 +28,36 @@ it("names file references, truncates their basename, previews an existing file a
   }));
   const reveal = vi.fn(async () => {});
   configureLocalArtifactOpener(reveal);
-  const host = await render(`${formatAttachmentMarker(path)} ${formatAttachmentMarker("/tmp/missing.txt")}`);
-  const [file, missing] = capsules(host);
+  const host = await render(formatAttachmentMarker(path));
+  const [file] = capsules(host);
   expect(file.textContent?.length).toBe(24);
   expect(file.title).toBe(path);
   expect(file.getAttribute("aria-label")).toBe("private-neighbor-with-a-long-name.txt, file");
-  expect(missing.getAttribute("aria-disabled")).toBe("true");
   await act(async () => file.click());
   expect(document.querySelector('[data-testid="capsule-preview-text"]')?.textContent).toContain("Private preview sentinel");
   expect(reveal).not.toHaveBeenCalled();
+});
+
+it.each(["This file cannot be previewed. It may be missing or access is restricted.", "Local artifact previews are unavailable"])("keeps a file actionable when preview fails: %s", async (reason) => {
+  configureLocalArtifactLoader(vi.fn(async () => { throw new Error(reason); }));
+  const reveal = vi.fn(async () => {});
+  configureLocalArtifactOpener(reveal);
+  const host = await render(formatAttachmentMarker("/tmp/README.md"));
+  const [file] = capsules(host);
+  expect(file.getAttribute("aria-label")).toBe("README.md, file");
+  expect(file.getAttribute("aria-disabled")).toBeNull();
+  await act(async () => file.click());
+  expect(reveal).toHaveBeenCalledWith("/tmp/README.md");
+});
+
+it("keeps a file preview control available in clients without a loader or opener", async () => {
+  configureLocalArtifactLoader(null);
+  const host = await render(formatAttachmentMarker("/tmp/README.md"));
+  const [file] = capsules(host);
+  expect(file.getAttribute("aria-label")).toBe("README.md, file");
+  expect(file.getAttribute("aria-disabled")).toBeNull();
+  await act(async () => file.click());
+  expect(file.getAttribute("aria-expanded")).toBe("true");
 });
 
 it("keeps unpreviewable file types available through the existing file opener", async () => {

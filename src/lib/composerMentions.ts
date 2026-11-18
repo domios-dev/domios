@@ -19,6 +19,7 @@ export interface ComposerMention {
   match: number;
   exact?: boolean;
   titlePrefix?: boolean;
+  titleSubstring?: boolean;
   proximity?: number;
   agentOrder?: number;
   statusOrder?: number;
@@ -51,9 +52,13 @@ export function mentionMatch(query: string, values: readonly string[]): number {
     return cursor === needle.length ? 2 : Infinity;
   }));
 }
-export function compareMentions(a: ComposerMention, b: ComposerMention): number {
+function compareMentionTitles(a: ComposerMention, b: ComposerMention): number {
   return Number(!!b.exact) - Number(!!a.exact)
     || Number(!!b.titlePrefix) - Number(!!a.titlePrefix)
+    || Number(!!b.titleSubstring) - Number(!!a.titleSubstring);
+}
+export function compareMentions(a: ComposerMention, b: ComposerMention): number {
+  return compareMentionTitles(a, b)
     || (a.proximity ?? 0) - (b.proximity ?? 0)
     || (a.agentOrder ?? 0) - (b.agentOrder ?? 0)
     || (a.statusOrder ?? 0) - (b.statusOrder ?? 0)
@@ -68,11 +73,18 @@ export function createMentionRegistry(sources: readonly MentionSource[], lifecyc
     async search(query: string, ctx: MentionContext): Promise<ComposerMention[]> {
       ctx.signal.throwIfAborted();
       const groups = await Promise.all(sources.map(async (source) => {
-        try { return (await source.search(query, ctx)).filter((row) => Number.isFinite(row.match)).sort(compareMentions).slice(0, 50); }
+        try {
+          const needle = query.toLowerCase();
+          return (await source.search(query, ctx)).filter((row) => Number.isFinite(row.match)).map((row) => ({
+            ...row,
+            titlePrefix: !!needle && row.label.toLowerCase().startsWith(needle),
+            titleSubstring: !!needle && row.label.toLowerCase().includes(needle),
+          })).sort(compareMentions).slice(0, 50);
+        }
         catch (error) { if (ctx.signal.aborted) throw error; return []; }
       }));
       ctx.signal.throwIfAborted();
-      return groups.sort((a, b) => Number(!!b[0]?.exact) - Number(!!a[0]?.exact)).flat();
+      return groups.flat().sort(compareMentionTitles);
     },
   };
 }

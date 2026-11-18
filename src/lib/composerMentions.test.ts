@@ -108,6 +108,20 @@ test("file picks insert the existing typed attachment marker", async () => {
   const [row] = await fileMentionSource(async () => [{ name: "private-neighbor.txt", path }]).search("private", ctx);
   assert.equal(row.insertText, formatAttachmentMarker(path));
 });
+test("file-name prefixes and title substrings precede description matches across sources", async () => {
+  const rows = {
+    sender: { ...tab("sender", "team1", "ws1", "Sender"), description: "Read and react" },
+    substring: tab("substring", "team1", "ws1", "Thread"),
+    prefix: tab("prefix", null, "ws2", "Reader"),
+  };
+  const registry = createMentionRegistry([
+    tabMentionSource(() => ({ tabs: rows, workspaces })),
+    fileMentionSource(async () => [{ name: "README.md", path: "/project1/README.md" }]),
+  ]);
+  const result = await registry.search("REA", ctx);
+  assert.deepEqual(result.map(row => row.label), ["Reader", "README.md", "Thread", "Sender"]);
+  assert.equal(result[1].insertText, formatAttachmentMarker("/project1/README.md"));
+});
 test("same workspace precedes others for non-Team callers and mesh is labelled", async () => {
   const mesh = { ...tabs.far, id: "mesh:peer:far", remote_peer_id: "peer", remote_peer_name: "Remote" };
   const result = await createMentionRegistry([tabMentionSource(() => ({ tabs: { ...tabs, mesh }, workspaces }))]).search("co", { ...ctx, scope: { ...ctx.scope, teamId: null } });
