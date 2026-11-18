@@ -397,13 +397,7 @@ impl ServiceContext {
                 tab.taskless_authorized_gates = taskless_authorized_gates.clone();
                 tab.audience = spec.audience;
             }
-            if let Some(ref description) = spec.description {
-                if spec.task_description_managed {
-                    let _ = mux.set_task_tab_description(&result, Some(description.clone()));
-                } else {
-                    let _ = mux.set_tab_description(&result, Some(description.clone()));
-                }
-            }
+            spec.apply_pty_agent_identity(&mut mux, &result, agent.agent_name.as_deref());
             if let Some(ref rtid) = agent.report_target_tab_id {
                 if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.report_target_tab_id = Some(rtid.clone());
@@ -427,14 +421,6 @@ impl ServiceContext {
             if default_chat_view {
                 if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.chat_view = true;
-                }
-            }
-            if let Some((title, level)) = super::spawn_title::creation_title_override(
-                spec.title.as_deref(),
-                agent.agent_name.as_deref(),
-            ) {
-                if let Err(e) = mux.rename_tab_at_level(&result, &title, level) {
-                    log::warn!("[spawn] rename_tab failed: {}", e);
                 }
             }
             if agent.activate.unwrap_or(false) {
@@ -829,6 +815,7 @@ impl ServiceContext {
         let tab_id = {
             let mut mux = self.mux.write();
             let result = create_cleared_agent_tab(&mut mux, &ws_id, &clearance, &gate)?;
+            spec.apply_pty_agent_identity(&mut mux, &result, agent.agent_name.as_deref());
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.restorable_launch.account_id = agent.account_id.clone();
                 tab.restorable_launch.account_namespace = agent.account_namespace.clone();
