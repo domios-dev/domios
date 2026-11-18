@@ -92,6 +92,37 @@ test("routed card renders Rust attachment segments beside its body", async () =>
   }
 });
 
+for (const structured of [false, true]) {
+  test(`relayed inline capsules keep one continuous paragraph (${structured ? "segments" : "markers"})`, async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const content = 'Review **these files**: <domios type="attachment" kind="file" path="/project/config.json" /> alongside <domios type="attachment" kind="file" path="/project/typography.md" /> before sending.';
+    const segments: MessageSegment[] | undefined = structured ? [
+      { type: "text", text: "Review **these files**: " },
+      { type: "attachment", kind: "file", path: "/project/config.json", label: null, body: null, status: null },
+      { type: "text", text: " alongside " },
+      { type: "attachment", kind: "file", path: "/project/typography.md", label: null, body: null, status: null },
+      { type: "text", text: " before sending." },
+    ] : undefined;
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<MessageBubble message={{ id: "inline-relayed", type: "user", content, segments }} origin={{ kind: "tab", title: "Elgar", tabIdShort: "elgar" }} />));
+      const card = host.querySelector('[role="group"][aria-label="Received from Elgar"]')!;
+      expect(card).not.toBeNull();
+      const paragraph = card.querySelector('[data-testid="chat-inline-attachment-text"]')!;
+      expect(paragraph).not.toBeNull();
+      expect(paragraph.querySelectorAll("button")).toHaveLength(2);
+      expect(paragraph.querySelector("strong")?.textContent).toBe("these files");
+      expect(paragraph.textContent).toBe("Review these files: config.json alongside typography.md before sending.");
+      expect(paragraph.querySelectorAll("p, div, pre")).toHaveLength(0);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+}
+
 for (const pasted of [false, true]) {
   test(`bounds a long ${pasted ? "pasted envelope" : "plain user message"} with an inline reader under the bubble`, async () => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

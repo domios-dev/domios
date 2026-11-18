@@ -1,5 +1,6 @@
 import { useRef, useState, type CSSProperties } from "react";
 import { ReferenceChip } from "../../../packages/chat-ui/src/codeterm/ReferenceChip";
+import { MessageBubble } from "../../../packages/chat-ui/src/MessageBubble";
 import { AgentIcon } from "../AgentIcon";
 import { ComposerTextInput } from "../Terminal/ComposerTextInput";
 import { ComposerMentionHighlight } from "../Terminal/ComposerMentionHighlight";
@@ -65,6 +66,10 @@ export function MentionChipGallery() {
     <p>Tabs only. People are deferred for this release.</p>
     <div style={{ lineHeight: "30px", margin: "16px 0" }}><ChipSet /></div>
     <div className="ct-user-bubble"><ChipSet /></div>
+    <div style={{ maxWidth: 340, marginTop: 20 }}>
+      <MessageBubble message={{ id: "gallery-files", type: "user", content: 'Review <domios type="attachment" kind="file" path="/project/config.json" /> alongside <domios type="attachment" kind="file" path="/project/typography.md" /> and <domios type="attachment" kind="file" path="/project/pkg-typography-notes.md" /> before sending the update.' }} />
+      <MessageBubble message={{ id: "gallery-relayed-files", type: "user", content: 'Review **these files**: <domios type="attachment" kind="file" path="/project/config.json" /> alongside <domios type="attachment" kind="file" path="/project/typography.md" /> and <domios type="attachment" kind="file" path="/project/pkg-typography-notes.md" /> before sending the update.' }} origin={{ kind: "tab", title: "Elgar", tabIdShort: "gallery-elgar" }} />
+    </div>
     <div style={{ marginTop: 20 }}><MuxStateStoreContext value={mux}><MentionEditor /></MuxStateStoreContext></div>
   </div>;
 }
