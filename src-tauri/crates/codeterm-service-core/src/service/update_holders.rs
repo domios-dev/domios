@@ -1,6 +1,7 @@
 use codeterm_update::holders::{HolderProcess, HolderTab};
 
 mod reservation;
+pub use reservation::PtyInputRetirement;
 
 impl super::ServiceContext {
     pub fn describe_update_holders(

@@ -150,6 +150,124 @@ fn pty_account_switch_launch_failure_resumes_the_original_account_and_session() 
     exercise_switch(true);
 }
 
+#[test]
+fn pty_account_switch_preserves_a_target_with_newer_admitted_input() {
+    preserve_used_target(
+        |svc, tab| {
+            svc.chat_send_ledger
+                .try_start(tab, "new target input", None)
+                .unwrap();
+        },
+        "Newer input belongs to the selected account launch",
+    );
+}
+
+#[test]
+fn pty_account_switch_preserves_a_target_with_input_in_preparation() {
+    preserve_used_target(
+        |svc, tab| {
+            let _reservation = svc.reserve_user_send(tab, None).unwrap();
+        },
+        "Newer input belongs to the selected account launch",
+    );
+}
+
+#[test]
+fn pty_account_switch_preserves_a_target_with_an_active_turn() {
+    preserve_used_target(
+        |svc, tab| {
+            svc.mux.write().get_tab_mut(tab).unwrap().agent_state = Some(
+                codeterm_types::pty::TabVerdict {
+                    state: codeterm_types::pty::TimelineState::Working,
+                    subtype: None,
+                }
+                .into(),
+            );
+        },
+        "A turn is active on the selected account launch",
+    );
+}
+
+fn preserve_used_target(
+    use_target: impl FnOnce(&ServiceContext, &str) + Send,
+    expected_reason: &str,
+) {
+    let (fixture, snap, target) = fixture();
+    let svc = &fixture.service;
+    let prepared = PtyAccountSwitch {
+        target: &target,
+        target_launch: Relaunch {
+            command: "target --resume exact-session".into(),
+            task: None,
+        },
+        source: AccountRestartTarget {
+            expected: target.expected.clone(),
+            account_id: None,
+            account_namespace: None,
+            invocation: None,
+            terminal_turn: None,
+        },
+        source_launch: Relaunch {
+            command: "source --resume exact-session".into(),
+            task: None,
+        },
+    };
+    let result = std::thread::scope(|scope| {
+        let claim = svc.pty_ownership.acquire(&snap.tab_id).unwrap();
+        let mut use_target = Some(use_target);
+        prepared.execute_with_launch(
+            svc,
+            &snap,
+            RestartOutcome::accepted(&snap, false, false),
+            claim,
+            None,
+            |svc, _, _, account| {
+                assert_eq!(account.account_id, target.account_id, "source relaunched");
+                {
+                    let mut mux = svc.mux.write();
+                    let tab = mux.get_tab_mut(&snap.tab_id).unwrap();
+                    tab.agent_type = Some(snap.provider.clone());
+                    tab.pty_id = Some("target-pty".into());
+                    tab.session_binding_nonce = Some("target-nonce".into());
+                    tab.boot_stage = Some(BootStage::ProviderReady);
+                }
+                let service = svc.clone();
+                let tab_id = snap.tab_id.clone();
+                let use_target = use_target.take().unwrap();
+                scope.spawn(move || {
+                    let _claim = service.pty_ownership.acquire(&tab_id).unwrap();
+                    use_target(&service, &tab_id);
+                    let mut mux = service.mux.write();
+                    let tab = mux.get_tab_mut(&tab_id).unwrap();
+                    tab.agent_session_id = Some("different-session".into());
+                    tab.reported_session_binding_nonce = Some("target-nonce".into());
+                    tab.boot_stage = Some(BootStage::AgentReady);
+                    drop(mux);
+                    crate::service::boot_wait::notify_boot_changed();
+                });
+                Some("target-nonce".into())
+            },
+        )
+    });
+    let Err(RestartAttemptError::Failed {
+        outcome,
+        reason,
+        timed_out: false,
+    }) = result
+    else {
+        panic!("expected the target to be retained, got {result:?}");
+    };
+    assert!(!outcome.source_account_restored);
+    assert!(reason.contains("The harness opened a different conversation"));
+    assert!(reason.contains(expected_reason));
+    let mux = svc.mux.read();
+    let tab = mux.get_tab(&snap.tab_id).unwrap();
+    assert!(selected(tab, &target));
+    assert_eq!(tab.pty_id.as_deref(), Some("target-pty"));
+    assert_eq!(tab.agent_session_id.as_deref(), Some("different-session"));
+    assert_eq!(tab.session_binding_nonce.as_deref(), Some("target-nonce"));
+}
+
 fn exercise_switch(fail_target: bool) {
     let (fixture, snap, target) = fixture();
     let svc = &fixture.service;
@@ -203,6 +321,9 @@ fn exercise_switch(fail_target: bool) {
             tab.session_binding_nonce = Some(nonce.clone());
             tab.remember_resume_binding_nonce("exact-session");
             if fail_target && destination == "target" {
+                svc.chat_send_ledger
+                    .try_start("unrelated-tab", "other tab input", None)
+                    .unwrap();
                 tab.boot_stage = Some(BootStage::SpawnFailed);
                 tab.boot_failure_reason = Some("Fixture target launch failed".into());
             } else {
@@ -262,5 +383,6 @@ fn pty_account_switch_requires_a_bound_session_before_the_deadline() {
     let error = wait_for_resume_until(svc, &snap, &target, Some("target-nonce"), Instant::now())
         .unwrap_err();
     assert!(error.timed_out);
-    assert!(failed_launch_pty(svc, &snap, &target, Some("other-nonce")).is_err());
+    let input = PtyInputRevision::capture(svc, &snap.tab_id);
+    assert!(failed_launch_pty(svc, &snap, &target, Some("other-nonce"), &input).is_err());
 }

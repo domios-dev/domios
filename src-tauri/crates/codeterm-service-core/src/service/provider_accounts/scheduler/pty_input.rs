@@ -1,5 +1,45 @@
 use super::*;
 
+pub struct PtyInputRevision {
+    admission: Option<u64>,
+    durable_admission: u64,
+    ledger_id: String,
+    ledger_sequence: u64,
+}
+
+impl PtyInputRevision {
+    pub fn capture(svc: &ServiceContext, tab: &str) -> Self {
+        let admission = svc.try_ext::<State>().and_then(|state| {
+            state
+                .scheduler
+                .lock()
+                .inputs
+                .get(tab)
+                .map(|input| input.generation)
+        });
+        let durable_admission = svc
+            .pending_delivery_payloads
+            .user_sends
+            .admission_generation(tab);
+        let (ledger_id, _, ledger_sequence) = svc.chat_send_ledger.input_revision_for_tab(tab);
+        Self {
+            admission,
+            durable_admission,
+            ledger_id,
+            ledger_sequence,
+        }
+    }
+
+    pub fn is_current(&self, svc: &ServiceContext, tab: &str) -> bool {
+        let current = Self::capture(svc, tab);
+        self.admission != Some(u64::MAX)
+            && self.admission == current.admission
+            && self.durable_admission == current.durable_admission
+            && self.ledger_id == current.ledger_id
+            && current.ledger_sequence <= self.ledger_sequence
+    }
+}
+
 pub(crate) fn admit_pty_input(svc: &ServiceContext, tab: &str) {
     admit(svc, tab, None);
 }

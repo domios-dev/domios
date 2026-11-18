@@ -9,6 +9,7 @@ use crate::service::agent_lifecycle::{
     worker_binding::RestartBindingAuthority, AccountRestartTarget,
 };
 use crate::service::boot_stage::BootStage;
+use crate::service::provider_accounts::PtyInputRevision;
 use crate::service::{ServiceContext, TabPtyClaim};
 use codeterm_plugin::provider_account::with_context;
 use std::time::{Duration, Instant};
@@ -189,6 +190,7 @@ impl<'a> PtyAccountSwitch<'a> {
         outcome.old_pty_torn_down = true;
         commit_pty(svc, snap, self.target)?;
         svc.stage_runtime_restart_binding(&snap.tab_id, authority.clone());
+        let target_input = PtyInputRevision::capture(svc, &snap.tab_id);
         let target_nonce = launch(svc, snap, self.target_launch, self.target);
         drop(claim);
         let target_result = settle_resume(
@@ -203,10 +205,19 @@ impl<'a> PtyAccountSwitch<'a> {
             Ok(ready) => return Ok(ready),
             Err(failure) => failure,
         };
-        svc.clear_runtime_restart_binding(&snap.tab_id);
+        let mut rollback_started = false;
         let rollback = (|| {
             let claim = svc.pty_ownership.acquire(&snap.tab_id)?;
-            let failed_pty = failed_launch_pty(svc, snap, self.target, target_nonce.as_deref())?;
+            let retirement = svc.reserve_pty_input_retirement(&claim)?;
+            let failed_pty = failed_launch_pty(
+                svc,
+                snap,
+                self.target,
+                target_nonce.as_deref(),
+                &target_input,
+            )?;
+            rollback_started = true;
+            svc.clear_runtime_restart_binding(&snap.tab_id);
             crate::service::orchestrator::supersede_tab_launch(&snap.tab_id);
             let cleanup = if let Some(pty_id) = failed_pty {
                 svc.tear_down_restart_pty(&TabRestartSnapshot {
@@ -221,6 +232,7 @@ impl<'a> PtyAccountSwitch<'a> {
             svc.schedule_session_persist_debounced();
             cleanup?;
             svc.stage_runtime_restart_binding(&snap.tab_id, authority.clone());
+            drop(retirement);
             let source_nonce = launch(svc, snap, self.source_launch, &self.source);
             drop(claim);
             settle_resume(
@@ -241,7 +253,9 @@ impl<'a> PtyAccountSwitch<'a> {
                 svc.schedule_session_persist_debounced();
             }
             Err(restore_error) => {
-                svc.clear_runtime_restart_binding(&snap.tab_id);
+                if rollback_started {
+                    svc.clear_runtime_restart_binding(&snap.tab_id);
+                }
                 reason = format!(
                     "{reason}. The original conversation could not be resumed: {restore_error}"
                 );
@@ -397,7 +411,11 @@ fn failed_launch_pty(
     snap: &TabRestartSnapshot,
     account: &AccountRestartTarget,
     nonce: Option<&str>,
+    target_input: &PtyInputRevision,
 ) -> Result<Option<String>, String> {
+    if !target_input.is_current(svc, &snap.tab_id) {
+        return Err("Newer input belongs to the selected account launch".into());
+    }
     let mux = svc.mux.read();
     let tab = mux.get_tab(&snap.tab_id).ok_or("The account tab closed")?;
     let owns_launch = match nonce {
@@ -414,6 +432,13 @@ fn failed_launch_pty(
     };
     if !selected(tab, account) || !owns_launch {
         return Err("The tab changed while the account switch was in progress".into());
+    }
+    if tab
+        .agent_state
+        .as_ref()
+        .is_some_and(|state| state.state == codeterm_types::pty::TimelineState::Working)
+    {
+        return Err("A turn is active on the selected account launch".into());
     }
     Ok(tab.pty_id.clone())
 }

@@ -15,7 +15,8 @@ pub(crate) use storage::ProvisionError;
 pub mod switching;
 mod work;
 pub use scheduler::{
-    account_turn_boundary, can_try_now, select, transition, SelectRequest, Transition,
+    account_turn_boundary, can_try_now, select, transition, PtyInputRevision, SelectRequest,
+    Transition,
 };
 pub(crate) use scheduler::{
     admit_pty_input, admit_pty_write, invalidate_boundary, pty_input_witness, runtime_observe,
