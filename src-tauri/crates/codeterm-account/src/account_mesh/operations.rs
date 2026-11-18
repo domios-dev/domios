@@ -63,9 +63,19 @@ impl AccountMesh {
             .inspect_err(|refusal| {
                 log::debug!("Entitlement proof failed: stage=enrollment kind={refusal:?}");
             })?;
+        self.prove_entitlements(&signed, installation_id, generation)
+            .await
+    }
+
+    async fn prove_entitlements(
+        &self,
+        signed: &Signed,
+        installation_id: &crate::InstallationId,
+        generation: u64,
+    ) -> Outcome<InstallationProof> {
         let body = serde_json::json!({"installation_id": installation_id});
         let proof = self
-            .prove(&signed, ProofEndpoint::GetEntitlements, &body, generation)
+            .prove(signed, ProofEndpoint::GetEntitlements, &body, generation)
             .await
             .inspect_err(|refusal| {
                 log::debug!("Entitlement proof failed: stage=challenge kind={refusal:?}");
@@ -93,30 +103,60 @@ impl AccountMesh {
         installation_id: &crate::InstallationId,
         generation: u64,
     ) -> Option<InstallationProof> {
-        let signed = self.signed(None).await.ok()?;
+        tokio::time::timeout(
+            self.config.call_deadline,
+            self.replacement_entitlements_proof_once(session, installation_id, generation),
+        )
+        .await
+        .inspect_err(|_| log::debug!("Entitlement replacement proof reached its deadline"))
+        .ok()
+        .flatten()
+    }
+
+    async fn replacement_entitlements_proof_once(
+        &self,
+        session: &Session,
+        installation_id: &crate::InstallationId,
+        generation: u64,
+    ) -> Option<InstallationProof> {
+        if installation_id != &self.config.installation_id {
+            return None;
+        }
+        let mut signed = self.signed(None).await.ok()?;
         if signed.session.identity.uid != session.identity.uid
             || signed.session.login_generation != session.login_generation
         {
             return None;
         }
-        {
+        let (key, replacement_generation) = {
             let _guard = self.key_lock.lock().await;
-            let replaced = self.with(|inner| {
-                inner.is_current(signed.epoch)
-                    && inner
-                        .record
-                        .keys
-                        .get(&signed.account)
-                        .is_some_and(|key| key.generation > generation)
-            });
-            if !replaced {
-                return None;
-            }
+            self.with(|inner| {
+                if !inner.is_current(signed.epoch) {
+                    return None;
+                }
+                let key = inner.key.as_ref()?;
+                let binding = inner.record.keys.get(&signed.account)?;
+                (binding.generation > generation && binding.key_id == key.key_id())
+                    .then(|| (key.clone(), binding.generation))
+            })?
+        };
+        signed.key = key;
+        signed.session = self.ports.sessions.session().await.ok()??;
+        if signed.session.identity.uid != session.identity.uid
+            || signed.session.login_generation != session.login_generation
+            || !self.with(|inner| inner.is_current(signed.epoch))
+        {
+            return None;
         }
-        self.entitlements_proof(session, installation_id)
+        let proof = self
+            .prove_entitlements(&signed, installation_id, replacement_generation)
             .await
-            .ok()
-            .filter(|proof| proof.generation > generation)
+            .ok()?;
+        let current = self.ports.sessions.session().await.ok()??;
+        (current.identity.uid == session.identity.uid
+            && current.login_generation == session.login_generation
+            && self.with(|inner| inner.is_current(signed.epoch)))
+        .then_some(proof)
     }
 
     pub(super) fn installation(&self) -> String {

@@ -6,6 +6,8 @@ use std::sync::{
 };
 use tokio::sync::Notify;
 
+mod mesh;
+
 struct RekeyProof(AtomicU64);
 
 #[async_trait]
@@ -31,7 +33,7 @@ impl InstallationProofSource for RekeyProof {
 }
 
 struct RekeyTransport {
-    requests: parking_lot::Mutex<Vec<Option<u64>>>,
+    requests: parking_lot::Mutex<Vec<Option<InstallationProof>>>,
     received_first: Notify,
     release_first: Notify,
     first_status: &'static str,
@@ -39,15 +41,33 @@ struct RekeyTransport {
     refuse_retry: bool,
 }
 
+impl RekeyTransport {
+    fn new(
+        first_status: &'static str,
+        first_detail: Option<&'static str>,
+        refuse_retry: bool,
+    ) -> Self {
+        Self {
+            requests: Default::default(),
+            received_first: Notify::new(),
+            release_first: Notify::new(),
+            first_status,
+            first_detail,
+            refuse_retry,
+        }
+    }
+}
+
 #[async_trait]
 impl CloudTransport for RekeyTransport {
     async fn execute(&self, request: reqwest::Request) -> Result<(bool, serde_json::Value)> {
         let body: serde_json::Value =
             serde_json::from_slice(request.body().unwrap().as_bytes().unwrap()).unwrap();
-        let generation = body
-            .pointer("/data/installation_proof/generation")
-            .and_then(|value| value.as_u64());
-        self.requests.lock().push(generation);
+        let proof: Option<InstallationProof> = body
+            .pointer("/data/installation_proof")
+            .map(|value| serde_json::from_value(value.clone()).unwrap());
+        let generation = proof.as_ref().map(|proof| proof.generation);
+        self.requests.lock().push(proof);
         match generation {
             Some(3) => {
                 self.received_first.notify_one();
@@ -85,26 +105,9 @@ async fn first_settled_read(
     refuse_retry: bool,
 ) -> (Snapshot, Vec<Option<u64>>) {
     let source = Arc::new(RekeyProof(AtomicU64::new(3)));
-    let transport = Arc::new(RekeyTransport {
-        requests: Default::default(),
-        received_first: Notify::new(),
-        release_first: Notify::new(),
-        first_status: status,
-        first_detail: detail,
-        refuse_retry,
-    });
-    let mut cloud =
-        Cloud::fixture("https://fixture.test/", id()).with_installation_proofs(source.clone());
-    cloud.transport = transport.clone();
-    let billing = Billing::new(Arc::new(cloud)).with_test_grants(
-        activation("fixture-online-v1"),
-        id().as_str(),
-        Arc::new(MemoryGrants::default()),
-        Arc::new(|| 1_700_000_060),
-    );
-    let mut session = local_session();
-    session.identity.uid = "fixture-user".into();
-    session.login_generation = 17;
+    let transport = Arc::new(RekeyTransport::new(status, detail, refuse_retry));
+    let billing = fixture_billing(source.clone(), transport.clone());
+    let session = fixture_session();
     let (snapshot, ()) = tokio::join!(
         billing.refresh(
             Some(&session),
@@ -119,17 +122,34 @@ async fn first_settled_read(
             transport.release_first.notify_one();
         }
     );
-    let requests = transport.requests.lock().clone();
+    let requests = transport
+        .requests
+        .lock()
+        .iter()
+        .map(|proof| proof.as_ref().map(|proof| proof.generation))
+        .collect();
     (snapshot, requests)
 }
 
-#[tokio::test]
-async fn in_flight_rekey_verifies_first_settled_billing_read() {
-    let (snapshot, requests) = first_settled_read("FAILED_PRECONDITION", None, true, false).await;
-    assert_eq!(requests, [Some(3), Some(4)]);
-    assert!(!snapshot.checking);
-    assert_eq!(snapshot.verification, None);
-    assert_eq!(snapshot.access.unwrap().authority, Authority::Billing);
+fn fixture_billing(
+    source: Arc<dyn InstallationProofSource>,
+    transport: Arc<RekeyTransport>,
+) -> Billing {
+    let mut cloud = Cloud::fixture("https://fixture.test/", id()).with_installation_proofs(source);
+    cloud.transport = transport;
+    Billing::new(Arc::new(cloud)).with_test_grants(
+        activation("fixture-online-v1"),
+        id().as_str(),
+        Arc::new(MemoryGrants::default()),
+        Arc::new(|| 1_700_000_060),
+    )
+}
+
+fn fixture_session() -> Session {
+    let mut session = local_session();
+    session.identity.uid = "fixture-user".into();
+    session.login_generation = 17;
+    session
 }
 
 #[tokio::test]
