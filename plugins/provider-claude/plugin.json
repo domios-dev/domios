@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.14.35",
+  "version": "1.14.36",
   "minCodeterm": "1.20.2",
   "hostApi": 2,
   "accounts": {
@@ -321,7 +321,7 @@
           "cancelKey": "\u001b"
         },
         "prompt": {
-          "screenRegex": "(?im)^\\s*[^\\r\\n?]+\\?\\s*$[\\s\\S]*?^\\s*❯\\s*1\\.\\s+[^\\r\\n]*(?:{model}|{display_name})[^\\r\\n]*\\r?\\n\\s*2\\.\\s+[^\\r\\n]+\\s*^\\s*[─━-]{3,}[^\\r\\n]*\\r?$",
+          "screenRegex": "(?im)^\\s*[^\\r\\n?]+\\?\\s*$[\\s\\S]*?^\\s*❯\\s*1\\.\\s+[^\\r\\n]*(?:{model}|{display_name})[^\\r\\n]*\\r?\\n\\s*2\\.\\s+[^\\r\\n]+\\s*^\\s*[─━-]{3,}[^\\r\\n]*\\r?$|^\\s*Switch model\\?\\s*^\\s*Your next response will be slower and use more tokens\\s*^\\s*This conversation is cached for the current model\\.[^\\r\\n]*(?:\\r?\\n[ \\t]+[^\\r\\n]+){0,4}\\s*^\\s*❯\\s*1\\.\\s+Yes, switch to (?:{display_name}|{model})[^\\S\\r\\n]*\\r?\\n[ \\t]*2\\.\\s+No, go back[^\\S\\r\\n]*\\r?\\n\\s*Enter to confirm · Esc to cancel[^\\S\\r\\n]*\\r?$",
           "responseKeys": [
             "\r"
           ],

@@ -211,3 +211,37 @@ fn captured_footerless_confirmation_uses_provider_structure_and_cleans_both_dial
         .unwrap());
     assert_eq!(keys, [b"\x1b".to_vec(), b"\x1b".to_vec()]);
 }
+
+#[test]
+fn cached_model_dialog_with_confirmation_footer_is_answered_once_after_picker() {
+    for frame in [
+        "live-2.1.327-confirmation-90.txt",
+        "live-2.1.327-confirmation-120.txt",
+    ] {
+        let (mut picker, mut prompt) = declarations();
+        let screen = fixture("tests/fixtures/model-switch/live-2.1.327-picker.txt");
+        let confirmation = fixture(&format!("tests/fixtures/model-switch/{frame}"));
+        let selected = screen.replace("❯ 5.", "  5.").replace("    4.", "  ❯ 4.");
+        picker.injected();
+        prompt.injected();
+        let mut keys = Vec::new();
+
+        for screen in [&screen, &selected, &confirmation, &confirmation] {
+            let mut write = |key: &[u8]| {
+                keys.push(key.to_vec());
+                Ok(())
+            };
+            match screen_stage(screen, Some(&picker), Some(&prompt), true) {
+                ScreenStage::Picker => picker.respond(screen, &mut write).unwrap(),
+                ScreenStage::Confirmation => prompt.respond(screen, write).unwrap(),
+                stage => panic!("unexpected switch stage {stage:?}"),
+            }
+        }
+        assert!(picker.submitted());
+        assert!(prompt.answered());
+        assert_eq!(keys, [b"\x1b[A".to_vec(), b"s".to_vec(), b"\r".to_vec()]);
+        assert!(!prompt.present(
+            &confirmation.replace("Yes, switch to Sonnet 5.5", "Yes, switch to Haiku 5.5")
+        ));
+    }
+}
