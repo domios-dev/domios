@@ -32,6 +32,61 @@ vi.mock("./TerminalTab", async () => {
 });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+it("shows sign-in inside General while the bound runtime is signed out and clears it on sign-in", async () => {
+  const tab: Tab = {
+    id: "general-auth", title: "Main", tab_type: "Terminal", cwd: null, pty_id: null, agent_type: "fixture",
+    role_profile: "general_agent", protected: true, agent_session_id: "general-session", session_binding_nonce: "general-binding",
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "general-session" },
+    agent_runtime_state: { state: "loginPending", epoch: 1, auth: "signedOut", loginProviderName: "Fixture", loginMethods: ["browser"] },
+  };
+  const state: ExtendedState = { workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [] };
+  let publish!: (event: { payload: AgentRuntimeStateEvent }) => void;
+  __setListenForTest(async (name, handler) => {
+    if (name === "agent-runtime-state") publish = handler as typeof publish;
+    return () => {};
+  });
+  __setInvokeForTest(<T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "chat_start") return Promise.resolve({
+      text: "", offset: 0, start_offset: 0, pending: false, messages: [], source_session_id: "general-session",
+      session_binding_nonce: "general-binding", subscription_id: args?.subscriptionId,
+    } as T);
+    const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] } : {};
+    return Promise.resolve(value as T);
+  });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(<MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        <TabContent tab={tab} isFocused isVisible onFocusTab={() => {}} onPtySpawned={() => {}}
+          theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>));
+    const chat = host.querySelector('[role="region"][aria-label="Tab chat: Main"]')!;
+    const signInCard = () => chat.querySelector('[role="group"][aria-label="Sign in to Fixture"]');
+    expect([...signInCard()!.querySelectorAll("button")].some(button => button.textContent === "Continue in browser")).toBe(true);
+    await act(async () => publish({ payload: {
+      tab_id: tab.id, session_binding_nonce: "general-binding",
+      state: { state: "loaded", epoch: 1, auth: "signedIn", loginProviderName: "Fixture", loginMethods: ["browser"] },
+    } }));
+    expect(signInCard()).toBeNull();
+    await act(async () => publish({ payload: {
+      tab_id: tab.id, session_binding_nonce: "general-binding",
+      state: { ...tab.agent_runtime_state!, authentication: { state: "authenticated", methods: [] } },
+    } }));
+    expect(signInCard()).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});
+
 it("places recovery after the cached transcript with the diagnostic behind Details", async () => {
   const reason = "opaque: Interrupt completion deadline exceeded; runtime recovery required";
   const loaded: Tab = {

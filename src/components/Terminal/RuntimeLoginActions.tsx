@@ -10,16 +10,19 @@ import { ProviderGlyph } from "../ProviderGlyph";
 import { BusyState } from "../shared/BusyState";
 import { CredentialOwnerRecovery } from "./CredentialOwnerRecovery";
 
+function runtimeSignedIn(state: AgentRuntimeState): boolean {
+  return state.auth === "signedIn" || (state.auth !== "signedOut" && state.authentication?.state === "authenticated");
+}
+
 /**
  * Whether a tab must sign in before it can start: the agent said so (needs_auth), a sign-in is under way, the harness
  * reports it is signed out with a way to sign in, or credentials are missing. An agent that has not reported its state
  * ("unknown") is not asked to sign in: it may already work with a configured key.
  */
 export function runtimeSignInRequired(state: AgentRuntimeState | null | undefined): boolean {
-  if (!state) return false;
+  if (!state || runtimeSignedIn(state)) return false;
   if (state.state === "loginPending" || state.login?.status === "pending") return true;
   if (state.authentication?.state === "needs_auth") return true;
-  if (state.authentication?.state === "authenticated") return false;
   if (state.requiredSecrets?.length) return true;
   return state.auth === "signedOut" && Boolean(state.loginMethods?.length);
 }
@@ -48,6 +51,7 @@ interface RuntimeLoginActionsProps {
 }
 
 export function RuntimeLoginActions(props: RuntimeLoginActionsProps) {
+  if (runtimeSignedIn(props.state)) return null;
   return <RuntimeLoginContext key={JSON.stringify([props.tabId,props.providerId,props.state.loginBinding?.nonce,props.state.epoch])} {...props} />;
 }
 
