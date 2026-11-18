@@ -1,11 +1,14 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { RichMarkdown } from "@codeterm/chat-ui/MarkdownBody";
 import type { Tab } from "../../../lib/types";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import { PERF_SPEC_ID, PERF_SPEC_SECTIONS } from "../perfFixtureSections";
+import type { PlanSectionView } from "../planProjection";
 import type { Plan } from "../types";
 import { PlanPlanView, PlanSpecView } from "./PlanDocumentView";
+import { PlanParagraphAsk } from "./PlanParagraphAsk";
 
 const sendTrackedChatMessage = vi.hoisted(() => vi.fn());
 const mux = vi.hoisted(() => ({ tabStatuses: {} as Record<string, "Working" | "Idle"> }));
@@ -28,6 +31,13 @@ const PLAN_BODY = [
   "- Rotate the signing key",
   "- Keep `refresh` tokens",
 ].join("\n");
+const REVIEW_SPEC_BODY = "The **signal** phrase repeats: second **signal** phrase.";
+const REVIEW_SPEC_SECTION = {
+  id: "sp_repeated",
+  title: "Repeated phrase",
+  body: REVIEW_SPEC_BODY,
+  subsections: [],
+} as unknown as PlanSectionView;
 
 const ASK_PLAN: Plan = {
   ...FIXTURE_PLAN,
@@ -163,6 +173,16 @@ function sentReference(call = 0): Record<string, unknown> {
   return JSON.parse(text.slice(text.lastIndexOf("\n") + 1)) as Record<string, unknown>;
 }
 
+function textNodes(root: Node): Text[] {
+  const found: Text[] = [];
+  const visit = (node: Node) => {
+    if (node.nodeType === 3) found.push(node as Text);
+    node.childNodes.forEach(visit);
+  };
+  visit(root);
+  return found;
+}
+
 function planBody(host: HTMLElement): HTMLElement {
   return host.querySelector<HTMLElement>('[data-testid="plan-plan-section"][data-section-id="sec_ask"] [data-plan-ask-body]')!;
 }
@@ -173,6 +193,25 @@ function specBody(host: HTMLElement, sectionId: string): HTMLElement {
 
 function specSource(sectionId: string): string {
   return PERF_SPEC_SECTIONS.find((section) => section.id === sectionId)!.body;
+}
+
+async function renderRepeatedSpecAsk(plan = ASK_PLAN) {
+  return render(
+    <PlanParagraphAsk kind="spec" plan={plan} sections={[REVIEW_SPEC_SECTION]} tabs={ownerTab()}>
+      <div data-plan-ask-body="" data-section-id={REVIEW_SPEC_SECTION.id}>
+        <RichMarkdown text={REVIEW_SPEC_BODY} sourcePositions />
+      </div>
+    </PlanParagraphAsk>,
+  );
+}
+
+async function selectRepeatedSpecPhrase(host: HTMLElement) {
+  const body = host.querySelector<HTMLElement>("[data-plan-ask-body]")!;
+  const phrases = textNodes(body).filter((node) => node.data === "signal");
+  expect(phrases).toHaveLength(2);
+  const secondPhrase = phrases[1];
+  await select(secondPhrase, 0, secondPhrase, secondPhrase.data.length);
+  await click(q(host, "plan-ask-trigger"));
 }
 
 beforeEach(() => {
@@ -491,6 +530,69 @@ describe("Spec reader paragraph Ask", () => {
     await select(from, 4, to, 7);
     await click(q(host, "plan-ask-trigger"));
     expect(q(host, "plan-ask-unmapped")).not.toBeNull();
+    expect(q(host, "plan-ask-input")).toBeNull();
+    expect(q(host, "plan-ask-type-selector")).toBeNull();
+    expect(sendTrackedChatMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { action: "comment", label: "Comment", body: "This repeated signal is unclear." },
+    { action: "request_change", label: "Request change", body: "Clarify the second signal." },
+  ] as const)("sends one labelled $label review for the exact formatted occurrence", async ({ action, label, body: note }) => {
+    const { host } = await renderRepeatedSpecAsk();
+    await selectRepeatedSpecPhrase(host);
+    await click(q(host, `plan-ask-type-${action}`));
+    await typeQuestion(host, note);
+    await click(q(host, "plan-ask-send"));
+
+    expect(sendTrackedChatMessage).toHaveBeenCalledTimes(1);
+    const [tabId, reviewId, text] = sendTrackedChatMessage.mock.calls[0] as [string, string, string];
+    expect(tabId).toBe("orch-1");
+    expect(text).toContain(`One-item plan review: ${label}`);
+    expect(q(host, "plan-review-sent")?.textContent).toContain(label);
+    expect(sentReference()).toEqual({
+      review_id: reviewId,
+      kind: "plan_review",
+      plan_id: "pl_ask",
+      document: "spec",
+      spec_id: PERF_SPEC_ID,
+      item_count: 1,
+      items: [{
+        action,
+        body: note,
+        mode: "selection",
+        section_id: REVIEW_SPEC_SECTION.id,
+        section_title: REVIEW_SPEC_SECTION.title,
+        source_start: REVIEW_SPEC_BODY.lastIndexOf("signal"),
+        source_end: REVIEW_SPEC_BODY.lastIndexOf("signal") + "signal".length,
+        rendered_start: "The signal phrase repeats: second ".length,
+        rendered_end: "The signal phrase repeats: second signal".length,
+        offset_unit: "utf16_code_unit",
+        quote: "signal",
+      }],
+    });
+  });
+
+  it("cancels a selected passage comment without sending or changing the Spec", async () => {
+    const { host } = await renderRepeatedSpecAsk();
+    const before = host.querySelector("[data-plan-ask-body]")?.textContent;
+    await selectRepeatedSpecPhrase(host);
+    await click(q(host, "plan-ask-type-comment"));
+    await typeQuestion(host, "This should stay local.");
+    await click(q(host, "plan-ask-cancel"));
+
+    expect(sendTrackedChatMessage).not.toHaveBeenCalled();
+    expect(host.querySelector("[data-plan-ask-body]")?.textContent).toBe(before);
+    expect(REVIEW_SPEC_SECTION.body).toBe(REVIEW_SPEC_BODY);
+  });
+
+  it("does not offer review submission for a selected passage without a recorded owner", async () => {
+    const unowned = { ...ASK_PLAN, owner: { tab_id: null, session_id: null, title: null } };
+    const { host } = await renderRepeatedSpecAsk(unowned);
+    await selectRepeatedSpecPhrase(host);
+
+    expect(q(host, "plan-ask-owner-missing")).not.toBeNull();
+    expect(q(host, "plan-ask-type-selector")).toBeNull();
     expect(q(host, "plan-ask-input")).toBeNull();
     expect(sendTrackedChatMessage).not.toHaveBeenCalled();
   });

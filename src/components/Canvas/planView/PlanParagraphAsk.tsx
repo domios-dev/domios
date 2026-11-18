@@ -23,14 +23,18 @@ import {
   paragraphTarget,
   selectionTarget,
   type PlanAskContext,
+  type PlanAskReference,
   type PlanAskSource,
   type PlanAskTarget,
   type PlanDocumentKind,
 } from "./planAskMapping";
 import {
   composePlanAskMessage,
+  composePlanReviewMessage,
   createPlanAskId,
+  createPlanReviewId,
   resolvePlanAskOwner,
+  type PlanReviewAction,
   type PlanAskOwner,
   type PlanAskReadyOwner,
 } from "./planAskModel";
@@ -68,6 +72,11 @@ function isEnter(event: ReactKeyboardEvent): boolean {
 
 function askLabel(target: PlanAskTarget): string {
   return target.mode === "selection" ? "Ask about selected text" : "Ask about this paragraph";
+}
+
+function intentLabel(intent: "ask" | PlanReviewAction): string {
+  if (intent === "ask") return "Ask";
+  return intent === "comment" ? "Comment" : "Request change";
 }
 
 function focusBlock(block: HTMLElement | null) {
@@ -261,14 +270,25 @@ function PlanAskPopover({ anchor, owner, motion, onClose, onOpenTab }: PlanAskPo
   const mountedRef = useRef(true);
   const sendingRef = useRef(false);
   const [question, setQuestion] = useState("");
+  const [intent, setIntent] = useState<"ask" | PlanReviewAction>("ask");
   const [phase, setPhase] = useState<"compose" | "sending" | "error">("compose");
-  const [sent, setSent] = useState<{ askId: string; question: string; owner: PlanAskReadyOwner } | null>(null);
+  const [sent, setSent] = useState<
+    | { kind: "ask"; askId: string; question: string; owner: PlanAskReadyOwner }
+    | { kind: "review"; reviewId: string; action: PlanReviewAction; owner: PlanAskReadyOwner }
+    | null
+  >(null);
   const { target } = anchor;
-  const label = askLabel(target);
+  const label = intent === "ask"
+    ? askLabel(target)
+    : intent === "comment"
+      ? "Comment on selected text"
+      : "Requested change";
   const ready = owner.status === "ready" ? owner : null;
   const reference = target.status === "mapped" ? target.reference : null;
   const quote = reference ? reference.quote : target.status === "unmapped" ? target.quote : "";
-  const exchangeOwner = sent && ready && ready.tabId === sent.owner.tabId ? ready : sent?.owner ?? null;
+  const exchangeOwner = sent?.kind === "ask"
+    ? ready?.tabId === sent.owner.tabId ? ready : sent.owner
+    : null;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -281,12 +301,25 @@ function PlanAskPopover({ anchor, owner, motion, onClose, onOpenTab }: PlanAskPo
   const send = async () => {
     const text = question.trim();
     if (!ready || !reference || !text || sent || sendingRef.current) return;
+    if (intent !== "ask" && reference.mode !== "selection") return;
+    const messageId = intent === "ask" ? createPlanAskId() : createPlanReviewId();
+    let message: string;
+    if (intent === "ask") {
+      message = composePlanAskMessage(reference, text, messageId);
+    } else if (reference.mode === "selection") {
+      message = composePlanReviewMessage(reference, intent, text, messageId);
+    } else {
+      return;
+    }
     sendingRef.current = true;
-    const askId = createPlanAskId();
     setPhase("sending");
     try {
-      await sendTrackedChatMessage(ready.tabId, askId, composePlanAskMessage(reference, text, askId));
-      if (mountedRef.current) setSent({ askId, question: text, owner: ready });
+      await sendTrackedChatMessage(ready.tabId, messageId, message);
+      if (mountedRef.current) {
+        setSent(intent === "ask"
+          ? { kind: "ask", askId: messageId, question: text, owner: ready }
+          : { kind: "review", reviewId: messageId, action: intent, owner: ready });
+      }
     } catch {
       if (mountedRef.current) setPhase("error");
     } finally {
@@ -313,7 +346,7 @@ function PlanAskPopover({ anchor, owner, motion, onClose, onOpenTab }: PlanAskPo
       }}
     >
       <header className="plan-ask-header">
-        <span className="plan-ask-title">Ask {owner.status === "missing" ? "Orchestrator" : owner.name}</span>
+        <span className="plan-ask-title">{intent === "ask" ? "Ask" : "Review"} {owner.status === "missing" ? "plan owner" : owner.name}</span>
         {ready && onOpenTab && (
           <button
             type="button"
@@ -340,7 +373,7 @@ function PlanAskPopover({ anchor, owner, motion, onClose, onOpenTab }: PlanAskPo
       <blockquote data-testid="plan-ask-quote" className="plan-ask-quote">{quote}</blockquote>
       {owner.status === "missing" && (
         <p role="status" data-testid="plan-ask-owner-missing" className="plan-ask-note">
-          No Orchestrator owns this plan. Nothing was sent.
+          No plan owner is recorded. Nothing was sent.
         </p>
       )}
       {owner.status === "offline" && (
@@ -353,13 +386,30 @@ function PlanAskPopover({ anchor, owner, motion, onClose, onOpenTab }: PlanAskPo
           This text can't be traced to its source. Select text inside one section.
         </p>
       )}
-      {ready?.busy && !sent && (
+      {intent === "ask" && ready?.busy && !sent && (
         <p role="status" data-testid="plan-ask-busy" className="plan-ask-note">
           {ready.name} is busy. The reply appears here.
         </p>
       )}
       {ready && reference && !sent && (
         <div className="plan-ask-compose">
+          {target.mode === "selection" && (
+            <div className="plan-ask-actions" role="group" aria-label="Message type" data-testid="plan-ask-type-selector">
+              {(["ask", "comment", "request_change"] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  data-testid={`plan-ask-type-${value}`}
+                  className={`plan-ask-button${intent === value ? " plan-ask-button-primary" : ""}`}
+                  aria-pressed={intent === value}
+                  disabled={phase === "sending"}
+                  onClick={() => setIntent(value)}
+                >
+                  {intentLabel(value)}
+                </button>
+              ))}
+            </div>
+          )}
           <label htmlFor={inputId} className="plan-ask-label">{label}</label>
           <textarea
             id={inputId}
@@ -390,12 +440,17 @@ function PlanAskPopover({ anchor, owner, motion, onClose, onOpenTab }: PlanAskPo
               disabled={!question.trim() || phase === "sending"}
               onClick={() => void send()}
             >
-              {phase === "sending" ? "Sending…" : "Ask"}
+              {phase === "sending" ? "Sending…" : intentLabel(intent)}
             </button>
           </div>
         </div>
       )}
-      {sent && exchangeOwner && (
+      {sent?.kind === "review" && (
+        <p role="status" data-testid="plan-review-sent" className="plan-ask-note">
+          {intentLabel(sent.action)} sent to {sent.owner.name}.
+        </p>
+      )}
+      {sent?.kind === "ask" && exchangeOwner && (
         <>
           <p data-testid="plan-ask-question" className="plan-ask-question">{sent.question}</p>
           <PlanAskExchange owner={exchangeOwner} busy={ready?.tabId === exchangeOwner.tabId && ready.busy} askId={sent.askId} />

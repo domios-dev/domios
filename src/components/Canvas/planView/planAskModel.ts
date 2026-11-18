@@ -15,6 +15,8 @@ export interface PlanAskReadyOwner {
   sessionBindingNonce: string | null;
 }
 
+export type PlanReviewAction = "comment" | "request_change";
+
 export type PlanAskOwner =
   | PlanAskReadyOwner
   | { status: "missing" }
@@ -41,9 +43,17 @@ export function resolvePlanAskOwner(plan: Pick<Plan, "owner">, tabs: Record<stri
   };
 }
 
-export function createPlanAskId(): string {
+function createPlanMessageId(kind: "ask" | "review"): string {
   const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
-  return `plan-ask-${random}`;
+  return `plan-${kind}-${random}`;
+}
+
+export function createPlanAskId(): string {
+  return createPlanMessageId("ask");
+}
+
+export function createPlanReviewId(): string {
+  return createPlanMessageId("review");
 }
 
 export const PLAN_ASK_OFFSET_UNIT = "utf16_code_unit";
@@ -71,6 +81,45 @@ export function composePlanAskMessage(reference: PlanAskReference, question: str
     question,
     "",
     "Reference:",
+    JSON.stringify(payload),
+  ].join("\n");
+}
+
+export function composePlanReviewMessage(
+  reference: PlanAskReference & { mode: "selection" },
+  action: PlanReviewAction,
+  body: string,
+  reviewId: string,
+): string {
+  const label = action === "comment" ? "Comment" : "Request change";
+  const payload = {
+    review_id: reviewId,
+    kind: "plan_review",
+    plan_id: reference.planId,
+    document: reference.document,
+    spec_id: reference.specId,
+    item_count: 1,
+    items: [{
+      action,
+      body: body.trim(),
+      mode: reference.mode,
+      section_id: reference.sectionId,
+      section_title: reference.sectionTitle,
+      source_start: reference.source.start,
+      source_end: reference.source.end,
+      rendered_start: reference.rendered.start,
+      rendered_end: reference.rendered.end,
+      offset_unit: PLAN_ASK_OFFSET_UNIT,
+      quote: reference.quote,
+    }],
+  };
+  const document = reference.document === "spec" ? "Spec" : "Plan";
+  return [
+    `One-item plan review: ${label}`,
+    `${document} section ${reference.sectionTitle} (${reference.sectionId}) in plan ${reference.planId}:`,
+    body.trim(),
+    "",
+    "Review reference:",
     JSON.stringify(payload),
   ].join("\n");
 }
