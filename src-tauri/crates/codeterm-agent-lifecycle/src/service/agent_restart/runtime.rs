@@ -184,7 +184,14 @@ impl RuntimeRestartExt for ServiceContext {
             && agent_runtime::engine::for_tab(tab_id).is_some_and(|session| {
                 agent_runtime::engine::conversation_unavailable(self, &session)
             });
-        let claim = self.claim_restart(tab_id, replaces_lost_session)?;
+        let admission = match &selection {
+            Some(agent_runtime::restart::RestartSelection::Model(_)) => {
+                super::RestartAdmission::ModelSwitch
+            }
+            _ if replaces_lost_session => super::RestartAdmission::ExplicitOverride,
+            _ => super::RestartAdmission::Standard,
+        };
+        let claim = self.claim_restart(tab_id, admission)?;
         if snap
             .session_id
             .as_deref()

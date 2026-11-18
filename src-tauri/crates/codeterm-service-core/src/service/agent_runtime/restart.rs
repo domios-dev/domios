@@ -245,13 +245,7 @@ async fn restart_inner(
             "Model selection requires a same-session restart".into(),
         ));
     }
-    if selection.is_some()
-        && session.as_ref().is_some_and(|session| {
-            super::update::busy(session)
-                || !session.prompts.lock().is_empty()
-                || !session.turn_requests.lock().is_empty()
-        })
-    {
+    if selection.is_some() && session.as_deref().is_some_and(model_restart_busy) {
         return Err(RuntimeFailure::Refused(
             "RestartResume requires an idle runtime".into(),
         ));
@@ -538,6 +532,12 @@ async fn restart_inner(
         return Err(RuntimeFailure::Superseded);
     }
     Ok(Some(loaded))
+}
+
+pub fn model_restart_busy(session: &Session) -> bool {
+    super::update::busy(session)
+        || !session.prompts.lock().is_empty()
+        || !session.turn_requests.lock().is_empty()
 }
 
 fn publish_failure(
