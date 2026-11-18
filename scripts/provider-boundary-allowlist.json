@@ -7018,7 +7018,7 @@
     {
       "file": "src-tauri/crates/codeterm-agent-lifecycle/src/service/agent_restart/model_switch/live_command/picker/tests.rs",
       "token": "provider-claude",
-      "count": 5,
+      "count": 2,
       "justification": "Existing declared-provider picker fixtures, including the captured Claude Code 2.1.327 layout; no production provider branch.",
       "removalSlice": "Remaining provider boundary extraction"
     },

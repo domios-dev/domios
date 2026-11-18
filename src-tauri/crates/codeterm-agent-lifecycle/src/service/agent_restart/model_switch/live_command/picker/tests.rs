@@ -1,5 +1,15 @@
 use super::*;
 
+macro_rules! captured_picker {
+    ($name:literal) => {
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-claude/tests/fixtures/model-switch/",
+            $name
+        ))
+    };
+}
+
 fn commands() -> crate::agent::provider::ModelSwitchCommands {
     let manifest: serde_json::Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -37,14 +47,8 @@ fn target() -> CommandTarget {
     }
 }
 
-const MODEL_SCREEN: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../../plugins/provider-claude/tests/fixtures/model-switch/model-picker.txt"
-));
-const EFFORT_SCREEN: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../../plugins/provider-claude/tests/fixtures/model-switch/effort-picker.txt"
-));
+const MODEL_SCREEN: &str = captured_picker!("model-picker.txt");
+const EFFORT_SCREEN: &str = captured_picker!("effort-picker.txt");
 
 #[test]
 fn idle_model_and_effort_switch_uses_current_session_only_picker() {
@@ -65,10 +69,7 @@ fn idle_model_and_effort_switch_uses_current_session_only_picker() {
         "/effort medium"
     );
 
-    let screen = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../plugins/provider-claude/tests/fixtures/model-switch/live-2.1.327-picker.txt"
-    ));
+    let screen = captured_picker!("live-2.1.327-picker.txt");
     let mut picker = CommandPicker::new(model.picker.as_ref().unwrap(), &target, None).unwrap();
     picker.injected();
     let mut keys = Vec::new();
@@ -349,10 +350,7 @@ fn direct_effort_declaration_renders_target_and_confirms_captured_stdout() {
     assert!(plan[0].0.prompt.is_some());
     let pattern =
         confirmation_pattern(&plan[0].0.confirmation, "haiku", "Haiku 5.5", plan[0].1).unwrap();
-    let captured = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../plugins/provider-claude/tests/fixtures/model-switch/effort-direct-confirmation.txt"
-    ));
+    let captured = captured_picker!("effort-direct-confirmation.txt");
     assert!(captured
         .lines()
         .filter(|line| line.starts_with("Set effort level to high"))
