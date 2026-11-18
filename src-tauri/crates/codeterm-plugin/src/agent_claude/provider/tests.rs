@@ -170,10 +170,13 @@ fn claude_describe_assembles_full_descriptor() {
 fn claude_settings_schema_round_trips_as_json() {
     // Snapshot/golden — catches accidental schema breakage.
     let p = ClaudeProvider::new();
-    let desc = p.describe();
+    let mut desc = p.describe();
     let json = serde_json::to_string(&desc).expect("serialize");
     let decoded: crate::provider::ProviderDescriptor =
         serde_json::from_str(&json).expect("deserialize");
+    let accounts = desc.accounts.as_mut().expect("account access");
+    assert!(accounts.onboarding_flag.take().is_some());
+    assert!(accounts.process_registry_directory.take().is_some());
     assert_eq!(desc, decoded);
 }
 

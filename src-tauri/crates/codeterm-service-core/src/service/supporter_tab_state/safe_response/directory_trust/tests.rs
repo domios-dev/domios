@@ -223,7 +223,7 @@ fn unattended_launch_prompt_jev_chooses_among_declared_trust_options() {
             UnattendedRoute::Model
         );
     }
-    assert_eq!(trust_target(NO_FIRST).step, b"j");
+    assert_eq!(trust_target(NO_FIRST).step, b"\x1b[B");
     assert_eq!(trust_target(YES_FOCUSED).step, b"\r");
     assert_eq!(
         trust_target(NO_FIRST).choice,
@@ -653,7 +653,7 @@ fn sentinel_respond_prompt_preapproved_folder_trust_uses_declared_target() {
         })
         .expect("declared affirmative option");
     assert_eq!(target.prompt.options[affirmative].value, target.choice);
-    assert_eq!(target.step, b"j");
+    assert_eq!(target.step, b"\x1b[B");
 
     let expected = serde_json::json!({
         "kind": codeterm_types::pty::PromptKind::DirectoryTrust,

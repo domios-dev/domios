@@ -182,7 +182,7 @@ fn core_trust_decision_answers_claude_folder_trust_fixtures() {
     for (file, step) in [
         ("quick-safety-yes-focused.txt", b"\r".as_slice()),
         ("trust-rule-focus-affirmative.txt", b"\r".as_slice()),
-        ("trust-box-focus-refusal.txt", b"j".as_slice()),
+        ("trust-box-focus-refusal.txt", b"\x1b[B".as_slice()),
         ("trust-numbered-focus-affirmative.txt", b"\r".as_slice()),
     ] {
         let screen = std::fs::read_to_string(fixture_dir.join(file)).expect("Claude trust frame");

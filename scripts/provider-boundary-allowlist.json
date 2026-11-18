@@ -3320,13 +3320,6 @@
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/model_switch.rs",
-      "token": "opencode_model_switch_uses_the_declared_next_turn_transport",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/opencode_usage_bounds.rs",
       "token": "build_large_opencode_db",
       "count": 2,
