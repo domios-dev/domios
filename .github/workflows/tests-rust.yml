@@ -163,6 +163,9 @@ jobs:
       - name: Hosted sccache
         if: runner.environment == 'github-hosted'
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
+        with:
+          # The workflow reports cache stats before stopping the server.
+          disable_annotations: true
         env:
           SCCACHE_GHA_ENABLED: "true"
       - name: Prepare compile fixtures
@@ -413,6 +416,9 @@ jobs:
       - name: Hosted sccache
         if: runner.environment == 'github-hosted'
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
+        with:
+          # The workflow reports cache stats before stopping the server.
+          disable_annotations: true
         env:
           SCCACHE_GHA_ENABLED: "true"
       - name: Prepare compile fixtures
@@ -640,6 +646,9 @@ jobs:
       - name: Hosted sccache
         if: runner.environment == 'github-hosted'
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
+        with:
+          # The workflow reports cache stats before stopping the server.
+          disable_annotations: true
         env:
           SCCACHE_GHA_ENABLED: "true"
       - name: Prepare compile fixtures
