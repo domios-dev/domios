@@ -2226,7 +2226,7 @@ function v2Prompt(ctx, frame) {
       threadId: ctx.threadId,
       requestId: frame.requestId,
       prompt: { question: `${action}: ${list(params.resources).filter((value) => typeof value === "string").join(", ")}`, options: [{ label: "Allow once", value: "once" }, { label: "Always allow", value: "always" }, { label: "Reject", value: "reject" }] },
-      permission: { action: action === "shell" ? "command" : ["edit", "write"].includes(action) ? "write" : ["read", "glob", "grep"].includes(action) ? "read" : "other", options: [{ value: "once", decision: "allow_once" }, { value: "always", decision: "allow_always" }, { value: "reject", decision: "reject_once" }] }
+      permission: { action: action === "shell" ? "command" : ["edit", "write"].includes(action) ? "write" : ["read", "glob", "grep"].includes(action) ? "read" : "other", options: [{ value: "once", decision: "allow_once" }, { value: "reject", decision: "reject_once" }] }
     };
   }
   const form = object2(params.form);

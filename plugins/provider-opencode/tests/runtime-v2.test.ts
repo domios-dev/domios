@@ -257,6 +257,13 @@ check("permission and form responses retain exact request identities",()=>{
     assert.deepEqual(runtimeResponse(ctx,op,plan.state,{kind:"success",value:null}),{kind:"complete",result:{kind:"done"},events:[]});
     assert.equal(runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:404,message:"Request expired"}}).kind,"refused");
     assert.throws(()=>runtimePlan(ctx,{...op,requestId:"foreign"}));
+    if (frame.method === "permission.asked") {
+      const prompt=runtimeReduce(ctx,null,[frame]).events.find(event=>event.kind === "prompt");
+      assert.deepEqual(prompt?.permission?.options,[{value:"once",decision:"allow_once"},{value:"reject",decision:"reject_once"}]);
+      assert.deepEqual(prompt?.prompt.options.find(option=>option.value === "always"),{label:"Always allow",value:"always"});
+      const manual=runtimePlan(ctx,{...op,answer:{kind:"choice",values:["always"]}});
+      assert.deepEqual(manual.action,{kind:"reply",requestId:frame.requestId,result:{kind:"success",value:{decision:"always"}}});
+    }
   }
 });
 check("five routed turns keep their stream identities and chronological order in resumed history",()=>{
