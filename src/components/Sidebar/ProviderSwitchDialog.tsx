@@ -1,4 +1,5 @@
 import { useId, useMemo, useState } from "react";
+import { LoaderCircle } from "lucide-react";
 import type { Tab } from "../../lib/types";
 import { isProviderSelectable } from "../../lib/providerAvailability";
 import { launchProviderInstaller } from "../../lib/providerInstall";
@@ -8,14 +9,16 @@ import { usePickerNavigation } from "../AgentPicker/pickerNavigation";
 import { Button } from "../shared/Button";
 import { SELECT_TRIGGER } from "../shared/DropdownMenu";
 import { FormDialog } from "../shared/FormDialog";
+import { BusySpinner } from "../shared/BusyState";
 import { describeError } from "../../lib/describeError";
+import { providerSwitchStatusView } from "./providerSwitchStatusModel";
 
 export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab: Tab; initialProviderId: string; onClose(): void }) {
   const titleId = useId();
   const descriptionId = useId();
   const errorId = useId();
   const { providers, providerId, setProviderId, provider, selectedModel, setModel, model, setEffort, effort,
-    phase, setPhase, error, retryAfterSeconds, result, history, ready, activity, submit, showHistory } = useProviderSwitch(tab, initialProviderId);
+    phase, setPhase, error, retryAfterSeconds, switchStatus, result, history, ready, activity, submit, showHistory } = useProviderSwitch(tab, initialProviderId);
   const navigation = usePickerNavigation();
   const [installError, setInstallError] = useState<string | null>(null);
   const locked = phase !== "choosing";
@@ -35,7 +38,8 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
       if (workspaceId) await navigation.show({ workspaceId, tabId: launch.tab_id });
     } catch (failure) { setInstallError(failure instanceof Error ? failure.message : String(failure)); }
   }
-  const failure = error ?? installError;
+  const statusView = providerSwitchStatusView(switchStatus ?? (phase === "switching" ? { phase: "pending", error: null } : null), provider?.display_name ?? "the new provider");
+  const failure = statusView?.kind === "failed" ? statusView.reason : error ?? installError;
   return <FormDialog titleId={titleId} descriptionId={descriptionId} onCancel={() => { if (phase !== "switching") onClose(); }} onSubmit={(event) => { event.preventDefault(); if (ready) void submit(); }} className="max-w-lg">
     <h2 id={titleId} className="font-semibold">Switch harness</h2>
     <p id={descriptionId} className="text-sm text-[var(--ct-muted-fg)]">{tab.title || "This tab"} continues on another harness using recent messages and task context. The full history stays here.</p>
@@ -54,10 +58,13 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
       onEffortChange={setEffort}
       onInstallProvider={(id) => void install(id)}
     />}
-    {failure && <SwitchFailure error={failure} id={errorId} harnessName={provider?.display_name} operation={error ? "switching the harness" : "starting the installer"} />}
-    {phase === "switching" && <p role="status">Switching harness…</p>}
+    {failure && <SwitchFailure error={failure} id={errorId} harnessName={provider?.display_name} operation={error || statusView?.kind === "failed" ? "switching the harness" : "starting the installer"} />}
+    {statusView?.kind === "busy" && <div role="status" aria-live="polite" aria-busy="true" className="flex items-center gap-3 rounded-md border border-[var(--ct-border)] p-3 text-sm">
+      <BusySpinner icon={LoaderCircle} size={16} />
+      <span>{statusView.label}</span>
+    </div>}
+    {statusView?.kind === "complete" && <div role="status" aria-live="polite" className="text-sm">{statusView.label}</div>}
     {phase === "waiting" && <p role="status">Waiting for this tab to become idle. Cancel to keep the current harness.</p>}
-    {result && <div role="status" className="text-sm">Continued on {result.provider}.</div>}
     {result && <Button size="sm" onClick={() => void showHistory()}>Previous harness: {result.previous_provider}</Button>}
     {history && <section aria-label="Previous harness transcript" className="max-h-72 overflow-auto text-sm">{history.map((row, index) => <article key={index}><strong>{row.kind}</strong><pre className="whitespace-pre-wrap">{row.content}</pre></article>)}</section>}
     <div className="flex justify-end gap-2">

@@ -16,7 +16,7 @@ interface ChatCursor {
 const chatCursorAdvanced = (prev: ChatCursor | null, next: ChatCursor): boolean => prev === null || next.boot !== prev.boot || next.seq > prev.seq;
 interface SubscriptionRecord {
     event: string;
-    kind: "chat" | "resize-owner" | "state" | "runtime" | "preview";
+    kind: "chat" | "resize-owner" | "state" | "runtime" | "preview" | "provider-switch-status";
     ordinaryTabId: string;
     peerId: string;
     remoteTabId: string;
@@ -92,6 +92,10 @@ function connect(record: SubscriptionRecord): void {
             && message.event_type === "agent-runtime-state" && message.data.tab_id === record.remoteTabId) {
             record.handler({ payload: { ...message.data, tab_id: record.ordinaryTabId } });
         }
+        else if (progressed && message.data && record.kind === "provider-switch-status"
+            && message.event_type === "provider-switch-status" && message.data.tab_id === record.remoteTabId) {
+            record.handler({ payload: { ...message.data, tab_id: record.ordinaryTabId } });
+        }
         else if (progressed && record.kind === "state"
             && (message.event_type === "mux-state-changed" || message.event_type === "tab-status-changed")) {
             record.handler({ payload: { event_type: message.event_type, peer_id: record.peerId } });
@@ -127,13 +131,14 @@ export function subscribeRemoteTabEvent<T>(event: string, handler: (value: {
     const ownerPrefix = "pty-resize-owner-changed:";
     const statePrefix = "peer-state-changed:";
     const previewPrefix = "preview-index-state-";
+    const providerSwitchPrefix = "provider-switch-status:";
     const kind = event.startsWith(runtimePrefix) ? "runtime" : event.startsWith(chatPrefix) ? "chat"
         : event.startsWith(previewPrefix) ? "preview" : event.startsWith(ownerPrefix) ? "resize-owner"
             : event.startsWith(statePrefix) ? "state"
-                : null;
+                : event.startsWith(providerSwitchPrefix) ? "provider-switch-status" : null;
     if (!kind)
         return null;
-    const eventTarget = event.slice(kind === "runtime" ? runtimePrefix.length : kind === "chat" ? chatPrefix.length : kind === "preview" ? previewPrefix.length : kind === "state" ? statePrefix.length : ownerPrefix.length);
+    const eventTarget = event.slice(kind === "runtime" ? runtimePrefix.length : kind === "chat" ? chatPrefix.length : kind === "preview" ? previewPrefix.length : kind === "state" ? statePrefix.length : kind === "provider-switch-status" ? providerSwitchPrefix.length : ownerPrefix.length);
     if (classifyTabTarget(eventTarget).kind === "invalid-remote") {
         throw new Error(`Invalid remote tab id "${eventTarget}"; local event fallback is forbidden`);
     }

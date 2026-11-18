@@ -31,6 +31,25 @@ describe("remote chat event subscription ownership", () => {
     } finally { stop!(); }
   });
 
+  it("forwards provider switch phases only from the owning remote tab", async () => {
+    const status = { operation_id: "operation-token", provider: "target", phase: "running", outcome: null, error: null };
+    const frames = [
+      { boot: "switch-boot", seq: 1, event_type: "provider-switch-status", data: { ...status, tab_id: "other" } },
+      { boot: "switch-boot", seq: 2, event_type: "provider-switch-status", data: { ...status, tab_id: "tab" } },
+    ];
+    vi.stubGlobal("fetch", async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode(frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join(""))); },
+    })));
+    const received: unknown[] = [];
+    let resolve!: () => void;
+    const delivered = new Promise<void>((done) => { resolve = done; });
+    const stop = subscribeRemoteTabEvent("provider-switch-status:mesh:peer/tab", ({ payload }) => { received.push(payload); resolve(); });
+    try {
+      await delivered;
+      expect(received).toEqual([{ ...status, tab_id: "mesh:peer/tab" }]);
+    } finally { stop!(); }
+  });
+
   it("forwards peer state changes without local mux events", async () => {
     const frames = [
       { boot: "state-boot", seq: 1, event_type: "mux-state-changed", data: {} },

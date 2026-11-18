@@ -1,12 +1,13 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ProviderSwitchDialog } from "./ProviderSwitchDialog";
 import { __setTabProviderApiForTest } from "./tabProviderApi";
 import type { Tab } from "../../lib/types";
 import type { TabActivity } from "../../lib/tabActivity";
-import type { ProviderSwitchResult } from "./tabProviderMenu";
-import { __setInvokeForTest } from "../../lib/bridge";
+import type { ProviderSwitchResult, ProviderSwitchStatus } from "./tabProviderMenu";
+import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
+import { providerSwitchStatusView } from "./providerSwitchStatusModel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -25,13 +26,42 @@ vi.mock("../../lib/useAgentDescriptor", () => ({ useAgentDescriptor: () => undef
 
 const tab = { id: "owned", agent_type: "source", title: "Baton" } as Tab;
 const result: ProviderSwitchResult = { tab_id: "owned", provider: "target", session_id: "new-thread", previous_provider: "source", previous_session_id: "old-thread", previous_history_path: "archive", binding_restored: true, handoff_delivered: true };
-afterEach(() => { __setTabProviderApiForTest(null); __setInvokeForTest(null); state.status = "Idle"; navigation.show.mockReset(); vi.useRealTimers(); });
+const acceptedStatus: ProviderSwitchStatus = { operation_id: "operation-token", tab_id: "owned", provider: "target", phase: "pending", outcome: null, error: null };
+let publishStatus: (status: ProviderSwitchStatus) => void = () => {};
+beforeEach(() => {
+  __setListenForTest(async <T,>(event: string, handler: (value: { payload: T }) => void) => {
+    expect(event).toBe("provider-switch-status");
+    publishStatus = (status) => handler({ payload: status as T });
+    return () => {};
+  });
+});
+afterEach(() => { __setTabProviderApiForTest(null); __setInvokeForTest(null); __setListenForTest(null); publishStatus = () => {}; state.status = "Idle"; navigation.show.mockReset(); vi.useRealTimers(); });
 
 function button(label: string) {
   const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === label);
   if (!button) throw new Error(`Missing button ${label}`);
   return button;
 }
+
+it("maps pending status to target startup feedback", () => {
+  expect(providerSwitchStatusView({ phase: "pending", error: null }, "Codex"))
+    .toEqual({ kind: "busy", label: "Starting Codex…" });
+});
+
+it("maps running status to context handoff feedback", () => {
+  expect(providerSwitchStatusView({ phase: "running", error: null }, "Codex"))
+    .toEqual({ kind: "busy", label: "Handing over context…" });
+});
+
+it("maps completed status to a bound confirmation", () => {
+  expect(providerSwitchStatusView({ phase: "completed", error: null }, "Codex"))
+    .toEqual({ kind: "complete", label: "Bound — continuing" });
+});
+
+it("preserves daemon failure reasons in the status view", () => {
+  expect(providerSwitchStatusView({ phase: "failed", error: "provider_switch_auth_timeout: fixture" }, "Codex"))
+    .toEqual({ kind: "failed", reason: "provider_switch_auth_timeout: fixture" });
+});
 
 it("confirmation sends one target selection and shows its result", async () => {
   const host = document.createElement("div"); document.body.append(host);
@@ -145,24 +175,45 @@ it("explicit stop is carried and refusals stay visible without retry", async () 
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
- it("accepted operations wait for daemon completion before showing success", async () => {
+it("follows subscribed operation phases and buffers status that arrives before acceptance", async () => {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
-  let finish!: (value: unknown) => void;
-  __setTabProviderApiForTest({ switchProvider: async () => ({ operation_id: "operation-token", tab_id: "owned", provider: "target", phase: "pending", outcome: null, error: null }) });
-  const read = vi.fn(async (command: string, args?: Record<string, unknown>) => {
-    expect(command).toBe("provider_switch_status");
-    expect(args).toEqual({ tabId: "owned", operationId: "operation-token", wait: true });
-    return new Promise<unknown>((resolve) => { finish = resolve; });
-  });
-  __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>) => await read(command, args) as T);
+  let accept!: (status: ProviderSwitchStatus) => void;
+  const pending = new Promise<ProviderSwitchStatus>((resolve) => { accept = resolve; });
+  const send = vi.fn(() => pending);
+  __setTabProviderApiForTest({ switchProvider: send });
+  const invoke = vi.fn();
+  __setInvokeForTest(async <T,>(command: string) => { invoke(command); return undefined as T; });
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
     await act(async () => button("Switch harness").click());
-    expect(read).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('[role="status"]')).not.toBeNull();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("Starting Target…");
+    expect(document.querySelector('[role="status"][aria-busy="true"]')).not.toBeNull();
     expect(document.querySelector('[aria-label="Previous harness transcript"]')).toBeNull();
-    await act(async () => finish({ phase: "completed", outcome: result }));
+    await act(async () => publishStatus({ ...acceptedStatus, phase: "running" }));
+    await act(async () => accept(acceptedStatus));
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("Handing over context…");
+    await act(async () => publishStatus({ ...acceptedStatus, phase: "completed", outcome: result }));
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("Bound — continuing");
+    expect(document.querySelector('[role="status"][aria-busy="true"]')).toBeNull();
+    expect(button("Previous harness: source")).not.toBeNull();
+    expect(invoke).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("shows daemon failure details and keeps the existing retry path", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const send = vi.fn().mockResolvedValueOnce(acceptedStatus).mockResolvedValueOnce(result);
+  __setTabProviderApiForTest({ switchProvider: send });
+  try {
+    await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
+    await act(async () => button("Switch harness").click());
+    await act(async () => publishStatus({ ...acceptedStatus, phase: "failed", error: "provider_switch_auth_timeout: fixture" }));
+    expect(document.querySelector('[aria-label="The harness authentication check timed out"]')).not.toBeNull();
+    await act(async () => button("Switch harness").click());
+    expect(send).toHaveBeenCalledTimes(2);
     expect(button("Previous harness: source")).not.toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
