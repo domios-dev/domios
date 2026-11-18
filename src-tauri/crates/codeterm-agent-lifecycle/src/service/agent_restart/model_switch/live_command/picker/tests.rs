@@ -47,6 +47,77 @@ const EFFORT_SCREEN: &str = include_str!(concat!(
 ));
 
 #[test]
+fn idle_model_and_effort_switch_uses_current_session_only_picker() {
+    let commands = commands();
+    let plan = planned_commands(&commands, true, Some("medium"), Some("low"));
+    let mut target = target();
+    target.model = "sonnet".into();
+    target.display_name = "Sonnet 5.5".into();
+    let [(model, model_effort), (effort, requested_effort)] = plan.as_slice() else {
+        panic!("expected separate model and effort commands");
+    };
+    assert_eq!(
+        render_command(&model.command, &target.model, *model_effort).unwrap(),
+        "/model"
+    );
+    assert_eq!(
+        render_command(&effort.command, &target.model, *requested_effort).unwrap(),
+        "/effort medium"
+    );
+
+    let screen = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../plugins/provider-claude/tests/fixtures/model-switch/live-2.1.327-picker.txt"
+    ));
+    let mut picker = CommandPicker::new(model.picker.as_ref().unwrap(), &target, None).unwrap();
+    picker.injected();
+    let mut keys = Vec::new();
+    let mut respond = |screen: &str| {
+        picker
+            .respond(screen, |key| {
+                keys.push(key.to_vec());
+                Ok(())
+            })
+            .unwrap();
+    };
+    respond(screen);
+    let selected = screen.replace("❯ 5.", "  5.").replace("  4.", "❯ 4.");
+    respond(&selected);
+    respond(&selected);
+    assert_eq!(keys, [b"\x1b[A".to_vec(), b"s".to_vec()]);
+
+    let confirms = |template: &str, effort: Option<&str>, output: &str| {
+        let pattern =
+            confirmation_pattern(template, &target.model, &target.display_name, effort).unwrap();
+        let record = serde_json::json!({
+            "type": "system",
+            "content": format!("<local-command-stdout>{output}</local-command-stdout>"),
+        });
+        transcript_confirms(&record.to_string(), &commands.transcript, &pattern)
+    };
+    assert!(!confirms(
+        &model.confirmation,
+        None,
+        "Kept model as `Haiku 5.5`"
+    ));
+    assert!(confirms(
+        &model.confirmation,
+        None,
+        "Set model to `Sonnet 5.5` for this session only"
+    ));
+    assert!(confirms(
+        &effort.confirmation,
+        *requested_effort,
+        "Set effort level to medium (this session only): Balanced"
+    ));
+    assert!(!confirms(
+        &effort.confirmation,
+        *requested_effort,
+        "Set effort level to low (this session only): Quick"
+    ));
+}
+
+#[test]
 fn recognized_picker_without_requested_model_still_cancels() {
     let picker = CommandPicker::new(&commands().model.picker.unwrap(), &target(), None).unwrap();
     let mut prompt = picker.cancellation_prompt(&target()).unwrap();

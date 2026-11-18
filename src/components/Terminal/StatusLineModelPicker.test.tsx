@@ -647,7 +647,7 @@ for (const fails of [false, true]) {
     const response = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
     const calls: unknown[][] = [];
     __setTabModelApiForTest({ switchModel: async (...args) => { calls.push(args); await response; } });
-    const view = await mount(descriptor("next_turn"));
+    const view = await mount(descriptor("live_command"));
     try {
       await act(async () => view.trigger()!.click());
       await act(async () => view.option("Fast").click());
@@ -658,6 +658,12 @@ for (const fails of [false, true]) {
       assert.equal(view.picker(), null);
       assert.equal(view.host.querySelector('[role="status"]')?.textContent, "Applying…");
       assert.deepEqual(calls, [["tab", "deep", "low"]]);
+      await act(async () => view.trigger()!.click());
+      assert.equal(view.option("Fast").getAttribute("aria-disabled"), "true");
+      assert.equal(button("Apply").disabled, true);
+      await act(async () => button("Apply").click());
+      assert.deepEqual(calls, [["tab", "deep", "low"]]);
+      await act(async () => view.trigger()!.click());
       await act(async () => { if (fails) reject(new Error("refused")); else resolve(); });
       if (fails) {
         assert.equal(view.trigger()!.textContent, "Deep · high");
