@@ -7,7 +7,8 @@ import {v2History} from "./runtimeV2Projection";
 
 export function v2Model(settings:RuntimeSettings):Record<string,string>|undefined {
   const model=modelParts(settings.model);
-  return model ? {providerID:model.providerID,id:model.modelID,...(settings.effort ? {variant:settings.effort} : {})} : undefined;
+  const variant=settings.effort && settings.effort !== "default" ? settings.effort : undefined;
+  return model ? {providerID:model.providerID,id:model.modelID,...(variant ? {variant} : {})} : undefined;
 }
 function prompt(op:Extract<Operation,{kind:"submitTurn"}>, id:string):RuntimePlan {
   const plan=request("v2.session.prompt",{path:{sessionID:op.threadId},body:{id,text:op.input.text,files:op.input.attachments.map(attachment=>({uri:attachmentUrl(attachment)}))}},{stage:"prompt",id});

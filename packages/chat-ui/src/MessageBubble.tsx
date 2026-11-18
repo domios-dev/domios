@@ -368,9 +368,13 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
         {text}
       </>;
     };
-    const renderInlineUserText = (content: string) => effectiveOrigin
-      ? renderUserText(content)
-      : <LinkedText text={content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />;
+    const renderInlineUserText = (content: string) => {
+      if (effectiveOrigin?.kind === "neighbor" || effectiveOrigin?.kind === "mesh" || effectiveOrigin?.kind === "telegram") {
+        return <RichMarkdown text={content} inlineParagraphs sourceIdentity={sourceIdentity} streaming={streaming} interactivePreviews={false} localArtifacts={effectiveOrigin.kind !== "neighbor"} fontScale={fontScale} />;
+      }
+      if (effectiveOrigin?.kind === "command") return renderUserText(content);
+      return <LinkedText text={content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />;
+    };
 
     const reply = userAttachments.reply;
     const quotedId = reply?.reply;
