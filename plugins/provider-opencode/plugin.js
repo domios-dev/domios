@@ -2310,20 +2310,20 @@ function v2Content(message, raw, ordinal, seq, ts) {
 }
 function v2History(raw) {
   const entries = list(raw), rows = [];
-  for (const raw2 of entries) {
-    const message = object2(raw2), id = text(message.id), created = object2(message.time).created;
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const message = object2(entries[index]), id = text(message.id), created = object2(message.time).created;
     if (!id) fail("invalid_schema", "OpenCode history message is missing its identity");
     const ts = typeof created === "number" ? created : void 0;
     if (message.type === "user") {
-      rows.push({ id, seq: rows.length + 1, type: "user", content: String(message.text ?? ""), ...ts !== void 0 ? { timestamp: new Date(ts).toISOString() } : {}, attachments: list(message.files).map((raw3, index) => {
-        const file = object2(raw3);
-        return { id: `${id}:file:${index}`, mimeType: String(file.mime ?? "application/octet-stream"), url: String(file.uri) };
+      rows.push({ id, seq: rows.length + 1, type: "user", content: String(message.text ?? ""), ...ts !== void 0 ? { timestamp: new Date(ts).toISOString() } : {}, attachments: list(message.files).map((raw2, index2) => {
+        const file = object2(raw2);
+        return { id: `${id}:file:${index2}`, mimeType: String(file.mime ?? "application/octet-stream"), url: String(file.uri) };
       }) });
     } else if (message.type === "assistant") {
       const content = list(message.content);
       if (content.length > 512) fail("size_limit", "OpenCode history content exceeds its bound");
-      content.forEach((part, index) => {
-        const row = v2Content(id, part, index, rows.length + 1, ts);
+      content.forEach((part, index2) => {
+        const row = v2Content(id, part, index2, rows.length + 1, ts);
         if (row) rows.push(row);
       });
     }

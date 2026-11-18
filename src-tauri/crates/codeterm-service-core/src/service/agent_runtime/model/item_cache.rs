@@ -11,6 +11,7 @@ pub struct ItemCache {
     rereadable: bool,
     pub(super) cached_bytes: usize,
     pub(super) positions: HashMap<String, i64>,
+    user_source_ids: HashSet<String>,
     head: i64,
     backfill_generation: u64,
     backfill: HistoryBackfill,
@@ -63,6 +64,9 @@ impl ItemCache {
             };
             self.cached_bytes = self.cached_bytes.saturating_sub(Self::row_bytes(&row));
             self.positions.remove(&row.id);
+            if let Some(source) = Self::user_source_id(&row) {
+                self.user_source_ids.remove(source);
+            }
             self.history_origin.remove(&row.id);
             self.live_during_backfill.remove(&row.id);
             self.head += 1;
@@ -73,6 +77,11 @@ impl ItemCache {
         self.positions
             .get(id)
             .map(|slot| (slot - self.head) as usize)
+    }
+    fn user_source_id(row: &ChatMsg) -> Option<&str> {
+        row.runtime_source_item_id
+            .as_deref()
+            .filter(|_| row.kind == "user")
     }
     /// Starts a replay and drops rows a previous replay landed, keeping live and host rows,
     /// so every history row of this replay can sit below the surviving minimum.
@@ -136,11 +145,18 @@ impl ItemCache {
         let mut landed = 0;
         let mut block: Vec<ChatMsg> = Vec::new();
         for mut item in page {
+            // A history echo preserves the host row's body, routing metadata and sequence.
+            if item.kind == "user"
+                && (self.user_source_ids.contains(&item.id)
+                    || self.get(&item.id).and_then(Self::user_source_id).is_some())
+            {
+                continue;
+            }
             if self.live_during_backfill.contains(&item.id) {
                 continue;
             }
+            item.runtime_source_item_id = None;
             if self.positions.contains_key(&item.id) {
-                self.history_origin.insert(item.id.clone());
                 self.reconcile(item);
                 landed += 1;
                 continue;
@@ -191,6 +207,11 @@ impl ItemCache {
             self.archive_dirty.insert(item.id.clone());
         }
         if let Some(index) = self.index(&item.id) {
+            if let Some(previous) = Self::user_source_id(&self.items[index]) {
+                if Some(previous) != Self::user_source_id(&item) {
+                    self.user_source_ids.remove(previous);
+                }
+            }
             item.seq = self.items[index].seq;
             if self.rereadable {
                 self.cached_bytes = self
@@ -207,6 +228,9 @@ impl ItemCache {
                 self.cached_bytes = self.cached_bytes.saturating_add(Self::row_bytes(&item));
             }
             self.items.push_back(item.clone());
+        }
+        if let Some(source) = Self::user_source_id(&item) {
+            self.user_source_ids.insert(source.into());
         }
         self.evict();
         item
@@ -253,6 +277,9 @@ impl ItemCache {
         while self.items.len() > end + 1 {
             if let Some(item) = self.items.pop_back() {
                 self.positions.remove(&item.id);
+                if let Some(source) = Self::user_source_id(&item) {
+                    self.user_source_ids.remove(source);
+                }
                 self.history_origin.remove(&item.id);
                 self.live_during_backfill.remove(&item.id);
                 if self.rereadable {

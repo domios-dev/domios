@@ -444,6 +444,65 @@ async fn a_new_replay_drops_previous_history_rows_and_lands_below_kept_live_rows
 }
 
 #[tokio::test]
+async fn same_session_replay_preserves_five_retained_prompt_rows_and_their_replies() {
+    use crate::service::messenger::Messenger;
+
+    let (session, mut epoch) = session();
+    let mut retained = Vec::new();
+    let mut history = Vec::new();
+    for turn in 0..5 {
+        let body = format!("Opaque prompt {turn}");
+        let wire = format!("<domios from=\"system\" context=\"qa\">{body}</domios>");
+        let source = format!("provider-user-{turn}");
+        let mut host = Messenger::restore_framed_delivery(&wire)
+            .unwrap()
+            .chat_message(format!("send-{turn}"))
+            .unwrap();
+        host.seq = 2 * turn;
+        host.runtime_source_item_id = Some(source.clone());
+        let reply = ChatMsg {
+            kind: "assistant".into(),
+            seq: host.seq + 1,
+            ..row(&format!("reply-{turn}"), "Opaque answer")
+        };
+        retained.extend([host, reply.clone()]);
+        history.extend([
+            ChatMsg {
+                kind: "user".into(),
+                ..row(&source, &wire)
+            },
+            reply,
+        ]);
+    }
+    session.cache.lock().restore_transcript(retained.clone());
+    assert_eq!(session.cache.lock().snapshot(), retained);
+
+    for _ in 0..2 {
+        let mut replay = replay_for(&session, epoch);
+        let mut port = FakePort::with(vec![(
+            None,
+            Ok(RuntimeResult::HistoryPage {
+                thread_id: THREAD.into(),
+                items: history.clone(),
+                next_cursor: None,
+                open_items: Vec::new(),
+                questions: None,
+                order: Some(HistoryOrder::Desc),
+            }),
+        )]);
+        replay.first(&session, &mut port).await.unwrap();
+        assert!(replay.done);
+        assert_eq!(session.cache.lock().snapshot(), retained);
+        assert!(session
+            .cache
+            .lock()
+            .finish_backfill(replay.generation, HistoryBackfill::Complete));
+        epoch = session.state.lock().begin();
+        session.context.lock().epoch = epoch;
+    }
+}
+
+#[tokio::test]
 async fn a_question_on_an_older_page_resolves_from_an_answer_on_a_newer_page() {
     let (session, epoch) = session();
     let mut replay = replay_for(&session, epoch);

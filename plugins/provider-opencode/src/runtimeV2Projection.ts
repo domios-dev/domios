@@ -16,8 +16,9 @@ export function v2Content(message:string, raw:unknown, ordinal:number, seq:numbe
 }
 export function v2History(raw:unknown):ChatMsg[] {
   const entries=list(raw), rows:ChatMsg[]=[];
-  for (const raw of entries) {
-    const message=object(raw), id=text(message.id), created=object(message.time).created;
+  // Pages arrive newest first, but the host prepends each page in transcript order.
+  for (let index=entries.length-1;index>=0;index--) {
+    const message=object(entries[index]), id=text(message.id), created=object(message.time).created;
     if (!id) fail("invalid_schema","OpenCode history message is missing its identity");
     const ts=typeof created === "number" ? created : undefined;
     if (message.type === "user") {
