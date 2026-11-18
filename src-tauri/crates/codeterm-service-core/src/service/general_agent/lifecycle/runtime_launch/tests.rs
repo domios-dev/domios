@@ -66,7 +66,7 @@ fn general_bootstrap_composition_follows_each_provider_capability() {
         }
     }
     assert_eq!(providers, 3);
-    assert_eq!(runtimes, 1);
+    assert_eq!(runtimes, 2);
 }
 
 #[test]

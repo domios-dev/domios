@@ -259,12 +259,14 @@ fn fresh_general_binds_the_requested_account_and_credential_home() {
             .1,
         home.to_str()
     );
-    let (mux, fresh) = {
+    let (mux, fresh, main_id) = {
         let mut mux = svc.mux.write();
+        let main_id = mux.resolve_tab_id(MAIN_ALIAS).unwrap();
         let tab = create_fresh_tab(&mut mux, &request.workspace_id, false, &account).unwrap();
         (
             MultiplexerState::from_session_snapshot(&mux.to_session_snapshot()),
             tab,
+            main_id,
         )
     };
     let tab = mux.get_tab(&fresh).unwrap();
@@ -274,9 +276,7 @@ fn fresh_general_binds_the_requested_account_and_credential_home() {
         tab.restorable_launch.account_namespace.as_deref(),
         Some("work-home")
     );
-    let main = mux
-        .get_tab(&mux.resolve_tab_id(MAIN_ALIAS).unwrap())
-        .unwrap();
+    let main = mux.get_tab(&main_id).unwrap();
     assert_eq!(provider_accounts::selected_account(main), IMPLICIT_ACCOUNT);
 
     let mut config = svc.ext::<crate::config::ConfigState>().lock();
