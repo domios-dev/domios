@@ -119,8 +119,12 @@ check("resume and history refuse foreign ownership while preserving page cursor"
   assert.throws(()=>response(ctx,resume,runtimePlan(ctx,resume).state,{id:"ses_foreign",directory:ctx.cwd}));
   const op:Operation={kind:"readHistory",threadId:ctx.threadId!,order:"desc"}, plan=runtimePlan(ctx,op);
   const body=[{info:{id:"msg_old",sessionID:ctx.threadId,role:"user",time:{created:10}},parts:[{id:"prt_old",messageID:"msg_old",sessionID:ctx.threadId,type:"text",text:"prior user turn"}]}];
-  const step=response(ctx,op,plan.state,body,{"x-next-cursor":"msg_older"});
-  assert.equal(step.kind,"complete");if (step.kind === "complete" && step.result.kind === "historyPage") {assert.equal(step.result.nextCursor,"msg_older");assert.equal(step.result.items[0].id,"msg_old");}
+  const cursor=Buffer.from(JSON.stringify({id:"msg_old",time:10})).toString("base64url");
+  const step=response(ctx,op,plan.state,body,{"x-next-cursor":cursor});
+  assert.equal(step.kind,"complete");if (step.kind === "complete" && step.result.kind === "historyPage") {assert.equal(step.result.nextCursor,cursor);assert.equal(step.result.items[0].id,"msg_old");}
+  const older={...op,cursor}, olderPlan=runtimePlan(ctx,older);
+  assert.deepEqual(olderPlan.action,{kind:"request",call:{method:"session.messages",params:{path:{sessionID:ctx.threadId},query:{limit:"40",before:cursor}}}});
+  assert.equal(response(ctx,older,olderPlan.state,body,{"x-next-cursor":cursor}).kind,"refused");
   assert.throws(()=>response(ctx,op,plan.state,JSON.parse(JSON.stringify(body).replaceAll("ses_owned","ses_foreign"))));
 });
 console.log(`${count} OpenCode runtime cases passed`);

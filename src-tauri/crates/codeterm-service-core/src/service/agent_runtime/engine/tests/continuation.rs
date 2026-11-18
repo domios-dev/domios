@@ -1,5 +1,5 @@
 use super::super::*;
-use super::sync_send::runtime_fixture;
+use super::sync_send::{runtime_fixture, runtime_fixture_with, RUNTIME_FIXTURE_SOURCE};
 use crate::multiplexer::{state::MultiplexerState, types::request_continue};
 use crate::service::{
     chat_send_transaction::ChatSendState,
@@ -87,8 +87,27 @@ fn non_runtime_chat_continuation_is_refused_and_skipped_without_delivery() {
 
 #[test]
 fn loaded_thread_trigger_delivers_restart_continuation_once_through_real_routing() {
-    let (fixture, tab_id, peer, _cleanup) = runtime_fixture();
+    let source = format!(
+        "{RUNTIME_FIXTURE_SOURCE}\n{}",
+        r#"
+let loaded = false;
+const plan = module.exports.runtimePlan;
+const response = module.exports.runtimeResponse;
+module.exports.runtimePlan = (ctx, op) => {
+  if (op.kind === 'control') throw new Error('Unsupported control');
+  if (['readHistory', 'submitTurn'].includes(op.kind) && !loaded) throw new Error('Binding lost');
+  return plan(ctx, op);
+};
+module.exports.runtimeResponse = (ctx, op, state, reply) => {
+  const step = response(ctx, op, state, reply);
+  if (step.result?.kind === 'threadLoaded') loaded = true;
+  return step;
+};
+"#
+    );
+    let (fixture, tab_id, peer, _cleanup) = runtime_fixture_with(&source);
     let session = for_tab(&tab_id).unwrap();
+    *session.abort_note.lock() = Some("opaque interruption".into());
     let nonce = session.context.lock().binding_nonce.clone();
     {
         let mut mux = fixture.service.mux.write();

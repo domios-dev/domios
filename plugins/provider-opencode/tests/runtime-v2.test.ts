@@ -90,6 +90,21 @@ check("events before and during restarted initialization preserve the v2 mapper"
       if (step.kind === "continue") plan=step.plan;
       else {assert.equal(step.kind,"complete");if(step.kind === "complete") assert.deepEqual(step.result,{kind:"threadLoaded",threadId:ctx.threadId,settings:ctx.settings});}
     }
+    const page:Operation={kind:"readHistory",threadId:resume.threadId,order:"desc"};
+    plan=runtimePlan(ctx,page);
+    assert.equal(call(plan).method,"v2.session.messages");
+    const firstPage=response(ctx,page,plan,{data:fixture.history.data,cursor:{next:"opaque:next/+="}});
+    if (firstPage.kind !== "complete" || firstPage.result.kind !== "historyPage") throw new Error("history page required");
+    assert.ok(firstPage.result.items.length);
+    const older={...page,cursor:firstPage.result.nextCursor}, olderPlan=runtimePlan(ctx,older);
+    assert.deepEqual(call(olderPlan).params,{path:{sessionID:resume.threadId},query:{limit:"40",cursor:"opaque:next/+="}});
+    assert.equal(response(ctx,older,olderPlan,{data:[]}).kind,"complete");
+    const submit:Operation={kind:"submitTurn",threadId:resume.threadId,sendId:`continue-${epoch}`,input:ctx.claimedSends[0].input,settings:ctx.settings};
+    ctx.claimedSends=[{sendId:submit.sendId,threadId:submit.threadId,input:submit.input}];
+    plan=runtimePlan(ctx,submit);
+    assert.equal(call(plan).method,"v2.session.prompt");
+    assert.equal(call(plan).target?.threadId,resume.threadId);
+    assert.throws(()=>runtimePlan(ctx,submit),{code:"provider_refused"});
   }
 });
 check("recorded stream maps delivery, tool lifecycle, text, forms and usage",()=>{
