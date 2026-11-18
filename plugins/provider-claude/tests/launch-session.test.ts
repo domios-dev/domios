@@ -23,10 +23,12 @@ const files: Record<string, string> = {};
 let platform = "linux";
 let registryModifiedMs: number | null = null;
 let replacement: string | null = null;
+const diagnostics: string[] = [];
 const hostFixture = {
   platform: () => platform,
   homeDir: () => "/home/user",
   envGet: () => null,
+  log: (_level: string, message: string) => diagnostics.push(message),
   fs: {
     readFile: (path: string) => files[path] ?? null,
     readDir: (dir: string) => {
@@ -116,6 +118,9 @@ eq(detectClaudeLaunchSession(macEvidence), { sessionId: "sid-macos", source: "pi
   "the same UTC timestamp identifies a record written after the exact process start");
 replacement = record(2860, "new-session", "Sat Aug  1 05:30:00 2026");
 eq(detectClaudeLaunchSession(macEvidence), null, "a replacement cannot lend its freshness to the earlier content");
+for (const reason of ["missing_record_mtime", "stale_record", "record_changed"]) {
+  eq(diagnostics.some(message => message.endsWith(reason)), true, `registry logs ${reason}`);
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -10,6 +10,10 @@ fn record(pid: u32, proc_start: &str, kind: &str) -> String {
     .to_string()
 }
 
+fn registry_start_matches(recorded: &str, token: &str, modified_ms: Option<i64>) -> bool {
+    validate_registry_start(recorded, token, modified_ms).is_ok()
+}
+
 const START: &str = "134338511491237705";
 
 #[test]

@@ -772,10 +772,10 @@ pub fn can_try_now(svc: &ServiceContext, tab: &str) -> bool {
     if let Some(session) = engine::for_tab(tab) {
         engine::account_trial_idle(svc, &session)
     } else {
-        svc.try_snapshot_with_reconciled_status()
-            .is_some_and(|snapshot| {
-                snapshot.tab_statuses.get(tab) == Some(&codeterm_types::pty::TabStatus::Idle)
-            })
+        let mux = svc.mux.read();
+        mux.get_tab(tab)
+            .and_then(|tab| svc.resolved_tab_status(tab))
+            == Some(codeterm_types::pty::TabStatus::Idle)
     }
 }
 

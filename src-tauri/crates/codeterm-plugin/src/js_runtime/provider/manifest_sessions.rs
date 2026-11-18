@@ -267,6 +267,20 @@ impl JsProvider {
         Some(root.join(leaf))
     }
 
+    pub(super) fn manifest_session_exists(&self, cwd: &str, session_id: &str) -> Option<bool> {
+        let (root, extension) = self.manifest_session_store()?;
+        let filename = format!("{session_id}{extension}");
+        let exists =
+            |path: &Path| crate::session_evidence::exact_transcript_exists(&root, path, &filename);
+        Some(
+            crate::session_evidence::stored_transcript_path(session_id)
+                .is_some_and(|path| exists(&path))
+                || self
+                    .owned_session_file_path(cwd, session_id)
+                    .is_some_and(|path| exists(&path)),
+        )
+    }
+
     pub(super) fn owned_session_model_identity_path(
         &self,
         cwd: &str,
