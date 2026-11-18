@@ -39,6 +39,10 @@ assert.equal(commands.model.confirmationPromptKind, "switch_confirmation");
 assert.equal(commands.effort.confirmationPromptKind, "switch_confirmation");
 assert.equal(commands.duringTurn, true);
 assert.deepEqual(commands.model.prompt.responseKeys, ["\r"]);
+const namedAccountScreen = fixture("eight-rc-5060e6f-confirmation.txt");
+assert.ok(pattern(commands.model.prompt.screenRegex, "sonnet").test(namedAccountScreen));
+assert.equal(pattern(commands.model.prompt.screenRegex, "sonnet", "", "Claude Sonnet 5.5")
+  .test(namedAccountScreen), false);
 for (const file of ["busy-sonnet-confirmation.txt"]) {
   const screen = fixture(file);
   assert.ok(pattern(commands.model.prompt.screenRegex, "sonnet").test(screen));

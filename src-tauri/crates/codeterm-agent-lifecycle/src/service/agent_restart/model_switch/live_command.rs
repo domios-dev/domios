@@ -404,11 +404,16 @@ impl LiveCommandSwitchExt for ServiceContext {
             .agent_registry
             .with_provider(&snap.provider, |provider| {
                 provider
-                    .available_models()
-                    .into_iter()
-                    .find(|entry| entry.id == model)
-                    .map(|entry| entry.display_name)
+                    .model_switch_terminal_label(model)
                     .filter(|name| !name.trim().is_empty())
+                    .or_else(|| {
+                        provider
+                            .available_models()
+                            .into_iter()
+                            .find(|entry| entry.id == model)
+                            .map(|entry| entry.display_name)
+                            .filter(|name| !name.trim().is_empty())
+                    })
             })
             .flatten()
             .unwrap_or_else(|| model.to_owned());
@@ -962,25 +967,24 @@ impl LiveCommandSwitchExt for ServiceContext {
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                         break false;
                     };
-                    if let Some(prompt) = prompt.as_mut() {
-                        let answered = prompt.answered();
-                        if let Err(error) = self.respond_to_command_prompt(target, prompt) {
-                            prompt_error = Some(error);
-                            break false;
-                        }
-                        if !answered && prompt.answered() {
-                            log::info!(
-                                "[agent-model] own command dialog answered tab={} elapsed_ms={}",
-                                target.tab_id,
-                                started.elapsed().as_millis()
-                            );
-                        }
-                    }
-                    if let Some(picker) = picker.as_mut() {
-                        if let Err(error) = self.respond_to_command_picker(target, picker) {
-                            prompt_error = Some(error);
-                            break false;
-                        }
+                    if let Err(error) = during_turn::respond_to_dialogs(
+                        picker.as_mut(),
+                        prompt.as_mut(),
+                        |picker| self.respond_to_command_picker(target, picker),
+                        |prompt| {
+                            self.respond_to_command_prompt(target, prompt)?;
+                            if prompt.answered() {
+                                log::info!(
+                                    "[agent-model] own command dialog answered tab={} elapsed_ms={}",
+                                    target.tab_id,
+                                    started.elapsed().as_millis()
+                                );
+                            }
+                            Ok(())
+                        },
+                    ) {
+                        prompt_error = Some(error);
+                        break false;
                     }
                     let observe_ms = observed.elapsed().as_millis();
                     if observe_ms >= 50 {

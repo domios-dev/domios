@@ -657,6 +657,14 @@ impl AgentProvider for ClaudeProvider {
         Some(model_switch::commands())
     }
 
+    fn model_switch_terminal_label(&self, model: &str) -> Option<String> {
+        schemas::manifest_defaults()
+            .models
+            .into_iter()
+            .find(|entry| entry.id == model)
+            .map(|entry| entry.display_name)
+    }
+
     fn exit_command(&self) -> Option<&str> {
         Some("/exit")
     }

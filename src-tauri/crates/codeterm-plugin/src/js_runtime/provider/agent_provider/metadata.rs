@@ -68,5 +68,21 @@ macro_rules! js_provider_metadata {
         fn attachment_capabilities(&self) -> crate::provider::AttachmentCapabilities {
             self.manifest.capabilities.attachments
         }
+
+        fn model_switch(&self) -> crate::provider::ModelSwitchMode {
+            self.manifest.commands.model_switch
+        }
+
+        fn model_switch_commands(&self) -> Option<crate::provider::ModelSwitchCommands> {
+            self.manifest.commands.model_switch_commands.clone()
+        }
+
+        fn model_switch_terminal_label(&self, model: &str) -> Option<String> {
+            self.manifest
+                .models
+                .iter()
+                .find(|entry| entry.id == model)
+                .map(|entry| entry.display_name.clone())
+        }
     };
 }
