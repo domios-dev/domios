@@ -197,7 +197,7 @@ fn preserve_used_target(
     let prepared = PtyAccountSwitch {
         target: &target,
         target_launch: Relaunch {
-            command: "target --resume exact-session".into(),
+            command: "target --resume exact-session".to_owned().into(),
             task: None,
         },
         source: AccountRestartTarget {
@@ -208,7 +208,7 @@ fn preserve_used_target(
             terminal_turn: None,
         },
         source_launch: Relaunch {
-            command: "source --resume exact-session".into(),
+            command: "source --resume exact-session".to_owned().into(),
             task: None,
         },
     };
