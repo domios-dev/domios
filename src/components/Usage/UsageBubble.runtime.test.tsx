@@ -124,24 +124,30 @@ const button=container.querySelector("button")!;
 assert.equal(button.getAttribute("aria-label"),"usage 120 tokens · $0.02");
 await act(async()=>button.dispatchEvent(new MouseEvent("click",{bubbles:true})));
 assert.match(document.querySelector('[role="status"]')?.textContent ?? "",/cached input: 30/);
-groupUsage = [{ group: "deepseek", spend_remaining_cents: 0 }];
+groupUsage = [{ group: "deepseek", spend_remaining_cents: 917 }];
 const renderModelSpend = (modelId: string) => act(async () => root.render(
-  <UsageBubble key="model-spend" provider="fixture" tabId="own" threadId="thread" trackingEnabled groupOnly
+  <UsageBubble key="model-spend" provider="fixture" tabId="own" threadId="thread" trackingEnabled chatBackend
     modelId={modelId} modelGroups={[{ id: "deepseek", label: "DeepSeek" }]} />,
 ));
 await renderModelSpend("deepseek/deepseek-flash");
-assert.ok(container.querySelector('[aria-label="usage $0.00 left"]'), "a balance-only group shows alongside runtime usage");
-await act(async () => namedButton("usage $0.00 left").click());
-const balanceDetail = document.querySelector('[role="dialog"][aria-label="usage details"]');
-assert.match(balanceDetail?.textContent ?? "", /\$0\.00 left/);
-assert.doesNotMatch(balanceDetail?.textContent ?? "", /spend|spent/);
+const balanceButton = namedButton("DeepSeek balance, $9.17 left");
+assert.equal(balanceButton.textContent, "$9.17", "group balance takes precedence over session tokens");
+assert.equal(balanceButton.querySelector("svg"), null);
+await act(async () => balanceButton.click());
+const balanceDetail = document.querySelector('[role="dialog"][aria-label="DeepSeek balance"]');
+assert.match(balanceDetail?.textContent ?? "", /\$9\.17 leftUpdated just now/);
+groupUsage = [{ group: "deepseek", spend_remaining_cents: 0, spend_cents: 34 }];
+await act(async () => namedButton("Refresh usage").click());
+assert.equal(namedButton("DeepSeek balance, $0.00 left").textContent, "$0.00");
+assert.match(balanceDetail?.textContent ?? "", /\$0\.00 left\$0\.34 recorded spendUpdated just now/);
+snapshot = { ...snapshot, runtime_usage: [{ ...reading, billing_mode: "api", token_usage: null }] };
 groupUsage = [{ group: "deepseek", spend_cents: 34 }];
 await act(async () => emit());
-assert.ok(container.querySelector('[aria-label="usage $0.34"]'), "known spend survives an unknown balance");
-assert.match(balanceDetail?.textContent ?? "", /\$0\.34recorded spend/);
-assert.doesNotMatch(balanceDetail?.textContent ?? "", /left/);
+assert.equal(container.querySelector("button")?.textContent, "—", "unknown balance keeps the existing empty pill");
+groupUsage = [{ group: "deepseek", spend_remaining_cents: 917 }];
+await act(async () => emit());
 await renderModelSpend("another/model");
-assert.equal(container.querySelector("button"), null, "a different group cannot see the DeepSeek balance");
+assert.equal(container.querySelector("button")?.textContent, "—", "a different group cannot see the DeepSeek balance");
 groupUsage = [];
 const {useProviderModelUsageState} = await import("../../hooks/useProviderModelUsage");
 function GroupProbe() { const {usage} = useProviderModelUsageState("fixture"); return <output>{JSON.stringify(usage)}</output>; }

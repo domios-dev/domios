@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { ModelGroupUsage } from "../../lib/types";
-import { groupSpendSnapshot, hasGroupSpend } from "./groupSpend";
+import { groupBalance, groupSpendSnapshot, hasGroupSpend } from "./groupSpend";
 
 function usage(overrides: Partial<ModelGroupUsage> = {}): ModelGroupUsage {
   return {
@@ -20,6 +20,12 @@ assert.equal(hasGroupSpend(usage({ spend_remaining_cents: 62 })), true, "balance
 assert.equal(hasGroupSpend(usage({ spend_remaining_cents: 0 })), true, "a reported zero balance is shown");
 assert.equal(hasGroupSpend(usage()), false, "a group without spend renders nothing");
 assert.equal(hasGroupSpend(null), false, "no usage renders nothing");
+assert.equal(groupBalance(usage({ spend_cents: 34 })), null, "spend cannot supply a missing balance");
+assert.equal(groupBalance(usage({ spend_remaining_cents: 0 }))?.amount, "$0.00");
+assert.deepEqual(groupBalance(usage({ spend_remaining_cents: 10917 }), [{ id: "deepseek", label: "DeepSeek" }]), {
+  title: "DeepSeek balance",
+  amount: "$109.17",
+});
 
 const live = groupSpendSnapshot("opencode", usage({ spend_cents: 34, spend_remaining_cents: 62 }), 1234);
 assert.equal(live.provider, "opencode");

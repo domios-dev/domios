@@ -178,8 +178,8 @@ export function UsageDetail({ snapshot, accountCreditsLabel, onRefresh, onOpenHi
 }
 
 // the cycle spend and reset instead of the gauge/projection machinery.
-export function UsageSpendDetail({ snapshot, accountCreditsLabel, onRefresh, resetSection, spendCaption = "spent this cycle" }:
-  UsageDetailProps & { spendCaption?: string }) {
+export function UsageSpendDetail({ snapshot, accountCreditsLabel, onRefresh, resetSection, balance, spendCaption = "spent this cycle" }:
+  Omit<UsageDetailProps, "onOpenHistory"> & { balance?: { title: string; amount: string } | null; spendCaption?: string }) {
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
   const now = Date.now();
@@ -210,9 +210,9 @@ export function UsageSpendDetail({ snapshot, accountCreditsLabel, onRefresh, res
   };
 
   return (
-    <div className="ct-usage-popover" role="dialog" aria-label="usage details">
+    <div className="ct-usage-popover" role="dialog" aria-label={balance?.title ?? "usage details"}>
       <div className="head">
-        <span className="title">{snapshot.provider} usage</span>
+        <span className="title">{balance?.title ?? `${snapshot.provider} usage`}</span>
         <button
           type="button"
           className={`ico-btn ${refreshing ? "spin" : ""}`}
@@ -229,19 +229,21 @@ export function UsageSpendDetail({ snapshot, accountCreditsLabel, onRefresh, res
       {isStale && <StaleBanner snapshot={snapshot} now={now} />}
 
       <div className="ct-usage-spend">
-        {snapshot.spend_cents != null && <>
+        {balance && <div><span className="amount balance">{balance.amount}</span>{" "}<span className="caption">left</span></div>}
+        {snapshot.spend_cents != null && (balance
+          ? <span className="caption">{formatSpend(snapshot.spend_cents)} {spendCaption}</span> : <>
           <span className="amount">{formatSpend(snapshot.spend_cents)}</span>
           <span className="caption">{spendCaption}</span>
-        </>}
-        {hasQuota && (
+        </>)}
+        {!balance && hasQuota && (
           <div className="quota">
             {remainingCents != null && <span>{formatSpend(remainingCents)} left</span>}
             {limitCents != null && <span>{formatSpend(limitCents)} limit</span>}
           </div>
         )}
-        <span className="reset">
+        {(!balance || snapshot.spend_resets_at) && <span className="reset">
           {snapshot.spend_resets_at ? formatResetsAt(snapshot.spend_resets_at, now) : "—"}
-        </span>
+        </span>}
       </div>
 
       <UsageScopedLimits details={snapshot.usage_details} now={now} />
@@ -251,7 +253,7 @@ export function UsageSpendDetail({ snapshot, accountCreditsLabel, onRefresh, res
       <div className="ct-usage-foot">
         <span className="live">
           <span className="pulse ct-live-pulse" />
-          <span>last updated {formatRelative(now, snapshot.captured_at)}</span>
+          <span>{balance ? "Updated" : "last updated"} {formatRelative(now, snapshot.captured_at)}</span>
         </span>
       </div>
     </div>

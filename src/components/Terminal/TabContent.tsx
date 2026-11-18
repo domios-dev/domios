@@ -16,10 +16,8 @@ import { consumePendingCommand, consumePendingCwd } from "../../lib/pendingComma
 import { RestoredShell } from "./RestoredShell";
 import { TabSessionChat } from "./TabSessionChat";
 import { TabTopBar } from "./TabTopBar";
-import { UsageBubble } from "../Usage/UsageBubble";
 import { isTabVisible } from "../MemoryPanel/workerFocusStore";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
-import { modelGroupForId } from "../../lib/modelGroups";
 import { FirstRunGeneralPicker, isFirstRunGeneralTab } from "../AgentPicker";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import type {
@@ -150,28 +148,15 @@ export function TabContent({
   // The catalog id the tab resolved at launch names its upstream group; the
   // live session model can be a bare leaf a group cannot be read from.
   const usageModelId =
-    tab.agent_provider_resolved_model ?? tab.agent_session_model ?? tab.agent_requested_model ?? null;
-  const chatUsageModelId = tab.agent_session_model?.includes("/") ? tab.agent_session_model : usageModelId;
-  const composerUsage = isChatBackend && !tab.watcher && usageVisible && chatUsageModelId
-    && modelGroupForId(descriptor?.model_groups, chatUsageModelId) && usageSource?.kind === "meter" && !usageSource.borrowedAccount
-    ? (
-      <UsageBubble
-        key={`${tab.id}:${usageSource.provider}:${tab.account?.id ?? "default"}`}
-        provider={usageSource.provider}
-        accountId={tab.account?.id === "default" ? null : tab.account?.id}
-        trackingEnabled
-        modelId={chatUsageModelId}
-        modelGroups={descriptor?.model_groups}
-        groupOnly
-      />
-    ) : null;
+    isChatBackend && tab.agent_session_model?.includes("/") ? tab.agent_session_model
+      : tab.agent_provider_resolved_model ?? tab.agent_session_model ?? tab.agent_requested_model ?? null;
   const cwd = tab.cwd ?? workspaceCwd ?? null;
 
   const body = tab.frozen && !chatOwnsStartup && !sleepingTranscript && !bodyPainted && (tab.agent_type || isChatBackend) ? null : tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : chatBacking && descriptor?.remote_task && isRemoteTaskTab(tab, descriptor.remote_task) ? (
     tab.remote_peer_id ? <div role="status">Remote task controls are unavailable through this mesh tab.</div> :
     <RemoteTaskTab key={chatBacking.session_id} tabId={tab.id} pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} capability={descriptor.remote_task} />
   ) : isChatBackend ? (
-    <TabSessionChat tabId={tab.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} modelUsage={composerUsage} />
+    <TabSessionChat tabId={tab.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
   ) : (
     <TerminalTab
       key={tab.id}
@@ -202,7 +187,7 @@ export function TabContent({
           showSwitch={showSwitch}
           usageSource={usageSource}
           usageVisible={usageVisible}
-          usageModelId={isChatBackend && descriptor?.model_groups?.length ? null : usageModelId}
+          usageModelId={usageModelId}
           usageModelGroups={descriptor?.model_groups}
           isWatcherTab={tab.watcher != null}
           watcherLastStatus={tab.watcher?.last_status ?? null}

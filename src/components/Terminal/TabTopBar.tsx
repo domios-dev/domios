@@ -355,6 +355,7 @@ export function TabTopBar({
             trackingEnabled={!!usageVisible}
             modelId={usageSource.borrowedAccount ? null : usageModelId}
             modelGroups={usageSource.borrowedAccount ? undefined : usageModelGroups}
+            chatBackend={shellTab?.backing?.kind === "chat_backend"}
             context={usageContext}
             borrowedAccount={usageSource.borrowedAccount}
           />

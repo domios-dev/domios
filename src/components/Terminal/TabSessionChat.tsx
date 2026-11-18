@@ -129,7 +129,6 @@ import { requestChatMessageReveal } from "../../lib/chatMessageReveal";
 
 interface Props {
   inputStatus?: ReactNode;
-  modelUsage?: ReactNode;
   tabId: string;
   api?: ApiConfig;
   onError?: (msg: string) => void;
@@ -172,7 +171,6 @@ export function TabSessionChat(props: Props) {
 
 function TabSessionChatBody({
   inputStatus,
-  modelUsage,
   tabId,
   api,
   onError,
@@ -1103,7 +1101,6 @@ function TabSessionChatBody({
             ? () => setBindingRecoveryOpen(true)
             : undefined}
           renderIdentity={tab ? (label) => <TabStatusLineModelPicker tab={tab} label={label} /> : undefined}
-          modelUsage={modelUsage}
           recovery={showRemoteState || (readOnly && !isConciergeTab(tab)) || launchedFailure ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
         />        {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm

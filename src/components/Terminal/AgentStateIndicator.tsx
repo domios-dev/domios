@@ -37,7 +37,6 @@ export function AgentStateIndicator({
   onOpenTerminal,
   onRebind,
   renderIdentity,
-  modelUsage,
   showActivity = true,
   channelLoadingLabel,
   activeTool,
@@ -56,7 +55,6 @@ export function AgentStateIndicator({
   onOpenTerminal?: () => void;
   onRebind?: () => void;
   renderIdentity?: (label: string) => ReactNode;
-  modelUsage?: ReactNode;
   showActivity?: boolean;
   channelLoadingLabel?: string;
   activeTool?: ActivityTool & { id?: string; sourceSessionId?: string };
@@ -123,7 +121,6 @@ export function AgentStateIndicator({
           >
             {renderIdentity(identity)}
           </span>
-          {modelUsage}
           {dots}
           <span
             className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
