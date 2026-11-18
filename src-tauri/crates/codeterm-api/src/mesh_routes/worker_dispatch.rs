@@ -122,8 +122,7 @@ fn create_lane_bundle_with_limit(
         ));
     }
     let reference = format!("refs/heads/{}", request.branch);
-    let mut command = std::process::Command::new("git");
-    codeterm_service_core::process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     let output = command
         .current_dir(&checkout)
         .args(["check-ref-format", &reference])
@@ -172,8 +171,7 @@ fn create_lane_bundle_with_limit(
     let temp = tempfile::tempdir()
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let bundle_path = temp.path().join("worker-lane.bundle");
-    let mut command = std::process::Command::new("git");
-    codeterm_service_core::process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     let output = command
         .current_dir(&checkout)
         .args(["bundle", "create"])
@@ -333,8 +331,7 @@ mod tests {
     }
 
     fn git(cwd: &std::path::Path, args: &[&str]) -> String {
-        let mut command = std::process::Command::new("git");
-        codeterm_service_core::process_util::no_window_std(&mut command);
+        let mut command = codeterm_util::process_util::git_command();
         let output = command.current_dir(cwd).args(args).output().unwrap();
         assert!(
             output.status.success(),

@@ -1,4 +1,6 @@
 use super::*;
+use codeterm_util::process_util;
+use std::process::Command;
 
 #[test]
 fn restore_plans_git_probe_cached_and_parallel() {

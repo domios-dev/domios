@@ -758,8 +758,7 @@ fn remote_failure(state: &str, attempt_id: &str, detail: &str) -> JsonRpcError {
 }
 
 fn git_head(cwd: &str) -> Result<String, String> {
-    let mut command = std::process::Command::new("git");
-    codeterm_service_core::process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     let output = command
         .current_dir(cwd)
         .args(["rev-parse", "HEAD"])

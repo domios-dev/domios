@@ -3,7 +3,7 @@ use crate::plan::Milestone;
 use crate::service_plan::store_db::hot_write::HotChange;
 use parking_lot::{Mutex, RwLock};
 use std::collections::{BTreeSet, HashMap};
-use std::process::{Command, Output};
+use std::process::Output;
 use std::sync::Arc;
 
 pub const LOST_COMMIT_STRIDE: &str = "shared_commit_lost";
@@ -174,7 +174,7 @@ impl PlanStore {
 }
 
 fn git_output(checkout: &str, args: &[&str]) -> Result<Output, String> {
-    Command::new("git")
+    codeterm_util::process_util::git_command()
         .arg("-C")
         .arg(checkout)
         .args(args)

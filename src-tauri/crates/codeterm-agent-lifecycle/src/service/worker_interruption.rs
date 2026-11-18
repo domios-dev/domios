@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
 use crate::plan::InterruptionCheckpoint;
@@ -586,9 +585,9 @@ impl WorkerInterruptionExt for super::ServiceContext {
 }
 
 fn git(worktree: &Path, args: &[&str]) -> Result<String, String> {
-    let mut command = Command::new("git");
+    let mut command = codeterm_util::process_util::git_command();
     command.args(args).current_dir(worktree);
-    crate::process_util::no_window_std(&mut command);
+
     let output = command
         .output()
         .map_err(|error| format!("git {}: {error}", args.join(" ")))?;

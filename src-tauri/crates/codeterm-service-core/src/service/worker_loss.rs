@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::path::Path;
-use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
 use serde::Serialize;
@@ -274,8 +273,7 @@ pub(crate) fn probe_lane_state(worktree_path: Option<&str>) -> LaneState {
     if !Path::new(path).exists() {
         return LaneState::Missing;
     }
-    let mut command = Command::new("git");
-    crate::process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     let output = command
         .current_dir(path)
         .args(["status", "--porcelain", "--untracked-files=all"])

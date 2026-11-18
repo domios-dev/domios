@@ -611,8 +611,7 @@ fn lane_commits(task: &Task, attempt: &ReminderAttemptRead) -> Result<Vec<String
     ) else {
         return Ok(Vec::new());
     };
-    let mut command = std::process::Command::new("git");
-    crate::process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     let output = command
         .args([
             "-C",
