@@ -1,6 +1,8 @@
+import type { LocalPreviewFile } from "@codeterm/chat-ui";
+
 type Args = Record<string, unknown> | undefined;
 type Handler = (args: Args) => unknown;
-type Listener = (event: { event: string; id: number; payload: unknown }) => void;
+type Listener<T = unknown> = (event: { event: string; id: number; payload: T }) => void;
 
 const handlers = new Map<string, Handler>();
 const lists = new Map<string, unknown[]>();
@@ -10,6 +12,18 @@ const unhandled = new Set<string>();
 export function mockCommand(command: string, handler: Handler): void {
   handlers.set(command, handler);
 }
+
+const previewFiles = new Map<string, LocalPreviewFile>();
+
+export function mockLocalPreview(path: string, file: LocalPreviewFile): void {
+  previewFiles.set(path, file);
+}
+
+mockCommand("read_local_preview_file", (args) => {
+  const file = previewFiles.get(String(args?.path ?? ""));
+  if (!file) throw new Error("File is absent from the gallery fixtures");
+  return file;
+});
 
 /** Every specimen appends its own rows; the command answers with all of them. */
 export function provideList<T>(command: string, items: readonly T[]): void {
@@ -56,11 +70,12 @@ export async function mockInvoke<T>(command: string, args?: Args): Promise<T> {
   return null as T;
 }
 
-export async function mockListen(event: string, handler: Listener): Promise<() => void> {
+export async function mockListen<T>(event: string, handler: Listener<T>): Promise<() => void> {
   const set = listeners.get(event) ?? new Set<Listener>();
-  set.add(handler);
+  const listener: Listener = ({ payload, ...info }) => handler({ ...info, payload: payload as T });
+  set.add(listener);
   listeners.set(event, set);
-  return () => set.delete(handler);
+  return () => set.delete(listener);
 }
 
 export function emitMockEvent(event: string, payload: unknown): void {
@@ -77,19 +92,26 @@ window.__galleryUnmockedCommands = () => [...unhandled];
 
 type HttpHandler = (url: URL, init?: RequestInit) => unknown;
 const httpRoutes = new Map<string, HttpHandler>();
-const GALLERY_HOST = ".gallery.test";
 
 /** Answers daemon HTTP calls to `origin + path` with the handler's JSON (or its Response, as is). */
 export function mockHttp(origin: string, path: string, handler: HttpHandler): void {
   httpRoutes.set(`${origin}${path}`, handler);
 }
 
-const nativeFetch = window.fetch.bind(window);
-// Gallery daemon origins never reach the network: unmocked paths answer 404 like a daemon without the route.
-window.fetch = async (input, init) => {
+export function mockLocalHttpDefault(path: string, handler: HttpHandler): void {
+  const key = `${window.location.origin}${path}`;
+  if (!httpRoutes.has(key)) httpRoutes.set(key, handler);
+}
+
+export const mockDaemonFetch: typeof fetch = async (input, init) => {
+  init?.signal?.throwIfAborted();
   const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
   const route = httpRoutes.get(`${url.origin}${url.pathname}`);
-  if (!route) return url.hostname.endsWith(GALLERY_HOST) ? new Response("", { status: 404 }) : nativeFetch(input, init);
+  if (!route && new Headers(init?.headers).get("Accept") === "text/event-stream") {
+    return new Response(new ReadableStream(), { headers: { "Content-Type": "text/event-stream" } });
+  }
+  if (!route) return new Response("", { status: 404 });
   const body = await route(url, init);
+  init?.signal?.throwIfAborted();
   return body instanceof Response ? body : new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 };

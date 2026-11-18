@@ -39,7 +39,7 @@ pub fn builtin_prose(kind_id: &str) -> Option<&'static str> {
 }
 
 /// The default package as a whole, as the registrations of `team_id`. A Team with no
-/// registrations is exactly this Team: host policy, never a per-role fallback.
+/// registrations is exactly this Team: host default.
 pub fn default_registrations(team_id: &str) -> Vec<RoleRegistration> {
     let package = default_package();
     let identity = default_identity();

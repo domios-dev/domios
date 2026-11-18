@@ -1,0 +1,41 @@
+{
+  "provenance": {
+    "kind": "source-contract",
+    "referenceRevision": "38e10eb1408feb700021b8e8766fb0ab41bf84e2",
+    "description": "Derived server event and endpoint contracts; these fixtures are not a live model or paid-auth receipt."
+  },
+  "context": {
+    "epoch": 1,
+    "tabId": "opencode-runtime-fixture",
+    "bindingNonce": "owned-runtime-nonce",
+    "cwd": "/fixture",
+    "hostVersion": "1.20.2",
+    "hostOwned": {"questions": false, "todos": false},
+    "threadParents": [],
+    "activeTurns": [],
+    "threadId": "ses_owned",
+    "claimedSends": [{"sendId": "send-owned", "threadId": "ses_owned", "input": {"text": "opaque prompt", "attachments": []}}],
+    "settings": {"model": "paid/model"},
+    "providerSettings": {}
+  },
+  "frames": [
+    {"kind":"notification","method":"http/event","params":{"type":"message.updated","properties":{"info":{"id":"@message","sessionID":"ses_owned","role":"user","time":{"created":10}}}}},
+    {"kind":"notification","method":"http/event","params":{"type":"message.part.updated","properties":{"part":{"id":"foreign","messageID":"@message","sessionID":"ses_foreign","type":"text","text":"opaque prompt"}}}},
+    {"kind":"notification","method":"http/event","params":{"type":"message.part.updated","properties":{"part":{"id":"prt_user","messageID":"@message","sessionID":"ses_owned","type":"text","text":"opaque prompt"}}}},
+    {"kind":"notification","method":"http/event","params":{"type":"session.status","properties":{"sessionID":"ses_owned","status":{"type":"busy"}}}},
+    {"kind":"notification","method":"http/event","params":{"type":"message.updated","properties":{"info":{"id":"msg_assistant","sessionID":"ses_owned","role":"assistant","parentID":"@message","time":{"created":20}}}}},
+    {"kind":"notification","method":"http/event","params":{"type":"message.part.updated","properties":{"part":{"id":"prt_text","messageID":"msg_assistant","sessionID":"ses_owned","type":"text","text":"hello"}}}},
+    {"kind":"notification","method":"http/event","params":{"type":"message.part.delta","properties":{"sessionID":"ses_owned","messageID":"msg_assistant","partID":"prt_text","field":"text","delta":" world"}}},
+    {"kind":"notification","method":"http/event","params":{"type":"message.part.updated","properties":{"part":{"id":"prt_tool","messageID":"msg_assistant","sessionID":"ses_owned","type":"tool","tool":"bash","callID":"call_owned","state":{"status":"running","input":{"command":"echo opaque"}}}}}},
+    {"kind":"notification","method":"http/event","params":{"type":"message.part.updated","properties":{"part":{"id":"prt_tool","messageID":"msg_assistant","sessionID":"ses_owned","type":"tool","tool":"bash","callID":"call_owned","state":{"status":"completed","input":{"command":"echo opaque"},"output":"opaque"}}}}},
+    {"kind":"notification","method":"http/event","params":{"type":"message.updated","properties":{"info":{"id":"msg_assistant","sessionID":"ses_owned","role":"assistant","parentID":"@message","time":{"created":20,"completed":30},"tokens":{"input":10,"output":5,"reasoning":2,"cache":{"read":3,"write":4}},"cost":0.001,"providerID":"paid","modelID":"model"}}}},
+    {"kind":"notification","method":"http/event","params":{"type":"session.idle","properties":{"sessionID":"ses_owned"}}},
+    {"kind":"notification","method":"http/event","params":{"type":"session.idle","properties":{"sessionID":"ses_owned"}}}
+  ],
+  "expectedKinds": ["chatItem","sendEvidence","turnState","chatItem","chatItemAppend","chatItem","chatItemPatch","usage","controlsConfirmed","turnState"],
+  "expectedUsage": {"response_id":"msg_assistant","input_tokens":17,"output_tokens":7,"cache_read_tokens":3,"cache_write_tokens":4,"cost_micros":1000},
+  "providers": {"all":[{"id":"paid","name":"Paid Provider"}],"connected":[]},
+  "auth": {"paid":[{"type":"oauth","label":"Browser"},{"type":"api","label":"Extra fields","prompts":[{"type":"text","key":"organization"}]}]},
+  "question": {"kind":"request","requestId":"que_owned","method":"question.asked","params":{"type":"question.asked","properties":{"id":"que_owned","sessionID":"ses_owned","questions":[{"header":"Choice","question":"Choose an opaque option","options":[{"label":"Alpha","description":"First"},{"label":"Beta","description":"Second"}]}]}}},
+  "permission": {"kind":"request","requestId":"per_owned","method":"permission.asked","params":{"type":"permission.asked","properties":{"id":"per_owned","sessionID":"ses_owned","permission":"bash","patterns":["echo opaque"]}}}
+}

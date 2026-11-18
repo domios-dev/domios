@@ -851,9 +851,10 @@ button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: v
 
 .mc-board-chart-legend-item {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--mc-space-1);
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .mc-board-plan-split {
@@ -1089,7 +1090,7 @@ button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: v
 }
 
 .mc-board-models-table .mc-board-models-name {
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 
 .mc-board-models-table .mc-board-models-num {
@@ -1104,8 +1105,10 @@ button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: v
   font-family: inherit;
 }
 
-.mc-board-models-name .mc-board-swatch {
-  margin-right: var(--mc-space-2);
+.mc-board-model-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mc-space-2);
 }
 
 .mc-board-models-row:hover > * {

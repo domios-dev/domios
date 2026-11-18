@@ -369,6 +369,7 @@ fn test_cron_crud() {
         .update(
             &job.id,
             CronUpdateParams {
+                report_target_tab_id: None,
                 name: Some("Renamed".to_string()),
                 description: None,
                 schedule: None,
@@ -603,6 +604,7 @@ fn update_can_set_clear_tz_and_timeout() {
         .update(
             &job.id,
             CronUpdateParams {
+                report_target_tab_id: None,
                 name: None,
                 description: None,
                 schedule: None,
@@ -629,6 +631,7 @@ fn update_can_set_clear_tz_and_timeout() {
         .update(
             &job.id,
             CronUpdateParams {
+                report_target_tab_id: None,
                 name: None,
                 description: None,
                 schedule: None,
@@ -660,6 +663,7 @@ fn update_rejects_invalid_tz() {
     let r = store.update(
         &job.id,
         CronUpdateParams {
+            report_target_tab_id: None,
             name: None,
             description: None,
             schedule: None,
@@ -698,6 +702,7 @@ fn update_schedule_only_recomputes_next_run() {
         .update(
             &job.id,
             CronUpdateParams {
+                report_target_tab_id: None,
                 name: None,
                 description: None,
                 schedule: Some("0 3 * * *".into()),

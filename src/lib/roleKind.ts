@@ -38,6 +38,10 @@ const KIND_LABELS: Record<string, string> = {
   [REVIEWER_KIND]: "Reviewer",
 };
 
+export function builtinRoleLabel(kind: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(KIND_LABELS, kind) ? KIND_LABELS[kind] : undefined;
+}
+
 type RoleCarrier = Pick<Tab, "role" | "role_profile"> & { role_label?: string | null };
 
 /**
@@ -77,12 +81,12 @@ export function isGeneralAgent(tab: RoleCarrier | null | undefined): boolean {
 export function roleKindLabel(tab: RoleCarrier | null | undefined): string | null {
   const kind = roleKind(tab);
   if (kind === null) return null;
-  return tab?.role_label?.trim() || KIND_LABELS[kind] || structuralLabel(tab?.role ?? null);
+  return tab?.role_label?.trim() || builtinRoleLabel(kind) || structuralLabel(tab?.role ?? null);
 }
 
 /** The host name of a built-in kind, such as a manager slot; any other key reads in sentence case. */
 export function kindDisplayName(kind: string): string {
-  return KIND_LABELS[kind] ?? humanizeRoleKey(kind);
+  return builtinRoleLabel(kind) ?? humanizeRoleKey(kind);
 }
 
 const ROLE_ACRONYMS = new Set(["qa", "ci", "ui", "ux", "api", "pr", "sre"]);
@@ -110,7 +114,7 @@ export function roleDisplayLabel(key: string | null | undefined, label?: string 
   const id = key?.trim() ?? "";
   if (declared && !KEY_LIKE.test(declared) && normalizedKey(declared) !== normalizedKey(id)) return declared;
   const source = id || declared;
-  return KIND_LABELS[source] ?? humanizeRoleKey(declared || source);
+  return builtinRoleLabel(source) ?? humanizeRoleKey(declared || source);
 }
 
 function structuralLabel(role: AgentRole | null): string | null {

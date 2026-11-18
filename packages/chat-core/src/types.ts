@@ -130,6 +130,7 @@ export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIco
   type: ChatMessageKind;
   content: string;
   segments?: import("./envelope").MessageSegment[] | null;
+  routing?: { kind: string; label?: string; model?: string; tab?: string; tip?: string | null };
   attachments?: ChatAttachment[];
   timestamp?: string;
   /** Source-order ordinal within one parsed batch; later appends may restart it.

@@ -1,6 +1,105 @@
 use super::retarget_only;
 use serde_json::json;
 
+fn apply_checked_utility_send(change_team: bool) {
+    use super::*;
+    use codeterm_blueprint_types::blueprint_document;
+    use codeterm_service_core::{
+        multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
+    };
+
+    let (mut mux, creator) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&creator).unwrap();
+    let team = codeterm_types::team::Team::new(&workspace, 1);
+    mux.upsert_team(team.clone());
+    mux.get_tab_mut(&creator).unwrap().team_id = Some(team.id.clone());
+    let target = mux.create_tab(&workspace).unwrap();
+    mux.get_tab_mut(&target).unwrap().team_id = Some(team.id.clone());
+    assert!(mux.get_tab(&target).unwrap().agent_type.is_none());
+    let fixture = ServiceFixture::new(mux);
+    let path = fixture.temp.path().join("utility-send.json");
+    let store = Store::new(
+        path.clone(),
+        codeterm_service_core::cron::clock::MockClock::starting_at(1000),
+    );
+    let handle = crate::scheduler::fixture_handle_with_ui(store, fixture.service.ui.clone());
+    crate::manage_fixture_ports(&fixture.service, &handle);
+    let caller = SentinelCaller {
+        tab: creator,
+        workspace,
+        team: Some(team.id),
+        nonce: None,
+        cwd: fixture.temp.path().to_string_lossy().into(),
+    };
+    let source = format!(
+        r#"schema_version: 2
+kind: watch
+name: utility-send
+steps:
+- id: command
+  uses: input
+  with:
+    kind: {{lit: text}}
+    text: {{lit: "opaque-command"}}
+  timeout: {{lit: 1m}}
+- id: dispatch
+  uses: ask
+  with:
+    question: {{lit: Route input}}
+  buckets: [dispatch]
+  matches:
+    dispatch: {{lit: ".+"}}
+  routes: {{dispatch: deliver}}
+- id: deliver
+  uses: send
+  with:
+    target: {{lit: "{target}"}}
+  routes: {{done: finish}}
+- id: finish
+  uses: stop
+"#
+    );
+    let checked = blueprint_document::check("utility-send.yaml", &source, &[]);
+    assert!(checked.ok, "{:?}", checked.diagnostics);
+    let sealed = checked.definition.unwrap();
+    if change_team {
+        let mut mux = fixture.service.mux.write();
+        let foreign = codeterm_types::team::Team::new(&caller.workspace, 2);
+        mux.upsert_team(foreign.clone());
+        mux.get_tab_mut(&target).unwrap().team_id = Some(foreign.id);
+    }
+    let result = fixture.service.blueprint_apply(&caller, sealed, false);
+    if change_team {
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "blueprint send requires a tab in the creator's Team and workspace"
+        );
+        assert!(handle.store.lock().jobs.is_empty());
+    } else {
+        assert_eq!(result.unwrap()["action"], "create");
+        let reopened = Store::new(
+            path,
+            codeterm_service_core::cron::clock::MockClock::starting_at(1000),
+        );
+        assert_eq!(reopened.jobs.len(), 1);
+        assert!(reopened.jobs[0]
+            .routes
+            .values()
+            .flatten()
+            .any(|handler| { handler.action == crate::machine::Route::Send(target.clone()) }));
+    }
+}
+
+#[test]
+fn blueprint_apply_checked_same_team_utility_send_persists() {
+    apply_checked_utility_send(false);
+}
+
+#[test]
+fn blueprint_apply_checked_utility_send_refuses_real_team_change() {
+    apply_checked_utility_send(true);
+}
+
 #[test]
 fn blueprint_apply_releases_mux_before_validation_and_admission() {
     use super::*;

@@ -4,7 +4,7 @@
  * Inputs for `save`. The value lives in `SecretString` so it cannot leak
  * into a `Debug` log line by accident.
  */
-export type SaveRequest = { name: string, value: string, notes: string | null, folder: string | null, organization: string | null, collection: string | null, 
+export type SaveRequest = { name: string, value: string, notes: string | null, folder: string | null, organization: string | null, collection: string | null,
 /**
  * `false` (default) returns `SecretError::AlreadyExists` if a secret with
  * the same name is already present.

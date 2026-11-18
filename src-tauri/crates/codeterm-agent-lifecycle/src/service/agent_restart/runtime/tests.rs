@@ -6,8 +6,11 @@ use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+mod account;
+mod account_integration;
 mod failed_start;
 mod launch_directory;
+mod model_selection;
 mod provider_switch;
 mod rebind;
 mod recovery;
@@ -58,6 +61,7 @@ struct RuntimeFixture {
     exits: Arc<parking_lot::Mutex<Vec<tokio::sync::oneshot::Sender<()>>>>,
     _process_ports: agent_runtime::process::test_ports::Registration,
     _storage: Option<crate::storage::Storage>,
+    extra_processes: Vec<(String, agent_runtime::process::test_ports::Registration)>,
 }
 impl std::ops::Deref for RuntimeFixture {
     type Target = ServiceFixture;
@@ -67,10 +71,59 @@ impl std::ops::Deref for RuntimeFixture {
 }
 impl Drop for RuntimeFixture {
     fn drop(&mut self) {
+        for (tab, _) in &self.extra_processes {
+            agent_runtime::engine::stop_blocking(&self.fixture.service, tab).unwrap();
+        }
         agent_runtime::engine::stop_blocking(&self.fixture.service, &self.tab).unwrap();
         crate::service::session_persist::stop_worker(&self.fixture.service).unwrap();
     }
 }
+fn register_duplex_process(
+    tab: &str,
+    captured: Arc<parking_lot::Mutex<Vec<Value>>>,
+    request_changed: tokio::sync::watch::Sender<usize>,
+    server_exits: Arc<parking_lot::Mutex<Vec<tokio::sync::oneshot::Sender<()>>>>,
+) -> agent_runtime::process::test_ports::Registration {
+    let env_tab = tab.to_owned();
+    agent_runtime::process::test_ports::register(tab, move || {
+        crate::async_runtime::block_on(async {
+            use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+            // Replies report the key the host injected, so a fixture can require it.
+            let spawned = agent_runtime::process::test_ports::spawned_env(&env_tab);
+            let auth_key = spawned.get("OPAQUE_AUTH_KEY").cloned();
+            let account_home = spawned.get("ACCOUNT_ORACLE_HOME").cloned();
+            let (process, peer) = agent_runtime::process::test_ports::connected();
+            let (peer_reader, mut peer_writer) = tokio::io::split(peer);
+            let captured = captured.clone();
+            let request_changed = request_changed.clone();
+            let (exit, mut exiting) = tokio::sync::oneshot::channel();
+            server_exits.lock().push(exit);
+            crate::async_runtime::spawn(async move {
+                let mut lines = BufReader::new(peer_reader).lines();
+                loop {
+                    let line = tokio::select! {
+                        _ = &mut exiting => break,
+                        line = lines.next_line() => line.unwrap(),
+                    };
+                    let Some(line) = line else { break };
+                    let frame: Value = serde_json::from_str(&line).unwrap();
+                    captured.lock().push(frame.clone());
+                    request_changed.send_modify(|count| *count += 1);
+                    let reply = json!({"id":frame["id"],"result":{"params":frame["params"],"authKey":auth_key,"accountHome":account_home}});
+                    if peer_writer
+                        .write_all(format!("{reply}\n").as_bytes())
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            });
+            process
+        })
+    })
+}
+
 impl RuntimeFixture {
     fn new() -> Self {
         Self::with_source(SOURCE)
@@ -110,6 +163,14 @@ impl RuntimeFixture {
     }
     /// `runtime` fields are set on the fixture's `agentRuntime` declaration.
     fn prepared_with_runtime(source: &str, storage: bool, runtime: Value) -> Self {
+        Self::prepared_with_manifest(source, storage, runtime, None)
+    }
+    fn prepared_with_manifest(
+        source: &str,
+        storage: bool,
+        runtime: Value,
+        accounts: Option<Value>,
+    ) -> Self {
         let (mut mux, tab) = MultiplexerState::new();
         let target = mux.get_tab_mut(&tab).unwrap();
         target.agent_type = Some(PROVIDER.into());
@@ -132,48 +193,10 @@ impl RuntimeFixture {
         fixture.set_agent_full_access(false);
         let storage = storage.then(|| fixture.install_seeded_storage_desk());
         let requests = Arc::new(parking_lot::Mutex::new(Vec::new()));
-        let captured = requests.clone();
         let (request_changed, request_events) = tokio::sync::watch::channel(0);
         let exits = Arc::new(parking_lot::Mutex::new(Vec::new()));
-        let server_exits = exits.clone();
-        let env_tab = tab.clone();
-        let process_ports = agent_runtime::process::test_ports::register(&tab, move || {
-            crate::async_runtime::block_on(async {
-                use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-                // Replies report the key the host injected, so a fixture can require it.
-                let auth_key = agent_runtime::process::test_ports::spawned_env(&env_tab)
-                    .get("OPAQUE_AUTH_KEY")
-                    .cloned();
-                let (process, peer) = agent_runtime::process::test_ports::connected();
-                let (peer_reader, mut peer_writer) = tokio::io::split(peer);
-                let captured = captured.clone();
-                let request_changed = request_changed.clone();
-                let (exit, mut exiting) = tokio::sync::oneshot::channel();
-                server_exits.lock().push(exit);
-                crate::async_runtime::spawn(async move {
-                    let mut lines = BufReader::new(peer_reader).lines();
-                    loop {
-                        let line = tokio::select! {
-                            _ = &mut exiting => break,
-                            line = lines.next_line() => line.unwrap(),
-                        };
-                        let Some(line) = line else { break };
-                        let frame: Value = serde_json::from_str(&line).unwrap();
-                        captured.lock().push(frame.clone());
-                        request_changed.send_modify(|count| *count += 1);
-                        let reply = json!({"id":frame["id"],"result":{"params":frame["params"],"authKey":auth_key}});
-                        if peer_writer
-                            .write_all(format!("{reply}\n").as_bytes())
-                            .await
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                });
-                process
-            })
-        });
+        let process_ports =
+            register_duplex_process(&tab, requests.clone(), request_changed, exits.clone());
         let methods = [
             "initialize",
             "openThread",
@@ -187,6 +210,7 @@ impl RuntimeFixture {
         .collect::<serde_json::Map<String, Value>>();
         let mut raw_manifest = json!({
             "id":PROVIDER,"version":"1.0.0","displayName":"Fixture","binaryName":"node",
+            "commands":{"modelSwitch":"restart_resume"},
             "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
                 "agentRuntime":{"runtimeModes":[{"id":"auto-accept-edits","displayName":"Auto accept edits"}],"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[]},"requestMethods":methods,"notificationMethods":[],"login":{"methods":["browser"]}}},
             "spawn":{"readinessStrategy":{"kind":"poll_shell_prompt","timeoutSecs":1},
@@ -196,6 +220,9 @@ impl RuntimeFixture {
         });
         for (field, value) in runtime.as_object().cloned().unwrap_or_default() {
             raw_manifest["capabilities"]["agentRuntime"][field] = value;
+        }
+        if let Some(accounts) = accounts {
+            raw_manifest["accounts"] = accounts;
         }
         let manifest = PluginManifest::from_json_str(&raw_manifest.to_string()).unwrap();
         fixture
@@ -213,6 +240,7 @@ impl RuntimeFixture {
             exits,
             _process_ports: process_ports,
             _storage: storage,
+            extra_processes: Vec::new(),
         }
     }
     fn requests(&self) -> Vec<Value> {

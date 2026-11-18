@@ -1,0 +1,16 @@
+{
+  "source": "Official OpenCode v2.3.0, a6b15d33daf6ab7d35569f6d711fdb630b9f04e7: packages/cli/src/commands/commands.ts and packages/schema/src/config/model.ts. Help verified using the checksum-verified Windows release binary. Legacy help captured from installed 1.19.0.",
+  "cases": [
+    {"version":"1.19.0","generation":1},
+    {"version":"2.3.0","generation":2},
+    {"version":"2.3.1","generation":2},
+    {"version":"3.0.0","generation":null},
+    {"version":null,"generation":null}
+  ],
+  "modern": {
+    "model":"alibaba-coding-plan/glm-5",
+    "args":["-m","alibaba-coding-plan/glm-5","--variant","high","--agent","build"],
+    "config":{"model":"alibaba-coding-plan/glm-5#high","default_agent":"build"},
+    "session":"ses_opaque_owned"
+  }
+}

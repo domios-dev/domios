@@ -1,7 +1,50 @@
 use super::*;
+
+#[test]
+fn pending_login_ownership_is_scoped_to_the_account() {
+    let (_first, first_tab, _peer_a, _cleanup_a) = engine::test_support::runtime_fixture();
+    let (_second, second_tab, _peer_b, _cleanup_b) = engine::test_support::runtime_fixture();
+    let first = engine::for_tab(&first_tab).unwrap();
+    let second = engine::for_tab(&second_tab).unwrap();
+    *first.account.lock() = "claim-fixture-a".into();
+    *second.account.lock() = "claim-fixture-b".into();
+    let pending =
+        serde_json::from_value(json!({"status":"pending","loginId":"claim-fixture"})).unwrap();
+    first.login.lock().login = Some(pending);
+    claim(&first, &first_tab).unwrap();
+    claim(&second, &second_tab).unwrap();
+    forget(&second);
+    *second.account.lock() = "claim-fixture-a".into();
+    assert!(claim(&second, &second_tab).is_err());
+    forget(&first);
+    claim(&second, &second_tab).unwrap();
+    forget(&second);
+}
+
+#[test]
+fn account_mismatch_rejects_the_old_runtime_with_an_unchanged_nonce() {
+    let (fixture, tab, _peer, _cleanup) = engine::test_support::runtime_fixture();
+    let session = engine::for_tab(&tab).unwrap();
+    engine::validate_binding(&fixture.service, &session).unwrap();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .restorable_launch
+        .account_id = Some("different-account".into());
+    assert!(matches!(
+        engine::validate_binding(&fixture.service, &session),
+        Err(RuntimeFailure::Superseded)
+    ));
+}
+
 #[test]
 fn completion_requires_exact_pending_login_and_canceled_cannot_resume() {
     let pending = RuntimeLoginState {
+        instructions: None,
+        code_input: None,
         status: RuntimeLoginStatus::Pending,
         login_id: Some("own".into()),
         method: Some(RuntimeLoginMethod::Browser),
@@ -34,11 +77,13 @@ fn completion_requires_exact_pending_login_and_canceled_cannot_resume() {
 
 #[test]
 fn login_projection_removes_expired_and_finished_values() {
-    let pending: RuntimeLoginState = serde_json::from_value(json!({"status":"pending","loginId":"opaque-id","url":"https://example.invalid/opaque-path","userCode":"opaque-token","expiresAtMs":5000})).unwrap();
+    let pending: RuntimeLoginState = serde_json::from_value(json!({"status":"pending","loginId":"opaque-id","url":"https://example.invalid/opaque-path","userCode":"opaque-token","expiresAtMs":5000,"instructions":"Opaque challenge instructions","codeInput":true})).unwrap();
     let current = serde_json::to_value(project(Some(&pending), 4999)).unwrap();
     assert_eq!(current["url"], "https://example.invalid/opaque-path");
     assert_eq!(current["userCode"], "opaque-token");
     assert_eq!(current["expiresAtMs"], 5000);
+    assert_eq!(current["instructions"], "Opaque challenge instructions");
+    assert_eq!(current["codeInput"], true);
     for state in [
         pending.clone(),
         RuntimeLoginState {
@@ -53,6 +98,8 @@ fn login_projection_removes_expired_and_finished_values() {
         let hidden = serde_json::to_value(project(Some(&state), 5000)).unwrap();
         assert!(hidden.get("url").is_none());
         assert!(hidden.get("userCode").is_none());
+        assert!(hidden.get("instructions").is_none());
+        assert!(hidden.get("codeInput").is_none());
     }
     assert!(project(None, 0).is_none());
 }

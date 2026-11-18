@@ -1,3 +1,4 @@
+use super::runtime_stored::StoredHistoryFailure;
 use super::ChatMsg;
 use crate::{
     multiplexer::types::{Tab, TabBacking},
@@ -39,7 +40,7 @@ fn snapshot(
                     .is_some_and(|state| state["state"] == "degraded")
         })
     {
-        return Err(super::runtime_stored::StoredHistoryFailure::Unavailable
+        return Err(StoredHistoryFailure::Unavailable
             .error("Runtime start failed before a conversation was bound; start a new session"));
     }
     let cached = cached(svc, tab_id, expected)?;
@@ -92,14 +93,14 @@ fn persisted(
     };
     let Some(rows) =
         engine::persisted_transcript(provider, thread, &capability).map_err(|error| {
-            super::runtime_stored::StoredHistoryFailure::Unavailable
-                .error(format!("Stored runtime transcript: {error}"))
+            StoredHistoryFailure::Unavailable.error(format!("Stored runtime transcript: {error}"))
         })?
     else {
         return Ok(None);
     };
     if !owns(&tab, provider, &context) {
-        return Err("Stored runtime transcript binding is not current".into());
+        return Err(StoredHistoryFailure::BindingChanged
+            .error("Stored runtime transcript binding is not current"));
     }
     if !svc.mux.read().get_tab(tab_id).is_some_and(|current| {
         owns(current, provider, &context)
@@ -108,7 +109,8 @@ fn persisted(
                 tab.cwd.as_deref().unwrap_or_default(),
             )
     }) {
-        return Err("Stored runtime transcript binding changed during snapshot".into());
+        return Err(StoredHistoryFailure::BindingChanged
+            .error("Stored runtime transcript binding changed during snapshot"));
     }
     log::debug!(
         "[runtime-transcript] tab={tab_id} snapshot source=persisted provider={provider} rows={}",
@@ -135,7 +137,7 @@ fn cached(
             crate::service::agent_runtime::model::RuntimePhase::Degraded { .. }
         )
     {
-        return Err(super::runtime_stored::StoredHistoryFailure::Unavailable
+        return Err(StoredHistoryFailure::Unavailable
             .error("Runtime start failed before a conversation was bound; start a new session"));
     }
     let tab = svc.mux.read().get_tab(tab_id).cloned();
@@ -170,7 +172,9 @@ fn cached(
         .as_ref()
         .is_some_and(|tab| owns(tab, &session.provider, &context));
     if !current || engine::validate_binding(svc, &session).is_err() {
-        return Err("Runtime transcript binding is not current".into());
+        return Err(
+            StoredHistoryFailure::BindingChanged.error("Runtime transcript binding is not current")
+        );
     }
     let messages = session.cache.lock().snapshot();
     if !session.thread_loaded.load(Ordering::Acquire) && !fresh_unused && messages.is_empty() {
@@ -187,13 +191,15 @@ fn cached(
             })
     });
     if !current
+        || !engine::for_tab(tab_id).is_some_and(|latest| std::sync::Arc::ptr_eq(&latest, &session))
         || current_context.epoch != context.epoch
         || current_context.thread_id != context.thread_id
         || current_context.binding_nonce != context.binding_nonce
         || current_context.cwd != context.cwd
         || engine::validate_binding(svc, &session).is_err()
     {
-        return Err("Runtime transcript binding changed during snapshot".into());
+        return Err(StoredHistoryFailure::BindingChanged
+            .error("Runtime transcript binding changed during snapshot"));
     }
     Ok(Some(messages))
 }

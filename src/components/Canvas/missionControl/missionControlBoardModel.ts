@@ -3,7 +3,7 @@ import { formatDuration } from "../../../lib/timeLabels";
 // Pure reading of the stored Mission Control projection. Nothing here opens a
 // session log, parses note prose, or invents a figure the contract does not carry.
 
-import { shortModelName } from "../../../lib/agentModelName";
+import { resolveModelDisplayName, type ModelDisplayCatalogue } from "../../../lib/agentModelName";
 import { classify, type UsageState } from "../../../types/usage";
 import type { MilestoneKind } from "../types";
 import type {
@@ -377,12 +377,14 @@ export interface ModelSpendRow {
 /** Models the card shows before its Show all control. */
 export const MODELS_PREVIEW = 5;
 
-export function modelSpendRows(spend: MissionControlSpend): ModelSpendRow[] {
+export function modelSpendRows(spend: MissionControlSpend, catalogue: ModelDisplayCatalogue): ModelSpendRow[] {
   return spend.providers
     .flatMap((provider, tone) =>
       provider.models.map((model, index) => ({
         key: `${provider.provider}-${model.model ?? `unassigned-${index}`}`,
-        label: model.model == null ? UNASSIGNED_MODEL_LABEL : shortModelName(model.model) ?? model.model,
+        label: model.model == null
+          ? UNASSIGNED_MODEL_LABEL
+          : resolveModelDisplayName(catalogue, provider.provider, model.model),
         unassigned: model.model == null,
         tone,
         sharePct: model.token_share_pct,

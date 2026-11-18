@@ -169,14 +169,12 @@ it("same-tab streaming assistant growth preserves immediate composer edits witho
     expect(editor.value).toBe("/fi");
     await edit(editor, composed);
     await emit("agent-runtime-state", { tab_id: tabId, session_binding_nonce: "binding", state: { state: "degraded", epoch: 1, reason: "Fixture failure" } });
-    const runtimeBadge = host.querySelector<HTMLButtonElement>('button[aria-label="Agent runtime unavailable"]')!;
-    expect(runtimeBadge).not.toBeNull();
-    await act(async () => runtimeBadge.click());
-    const retry = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Retry")!;
+    const notice = host.querySelector('[role="log"] [data-testid="runtime-chat-notice"]');
+    const retry = [...(notice?.querySelectorAll("button") ?? [])].find(button => button.textContent === "Try again")!;
     expect(retry).toBeDefined();
     await act(async () => retry.click());
     expect(calls.filter(call => call.command === "agent_runtime_retry")).toEqual([{ command: "agent_runtime_retry", args: { tabId } }]);
-    expect(host.querySelector('button[aria-label="Agent runtime unavailable"]')).toBeNull();
+    expect(host.querySelector('[data-testid="runtime-chat-notice"]')).toBeNull();
     expect(editor.value).toBe(composed);
     expect(host.textContent).toContain(growing);
     expect([...host.querySelectorAll('[data-testid="chat-message"]')].filter(row => row.textContent?.includes(growing))).toHaveLength(1);

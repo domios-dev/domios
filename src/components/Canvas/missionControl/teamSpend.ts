@@ -1,6 +1,6 @@
 import { daemonFetch } from "../../../lib/webApi";
 import { useEffect, useRef, useState } from "react";
-import { shortModelName } from "../../../lib/agentModelName";
+import { resolveModelDisplayName, type ModelDisplayCatalogue } from "../../../lib/agentModelName";
 import { listen, type UnlistenFn } from "../../../lib/bridge";
 import { KPI_RECORDED_EVENT } from "../../../lib/kpiChanges";
 import { createRefreshGate, type RefreshGate } from "../../../lib/refreshGate";
@@ -116,8 +116,6 @@ export function teamSpendNote(spend: TeamSpend): string | null {
   return null;
 }
 
-const UNASSIGNED_KEY = "unassigned";
-
 const NEW_INPUT_SERIES: SpendChartSeries = { key: "new-input", label: "new input", tone: 0 };
 
 
@@ -190,24 +188,24 @@ export function teamPlanRows(spend: TeamSpend): TeamSpendDaily[] {
   return spend.daily.filter((row) => row.plan_id != null && plans.has(row.plan_id));
 }
 
-function modelKey(model: string | null): string {
-  return model ?? UNASSIGNED_KEY;
+function modelKey(provider: string | null, model: string | null): string {
+  return JSON.stringify([provider, model]);
 }
 
-function modelLabel(model: string | null): string {
-  return model == null ? UNASSIGNED_MODEL_LABEL : shortModelName(model) ?? model;
+function modelLabel(row: TeamSpendDaily, catalogue: ModelDisplayCatalogue): string {
+  return row.model == null ? UNASSIGNED_MODEL_LABEL : resolveModelDisplayName(catalogue, row.provider, row.model);
 }
 
 /** The team's models ranked by new input across its plans, with each one's share of the team's new input. */
-export function teamModelRows(spend: TeamSpend): ModelSpendRow[] {
+export function teamModelRows(spend: TeamSpend, catalogue: ModelDisplayCatalogue): ModelSpendRow[] {
   const rows = teamPlanRows(spend);
   const providers = [...new Set(rows.map((row) => row.provider ?? ""))];
   const models = new Map<string, Omit<ModelSpendRow, "sharePct">>();
   for (const row of rows) {
-    const key = `${row.provider ?? ""}-${modelKey(row.model)}`;
+    const key = modelKey(row.provider, row.model);
     const entry = models.get(key) ?? {
       key,
-      label: modelLabel(row.model),
+      label: modelLabel(row, catalogue),
       unassigned: row.model == null,
       tone: providers.indexOf(row.provider ?? ""),
       newInput: 0,
@@ -264,13 +262,15 @@ export function teamPlanShares(spend: TeamSpend): TeamPlanShare[] {
 }
 
 /** New input the team spent per day: one bar, or a segment per model ranked by new input. */
-export function teamTokensChart(spend: TeamSpend, byModel: boolean): SpendChartData {
-  const rows = teamPlanRows(spend);
+export function teamTokensChart(spend: TeamSpend, byModel: boolean, catalogue: ModelDisplayCatalogue): SpendChartData {
+  const rows = teamPlanRows(spend).map((row) => ({
+    row,
+    key: modelKey(row.model == null ? null : row.provider, row.model),
+  }));
   const todayKey = localDayKey(startOfToday());
   const perModel = new Map<string, { label: string; value: number }>();
-  for (const row of rows) {
-    const key = modelKey(row.model);
-    const entry = perModel.get(key) ?? { label: modelLabel(row.model), value: 0 };
+  for (const { row, key } of rows) {
+    const entry = perModel.get(key) ?? { label: modelLabel(row, catalogue), value: 0 };
     entry.value += row.uncached_input_tokens;
     perModel.set(key, entry);
   }
@@ -280,12 +280,14 @@ export function teamTokensChart(spend: TeamSpend, byModel: boolean): SpendChartD
     .map<SpendChartSeries>(([key, entry], tone) => ({ key, label: entry.label, tone }));
 
   const days = rangeDayKeys(spend).map((key) => {
-    const dayRows = rows.filter((row) => row.day === key);
-    const newInput = (match: (row: TeamSpendDaily) => boolean) =>
-      dayRows.filter(match).reduce((sum, row) => sum + row.uncached_input_tokens, 0);
+    const dayRows = rows.filter(({ row }) => row.day === key);
+    const newInput = (model?: string) =>
+      dayRows.reduce((sum, entry) => (
+        model === undefined || entry.key === model ? sum + entry.row.uncached_input_tokens : sum
+      ), 0);
     const segments = (byModel
-      ? models.map((series) => ({ ...series, value: newInput((row) => modelKey(row.model) === series.key) }))
-      : [{ ...NEW_INPUT_SERIES, value: newInput(() => true) }]
+      ? models.map((series) => ({ ...series, value: newInput(series.key) }))
+      : [{ ...NEW_INPUT_SERIES, value: newInput() }]
     ).filter((segment) => segment.value > 0);
     return chartDay(key, segments, todayKey);
   });

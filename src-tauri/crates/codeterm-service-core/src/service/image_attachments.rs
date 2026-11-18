@@ -9,7 +9,7 @@ mod headers;
 
 const MODEL_EDGE: u32 = 2000;
 const MODEL_BYTES: u64 = 4 * 1024 * 1024;
-const MAX_SOURCE_BYTES: u64 = 150 * 1024 * 1024;
+pub(super) const MAX_SOURCE_BYTES: u64 = 150 * 1024 * 1024;
 const MAX_DECODE_PIXELS: u64 = 100_000_000;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -80,7 +80,7 @@ fn attachment_plan(
     }
 }
 
-fn extension(path: &Path) -> String {
+pub(super) fn extension(path: &Path) -> String {
     path.extension()
         .and_then(|value| value.to_str())
         .unwrap_or("")

@@ -3,11 +3,11 @@ import type { PackageCheckReport } from "./PackageCheckReport";
 import type { PackageFormat } from "./PackageFormat";
 import type { ScrubReport } from "./ScrubReport";
 
-export type TemplateExportResult = { format: PackageFormat, check: PackageCheckReport, scrub: ScrubReport, 
+export type TemplateExportResult = { format: PackageFormat, check: PackageCheckReport, scrub: ScrubReport,
 /**
  * Where the package was written.
  */
-path?: string | null, 
+path?: string | null,
 /**
  * The exact `team.yaml` text, for review before sharing.
  */

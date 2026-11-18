@@ -436,7 +436,23 @@ export function projectTranscript(
   state: TranscriptState,
   sends: readonly ChatSend[] = [],
 ): TranscriptProjection {
-  const committedRows = transcriptRows(state);
+  const sourceSession = state.authority?.sourceSessionId;
+  const ownInput = (row: NormalizedChatMessage) => sourceSession != null && row.sourceSessionId === sourceSession
+    && row.inheritedFromSessionId == null && row.type === "user";
+  const loadedRows = transcriptRows(state);
+  const providerIds = new Set<string>();
+  const inputTimes = new Map<string, string | undefined>();
+  for (const row of loadedRows) {
+    if (!ownInput(row)) continue;
+    inputTimes.set(row.id, row.timestamp);
+    if (row.runtimeSourceItemId && row.runtimeSourceItemId !== row.id) providerIds.add(row.runtimeSourceItemId);
+  }
+  const committedRows = loadedRows.flatMap(row => {
+    if (!ownInput(row)) return [row];
+    if (providerIds.has(row.id)) return [];
+    const timestamp = row.runtimeSourceItemId && inputTimes.get(row.runtimeSourceItemId);
+    return [timestamp && timestamp !== row.timestamp ? { ...row, timestamp } : row];
+  });
   const rowStarts = new Map<string, number>();
   if (sends.some(send => send.echoBoundary?.endOffset != null)) {
     for (const segment of orderedSegments(state.segments)) {
@@ -448,5 +464,14 @@ export function projectTranscript(
     sends, committedRows, state.authority, rowStarts, unloadedHistoryBoundaryMs(state, committedRows),
   );
   const projectedCommittedRows = projectTranscriptParts(committedRows, sends);
-  return { rows: placePendingSends(placeQueuedRows(projectedCommittedRows), pending), pending, echoes, outside };
+  const structuredWindow = state.segments.some(segment => segment.range?.unit === "items");
+  const structuredItems = new Set(sends.flatMap(({ matchedRow }) => {
+    const record = matchedRow?.source.record;
+    return record?.kind === "structured" && record.thread_id === sourceSession
+      && matchedRow?.source.source_session_id === sourceSession ? [record.item_id] : [];
+  }));
+  const orderedRows = placeQueuedRows(projectedCommittedRows, row => ownInput(row) && (
+    structuredWindow || row.runtimeSourceItemId != null || structuredItems.has(row.id)
+  ));
+  return { rows: placePendingSends(orderedRows, pending), pending, echoes, outside };
 }

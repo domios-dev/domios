@@ -8,6 +8,8 @@ async fn oversized_sends_are_typed_before_the_network_operation_queue() {
     let (owner, mut queued) = tokio::sync::mpsc::channel(1);
     *fixture.service.neighbor_cell().owner.lock() = Some(owner);
     let command = NeighborRuntimeCommand::Send {
+        attach: vec![],
+        message_id: None,
         friendship_id: "a".repeat(64),
         kind: Kind::Question,
         body: "x".repeat(32753),
@@ -91,6 +93,85 @@ async fn local_reads_bypass_blocked_network_owner_and_return_metadata() {
         }
     }
     assert!(requests.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn status_uses_known_local_receiver_and_real_concierge_lifecycle_while_activation_is_stale() {
+    let fixture = crate::test_support::fixture(MultiplexerState::new().0);
+    let service = &fixture.service;
+    let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
+    let friendship = "a".repeat(64);
+    let mut settings = crate::service::neighbors::storage::Settings::default();
+    settings
+        .bindings
+        .insert(friendship.clone(), "closed-concierge".into());
+    metadata.save_settings(settings).await.unwrap();
+    service.set_neighbor_friend_receiver_for_test(&friendship, Some(true), 9);
+    let generation = service.neighbor_cell().generation.load(Ordering::Acquire);
+    service.record_neighbor_activation(generation, Some(Error::Transport.into()));
+    let result = service
+        .neighbor_local_metadata(&NeighborRuntimeCommand::Status, &metadata, generation)
+        .await
+        .unwrap();
+    assert_eq!(result["status_stale"], true);
+    assert_eq!(
+        result["friend_receivers"][&friendship]["receiving_here"],
+        true
+    );
+    assert_eq!(result["friend_receivers"][&friendship]["revision"], 9);
+    assert_eq!(result["concierges"][&friendship]["receiving_here"], true);
+    assert_eq!(
+        result["concierges"][&friendship]["state"],
+        "concierge_closed"
+    );
+}
+
+#[tokio::test]
+async fn receiver_grants_preview_unassigned_friend_from_current_list_without_installing_authority()
+{
+    let (mux, tab) = MultiplexerState::new();
+    let fixture = crate::test_support::fixture(mux);
+    let service = &fixture.service;
+    let friendship = "a".repeat(64);
+    fixture
+        .seed_neighbor_concierge(&tab, &friendship, Permission::default())
+        .await;
+    service.forget_neighbor_friend_receivers();
+    service.neighbor_projection_unavailable();
+    let session = service
+        .ext::<crate::service::account::AccountCell>()
+        .0
+        .get()
+        .unwrap()
+        .session()
+        .await
+        .unwrap();
+    let list = json!({"access":"paid","friends":[{"friendship_id":friendship,"my_receiver":{
+        "installation_id":null,"enc_key_id":null,"machine_label":null,"receiving":false,"revision":7
+    }}]});
+    service
+        .neighbor_backend_read(
+            "friendsList",
+            &session.identity.uid,
+            session.login_generation,
+            async { Ok(list) },
+        )
+        .await
+        .unwrap();
+    let result = service
+        .neighbor_runtime(
+            NeighborRuntimeCommand::ReceiverGrants {
+                friendship_id: friendship.clone(),
+            },
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["revision"], 7);
+    assert_eq!(result["previous"], Value::Null);
+    assert_eq!(result["unavailable"], false);
+    assert!(service.neighbor_friend_receiver(&friendship).is_none());
 }
 
 #[tokio::test]

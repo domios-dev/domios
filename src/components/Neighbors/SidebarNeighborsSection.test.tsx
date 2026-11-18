@@ -12,6 +12,8 @@ import { missingConciergeLine } from "./useConciergeStatus";
 import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { createNeighborsViewFixture } from "./neighborsView.testdata";
 import { channelStatus, conciergeState } from "./neighborRuntime.testdata";
+import { neighborSidebarLine } from "./neighborSidebarLine";
+import type { TabActivity } from "../../lib/tabActivity";
 
 const notices = vi.hoisted(() => ({ publishNotice: vi.fn() }));
 const transport = vi.hoisted(() => ({ localFetch: vi.fn(), webJson: vi.fn() }));
@@ -41,6 +43,16 @@ async function expandSection() {
   if (toggle) await act(async () => toggle.click());
 }
 
+it.each([
+  ["working", "Working", "working"],
+  ["idle", "", "idle"],
+  ["waiting-on-user", "Permission needed", "needs attention · Permission needed"],
+  ["failed", "Session lost", "needs attention · Session lost"],
+  ["starting", "Starting", "concierge starting"],
+] as const)("shows a bound concierge's %s activity without receiver inventory", (kind, label, expected) => {
+  expect(neighborSidebarLine(null, true, null, { kind: kind as TabActivity["kind"], label }, false, true)).toBe(expected);
+});
+
 it("groups the selected remote peer's concierge without reading or managing the origin account", async () => {
   const { setRelayTarget } = await import("../../lib/webApi");
   setRelayTarget("blackstar", "Blackstar");
@@ -56,7 +68,7 @@ it("groups the selected remote peer's concierge without reading or managing the 
   const friend = button("Open Remote Friend");
   expect(friend.getAttribute("aria-current")).toBe("page");
   expect(friend.querySelector("img")?.getAttribute("src")).toBe("https://example.test/friend.png");
-  expect(friend.textContent).toContain("concierge location unknown");
+  expect(friend.textContent).toContain("idle · stale");
   const opened = vi.fn();
   window.addEventListener("codeterm:open-panel", opened);
   try {
@@ -80,7 +92,7 @@ it("groups the selected remote peer's concierge without reading or managing the 
   await act(async () => emit("neighbor-friend-paused", { friendship_id: "pair", paused: true }));
   expect(button("Open Remote Friend").querySelector("img")).toBeNull();
   expect(button("Open Remote Friend").textContent).toContain("RF");
-  expect(button("Open Remote Friend").textContent).toContain("concierge location unknown");
+  expect(button("Open Remote Friend").textContent).toContain("disabled · stale");
   const receiver = { receiving_here: false, receiver_machine_label: "air", receiving_enabled: true, revision: 2, is_me: false };
   const moved = { tab_id: "tab-gateway", friend_display_name: "Remote Friend", friend_photo_url: null, paused: true, access: "paid", receiver };
   transport.webJson.mockResolvedValue({ pair: moved });
@@ -144,6 +156,29 @@ it.each(["local", "remote"])("updates the %s sidebar from concierge lifecycle ev
   expect(button("Open Ada").textContent).toContain("concierge needs sign-in");
   expect(button("Open Ada's concierge").textContent).toContain("concierge needs sign-in");
   expect(button("Open Ada").textContent).not.toContain("connected");
+});
+
+it.each(["local", "remote"])("shows a known %s concierge's reason even when receiver inventory is missing", async source => {
+  const { setRelayTarget } = await import("../../lib/webApi");
+  const failed = conciergeState({ gateway_tab: "tab-gateway", concierge_missing: false, state: "concierge_auth_needed" });
+  const list: NeighborList = { schema_version: 1, access: "paid", friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn() };
+  const runtimeClient = runtime({ pair: "tab-gateway" });
+  vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ bindings: { pair: "tab-gateway" }, concierges: { pair: failed } }));
+  if (source === "remote") {
+    setRelayTarget("remote", "Remote");
+    transport.webJson.mockResolvedValue({ pair: { tab_id: "tab-gateway", friend_display_name: "Ada", friend_photo_url: null,
+      paused: false, access: "paid", receiver: null, concierge: failed } });
+  }
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted.current = { root, host };
+  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} />));
+  await expandSection();
+  expect(button("Open Ada").textContent).toContain("concierge needs sign-in · stale");
+  expect(button("Open Ada").textContent).not.toContain("unknown");
+  expect(button("Open Ada's concierge").textContent).toContain("concierge needs sign-in");
+  await act(async () => { button("Actions for Ada").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+  expect(Array.from(document.querySelectorAll('[role="menuitem"]')).some(item => item.textContent?.includes("Stop receiving"))).toBe(false);
 });
 
 it("uses the picker's display name for the concierge's evidenced model", () => {

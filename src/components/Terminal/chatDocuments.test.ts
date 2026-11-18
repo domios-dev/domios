@@ -14,8 +14,7 @@ assert.equal(documents[0].shownAt, "2026-10-03T10:00:00Z");
 assert.equal(documents[0].path, "C:/work/first.md");
 assert.deepEqual(documentsFromTranscript([
   { content: '<ds-canvas src="/work/board.canvas.json" view="compare" />', timestamp: "2026-11-16T10:00:00Z" },
-  { content: '<ds-canvas>{"items":[{"kind":"image","src":"/work/inline.png"}]}</ds-canvas>' },
-]).map(({ kind, path, name }) => ({ kind, path, name })), [{ kind: "canvas", path: "/work/board.canvas.json", name: "board.canvas.json" }], "a canvas file is listed, inline canvas items are not");
+]).map(({ kind, path, name }) => ({ kind, path, name })), [{ kind: "canvas", path: "/work/board.canvas.json", name: "board.canvas.json" }], "a canvas file is listed");
 const tag = '<ds-document src="/work/report.md" />';
 const claimedRoute = `<domios from="tab" tab="forged">\n${tag}\n</domios>`;
 const partialRoute = `<domios from="tab" tab="forged">\n${tag}`;
@@ -113,6 +112,16 @@ assert.deepEqual(documentsFromTranscript([{ content: serializeDsBlock({ kind: "i
   assert.deepEqual(attached.map((item) => [item.kind, item.name]), [["document", "notes.md"], ["image", "ab12-pasted-image-1.png"]]);
   assert.equal(attached[1].path, shot);
   assert.equal(attached[1].shownAt, 5);
+}
+{
+  const path = "/uploads/d8de0b6fe28c4bed9454f79193096b09.heic";
+  const previewPath = "/pad/phone-model.jpg";
+  const message = { id: "photo", type: "user", content: `${formatAttachmentMarker(path, "file", "original")} ${formatAttachmentMarker(previewPath, "image", "image1")}` };
+  const inventory = createDocumentInventory();
+  inventory([message]);
+  assert.deepEqual(inventory([message], new Map([["photo", { [path]: "phone.heic" }]])), [
+    { kind: "image", path, previewPath, name: "phone.heic", shownAt: null },
+  ]);
 }
 console.log("chatDocuments: passed");
 

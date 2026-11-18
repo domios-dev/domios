@@ -51,6 +51,11 @@ const hints = new Map<string, SurfaceIconHint>();
 const listeners = new Set<() => void>();
 const hintKey = (pluginId: string, surfaceId: string) => `${pluginId}\u0000${surfaceId}`;
 
+export function isBrowserSurface(backing: SurfaceTabBacking): boolean {
+  return surfaceIconComponent(hints.get(hintKey(backing.plugin_id, backing.surface_id)) ?? null,
+    { pluginId: backing.plugin_id, surfaceId: backing.surface_id }) === Globe;
+}
+
 export function rememberDeclaredSurfaces(declared: readonly { pluginId: string; surfaceId: string; runtime: string | null; icon?: string }[]): void {
   let changed = false;
   for (const row of declared) {

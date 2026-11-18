@@ -573,10 +573,11 @@ fn usage_rows(svc: &ServiceContext, range: SpendRange) -> Result<Vec<UsageSnapsh
         {
             continue;
         }
-        rows.extend(
-            svc.usage_store
-                .get_history(&provider, since_ms, USAGE_HISTORY_LIMIT, None)?,
-        );
+        rows.extend(svc.usage_store.get_provider_history(
+            &provider,
+            since_ms,
+            USAGE_HISTORY_LIMIT,
+        )?);
     }
     Ok(rows)
 }

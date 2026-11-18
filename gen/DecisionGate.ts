@@ -5,11 +5,11 @@ import type { GateStatus } from "./GateStatus";
 /**
  * Structured decision request that parks blocking tasks until answered.
  */
-export type DecisionGate = { id: string, question: string, context: string, blocking_task_ids: Array<string>, 
+export type DecisionGate = { id: string, question: string, context: string, blocking_task_ids: Array<string>,
 /**
  * The tab the question was routed to (planner or orchestrator fallback).
  */
-routed_to_tab_id: string | null, asked_by_tab_id: string | null, asked_at: number, status: GateStatus, 
+routed_to_tab_id: string | null, asked_by_tab_id: string | null, asked_at: number, status: GateStatus,
 /**
  * Immutable audit record; set once on first answer.
  */

@@ -53,6 +53,7 @@ pub struct NeighborRuntimeCell {
     pub handling: super::handling::Cell,
     pub concierge_accounts: parking_lot::Mutex<HashMap<String, String>>,
     pub restore_grants: parking_lot::Mutex<HashMap<String, super::confinement::RestoreGrant>>,
+    pub restore_access_notices: parking_lot::Mutex<std::collections::HashSet<String>>,
     registry_snapshot: parking_lot::Mutex<Option<Value>>,
     owner: parking_lot::Mutex<Option<tokio::sync::mpsc::Sender<owner::Request>>>,
     pub generation: AtomicU64,
@@ -124,11 +125,16 @@ pub enum NeighborRuntimeCommand {
         service_tier: Option<String>,
     },
     Status,
+    ReceiverGrants {
+        friendship_id: String,
+    },
     SetFriendReceiver {
         friendship_id: String,
         receiver_operation: receiver::selection::Selection,
         takeover_confirmed: bool,
         expected_receiver_revision: u64,
+        #[serde(default)]
+        grant_decision: Option<receiver::grants::Decision>,
     },
     Rotate,
     Retry {
@@ -148,10 +154,14 @@ pub enum NeighborRuntimeCommand {
         permission: Value,
     },
     Send {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
         friendship_id: String,
         kind: Kind,
         body: String,
         in_reply_to: Option<String>,
+        #[serde(default)]
+        attach: Vec<String>,
     },
     DeliveryStatus {
         message_id: String,
@@ -159,6 +169,7 @@ pub enum NeighborRuntimeCommand {
 }
 
 pub struct Outgoing {
+    message_id: Option<String>,
     authority: authority::SendAuthority,
     friendship: String,
     kind: Kind,
@@ -172,6 +183,7 @@ pub enum OutboundBody {
     Files {
         text: Zeroizing<String>,
         paths: Vec<String>,
+        pad: Option<crate::service::agent_pad::AgentPad>,
     },
     Refusal,
 }
@@ -432,9 +444,14 @@ impl NeighborsExt for ServiceContext {
         if let NeighborRuntimeCommand::StopConcierge { friendship_id } = &command {
             return self.stop_neighbor_concierge(friendship_id).await;
         }
-        if let NeighborRuntimeCommand::Send { body, .. } = &command {
-            codeterm_neighbors::wire::validate_nonempty_text(body)
-                .map_err(|error| error.to_string())?;
+        if let NeighborRuntimeCommand::Send { body, attach, .. } = &command {
+            if attach.is_empty() {
+                codeterm_neighbors::wire::validate_nonempty_text(body)
+                    .map_err(|error| error.to_string())?;
+            }
+            if attach.len() > codeterm_neighbors::files::MAX_ATTACHMENTS {
+                return Err(Error::InvalidRequest.to_string());
+            }
             codeterm_neighbors::wire::validate_message_size(body)
                 .map_err(|error| error.to_string())?;
         }
@@ -557,8 +574,60 @@ impl NeighborsExt for ServiceContext {
             receiver_operation,
             takeover_confirmed,
             expected_receiver_revision,
+            grant_decision,
         } = &command
         {
+            let adopted = if matches!(receiver_operation, receiver::selection::Selection::Set) {
+                let list = registry
+                    .calls
+                    .invoke("friendsList", json!({}))
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let friend =
+                    first_action::friend_status(&list, friendship_id, &registry.installation_id)
+                        .map_err(|error| error.to_string())?;
+                if friend.receiver_revision != *expected_receiver_revision {
+                    return Err(Error::ReceiverRevisionStale.to_string());
+                }
+                let preview = self
+                    .neighbor_receiver_grants(&metadata, friendship_id, &friend)
+                    .await?;
+                let adopted = preview.decide(grant_decision.as_ref(), *takeover_confirmed)?;
+                if let Some(permission) = &adopted {
+                    self.validate_neighbor_memory_areas(permission)
+                        .await
+                        .map_err(|error| format!("receiver_grant_invalid: {error}"))?;
+                    let mux = self.mux.read();
+                    if permission
+                        .workspaces
+                        .as_ref()
+                        .is_some_and(|ids| ids.iter().any(|id| mux.get_workspace(id).is_none()))
+                    {
+                        return Err("receiver_grant_invalid: Previous workspaces do not exist on this machine; keep the local grant and edit it here".into());
+                    }
+                }
+                adopted
+            } else {
+                None
+            };
+            let grant_adopted = adopted.is_some();
+            if let Some(permission) = adopted {
+                self.retire_neighbor_concierge(&metadata, &registry.uid, friendship_id, generation).await.map_err(|error| format!("receiver_grant_invalid: Grant adoption failed before moving receiving: {error}"))?;
+                self.require_neighbor_generation(generation)?;
+                let mut settings = metadata
+                    .settings()
+                    .await
+                    .map_err(|error| error.to_string())?;
+                settings
+                    .permissions
+                    .insert(friendship_id.clone(), permission);
+                self.require_neighbor_generation(generation)?;
+                metadata.save_settings(settings).await.map_err(|error| format!("receiver_grant_invalid: Grant adoption failed before moving receiving: {error}"))?;
+                self.ui.emit(
+                    "neighbor-permission-changed",
+                    json!({"friendship_id":friendship_id}),
+                );
+            }
             let selection = self
                 .set_neighbor_friend_receiver(
                     &registry,
@@ -607,7 +676,11 @@ impl NeighborsExt for ServiceContext {
                             }
                         }
                     }
-                    return Err(error.to_string());
+                    return Err(if grant_adopted {
+                        format!("receiver_move_unconfirmed: Target grant adopted; receiver move is unconfirmed: {error}. Refresh status before any further action")
+                    } else {
+                        error.to_string()
+                    });
                 }
             };
             return Ok(owner::Outcome::ReceiverCommitted(Box::new(
@@ -691,6 +764,7 @@ impl NeighborsExt for ServiceContext {
                 NeighborRuntimeCommand::FlagMessage { .. }
                 | NeighborRuntimeCommand::History { .. }
                 | NeighborRuntimeCommand::Status
+                | NeighborRuntimeCommand::ReceiverGrants { .. }
                 | NeighborRuntimeCommand::Permission { .. }
                 | NeighborRuntimeCommand::NotificationPreference { .. } => {
                     Err(Error::InvalidEnvelope)
@@ -782,20 +856,37 @@ impl NeighborsExt for ServiceContext {
                         .await
                 }
                 NeighborRuntimeCommand::Send {
+                    message_id,
                     friendship_id,
                     kind,
                     body,
                     in_reply_to,
+                    attach,
                 } => {
+                    let body = if attach.is_empty() {
+                        OutboundBody::Granted(Zeroizing::new(body))
+                    } else {
+                        if attach.len() > codeterm_neighbors::files::MAX_ATTACHMENTS {
+                            return Err(Error::InvalidRequest);
+                        }
+                        let tab = caller.ok_or(Error::PermissionDenied)?;
+                        let pad = self.ensure_agent_pad(tab).map_err(|_| Error::InvalidRequest)?;
+                        OutboundBody::Files {
+                            text: Zeroizing::new(body),
+                            paths: attach,
+                            pad: Some(pad),
+                        }
+                    };
                     self.send_neighbor(
                         &transport,
                         &lifecycle,
                         &metadata,
                         Outgoing {
+                            message_id,
                             authority: send_authority,
                             friendship: friendship_id,
                             kind,
-                            body: OutboundBody::Granted(Zeroizing::new(body)),
+                            body,
                             in_reply_to,
                             author: self.neighbor_author(caller)?,
                         },
@@ -954,24 +1045,35 @@ impl NeighborsExt for ServiceContext {
             .0
             .store(true, Ordering::Release);
         self.neighbor_reconciliation().close();
-        self.forget_neighbor_friend_receivers();
+        let stopped_receivers = self.retire_neighbor_friend_receivers();
         self.forget_neighbor_registry();
         self.neighbor_cell().names.lock().clear();
         self.neighbor_pauses().clear();
         self.neighbor_cell().handling.clear();
         self.neighbor_cell().restore_grants.lock().clear();
+        self.neighbor_cell().restore_access_notices.lock().clear();
         self.neighbor_cell().control_cancel.notify_waiters();
         self.cancel_neighbor_restoration();
         self.neighbor_restoration_entitlement_changed();
         self.stop_neighbor_updates();
         self.neighbor_cell().watch_states.lock().clear();
-        self.neighbor_cell()
-            .generation
-            .fetch_add(1, Ordering::AcqRel);
         self.stop_neighbor_listeners();
         self.neighbor_cell()
             .bootstrapped
             .store(false, std::sync::atomic::Ordering::Release);
+        for friendship in stopped_receivers {
+            let mut notice = crate::service::notification::InAppNotice::neighbor_connection(
+                "Receiving stopped for a Neighbor after the account changed".into(),
+                format!("neighbor-account-change:{friendship}"),
+            );
+            notice.actions.push(
+                codeterm_notification_core::contract::NotificationAction::Url {
+                    label: "Receive here".into(),
+                    value: format!("domios://neighbor/{friendship}/concierge"),
+                },
+            );
+            self.create_in_app_notice_record(notice);
+        }
         let service = self.clone();
         match self.neighbor_reconciliation().submit(
             super::reconciliation::Kind::Retirement,
@@ -1005,6 +1107,7 @@ impl NeighborsExt for ServiceContext {
         self.neighbor_pauses().clear();
         self.neighbor_cell().handling.clear();
         self.neighbor_cell().restore_grants.lock().clear();
+        self.neighbor_cell().restore_access_notices.lock().clear();
     }
 }
 

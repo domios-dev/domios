@@ -1,7 +1,7 @@
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { composerAttachmentError } from "./composerAttachmentAdmission";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
-import type { ChatSessionIntent } from "@codeterm/chat-core";
+import { formatAttachmentMarker, type ChatSessionIntent } from "@codeterm/chat-core";
 import { canSendDelayedMessage, sendCurrentDelayedMessage } from "./delayedMessageModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvents";
 import { onResync } from "../../lib/resync";
@@ -49,6 +49,8 @@ import {
   isImeKeyEvent,
 } from "./composerComposition";
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { readRemoteChatStatus } from "../../lib/remoteChatStatus";
 import { failChatSendRequest, readChatSends, setChatSendDraft } from "./chatSendStore";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
 import { composeAttachmentDraft } from "./meshAttachmentHandoff";
@@ -56,6 +58,8 @@ import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 import { useComposerInsertions } from "./useComposerInsertions";
 import { ComposerCapsuleField } from "./ComposerCapsuleField";
 import { ComposerTextInput } from "./ComposerTextInput";
+import { useComposerMentionTokens } from "./useComposerMentionTokens";
+import { ComposerMentionHighlight } from "./ComposerMentionHighlight";
 import { capsulesInDraft, hasCapsuleTokens } from "./composerCapsules";
 import { replaceTextareaRange, useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
 import { composerSendPlan, resolveComposerSend } from "./composerSendPlan";
@@ -70,7 +74,6 @@ import { useComposerReply } from "./useComposerReply";
 import { useStartupSend } from "./useStartupSend";
 import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
 
-const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "Voice transcription failed";
 const CLI_FALLBACK_COMMANDS = new Set([
   "/usage",
@@ -254,6 +257,8 @@ function ChatComposerImpl({
   });
   const compositionGate = useRef(createCompositionGate()).current;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mentionTokens = useComposerMentionTokens(input, setInput, textareaRef);
+  const displayInput = mentionTokens.draft.text;
   const shellRef = useRef<HTMLDivElement>(null);
   const { layout: composerLayout, measure: measureComposer } = useComposerLayout(input, textareaRef, shellRef, compositionGate, !replacement, expandedEditor);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
@@ -278,7 +283,7 @@ function ChatComposerImpl({
   const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError,
     keepTextInline: Boolean(tabProvider && !provider?.attachments?.filePaths) });
   useChatDeliveryComposer(tabId, text => {
-    const existing = textareaRef.current?.value ?? input;
+    const existing = input;
     setInput(capsules.fromPortable([existing, text].filter(Boolean).join("\n")));
     textareaRef.current?.focus({ preventScroll: true });
   });
@@ -444,9 +449,11 @@ function ChatComposerImpl({
     lastSendRef.current = { text: dupKey, at: Date.now() };
     pendingDraftsRef.current.add(dupKey);
     onWillSendMessage(text);
+    const voicePendingContent = recordedVoiceAttachments.map(path => formatAttachmentMarker(path, "voice", "voice")).join("\n");
     const optimisticId = addOptimistic(recordedVoiceAttachments.length > 0
-      ? VOICE_TRANSCRIBING_PLACEHOLDER : portable || allAttachments.join(" "));
-    const deliveryDraft = { text, attachments: allAttachments, recordedVoiceAttachments, capsules: registry, reply: quoted };
+      ? voicePendingContent : portable || allAttachments.join(" "));
+    const deliveryDraft = { text, attachments: allAttachments, recordedVoiceAttachments,
+      ...(recordedVoiceAttachments.length ? { voiceTranscribing: true } : {}), capsules: registry, reply: quoted };
     setChatSendDraft(tabId, optimisticId, deliveryDraft);
     setComposerInvalid(false);
     refocusComposer();
@@ -462,7 +469,7 @@ function ChatComposerImpl({
         throw new Error(dropped?.length ? `No message was sent because its attachments failed: ${dropped.join(", ")}`
           : "No message was sent because the prepared message is empty.");
       }
-      const readyDraft = { ...deliveryDraft, ...resolved };
+      const readyDraft = { ...deliveryDraft, ...resolved, voiceTranscribing: false };
       setChatSendDraft(tabId, optimisticId, readyDraft);
       const delivery = prepareChatDelivery(tabId, { ...send, draft: readyDraft }, expandDsTasks);
       composed = await delivery;
@@ -473,12 +480,15 @@ function ChatComposerImpl({
       }
       updateOptimistic(optimisticId, composed);
     } catch (error) {
+      if (recordedVoiceAttachments.length) setChatSendDraft(tabId, optimisticId, { ...deliveryDraft, voiceTranscribing: false });
       failChatSendRequest(tabId, optimisticId, error);
       pendingDraftsRef.current.delete(dupKey);
       return;
     }
     try {
-      const fallbackCommand = !startupOverrideNonce && !chatBackend && allAttachments.length === 0
+      const remote = parseCompositeTabId(tabId);
+      const remoteUnavailable = remote && readRemoteChatStatus(tabId, remote.peerId).state;
+      const fallbackCommand = !startupOverrideNonce && !chatBackend && !remoteUnavailable && allAttachments.length === 0
         ? cliFallbackCommandPayload(composed) : null;
       if (fallbackCommand) {
         if (!currentPtyId) throw new Error("Tab has no PTY");
@@ -602,13 +612,13 @@ function ChatComposerImpl({
         onHighlight={setPickerHighlight}
         onPick={pickSlashCommand}
       />
-      <ComposerMentions ref={mentionPicker} tabId={tabId} input={input} setInput={setInput}
+      <ComposerMentions ref={mentionPicker} tabId={tabId} input={displayInput} setInput={mentionTokens.change} onInsert={mentionTokens.insert} tokens={mentionTokens.draft.tokens}
         onPicked={refocusComposer} textareaRef={textareaRef} anchorRef={shellRef} />
       {plansSink}
       {!startupSend.bound && <span role="status">Connecting to chat — sending is unavailable</span>}
       <ComposerCapsuleField
         tabId={tabId}
-        value={input}
+        value={displayInput}
         registry={capsules.registry}
         active={capsulesActive}
         textareaRef={textareaRef}
@@ -617,21 +627,24 @@ function ChatComposerImpl({
         uploads={capsules.uploads.uploads}
         onRetry={(id) => { void capsules.uploads.retry(id); }}
       >
+        <ComposerMentionHighlight draft={mentionTokens.draft} textarea={textareaRef} marginPx={composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? 8 : 0} />
+        <span role="status" aria-live="polite" className="sr-only">{mentionTokens.announcement}</span>
         <ComposerTextInput
           data-testid="chat-composer"
           data-tab-id={tabId}
           aria-label="Message composer"
           aria-invalid={composerInvalid}
           ref={textareaRef}
-          value={input}
+          value={displayInput}
           onChange={(e) => {
             setComposerInvalid(false);
             recall.reset();
-            setInput(e.target.value);
+            mentionTokens.change(e.target.value, (e.nativeEvent as InputEvent).inputType);
             mentionPicker.current?.syncSelection(e.currentTarget);
           }}
           onBeforeInput={(e) => {
             recordComposerBeforeInput(e.nativeEvent.inputType || "beforeinput");
+            mentionTokens.beforeInput(e);
           }}
           onKeyDown={(e) => {
             recordComposerIgnoredKey(e.key);
@@ -641,6 +654,7 @@ function ChatComposerImpl({
               metaKey: e.metaKey, altKey: e.altKey, isComposing: e.nativeEvent.isComposing,
             });
             if (mentionPicker.current?.handleKey(e)) return;
+            if (mentionTokens.handleKey(e)) { mentionPicker.current?.syncSelection(e.currentTarget); return; }
             if (expandedEditor && isComposerEnterKey(e)) {
               enterIntent = (e.ctrlKey || e.metaKey) ? "submit" : "newline";
             }
@@ -702,6 +716,7 @@ function ChatComposerImpl({
             }
           }}
           onCompositionStart={() => {
+            if (textareaRef.current) mentionTokens.snapSelection(textareaRef.current);
             beginComposition(compositionGate);
             if (capsulesActive) setComposing(true);
             if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("start");
@@ -711,11 +726,12 @@ function ChatComposerImpl({
             setComposing(false);
             // Commit the finished draft once and run the autosize the gate
             // deferred; both are no-ops when state already mirrors the DOM.
-            setInput(e.currentTarget.value);
+            mentionTokens.change(e.currentTarget.value);
             measureComposer();
             if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("end");
           }}
           onPaste={(e) => {
+            if (mentionTokens.handlePaste(e, capsules.fromPortable)) return;
             if (capsules.handlePaste(e)) return;
             const data = e.clipboardData;
             const hasFiles = data.files?.length || Array.from(data.items ?? []).some((item) => item.kind === "file");
@@ -726,9 +742,9 @@ function ChatComposerImpl({
             }
             void handlePasteEvent(e.nativeEvent);
           }}
-          onCopy={(e) => capsules.handleCopy(e, false)}
-          onCut={(e) => capsules.handleCopy(e, true)}
-          onSelect={(e) => { capsules.snapSelection(e.currentTarget); mentionPicker.current?.syncSelection(e.currentTarget); }}
+          onCopy={(e) => { capsules.snapSelection(e.currentTarget); if (!mentionTokens.handleCopy(e, false, capsules.toPortable)) capsules.handleCopy(e, false); }}
+          onCut={(e) => { capsules.snapSelection(e.currentTarget); if (!mentionTokens.handleCopy(e, true, capsules.toPortable)) capsules.handleCopy(e, true); }}
+          onSelect={(e) => { capsules.snapSelection(e.currentTarget); mentionTokens.snapSelection(e.currentTarget); mentionPicker.current?.syncSelection(e.currentTarget); }}
           placeholder={pendingPrompt
             ? "Answer the request above to continue."
             : idlePlaceholder ?? "Message"}

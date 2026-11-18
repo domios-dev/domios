@@ -8,12 +8,13 @@ export function codexRestrictedCliConfig(ctx: RuntimeContext): Record<string, Js
   if (!policy) return {};
   const hash = (value: string) => /^[0-9a-f]{64}$/.test(value);
   if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch
-    || policy.cwd !== ctx.cwd || policy.metadataDirectory !== ".codex" || ctx.settings.mode !== "workspace-write" || ctx.settings.networkAccess !== false
+    || policy.cwd !== ctx.cwd || policy.metadataDirectory !== ".codex"
+    || !["workspace-write", "read-only-with-writable-roots"].includes(ctx.settings.mode ?? "") || ctx.settings.networkAccess !== false
     || !/^[A-Za-z0-9/\\:._~-]+$/.test(policy.executable)
     || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0")
     || ![policy.executableSha256,policy.configSha256,policy.ruleSha256].every(hash))
     throw {code:"binding_mismatch",message:"Restricted CLI policy differs from the bound launch"};
-  return {projects:{[ctx.cwd]:{trust_level:"trusted"}}};
+  return {project_root_markers:[],projects:{[ctx.cwd]:{trust_level:"trusted"}}};
 }
 
 export function codexValidateCliTrust(ctx: RuntimeContext, raw: unknown): void {
@@ -39,7 +40,7 @@ export function codexValidateCliTrust(ctx: RuntimeContext, raw: unknown): void {
   }
 }
 
-export function codexNeedsWindowsSandboxSelection(raw: unknown): boolean {
+export function codexNeedsWindowsSandboxSelection(raw: unknown, needsSplitRoots = false): boolean {
   const root = object(raw);
   if (root.config === null || typeof root.config !== "object" || Array.isArray(root.config))
     throw {code:"invalid_schema",message:"Windows sandbox configuration was not reported"};
@@ -50,9 +51,9 @@ export function codexNeedsWindowsSandboxSelection(raw: unknown): boolean {
   if (windows.sandbox != null) {
     if (!["mxc", "elevated", "unelevated"].includes(String(windows.sandbox)))
       throw {code:"invalid_schema",message:"Unknown configured Windows sandbox"};
-    return false;
+    if (windows.sandbox !== "unelevated" || !needsSplitRoots) return false;
   }
-  if (windows.allow_mxc !== undefined) {
+  if (windows.allow_mxc !== undefined && !(needsSplitRoots && windows.allow_mxc === null)) {
     if (typeof windows.allow_mxc !== "boolean") throw {code:"invalid_schema",message:"Invalid Windows MXC policy"};
     if (!windows.allow_mxc) return false;
   }
@@ -66,6 +67,20 @@ export function codexNeedsWindowsSandboxSelection(raw: unknown): boolean {
     }
   }
   return true;
+}
+
+export function codexNeedsSplitWindowsRoots(ctx: RuntimeContext): boolean {
+  return ctx.settings.mode === "read-only-with-writable-roots"
+    && ctx.restrictedCli?.splitWindowsRoots === true;
+}
+
+export function codexManagedMxcRefusal(error: {code: number; message: string}): boolean {
+  // Codex can omit allow_mxc from requirements/read and reject it before opening the thread.
+  const prefix = "failed to load configuration: invalid value for `windows.sandbox`: `Some(Mxc)` is not in the allowed set windows.allow_mxc = false (set by ";
+  if (error.code !== -32600 || !error.message.startsWith(prefix) || !error.message.endsWith(")")) return false;
+  const source = error.message.slice(prefix.length,-1);
+  if (!source.trim() || source.length > 4096 || /[\r\n\u2028\u2029]/.test(source)) return false;
+  return /^(?:[^()]|\([^()]*\))+$/.test(source);
 }
 
 export function codexWindowsSandboxOverride(raw: unknown): "mxc" | undefined {
@@ -171,6 +186,7 @@ export function codexWritableRootsConfirmed(settings: RuntimeSettings, reply: un
   const expected = settings.additionalDirectories ?? [];
   const same = (value: unknown) => Array.isArray(value) && value.length === expected.length && value.every(path => typeof path === "string" && expected.includes(path));
   return expected.length > 0 && reported.approvalPolicy === "never" && sandbox.type === "workspaceWrite"
+    && sandbox.networkAccess === settings.networkAccess
     && sandbox.excludeTmpdirEnvVar === true && sandbox.excludeSlashTmp === true && same(roots) && same(sandbox.writableRoots);
 }
 

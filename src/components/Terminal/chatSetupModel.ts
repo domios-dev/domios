@@ -8,6 +8,11 @@ import { describeError, type ErrorDescription } from "../../lib/describeError";
 export function chatSetupView(tab: Partial<Tab> | null | undefined, chatSessionAttached = false): ChatBodyView {
   const launched = tabLaunched(tab);
   if (tab?.boot_stage === "spawn_failed" && !launched) return { kind: "launch_failed", reason: tab.boot_failure_reason ?? null };
+  const currentLaunchBound = Boolean(tab?.agent_session_id?.trim() && tab.session_binding_nonce
+    && tab.reported_session_binding_nonce === tab.session_binding_nonce);
+  if (tab?.boot_stage !== "spawn_failed" && tab?.boot_stage !== "awaiting_owner_prompt"
+    && tab?.backing?.kind === "pty" && tab.pty_id && !tab.frozen && !currentLaunchBound
+    && tab.pending_prompt_kind === "provider" && tab.pending_prompt) return { kind: "terminal_prompt" };
   if (tab?.boot_stage !== "spawn_failed" && !chatSessionAttached && runtimeResponseDeadlinePending(tab?.agent_runtime_state, tab?.boot_failure_reason)) return { kind: "starting", label: "Starting…" };
   if (chatSessionAttached) return { kind: "none" };
   const activity = tabActivity(tab);

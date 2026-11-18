@@ -6,7 +6,7 @@ import type { TurnResumeSettlement } from "./TurnResumeSettlement";
  * Durable evidence that a tab's agent was mid-turn during one daemon start.
  * A later start owes the tab one continue until the mark is settled.
  */
-export type TurnResumeMark = { session_id: string, start_epoch: string, 
+export type TurnResumeMark = { session_id: string, start_epoch: string,
 /**
  * Explicit continuation requested for this tab; replaces the default text.
  */

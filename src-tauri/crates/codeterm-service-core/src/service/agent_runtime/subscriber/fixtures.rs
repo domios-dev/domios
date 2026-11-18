@@ -89,6 +89,7 @@ impl AgentProvider for Adapter {
     }
     fn agent_runtime(&self) -> Option<AgentRuntimeCapability> {
         Some(AgentRuntimeCapability {
+            http_sse: None,
             local_image_paths: false,
             host_mcp: None,
             envelope: None,
@@ -265,6 +266,8 @@ pub(super) fn scene() -> Scene {
     let epoch = state.begin();
     state.load(epoch, "thread");
     let session = Arc::new(Session {
+        account: Mutex::new("default".into()),
+        invocation: Mutex::new(None),
         update_generation: std::sync::atomic::AtomicU64::new(0),
         update_recovery_available: std::sync::atomic::AtomicBool::new(false),
         provider: "runtime-subscriber-fixture".into(),

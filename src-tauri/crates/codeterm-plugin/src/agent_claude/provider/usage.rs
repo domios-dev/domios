@@ -8,7 +8,6 @@
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
 
 use parking_lot::Mutex;
 
@@ -18,14 +17,15 @@ use super::sessions;
 
 const MAX_CURSORS: usize = 64;
 
-static CURSORS: LazyLock<UsageCursors> = LazyLock::new(UsageCursors::default);
+static CURSORS: crate::provider_account::cache::ScopedCache<UsageCursors> =
+    crate::provider_account::cache::ScopedCache::new();
 
 pub(super) fn read(cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
     let path = sessions::session_file_path(cwd, session_id)?;
     if !path.exists() {
         return None;
     }
-    Some(CURSORS.read(&path))
+    Some(CURSORS.read().read(&path))
 }
 
 #[derive(Clone, Default)]
@@ -42,7 +42,7 @@ struct UsageCursors {
 
 impl UsageCursors {
     fn read(&self, path: &Path) -> UsageSnapshot {
-        let opened = std::fs::File::open(path)
+        let opened = crate::provider_account::open_read(path)
             .and_then(|file| file.metadata().map(|metadata| (file, metadata.len())));
         let Ok((mut file, length)) = opened else {
             self.cursors.lock().retain(|(key, _)| key != path);

@@ -271,6 +271,10 @@ fn installed_version_mismatch_is_failure_and_never_reexecutes_the_installer() {
         record.result.phase,
         NativeUpdateApplyPhase::Failed { .. }
     ));
+    if let NativeUpdateApplyPhase::Failed { message } = &record.result.phase {
+        assert!(message.contains("expected version 1.15.2, running version 1.15.1"));
+        assert!(message.contains("native-update-installer.json"));
+    }
     assert_eq!(
         record.reconcile("1.15.2", "replacement-build", &connection, &ready),
         Ok(false)

@@ -3,11 +3,11 @@
 /**
  * Credentials passed to `unlock`. Concrete backends pick what they need.
  */
-export type UnlockCredentials = { masterPassword: string, twoFactorToken: string | null, email: string | null, 
+export type UnlockCredentials = { masterPassword: string, twoFactorToken: string | null, email: string | null,
 /**
  * Bitwarden API-key flow.
  */
-apiKeyClientId: string | null, apiKeyClientSecret: string | null, 
+apiKeyClientId: string | null, apiKeyClientSecret: string | null,
 /**
  * The caller explicitly asked the backend to remember this credential for
  * headless unlock. Default false: an ordinary sign-in never grants it.

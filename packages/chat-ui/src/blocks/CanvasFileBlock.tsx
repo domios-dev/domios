@@ -2,25 +2,25 @@ import { useContext, useEffect, useMemo } from "react";
 import { DS_CANVAS_FILE_FORMAT, isDsCanvasFilePath } from "@codeterm/chat-core";
 import { useLocalArtifactTabId } from "../LocalArtifactScope";
 import type { LocalPreviewFile } from "../localArtifactLoader";
-import { CanvasPreview } from "./CanvasBlock";
+import { CanvasPreview } from "./CanvasPreview";
 import { CanvasNotice } from "./CanvasNotice";
 import type { CanvasEditor } from "./canvasEditing";
-import { CanvasSourceContext } from "./canvasFilePort";
+import { CanvasItemRecoveryContext, CanvasSourceContext } from "./canvasFilePort";
 import { DsRenderContext } from "./DsRenderContext";
 import { useCanvasFile } from "./useCanvasFile";
 
 /**
- * A `<ds-canvas src>` file: the same board as an inline canvas, read through the local preview
+ * A `<ds-canvas src>` file, read through the local preview
  * guard, updated in place when the file changes, and editable in its viewer by its local owner.
  */
-export function CanvasFileBlock(props: { src: string; view?: string; fullscreenRequest?: number; onLoaded?: (file: LocalPreviewFile | null) => void }) {
+export function CanvasFileBlock(props: { src: string; view?: string; fullscreenRequest?: number; onOpen?: () => void; onLoaded?: (file: LocalPreviewFile | null) => void }) {
   if (!isDsCanvasFilePath(props.src)) return <CanvasNotice text="This canvas file is not available." reason={`A canvas file is named NAME.canvas.json, and its first field is "format": "${DS_CANVAS_FILE_FORMAT}".`} />;
   return <LoadedCanvasFile {...props} />;
 }
 
 const LAST_GOOD = "This canvas file has an error, so this is its last good version.";
 
-function LoadedCanvasFile({ src, view, fullscreenRequest = 0, onLoaded }: { src: string; view?: string; fullscreenRequest?: number; onLoaded?: (file: LocalPreviewFile | null) => void }) {
+function LoadedCanvasFile({ src, view, fullscreenRequest = 0, onLoaded, onOpen }: { src: string; view?: string; fullscreenRequest?: number; onOpen?: () => void; onLoaded?: (file: LocalPreviewFile | null) => void }) {
   const tabId = useLocalArtifactTabId();
   const scope = useContext(DsRenderContext);
   const file = useCanvasFile(src, tabId);
@@ -45,7 +45,9 @@ function LoadedCanvasFile({ src, view, fullscreenRequest = 0, onLoaded }: { src:
   return <>
     {invalid !== null && <CanvasNotice text={file.canvas ? LAST_GOOD : "This canvas could not be shown because its description is not valid."} reason={invalid} />}
     {file.canvas && <CanvasSourceContext value={src}>
-      <CanvasPreview canvas={file.canvas} view={view} editor={editor} fullscreenRequest={fullscreenRequest} details={file.unwatched ?? undefined} notice={stale} />
+      <CanvasItemRecoveryContext value={file.itemRecovery}>
+      <CanvasPreview canvas={file.canvas} view={view} editor={editor} fullscreenRequest={fullscreenRequest} onOpen={onOpen} details={file.unwatched ?? undefined} notice={stale} />
+      </CanvasItemRecoveryContext>
     </CanvasSourceContext>}
   </>;
 }

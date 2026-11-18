@@ -1,5 +1,4 @@
-//! One resolver for the text a role carries: task > Team registration. A Team has exactly the
-//! roles it registers; one with no registrations is the builtin default package as a whole.
+//! One resolver for the text a role carries: task > Team registration. Builtin Workers remain available when a Team omits them.
 //! Role prose comes first; host runtime text follows it and no package can remove or replace it.
 
 use std::borrow::Cow;
@@ -295,6 +294,15 @@ pub fn resolve_in(
                 RoleProvenance::Team { package }
             }),
             text: registration.instructions.trim().to_string(),
+        });
+    } else if resolved_role == AgentRole::Worker
+        && (kind_id == builtins::WORKER || builtins::is_taskless_worker_kind(&kind_id))
+    {
+        fragments.push(PresetFragment {
+            source: FragmentSource::Role(RoleProvenance::Builtin {
+                package: builtin_roles::default_identity(),
+            }),
+            text: builtin_roles::builtin_prose(&kind_id)?.trim().to_string(),
         });
     } else if kind_id == builtins::WATCHER {
         fragments.extend(watcher_prose());

@@ -21,44 +21,10 @@ use std::{
     time::Duration,
 };
 
-pub struct OutstandingRequest {
-    pub request: PendingRuntimeRequest,
-    pub prompt: Option<codeterm_types::pty::PendingPrompt>,
-    pub permission: Option<codeterm_plugin::agent_runtime::RuntimePermission>,
-}
+mod accounts;
+mod session;
+pub use session::{OutstandingRequest, Session};
 
-pub struct Session {
-    pub(super) capacity_retry: Mutex<super::capacity_retry::RetryState>,
-    pub(super) update_generation: std::sync::atomic::AtomicU64,
-    pub(super) update_recovery_available: std::sync::atomic::AtomicBool,
-    pub provider: String,
-    pub adapter: Mutex<Option<Arc<dyn crate::agent::provider::AgentProvider>>>,
-    pub context: Mutex<RuntimeContext>,
-    pub(super) controls_confirmation: Mutex<Option<RuntimeSettings>>,
-    pub control_changes: tokio::sync::watch::Sender<()>,
-    pub(super) reverted_thread: Mutex<Option<String>>,
-    pub(super) completions: Mutex<super::completions::Completions>,
-    pub state: Mutex<RuntimeState>,
-    pub cache: Mutex<ItemCache>,
-    pub auth: Mutex<RuntimeAuthState>,
-    pub(super) login: Mutex<super::login::LoginState>,
-    pub thread_loaded: std::sync::atomic::AtomicBool,
-    pub hook_state: Mutex<Value>,
-    pub(super) stream_progress: tokio::sync::watch::Sender<u64>,
-    pub(super) turn_requests: Mutex<HashMap<String, Arc<super::turn_requests::PendingTurn>>>,
-    pub maps: Mutex<super::events::RuntimeMaps>,
-    pub(super) provider_operation_failures: std::sync::atomic::AtomicU32,
-    pub(super) bookkeeping_warning_emitted: std::sync::atomic::AtomicBool,
-    pub(super) transcript_io: super::transcript::TranscriptIo,
-    pub prompts: Mutex<HashMap<RpcId, OutstandingRequest>>,
-    pub(super) prompts_cancelled: std::sync::atomic::AtomicBool,
-    pub process: ProcessSlot<Arc<Process>>,
-    pub gate: tokio::sync::Semaphore,
-    pub(super) initialization: super::initialize::Initialization,
-    pub(super) compaction: Mutex<super::subscriber::CompactionState>,
-    pub(super) abort_note: Mutex<Option<String>>,
-    pub(super) history_retry: Mutex<Option<backfill::FailedReplay>>,
-}
 static SESSIONS: LazyLock<Mutex<HashMap<String, Arc<Session>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -70,6 +36,9 @@ pub fn requested(svc: &ServiceContext, provider: &str) -> bool {
 pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
     SESSIONS.lock().get(tab).cloned()
 }
+
+pub use accounts::ensure_with_invocation;
+pub(crate) use accounts::{account_boundary_ready, account_trial_idle};
 
 pub(super) fn login_pending_session(
     svc: &ServiceContext,
@@ -95,7 +64,13 @@ pub fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bool {
         .lock()
         .as_ref()
         .is_some_and(|process| process.ended.borrow().is_none());
-    session.provider == tab.agent_type.as_deref().unwrap_or_default()
+    *session.account.lock()
+        == tab
+            .restorable_launch
+            .account_id
+            .as_deref()
+            .unwrap_or("default")
+        && session.provider == tab.agent_type.as_deref().unwrap_or_default()
         && context.tab_id == tab.id
         && Some(context.binding_nonce.as_str()) == tab.session_binding_nonce.as_deref()
         && context.thread_id == tab.agent_session_id
@@ -317,10 +292,11 @@ async fn stop_session(
     super::environment::revoke(tab);
     super::capture::revoke(tab);
     let cli_tab = tab.to_string();
-    let cli_cleanup = tokio::task::spawn_blocking(move || super::cli_exception::revoke(&cli_tab))
-        .await
-        .map_err(|error| error.to_string())
-        .and_then(|result| result);
+    let cli_cleanup =
+        codeterm_plugin::js_runtime::spawn_blocking(move || super::cli_exception::revoke(&cli_tab))
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
     super::login::forget(&session);
     {
         let mut state = session.state.lock();
@@ -341,7 +317,7 @@ fn cancel_stop_retry(svc: &ServiceContext, tab: &str) {
 }
 
 pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, RuntimeFailure> {
-    ensure_with_fork(svc, tab, None).await
+    accounts::ensure(svc, tab, None).await
 }
 
 pub(super) async fn ensure_fork(
@@ -350,7 +326,7 @@ pub(super) async fn ensure_fork(
     source_thread_id: &str,
     turn_id: &str,
 ) -> Result<Arc<Session>, RuntimeFailure> {
-    ensure_with_fork(
+    accounts::ensure(
         svc,
         tab,
         Some((source_thread_id.to_string(), turn_id.to_string())),
@@ -358,7 +334,7 @@ pub(super) async fn ensure_fork(
     .await
 }
 
-async fn ensure_with_fork(
+async fn ensure_scoped(
     svc: &ServiceContext,
     tab: &str,
     fork: Option<(String, String)>,
@@ -375,15 +351,7 @@ async fn ensure_with_fork(
     }
     super::restore::tab(svc, tab).map_err(RuntimeFailure::Refused)?;
     require_launch_authority(svc, tab)?;
-    let prompt_service = svc.clone();
-    let prompt_tab = tab.to_string();
-    tokio::task::spawn_blocking(move || {
-        crate::service::orchestrator::ensure_tab_runtime_prompt(&prompt_service, &prompt_tab)
-    })
-    .await
-    .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
-    .map_err(RuntimeFailure::Refused)?;
-    let (provider, thread, nonce, config, cwd, saved_state) = {
+    let (provider, account, thread, nonce, config, cwd, saved_state) = {
         let mux = svc.mux.read();
         let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
         (
@@ -391,6 +359,7 @@ async fn ensure_with_fork(
                 .agent_type
                 .clone()
                 .ok_or(RuntimeFailure::Superseded)?,
+            crate::service::provider_accounts::selected_account(target).to_owned(),
             target.agent_session_id.clone(),
             target
                 .session_binding_nonce
@@ -405,6 +374,22 @@ async fn ensure_with_fork(
             target.agent_runtime_state.clone(),
         )
     };
+    let invocation = codeterm_plugin::provider_account::current();
+    if !super::super::provider_accounts::invocation_matches(
+        invocation.as_deref(),
+        &provider,
+        &account,
+    ) {
+        return Err(RuntimeFailure::Superseded);
+    }
+    let prompt_service = svc.clone();
+    let prompt_tab = tab.to_string();
+    codeterm_plugin::js_runtime::spawn_blocking(move || {
+        crate::service::orchestrator::ensure_tab_runtime_prompt(&prompt_service, &prompt_tab)
+    })
+    .await
+    .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+    .map_err(RuntimeFailure::Refused)?;
     if !super::requested_for_tab(svc, tab) {
         return Err(RuntimeFailure::Refused("Runtime capability absent".into()));
     }
@@ -415,9 +400,21 @@ async fn ensure_with_fork(
         let mux = svc.mux.read();
         mux.ensure_tab_membership_mutable(tab)
             .map_err(RuntimeFailure::Refused)?;
+        let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
+        if !binding::matches_launch(target, &provider, &account, &nonce) {
+            return Err(RuntimeFailure::Superseded);
+        }
         let mut sessions = SESSIONS.lock();
         if sessions.get(tab).is_some_and(|session| {
-            session.context.lock().binding_nonce != nonce || session.provider != provider
+            session.context.lock().binding_nonce != nonce
+                || session.provider != provider
+                || *session.account.lock() != account
+                || session
+                    .invocation
+                    .lock()
+                    .as_ref()
+                    .map(|context| context.cache_key())
+                    != invocation.as_ref().map(|context| context.cache_key())
         }) {
             if let Some(old) = sessions.remove(tab) {
                 retired_cli = true;
@@ -434,6 +431,8 @@ async fn ensure_with_fork(
                     update_generation: std::sync::atomic::AtomicU64::new(0),
                     update_recovery_available: std::sync::atomic::AtomicBool::new(false),
                     provider: provider.clone(),
+                    account: Mutex::new(account.clone()),
+                    invocation: Mutex::new(invocation.clone()),
                     adapter: Mutex::new(None),
                     controls_confirmation: Mutex::new(None),
                     control_changes: tokio::sync::watch::channel(()).0,
@@ -495,7 +494,7 @@ async fn ensure_with_fork(
     }
     if retired_cli {
         let cli_tab = tab.to_string();
-        tokio::task::spawn_blocking(move || super::cli_exception::revoke(&cli_tab))
+        codeterm_plugin::js_runtime::spawn_blocking(move || super::cli_exception::revoke(&cli_tab))
             .await
             .map_err(|_| RuntimeFailure::Superseded)?
             .map_err(RuntimeFailure::Refused)?;
@@ -578,11 +577,12 @@ pub async fn ensure_locked(
     let mut spawned_ms = None;
     let owner = svc.clone();
     let target = tab.to_string();
-    let settings =
-        tokio::task::spawn_blocking(move || super::launch_options::restore_ctx(&owner, &target))
-            .await
-            .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
-            .map_err(RuntimeFailure::Refused)?;
+    let settings = codeterm_plugin::js_runtime::spawn_blocking(move || {
+        super::launch_options::restore_ctx(&owner, &target)
+    })
+    .await
+    .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
+    .map_err(RuntimeFailure::Refused)?;
     let resolved_cwd = svc.mux.read().get_tab(tab).and_then(|tab| tab.cwd.clone());
     {
         let mut context = session.context.lock();
@@ -650,7 +650,7 @@ pub async fn ensure_locked(
         let owner = svc.clone();
         let provider_id = provider.to_string();
         let cli_context = session.context.lock().clone();
-        let restricted_cli = tokio::task::spawn_blocking(move || {
+        let restricted_cli = codeterm_plugin::js_runtime::spawn_blocking(move || {
             super::cli_exception::prepare(&owner, &provider_id, &cli_context)
         })
         .await
@@ -664,89 +664,83 @@ pub async fn ensure_locked(
         let target = tab.to_string();
         let provider_id = provider.to_string();
         let launch_nonce = context.binding_nonce.clone();
-        let (process, host_mcp, declared_bridges) = tokio::task::spawn_blocking(move || {
-            let nonce = launch_nonce;
-            let authority = LaunchAuthority::verify(
-                &owner,
-                RuntimeLaunchBinding {
-                    tab_id: target.clone(),
-                    provider_id: provider_id.clone(),
-                    binding_nonce: nonce.clone(),
-                },
-            )
-            .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
-            let launch = super::launch_profile::resolve(
-                &owner,
-                &target,
-                &authority,
-                adapter.as_ref(),
-                &capability,
-            )?;
-            let cwd = owner
-                .mux
-                .read()
-                .get_tab(&target)
-                .and_then(|tab| tab.cwd.clone())
-                .ok_or_else(|| RuntimeFailure::SpawnFailed {
-                    reason: "Runtime cwd missing".into(),
-                })?;
-            let mut env = super::environment::compose(&owner, &target, &provider_id, &nonce)
-                .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
-            env.extend(
-                owner
-                    .model_provider_launch_env(&provider_id)
-                    .map_err(|error| RuntimeFailure::SpawnFailed {
-                        reason: error.to_string(),
-                    })?,
-            );
-            launch.apply_environment(
-                &mut env,
-                crate::service::execution_sandbox::environment(&owner, &target),
-            );
-            env.remove(super::cli_exception::SCOPE_ENV);
-            super::environment::mark_runtime_agent(
-                &mut env,
-                !capability.turn_scoped_requests.is_empty(),
-            );
-            if restricted_cli {
-                env.insert(
-                    super::cli_exception::SCOPE_ENV.into(),
-                    super::cli_exception::SCOPE.into(),
-                );
-            }
-            if !super::authority::verifies(&owner, &target, &provider_id, &nonce)
-                || !launch.verifies(&owner, &target)
-            {
-                return Err(RuntimeFailure::Superseded);
-            }
-            let minted_local = super::host_mcp::minted_local(
-                &env,
-                &crate::service::tab_credentials::TabCaller {
-                    tab_id: target.clone(),
-                    binding_nonce: nonce.clone(),
-                },
-                |token| owner.identify_tab_credential(token),
-            );
-            let host_mcp = super::host_mcp::descriptor(
-                capability.host_mcp.is_some(),
-                minted_local,
-                &target,
-                &nonce,
-                crate::service::instance_env::instance_cli_binary_path(),
-                &env,
-            );
-            super::process::spawn(&launch, &cwd, env, &target).map(|process| {
-                (
-                    Arc::new(process),
-                    host_mcp,
-                    launch.capability.client_bridges.clone(),
+        let (process, host_mcp, declared_bridges) =
+            codeterm_plugin::js_runtime::spawn_blocking(move || {
+                let nonce = launch_nonce;
+                let authority = LaunchAuthority::verify(
+                    &owner,
+                    RuntimeLaunchBinding {
+                        tab_id: target.clone(),
+                        provider_id: provider_id.clone(),
+                        binding_nonce: nonce.clone(),
+                    },
                 )
+                .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
+                let launch = super::launch_profile::resolve(
+                    &owner,
+                    &target,
+                    &authority,
+                    adapter.as_ref(),
+                    &capability,
+                )?;
+                let cwd = owner
+                    .mux
+                    .read()
+                    .get_tab(&target)
+                    .and_then(|tab| tab.cwd.clone())
+                    .ok_or_else(|| RuntimeFailure::SpawnFailed {
+                        reason: "Runtime cwd missing".into(),
+                    })?;
+                let mut env = super::environment::compose(&owner, &target, &provider_id, &nonce)
+                    .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
+                env.extend(
+                    owner
+                        .model_provider_launch_env(&provider_id)
+                        .map_err(|error| RuntimeFailure::SpawnFailed {
+                            reason: error.to_string(),
+                        })?,
+                );
+                super::environment::prepare_spawn(
+                    &owner,
+                    &target,
+                    &launch,
+                    &mut env,
+                    restricted_cli,
+                )
+                .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
+                if !super::authority::verifies(&owner, &target, &provider_id, &nonce)
+                    || !launch.verifies(&owner, &target)
+                {
+                    return Err(RuntimeFailure::Superseded);
+                }
+                let minted_local = super::host_mcp::minted_local(
+                    &env,
+                    &crate::service::tab_credentials::TabCaller {
+                        tab_id: target.clone(),
+                        binding_nonce: nonce.clone(),
+                    },
+                    |token| owner.identify_tab_credential(token),
+                );
+                let host_mcp = super::host_mcp::descriptor(
+                    capability.host_mcp.is_some(),
+                    minted_local,
+                    &target,
+                    &nonce,
+                    crate::service::instance_env::instance_cli_binary_path(),
+                    &env,
+                );
+                super::process::spawn(&launch, &cwd, env, &target).map(|process| {
+                    (
+                        Arc::new(process),
+                        host_mcp,
+                        launch.capability.client_bridges.clone(),
+                    )
+                })
             })
-        })
-        .await
-        .map_err(|error| RuntimeFailure::SpawnFailed {
-            reason: error.to_string(),
-        })??;
+            .await
+            .map_err(|error| RuntimeFailure::SpawnFailed {
+                reason: error.to_string(),
+            })??;
         if !session
             .process
             .install(process.clone(), |process| process.stop())
@@ -756,7 +750,7 @@ pub async fn ensure_locked(
         }
         session.context.lock().host_mcp = host_mcp;
         let bridge_context = session.context.lock().clone();
-        let installed = tokio::task::spawn_blocking(move || {
+        let installed = codeterm_plugin::js_runtime::spawn_blocking(move || {
             super::client_bridge::install(&bridge_context, declared_bridges)
         })
         .await
@@ -939,7 +933,7 @@ pub async fn ensure_locked(
     let target = tab.to_string();
     let thread = thread_id.clone();
     let nonce = session.context.lock().binding_nonce.clone();
-    tokio::task::spawn_blocking(move || {
+    codeterm_plugin::js_runtime::spawn_blocking(move || {
         owner.finalize_runtime_worker_session(&target, &thread, &nonce)?;
         let main = {
             let mux = owner.mux.read();
@@ -965,7 +959,7 @@ pub async fn ensure_locked(
     let owner = svc.clone();
     let target = tab.to_string();
     let thread = thread_id.clone();
-    let questions = tokio::task::spawn_blocking(move || {
+    let questions = codeterm_plugin::js_runtime::spawn_blocking(move || {
         owner
             .pending_delivery_payloads
             .user_sends
@@ -1001,7 +995,7 @@ pub async fn ensure_locked(
     let history_adapter = session.adapter.lock().clone();
     let history_cwd = context.cwd.clone();
     let history_thread = thread_id.clone();
-    let stored_history = tokio::task::spawn_blocking(move || {
+    let stored_history = codeterm_plugin::js_runtime::spawn_blocking(move || {
         history_adapter.is_some_and(|adapter| {
             adapter.runtime_stored_history_available(&history_cwd, &history_thread)
         })

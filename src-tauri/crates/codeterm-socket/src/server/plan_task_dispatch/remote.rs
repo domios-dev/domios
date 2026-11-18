@@ -7,9 +7,12 @@ use codeterm_service_core::service::ServiceState;
 use super::{dispatch_authorized_gates, invalid_dispatch, owned_str};
 use crate::server::{plan_refs, JsonRpcError};
 
+pub(super) mod brief;
+
 // The peer creates a lane and launches the Worker before answering; a busy Windows peer
 // outlives the 5s unary default, which closed live attempts as peer_offline.
 const WORKER_DISPATCH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
+const WORKER_LANE_BUNDLE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
 fn encoded_bundle_size_allowed(encoded_size: usize, max_bundle_bytes: usize) -> bool {
     encoded_size <= max_bundle_bytes.div_ceil(3) * 4
@@ -175,6 +178,12 @@ pub(super) fn dispatch(
     {
         return Err(invalid_dispatch("mesh Workers always require a peer lane"));
     }
+    let manifest = codeterm_service_core::service::plan::plan_skills::plan_skill_manifest(
+        &svc.plan_store,
+        &plan_id,
+    )
+    .map_err(super::super::plan::plan_rpc_err)?;
+    let skill_context = brief::plan_skill_context(&svc.plan_store, &plan_id, &manifest)?;
     let attempt_id = codeterm_service_core::plan::ids::short_id("attempt");
     let (peer_id, peer_name, peer_client, peer_state) = select_peer(svc, &peer_target)?;
     if let Some(client) = peer_client
@@ -191,6 +200,7 @@ pub(super) fn dispatch(
             &peer_id,
             &peer_name,
             &model.provider_id,
+            hosted_role.as_ref().map(|role| role.kind.as_str()),
             &base,
             &destination,
             now,
@@ -214,17 +224,15 @@ pub(super) fn dispatch(
             "paired peer is offline; the origin attempt is retained for retry",
         ));
     }
-    let manifest = codeterm_service_core::service::plan::plan_skills::plan_skill_manifest(
-        &svc.plan_store,
-        &plan_id,
-    )
-    .map_err(super::super::plan::plan_rpc_err)?;
     let brief = super::brief::build_brief_with_manifest(
         (&preparation, &task),
         &plan_id,
-        &manifest,
+        &[],
         &authorized_gates,
     );
+    let origin_tab_id = owned_str(p, "caller_tab_id")
+        .or(task.owner_tab_id.clone())
+        .ok_or_else(|| invalid_dispatch("mesh dispatch requires the origin Orchestrator tab"))?;
     let origin_id = svc
         .ext::<codeterm_service_core::MeshStateHandle>()
         .lock()
@@ -232,14 +240,19 @@ pub(super) fn dispatch(
         .identity
         .instance_id
         .clone();
-    let brief = remote_worker_brief(brief, &plan_id, &task_id, &attempt_id, &origin_id);
+    let brief = brief::remote_worker_brief(
+        brief,
+        &plan_id,
+        &task_id,
+        &attempt_id,
+        &origin_id,
+        &origin_tab_id,
+        &skill_context,
+    );
     let brief = match &hosted_role {
         Some(role) => team_template_remote::compose_hosted_brief(&brief, role),
         None => brief,
     };
-    let origin_tab_id = owned_str(p, "caller_tab_id")
-        .or(task.owner_tab_id.clone())
-        .ok_or_else(|| invalid_dispatch("mesh dispatch requires the origin Orchestrator tab"))?;
     let description_override =
         owned_str(p, "description").filter(|description| !description.trim().is_empty());
     let description = super::task_tab_description(&task.name, description_override.as_deref());
@@ -540,9 +553,12 @@ pub(crate) fn merge_lane(
         "attempt_id": attempt_id,
         "report_sha": report_sha,
     });
-    let response = codeterm_service_core::async_runtime::block_on(
-        peer_client.auth_post_json("/api/mesh/worker-lane-bundle", &request),
-    );
+    let response =
+        codeterm_service_core::async_runtime::block_on(peer_client.auth_post_json_within(
+            "/api/mesh/worker-lane-bundle",
+            &request,
+            Some(WORKER_LANE_BUNDLE_DEADLINE),
+        ));
     let response = match response {
         Ok(response) => response,
         Err(error) => {
@@ -757,8 +773,7 @@ fn remote_failure(state: &str, attempt_id: &str, detail: &str) -> JsonRpcError {
 }
 
 fn git_head(cwd: &str) -> Result<String, String> {
-    let mut command = std::process::Command::new("git");
-    codeterm_service_core::process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     let output = command
         .current_dir(cwd)
         .args(["rev-parse", "HEAD"])
@@ -768,37 +783,6 @@ fn git_head(cwd: &str) -> Result<String, String> {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
-/// A peer has no local plan, so the local ACK and report instructions are replaced
-/// by commands that reach the origin attempt through the mesh.
-pub(super) fn remote_worker_brief(
-    brief: String,
-    plan_id: &str,
-    task_id: &str,
-    attempt_id: &str,
-    origin_id: &str,
-) -> String {
-    let remote_ack = format!(
-        "Highest-priority startup action: run `domios plan task remote-ack {plan_id} {task_id} {attempt_id} --mesh {origin_id}` before any work. Do not continue until it prints the task id. This peer has no local plan, so `domios agent ack` and `domios agent report` do not apply here."
-    );
-    let ack = codeterm_plan::service_plan::worker_identity::WORKER_ACK_INSTRUCTION;
-    let mut brief = if brief.contains(ack) {
-        brief.replacen(ack, &remote_ack, 1)
-    } else {
-        format!(
-            "{remote_ack}
-
-{brief}"
-        )
-    };
-    brief.push_str(&format!(
-        "
-
-Remote final report: write the report to a file, then run `domios plan task remote-report {plan_id} {task_id} {attempt_id} --message-file <report-path> --sha <lane-head> --mesh {origin_id}`. It persists your report on the origin attempt and moves the task to in_review.
-"
-    ));
-    brief
 }
 
 #[cfg(test)]
@@ -839,11 +823,14 @@ mod tests {
 
     #[test]
     fn mesh_remote_dispatch_peer_refusal_is_not_relay_lost() {
-        let refused = remote_error_state(
-            "HTTP error: peer_worker_spawn_failed: startup supervisor unavailable",
-        );
-        assert_eq!(refused.0, RemoteDispatchState::PeerRefused);
-        assert_ne!(refused.0, RemoteDispatchState::RelayLost);
+        for detail in [
+            "HTTP error: 500 Internal Server Error: peer_worker_spawn_failed: startup supervisor unavailable",
+            "HTTP error: 413 Payload Too Large: worker lane bundle exceeds 32 MiB",
+        ] {
+            let (state, label) = remote_error_state(detail);
+            assert_eq!(state, RemoteDispatchState::PeerRefused);
+            assert!(remote_failure(label, "attempt", detail).message.ends_with(detail));
+        }
         assert_eq!(
             remote_error_state("Bad response: expected value").0,
             RemoteDispatchState::RelayLost,

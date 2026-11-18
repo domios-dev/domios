@@ -3,6 +3,51 @@ use crate::multiplexer::types::{PriorBindingNonce, RestorableLaunchParameters};
 use crate::session::store::SessionSnapshot;
 use serde_json::json;
 
+#[test]
+fn wire_account_projection_tracks_authoritative_launch_and_restore() {
+    let (mut state, id) = MultiplexerState::new();
+    let wire = serde_json::to_value(state.snapshot()).unwrap();
+    assert_eq!(
+        wire["tabs"][&id]["account"],
+        json!({"id":"default", "notices":[]})
+    );
+    populate(&mut state, &id, 4);
+    let launch = &mut state.get_tab_mut(&id).unwrap().restorable_launch;
+    launch.account_id = Some("work".into());
+    launch.account_namespace = Some("private-namespace".into());
+    launch
+        .account_notices
+        .push(crate::multiplexer::types::AccountContinuationNotice {
+            verification: None,
+            id: "receipt".into(),
+            provider: "fixture-provider".into(),
+            session: "own-session".into(),
+            at_ms: 12,
+            content: "Continued".into(),
+            boundary: Some("own-turn".into()),
+            resets_at_ms: None,
+        });
+    let saved = state.to_session_snapshot();
+    let restored = MultiplexerState::from_session_snapshot(&saved);
+    let mut tab = serde_json::to_value(restored.get_tab(&id).unwrap()).unwrap();
+    let projection = &tab["account"];
+    assert_eq!(projection.as_object().unwrap().len(), 3);
+    assert_eq!(projection["id"], "work");
+    assert_eq!(projection["namespace"], "private-namespace");
+    assert_eq!(projection["notices"][0]["id"], "receipt");
+    assert!(tab.get("restorable_launch").is_none());
+    assert!(!tab.to_string().contains("identity_instructions"));
+    tab["account"] = json!({"id":"foreign", "namespace":"foreign", "notices":[]});
+    let read: crate::multiplexer::types::Tab = serde_json::from_value(tab).unwrap();
+    assert_eq!(
+        read.restorable_launch,
+        RestorableLaunchParameters::default()
+    );
+    state.get_tab_mut(&id).unwrap().restorable_launch.account_id = Some("next".into());
+    let wire = serde_json::to_value(state.snapshot()).unwrap();
+    assert_eq!(wire["tabs"][&id]["account"]["id"], "next");
+}
+
 fn populate(state: &mut MultiplexerState, id: &str, config: usize) {
     let tab = state.get_tab_mut(id).unwrap();
     tab.agent_type = Some("fixture-provider".into());

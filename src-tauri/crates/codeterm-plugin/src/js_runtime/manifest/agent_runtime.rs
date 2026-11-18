@@ -13,6 +13,7 @@ pub enum RuntimeManifestError {
     SubprocessDenied,
     InvalidEnvironmentExclusion,
     InvalidMethods,
+    InvalidHttpTransport,
     ConsentRequired,
     BinaryUnavailable,
     BinaryUnknown,
@@ -114,6 +115,14 @@ impl AgentRuntimeCapability {
     }
 
     pub fn validate_declaration(&self) -> Result<(), RuntimeManifestError> {
+        match (&self.runtime, &self.http_sse) {
+            (crate::agent_runtime::AgentRuntimeProtocol::HttpSse, Some(http))
+                if http.valid_for(self)
+                    && self.envelope.is_none()
+                    && self.launch_profiles.is_none() => {}
+            (crate::agent_runtime::AgentRuntimeProtocol::StdioJsonrpc, None) => {}
+            _ => return Err(RuntimeManifestError::InvalidHttpTransport),
+        }
         if self.host_mcp.as_ref().is_some_and(|declaration| {
             declaration.param.is_empty()
                 || declaration.param.len() > 128

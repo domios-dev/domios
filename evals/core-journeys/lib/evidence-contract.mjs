@@ -5,6 +5,7 @@ import { restartObserved } from "../../restart-endurance/restart.mjs";
 import { JOURNEYS, renderMarkdown, verdict } from "./results.mjs";
 import { modelEvidenceErrors } from "./model-evidence.mjs";
 import { journeyIds, loadAreas, runs, selectionErrors } from "./selection.mjs";
+import { ACCESS_LEVELS } from "../journeys/neighbors.mjs";
 
 export const VERDICTS = ["pass", "fail", "skip"];
 export const PHASES = ["setup", "verify", "cleanup"];
@@ -64,6 +65,7 @@ function checkIds(results, expected, errors) {
   const state = results.state;
   if (!isObject(state)) { errors.push("results.json: state missing"); return; }
   if (!isText(state.run)) errors.push("results.json: state.run (run id) missing");
+  if (results.selection && !["J1", "J2", "J3", "J4"].some(id => runs(results.selection, id))) return;
   if (!isText(state.workspace?.id)) errors.push("results.json: state.workspace.id missing");
   const tabs = Array.isArray(state.tabs) ? state.tabs : [];
   if (!tabs.length) errors.push("results.json: state.tabs recorded no tab ids");
@@ -81,6 +83,41 @@ function checkIds(results, expected, errors) {
   if (!isText(before.build_sha)) errors.push("results.json: state.before_restart.build_sha missing");
   if (!Array.isArray(before.tabs) || !before.tabs.length) errors.push("results.json: state.before_restart.tabs recorded no tab ids");
   else before.tabs.forEach((tab, index) => { if (!isText(tab?.id)) errors.push(`results.json: state.before_restart.tabs[${index}].id missing`); });
+}
+
+function checkNeighbors(results, errors) {
+  if (!runs(results.selection, "J5")) return;
+  const checks = results.checks.filter(check => check.journey === "J5");
+  if (checks.some(check => !check.pass)) return;
+  const state = results.state?.j5;
+  if (!state || !Array.isArray(state.peers) || state.peers.length !== 2 || !state.peers.every(isObject)
+    || !Array.isArray(state.rows) || state.restored !== true) {
+    errors.push("J5: qualified peer pair or persisted permission restoration missing");
+    return;
+  }
+  const [a, b] = state.peers;
+  if (a.instance === b.instance || a.port === b.port || a.build_sha !== b.build_sha || !/^[a-f0-9]{40}$/.test(a.build_sha)) errors.push("J5: peer identities or candidate disagree");
+  for (const peer of state.peers) {
+    if (SHARED_PORTS.includes(peer.port) || !peer.signed_in || peer.backend?.project_id !== "domios-signin-qa" || peer.backend?.target !== "qa") errors.push("J5: peer is not an isolated signed-in QA target");
+  }
+  for (const access of ACCESS_LEVELS) {
+    const row = state.rows?.find(row => row.access === access);
+    const q = row?.question?.message_id;
+    const answer = row?.recipient?.answers?.[0];
+    if (!checks.some(check => check.name === "neighbors_roundtrip" && check.subject === access && check.pass)
+      || !q || !answer?.message_id || answer.kind !== "answer" || answer.in_reply_to !== q
+      || row.recipient.answers.length !== 1 || !row.recipient.answer_matches || !row.recipient.answer_by_concierge
+      || !row.recipient.question_matches || row.recipient.question?.handling_state !== "answered"
+      || row.recipient.session !== row.concierge?.session || !isText(row.concierge?.session)
+      || !isText(state.expected_provider) || !isText(state.expected_model)
+      || row.concierge.provider !== state.expected_provider || row.concierge.requested_model !== state.expected_model
+      || row.recipient.actual_model !== state.expected_model
+      || row.concierge.machine_access !== access || !isText(row.concierge.initial_context_digest)
+      || row.friend?.answers?.length !== 1 || row.friend.answers[0].message_id !== answer.message_id
+      || !row.friend.answer_matches || row.friend.question?.delivery_status !== "delivered"
+      || row.idle?.answer?.message_id !== answer.message_id || row.idle.answer.delivery_status !== "delivered"
+      || row.idle.status !== "idle" || row.idle.session !== row.concierge.session) errors.push(`J5 ${access}: exact linked concierge answer, far-end delivery or idle evidence missing`);
+  }
 }
 
 function checkScreenshots(dir, results, expected, errors) {
@@ -132,9 +169,10 @@ export function validateRun(dir, { restartFile = "restart.json", areas = loadAre
     checkPhases(results, phases, errors);
     checkChecks(results, ["SETUP", ...ran], journeyIds(areas).filter((id) => !ran.includes(id)), errors);
     checkIds(results, phases, errors);
+    checkNeighbors(results, errors);
     errors.push(...modelEvidenceErrors(results.state, { verify: restarts, selection,
       builds: Object.fromEntries((Array.isArray(results.phases) ? results.phases : []).filter(Boolean).map(phase => [phase.name, phase.build_sha])) }));
-    checkScreenshots(dir, results, phases, errors);
+    if (!selection || ["J1", "J2", "J3", "J4"].some(id => runs(selection, id))) checkScreenshots(dir, results, phases, errors);
     checkMarkdown(dir, results, errors);
   }
   if (restarts) checkRestart(dir, results, restartFile, errors);

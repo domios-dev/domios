@@ -12,8 +12,8 @@ const LABEL: Record<Exclude<DeliveryState, "delivered">, string> = {
 const QUEUED_BEHIND_TURN = "Queued until the current turn ends";
 const RESEND_WITH_CLI = "Resend with domios send.";
 
-export function ChatDeliveryState({ state, error, onRetry, onRemove, onEdit, resendWithCli = false, queuedBehindTurn = false, inline = false }: {
-  state: DeliveryState; error?: string | null; onRetry?: () => void; onRemove?: () => void; onEdit?: () => void; resendWithCli?: boolean; queuedBehindTurn?: boolean; inline?: boolean;
+export function ChatDeliveryState({ state, error, onRetry, onRemove, onEdit, resendWithCli = false, queuedBehindTurn = false, inline = false, quietFailure = false }: {
+  state: DeliveryState; error?: string | null; onRetry?: () => void; onRemove?: () => void; onEdit?: () => void; resendWithCli?: boolean; queuedBehindTurn?: boolean; inline?: boolean; quietFailure?: boolean;
 }) {
   if (state === "delivered") return null;
   const refusalMarker = state === "failed" ? ["runtime_rejected_before_write:", "runtime_preflight_before_write:"].find(marker => error?.includes(marker))
@@ -21,7 +21,7 @@ export function ChatDeliveryState({ state, error, onRetry, onRemove, onEdit, res
   const refusal = refusalMarker && error?.includes(refusalMarker)
     ? error.slice(error.indexOf(refusalMarker) + refusalMarker.length).trim() : null;
   const resendHint = state === "failed" && resendWithCli;
-  const failure = state === "failed" ? error?.trim() || "Message was not sent; the failure reason is unavailable." : null;
+  const failure = state === "failed" && !quietFailure ? error?.trim() || "Message was not sent; the failure reason is unavailable." : null;
   const reason = refusal || failure || (state === "queued" && queuedBehindTurn ? QUEUED_BEHIND_TURN : LABEL[state]);
   const label = resendHint ? `${reason} ${RESEND_WITH_CLI}` : reason;
   const actions = state === "failed" || state === "uncertain"

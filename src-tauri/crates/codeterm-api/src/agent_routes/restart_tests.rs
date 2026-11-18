@@ -28,6 +28,9 @@ fn restart_response_reports_observed_transition_legs() {
         old_pty_torn_down: true,
         agent_ready: true,
         binding_restored: true,
+        source_account_restored: false,
+        account_target_refused: false,
+        account_refusal_nonce: None,
         recovered_in_place: false,
         old_pty_id: Some("pty-old".into()),
         new_pty_id: Some("pty-new".into()),
@@ -60,6 +63,9 @@ fn exit_recovery_response_reports_the_same_pty_resumed_in_place() {
         old_pty_torn_down: false,
         agent_ready: true,
         binding_restored: true,
+        source_account_restored: false,
+        account_target_refused: false,
+        account_refusal_nonce: None,
         recovered_in_place: true,
         old_pty_id: Some("pty-shell".into()),
         new_pty_id: Some("pty-shell".into()),
@@ -88,6 +94,9 @@ fn agent_restart_reports_resumed_or_fresh_launch() {
             old_pty_torn_down: true,
             agent_ready: true,
             binding_restored: true,
+            source_account_restored: false,
+            account_target_refused: false,
+            account_refusal_nonce: None,
             recovered_in_place: false,
             old_pty_id: Some("pty-old".into()),
             new_pty_id: Some("pty-new".into()),
@@ -122,6 +131,9 @@ fn stale_pre_restart_ready_does_not_satisfy_new_agent_readiness() {
         old_pty_torn_down: true,
         agent_ready: false,
         binding_restored: false,
+        source_account_restored: false,
+        account_target_refused: false,
+        account_refusal_nonce: None,
         recovered_in_place: false,
         old_pty_id: Some("pty-old".into()),
         new_pty_id: None,
@@ -136,4 +148,17 @@ fn stale_pre_restart_ready_does_not_satisfy_new_agent_readiness() {
     assert_eq!(body["old_pty_torn_down"], true);
     assert_eq!(body["agent_ready"], false);
     assert_eq!(body["new_pty_id"], serde_json::Value::Null);
+    assert_eq!(body["account_target_refused"], false);
+    assert_eq!(body["source_account_restored"], false);
+    let mut restored = outcome;
+    restored.account_target_refused = true;
+    restored.source_account_restored = true;
+    restored.account_refusal_nonce = Some("opaque-failed-target-nonce".into());
+    let refusal = agent_restart_failure_response(&restored, "opaque target refusal");
+    assert_eq!(refusal["account_target_refused"], true);
+    assert_eq!(refusal["source_account_restored"], true);
+    assert_eq!(
+        refusal["account_refusal_nonce"],
+        "opaque-failed-target-nonce"
+    );
 }

@@ -22,7 +22,7 @@ export function latestUsageSnapshot(snapshot: UsageLatestView | null, tabId?: st
   const runtime = ownRuntimeUsage(snapshot, tabId, threadId);
   if (!runtime) return snapshot.runtime_usage || snapshot.parsed_ok === undefined ? null : snapshot;
   const own = runtimeLimitsSnapshot(snapshot, runtime);
-  if (runtime.billing_mode !== "subscription" || !snapshot.parsed_ok || snapshot.captured_at < (runtime.rate_limits?.captured_at ?? 0)) return own;
+  if ((snapshot.account_id ?? null) !== (runtime.account_id ?? null) || runtime.billing_mode !== "subscription" || !snapshot.parsed_ok || snapshot.captured_at < (runtime.rate_limits?.captured_at ?? 0)) return own;
   return {...snapshot, resets: own.resets};
 }
 
@@ -47,9 +47,10 @@ export function ownRuntimeUsage(snapshot: UsageLatestView | null, tabId?:string,
 
 export function runtimeLimitsSnapshot(snapshot:UsageLatestView, reading:RuntimeUsageProjection): UsageSnapshot {
   const windows = reading.billing_mode === "subscription" ? reading.rate_limits?.value ?? [] : [];
-  const primary = windows.find(window => window.window === "primary") ?? windows[0];
-  const secondary = windows.find(window => window.window === "secondary") ?? windows[1];
-  return {...snapshot,id:0,provider:snapshot.provider,account_id:null,usage_details:snapshot.usage_details,
+  const named = windows.some(window => window.window === "primary" || window.window === "secondary");
+  const primary = named ? windows.find(window => window.window === "primary") : windows[0];
+  const secondary = named ? windows.find(window => window.window === "secondary") : windows[1];
+  return {...snapshot,id:0,provider:snapshot.provider,account_id:reading.account_id ?? null,usage_details:snapshot.usage_details,
     captured_at:reading.rate_limits?.captured_at ?? reading.token_usage?.captured_at ?? reading.captured_at ?? snapshot.captured_at ?? 0,
     resets:reading.resets,
     parsed_ok:true,billing_mode:reading.billing_mode,limits_reported:windows.length > 0,

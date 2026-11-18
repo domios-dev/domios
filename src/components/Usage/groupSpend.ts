@@ -1,10 +1,15 @@
-import type { ModelGroupUsage } from "../../lib/types";
+import type { ModelGroup, ModelGroupUsage } from "../../lib/types";
 import type { UsageSnapshot } from "../../types/usage";
 
-/** True when a group's provider-declared usage carries a spend meter. A group
- *  with tokens but no reported spend renders nothing here. */
+/** A known balance can be displayed before the provider reports any spend. */
 export function hasGroupSpend(usage: ModelGroupUsage | null | undefined): usage is ModelGroupUsage {
-  return !!usage && usage.spend_cents != null;
+  return !!usage && (usage.spend_cents != null || usage.spend_remaining_cents != null);
+}
+
+export function groupBalance(usage: ModelGroupUsage, groups?: ModelGroup[]) {
+  if (usage.spend_remaining_cents == null) return null;
+  const label = groups?.find(group => group.id === usage.group)?.label ?? usage.group;
+  return { title: `${label} balance`, amount: `$${(usage.spend_remaining_cents / 100).toFixed(2)}` };
 }
 
 /**

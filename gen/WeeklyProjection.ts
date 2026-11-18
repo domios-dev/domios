@@ -2,12 +2,12 @@
 import type { Confidence } from "./Confidence";
 import type { DayActual } from "./DayActual";
 
-export type WeeklyProjection = { end_of_today_pct: number, end_of_cycle_pct: number, avg_weekday_spend: number, avg_weekend_spend: number, 
+export type WeeklyProjection = { end_of_today_pct: number, end_of_cycle_pct: number, avg_weekday_spend: number, avg_weekend_spend: number,
 /**
  * Per day-of-week projected spend (0=Sun..6=Sat). Lets the UI paint each
  * future day's bar with its own scale instead of one weekday average.
  */
-dow_estimates: [number, number, number, number, number, number, number], rate_per_min_recent: number, rest_of_today_est: number, today_so_far: number, confidence: Confidence, 
+dow_estimates: [number, number, number, number, number, number, number], rate_per_min_recent: number, rest_of_today_est: number, today_so_far: number, confidence: Confidence,
 /**
  * Per-day actuals for the active cycle, oldest→newest. None = no data.
  */

@@ -7,36 +7,36 @@ import type { NotifyLevel } from "./NotifyLevel";
 import type { SurfaceOffer } from "./SurfaceOffer";
 import type { TabCondition } from "./TabCondition";
 
-export type Notification = { id: string, tab_id: string | null, workspace_id: string | null, tab_title?: string, peer_name?: string, 
+export type Notification = { id: string, tab_id: string | null, workspace_id: string | null, tab_title?: string, peer_name?: string,
 /**
  * Navigation hint only: the tab whose chat holds the message this is about.
  */
-target_tab_id?: string, chat_message_id?: string, title: string, body: string | null, severity: NotificationSeverity, 
+target_tab_id?: string, chat_message_id?: string, title: string, body: string | null, severity: NotificationSeverity,
 /**
  * The axis a caller may name explicitly, independent of `severity`. Absent
  * is a legal, distinct state, never defaulted from `severity` here.
  */
-level?: NotifyLevel, timestamp: number, read: boolean, actions?: Array<NotificationAction>, 
+level?: NotifyLevel, timestamp: number, read: boolean, actions?: Array<NotificationAction>,
 /**
  * Opened when the record offers a choice. Carries the asking tab captured
  * at send time and the one answer it may ever hold.
  */
-answer?: AnswerSlot, resolved?: boolean, 
+answer?: AnswerSlot, resolved?: boolean,
 /**
  * The surface this question offers to turn on, and the one label that
  * turns it on. Daemon-constructed, and read only when an answer is
  * recorded — an untapped offer changes nothing.
  */
-surface_offer?: SurfaceOffer, sticky?: boolean, 
+surface_offer?: SurfaceOffer, sticky?: boolean,
 /**
  * Set when the push sink refused the record. Never surfaced to the caller.
  */
-push_failed?: boolean, 
+push_failed?: boolean,
 /**
  * Where each channel put the message that carried this record, in that
  * channel's own terms. Written by the channel, read by the same channel.
  */
-placements?: Array<ChannelPlacement>, 
+placements?: Array<ChannelPlacement>,
 /**
  * The tab condition this record announces; it resolves when that ends.
  */

@@ -1,10 +1,9 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
 use wait_timeout::ChildExt;
 
 use codeterm_plugin::provider::WorkerLaneSetting;
-use codeterm_util::process_util;
 
 mod language_server_settings;
 
@@ -260,8 +259,7 @@ pub fn fetch_base_commit(cwd: &str, remote: &str, commit: &str) -> Result<(), St
     if !matches!(commit.len(), 40 | 64) || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("requested base is not a full commit id".into());
     }
-    let mut command = Command::new("git");
-    process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     let mut child = command
         .current_dir(cwd)
         .args(["fetch", "--quiet", "--no-tags", remote, commit])
@@ -705,8 +703,7 @@ fn lane_slug(value: &str) -> String {
 
 fn run_git<'a>(project_cwd: &str, args: impl IntoIterator<Item = &'a str>) -> Result<(), String> {
     let args: Vec<&str> = args.into_iter().collect();
-    let mut command = Command::new("git");
-    process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     let output = command
         .current_dir(project_cwd)
         .args(&args)
@@ -717,13 +714,12 @@ fn run_git<'a>(project_cwd: &str, args: impl IntoIterator<Item = &'a str>) -> Re
     }
     Err(format!(
         "failed to provision worker lane: {}",
-        String::from_utf8_lossy(&output.stderr).trim()
+        codeterm_util::process_util::git_diagnostics(&output.stderr)
     ))
 }
 
 fn git_success(project_cwd: &str, args: &[&str]) -> bool {
-    let mut command = Command::new("git");
-    process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     command
         .current_dir(project_cwd)
         .args(args)
@@ -754,8 +750,7 @@ fn git_output<'a>(
     args: impl IntoIterator<Item = &'a str>,
 ) -> Result<std::process::Output, String> {
     let args: Vec<&str> = args.into_iter().collect();
-    let mut command = Command::new("git");
-    process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     command
         .current_dir(project_cwd)
         .args(&args)
@@ -767,7 +762,7 @@ fn git_output<'a>(
 fn inspect_failure(stderr: &[u8]) -> String {
     format!(
         "failed to inspect worker lane: {}",
-        String::from_utf8_lossy(stderr).trim()
+        codeterm_util::process_util::git_diagnostics(stderr)
     )
 }
 

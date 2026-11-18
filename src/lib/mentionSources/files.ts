@@ -1,4 +1,5 @@
 import { mentionMatch, type MentionSource } from "../composerMentions";
+import { formatAttachmentMarker } from "@codeterm/chat-core";
 
 export interface MentionFile { name: string; path: string }
 
@@ -13,7 +14,7 @@ export function fileMentionSource(read: (path: string, signal: AbortSignal) => P
       signal.throwIfAborted();
       return files.map(file => ({
         kind: "file" as const, id: `files:${file.path}`, label: file.name, group: "Files", description: file.path.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\/, ""),
-        insertText: JSON.stringify(file.path), match: mentionMatch(query, [file.name]),
+        insertText: formatAttachmentMarker(file.path), match: mentionMatch(query, [file.name]),
       }));
     },
   };

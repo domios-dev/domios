@@ -25,6 +25,9 @@ impl<K: Eq, V: Clone> RevisionCache<K, V> {
     }
 
     pub fn insert(&mut self, key: String, revision: K, value: V) {
+        if self.entries.len() >= 256 && !self.entries.contains_key(&key) {
+            self.entries.clear();
+        }
         self.entries.insert(key, (revision, value));
     }
 }

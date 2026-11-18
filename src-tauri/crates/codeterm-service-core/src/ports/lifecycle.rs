@@ -60,8 +60,16 @@ pub trait AgentLifecyclePort: Send + Sync {
         force: bool,
     ) -> Result<(), AgentRestartError>;
     fn resume_exited_member_on_shell_ready(&self, tab_id: &str);
-    fn signal_provider_exhaustion(&self, provider: &str) -> Result<usize, PlanError>;
-    fn signal_provider_recovery(&self, provider: &str) -> Result<usize, PlanError>;
+    fn signal_provider_exhaustion(
+        &self,
+        provider: &str,
+        account: Option<&str>,
+    ) -> Result<usize, PlanError>;
+    fn signal_provider_recovery(
+        &self,
+        provider: &str,
+        account: Option<&str>,
+    ) -> Result<usize, PlanError>;
     fn signal_worker_interruption(
         &self,
         tab_id: &str,
@@ -218,13 +226,27 @@ impl AgentLifecyclePort for RecordingLifecycle {
         self.record("resume_exited_member_on_shell_ready", tab_id);
     }
 
-    fn signal_provider_exhaustion(&self, provider: &str) -> Result<usize, PlanError> {
-        self.record("signal_provider_exhaustion", provider);
+    fn signal_provider_exhaustion(
+        &self,
+        provider: &str,
+        account: Option<&str>,
+    ) -> Result<usize, PlanError> {
+        self.record(
+            "signal_provider_exhaustion",
+            &format!("{provider}:{}", account.unwrap_or("default")),
+        );
         Ok(0)
     }
 
-    fn signal_provider_recovery(&self, provider: &str) -> Result<usize, PlanError> {
-        self.record("signal_provider_recovery", provider);
+    fn signal_provider_recovery(
+        &self,
+        provider: &str,
+        account: Option<&str>,
+    ) -> Result<usize, PlanError> {
+        self.record(
+            "signal_provider_recovery",
+            &format!("{provider}:{}", account.unwrap_or("default")),
+        );
         Ok(0)
     }
 

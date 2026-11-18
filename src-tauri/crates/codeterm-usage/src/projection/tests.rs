@@ -152,6 +152,38 @@ fn empty_db_returns_no_weekly() {
 }
 
 #[test]
+fn projections_use_only_the_selected_account_including_the_usual_account() {
+    let provider = unique_provider("account");
+    let store = store();
+    let now = now_at_hour(15);
+    store.with_conn(|conn| {
+        for (account, captured_at, percent) in [(None, now - 1, 12.0), (Some("work"), now, 73.0)] {
+            for (at, used) in [
+                (captured_at - 3_600_000, percent - 1.0),
+                (captured_at, percent),
+            ] {
+                conn.execute(
+                    "INSERT INTO usage_snapshots (provider, account_id, captured_at, parsed_ok, \
+                     session_pct, session_resets_at, weekly_pct, weekly_resets_at) \
+                     VALUES (?1, ?2, ?3, 1, ?4, ?5, ?4, ?6)",
+                    rusqlite::params![provider, account, at, used, now + 3_600_000, RESETS_A],
+                )
+                .unwrap();
+            }
+        }
+    });
+    for (account, percent) in [(None, 12.0), (Some("work"), 73.0)] {
+        let view = compute(&store, &provider, account, now).unwrap();
+        assert!((view.session.unwrap().projected_pct - (percent + 1.0)).abs() < 0.01);
+        let weekly = view.weekly.unwrap();
+        assert!((weekly.end_of_today_pct - weekly.rest_of_today_est - percent).abs() < 0.01);
+    }
+    let unknown = compute(&store, &provider, Some("unknown"), now).unwrap();
+    assert!(unknown.session.is_none());
+    assert!(unknown.weekly.is_none());
+}
+
+#[test]
 fn no_finite_projection_when_share_zero_and_no_activity() {
     let p = unique_provider("share-zero");
     let s = store();

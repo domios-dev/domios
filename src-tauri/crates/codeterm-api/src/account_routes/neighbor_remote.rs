@@ -1,6 +1,7 @@
 use super::*;
 use crate::auth::{AgentHeaders, RequestActor};
 use codeterm_neighbors_service::service::neighbors::{NeighborCommand, NeighborRuntimeCommand};
+mod receiver_grant;
 
 fn admit(actor: &RequestActor) -> Result<(), Response> {
     if matches!(actor, RequestActor::Owner) {
@@ -59,6 +60,11 @@ pub async fn runtime(
     headers: AgentHeaders,
     Json(command): Json<NeighborRuntimeCommand>,
 ) -> Result<Json<serde_json::Value>, Response> {
+    if matches!(headers.actor, RequestActor::Peer)
+        && matches!(command, NeighborRuntimeCommand::Permission { .. })
+    {
+        return receiver_grant::read(&state, &headers, command).await;
+    }
     admit(&headers.actor)?;
     if !runtime_read(&command) {
         return Err(read_only());

@@ -54,6 +54,14 @@ helpers remain synchronous, including `host.fs.expandHome` and `host.expandHome`
 The `host.fs` namespace exposes only that pure path helper. `host.io.fs` provides generator equivalents for
 filesystem operations; `host.io.exec` and `host.io.fetch` await their existing
 host-owned process/network jobs. Pure provider exports need no generator.
+Foreground exec captures at most 131072 bytes per stdout/stderr stream. An
+oversized stream returns `error: "output_too_large: ..."`, `truncated: true`,
+and `outputTooLarge: {stream, limitBytes, actualBytes}` alongside the exit code
+and bounded output. Check the error before parsing stdout. No per-call option
+raises this bound; project or page output in the subprocess. Calls also allow
+at most 256 host I/O continuations; batch repeated reads such as secret lookups.
+An existing process failure or timeout keeps its error alongside the size metadata.
+Oversized output does not prove an effect failed; never automatically replay writes.
 Use `defineProviderIo` at the export boundary. It drives effectful generators
 while pure exports return synchronously. Continuation callbacks may delegate to
 generators; a resumed iterator is never rebuilt. Shared-file read/modify/write

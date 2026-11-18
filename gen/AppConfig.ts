@@ -24,7 +24,7 @@ import type { UsageConfig } from "./UsageConfig";
 import type { UtilityTabsConfig } from "./UtilityTabsConfig";
 import type { JsonValue } from "./serde_json/JsonValue";
 
-export type AppConfig = { browser_upload_folders: { [key in string]: Array<string> }, restore: RestoreConfig, account: JsonValue, billing: JsonValue, theme: ThemeConfig, font: FontConfig, terminal: TerminalConfig, utility_tabs: UtilityTabsConfig, diagnostics: DiagnosticsConfig, notifications: NotificationConfig, keybindings: KeybindingsConfig, socket: SocketConfig, agent: AgentConfig, api: ApiConfig, 
+export type AppConfig = { browser_upload_folders: { [key in string]: Array<string> }, restore: RestoreConfig, account: JsonValue, billing: JsonValue, theme: ThemeConfig, font: FontConfig, terminal: TerminalConfig, utility_tabs: UtilityTabsConfig, diagnostics: DiagnosticsConfig, notifications: NotificationConfig, keybindings: KeybindingsConfig, socket: SocketConfig, agent: AgentConfig, api: ApiConfig,
 /**
  * Per-provider settings keyed by provider id.
  * Section header in TOML: `[agents.claude]`, `[agents.codex]`, etc.
@@ -32,7 +32,7 @@ export type AppConfig = { browser_upload_folders: { [key in string]: Array<strin
  * `settings_schema()` trait method; the renderer reads/writes
  * the `agents.<id>.*` paths.
  */
-agents: Record<string, import("../src/lib/configWireFallbacks").ProviderConfig>, 
+agents: Record<string, import("../src/lib/configWireFallbacks").ProviderConfig>,
 /**
  * Per-plugin settings, keyed by plugin id. A generic JSON bag because each
  * plugin defines its own settings schema (rendered by SchemaRenderer); the

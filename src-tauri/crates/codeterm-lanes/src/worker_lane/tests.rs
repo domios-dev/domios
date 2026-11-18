@@ -1,9 +1,16 @@
 use super::*;
 use std::path::PathBuf;
 
+#[test]
+fn lane_inspection_failure_retains_errors_without_checkout_progress() {
+    assert_eq!(
+        inspect_failure(b"Updating files:  50% (1/2)\rerror: Filename too long\nUpdating files: 100% (2/2), done.\nfatal: checkout failed\n"),
+        "failed to inspect worker lane: error: Filename too long\nfatal: checkout failed"
+    );
+}
+
 fn git(dir: &Path, args: &[&str]) {
-    let mut command = Command::new("git");
-    process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     let output = command.current_dir(dir).args(args).output().unwrap();
     assert!(
         output.status.success(),
@@ -14,8 +21,7 @@ fn git(dir: &Path, args: &[&str]) {
 
 fn git_with_input(dir: &Path, args: &[&str], input: &str) -> String {
     use std::io::Write;
-    let mut command = Command::new("git");
-    process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     let mut child = command
         .current_dir(dir)
         .args(args)
@@ -606,8 +612,9 @@ fn lane_provisioning_windows_junction_resolution_is_test_fixture_only() {
     let canonical_before = std::fs::read_to_string(&canonical_marker).unwrap();
     let lane = provision_lane_for_test(project.to_str().unwrap(), "winlink").unwrap();
     let lane_modules = Path::new(&lane.cwd).join("node_modules");
-    let mut command = Command::new("cmd");
-    process_util::no_window_std(&mut command);
+    let mut command = std::process::Command::new("cmd");
+    codeterm_util::process_util::no_window_std(&mut command);
+
     let output = command
         .args(["/C", "mklink", "/J"])
         .arg(&lane_modules)

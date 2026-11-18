@@ -4,6 +4,7 @@ import { createTranscriptState, reduceTranscript, projectTranscript, type Normal
 import { deliveryProjectionSends, queuedBehindTurn, type DeliverySend } from "./chatDeliveryModel";
 import { createDeliveryProjectionMemory, queuedDeliveryIds, stableDeliveryEntries } from "./chatDeliveryProjection";
 import type { EnrichedChatEntry } from "./chatEnrichment";
+import { conversationEntries } from "./chatPagingModel";
 
 const memory = () => createDeliveryProjectionMemory("session");
 const send: DeliverySend = { id: "local", correlationId: "token", content: "opaque", sentAtMs: 1_800_000_000_000 };
@@ -22,6 +23,38 @@ test("a queued send stays after the running output through turn end, while steer
         queue ? ["output", "local"] : ["local", "output"]);
     }
   }
+});
+
+test("a transcribing voice bubble stays newest despite newer server timestamps", () => {
+  const voice: DeliverySend = { ...send, sentAtMs: 10,
+    content: '<domios type="attachment" kind="voice" path="/recording.webm" label="voice" />',
+    draft: { text: "", attachments: ["/recording.webm"], recordedVoiceAttachments: ["/recording.webm"],
+      voiceTranscribing: true, capsules: {}, reply: null } };
+  const rows: NormalizedChatMessage[] = [{ id: "later-output", type: "assistant", content: "still working", timestamp: "200" }];
+  const projected = deliveryProjectionSends([voice]);
+  assert.equal(projected[0]?.held, true);
+  assert.deepEqual(projectTranscript(reduceTranscript(createTranscriptState(), { kind: "snapshot",
+    authority: { sourceSessionId: "own", sessionBindingNonce: "launch" }, range: null, rows }).state, projected)
+    .rows.map(row => row.id), ["later-output", "local"]);
+  assert.match(projected[0]!.content, /kind="voice" path="\/recording\.webm"/);
+});
+
+test("the transcript echo takes over the pending voice bubble identity", () => {
+  const voice: DeliverySend = { ...send, content: "transcribing voice", draft: {
+    text: "", attachments: ["/recording.webm"], recordedVoiceAttachments: ["/recording.webm"],
+    voiceTranscribing: true, capsules: {}, reply: null,
+  } };
+  const state = memory();
+  const pending = entry({ id: voice.id, type: "user", content: voice.content, timestamp: String(voice.sentAtMs) });
+  assert.equal(stableDeliveryEntries([pending], [voice], new Map(), state)[0]?.msg.id, voice.id);
+  const transcript = entry({ id: "server-row", sourceMessageId: "server-row", sourceSessionId: "own", type: "user",
+    correlationId: voice.correlationId, content: "spoken words", timestamp: String(voice.sentAtMs + 100) });
+  const rows = stableDeliveryEntries([transcript], [{ ...voice, content: "spoken words", echo: {
+    content: "spoken words", timestampMs: voice.sentAtMs + 100,
+  } }], new Map(), state);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.msg.id, voice.id);
+  assert.equal(rows[0]?.msg.content, "spoken words");
 });
 
 test("an explicit active-turn hold supplies queue placement without transport assumptions", () => {
@@ -169,4 +202,60 @@ test("rows flattened from one claimed record keep their keys; only the first tak
   const rows = ["first", "second"].map(id => entry({ id, type: "user", content: id, sourceSessionId: "own", sourceRecord: record }));
   const echoes = new Map([[send.id, { content: "first", timestampMs: null }]]);
   assert.deepEqual(stableDeliveryEntries(rows, [claimed], echoes, memory()).map(row => row.msg.id), [send.id, "second"]);
+});
+
+test("mid-turn routed deliveries take their own slots before a later owner exchange", () => {
+  const thread = "thread";
+  const authority = { sourceSessionId: thread, sessionBindingNonce: "launch" };
+  const minute = 60_000;
+  const row = (id: string, offset: number, type: NormalizedChatMessage["type"] = "assistant"): NormalizedChatMessage => ({
+    id, type, content: id, timestamp: String(send.sentAtMs + offset * minute),
+  });
+  const source = [row("start", 0, "user"), row("work-1", 10), row("work-2", 20), row("work-3", 38),
+    row("owner", 40, "user"), row("reply", 41)];
+  const snapshot = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot", authority, range: { start: 0, end: 100 }, rows: source,
+  }).state;
+  const routed = [5, 15, 25].map((offset, index): DeliverySend => {
+    const id = `send-${index}`;
+    const content = `<domios from="tab" label="Sender" tab="source">${id}</domios>`;
+    const sentAtMs = send.sentAtMs + offset * minute;
+    return { id, correlationId: id, content, sentAtMs, status: {
+      tab_id: "tab", send_id: id, correlationId: id, state: "held", sequence: 1, ledger_id: "ledger",
+      retained_from: 1, error: null, pending_reason: "held_active_turn", system_send: { content, sent_at_ms: sentAtMs },
+    } };
+  });
+  const delivered = routed.map((current, index): DeliverySend => ({
+    ...current,
+    matchedRow: { source: { source_session_id: thread, record: {
+      kind: "structured", thread_id: thread, item_id: `provider-${index}`,
+    } }, ordinal: 1 },
+    status: { ...current.status!, state: "delivered", sequence: 2, pending_reason: undefined },
+  }));
+  const state = memory();
+  const render = (sends: DeliverySend[], transcript = snapshot) => {
+    const projectedSends = deliveryProjectionSends(sends, null, queuedDeliveryIds(sends, true, state));
+    const projection = projectTranscript(transcript, projectedSends);
+    const rendered = stableDeliveryEntries(conversationEntries(projection.rows), projectedSends, projection.echoes, state, projection.outside);
+    return { projection, rows: rendered.map(({ msg }) => msg) };
+  };
+  assert.deepEqual(render(routed).rows.slice(-3).map(item => item.id), ["send-0", "send-1", "send-2"]);
+  const receipts = render([delivered[0], delivered[1], routed[2]]);
+  assert.deepEqual(receipts.rows.map(item => item.id),
+    ["start", "send-0", "work-1", "send-1", "work-2", "work-3", "owner", "reply", "send-2"]);
+
+  const provider = deliveryProjectionSends(delivered).map((current, index) => ({
+    ...row(`provider-${index}`, [12, 17, 30][index], "user"), content: current.content, segments: current.segments,
+  }));
+  const transcript = reduceTranscript(snapshot, { kind: "delta", authority, range: null, rows: [
+    provider[2], { ...provider[0], id: routed[0].id, runtimeSourceItemId: provider[0].id, timestamp: undefined },
+    provider[0], provider[1],
+  ] }).state;
+  const committed = render(delivered, transcript);
+  assert.deepEqual(committed.projection.pending, []);
+  assert.equal(committed.projection.echoes.size, 3);
+  assert.deepEqual(committed.rows.map(item => item.id),
+    ["start", "work-1", "send-0", "send-1", "work-2", "send-2", "work-3", "owner", "reply"]);
+  assert.deepEqual(committed.rows.filter(item => item.routing?.kind === "tab").map(item => item.timestamp),
+    provider.map(item => item.timestamp));
 });

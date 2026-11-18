@@ -134,7 +134,7 @@ describe("user image attachments", () => {
     expect(document.activeElement).toBe(button);
   });
 
-  it("keeps an unreadable image focusable with retry", async () => {
+  it("keeps an unreadable image as a compact capsule with retry", async () => {
     const host = await render({
       ...codexImageTurn("[1 image]"),
       attachments: [{ id: "gone", mimeType: "image/png", path: String.raw`C:\gone\missing.png` }],
@@ -144,8 +144,13 @@ describe("user image attachments", () => {
     );
     expect(button?.disabled).toBe(false);
     await act(async () => button!.focus());
-    expect(document.querySelector('[role="alert"]')).toBeTruthy();
-    expect(document.querySelector('button[aria-label="Retry image missing.png"]')).toBeTruthy();
+    expect(document.querySelector('[role="region"]')).toBeNull();
+    expect(button?.getAttribute("aria-label")).toBe("Open image missing.png");
+    const attempts = loader.mock.calls.length;
+    await act(async () => button!.click());
+    await flush();
+    expect(loader.mock.calls.length).toBeGreaterThan(attempts);
+    expect(document.querySelector('[role="region"]')).toBeNull();
   });
 });
 
@@ -193,13 +198,46 @@ it("retries a failed image read through the same scoped loader", async () => {
   loader.mockRejectedValueOnce(new Error("read failed"));
   const host = await render(codexImageTurn("caption"));
   await act(async () => openButton(host)!.focus());
-  const retry = document.querySelector<HTMLButtonElement>(`button[aria-label="Retry image ${NAME}"]`)!;
-  expect(retry).toBeTruthy();
-  await act(async () => retry.click());
+  expect(document.querySelector('[role="region"]')).toBeNull();
+  await act(async () => openButton(host)!.click());
+  await flush();
   expect(loader).toHaveBeenLastCalledWith(PATH, "image", "attachment-owner");
   expect(document.querySelector('[role="region"] img')?.getAttribute("src")).toBe(PNG);
   await act(async () => openButton(host)!.click());
   expect(viewer()?.querySelector("img")?.getAttribute("src")).toBe(PNG);
+});
+
+it("collapses a browser image decode failure to the named capsule", async () => {
+  const host = await render({
+    ...codexImageTurn("caption"),
+    attachments: [{ id: "inline", mimeType: "image/png", data: "AAAA", path: PATH }],
+  });
+  const chip = openButton(host)!;
+  await act(async () => chip.focus());
+  const image = document.querySelector<HTMLImageElement>('[role="region"] img')!;
+  await act(async () => image.dispatchEvent(new Event("error")));
+  expect(document.querySelector('[role="region"]')).toBeNull();
+  expect(chip.isConnected).toBe(true);
+  expect(chip.getAttribute("aria-label")).toBe(`Open image ${NAME}`);
+});
+
+it.each(["pointer", "keyboard"])("remembers a fullscreen image decode failure after %s activation", async activation => {
+  const host = await render({
+    ...codexImageTurn("caption"),
+    attachments: [{ id: "inline", mimeType: "image/png", data: "AAAA", path: PATH }],
+  });
+  const chip = openButton(host)!;
+  if (activation === "keyboard") await act(async () => chip.focus());
+  await act(async () => chip.dispatchEvent(new MouseEvent("click", { detail: activation === "pointer" ? 1 : 0, bubbles: true })));
+  expect(viewer()).toBeTruthy();
+  const image = viewer()!.querySelector<HTMLImageElement>("img")!;
+  await act(async () => image.dispatchEvent(new Event("error")));
+  expect(viewer()).toBeNull();
+  expect(chip.isConnected).toBe(true);
+  expect(chip.getAttribute("aria-label")).toBe(`Open image ${NAME}`);
+  await act(async () => chip.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  expect(viewer()).toBeNull();
+  expect(document.querySelector('[role="region"] img')?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
 });
 
 it.each([1280, 390])("shows the image preview on hover at viewport width %s", async (width) => {
@@ -217,7 +255,7 @@ it.each([1280, 390])("shows the image preview on hover at viewport width %s", as
   }
 });
 
-it.each(["heic", "jpg", "png"])("shows one original %s with its real name and internal model preview", async extension => {
+it.each(["heic", "jpg", "png"])("shows a two-attachment %s photo with its real name and internal model preview", async extension => {
   const original = `C:/chat/${"a".repeat(32)}.${extension}`;
   const model = "C:/pad/inbox/opaque-model.jpg";
   const name = `IMG_4321.${extension}`;
@@ -229,7 +267,7 @@ it.each(["heic", "jpg", "png"])("shows one original %s with its real name and in
   for (const structured of [false, true]) {
     const segments: MessageSegment[] = attachmentMarkerSegments(content).map(segment => "text" in segment ? { type: "text", text: segment.text }
       : { type: "attachment", kind: segment.attachment.kind, path: segment.attachment.path, label: segment.attachment.label ?? null, body: null, status: null });
-    const host = await render({ id: `photo-${extension}-${structured}`, type: "user", content, attachmentNames: { [original]: name }, ...(structured ? { segments } : {}) });
+    const host = await render({ id: `photo-${extension}-${structured}`, type: "user", content, attachmentNames: { [original]: name }, attachments: [{ id: "model-preview", mimeType: "image/jpeg", path: model }], ...(structured ? { segments } : {}) });
     const chips = host.querySelectorAll<HTMLButtonElement>('[data-testid="chat-inline-attachment"]');
     expect(chips).toHaveLength(1);
     expect(chips[0].getAttribute("data-attachment-path")).toBe(original);

@@ -1,6 +1,7 @@
 use super::*;
 use crate::multiplexer::types::TaskBinding;
 use crate::plan::{AgentRef, OrchestratorRef, Plan, PlanMode};
+use crate::service::agent_restart::RestartAdmission;
 use crate::service::plan::{
     interruption::TaskMutationAuthority, task_assignment::AssignmentRuntimeBinding,
     task_attempts::BoundWorkerReport, NewTask,
@@ -11,16 +12,24 @@ use crate::service::test_fixture::ServiceFixture;
 fn owner_switch_bypasses_restart_cooldown_but_keeps_lifecycle_exclusion() {
     let (mux, id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
-    let restart = fixture.service.claim_restart(&id, false).unwrap();
+    let restart = fixture
+        .service
+        .claim_restart(&id, RestartAdmission::Standard)
+        .unwrap();
     assert!(fixture.service.claim_provider_switch(&id).is_err());
     drop(restart);
     let switch = fixture.service.claim_provider_switch(&id).unwrap();
-    assert!(fixture.service.claim_restart(&id, true).is_err());
+    assert!(fixture
+        .service
+        .claim_restart(&id, RestartAdmission::AutomaticRecovery)
+        .is_err());
     assert!(fixture.service.claim_provider_switch(&id).is_err());
     drop(switch);
     drop(fixture.service.claim_provider_switch(&id).unwrap());
     assert!(matches!(
-        fixture.service.claim_restart(&id, false),
+        fixture
+            .service
+            .claim_restart(&id, RestartAdmission::Standard),
         Err(super::super::AgentRestartError::RateLimited { .. })
     ));
 }
@@ -269,7 +278,10 @@ fn source_archive_failure_releases_authority_and_fences_the_attempt() {
         .unwrap();
     assert!(carry.is_some());
     let source = fixture.service.mux.read().get_tab(&id).unwrap().clone();
-    let _claim = fixture.service.claim_restart(&id, false).unwrap();
+    let _claim = fixture
+        .service
+        .claim_restart(&id, RestartAdmission::Standard)
+        .unwrap();
     fixture.service.stage_runtime_restart_binding(&id, carry);
     let (tx, rx) = std::sync::mpsc::channel();
     let listener = fixture.ui.listen("coordination-incident", move |payload| {

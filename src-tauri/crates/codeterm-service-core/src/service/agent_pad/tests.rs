@@ -1,6 +1,38 @@
 use super::*;
 
 #[test]
+fn binary_attachment_handles_are_limited_to_relative_own_pad_files() {
+    use std::io::Read;
+    let temp = tempfile::tempdir().unwrap();
+    let pad = AgentPad::create(temp.path(), "sender", AgentPadRole::General).unwrap();
+    fs::create_dir(pad.path().join("nested")).unwrap();
+    fs::write(pad.path().join("nested/data.bin"), [0, 255, 1]).unwrap();
+    let mut bytes = Vec::new();
+    pad.open_file("nested/data.bin")
+        .unwrap()
+        .read_to_end(&mut bytes)
+        .unwrap();
+    assert_eq!(bytes, [0, 255, 1]);
+    let absolute = pad
+        .path()
+        .join("nested/data.bin")
+        .to_string_lossy()
+        .into_owned();
+    for path in [
+        "",
+        ".",
+        "../sender/nested/data.bin",
+        "nested/./data.bin",
+        "nested/data.bin:stream",
+        "nested\\data.bin",
+        &absolute,
+    ] {
+        assert!(pad.open_file(path).is_err(), "accepted {path}");
+    }
+    assert!(pad.open_file("nested").is_err());
+}
+
+#[test]
 fn role_seeds_are_created_once_and_nested_utf8_is_exact() {
     let temp = tempfile::tempdir().unwrap();
     let pad = AgentPad::create(temp.path(), "tab-full-123", AgentPadRole::Worker).unwrap();

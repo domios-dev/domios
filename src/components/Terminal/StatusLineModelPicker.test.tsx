@@ -9,7 +9,7 @@ import type { Notification, ProviderDescriptor, Tab } from "../../lib/types";
 import { __setModelCatalogueRefreshApiForTest } from "../../lib/modelCatalogueRefresh";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import { __setTabModelApiForTest } from "../Sidebar/tabModelApi";
-import { readPickerShowAll, writePickerShowAll } from "./statusLinePickerPreference";
+import { readPickerGroupExpansion, readPickerShowAll, writePickerGroupExpansion, writePickerShowAll } from "./statusLinePickerPreference";
 import { StatusLineModelPicker } from "./StatusLineModelPicker";
 import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 
@@ -152,6 +152,76 @@ test("a model option is named by its model and whether it is the current one", a
   }
 });
 
+test("provider headings expose their expansion state and support keyboard navigation", async () => {
+  const provider = { ...descriptor("next_turn"), id: "grouped-keyboard" };
+  provider.available_models[0].group = "Swift";
+  provider.available_models[1].group = "Research";
+  const view = await mount(provider);
+  const key = (element: HTMLElement, key: string, code = key) => act(async () => {
+    element.dispatchEvent(new KeyboardEvent("keydown", { key, code, bubbles: true, cancelable: true }));
+  });
+  try {
+    await act(async () => view.trigger()!.click());
+    const swift = button("Swift");
+    const research = button("Research");
+    assert.equal(swift.getAttribute("aria-label"), "Swift, 1 model, collapsed");
+    assert.equal(research.getAttribute("aria-label"), "Research, 1 model, expanded");
+    assert.equal(view.option("Fast"), undefined);
+    assert.equal(document.activeElement, view.option("Deep"));
+    await key(view.option("Deep"), "ArrowUp");
+    assert.equal(document.activeElement, research);
+    await key(research, "ArrowUp");
+    assert.equal(document.activeElement, swift);
+    await key(swift, "Enter");
+    assert.equal(swift.getAttribute("aria-expanded"), "true");
+    assert.equal(document.getElementById(swift.getAttribute("aria-controls")!)?.contains(view.option("Fast")), true);
+    await key(swift, "ArrowDown");
+    assert.equal(document.activeElement, view.option("Fast"));
+    await key(view.option("Fast"), "ArrowUp");
+    await key(swift, " ", "Space");
+    assert.equal(swift.getAttribute("aria-expanded"), "false");
+    assert.equal(view.option("Fast"), undefined);
+    await key(swift, "ArrowRight");
+    assert.ok(view.option("Fast"));
+    await key(swift, "ArrowLeft");
+    assert.equal(view.option("Fast"), undefined);
+  } finally {
+    await view.unmount();
+    writePickerGroupExpansion(provider.id, new Map());
+  }
+});
+
+test("search finds hidden models without changing the saved expansion for that provider", async () => {
+  const provider = { ...descriptor("next_turn"), id: "grouped-search" };
+  provider.available_models[0].group = "Swift";
+  provider.available_models[1].group = "Research";
+  const view = await mount(provider);
+  try {
+    await act(async () => view.trigger()!.click());
+    await act(async () => button("Research").click());
+    assert.equal(view.option("Deep"), undefined);
+    const search = view.picker()!.querySelector<HTMLButtonElement>('button[aria-label="Search models"]')!;
+    await act(async () => search.click());
+    const input = view.picker()!.querySelector<HTMLInputElement>('input[aria-label="Search models"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(input, "fast");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    assert.ok(view.option("Fast"));
+    assert.equal(view.option("Deep"), undefined);
+    await act(async () => view.picker()!.querySelector<HTMLButtonElement>('button[aria-label="Close search"]')!.click());
+    assert.equal(view.option("Fast"), undefined);
+    assert.equal(view.option("Deep"), undefined);
+    await act(async () => view.trigger()!.click());
+    await act(async () => view.trigger()!.click());
+    assert.equal(button("Research").getAttribute("aria-expanded"), "false");
+    assert.equal(readPickerGroupExpansion("another-provider").has("Research"), false);
+  } finally {
+    await view.unmount();
+    writePickerGroupExpansion(provider.id, new Map());
+  }
+});
+
 test("only the model capsule is interactive and the harness rides inside it as a decorative glyph", async () => {
   const view = await mount(descriptor("next_turn"));
   try {
@@ -200,6 +270,8 @@ test("picker preferences tolerate blocked browser storage", () => {
   try {
     assert.equal(readPickerShowAll("vendor"), false);
     assert.doesNotThrow(() => writePickerShowAll("vendor", true));
+    assert.equal(readPickerGroupExpansion("vendor").size, 0);
+    assert.doesNotThrow(() => writePickerGroupExpansion("vendor", new Map([["Research", true]])));
   } finally {
     if (original) Object.defineProperty(window, "localStorage", original);
     else Reflect.deleteProperty(window, "localStorage");
@@ -347,6 +419,39 @@ test("restarting providers confirm first and the effort list follows the staged 
     await act(async () => confirm.click());
     assert.deepEqual(calls, [["tab", "deep", "low"]]);
   } finally {
+    await view.unmount();
+    __setTabModelApiForTest(null);
+  }
+});
+
+test("restart-based selections can change again while an earlier switch is applying", async () => {
+  const calls: string[] = [];
+  let releaseFirst = () => {};
+  __setTabModelApiForTest({
+    switchModel: async (_tab, model) => {
+      calls.push(model);
+      if (calls.length === 1) await new Promise<void>((resolve) => { releaseFirst = resolve; });
+      return { mode_used: "restart_resume", model_confirmation: "pending", staged: true };
+    },
+  });
+  const view = await mount(descriptor("restart_resume"));
+  try {
+    async function chooseAndConfirm(model: string) {
+      await act(async () => view.trigger()!.click());
+      await act(async () => view.option(model).click());
+      await act(async () => button("Apply").click());
+      await act(async () => button("Restart and switch").click());
+    }
+    await chooseAndConfirm("Fast");
+    assert.match(view.trigger()!.getAttribute("aria-label")!, /Fast/);
+    await chooseAndConfirm("Deep");
+    assert.deepEqual(calls, ["fast", "deep"]);
+    await view.setPendingSelection({ model: "deep", effort: "high" });
+    await act(async () => releaseFirst());
+    assert.match(view.trigger()!.getAttribute("aria-label")!, /Deep.*pending/);
+    assert.deepEqual(toasts, []);
+  } finally {
+    releaseFirst();
     await view.unmount();
     __setTabModelApiForTest(null);
   }
@@ -542,7 +647,7 @@ for (const fails of [false, true]) {
     const response = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
     const calls: unknown[][] = [];
     __setTabModelApiForTest({ switchModel: async (...args) => { calls.push(args); await response; } });
-    const view = await mount(descriptor("next_turn"));
+    const view = await mount(descriptor("live_command"));
     try {
       await act(async () => view.trigger()!.click());
       await act(async () => view.option("Fast").click());
@@ -553,6 +658,12 @@ for (const fails of [false, true]) {
       assert.equal(view.picker(), null);
       assert.equal(view.host.querySelector('[role="status"]')?.textContent, "Applying…");
       assert.deepEqual(calls, [["tab", "deep", "low"]]);
+      await act(async () => view.trigger()!.click());
+      assert.equal(view.option("Fast").getAttribute("aria-disabled"), "true");
+      assert.equal(button("Apply").disabled, true);
+      await act(async () => button("Apply").click());
+      assert.deepEqual(calls, [["tab", "deep", "low"]]);
+      await act(async () => view.trigger()!.click());
       await act(async () => { if (fails) reject(new Error("refused")); else resolve(); });
       if (fails) {
         assert.equal(view.trigger()!.textContent, "Deep · high");

@@ -20,8 +20,8 @@ fn expected(expect: &str) -> Option<DirectoryTrustPromptResponse> {
     };
     match expect {
         "enter" => answer(b"\r"),
-        "move-down" => answer(b"j"),
-        "move-up" => answer(b"k"),
+        "move-down" => answer(b"\x1b[B"),
+        "move-up" => answer(b"\x1b[A"),
         "hold" => Some(DirectoryTrustPromptResponse::Hold),
         "none" => None,
         other => panic!("unknown folder-trust expectation {other}"),
@@ -175,7 +175,7 @@ fn quick_safety_prompt_and_response_native_js_parity() {
             if file == "quick-safety-yes-focused.txt" {
                 vec![b"\r".to_vec()]
             } else {
-                vec![b"j".to_vec(), b"\r".to_vec()]
+                vec![b"\x1b[B".to_vec(), b"\r".to_vec()]
             },
             "trust selection is reached before confirming {file}"
         );
@@ -229,7 +229,7 @@ fn preapproved_folder_trust_selects_the_declared_option_from_live_focus() {
                 && option.label.to_ascii_lowercase().contains("trust")
         })
         .expect("declared affirmative option");
-    let down_enter = vec![b"j".to_vec(), b"\r".to_vec()];
+    let down_enter = vec![b"\x1b[B".to_vec(), b"\r".to_vec()];
     assert_eq!(
         native.build_prompt_response(affirmative, &screen),
         down_enter
@@ -245,6 +245,15 @@ fn preapproved_folder_trust_selects_the_declared_option_from_live_focus() {
     let enter = vec![b"\r".to_vec()];
     assert_eq!(native.build_prompt_response(affirmative, &focused), enter);
     assert_eq!(js.build_prompt_response(affirmative, &focused), enter);
+    let up_enter = vec![b"\x1b[A".to_vec(), b"\r".to_vec()];
+    assert_eq!(
+        native.build_prompt_response(1 - affirmative, &focused),
+        up_enter
+    );
+    assert_eq!(
+        js.build_prompt_response(1 - affirmative, &focused),
+        up_enter
+    );
     assert_eq!(
         native.directory_trust_prompt_response(&focused),
         Some(DirectoryTrustPromptResponse::Answer {

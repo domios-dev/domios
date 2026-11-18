@@ -1,5 +1,7 @@
 use super::*;
 
+mod rekey;
+
 struct FixtureProof;
 #[async_trait]
 impl InstallationProofSource for FixtureProof {
@@ -63,7 +65,7 @@ fn no_billing_customer_adapter_uses_structured_reason() {
     let body = serde_json::json!({"error": {"status": "FAILED_PRECONDITION",
         "message": "No billing customer", "details": {"reason": "no_billing_customer"}}});
     assert_eq!(refusal_reason(&body), BillingRefusal::NoBillingCustomer);
-    assert_eq!(refusal_message(&body), crate::NO_BILLING_CUSTOMER);
+    assert_eq!(refusal_reason(&body).message(), crate::NO_BILLING_CUSTOMER);
 }
 
 #[test]

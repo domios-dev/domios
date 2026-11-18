@@ -10,6 +10,7 @@ export interface Neighbor {
   outbound_per_hour: number;
   since: number;
   receiving: boolean;
+  my_receiver?: unknown;
   /** Messages a day you allow them; null means no limit. */
   my_daily_limit?: number | null;
   /** Messages a day they allow you; null means no limit. */

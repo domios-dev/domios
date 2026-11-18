@@ -22,6 +22,7 @@ interface DurableDraft {
   text: BodyRef;
   attachments: string[];
   recordedVoiceAttachments: string[];
+  voiceTranscribing?: boolean;
   capsules: DeliveryDraft["capsules"];
   reply: DeliveryDraft["reply"];
 }
@@ -39,6 +40,7 @@ interface DurableSend {
   droppedUploads?: string[];
   dismissed?: boolean;
   status?: DurableStatus;
+  remoteFailure?: DeliverySend["remoteFailure"];
   requestFailed?: boolean;
   requestError?: string;
   requestUncertain?: boolean;
@@ -115,6 +117,7 @@ export function encodeChatSend(tabId: string, send: DeliverySend, revision = 0, 
     ...(send.droppedUploads !== undefined ? { droppedUploads: send.droppedUploads } : {}),
     ...(send.dismissed !== undefined ? { dismissed: send.dismissed } : {}),
     ...(status !== undefined ? { status } : {}),
+    ...(send.remoteFailure ? { remoteFailure: send.remoteFailure } : {}),
     ...(send.requestFailed !== undefined ? { requestFailed: send.requestFailed } : {}),
     ...(send.requestError !== undefined ? { requestError: send.requestError } : {}),
     ...(send.requestUncertain !== undefined ? { requestUncertain: send.requestUncertain } : {}),
@@ -125,6 +128,7 @@ export function encodeChatSend(tabId: string, send: DeliverySend, revision = 0, 
       text: body(draft.text),
       attachments: draft.attachments,
       recordedVoiceAttachments: draft.recordedVoiceAttachments,
+      ...(draft.voiceTranscribing !== undefined ? { voiceTranscribing: draft.voiceTranscribing } : {}),
       capsules: draft.capsules as DurableDraft["capsules"],
       reply: draft.reply as DurableDraft["reply"],
     } } : {}),
@@ -294,6 +298,7 @@ export function decodeChatSend(record: ChatSendDurableRecord): DeliverySend | nu
       ...(value.droppedUploads !== undefined ? { droppedUploads: value.droppedUploads } : {}),
       ...(value.dismissed !== undefined ? { dismissed: value.dismissed } : {}),
       ...(status !== undefined ? { status } : {}),
+      ...(value.remoteFailure ? { remoteFailure: value.remoteFailure } : {}),
       ...(value.requestFailed !== undefined ? { requestFailed: value.requestFailed } : {}),
       ...(value.requestError !== undefined ? { requestError: value.requestError } : {}),
       ...(value.requestUncertain !== undefined ? { requestUncertain: value.requestUncertain } : {}),
@@ -304,6 +309,7 @@ export function decodeChatSend(record: ChatSendDurableRecord): DeliverySend | nu
         text: draftText!,
         attachments: value.draft.attachments,
         recordedVoiceAttachments: value.draft.recordedVoiceAttachments,
+        ...(value.draft.voiceTranscribing !== undefined ? { voiceTranscribing: value.draft.voiceTranscribing } : {}),
         capsules: value.draft.capsules,
         reply: value.draft.reply,
       } } : {}),
@@ -331,6 +337,7 @@ export function mergeChatSendRecord(
       correlationId: next.correlationId,
       status: next.status,
       matchedRow: next.matchedRow,
+      remoteFailure: next.remoteFailure,
       requestFailed: next.requestFailed,
       requestError: next.requestError,
       requestUncertain: next.requestUncertain,
@@ -339,12 +346,12 @@ export function mergeChatSendRecord(
     };
   }
   const patch = <K extends keyof DeliverySend>(key: K) => {
-    if (retry && ["correlationId", "status", "matchedRow", "requestFailed", "requestError", "requestUncertain", "requestHadResponse", "admissionSettled"].includes(key)) return;
+    if (retry && ["correlationId", "status", "matchedRow", "remoteFailure", "requestFailed", "requestError", "requestUncertain", "requestHadResponse", "admissionSettled"].includes(key)) return;
     if (previous && sameValue(previous[key], next[key])) return;
     if (previous && !sameValue(current[key], previous[key])) return;
     (merged as DeliverySend)[key] = next[key] as DeliverySend[K];
   };
-  for (const key of ["content", "sentAtMs", "echoBoundary", "localAttempt", "droppedUploads", "requestFailed", "requestError", "requestUncertain", "requestHadResponse", "admissionSettled", "wasHeld", "draft"] as const) patch(key);
+  for (const key of ["content", "sentAtMs", "echoBoundary", "localAttempt", "droppedUploads", "remoteFailure", "requestFailed", "requestError", "requestUncertain", "requestHadResponse", "admissionSettled", "wasHeld", "draft"] as const) patch(key);
   if (!retry) patch("correlationId");
   if (!retry) patch("matchedRow");
   if (current.echo == null && next.echo != null && deliveryState(current) !== "failed"

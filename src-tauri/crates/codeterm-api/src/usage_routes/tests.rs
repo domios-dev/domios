@@ -45,6 +45,14 @@ fn persisted_usage_row_keeps_the_api_wire_contract() {
         raw_text: "fixture".into(),
     };
     store.insert_snapshot(&sample).unwrap();
+    assert_eq!(
+        store
+            .get_latest("fixture", Some("account-a"))
+            .unwrap()
+            .unwrap()
+            .session_resets_at,
+        Some(2000)
+    );
     drop(store);
     let store = codeterm_service_core::usage::UsageStore::open(data_dir.path()).unwrap();
     let query = Query::<UsageQuery>::try_from_uri(
@@ -63,7 +71,7 @@ fn persisted_usage_row_keeps_the_api_wire_contract() {
     assert_eq!(value["captured_at"], 1000);
     assert_eq!(value["parsed_ok"], true);
     assert_eq!(value["session_pct"], 12.5);
-    assert_eq!(value["session_resets_at"], 2000);
+    assert!(value["session_resets_at"].is_null());
     assert_eq!(value["billing_mode"], "subscription");
     assert_eq!(value["limits_reported"], false);
     assert_eq!(value["usage_details"], sample.usage_details.unwrap());

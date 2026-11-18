@@ -114,9 +114,6 @@ jobs:
           toolchain: 1.99.1
           components: clippy,rustfmt
           targets: x86_64-pc-windows-msvc
-      - name: Hosted sccache
-        if: runner.environment == 'github-hosted'
-        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
       - name: Select hosted cache policy
         if: runner.environment == 'github-hosted'
         shell: bash
@@ -153,6 +150,12 @@ jobs:
       - name: Discover installed runner tools
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Pinned CI sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
+        with:
+          version: v0.19.0
+          # The workflow reports cache stats before stopping the server.
+          disable_annotations: true
 
       - name: Setup pnpm
         uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1

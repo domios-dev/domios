@@ -34,6 +34,7 @@ export interface MultiplexerActionsContextType {
   attachRemoteTab?: (workspaceId: string, peer: RemotePeerTabs, tab: RemotePeerTabs["tabs"][number]) => void;
   /** Removes this machine's attachment of a remote tab; the tab keeps running on its peer. */
   detachRemoteTab?: (tabId: string) => void;
+  removeRemoteMachineTabs?: (peerId: string, tabIds: readonly string[]) => void;
   closeTab: (workspaceId: string, tabId: string) => void;
   /** Reopen a recently-closed tab (index 0 = most recent). */
   reopenClosed: (workspaceId: string, index?: number) => void;
@@ -70,6 +71,7 @@ export interface MultiplexerActionsContextType {
     intent?: SessionLaunchIntent,
     executionMode?: string,
     launchProfile?: string,
+    accountId?: string,
   ) => Promise<SpawnedTab | null>;
   /** Paired creation (task_7e5f9354): create a plan plus an Orchestrator +
    *  Planner tab bound to it, in one call. */

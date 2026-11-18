@@ -623,6 +623,10 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 );
                 ("POST".into(), "/api/crons".into(), Some(body.to_string()))
             }
+            action @ crate::CronAction::Edit { .. } => {
+                let (id, body) = action.update_request().expect("cron edit request");
+                ("PUT".into(), format!("/api/crons/{id}"), Some(body.to_string()))
+            }
             crate::CronAction::Delete { id } => {
                 ("DELETE".into(), format!("/api/crons/{}", id), None)
             }

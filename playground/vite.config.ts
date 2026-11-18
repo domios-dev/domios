@@ -26,9 +26,22 @@ function stagePortals(): Plugin {
   };
 }
 
+function fixtureDaemonTransport(): Plugin {
+  return {
+    name: "gallery-daemon-transport",
+    enforce: "pre",
+    resolveId(source, importer) {
+      if (source === "./streamMux" && importer?.replace(/\\/g, "/") === `${productSrc}/lib/daemonBootstrap.ts`) {
+        return resolve(mocks, "daemonTransport.ts");
+      }
+      return null;
+    },
+  };
+}
+
 export default defineConfig({
   root: __dirname,
-  plugins: [stagePortals(), react(), tailwindcss()],
+  plugins: [fixtureDaemonTransport(), stagePortals(), react(), tailwindcss()],
   resolve: {
     alias: Object.entries(TAURI_MOCKS).map(([find, file]) => ({ find: new RegExp(`^${find}$`), replacement: resolve(mocks, file) })),
   },

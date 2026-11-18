@@ -14,13 +14,108 @@ const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 function planned(ctx: RuntimeContext, operation: Operation): RuntimePlan {
   let plan = plain(provider.runtimePlan(ctx,operation));
   if (plan.action.kind === "request" && plan.action.call.method === "config/read") {
-    for (const value of [{config:{}},{requirements:null}] as JsonValue[]) {
+    for (const [method,value] of [["config/read",{config:{}}],["configRequirements/read",{requirements:null}]] as [string,JsonValue][]) {
+      if (plan.action.kind !== "request" || plan.action.call.method !== method) break;
       const step = plain(provider.runtimeResponse(ctx,operation,plan.state,{kind:"success",value}));
       if (step.kind !== "continue") throw new Error("Sandbox selection did not continue");
       plan = step.plan;
     }
   }
   return plan;
+}
+for (const [mode, splitWindowsRoots] of [
+  ["workspace-write",undefined],
+  ["read-only-with-writable-roots",undefined],
+  ["read-only-with-writable-roots",true],
+] as const) {
+  const cwd = "C:/Users/fixture/existing-git/friend";
+  const settings: RuntimeSettings = {mode,networkAccess:false,additionalDirectories:["C:/own-pad"]};
+  const restrictedCli = {
+    tabId:context.tabId,bindingNonce:context.bindingNonce,epoch:context.epoch,cwd,metadataDirectory:".codex",
+    executable:"C:/trusted/cli.exe",executableSha256:"a".repeat(64),configSha256:"b".repeat(64),ruleSha256:"c".repeat(64),
+    ...(splitWindowsRoots ? {splitWindowsRoots:true} : {}),
+  };
+  const ctx: RuntimeContext = {...context,threadId:"pre-existing-session",cwd,settings,restrictedCli};
+  const operation: Operation = {kind:"resumeThread",threadId:"pre-existing-session",instructions:"opaque",settings};
+  const plan = planned(ctx,operation);
+  if (plan.action.kind !== "request") throw new Error("Missing resume request");
+  assert.equal(plan.action.call.method,"thread/resume");
+  const params = plan.action.call.params as Record<string, unknown>;
+  assert.equal(params.threadId,"pre-existing-session");
+  assert.equal(params.cwd,cwd);
+  const config = params.config as Record<string,unknown>;
+  assert.deepEqual(config.project_root_markers,[]);
+  assert.deepEqual(config.projects,{[cwd]:{trust_level:"trusted"}});
+  assert.deepEqual(config["sandbox_workspace_write.writable_roots"],settings.additionalDirectories);
+  assert.equal(config["sandbox_workspace_write.network_access"],false);
+  assert.equal(config.CODEX_HOME,undefined);
+
+  const initial = plain(provider.runtimePlan(ctx,operation));
+  if (!splitWindowsRoots) {
+    assert.equal(config["windows.sandbox"],undefined);
+    for (const windows of [{},{sandbox:"unelevated",allow_mxc:null}]) {
+      const inherited = plain(provider.runtimeResponse(ctx,operation,initial.state,{kind:"success",value:{config:{windows}}}));
+      if (inherited.kind !== "continue" || inherited.plan.action.kind !== "request") throw new Error("Missing inherited backend request");
+      assert.equal(inherited.plan.action.call.method,"thread/resume");
+      assert.deepEqual(inherited.plan.action.call.params,params);
+    }
+    continue;
+  }
+  const unelevated = plain(provider.runtimeResponse(ctx,operation,initial.state,{kind:"success",value:{config:{windows:{sandbox:"unelevated",allow_mxc:null}}}}));
+  if (unelevated.kind !== "continue" || unelevated.plan.action.kind !== "request") throw new Error("Missing sandbox continuation");
+  assert.equal(unelevated.plan.action.call.method,"configRequirements/read");
+  for (const [requirements, backend] of [
+    [null,"mxc"],
+    [{allowedWindowsSandboxImplementations:["unelevated"],allowedSandboxModes:["workspace-write"]},undefined],
+  ] as const) {
+    const reply = {kind:"success" as const,value:{requirements:JSON.parse(JSON.stringify(requirements))}};
+    const next = plain(provider.runtimeResponse(ctx,operation,unelevated.plan.state,reply));
+    if (next.kind !== "continue" || next.plan.action.kind !== "request") throw new Error("Missing checked resume");
+    assert.equal(next.plan.action.call.method,"thread/resume");
+    const selected = next.plan.action.call.params as {config:Record<string,unknown>;runtimeWorkspaceRoots:string[]};
+    assert.equal(selected.config["windows.sandbox"],backend);
+    assert.deepEqual(selected.runtimeWorkspaceRoots,["C:/own-pad"]);
+    assert.deepEqual(selected.config["sandbox_workspace_write.writable_roots"],["C:/own-pad"]);
+    assert.equal(selected.config["sandbox_workspace_write.network_access"],false);
+  }
+}
+
+const managedSettings: RuntimeSettings = {mode:"read-only-with-writable-roots",networkAccess:false,additionalDirectories:["C:/own-pad"]};
+const managedCwd = "C:/fixture/friend";
+const managedPin = {tabId:context.tabId,bindingNonce:context.bindingNonce,epoch:context.epoch,cwd:managedCwd,metadataDirectory:".codex",
+  executable:"C:/trusted/cli.exe",executableSha256:"a".repeat(64),configSha256:"b".repeat(64),ruleSha256:"c".repeat(64),splitWindowsRoots:true};
+const managedCtx = {...context,cwd:managedCwd,settings:managedSettings,restrictedCli:managedPin};
+const managedErrorPrefix = "failed to load configuration: invalid value for `windows.sandbox`: `Some(Mxc)` is not in the allowed set windows.allow_mxc = false (set by ";
+const managedError = {kind:"error" as const,error:{code:-32600,message:managedErrorPrefix+"C:/Program Files (x86)/fixture/requirements.toml)"}};
+for (const operation of [
+  {kind:"openThread" as const,settings:managedSettings},
+  {kind:"resumeThread" as const,threadId:"opaque-thread",settings:managedSettings},
+]) {
+  const initial = plain(provider.runtimePlan(managedCtx,operation));
+  const requirements = plain(provider.runtimeResponse(managedCtx,operation,initial.state,{kind:"success",value:{config:{windows:{sandbox:"unelevated",allow_mxc:null}}}}));
+  if (requirements.kind !== "continue") throw new Error("Missing managed requirements request");
+  const selected = plain(provider.runtimeResponse(managedCtx,operation,requirements.plan.state,{kind:"success",value:{requirements:null}}));
+  if (selected.kind !== "continue" || selected.plan.action.kind !== "request") throw new Error("Missing MXC request");
+  const {config: override, ...params} = selected.plan.action.call.params as {config:Record<string,unknown>};
+  const {"windows.sandbox": backend,...inherited} = override;
+  assert.equal(backend,"mxc");
+  const fallback = plain(provider.runtimeResponse(managedCtx,operation,selected.plan.state,managedError));
+  if (fallback.kind !== "continue" || fallback.plan.action.kind !== "request") throw new Error("Missing inherited backend request");
+  assert.equal(fallback.plan.action.call.method,selected.plan.action.call.method);
+  assert.deepEqual(fallback.plan.action.call.params,{...params,config:inherited});
+  assert.equal(plain(provider.runtimeResponse(managedCtx,operation,fallback.plan.state,managedError)).kind,"refused");
+  for (const message of [
+    "unrelated refusal",
+    managedErrorPrefix,
+    managedErrorPrefix+")",
+    managedErrorPrefix+"C:/fixture/requirements.toml",
+    managedErrorPrefix+"x".repeat(4097)+")",
+    managedError.error.message+": extra diagnostic (details)",
+    managedError.error.message+"\n",
+  ]) {
+    const rejected = plain(provider.runtimeResponse(managedCtx,operation,selected.plan.state,{kind:"error",error:{code:-32600,message}}));
+    assert.equal(rejected.kind,"refused");
+  }
 }
 for (const [mode, type] of [[capability.readOnly!, "readOnly"], [capability.mutating!, "workspaceWrite"]] as const) {
   const settings: RuntimeSettings = { mode: mode.runtimeMode!, additionalDirectories: [], networkAccess: false };
@@ -88,7 +183,7 @@ for (const operation of [
   {kind:"resumeThread" as const,threadId:"opaque-thread",instructions:"opaque",settings:padSettings},
   {kind:"submitTurn" as const,threadId:"opaque-thread",sendId:"opaque-send",input:{text:"opaque",attachments:[]},settings:padSettings},
 ]) {
-  const result=plain(provider.runtimePlan({...context,settings:padSettings},operation));
+  const result=planned({...context,settings:padSettings},operation);
   if (result.action.kind !== "request") throw new Error("Missing pad-write request");
   const params=result.action.call.params as Record<string,unknown>;
   assert.equal(params.approvalPolicy,"never");
@@ -98,11 +193,12 @@ for (const operation of [
     assert.deepEqual(params.sandboxPolicy,{type:"workspaceWrite",networkAccess:false,writableRoots:["/own-pad"],excludeTmpdirEnvVar:true,excludeSlashTmp:true});
   } else {
     assert.equal(params.sandbox,"workspace-write");
+    assert.equal((params.config as Record<string,unknown>)["windows.sandbox"],"mxc");
     assert.deepEqual((params.config as Record<string,unknown>)["sandbox_workspace_write.writable_roots"],["/own-pad"]);
-    const reply={thread:{id:"opaque-thread",source:"user"},approvalPolicy:"never",runtimeWorkspaceRoots:["/own-pad"],sandbox:{type:"workspaceWrite",writableRoots:["/own-pad"],excludeTmpdirEnvVar:true,excludeSlashTmp:true}};
+    const reply={thread:{id:"opaque-thread",source:"user"},approvalPolicy:"never",runtimeWorkspaceRoots:["/own-pad"],sandbox:{type:"workspaceWrite",networkAccess:false,writableRoots:["/own-pad"],excludeTmpdirEnvVar:true,excludeSlashTmp:true}};
     const accepted=plain(provider.runtimeResponse({...context,settings:padSettings},operation,result.state,{kind:"success",value:reply}));
     assert.notEqual(accepted.kind,"refused");
-    for (const wrong of [{...reply,runtimeWorkspaceRoots:["/lane","/own-pad"]},{thread:reply.thread,approvalPolicy:reply.approvalPolicy,sandbox:reply.sandbox},{...reply,sandbox:{...reply.sandbox,excludeSlashTmp:false}},{...reply,sandbox:{...reply.sandbox,writableRoots:["/foreign-pad"]}},{...reply,sandbox:{type:"dangerFullAccess"}}]) {
+    for (const wrong of [{...reply,runtimeWorkspaceRoots:["/lane","/own-pad"]},{thread:reply.thread,approvalPolicy:reply.approvalPolicy,sandbox:reply.sandbox},{...reply,sandbox:{...reply.sandbox,networkAccess:true}},{...reply,sandbox:{...reply.sandbox,excludeSlashTmp:false}},{...reply,sandbox:{...reply.sandbox,writableRoots:["/foreign-pad"]}},{...reply,sandbox:{type:"dangerFullAccess"}}]) {
       const denied=plain(provider.runtimeResponse({...context,settings:padSettings},operation,result.state,{kind:"success",value:wrong}));
       assert.equal(denied.kind,"refused");
     }

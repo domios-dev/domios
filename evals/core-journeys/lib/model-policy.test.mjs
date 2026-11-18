@@ -27,6 +27,7 @@ function fixture() {
   let tab = record(), refresh = refreshed();
   const ctx = {
     options: { mode: "setup", models: modelSelections([`${provider}=${model}`]) },
+    selection: { journeys: { J1: { status: "run" } } },
     state: { run: "fixture", workspace: { id: "workspace", cwd: "/owned" }, tabs: [{ id: "owned", provider, journey: "J1" }] },
     health: { build_sha: "same-build" },
     deadlines: { ready: 100 }, save() {},

@@ -258,6 +258,9 @@ pub use worker_lane_setting::*;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderDescriptor {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub accounts: Option<crate::provider_account::storage::AccountCapability>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub general_agent_offer_when_absent: bool,
     #[serde(default)]
@@ -438,7 +441,7 @@ pub struct ProviderUpdateAvailability {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 27;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 28;
 
 /// One provider-owned usage log to ingest for a session. `session_id` scopes a
 /// log shared by many sessions (e.g. one sqlite database); a per-session file

@@ -34,6 +34,7 @@ pub(super) fn respawn(
         data: None,
     })?;
     let request = codeterm_service_core::service::plan::task_attempts::TaskRespawnRequest {
+        role: body.get("role").and_then(Value::as_str).map(str::to_owned),
         launch_profile: body
             .get("launch_profile")
             .and_then(Value::as_str)
@@ -116,6 +117,12 @@ pub(super) fn respawn(
             data: None,
         })?;
     draft.parent_tab_id = Some(parent_tab_id.clone());
+    svc.resolve_respawn_role(&mut draft)
+        .map_err(|message| JsonRpcError {
+            code: -32602,
+            message,
+            data: None,
+        })?;
     let mut spawn_params = super::super::plan_task_dispatch::respawn_worker_params(
         &draft,
         &task.name,

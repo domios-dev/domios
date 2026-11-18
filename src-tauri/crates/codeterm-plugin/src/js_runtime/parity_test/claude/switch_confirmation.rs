@@ -4,6 +4,14 @@ use super::*;
 fn during_turn_command_capability_native_js_parity() {
     assert!(require_plugins().is_some(), "bundled plugin is required");
     let (native, js) = pair();
+    for (model, label) in [
+        ("sonnet", Some("Sonnet 5.5")),
+        ("haiku", Some("Haiku 5.5")),
+        ("unknown", None),
+    ] {
+        assert_eq!(native.model_switch_terminal_label(model).as_deref(), label);
+        assert_eq!(js.model_switch_terminal_label(model).as_deref(), label);
+    }
     let native = native.model_switch_commands().unwrap();
     let js = js.model_switch_commands().unwrap();
     assert!(native.during_turn);

@@ -2,14 +2,14 @@
 //! binds this tab only when its pid is in the tab's own process tree and its
 //! recorded process start equals the live process's start.
 
-use std::path::PathBuf;
+use std::{io::Read, path::PathBuf, time::UNIX_EPOCH};
 
 use crate::provider::{LaunchSessionDetection, LaunchSessionEvidence, LaunchSessionSource};
 
 pub(crate) const PROCESS_REGISTRY_DIR_ENV: &str = "CODETERM_CLAUDE_PROCESS_REGISTRY_DIR";
 
 fn registry_dir() -> Option<PathBuf> {
-    match std::env::var_os(PROCESS_REGISTRY_DIR_ENV) {
+    match crate::provider_account::environment(PROCESS_REGISTRY_DIR_ENV) {
         Some(dir) if !dir.is_empty() => Some(PathBuf::from(dir)),
         _ => super::read_home::config_root().map(|home| home.join("sessions")),
     }
@@ -18,14 +18,27 @@ fn registry_dir() -> Option<PathBuf> {
 pub(super) fn detect_launch_session(
     evidence: &LaunchSessionEvidence,
 ) -> Option<LaunchSessionDetection> {
-    let dir = registry_dir()?;
+    let Some(dir) = registry_dir() else {
+        log::debug!("[launch-pid-registry] refused: registry_directory_unavailable");
+        return None;
+    };
+    if evidence.processes.is_empty() {
+        log::debug!("[launch-pid-registry] refused: process_tree_empty");
+        return None;
+    }
     let mut processes: Vec<_> = evidence.processes.iter().collect();
     processes.sort_by_key(|process| (process.depth, process.pid));
     processes
         .into_iter()
         .find_map(|process| {
-            let raw = std::fs::read_to_string(dir.join(format!("{}.json", process.pid))).ok()?;
-            registry_session_id(&raw, process.pid, &process.start_token)
+            let pid = process.pid;
+            match read_registry_session(&dir, process) {
+                Ok(session) => Some(session),
+                Err(reason) => {
+                    log::debug!("[launch-pid-registry] pid={pid} refused: {reason}");
+                    None
+                }
+            }
         })
         .map(|session_id| LaunchSessionDetection {
             session_id,
@@ -33,10 +46,43 @@ pub(super) fn detect_launch_session(
         })
 }
 
-fn registry_session_id(raw: &str, pid: u32, start_token: &str) -> Option<String> {
-    let record: serde_json::Value = serde_json::from_str(raw).ok()?;
-    if record.get("pid")?.as_u64()? != u64::from(pid) {
-        return None;
+fn read_registry_session(
+    dir: &std::path::Path,
+    process: &crate::provider::LaunchProcess,
+) -> Result<String, String> {
+    let mut file = crate::provider_account::open_read(dir.join(format!("{}.json", process.pid)))
+        .map_err(|error| format!("record_open: {}", error.kind()))?;
+    let modified_ms = cfg!(target_os = "macos")
+        .then(|| file.metadata().ok()?.modified().ok())
+        .flatten()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .and_then(|elapsed| i64::try_from(elapsed.as_millis()).ok());
+    let mut raw = String::new();
+    file.read_to_string(&mut raw)
+        .map_err(|error| format!("record_read: {}", error.kind()))?;
+    validate_registry_session(&raw, process.pid, &process.start_token, modified_ms)
+        .map_err(str::to_owned)
+}
+
+#[cfg(test)]
+fn registry_session_id(
+    raw: &str,
+    pid: u32,
+    start_token: &str,
+    modified_ms: Option<i64>,
+) -> Option<String> {
+    validate_registry_session(raw, pid, start_token, modified_ms).ok()
+}
+
+fn validate_registry_session(
+    raw: &str,
+    pid: u32,
+    start_token: &str,
+    modified_ms: Option<i64>,
+) -> Result<String, &'static str> {
+    let record: serde_json::Value = serde_json::from_str(raw).map_err(|_| "invalid_json")?;
+    if record.get("pid").and_then(serde_json::Value::as_u64) != Some(u64::from(pid)) {
+        return Err("pid_mismatch");
     }
     // A child Claude run by the agent itself is not this tab's interactive session.
     if record
@@ -44,68 +90,50 @@ fn registry_session_id(raw: &str, pid: u32, start_token: &str) -> Option<String>
         .and_then(serde_json::Value::as_str)
         .is_some_and(|kind| kind != "interactive")
     {
-        return None;
+        return Err("non_interactive");
     }
-    let recorded_start = record.get("procStart")?.as_str()?.trim();
-    if start_token.is_empty() || recorded_start != start_token {
-        return None;
+    let recorded_start = record
+        .get("procStart")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("missing_recorded_start")?
+        .trim();
+    validate_registry_start(recorded_start, start_token, modified_ms)?;
+    record
+        .get("sessionId")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|session| !session.is_empty())
+        .map(str::to_owned)
+        .ok_or("missing_session_id")
+}
+
+fn validate_registry_start(
+    recorded: &str,
+    token: &str,
+    modified_ms: Option<i64>,
+) -> Result<(), &'static str> {
+    if token.is_empty() {
+        return Err("missing_live_start");
     }
-    let session_id = record.get("sessionId")?.as_str()?.trim();
-    (!session_id.is_empty()).then(|| session_id.to_string())
+    if recorded == token {
+        return Ok(());
+    }
+    let micros = token
+        .parse::<i64>()
+        .ok()
+        .filter(|_| token.bytes().all(|byte| byte.is_ascii_digit()))
+        .ok_or("invalid_live_start")?;
+    let start = chrono::DateTime::from_timestamp_micros(micros).ok_or("invalid_live_start")?;
+    if recorded != start.format("%a %b %e %T %Y").to_string() {
+        return Err("start_mismatch");
+    }
+    // A legacy local timestamp can coincide with the UTC second of a reused PID.
+    let modified_ms = modified_ms.ok_or("missing_record_mtime")?;
+    if modified_ms <= micros / 1_000 {
+        return Err("stale_record");
+    }
+    Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn record(pid: u32, proc_start: &str, kind: &str) -> String {
-        serde_json::json!({
-            "pid": pid,
-            "sessionId": "dba70c68-0000-4000-8000-000000000001",
-            "procStart": proc_start,
-            "kind": kind,
-        })
-        .to_string()
-    }
-
-    const START: &str = "134338511491237705";
-
-    #[test]
-    fn record_with_matching_process_start_names_its_session() {
-        let raw = record(45044, START, "interactive");
-        assert_eq!(
-            registry_session_id(&raw, 45044, START).as_deref(),
-            Some("dba70c68-0000-4000-8000-000000000001")
-        );
-    }
-
-    #[test]
-    fn reused_pid_with_a_different_process_start_names_nothing() {
-        let raw = record(45044, START, "interactive");
-        assert_eq!(registry_session_id(&raw, 45044, "134338511491230000"), None);
-    }
-
-    #[test]
-    fn record_for_another_pid_names_nothing() {
-        let raw = record(48208, START, "interactive");
-        assert_eq!(registry_session_id(&raw, 45044, START), None);
-    }
-
-    #[test]
-    fn non_interactive_record_names_nothing() {
-        let raw = record(45044, START, "print");
-        assert_eq!(registry_session_id(&raw, 45044, START), None);
-    }
-
-    #[test]
-    fn unknown_process_start_names_nothing() {
-        let raw = record(45044, START, "interactive");
-        assert_eq!(registry_session_id(&raw, 45044, ""), None);
-    }
-
-    #[test]
-    fn numeric_process_start_is_not_a_start_token() {
-        let raw = serde_json::json!({"pid": 45044, "sessionId": "sid", "procStart": 7}).to_string();
-        assert_eq!(registry_session_id(&raw, 45044, "7"), None);
-    }
-}
+mod tests;

@@ -7,7 +7,7 @@ import type { TimelineState } from "./TimelineState";
  * tab (runtime-only, recomputed from output) and serialized into the mux
  * snapshot so the chat view's state indicator renders it.
  */
-export type AgentLiveState = { state: TimelineState, subtype?: QuestionSubtype, status_line?: string, phase?: string, 
+export type AgentLiveState = { state: TimelineState, subtype?: QuestionSubtype, status_line?: string, phase?: string,
 /**
  * The live turn's elapsed time while working; the finished turn's duration while idle.
  */

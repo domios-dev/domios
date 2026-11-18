@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { MentionChipGallery } from "../../../../src/components/Gallery/MentionChipGallery";
 import { ComposerMentionPicker } from "../../../../src/components/Terminal/ComposerMentionPicker";
 import { useComposerMentions } from "../../../../src/components/Terminal/useComposerMentions";
 import { Button } from "../../../../src/components/shared/Button";
@@ -56,8 +57,9 @@ function MentionsSpecimen({ mode }: { mode: "ready" | "initial" | "empty" | "err
     </div>
   </div>;
 }
-function InteractiveMentions() {
+function InteractiveMentions({ showChips = false }: { showChips?: boolean }) {
   const [mode, setMode] = useState<"ready" | "initial" | "empty" | "error">("ready");
+  if (showChips) return <MentionChipGallery />;
   return <>
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
       {(["ready", "initial", "empty", "error"] as const).map((state) => <Button key={state} onClick={() => setMode(state)} aria-pressed={mode === state}>{state}</Button>)}
@@ -70,5 +72,8 @@ export default defineSpecimen({
   where: "src/components/Terminal/ComposerMentionPicker.tsx",
   notes: "Real hook and menu. Focus the textarea; type @r, @ri, @riv, @rive, @rivet while queries are held. Resolve oldest to exercise obsolete completion, then newest. Check arrows, Home/End, Page keys, Enter/Tab, Escape, outside and touch. Review at 1280 and 380 in both themes.",
   Component: InteractiveMentions,
-  states: [{ id: "interactive", label: "Initial, refresh, empty and failure controls", props: {} }],
+  states: [
+    { id: "interactive", label: "Initial, refresh, empty and failure controls", props: {} },
+    { id: "chips", label: "Participant mention chips", props: { showChips: true } },
+  ],
 });

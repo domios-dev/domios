@@ -18,6 +18,8 @@ use super::wire::{SerdeSessionMetadata, VmUsageParser};
 use super::{launch_artifacts, prompt_parse, JsProvider};
 
 mod capabilities;
+#[macro_use]
+mod metadata;
 mod chat_read;
 mod delivery;
 mod directory_trust;
@@ -29,13 +31,7 @@ mod usage_sources;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
-    fn general_agent_offer_when_absent(&self) -> bool {
-        self.manifest.general_agent_offer_when_absent
-    }
-
-    fn supports_subagent_visibility(&self) -> bool {
-        capabilities::supports_subagent_visibility(self)
-    }
+    js_provider_metadata!();
 
     fn record_source(&self, source: &str) -> Option<&crate::jsonl_window::records::RecordSource> {
         capabilities::record_source(self, source)
@@ -562,6 +558,9 @@ impl AgentProvider for JsProvider {
                 .try_call::<Option<bool>>("sessionExists", &[json!(cwd), json!(session_id)])
                 .flatten();
         }
+        if self.manifest.sessions.is_some() && !self.has_js("sessionFilePath") {
+            return self.manifest_session_exists(cwd, session_id);
+        }
         self.owned_session_file_path(cwd, session_id)?
             .try_exists()
             .ok()
@@ -622,9 +621,6 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.session_id_injection.into()
     }
 
-    fn attachment_capabilities(&self) -> crate::provider::AttachmentCapabilities {
-        self.manifest.capabilities.attachments
-    }
     fn context_attach(&self) -> Option<crate::provider::ContextAttach> {
         self.manifest.capabilities.context_attach
     }
@@ -1025,14 +1021,6 @@ impl AgentProvider for JsProvider {
             denials_before,
             self.vm.capability_denial_count(),
         ))
-    }
-
-    fn model_switch(&self) -> provider::ModelSwitchMode {
-        self.manifest.commands.model_switch
-    }
-
-    fn model_switch_commands(&self) -> Option<provider::ModelSwitchCommands> {
-        self.manifest.commands.model_switch_commands.clone()
     }
 
     fn supports_lazy_skills(&self) -> bool {

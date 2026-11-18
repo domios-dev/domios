@@ -66,7 +66,7 @@ Neighbor outgoing history: optional UNIX-ms `delivered_at`, `read_at` (implies d
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/plugins/{plugin}/media/{frame}/{handle}` | — | Passive plugin image/audio/video delivery; the opaque live frame/handle pair authorizes access. Also accepts HEAD. Supports one byte Range (206; invalid ranges 416), `no-store` and `nosniff`; unknown, expired or revoked authority returns 404. No filesystem paths. |
-| POST | `/api/mem/neighbor-save` | `{kind,area,title,body,summary?,tags?,importance?}` | Authenticated Neighbor-derived tab only; requires a live matching friendship and a memory write grant for the exact area. Saves only `fact` or `note`, with server-derived authorship and global scope; returns `{id}`. Credentials and oversized content refuse. HTTP 403 returns `{code,reason,message}` for denied authority, area, kind, credentials or size. Local owner and ordinary tabs cannot use this route. |
+| POST | `/api/mem/neighbor-save` | `{kind,area,title,body,summary?,tags?,importance?}` | Authenticated Neighbor-derived tab only; requires a live matching friendship and a memory write grant for the exact area. Saves `fact` or `note`, plus `skill` under Full machine access. Full with empty write areas grants all current non-secret taxonomy areas; a nonempty list narrows Full. Read_only/folder still require explicit write areas. Saves carry server-derived authorship and global scope; returns `{id}`. Credentials and oversized content refuse. HTTP 403 returns `{code,reason,message}` for denied authority, area, kind, credentials or size. Local owner and ordinary tabs cannot use this route. |
 
 #### Local previews
 | Method | Path | Body | Description |
@@ -211,4 +211,4 @@ Live authenticated Plan owners can recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 252 -->
+<!-- revision: 253 -->

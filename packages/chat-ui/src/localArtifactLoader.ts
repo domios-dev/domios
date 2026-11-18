@@ -2,11 +2,12 @@ import type { LocalArtifactKind } from "@codeterm/chat-core";
 export type { LocalArtifactKind } from "@codeterm/chat-core";
 
 export type LocalPreviewFile = import("../../../gen/LocalPreviewFile").LocalPreviewFile;
+type LocalArtifactReadKind = LocalArtifactKind | "image-original";
 
 /** `canvas` names the `<ds-canvas src>` file that lists `path` as an item. */
 export type LocalArtifactLoader = (
   path: string,
-  kind: LocalArtifactKind,
+  kind: LocalArtifactReadKind,
   tabId?: string,
   canvas?: string,
 ) => Promise<LocalPreviewFile>;
@@ -19,7 +20,7 @@ export function configureLocalArtifactLoader(next: LocalArtifactLoader | null): 
 
 export async function loadLocalArtifact(
   path: string,
-  kind: LocalArtifactKind,
+  kind: LocalArtifactReadKind,
   tabId?: string,
   canvas?: string,
 ): Promise<LocalPreviewFile> {

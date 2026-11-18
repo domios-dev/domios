@@ -336,6 +336,7 @@ impl NeighborsExt for ServiceContext {
                     &lifecycle,
                     &metadata,
                     Outgoing {
+                        message_id: None,
                         authority: authority::SendAuthority::FriendshipGrant,
                         friendship,
                         kind: Kind::Refusal,

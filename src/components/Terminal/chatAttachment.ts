@@ -1,5 +1,8 @@
 import { useCallback, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
+import { isRemoteTabDismissed } from "../../lib/remoteTabPortal";
+import { remoteChatPeer } from "../../lib/remoteChatStatus";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 
 export type ChatAttachmentEdge = "owned" | "released";
 
@@ -38,7 +41,10 @@ export function useChatAttachment(
 
   const stop = useCallback((subscriptionId: string) => {
     onEdgeRef.current("released", subscriptionId);
-    void invoke("chat_stop", { tabId, subscriptionId }).catch(() => {});
+    const presence = remoteChatPeer(parseCompositeTabId(tabId)?.peerId)?.presence;
+    if ((!presence || presence === "online") && !isRemoteTabDismissed(tabId)) {
+      void invoke("chat_stop", { tabId, subscriptionId }).catch(() => {});
+    }
   }, [tabId]);
 
   const begin = useCallback(() => {

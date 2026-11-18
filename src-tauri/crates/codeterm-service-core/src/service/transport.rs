@@ -18,6 +18,10 @@ use crate::multiplexer::types::TabBacking;
 #[serde(rename_all = "camelCase")]
 pub struct AtomicSpawnParams {
     pub agent_id: String,
+    #[serde(default)]
+    pub account_id: Option<String>,
+    #[serde(skip)]
+    pub account_namespace: Option<String>,
     pub preset: Option<String>,
     #[serde(skip)]
     pub(crate) preset_args: Vec<String>,
@@ -249,6 +253,46 @@ impl ServiceContext {
         } else {
             params.agent_id.clone()
         };
+        let (workspace, _) = self.resolve_spawn_workspace(params.workspace_id.clone())?;
+        params.account_id = super::provider_accounts::starting_account(
+            self,
+            &provider,
+            Some(&workspace),
+            params.account_id.as_deref(),
+        )?;
+        params.account_namespace = super::provider_accounts::credential_namespace(
+            self,
+            &provider,
+            params.account_id.as_deref(),
+            None,
+        )?;
+        params.workspace_id = Some(workspace);
+        let _account_reservation = super::provider_accounts::admission::reserve(
+            self,
+            &provider,
+            params.account_id.as_deref(),
+        )?;
+        let context = super::provider_accounts::invocation_at(
+            self,
+            &provider,
+            params.account_id.as_deref(),
+            params.account_namespace.as_deref(),
+        )?;
+        codeterm_plugin::provider_account::with_context(context, || {
+            self.spawn_tab_atomic_selected(params, ui)
+        })
+    }
+
+    fn spawn_tab_atomic_selected(
+        &self,
+        mut params: AtomicSpawnParams,
+        ui: bool,
+    ) -> Result<AtomicSpawn, String> {
+        let provider = if params.agent_id.trim().is_empty() {
+            self.configuration().general_agent.agent_provider
+        } else {
+            params.agent_id.clone()
+        };
         let cloud = self.remote_execution(
             &provider,
             params.config.as_ref().unwrap_or(&serde_json::Value::Null),
@@ -375,6 +419,8 @@ impl ServiceContext {
             super::billing::admit_new_tab(&gate, &mux)?;
             let tab_id = mux.create_tab(&ws_id)?;
             if let Some(tab) = mux.get_tab_mut(&tab_id) {
+                tab.restorable_launch.account_id = params.account_id.clone();
+                tab.restorable_launch.account_namespace = params.account_namespace.clone();
                 tab.restorable_launch.execution_mode = params
                     .config
                     .as_ref()

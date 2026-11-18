@@ -463,6 +463,15 @@ export function reconcileChatSendAdmission(tabId: string, correlationId: string,
   if (next.some((send, index) => send !== current[index])) publish(tabId, next);
 }
 
+export function recordRemoteChatSendFailure(tabId: string, correlationId: string, failure: NonNullable<DeliverySend["remoteFailure"]>): void {
+  const current = readChatSends(tabId);
+  const next = current.map(send => send.correlationId === correlationId && !send.status && deliveryState(send) !== "delivered"
+    ? { ...send, remoteFailure: failure, requestFailed: failure.neverWritten === true, requestUncertain: failure.neverWritten !== true,
+        requestError: undefined, admissionSettled: true }
+    : send);
+  if (next.some((send, index) => send !== current[index])) publish(tabId, next);
+}
+
 export function recordChatSendAdmissionFailure(tabId: string, correlationId: string, hadResponse: boolean, reason?: unknown): void {
   const current = readChatSends(tabId);
   const next = current.map((send) => {
@@ -494,7 +503,7 @@ export function beginChatSendRetry(tabId: string, id: string): DeliverySend | un
   const send = current.find((item) => item.id === id);
   if (!send || deleting.has(deletionKey(tabId, id)) || !canRetryChatSend(send)) return;
   const next = { ...send, requestFailed: false, requestError: undefined, requestUncertain: false, requestHadResponse: undefined, admissionSettled: undefined, status: undefined,
-    matchedRow: undefined, correlationId: uid() };
+    matchedRow: undefined, remoteFailure: undefined, correlationId: uid() };
   publish(tabId, current.map((item) => item.id === id ? next : item));
   return next;
 }

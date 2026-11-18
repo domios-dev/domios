@@ -3,11 +3,11 @@ import type { KpiLedgerState } from "./KpiLedgerState";
 import type { KpiNotRecordingReason } from "./KpiNotRecordingReason";
 import type { PlanKpiSpend } from "./PlanKpiSpend";
 
-export type MissionControlKpi = { state: KpiLedgerState, not_recording_reason: KpiNotRecordingReason | null, 
+export type MissionControlKpi = { state: KpiLedgerState, not_recording_reason: KpiNotRecordingReason | null,
 /**
  * `None` whenever `state` is `not_recording` — a missing ledger shows no number.
  */
-spend: PlanKpiSpend | null, 
+spend: PlanKpiSpend | null,
 /**
  * `Some` exactly when recording is off because of the opt-out, and never for a
  * state the setting would not fix.

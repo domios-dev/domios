@@ -83,6 +83,19 @@ pub(crate) fn capture_tab_launch_parameters(
         })
         .unwrap_or_default();
     let launch = RestorableLaunchParameters {
+        account_notices: mux
+            .read()
+            .get_tab(tab_id)
+            .map(|tab| tab.restorable_launch.account_notices.clone())
+            .unwrap_or_default(),
+        account_namespace: mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.restorable_launch.account_namespace.clone()),
+        account_id: mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.restorable_launch.account_id.clone()),
         host_approval_choice,
         selected_session_mode,
         execution_mode: None,
@@ -282,7 +295,14 @@ pub fn restored_fresh_launch_input(
                 && params.permission_bypass_authorization.is_some(),
         );
     }
+    params.account_id = Some(
+        launch_parameters
+            .account_id
+            .clone()
+            .unwrap_or_else(|| "default".into()),
+    );
     params.context_files = launch_parameters.context_files.clone();
+    params.account_namespace = launch_parameters.account_namespace.clone();
     params.context_skills = launch_parameters.context_skills.clone();
     params.task = None;
     params.starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;
@@ -332,6 +352,21 @@ impl RestoredFreshLaunchInput {
         service: &crate::service::ServiceContext,
         tab_id: &str,
     ) -> Option<String> {
+        let invocation = crate::service::provider_accounts::invocation(
+            service,
+            self.params.agent.as_deref()?,
+            self.params.account_id.as_deref(),
+        )
+        .ok()?;
+        codeterm_plugin::provider_account::with_context(invocation, || {
+            self.command_scoped(service, tab_id)
+        })
+    }
+    fn command_scoped(
+        &self,
+        service: &crate::service::ServiceContext,
+        tab_id: &str,
+    ) -> Option<String> {
         let provider_id = self.params.agent.as_deref()?;
         let registry = &service.agent_registry;
         let resumable = registry.with_provider(provider_id, |provider| {
@@ -370,6 +405,32 @@ impl RestoredFreshLaunchInput {
         })
     }
     pub fn prepared_command(
+        &self,
+        service: &crate::service::ServiceContext,
+        tab_id: &str,
+    ) -> Option<crate::service::orchestrator::PreparedAgentCommand> {
+        let invocation = crate::service::provider_accounts::invocation(
+            service,
+            self.params.agent.as_deref()?,
+            self.params.account_id.as_deref(),
+        )
+        .ok()?;
+        codeterm_plugin::provider_account::with_context(invocation, || {
+            self.prepared_command_scoped(service, tab_id)
+        })
+    }
+    pub fn prepared_command_with_invocation(
+        &self,
+        service: &crate::service::ServiceContext,
+        tab_id: &str,
+        invocation: Option<std::sync::Arc<codeterm_plugin::provider_account::InvocationContext>>,
+    ) -> Option<crate::service::orchestrator::PreparedAgentCommand> {
+        codeterm_plugin::provider_account::with_context(invocation, || {
+            self.prepared_command_scoped(service, tab_id)
+        })
+    }
+
+    fn prepared_command_scoped(
         &self,
         service: &crate::service::ServiceContext,
         tab_id: &str,
@@ -463,6 +524,11 @@ mod tests {
             crate::agent::test_provider::MockProvider::new("capture-provider")
                 .with_session_config_delivery(),
         ));
+        mux.write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .restorable_launch
+            .account_id = Some("account-capture".into());
         let task =
             crate::service::plan::worker_identity::attach_worker_identity(IDENTITY, ASSIGNMENT);
 
@@ -485,6 +551,7 @@ mod tests {
         );
 
         assert!(launch.captured);
+        assert_eq!(launch.account_id.as_deref(), Some("account-capture"));
         let identity = launch.identity_instructions.unwrap();
         assert!(identity.contains(IDENTITY));
         assert!(!identity.contains(ASSIGNMENT));
@@ -513,14 +580,21 @@ mod tests {
             crate::service::SpawnAgentParams {
                 agent: Some("resume-fixture".into()),
                 cwd: Some("/opaque/worker".into()),
+                account_id: Some("account-stale-request".into()),
                 ..Default::default()
             },
             crate::multiplexer::types::RestorableLaunchParameters {
                 captured: true,
+                account_id: Some("account-restored".into()),
                 context_files: Some(files.clone()),
                 context_skills: Some("opaque skills".into()),
                 ..Default::default()
             },
+        );
+        assert_eq!(input.params.account_id.as_deref(), Some("account-restored"));
+        assert_eq!(
+            input.launch_parameters.account_id.as_deref(),
+            Some("account-restored")
         );
         assert_eq!(input.params.context_files, Some(files));
         assert_eq!(

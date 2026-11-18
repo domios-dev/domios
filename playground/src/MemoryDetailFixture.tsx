@@ -2,7 +2,6 @@ import "./mocks/setup";
 import { useEffect, useState, type CSSProperties } from "react";
 import { createRoot } from "react-dom/client";
 import { MemorySnapshotCanvas } from "../../src/components/MemoryPanel/MemorySnapshotCanvas";
-import { configureDaemonTransport } from "../../src/lib/daemonBootstrap";
 import { mockHttp } from "./mocks/backend";
 import { MemoryNodeDetail } from "../../src/components/MemoryPanel/MemoryNodeDetail";
 import { MemoryListTab } from "../../src/components/MemoryPanel/MemoryListTab";
@@ -12,7 +11,6 @@ import type { ApiConfig } from "../../src/lib/types";
 import { DEFAULT_THEME, themeToCSS } from "../../src/lib/themeCss";
 import "../../src/styles/globals.css";
 
-configureDaemonTransport({ origin: window.location.origin, token: "fixture" });
 const friend = { uid: "fixture-friend", friendship_id: "fixture-friendship", displayName: "Alex" };
 const memory: MemNode = {
   id: "fixture_project_map", title: "Project X delivery notes", kind: "fact",

@@ -10,7 +10,7 @@ import { tabActivity } from "../../lib/tabActivity";
 import { FriendRow } from "./FriendRow";
 import { openNeighborPage } from "./neighborFocus";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
-import { friendReceivingLine } from "./neighborFriendReceiving";
+import { neighborSidebarLine } from "./neighborSidebarLine";
 import { receiverOpenItem } from "./neighborReceiverLocation";
 import { conciergeNeedsAttention, conciergeStatusLine, parseConciergeStatus } from "./useConciergeStatus";
 
@@ -39,13 +39,14 @@ export function RemoteNeighborSection({ peer, uiFontScale, touchMode, activeChat
       const tab = value.tab_id ? tabs[value.tab_id] : undefined;
       const paused = value.paused === true;
       const receiver = value.receiver;
-      const elsewhere = receiver != null && !receiver.receiving_here;
-      const lifecycle = parseConciergeStatus(value.concierge);
+      const displayedReceiver = receiver ?? value.observation?.receiver;
+      const elsewhere = displayedReceiver != null && !displayedReceiver.receiving_here;
+      const lifecycle = parseConciergeStatus(value.observation?.concierge ?? value.concierge);
       const needsAttention = conciergeNeedsAttention(lifecycle);
-      const openThere = elsewhere ? receiverOpenItem(receiver, receiver.receiver_machine_label ?? "concierge machine") : null;
-      const line = elsewhere ? friendReceivingLine(receiver) : paused ? `disabled${!receiver ? " · concierge location unknown" : ""}`
-        : !receiver ? friendReceivingLine(null) : value.access === "locked" ? "paused by plan"
-        : lifecycle?.state === "ready" ? "" : conciergeStatusLine(lifecycle);
+      const openThere = receiver && !receiver.receiving_here ? receiverOpenItem(receiver, receiver.receiver_machine_label ?? "concierge machine") : null;
+      const localKnown = tab !== undefined && !elsewhere;
+      const line = neighborSidebarLine(displayedReceiver ?? null, localKnown, lifecycle, tab ? tabActivity(tab, statuses[tab.id]) : null,
+        paused, value.access === "paid") + (value.observation?.stale || (!receiver && localKnown) ? " · stale" : "");
       return <li key={id}><SurfaceOwnerBlock ownerId={`neighbor:${id}`} attachments={tab && !elsewhere ? [tab] : []} compact={false}
         renderOwner={() => <FriendRow friendshipId={id} name={value.friend_display_name} photoURL={value.friend_photo_url ?? null}
           uiFontScale={uiFontScale} touchMode={touchMode} active={activeChat === id} paused={paused} line={line}

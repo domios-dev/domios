@@ -76,3 +76,24 @@ fn neighbor_payload_carries_content_without_authority_or_mutation_options() {
         serde_json::json!({"kind":"fact","area":"project","title":"opaque","body":"body","summary":null,"tags":["tag"]})
     );
 }
+
+#[test]
+fn neighbor_save_accepts_skill_kind_for_daemon_authorization() {
+    let parsed = crate::Cli::try_parse_from([
+        "domios",
+        "mem",
+        "neighbor-save",
+        "--kind",
+        "skill",
+        "--area",
+        "project",
+        "--title",
+        "opaque skill",
+        "--from-pad",
+        "body.md",
+    ])
+    .unwrap();
+    assert!(matches!(parsed.command, crate::Commands::Mem {
+        action: crate::MemAction::NeighborSave { kind, .. }
+    } if kind == "skill"));
+}

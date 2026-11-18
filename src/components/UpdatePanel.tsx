@@ -11,6 +11,7 @@ import { DotMatrixCanvas } from "./brand/DotMatrixCanvas";
 import { useBusyWaves } from "./brand/useBusyWaves";
 import { usePrefersReducedMotion } from "./brand/usePrefersReducedMotion";
 import { updateRestartDescription } from "../lib/updateStatusModel";
+import { UpdateBlockingTabs } from "./UpdateBlockingTabs";
 
 type ShownRowState = Exclude<UpdateRow["state"], "last_known">;
 
@@ -106,6 +107,7 @@ function UpdatePanelContents({ children }: { children?: ReactNode }) {
           <summary className="cursor-pointer hover:text-[var(--ct-fg)]">Check details</summary>
           {update.checkDetails.map(({ source, line }) => <div key={source} className="mt-1 break-words">{line}</div>)}
         </details>}
+        <UpdateBlockingTabs tabs={update.blockingTabs} busy={update.busy} onStop={update.stopAndRetry} />
         {children}
         <div className="flex items-center justify-between gap-2 border-t border-[var(--ct-border)] pt-3">
           <Button variant="ghost" size="compact" className="-ml-3 gap-1.5" disabled={update.checking || (update.busy && !update.error)} onClick={() => void update.retry()}><RotateCw size={13} aria-hidden="true" />Check again</Button>

@@ -124,6 +124,31 @@ const button=container.querySelector("button")!;
 assert.equal(button.getAttribute("aria-label"),"usage 120 tokens · $0.02");
 await act(async()=>button.dispatchEvent(new MouseEvent("click",{bubbles:true})));
 assert.match(document.querySelector('[role="status"]')?.textContent ?? "",/cached input: 30/);
+groupUsage = [{ group: "deepseek", spend_remaining_cents: 917 }];
+const renderModelSpend = (modelId: string) => act(async () => root.render(
+  <UsageBubble key="model-spend" provider="fixture" tabId="own" threadId="thread" trackingEnabled chatBackend
+    modelId={modelId} modelGroups={[{ id: "deepseek", label: "DeepSeek" }]} />,
+));
+await renderModelSpend("deepseek/deepseek-flash");
+const balanceButton = namedButton("DeepSeek balance, $9.17 left");
+assert.equal(balanceButton.textContent, "$9.17", "group balance takes precedence over session tokens");
+assert.equal(balanceButton.querySelector("svg"), null);
+await act(async () => balanceButton.click());
+const balanceDetail = document.querySelector('[role="dialog"][aria-label="DeepSeek balance"]');
+assert.match(balanceDetail?.textContent ?? "", /\$9\.17 leftUpdated just now/);
+groupUsage = [{ group: "deepseek", spend_remaining_cents: 0, spend_cents: 34 }];
+await act(async () => namedButton("Refresh usage").click());
+assert.equal(namedButton("DeepSeek balance, $0.00 left").textContent, "$0.00");
+assert.match(balanceDetail?.textContent ?? "", /\$0\.00 left\$0\.34 recorded spendUpdated just now/);
+snapshot = { ...snapshot, runtime_usage: [{ ...reading, billing_mode: "api", token_usage: null }] };
+groupUsage = [{ group: "deepseek", spend_cents: 34 }];
+await act(async () => emit());
+assert.equal(container.querySelector("button")?.textContent, "—", "unknown balance keeps the existing empty pill");
+groupUsage = [{ group: "deepseek", spend_remaining_cents: 917 }];
+await act(async () => emit());
+await renderModelSpend("another/model");
+assert.equal(container.querySelector("button")?.textContent, "—", "a different group cannot see the DeepSeek balance");
+groupUsage = [];
 const {useProviderModelUsageState} = await import("../../hooks/useProviderModelUsage");
 function GroupProbe() { const {usage} = useProviderModelUsageState("fixture"); return <output>{JSON.stringify(usage)}</output>; }
 await act(async()=>root.render(<GroupProbe/>));
@@ -187,6 +212,23 @@ const beforeBroadcast = latestReads;
 await act(async()=>emit());
 assert.equal(latestReads - beforeBroadcast, 1);
 assert.equal(container.querySelectorAll('button[aria-label="usage session 19% weekly 23%"]').length, 2);
+const resetAt = Date.now() + 3_600_000;
+const {formatResetsAt} = await import("./format");
+snapshot = {...snapshot,session_pct:null,weekly_pct:31,session_resets_at:null,weekly_resets_at:resetAt,
+ runtime_usage:[{...reading,rate_limits:{captured_at:snapshot.captured_at,value:[{window:"secondary",usedPercent:31,resetsAt:resetAt}]}}]};
+await act(async()=>root.render(<UsageBubble key="reset-projection" provider="fixture" tabId="own" threadId="thread" trackingEnabled/>));
+assert.equal(container.querySelector("button")?.getAttribute("aria-label"),"usage weekly 31%");
+await act(async()=>container.querySelector("button")!.click());
+const resetDialog = document.querySelector('[role="dialog"][aria-label="usage details"]')!;
+assert.ok(resetDialog.textContent?.includes(formatResetsAt(resetAt,Date.now())));
+snapshot = {...snapshot,captured_at:snapshot.captured_at+1,weekly_pct:32,
+ runtime_usage:[{...reading,rate_limits:{captured_at:snapshot.captured_at+1,value:[{window:"secondary",usedPercent:32,resetsAt:resetAt}]}}]};
+await act(async()=>emit());
+assert.equal(container.querySelector("button")?.getAttribute("aria-label"),"usage weekly 32%");
+assert.ok(resetDialog.textContent?.includes("32%"));
+assert.ok(resetDialog.textContent?.includes(formatResetsAt(resetAt,Date.now())));
+await act(async()=>container.querySelector("button")!.dispatchEvent(new MouseEvent("pointerenter",{bubbles:true})));
+assert.ok(resetDialog.textContent?.includes(formatResetsAt(resetAt,Date.now())));
 await act(async()=>root.unmount());bridge.__setInvokeForTest(null);bridge.__setListenForTest(null);dom.happyDOM.abort();
 console.log("PASS usage chip wiring: subscription metrics and API session breakdown");
 

@@ -6,7 +6,7 @@ use super::*;
 use crate::multiplexer::types::{PendingModelSelection, Tab};
 pub(super) use crate::service::agent_lifecycle::staged_switches::{PendingSwitches, SwitchRequest};
 
-const STAGING_DEADLINE: Duration = Duration::from_secs(3600);
+pub(super) const STAGING_DEADLINE: Duration = Duration::from_secs(3600);
 pub mod completion_records;
 
 pub struct StagingParams {
@@ -28,6 +28,7 @@ pub struct CompletionBoundary {
 pub trait StagedSwitchExt {
     fn staged_completion_boundary(&self, tab_id: &str) -> Option<CompletionBoundary>;
     fn cancel_staged_model_switch(&self, tab_id: &str);
+    fn clear_model_turn_staging(&self, tab_id: &str);
     fn stage_model_switch(
         &self,
         snap: &TabRestartSnapshot,
@@ -159,22 +160,11 @@ impl StagedSwitchExt for ServiceContext {
     }
 
     fn cancel_staged_model_switch(&self, tab_id: &str) {
-        let mut mux = self.mux.write();
-        self.ext::<crate::service::agent_restart::RestartTracker>()
-            .lock()
-            .staged_models
-            .cancel(tab_id);
-        if let Some(tab) = mux.get_tab_mut(tab_id) {
-            if !tab
-                .pending_model_selection
-                .as_ref()
-                .is_some_and(|selection| selection.confirmation_pending)
-            {
-                tab.pending_model_selection = None;
-            }
-        }
-        drop(mux);
-        self.emit_state_changed(MuxEmitCause::Model);
+        clear_turn_staging(self, tab_id, true);
+    }
+
+    fn clear_model_turn_staging(&self, tab_id: &str) {
+        clear_turn_staging(self, tab_id, false);
     }
 
     fn stage_model_switch(
@@ -234,15 +224,21 @@ impl StagedSwitchExt for ServiceContext {
                 completion_generation: params.completion_boundary.generation,
                 completion_epoch: params.completion_boundary.epoch,
             };
-            tab.pending_model_selection = Some(PendingModelSelection {
-                model: model.into(),
-                effort: effort.map(str::to_owned),
-                confirmation_pending: false,
-            });
+            let mut tracker = self.ext::<super::super::RestartTracker>().lock();
+            tab.pending_model_selection = Some(
+                tracker
+                    .queued_model_switches
+                    .get(&snap.tab_id)
+                    .map(|queued| queued.selection.clone())
+                    .unwrap_or_else(|| PendingModelSelection {
+                        model: model.into(),
+                        effort: effort.map(str::to_owned),
+                        confirmation_pending: false,
+                    }),
+            );
             let already_idle =
                 self.resolved_tab_status(tab) == Some(codeterm_types::pty::TabStatus::Idle);
-            self.ext::<crate::service::agent_restart::RestartTracker>()
-                .lock()
+            tracker
                 .staged_models
                 .replace_at_idle(request.clone(), tx, already_idle);
             request
@@ -379,6 +375,12 @@ impl StagedSwitchExt for ServiceContext {
             let mut tracker = self
                 .ext::<crate::service::agent_restart::RestartTracker>()
                 .lock();
+            if idle
+                && (tracker.model_switch_busy(&request.tab_id)
+                    || tracker.queued_model_switches.contains_key(&request.tab_id))
+            {
+                return false;
+            }
             if !tracker.staged_models.claim(&request) {
                 log::info!("[agent-model/completion] tab={} request={} phase=staged_claim refused=true at_ms={}", request.tab_id, request.id, crate::service::pty_frame_timing::unix_ms());
                 return true;
@@ -420,15 +422,22 @@ impl StagedSwitchExt for ServiceContext {
                 tracker.staged_models.finish(&request);
             }
             if let Some(tab) = mux.get_tab_mut(&request.tab_id) {
-                finish_staged_selection(
-                    &request,
-                    tab,
-                    &tracker.staged_models,
-                    result.as_ref().ok(),
-                );
+                if let Some(selection) = tracker.pending_restart_model(&request.tab_id) {
+                    tab.pending_model_selection = Some(selection.clone());
+                } else {
+                    finish_staged_selection(
+                        &request,
+                        tab,
+                        &tracker.staged_models,
+                        result.as_ref().ok(),
+                    );
+                }
             }
             warn
         };
+        if !retry {
+            self.record_product_model_switch(&result, Some(&request.nonce));
+        }
         if let Err(error) = result {
             log::warn!("[agent-model/completion] tab={} request={} phase=staged_refused retry={} error={error}", request.tab_id, request.id, retry);
             if warn {
@@ -439,9 +448,36 @@ impl StagedSwitchExt for ServiceContext {
                 );
             }
         }
+        crate::service::boot_wait::notify_boot_changed();
         self.emit_state_changed(MuxEmitCause::Model);
         !retry
     }
+}
+
+fn clear_turn_staging(svc: &ServiceContext, tab_id: &str, cancel_queue: bool) {
+    let mut mux = svc.mux.write();
+    let mut tracker = svc.ext::<super::super::RestartTracker>().lock();
+    if cancel_queue {
+        if let Some(request) = tracker.queued_model_switches.remove(tab_id) {
+            request.cancelled.notify_one();
+        }
+    }
+    tracker.staged_models.cancel(tab_id);
+    if let Some(tab) = mux.get_tab_mut(tab_id) {
+        if let Some(pending) = tracker.pending_restart_model(tab_id) {
+            tab.pending_model_selection = Some(pending.clone());
+        } else if !tab
+            .pending_model_selection
+            .as_ref()
+            .is_some_and(|selection| selection.confirmation_pending)
+        {
+            tab.pending_model_selection = None;
+        }
+    }
+    drop(tracker);
+    drop(mux);
+    crate::service::boot_wait::notify_boot_changed();
+    svc.emit_state_changed(MuxEmitCause::Model);
 }
 
 struct StagedFrames {
@@ -492,8 +528,16 @@ fn finish_staged_selection(
             selection.model == request.model && selection.effort == request.effort
         });
     let own_binding = tab.agent_session_id.as_deref() == Some(&request.session_id)
-        && tab.session_binding_nonce.as_deref() == Some(&request.nonce)
-        && tab.reported_session_binding_nonce.as_deref() == Some(&request.nonce);
+        && tab.session_binding_nonce.is_some()
+        && tab.reported_session_binding_nonce == tab.session_binding_nonce
+        && (tab.session_binding_nonce.as_deref() == Some(&request.nonce)
+            || outcome
+                .and_then(|outcome| outcome.restart.as_ref())
+                .is_some_and(|restart| {
+                    restart.agent_ready
+                        && restart.new_pty_id.is_some()
+                        && restart.new_pty_id == tab.pty_id
+                }));
     if confirmed && own_selection && own_binding && !pending.0.contains_key(&request.tab_id) {
         tab.pending_model_selection = None;
     }

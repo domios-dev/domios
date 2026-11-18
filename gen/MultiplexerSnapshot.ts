@@ -9,19 +9,19 @@ import type { Workspace } from "./Workspace";
 /**
  * Full state snapshot for frontend hydration.
  */
-export type MultiplexerSnapshot = { 
+export type MultiplexerSnapshot = {
 /**
  * Monotonic generation; the reducer drops any snapshot whose value is
  * `<=` the one already applied. Serialized first so the publisher can
  * compare snapshot content without it.
  */
-generation: number, workspaces: Array<Workspace>, tabs: { [key in string]: Tab }, teams?: Array<Team>, active_workspace_id: string | null, focused_tab_id: string | null, 
+generation: number, workspaces: Array<Workspace>, tabs: { [key in string]: Tab }, teams?: Array<Team>, active_workspace_id: string | null, focused_tab_id: string | null,
 /**
  * Bounded newest-first view of the closed-tab history (across all
  * workspaces) for the sidebar. Sourced live from the sqlite store, NOT the
  * persisted session snapshot — keeps both lean.
  */
-recently_closed?: Array<ClosedTabView>, closed_structures?: Array<ClosedStructureView>, 
+recently_closed?: Array<ClosedTabView>, closed_structures?: Array<ClosedStructureView>,
 /**
  * Aggregate Idle/Working/Waiting/Dead per PTY-backed tab, mirrored from
  * `TabStatusTracker` so a fresh page load hydrates the same rail color a

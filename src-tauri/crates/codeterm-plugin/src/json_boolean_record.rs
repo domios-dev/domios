@@ -269,6 +269,37 @@ pub(crate) fn grant(path: &Path, keys: &[String]) -> PreTrustOutcome {
     grant_with(path, keys, |_, _| {})
 }
 
+pub(crate) fn seed_true(path: &Path, keys: &[String]) -> PreTrustOutcome {
+    match fs::symlink_metadata(path) {
+        Ok(_) => return grant(path, keys),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return PreTrustOutcome::Failed("record metadata unavailable".into()),
+    }
+    let Ok(Edit::Replace(contents)) = plan("{}", keys) else {
+        return PreTrustOutcome::Skipped("invalid seed keys".into());
+    };
+    let Some(parent) = path.parent() else {
+        return PreTrustOutcome::Skipped("record has no parent".into());
+    };
+    let mut temporary = TempFile {
+        path: parent.join(format!(".onboarding-{}.tmp", uuid::Uuid::new_v4())),
+        owned: false,
+    };
+    let mut publish = || -> std::io::Result<()> {
+        let mut file = codeterm_util::private_file::create_new_owner_only(&temporary.path)?;
+        temporary.owned = true;
+        file.write_all(contents.as_bytes())?;
+        file.sync_all()?;
+        drop(file);
+        fs::hard_link(&temporary.path, path)
+    };
+    match publish() {
+        Ok(()) => PreTrustOutcome::Granted,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => grant(path, keys),
+        Err(_) => PreTrustOutcome::Failed("atomic record creation failed".into()),
+    }
+}
+
 fn grant_with(
     path: &Path,
     keys: &[String],

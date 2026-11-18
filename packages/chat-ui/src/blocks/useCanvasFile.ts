@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { parseDsCanvasFile, reconcileDsCanvas, type DsCanvas, type DsCanvasParse } from "@codeterm/chat-core";
 import { loadLocalArtifact } from "../localArtifactLoader";
 import { localArtifactMemory, localArtifactMemoryKey } from "../localArtifactMemory";
-import { canvasFilePort } from "./canvasFilePort";
+import { canvasFilePort, CanvasItemRecovery } from "./canvasFilePort";
 import { CanvasFileSession, type CanvasSessionState } from "./canvasFileSession";
 
 export type CanvasFileRead = { status: "loading" } | { status: "ready" } | { status: "error"; reason: string };
@@ -17,6 +17,7 @@ export interface CanvasFile {
   writable: boolean;
   /** Why the board shows without live updates, for its Details; `null` while it follows the file. */
   unwatched: string | null;
+  itemRecovery: CanvasItemRecovery;
 }
 
 /**
@@ -40,6 +41,7 @@ export function useCanvasFile(path: string, tabId: string | undefined): CanvasFi
     return created;
   }, [path, tabId, memoryKey]);
   const state = useSyncExternalStore(session.subscribe, session.snapshot, session.snapshot);
+  const itemRecovery = useMemo(() => new CanvasItemRecovery(), [session]);
   const [read, setRead] = useState<CanvasFileRead>(() => localArtifactMemory.get(memoryKey) ? { status: "ready" } : { status: "loading" });
   const [writable, setWritable] = useState(false);
   const [unwatched, setUnwatched] = useState<string | null>(null);
@@ -71,7 +73,7 @@ export function useCanvasFile(path: string, tabId: string | undefined): CanvasFi
     const port = canvasFilePort();
     let release: (() => void) | null = null;
     if (port && tabId) {
-      port.watch(path, tabId, () => void reload()).then(
+      port.watch(path, tabId, () => { itemRecovery.changed(); void reload(); }).then(
         (watch) => {
           if (!alive) { watch.release(); return; }
           release = watch.release;
@@ -86,7 +88,7 @@ export function useCanvasFile(path: string, tabId: string | undefined): CanvasFi
       reloadRef.current = () => {};
       release?.();
     };
-  }, [path, tabId, memoryKey, session]);
+  }, [path, tabId, memoryKey, session, itemRecovery]);
 
   const parsed = useMemo(() => state.text === null ? null : parseDsCanvasFile(state.text), [state.text]);
   const previous = useRef<DsCanvas | null>(null);
@@ -97,5 +99,5 @@ export function useCanvasFile(path: string, tabId: string | undefined): CanvasFi
     previous.current = next;
     return next;
   }, [parsed]);
-  return { read, state, parsed, canvas, session, writable, unwatched };
+  return { read, state, parsed, canvas, session, writable, unwatched, itemRecovery };
 }

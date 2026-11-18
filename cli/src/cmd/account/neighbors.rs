@@ -82,8 +82,20 @@ fn request(action: NeighborAction) -> (&'static str, Value) {
             friendship_id,
             expected_receiver_revision,
             takeover_confirmed,
+            preview,
+            grant_choice,
+            expected_grant_digest,
+            adopt_scope_from_pad,
         } => {
-            json!({"operation":"set_friend_receiver","friendship_id":friendship_id,"receiver_operation":"set","expected_receiver_revision":expected_receiver_revision,"takeover_confirmed":takeover_confirmed})
+            if preview {
+                json!({"operation":"receiver_grants","friendship_id":friendship_id})
+            } else {
+                let mut command = json!({"operation":"set_friend_receiver","friendship_id":friendship_id,"receiver_operation":"set","expected_receiver_revision":expected_receiver_revision,"takeover_confirmed":takeover_confirmed});
+                if let Some(choice) = grant_choice {
+                    command["grant_decision"] = json!({"choice":choice,"expected_digest":expected_grant_digest,"scope":adopt_scope_from_pad.as_deref().map(|path| authored(path).to_string())});
+                }
+                command
+            }
         }
         NeighborAction::Status => json!({"operation":"status"}),
         NeighborAction::Rotate => json!({"operation":"rotate"}),
@@ -108,17 +120,26 @@ fn request(action: NeighborAction) -> (&'static str, Value) {
         NeighborAction::Send {
             friendship_id,
             from_pad,
+            attach,
             kind,
             in_reply_to,
         } => {
-            let body = authored(&from_pad);
-            json!({"operation":"send","friendship_id":friendship_id,"kind":kind,"body":body.as_str(),"in_reply_to":in_reply_to})
+            validate_attachments(&attach).unwrap_or_else(|error| fail(1, error));
+            let body = from_pad.as_deref().map(authored).unwrap_or_default();
+            json!({"operation":"send","friendship_id":friendship_id,"kind":kind,"body":body.as_str(),"in_reply_to":in_reply_to,"attach":attach})
         }
         NeighborAction::DeliveryStatus { message_id } => {
             json!({"operation":"delivery_status","message_id":message_id})
         }
     };
     ("/api/account/neighbors/runtime", command)
+}
+
+fn validate_attachments(attach: &[String]) -> Result<(), &'static str> {
+    if attach.len() > 4 {
+        return Err("At most four Neighbor attachments are allowed");
+    }
+    Ok(())
 }
 
 fn flag_command(

@@ -1,15 +1,17 @@
-//! Hook-independent session binding. Once a hooked provider's launch has missed
-//! its binding deadline, the provider reads its own record of this tab's launch.
+//! Hook-independent session binding from provider evidence for the current PTY.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::lock_hold::TimedMutex;
 
+mod probe;
+
 use super::ServiceContext;
-use crate::agent::provider::{LaunchSessionDetection, LaunchSessionEvidence, LaunchSessionSource};
+use crate::agent::provider::{LaunchSessionDetection, LaunchSessionSource};
 use crate::session::lifecycle::{AgentTypeWriteOrigin, BindingSource};
+use codeterm_plugin::provider_account::{with_context, InvocationContext};
 
 static LAUNCH_MARKERS: LazyLock<TimedMutex<HashMap<String, String>>> =
     LazyLock::new(|| TimedMutex::new("launch_markers", HashMap::new()));
@@ -18,8 +20,10 @@ static IN_FLIGHT: LazyLock<TimedMutex<HashSet<String>>> =
 
 struct DetectedLaunchSession {
     provider_id: String,
+    pty_id: String,
     binding_nonce: String,
     detection: LaunchSessionDetection,
+    invocation: Option<Arc<InvocationContext>>,
 }
 
 pub(crate) fn binding_source(source: LaunchSessionSource) -> BindingSource {
@@ -848,6 +852,34 @@ fn detected_resume_matches(
 }
 
 impl ServiceContext {
+    pub(crate) fn supports_exact_launch_detection(&self, tab_id: &str) -> bool {
+        let provider = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.agent_type.clone());
+        provider.is_some_and(|provider| {
+            self.agent_registry
+                .with_provider(&provider, |provider| {
+                    provider.supports_launch_session_detection()
+                })
+                .unwrap_or(false)
+        })
+    }
+
+    pub(crate) fn detect_exact_launch_attempt(
+        &self,
+        attempt: &super::launch_readiness::LaunchAttempt,
+    ) {
+        let unbound = self.mux.read().get_tab(&attempt.tab_id).is_some_and(|tab| {
+            super::launch_readiness::attempt_owns_tab(tab, attempt)
+                && !tab.launch_session_authenticated()
+        });
+        if unbound && self.supports_exact_launch_detection(&attempt.tab_id) {
+            self.detect_unbound_launch_session(&attempt.tab_id);
+        }
+    }
+
     /// One detection per tab at a time. A live current-PTY provider record can
     /// re-authenticate a restored session after its launch nonce has rotated.
     pub(crate) fn detect_unbound_launch_session(&self, tab_id: &str) {
@@ -974,20 +1006,24 @@ impl ServiceContext {
                 .then_some(detected);
             }
         }
-        let owns_session = self
-            .agent_registry
-            .with_provider(&provider_id, |provider| {
-                provider_owns_resume_session(provider, &cwd, &session_id)
-            })
-            .unwrap_or(false);
+        let invocation = super::provider_accounts::for_tab(self, tab_id).ok()?;
+        let owns_session = with_context(invocation.clone(), || {
+            self.agent_registry
+                .with_provider(&provider_id, |provider| {
+                    provider_owns_resume_session(provider, &cwd, &session_id)
+                })
+                .unwrap_or(false)
+        });
         log::debug!("[resume-session-evidence] tab={tab_id} session={session_id} owns_session={owns_session}");
         owns_session.then_some(DetectedLaunchSession {
             provider_id,
+            pty_id,
             binding_nonce,
             detection: LaunchSessionDetection {
                 session_id,
                 source: LaunchSessionSource::LaunchMarker,
             },
+            invocation,
         })
     }
 
@@ -998,73 +1034,50 @@ impl ServiceContext {
         self.probe_process_launch_session(tab_id)
     }
 
-    fn probe_process_launch_session(&self, tab_id: &str) -> Option<DetectedLaunchSession> {
-        let (provider_id, pty_id, binding_nonce, cwd, launched_at_ms) = {
-            let mux = self.mux.read();
-            let tab = mux.get_tab(tab_id)?;
-            if tab.launch_session_authenticated() {
-                return None;
-            }
-            let launched_at_ms = tab
-                .agent_set_at
-                .map(|set_at| epoch_ms().saturating_sub(set_at.elapsed().as_millis() as u64))
-                .unwrap_or(0);
-            (
-                tab.agent_type.clone()?,
-                tab.pty_id.clone()?,
-                tab.session_binding_nonce.clone()?,
-                tab.cwd.clone().unwrap_or_default(),
-                launched_at_ms,
-            )
-        };
-        let root_pid = {
-            let pty = self.pty.lock();
-            let session = pty.get_session(&pty_id)?;
-            let pid = session.child.lock().ok()?.process_id();
-            pid?
-        };
-        let evidence = LaunchSessionEvidence {
-            cwd,
-            launch_marker: LAUNCH_MARKERS.lock().get(tab_id).cloned(),
-            launched_at_ms,
-            processes: super::process_tree::launch_processes(root_pid),
-        };
-        let detection = self
-            .agent_registry
-            .with_provider(&provider_id, |provider| {
-                provider.detect_launch_session(&evidence)
-            })
-            .flatten()?;
-        Some(DetectedLaunchSession {
-            provider_id,
-            binding_nonce,
-            detection,
-        })
-    }
-
     async fn commit_detected_launch_session(&self, tab_id: &str, detected: DetectedLaunchSession) {
         let DetectedLaunchSession {
             provider_id,
+            pty_id,
             binding_nonce,
             detection,
+            invocation,
         } = detected;
         let source = binding_source(detection.source);
         let session_id = detection.session_id;
+        let attempt = super::launch_readiness::LaunchAttempt {
+            tab_id: tab_id.to_string(),
+            pty_id,
+            binding_nonce: binding_nonce.clone(),
+        };
         let service = self.clone();
         let target = tab_id.to_string();
         let provider = provider_id.clone();
         let session = session_id.clone();
         let nonce = binding_nonce.clone();
+        let detected_attempt = attempt.clone();
         let committed = crate::async_runtime::spawn_blocking(move || {
-            service.commit_session_binding_custody(&target, || {
-                crate::service::hook_session_binding::bind_detected_session(
-                    &service.mux,
-                    service.agent_registry.as_ref(),
-                    &target,
-                    &provider,
-                    &session,
-                    &nonce,
-                )
+            with_context(invocation, || {
+                service.commit_session_binding_custody(&target, || {
+                    if source == BindingSource::PidRegistry
+                        && !service.mux.read().get_tab(&target).is_some_and(|tab| {
+                            super::launch_readiness::attempt_owns_tab(tab, &detected_attempt)
+                        })
+                    {
+                        return Err((
+                            axum::http::StatusCode::CONFLICT,
+                            "registry evidence belongs to a superseded PTY launch".into(),
+                            None,
+                        ));
+                    }
+                    crate::service::hook_session_binding::bind_detected_session(
+                        &service.mux,
+                        service.agent_registry.as_ref(),
+                        &target,
+                        &provider,
+                        &session,
+                        &nonce,
+                    )
+                })
             })
         })
         .await;
@@ -1085,6 +1098,9 @@ impl ServiceContext {
                 return;
             }
         };
+        if source == BindingSource::PidRegistry && claim.nonce_verified {
+            self.observe_registry_session_start(&attempt, &session_id);
+        }
         log::info!(
             "[launch-session-detection] Tab {tab_id} bound {provider_id} session {session_id} from {}",
             source_label(source),

@@ -232,7 +232,7 @@ describe("mission control spend card", () => {
     expect(
       legend.map((item) => [item.querySelector(".mc-board-swatch")?.getAttribute("data-tone"), item.textContent]),
     ).toEqual([
-      ["0", "haiku"],
+      ["0", "claude-haiku-4-5"],
       ["1", UNASSIGNED_MODEL_LABEL],
     ]);
     expect(chartSummary(host)).toMatch(/^new input by day: .*120$/);
@@ -326,7 +326,7 @@ describe("mission control models card", () => {
       expect(percents).toEqual([row.children[2]]);
     }
     expect(text(host, "mc-board-models-meta")).toBe(SPEND_SCOPE_CAPTION);
-    expect(modelSpendRows(recordingSpend()).reduce((sum, row) => sum + row.sharePct, 0)).toBe(100);
+    expect(modelSpendRows(recordingSpend(), []).reduce((sum, row) => sum + row.sharePct, 0)).toBe(100);
     await unmount();
   });
 
@@ -356,7 +356,7 @@ describe("mission control models card", () => {
     const { host, unmount } = await mount(<ModelsCard spend={recordingSpend()} teamSpend={teamSpendFixture()} />);
 
     expect(modelCells(host)).toEqual([
-      ["haiku", "100", "59%"],
+      ["claude-haiku-4-5", "100", "59%"],
       [UNASSIGNED_MODEL_LABEL, "70", "41%"],
     ]);
     expect(text(host, "mc-board-models-meta")).toBe("team");

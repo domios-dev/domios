@@ -1,5 +1,102 @@
 use super::*;
 
+#[tokio::test]
+async fn concierge_http_preserves_system_notices_and_typed_owner_refusals() {
+    use axum::{body::Body, http::Request, routing::post, Router};
+    use codeterm_service_core::{
+        multiplexer::{state::MultiplexerState, types::NeighborAuthority},
+        service::test_fixture::ServiceFixture,
+    };
+    use serde_json::json;
+    use tower::ServiceExt;
+    let (mut mux, source) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&source).unwrap();
+    let target = mux.create_tab(&workspace).unwrap();
+    mux.get_tab_mut(&target).unwrap().neighbor_authority = Some(NeighborAuthority {
+        uid: "friend".into(),
+        friendship_id: "friendship".into(),
+        root_tab_id: None,
+    });
+    let fixture = ServiceFixture::new(mux);
+    let writes = fixture.bind_recorded_agent_recipient(&target, "own-session", "own-nonce");
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    let tab_token = state
+        .svc
+        .frontend_pty_env(Some(&source))
+        .unwrap()
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    let router = Router::new()
+        .route("/api/tabs/{id}/send", post(send_text))
+        .with_state(state.clone())
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            crate::auth::auth_middleware,
+        ));
+    for (credential, body, expected_status, code) in [
+        (
+            "preview-test-token",
+            json!({"text":"opaque owner input"}),
+            StatusCode::CONFLICT,
+            "concierge_read_only",
+        ),
+        (
+            tab_token.as_str(),
+            json!({"text":"opaque agent input"}),
+            StatusCode::CONFLICT,
+            "concierge_read_only",
+        ),
+        (
+            "preview-test-token",
+            json!({"text":"opaque keys","raw":true,"system_context":"build"}),
+            StatusCode::CONFLICT,
+            "concierge_read_only",
+        ),
+        (
+            tab_token.as_str(),
+            json!({"text":"opaque forged notice","system_context":"build"}),
+            StatusCode::FORBIDDEN,
+            "",
+        ),
+        (
+            "preview-test-token",
+            json!({"text":"opaque build result","system_context":"build"}),
+            StatusCode::OK,
+            "",
+        ),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/tabs/{target}/send"))
+                    .header("authorization", format!("Bearer {credential}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected_status);
+        let bytes = axum::body::to_bytes(response.into_body(), 8192)
+            .await
+            .unwrap();
+        let receipt: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        if code == "concierge_read_only" {
+            assert_eq!(receipt["error"]["code"], code);
+            assert_eq!(receipt["error"]["bytes_written"], false);
+        }
+        if expected_status == StatusCode::OK {
+            assert_eq!(receipt["ok"], true);
+        } else {
+            assert!(writes.texts.lock().is_empty());
+        }
+    }
+    assert_eq!(writes.texts.lock().as_slice(), ["opaque build result"]);
+    assert!(!fixture.has_pending_agent_delivery(&target));
+}
+
 #[test]
 fn replay_mode_is_explicit_and_defaults_to_fresh_admission() {
     let fresh: SendTextBody =

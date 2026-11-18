@@ -1,6 +1,30 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TabAccount {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub namespace: Option<String>,
+    pub notices: Vec<AccountContinuationNotice>,
+}
+
+pub(super) fn serialize_account<S: serde::Serializer>(
+    launch: &RestorableLaunchParameters,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    TabAccount {
+        id: launch
+            .account_id
+            .clone()
+            .unwrap_or_else(|| "default".into()),
+        namespace: launch.account_namespace.clone(),
+        notices: launch.account_notices.clone(),
+    }
+    .serialize(serializer)
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ReasoningEffortIdentity {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -31,6 +55,13 @@ impl ReasoningEffortIdentity {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct RestorableLaunchParameters {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub account_notices: Vec<AccountContinuationNotice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_namespace: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub execution_mode: Option<String>,
@@ -113,7 +144,10 @@ impl RestorableLaunchParameters {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.execution_mode.is_none()
+        self.account_notices.is_empty()
+            && self.account_id.is_none()
+            && self.account_namespace.is_none()
+            && self.execution_mode.is_none()
             && self.execution_sandbox.is_none()
             && self.failed_provider.is_none()
             && self.structured_runtime_mode.is_none()
@@ -133,6 +167,19 @@ impl RestorableLaunchParameters {
             && self.host_approval_choice.is_none()
             && self.selected_session_mode.is_none()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AccountContinuationNotice {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification: Option<String>,
+    pub id: String,
+    pub provider: String,
+    pub session: String,
+    pub at_ms: u64,
+    pub content: String,
+    pub boundary: Option<String>,
+    pub resets_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]

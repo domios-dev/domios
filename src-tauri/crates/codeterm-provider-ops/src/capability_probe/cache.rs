@@ -74,7 +74,12 @@ impl<T> ProbeCache<T> {
         let keys: Vec<_> = self
             .entries
             .keys()
-            .filter(|(id, _)| id == provider)
+            .filter(|(id, _)| {
+                id == provider
+                    || id
+                        .strip_prefix(provider)
+                        .is_some_and(|suffix| suffix.starts_with('@'))
+            })
             .cloned()
             .collect();
         keys.into_iter()

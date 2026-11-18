@@ -24,11 +24,11 @@ describe("fresh General HTTP transport", () => {
       return transport.spawn_general_agent_session(args ?? {}) as Promise<T>;
     };
     expect(await spawnFreshGeneralSession("general", "configured-provider", "/instance/general", request,
-      { model: "chosen-model", reasoningEffort: "high", preset: "demo" })).toEqual(result);
+      { model: "chosen-model", reasoningEffort: "high", preset: "demo", accountId: "work" })).toEqual(result);
     expect(calls).toEqual([{
       method: "POST", path: "/api/agents/general/sessions",
       body: { workspaceId: "general", providerId: "configured-provider", cwd: "/instance/general",
-        role: "general_agent", intent: "fresh_general", model: "chosen-model", reasoningEffort: "high", preset: "demo" },
+        role: "general_agent", intent: "fresh_general", model: "chosen-model", reasoningEffort: "high", preset: "demo", accountId: "work" },
     }]);
   });
 });

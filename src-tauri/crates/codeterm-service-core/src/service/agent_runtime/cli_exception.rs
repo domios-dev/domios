@@ -28,6 +28,8 @@ struct Lease {
 
 static LEASES: LazyLock<Mutex<HashMap<String, Lease>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+// A closing tab must finish policy cleanup even when provisioning is still in flight.
+static POLICY_IO: Mutex<()> = Mutex::new(());
 
 fn record_policy(policy: &RestrictedCliPolicy) {
     log::debug!("[runtime-policy] phase=cli_exception tab={} epoch={} scope=service-operations executable_pinned=true executable_sha256={} config_sha256={} rule_sha256={}",
@@ -240,6 +242,7 @@ fn provision(
     if cwd != Path::new(&sandbox.cwd).canonicalize().map_err(|_| DENIED)? {
         return Err(DENIED.into());
     }
+    require_fresh_project(&cwd, metadata_directory)?;
     let executable = command_path(&executable)?;
     let rule_bytes = rule_bytes(&executable)?;
     let policy = RestrictedCliPolicy {
@@ -252,6 +255,7 @@ fn provision(
         executable,
         config_sha256: digest(CONFIG),
         rule_sha256: digest(&rule_bytes),
+        split_windows_roots: None,
     };
     let (directory, config, rule) = paths(&policy);
     fs::create_dir(&directory).map_err(|_| DENIED)?;
@@ -271,15 +275,13 @@ fn require_fresh_project(cwd: &Path, metadata_directory: &str) -> Result<(), Str
     if !RestrictedCliCapability::valid_metadata_directory(metadata_directory) {
         return Err(DENIED.into());
     }
-    for ancestor in cwd.ancestors() {
-        if ancestor
-            .join(metadata_directory)
-            .try_exists()
-            .map_err(|_| DENIED)?
-            || ancestor.join(".git").try_exists().map_err(|_| DENIED)?
-        {
-            return Err("Restricted CLI exception requires a fresh project configuration".into());
-        }
+    if cwd
+        .join(metadata_directory)
+        .try_exists()
+        .map_err(|_| DENIED)?
+        || cwd.join(".git").try_exists().map_err(|_| DENIED)?
+    {
+        return Err("Restricted CLI exception requires a fresh project configuration".into());
     }
     Ok(())
 }
@@ -308,14 +310,21 @@ pub fn sandbox(
     svc: &ServiceContext,
     context: &RuntimeContext,
 ) -> Result<Option<ExecutionSandboxPolicy>, String> {
+    sandbox_with_preference(svc, context).map(|value| value.map(|(policy, _)| policy))
+}
+
+fn sandbox_with_preference(
+    svc: &ServiceContext,
+    context: &RuntimeContext,
+) -> Result<Option<(ExecutionSandboxPolicy, Option<bool>)>, String> {
     let mux = svc.mux.read();
     let tab = mux.get_tab(&context.tab_id).ok_or(DENIED)?;
     if tab.session_binding_nonce.as_deref() != Some(context.binding_nonce.as_str()) {
         return Err(DENIED.into());
     }
-    if tab.neighbor_authority.is_none() {
+    let Some(authority) = &tab.neighbor_authority else {
         return Ok(None);
-    }
+    };
     if tab.restorable_launch.permission_bypass_requested {
         if tab.restorable_launch.execution_sandbox.is_some() {
             return Err(DENIED.into());
@@ -330,9 +339,14 @@ pub fn sandbox(
         .execution_sandbox
         .as_ref()
         .ok_or(DENIED)?;
-    if policy.intent != ExecutionIntent::Mutating
-        || policy.runtime_mode.as_deref() != Some("workspace-write")
-    {
+    if !matches!(
+        (&policy.intent, policy.runtime_mode.as_deref()),
+        (ExecutionIntent::Mutating, Some("workspace-write"))
+            | (
+                ExecutionIntent::ReadOnly,
+                Some("read-only-with-writable-roots")
+            )
+    ) {
         return Ok(None);
     }
     crate::service::execution_sandbox::validate_runtime_settings(
@@ -340,7 +354,10 @@ pub fn sandbox(
         &context.settings,
         &context.cwd,
     )?;
-    Ok(Some(policy.clone()))
+    let split_windows_roots = (authority.root_tab_id.is_none()
+        && policy.intent == ExecutionIntent::ReadOnly)
+        .then_some(true);
+    Ok(Some((policy.clone(), split_windows_roots)))
 }
 
 fn metadata_directory(svc: &ServiceContext, provider: &str) -> Result<Option<String>, String> {
@@ -363,6 +380,15 @@ fn metadata_directory(svc: &ServiceContext, provider: &str) -> Result<Option<Str
         .transpose()
 }
 
+fn instance_executable(svc: &ServiceContext) -> Option<PathBuf> {
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(executable) = svc.try_ext::<tests::Executable>() {
+        return Some(executable.0.clone());
+    }
+    let _ = svc;
+    crate::service::instance_env::instance_cli_binary_path()
+}
+
 pub(super) fn prepare(
     svc: &ServiceContext,
     provider: &str,
@@ -374,14 +400,19 @@ pub(super) fn prepare(
     let Some(metadata_directory) = metadata_directory(svc, provider)? else {
         return Ok(None);
     };
-    let Some(sandbox) = sandbox(svc, context)? else {
+    let Some((sandbox, split_windows_roots)) = sandbox_with_preference(svc, context)? else {
         return Ok(None);
     };
-    let executable = crate::service::instance_env::instance_cli_binary_path().ok_or(DENIED)?;
+    let _policy_io = POLICY_IO.lock();
+    svc.mux
+        .read()
+        .ensure_tab_membership_mutable(&context.tab_id)?;
+    let executable = instance_executable(svc).ok_or(DENIED)?;
     let existing = LEASES.lock().get(&context.tab_id).cloned();
     if let Some(mut lease) = existing {
         if lease.provider != provider
             || lease.sandbox != sandbox
+            || lease.policy.split_windows_roots != split_windows_roots
             || lease.policy.metadata_directory != metadata_directory
             || lease.policy.binding_nonce != context.binding_nonce
             || command_path(&executable.canonicalize().map_err(|_| DENIED)?)?
@@ -403,12 +434,15 @@ pub(super) fn prepare(
         record_policy(&policy);
         return Ok(Some(policy));
     }
-    require_fresh_project(Path::new(&context.cwd), &metadata_directory)?;
     let executable_pin = pin_executable(&executable)?;
-    let policy = provision(context, &sandbox, &executable, &metadata_directory)?;
-    if !self::sandbox(svc, context).is_ok_and(|current| current.as_ref() == Some(&sandbox))
-        || !self::metadata_directory(svc, provider)
-            .is_ok_and(|current| current.as_deref() == Some(metadata_directory.as_str()))
+    let mut policy = provision(context, &sandbox, &executable, &metadata_directory)?;
+    policy.split_windows_roots = split_windows_roots;
+    if !sandbox_with_preference(svc, context).is_ok_and(|current| {
+        current.is_some_and(|(current, preference)| {
+            current == sandbox && preference == split_windows_roots
+        })
+    }) || !self::metadata_directory(svc, provider)
+        .is_ok_and(|current| current.as_deref() == Some(metadata_directory.as_str()))
     {
         remove_owned(&policy);
         return Err(DENIED.into());
@@ -430,17 +464,18 @@ pub(super) fn validate(svc: &ServiceContext, context: &RuntimeContext) -> Result
     let Some(policy) = &context.restricted_cli else {
         return Ok(());
     };
-    let current = sandbox(svc, context)?.ok_or(DENIED)?;
+    let (current, split_windows_roots) = sandbox_with_preference(svc, context)?.ok_or(DENIED)?;
     let lease = LEASES.lock().get(&context.tab_id).cloned().ok_or(DENIED)?;
     if lease.policy != *policy
         || lease.sandbox != current
+        || policy.split_windows_roots != split_windows_roots
         || !binding_matches(policy, context)
         || metadata_directory(svc, &lease.provider)?.as_deref()
             != Some(policy.metadata_directory.as_str())
     {
         return Err(DENIED.into());
     }
-    let executable = crate::service::instance_env::instance_cli_binary_path().ok_or(DENIED)?;
+    let executable = instance_executable(svc).ok_or(DENIED)?;
     if command_path(&executable.canonicalize().map_err(|_| DENIED)?)? != policy.executable {
         return Err(DENIED.into());
     }
@@ -461,11 +496,12 @@ pub(super) fn validate_binding(
     let Some(policy) = &context.restricted_cli else {
         return Ok(());
     };
-    let current = sandbox(svc, context)?.ok_or(DENIED)?;
+    let (current, split_windows_roots) = sandbox_with_preference(svc, context)?.ok_or(DENIED)?;
     let leases = LEASES.lock();
     let lease = leases.get(&context.tab_id).ok_or(DENIED)?;
     if lease.policy != *policy
         || lease.sandbox != current
+        || policy.split_windows_roots != split_windows_roots
         || !binding_matches(policy, context)
         || metadata_directory(svc, &lease.provider)?.as_deref()
             != Some(policy.metadata_directory.as_str())
@@ -491,6 +527,7 @@ pub(super) async fn validate_before_operation(
 }
 
 pub(super) fn revoke(tab: &str) -> Result<(), String> {
+    let _policy_io = POLICY_IO.lock();
     let lease = LEASES.lock().remove(tab);
     let Some(lease) = lease else {
         return Ok(());
@@ -514,6 +551,31 @@ pub(super) fn revoke(tab: &str) -> Result<(), String> {
                 .into(),
         )
     }
+}
+
+pub fn needs_project_handoff(svc: &ServiceContext, tab: &str, cwd: &str) -> bool {
+    if !cfg!(windows) {
+        return false;
+    }
+    if LEASES
+        .lock()
+        .get(tab)
+        .is_some_and(|lease| codeterm_paths::paths_equal(&lease.policy.cwd, cwd))
+    {
+        return true;
+    }
+    let provider = {
+        let mux = svc.mux.read();
+        mux.get_tab(tab).and_then(|tab| {
+            let policy = tab.restorable_launch.execution_sandbox.as_ref()?;
+            codeterm_paths::paths_equal(&policy.cwd, cwd)
+                .then(|| tab.agent_type.clone())
+                .flatten()
+        })
+    };
+    provider.is_some_and(|provider| {
+        metadata_directory(svc, &provider).is_ok_and(|directory| directory.is_some())
+    })
 }
 
 #[cfg(any(test, feature = "test-support"))]

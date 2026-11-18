@@ -46,6 +46,7 @@ impl NeighborsExt for ServiceContext {
                                 "access": registry.as_ref().and_then(|list| list["access"].as_str()),
                                 "receiver": receiver,
                                 "concierge": concierges.get(friendship),
+                                "status_stale": self.neighbor_activation_stale(),
                             }),
                         )
                     })

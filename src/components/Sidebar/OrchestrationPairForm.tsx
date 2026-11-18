@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
 import { AgentIcon } from "../AgentIcon";
 import { ListChecks, Workflow } from "lucide-react";
-import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
+import { DropdownSelect, TOUCH_SELECT_HEIGHT, type DropdownSelectOption } from "../shared/DropdownMenu";
+import { pickerModelGroups } from "../Terminal/statusLinePickerModel";
 import { reasoningEffortsForModel, resolveEffort } from "../../lib/newSessionChoice";
 import { RoleModelButton } from "./RoleModelButton";
 
@@ -20,6 +21,7 @@ export interface OrchestrationPairValues {
 }
 
 interface RoleRowProps {
+  accountSlot?: ReactNode;
   modelControls?: boolean;
   /** One row: harness, then a model · effort pill that opens the unified model picker. */
   compact?: boolean;
@@ -58,6 +60,7 @@ interface RoleRowProps {
 }
 
 export function OrchestrationRoleRow({
+  accountSlot,
   modelControls = true,
   compact = false,
   heading,
@@ -109,13 +112,15 @@ export function OrchestrationRoleRow({
     value: e.id,
     label: `${e.display_name.charAt(0).toUpperCase()}${e.display_name.slice(1)}`,
   }));
-  const pill = compact && modelControls && !modelSlot && !awaitingProvider;
+  const hasModelGroups = provider && pickerModelGroups(provider, modelId, "", true).some(group => group.label);
+  const pill = (compact || hasModelGroups) && modelControls && !modelSlot && !awaitingProvider;
   return (
     <div className="orchestration-role-row flex flex-col gap-1.5" data-testid={`orchestration-role-${label.toLowerCase()}`}>
       <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{heading ?? label}</div>
       <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0">
           <DropdownSelect
+            className={accountSlot ? TOUCH_SELECT_HEIGHT : undefined}
             aria-label={`${label} provider`}
             aria-describedby={providerDescribedBy}
             disabled={disabled}
@@ -129,14 +134,15 @@ export function OrchestrationRoleRow({
         </div>
         {modelSlot && <div className="flex-1 min-w-0">{modelSlot}</div>}
         {pill && <div className="flex-1 min-w-0">
-          <RoleModelButton label={label} provider={provider} modelId={modelId} effortId={effortId} disabled={locked} testId={modelTestId}
+          <RoleModelButton label={label} provider={provider} modelId={modelId} effortId={effortId} disabled={locked} testId={modelTestId} immediate={!compact}
             onChange={(nextModel, nextEffort) => {
-              if (onSelectionChange) onSelectionChange(nextModel, nextEffort);
+              if (compact && onSelectionChange) onSelectionChange(nextModel, nextEffort);
               else onModelChange(nextModel);
             }} />
         </div>}
         {!pill && !modelSlot && modelControls && !awaitingProvider && <div className="flex-1 min-w-0">
           <DropdownSelect
+            className={accountSlot ? TOUCH_SELECT_HEIGHT : undefined}
             data-testid={modelTestId}
             options={modelOptions}
             value={modelId}
@@ -146,10 +152,12 @@ export function OrchestrationRoleRow({
             menuMaxHeight={MODEL_MENU_MAX_HEIGHT}
           />
         </div>}
+        {accountSlot}
       </div>
-      {!pill && modelControls && efforts.length > 0 && onEffortChange && (
+      {(!pill || !compact) && modelControls && efforts.length > 0 && onEffortChange && (
         <div className="min-w-0">
           <DropdownSelect
+            className={accountSlot ? TOUCH_SELECT_HEIGHT : undefined}
             data-testid={effortTestId}
             options={effortOptions}
             value={effortId ?? ""}
@@ -208,8 +216,8 @@ export function OrchestrationPairForm({
   titleField?: ReactNode;
   pairAffordanceTestId?: string;
   roleControls?: {
-    orchestrator?: Pick<RoleRowProps, "modelSlot" | "details">;
-    planner?: Pick<RoleRowProps, "modelSlot" | "details">;
+    orchestrator?: Pick<RoleRowProps, "modelSlot" | "details" | "accountSlot">;
+    planner?: Pick<RoleRowProps, "modelSlot" | "details" | "accountSlot">;
   };
   roleTestIds?: {
     orchestratorProvider?: string;
@@ -247,6 +255,7 @@ export function OrchestrationPairForm({
   const orchestratorRow = (
     <OrchestrationRoleRow
       label="Orchestrator"
+      accountSlot={roleControls?.orchestrator?.accountSlot}
       modelSlot={roleControls?.orchestrator?.modelSlot}
       details={roleControls?.orchestrator?.details}
       modelControls={!roleControls?.orchestrator?.modelSlot}
@@ -277,6 +286,7 @@ export function OrchestrationPairForm({
   const plannerRow = (
     <OrchestrationRoleRow
       label="Planner"
+      accountSlot={roleControls?.planner?.accountSlot}
       modelSlot={roleControls?.planner?.modelSlot}
       details={roleControls?.planner?.details}
       modelControls={!roleControls?.planner?.modelSlot}

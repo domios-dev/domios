@@ -132,16 +132,24 @@ about lifecycle and evidence, not Domios's own repository layout.
 
 ## Transfer an acknowledged Worker between Teams
 
-For an acknowledged task-bound Worker in another Team's approved plan,
-the current source parent Orchestrator may use
-`domios agent link --parent-tab <destination> --tab <worker>` to transfer it
-to that plan's live Orchestrator in the same local workspace. Preserve plan,
-task, attempt, lane, session and nonce. The destination cannot pull it.
-Mismatched plan owner, binding, session or isolated lane refuses without state
-changes; recover or replace stale/ambiguous work through the existing task route.
+Transfer the plan with `domios plan transfer <plan> --to <destination>`; its
+bound local Workers follow atomically with their parent, Team and report route.
+Plan, task, attempt, lane, session, nonce and tab ids stay intact. The destination
+Team must have no other active plan; see `domios docs API-TEAMS` for consolidation.
+
+For an acknowledged Worker stranded by an earlier plan transfer, the current
+source parent Orchestrator may run
+`domios agent link --parent-tab <destination> --tab <worker>`.
+The source Team may be forming after the transfer. The destination must own
+that exact plan in the same local workspace. Existing binding, session and
+isolated-lane checks still apply; the destination cannot pull a Worker.
+The current plan owner can instead reapply
+`domios team adopt-plan <current-team> <plan>` to reconcile all bound local
+Workers while retaining its live Planner.
+
 Local `team adopt-agent` is for unbound roleless tabs. For unbound remote Workers, the current parent or owner may run `domios team adopt-agent <team> <worker> --peer <peer>` on the destination Team's machine. `domios agent reparent <worker> --to <local-orchestrator> [--peer <peer>]` also preserves the running session. The origin verifies caller and destination; only Full-access paired peers participate, and a destination cannot pull a Worker. Remote task-bound Workers refuse both operations: their Plan must retain ownership. Repeating an uncertain remote transfer recovers its durable operation and receipt.
 Only hierarchy and report placement move. Shell parent/Team environment values
 remain launch provenance, never current membership proof; resolve reports from
 live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->

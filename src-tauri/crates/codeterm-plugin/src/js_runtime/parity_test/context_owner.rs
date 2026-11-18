@@ -297,7 +297,7 @@ fn pty_provider_descriptors_unchanged_by_context_owner_field() {
 }
 
 fn assert_pty_descriptor_unchanged(source: &str, provider: &dyn AgentProvider) {
-    let descriptor = provider.describe();
+    let mut descriptor = provider.describe();
     assert_eq!(
         descriptor.transport,
         ProviderTransport::Pty,
@@ -316,9 +316,13 @@ fn assert_pty_descriptor_unchanged(source: &str, provider: &dyn AgentProvider) {
     );
     let decoded: crate::provider::ProviderDescriptor =
         serde_json::from_value(wire).expect("descriptor round-trip");
+    if let Some(accounts) = descriptor.accounts.as_mut() {
+        accounts.onboarding_flag = None;
+        accounts.process_registry_directory = None;
+    }
     assert_eq!(
         decoded, descriptor,
-        "{source}: no other descriptor field moved"
+        "{source}: no other wire descriptor field moved"
     );
 }
 

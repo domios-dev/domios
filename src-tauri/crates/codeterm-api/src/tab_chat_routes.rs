@@ -12,10 +12,19 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::routes::{resolve_tab, AppState};
+use crate::{
+    events::SystemEvent,
+    routes::{resolve_tab_async, AppState},
+};
 use codeterm_service_core::multiplexer::commands::MuxState;
 use codeterm_service_core::multiplexer::types::TabBacking;
+use codeterm_service_core::service::tab_chat::runtime_stored::StoredHistoryFailure;
 use codeterm_service_core::service::tab_chat::snapshot_source::{self, SnapshotSource};
+use std::{future::Future, time::Duration};
+use tokio::{sync::broadcast, time::Instant};
+
+type SnapshotReply = Result<Json<serde_json::Value>, SnapshotError>;
+const BINDING_CHANGED: &str = "chat_binding_changed";
 
 #[derive(Debug, Serialize)]
 pub struct SnapshotErrorBody {
@@ -47,9 +56,13 @@ impl IntoResponse for SnapshotError {
 }
 
 fn snapshot_failure(tab_id: &str, error: String) -> SnapshotError {
-    log::error!("[chat-snapshot] tab={} error={}", tab_id, error);
-    use codeterm_service_core::service::tab_chat::runtime_stored::StoredHistoryFailure;
-    let (status, code, state) = match StoredHistoryFailure::from_error(&error) {
+    let failure = StoredHistoryFailure::from_error(&error);
+    if failure == Some(StoredHistoryFailure::BindingChanged) {
+        log::debug!("[chat-snapshot] tab={tab_id} error={error}");
+    } else {
+        log::error!("[chat-snapshot] tab={tab_id} error={error}");
+    }
+    let (status, code, state) = match failure {
         Some(StoredHistoryFailure::Missing) => {
             (StatusCode::NOT_FOUND, "chat_history_missing", "missing")
         }
@@ -62,6 +75,11 @@ fn snapshot_failure(tab_id: &str, error: String) -> SnapshotError {
             StatusCode::SERVICE_UNAVAILABLE,
             "chat_history_unavailable",
             "unavailable",
+        ),
+        Some(StoredHistoryFailure::BindingChanged) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            BINDING_CHANGED,
+            "restoring",
         ),
         None => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -119,32 +137,86 @@ pub async fn snapshot(
     Path(raw_tab_id): Path<String>,
     Query(query): Query<ChatQuery>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, SnapshotError> {
-    tokio::task::spawn_blocking(move || snapshot_blocking(state, raw_tab_id, query, headers))
-        .await
-        .map_err(|error| snapshot_failure("snapshot-worker", error.to_string()))?
-}
-
-fn snapshot_blocking(
-    state: AppState,
-    raw_tab_id: String,
-    query: ChatQuery,
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, SnapshotError> {
-    let tab_id = match resolve_tab(&state, &raw_tab_id) {
+) -> SnapshotReply {
+    let tab_id = match resolve_tab_async(&state, &raw_tab_id).await {
         Ok(tab_id) => tab_id,
-        // Only a tab with no live record reads as closed, so live reads are unchanged.
         Err(refusal) => {
-            return closed::snapshot(&state, &raw_tab_id, query.since, &headers)
-                .unwrap_or_else(|| Err(refusal.into()))
+            return tokio::task::spawn_blocking(move || {
+                closed::snapshot(&state, &raw_tab_id, query.since, &headers)
+                    .unwrap_or_else(|| Err(refusal.into()))
+            })
+            .await
+            .map_err(|error| snapshot_failure("snapshot-worker", error.to_string()))?;
         }
     };
-    if chat_read_target(&state.svc.mux, &tab_id)? == ChatReadTarget::Unbound {
-        let since = query.since;
+    let events = state.events.subscribe();
+    let since = query.since;
+    await_snapshot(&tab_id, events, || {
+        let state = state.clone();
+        let tab_id = tab_id.clone();
+        async move {
+            tokio::task::spawn_blocking(move || snapshot_blocking(&state, &tab_id, since))
+                .await
+                .map_err(|error| snapshot_failure("snapshot-worker", error.to_string()))?
+        }
+    })
+    .await
+}
+
+async fn await_snapshot<F: Future<Output = SnapshotReply>>(
+    tab_id: &str,
+    mut events: broadcast::Receiver<crate::events::SeqEvent>,
+    mut read: impl FnMut() -> F,
+) -> SnapshotReply {
+    let mut result = read().await;
+    if !binding_changed(&result) {
+        return result;
+    }
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        match tokio::time::timeout_at(deadline, events.recv()).await {
+            Ok(Ok(event)) if !recheck_binding_on(&event.event, tab_id) => continue,
+            Ok(Ok(_)) | Ok(Err(broadcast::error::RecvError::Lagged(_))) => {}
+            _ => return result,
+        }
+        match tokio::time::timeout_at(deadline, read()).await {
+            Ok(next) if binding_changed(&next) => result = next,
+            Ok(next) => return next,
+            Err(_) => return result,
+        }
+    }
+}
+
+fn binding_changed(result: &SnapshotReply) -> bool {
+    matches!(result, Err(error) if error.1.code == BINDING_CHANGED)
+}
+
+fn recheck_binding_on(event: &SystemEvent, tab_id: &str) -> bool {
+    match event {
+        SystemEvent::Generic { event_type, data }
+            if event_type == "agent-runtime-state" && data["tab_id"].as_str() == Some(tab_id) =>
+        {
+            let state = &data["state"];
+            match state["state"].as_str() {
+                Some("loaded") => matches!(
+                    state["history"].as_str(),
+                    Some("complete" | "failed") | None
+                ),
+                Some("degraded" | "loginPending" | "unloaded") => true,
+                _ => false,
+            }
+        }
+        SystemEvent::TabClosed { tab_id: closed } => closed == tab_id,
+        _ => false,
+    }
+}
+
+fn snapshot_blocking(state: &AppState, tab_id: &str, since: usize) -> SnapshotReply {
+    if chat_read_target(&state.svc.mux, tab_id)? == ChatReadTarget::Unbound {
         let journal = state.svc.lifecycle_journal.clone();
         let (messages, count) = codeterm_service_core::service::tab_chat::restore_notice_snapshot(
             &journal,
-            &tab_id,
+            tab_id,
             Vec::new(),
             since,
         );
@@ -153,12 +225,11 @@ fn snapshot_blocking(
         ));
     }
 
-    let since = query.since;
-    let source = snapshot_source::for_tab(&state.svc, &tab_id)
-        .map_err(|error| snapshot_failure(&tab_id, error))?;
+    let source = snapshot_source::for_tab(&state.svc, tab_id)
+        .map_err(|error| snapshot_failure(tab_id, error))?;
     let (provider_id, session_id) = {
         let mux = state.svc.mux.read();
-        mux.get_tab(&tab_id)
+        mux.get_tab(tab_id)
             .map(|tab| match &tab.backing {
                 TabBacking::ChatBackend {
                     plugin_id,
@@ -180,8 +251,8 @@ fn snapshot_blocking(
         since,
     );
     let (messages, count) =
-        codeterm_service_core::service::tab_chat::tab_chat_snapshot(&state.svc, &tab_id, since)
-            .map_err(|error| snapshot_failure(&tab_id, error))?;
+        codeterm_service_core::service::tab_chat::tab_chat_snapshot(&state.svc, tab_id, since)
+            .map_err(|error| snapshot_failure(tab_id, error))?;
 
     if source == SnapshotSource::Waking {
         return Ok(Json(serde_json::json!({

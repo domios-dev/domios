@@ -1,9 +1,7 @@
 use std::path::Path;
-use std::process::Command;
 
 use super::{ClosedTaskLaneCleanupRead, PlanStore, TaskLaneUpdate};
 use crate::plan::TaskStatus;
-use codeterm_util::process_util;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LaneCleanupAction {
@@ -374,8 +372,7 @@ fn run_action(
 }
 
 fn git_ok(project_path: &str, args: &[&str]) -> bool {
-    let mut cmd = Command::new("git");
-    process_util::no_window_std(&mut cmd);
+    let mut cmd = codeterm_util::process_util::git_command();
     cmd.arg("-C")
         .arg(project_path)
         .args(args)

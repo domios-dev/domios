@@ -35,7 +35,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::sync::broadcast;
 
 use crate::provider::{AgentProvider, ModelAvailability, ModelInfo, ReasoningEffortInfo};
 
@@ -105,12 +104,6 @@ struct CatalogFile {
 pub struct RegisteredDefaults {
     pub models: Vec<ModelInfo>,
     pub default: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-pub struct ModelCatalogueChanged {
-    pub provider: String,
-    pub version: u64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -257,9 +250,11 @@ impl ProviderModels {
     }
 }
 
-fn registry() -> &'static RwLock<HashMap<String, ProviderModels>> {
-    static REG: OnceLock<RwLock<HashMap<String, ProviderModels>>> = OnceLock::new();
-    REG.get_or_init(|| RwLock::new(HashMap::new()))
+fn registry(
+) -> &'static crate::provider_account::cache::ScopedCache<HashMap<String, ProviderModels>> {
+    static CACHE: crate::provider_account::cache::ScopedCache<HashMap<String, ProviderModels>> =
+        crate::provider_account::cache::ScopedCache::new();
+    &CACHE
 }
 
 /// Registered seeds survive live overlays so cache validation can always
@@ -271,7 +266,7 @@ fn seed_registry() -> &'static RwLock<HashMap<String, RegisteredDefaults>> {
 
 /// Deterministic hash of the registered seed (ids, display, descriptions,
 /// availability, order, default); no registered seed hashes `null`.
-fn seed_fingerprint(provider_id: &str) -> String {
+pub(crate) fn seed_fingerprint(provider_id: &str) -> String {
     use sha2::{Digest, Sha256};
     let seed = seed_registry().read().get(provider_id).cloned();
     let canonical = match seed {
@@ -291,101 +286,14 @@ fn effort_registry() -> &'static RwLock<HashMap<String, RegisteredEfforts>> {
     REG.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-#[derive(Default)]
-struct PublishedCatalogue {
-    version: u64,
-    digest: Option<[u8; 32]>,
-}
-
-fn versions() -> &'static RwLock<HashMap<String, PublishedCatalogue>> {
-    static VERSIONS: OnceLock<RwLock<HashMap<String, PublishedCatalogue>>> = OnceLock::new();
-    VERSIONS.get_or_init(|| RwLock::new(HashMap::new()))
-}
-
-fn change_sender() -> &'static broadcast::Sender<ModelCatalogueChanged> {
-    static CHANGES: OnceLock<broadcast::Sender<ModelCatalogueChanged>> = OnceLock::new();
-    CHANGES.get_or_init(|| broadcast::channel(256).0)
-}
-
-pub fn subscribe_changes() -> broadcast::Receiver<ModelCatalogueChanged> {
-    change_sender().subscribe()
-}
-
-pub fn current_version(provider_id: &str) -> u64 {
-    versions()
-        .read()
-        .get(provider_id)
-        .map(|published| published.version)
-        .unwrap_or_default()
-}
-
-pub fn version_snapshot() -> Vec<ModelCatalogueChanged> {
-    let mut changes = versions()
-        .read()
-        .iter()
-        .map(|(provider, published)| ModelCatalogueChanged {
-            provider: provider.clone(),
-            version: published.version,
-        })
-        .collect::<Vec<_>>();
-    changes.sort_by(|left, right| left.provider.cmp(&right.provider));
-    changes
-}
-
-fn advance_version(versions: &mut HashMap<String, u64>, provider_id: &str) -> u64 {
-    let version = versions.entry(provider_id.to_string()).or_default();
-    *version = version.saturating_add(1);
-    *version
-}
-
-fn publish_digest(
-    versions: &mut HashMap<String, PublishedCatalogue>,
-    provider_id: &str,
-    digest: [u8; 32],
-) -> Option<ModelCatalogueChanged> {
-    let published = versions.entry(provider_id.to_string()).or_default();
-    if published.digest == Some(digest) {
-        return None;
-    }
-    published.version = published.version.saturating_add(1);
-    published.digest = Some(digest);
-    Some(ModelCatalogueChanged {
-        provider: provider_id.to_string(),
-        version: published.version,
-    })
-}
-
-fn catalogue_digest(provider_id: &str) -> [u8; 32] {
-    let catalogue = serde_json::json!({
-        "available_models": resolve_models(provider_id),
-        "default_model": resolve_default(provider_id),
-        "reasoning_efforts": resolve_reasoning_efforts(provider_id),
-        "default_reasoning_effort": resolve_default_reasoning_effort(provider_id),
-    });
-    Sha256::digest(serde_json::to_vec(&catalogue).expect("model catalogue serializes")).into()
-}
-
-pub fn invalidate(provider_id: &str) -> ModelCatalogueChanged {
-    let digest = catalogue_digest(provider_id);
-    let change = {
-        let mut versions = versions().write();
-        publish_digest(&mut versions, provider_id, digest)
-    };
-    if let Some(change) = change {
-        log::debug!(
-            "[model_catalog] published changed catalogue provider={} version={}",
-            change.provider,
-            change.version
-        );
-        let _ = change_sender().send(change.clone());
-        change
-    } else {
-        ModelCatalogueChanged {
-            provider: provider_id.to_string(),
-            version: current_version(provider_id),
-        }
-    }
-}
+mod publication;
+use publication::advance_version;
+#[cfg(test)]
+use publication::versions;
+pub use publication::{
+    all_version_snapshots, current_version, invalidate, subscribe_changes, version_snapshot,
+    ModelCatalogueChanged,
+};
 
 pub fn reject_model(provider: &str, model: &str) {
     let snapshot = {
@@ -681,7 +589,7 @@ pub fn is_stale(provider_id: &str, ttl: Duration, now: SystemTime) -> bool {
 
 /// Re-reads the provider's configured endpoint models without a live probe.
 pub async fn refresh_endpoints(provider: Arc<dyn AgentProvider>) {
-    let _ = tokio::task::spawn_blocking(move || {
+    let _ = crate::js_runtime::spawn_blocking(move || {
         let stamp = discovery_stamp(provider.as_ref());
         endpoints::refresh(provider.as_ref(), &stamp);
     })
@@ -696,7 +604,10 @@ pub async fn refresh_models(
 ) -> Option<Vec<ModelInfo>> {
     let provider_id = provider.id().to_string();
     register_catalogue_capability(&provider_id, &provider.model_catalogue_capability());
-    if !force && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now()) {
+    if !force
+        && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now())
+        && !catalogue_inputs_changed(provider.clone()).await
+    {
         refresh_endpoints(provider).await;
         log::debug!("[model_catalog] {provider_id} live cache fresh — skipping refresh");
         return None;
@@ -721,23 +632,27 @@ pub async fn refresh_after_catalogue_input_change(
 /// semantics; interactive picker surfaces subscribe to catalogue changes.
 pub async fn refresh_for_reader(provider: Arc<dyn AgentProvider>) -> Option<Vec<ModelInfo>> {
     let provider_id = provider.id().to_string();
-    // Compare declared credentials with the live provider; the registry cannot
-    // see files that appeared or vanished since its snapshot.
-    let credential_changed = {
-        let recorded = registry()
-            .read()
-            .get(&provider_id)
-            .map(|snapshot| snapshot.credentials.clone())
-            .unwrap_or_default();
-        credentials_changed(provider.as_ref(), &recorded)
-    };
-    let must_retry = provider_binary_changed(&provider_id)
-        || credential_changed
-        || has_unknown_verdict(&provider_id);
-    if !must_retry && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now()) {
+    if !has_unknown_verdict(&provider_id)
+        && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now())
+        && !catalogue_inputs_changed(provider.clone()).await
+    {
         return None;
     }
     refresh_models(provider, true).await
+}
+
+async fn catalogue_inputs_changed(provider: Arc<dyn AgentProvider>) -> bool {
+    crate::js_runtime::spawn_blocking(move || {
+        let provider_id = provider.id();
+        let recorded = registry()
+            .read()
+            .get(provider_id)
+            .map(|snapshot| snapshot.credentials.clone())
+            .unwrap_or_default();
+        provider_binary_changed(provider_id) || credentials_changed(provider.as_ref(), &recorded)
+    })
+    .await
+    .unwrap_or(true)
 }
 
 /// True when the active snapshot still carries a verdict a probe could not
@@ -774,16 +689,12 @@ fn is_non_chat_id(id: &str) -> bool {
     lower.contains("embed") || lower.contains("embedding") || lower.contains("text-moderation")
 }
 
-/// If the seed default still names a model present in the live list, keep it;
-/// otherwise fall back to the first live model so a vanished hardcoded default
-/// doesn't dangle. `None` when the list is empty.
 fn resolve_live_default(models: &[ModelInfo], seed_default: Option<String>) -> Option<String> {
-    if let Some(d) = seed_default {
-        if models.iter().any(|m| m.id.eq_ignore_ascii_case(&d)) {
-            return Some(d);
-        }
-    }
-    models.first().map(|m| m.id.clone())
+    seed_default
+        .as_deref()
+        .and_then(|id| find_model(models, id))
+        .or_else(|| models.iter().find(|model| model.available != Some(false)))
+        .map(|model| model.id.clone())
 }
 
 /// Read-side: returns the resolved model list using these rules —
@@ -888,7 +799,11 @@ pub fn resolve_live_catalog_model(provider_id: &str, requested: &str) -> Option<
 fn registered_models(provider_id: &str) -> Vec<ModelInfo> {
     let snapshot = registry().read().get(provider_id).cloned();
     let Some(snapshot) = snapshot else {
-        return Vec::new();
+        return seed_registry()
+            .read()
+            .get(provider_id)
+            .map(|seed| seed.models.clone())
+            .unwrap_or_default();
     };
     if snapshot.source != Source::Live {
         return snapshot.models;
@@ -920,6 +835,12 @@ pub fn resolve_default(provider_id: &str) -> Option<String> {
         .read()
         .get(provider_id)
         .and_then(|d| d.default.clone())
+        .or_else(|| {
+            seed_registry()
+                .read()
+                .get(provider_id)
+                .and_then(|seed| seed.default.clone())
+        })
 }
 
 pub fn resolve_reasoning_efforts(provider_id: &str) -> Vec<ReasoningEffortInfo> {

@@ -1,10 +1,12 @@
 use super::*;
+use codeterm_neighbors::adapter::AuthenticatedCall;
 
 impl NeighborRuntimeCommand {
     pub fn is_local_read(&self) -> bool {
         matches!(
             self,
             Self::History { .. }
+                | Self::ReceiverGrants { .. }
                 | Self::Permission { .. }
                 | Self::NotificationPreference { .. }
                 | Self::Status
@@ -49,10 +51,46 @@ impl NeighborsExt for ServiceContext {
         let metadata = Metadata::new(self.account_data_root()?, &session.identity.uid);
         self.authorize_neighbor_metadata(command, caller, nonce, &metadata)
             .await?;
-        let value = self
-            .neighbor_local_metadata(command, &metadata, generation)
-            .await
-            .map_err(|error| error.to_string())?;
+        let value = match command {
+            NeighborRuntimeCommand::ReceiverGrants { friendship_id } => {
+                let status = match self.neighbor_friend_receiver(friendship_id) {
+                    Some(status) => status,
+                    None => {
+                        self.require_neighbors_enabled()
+                            .map_err(|error| error.to_string())?;
+                        let installation = self.installation_id().await?;
+                        let calls = callable::Calls {
+                            service: self.clone(),
+                            uid: session.identity.uid.clone(),
+                            generation: session.login_generation,
+                        };
+                        let list = calls
+                            .invoke("friendsList", json!({}))
+                            .await
+                            .map_err(|error| error.to_string())?;
+                        let status = first_action::friend_status(
+                            &list,
+                            friendship_id,
+                            installation.as_str(),
+                        )
+                        .map_err(|error| error.to_string())?;
+                        if status.receiver_installation_id.is_some() {
+                            return Err(Error::ReceiverStatusUnknown.to_string());
+                        }
+                        status
+                    }
+                };
+                self.require_neighbor_generation(generation)?;
+                json!(
+                    self.neighbor_receiver_grants(&metadata, friendship_id, &status)
+                        .await?
+                )
+            }
+            _ => self
+                .neighbor_local_metadata(command, &metadata, generation)
+                .await
+                .map_err(|error| error.to_string())?,
+        };
         self.require_neighbor_generation(generation)?;
         if !super::super::same_session(account.session().await.as_ref(), &session) {
             return Err("Neighbor account changed".into());
@@ -170,6 +208,7 @@ impl NeighborsExt for ServiceContext {
                     listener_errors: failures.into_iter().collect(),
                 });
                 status["projection"] = self.neighbor_projection_diagnostics().await;
+                status["status_stale"] = self.neighbor_activation_stale().into();
                 status["installation_id"] = installation.as_str().into();
                 Ok(status)
             }

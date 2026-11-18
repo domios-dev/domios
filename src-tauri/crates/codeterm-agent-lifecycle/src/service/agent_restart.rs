@@ -31,20 +31,65 @@ use parking_lot::Mutex;
 pub struct RestartClaim {
     tracker: RestartTracker,
     tab_id: String,
+    settling: bool,
+    remembers_target: bool,
 }
 
 impl RestartClaim {
+    fn remember_target(&mut self, snap: &TabRestartSnapshot) {
+        let mut tracker = self.tracker.lock();
+        if let std::collections::hash_map::Entry::Vacant(entry) =
+            tracker.restart_targets.entry(self.tab_id.clone())
+        {
+            entry.insert((snap.provider.clone(), snap.session_id.clone()));
+            self.remembers_target = true;
+        }
+    }
+
     fn release_cooldown(&self) {
         self.tracker.lock().last_restart.remove(&self.tab_id);
+    }
+
+    fn begin_settling(&mut self) {
+        let mut tracker = self.tracker.lock();
+        *tracker
+            .settling_restarts
+            .entry(self.tab_id.clone())
+            .or_default() += 1;
+        tracker.in_progress.remove(&self.tab_id);
+        self.settling = true;
     }
 }
 
 impl Drop for RestartClaim {
     fn drop(&mut self) {
         let mut tracker = self.tracker.lock();
-        tracker.command_ptys.remove(&self.tab_id);
-        tracker.in_progress.remove(&self.tab_id);
+        if self.remembers_target {
+            tracker.restart_targets.remove(&self.tab_id);
+        }
+        if self.settling {
+            if let Some(count) = tracker.settling_restarts.get_mut(&self.tab_id) {
+                *count -= 1;
+                if *count == 0 {
+                    tracker.settling_restarts.remove(&self.tab_id);
+                }
+            }
+        } else {
+            tracker.command_ptys.remove(&self.tab_id);
+            tracker.in_progress.remove(&self.tab_id);
+        }
+        tracker.staged_models.signal_idle(&self.tab_id);
+        drop(tracker);
+        crate::service::boot_wait::notify_boot_changed();
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RestartAdmission {
+    Standard,
+    AutomaticRecovery,
+    ExplicitOverride,
+    ModelSwitch,
 }
 
 pub trait ProviderSwitchClaimExt {
@@ -54,38 +99,57 @@ pub trait ProviderSwitchClaimExt {
 impl ProviderSwitchClaimExt for ServiceContext {
     fn claim_provider_switch(&self, tab_id: &str) -> Result<RestartClaim, AgentRestartError> {
         // An explicit handoff shares the lifecycle lock without throttling the owner's choice.
-        self.claim_restart(tab_id, true)
+        self.claim_restart(tab_id, RestartAdmission::ExplicitOverride)
     }
 }
 
 pub(super) fn claim_restart_attempt(
     tracker: &RestartTracker,
     tab_id: &str,
-    automatic: bool,
+    admission: RestartAdmission,
 ) -> Result<RestartClaim, AgentRestartError> {
     let mut state = tracker.lock();
     let now = Instant::now();
-    if state.in_progress.contains(tab_id) {
+    let model_switch_running = state.running_model_switches.contains_key(tab_id)
+        || state
+            .staged_models
+            .0
+            .get(tab_id)
+            .is_some_and(|staged| staged.claimed);
+    if state.in_progress.contains(tab_id)
+        || (model_switch_running
+            && admission != RestartAdmission::ModelSwitch
+            && !(admission == RestartAdmission::AutomaticRecovery
+                && state.settling_restarts.contains_key(tab_id)))
+    {
         return Err(AgentRestartError::BadRequest(
             "an agent restart or automatic recovery is already in progress".to_string(),
         ));
     }
-    if !automatic {
-        if let Some(last) = state.last_restart.get(tab_id) {
-            let elapsed = now.duration_since(*last);
-            let limit = Duration::from_secs(RESTART_RATE_LIMIT_SECS);
-            if elapsed < limit {
-                return Err(AgentRestartError::RateLimited {
-                    retry_after_secs: (limit - elapsed).as_secs().max(1),
-                });
-            }
+    let cooldown = match admission {
+        RestartAdmission::Standard => state.last_restart.get(tab_id),
+        RestartAdmission::AutomaticRecovery => state.last_automatic_restart.get(tab_id),
+        RestartAdmission::ExplicitOverride | RestartAdmission::ModelSwitch => None,
+    };
+    if let Some(last) = cooldown {
+        let elapsed = now.duration_since(*last);
+        let limit = Duration::from_secs(RESTART_RATE_LIMIT_SECS);
+        if elapsed < limit {
+            return Err(AgentRestartError::RateLimited {
+                retry_after_secs: (limit - elapsed).as_secs().max(1),
+            });
         }
+    }
+    if admission == RestartAdmission::AutomaticRecovery {
+        state.last_automatic_restart.insert(tab_id.to_string(), now);
     }
     state.last_restart.insert(tab_id.to_string(), now);
     state.in_progress.insert(tab_id.to_string());
     Ok(RestartClaim {
         tracker: tracker.clone(),
         tab_id: tab_id.to_string(),
+        settling: false,
+        remembers_target: false,
     })
 }
 
@@ -124,6 +188,15 @@ pub trait AgentRestartExt {
         model_switch: Option<&model_switch::ModelSwitchLaunch>,
         mode: RestartMode,
     ) -> Result<RestartOutcome, RestartAttemptError>;
+    fn restart_live_agent_with_account(
+        &self,
+        snap: TabRestartSnapshot,
+        force: bool,
+        grace_secs: u64,
+        model_switch: Option<&model_switch::ModelSwitchLaunch>,
+        mode: RestartMode,
+        account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
+    ) -> Result<RestartOutcome, RestartAttemptError>;
     fn settle_restored_binding(
         &self,
         outcome: RestartOutcome,
@@ -150,7 +223,7 @@ pub trait AgentRestartExt {
     fn claim_restart(
         &self,
         tab_id: &str,
-        automatic: bool,
+        admission: RestartAdmission,
     ) -> Result<RestartClaim, AgentRestartError>;
     fn session_file_present(&self, snap: &TabRestartSnapshot) -> bool;
     fn finish_observed_restart(
@@ -276,17 +349,39 @@ impl AgentRestartExt for ServiceContext {
     /// own resume command and commits its launch record once the old PTY is gone.
     fn restart_live_agent(
         &self,
-        mut snap: TabRestartSnapshot,
+        snap: TabRestartSnapshot,
         force: bool,
         grace_secs: u64,
         model_switch: Option<&model_switch::ModelSwitchLaunch>,
         mode: RestartMode,
     ) -> Result<RestartOutcome, RestartAttemptError> {
+        self.restart_live_agent_with_account(snap, force, grace_secs, model_switch, mode, None)
+    }
+
+    fn restart_live_agent_with_account(
+        &self,
+        mut snap: TabRestartSnapshot,
+        force: bool,
+        grace_secs: u64,
+        model_switch: Option<&model_switch::ModelSwitchLaunch>,
+        mode: RestartMode,
+        account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
+    ) -> Result<RestartOutcome, RestartAttemptError> {
+        if account.is_some()
+            && (mode != RestartMode::Standard
+                || model_switch.is_some()
+                || snap.target_provider.is_some())
+        {
+            return Err(AgentRestartError::BadRequest(
+                "Account restart cannot change restart mode or provider/model".into(),
+            )
+            .into());
+        }
         self.require_background_work_safe(&snap.tab_id, force)?;
         crate::service::agent_lifecycle::timing::stage(&snap.tab_id, &snap.pty_id, "request");
         let target_provider = snap.target_provider.as_deref().unwrap_or(&snap.provider);
         let provider_changed = target_provider != snap.provider;
-        if mode != RestartMode::Fresh && !provider_changed {
+        if account.is_none() && mode != RestartMode::Fresh && !provider_changed {
             self.require_exact_session_restart(&snap)?;
         }
         if !provider_changed && mode != RestartMode::Fresh {
@@ -295,7 +390,15 @@ impl AgentRestartExt for ServiceContext {
             }
         }
 
-        let restart_claim = self.claim_restart(&snap.tab_id, false)?;
+        let admission = if account.is_some() {
+            RestartAdmission::ExplicitOverride
+        } else if model_switch.is_some() {
+            RestartAdmission::ModelSwitch
+        } else {
+            RestartAdmission::Standard
+        };
+        let mut restart_claim = self.claim_restart(&snap.tab_id, admission)?;
+        restart_claim.remember_target(&snap);
         if mode == RestartMode::Fresh {
             self.require_fresh_restart_allowed(&snap, force)?;
         }
@@ -303,6 +406,14 @@ impl AgentRestartExt for ServiceContext {
             .pty_ownership
             .acquire(&snap.tab_id)
             .map_err(AgentRestartError::BadRequest)?;
+        if model_switch.is_some()
+            && mode == RestartMode::Standard
+            && !self.tab_is_idle(&snap.tab_id)
+        {
+            return Err(
+                AgentRestartError::BadRequest("RestartResume requires an idle tab".into()).into(),
+            );
+        }
         {
             let mux = self.mux.read();
             let tab = mux.get_tab(&snap.tab_id).ok_or_else(|| {
@@ -313,6 +424,9 @@ impl AgentRestartExt for ServiceContext {
                 snap.session_id = tab.agent_session_id.clone();
             }
         }
+        let account_switch = account
+            .map(|target| account::PtyAccountSwitch::prepare(self, &snap, target))
+            .transpose()?;
         if mode == RestartMode::Fresh {
             self.require_fresh_restart_allowed(&snap, force)?;
         }
@@ -325,6 +439,7 @@ impl AgentRestartExt for ServiceContext {
         let session_was_stale = mode == RestartMode::Fresh
             || (!provider_changed
                 && snap.session_id.is_some()
+                && account_switch.is_none()
                 && !self.session_file_present(&snap));
         if mode == RestartMode::SkipExit && snap.session_id.is_some() && session_was_stale {
             return Err(AgentRestartError::BadRequest(
@@ -337,7 +452,7 @@ impl AgentRestartExt for ServiceContext {
             outcome.session_id = None;
         }
         let session_present = !provider_changed && !session_was_stale && snap.session_id.is_some();
-        let relaunch = match model_switch {
+        let build = || match model_switch {
             Some(launch)
                 if session_present || (snap.session_id.is_none() && launch.is_sessionless()) =>
             {
@@ -349,21 +464,6 @@ impl AgentRestartExt for ServiceContext {
             None => relaunch::build_relaunch(self, &snap, session_present)
                 .map(|relaunch| (relaunch.command, relaunch.task)),
         };
-        let Some((launch_cmd, launch_task)) = relaunch else {
-            crate::service::task_files::release_tab(self, &snap.tab_id);
-            let reason = if model_switch.is_some() && !session_present {
-                "the Tab's session is no longer resumable, so its model cannot be switched in place"
-                    .to_string()
-            } else {
-                format!("provider {target_provider} returned no launch command")
-            };
-            return Err(RestartAttemptError::Failed {
-                outcome,
-                reason,
-                timed_out: false,
-            });
-        };
-
         let restart_binding = if session_present || provider_changed {
             let (nonce, task_bound) = {
                 let mux = self.mux.read();
@@ -411,6 +511,27 @@ impl AgentRestartExt for ServiceContext {
             restart_binding.as_ref().and_then(Option::as_ref),
         )
         .map_err(AgentRestartError::BadRequest)?;
+        if let Some(account_switch) = account_switch {
+            self.require_background_work_safe(&snap.tab_id, force)?;
+            let result =
+                account_switch.execute(self, &snap, outcome, pty_claim, restart_binding.flatten());
+            restart_claim.release_cooldown();
+            return result;
+        }
+        let Some((launch_cmd, launch_task)) = build() else {
+            crate::service::task_files::release_tab(self, &snap.tab_id);
+            let reason = if model_switch.is_some() && !session_present {
+                "the Tab's session is no longer resumable, so its model cannot be switched in place"
+                    .to_string()
+            } else {
+                format!("provider {target_provider} returned no launch command")
+            };
+            return Err(RestartAttemptError::Failed {
+                outcome,
+                reason,
+                timed_out: false,
+            });
+        };
         if mode != RestartMode::SkipExit && mode != RestartMode::Fresh {
             self.require_background_work_safe(&snap.tab_id, force)?;
             crate::service::agent_lifecycle::timing::stage(
@@ -509,7 +630,7 @@ impl AgentRestartExt for ServiceContext {
             &snap.pty_id,
             "relaunch-request",
         );
-        crate::service::orchestrator::launch_agent_in_background_with_env(
+        crate::service::orchestrator::launch_agent_in_background_with_invocation(
             self.clone(),
             snap.tab_id.clone(),
             launch_cmd,
@@ -531,9 +652,10 @@ impl AgentRestartExt for ServiceContext {
             } else {
                 None
             },
+            None,
         );
         drop(pty_claim);
-        drop(restart_claim);
+        restart_claim.begin_settling();
 
         let ready = self.finish_observed_restart(
             outcome,
@@ -656,7 +778,7 @@ impl AgentRestartExt for ServiceContext {
         if let Some(reason) = evidenced_transcript_block(&target) {
             return Err(AgentRestartError::BadRequest(reason));
         }
-        let restart_claim = self.claim_restart(&target.tab_id, false)?;
+        let mut restart_claim = self.claim_restart(&target.tab_id, RestartAdmission::Standard)?;
 
         let claimed =
             crate::service::general_agent::claim_general_agent_tab_retry(&target.tab_id, &self.mux)
@@ -688,7 +810,7 @@ impl AgentRestartExt for ServiceContext {
                 force,
             );
         });
-        drop(restart_claim);
+        restart_claim.begin_settling();
 
         log::info!(
             "[agent_restart] Tab {} recovered via General Agent relaunch",
@@ -812,12 +934,12 @@ impl AgentRestartExt for ServiceContext {
     fn claim_restart(
         &self,
         tab_id: &str,
-        automatic: bool,
+        admission: RestartAdmission,
     ) -> Result<RestartClaim, AgentRestartError> {
         claim_restart_attempt(
             self.ext::<crate::service::agent_restart::RestartTracker>(),
             tab_id,
-            automatic,
+            admission,
         )
     }
 
@@ -946,6 +1068,7 @@ fn evidenced_transcript_block(snap: &TabRestartSnapshot) -> Option<String> {
     ))
 }
 
+mod account;
 pub mod exit_recovery;
 pub mod failed_launch;
 pub mod fresh;

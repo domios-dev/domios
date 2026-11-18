@@ -372,10 +372,10 @@ pub async fn uninstall_hooks_api(
     if state.svc.agent_registry.provider_arc(&q.provider).is_none() {
         return Err((StatusCode::NOT_FOUND, "Unknown provider".into()));
     }
-    let registry = state.svc.agent_registry.clone();
+    let svc = state.svc.clone();
     tokio::task::spawn_blocking(move || {
         codeterm_service_core::service::provider_hooks::uninstall_provider_integration_core(
-            &registry,
+            &svc,
             &q.provider,
         )
     })

@@ -176,9 +176,10 @@ export function SandboxedHtmlFrame({ ref, doc, title, testId, className, style }
 
 type HtmlPreviewProps = ({ text: string; filePath?: never } | { filePath: string; text?: never }) & {
   fullscreenRequest?: number;
+  onOpen?: () => void;
   renderError?: (error: string) => React.ReactNode;
 };
-export function HtmlPreviewBlock({ text = "", filePath, fullscreenRequest = 0, renderError }: HtmlPreviewProps) {
+export function HtmlPreviewBlock({ text = "", filePath, fullscreenRequest = 0, renderError, onOpen }: HtmlPreviewProps) {
   const outerFullscreen = useFullscreenViewer();
   const tabId = useLocalArtifactTabId();
   const normalizedText = useMemo(() => filePath ? serializeDsBlock({ kind: "page", src: filePath }) : text.replace(/\r/g, ""), [text, filePath]);
@@ -249,6 +250,7 @@ export function HtmlPreviewBlock({ text = "", filePath, fullscreenRequest = 0, r
     event?.stopPropagation();
     if (event?.currentTarget instanceof HTMLElement) event.currentTarget.focus();
     setIsFullscreen(true);
+    onOpen?.();
   };
   const toolbar = (fullscreen: boolean) => (
     <div className="flex select-none items-center gap-1.5 px-2 py-1.5 text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>

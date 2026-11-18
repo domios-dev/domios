@@ -46,6 +46,7 @@ interface LocalArtifactProps {
   renderError?: (error: string) => React.ReactNode;
   renderText?: (source: string) => React.ReactNode;
   fullscreenRequest?: number;
+  onOpen?: () => void;
   /** Renders only the content, for a host that supplies its own header and actions. */
   bare?: boolean;
   onLoaded?: (file: LocalPreviewFile | null) => void;
@@ -59,14 +60,15 @@ export function LocalArtifactBlock({
   fullscreenRequest = 0,
   bare = false,
   onLoaded,
+  onOpen,
 }: LocalArtifactProps) {
-  if (directive.kind === "image") return <LocalImageGallery directive={directive} fullscreenRequest={fullscreenRequest} onLoaded={onLoaded} bare={bare} renderError={renderError} />;
-  if (directive.kind === "canvas") return <CanvasFileBlock src={directive.path} view={directive.view} fullscreenRequest={fullscreenRequest} onLoaded={onLoaded} />;
+  if (directive.kind === "image") return <LocalImageGallery directive={directive} fullscreenRequest={fullscreenRequest} onLoaded={onLoaded} bare={bare} renderError={renderError} onOpen={onOpen} />;
+  if (directive.kind === "canvas") return <CanvasFileBlock src={directive.path} view={directive.view} fullscreenRequest={fullscreenRequest} onLoaded={onLoaded} onOpen={onOpen} />;
   if (directive.kind === "page" && !/\.(md|markdown)$/i.test(directive.path)) {
-    return <HtmlPreviewBlock filePath={directive.path} renderError={renderError} fullscreenRequest={fullscreenRequest} />;
+    return <HtmlPreviewBlock filePath={directive.path} renderError={renderError} fullscreenRequest={fullscreenRequest} onOpen={onOpen} />;
   }
   return (
-    <LoadedLocalArtifact directive={directive.kind === "page" ? { ...directive, kind: "document" } : directive} renderMarkdown={renderMarkdown} renderText={renderText} renderError={renderError} fullscreenRequest={fullscreenRequest} bare={bare} onLoaded={onLoaded} />
+    <LoadedLocalArtifact directive={directive.kind === "page" ? { ...directive, kind: "document" } : directive} renderMarkdown={renderMarkdown} renderText={renderText} renderError={renderError} fullscreenRequest={fullscreenRequest} bare={bare} onLoaded={onLoaded} onOpen={onOpen} />
   );
 }
 
@@ -78,6 +80,7 @@ function LoadedLocalArtifact({
   fullscreenRequest = 0,
   bare = false,
   onLoaded,
+  onOpen,
 }: LocalArtifactProps) {
   const outerFullscreen = useFullscreenViewer();
   const tabId = useLocalArtifactTabId();
@@ -147,7 +150,7 @@ function LoadedLocalArtifact({
         {icon}
         <span className="font-medium" style={{ color: "var(--ct-fg)" }}>{name}</span>
         <span className="min-w-0 flex-1 truncate opacity-60" title={directive.path}>{directive.path}</span>
-        <button type="button" hidden={Boolean(outerFullscreen)} onClick={() => setFullscreen(true)} aria-label={`Fullscreen ${name}`} title="Fullscreen"><Maximize2 size={13} aria-hidden /></button>
+        <button type="button" hidden={Boolean(outerFullscreen)} onClick={() => { setFullscreen(true); onOpen?.(); }} aria-label={`Fullscreen ${name}`} title="Fullscreen"><Maximize2 size={13} aria-hidden /></button>
         <button type="button" onClick={reveal} disabled={!canReveal} aria-label={`Reveal ${name}`} title={canReveal ? "Reveal in file manager" : "Revealing files is available only in the desktop app"}><FolderOpen size={13} aria-hidden /></button>
         <button
           type="button"

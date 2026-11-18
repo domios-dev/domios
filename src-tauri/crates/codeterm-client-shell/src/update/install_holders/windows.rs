@@ -160,30 +160,52 @@ impl OwnedServerHolders {
     }
 }
 
-pub(super) fn preflight(
-    server: crate::application_host::AttachedServerIdentity,
-) -> Result<OwnedServerHolders, String> {
-    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+pub(super) fn holder_processes() -> Result<Vec<codeterm_update::holders::HolderProcess>, String> {
+    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
     let root = executable.parent().ok_or("install directory unresolved")?;
-    inspect_directory_with_server(root, false, Some(&server))
+    Session::register(&collect_install_binaries(root)?)?
+        .holders()
+        .map(|holders| {
+            holders
+                .into_iter()
+                .map(|info| codeterm_update::holders::HolderProcess {
+                    pid: info.Process.dwProcessId,
+                    created: ((info.Process.ProcessStartTime.dwHighDateTime as u64) << 32)
+                        | info.Process.ProcessStartTime.dwLowDateTime as u64,
+                })
+                .collect()
+        })
 }
 
-pub(super) fn inspect(release: bool) -> Result<(), String> {
+pub(super) fn preflight_with_tabs(
+    server: crate::application_host::AttachedServerIdentity,
+    tabs: &[codeterm_update::holders::HolderTab],
+) -> Result<OwnedServerHolders, String> {
+    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    let root = executable.parent().ok_or("install directory unresolved")?;
+    inspect_directory_with_server(root, false, Some(&server), tabs)
+}
+
+pub(super) fn release_with_tabs(
+    tabs: &[codeterm_update::holders::HolderTab],
+) -> Result<(), String> {
     let executable =
         std::fs::canonicalize(std::env::current_exe().map_err(|error| error.to_string())?)
             .map_err(|error| error.to_string())?;
     let root = executable.parent().ok_or("install directory unresolved")?;
-    inspect_directory(root, release)
+    inspect_directory_with_server(root, true, None, tabs).map(|_| ())
 }
 
+#[cfg(test)]
 fn inspect_directory(root: &Path, release: bool) -> Result<(), String> {
-    inspect_directory_with_server(root, release, None).map(|_| ())
+    inspect_directory_with_server(root, release, None, &[]).map(|_| ())
 }
 
 fn inspect_directory_with_server(
     root: &Path,
     release: bool,
     server: Option<&crate::application_host::AttachedServerIdentity>,
+    tabs: &[codeterm_update::holders::HolderTab],
 ) -> Result<OwnedServerHolders, String> {
     let files = collect_install_binaries(root)?;
     let mut clis = files
@@ -225,7 +247,15 @@ fn inspect_directory_with_server(
                 continue;
             }
             if let Some(mut holder) = pin_holder(&info, &processes, &clis, &helpers)? {
-                if server.is_some_and(|server| {
+                if let Some(tab) = tabs.iter().find(|tab| {
+                    tab.process.pid == holder.holder.pid && tab.process.created == created
+                }) {
+                    holder.holder.owned_tab = Some(format!(
+                        "{} in {}: {} (domios tab close --tab {})",
+                        tab.title, tab.workspace, tab.command, tab.tab_id
+                    ));
+                    holder.disposition = HolderDisposition::OwnedTab;
+                } else if server.is_some_and(|server| {
                     is_owned_server_holder(
                         server,
                         holder.holder.pid,

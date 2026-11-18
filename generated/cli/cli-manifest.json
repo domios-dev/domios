@@ -376,6 +376,26 @@
               "aliases": [],
               "args": [
                 {
+                  "name": "adopt-scope-from-pad",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ADOPT_SCOPE_FROM_PAD",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Reconciled sharing scope for adoption, read from this tab's pad",
+                  "aliases": []
+                },
+                {
+                  "name": "expected-grant-digest",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "EXPECTED_GRANT_DIGEST",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "expected-receiver-revision",
                   "positional": false,
                   "required": true,
@@ -393,6 +413,29 @@
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "grant-choice",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "GRANT_CHOICE",
+                  "possible_values": [
+                    "keep",
+                    "adopt"
+                  ],
+                  "default": null,
+                  "help": "Owner-confirmed grant decision after reviewing --preview",
+                  "aliases": []
+                },
+                {
+                  "name": "preview",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PREVIEW",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Read both local and previous receiver grants without moving receiving",
                   "aliases": []
                 },
                 {
@@ -428,6 +471,16 @@
               "aliases": [],
               "args": [
                 {
+                  "name": "attach",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PAD_RELATIVE_FILE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Attach a file from this tab's AgentPad; repeat for up to four files",
+                  "aliases": []
+                },
+                {
                   "name": "friendship_id",
                   "positional": true,
                   "required": true,
@@ -440,7 +493,7 @@
                 {
                   "name": "from-pad",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "FROM_PAD",
                   "possible_values": [],
                   "default": null,
@@ -1612,6 +1665,16 @@
           "aliases": [],
           "args": [
             {
+              "name": "account",
+              "positional": false,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Harness account ID from Settings > Agents > Harness > Accounts. Defaults to workspace choice, then first available",
+              "aliases": []
+            },
+            {
               "name": "agent",
               "positional": true,
               "required": false,
@@ -1874,7 +1937,7 @@
               "value_name": "ROLE",
               "possible_values": [],
               "default": null,
-              "help": "Role name the Team registers, or the host-only watcher. The Orchestrator starts a Team manager (built-in or custom) with it, one live instance per name; a name the Team does not list is refused. reviewer is read-only by default",
+              "help": "Team-registered role, builtin Worker role, or host-only watcher. Managers have one live instance per name; unknown names refuse. reviewer is read-only by default",
               "aliases": []
             },
             {
@@ -3769,6 +3832,16 @@
               "aliases": []
             },
             {
+              "name": "clear-tab",
+              "positional": false,
+              "required": false,
+              "value_name": "CLEAR_TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Clear the report target, keeping runs private to the cron",
+              "aliases": []
+            },
+            {
               "name": "cwd",
               "positional": false,
               "required": false,
@@ -3795,7 +3868,7 @@
               "value_name": "ID",
               "possible_values": [],
               "default": null,
-              "help": "Cron job ID",
+              "help": "Cron job name or ID",
               "aliases": []
             },
             {
@@ -3856,6 +3929,16 @@
               "possible_values": [],
               "default": null,
               "help": "Mem skill slug to resolve and inject into the task brief at fire time. Pass an empty string to clear",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "REPORT_TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Tab to receive reports. Omit to leave unchanged",
               "aliases": []
             },
             {
@@ -6679,7 +6762,7 @@
         },
         {
           "name": "neighbor-save",
-          "about": "Save a fact or note through this friendship's live memory write grant",
+          "about": "Save a fact, note or (with Full access) skill through this friendship's live grant",
           "aliases": [],
           "args": [
             {
@@ -6709,7 +6792,8 @@
               "value_name": "KIND",
               "possible_values": [
                 "fact",
-                "note"
+                "note",
+                "skill"
               ],
               "default": null,
               "help": null,
@@ -13866,7 +13950,7 @@
                   "value_name": "ROLE",
                   "possible_values": [],
                   "default": null,
-                  "help": "Worker the Team registers to launch; a manager or unlisted name is refused with the Team's workers. Omitted uses `worker` only when the Team lists it. The task's executor_role is unchanged",
+                  "help": "Team-registered or builtin Worker role; managers and unknown names refuse. Omitted uses the Team's worker default. The task's executor_role is unchanged",
                   "aliases": []
                 },
                 {
@@ -14362,6 +14446,16 @@
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "role",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ROLE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Worker role override; inherits the source attempt when omitted",
                   "aliases": []
                 },
                 {

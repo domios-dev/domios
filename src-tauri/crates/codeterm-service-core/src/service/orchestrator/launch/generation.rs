@@ -77,6 +77,9 @@ impl LaunchGeneration {
         crate::service::structured_prompt::bind_launch(&self.tab_id, &nonce);
         svc.arm_spawn_reply_relay(&self.tab_id, &nonce);
         self.binding_nonce = Some(nonce.clone());
+        if let Some(invocation) = codeterm_plugin::provider_account::current() {
+            svc.prepare_launch_session_hook(&self.tab_id, &nonce, &invocation);
+        }
         LAUNCH_REGISTRY
             .lock()
             .bind_provider_session(self, nonce.clone());

@@ -117,7 +117,7 @@ fn valid_view(value: &Value, names: &mut HashSet<String>) -> bool {
         && extent(record.get("h"))
 }
 
-/// A `view` name in a canvas body or in a `<ds-canvas src view>` tag.
+/// A `view` name in a canvas file or in a `<ds-canvas src view>` tag.
 pub fn valid_view_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= VIEW_NAME_BYTES
 }
@@ -147,14 +147,6 @@ pub fn canvas_write_permitted(
     }
 }
 
-/// Mirrors `parseDsCanvas` in chat-core: the file paths of a canvas body that renders.
-pub fn canvas_paths(body: &str) -> Option<Vec<String>> {
-    if body.len() > BODY_LIMIT {
-        return None;
-    }
-    canvas_value_items(&serde_json::from_str(body).ok()?).map(sources)
-}
-
 fn sources(items: Vec<CanvasFileItem>) -> Vec<String> {
     items.into_iter().map(|item| item.src).collect()
 }
@@ -178,7 +170,7 @@ fn supported_format(format: &str) -> bool {
 }
 
 /// Mirrors `parseDsCanvasFile` in chat-core: a `.canvas.json` opens with `"format"` as its first
-/// field, names major version 1, and otherwise holds exactly an inline body's fields.
+/// field, names major version 1, and otherwise holds the board fields.
 pub fn canvas_file_paths(text: &str) -> Option<Vec<String>> {
     canvas_file_items(text).map(sources)
 }

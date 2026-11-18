@@ -142,58 +142,8 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                 }
             }
         }
-        CronAction::Edit {
-            id,
-            name,
-            schedule,
-            task,
-            cwd,
-            skill,
-            description,
-            agent,
-            model,
-            reasoning_effort,
-            jitter_max_ms,
-            tz,
-            timeout_secs,
-        } => {
-            let mut params = serde_json::json!({"id": id});
-            if let Some(n) = name {
-                params["name"] = serde_json::json!(n);
-            }
-            if let Some(s) = schedule {
-                params["schedule"] = serde_json::json!(s);
-            }
-            if let Some(t) = task {
-                params["task"] = serde_json::json!(t);
-            }
-            if let Some(c) = cwd {
-                params["cwd"] = serde_json::json!(c);
-            }
-            if let Some(sk) = skill {
-                params["skill"] = serde_json::json!(sk);
-            }
-            if let Some(d) = description {
-                params["description"] = serde_json::json!(d);
-            }
-            if let Some(a) = agent {
-                params["agent"] = serde_json::json!(a);
-            }
-            if let Some(m) = model {
-                params["model"] = serde_json::json!(m);
-            }
-            if let Some(effort) = reasoning_effort {
-                params["reasoning_effort"] = serde_json::json!(effort);
-            }
-            if let Some(j) = jitter_max_ms {
-                params["jitter_max_ms"] = serde_json::json!(j);
-            }
-            if let Some(z) = tz {
-                params["tz"] = serde_json::json!(z);
-            }
-            if let Some(ts) = timeout_secs {
-                params["timeout_seconds"] = serde_json::json!(ts);
-            }
+        action @ CronAction::Edit { .. } => {
+            let (_, params) = action.update_request().expect("cron edit request");
             match client.call("cron.update", Some(params)) {
                 Ok(val) => {
                     if json {

@@ -28,6 +28,41 @@ pub fn valid_session_id(session_id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
 }
 
+pub(crate) fn exact_transcript_exists(root: &Path, path: &Path, filename: &str) -> bool {
+    let refused = |reason: &str| {
+        log::debug!(
+            "[session-store] exact transcript refused: {reason}, path={}",
+            path.display()
+        );
+        false
+    };
+    if path.file_name().and_then(|name| name.to_str()) != Some(filename) {
+        return refused("filename mismatch");
+    }
+    if !crate::provider_account::read_allowed(path) {
+        return refused("account read denied");
+    }
+    let (root, resolved) = match (root.canonicalize(), path.canonicalize()) {
+        (Ok(root), Ok(resolved)) => (root, resolved),
+        (Err(error), _) => {
+            return refused(&format!("session root canonicalization failed: {error}"));
+        }
+        (_, Err(error)) => {
+            return refused(&format!("transcript canonicalization failed: {error}"));
+        }
+    };
+    if !resolved.starts_with(root) {
+        return refused("resolved path outside session root");
+    }
+    if resolved.file_name().and_then(|name| name.to_str()) != Some(filename) {
+        return refused("resolved filename mismatch");
+    }
+    if !resolved.is_file() {
+        return refused("transcript is not a regular file");
+    }
+    true
+}
+
 fn record_path(session_id: &str) -> Option<PathBuf> {
     valid_session_id(session_id).then(|| evidence_dir().join(format!("{session_id}.json")))
 }

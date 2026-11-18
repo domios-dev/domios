@@ -46,8 +46,7 @@ say a plugin is installed when its card shows otherwise.
 | `<ds-job ref="JOB_ID_OR_NAME" />` | Show a Cron or Blueprint with its schedule and last result, and Run now, Pause or Resume. |
 | `<ds-checklist id="getting-started" />` | Show a setup checklist whose steps tick themselves; `getting-started` for a new user. |
 | `<ds-tasks plan="pl_example" />` | Show plan tasks grouped by status, live from the plan. |
-| `<ds-canvas>{"items":[…]}</ds-canvas>` | Lay out images, HTML mocks, files and notes side by side in one zoomable board. |
-| `<ds-canvas src="ABSOLUTE_PATH.canvas.json" />` | Show a board kept in a file that agents and the owner both edit. |
+| `<ds-canvas src="ABSOLUTE_PATH.canvas.json" />` | Show images, HTML cards and notes together on a board kept in a file that agents and the owner both edit. |
 
 ## `ds-guide`
 
@@ -157,25 +156,37 @@ a paired snapshot with strict JSON and keeps detached rows if a task disappears:
 ## `ds-canvas`
 
 A canvas puts several visuals in one frame: before and after screenshots, an
-HTML mock beside a note, or design options under named views. It carries its
-items in a strict JSON body and lives only in its message:
+HTML mock beside a note, or design options under named views. Keep the board in
+a `NAME.canvas.json` file and show it with a self-closing tag:
 
 ```text
-<ds-canvas>{"title":"Header options","items":[
-  {"kind":"image","src":"/absolute/a.png","x":0,"y":0,"w":640,"h":400},
-  {"kind":"html","html":"<div class='p-4'>Option B</div>","x":680,"y":0,"w":480,"h":400},
-  {"kind":"note","markdown":"**A** is calmer, **B** is denser.","x":0,"y":440,"w":640,"h":120}],
- "views":[{"name":"compare","x":0,"y":0,"w":1160,"h":400}]}</ds-canvas>
+<ds-canvas src="/absolute/board.canvas.json" view="compare" />
 ```
 
-A canvas has 1 to 64 items. `kind` is `image`, `page` or `document` with an
-absolute `src`; `html` with an `html` body that runs in the same sandbox as
+A minimal board file starts with the format field and can mix screenshots,
+sandboxed HTML cards and notes:
+
+```json
+{
+  "format": "domios.canvas/1",
+  "title": "Header options",
+  "items": [
+    {"kind": "image", "src": "/absolute/before.png", "x": 0, "y": 0, "w": 640, "h": 400},
+    {"kind": "html", "html": "<div class='p-4'>Option B</div>", "x": 680, "y": 0, "w": 480, "h": 400},
+    {"kind": "note", "markdown": "**A** is calmer, **B** is denser."}
+  ],
+  "views": [{"name": "compare", "x": 0, "y": 0, "w": 1160, "h": 400}]
+}
+```
+
+A canvas file has 1 to 64 items. `kind` is `image`, `page` or `document` with
+an absolute `src`; `html` with an `html` body that runs in the same sandbox as
 `ds-html`; or `note` with `markdown`. Every item may add an `id` (letters,
 digits, `_` and `-`), a `title`, and `x`, `y`, `w` and `h` in canvas pixels.
 Give `x` and `y` together; items without both flow into rows below the placed
 ones at a default size. Up to 16 `views` name rectangles. Unknown fields,
 relative paths and duplicate ids or view names make the canvas invalid. The
-body is limited to 200,000 bytes, and its file items count toward the message's
+file is limited to 200,000 bytes, and its file items count toward the message's
 32 file previews.
 
 In the chat the canvas shows a static preview about 320px high that never pans
@@ -190,6 +201,11 @@ Markdown only, so ds tags inside them stay text. Mesh delivery does not
 transfer canvas files, so a canvas sent to another machine shows those items
 as unavailable.
 
+In the opened viewer, Space+drag or middle-button drag pans from anywhere on
+the board, including over items. Primary-button drag on empty board space also
+pans. Space keeps its normal meaning while a note editor or an HTML item has
+focus. The static chat preview does not pan or zoom.
+
 ### Canvas files
 
 A board that should last, and that you and the owner keep changing, belongs
@@ -201,7 +217,7 @@ in a file:
 
 Name the file `NAME.canvas.json`. Don't use a bare `.canvas`, which is another
 format. The file's first field is `"format": "domios.canvas/1"`, followed by
-exactly the fields of an inline body, up to 200,000 bytes in all:
+the board fields, up to 200,000 bytes in all:
 
 ```json
 {
@@ -215,7 +231,7 @@ exactly the fields of an inline body, up to 200,000 bytes in all:
 ```
 
 A file without the header first, or with another major version, shows one
-sentence with the reason under Details. An inline body takes no header.
+sentence with the reason under Details.
 `view` is optional and opens the board on that named view. The file follows the same rules as `ds-document`: the tab
 must reference it, private paths stay refused, and mesh delivery copies the
 file itself but not its items. Its items need no reference of their own, but
@@ -240,13 +256,18 @@ Only the complete matching outer close in HTML data state commits the body;
 quoted attrs, comments, raw text and inner slash closes cannot terminate it.
 Nested ds-html containers are invalid; ds-looking elements inside HTML are inert.
 
+In any chat, a referenced PNG, JPEG, GIF, WebP or SVG can render directly
+from any local agent pad. Other file previews in agent pads require the
+viewing tab's own pad.
+
 Paths belong to the machine authoring the message. A mesh tab send, delayed send
 or mesh-routed agent report transfers these files to the target tab's host
 before delivering the message, then replaces file-card path attributes with the returned
 target-local paths. A failed transfer refuses delivery; it never reads a
 same-named file on the receiving machine. A message may contain at most 32 file
-previews. Mesh transfers retain the 25 MiB attachment bound; previews retain
-their HTML (200,000 bytes), document (1,000,000 bytes) and image (10 MiB) bounds.
+previews. Mesh transfers retain the 25 MiB attachment bound. Preview limits
+are 200,000 bytes for HTML, 1,000,000 bytes for documents and 10 MiB for
+GIF, WebP and SVG. PNG and JPEG previews use bounded host thumbnails.
 Notification previews require the originating tab identity.
 
 A gallery uses a JSON array of 1 to 32 absolute paths, with exactly one of
@@ -266,4 +287,4 @@ loads preserve your chosen view. Reset restores 100% scale. Focus the canvas to
 use arrow keys for gallery navigation or diagram pan, +/- to zoom, 0 for 100%,
 and Home to fit. Mermaid remains vector artwork at every zoom.
 
-<!-- revision: 10 -->
+<!-- revision: 13 -->

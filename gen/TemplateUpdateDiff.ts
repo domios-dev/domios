@@ -6,7 +6,7 @@ import type { TemplateDiffItem } from "./TemplateDiffItem";
 /**
  * What changes between the saved version of a template and an incoming one.
  */
-export type TemplateUpdateDiff = { name: string, from_version: string, to_version: string, roles_added?: Array<string>, roles_removed?: Array<string>, roles_changed?: Array<string>, 
+export type TemplateUpdateDiff = { name: string, from_version: string, to_version: string, roles_added?: Array<string>, roles_removed?: Array<string>, roles_changed?: Array<string>,
 /**
  * Roles kept by name whose kind changed; each is also listed in `roles_changed`.
  */

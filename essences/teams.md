@@ -10,7 +10,7 @@ One canonical writer produces every export, so export, import and export again y
 
 ## Roles
 
-A package lists its roles in one map; each role names its kind, manager or worker. A manager lives with the Team across tasks as one instance per name; a worker serves one task or assignment and many may run. The kinds differ by lifecycle, not by authority. Exactly one role is the orchestrator, and it anchors the Team. A Team has exactly the roles its package lists: there are no host default roles or field inheritance, so an omitted planner or curator means the Team has none, and a worker the package does not list cannot be dispatched. A Team created without a template is the builtin default package as a whole.
+A package lists its roles in one map; each role names its kind, manager or worker. A manager lives with the Team across tasks as one instance per name; a worker serves one task or assignment and many may run. The kinds differ by lifecycle, not by authority. Exactly one role is the orchestrator, and it anchors the Team. Team packages recommend specialists without prohibiting builtin Workers: worker, qa, reviewer and release_manager remain available even when omitted. Custom roles require a registration; an omitted planner or curator means the Team has none. Role selection preserves task executor framing, machine access and authority. A Team created without a template is the builtin default package as a whole.
 
 Every role carries its own instructions; there is no package-wide instruction or brief, and the Team's way of working lives in the orchestrator's instructions. Host runtime text is appended by the host per kind and per built-in manager name, and can never be removed or replaced by a package.
 

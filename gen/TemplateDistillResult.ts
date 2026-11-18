@@ -4,11 +4,11 @@ import type { ScrubReport } from "./ScrubReport";
 import type { TemplatePayloadItem } from "./TemplatePayloadItem";
 import type { TemplateSummary } from "./TemplateSummary";
 
-export type TemplateDistillResult = { 
+export type TemplateDistillResult = {
 /**
  * The exact `team.yaml` text.
  */
-yaml: string, 
+yaml: string,
 /**
  * Everything the package brings, each with its opt-out id.
  */

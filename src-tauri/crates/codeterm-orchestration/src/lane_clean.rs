@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::process::Command;
 
 use serde::Serialize;
 
@@ -113,8 +112,7 @@ fn preflight_with_inventory(
 }
 
 pub fn git(cwd: &str, args: &[&str]) -> Result<String, String> {
-    let mut command = Command::new("git");
-    codeterm_service_core::process_util::no_window_std(&mut command);
+    let mut command = codeterm_service_core::process_util::git_command();
     let output = command
         .current_dir(cwd)
         .args(args)

@@ -29,6 +29,12 @@ function hasResume(input: LaunchParams | { resume: ResumeParams }): input is { r
   return typeof resume === "object" && resume !== null && "sessionId" in resume && typeof resume.sessionId === "string";
 }
 
+const MACOS_REGISTRY_ENVIRONMENT = { LC_ALL: "C", TZ: "UTC0" };
+
+export function claudeShellProgram(): string {
+  return host.platform() === "macos" ? "LC_ALL=C TZ=UTC0 claude" : "claude";
+}
+
 export function* buildClaudeLaunchSpec(input: LaunchParams | { resume: ResumeParams }) {
   if ("resume" in input && !hasResume(input)) return null;
   const params: Partial<LaunchParams> = hasResume(input) ? {
@@ -54,7 +60,7 @@ export function* buildClaudeLaunchSpec(input: LaunchParams | { resume: ResumePar
     const framed = params.starterPromptPrefix ? params.starterPromptPrefix + prompt + "</domios>" : prompt;
     args.push("--", framed);
   }
-  return { program: "claude", args, envSet: {}, envUnset: ["CLAUDECODE"] };
+  return { program: "claude", args, envSet: host.platform() === "macos" ? MACOS_REGISTRY_ENVIRONMENT : {}, envUnset: ["CLAUDECODE"] };
 }
 
 export function* buildClaudeLaunchCommand(params: LaunchParams): HostIoSteps<string> {
@@ -66,7 +72,7 @@ export function* buildClaudeLaunchCommand(params: LaunchParams): HostIoSteps<str
       + "[System.Text.Encoding]::UTF8; "
       + "$PSNativeCommandArgumentPassing = 'Standard';"
     : "unset CLAUDECODE &&";
-  const parts = [unset, spec.program];
+  const parts = [unset, claudeShellProgram()];
   let previous = "";
   for (const arg of spec.args) {
     if (previous === "--") parts.push(quoteNativeArgument(arg, host.platform(), host.shell.quoteFor));

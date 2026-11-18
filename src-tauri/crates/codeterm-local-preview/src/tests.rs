@@ -486,6 +486,7 @@ fn shared_context_policy_preserves_upload_and_own_pad_exceptions_and_private_roo
             private: vec![data, pads],
             uploads,
             own_pad: Some(own),
+            agent_pads: None,
             workspace: None,
             ssh: None,
         },
@@ -518,6 +519,100 @@ fn shared_context_policy_preserves_upload_and_own_pad_exceptions_and_private_roo
             "Preview path is private"
         );
     }
+}
+
+#[test]
+fn referenced_foreign_pad_images_are_readable_only_through_image_previews() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = html_preview::preview_test_root(temp.path());
+    let data = root.join(".domios");
+    let pads = data.join("runtime/agent-pads");
+    let own = pads.join("owner");
+    let foreign = pads.join("foreign");
+    let allowed = ["PNG", "jpg", "jpeg", "gif", "webp", "svg"]
+        .map(|ext| foreign.join(format!("screenshots/image.{ext}")));
+    let configured = foreign.join("restricted.png");
+    let denied = [
+        foreign.join("report.md"),
+        foreign.join("state.json"),
+        foreign.join(".ssh/image.png"),
+        configured.clone(),
+        pads.join("unscoped.png"),
+        data.join("runtime/image.png"),
+        data.join("runtime/agent-pads-backup/foreign/image.png"),
+    ];
+    let own_document = own.join("report.md");
+    let unreferenced = foreign.join("unreferenced.png");
+    let outside = root.join("external/image.png");
+    for path in allowed
+        .iter()
+        .chain(&denied)
+        .chain([&own_document, &unreferenced, &outside])
+    {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"fixture").unwrap();
+    }
+    let traversal = foreign.join("../../image.png");
+    let alias = foreign.join("alias/image.png");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(outside.parent().unwrap(), alias.parent().unwrap()).unwrap();
+    let policy = PreviewPolicy::for_context(
+        allowed
+            .iter()
+            .chain(&denied)
+            .chain([&own_document, &traversal, &alias])
+            .map(|path| path_key(path))
+            .collect(),
+        PreviewRoots {
+            configured: vec![configured],
+            private: vec![data],
+            uploads: Vec::new(),
+            own_pad: Some(own),
+            agent_pads: Some(pads),
+            workspace: Some(foreign),
+            ssh: None,
+        },
+    )
+    .unwrap();
+    for path in &allowed {
+        let raw = path.to_str().unwrap();
+        assert!(html_preview::read_local_image_file(raw, &policy).is_ok());
+        assert_eq!(
+            html_preview::read_image_artifact_file(raw, &policy, 7).unwrap(),
+            b"fixture"
+        );
+        assert!(html_preview::read_image_artifact_file(raw, &policy, 6).is_err());
+        assert!(html_preview::read_artifact_file(raw, &policy, 100).is_err());
+        assert!(
+            read_local_preview_file_guarded(raw, "document", |requested, canonical| {
+                policy.authorize(requested, canonical)
+            })
+            .is_err()
+        );
+        assert!(policy.authorize_write(path, None).is_err());
+    }
+    for path in denied.iter().chain([&traversal, &alias, &unreferenced]) {
+        let raw = path.to_str().unwrap();
+        assert!(
+            html_preview::read_local_image_file(raw, &policy).is_err(),
+            "{raw}"
+        );
+        assert!(
+            html_preview::read_image_artifact_file(raw, &policy, 100).is_err(),
+            "{raw}"
+        );
+        assert!(
+            html_preview::read_artifact_file(raw, &policy, 100).is_err(),
+            "{raw}"
+        );
+    }
+    assert!(policy
+        .authorize_image(&allowed[0], Some(&outside.canonicalize().unwrap()))
+        .is_err());
+    assert_eq!(
+        html_preview::read_artifact_file(own_document.to_str().unwrap(), &policy, 100).unwrap(),
+        b"fixture"
+    );
 }
 
 #[test]
@@ -678,6 +773,7 @@ fn provisioned_workspace_under_the_data_dir_previews_while_other_private_paths_s
                 private: vec![data.clone(), pads.clone()],
                 uploads: Vec::new(),
                 own_pad: None,
+                agent_pads: None,
                 workspace: Some(workspace),
                 ssh: None,
             },
@@ -769,7 +865,7 @@ fn pasted_attachment_markers_never_grant_references_with_or_without_provider_seg
 }
 
 #[test]
-fn canvas_file_items_authorize_like_inline_items_and_write_back_skips_upload_buckets() {
+fn canvas_file_items_authorize_through_the_board_and_write_back_skips_upload_buckets() {
     let temp = tempfile::tempdir().unwrap();
     let root = crate::html_preview::preview_test_root(temp.path());
     let private = root.join("private");

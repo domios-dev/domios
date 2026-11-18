@@ -77,12 +77,15 @@ async function main() {
     assert.equal(cramped.side, "bottom", "short upper pane falls back to the useful side");
     assert.ok(cramped.top >= 80 && cramped.maxHeight >= 96, "fallback keeps a useful visible picker outside the input");
     await act(async () => { change("@ta"); });
+    const rankedOptions = Array.from(document.querySelectorAll('[role="option"]'));
+    assert.match(rankedOptions[0].textContent ?? "", /Tally/);
+    assert.match(rankedOptions[1].textContent ?? "", /Rivet/);
     const searches = searchCalls;
     await act(async () => { moveCaret(2); });
     assert.equal(searchCalls, searches, "caret moves within a token do not search again");
     assert.equal(subscriptions, 1);
     await act(async () => { input.dispatchEvent(new browser.KeyboardEvent("keydown", { key: "Enter", code: "", bubbles: true, cancelable: true }) as unknown as Event); });
-    assert.equal(input.value, "@Rivet (tab a) ");
+    assert.equal(input.value, "@Tally (tab b) ");
     assert.equal(subscriptions, 0, "completed/closed picker releases subscriptions");
     console.log("9 picker behavior/layout/subscription checks passed");
   } finally { await act(async () => root.unmount()); browser.happyDOM.abort(); }

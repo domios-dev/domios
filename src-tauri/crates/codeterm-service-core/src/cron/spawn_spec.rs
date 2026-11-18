@@ -8,7 +8,7 @@
 use crate::chatbackend::ChatBackendRegistry;
 use crate::multiplexer::types::TabAudience;
 use crate::service::spawn::{SpawnTabSpec, TabVisibility};
-use crate::service::SpawnAgentParams;
+use crate::service::{SpawnAgentParams, MAX_TAB_DESCRIPTION_CHARS};
 
 #[cfg(test)]
 #[path = "spawn_spec/tests.rs"]
@@ -59,11 +59,20 @@ pub(crate) fn build_cron_spawn_spec(
         team_id: inputs.team_id,
         creator_tab_id: inputs.creator_tab_id.clone(),
         report_target_tab_id: inputs.report_target_tab_id,
-        title: Some(if policy.is_some() {
-            "Curator".into()
-        } else {
-            format!("cron:{}", inputs.job_name)
-        }),
+        title: Some(if policy.is_some() { "Curator" } else { "Cron" }.into()),
+        description: Some(
+            inputs
+                .job_name
+                .trim()
+                .chars()
+                .take(MAX_TAB_DESCRIPTION_CHARS)
+                .map(|ch| match ch {
+                    ch if ch.is_control() => ' ',
+                    '\u{2028}' | '\u{2029}' => ' ',
+                    ch => ch,
+                })
+                .collect(),
+        ),
         audience: TabAudience::UserOwnedAutomation,
         spawned_by_tab_id: inputs.creator_tab_id.clone(),
         ..Default::default()

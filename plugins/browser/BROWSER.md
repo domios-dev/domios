@@ -6,7 +6,7 @@ Commands: `domios plugin browser <verb> [args]`. `help`/`--help` works before op
 
 Use this browser for web tasks and UI verification while the user watches. Use HTTP/APIs for plain data.
 
-Delegate multi-step flows over 10,000 output characters to a Worker for a short result/evidence/blocker report to its parent. Set command/time bounds; stop at bot/auth walls. Scope direct checks with grep and `--out`.
+Delegate flows over 10,000 output characters to a Worker for a short evidence report. Bound commands, stop at bot/auth walls and scope output with `--grep` or `--out`.
 
 ## Your browser
 
@@ -53,13 +53,17 @@ Stop when `status` reports `needs human` other than `none`: captcha, missing log
 
 ## Device viewport and capture metrics
 
-Actions show a cursor and typing ring; secrets stay masked. Viewer input hides them without waiting on the page. Evidence omits them unless `--include-overlay` is requested.
+The starting viewer sets a fixed viewport. Agent-started browsers use their initial desktop size. Other viewers scale and letterbox the stream.
 
-`viewport set 390 844 --mobile --dpr 2` applies mobile device metrics to your owned target. Attached application targets refuse device emulation. Viewer resizing preserves the mobile mode.
+**Take control** grants size ownership and fits the viewport to that client. Layout, focus, visibility, tab switches and reconnects leave it fixed. Use Take control again after resizing.
 
-Owned mobile viewports enable touch emulation; use viewport commands to change modes, as external CDP emulation changes are outside the browser's state contract.
+Viewer input hides the action cursor and typing ring. Evidence omits them unless you use `--include-overlay`. Secrets stay masked.
 
-Screenshot replies report CSS viewport width/height and DPR; recheck coordinates after resizing. `screenshot phone.png --viewport 390x844 --mobile --dpr 2 --restore --metrics-json` adds layout/content/CDP metrics. `--restore` restores prior metrics even after failure; otherwise they stay active.
+`viewport set 390 844 --mobile --dpr 2` applies fixed mobile metrics to an owned target. Attached application targets refuse device emulation.
+
+Mobile viewports enable touch. Change modes with viewport commands.
+
+Screenshots report CSS dimensions and DPR. Recheck coordinates after resizing. `screenshot phone.png --viewport 390x844 --mobile --dpr 2 --restore --metrics-json` includes layout/content/CDP metrics and restores prior settings even on failure.
 
 ## Scoped atomic actions
 
@@ -153,4 +157,4 @@ Each step uses standalone validation, authority and redaction; put `--of` in its
 - `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
 - `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->

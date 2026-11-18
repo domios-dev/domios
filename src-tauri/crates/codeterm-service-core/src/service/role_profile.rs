@@ -7,7 +7,7 @@ use crate::plan::ExecutionIntent;
 use crate::service::SpawnIdentityProvenance;
 
 /// The wire `role` names a role of the Team; the structural pair derives from its registration
-/// (the default package as a whole for a Team with none), and an unlisted name is refused.
+/// (the default package as a whole for a Team with none), and builtin Workers remain available.
 pub fn role_type_pair(
     team_id: Option<&str>,
     value: Option<&str>,
@@ -24,6 +24,21 @@ pub fn role_type_pair(
 }
 
 impl crate::service::ServiceContext {
+    pub fn resolve_respawn_role(
+        &self,
+        draft: &mut crate::service::plan::task_attempts::TaskRespawnDraft,
+    ) -> Result<(), String> {
+        let team = self.spawn_role_team(None, draft.parent_tab_id.as_deref(), None);
+        let role = crate::service::team_roles::TeamRoleStore::global()
+            .worker_type(
+                team.as_deref(),
+                Some(draft.role_profile.as_deref().unwrap_or("worker")),
+            )
+            .map_err(|error| error.to_string())?;
+        draft.role_profile = (role.kind_id != role_kind::builtins::WORKER).then_some(role.kind_id);
+        Ok(())
+    }
+
     /// The Team a spawn request's `--role` resolves against: its `--team`, else the Team of its
     /// parent or of the tab that asked for it.
     pub fn spawn_role_team(
@@ -69,7 +84,14 @@ impl SpawnAgentParams {
         role_team: Option<&str>,
     ) -> Result<Self, String> {
         let (role, role_profile) = role_type_pair(role_team, json_str(params, "role").as_deref())?;
+        let account_id = match params.get("account_id") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(serde_json::Value::String(id)) => Some(id.clone()),
+            Some(_) => return Err("account_id must be a string".into()),
+        };
         let mut out = Self {
+            account_id,
+            account_namespace: None,
             agent: json_str(params, "agent"),
             agent_name: json_str(params, "agent_name"),
             args: params.get("args").and_then(|v| v.as_array()).map(|a| {
@@ -516,11 +538,8 @@ mod normalization_tests {
     fn dispatch_worker_kind_composes_the_selected_prompt_with_or_without_a_task() {
         for kind in [QA, RELEASE_MANAGER, REVIEWER] {
             for task_id in [None, Some("task-bound")] {
-                let role_type = crate::service::team_roles::resolve_worker(
-                    &crate::service::builtin_roles::default_registrations("team_fixture"),
-                    Some(kind),
-                )
-                .expect("the default package lists the worker");
+                let role_type = crate::service::team_roles::resolve_worker(&[], Some(kind))
+                    .expect("the default package lists the worker");
                 assert!(role_type.is_worker());
                 let profile = role_type.kind_id;
                 let mut params = SpawnAgentParams {

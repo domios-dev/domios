@@ -6,21 +6,21 @@ import type { RuntimeProfileDetection } from "./RuntimeProfileDetection";
 import type { RuntimeProfileInstall } from "./RuntimeProfileInstall";
 import type { RuntimeProfileLimitsSource } from "./RuntimeProfileLimitsSource";
 
-export type RuntimeLaunchProfile = { icon?: string, iconSvg?: string, registryId?: string, iconUrl?: string, binary: string, args: Array<string>, env?: { [key in string]: string }, 
+export type RuntimeLaunchProfile = { icon?: string, iconSvg?: string, registryId?: string, iconUrl?: string, binary: string, args: Array<string>, env?: { [key in string]: string },
 /**
  * The agent process starts in a host-owned directory under the profile's data;
  * its sessions still open in the tab's working directory.
  */
-hostWorkingDirectory?: boolean, install?: RuntimeProfileInstall, secretEnv?: { [key in string]: string }, 
+hostWorkingDirectory?: boolean, install?: RuntimeProfileInstall, secretEnv?: { [key in string]: string },
 /**
  * Optional credentials: each variable is injected only when its secret is stored,
  * and the listed declared sign-in methods accept an API key into that secret.
  */
-authEnv?: { [key in string]: RuntimeProfileAuthEnv }, ownerConfigured?: boolean, detection?: RuntimeProfileDetection, clientCapabilities?: RuntimeProfileClientCapabilities, limitsSource?: RuntimeProfileLimitsSource, 
+authEnv?: { [key in string]: RuntimeProfileAuthEnv }, ownerConfigured?: boolean, detection?: RuntimeProfileDetection, clientCapabilities?: RuntimeProfileClientCapabilities, limitsSource?: RuntimeProfileLimitsSource,
 /**
  * The agent's own session mode that approves every action, applied to full-access launches.
  */
-fullAccessMode?: string, 
+fullAccessMode?: string,
 /**
  * How far the agent's own permission questions reach; absent makes no claim about them.
  */

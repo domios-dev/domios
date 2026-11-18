@@ -20,7 +20,7 @@ export async function prepareChatDelivery(tabId: string, send: DeliverySend, exp
     return composed;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    updateChatSendContent(tabId, send.id, `Message was not sent: ${reason}`);
+    if (!draft.recordedVoiceAttachments.length) updateChatSendContent(tabId, send.id, `Message was not sent: ${reason}`);
     failChatSendRequest(tabId, send.id, error);
     throw error;
   }

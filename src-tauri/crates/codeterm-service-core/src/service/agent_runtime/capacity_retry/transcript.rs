@@ -10,6 +10,8 @@ struct TranscriptRetry {
     seen: Vec<String>,
     busy: bool,
     floor: u64,
+    path: Option<std::path::PathBuf>,
+    input: Option<crate::service::provider_accounts::PtyInputWitness>,
 }
 
 fn states() -> &'static Mutex<HashMap<String, TranscriptRetry>> {
@@ -58,9 +60,11 @@ pub(crate) fn register(
     }
     state.identity = (session.into(), nonce.into());
     state.floor = floor;
+    state.path = Some(path.into());
     state.retry.clear_cycle();
     state.seen.clear();
     state.busy = false;
+    state.input = None;
 }
 
 pub(super) fn cancel(svc: &ServiceContext, tab: &str) -> Result<(), String> {
@@ -154,6 +158,12 @@ fn observe_at(
         }
         let observation = row.provider_observations.as_ref();
         if row.role == "user" {
+            crate::service::provider_accounts::invalidate_boundary(svc, tab);
+            state.input = state.path.as_deref().and_then(|path| {
+                crate::service::provider_accounts::pty_input_witness(
+                    svc, tab, session, nonce, row, path,
+                )
+            });
             state.busy = true;
             if let Err(error) = remove_pending(svc, tab, &mut state.retry) {
                 log::warn!("[capacity-retry] {error}");
@@ -161,6 +171,7 @@ fn observe_at(
             continue;
         }
         if observation.is_some_and(|observation| observation.retry_succeeded) {
+            crate::service::provider_accounts::successful_turn(svc, tab, session, nonce);
             state.busy = false;
             let decision = state.retry.finish(id, None, now);
             if let Err(error) =
@@ -174,6 +185,23 @@ fn observe_at(
         else {
             continue;
         };
+        if crate::service::provider_accounts::transcript_limit(
+            svc,
+            tab,
+            session,
+            nonce,
+            observation
+                .and_then(|observation| observation.turn_id.as_deref())
+                .unwrap_or(id),
+            signal,
+            state.input.as_ref(),
+        ) {
+            if let Err(error) = remove_pending(svc, tab, &mut state.retry) {
+                log::debug!("[provider-accounts] retry cleanup failed: {error}");
+            }
+            state.busy = false;
+            continue;
+        }
         state.busy = false;
         state.retry.error = Some((id.into(), signal.clone()));
         state.retry.reason = Some(

@@ -5,12 +5,12 @@ import type { ServeReconcileSnapshot } from "./ServeReconcileSnapshot";
  * Outcome of an enable/disable mutation. `code` is a stable machine-readable
  * tag the UI maps to copy; `ok` is the quick success flag.
  */
-export type ServeResult = { ok: boolean, 
+export type ServeResult = { ok: boolean,
 /**
  * One of: `ok` | `already-active` | `already-off` | `tailscale-not-installed`
  * | `would-clobber-codeterm-port` | `serve-command-failed` | `serve-verify-failed`.
  */
-code: string, https_url: string | null, https_port: number, 
+code: string, https_url: string | null, https_port: number,
 /**
  * True when 443 was unavailable and we fell back to `FALLBACK_HTTPS_PORT`.
  */

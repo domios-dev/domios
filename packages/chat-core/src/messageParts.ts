@@ -5,11 +5,18 @@ import type { MessageSegment } from "./envelope";
 export interface ExactSendText {
   content: string;
   correlationId?: string;
+  segments?: MessageSegment[];
+}
+
+function sendSegments(payload: ExactSendText): MessageSegment[] {
+  return payload.segments?.length
+    ? payload.segments.map((segment) => ({ ...segment, correlationId: payload.correlationId }))
+    : [{ type: "text", text: payload.content, correlationId: payload.correlationId }];
 }
 
 export function splitExactSendTexts(content: string, payloads: readonly ExactSendText[]): MessageSegment[] {
   const exact = payloads.find((payload) => payload.content === content);
-  if (exact) return [{ type: "text", text: content, correlationId: exact.correlationId }];
+  if (exact) return sendSegments(exact);
   const segments: MessageSegment[] = [];
   let offset = 0;
   let matched = 0;
@@ -19,7 +26,7 @@ export function splitExactSendTexts(content: string, payloads: readonly ExactSen
     const start = offset + whitespace;
     if (!content.startsWith(payload.content, start)) continue;
     if (start > offset) segments.push({ type: "text", text: content.slice(offset, start) });
-    segments.push({ type: "text", text: payload.content, correlationId: payload.correlationId });
+    segments.push(...sendSegments(payload));
     matched += 1;
     offset = start + payload.content.length;
   }
@@ -28,7 +35,7 @@ export function splitExactSendTexts(content: string, payloads: readonly ExactSen
   return segments;
 }
 
-const cachedParts = new WeakMap<NormalizedChatMessage, { key: string; row: NormalizedChatMessage }>();
+const cachedParts = new WeakMap<NormalizedChatMessage, { key: string; payloads: readonly ExactSendText[]; row: NormalizedChatMessage }>();
 
 export function projectMessageParts(
   rows: readonly NormalizedChatMessage[], payloads: readonly ExactSendText[], key: string,
@@ -36,7 +43,8 @@ export function projectMessageParts(
   return rows.map((row) => {
     if (row.type !== "user") return row;
     const cached = cachedParts.get(row);
-    if (cached?.key === key) return cached.row;
+    if (cached?.key === key && cached.payloads.length === payloads.length
+      && cached.payloads.every((payload, index) => payload.segments === payloads[index].segments)) return cached.row;
     const anchor = row.correlationId == null ? -1 : payloads.findIndex((payload) => payload.correlationId === row.correlationId);
     if (anchor < 0) return row;
     const ownPayloads = payloads.slice(anchor);
@@ -45,7 +53,7 @@ export function projectMessageParts(
       return splitExactSendTexts(segment.type === "text" ? segment.text : segment.body, ownPayloads);
     });
     const projected = { ...row, segments };
-    cachedParts.set(row, { key, row: projected });
+    cachedParts.set(row, { key, payloads, row: projected });
     return projected;
   });
 }

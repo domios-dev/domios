@@ -122,6 +122,9 @@ pub(super) fn start(
         }
     };
     let nonce = svc.rotate_session_binding_nonce(&tab_id);
+    if let Some(invocation) = codeterm_plugin::provider_account::current() {
+        svc.prepare_launch_session_hook(&tab_id, &nonce, &invocation);
+    }
     let credential = svc.mint_tab_credential(&tab_id, &nonce);
     let mut env_vars =
         general_agent_env_vars(&tab_id, pad.env_value(), nonce.clone(), config, credential);
@@ -398,8 +401,10 @@ pub(super) fn start(
         );
     }
     log::info!("[general-agent] Launching on PTY {}", pty_id);
+    let command = crate::service::orchestrator::PreparedAgentCommand::from(cmd)
+        .with_execution_environment(None);
     let payload = crate::service::pty_io::submit_transaction::live_command_input(
-        &cmd,
+        &command,
         svc.screen_state.bracketed_paste_mode(&pty_id),
     );
     let launch_authority = svc.user_send_authority(&tab_id).ok().filter(|authority| {
@@ -441,6 +446,9 @@ pub(super) fn start(
     if !launched {
         defer_general_agent_start_to_late_readiness(svc, mux, &tab_id, &pty_id);
         return;
+    }
+    if svc.hookless_launch_has_input(&readiness_attempt) {
+        svc.detect_exact_launch_attempt(&readiness_attempt);
     }
     svc.emit_boot_stage(&tab_id, BootStage::ProviderReady, None);
     if super::first_turn::prepare(

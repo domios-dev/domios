@@ -75,14 +75,14 @@ function snapshot(generation: number, options: { withGeneral?: boolean; mainTitl
 
 /** Scripted daemon: every read and every mux-state-changed bind stays pending
  * until the test settles it, and an event emitted before a bind is lost. */
-function createBackend(commands: Record<string, () => unknown> = {}) {
+function createBackend(commands: Record<string, (args?: Record<string, unknown>) => unknown> = {}) {
   const reads: Array<Deferred<MultiplexerState>> = [];
   const binds: Array<Deferred<void>> = [];
   const listeners = new Map<string, Set<Handler>>();
   let muxReads = 0;
   return {
-    invoke: async <T,>(cmd: string): Promise<T> => {
-      if (commands[cmd]) return await commands[cmd]() as T;
+    invoke: async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
+      if (commands[cmd]) return await commands[cmd](args) as T;
       if (cmd === "mux_get_state") {
         muxReads++;
         const read = deferred<MultiplexerState>();
@@ -214,6 +214,22 @@ afterEach(async () => {
 });
 
 describe("webview reload rehydration", () => {
+  it.each([
+    { workspace: ORDINARY_ID, command: "mux_spawn_tab" },
+    { workspace: GENERAL_ID, command: "spawn_general_agent_session", intent: "fresh_general" as const },
+  ])("includes the selected account in $command", async ({ workspace, command, intent }) => {
+    const request = vi.fn(() => ({ snapshot: snapshot(100), tab_id: MAIN_ID, workspace_id: workspace }));
+    const backend = createBackend({ [command]: request });
+    const page = await mountPage(backend);
+    await hydrate(backend);
+    await act(async () => backend.takeRead().resolve(snapshot(10)));
+    await act(async () => {
+      await page.actions().spawnAgentTab(workspace, "fixture", "/chosen", undefined, undefined, undefined,
+        intent, undefined, undefined, "work");
+    });
+    expect(request).toHaveBeenCalledExactlyOnceWith({ params: expect.objectContaining({ workspaceId: workspace, accountId: "work" }) });
+  });
+
   it("refetches when an off-chain command snapshot makes the reducer decline a stream delta", async () => {
     const backend = createBackend({ spawn_general_agent_session: () => ({
       snapshot: snapshot(100), tab_id: MAIN_ID, workspace_id: GENERAL_ID,

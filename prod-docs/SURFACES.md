@@ -187,15 +187,21 @@ element card to the surface owner, signed by the caller.
 the owner's workspace. Declared rows carry `runtime` and `chrome` for stream
 surfaces.
 
-`stream` takes the viewer's CSS size and DPR and applies it before the first
-frame. It sends `state` (`{ owner, title, url, activity, needsHuman, profile,
+`stream` takes a `viewer` identity plus CSS size and DPR. Only the viewer
+that starts a fresh browser supplies its initial viewport. Later viewers and
+reconnects scale the stream to fit without changing the browser size. The size
+owner and fixed viewport survive viewer departure; there is no automatic election.
+An explicit agent viewport command replaces the size owner; a user's Take control
+calls `viewport.claim { viewer, width, height, dpr }` to set the viewport to that
+client's current surface size. Layout, focus, visibility and tab switches never
+resize it. It sends `state` (`{ owner, title, url, activity, needsHuman, profile,
 profiles }`) on connect and on every change, `frame` (`{ data, metadata }`,
 `data` a base64 JPEG, latest-wins and paced by core; the client never acks)
 and `notice` (`{ text, tone? }`). The stream counts as a viewer while it is
 open; the last viewer leaving stops the frames. Authenticate with the
 `Authorization` header, as with every other route.
 
-`call` methods: `resize { width, height, dpr }`, `input { kind: click | wheel
+`call` methods: `viewport.claim { viewer, width, height, dpr }` (user interface only), `input { kind: click | wheel
 | text | key, x?, y?, deltaY?, text?, key?, shift?, ctrl?, alt?, meta? }`,
 `nav { action: goto | back | forward | reload, target? }`, `screenshot { full? }`
 → `{ base64, path }` (a PNG saved in the owner's pad, or the data dir without
@@ -223,4 +229,4 @@ Refusals carry `{ ok: false, error: { code, message } }`:
 | `not_a_stream_surface` | `stream` or `call` named a tab that is not a stream surface (HTTP 409) |
 | `surface_runtime_unavailable` | The declared stream runtime is not registered in core (HTTP 409) |
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

@@ -1,7 +1,10 @@
 import { invoke } from "../../lib/bridge";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { remoteChatFailure, remoteChatState } from "../../lib/remoteChatState";
+import { remoteChatPeer, setRemoteChatFailure } from "../../lib/remoteChatStatus";
 import { beginChatSendDeletion, chatSendTabHydrationState, endChatSendDeletion, ensureChatSendTabHydrated,
   failChatSendRequest, observeChatSendDismissal, observeDeliveryStatus,
-  reconcileChatSendAdmission, reconcileDeliveryStatuses, readChatSends, recordChatSendAdmissionFailure,
+  reconcileChatSendAdmission, reconcileDeliveryStatuses, readChatSends, recordChatSendAdmissionFailure, recordRemoteChatSendFailure,
   persistLocalChatSendDismissal, type ChatSendDismissal } from "./chatSendStore";
 import type { AdmissionEvidence } from "./chatDeliveryModel";
 
@@ -78,6 +81,14 @@ export async function sendTrackedChatMessage(
   if (typeof tabId !== "string" || !tabId.trim() || tabId === "null" || tabId === "undefined") {
     throw new Error("Chat tab is not bound");
   }
+  const peer = parseCompositeTabId(tabId);
+  const presence = remoteChatPeer(peer?.peerId)?.presence;
+  const beforeRequest = remoteChatState(presence);
+  if (peer && beforeRequest) {
+    const failure = { state: beforeRequest, raw: beforeRequest, at: Date.now(), neverWritten: true };
+    recordRemoteChatSendFailure(tabId, messageId, failure);
+    throw new Error(beforeRequest);
+  }
   const key = admissionKey(tabId, messageId);
   activeAdmissions.add(key);
   let deadline: ReturnType<typeof setTimeout> | undefined;
@@ -94,6 +105,13 @@ export async function sendTrackedChatMessage(
     return status;
   } catch (error) {
     activeAdmissions.delete(key);
+    if (peer) {
+      const failure = remoteChatFailure(error);
+      const state = remoteChatState(undefined, failure)!;
+      recordRemoteChatSendFailure(tabId, messageId, { ...failure, raw: failure.raw.slice(0, 4096), state });
+      setRemoteChatFailure(tabId, failure);
+      throw error;
+    }
     if (isProvenAdmissionRefusal(error)) failChatSendRequest(tabId, messageId, error);
     else {
       recordChatSendAdmissionFailure(tabId, messageId, hadDaemonResponse(error), error);
@@ -136,7 +154,7 @@ export async function deleteTrackedChatMessage(tabId: string, id: string): Promi
   const send = beginChatSendDeletion(tabId, id);
   if (!send) return;
   try {
-    if (!send.correlationId || send.status?.system_send) {
+    if (!send.correlationId || send.status?.system_send || send.remoteFailure?.neverWritten) {
       await persistLocalChatSendDismissal(tabId, send);
       return;
     }

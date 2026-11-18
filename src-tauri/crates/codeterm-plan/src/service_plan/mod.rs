@@ -214,6 +214,7 @@ pub use types::{
 };
 
 pub struct PlanStore {
+    element_observer: RwLock<Option<canvas_elements::ElementObserver>>,
     product_observer: RwLock<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
     specs: RwLock<HashMap<String, Arc<Mutex<Spec>>>>,
     /// Id, status, team, project, title and update time of every plan row, read from SQL columns.
@@ -306,6 +307,7 @@ impl PlanStore {
         let specs = database.load_specs()?;
         let store = Self {
             product_observer: RwLock::new(None),
+            element_observer: RwLock::new(None),
             specs: RwLock::new(HashMap::new()),
             index: RwLock::new(
                 index_rows

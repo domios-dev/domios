@@ -12,7 +12,7 @@ import { usageForModel } from "../../lib/modelGroups";
 import type { ModelGroup } from "../../lib/types";
 import { classify } from "../../types/usage";
 import { formatSpend } from "./format";
-import { groupSpendSnapshot, hasGroupSpend } from "./groupSpend";
+import { groupBalance, groupSpendSnapshot, hasGroupSpend } from "./groupSpend";
 import { UsageDetail, UsageSpendDetail } from "./UsageDetail";
 import { UsageHistoryModal } from "./UsageHistoryModal";
 import type {UsageSnapshot} from "../../types/usage";
@@ -39,6 +39,7 @@ interface UsageBubbleProps {
   /// Provider-declared model groups, so a group-spend capsule matches by id
   /// without core knowing any vendor.
   modelGroups?: ModelGroup[];
+  chatBackend?: boolean;
   /// The tab's reported context fill (`tab.context`). A harness with no quota windows shows it as the bubble value.
   context?: unknown;
   /// The harness name for the popover title.
@@ -58,30 +59,26 @@ export function UsageBubble({
   trackingEnabled = false,
   modelId = null,
   modelGroups,
+  chatBackend = false,
   context,
   providerLabel,
   borrowedAccount = false,
 }: UsageBubbleProps) {
-  // The group's provider-declared spend meter takes precedence over the
-  // provider-scoped polled snapshot: it is the tab's own upstream group.
   const { usage: modelUsage, refresh: refreshModelUsage } = useProviderModelUsageState(
     provider,
-    trackingEnabled,
+    trackingEnabled && modelId != null && !borrowedAccount,
+    accountId,
   );
   const groupUsage = modelId ? usageForModel(modelUsage, modelGroups, modelId) : null;
+  const balance = groupUsage && groupBalance(groupUsage, modelGroups);
   const groupSnapshot = useMemo(
     () => (hasGroupSpend(groupUsage) ? groupSpendSnapshot(provider, groupUsage, Date.now()) : null),
     [provider, groupUsage],
   );
-  const { snapshot, refresh, refetch } = useUsageSnapshot({
-    provider,
-    accountId,
-    enabled: trackingEnabled,
-  });
-  const runtime = borrowedAccount ? null : ownRuntimeUsage(snapshot,tabId,threadId);
-  const active = borrowedAccount ? accountUsageSnapshot(snapshot) : runtime || snapshot?.runtime_usage
-    ? latestUsageSnapshot(snapshot, tabId, threadId)
-    : groupSnapshot ?? latestUsageSnapshot(snapshot);
+  const { snapshot, refresh, refetch } = useUsageSnapshot({ provider, accountId, enabled: trackingEnabled });
+  const runtime = borrowedAccount || balance ? null : ownRuntimeUsage(snapshot,tabId,threadId);
+  const active = balance ? groupSnapshot : borrowedAccount ? accountUsageSnapshot(snapshot)
+    : (!chatBackend && !snapshot?.runtime_usage ? groupSnapshot : null) ?? latestUsageSnapshot(snapshot, tabId, threadId);
   // The reading whose account rows (credits, session resets) this popover shows; a borrowing tab shows the native tab's.
   const accountReading = borrowedAccount ? accountRuntimeUsage(snapshot) : runtime;
   const accountCreditsLabel = runtimeAccountCreditsLabel(accountReading?.account_credits);
@@ -114,7 +111,7 @@ export function UsageBubble({
   const closeDetail = useCallback(() => setOpen(false), []);
   // A harness that reports its context fill but no quota (an ACP agent): the fill is the bubble value.
   const contextReading = contextUsage(context, runtime);
-  const contextMode = trackingEnabled && contextReading != null && !hasQuota(active);
+  const contextMode = trackingEnabled && !balance && contextReading != null && !hasQuota(active);
   useClaimContext(tabId, contextMode);
 
   if (contextMode && contextReading) {
@@ -133,11 +130,10 @@ export function UsageBubble({
   if (!active.parsed_ok && ageMs > ONE_HOUR_MS) return null;
 
   const isStale = ageMs > STALE_MS;
-  // to threshold against — render the cycle spend as a neutral pill.
-  const isSpend = active.spend_cents != null && active.session_pct == null && active.weekly_pct == null;
   const spendLabel = active.spend_remaining_cents != null
     ? `${formatSpend(active.spend_remaining_cents)} left`
-    : formatSpend(active.spend_cents ?? 0);
+    : active.spend_cents != null ? formatSpend(active.spend_cents) : null;
+  const isSpend = spendLabel != null && active.session_pct == null && active.weekly_pct == null;
   const sessionState = classify(active.session_pct);
   const weeklyState = classify(active.weekly_pct);
   const metrics = visibleUsageMetrics(active);
@@ -156,7 +152,7 @@ export function UsageBubble({
     : undefined;
 
   const refreshUsage = async () => {
-    if (groupSnapshot) {
+    if (active === groupSnapshot) {
       refreshModelUsage();
       return;
     }
@@ -186,7 +182,8 @@ export function UsageBubble({
         type="button"
         className={bubbleClass}
         aria-label={
-          tokenSession ? `usage ${runtimeTokenLabel(tokenSession)}` : billingLabel ?? (isSpend
+          balance ? `${balance.title}, ${balance.amount} left`
+            : tokenSession ? `usage ${runtimeTokenLabel(tokenSession)}` : billingLabel ?? (isSpend
             ? `usage ${spendLabel}`
             : usageMetricsAriaLabel(metrics))
         }
@@ -201,7 +198,7 @@ export function UsageBubble({
           setOpen((v) => !v);
         }}
       >
-        {tokenSession ? <span>{runtimeTokenLabel(tokenSession)}</span> : isSpend ? (
+        {balance ? <span>{balance.amount}</span> : tokenSession ? <span>{runtimeTokenLabel(tokenSession)}</span> : isSpend ? (
           <span className="glyph neutral">
             <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M6 1.6v8.8M8 3.2H4.9a1.4 1.4 0 0 0 0 2.8h2.2a1.4 1.4 0 0 1 0 2.8H3.8" />
@@ -225,13 +222,11 @@ export function UsageBubble({
       {!tokenSession && isSpend && (
         <UsageSpendDetail
           snapshot={active}
+          balance={balance}
+          spendCaption={active === groupSnapshot && active.spend_resets_at == null ? "recorded spend" : undefined}
           accountCreditsLabel={accountCreditsLabel}
           resetSection={resetSection}
           onRefresh={refreshUsage}
-          onOpenHistory={() => {
-            setHistoryOpen(true);
-            setOpen(false);
-          }}
         />
       )}
 

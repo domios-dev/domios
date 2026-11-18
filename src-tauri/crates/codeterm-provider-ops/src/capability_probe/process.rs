@@ -66,6 +66,9 @@ fn capture_command(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
+    if let Some(context) = codeterm_plugin::provider_account::current() {
+        context.configure_command(&mut command);
+    }
     let mut tree = crate::provider_update::ProcessTree::prepare(&mut command)
         .map_err(|_| ProbeFailure::Spawn)?;
     let mut child = spawn(&mut command).map_err(|_| ProbeFailure::Spawn)?;

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useMemo } from "react";
+import { DS_KINDS, type DsKind } from "@codeterm/chat-core";
 import type { LiveBindingSource } from "./liveBinding";
 import type { ConnectBlockState } from "./connectBlockModel";
 import type { PluginBlockState, PluginLifecycleKind } from "./pluginBlockModel";
@@ -11,17 +12,24 @@ import type { TasksBlockState } from "./tasksBlockModel";
 import type { CanonicalMentionKind } from "../codeterm/canonicalMentions";
 
 export interface ChatMentionValue {
-  state?: "loading";
+  state?: "loading" | "closed";
   title: string;
   kind: CanonicalMentionKind;
   id: string;
   planId?: string;
   targetId?: string;
   teamId?: string | null;
+  tabKind?: "agent" | "shell" | "browser" | "surface";
+  providerId?: string | null;
+  providerName?: string;
+  role?: string;
+  workspaceName?: string;
+  activity?: "working" | "waiting" | "error" | "idle";
 }
 export interface ChatMentionHost {
   binding: LiveBindingSource<ChatMentionValue | null>;
   open(key: string): void;
+  renderAvatar?(value: ChatMentionValue): React.ReactNode;
 }
 
 /** Host services the plugin block reads and acts through; every mutation runs only from a user click. */
@@ -107,6 +115,7 @@ export interface ChatCardMenuSpec {
 
 /** Scope-wide services for chat blocks. Absent fields hide the matching control instead of faking it. */
 export interface ChatBlockHost {
+  interacted?(kind: DsKind, action: "open" | "submit"): void;
   openFileChange?(path: string, view: "diff" | "file"): void;
   mentionTabId?: string;
   mentions?: ChatMentionHost;
@@ -124,6 +133,11 @@ export interface ChatBlockHost {
   jobs?: JobBlockHost;
   checklists?: ChecklistBlockHost;
   tasks?: TasksBlockHost;
+}
+
+export function observeBlockInteraction(host: ChatBlockHost, kind: string, action: "open" | "submit") {
+  if (!(DS_KINDS as readonly string[]).includes(kind)) return;
+  try { host.interacted?.(kind as DsKind, action); } catch { /* Observation cannot change an action. */ }
 }
 
 const ChatBlockHostContext = createContext<ChatBlockHost>({});

@@ -4,6 +4,26 @@ import { blendColor, deriveColor, parseHex } from "./colors";
 const THEME_CACHE_KEY = "codeterm-theme-v1";
 const THEME_VARS_CACHE_KEY = "codeterm-theme-css-v1";
 
+function luminance(hex: string): number {
+  const [r, g, b] = parseHex(hex).map(channel => {
+    const value = channel / 255;
+    return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+  });
+  return .2126 * r + .7152 * g + .0722 * b;
+}
+
+function mentionTextColor(theme: ThemeConfig, light: boolean): string {
+  const bubble = blendColor(deriveColor(theme.background, 10), theme.blue, .08);
+  const surface = luminance(blendColor(bubble, theme.blue, .18));
+  const contrast = (color: string) => (Math.max(luminance(color), surface) + .05) / (Math.min(luminance(color), surface) + .05);
+  if (contrast(theme.blue) >= 4.5) return "var(--ct-accent)";
+  for (let foreground = light ? 20 : 5; foreground <= 100; foreground += 5) {
+    const color = blendColor(theme.blue, theme.foreground, foreground / 100);
+    if (contrast(color) >= 4.5) return color;
+  }
+  return theme.foreground;
+}
+
 function contrastTextColor(background: string): "#000000" | "#ffffff" {
   const [r, g, b] = parseHex(background).map((channel) => {
     const value = channel / 255;
@@ -67,6 +87,7 @@ export function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-muted": theme.bright_black,
     "--ct-muted-fg": blendColor(theme.bright_black, theme.foreground, 0.45),
     "--ct-accent": theme.blue,
+    "--ct-mention-text": mentionTextColor(theme, isLight),
     "--ct-red": theme.red,
     "--ct-green": theme.green,
     "--ct-yellow": theme.yellow,

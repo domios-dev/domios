@@ -2,6 +2,9 @@ use crate::service::ServiceContext;
 use parking_lot::Mutex;
 use std::{collections::HashMap, sync::LazyLock};
 
+#[cfg(windows)]
+mod windows_powershell;
+
 #[derive(Clone)]
 struct LaunchEnvironment {
     provider: String,
@@ -32,7 +35,62 @@ pub(super) fn compose(
         codeterm_util::tab_launch::FILE_ENV.into(),
         svc.runtime_credential_file(tab, nonce)?,
     );
-    Ok(compose_owned_environment(extra, owned))
+    let mut environment = compose_owned_environment(extra, owned);
+    let invocation = match super::engine::for_tab(tab) {
+        Some(session) => session.invocation.lock().clone(),
+        None => codeterm_plugin::provider_account::current(),
+    };
+    if let Some(invocation) = invocation {
+        invocation.apply_environment(&mut environment);
+    }
+    Ok(environment)
+}
+
+pub(super) fn compose_for_account_restart(
+    svc: &ServiceContext,
+    tab: &str,
+    provider: &str,
+    nonce: &str,
+    invocation: Option<&codeterm_plugin::provider_account::InvocationContext>,
+) -> Result<HashMap<String, String>, String> {
+    let mut environment = compose(svc, tab, provider, nonce)?;
+    if let Some(old) =
+        super::engine::for_tab(tab).and_then(|session| session.invocation.lock().clone())
+    {
+        for (key, _) in old.environment_entries() {
+            environment.retain(|existing, _| {
+                existing != key && !(cfg!(windows) && existing.eq_ignore_ascii_case(key))
+            });
+        }
+    }
+    if let Some(invocation) = invocation {
+        invocation.apply_environment(&mut environment);
+    }
+    Ok(environment)
+}
+
+pub(super) fn prepare_spawn(
+    svc: &ServiceContext,
+    tab: &str,
+    launch: &super::launch_profile::ResolvedLaunch,
+    env: &mut HashMap<String, String>,
+    restricted_cli: bool,
+) -> Result<(), String> {
+    launch.apply_environment(
+        env,
+        crate::service::execution_sandbox::environment(svc, tab),
+    );
+    #[cfg(windows)]
+    if launch.capability.restricted_cli.is_some() {
+        windows_powershell::configure(svc, tab, env)?;
+    }
+    let scope = super::cli_exception::SCOPE_ENV;
+    env.remove(scope);
+    mark_runtime_agent(env, !launch.capability.turn_scoped_requests.is_empty());
+    if restricted_cli {
+        env.insert(scope.into(), super::cli_exception::SCOPE.into());
+    }
+    Ok(())
 }
 
 /// Applied last, so neither owner settings nor an inherited value can claim it.

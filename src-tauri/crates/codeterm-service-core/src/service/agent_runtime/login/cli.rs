@@ -1,4 +1,4 @@
-use super::{now_ms, LoginRequest};
+use super::{now_ms, Completion, LoginRequest};
 use crate::service::{MuxEmitCause, ServiceContext};
 use codeterm_plugin::provider::{AgentProvider, CliLoginCapability};
 use parking_lot::Mutex;
@@ -15,6 +15,7 @@ mod process;
 
 struct Job {
     provider: String,
+    account: String,
     nonce: Option<String>,
     state: Value,
     stop: Option<watch::Sender<bool>>,
@@ -22,8 +23,19 @@ struct Job {
     input: Option<mpsc::Sender<CodeSubmission>>,
 }
 
-static ACTIVE: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
-struct Permit(String);
+struct Run {
+    id: String,
+    provider: String,
+    account: String,
+    nonce: Option<String>,
+    stop: watch::Sender<bool>,
+    finished: watch::Receiver<bool>,
+}
+
+static RUNS: LazyLock<Mutex<HashMap<String, Arc<Run>>>> = LazyLock::new(Default::default);
+
+static ACTIVE: LazyLock<Mutex<HashSet<(String, String)>>> = LazyLock::new(Default::default);
+struct Permit((String, String));
 impl Drop for Permit {
     fn drop(&mut self) {
         ACTIVE.lock().remove(&self.0);
@@ -64,17 +76,129 @@ fn provider_for(
         .ok_or("Sign-in provider is unavailable".into())
 }
 
+fn matches_tab(job: &Job, target: &crate::multiplexer::types::Tab) -> bool {
+    target.session_binding_nonce == job.nonce
+        && target
+            .restorable_launch
+            .account_id
+            .as_deref()
+            .unwrap_or("default")
+            == job.account
+        && (target.tab_type == crate::multiplexer::types::TabType::Choice
+            || target.agent_type.as_deref() == Some(job.provider.as_str()))
+}
+
+fn selected(svc: &ServiceContext, tab: &str) -> Result<(String, Option<String>), String> {
+    let mux = svc.mux.read();
+    let target = mux.get_tab(tab).ok_or("Sign-in tab is unavailable")?;
+    Ok((
+        target
+            .restorable_launch
+            .account_id
+            .clone()
+            .unwrap_or_else(|| "default".into()),
+        target.session_binding_nonce.clone(),
+    ))
+}
+
+pub(super) fn invocation(
+    svc: &ServiceContext,
+    tab: &str,
+    requested: Option<&str>,
+) -> Result<Option<Arc<codeterm_plugin::provider_account::InvocationContext>>, String> {
+    let provider = provider_for(svc, tab, requested)?;
+    if svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .is_some_and(|target| target.agent_type.as_deref() == Some(provider.id()))
+    {
+        return crate::service::provider_accounts::for_tab(svc, tab);
+    }
+    let account = selected(svc, tab)?.0;
+    crate::service::provider_accounts::invocation(svc, provider.id(), Some(&account))
+}
+
 pub(super) fn cleanup(svc: &ServiceContext) {
     JOBS.lock().retain(|tab, job| {
-        svc.mux
+        let current = svc
+            .mux
             .read()
             .get_tab(tab)
-            .is_some_and(|target| target.session_binding_nonce == job.nonce)
+            .is_some_and(|target| matches_tab(job, target));
+        if !current {
+            if let Some(stop) = &job.stop {
+                stop.send_replace(true);
+            }
+        }
+        current
     });
 }
 
 pub(super) fn close(tab: &str) {
+    if let Some(run) = RUNS.lock().get(tab) {
+        run.stop.send_replace(true);
+    }
     JOBS.lock().remove(tab);
+}
+
+pub(super) async fn close_and_wait(
+    tab: &str,
+    provider: &str,
+    account: &str,
+    nonce: Option<&str>,
+) -> Result<(), String> {
+    let run = RUNS.lock().get(tab).cloned();
+    if let Some(run) = &run {
+        if run.provider != provider || run.account != account || run.nonce.as_deref() != nonce {
+            return Err("Sign-in process ownership changed; credentials were retained".into());
+        }
+        run.stop.send_replace(true);
+    }
+    let id = {
+        let mut jobs = JOBS.lock();
+        if let Some(job) = jobs.get_mut(tab) {
+            if let Some(stop) = &job.stop {
+                stop.send_replace(true);
+            }
+            job.input = None;
+            let id = job.state["login"]["loginId"].as_str().map(str::to_owned);
+            if let Some(login) = job.state.get_mut("login").and_then(Value::as_object_mut) {
+                login.insert("status".into(), json!("canceled"));
+                for field in ["url", "userCode", "instructions"] {
+                    login.remove(field);
+                }
+            }
+            id
+        } else {
+            run.as_ref().map(|run| run.id.clone())
+        }
+    };
+    if let Some(run) = &run {
+        let mut finished = run.finished.clone();
+        tokio::time::timeout(Duration::from_secs(30), finished.wait_for(|done| *done))
+            .await
+            .map_err(|_| "Sign-in process cleanup timed out; account credentials were retained")?
+            .map_err(|_| {
+                "Sign-in process cleanup is unconfirmed; account credentials were retained"
+            })?;
+    }
+    let mut jobs = JOBS.lock();
+    if jobs
+        .get(tab)
+        .is_some_and(|job| job.state["login"]["loginId"].as_str() != id.as_deref())
+    {
+        return Err("Sign-in changed during cleanup; account credentials were retained".into());
+    }
+    jobs.remove(tab);
+    drop(jobs);
+    if let Some(run) = run {
+        let mut runs = RUNS.lock();
+        if runs.get(tab).is_some_and(|current| current.id == run.id) {
+            runs.remove(tab);
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn has(tab: &str) -> bool {
@@ -96,7 +220,7 @@ fn state(provider: &dyn AgentProvider, cap: &CliLoginCapability, signed_in: bool
 }
 
 async fn authenticated(provider: Arc<dyn AgentProvider>) -> Result<bool, String> {
-    tokio::task::spawn_blocking(move || {
+    codeterm_plugin::js_runtime::spawn_blocking(move || {
         let probe = provider
             .auth_status_probe()
             .ok_or("Provider has no authentication status probe")?;
@@ -121,11 +245,10 @@ fn publish(svc: &ServiceContext, tab: &str) {
         return;
     };
     let mut mux = svc.mux.write();
-    let Some(target) = mux.get_tab_mut(tab).filter(|target| {
-        target.session_binding_nonce == job.nonce
-            && (target.tab_type == crate::multiplexer::types::TabType::Choice
-                || target.agent_type.as_deref() == Some(job.provider.as_str()))
-    }) else {
+    let Some(target) = mux
+        .get_tab_mut(tab)
+        .filter(|target| matches_tab(job, target))
+    else {
         return;
     };
     target.agent_runtime_state = Some(job.state.clone());
@@ -133,6 +256,7 @@ fn publish(svc: &ServiceContext, tab: &str) {
     drop(mux);
     drop(jobs);
     svc.ui.emit("agent-runtime-state", event);
+    crate::service::provider_accounts::login_changed(svc, tab);
     svc.emit_state_changed(MuxEmitCause::TabLifecycle);
 }
 
@@ -144,16 +268,41 @@ pub(super) fn show(svc: &ServiceContext, tab: &str) -> Result<Value, String> {
         let cap = provider.cli_login().ok_or("CLI sign-in unsupported")?;
         let mut snapshot = state(provider.as_ref(), &cap, false);
         snapshot["auth"] = json!("unknown");
+        if let Some(nonce) = selected(svc, tab)?.1 {
+            snapshot["loginBinding"] = json!({"nonce":nonce,"epoch":0});
+        }
         return Ok(json!({"login":null,"state":snapshot}));
     };
-    if svc.mux.read().get_tab(tab).is_none_or(|target| {
-        target.session_binding_nonce != job.nonce
-            || (target.tab_type != crate::multiplexer::types::TabType::Choice
-                && target.agent_type.as_deref() != Some(job.provider.as_str()))
-    }) {
+    if svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .is_none_or(|target| !matches_tab(job, target))
+    {
         return Err("Sign-in tab binding changed".into());
     }
     Ok(json!({"login":job.state.get("login"),"state":job.state}))
+}
+
+fn require_challenge(
+    svc: &ServiceContext,
+    tab: &str,
+    job: &Job,
+    request: &LoginRequest,
+) -> Result<(), String> {
+    if request
+        .login_id
+        .as_deref()
+        .is_none_or(|id| job.state["login"]["loginId"].as_str() != Some(id))
+        || svc
+            .mux
+            .read()
+            .get_tab(tab)
+            .is_none_or(|target| !matches_tab(job, target))
+    {
+        return Err("Sign-in challenge is no longer current".into());
+    }
+    Ok(())
 }
 
 pub(super) async fn operate(
@@ -163,23 +312,32 @@ pub(super) async fn operate(
 ) -> Result<Value, String> {
     let provider = provider_for(svc, tab, request.provider_id.as_deref())?;
     let cap = provider.cli_login().ok_or("CLI sign-in unsupported")?;
+    let (account, nonce) = selected(svc, tab)?;
+    if request.binding.as_ref().is_some_and(|binding| {
+        nonce.as_deref() != Some(binding.nonce.as_str()) || binding.epoch != 0
+    }) {
+        return Err("Sign-in belongs to a different tab binding".into());
+    }
     match request.action.as_deref() {
         Some("code") => {
             if !cap.code_input {
                 return Err("Provider does not accept a sign-in code".into());
             }
+            let input = {
+                let jobs = JOBS.lock();
+                let job = jobs.get(tab).ok_or("No pending CLI sign-in")?;
+                require_challenge(svc, tab, job, &request)?;
+                if job.state["login"]["status"] != "pending" {
+                    return Err("No sign-in accepts a code".into());
+                }
+                job.input.clone().ok_or("No sign-in accepts a code")?
+            };
             let code = request
                 .code
                 .filter(|code| {
                     !code.trim().is_empty() && code.len() <= 16384 && !code.contains(['\r', '\n'])
                 })
                 .ok_or("Invalid sign-in code")?;
-            let input = JOBS
-                .lock()
-                .get(tab)
-                .filter(|job| job.state["login"]["status"] == "pending")
-                .and_then(|job| job.input.clone())
-                .ok_or("No sign-in accepts a code")?;
             let (sent, receipt) = oneshot::channel();
             input
                 .try_send((code, sent))
@@ -193,6 +351,7 @@ pub(super) async fn operate(
         Some("cancel") => {
             let mut jobs = JOBS.lock();
             let job = jobs.get_mut(tab).ok_or("No pending CLI sign-in")?;
+            require_challenge(svc, tab, job, &request)?;
             if let Some(stop) = &job.stop {
                 let _ = stop.send(true);
             }
@@ -208,6 +367,7 @@ pub(super) async fn operate(
         Some("notify") => {
             let mut jobs = JOBS.lock();
             let job = jobs.get_mut(tab).ok_or("No pending CLI sign-in")?;
+            require_challenge(svc, tab, job, &request)?;
             if let Some(id) = &job.notification {
                 return Ok(json!({"notificationId":id}));
             }
@@ -225,25 +385,33 @@ pub(super) async fn operate(
         .await
         .map_err(|_| "Sign-in request timed out")?
         .map_err(|_| "Sign-in unavailable")?;
-    if ACTIVE.lock().contains(provider.id()) {
+    let owner_key = (provider.id().to_owned(), account.clone());
+    if ACTIVE.lock().contains(&owner_key) {
         return Err(
-            "A sign-in is already pending for this provider. Cancel it before trying again.".into(),
+            "A sign-in is already pending for this account. Cancel it before trying again.".into(),
         );
     }
+    if RUNS
+        .lock()
+        .values()
+        .any(|run| run.provider == provider.id() && run.account == account)
+    {
+        return Err("A sign-in process is still finishing for this account".into());
+    }
     let signed_in = authenticated(provider.clone()).await?;
-    let nonce = svc
-        .mux
-        .read()
-        .get_tab(tab)
-        .ok_or("Sign-in tab is unavailable")?
-        .session_binding_nonce
-        .clone();
-    let snapshot = state(provider.as_ref(), &cap, signed_in);
+    if selected(svc, tab)? != (account.clone(), nonce.clone()) {
+        return Err("Sign-in tab binding changed during authentication".into());
+    }
+    let mut snapshot = state(provider.as_ref(), &cap, signed_in);
+    if let Some(nonce) = &nonce {
+        snapshot["loginBinding"] = json!({"nonce":nonce,"epoch":0});
+    }
     JOBS.lock().insert(
         tab.into(),
         Job {
             provider: provider.id().into(),
-            nonce,
+            account: account.clone(),
+            nonce: nonce.clone(),
             state: snapshot,
             stop: None,
             notification: None,
@@ -265,16 +433,28 @@ pub(super) async fn operate(
         None => cap.methods.first(),
     }
     .ok_or("Unsupported provider sign-in method")?;
-    if !ACTIVE.lock().insert(provider.id().into()) {
+    if !ACTIVE.lock().insert(owner_key.clone()) {
         return Err("A provider sign-in is already pending".into());
     }
-    let permit = Permit(provider.id().into());
+    let permit = Permit(owner_key);
     let (stop, stopping) = watch::channel(false);
+    let (completed, finished) = watch::channel(false);
     let (input, codes) = mpsc::channel(1);
     let id = uuid::Uuid::new_v4().to_string();
     {
         let mut jobs = JOBS.lock();
         let job = jobs.get_mut(tab).ok_or("Sign-in tab is unavailable")?;
+        RUNS.lock().insert(
+            tab.into(),
+            Arc::new(Run {
+                id: id.clone(),
+                provider: provider.id().into(),
+                account: account.clone(),
+                nonce: nonce.clone(),
+                stop: stop.clone(),
+                finished,
+            }),
+        );
         job.stop = Some(stop);
         job.input = Some(input);
         job.state["login"] = json!({"status":"pending","loginId":id,"method":"browser","expiresAtMs":now_ms().saturating_add(cap.timeout_ms.clamp(1000,900_000))});
@@ -284,36 +464,55 @@ pub(super) async fn operate(
     let target = tab.to_owned();
     let response = show(svc, tab)?;
     let args = method.args.clone();
-    crate::async_runtime::spawn(async move {
-        let _permit = permit;
-        let result = process::run(
-            &owner,
-            &target,
-            &id,
-            process::Request {
-                provider: provider.clone(),
-                capability: cap,
-                args,
-                stop: stopping,
-                codes,
-            },
-        )
-        .await;
-        let verified = match result {
-            Ok(()) => authenticated(provider).await,
-            Err(error) => Err(error),
-        };
-        finish(&owner, &target, &id, verified);
-    });
+    let invocation = codeterm_plugin::provider_account::current();
+    crate::async_runtime::spawn(codeterm_plugin::provider_account::scope(
+        invocation,
+        async move {
+            let permit = permit;
+            let completion = Completion(completed);
+            let result = process::run(
+                &owner,
+                &target,
+                &id,
+                process::Request {
+                    provider: provider.clone(),
+                    capability: cap,
+                    args,
+                    stop: stopping,
+                    codes,
+                },
+            )
+            .await;
+            let cleanup_confirmed = result.cleanup_confirmed;
+            let verified = match result.outcome {
+                Ok(()) => authenticated(provider).await,
+                Err(error) => Err(error),
+            };
+            finish(&owner, &target, &id, verified);
+            if cleanup_confirmed {
+                drop(permit);
+                completion.complete();
+                let mut runs = RUNS.lock();
+                if runs.get(&target).is_some_and(|run| run.id == id) {
+                    runs.remove(&target);
+                }
+            }
+        },
+    ));
     Ok(response)
 }
 
 fn finish(svc: &ServiceContext, tab: &str, id: &str, result: Result<bool, String>) {
     let mut jobs = JOBS.lock();
-    let Some(job) = jobs
-        .get_mut(tab)
-        .filter(|job| job.state["login"]["loginId"] == id && job.stop.is_some())
-    else {
+    let Some(job) = jobs.get_mut(tab).filter(|job| {
+        job.state["login"]["loginId"] == id
+            && job.stop.is_some()
+            && svc
+                .mux
+                .read()
+                .get_tab(tab)
+                .is_some_and(|target| matches_tab(job, target))
+    }) else {
         return;
     };
     job.stop = None;
@@ -335,10 +534,15 @@ fn finish(svc: &ServiceContext, tab: &str, id: &str, result: Result<bool, String
 
 fn observe(svc: &ServiceContext, tab: &str, id: &str, url: String) {
     let mut jobs = JOBS.lock();
-    let Some(job) = jobs
-        .get_mut(tab)
-        .filter(|job| job.state["login"]["loginId"] == id && job.stop.is_some())
-    else {
+    let Some(job) = jobs.get_mut(tab).filter(|job| {
+        job.state["login"]["loginId"] == id
+            && job.stop.is_some()
+            && svc
+                .mux
+                .read()
+                .get_tab(tab)
+                .is_some_and(|target| matches_tab(job, target))
+    }) else {
         return;
     };
     if job.state["login"]["url"] == url {

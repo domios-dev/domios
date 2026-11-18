@@ -24,10 +24,6 @@ impl ProofChallenges {
             .get(nonce)
             .is_some_and(|(issued, _)| now >= issued.saturating_add(120))
     }
-
-    pub fn accepts(&self, body: &serde_json::Value, nonce: &str) -> bool {
-        self.bodies.get(nonce).map(|(_, body)| body) == Some(body)
-    }
 }
 
 impl FakeRegistry {
@@ -50,8 +46,16 @@ impl FakeRegistry {
         {
             return Err(RegistryRefusal::ChallengeInvalid);
         }
-        if !self.challenged.lock().unwrap().accepts(&body, &proof.nonce) {
-            return Err(RegistryRefusal::Conflict);
+        {
+            let challenges = self.challenged.lock().unwrap();
+            let (issued, _) = challenges
+                .bodies
+                .get(&proof.nonce)
+                .filter(|(_, challenged)| challenged == &body)
+                .ok_or(RegistryRefusal::Conflict)?;
+            if proof.timestamp < *issued || proof.timestamp >= issued.saturating_add(120) {
+                return Err(RegistryRefusal::ChallengeInvalid);
+            }
         }
         let uid = &session.identity.uid;
         if spki.is_none()

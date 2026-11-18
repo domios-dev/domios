@@ -179,7 +179,7 @@ fn a_custom_manager_registers_and_resolves_as_a_manager() {
 }
 
 #[test]
-fn a_team_has_exactly_its_roles_and_refuses_unlisted_names() {
+fn a_team_keeps_custom_roles_and_accepts_builtin_workers() {
     let root = tempfile::tempdir().unwrap();
     let store = TeamRoleStore::new(root.path());
     store
@@ -192,7 +192,7 @@ fn a_team_has_exactly_its_roles_and_refuses_unlisted_names() {
         store.role_type(Some("team_a"), "checker").unwrap(),
         RoleType::new(AgentRole::Worker, "checker")
     );
-    for unlisted in [builtins::QA, builtins::PLANNER, "scout"] {
+    for unlisted in [builtins::PLANNER, "scout"] {
         assert!(
             matches!(
                 store.role_type(Some("team_a"), unlisted),
@@ -201,13 +201,19 @@ fn a_team_has_exactly_its_roles_and_refuses_unlisted_names() {
             "{unlisted}"
         );
     }
-    assert_eq!(
-        store.worker_type(Some("team_a"), Some(builtins::QA)),
-        Err(RoleTypeError::NotRegistered {
-            name: builtins::QA.into(),
-            roles: vec!["checker".into()]
-        })
-    );
+    for role in [
+        builtins::QA,
+        builtins::REVIEWER,
+        builtins::RELEASE_MANAGER,
+        builtins::WORKER,
+    ] {
+        let expected = RoleType::new(AgentRole::Worker, role);
+        assert_eq!(store.role_type(Some("team_a"), role).unwrap(), expected);
+        assert_eq!(
+            store.worker_type(Some("team_a"), Some(role)).unwrap(),
+            expected
+        );
+    }
     assert_eq!(
         store.worker_type(Some("team_a"), Some(builtins::PLANNER)),
         Err(RoleTypeError::NotAWorker {

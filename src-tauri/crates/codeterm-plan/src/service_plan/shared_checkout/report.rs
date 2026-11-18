@@ -1,5 +1,4 @@
 use crate::plan::{Task, TaskExecutionAttempt, TaskFiles};
-use std::process::Command;
 
 /// Why a shared report could not move its task to review.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,7 +22,7 @@ fn rejected(message: impl Into<String>) -> SharedReportError {
 }
 
 pub(super) fn git(checkout: &str, args: &[&str]) -> Result<String, SharedReportError> {
-    let output = Command::new("git")
+    let output = codeterm_util::process_util::git_command()
         .arg("-C")
         .arg(checkout)
         .args(args)

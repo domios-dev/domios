@@ -274,6 +274,13 @@ function quoteNativeArgument(value, platform, quote) {
   return `$(if ($PSVersionTable.PSVersion -ge [version]'7.3') { ${literal} } else { ${quote(quoteWindowsArgument(value), platform)} })`;
 }
 
+// plugins/provider-shared/readHome.ts
+function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
+  if (!inheritedHome) return fallback;
+  if (!subpath) return inheritedHome;
+  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
+}
+
 // plugins/provider-claude/model-capabilities.json
 var model_capabilities_default = {
   profiles: {
@@ -417,7 +424,7 @@ function* composeSettingsArgs(args) {
     overlay = { ...overlay, ...value };
   }
   if (enabled) {
-    const path = host.expandHome("~/.claude/settings.json");
+    const path = effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), host.expandHome("~/.claude/settings.json"), "settings.json", host.platform() === "windows" ? "\\" : "/");
     const user = path ? settingsObject((yield* host.io.fs.fileExists(path)) ? yield* host.io.fs.readFileHead(path, 65537) : "{}") : null;
     const composed = user ? statuslineSettings({ ...user, ...overlay }) : null;
     if (composed) overlay = { ...overlay, ...JSON.parse(composed) };
@@ -470,6 +477,10 @@ function hasResume(input) {
   const resume = input.resume;
   return typeof resume === "object" && resume !== null && "sessionId" in resume && typeof resume.sessionId === "string";
 }
+var MACOS_REGISTRY_ENVIRONMENT = { LC_ALL: "C", TZ: "UTC0" };
+function claudeShellProgram() {
+  return host.platform() === "macos" ? "LC_ALL=C TZ=UTC0 claude" : "claude";
+}
 function* buildClaudeLaunchSpec(input) {
   if ("resume" in input && !hasResume(input)) return null;
   const params = hasResume(input) ? {
@@ -495,13 +506,13 @@ function* buildClaudeLaunchSpec(input) {
     const framed = params.starterPromptPrefix ? params.starterPromptPrefix + prompt + "</domios>" : prompt;
     args.push("--", framed);
   }
-  return { program: "claude", args, envSet: {}, envUnset: ["CLAUDECODE"] };
+  return { program: "claude", args, envSet: host.platform() === "macos" ? MACOS_REGISTRY_ENVIRONMENT : {}, envUnset: ["CLAUDECODE"] };
 }
 function* buildClaudeLaunchCommand(params) {
   const spec = yield* buildClaudeLaunchSpec(params);
   if (!spec) return "";
   const unset = host.platform() === "windows" ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';" : "unset CLAUDECODE &&";
-  const parts = [unset, spec.program];
+  const parts = [unset, claudeShellProgram()];
   let previous = "";
   for (const arg of spec.args) {
     if (previous === "--") parts.push(quoteNativeArgument(arg, host.platform(), host.shell.quoteFor));
@@ -749,13 +760,6 @@ function manifest() {
   } catch (e) {
     return null;
   }
-}
-
-// plugins/provider-shared/readHome.ts
-function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
-  if (!inheritedHome) return fallback;
-  if (!subpath) return inheritedHome;
-  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
 }
 
 // plugins/provider-claude/src/session.ts
@@ -1069,7 +1073,8 @@ function outputLimit(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record3 = value;
   const details = record3.incomplete_details;
-  if (record3.stop_reason === "max_tokens" || record3.finish_reason === "length") return true;
+  if (record3.stop_reason === "max_tokens") return true;
+  if (record3.finish_reason === "length") return true;
   if (record3.status === "incomplete" && details?.reason === "max_output_tokens") return true;
   const message = record3.message;
   return typeof message === "string" && message.length <= 16384 && /incomplete response[^\n]*\bmax_output_tokens\b/i.test(message);
@@ -1078,6 +1083,16 @@ function outputLimit(value) {
 // plugins/provider-claude/src/retry.ts
 var networkCodes = ["ENOTFOUND", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN", "EPIPE", "UND_ERR_CONNECT_TIMEOUT", "api_connection_error", "connection_error"];
 function retryError(record3) {
+  const result = retrySignal(record3);
+  const error = record3.error && typeof record3.error === "object" ? record3.error : {};
+  const explicitQuota = record3.apiErrorCode === "usage_limit" || error.code === "usage_limit" || error.type === "usage_limit";
+  if (result.retry_error && !result.retry_error.retryable && result.retry_error.retryableKind !== "output_limit" && explicitQuota && classifyAccessError(record3.error, record3) === "usage_limit") {
+    const reset = record3.apiErrorResetAtMs ?? error.retryAtMs;
+    result.retry_error.accountLimit = { ...typeof reset === "number" && Number.isSafeInteger(reset) && reset >= 0 ? { resetsAtMs: reset } : {} };
+  }
+  return result;
+}
+function retrySignal(record3) {
   if (record3.type !== "assistant" || record3.isSidechain === true) return {};
   if (outputLimit(record3.message) || record3.isApiErrorMessage === true && outputLimit(record3.error)) return { retry_error: { retryable: false, retryableKind: "output_limit" } };
   if (record3.isApiErrorMessage !== true) return {};
@@ -1114,6 +1129,12 @@ function authStatusProbe() {
 }
 function object3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function accountIdentity(value) {
+  const record3 = object3(value);
+  const email = record3?.email;
+  if (record3?.loggedIn !== true || typeof email !== "string" || !email.includes("@") || email.length > 320 || !/^[\u0021-\u007e]+$/u.test(email)) return null;
+  return { subject: email, label: email };
 }
 function parseAuthStatus(value) {
   const record3 = object3(value);
@@ -1180,51 +1201,106 @@ function registryDir() {
   const home = host.homeDir();
   return effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), home ? home + sep + ".claude" + sep + "sessions" : null, "sessions", sep);
 }
-function registrySessionId(raw, pid, startToken) {
+function registryStartRefusal(recorded, token, modifiedMs) {
+  if (!token) return "missing_live_start";
+  if (recorded === token) return null;
+  if (!/^\d+$/.test(token)) return "invalid_live_start";
+  const micros = Number(token);
+  if (!Number.isSafeInteger(micros)) return "invalid_live_start";
+  const start = new Date(Math.floor(micros / 1e6) * 1e3);
+  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const time = [start.getUTCHours(), start.getUTCMinutes(), start.getUTCSeconds()].map((value) => String(value).padStart(2, "0")).join(":");
+  const expected = `${weekdays[start.getUTCDay()]} ${months[start.getUTCMonth()]} ${String(start.getUTCDate()).padStart(2, " ")} ${time} ${start.getUTCFullYear()}`;
+  if (recorded !== expected) return "start_mismatch";
+  if (modifiedMs === void 0) return "missing_record_mtime";
+  return modifiedMs <= Math.floor(micros / 1e3) ? "stale_record" : null;
+}
+function validateRegistrySession(raw, pid, startToken, modifiedMs) {
   let record3;
   try {
     record3 = JSON.parse(raw);
   } catch (_) {
-    return null;
+    return { refusal: "invalid_json" };
   }
-  if (!record3 || typeof record3 !== "object" || record3.pid !== pid) return null;
-  if (typeof record3.kind === "string" && record3.kind !== "interactive") return null;
-  if (typeof record3.procStart !== "string") return null;
-  if (!startToken || record3.procStart.trim() !== startToken) return null;
+  if (!record3 || typeof record3 !== "object" || record3.pid !== pid) return { refusal: "pid_mismatch" };
+  if (typeof record3.kind === "string" && record3.kind !== "interactive") return { refusal: "non_interactive" };
+  if (typeof record3.procStart !== "string") return { refusal: "missing_recorded_start" };
+  const refusal = registryStartRefusal(record3.procStart.trim(), startToken, modifiedMs);
+  if (refusal) return { refusal };
   const sessionId = typeof record3.sessionId === "string" ? record3.sessionId.trim() : "";
-  return sessionId || null;
+  return sessionId ? { sessionId } : { refusal: "missing_session_id" };
 }
 function* detectClaudeLaunchSession(evidence) {
   const dir = registryDir();
-  if (!dir || !evidence || !Array.isArray(evidence.processes)) return null;
-  const sep = host.platform() === "windows" ? "\\" : "/";
+  if (!dir) {
+    host.log("debug", "[claude-pid-registry] refused: registry_directory_unavailable");
+    return null;
+  }
+  if (!evidence?.processes?.length) {
+    host.log("debug", "[claude-pid-registry] refused: process_tree_empty");
+    return null;
+  }
+  const platform = host.platform();
+  const sep = platform === "windows" ? "\\" : "/";
   const processes = evidence.processes.slice().sort((a, b) => a.depth - b.depth || a.pid - b.pid);
   for (let i = 0; i < processes.length; i++) {
     const proc = processes[i];
-    const raw = yield* host.io.fs.readFile(dir + sep + proc.pid + ".json");
-    if (typeof raw !== "string") continue;
-    const sessionId = registrySessionId(raw, proc.pid, String(proc.startToken || ""));
-    if (sessionId) return { sessionId, source: "pid_registry" };
+    const name = proc.pid + ".json";
+    const path = dir + sep + name;
+    const raw = yield* host.io.fs.readFile(path);
+    if (typeof raw !== "string") {
+      logRefusal(proc.pid, "record_unavailable");
+      continue;
+    }
+    const token = String(proc.startToken || "");
+    let result = validateRegistrySession(raw, proc.pid, token);
+    if ("refusal" in result && result.refusal === "missing_record_mtime" && platform === "macos") {
+      try {
+        const entries = yield* host.io.fs.readDir(dir);
+        const modifiedMs = entries.find((entry) => entry.name === name && entry.isFile)?.modifiedMs;
+        result = validateRegistrySession(raw, proc.pid, token, modifiedMs ?? void 0);
+        if ("sessionId" in result && raw !== (yield* host.io.fs.readFile(path))) {
+          result = { refusal: "record_changed" };
+        }
+      } catch (error) {
+        if (!(error instanceof RangeError)) throw error;
+        result = { refusal: "registry_listing_limit" };
+      }
+    }
+    if ("sessionId" in result) return { sessionId: result.sessionId, source: "pid_registry" };
+    logRefusal(proc.pid, result.refusal);
   }
   return null;
+}
+function logRefusal(pid, reason) {
+  host.log("debug", `[claude-pid-registry] pid=${pid} refused: ${reason}`);
 }
 
 // plugins/provider-claude/src/credentials.ts
 function* readClaudeOAuthToken(host2) {
-  const inheritedHome = host2.envGet("CLAUDE_CONFIG_DIR");
-  const credentialsPath = effectiveReadPath(inheritedHome, host2.expandHome("~/.claude/.credentials.json"), ".credentials.json", host2.platform() === "windows" ? "\\" : "/");
-  const fileCredentials = credentialsPath ? parseCredentials(yield* host2.io.fs.readFile(credentialsPath)) : null;
-  const credentials = (inheritedHome ? null : yield* readMacOsCredentials(host2)) ?? fileCredentials;
+  const configuredHome = host2.envGet("CLAUDE_SECURESTORAGE_CONFIG_DIR") || host2.envGet("CLAUDE_CONFIG_DIR");
+  const credentialHome = configuredHome?.startsWith("~/") || configuredHome === "~" ? host2.expandHome(configuredHome) : configuredHome;
+  if (configuredHome && !credentialHome) return null;
+  const keychainToken = oauthToken(yield* readMacOsCredentials(host2, credentialHome));
+  if (keychainToken) return keychainToken;
+  const credentialsPath = effectiveReadPath(credentialHome, host2.expandHome("~/.claude/.credentials.json"), ".credentials.json", host2.platform() === "windows" ? "\\" : "/");
+  return credentialsPath ? oauthToken(parseCredentials(yield* host2.io.fs.readFile(credentialsPath))) : null;
+}
+function oauthToken(credentials) {
   const oauth = credentials?.claudeAiOauth;
   const token = oauth && typeof oauth === "object" ? oauth.accessToken : null;
   return typeof token === "string" && token ? token : null;
 }
-function* readMacOsCredentials(host2) {
+function* readMacOsCredentials(host2, home) {
   if (host2.platform() !== "macos") return null;
+  const suffix = home ? host2.sha256?.(home.replace(/\/+$/, "")).slice(0, 8) : null;
+  if (home && !suffix) return null;
+  const service = suffix ? `Claude Code-credentials-${suffix}` : "Claude Code-credentials";
   const user = host2.envGet("USER");
   const args = ["find-generic-password"];
   if (user) args.push("-a", user);
-  args.push("-w", "-s", "Claude Code-credentials");
+  args.push("-w", "-s", service);
   const result = parseCredentials(yield* ioEncoded(host2.io.exec({ bin: "security", args, timeoutMs: 5e3 })));
   if (result?.code !== 0) return null;
   return parseCredentials(result.stdout);
@@ -1988,8 +2064,8 @@ function* subAgentUsageSources(sessionFilePath, sessionId) {
 // plugins/provider-claude/src/folderTrust.ts
 var FRAME_EDGES = /^[\s│┃║╭╮╰╯┌┐└┘╔╗╚╝─━═]+|[\s│┃║╭╮╰╯┌┐└┘╔╗╚╝─━═]+$/g;
 var ENTER = "DQ==";
-var MOVE_DOWN = "ag==";
-var MOVE_UP = "aw==";
+var MOVE_DOWN = "G1tC";
+var MOVE_UP = "G1tB";
 function frameContent(line) {
   return line.replace(FRAME_EDGES, "");
 }
@@ -2487,10 +2563,11 @@ function normalizeOnboardingLabel(label) {
   return label.toLowerCase().replace(/[’‘]/g, "'").trim();
 }
 function moveToOption(targetIndex, screen) {
-  const current = currentHighlightedOptionIndex(screen);
+  const trustIndex = claudeFolderTrustHighlightedOptionIndex(screen);
+  const current = trustIndex ?? currentHighlightedOptionIndex(screen);
   const delta = targetIndex - current;
   const steps = [];
-  const key = delta >= 0 ? "ag==" : "aw==";
+  const key = trustIndex !== null ? delta >= 0 ? "G1tC" : "G1tB" : delta >= 0 ? "ag==" : "aw==";
   for (let i = 0; i < Math.abs(delta); i++) steps.push(key);
   return steps;
 }
@@ -2876,10 +2953,10 @@ function isBrailleSpinner(ch) {
   const code = ch.charCodeAt(0);
   return code >= BRAILLE_LO && code <= BRAILLE_HI || code >= QUARTER_CIRCLE_LO && code <= QUARTER_CIRCLE_HI || ch === "\u2733" || ch === "\u273B";
 }
-function retainForeignPrecompactEntry(entry) {
+function retainForeignCommands(entry, owned) {
   if (!entry || !Array.isArray(entry.hooks)) return true;
   const previous = entry.hooks;
-  const remaining = previous.filter((hook) => !isCodetermHook({ hooks: [hook] }));
+  const remaining = previous.filter((hook) => !owned(hook));
   if (remaining.length === previous.length) return true;
   entry.hooks = remaining;
   return remaining.length > 0;
@@ -2891,6 +2968,7 @@ var plugin = {
   sessionResume: () => ({ exact: true }),
   checkForUpdate: checkClaudeUpdate,
   authStatusProbe,
+  accountIdentity,
   tracksBackgroundWork: () => true,
   parseBackgroundWork,
   reasoningEffortLaunchArgsForModel,
@@ -3351,7 +3429,7 @@ var plugin = {
           return { ok: false, error: "hooks." + k + " is not an array" };
         }
         const existing = Array.isArray(json.hooks[k]) ? json.hooks[k].filter((entry) => {
-          const retained = k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isCodetermHook(entry);
+          const retained = k === "PreCompact" ? retainForeignCommands(entry, (hook) => isCodetermHook({ hooks: [hook] })) : !isCodetermHook(entry);
           if (retained) preservedUnclassified++;
           return retained;
         }) : [];
@@ -3388,13 +3466,16 @@ var plugin = {
       if (!current.ok) return current;
       const json = current.settings;
       if (json.hooks === void 0) return { ok: true };
-      const keys = INTEGRATION_HOOK_KEYS;
-      for (let i = 0; i < keys.length; i++) {
-        const k = keys[i];
-        if (Array.isArray(json.hooks[k])) {
-          json.hooks[k] = json.hooks[k].filter((entry) => k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isCodetermHook(entry));
-        }
+      let changed = false;
+      for (const key of INTEGRATION_HOOK_KEYS) {
+        if (!Array.isArray(json.hooks[key])) continue;
+        json.hooks[key] = json.hooks[key].filter((entry) => retainForeignCommands(entry, (hook) => {
+          const owned = typeof hook?.command === "string" && commandCarriesMarker(hook.command);
+          changed || (changed = owned);
+          return owned;
+        }));
       }
+      if (!changed) return { ok: true };
       const ok = yield* host.io.fs.writeJson(path, json);
       if (ok) {
         host.log("info", "[claude-plugin] hooks removed from " + path);
@@ -3455,7 +3536,7 @@ function quoteArg(arg) {
 function resumeBase(sessionId, skipPermissions) {
   const win = host.platform() === "windows";
   const unset = win ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';" : "unset CLAUDECODE &&";
-  const parts = [unset, "claude"];
+  const parts = [unset, claudeShellProgram()];
   if (skipPermissions) parts.push("--dangerously-skip-permissions");
   parts.push("--resume");
   parts.push(host.shell.quoteFor(sessionId, host.platform()));

@@ -7,7 +7,7 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use super::file::PreviewSource;
 use crate::artifact_directive::{canvas_file_items, canvas_write_permitted, CanvasFileItem};
 
-/// A canvas file holds the same JSON as an inline `<ds-canvas>` body, so it shares its bound.
+/// Canvas files share the 200,000-byte bound used by their chat representation.
 pub const CANVAS_FILE_LIMIT: u64 = 200_000;
 
 #[derive(Debug, PartialEq, Eq)]

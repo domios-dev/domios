@@ -18,8 +18,9 @@ pub use model_identity::{
     SessionModelIdentity,
 };
 pub use restorable_launch::{
-    HostApprovalChoice, ReasoningEffortIdentity, RestorableLaunchParameters,
-    RestorableRuntimeLaunchOptions, RestorableWorkerTurn, WorkerRestartState,
+    AccountContinuationNotice, HostApprovalChoice, ReasoningEffortIdentity,
+    RestorableLaunchParameters, RestorableRuntimeLaunchOptions, RestorableWorkerTurn, TabAccount,
+    WorkerRestartState,
 };
 pub use turn_resume::{
     observe_turn, request_continue, request_continue_for_restored_start, request_continue_from,
@@ -695,7 +696,13 @@ pub struct Tab {
     pub model_identity_mismatch: Option<ModelIdentityMismatch>,
     #[serde(default, skip_serializing_if = "ReasoningEffortIdentity::is_empty")]
     pub reasoning_effort_identity: ReasoningEffortIdentity,
-    #[serde(skip, default)]
+    #[serde(
+        default,
+        skip_deserializing,
+        rename = "account",
+        serialize_with = "restorable_launch::serialize_account"
+    )]
+    #[ts(as = "TabAccount")]
     pub restorable_launch: RestorableLaunchParameters,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_epoch_archives: Vec<ContextEpochArchive>,

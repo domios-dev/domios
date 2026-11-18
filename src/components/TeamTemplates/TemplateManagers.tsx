@@ -20,7 +20,7 @@ type TemplateRoleSummary = import("../../../gen/TemplateRoleSummary").TemplateRo
 
 export type ManagerSeats = Partial<Record<ManagerSlot, PickerSeed>>;
 /** Launch-profile controls for the pair rows; other manager seats carry only provider:model. */
-export type PairRoleControls = Partial<Record<"orchestrator" | "planner", { modelSlot?: ReactNode; details?: ReactNode }>>;
+export type PairRoleControls = Partial<Record<"orchestrator" | "planner", { modelSlot?: ReactNode; details?: ReactNode; accountSlot?: ReactNode }>>;
 
 const SLOT_ICON: Record<ManagerSlot, ReactNode> = {
   orchestrator: <Workflow size={13} aria-hidden="true" />,
@@ -251,6 +251,7 @@ export function TemplateManagers({ form, providers, disabledProviderIds, pair, o
           <TeamRosterMember key={slot} role={slot} icon={managerIcon(slot)}>
             <OrchestrationRoleRow label={label} providers={providers} compact
               providerId={seat.providerId} modelId={seat.modelId} modelSlot={controls?.modelSlot} details={controls?.details}
+              accountSlot={controls?.accountSlot}
               modelControls={!controls?.modelSlot}
               effortId={seat.effortId} disabledProviderIds={disabledProviderIds} onInstallProvider={onInstallProvider}
               onProviderChange={(providerId) => {

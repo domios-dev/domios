@@ -108,6 +108,7 @@ struct ChatSendLedgerState {
     /// Opaque client correlation token per send — echoed verbatim onto every
     /// emitted status, never read by evidence/confirm/retry logic.
     token_by_id: HashMap<String, String>,
+    neighbor_message_by_send: HashMap<String, String>,
     anchor_by_id: HashMap<String, SendEvidenceAnchor>,
     rpc_by_id: HashMap<String, SendLiveBinding>,
     live_binding_by_id: HashMap<String, SendLiveBinding>,
@@ -137,6 +138,7 @@ impl Default for ChatSendLedgerState {
             payload_by_id: HashMap::new(),
             turn_normalization_by_id: HashMap::new(),
             token_by_id: HashMap::new(),
+            neighbor_message_by_send: HashMap::new(),
             anchor_by_id: HashMap::new(),
             rpc_by_id: HashMap::new(),
             live_binding_by_id: HashMap::new(),
@@ -168,6 +170,16 @@ pub struct ChatSendLedger {
 }
 
 impl ChatSendLedger {
+    pub(crate) fn has_unsettled_update_input(&self, tab_id: &str) -> bool {
+        self.state.lock().by_id.values().any(|send| {
+            send.tab_id == tab_id
+                && matches!(
+                    send.state,
+                    ChatSendState::Pending | ChatSendState::Written | ChatSendState::Unknown
+                )
+        })
+    }
+
     pub(crate) fn restore_before_user_admission(
         &self,
         tab_id: &str,
@@ -185,6 +197,30 @@ impl ChatSendLedger {
             *restored = true;
         }
         Ok(())
+    }
+
+    // Global admissions fence pruned rows too; unrelated input may conservatively refuse rollback.
+    pub(crate) fn input_revision_for_tab(&self, tab_id: &str) -> (String, u64, u64) {
+        let state = self.state.lock();
+        (
+            state.ledger_id.clone(),
+            state.next_sequence,
+            state
+                .by_id
+                .values()
+                .filter(|status| status.tab_id == tab_id)
+                .map(|status| status.sequence)
+                .max()
+                .unwrap_or_default(),
+        )
+    }
+
+    pub(crate) fn has_records_for_tab(&self, tab_id: &str) -> bool {
+        self.state
+            .lock()
+            .by_id
+            .values()
+            .any(|status| status.tab_id == tab_id)
     }
 
     pub fn status(&self, send_id: &str) -> Option<ChatSendStatus> {
@@ -877,6 +913,7 @@ impl ChatSendLedger {
             state.payload_by_id.remove(&expired);
             state.turn_normalization_by_id.remove(&expired);
             state.token_by_id.remove(&expired);
+            state.neighbor_message_by_send.remove(&expired);
             state.anchor_by_id.remove(&expired);
             state.rpc_by_id.remove(&expired);
             state.live_binding_by_id.remove(&expired);

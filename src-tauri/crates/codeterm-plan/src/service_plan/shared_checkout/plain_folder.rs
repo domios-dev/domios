@@ -7,7 +7,6 @@ use crate::plan::{TaskFiles, WorkerPlacement};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::process::Command;
 
 pub const NO_GIT_HISTORY: &str = "isolated lanes and the canonical writer need a git repository \
      with at least one commit, and this project folder has none. Domios never runs git init or \
@@ -60,8 +59,7 @@ pub fn project_history(checkout: &str) -> Result<ProjectHistory, String> {
 
 fn probe_head(checkout: &str) -> HeadProbe {
     let run = |args: &[&str]| {
-        let mut command = Command::new("git");
-        codeterm_util::process_util::no_window_std(&mut command);
+        let mut command = codeterm_util::process_util::git_command();
         command
             .arg("-C")
             .arg(checkout)

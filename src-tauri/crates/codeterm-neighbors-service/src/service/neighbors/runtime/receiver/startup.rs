@@ -1,8 +1,14 @@
+use super::activation::{Failure as ActivationFailure, State as ActivationState};
 use super::*;
 use friends::FriendReceiver;
 use std::collections::BTreeMap;
 
+#[derive(Default)]
+pub struct ActivationCell(parking_lot::Mutex<ActivationState>);
+
 pub trait NeighborsExt {
+    fn neighbor_activation_stale(&self) -> bool;
+    fn record_neighbor_activation(&self, generation: u64, failure: Option<ActivationFailure>);
     fn reconcile_neighbor_nonlocal_receivers(
         &self,
         metadata: &Metadata,
@@ -52,9 +58,9 @@ pub trait NeighborsExt {
     ) -> impl std::future::Future<Output = Result<(), String>> + Send
     where
         P: Send + 'static,
-        Prep: std::future::Future<Output = Result<P, String>> + Send,
+        Prep: std::future::Future<Output = Result<P, ActivationFailure>> + Send,
         Apply: FnOnce(P) -> Applied + Send + 'static,
-        Applied: std::future::Future<Output = Result<(), String>> + Send + 'static;
+        Applied: std::future::Future<Output = Result<(), ActivationFailure>> + Send + 'static;
     fn apply_neighbor_friend_listeners(
         &self,
         transport: Arc<FirebaseTransport>,
@@ -64,10 +70,45 @@ pub trait NeighborsExt {
         generation: u64,
         list: Value,
         local_id: Option<String>,
-    ) -> impl std::future::Future<Output = Result<(), String>> + Send;
+    ) -> impl std::future::Future<Output = Result<(), ActivationFailure>> + Send;
 }
 
 impl NeighborsExt for ServiceContext {
+    fn neighbor_activation_stale(&self) -> bool {
+        let state = self
+            .extensions
+            .get_or_init(ActivationCell::default)
+            .0
+            .lock();
+        state.generation == self.neighbor_cell().generation.load(Ordering::Acquire)
+            && state.failure.is_some_and(|failure| failure.transient)
+    }
+
+    fn record_neighbor_activation(&self, generation: u64, failure: Option<ActivationFailure>) {
+        let changed = self
+            .extensions
+            .get_or_init(ActivationCell::default)
+            .0
+            .lock()
+            .transition(generation, failure);
+        if changed {
+            if let Some(failure) = failure {
+                log::warn!(
+                    "[neighbors] activation failed class={} kind={} generation={generation}",
+                    if failure.transient {
+                        "transient"
+                    } else {
+                        "definitive"
+                    },
+                    failure.kind
+                );
+            }
+            self.ui.emit(
+                "neighbor-activation-status",
+                json!({"status_stale": failure.is_some_and(|failure| failure.transient)}),
+            );
+        }
+    }
     async fn reconcile_neighbor_nonlocal_receivers(
         &self,
         metadata: &Metadata,
@@ -271,7 +312,7 @@ impl NeighborsExt for ServiceContext {
                 }
                 let store = prepare_service
                     .neighbor_key_store()
-                    .map_err(|error| error.to_string())?;
+                    .map_err(ActivationFailure::from)?;
                 let lifecycle = InstallationKeys {
                     store: &store,
                     registry: prepare_registry.as_ref(),
@@ -283,7 +324,7 @@ impl NeighborsExt for ServiceContext {
                 } else {
                     lifecycle.load().await
                 }
-                .map_err(|error| error.to_string())?;
+                .map_err(ActivationFailure::from)?;
                 prepare_service.require_neighbor_generation(generation)?;
                 Ok(local.as_ref().map(|keys| keys.encryption_key_id()))
             },
@@ -307,9 +348,9 @@ impl NeighborsExt for ServiceContext {
     ) -> Result<(), String>
     where
         P: Send + 'static,
-        Prep: std::future::Future<Output = Result<P, String>> + Send,
+        Prep: std::future::Future<Output = Result<P, ActivationFailure>> + Send,
         Apply: FnOnce(P) -> Applied + Send + 'static,
-        Applied: std::future::Future<Output = Result<(), String>> + Send + 'static,
+        Applied: std::future::Future<Output = Result<(), ActivationFailure>> + Send + 'static,
     {
         let prepared = preparation.await;
         let service = self.clone();
@@ -322,13 +363,17 @@ impl NeighborsExt for ServiceContext {
                 if service.require_neighbor_generation(generation).is_ok()
                     && service.require_neighbor_activation_ticket(&ticket).is_ok()
                 {
+                    service.record_neighbor_activation(generation, Some(error));
+                    if error.transient {
+                        return Ok(());
+                    }
                     let version = service.forget_neighbor_friend_receivers();
                     service.stop_neighbor_listeners();
                     service.ui.emit("neighbor-runtime-status", json!(codeterm_neighbors::responses::NeighborListenerEvent::Unavailable { receiver_unavailable: true, friendship_id: None, friend_receivers_version: Some(version), reason: None, message: None }));
                 }
-                log::debug!("[neighbors] current activation failed: {error}");
                 return Err(Error::Gateway);
             }
+            service.record_neighbor_activation(generation, None);
             Ok(())
         }).map_err(|error| error.to_string())?.wait().await.map_err(|error| error.to_string())
     }
@@ -342,10 +387,10 @@ impl NeighborsExt for ServiceContext {
         generation: u64,
         list: Value,
         local_id: Option<String>,
-    ) -> Result<(), String> {
+    ) -> Result<(), ActivationFailure> {
         if self.neighbor_access_locked().await {
             self.pause_neighbor_reception();
-            return Err(Error::Locked.to_string());
+            return Err(Error::Locked.into());
         }
         self.require_neighbor_generation(generation)?;
         if !super::super::super::updates::receives_friends(&list, &registry.installation_id) {
@@ -369,15 +414,12 @@ impl NeighborsExt for ServiceContext {
             self.stop_neighbor_listeners();
             return Ok(());
         }
-        let mut settings = metadata
-            .settings()
-            .await
-            .map_err(|error| error.to_string())?;
+        let mut settings = metadata.settings().await.map_err(ActivationFailure::from)?;
         self.remember_neighbor_concierge_accounts(&transport.uid, &settings);
         self.remember_neighbor_pause_settings(&transport.uid, &settings);
         self.persist_neighbor_pauses(&metadata, generation)
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(ActivationFailure::from)?;
         for friend in list["friends"]
             .as_array()
             .ok_or("Invalid Neighbors response")?
@@ -396,7 +438,7 @@ impl NeighborsExt for ServiceContext {
             {
                 self.forget_neighbor_friend_receivers();
                 self.stop_neighbor_listeners();
-                return Err(Error::LocalKeyUnavailable.to_string());
+                return Err(Error::LocalKeyUnavailable.into());
             }
             self.reconcile_neighbor_concierge_receiver(
                 &metadata,
@@ -409,14 +451,11 @@ impl NeighborsExt for ServiceContext {
             .await?;
             self.require_neighbor_generation(generation)?;
         }
-        settings = metadata
-            .settings()
-            .await
-            .map_err(|error| error.to_string())?;
+        settings = metadata.settings().await.map_err(ActivationFailure::from)?;
         for id in settings.bindings.keys() {
             self.settle_neighbor_pause(&metadata, id)
                 .await
-                .map_err(|error| error.to_string())?;
+                .map_err(ActivationFailure::from)?;
         }
         if !settings.enabled
             && self
@@ -428,7 +467,7 @@ impl NeighborsExt for ServiceContext {
             metadata
                 .save_settings(settings.clone())
                 .await
-                .map_err(|error| error.to_string())?;
+                .map_err(ActivationFailure::from)?;
         }
         let listener_generation = self
             .neighbor_cell()

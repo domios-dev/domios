@@ -4,17 +4,19 @@ import type { ChatSendStatus } from "./chatSendStatus";
 import type { TabActivity } from "../../lib/tabActivity";
 import type { CapsuleRegistry } from "./composerCapsules";
 import type { ComposerReply } from "./composerReply";
+import type { RemoteChatFailure, RemoteChatState } from "../../lib/remoteChatState";
 
 export type DeliveryState = "sending" | "written" | "queued" | "uncertain" | "delivered" | "failed";
 export interface DeliveryDraft {
   text: string;
   attachments: string[];
   recordedVoiceAttachments: string[];
+  voiceTranscribing?: boolean;
   capsules: CapsuleRegistry;
   reply: ComposerReply | null;
 }
 export type DeliverySend = ChatSend & { localAttempt?: { ptyId: string; bindingNonce: string }; droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestError?: string; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft;
-  wasHeld?: boolean };
+  wasHeld?: boolean; remoteFailure?: RemoteChatFailure & { state: RemoteChatState } };
 
 export function chatSendFailureReason(reason?: unknown): string {
   const message = typeof reason === "string" ? reason
@@ -110,6 +112,7 @@ export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus):
     ...(send.requestError !== undefined || status.state === "failed"
       ? { requestError: status.state === "failed" ? chatSendFailureReason(status.error || send.requestError) : undefined } : {}),
     requestUncertain: false,
+    remoteFailure: undefined,
     echo: status.state === "failed" ? undefined : send.echo,
   };
 }
@@ -144,6 +147,11 @@ function claimsRowRecord(send: DeliverySend, row: NormalizedChatMessage): boolea
   return send.matchedRow != null && matchesMatchedRow(row, send.matchedRow);
 }
 
+function ownsBubble(send: DeliverySend, row: NormalizedChatMessage): boolean {
+  return row.id === send.id || (row.sourceMessageId === send.id && row.correlationId != null
+    && row.correlationId === send.correlationId && row.inheritedFromSessionId == null);
+}
+
 /** A claim links by echo only to its session's rows whose record identity cannot contradict it. */
 function echoesRow(send: DeliverySend, row: NormalizedChatMessage): boolean {
   return (!send.matchedRow || outsideClaimedRecordSpace(row, send.matchedRow)) && deliveryState(send) !== "failed"
@@ -153,7 +161,7 @@ function echoesRow(send: DeliverySend, row: NormalizedChatMessage): boolean {
 /** Every send a row settles: one merged record can carry several, while a local bubble belongs to its send alone. */
 export function sendsForRow(sends: readonly DeliverySend[], row: NormalizedChatMessage): DeliverySend[] {
   if (row.type !== "user" && row.type !== "local_command") return [];
-  const own = sends.find(send => send.id === row.id);
+  const own = sends.find(send => ownsBubble(send, row));
   if (own) return [own];
   return sends.filter(send => ownsRowToken(send, row) || claimsRowRecord(send, row) || echoesRow(send, row));
 }
@@ -161,7 +169,7 @@ export function sendsForRow(sends: readonly DeliverySend[], row: NormalizedChatM
 /** The send whose identity a row carries; a merged record prefers a send the owner kept. */
 export function sendForRow(sends: readonly DeliverySend[], row: NormalizedChatMessage): DeliverySend | undefined {
   if (row.type !== "user" && row.type !== "local_command") return;
-  const own = sends.find(send => send.id === row.id);
+  const own = sends.find(send => ownsBubble(send, row));
   if (own) return own;
   const owners = [...sends.filter(send => ownsRowToken(send, row)), ...sends.filter(send => claimsRowRecord(send, row))];
   return owners.find(send => !send.dismissed) ?? owners[0] ?? sends.find(send => echoesRow(send, row));
@@ -189,11 +197,15 @@ export function deliveryProjectionSends(
       const frame = send.status?.system_send ? parseDomiosMessage(send.content) : null;
       return {
         ...send,
-        segments: frame ? [{ type: "frame" as const, kind: frame.attrs.from as FrameKind, from: frame.attrs.from, attrs: frame.attrs, body: frame.body, tip: null }] : send.segments,
+        segments: send.status?.system_send?.segments?.length ? send.status.system_send.segments
+          : frame ? [{ type: "frame" as const, kind: frame.attrs.from as FrameKind, from: frame.attrs.from, attrs: frame.attrs, body: frame.body,
+            tip: frame.content.slice(frame.body.length).match(/<tip>([\s\S]*?)<\/tip>/)?.[1] ?? null }] : send.segments,
         echoEligible: deliveryState(send) !== "failed",
         neverWritten: deliveryState(send) === "queued",
         flowAtMs: send.sentAtMs,
-        held: queuedIds.has(send.id) || (deliveryState(send) !== "delivered" && send.status?.pending_reason === ACTIVE_TURN_HOLD),
+        held: Boolean(send.draft?.recordedVoiceAttachments.length && !send.echo)
+          || queuedIds.has(send.id)
+          || (deliveryState(send) !== "delivered" && send.status?.pending_reason === ACTIVE_TURN_HOLD),
       };
     });
 }

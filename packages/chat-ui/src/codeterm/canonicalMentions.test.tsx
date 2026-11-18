@@ -41,7 +41,7 @@ for (const kind of ["tab", "task", "plan", "blueprint"]) assert.ok(html.includes
 assert.ok(!html.includes("Forged"));
 assert.ok(html.includes("Rivet") && html.includes("Water the basil") && html.includes("Release") && html.includes("Checks"));
 const missing = render(<LinkedText text={referenceMarkerText("tab", "missing") + " COD-9999"} />);
-assert.ok(missing.includes("disabled=\"\"") && missing.includes("missing") && !missing.includes("Misleading"));
+assert.ok(missing.includes("Unknown tab") && missing.includes('data-ref-state="missing"') && !missing.includes("<button"));
 assert.ok(!missing.includes('data-ref-kind="task"'), "unknown keys remain ordinary prose");
 const sent = (content: string) => render(<MessageBubble message={{ id: "sent-mentions", provider: "fixture", type: "user", content }} {...links} />);
 assert.equal(render(<MessageBubble message={{ id: "checklist", type: "user", inboundKind: "system", fromContext: "checklist", content: "Opaque parent-only checklist" }} />), "");

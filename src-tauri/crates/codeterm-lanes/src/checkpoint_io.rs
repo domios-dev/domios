@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 use wait_timeout::ChildExt;
@@ -59,7 +59,7 @@ pub fn run_git(
     let output = run_git_status_with_index(cwd, args, index, deadline)?;
     if !output.status.success() {
         return Err(CaptureFailure::Git(
-            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            codeterm_util::process_util::git_diagnostics(&output.stderr),
         ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -79,8 +79,7 @@ fn run_git_status_with_index(
     index: Option<(&str, &std::ffi::OsStr)>,
     deadline: Instant,
 ) -> Result<Output, CaptureFailure> {
-    let mut command = Command::new("git");
-    codeterm_util::process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     // Optional locks off: these reads run beside the agent's own git and must not take index.lock.
     command
         .current_dir(cwd)

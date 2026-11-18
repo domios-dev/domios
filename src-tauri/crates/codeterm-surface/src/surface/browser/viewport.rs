@@ -8,9 +8,9 @@ pub(super) fn recursive_viewer(viewer_target: Option<&str>, page_target: Option<
 
 #[derive(Default)]
 pub(super) struct ViewportOwner {
-    viewers: Vec<(String, u64, Viewport)>,
+    viewers: Vec<(String, u64)>,
     owner: Option<String>,
-    agent: bool,
+    fixed: Option<Viewport>,
     generation: u64,
     emitted: Option<Viewport>,
 }
@@ -28,10 +28,10 @@ impl ViewportOwner {
         let viewport = clamp(viewport)?;
         self.generation += 1;
         self.viewers.retain(|(id, ..)| id != &viewer);
-        self.viewers
-            .push((viewer.clone(), self.generation, viewport));
-        if self.owner.is_none() && !self.agent {
+        self.viewers.push((viewer.clone(), self.generation));
+        if self.fixed.is_none() {
             self.owner = Some(viewer);
+            self.fixed = Some(viewport);
         }
         Some(self.generation)
     }
@@ -41,10 +41,7 @@ impl ViewportOwner {
     }
 
     pub fn current(&self) -> Option<Viewport> {
-        self.viewers
-            .iter()
-            .find(|(id, ..)| Some(id) == self.owner.as_ref())
-            .map(|(_, _, viewport)| *viewport)
+        self.fixed
     }
 
     pub fn next_resize(&mut self) -> Option<Viewport> {
@@ -62,34 +59,32 @@ impl ViewportOwner {
         request: ViewportRequest,
         claim: bool,
     ) -> Option<Viewport> {
-        let viewport = clamp(request)?;
-        let entry = self.viewers.iter_mut().find(|(id, ..)| id == viewer)?;
-        entry.2 = viewport;
-        if claim {
-            self.agent = false;
-            self.owner = Some(viewer.to_owned());
+        if !claim || !self.viewers.iter().any(|(id, _)| id == viewer) {
+            return None;
         }
-        (self.owner.as_deref() == Some(viewer)).then_some(viewport)
+        let viewport = clamp(request)?;
+        self.fixed = Some(viewport);
+        self.owner = Some(viewer.to_owned());
+        Some(viewport)
     }
 
     pub fn leave(&mut self, viewer: &str, generation: u64) -> bool {
         let before = self.viewers.len();
         self.viewers
-            .retain(|(id, lease, _)| id != viewer || *lease != generation);
-        if before == self.viewers.len() {
-            return false;
-        }
-        if self.owner.as_deref() == Some(viewer) {
-            self.owner = self.viewers.last().map(|(id, ..)| id.clone());
-            return true;
-        }
-        false
+            .retain(|(id, lease)| id != viewer || *lease != generation);
+        before != self.viewers.len()
     }
 
-    pub fn agent(&mut self) {
-        self.emitted = None;
-        self.agent = true;
+    pub fn agent(&mut self, viewport: Viewport) {
+        self.fixed = Some(viewport);
+        self.emitted = Some(viewport);
         self.owner = None;
+    }
+
+    pub fn start(&mut self, viewport: Viewport) {
+        if self.fixed.is_none() {
+            self.agent(viewport);
+        }
     }
 }
 
@@ -101,6 +96,13 @@ impl BrowserRuntime {
         self.shared
             .update(|state| state.viewport_owner = model.owner());
         if let Some(viewport) = model.next_resize() {
+            log::debug!(
+                "[browser-viewport] apply css={}x{} dpr={} owner={:?}",
+                viewport.width,
+                viewport.height,
+                viewport.dpr,
+                model.owner()
+            );
             if let Err(error) = self
                 .host
                 .set_viewport(ViewportRequest {

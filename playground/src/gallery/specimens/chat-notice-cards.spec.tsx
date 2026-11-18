@@ -1,18 +1,14 @@
 import { formatAttachmentMarker, type ChatOrigin, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { MessageBubble } from "@codeterm/chat-ui";
 import { useEffect, useRef } from "react";
-import { configureLocalPreviews } from "../../../../src/lib/configureLocalPreviews";
-import { mockCommand } from "../../mocks/backend";
+import { mockLocalPreview } from "../../mocks/backend";
 import { defineSpecimen } from "../types";
 
 const MINUTE = 60_000;
 const SNIP_PATH = "/tmp/snips/snip-gallery.png";
 const SNIP_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1f3b63"/><stop offset="1" stop-color="#0d1524"/></linearGradient></defs><rect width="320" height="200" rx="14" fill="url(#g)"/><rect x="24" y="28" width="150" height="12" rx="6" fill="#8fb4ff" opacity=".8"/><rect x="24" y="54" width="250" height="8" rx="4" fill="#cdd9ee" opacity=".35"/><rect x="24" y="70" width="210" height="8" rx="4" fill="#cdd9ee" opacity=".35"/><rect x="24" y="120" width="92" height="30" rx="15" fill="#5b8cff"/></svg>`;
 
-configureLocalPreviews();
-mockCommand("read_local_preview_file", (args) => args?.path === SNIP_PATH
-  ? { data: `data:image/svg+xml;base64,${btoa(SNIP_SVG)}`, media_type: "image/svg+xml" }
-  : Promise.reject(new Error("not in the gallery fixtures")));
+mockLocalPreview(SNIP_PATH, { data: `data:image/svg+xml;base64,${btoa(SNIP_SVG)}`, media_type: "image/svg+xml" });
 
 const SNIP = [
   "## Browser snip from the user",

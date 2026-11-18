@@ -119,6 +119,7 @@ export interface Host {
   unixNow(): number;
   unixNowMs(): number;
   md5(s: string): string;
+  sha256?(s: string): string;
   shellQuote(s: string): string;
   shellQuoteFor(s: string, platform: string): string;
   shellEnvPrefix(name: string, value: string, platform: string): string;

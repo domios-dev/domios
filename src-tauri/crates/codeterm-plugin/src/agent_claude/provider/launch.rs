@@ -69,6 +69,22 @@ pub(super) fn provider_launch_spec(
     }
 }
 
+fn macos_registry_environment() -> std::collections::HashMap<String, String> {
+    if cfg!(target_os = "macos") {
+        [("LC_ALL".into(), "C".into()), ("TZ".into(), "UTC0".into())].into()
+    } else {
+        Default::default()
+    }
+}
+
+fn shell_program() -> String {
+    if cfg!(target_os = "macos") {
+        "LC_ALL=C TZ=UTC0 claude".into()
+    } else {
+        "claude".into()
+    }
+}
+
 fn launch_spec_with(
     params: &AgentLaunchParams,
     launch_args: impl FnOnce(&[String]) -> Option<Vec<String>>,
@@ -109,7 +125,7 @@ fn launch_spec_with(
         program: "claude".into(),
         args,
         env_unset: vec!["CLAUDECODE".into()],
-        ..Default::default()
+        env_set: macos_registry_environment(),
     })
 }
 
@@ -117,7 +133,7 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
     let Some(spec) = launch_spec(params) else {
         return String::new();
     };
-    let mut parts = vec![ShellSyntax::UNSET_CLAUDECODE.to_string(), spec.program];
+    let mut parts = vec![ShellSyntax::UNSET_CLAUDECODE.to_string(), shell_program()];
     let mut previous = "";
     for arg in &spec.args {
         let quoted = match previous {
@@ -132,10 +148,7 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
 }
 
 fn resume_base(session_id: &str, skip_permissions: bool) -> String {
-    let mut parts = vec![
-        ShellSyntax::UNSET_CLAUDECODE.to_string(),
-        "claude".to_string(),
-    ];
+    let mut parts = vec![ShellSyntax::UNSET_CLAUDECODE.to_string(), shell_program()];
     if skip_permissions {
         parts.push("--dangerously-skip-permissions".to_string());
     }
@@ -265,7 +278,10 @@ mod tests {
             assert!(cmd.contains("[System.Text.Encoding]::UTF8"));
             assert!(cmd.contains(" claude --dangerously-skip-permissions"));
         } else {
-            assert!(cmd.starts_with("unset CLAUDECODE && claude --dangerously-skip-permissions"));
+            assert!(cmd.starts_with(&format!(
+                "unset CLAUDECODE && {} --dangerously-skip-permissions",
+                shell_program()
+            )));
         }
         assert!(cmd.contains(".ct-settings.json"));
         assert!(!cmd.contains("showThinkingSummaries"));

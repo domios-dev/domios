@@ -641,7 +641,8 @@ function* codexStateDbPath() {
   const override = host.envGet(sessionStoreOverrides.state);
   if (override) return override;
   const sep = host.platform() === "windows" ? "\\" : "/";
-  const root = codexSessionsRoot(sep);
+  const selectedSqliteHome = host.envGet("CODEX_SQLITE_HOME");
+  const root = selectedSqliteHome ? trimTrailingSeparators(selectedSqliteHome) : codexSessionsRoot(sep);
   if (!root) return null;
   let entries;
   try {
@@ -2296,7 +2297,8 @@ function outputLimit(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record6 = value;
   const details = record6.incomplete_details;
-  if (record6.stop_reason === "max_tokens" || record6.finish_reason === "length") return true;
+  if (record6.stop_reason === "max_tokens") return true;
+  if (record6.finish_reason === "length") return true;
   if (record6.status === "incomplete" && details?.reason === "max_output_tokens") return true;
   const message = record6.message;
   return typeof message === "string" && message.length <= 16384 && /incomplete response[^\n]*\bmax_output_tokens\b/i.test(message);
@@ -2738,9 +2740,9 @@ function codexRestrictedCliConfig(ctx) {
   const policy = ctx.restrictedCli;
   if (!policy) return {};
   const hash = (value) => /^[0-9a-f]{64}$/.test(value);
-  if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch || policy.cwd !== ctx.cwd || policy.metadataDirectory !== ".codex" || ctx.settings.mode !== "workspace-write" || ctx.settings.networkAccess !== false || !/^[A-Za-z0-9/\\:._~-]+$/.test(policy.executable) || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0") || ![policy.executableSha256, policy.configSha256, policy.ruleSha256].every(hash))
+  if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch || policy.cwd !== ctx.cwd || policy.metadataDirectory !== ".codex" || !["workspace-write", "read-only-with-writable-roots"].includes(ctx.settings.mode ?? "") || ctx.settings.networkAccess !== false || !/^[A-Za-z0-9/\\:._~-]+$/.test(policy.executable) || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0") || ![policy.executableSha256, policy.configSha256, policy.ruleSha256].every(hash))
     throw { code: "binding_mismatch", message: "Restricted CLI policy differs from the bound launch" };
-  return { projects: { [ctx.cwd]: { trust_level: "trusted" } } };
+  return { project_root_markers: [], projects: { [ctx.cwd]: { trust_level: "trusted" } } };
 }
 function codexValidateCliTrust(ctx, raw) {
   if (!ctx.restrictedCli) return;
@@ -2764,7 +2766,7 @@ function codexValidateCliTrust(ctx, raw) {
       throw { code: "provider_refused", message: "Configured project trust refuses the restricted CLI exception" };
   }
 }
-function codexNeedsWindowsSandboxSelection(raw) {
+function codexNeedsWindowsSandboxSelection(raw, needsSplitRoots = false) {
   const root = object2(raw);
   if (root.config === null || typeof root.config !== "object" || Array.isArray(root.config))
     throw { code: "invalid_schema", message: "Windows sandbox configuration was not reported" };
@@ -2775,9 +2777,9 @@ function codexNeedsWindowsSandboxSelection(raw) {
   if (windows.sandbox != null) {
     if (!["mxc", "elevated", "unelevated"].includes(String(windows.sandbox)))
       throw { code: "invalid_schema", message: "Unknown configured Windows sandbox" };
-    return false;
+    if (windows.sandbox !== "unelevated" || !needsSplitRoots) return false;
   }
-  if (windows.allow_mxc !== void 0) {
+  if (windows.allow_mxc !== void 0 && !(needsSplitRoots && windows.allow_mxc === null)) {
     if (typeof windows.allow_mxc !== "boolean") throw { code: "invalid_schema", message: "Invalid Windows MXC policy" };
     if (!windows.allow_mxc) return false;
   }
@@ -2791,6 +2793,16 @@ function codexNeedsWindowsSandboxSelection(raw) {
     }
   }
   return true;
+}
+function codexNeedsSplitWindowsRoots(ctx) {
+  return ctx.settings.mode === "read-only-with-writable-roots" && ctx.restrictedCli?.splitWindowsRoots === true;
+}
+function codexManagedMxcRefusal(error) {
+  const prefix = "failed to load configuration: invalid value for `windows.sandbox`: `Some(Mxc)` is not in the allowed set windows.allow_mxc = false (set by ";
+  if (error.code !== -32600 || !error.message.startsWith(prefix) || !error.message.endsWith(")")) return false;
+  const source = error.message.slice(prefix.length, -1);
+  if (!source.trim() || source.length > 4096 || /[\r\n\u2028\u2029]/.test(source)) return false;
+  return /^(?:[^()]|\([^()]*\))+$/.test(source);
 }
 function codexWindowsSandboxOverride(raw) {
   const root = object2(raw);
@@ -2888,7 +2900,7 @@ function codexWritableRootsConfirmed(settings, reply) {
   const sandbox = object2(reported.sandboxPolicy ?? reported.sandbox);
   const expected = settings.additionalDirectories ?? [];
   const same = (value) => Array.isArray(value) && value.length === expected.length && value.every((path) => typeof path === "string" && expected.includes(path));
-  return expected.length > 0 && reported.approvalPolicy === "never" && sandbox.type === "workspaceWrite" && sandbox.excludeTmpdirEnvVar === true && sandbox.excludeSlashTmp === true && same(roots) && same(sandbox.writableRoots);
+  return expected.length > 0 && reported.approvalPolicy === "never" && sandbox.type === "workspaceWrite" && sandbox.networkAccess === settings.networkAccess && sandbox.excludeTmpdirEnvVar === true && sandbox.excludeSlashTmp === true && same(roots) && same(sandbox.writableRoots);
 }
 function codexRestrictedCliInstructions(ctx, instructions) {
   if (!ctx.restrictedCli) return instructions;
@@ -2967,7 +2979,10 @@ function runtimeError(value, willRetry = false, limits) {
   const limited = outputLimit(error) || outputLimit({ message: diagnostic });
   const message = diagnostic ?? (limited ? "Output limit reached" : "Provider request failed");
   const status = statusCode(error.status) ?? statusCode(error.statusCode) ?? statusCode(error.httpStatusCode) ?? statusCode(infoObject.httpStatusCode) ?? nestedStatus(infoObject);
-  return { message, metadata: { ...code ? { code } : {}, class: runtimeClass(code, status), retryable: willRetry, ...limited ? { retryableKind: "output_limit" } : retrySignal(code, status, limits) } };
+  const kind = runtimeClass(code, status);
+  const retry = limited ? { retryableKind: "output_limit" } : retrySignal(code, status, limits);
+  const accountQuota = !willRetry && !limited && (code === "usageLimitExceeded" && kind === "usage_limit" || code === "rateLimitExceeded" && retry.retryableKind === "rate_limited_until");
+  return { message, metadata: { ...code ? { code } : {}, class: kind, retryable: willRetry, ...retry, ...accountQuota ? { accountLimit: { ...retry.retryAtMs == null ? {} : { resetsAtMs: retry.retryAtMs } } } : {} } };
 }
 function retrySignal(code, status, limits) {
   if (status === 401 || status === 403) return {};
@@ -3629,9 +3644,10 @@ function settingsParams(ctx, settings, instructions, windowsSandbox) {
     ...instructions !== void 0 ? { developerInstructions: instructions } : {}
   };
 }
-function threadPlan(ctx, op, windowsSandbox) {
+function threadPlan(ctx, op, windowsSandbox, unarchived = false) {
   const params = settingsParams(ctx, op.settings, op.instructions, windowsSandbox);
-  return op.kind === "openThread" ? request("thread/start", params) : request("thread/resume", { ...params, threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", ...windowsSandbox ? { windowsSandbox } : {} });
+  const backend = windowsSandbox ? { windowsSandbox } : {};
+  return op.kind === "openThread" ? request("thread/start", params, { stage: "thread/start", ...backend }) : request("thread/resume", { ...params, threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", ...backend, ...unarchived ? { unarchived } : {} });
 }
 function turnParams(ctx, op) {
   const input = [{ type: "text", text: op.input.text }];
@@ -3729,7 +3745,7 @@ function planOperation(ctx, op) {
       return request("initialize", { clientInfo: { name: "domios", version: ctx.hostVersion }, capabilities: { experimentalApi: true, optOutNotificationMethods: [] } });
     case "openThread":
     case "resumeThread":
-      return op.settings.mode === "workspace-write" ? request("config/read", { includeLayers: false, cwd: ctx.cwd }, { stage: "windowsSandboxConfig" }) : threadPlan(ctx, op);
+      return ["workspace-write", "read-only-with-writable-roots"].includes(op.settings.mode ?? "") ? request("config/read", { includeLayers: false, cwd: ctx.cwd }, { stage: "windowsSandboxConfig" }) : threadPlan(ctx, op);
     case "forkThread":
       return forkThreadPlan(ctx, op);
     case "readHistory":
@@ -3822,6 +3838,8 @@ function respondOperation(ctx, op, raw, reply) {
     return pagedHistoryResponse(op, state, reply);
   }
   if (reply.kind === "error") {
+    if ((op.kind === "openThread" && state.stage === "thread/start" || op.kind === "resumeThread" && state.stage === "thread/resume") && state.windowsSandbox === "mxc" && codexNeedsSplitWindowsRoots(ctx) && codexManagedMxcRefusal(reply.error))
+      return continuation(threadPlan(ctx, op, void 0, state.unarchived === true));
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && missingRollout(reply.error, op.threadId))
       return { kind: "refused", reason: { code: "thread_not_found", message: "The provider's saved conversation rollout is unavailable." }, beforeAcceptance: true };
     if (op.kind === "control" && op.action === "serviceTiers") return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: { serviceTierAvailability: {} } }] };
@@ -3844,7 +3862,9 @@ function respondOperation(ctx, op, raw, reply) {
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (state.stage === "windowsSandboxConfig") {
       codexValidateCliTrust(ctx, value);
-      return continuation(codexNeedsWindowsSandboxSelection(value) ? request("configRequirements/read", null, { stage: "windowsSandboxRequirements" }) : threadPlan(ctx, op));
+      const needsSplitRoots = codexNeedsSplitWindowsRoots(ctx);
+      const maySelectBackend = !ctx.restrictedCli || needsSplitRoots;
+      return continuation(maySelectBackend && codexNeedsWindowsSandboxSelection(value, needsSplitRoots) ? request("configRequirements/read", null, { stage: "windowsSandboxRequirements" }) : threadPlan(ctx, op));
     }
     if (state.stage === "windowsSandboxRequirements") return continuation(threadPlan(ctx, op, codexWindowsSandboxOverride(value)));
   }
@@ -3866,7 +3886,7 @@ function respondOperation(ctx, op, raw, reply) {
       return { kind: "complete", result: { kind: "threadLoaded", threadId, settings: codexEffectiveSettings(op.settings, value) } };
     }
     case "resumeThread": {
-      if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions, state.windowsSandbox === "mxc" ? "mxc" : void 0), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true, ...state.windowsSandbox === "mxc" ? { windowsSandbox: "mxc" } : {} }));
+      if (state.stage === "unarchive") return continuation(threadPlan(ctx, op, state.windowsSandbox === "mxc" ? "mxc" : void 0, true));
       if (!userThread(value, op.threadId)) return refused("Resumed thread identity unverified");
       if (state.stage !== "verify" && op.settings.mode === "workspace-write" && !codexWorkspaceWriteConfirmed(value)) return refused("Provider did not confirm the requested workspace-write sandbox");
       if (state.stage !== "verify" && !codexWritableRootsConfirmed(op.settings, value)) return refused("Provider did not confirm the exact read-only writable roots");
@@ -4853,7 +4873,10 @@ function* discoverCodexModelsFromCache() {
     if (isNonChatModel(id)) continue;
     kept.push(item);
   }
-  kept.sort((a, b) => priorityOf(a) - priorityOf(b));
+  kept.sort((a, b) => {
+    const visibilityOrder = Number(a.visibility === "none") - Number(b.visibility === "none");
+    return visibilityOrder || priorityOf(a) - priorityOf(b);
+  });
   const models = [];
   for (let i = 0; i < kept.length; i++) {
     const item = kept[i];
@@ -5130,6 +5153,11 @@ function cleanPromptText(value) {
 // plugins/provider-codex/src/usage.ts
 var CODEX_USAGE_KIND = "codeterm_usage_v1";
 var CODEX_AUTH_CREDENTIAL2 = "codexAuth";
+function* codexAccountIdentity() {
+  const subject = stringAt(safeJson(yield* ioJson({ op: "credentialPublic", id: CODEX_AUTH_CREDENTIAL2 }, true)), "accountId");
+  if (!subject || subject.trim() !== subject || [...subject].length > 320 || /[\u0000-\u001f\u007f-\u009f]/u.test(subject)) return null;
+  return { subject, label: subject };
+}
 function* fetchCodexUsage(host2) {
   const accountId = stringAt(safeJson(yield* ioJson({ op: "credentialPublic", id: CODEX_AUTH_CREDENTIAL2 }, true)), "accountId");
   if (!accountId) return null;
@@ -7095,6 +7123,9 @@ var plugin = {
   },
   *fetchUsage() {
     return yield* fetchCodexUsage(host);
+  },
+  *accountIdentity() {
+    return yield* codexAccountIdentity();
   },
   detectActiveSession(_cwd, _currentSid) {
     return null;

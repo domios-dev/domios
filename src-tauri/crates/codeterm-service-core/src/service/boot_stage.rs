@@ -431,6 +431,27 @@ impl ServiceContext {
         }
     }
 
+    pub(crate) fn complete_launch_input_attach(
+        &self,
+        attempt: &super::launch_readiness::LaunchAttempt,
+    ) {
+        let stage = BootStage::AgentReady;
+        if self.record_boot_stage_transition(&attempt.tab_id, stage, None, |tab| {
+            if !super::launch_readiness::attempt_owns_tab(tab, attempt)
+                || !session_allows_user_readiness(tab)
+                || tab.boot_stage == Some(stage)
+                || (tab.boot_stage == Some(BootStage::SpawnFailed)
+                    && !binding_disproves_latched_failure(tab))
+            {
+                return false;
+            }
+            apply_boot_stage(tab, stage, None);
+            true
+        }) {
+            self.finish_boot_stage_transition(&attempt.tab_id, stage, None);
+        }
+    }
+
     fn record_boot_stage_transition(
         &self,
         tab_id: &str,

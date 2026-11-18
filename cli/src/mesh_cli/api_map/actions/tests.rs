@@ -272,3 +272,41 @@ fn mesh_spawn_preserves_launch_profile() {
     assert_eq!(body["launch_profile"], "selected");
     assert!(body.get("model").is_none());
 }
+
+#[test]
+fn mesh_spawn_refuses_local_account_selection_and_keeps_peer_default() {
+    for account in [None, Some("local-account")] {
+        let mut argv = vec![
+            "domios",
+            "--mesh",
+            "peer",
+            "agent",
+            "spawn",
+            "opaque-provider",
+            "--cwd",
+            "/work/project",
+        ];
+        if let Some(account) = account {
+            argv.extend(["--account", account]);
+        }
+        let parsed = crate::Cli::try_parse_from(argv).unwrap();
+        assert_eq!(parsed.mesh.as_deref(), Some("peer"));
+        let Commands::Agent { action } = parsed.command else {
+            panic!("expected spawn");
+        };
+        let (method, path, body) = agent_to_api(&action);
+        if account.is_some() {
+            assert_eq!(method, crate::mesh_cli::api_map::UNSUPPORTED_OVER_MESH);
+            assert_eq!(
+                path,
+                "--account is local to this machine; it cannot be combined with --mesh"
+            );
+            assert!(body.is_none());
+        } else {
+            assert_eq!(method, "POST");
+            assert_eq!(path, "/api/agents/spawn");
+            let body: serde_json::Value = serde_json::from_str(&body.unwrap()).unwrap();
+            assert!(body.get("account_id").is_none());
+        }
+    }
+}

@@ -64,7 +64,7 @@ export function PluginDetailPanel({
   ) : null;
 
   // Agent plugins render their real provider settings via the shared screen.
-  if (entry.capabilities?.agent_provider && config) {
+  if (entry.installed && entry.capabilities?.agent_provider && config) {
     return (
       <div>
         <AgentProviderScreen

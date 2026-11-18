@@ -4,19 +4,19 @@ import type { RoleAuthority } from "./RoleAuthority";
 import type { RoleKind } from "./RoleKind";
 import type { RoleStart } from "./RoleStart";
 
-export type TemplateRoleSummary = { kind: RoleKind, 
+export type TemplateRoleSummary = { kind: RoleKind,
 /**
  * The role name, the key in the package's `roles`.
  */
-role: string, 
+role: string,
 /**
  * The manager display name, or the role id.
  */
-label: string, authority: RoleAuthority, description?: string | null, start: RoleStart, 
+label: string, authority: RoleAuthority, description?: string | null, start: RoleStart,
 /**
  * The role's model decided on the previewing machine; with_team managers carry theirs as pickers instead.
  */
-model?: ModelDecision | null, 
+model?: ModelDecision | null,
 /**
  * The role whose model this one follows (`model: {same_as: <role>}`), so a client names it even when undecided.
  */

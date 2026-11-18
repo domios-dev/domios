@@ -111,7 +111,7 @@ export function CanvasViewer({ canvas, layout, title, view, editor, notice, anch
   return (
     <FullscreenOverlay panelRef={panelRef} closeButton={false} label={`Canvas ${title}`} onClose={onClose} returnFocusRef={anchorRef}>
       <div className="-m-2 flex min-h-0 flex-1 flex-col" data-testid="chat-canvas-viewer">
-        <ZoomCanvas bounds={layout.bounds} focus={focus} onNavigate={targets.length > 1 ? navigate : undefined} onSelect={select} toolbar="header" followContent={!editor}
+        <ZoomCanvas bounds={layout.bounds} focus={focus} onNavigate={targets.length > 1 ? navigate : undefined} onSelect={select} toolbar="header" followContent={!editor} panGestures
           renderHeader={(controls) => <div className="relative">
             <CanvasHeader
               title={<><LayoutDashboard size={14} aria-hidden className="shrink-0 @max-[560px]:hidden" /><span className="min-w-0 truncate font-medium text-[var(--ct-fg)]">{title}</span></>}

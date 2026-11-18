@@ -9,15 +9,15 @@ import type { RoleStart } from "./RoleStart";
  * One role registered for a Team. Immutable once stored; it never spawns an agent and
  * grants nothing: the host decides authority from `kind` and `name` alone.
  */
-export type RoleRegistration = { team_id: string, kind: RoleKind, 
+export type RoleRegistration = { team_id: string, kind: RoleKind,
 /**
  * The role name, the key in the package's `roles`.
  */
-name: string, 
+name: string,
 /**
  * Shown as the tab's role label: the manager display name or the worker name.
  */
-label: string, description?: string, start: RoleStart, package: PinnedPackage, instructions: string, model?: ModelPreference, reasoning?: string, 
+label: string, description?: string, start: RoleStart, package: PinnedPackage, instructions: string, model?: ModelPreference, reasoning?: string,
 /**
  * The preview consent decision this registration was accepted under.
  */

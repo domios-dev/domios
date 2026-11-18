@@ -758,6 +758,9 @@ pub(crate) fn service_to_api(action: &ServiceAction) -> (String, String, Option<
 /// per-command REST construction, not a transport decision.
 pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<String>) {
     match action {
+        crate::AgentAction::Spawn { account_id: Some(_), .. } => unsupported(
+            "--account is local to this machine; it cannot be combined with --mesh",
+        ),
         crate::AgentAction::Spawn {
             agent,
             title,
@@ -774,6 +777,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             args,
             model,
             launch_profile,
+            account_id: None,
             reasoning_effort,
             speed,
             system_prompt,

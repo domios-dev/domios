@@ -1,18 +1,20 @@
-import { useLayoutEffect, useRef, useState, type HTMLAttributes } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type HTMLAttributes, type PointerEvent as ReactPointerEvent } from "react";
 import { type ViewportBox } from "@codeterm/canvas-camera";
 import { swipeDirection } from "./galleryModel";
 import { type InitialCanvasFit } from "./imageCanvasCamera";
 import { useCanvasStage } from "./useCanvasStage";
 import { canvasGrid } from "./canvasGrid";
 import { nextCameraRest, type CameraRest, type CameraRestEvent } from "./canvasRest";
+import { canvasPanDecision } from "./canvasPanModel";
 
 export interface CanvasFocus { request: number; bounds: ViewportBox }
 type ViewMode = "fit" | "focus" | "custom" | "natural";
 
-export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehavior, onNavigate, onSelect, followContent = true }: {
+export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehavior, onNavigate, onSelect, followContent = true, panGestures = false }: {
   bounds: ViewportBox;
   /** `false` keeps the camera when the content's bounds change, as when a canvas file reloads. */
   followContent?: boolean;
+  panGestures?: boolean;
   focus?: CanvasFocus | null;
   cameraKey?: string;
   initialFit: InitialCanvasFit;
@@ -64,6 +66,19 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
   const lastTap = useRef<{ x: number; y: number; time: number } | null>(null);
   const mouseStart = useRef<{ x: number; y: number } | null>(null);
   const handledTap = useRef<{ x: number; y: number; time: number } | null>(null);
+  const spaceHeld = useRef(false);
+  const activePan = useRef<{ pointerId: number; x: number; y: number; tx: number; ty: number; target: HTMLDivElement } | null>(null);
+  const panClick = useRef(false);
+  const [panning, setPanning] = useState(false);
+  useEffect(() => {
+    const down = (event: KeyboardEvent) => { if (event.code === "Space") spaceHeld.current = true; };
+    const up = (event: KeyboardEvent) => { if (event.code === "Space") spaceHeld.current = false; };
+    const blur = () => { spaceHeld.current = false; };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", blur);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", blur); };
+  }, []);
   const changeMode = (next: ViewMode) => { stage.takeControl(); setMode(next); };
   const fit = () => {
     changeMode("fit");
@@ -74,6 +89,36 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
     changeMode("natural");
     camera.setTransform({ x: size.width / 2 - bounds.x - bounds.width / 2, y: size.height / 2 - bounds.y - bounds.height / 2, scale: 1 });
   };
+  const finishPan = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const active = activePan.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    activePan.current = null;
+    setPanning(false);
+    if (active.target.hasPointerCapture(event.pointerId)) active.target.releasePointerCapture(event.pointerId);
+  };
+  const onPanPointerDown: NonNullable<HTMLAttributes<HTMLDivElement>["onPointerDownCapture"]> = event => {
+    if (!panGestures || activePan.current) return;
+    panClick.current = false;
+    const target = event.target instanceof Element ? event.target : null;
+    const active = document.activeElement;
+    const typingFocus = active instanceof Element && (Boolean(active.closest("textarea, input, select, [contenteditable='true']")) || active.tagName === "IFRAME" && Boolean(active.closest("[data-canvas-item]")));
+    const decision = canvasPanDecision({ button: event.button, spaceHeld: spaceHeld.current, overItem: Boolean(target?.closest("[data-canvas-item]")), typingFocus });
+    if (decision !== "pan") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const element = event.currentTarget;
+    element.setPointerCapture(event.pointerId);
+    panClick.current = true;
+    activePan.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, tx: camera.transformRef.current.x, ty: camera.transformRef.current.y, target: element };
+    changeMode("custom");
+    setPanning(true);
+  };
+  const onPanPointerMove: NonNullable<HTMLAttributes<HTMLDivElement>["onPointerMove"]> = event => {
+    const active = activePan.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    camera.setTransform({ ...camera.transformRef.current, x: active.tx + event.clientX - active.x, y: active.ty + event.clientY - active.y });
+  };
   useLayoutEffect(() => {
     if (imageCamera || size.width <= 0 || size.height <= 0 || !focus || focus.request === focusRequest.current) return;
     focusRequest.current = focus.request;
@@ -81,9 +126,19 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
     animateToView(focus.bounds);
   });
   const interactions: HTMLAttributes<HTMLDivElement> = {
+    onPointerDownCapture: onPanPointerDown,
+    onPointerMove: onPanPointerMove,
+    onPointerUp: finishPan,
+    onPointerCancel: finishPan,
+    onLostPointerCapture: finishPan,
+    onMouseDownCapture: event => {
+      if (activePan.current) { event.preventDefault(); event.stopPropagation(); return; }
+      changeMode("custom");
+      mouseStart.current = { x: event.clientX, y: event.clientY };
+    },
     onWheelCapture: () => changeMode("custom"),
-    onMouseDownCapture: event => { changeMode("custom"); mouseStart.current = { x: event.clientX, y: event.clientY }; },
     onClickCapture: event => {
+      if (panClick.current && event.detail > 0) { panClick.current = false; event.preventDefault(); event.stopPropagation(); return; }
       const start = mouseStart.current;
       const tap = handledTap.current;
       const afterTap = tap && event.detail > 0 && event.timeStamp - tap.time < 800 && Math.hypot(event.clientX - tap.x, event.clientY - tap.y) < 30;
@@ -124,5 +179,5 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
     },
     onKeyDown: stage.interactions.onKeyDown,
   };
-  return { camera, mode, rest, scaleOutput, interactions, fit, zoom, natural };
+  return { camera, mode, rest, scaleOutput, interactions, fit, zoom, natural, panning };
 }
