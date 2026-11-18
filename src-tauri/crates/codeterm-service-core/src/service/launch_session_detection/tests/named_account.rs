@@ -9,6 +9,7 @@ use crate::service::{
 use codeterm_types::config::provider_accounts::ProviderAccountConfig;
 use serde_json::{json, Value};
 use std::fs;
+use std::time::{Duration, Instant};
 
 #[tokio::test]
 async fn named_claude_home_skips_onboarding_installs_consented_hooks_and_binds_exact_launch() {
@@ -190,14 +191,22 @@ async fn named_claude_home_skips_onboarding_installs_consented_hooks_and_binds_e
     let detected = probe().expect("only the named home's matching live process proves a launch");
     assert_eq!(detected.detection.session_id, session);
     drop(env);
+    svc.screen_state.process("other-pty", b"\x1b[?2004h");
     svc.commit_detected_launch_session(&tab_id, detected).await;
     {
         let mux = svc.mux.read();
         let tab = mux.get_tab(&tab_id).unwrap();
         assert_eq!(tab.agent_session_id.as_deref(), Some(session));
         assert!(tab.launch_session_authenticated());
-        assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+        assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
     }
+    svc.screen_state.process("own-pty", b"\x1b[?2004h");
+    assert!(
+        crate::service::boot_wait::wait_until(Instant::now() + Duration::from_secs(10), || {
+            svc.mux.read().get_tab(&tab_id).unwrap().boot_stage == Some(BootStage::AgentReady)
+        }),
+        "authenticated registry binding and the same PTY's input attachment recover readiness"
+    );
 
     let retired = home.with_file_name("retired-namespace");
     codeterm_util::private_file::create_dir_owner_only(&retired).unwrap();
