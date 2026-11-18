@@ -45,11 +45,11 @@ test("paging the claimed records in shows each once, in order, where it was reco
   assert.deepEqual([...projection.echoes.keys()], ["send-early", "send-later"]);
 });
 
-test("a claim inside the loaded span, a complete window or a foreign session still waits for its record", () => {
+test("a claim inside the loaded span has a provisional slot while it waits for its record", () => {
   assert.deepEqual(ids(window(8_192, newest), [claim("send-new", "item-new", 6_500)]),
-    ["loaded-reply", "loaded-owner", "latest-reply", "send-new"]);
+    ["loaded-reply", "loaded-owner", "send-new", "latest-reply"]);
   assert.deepEqual(ids(window(0, newest), [claim("send-early", "item-early", 1_000)]),
-    ["loaded-reply", "loaded-owner", "latest-reply", "send-early"]);
+    ["send-early", "loaded-reply", "loaded-owner", "latest-reply"]);
   const foreign = projectTranscript(window(8_192, newest), [claim("send-foreign", "item-foreign", 1_000, "session-b")]);
   assert.deepEqual(foreign.pending.map(send => send.id), ["send-foreign"]);
   assert.deepEqual([...foreign.outside], []);

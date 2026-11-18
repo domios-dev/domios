@@ -63,7 +63,7 @@ export function matchesMatchedRow(row: NormalizedChatMessage, matchedRow: Matche
   }
   return record.kind === "structured"
     && record.thread_id === matchedRow.source.source_session_id
-    && (row.id === record.item_id || row.sourceMessageId === record.item_id);
+    && (row.id === record.item_id || row.sourceMessageId === record.item_id || row.runtimeSourceItemId === record.item_id);
 }
 
 /** The row lies where the claimed record's identity is comparable: its session and, for JSONL, its file incarnation. */

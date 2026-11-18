@@ -39,6 +39,7 @@ impl RuntimeMaps {
                         })
                     })?;
                 let mut projected = source.item.clone();
+                projected.timestamp = item.timestamp.clone().or(projected.timestamp);
                 projected.runtime_source_item_id = source
                     .item
                     .runtime_source_item_id
@@ -134,6 +135,7 @@ impl RuntimeMaps {
             stored.thread_id == thread && stored.item.id == own && stored.item.kind == "user"
         }) {
             let mut projected = source.item.clone();
+            projected.timestamp = item.timestamp.clone().or(projected.timestamp);
             projected.runtime_source_item_id = projected
                 .runtime_source_item_id
                 .clone()

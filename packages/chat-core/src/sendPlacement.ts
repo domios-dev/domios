@@ -11,7 +11,8 @@ export function pendingSendPosition(committed: readonly NormalizedChatMessage[],
       && source?.kind === "jsonl" && source.incarnation === record.incarnation
       && (source.record_start > record.record_start
         || (source.record_start === record.record_start && source.record_row > record.record_row));
-  }) : record ? -1 : flowAtMs == null ? -1 : committed.findIndex(row => {
+  }) : flowAtMs == null ? -1 : committed.findIndex(row => {
+    if (record?.kind === "structured" && (row.sourceSessionId !== record.thread_id || row.inheritedFromSessionId != null)) return false;
     const at = timestampMs(row.timestamp);
     return at != null && at > flowAtMs;
   });

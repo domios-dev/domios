@@ -593,6 +593,7 @@ fn restart_replay_uses_source_identity_for_two_identical_written_prompts() {
             seq: ordinal as i64,
             kind: "user".into(),
             content: "identical opaque prompt".into(),
+            timestamp: Some("2026-11-11T08:00:00Z".into()),
             attachments: Some(vec![codeterm_types::agent::chat_types::ChatAttachment {
                 id: format!("image-{ordinal}"),
                 mime_type: "image/png".into(),
@@ -608,6 +609,7 @@ fn restart_replay_uses_source_identity_for_two_identical_written_prompts() {
                 id: source.into(),
                 kind: "user".into(),
                 content: "identical opaque prompt".into(),
+                timestamp: Some("2026-11-11T08:40:00Z".into()),
                 ..Default::default()
             },
         };
@@ -661,6 +663,7 @@ fn restart_replay_uses_source_identity_for_two_identical_written_prompts() {
     let users = cache.snapshot();
     assert_eq!(users.len(), 2);
     for (ordinal, row) in users.iter().enumerate() {
+        assert_eq!(row.timestamp.as_deref(), Some("2026-11-11T08:40:00Z"));
         assert_eq!(
             row.attachments.as_ref().unwrap()[0].id,
             format!("image-{ordinal}")
