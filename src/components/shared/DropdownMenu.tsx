@@ -33,6 +33,7 @@ export interface DropdownMenuItem {
   title?: string;
   /** Secondary line, exposed through `aria-describedby`. */
   description?: string;
+  truncateDescription?: boolean;
   shortcut?: string;
   /** Keeps the menu open after activation so a toggle shows its new state. */
   keepOpen?: boolean;
@@ -481,7 +482,7 @@ function DropdownMenuRow({
     <button
       type="button"
       role={menuItemRole(item)}
-      aria-label={item.labelContent === undefined ? undefined : item.label}
+      aria-label={item.labelContent === undefined && !item.truncateDescription ? undefined : item.label}
       aria-checked={item.checked ?? item.selected}
       aria-haspopup={item.submenu ? "menu" : undefined}
       aria-expanded={item.submenu ? false : undefined}
@@ -518,7 +519,7 @@ function DropdownMenuRow({
           )}
         </span>
         {item.description && (
-          <span id={descriptionId} className="ct-menu-row__description">
+          <span id={descriptionId} className={`ct-menu-row__description${item.truncateDescription ? " !whitespace-nowrap truncate" : ""}`}>
             {item.description}
           </span>
         )}
@@ -546,7 +547,10 @@ export interface DropdownSelectOption {
   content?: ReactNode;
 }
 
+export const TOUCH_SELECT_HEIGHT = "min-h-9 pointer-coarse:min-h-11";
+
 /** The closed look of every value picker: a pill that names the current choice, with a trailing chevron. */
+
 export const SELECT_TRIGGER = "flex items-center gap-2 w-full min-w-0 px-3 py-1.5 rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40";
 
 /**
@@ -563,6 +567,7 @@ export function DropdownSelect({
   disabled,
   placeholder,
   leading,
+  iconOnly = false,
   prefix,
   "aria-label": ariaLabel,
   "aria-describedby": ariaDescribedBy,
@@ -578,6 +583,7 @@ export function DropdownSelect({
   placeholder?: string;
   /** Leading adornment inside the trigger (e.g. a provider AgentIcon). */
   leading?: ReactNode;
+  iconOnly?: boolean;
   /** Static label shown before the value so the control names itself, e.g.
    *  "Effort" → "Effort Medium". */
   prefix?: string;
@@ -591,6 +597,7 @@ export function DropdownSelect({
 }) {
   const selected = options.find((o) => o.value === value);
   const label = selected?.label ?? placeholder ?? "";
+  const accessibleLabel = ariaLabel ? `${ariaLabel}: ${label}` : prefix ? `${prefix}: ${label}` : undefined;
   const badge = selected?.badge;
   const toItem = (o: DropdownSelectOption): DropdownMenuItem => ({
     label: o.suffix ? `${o.label}${o.suffix}` : o.label,
@@ -618,27 +625,30 @@ export function DropdownSelect({
       data-testid={testId}
       data-value={value}
       disabled={disabled}
-      aria-label={ariaLabel ? `${ariaLabel}: ${label}` : prefix ? `${prefix}: ${label}` : undefined}
+      aria-label={accessibleLabel}
       aria-describedby={ariaDescribedBy}
+      title={iconOnly ? accessibleLabel : undefined}
       className={`${SELECT_TRIGGER} ${className ?? ""}`}
     >
       {leading}
-      {prefix && (
-        <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-[var(--ct-muted-fg)]">
-          {prefix}
-        </span>
-      )}
-      <span className="flex-1 min-w-0 truncate text-left">{label}</span>
-      {badge && (
-        <span
-          data-testid={testId ? `${testId}-badge` : undefined}
-          className="shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide text-[var(--ct-accent)]"
-          style={{ background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)" }}
-        >
-          {badge}
-        </span>
-      )}
-      <ChevronDown size={12} className="shrink-0 text-[var(--ct-muted-fg)]" />
+      {!iconOnly && <>
+        {prefix && (
+          <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-[var(--ct-muted-fg)]">
+            {prefix}
+          </span>
+        )}
+        <span className="flex-1 min-w-0 truncate text-left">{label}</span>
+        {badge && (
+          <span
+            data-testid={testId ? `${testId}-badge` : undefined}
+            className="shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide text-[var(--ct-accent)]"
+            style={{ background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)" }}
+          >
+            {badge}
+          </span>
+        )}
+        <ChevronDown size={12} className="shrink-0 text-[var(--ct-muted-fg)]" />
+      </>}
     </button>
   );
 
@@ -646,7 +656,10 @@ export function DropdownSelect({
     <DropdownMenu
       items={items}
       trigger={trigger}
-      className="w-full min-w-0"
+      className={iconOnly ? undefined : "w-full min-w-0"}
+      maxWidth={iconOnly ? 280 : undefined}
+      placement={iconOnly ? "bottom-end" : undefined}
+      menuLabel={iconOnly ? ariaLabel : undefined}
       maxHeight={menuMaxHeight}
       disabled={disabled}
       focusOnPointerOpen={focusOnPointerOpen}

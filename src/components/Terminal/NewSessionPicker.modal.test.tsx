@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../../lib/types";
@@ -16,7 +16,7 @@ const fixture = vi.hoisted(() => {
       tabs: { manager: { id: "manager", role: "Manager", agent_type: "opencode", session_binding_nonce: "manager-nonce" } } },
     actions: {
       spawnAgentTab: vi.fn(async () => null),
-      createOrchestrationPair: vi.fn(async () => ({ orchestrator_tab_id: "lead-tab" })),
+      createOrchestrationPair: vi.fn(async (_input: unknown) => ({ orchestrator_tab_id: "lead-tab" })),
       selectTabByTab: vi.fn(async () => undefined),
       upsertToast: vi.fn(),
       setWorkspaceCwd: vi.fn(async () => ({ warnings: [] })),
@@ -50,7 +50,15 @@ vi.mock("../../hooks/useAgentProviders", () => ({
 vi.mock("../../hooks/useModelPresets", () => ({ useModelPresets: () => fixture.presets }));
 vi.mock("../../hooks/useAccountSelectors", () => ({ useSpawnAccounts: (providerId: string | null, workspaceId: string) => {
   fixture.accountHook(providerId, workspaceId);
-  return fixture.accounts;
+  const [explicitAccountId, setExplicit] = useState<string | null>(null);
+  const snapshot = fixture.accounts.snapshot;
+  return {
+    ...fixture.accounts,
+    snapshot: snapshot?.providerId === providerId ? snapshot : null,
+    selectedAccountId: explicitAccountId ?? fixture.accounts.selectedAccountId,
+    explicitAccountId,
+    select: (id: string) => { fixture.accounts.select(id); setExplicit(id); },
+  };
 } }));
 vi.mock("../../lib/providerInstallStatus", () => ({
   probeProviderInstallMap: vi.fn(async () => ({})),
@@ -566,10 +574,41 @@ it("passes the selected account after the launch-profile position for a single-p
   ], continuation: "unverified", automaticSwitch: true, workspaceOverrides: [] };
   fixture.accounts.selectedAccountId = "work";
   await renderPicker();
-  expect(fixture.accountHook).toHaveBeenLastCalledWith("opencode", workspace.id);
+  expect(fixture.accountHook).toHaveBeenCalledWith("opencode", workspace.id);
   expect(buttonNamed("Account")?.getAttribute("data-value")).toBe("work");
   await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
   expect(fixture.actions.spawnAgentTab).toHaveBeenCalledExactlyOnceWith("workspace", "opencode", "/workspace", undefined, undefined, undefined, undefined, undefined, undefined, "work");
+});
+
+it("binds Team account choices to their own seats and hides both selectors for a single account", async () => {
+  fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode", available_models: [], reasoning_efforts: [], accounts: {} }] as never[];
+  const onlyAccount = { id: "default", identity: "home@example.test", status: "ready", tabsInUse: 0 } as const;
+  const otherAccount = { id: "work", identity: "other@example.test", status: "ready", tabsInUse: 0 } as const;
+  fixture.accounts.snapshot = { providerId: "opencode", revision: "opaque", accounts: [onlyAccount],
+    continuation: "unverified", automaticSwitch: true, workspaceOverrides: [] };
+  fixture.accounts.selectedAccountId = "default";
+  localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "pair", orchestratorProviderId: "opencode", plannerProviderId: "opencode" }));
+
+  await renderPicker();
+  const accountButtons = () => Array.from(dialog().querySelectorAll<HTMLButtonElement>('button[aria-label^="Account: "]'));
+  expect(accountButtons()).toHaveLength(0);
+
+  fixture.accounts.snapshot = { ...fixture.accounts.snapshot, accounts: [onlyAccount, otherAccount] };
+  await renderPicker();
+  const [orchestrator, planner] = accountButtons();
+  expect(accountButtons()).toHaveLength(2);
+  expect(orchestrator.getAttribute("aria-label")).toBe("Account: home@example.test");
+  await act(async () => planner.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
+  const alternative = Array.from(dialog().querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'))
+    .find(item => item.textContent === "other@example.test");
+  expect(alternative).toBeDefined();
+  await act(async () => alternative!.click());
+  expect(orchestrator.getAttribute("aria-label")).toBe("Account: home@example.test");
+  expect(planner.getAttribute("aria-label")).toBe("Account: other@example.test");
+
+  await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
+  expect(fixture.actions.createOrchestrationPair).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ plannerAccountId: "work" }));
+  expect(fixture.actions.createOrchestrationPair.mock.calls[0][0]).not.toHaveProperty("orchestratorAccountId");
 });
 
 it("waits for an account choice from the hook before enabling a capable single-provider start", async () => {

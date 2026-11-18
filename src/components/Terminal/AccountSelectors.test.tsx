@@ -6,7 +6,7 @@ import type { ProviderAccountsSnapshot } from "../../hooks/providerAccountsTypes
 
 const fixture = vi.hoisted(() => ({
   descriptor: {} as ProviderDescriptor,
-  tabAccounts: { snapshot: null as ProviderAccountsSnapshot | null, currentAccountId: "default", currentIdentity: "usual@example.test" as string | null,
+  tabAccounts: { snapshot: null as ProviderAccountsSnapshot | null, currentAccountId: "default",
     switching: false, canVerify: false, turnActive: true, blockedReason: null as string | null, error: null as string | null, choose: vi.fn() },
   workspaceAccounts: { providers: [] as { providerId: string; displayName: string; snapshot: ProviderAccountsSnapshot }[], loading: false, error: null, choose: vi.fn() },
   tabHook: vi.fn(), workspaceHook: vi.fn(), published: vi.fn(),
@@ -22,7 +22,8 @@ vi.mock("../../hooks/useConfig", () => ({ useConfig: () => ({ config: { agents: 
 vi.mock("../../lib/notices", async original => ({ ...await original<typeof import("../../lib/notices")>(), publishNotice: fixture.published }));
 import { WorkspaceItem } from "../Sidebar/WorkspaceItem";
 import { workspaceAccountMenu } from "../Sidebar/workspaceAccountMenu";
-import { SpawnAccountPill } from "./SpawnAccountPill";
+import { SpawnAccountButton } from "./SpawnAccountButton";
+import { TabItem } from "../Sidebar/TabItem";
 import { TabMenu } from "./TabMenu";
 import { TabActionsMenu } from "./TabActionsMenu";
 import { TabStatusLineModelPicker } from "./StatusLineModelPicker";
@@ -44,7 +45,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 beforeEach(() => {
   fixture.descriptor = { schema_version:1, transport:"pty", system_prompt_delivery:"external", settings_schema:[], notifications_schema:[], supports_lazy_skills:false, has_hooks:false, id: "opaque-harness", display_name: "Fixture", accounts: {homeEnvironment:"FIXTURE_HOME",defaultHome:"~/.fixture",secretEnvironment:[],isolatedPaths:[],sharedPaths:[],continuation:"unverified"}, model_switch: "next_turn",
     available_models: [{ id: "model", display_name: "Model" }], reasoning_efforts: [] } satisfies ProviderDescriptor;
-  Object.assign(fixture.tabAccounts, { snapshot: snapshot(), currentAccountId: "default", currentIdentity: "usual@example.test", switching: false, canVerify: false, turnActive: true, blockedReason: null, error: null });
+  Object.assign(fixture.tabAccounts, { snapshot: snapshot(), currentAccountId: "default", switching: false, canVerify: false, turnActive: true, blockedReason: null, error: null });
   fixture.tabAccounts.choose.mockReset().mockResolvedValue(undefined);
   fixture.workspaceAccounts.providers = [{ providerId: "opaque-harness", displayName: "Fixture", snapshot: snapshot() }];
   fixture.workspaceAccounts.choose.mockReset().mockResolvedValue(undefined);
@@ -99,22 +100,25 @@ it("keeps workspace exhaustion selectable with its own described state", async (
   expect(fixture.workspaceAccounts.choose).toHaveBeenLastCalledWith("opaque-harness", "work");
 });
 
-it("uses the shared spawn radio menu, forwards status descriptions, and returns focus to the value-bearing pill", async () => {
+it("uses the shared spawn radio menu, forwards status descriptions, and returns focus to the account button", async () => {
   const select = vi.fn();
-  await render(<SpawnAccountPill snapshot={snapshot()} providerName="Fixture" selectedAccountId="work" onSelect={select} />);
-  const pill = button("Account: Work");
-  expect(pill.getAttribute("aria-haspopup")).toBe("menu");
-  await open("Account: Work");
-  expect(button("Work", "menuitemradio").getAttribute("aria-checked")).toBe("true");
+  await render(<SpawnAccountButton snapshot={snapshot()} providerName="Fixture" selectedAccountId="work" onSelect={select} />);
+  const trigger = button("Account: work@example.test");
+  expect(trigger.title).toBe("Account: work@example.test");
+  expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+  expect(trigger.textContent).toBe("W");
+  await open("Account: work@example.test");
+  const checked = button("work@example.test", "menuitemradio");
+  expect(checked.getAttribute("aria-checked")).toBe("true");
+  expect(document.getElementById(checked.getAttribute("aria-describedby")!)?.textContent).toContain("Limit reached");
   await click("out@example.test", "menuitemradio");
   expect(select).toHaveBeenCalledExactlyOnceWith("out");
-  expect(document.activeElement).toBe(pill);
-  expect(host.textContent).toBe("Work");
+  expect(document.activeElement).toBe(trigger);
 });
 
-it("hides the spawn pill when fewer than two non-removing accounts remain", async () => {
+it("hides the spawn button when fewer than two non-removing accounts remain", async () => {
   const value = snapshot(); value.accounts = [value.accounts[0], value.accounts[3]];
-  await render(<SpawnAccountPill snapshot={value} providerName="Fixture" selectedAccountId="default" onSelect={vi.fn()} />);
+  await render(<SpawnAccountButton snapshot={value} providerName="Fixture" selectedAccountId="default" onSelect={vi.fn()} />);
   expect(host.querySelector("button")).toBeNull();
 });
 
@@ -122,8 +126,18 @@ it.each(["sidebar", "header"])("uses the same proven tab-account model and exact
   const props = { entries: [], onAction: vi.fn(), tab: ownTab };
   await render(surface === "sidebar" ? <TabMenu {...props} trigger={<button>Tab actions</button>} /> : <TabActionsMenu {...props} busy={false} />);
   expect(fixture.tabHook).toHaveBeenCalledWith(ownTab);
-  await open("Tab actions"); await click("Account", "menuitem");
-  expect(button("usual@example.test", "menuitemradio").getAttribute("aria-checked")).toBe("true");
+  await open("Tab actions");
+  const parent = button("Account", "menuitem");
+  expect(parent.getAttribute("aria-label")).toBe("Account");
+  expect(parent.title).toBe("Account: usual@example.test");
+  expect(document.getElementById(parent.getAttribute("aria-describedby")!)?.textContent).toBe("usual@example.test");
+  expect(parent.querySelector('[aria-hidden="true"]')?.textContent).toBe("U");
+  await click("Account", "menuitem");
+  const current = button("usual@example.test", "menuitemradio");
+  expect(current.getAttribute("aria-checked")).toBe("true");
+  expect(document.getElementById(current.getAttribute("aria-describedby")!)?.textContent).toBe("Current");
+  expect(current.querySelector('[aria-hidden="true"]')?.textContent).toBe("U");
+  expect(button("Work", "menuitemradio").querySelector('[aria-hidden="true"]')?.textContent).toBe("W");
   expect(button("out@example.test", "menuitemradio").getAttribute("aria-disabled")).toBe("true");
   await click("Work", "menuitemradio");
   expect(fixture.tabAccounts.choose).toHaveBeenCalledExactlyOnceWith("work");
@@ -163,15 +177,38 @@ it.each([{ locked: true }, { role_profile: "curator" as const }])("preserves exi
   expect(Array.from(document.querySelectorAll('[role="menuitem"]')).some(node => node.textContent === "Account")).toBe(false);
 });
 
-it("adds the current account to the model tooltip only when a capable harness has multiple accounts", async () => {
-  await render(<TabStatusLineModelPicker tab={ownTab} label="Fixture · Model" />);
-  const pill = host.querySelector<HTMLElement>('[title*="usual@example.test"]');
-  expect(pill).not.toBeNull();
-  expect(pill!.getAttribute("title")?.split("\n")[1]).toBe("usual@example.test");
-  expect(host.textContent).not.toContain("usual@example.test");
-  fixture.tabAccounts.snapshot = { ...snapshot(), accounts: snapshot().accounts.slice(0, 1) };
-  await render(<TabStatusLineModelPicker tab={ownTab} label="Fixture · Model" />);
-  expect(host.querySelector('[title*="usual@example.test"]')).toBeNull();
+it("names the non-default account on the status trigger and sidebar row and hides it when the tab returns to default", async () => {
+  const workTab: Tab = { ...ownTab, account: { id: "work", notices: [] } };
+  const surfaces = (tab: Tab) => <>
+    <TabStatusLineModelPicker tab={tab} label="Fixture · Model" />
+    <TabItem tab={tab} hasAgent workspaceId={workspace.id} index={0} isActive={false} canClose onClick={vi.fn()} onClose={vi.fn()} onRename={vi.fn()} />
+  </>;
+  fixture.tabAccounts.currentAccountId = "work";
+  await render(surfaces(workTab));
+  const trigger = host.querySelector<HTMLButtonElement>('[data-testid="status-model-trigger"]')!;
+  expect(trigger.getAttribute("aria-label")).toBe("Change model, currently Model, account work@example.test");
+  expect(trigger.title).toBe("Change model\nAccount: work@example.test");
+  expect(host.querySelector('[role="img"][aria-label="Account: work@example.test"]')?.textContent).toBe("W");
+
+  fixture.tabAccounts.currentAccountId = "default";
+  await render(surfaces(ownTab));
+  expect(trigger.getAttribute("aria-label")).toBe("Change model, currently Model");
+  expect(host.querySelector('[title*="example.test"]')).toBeNull();
+});
+
+it("hides account controls and indicators when only one account remains", async () => {
+  fixture.tabAccounts.currentAccountId = "work";
+  fixture.tabAccounts.snapshot = { ...snapshot(), accounts: [snapshot().accounts[1]] };
+  const tab: Tab = { ...ownTab, account: { id: "work", notices: [] } };
+  await render(<>
+    <TabStatusLineModelPicker tab={tab} label="Fixture · Model" />
+    <TabItem tab={tab} hasAgent workspaceId={workspace.id} index={0} isActive={false} canClose onClick={vi.fn()} onClose={vi.fn()} onRename={vi.fn()} />
+    <TabMenu tab={tab} entries={[]} onAction={vi.fn()} trigger={<button>Account test menu</button>} />
+  </>);
+  expect(host.querySelector('[title*="work@example.test"]')).toBeNull();
+  expect(host.querySelector('[aria-label*="work@example.test"]')).toBeNull();
+  await open("Account test menu");
+  expect(document.querySelector('[role="menuitem"][aria-haspopup="menu"]')).toBeNull();
 });
 
 it("does not mount account subscriptions on tab surfaces for an incapable harness", async () => {
@@ -198,7 +235,7 @@ it("uses the explicit idle owner's radio choice as one trial through the parent'
   const current = button("usual@example.test", "menuitemradio");
   expect(current.getAttribute("aria-checked")).toBe("true");
   expect(current.disabled).toBe(false);
-  expect(document.getElementById(current.getAttribute("aria-describedby")!)?.textContent).toBe("Wait for this turn to finish");
+  expect(document.getElementById(current.getAttribute("aria-describedby")!)?.textContent).toBe("Current · Wait for this turn to finish");
   const work = button("Work", "menuitemradio");
   expect(work.disabled).toBe(false);
   expect(work.getAttribute("aria-disabled")).toBeNull();

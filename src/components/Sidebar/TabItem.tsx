@@ -2,7 +2,7 @@ import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
-import { memo, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { MultiplexerActionsContext, MuxStateStoreContext } from "../../store/multiplexer/context";
 import { createPortal } from "react-dom";
 import { ConfirmDialog } from "../Extensions/ConfirmDialog";
@@ -15,6 +15,10 @@ import { SurfaceIcon } from "../Surface/surfaceIcon";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor, listAgentDescriptors } from "../../lib/agentDescriptorCache";
+import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
+import { useTabAccounts } from "../../hooks/useAccountSelectors";
+import { AccountAvatar } from "../shared/AccountAvatar";
+import { accountIdentity, tabAccountIndicator } from "../shared/accountChoices";
 import { TabMenu } from "../Terminal/TabMenu";
 import { buildTabMenu, type TabMenuAction } from "../Terminal/tabMenuModel";
 import { performTabMenuAction } from "../Terminal/tabMenuActions";
@@ -249,7 +253,9 @@ function TabItemInner({
   ownerBadgeTab = null,
   attachmentToggle = null,
   checklistToggle = null,
-}: TabItemProps) {
+  trailingSlot,
+  accounts,
+}: TabItemProps & { trailingSlot?: ReactNode; accounts?: ReturnType<typeof useTabAccounts> }) {
   const tab = useLiveRowTab(rowTab);
   const lock = useTabLock(tab);
   const activate = () => {
@@ -384,6 +390,7 @@ function TabItemInner({
   const tabMenu = menuEntries.length > 0 ? (
     <TabMenu
       tab={tab}
+      accounts={accounts}
       entries={menuEntries}
       onAction={runMenuAction}
       onOpenChange={(open) => {
@@ -531,6 +538,7 @@ function TabItemInner({
               {reportCount}
             </span>
           )}
+          {trailingSlot}
         </span>
         {remoteStateLabel ? (
           <span className={`sidebar-tab-body__sub block truncate text-[11px] ${UI_TEXT.metaMuted}`}>{machine} · {remoteStateLabel}</span>
@@ -646,4 +654,17 @@ export function tabItemPropsEqual(prev: TabItemState, next: TabItemState): boole
   return sameRowTab(prev.tab, next.tab);
 }
 
-export const TabItem = memo(TabItemInner, tabItemPropsEqual);
+function AccountTabItem({ providerName, ...props }: TabItemProps & { providerName: string }) {
+  const accounts = useTabAccounts(props.tab);
+  const account = tabAccountIndicator(accounts.snapshot, accounts.currentAccountId);
+  return <TabItemInner {...props} accounts={accounts} trailingSlot={account && (
+    <AccountAvatar account={account} size={14} other label={`Account: ${accountIdentity(account, providerName)}`} />
+  )} />;
+}
+
+export const TabItem = memo(function TabItem(props: TabItemProps) {
+  const descriptor = useAgentDescriptor(props.tab.agent_type);
+  return descriptor?.accounts && !props.tab.remote_peer_id
+    ? <AccountTabItem {...props} providerName={descriptor.display_name} />
+    : <TabItemInner {...props} />;
+}, tabItemPropsEqual);

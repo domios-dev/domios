@@ -82,12 +82,13 @@ export function useSpawnAccounts(providerId: string | null, workspaceId: string)
   const available=accounts.snapshot?.accounts.filter(account=>account.status!=="removing") ?? [];
   const override=accounts.snapshot?.workspaceOverrides.find(override=>override.workspaceId===workspaceId)?.accountId;
   const starting=available.find(account=>account.id===override)?.id ?? available[0]?.id;
-  const selectedAccountId = available.some(account => account.id === selected) ? selected : starting ?? null;
+  const explicitAccountId = available.some(account => account.id === selected) ? selected : null;
+  const selectedAccountId = explicitAccountId ?? starting ?? null;
   const select = useCallback((accountId: string) => {
     if (!providerId || !accounts.snapshot?.accounts.some(account => account.id === accountId && account.status !== "removing")) return;
     setChoice({ provider: providerId, workspace: workspaceId, account: accountId });
   }, [providerId, workspaceId, accounts.snapshot]);
-  return { snapshot: accounts.snapshot, selectedAccountId, select, loading: catalogue.loading || accounts.loading, error: accounts.error ?? catalogue.error };
+  return { snapshot: accounts.snapshot, selectedAccountId, explicitAccountId, select, loading: catalogue.loading || accounts.loading, error: accounts.error ?? catalogue.error };
 }
 
 export function useTabAccounts(tab: Tab) {
@@ -98,8 +99,6 @@ export function useTabAccounts(tab: Tab) {
   const turnActive=transition.turnActive || tab.agent_runtime_state?.active_turn_started_at_ms!=null;
   useEffect(()=>{if(accounts.snapshot)transition.onRefresh();},[accounts.snapshot?.revision,transition.onRefresh]);
   const currentAccountId = tab.account?.id ?? "default";
-  const row = accounts.snapshot?.accounts.find(account => account.id === currentAccountId);
-  const currentIdentity = row?.name ?? row?.identity ?? null;
   const [pending, setPending] = useState<string | null>(null);
   const inFlight=useRef(false);
   const [failure, setFailure] = useState<{binding:string;reason:string} | null>(null);
@@ -131,5 +130,5 @@ export function useTabAccounts(tab: Tab) {
     } catch (failure) { if (latest.current === binding) setFailure({binding,reason:String(failure)}); throw failure; }
     finally { inFlight.current=false;setPending(current => current === binding ? null : current); }
   }, [accounts.snapshot, binding, blockedReason, pending, currentAccountId, tab.id, tab.agent_type, tab.session_binding_nonce, tab.agent_runtime_state?.epoch,tab.account?.namespace,transition.canVerify,turnActive]);
-  return { canVerify:transition.canVerify,turnActive,snapshot: accounts.snapshot, currentAccountId, currentIdentity, transition:transition.transition,switching: pending === binding || transition.transition?.status==="waiting" || transition.transition?.status==="switching", blockedReason, error: (failure?.binding===binding?failure.reason:null) ?? accounts.error ?? transition.error, choose,continueOn:(accountId:string,turnId:string)=>choose(accountId,{turnId}) };
+  return { canVerify:transition.canVerify,turnActive,snapshot: accounts.snapshot, currentAccountId, transition:transition.transition,switching: pending === binding || transition.transition?.status==="waiting" || transition.transition?.status==="switching", blockedReason, error: (failure?.binding===binding?failure.reason:null) ?? accounts.error ?? transition.error, choose,continueOn:(accountId:string,turnId:string)=>choose(accountId,{turnId}) };
 }

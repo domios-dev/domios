@@ -581,6 +581,18 @@ impl OrchestrationPairExt for ServiceContext {
         } else {
             None
         };
+        if params.orchestrator_account_id.is_some()
+            && orchestrator_seat.provider != params.orchestrator_agent
+        {
+            return Err("Choose an account for the resolved Orchestrator harness".into());
+        }
+        if params.planner_account_id.is_some()
+            && planner_seat
+                .as_ref()
+                .is_some_and(|seat| seat.provider != params.planner_agent)
+        {
+            return Err("Choose an account for the resolved Planner harness".into());
+        }
         let orchestrator_model = orchestrator_seat.model.clone();
         let planner_model = planner_seat.as_ref().and_then(|seat| seat.model.clone());
         validate_pair_provider(
@@ -734,6 +746,7 @@ impl OrchestrationPairExt for ServiceContext {
         }));
         let orch_params = SpawnAgentParams {
             agent: Some(orchestrator_seat.provider.clone()),
+            account_id: params.orchestrator_account_id.clone(),
             launch_profile: params.orchestrator_launch_profile.clone(),
             model: orchestrator_model.clone(),
             reasoning_effort: orchestrator_seat.effort.clone(),
@@ -784,6 +797,7 @@ impl OrchestrationPairExt for ServiceContext {
                 ));
                 let planner_params = SpawnAgentParams {
                     agent: Some(planner_seat.provider.clone()),
+                    account_id: params.planner_account_id.clone(),
                     launch_profile: params.planner_launch_profile.clone(),
                     model: planner_model.clone(),
                     reasoning_effort: planner_seat.effort.clone(),

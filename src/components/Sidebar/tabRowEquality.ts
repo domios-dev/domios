@@ -45,6 +45,8 @@ function chatBackendIdentity(tab: Tab): string | undefined {
 export function sameRowTab(previous: Tab, next: Tab): boolean {
   if (previous === next) return true;
   return ROW_TAB_FIELDS.every((field) => previous[field] === next[field])
+    && previous.account?.id === next.account?.id
+    && previous.account?.namespace === next.account?.namespace
     && chatBackendIdentity(previous) === chatBackendIdentity(next)
     && previous.shell_command_state?.activity === next.shell_command_state?.activity
     && previous.shell_command_state?.last_exit_code === next.shell_command_state?.last_exit_code
