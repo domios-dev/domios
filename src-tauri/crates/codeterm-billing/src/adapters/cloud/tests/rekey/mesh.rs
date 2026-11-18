@@ -239,7 +239,7 @@ async fn billing_during_mesh_rekey(
     let transport = Arc::new(RekeyTransport::new("FAILED_PRECONDITION", None, false));
     let billing = fixture_billing(source.clone(), transport.clone());
     let snapshot = tokio::time::timeout(MESH_DEADLINE * 2, async {
-        let (snapshot, rekey) = tokio::join!(
+        let (snapshot, (rekey,)) = tokio::join!(
             billing.refresh(
                 Some(&session),
                 RefreshEvent::SignIn,
@@ -271,20 +271,20 @@ async fn billing_during_mesh_rekey(
                         tokio::time::pause();
                         tokio::time::advance(MESH_DEADLINE).await;
                         // Keep the save blocked until billing has settled through fallback.
-                        return rekey;
+                        return (rekey,);
                     }
                     DuringRekey::ChallengeDeadline => {
                         fixture.release_save.notify_one();
                         fixture.requesting_replacement_challenge.notified().await;
                         tokio::time::pause();
                         tokio::time::advance(MESH_DEADLINE).await;
-                        return rekey;
+                        return (rekey,);
                     }
                 }
                 if !matches!(scenario, DuringRekey::NewAccount) {
                     fixture.release_save.notify_one();
                 }
-                rekey
+                (rekey,)
             }
         );
         if matches!(scenario, DuringRekey::SaveDeadline) {
