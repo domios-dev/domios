@@ -2765,7 +2765,7 @@ function codexValidateCliTrust(ctx, raw) {
       throw { code: "provider_refused", message: "Configured project trust refuses the restricted CLI exception" };
   }
 }
-function codexNeedsWindowsSandboxSelection(raw) {
+function codexNeedsWindowsSandboxSelection(raw, needsSplitRoots = false) {
   const root = object2(raw);
   if (root.config === null || typeof root.config !== "object" || Array.isArray(root.config))
     throw { code: "invalid_schema", message: "Windows sandbox configuration was not reported" };
@@ -2776,9 +2776,9 @@ function codexNeedsWindowsSandboxSelection(raw) {
   if (windows.sandbox != null) {
     if (!["mxc", "elevated", "unelevated"].includes(String(windows.sandbox)))
       throw { code: "invalid_schema", message: "Unknown configured Windows sandbox" };
-    return false;
+    if (windows.sandbox !== "unelevated" || !needsSplitRoots) return false;
   }
-  if (windows.allow_mxc !== void 0) {
+  if (windows.allow_mxc != null) {
     if (typeof windows.allow_mxc !== "boolean") throw { code: "invalid_schema", message: "Invalid Windows MXC policy" };
     if (!windows.allow_mxc) return false;
   }
@@ -2792,6 +2792,10 @@ function codexNeedsWindowsSandboxSelection(raw) {
     }
   }
   return true;
+}
+function codexNeedsSplitWindowsRoots(ctx) {
+  const executable = ctx.restrictedCli?.executable;
+  return ctx.settings.mode === "read-only-with-writable-roots" && executable !== void 0 && /^(?:[A-Za-z]:[\\/]|\/\/)/.test(executable);
 }
 function codexWindowsSandboxOverride(raw) {
   const root = object2(raw);
@@ -3848,7 +3852,7 @@ function respondOperation(ctx, op, raw, reply) {
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (state.stage === "windowsSandboxConfig") {
       codexValidateCliTrust(ctx, value);
-      return continuation(codexNeedsWindowsSandboxSelection(value) ? request("configRequirements/read", null, { stage: "windowsSandboxRequirements" }) : threadPlan(ctx, op));
+      return continuation(codexNeedsWindowsSandboxSelection(value, codexNeedsSplitWindowsRoots(ctx)) ? request("configRequirements/read", null, { stage: "windowsSandboxRequirements" }) : threadPlan(ctx, op));
     }
     if (state.stage === "windowsSandboxRequirements") return continuation(threadPlan(ctx, op, codexWindowsSandboxOverride(value)));
   }

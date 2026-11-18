@@ -20,7 +20,7 @@ import { descendantThread, historyThread } from "./runtimeBinding";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
 import { restoreContextItems } from "./runtimeContext";
-import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexWorkspaceWriteConfirmed, codexWritableRootsConfirmed, codexNeedsWindowsSandboxSelection, codexWindowsSandboxOverride, codexRestrictedCliConfig, codexValidateCliTrust, codexRestrictedCliInstructions } from "./runtimeSettings";
+import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexWorkspaceWriteConfirmed, codexWritableRootsConfirmed, codexNeedsSplitWindowsRoots, codexNeedsWindowsSandboxSelection, codexWindowsSandboxOverride, codexRestrictedCliConfig, codexValidateCliTrust, codexRestrictedCliInstructions } from "./runtimeSettings";
 import { modelServiceTiers, serviceTierSelection, tierAvailable } from "./runtimeServiceTiers";
 export { runtimeReduce } from "./runtimeReduce";
 
@@ -243,7 +243,7 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (state.stage === "windowsSandboxConfig") {
       codexValidateCliTrust(ctx,value);
-      return continuation(codexNeedsWindowsSandboxSelection(value)
+      return continuation(codexNeedsWindowsSandboxSelection(value,codexNeedsSplitWindowsRoots(ctx))
         ? request("configRequirements/read",null,{stage:"windowsSandboxRequirements"}) : threadPlan(ctx,op));
     }
     if (state.stage === "windowsSandboxRequirements") return continuation(threadPlan(ctx,op,codexWindowsSandboxOverride(value)));

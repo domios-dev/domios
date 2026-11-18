@@ -40,7 +40,7 @@ export function codexValidateCliTrust(ctx: RuntimeContext, raw: unknown): void {
   }
 }
 
-export function codexNeedsWindowsSandboxSelection(raw: unknown): boolean {
+export function codexNeedsWindowsSandboxSelection(raw: unknown, needsSplitRoots = false): boolean {
   const root = object(raw);
   if (root.config === null || typeof root.config !== "object" || Array.isArray(root.config))
     throw {code:"invalid_schema",message:"Windows sandbox configuration was not reported"};
@@ -51,9 +51,9 @@ export function codexNeedsWindowsSandboxSelection(raw: unknown): boolean {
   if (windows.sandbox != null) {
     if (!["mxc", "elevated", "unelevated"].includes(String(windows.sandbox)))
       throw {code:"invalid_schema",message:"Unknown configured Windows sandbox"};
-    return false;
+    if (windows.sandbox !== "unelevated" || !needsSplitRoots) return false;
   }
-  if (windows.allow_mxc !== undefined) {
+  if (windows.allow_mxc != null) {
     if (typeof windows.allow_mxc !== "boolean") throw {code:"invalid_schema",message:"Invalid Windows MXC policy"};
     if (!windows.allow_mxc) return false;
   }
@@ -67,6 +67,12 @@ export function codexNeedsWindowsSandboxSelection(raw: unknown): boolean {
     }
   }
   return true;
+}
+
+export function codexNeedsSplitWindowsRoots(ctx: RuntimeContext): boolean {
+  const executable = ctx.restrictedCli?.executable;
+  return ctx.settings.mode === "read-only-with-writable-roots"
+    && executable !== undefined && /^(?:[A-Za-z]:[\\/]|\/\/)/.test(executable);
 }
 
 export function codexWindowsSandboxOverride(raw: unknown): "mxc" | undefined {

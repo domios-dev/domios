@@ -42,6 +42,30 @@ for (const mode of ["workspace-write", "read-only-with-writable-roots"]) {
   assert.deepEqual(config["sandbox_workspace_write.writable_roots"],settings.additionalDirectories);
   assert.equal(config["sandbox_workspace_write.network_access"],false);
   assert.equal(config.CODEX_HOME,undefined);
+
+  const initial = plain(provider.runtimePlan(ctx,operation));
+  const unelevated = plain(provider.runtimeResponse(ctx,operation,initial.state,{kind:"success",value:{config:{windows:{sandbox:"unelevated",allow_mxc:null}}}}));
+  if (unelevated.kind !== "continue" || unelevated.plan.action.kind !== "request") throw new Error("Missing sandbox continuation");
+  if (mode === "workspace-write") {
+    assert.equal(unelevated.plan.action.call.method,"thread/resume");
+    assert.equal((unelevated.plan.action.call.params as {config:Record<string,unknown>}).config["windows.sandbox"],undefined);
+    continue;
+  }
+  assert.equal(unelevated.plan.action.call.method,"configRequirements/read");
+  for (const [requirements, backend] of [
+    [null,"mxc"],
+    [{allowedWindowsSandboxImplementations:["unelevated"],allowedSandboxModes:["workspace-write"]},undefined],
+  ] as const) {
+    const reply = {kind:"success" as const,value:{requirements:JSON.parse(JSON.stringify(requirements))}};
+    const next = plain(provider.runtimeResponse(ctx,operation,unelevated.plan.state,reply));
+    if (next.kind !== "continue" || next.plan.action.kind !== "request") throw new Error("Missing checked resume");
+    assert.equal(next.plan.action.call.method,"thread/resume");
+    const selected = next.plan.action.call.params as {config:Record<string,unknown>;runtimeWorkspaceRoots:string[]};
+    assert.equal(selected.config["windows.sandbox"],backend);
+    assert.deepEqual(selected.runtimeWorkspaceRoots,["C:/own-pad"]);
+    assert.deepEqual(selected.config["sandbox_workspace_write.writable_roots"],["C:/own-pad"]);
+    assert.equal(selected.config["sandbox_workspace_write.network_access"],false);
+  }
 }
 for (const [mode, type] of [[capability.readOnly!, "readOnly"], [capability.mutating!, "workspaceWrite"]] as const) {
   const settings: RuntimeSettings = { mode: mode.runtimeMode!, additionalDirectories: [], networkAccess: false };
