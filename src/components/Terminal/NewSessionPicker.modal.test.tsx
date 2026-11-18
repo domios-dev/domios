@@ -623,7 +623,8 @@ it("keeps grouped Team model pickers beside independent account controls and hid
   expect(groupedPicker?.getAttribute("aria-haspopup")).toBe("dialog");
   expect(groupedPicker?.disabled).toBe(false);
   await act(async () => groupedPicker!.click());
-  const modelDialog = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).at(-1)!;
+  const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
+  const modelDialog = dialogs[dialogs.length - 1];
   const secondGroup = Array.from(modelDialog.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"))
     .find(button => button.getAttribute("aria-label")?.startsWith("Family two,"));
   expect(secondGroup).toBeDefined();
