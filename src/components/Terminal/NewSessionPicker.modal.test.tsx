@@ -588,24 +588,27 @@ it("explains how to configure a Team provider with no ready profiles and prevent
   expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
 });
 
-it("passes the selected account after the launch-profile position for a single-provider session", async () => {
+it.each(["workspace", "general"] as const)("starts a single agent with the chosen account in %s", async (section) => {
   fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode", available_models: [], reasoning_efforts: [], accounts: {} }] as never[];
   fixture.accounts.snapshot = { providerId: "opencode", revision: "opaque", accounts: [
     { id: "default", identity: "usual", status: "ready", tabsInUse: 0 },
-    { id: "work", identity: "work", status: "signedOut", tabsInUse: 0 },
+    { id: "work", identity: "Work account", status: "ready", tabsInUse: 0 },
   ], continuation: "unverified", automaticSwitch: true, workspaceOverrides: [] };
-  fixture.accounts.selectedAccountId = "work";
-  await renderPicker();
-  expect(fixture.accountHook).toHaveBeenCalledWith("opencode", workspace.id);
-  expect(buttonNamed("Account")?.getAttribute("data-value")).toBe("work");
+  fixture.accounts.selectedAccountId = "default";
+  await renderPicker({ section });
+  await choose("Account", "Work account");
   await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
-  expect(fixture.actions.spawnAgentTab).toHaveBeenCalledExactlyOnceWith("workspace", "opencode", "/workspace", undefined, undefined, undefined, undefined, undefined, undefined, "work");
+  expect(fixture.actions.spawnAgentTab).toHaveBeenCalledExactlyOnceWith(
+    "workspace", "opencode", "/workspace", undefined, undefined, undefined,
+    section === "general" ? "fresh_general" : undefined, undefined, undefined, "work",
+  );
 });
 
 it("keeps grouped Team model pickers beside independent account controls and hides a single account", async () => {
   fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode", available_models: [{ id: "alpha", display_name: "Alpha", group: "Family one" }, { id: "beta", display_name: "Beta", group: "Family two" }], reasoning_efforts: [], accounts: {} }] as never[];
   const onlyAccount = { id: "default", identity: "home@example.test", status: "ready", tabsInUse: 0 } as const;
   const otherAccount = { id: "work", identity: "other@example.test", status: "ready", tabsInUse: 0 } as const;
+  const thirdAccount = { id: "team", identity: "team@example.test", status: "ready", tabsInUse: 0 } as const;
   fixture.accounts.snapshot = { providerId: "opencode", revision: "opaque", accounts: [onlyAccount],
     continuation: "unverified", automaticSwitch: true, workspaceOverrides: [] };
   fixture.accounts.selectedAccountId = "default";
@@ -615,7 +618,7 @@ it("keeps grouped Team model pickers beside independent account controls and hid
   const accountButtons = () => Array.from(dialog().querySelectorAll<HTMLButtonElement>('button[aria-label^="Account: "]'));
   expect(accountButtons()).toHaveLength(0);
 
-  fixture.accounts.snapshot = { ...fixture.accounts.snapshot, accounts: [onlyAccount, otherAccount] };
+  fixture.accounts.snapshot = { ...fixture.accounts.snapshot, accounts: [onlyAccount, otherAccount, thirdAccount] };
   await renderPicker();
   const [orchestrator, planner] = accountButtons();
   expect(accountButtons()).toHaveLength(2);
@@ -640,10 +643,16 @@ it("keeps grouped Team model pickers beside independent account controls and hid
   await act(async () => alternative!.click());
   expect(orchestrator.getAttribute("aria-label")).toBe("Account: home@example.test");
   expect(planner.getAttribute("aria-label")).toBe("Account: other@example.test");
+  await act(async () => orchestrator.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
+  const teamAccount = Array.from(dialog().querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'))
+    .find(item => item.textContent === "team@example.test");
+  expect(teamAccount).toBeDefined();
+  await act(async () => teamAccount!.click());
 
   await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
-  expect(fixture.actions.createOrchestrationPair).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ plannerAccountId: "work" }));
-  expect(fixture.actions.createOrchestrationPair.mock.calls[0][0]).not.toHaveProperty("orchestratorAccountId");
+  expect(fixture.actions.createOrchestrationPair).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    workspaceId: workspace.id, orchestratorAccountId: "team", plannerAccountId: "work",
+  }));
 });
 
 it("waits for an account choice from the hook before enabling a capable single-provider start", async () => {

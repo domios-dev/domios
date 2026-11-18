@@ -893,7 +893,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       if (spawnInFlight.current.has(guardKey)) return null;
       spawnInFlight.current.add(guardKey);
       try {
-        const result = await spawnFreshGeneralSession(workspaceId, agentId, cwd, guardedInvoke, { model, reasoningEffort, preset });
+        const result = await spawnFreshGeneralSession(workspaceId, agentId, cwd, guardedInvoke, { model, reasoningEffort, preset, accountId });
         applyBackendState(result.snapshot);
         return { workspaceId: result.workspace_id, tabId: result.tab_id };
       } catch (error) {

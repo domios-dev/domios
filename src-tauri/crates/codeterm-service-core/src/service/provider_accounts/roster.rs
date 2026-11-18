@@ -125,12 +125,16 @@ pub(super) fn starting_account(
     provider: &str,
     policy: &ProviderAccountsConfig,
     starting: &str,
+    explicit: bool,
 ) -> Result<String, String> {
     let state = svc.ext_or_init::<State>(State::default);
     let availability = super::scheduler::availability(svc, provider, &policy.order);
     let observations = state.observations.lock();
     policy
         .first_eligible(starting, |id| {
+            if explicit && id != starting {
+                return false;
+            }
             if !super::admission::available(svc, provider, id) {
                 return false;
             }
@@ -145,7 +149,14 @@ pub(super) fn starting_account(
                 .is_none_or(|entry| !matches!(entry.status, AccountStatus::SignedOut))
         })?
         .map(str::to_owned)
-        .ok_or_else(|| "Sign in to a harness account before starting a tab".into())
+        .ok_or_else(|| {
+            if explicit {
+                "The selected harness account is unavailable"
+            } else {
+                "Sign in to a harness account before starting a tab"
+            }
+            .into()
+        })
 }
 
 fn project(

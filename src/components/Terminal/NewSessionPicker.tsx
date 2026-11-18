@@ -321,11 +321,11 @@ export function NewSessionPicker({
     }
     if (!profileReady) return;
     if (launchProfile) {
-      await runProviderSpawn(choice.providerId, profileModel.model || undefined, profileModel.effort || undefined, choice.preset, undefined, launchProfile, accounts.selectedAccountId ?? undefined);
+      await runProviderSpawn(choice.providerId, profileModel.model || undefined, profileModel.effort || undefined, choice.preset, undefined, launchProfile, accounts.explicitAccountId ?? undefined);
       return;
     }
-    await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset, undefined, undefined, accounts.selectedAccountId ?? undefined);
-  }, [choice, runProviderSpawn, location, environmentId, menuProviders, profileReady, launchProfile, profileModel.model, profileModel.effort, accountProviderId, accounts.loading, accounts.snapshot, accounts.selectedAccountId]);
+    await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset, undefined, undefined, accounts.explicitAccountId ?? undefined);
+  }, [choice, runProviderSpawn, location, environmentId, menuProviders, profileReady, launchProfile, profileModel.model, profileModel.effort, accountProviderId, accounts.loading, accounts.snapshot, accounts.selectedAccountId, accounts.explicitAccountId]);
 
   const runPairSpawn = useCallback(async () => {
     if (choice.mode !== "pair" || !allowedNewSessionModes(section).includes("pair")
