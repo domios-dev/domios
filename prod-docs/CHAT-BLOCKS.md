@@ -256,13 +256,18 @@ Only the complete matching outer close in HTML data state commits the body;
 quoted attrs, comments, raw text and inner slash closes cannot terminate it.
 Nested ds-html containers are invalid; ds-looking elements inside HTML are inert.
 
+In any chat, a referenced PNG, JPEG, GIF, WebP or SVG can render directly
+from any local agent pad. Other file previews in agent pads require the
+viewing tab's own pad.
+
 Paths belong to the machine authoring the message. A mesh tab send, delayed send
 or mesh-routed agent report transfers these files to the target tab's host
 before delivering the message, then replaces file-card path attributes with the returned
 target-local paths. A failed transfer refuses delivery; it never reads a
 same-named file on the receiving machine. A message may contain at most 32 file
-previews. Mesh transfers retain the 25 MiB attachment bound; previews retain
-their HTML (200,000 bytes), document (1,000,000 bytes) and image (10 MiB) bounds.
+previews. Mesh transfers retain the 25 MiB attachment bound. Preview limits
+are 200,000 bytes for HTML, 1,000,000 bytes for documents and 10 MiB for
+GIF, WebP and SVG. PNG and JPEG previews use bounded host thumbnails.
 Notification previews require the originating tab identity.
 
 A gallery uses a JSON array of 1 to 32 absolute paths, with exactly one of
@@ -282,4 +287,4 @@ loads preserve your chosen view. Reset restores 100% scale. Focus the canvas to
 use arrow keys for gallery navigation or diagram pan, +/- to zoom, 0 for 100%,
 and Home to fit. Mermaid remains vector artwork at every zoom.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

@@ -80,7 +80,7 @@ fn attachment_plan(
     }
 }
 
-fn extension(path: &Path) -> String {
+pub(super) fn extension(path: &Path) -> String {
     path.extension()
         .and_then(|value| value.to_str())
         .unwrap_or("")

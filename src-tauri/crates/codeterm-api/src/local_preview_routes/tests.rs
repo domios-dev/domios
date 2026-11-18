@@ -31,20 +31,26 @@ fn assert_headers(response: &Response) {
 }
 
 #[tokio::test]
-async fn owning_tab_previews_nested_pad_artifacts_but_not_foreign_or_secret_files() {
+async fn nested_pad_images_preview_across_tabs_but_documents_stay_private() {
     let fixture = Fixture::new();
-    for (name, kind) in [("hush/image.png", "image"), ("notes/report.md", "document")] {
+    for (name, kind, bytes, expected) in [
+        ("hush/image.png", "image", png(), "data:image/jpeg;base64,"),
+        (
+            "hush/image.svg",
+            "image",
+            br#"<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>"#.to_vec(),
+            "data:image/svg+xml;base64,",
+        ),
+        (
+            "notes/report.md",
+            "document",
+            b"artifact".to_vec(),
+            "artifact",
+        ),
+    ] {
         let path = fixture.pad(&fixture.owner).join(name);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(
-            &path,
-            if kind == "image" {
-                png()
-            } else {
-                b"artifact".to_vec()
-            },
-        )
-        .unwrap();
+        std::fs::write(&path, bytes).unwrap();
         fixture.reference(&fixture.owner, &path);
         fixture.reference(&fixture.sibling, &path);
         let response = fixture.read(&fixture.owner, &path, kind).await;
@@ -53,11 +59,7 @@ async fn owning_tab_previews_nested_pad_artifacts_but_not_foreign_or_secret_file
         assert!(json(response).await["data"]
             .as_str()
             .unwrap()
-            .contains(if kind == "image" {
-                "data:image/jpeg;base64,"
-            } else {
-                "artifact"
-            }));
+            .starts_with(expected));
         let batch = fixture
             .post(
                 &fixture.owner,
@@ -68,8 +70,21 @@ async fn owning_tab_previews_nested_pad_artifacts_but_not_foreign_or_secret_file
             .await;
         assert_eq!(batch.status(), StatusCode::OK);
         assert_eq!(json(batch).await["paths"], serde_json::json!([path]));
+        let foreign = fixture.read(&fixture.sibling, &path, kind).await;
+        if kind == "image" {
+            assert_eq!(foreign.status(), StatusCode::OK);
+            assert!(json(foreign).await["data"]
+                .as_str()
+                .unwrap()
+                .starts_with(expected));
+        } else {
+            assert_eq!(foreign.status(), StatusCode::NOT_FOUND);
+        }
         assert_eq!(
-            fixture.read(&fixture.sibling, &path, kind).await.status(),
+            fixture
+                .read(&fixture.sibling, &path, "document")
+                .await
+                .status(),
             StatusCode::NOT_FOUND
         );
     }
@@ -155,12 +170,15 @@ async fn pad_root_alias_cannot_grant_access_to_another_tabs_pad() {
     let fixture = Fixture::new();
     let foreign = fixture.pad(&fixture.sibling);
     std::fs::create_dir_all(&foreign).unwrap();
-    let path = foreign.join("image.png");
+    let path = foreign.join("read.md");
     std::fs::write(&path, b"foreign").unwrap();
     directory_link(&foreign, &fixture.pad(&fixture.owner));
     fixture.reference(&fixture.owner, &path);
     assert_eq!(
-        fixture.read(&fixture.owner, &path, "image").await.status(),
+        fixture
+            .read(&fixture.owner, &path, "document")
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
 }
@@ -268,6 +286,17 @@ async fn symlink_or_junction_escape_is_refused_even_when_referenced() {
             .read(&fixture.owner, &path, "document")
             .await
             .status(),
+        StatusCode::NOT_FOUND
+    );
+    let image = fixture.write("target/image.png", png());
+    let foreign_pad = fixture.pad(&fixture.sibling);
+    std::fs::create_dir_all(&foreign_pad).unwrap();
+    let alias = foreign_pad.join("alias");
+    directory_link(image.parent().unwrap(), &alias);
+    let path = alias.join("image.png");
+    fixture.reference(&fixture.owner, &path);
+    assert_eq!(
+        fixture.read(&fixture.owner, &path, "image").await.status(),
         StatusCode::NOT_FOUND
     );
 }
