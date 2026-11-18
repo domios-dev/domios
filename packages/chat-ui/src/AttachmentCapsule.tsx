@@ -173,14 +173,11 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
         data-attachment-kind={kind}
         data-attachment-path={path}
         data-attachment-label={label}
-        aria-label={kind === "file" ? `${accessibleName}, file${file.failed ? ", unavailable" : ""}` : kind === "image" ? `Open image ${accessibleName}` : kind === "video" ? `Play video ${accessibleName}` : `${localArtifactOpeningAvailable() ? "Reveal" : "Preview"} ${KIND_NAMES[kind].toLowerCase()} ${accessibleName}`}
-        aria-disabled={file.failed || undefined}
-        style={file.failed ? { color: "var(--ct-muted-fg)" } : undefined}
+        aria-label={kind === "file" ? `${accessibleName}, file` : kind === "image" ? `Open image ${accessibleName}` : kind === "video" ? `Play video ${accessibleName}` : `${localArtifactOpeningAvailable() ? "Reveal" : "Preview"} ${KIND_NAMES[kind].toLowerCase()} ${accessibleName}`}
         title={path}
         onFocus={() => { if (skipPreviewFocus.current) { skipPreviewFocus.current = false; return; } if (!restoringFocus.current && !(kind === "image" && image.failed)) setPreviewing(true); }}
         onBlur={(event) => { if (!previewRef.current?.contains(event.relatedTarget)) setPreviewing(false); }}
         onClick={(event) => {
-          if (file.failed) return;
           if (event.detail > 0 && window.matchMedia?.("(hover: none)").matches) {
             if (kind === "image" && image.failed) image.retry();
             setPreviewing(true);

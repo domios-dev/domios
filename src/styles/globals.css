@@ -3535,6 +3535,7 @@ button {
 .ct-capsule-button { display: inline-flex; align-items: baseline; vertical-align: baseline; }
 .ct-capsule-button .ct-capsule--padded { align-items: baseline; gap: .3em; padding: .28em .5em; line-height: 1; font-family: var(--ct-font-mono); }
 .ct-capsule-button .ct-capsule__name { line-height: 1; text-box: trim-both cap alphabetic; }
+.ct-capsule-button .ct-capsule__name > span { padding-block: .25em; margin-block: -.25em; }
 .ct-capsule-button .ct-capsule__icon { position: static; align-self: center; transform: none; }
 .ct-capsule-button .ct-capsule__plate { top: 0; bottom: 0; height: auto; transform: none; }
 @media (prefers-reduced-motion: reduce) {

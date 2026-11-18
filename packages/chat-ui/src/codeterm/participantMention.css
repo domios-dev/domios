@@ -9,7 +9,8 @@
   max-width: 100%;
   align-items: baseline;
   vertical-align: baseline;
-  padding: .28em 7px .28em 2px;
+  padding: 3px 7px 3px 2px;
+  margin-block: -3px;
   gap: 4px;
   border: none;
   border-radius: 999px;
@@ -29,7 +30,7 @@
 .ct-participant-mention:focus-visible { outline: 2px solid var(--ct-accent); outline-offset: 1px; }
 .ct-mention-avatar { position: relative; display: inline-flex; align-items: center; align-self: center; justify-content: center; width: 16px; height: 16px; flex-shrink: 0; border-radius: 50%; background: color-mix(in srgb, var(--ct-fg) 8%, transparent); }
 .ct-mention-avatar-icon { display: inline-flex; align-items: center; justify-content: center; }
-.ct-mention-title { min-width: 0; max-width: 24ch; overflow: hidden; text-overflow: ellipsis; line-height: 1; text-box: trim-both cap alphabetic; }
+.ct-mention-title { min-width: 0; max-width: 24ch; overflow: hidden; text-overflow: ellipsis; line-height: 1; text-box: trim-both cap alphabetic; padding-block: max(.25em, calc((16px - 1cap) / 2)); margin-block: calc(-1 * max(.25em, calc((16px - 1cap) / 2))); }
 .ct-mention-dot { position: absolute; bottom: -1px; right: -1px; width: 6px; height: 6px; border-radius: 50%; background: var(--ct-accent); box-shadow: 0 0 0 1.5px var(--ct-mention-ring); }
 .ct-mention-dot[data-activity="waiting"] { background: var(--ct-yellow); }
 .ct-mention-dot[data-activity="error"] { background: var(--ct-red); }
