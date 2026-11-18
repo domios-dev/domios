@@ -13,6 +13,7 @@ it.each([
   ["concierge_auth_needed", "Open sign-in", "open"],
   ["concierge_access_needed", "Review access", "access"],
   ["concierge_provider_refused", "Review provider", "open"],
+  ["concierge_start_failed", "Open recovery", "open"],
   ["concierge_invalid", "Ask General to fix", "setup"],
   ["concierge_crashed", "Open recovery", "open"],
   ["concierge_closed", "Ask General to fix", "setup"],

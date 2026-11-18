@@ -10,6 +10,7 @@ const RECOVERY_SENTENCES: Partial<Record<ConciergeStatus["state"], string>> = {
   concierge_auth_needed: "Sign in to continue with this concierge.",
   concierge_access_needed: "This concierge can't continue until you review its access.",
   concierge_provider_refused: "This concierge's provider is unavailable.",
+  concierge_start_failed: "This concierge couldn't start. Open its tab for recovery options.",
   concierge_crashed: "This concierge has stopped.",
 };
 

@@ -159,6 +159,11 @@ fn failed_concierge_projects_auth_provider_crash_and_closed_without_changing_pen
             "concierge_crashed",
         ),
         (
+            json!({"state":"degraded","failureCode":"runtime_start_unbound"}),
+            BootStage::AgentLaunching,
+            "concierge_start_failed",
+        ),
+        (
             Value::Null,
             BootStage::SpawnFailed,
             "concierge_provider_refused",

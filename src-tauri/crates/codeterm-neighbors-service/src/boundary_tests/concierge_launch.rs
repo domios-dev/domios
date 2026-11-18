@@ -13,7 +13,7 @@ module.exports = {
   },
   runtimeResponse(ctx, op, state, reply) {
     if (op.kind === 'initialize') return {kind:'complete',result:{kind:'initialized'}};
-    if (op.kind === 'openThread') return {kind:'complete',result:{kind:'threadLoaded',threadId:'fresh-thread',settings:reply.value.settings}};
+    if (op.kind === 'openThread') return {kind:'complete',result:{kind:'threadLoaded',threadId:ctx.tabId,settings:reply.value.settings}};
     return {kind:'complete',result:{kind:'historyPage',threadId:op.threadId,items:[],openItems:[],...(op.order ? {order:op.order} : {})}};
   },
   runtimeReduce() { return {state:null,events:[]}; }
@@ -66,10 +66,10 @@ async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy
             ..Default::default()
         };
         let registrations = Arc::new(parking_lot::Mutex::new(Vec::new()));
-        let captured = registrations.clone();
-        let result = service.apply_neighbor_permission_with(&metadata, "owner", &friendship, permission.clone(),
-            service.neighbor_history_generation(), |_, _, cwd, grant, resume, _| async move {
-                assert!(resume.is_none());
+        let create = |cwd: String, grant: Permission| {
+            let captured = registrations.clone();
+            let workspace = workspace.clone();
+            async move {
                 let id = service.mux.write().create_tab(&workspace).unwrap();
                 {
                     let mut mux = service.mux.write();
@@ -81,21 +81,53 @@ async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy
                     };
                     tab.cwd = Some(cwd.clone());
                     tab.neighbor_authority = Some(crate::multiplexer::types::NeighborAuthority {
-                        uid:"owner".into(),friendship_id:"a".repeat(64),root_tab_id:None,
+                        uid: "owner".into(),
+                        friendship_id: "a".repeat(64),
+                        root_tab_id: None,
                     });
                 }
                 service.ensure_session_binding_nonce(&id);
-                let mut params = SpawnAgentParams { agent:Some("confined-runtime".into()),cwd:Some(cwd),
-                    sandbox:Some(if grant.machine_access == MachineAccess::ReadOnly {"read-only"} else {"workspace-write"}.into()),
-                    neighbor_authority:service.mux.read().get_tab(&id).unwrap().neighbor_authority.clone(), ..Default::default() };
-                service.configure_neighbor_launch_access("confined-runtime", grant.machine_access, &mut params)
+                let mut params = SpawnAgentParams {
+                    agent: Some("confined-runtime".into()),
+                    cwd: Some(cwd),
+                    sandbox: Some(
+                        if grant.machine_access == MachineAccess::ReadOnly {
+                            "read-only"
+                        } else {
+                            "workspace-write"
+                        }
+                        .into(),
+                    ),
+                    neighbor_authority: service
+                        .mux
+                        .read()
+                        .get_tab(&id)
+                        .unwrap()
+                        .neighbor_authority
+                        .clone(),
+                    ..Default::default()
+                };
+                service
+                    .configure_neighbor_launch_access(
+                        "confined-runtime",
+                        grant.machine_access,
+                        &mut params,
+                    )
                     .expect("fixture access is supported");
-                service.prepare_agent_runtime_launch_options(&id, &params)
+                service
+                    .prepare_agent_runtime_launch_options(&id, &params)
                     .expect("fixture runtime launch options are valid");
                 let bound = id.clone();
+                let initialized = Arc::new(tokio::sync::Notify::new());
+                let release = Arc::new(tokio::sync::Notify::new());
+                let starts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let (entered, proceed, started) =
+                    (initialized.clone(), release.clone(), starts.clone());
                 captured.lock().push(test_ports::register(&id, move || {
+                    started.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let (process, peer) = test_ports::connected();
                     let expected = bound.clone();
+                    let (entered, proceed) = (entered.clone(), proceed.clone());
                     crate::async_runtime::spawn(async move {
                         let (reader, mut writer) = tokio::io::split(peer);
                         let mut lines = BufReader::new(reader).lines();
@@ -104,6 +136,10 @@ async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy
                             let policy = &call["params"]["policy"];
                             assert_eq!(policy["tabId"], expected);
                             assert_eq!(policy["metadataDirectory"], ".runtime-policy");
+                            if call["method"] == "fixture/initialize" {
+                                entered.notify_one();
+                                proceed.notified().await;
+                            }
                             let reply = json!({"jsonrpc":"2.0","id":call["id"],"result":{"settings":call["params"]["settings"]}});
                             if writer.write_all(format!("{reply}\n").as_bytes()).await.is_err() { break; }
                         }
@@ -112,13 +148,66 @@ async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy
                 }));
                 let owner = service.clone();
                 let target = id.clone();
-                tokio::task::spawn_blocking(move || agent_runtime::transport::launch(&owner, "confined-runtime", &target, json!({})))
-                    .await.unwrap().expect("confined runtime launches");
+                let mut launch = tokio::task::spawn_blocking(move || {
+                    agent_runtime::transport::launch(&owner, "confined-runtime", &target, json!({}))
+                });
+                tokio::select! {
+                    result = &mut launch => panic!("launch finished before initialization: {result:?}"),
+                    () = initialized.notified() => {}
+                }
+                {
+                    let second_start = agent_runtime::engine::ensure(service, &id);
+                    tokio::pin!(second_start);
+                    tokio::select! {
+                        biased;
+                        _ = &mut second_start => panic!("concurrent startup finished before initialization was released"),
+                        () = std::future::ready(()) => release.notify_one(),
+                    }
+                    launch.await.unwrap().expect("confined runtime launches");
+                    second_start
+                        .await
+                        .expect("concurrent startup reuses the bound runtime");
+                }
+                assert_eq!(starts.load(std::sync::atomic::Ordering::Relaxed), 1);
                 Ok(id)
-            }).await.unwrap();
+            }
+        };
+        let apply = || {
+            service.apply_neighbor_permission_with(
+                &metadata,
+                "owner",
+                &friendship,
+                permission.clone(),
+                service.neighbor_history_generation(),
+                |_, _, cwd, grant, resume, _| {
+                    assert!(resume.is_none());
+                    create(cwd, grant)
+                },
+            )
+        };
+        let first = apply().await.unwrap()["gateway_tab"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let second = service
+            .replace_neighbor_concierge_with(
+                &metadata,
+                &friendship,
+                false,
+                Default::default(),
+                &create,
+            )
+            .await
+            .unwrap();
+        assert_ne!(second, first);
+        assert!(service.mux.read().get_tab(&first).is_none());
+        assert!(service.neighbor_gateway_ready(&second));
+        let result = apply().await.unwrap();
         let id = result["gateway_tab"].as_str().unwrap();
+        assert_ne!(id, second);
+        assert!(service.mux.read().get_tab(&second).is_none());
         let tab = service.mux.read().get_tab(id).unwrap().clone();
-        assert_eq!(tab.agent_session_id.as_deref(), Some("fresh-thread"));
+        assert_eq!(tab.agent_session_id.as_deref(), Some(id));
         assert!(service.neighbor_gateway_ready(id));
         assert!(service.require_neighbor_restore_grant(id, false).is_ok());
         let session = agent_runtime::engine::for_tab(id).unwrap();
