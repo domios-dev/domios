@@ -10,6 +10,7 @@ import {v2Model} from "../src/runtimeV2";
 const fixture=JSON.parse(fs.readFileSync(new URL("../../../tests/fixtures/runtime-http-sse.json",import.meta.url),"utf8")) as {
   context:RuntimeContext;health:JsonValue;providers:JsonValue;integrations:JsonValue;session:JsonValue;receipt:JsonValue;history:{data:unknown[]};frames:RuntimeFrame[];interrupt:JsonValue;capability:JsonValue;
   streamAndInterrupt:{frames:RuntimeFrame[];interrupt:JsonValue};
+  sameMessageFragments:{frames:RuntimeFrame[];history:{data:unknown[]}};
   credentialFrame:RuntimeFrame;credentialCases:{name:string;createdOffset:number;nowOffset:number;expected:number;directory?:string;integration?:string;newEpoch?:boolean}[];
 };
 const copy=<T>(value:T):T=>JSON.parse(JSON.stringify(value));
@@ -151,6 +152,28 @@ check("recorded thinking, shell and text stay reconcilable across an active inte
   const completed=runtimeReduce(ctx,working.state,nextFrames.slice(1));
   assert.deepEqual(completed.events,[{kind:"turnState",threadId:ctx.threadId,turnId:"second",state:"idle",detail:"interrupted"}]);
   assert.deepEqual(runtimeReduce(ctx,completed.state,nextFrames.slice(1)).events,[]);
+});
+check("recorded resumed turn keeps reasoning and text with the same ordinal in separate rows",()=>{
+  const ctx=loaded("v2-resumed-fragments"), capture=fixture.sameMessageFragments;
+  ctx.activeTurnId="resumed-turn";
+  let state:JsonValue=null;
+  const events=capture.frames.flatMap(frame=>{
+    const reduced=runtimeReduce(ctx,state,[frame]);
+    state=reduced.state;
+    return reduced.events;
+  });
+  const rows=events.filter(event=>event.kind === "chatItem").map(event=>event.item);
+  const thinking=rows.findLast(row=>row.type === "thinking");
+  const answer=rows.findLast(row=>row.type === "assistant");
+  assert.equal(thinking?.content,"Fixture reasoning.");
+  assert.equal(answer?.content,"Fixture final.");
+  assert.notEqual(thinking?.id,answer?.id);
+  assert.deepEqual(events.filter(event=>event.kind === "chatItemAppend").map(event=>[event.itemId,event.offset,event.content]),[
+    [thinking?.id,0,"Fixture reasoning."],[answer?.id,0,"Fixture final."],
+  ]);
+  assert.deepEqual(events.at(-1),{kind:"turnState",threadId:ctx.threadId,turnId:"resumed-turn",state:"idle"});
+  const history=v2History(capture.history.data).filter(row=>row.type === "assistant" || row.type === "thinking");
+  assert.deepEqual(history.map(row=>[row.id,row.type,row.content]),[thinking,answer].map(row=>[row?.id,row?.type,row?.content]));
 });
 check("fresh default session accepts a second send after default effort confirmation",()=>{
   const ctx=initialized("v2-default-second-send","deepseek/deepseek-flash");

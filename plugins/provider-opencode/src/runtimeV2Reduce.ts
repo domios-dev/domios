@@ -79,7 +79,8 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
       continue;
     }
     if (/^session\.(text|reasoning)\./.test(type) && Number.isSafeInteger(data.ordinal) && Number(data.ordinal) >= 0) {
-      const rowId=contentId(message,Number(data.ordinal)), known=state.parts[rowId], kind=type.split(".")[1];
+      const kind=type.startsWith("session.text.") ? "text" : "reasoning";
+      const rowId=contentId(message,kind,Number(data.ordinal)), known=state.parts[rowId];
       if (known?.finished) continue;
       if (type.endsWith(".delta")) {
         if (turn && known?.turn === turn && !state.completed.includes(turn) && typeof data.delta === "string") {
