@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import type {JsonValue, Operation, RuntimeContext, RuntimeFrame, RuntimePlan, RuntimeStep} from "@codeterm/plugin-sdk";
+import type {JsonValue, Operation, RuntimeContext, RuntimeFrame, RuntimePlan, RuntimeSettings, RuntimeStep} from "@codeterm/plugin-sdk";
 import {runtimePlan,runtimeResponse,runtimeReduce} from "../src/runtime";
 import {v2History} from "../src/runtimeV2Projection";
 import {v2AuthEvents, v2LoginEvents} from "../src/runtimeV2Auth";
 import {binding} from "../src/runtimeState";
+import {v2Model} from "../src/runtimeV2";
 
 const fixture=JSON.parse(fs.readFileSync(new URL("../../../tests/fixtures/runtime-http-sse.json",import.meta.url),"utf8")) as {
   context:RuntimeContext;health:JsonValue;providers:JsonValue;integrations:JsonValue;session:JsonValue;receipt:JsonValue;history:{data:unknown[]};frames:RuntimeFrame[];interrupt:JsonValue;capability:JsonValue;
@@ -98,10 +99,48 @@ check("recorded stream maps delivery, tool lifecycle, text, forms and usage",()=
   assert.equal(items.findLast(e=>e.item.toolName === "bash")?.item.toolStatus,"completed");
   assert.match(items.findLast(e=>e.item.toolName === "bash")?.item.toolResult ?? "",/fixture-tool/);
   assert.equal(items.findLast(e=>e.item.type === "assistant")?.item.content,"Fixture tool turn complete.");
+  assert.ok(items.filter(e=>e.item.type === "assistant" || e.item.type === "thinking").every(e=>e.kind === "chatItem"));
   assert.equal(events.filter(e=>e.kind === "prompt").length,2);
   const history=v2History(fixture.history.data);
   for (const final of items.filter(e=>e.item.type !== "user")) if (final.item.toolStatus === "completed" || final.item.content === "Fixture tool turn complete.") assert.ok(history.some(row=>row.id === final.item.id));
   assert.equal(runtimeReduce(ctx,reduced.state,frames).events.length,0);
+});
+check("fresh default session accepts a second send after default effort confirmation",()=>{
+  const ctx=initialized("v2-default-second-send","deepseek/deepseek-flash");
+  ctx.threadId=undefined;
+  const open:Operation={kind:"openThread",instructions:"opaque instructions",settings:ctx.settings};
+  let plan=runtimePlan(ctx,open);
+  assert.deepEqual((call(plan).params as Record<string,JsonValue>).body,{
+    location:{directory:ctx.cwd},permissions:[{action:"*",resource:"*",effect:"ask"}],model:{providerID:"deepseek",id:"deepseek-flash"},
+  });
+  plan=continued(response(ctx,open,plan,fixture.session));
+  assert.equal(response(ctx,open,plan,null).kind,"complete");
+  ctx.threadId=fixture.context.threadId;
+  const first:Operation={kind:"submitTurn",threadId:ctx.threadId!,sendId:"send-owned",input:ctx.claimedSends[0].input,settings:ctx.settings};
+  plan=runtimePlan(ctx,first);
+  const id=String(((call(plan).params as Record<string,JsonValue>).body as Record<string,JsonValue>).id);
+  const frames=JSON.parse(JSON.stringify(fixture.frames).replaceAll("@message",id)) as RuntimeFrame[];
+  for (const frame of frames) {
+    const event=frame.params as Record<string,JsonValue>;
+    if(event.type === "session.step.started") (event.data as Record<string,JsonValue>).model={providerID:"deepseek",id:"deepseek-flash",variant:"default"};
+  }
+  ctx.streamWindow={frameSequences:frames.map((_,i)=>101+i),turnRequests:[{sendId:first.sendId,turnId:id,afterSequence:100,written:true}]};
+  assert.equal(response(ctx,first,plan,JSON.parse(JSON.stringify(fixture.receipt).replaceAll("@message",id))).kind,"complete");
+  const reduced=runtimeReduce(ctx,null,frames);
+  assert.ok(reduced.events.some(e=>e.kind === "turnState" && e.state === "idle"));
+  for(const event of reduced.events) if(event.kind === "controlsConfirmed") ctx.settings={...ctx.settings,...event.settings};
+  assert.deepEqual(ctx.settings,{model:"deepseek/deepseek-flash",effort:"default"});
+  ctx.claimedSends=[{...ctx.claimedSends[0],sendId:"second-send"}];
+  const second:Operation={...first,sendId:"second-send",settings:ctx.settings};
+  const secondCall=call(runtimePlan(ctx,second)), secondBody=(secondCall.params as {body:{id:string}}).body;
+  assert.equal(secondCall.method,"v2.session.prompt");
+  assert.deepEqual(secondCall.params,{path:{sessionID:ctx.threadId},body:{id:secondBody.id,text:second.input.text,files:[]}});
+  for(const effort of [undefined,"","default",null]) assert.deepEqual(v2Model(copy({model:ctx.settings.model,effort}) as RuntimeSettings),{providerID:"deepseek",id:"deepseek-flash"});
+  for(const settings of [{model:ctx.settings.model,effort:"high"},{model:"another/model",effort:"default"}]) {
+    assert.throws(()=>runtimePlan(ctx,{...second,sendId:"changed-settings",settings}),{code:"unsupported",message:"OpenCode model changes require restarting the same session"});
+  }
+  binding(ctx).settings={model:ctx.settings.model,effort:"high"};
+  assert.throws(()=>runtimePlan(ctx,{...second,sendId:"clear-effort"}),{code:"unsupported"});
 });
 check("durable receipts acknowledge input while late stream events prove delivery",()=>{
   const {ctx,op,plan,receipt,frames}=prepared("v2-receipt"), step=response(ctx,op,plan,receipt);

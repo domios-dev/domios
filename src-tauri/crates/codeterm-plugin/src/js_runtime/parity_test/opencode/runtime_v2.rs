@@ -127,6 +127,13 @@ async fn opencode_v2_recorded_tool_permission_text_and_history_match_quickjs() {
     assert!(events
         .iter()
         .any(|event| event["item"]["content"] == "Fixture tool turn complete."));
+    assert!(events
+        .iter()
+        .filter(|event| matches!(
+            event["item"]["type"].as_str(),
+            Some("assistant" | "thinking")
+        ))
+        .all(|event| event["kind"] == "chatItem"));
     assert!(provider
         .runtime_reduce(&context, &reduction.state, &frames)
         .await
@@ -143,6 +150,30 @@ async fn opencode_v2_recorded_tool_permission_text_and_history_match_quickjs() {
             ..
         }
     ));
+    context.settings.effort = Some("default".into());
+    context.claimed_sends[0].send_id = "second-send".into();
+    let second = RuntimeOperation::SubmitTurn {
+        thread_id: "ses_owned".into(),
+        active_turn_id: None,
+        send_id: "second-send".into(),
+        input: context.claimed_sends[0].input.clone(),
+        settings: context.settings.clone(),
+    };
+    let RuntimeAction::Request { call } = provider
+        .runtime_plan(&context, &second)
+        .await
+        .unwrap()
+        .action
+    else {
+        panic!("second default-effort turn must send a plain prompt")
+    };
+    assert_eq!(call.method, "v2.session.prompt");
+    assert_eq!(call.params["path"], json!({"sessionID":"ses_owned"}));
+    assert_eq!(
+        call.params["body"]["text"],
+        context.claimed_sends[0].input.text
+    );
+    assert!(call.params["body"].get("model").is_none());
     for frame in frames
         .iter()
         .filter(|frame| matches!(frame, RuntimeFrame::Request { .. }))

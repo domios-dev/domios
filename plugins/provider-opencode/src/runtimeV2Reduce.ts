@@ -85,7 +85,7 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
       } else {
         const seq=known?.seq ?? ++state.seq, content=type.endsWith(".ended") ? String(data.text ?? "") : "";
         const row=v2Content(message,{type:kind,text:content},Number(data.ordinal),seq);
-        if (row) {emit(row,!!known);state.parts[rowId]={seq,bytes:utf8Length(content),part:{}};}
+        if (row) {emit(row,false);state.parts[rowId]={seq,bytes:utf8Length(content),part:{}};}
       }
       continue;
     }

@@ -2336,7 +2336,8 @@ function v2History(raw) {
 // plugins/provider-opencode/src/runtimeV2.ts
 function v2Model(settings) {
   const model = modelParts(settings.model);
-  return model ? { providerID: model.providerID, id: model.modelID, ...settings.effort ? { variant: settings.effort } : {} } : void 0;
+  const variant = settings.effort && settings.effort !== "default" ? settings.effort : void 0;
+  return model ? { providerID: model.providerID, id: model.modelID, ...variant ? { variant } : {} } : void 0;
 }
 function prompt(op, id) {
   const plan = request("v2.session.prompt", { path: { sessionID: op.threadId }, body: { id, text: op.input.text, files: op.input.attachments.map((attachment) => ({ uri: attachmentUrl(attachment) })) } }, { stage: "prompt", id });
@@ -2548,7 +2549,7 @@ function v2Reduce(ctx, raw, frames) {
         const seq = known?.seq ?? ++state.seq, content = type.endsWith(".ended") ? String(data.text ?? "") : "";
         const row = v2Content(message, { type: kind, text: content }, Number(data.ordinal), seq);
         if (row) {
-          emit(row, !!known);
+          emit(row, false);
           state.parts[rowId] = { seq, bytes: utf8Length(content), part: {} };
         }
       }
