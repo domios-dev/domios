@@ -15,12 +15,32 @@ fn versioned_legacy_and_fresh_converge_and_backfill_owner() {
     legacy.execute_batch(include_str!("legacy.sql")).unwrap();
     let before = columns(&legacy, "mem_items");
     assert!(!before.contains(&"author_kind".into()));
+    assert!(!before.contains(&"neighbor_skill_authorized".into()));
     init_schema(&legacy).unwrap();
     let fresh = Connection::open_in_memory().unwrap();
     init_schema(&fresh).unwrap();
-    let expected = "id uid kind scope title summary area tags_json body_inline body_blob_path source importance created_at updated_at accessed_at access_count recurrence_count source_path source_size source_mtime evidence_count false_fire_count promotion_threshold is_pinned_wakeup seed_fingerprint author_kind author_uid author_friendship author_label".split_whitespace().map(str::to_string).collect::<Vec<_>>();
+    let expected = "id uid kind scope title summary area tags_json body_inline body_blob_path source importance created_at updated_at accessed_at access_count recurrence_count source_path source_size source_mtime evidence_count false_fire_count promotion_threshold is_pinned_wakeup seed_fingerprint author_kind author_uid author_friendship author_label neighbor_skill_authorized".split_whitespace().map(str::to_string).collect::<Vec<_>>();
     assert_eq!(columns(&legacy, "mem_items"), expected);
     assert_eq!(columns(&fresh, "mem_items"), expected);
+    for conn in [&legacy, &fresh] {
+        let authorization_column: (String, i64, String) = conn
+            .query_row(
+                "SELECT type, \"notnull\", dflt_value FROM pragma_table_info('mem_items')
+                 WHERE name = 'neighbor_skill_authorized'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(authorization_column, ("INTEGER".into(), 1, "0".into()));
+    }
+    let legacy_authorization: i64 = legacy
+        .query_row(
+            "SELECT neighbor_skill_authorized FROM mem_items WHERE id = 'legacy'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(legacy_authorization, 0);
     assert_eq!(
         columns(&legacy, "mem_item_history"),
         columns(&fresh, "mem_item_history")
