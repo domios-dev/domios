@@ -138,7 +138,7 @@ pub struct RuntimeMaps {
     epoch: u64,
     restore_binding: Option<RestoreBinding>,
     current_turns: HashMap<String, String>,
-    append_failures: HashSet<(String, String)>,
+    reconciliation_misses: HashSet<(String, String)>,
     items: Vec<StoredItem>,
     threads: HashMap<String, Option<String>>,
     requests: HashMap<String, bool>,
@@ -279,7 +279,8 @@ pub fn translate_with_items(
                 item: next,
             });
         }
-        return row_notice(maps, thread_id, &item.id);
+        log_reconciliation_miss(maps, thread_id, &item.id, "patch");
+        return None;
     }
     if let AgentRuntimeEvent::ChatItemAppend {
         thread_id,
@@ -309,21 +310,20 @@ pub fn translate_with_items(
                 });
             }
         }
-        return row_notice(maps, thread_id, item_id);
+        log_reconciliation_miss(maps, thread_id, item_id, "append");
+        return None;
     }
     Some(translate(event))
 }
 
-fn row_notice(maps: &mut RuntimeMaps, thread: &str, item: &str) -> Option<RuntimeEvent> {
-    if maps.append_failures.len() >= LIVE_ITEM_CAP
-        || !maps.append_failures.insert((thread.into(), item.into()))
+fn log_reconciliation_miss(maps: &mut RuntimeMaps, thread: &str, item: &str, operation: &str) {
+    if maps.reconciliation_misses.len() < LIVE_ITEM_CAP
+        && maps
+            .reconciliation_misses
+            .insert((thread.into(), item.into()))
     {
-        return None;
+        log::debug!("[runtime-stream] reconciliation miss operation={operation} thread={thread} item={item}");
     }
-    Some(RuntimeEvent::Notice {
-        thread_id:thread.into(),
-        message:"Streamed row could not be continued because its retained content or active turn is unavailable.".into(),
-    })
 }
 
 pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
@@ -386,11 +386,9 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             resets: resets.clone(),
             account_credits: account_credits.clone(),
         },
-        AgentRuntimeEvent::ChatItemAppend { thread_id, .. }
-        | AgentRuntimeEvent::ChatItemPatch { thread_id, .. } => RuntimeEvent::Notice {
-            thread_id: thread_id.clone(),
-            message: "Streamed row requires retained content.".into(),
-        },
+        AgentRuntimeEvent::ChatItemAppend { .. } | AgentRuntimeEvent::ChatItemPatch { .. } => {
+            unreachable!("stream updates require translate_with_items")
+        }
         AgentRuntimeEvent::ChatItem { thread_id, item } => RuntimeEvent::ItemUpdated {
             thread_id: thread_id.clone(),
             item: item.clone(),

@@ -37,7 +37,13 @@ export function v2Plan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       claimed(ctx,{sendId:op.sendId,messageId:id,turnId:id});
       return prompt(op,id);
     }
-    case "interrupt": return request("v2.session.abort",{path:{sessionID:own(ctx,op.threadId)},query:{resume:"false"},body:{}});
+    case "interrupt": {
+      const threadId=own(ctx,op.threadId);
+      const turnId=op.activeTurnId ?? ctx.activeTurns.find(turn=>turn.threadId === threadId)?.turnId;
+      const plan=request("v2.session.abort",{path:{sessionID:threadId},query:{resume:"false"},body:{}});
+      if (plan.action.kind === "request") plan.action.call.target={threadId,...(turnId ? {turnId} : {})};
+      return plan;
+    }
     case "answer": return v2Answer(ctx,op);
     case "control":
       if (op.action === "auth") return request("v2.provider.list",{query:{"location[directory]":ctx.cwd}},{stage:"authProviders"});
@@ -98,7 +104,7 @@ export function v2Response(ctx:RuntimeContext, op:Operation, state:Record<string
     }
     case "interrupt":
       if (typeof value.interrupted !== "boolean") return refused("OpenCode did not acknowledge the interrupt");
-      return done(value.interrupted && op.activeTurnId ? [{kind:"turnState",threadId:op.threadId,turnId:op.activeTurnId,state:"idle",detail:"interrupted"}] : []);
+      return done();
     case "answer": return body === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
     case "control":
       if (op.action === "auth") {
