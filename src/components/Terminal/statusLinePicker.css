@@ -209,7 +209,7 @@ button.ct-status-identity:focus-visible {
   mask-image: linear-gradient(to bottom, transparent, black 4px, black calc(100% - 4px), transparent);
 }
 
-.ct-model-picker__list > [role="group"] {
+.ct-model-picker__list [role="listbox"]:not([hidden]) {
   display: flex;
   flex-direction: column;
   gap: 1px;

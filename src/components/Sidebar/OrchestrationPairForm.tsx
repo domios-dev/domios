@@ -3,6 +3,7 @@ import type { ProviderDescriptor } from "../../lib/types";
 import { AgentIcon } from "../AgentIcon";
 import { ListChecks, Workflow } from "lucide-react";
 import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
+import { pickerModelGroups } from "../Terminal/statusLinePickerModel";
 import { reasoningEffortsForModel, resolveEffort } from "../../lib/newSessionChoice";
 import { RoleModelButton } from "./RoleModelButton";
 
@@ -111,7 +112,8 @@ export function OrchestrationRoleRow({
     value: e.id,
     label: `${e.display_name.charAt(0).toUpperCase()}${e.display_name.slice(1)}`,
   }));
-  const pill = compact && modelControls && !modelSlot && !awaitingProvider;
+  const hasModelGroups = provider && pickerModelGroups(provider, modelId, "", true).some(group => group.label);
+  const pill = (compact || hasModelGroups) && modelControls && !modelSlot && !awaitingProvider;
   return (
     <div className="orchestration-role-row flex flex-col gap-1.5" data-testid={`orchestration-role-${label.toLowerCase()}`}>
       <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{heading ?? label}</div>
@@ -131,9 +133,9 @@ export function OrchestrationRoleRow({
         </div>
         {modelSlot && <div className="flex-1 min-w-0">{modelSlot}</div>}
         {pill && <div className="flex-1 min-w-0">
-          <RoleModelButton label={label} provider={provider} modelId={modelId} effortId={effortId} disabled={locked} testId={modelTestId}
+          <RoleModelButton label={label} provider={provider} modelId={modelId} effortId={effortId} disabled={locked} testId={modelTestId} immediate={!compact}
             onChange={(nextModel, nextEffort) => {
-              if (onSelectionChange) onSelectionChange(nextModel, nextEffort);
+              if (compact && onSelectionChange) onSelectionChange(nextModel, nextEffort);
               else onModelChange(nextModel);
             }} />
         </div>}
@@ -150,7 +152,7 @@ export function OrchestrationRoleRow({
         </div>}
         {accountSlot && <div className="min-w-0 max-w-full">{accountSlot}</div>}
       </div>
-      {!pill && modelControls && efforts.length > 0 && onEffortChange && (
+      {(!pill || !compact) && modelControls && efforts.length > 0 && onEffortChange && (
         <div className="min-w-0">
           <DropdownSelect
             data-testid={effortTestId}

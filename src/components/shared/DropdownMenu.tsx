@@ -1,5 +1,6 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useId, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import type { ComponentProps } from "react";
 import { AnchoredPopover, type AnchoredPopoverProps } from "./AnchoredPopover";
 import { groupOptionsByLabel } from "../../lib/optionGroups";
 import { useBackDismissal } from "../../lib/backDismissal";
@@ -70,6 +71,30 @@ function isGroup(entry: DropdownMenuEntry): entry is DropdownMenuGroup {
 
 function groupKeyOf(group: DropdownMenuGroup): string {
   return group.groupKey ?? group.label;
+}
+
+export function DropdownGroupLabel({ expanded, children, onClick, onKeyDown, ...props }: Omit<ComponentProps<"button">, "aria-expanded"> & { expanded: boolean }) {
+  return (
+    <button
+      {...props}
+      type="button"
+      aria-expanded={expanded}
+      className="ct-menu-group-label"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick?.(event);
+      }}
+      onKeyDown={(event) => {
+        onKeyDown?.(event);
+        if (event.defaultPrevented || (event.key !== "Enter" && event.key !== " ")) return;
+        event.preventDefault();
+        if (!event.repeat) event.currentTarget.click();
+      }}
+    >
+      {expanded ? <ChevronDown aria-hidden size={12} /> : <ChevronRight aria-hidden size={12} />}
+      <span className="truncate">{children}</span>
+    </button>
+  );
 }
 
 function itemKey(item: DropdownMenuItem): string {
@@ -427,22 +452,14 @@ export function DropdownMenu({
             ) : isGroup(entry) ? (
               <div key={`group:${groupKeyOf(entry)}`} role="group" aria-label={entry.label || undefined}>
                 {entry.label && (
-                  <button
-                    type="button"
+                  <DropdownGroupLabel
                     role="menuitem"
-                    aria-expanded={!collapsedGroups.has(groupKeyOf(entry))}
+                    expanded={!collapsedGroups.has(groupKeyOf(entry))}
                     data-testid={entry["data-testid"]}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleGroup(groupKeyOf(entry));
-                    }}
-                    className="ct-menu-group-label"
+                    onClick={() => toggleGroup(groupKeyOf(entry))}
                   >
-                    {collapsedGroups.has(groupKeyOf(entry))
-                      ? <ChevronRight aria-hidden size={12} />
-                      : <ChevronDown aria-hidden size={12} />}
-                    <span className="truncate">{entry.label}</span>
-                  </button>
+                    {entry.label}
+                  </DropdownGroupLabel>
                 )}
                 {!collapsedGroups.has(groupKeyOf(entry)) && entry.items.map((item, j) => (
                   <DropdownMenuRow

@@ -37,11 +37,13 @@ import {
   type StatusLineTabFacts,
 } from "./statusLinePickerModel";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
+import { DropdownGroupLabel } from "../shared/DropdownMenu";
 
-import { readPickerShowAll, writePickerShowAll } from "./statusLinePickerPreference";
+import { readPickerGroupExpansion, readPickerShowAll, writePickerGroupExpansion, writePickerShowAll } from "./statusLinePickerPreference";
 
 const PICKER_WIDTH = 300;
 const OPTION_SELECTOR = '[role="option"]:not([aria-disabled="true"])';
+const GROUP_SELECTOR = 'button[data-model-group]';
 const FOOTER_BUTTON = {
   ghost: `${UI_BUTTON.ghost} ${UI_BUTTON.compact}`,
   primary: `${UI_BUTTON.primary} ${UI_BUTTON.compact}`,
@@ -300,6 +302,7 @@ export function ModelPickerPopover({
   serviceTierAvailability,
   showReasoning = true,
   showAdvanced = true,
+  immediate = false,
   runtimeControls,
   hostApprovals,
   hostAskScope,
@@ -321,6 +324,7 @@ export function ModelPickerPopover({
   showReasoning?: boolean;
   /** Off where the caller keeps only model and effort, so speed, mode and runtime controls would be dropped. */
   showAdvanced?: boolean;
+  immediate?: boolean;
   runtimeControls?: import("@codeterm/plugin-sdk").RuntimeSettings;
   hostApprovals?: HostApprovalsValue;
   hostAskScope?: RuntimeAskScope;
@@ -337,6 +341,7 @@ export function ModelPickerPopover({
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [showAll, setShowAll] = useState(() => readPickerShowAll(descriptor.id));
+  const [expansion, setExpansion] = useState(() => readPickerGroupExpansion(descriptor.id));
   const [staged, setStaged] = useState<PickerSelection | null>(
     failure?.selection ?? pickerSelection(descriptor, currentModel ?? "", currentEffort, currentServiceTier, currentRuntimeMode),
   );
@@ -344,8 +349,11 @@ export function ModelPickerPopover({
   const [restartFallback, setRestartFallback] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(failure?.busy ? null : failure?.message ?? null);
-  const searchable = pickerNeedsSearch(descriptor);
-  const groups = pickerModelGroups(descriptor, staged?.model, query, showAll, currentModel);
+  const browseGroups = pickerModelGroups(descriptor, staged?.model, "", showAll || immediate, currentModel);
+  const searchable = pickerNeedsSearch(descriptor) || browseGroups.length > 1;
+  const groups = searchOpen ? pickerModelGroups(descriptor, staged?.model, query, true, currentModel) : browseGroups;
+  const currentGroup = browseGroups.find(group => group.rows.some(row =>
+    matchesModel({ id: row.id, display_name: row.label }, currentModel)));
   const sections = pickerSections({ descriptor, controls: runtimeControls, model: staged?.model ?? currentModel, effort: staged?.effort ?? currentEffort, runtimeMode: staged?.runtimeMode ?? currentRuntimeMode, serviceTier: staged?.serviceTier ?? currentServiceTier, serviceTierAvailability, hostApprovals, hostAskScope, hostFullAccess });
   const effortSetting = sections.find(section => section.category === "effort");
   const extraSettings = showAdvanced ? sections.filter(section => section.category !== "model" && section.category !== "effort") : [];
@@ -359,7 +367,7 @@ export function ModelPickerPopover({
       return;
     }
     const selected = popoverRef.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]');
-    (selected ?? popoverRef.current?.querySelector<HTMLElement>(OPTION_SELECTOR))?.focus({ preventScroll: true });
+    (selected ?? popoverRef.current?.querySelector<HTMLElement>(`${OPTION_SELECTOR}, ${GROUP_SELECTOR}`))?.focus({ preventScroll: true });
   }, [searchOpen]);
 
   function apply(selection: PickerSelection, restart = false) {
@@ -386,7 +394,12 @@ export function ModelPickerPopover({
   }
 
   function chooseModel(model: string) {
-    choose(withModel(model));
+    const next = withModel(model);
+    if (immediate) {
+      apply(next);
+      return;
+    }
+    choose(next);
     closeSearch();
   }
 
@@ -424,7 +437,7 @@ export function ModelPickerPopover({
   }
 
   function onListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    const options = Array.from(popoverRef.current?.querySelectorAll<HTMLElement>(OPTION_SELECTOR) ?? []);
+    const options = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(`${OPTION_SELECTOR}, ${GROUP_SELECTOR}`));
     if (options.length === 0) return;
     const index = options.indexOf(document.activeElement as HTMLElement);
     const target = event.key === "ArrowDown" ? options[Math.min(options.length - 1, index + 1)]
@@ -436,11 +449,18 @@ export function ModelPickerPopover({
     target.focus();
   }
 
+  function setGroupExpanded(label: string, expanded: boolean) {
+    const next = new Map(expansion).set(label, expanded);
+    setExpansion(next);
+    writePickerGroupExpansion(descriptor.id, next);
+  }
+
   const stagedLabel = descriptor.available_models.find((model) => model.id === confirming?.model)?.display_name
     ?? confirming?.model;
 
   return (
-    <AnchoredPopover open anchor={triggerRef} placement="top-start" width={PICKER_WIDTH} onClose={onClose}>
+    <AnchoredPopover open anchor={triggerRef} placement="top-start" width={PICKER_WIDTH} onClose={onClose}
+      portalContainer={triggerRef.current?.closest('[aria-modal="true"]')}>
     <div
       ref={popoverRef}
       role="dialog"
@@ -455,7 +475,7 @@ export function ModelPickerPopover({
         event.stopPropagation();
         if (event.code === "Escape") onClose();
         else if (confirming) void apply(confirming, restartFallback);
-        else commit();
+        else if (!immediate) commit();
       }}
     >
       <div className="ct-model-picker__head">
@@ -517,46 +537,70 @@ export function ModelPickerPopover({
           </button>
         </div>
       )}
-      <div role="listbox" aria-label="Models" className="ct-model-picker__list" onKeyDown={onListKeyDown}>
+      <div className="ct-model-picker__list" onKeyDown={onListKeyDown}>
         {groups.length === 0 && <p className="ct-model-picker__empty">{query.trim() ? `No model matches “${query.trim()}”.` : "Model catalogue is unavailable."}</p>}
-        {groups.map((group) => (
-          <div key={group.label || "models"} role="group" aria-label={group.label || "Models"}>
-            {group.label && <div className="ct-menu-caption">{group.label}</div>}
-            {group.rows.map((row) => {
-              const isCurrent = matchesModel({ id: row.id, display_name: row.label }, currentModel);
-              return (
-              <div
-                key={row.id}
-                role="option"
-                tabIndex={-1}
-                aria-label={[row.label, row.badge, isCurrent ? "current" : null].filter(Boolean).join(", ")}
-                aria-selected={row.current}
-                aria-disabled={row.unavailable || busy || undefined}
-                data-current={isCurrent || undefined}
-                className="ct-menu-row ct-model-picker__option"
-                title={row.unavailable ? "Not available on this account" : row.id}
-                onClick={() => { if (!row.unavailable && !busy) chooseModel(row.id); }}
-                onKeyDown={(event) => {
-                  const enter = event.code === "Enter" || event.code === "NumpadEnter";
-                  if (event.code !== "Space" && !enter) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  if (row.unavailable || busy) return;
-                  if (enter) pickModel(row.id);
-                  else chooseModel(row.id);
-                }}
-              >
-                <span className="ct-model-picker__name">{row.label}</span>
-                {row.badge && <span className="ct-model-picker__badge">{row.badge}</span>}
-                {isCurrent && <span className="ct-model-picker__current">current</span>}
-                {row.current && <Check size={13} strokeWidth={2.5} aria-hidden="true" className="ct-model-picker__check" />}
+        {groups.map((group, index) => {
+          const collapsible = Boolean(group.label) && !searchOpen;
+          const expanded = !collapsible || (expansion.get(group.label) ?? (groups.length === 1 || group === (currentGroup ?? groups[0])));
+          const groupId = `${titleId}-group-${index}`;
+          const count = `${group.rows.length} ${group.rows.length === 1 ? "model" : "models"}`;
+          return (
+            <div key={group.label}>
+              {collapsible ? (
+                <DropdownGroupLabel
+                  data-model-group=""
+                  expanded={expanded}
+                  aria-controls={groupId}
+                  aria-label={`${group.label}, ${count}, ${expanded ? "expanded" : "collapsed"}`}
+                  onClick={() => setGroupExpanded(group.label, !expanded)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                    event.preventDefault();
+                    const open = event.key === "ArrowRight";
+                    if (open !== expanded) setGroupExpanded(group.label, open);
+                  }}
+                >
+                  {group.label}
+                </DropdownGroupLabel>
+              ) : group.label && <div className="ct-menu-caption">{group.label}</div>}
+              <div id={groupId} role="listbox" aria-label={group.label || "Models"} hidden={!expanded}>
+                {expanded && group.rows.map((row) => {
+                  const isCurrent = matchesModel({ id: row.id, display_name: row.label }, currentModel);
+                  return (
+                  <div
+                    key={row.id}
+                    role="option"
+                    tabIndex={-1}
+                    aria-label={[row.label, row.badge, isCurrent ? "current" : null].filter(Boolean).join(", ")}
+                    aria-selected={row.current}
+                    aria-disabled={row.unavailable || busy || undefined}
+                    data-current={isCurrent || undefined}
+                    className="ct-menu-row ct-model-picker__option"
+                    title={row.unavailable ? "Not available on this account" : row.id}
+                    onClick={() => { if (!row.unavailable && !busy) chooseModel(row.id); }}
+                    onKeyDown={(event) => {
+                      const enter = event.code === "Enter" || event.code === "NumpadEnter";
+                      if (event.code !== "Space" && !enter) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (row.unavailable || busy) return;
+                      if (enter && !immediate) pickModel(row.id);
+                      else chooseModel(row.id);
+                    }}
+                  >
+                    <span className="ct-model-picker__name">{row.label}</span>
+                    {row.badge && <span className="ct-model-picker__badge">{row.badge}</span>}
+                    {isCurrent && <span className="ct-model-picker__current">current</span>}
+                    {row.current && <Check size={13} strokeWidth={2.5} aria-hidden="true" className="ct-model-picker__check" />}
+                  </div>
+                  );
+                })}
               </div>
-              );
-            })}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
-      {!searchOpen && pickerHasPrimaryModels(descriptor) && (
+      {!immediate && !searchOpen && pickerHasPrimaryModels(descriptor) && (
         <button
           type="button"
           className="ct-menu-row ct-model-picker__toggle"
@@ -570,7 +614,7 @@ export function ModelPickerPopover({
           {showAll ? "Show primary models" : "Show all models"}
         </button>
       )}
-      <div role="separator" className="ct-menu-separator" />
+      {!immediate && <div role="separator" className="ct-menu-separator" />}
       {!searchOpen && ((showReasoning && effortSetting) || extraSettings.length > 0) && (
         <div className="ct-model-picker__settings">
           {showReasoning && effortSetting && stagedEffort && <PickerSettingSection section={{ ...effortSetting, current: stagedEffort }} busy={busy}
@@ -614,7 +658,7 @@ export function ModelPickerPopover({
             </button>
           </div>
         </div>
-      ) : (
+      ) : !immediate && (
         <div className="ct-model-picker__footer">
           {gate.timing !== "next_turn" && <p className="ct-model-picker__note">{gate.note}</p>}
           <div className="ct-model-picker__actions">
