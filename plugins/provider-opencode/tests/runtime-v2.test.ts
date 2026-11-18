@@ -90,6 +90,21 @@ check("events before and during restarted initialization preserve the v2 mapper"
       if (step.kind === "continue") plan=step.plan;
       else {assert.equal(step.kind,"complete");if(step.kind === "complete") assert.deepEqual(step.result,{kind:"threadLoaded",threadId:ctx.threadId,settings:ctx.settings});}
     }
+    const page:Operation={kind:"readHistory",threadId:resume.threadId,order:"desc"};
+    plan=runtimePlan(ctx,page);
+    assert.equal(call(plan).method,"v2.session.messages");
+    const firstPage=response(ctx,page,plan,{data:fixture.history.data,cursor:{next:"opaque:next/+="}});
+    if (firstPage.kind !== "complete" || firstPage.result.kind !== "historyPage") throw new Error("history page required");
+    assert.ok(firstPage.result.items.length);
+    const older={...page,cursor:firstPage.result.nextCursor}, olderPlan=runtimePlan(ctx,older);
+    assert.deepEqual(call(olderPlan).params,{path:{sessionID:resume.threadId},query:{limit:"40",cursor:"opaque:next/+="}});
+    assert.equal(response(ctx,older,olderPlan,{data:[]}).kind,"complete");
+    const submit:Operation={kind:"submitTurn",threadId:resume.threadId,sendId:`continue-${epoch}`,input:ctx.claimedSends[0].input,settings:ctx.settings};
+    ctx.claimedSends=[{sendId:submit.sendId,threadId:submit.threadId,input:submit.input}];
+    plan=runtimePlan(ctx,submit);
+    assert.equal(call(plan).method,"v2.session.prompt");
+    assert.equal(call(plan).target?.threadId,resume.threadId);
+    assert.throws(()=>runtimePlan(ctx,submit),{code:"provider_refused"});
   }
 });
 check("recorded stream maps delivery, tool lifecycle, text, forms and usage",()=>{
@@ -106,6 +121,25 @@ check("recorded stream maps delivery, tool lifecycle, text, forms and usage",()=
   const history=v2History(fixture.history.data);
   for (const final of items.filter(e=>e.item.type !== "user")) if (final.item.toolStatus === "completed" || final.item.content === "Fixture tool turn complete.") assert.ok(history.some(row=>row.id === final.item.id));
   assert.equal(runtimeReduce(ctx,reduced.state,frames).events.length,0);
+});
+check("returns to working only when the active turn's final prompt settles",()=>{
+  const {ctx,frames}=prepared("v2-prompt-turn-state");
+  ctx.activeTurnId="active-turn";
+  const frame=(type:string)=>frames.find(frame=>(frame.params as Record<string,JsonValue>).type === type)!;
+  const permission=frame("permission.asked"), form=frame("form.created");
+  const asked=runtimeReduce(ctx,null,[frame("session.execution.started"),permission,form]);
+  assert.deepEqual(asked.events.filter(event=>event.kind === "turnState").map(event=>event.state),["working","needs_input","needs_input"]);
+
+  const first=runtimeReduce(ctx,asked.state,[frame("permission.replied")]);
+  assert.deepEqual(first.events.map(event=>event.kind),["promptResolved"]);
+  const last=runtimeReduce(ctx,first.state,[frame("form.replied")]);
+  assert.deepEqual(last.events.filter(event=>event.kind === "turnState"),[
+    {kind:"turnState",threadId:ctx.threadId,turnId:"active-turn",state:"working"},
+  ]);
+  assert.equal(runtimeReduce(ctx,last.state,[frame("form.replied")]).events.length,0);
+
+  const ended=runtimeReduce(ctx,asked.state,[frame("session.execution.succeeded"),frame("permission.replied"),frame("form.replied")]);
+  assert.deepEqual(ended.events.filter(event=>event.kind === "turnState").map(event=>event.state),["idle"]);
 });
 check("recorded thinking, shell and text stay reconcilable across an active interrupt",()=>{
   const ctx=loaded("v2-stream-and-stop"), {frames,interrupt}=fixture.streamAndInterrupt;
@@ -239,7 +273,16 @@ check("permission and form responses retain exact request identities",()=>{
     const op:Operation={kind:"answer",requestId:frame.requestId,answer:{kind:"choice",values:[frame.method === "permission.asked" ? "once" : "0:1"]}};
     const plan=runtimePlan(ctx,op);assert.equal(plan.action.kind,"reply");
     if(plan.action.kind === "reply") assert.deepEqual(plan.action.result,{kind:"success",value:frame.method === "permission.asked" ? {decision:"once"} : {answer:{choice:"beta"}}});
+    assert.deepEqual(runtimeResponse(ctx,op,plan.state,{kind:"success",value:null}),{kind:"complete",result:{kind:"done"},events:[]});
+    assert.equal(runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:404,message:"Request expired"}}).kind,"refused");
     assert.throws(()=>runtimePlan(ctx,{...op,requestId:"foreign"}));
+    if (frame.method === "permission.asked") {
+      const prompt=runtimeReduce(ctx,null,[frame]).events.find(event=>event.kind === "prompt");
+      assert.deepEqual(prompt?.permission?.options,[{value:"once",decision:"allow_once"},{value:"reject",decision:"reject_once"}]);
+      assert.deepEqual(prompt?.prompt.options.find(option=>option.value === "always"),{label:"Always allow",value:"always"});
+      const manual=runtimePlan(ctx,{...op,answer:{kind:"choice",values:["always"]}});
+      assert.deepEqual(manual.action,{kind:"reply",requestId:frame.requestId,result:{kind:"success",value:{decision:"always"}}});
+    }
   }
 });
 check("five routed turns keep their stream identities and chronological order in resumed history",()=>{

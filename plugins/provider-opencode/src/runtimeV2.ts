@@ -105,7 +105,7 @@ export function v2Response(ctx:RuntimeContext, op:Operation, state:Record<string
     case "interrupt":
       if (typeof value.interrupted !== "boolean") return refused("OpenCode did not acknowledge the interrupt");
       return done();
-    case "answer": return body === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
+    case "answer": return reply.value === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
     case "control":
       if (op.action === "auth") {
         if (state.stage === "authProviders") {v2Providers(ctx,body);return next("v2.integration.list",{query:{"location[directory]":ctx.cwd}},{stage:"authIntegrations"});}

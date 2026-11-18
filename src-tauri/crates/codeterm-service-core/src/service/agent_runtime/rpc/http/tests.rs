@@ -152,8 +152,8 @@ fn http_requests_drop_foreign_and_duplicate_events_and_claim_answers_once() {
         .is_none());
 }
 
-#[test]
-fn http_v2_recorded_permission_and_form_use_exact_session_routes() {
+#[tokio::test]
+async fn http_v2_reply_refusal_keeps_transport_open_and_never_replays() {
     let fixture: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../../tests/fixtures/runtime-http-sse.json"
@@ -162,7 +162,7 @@ fn http_v2_recorded_permission_and_form_use_exact_session_routes() {
     let declaration: RuntimeHttpSse =
         serde_json::from_value(fixture["capability"]["httpSse"]["alternatives"][0].clone())
             .unwrap();
-    let (client, _messages) = Client::channel(None, 16, 16);
+    let (client, mut messages) = Client::channel(None, 16, 16);
     client.trace_binding(&codeterm_plugin::agent_runtime::RuntimeContext {
         thread_id: Some("ses_owned".into()),
         ..Default::default()
@@ -186,19 +186,43 @@ fn http_v2_recorded_permission_and_form_use_exact_session_routes() {
         else {
             panic!("own request required")
         };
-        let (_, reply) = requests
-            .reply(&json!({"id":request_id,"result":{"opaque":true}}))
+        let permission = frame["method"] == "permission.asked";
+        let body = if permission {
+            json!({"decision":"always"})
+        } else {
+            json!({"answer":{"choice":"beta"}})
+        };
+        let mut result = std::pin::pin!(client.reply(&request_id, Ok(body.clone())));
+        let write = tokio::select! {
+            write = messages.recv() => write.unwrap(),
+            unexpected = &mut result => panic!("reply finished before HTTP status: {unexpected:?}"),
+        };
+        let (id, reply) = requests
+            .reply(&serde_json::from_str(&write.text).unwrap())
             .unwrap();
+        assert_eq!(id, request_id);
         assert_eq!(reply["params"]["path"]["sessionID"], "ses_owned");
+        assert_eq!(reply["params"]["body"], body);
         assert_eq!(
             reply["method"],
-            if frame["method"] == "permission.asked" {
+            if permission {
                 "v2.permission.reply"
             } else {
                 "v2.form.reply"
             }
         );
         requests.claim(&request_id).unwrap();
+        if permission {
+            finish_reply(write, reqwest::StatusCode::NOT_FOUND);
+            assert_eq!(
+                result.await,
+                Err(RuntimeFailure::ReplyRefused { status: 404 })
+            );
+        } else {
+            finish_reply(write, reqwest::StatusCode::NO_CONTENT);
+            assert_eq!(result.await, Ok(()));
+        }
+        assert!(client.ended().borrow().is_none());
         assert!(requests
             .reply(&json!({"id":request_id,"result":{}}))
             .is_err());

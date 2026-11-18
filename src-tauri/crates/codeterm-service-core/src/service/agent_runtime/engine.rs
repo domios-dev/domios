@@ -1025,7 +1025,7 @@ pub async fn ensure_locked(
         .thread_loaded
         .store(true, std::sync::atomic::Ordering::Release);
     super::bootstrap::submit(svc, session, &process).await?;
-    inject_abort_note(svc, provider, session, &process, &thread_id).await;
+    super::owned_context::inject_abort_note(svc, session, &process, &thread_id).await;
     if !session.state.lock().load(context.epoch, &thread_id) {
         return Err(RuntimeFailure::Superseded);
     }
@@ -1047,27 +1047,6 @@ pub async fn ensure_locked(
     svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     svc.on_turn_resume_binding_changed(tab);
     Ok(())
-}
-
-async fn inject_abort_note(
-    svc: &ServiceContext,
-    provider: &str,
-    session: &Arc<Session>,
-    process: &Arc<Process>,
-    thread: &str,
-) {
-    let Some(cause) = session.abort_note.lock().take() else {
-        return;
-    };
-    let operation = RuntimeOperation::Control {
-        thread_id: Some(thread.to_string()),
-        action: "restoreContext".into(),
-        value: super::abort_provenance::abort_note_context(&cause),
-    };
-    if let Err(reason) = run(svc, provider, session, process, operation).await {
-        let tab = session.context.lock().tab_id.clone();
-        log::warn!("[agent-runtime] tab={tab} abort notice not delivered to the agent: {reason}");
-    }
 }
 
 #[path = "engine/operation.rs"]
