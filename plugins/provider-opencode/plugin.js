@@ -985,24 +985,30 @@ function* opencodeDbStamp(db) {
   return stamps[0] === "-" ? null : db + "|" + stamps.join("|");
 }
 function* withOpencodeGroupUsage(then) {
+  let rows = [];
+  try {
+    rows = yield* readGroupUsageRows();
+  } catch {
+  }
+  const balance = yield* readDeepseekBalance();
+  return yield* ioResolve(then(groupUsageFromRows(rows, balance)));
+}
+function* readGroupUsageRows() {
   const db = opencodeDbPath();
-  if (!db || !(yield* host.io.fs.fileExists(db))) return yield* ioResolve(then([]));
+  if (!db || !(yield* host.io.fs.fileExists(db))) return [];
   const stamp = yield* opencodeDbStamp(db);
   const cached = groupUsageCache;
   if (stamp && cached && cached.stamp === stamp && host.unixNowMs() - cached.atMs < GROUP_USAGE_TTL_MS) {
-    return yield* withGroupBalances(cached.rows, function* () {
-      return yield* ioResolve(then(groupUsageFromRows(cached.rows)));
-    });
+    return cached.rows;
   }
   return yield* ioSqlite(host.io.fs, db, GROUP_USAGE_SQL, [], function* (rows) {
     const currentStamp = yield* opencodeDbStamp(db);
     groupUsageCache = stamp && currentStamp === stamp ? { stamp, atMs: host.unixNowMs(), rows } : null;
-    return yield* withGroupBalances(rows, function* () {
-      return yield* ioResolve(then(groupUsageFromRows(rows)));
-    });
+    return rows;
   });
 }
-function groupUsageFromRows(rows) {
+var DEEPSEEK_GROUP = "deepseek";
+function groupUsageFromRows(rows, balance) {
   const out = [];
   for (let i = 0; i < rows.length; i++) {
     const group = rows[i].g;
@@ -1018,48 +1024,47 @@ function groupUsageFromRows(rows) {
       cost_micros: costMicros
     };
     if (costMicros > 0) entry.spend_cents = Math.round(costMicros / 1e4);
-    const remaining = cachedBalanceCents(group);
-    if (remaining != null) entry.spend_remaining_cents = remaining;
+    if (group === DEEPSEEK_GROUP && balance != null) entry.spend_remaining_cents = balance;
     out.push(entry);
+  }
+  if (balance != null && !out.some((entry) => entry.group === DEEPSEEK_GROUP)) {
+    out.push({
+      group: DEEPSEEK_GROUP,
+      messages: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      cost_micros: 0,
+      spend_remaining_cents: balance
+    });
   }
   return out;
 }
-var BALANCE_BY_GROUP = {
-  deepseek: { url: "https://api.deepseek.com/user/balance", secret: "deepseekKey" }
-};
-var BALANCE_CREDENTIAL = "opencodeAuth";
 var BALANCE_TTL_MS = 6e4;
 var BALANCE_TIMEOUT_MS = 4e3;
 var balanceCache = null;
-function balanceFresh(group, now) {
-  return !!balanceCache && balanceCache.group === group && now - balanceCache.atMs < BALANCE_TTL_MS;
-}
-function cachedBalanceCents(group) {
-  return BALANCE_BY_GROUP[group] && balanceCache && balanceCache.group === group ? balanceCache.cents : null;
-}
 var balanceRequestGeneration = 0;
-function* withGroupBalances(rows, then) {
-  const now = host.unixNowMs();
-  const group = rows.map((row) => row.g).find((group2) => typeof group2 === "string" && BALANCE_BY_GROUP[group2] && !balanceFresh(group2, now));
-  if (typeof group !== "string") return yield* ioResolve(then());
+function* readDeepseekBalance() {
+  if (balanceCache && host.unixNowMs() - balanceCache.atMs < BALANCE_TTL_MS) return balanceCache.cents;
   const generation2 = ++balanceRequestGeneration;
   let response = null;
   try {
-    response = yield* host.io.fetch(balanceRequest(group));
+    response = yield* host.io.fetch(deepseekBalanceRequest());
   } catch {
   }
-  if (generation2 === balanceRequestGeneration) balanceCache = { group, atMs: host.unixNowMs(), cents: balanceCentsFrom(response) };
-  return yield* ioResolve(then());
+  const cents = balanceCentsFrom(response);
+  if (generation2 === balanceRequestGeneration) balanceCache = { atMs: host.unixNowMs(), cents };
+  return cents;
 }
-function balanceRequest(group) {
-  const spec = BALANCE_BY_GROUP[group];
+function deepseekBalanceRequest() {
   return {
-    url: spec.url,
+    url: "https://api.deepseek.com/user/balance",
     method: "GET",
     timeoutMs: BALANCE_TIMEOUT_MS,
     credential: {
-      id: BALANCE_CREDENTIAL,
-      headers: { Authorization: "Bearer {" + spec.secret + "}" }
+      id: "opencodeAuth",
+      headers: { Authorization: "Bearer {deepseekKey}" }
     }
   };
 }
@@ -1067,17 +1072,10 @@ function balanceCentsFrom(response) {
   if (!response || response.status !== 200 || typeof response.body !== "string") return null;
   const body = safeJson(response.body);
   const infos = body && Array.isArray(body.balance_infos) ? body.balance_infos : [];
-  let chosen = null;
-  for (let i = 0; i < infos.length; i++) {
-    if (infos[i] && infos[i].currency === "USD") {
-      chosen = infos[i];
-      break;
-    }
-  }
-  if (!chosen && infos.length > 0) chosen = infos[0];
-  if (!chosen || typeof chosen.total_balance !== "string") return null;
-  const total = parseFloat(chosen.total_balance);
-  return Number.isFinite(total) ? Math.round(total * 100) : null;
+  const total = infos.find((info) => info?.currency === "USD")?.total_balance;
+  if (typeof total !== "string" || !/^-?\d+(?:\.\d+)?$/.test(total)) return null;
+  const cents = Math.round(Number(total) * 100);
+  return Number.isSafeInteger(cents) ? cents : null;
 }
 function finiteNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;

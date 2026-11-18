@@ -16,8 +16,10 @@ import { consumePendingCommand, consumePendingCwd } from "../../lib/pendingComma
 import { RestoredShell } from "./RestoredShell";
 import { TabSessionChat } from "./TabSessionChat";
 import { TabTopBar } from "./TabTopBar";
+import { UsageBubble } from "../Usage/UsageBubble";
 import { isTabVisible } from "../MemoryPanel/workerFocusStore";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
+import { modelGroupForId } from "../../lib/modelGroups";
 import { FirstRunGeneralPicker, isFirstRunGeneralTab } from "../AgentPicker";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import type {
@@ -74,7 +76,8 @@ export function TabContent({
   const lock = useTabLock(tab);
   const uiMode = useCurrentTabUiMode(tab?.id);
   const wake = useWakeOnOpen(tab, isVisible && !lock.locked && Boolean(tab && isTabVisible(tab)));
-  const descriptor = useAgentDescriptor(tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null));
+  const providerId = tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null);
+  const descriptor = useAgentDescriptor(providerId);
   const { providers, loading, error: providersError } = useAgentProviders();
   const sessionId = tab?.agent_session_id || (tab?.backing?.kind === "chat_backend" ? tab.backing.session_id : null);
   const cached = useTranscriptWindow(transcriptWindowKey(tab?.id ?? "", sessionId ?? null)).transcript;
@@ -91,7 +94,7 @@ export function TabContent({
   if (bodyPainted) initialBody.current.waiting = false;
   const headerTabMenu = useHeaderTabMenu(tab, workspaceId, descriptor);
   const launchProfileId = tab?.agent_runtime_config?.launchProfile;
-  const usageSource = tabUsageSource(tab?.agent_type, tab?.backing?.kind === "chat_backend", descriptor?.agent_runtime?.usage,
+  const usageSource = tabUsageSource(providerId, tab?.backing?.kind === "chat_backend", descriptor?.agent_runtime?.usage,
     typeof launchProfileId === "string" ? {id:launchProfileId, limitsSource:descriptor?.agent_runtime?.launchProfiles?.[launchProfileId]?.limitsSource} : undefined);
   const trackingDescriptor = useAgentDescriptor(usageSource?.trackingProvider ?? null);
   useLayoutEffect(() => {
@@ -147,13 +150,27 @@ export function TabContent({
   // live session model can be a bare leaf a group cannot be read from.
   const usageModelId =
     tab.agent_provider_resolved_model ?? tab.agent_session_model ?? tab.agent_requested_model ?? null;
+  const chatUsageModelId = tab.agent_session_model?.includes("/") ? tab.agent_session_model : usageModelId;
+  const composerUsage = isChatBackend && !tab.watcher && usageVisible && chatUsageModelId
+    && modelGroupForId(descriptor?.model_groups, chatUsageModelId) && usageSource?.kind === "meter" && !usageSource.borrowedAccount
+    ? (
+      <UsageBubble
+        key={`${tab.id}:${usageSource.provider}:${tab.account?.id ?? "default"}`}
+        provider={usageSource.provider}
+        accountId={tab.account?.id === "default" ? null : tab.account?.id}
+        trackingEnabled
+        modelId={chatUsageModelId}
+        modelGroups={descriptor?.model_groups}
+        groupOnly
+      />
+    ) : null;
   const cwd = tab.cwd ?? workspaceCwd ?? null;
 
   const body = tab.frozen && !chatOwnsStartup && !sleepingTranscript && !bodyPainted && (tab.agent_type || isChatBackend) ? null : tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : chatBacking && descriptor?.remote_task && isRemoteTaskTab(tab, descriptor.remote_task) ? (
     tab.remote_peer_id ? <div role="status">Remote task controls are unavailable through this mesh tab.</div> :
     <RemoteTaskTab key={chatBacking.session_id} tabId={tab.id} pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} capability={descriptor.remote_task} />
   ) : isChatBackend ? (
-    <TabSessionChat tabId={tab.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
+    <TabSessionChat tabId={tab.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} modelUsage={composerUsage} />
   ) : (
     <TerminalTab
       key={tab.id}
@@ -184,7 +201,7 @@ export function TabContent({
           showSwitch={showSwitch}
           usageSource={usageSource}
           usageVisible={usageVisible}
-          usageModelId={usageModelId}
+          usageModelId={isChatBackend && descriptor?.model_groups?.length ? null : usageModelId}
           usageModelGroups={descriptor?.model_groups}
           isWatcherTab={tab.watcher != null}
           watcherLastStatus={tab.watcher?.last_status ?? null}

@@ -13,7 +13,8 @@ export interface ContextUsage {
 
 /** Whether a usage reading has quota windows or spend to show; without them the bubble shows the context fill instead. */
 export function hasQuota(snapshot: UsageSnapshot | null | undefined): boolean {
-  return Boolean(snapshot && (snapshot.session_pct != null || snapshot.weekly_pct != null || snapshot.spend_cents != null));
+  return Boolean(snapshot && (snapshot.session_pct != null || snapshot.weekly_pct != null
+    || snapshot.spend_cents != null || snapshot.spend_remaining_cents != null));
 }
 
 /**
