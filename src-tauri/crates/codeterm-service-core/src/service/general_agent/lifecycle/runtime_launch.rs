@@ -195,7 +195,7 @@ fn launch(
         svc.model_provider_launch_env(provider)
             .map_err(|error| error.to_string())?,
     );
-    {
+    let (account_id, account_namespace) = {
         let mut m = mux.write();
         let tab = m
             .get_tab_mut(&tab_id)
@@ -206,9 +206,19 @@ fn launch(
         tab.provisioned_cwd = Some(cwd.clone());
         tab.auto_approve = permission_bypass;
         crate::service::spawn::persist_model_launch_identity(tab, None, &resolution);
-    }
+        if ownership == LaunchOwnership::FreshSession {
+            (
+                tab.restorable_launch.account_id.clone(),
+                tab.restorable_launch.account_namespace.clone(),
+            )
+        } else {
+            (None, None)
+        }
+    };
     let params = crate::service::SpawnAgentParams {
         agent: Some(provider.into()),
+        account_id: account_id.clone(),
+        account_namespace: account_namespace.clone(),
         existing_tab_id: Some(tab_id.clone()),
         role: Some("Manager".into()),
         role_profile: Some(super::super::GENERAL_AGENT_KIND.into()),
@@ -232,6 +242,8 @@ fn launch(
         runtime_fork: None,
         agent: AgentSpawnSpec {
             provider: provider.into(),
+            account_id,
+            account_namespace,
             existing_tab_id: Some(tab_id.clone()),
             provisioned_cwd: Some(cwd),
             role: params.role.clone(),

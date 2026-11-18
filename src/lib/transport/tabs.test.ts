@@ -209,9 +209,10 @@ describe("tab command HTTP contract", () => {
   it("preserves the atomic spawn result shape using the authoritative HTTP snapshot", async () => {
     const snapshot = { workspaces: [], generation: 10 };
     const { transport, calls } = fixture([{ tab_id: "stable", workspace_id: "ws" }, snapshot]);
-    expect(await transport.mux_spawn_tab({ params: { agentId: "capability-provider", workspaceId: "ws", reasoningEffort: "high" } })).toEqual({ tab_id: "stable", workspace_id: "ws", snapshot });
+    expect(await transport.mux_spawn_tab({ params: { agentId: "capability-provider", workspaceId: "ws", reasoningEffort: "high", accountId: "work" } })).toEqual({ tab_id: "stable", workspace_id: "ws", snapshot });
     expect(calls.map(({ method, path }) => [method, path])).toEqual([["POST", "/api/agents/spawn"], ["GET", "/api/mux/state"]]);
     expect(calls[0].body).not.toHaveProperty("activate");
+    expect(calls[0].body).toHaveProperty("account_id", "work");
   });
 
   it("retains long-poll byte cursors for explicit snapshot consumers", async () => {

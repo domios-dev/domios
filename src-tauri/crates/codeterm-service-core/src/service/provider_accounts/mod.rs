@@ -383,7 +383,7 @@ pub fn starting_account(
     }
     let policy = policy(svc, provider);
     let starting = policy.starting_account(workspace, requested)?;
-    roster::starting_account(svc, provider, &policy, starting).map(Some)
+    roster::starting_account(svc, provider, &policy, starting, requested.is_some()).map(Some)
 }
 
 pub(crate) fn spawn_params(

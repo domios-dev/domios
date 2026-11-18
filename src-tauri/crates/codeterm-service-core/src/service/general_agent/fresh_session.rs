@@ -3,7 +3,7 @@ use serde::Deserialize;
 
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::transport::AtomicSpawn;
-use crate::service::ServiceContext;
+use crate::service::{ServiceContext, SpawnAgentParams};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -16,6 +16,18 @@ pub struct FreshGeneralSessionRequest {
     pub model: Option<String>,
     pub reasoning_effort: Option<String>,
     pub preset: Option<String>,
+    pub account_id: Option<String>,
+}
+
+impl FreshGeneralSessionRequest {
+    fn account_launch_params(&self) -> SpawnAgentParams {
+        SpawnAgentParams {
+            agent: Some(self.provider_id.clone()),
+            workspace_id: Some(self.workspace_id.clone()),
+            account_id: self.account_id.clone(),
+            ..Default::default()
+        }
+    }
 }
 
 fn validate_request(
@@ -50,6 +62,7 @@ fn create_fresh_tab(
     mux: &mut MultiplexerState,
     workspace_id: &str,
     chat_view: bool,
+    account: &SpawnAgentParams,
 ) -> Result<String, String> {
     let tab_id = mux.create_tab(workspace_id)?;
     if let Some(tab) = mux.get_tab_mut(&tab_id) {
@@ -58,6 +71,8 @@ fn create_fresh_tab(
         tab.cwd = Some(cwd.clone());
         tab.provisioned_cwd = Some(cwd);
         tab.chat_view = chat_view;
+        tab.restorable_launch.account_id = account.account_id.clone();
+        tab.restorable_launch.account_namespace = account.account_namespace.clone();
         tab.agent_booting = true;
         crate::service::boot_stage::apply_boot_stage(
             tab,
@@ -134,6 +149,8 @@ impl ServiceContext {
             selection.model = Some(model);
             selection.preset_args = args;
         }
+        let (account, invocation, reservation) =
+            crate::service::provider_accounts::spawn_params(self, request.account_launch_params())?;
         super::ensure_directories();
         super::state::mark_independent_sessions()?;
         super::instructions::generate_instructions(
@@ -146,7 +163,7 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             validate_request(&mux, &general, &request)?;
             crate::service::billing::admit_new_tab(&gate, &mux)?;
-            create_fresh_tab(&mut mux, &request.workspace_id, chat_view)?
+            create_fresh_tab(&mut mux, &request.workspace_id, chat_view, &account)?
         };
         super::super::supporter_notify::record_ui_origin(&tab_id);
         if let Err(error) = self.ensure_agent_pad(&tab_id).and_then(|_| {
@@ -168,14 +185,17 @@ impl ServiceContext {
         let config = config.clone();
         let launch_tab_id = tab_id.clone();
         std::thread::spawn(move || {
-            super::lifecycle::start_fresh_general_session(
-                &service,
-                &config,
-                launch_tab_id,
-                &request.provider_id,
-                permission_bypass,
-                selection,
-            );
+            let _reservation = reservation;
+            codeterm_plugin::provider_account::with_context(invocation, || {
+                super::lifecycle::start_fresh_general_session(
+                    &service,
+                    &config,
+                    launch_tab_id,
+                    &request.provider_id,
+                    permission_bypass,
+                    selection,
+                );
+            });
         });
         Ok(published_spawn_result(self, tab_id, request.workspace_id))
     }

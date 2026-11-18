@@ -398,8 +398,10 @@ pub(super) fn start(
         );
     }
     log::info!("[general-agent] Launching on PTY {}", pty_id);
+    let command = crate::service::orchestrator::PreparedAgentCommand::from(cmd)
+        .with_execution_environment(None);
     let payload = crate::service::pty_io::submit_transaction::live_command_input(
-        &cmd,
+        &command,
         svc.screen_state.bracketed_paste_mode(&pty_id),
     );
     let launch_authority = svc.user_send_authority(&tab_id).ok().filter(|authority| {
