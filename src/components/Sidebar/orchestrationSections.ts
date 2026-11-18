@@ -5,6 +5,7 @@ import {
   REVIEWER_KIND,
   QA_KIND,
   WORKER_KIND,
+  builtinRoleLabel,
   roleDisplayLabel,
   roleKind,
   roleKindLabel,
@@ -56,9 +57,11 @@ export function roleShieldLabel(
 ): string | null {
   if (!tab?.role) return null;
   const kind = roleKind(tab);
-  const registered = kind === null ? null : tab.role_label?.trim();
+  if (kind === null) return null;
+  const registered = tab.role_label?.trim();
   if (registered) return roleDisplayLabel(kind, registered);
-  if (tab.role === "Manager") return kind?.toUpperCase() ?? null;
+  if (!builtinRoleLabel(kind)) return roleDisplayLabel(kind);
+  if (tab.role === "Manager") return kind.toUpperCase();
   return kind === QA_KIND || kind === RELEASE_MANAGER_KIND || kind === REVIEWER_KIND
     ? roleKindLabel(tab)?.toUpperCase() ?? null
     : null;
