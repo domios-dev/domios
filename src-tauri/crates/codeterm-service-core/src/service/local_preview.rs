@@ -171,6 +171,13 @@ fn read_with(
     kind: &str,
 ) -> Result<LocalPreviewFile, String> {
     let result = policy.and_then(|policy| {
+        if kind == "image-original" {
+            return html_preview::read_original_image_file(
+                path,
+                &policy,
+                super::image_attachments::MAX_SOURCE_BYTES,
+            );
+        }
         if kind == "image" {
             let source = std::path::Path::new(path);
             if matches!(
@@ -180,7 +187,11 @@ fn read_with(
                 return html_preview::read_local_image_file(path, &policy);
             }
             return super::image_attachments::preview(source, || {
-                html_preview::read_image_artifact_file(path, &policy, 150 * 1024 * 1024)
+                html_preview::read_image_artifact_file(
+                    path,
+                    &policy,
+                    super::image_attachments::MAX_SOURCE_BYTES,
+                )
             });
         }
         read_local_preview_file_guarded(path, kind, |path, canonical| {

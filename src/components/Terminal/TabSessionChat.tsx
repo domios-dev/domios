@@ -256,6 +256,7 @@ function TabSessionChatBody({
     snapshotReady,
     transcriptUnavailable,
     allMessages,
+    documentAttachmentNames,
     enrichedMessages,
     hiddenMessageCount,
     olderMessageLabel,
@@ -322,10 +323,10 @@ function TabSessionChatBody({
   }, [tabId, agentSessionId, tab?.session_binding_nonce]);
   useEffect(() => {
     if (!isActive) return;
-    const documents = documentInventory(allMessages);
+    const documents = documentInventory(allMessages, documentAttachmentNames);
     chatDocumentsStore.set(tabId, documents);
     chatChangesStore.set(tabId, allMessages);
-  }, [tabId, allMessages, isActive, documentInventory]);
+  }, [tabId, allMessages, documentAttachmentNames, isActive, documentInventory]);
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const hasTranscript = enrichedMessages.length > 0;
   const localFirstTurnSends = useMemo(() => firstTurnLocalSends(deliverySends, tab?.pty_id, tab?.session_binding_nonce),

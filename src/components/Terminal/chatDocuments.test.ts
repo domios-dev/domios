@@ -113,6 +113,16 @@ assert.deepEqual(documentsFromTranscript([{ content: serializeDsBlock({ kind: "i
   assert.equal(attached[1].path, shot);
   assert.equal(attached[1].shownAt, 5);
 }
+{
+  const path = "/uploads/d8de0b6fe28c4bed9454f79193096b09.heic";
+  const previewPath = "/pad/phone-model.jpg";
+  const message = { id: "photo", type: "user", content: `${formatAttachmentMarker(path, "file", "original")} ${formatAttachmentMarker(previewPath, "image", "image1")}` };
+  const inventory = createDocumentInventory();
+  inventory([message]);
+  assert.deepEqual(inventory([message], new Map([["photo", { [path]: "phone.heic" }]])), [
+    { kind: "image", path, previewPath, name: "phone.heic", shownAt: null },
+  ]);
+}
 console.log("chatDocuments: passed");
 
 {

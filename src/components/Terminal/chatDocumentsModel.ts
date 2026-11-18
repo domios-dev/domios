@@ -6,7 +6,7 @@ const empty: DocumentSnapshot = { documents: [], home: null };
 
 export function existingDocuments(documents: readonly ChatDocument[], paths: readonly string[]): ChatDocument[] {
   const existing = new Set(paths);
-  return documents.filter((document) => existing.has(document.path));
+  return documents.filter((document) => existing.has(document.previewPath ?? document.path));
 }
 
 export function createChatDocumentsModel(check: (paths: string[], tabId: string) => Promise<DocumentFileCheck>) {
@@ -20,7 +20,7 @@ export function createChatDocumentsModel(check: (paths: string[], tabId: string)
     if (inFlight) return inFlight;
     const source = sources.get(tabId);
     if (!source?.length) return Promise.resolve();
-    const request = check([...new Set(source.map((document) => document.path))], tabId).then((result) => {
+    const request = check([...new Set(source.map((document) => document.previewPath ?? document.path))], tabId).then((result) => {
       if (sources.get(tabId) !== source) return;
       const next = { documents: existingDocuments(source, result.paths), home: result.home };
       if (JSON.stringify(snapshots.get(tabId) ?? empty) === JSON.stringify(next)) return;

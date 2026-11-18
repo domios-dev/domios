@@ -31,6 +31,38 @@ fn assert_headers(response: &Response) {
 }
 
 #[tokio::test]
+async fn saves_exact_original_image_bytes_with_scoped_file_authority() {
+    use base64::Engine;
+
+    let fixture = Fixture::new();
+    let path = fixture.pad(&fixture.owner).join("original.png");
+    let bytes = png();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+    fixture.reference(&fixture.owner, &path);
+    fixture.reference(&fixture.sibling, &path);
+
+    let response = fixture.read(&fixture.owner, &path, "image-original").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_headers(&response);
+    let original = json(response).await;
+    assert_eq!(original["media_type"], "image/png");
+    let data = original["data"].as_str().unwrap();
+    let encoded = data.strip_prefix("data:image/png;base64,").unwrap();
+    assert_eq!(
+        base64::prelude::BASE64_STANDARD.decode(encoded).unwrap(),
+        bytes
+    );
+    assert_eq!(
+        fixture
+            .read(&fixture.sibling, &path, "image-original")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
 async fn nested_pad_images_preview_across_tabs_but_documents_stay_private() {
     let fixture = Fixture::new();
     for (name, kind, bytes, expected) in [

@@ -15,6 +15,8 @@ let root: Root | null = null;
 let host: HTMLDivElement;
 let fetchMock: ReturnType<typeof vi.fn>;
 const requests: { path: string; body: unknown }[] = [];
+const previewImage = "data:image/jpeg;base64,cHJldmlldw==";
+const originalImage = "data:image/png;base64,cGl4ZWw=";
 
 beforeEach(() => {
   __setListenForTest(async () => () => {});
@@ -31,8 +33,10 @@ beforeEach(() => {
     if (path.endsWith("/preview/prepare")) return new Response(JSON.stringify({ state: "ready", index_id: "fixture" }), { headers: { "Content-Type": "application/json" } });
     requests.push({ path, body });
     if (body.path === "/work/forbidden.md") return new Response('{"error":"Preview unavailable"}', { status: 404 });
+    if (body.kind === "image-original" && body.path === "/work/forbidden.png") return new Response('{"error":"Preview unavailable"}', { status: 404 });
     const data = body.path === "/work/current.ts" ? { data: "const current = 42;", media_type: "text/plain" } : body.paths ? { paths: body.paths, home: "/home/fixture" }
-      : body.kind === "image" ? { data: "data:image/png;base64,cGl4ZWw=", media_type: "image/png" }
+      : body.kind === "image" ? { data: previewImage, media_type: "image/jpeg" }
+      : body.kind === "image-original" ? { data: originalImage, media_type: "image/png" }
       : body.kind === "page" ? { data: "<main>REST page</main>", media_type: "text/html" }
       : { data: "# REST document", media_type: "text/markdown" };
     return new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } });
@@ -60,7 +64,7 @@ it("renders image, document and page embeds through invoke and authenticated web
     <LocalArtifactBlock directive={{ kind: "document", path: "/work/report.md" }} renderMarkdown={(text) => <RichMarkdown text={text} />} />
     <LocalArtifactBlock directive={{ kind: "page", path: "/work/view.html" }} renderMarkdown={(text) => text} />
   </LocalArtifactScope>));
-  expect(host.querySelector('img[alt="pixel.png"]')?.getAttribute("src")).toBe("data:image/png;base64,cGl4ZWw=");
+  expect(host.querySelector('img[alt="pixel.png"]')?.getAttribute("src")).toBe(previewImage);
   expect(host.querySelector("h1")?.textContent).toBe("REST document");
   expect(host.querySelector('iframe[title="HTML preview"]')?.getAttribute("srcdoc")).toContain("REST page");
   expect(requests).toEqual([
@@ -112,10 +116,48 @@ it("loads a focused chip preview and opens its image via the authenticated attac
   const chip = host.querySelector<HTMLButtonElement>('button[aria-label="Open image pixel.png"]')!;
   expect(chip.querySelector("img")).toBeNull();
   await act(async () => chip.focus());
-  expect(document.querySelector('[role="region"] img')?.getAttribute("src")).toBe("data:image/png;base64,cGl4ZWw=");
+  expect(document.querySelector('[role="region"] img')?.getAttribute("src")).toBe(previewImage);
   await act(async () => chip.click());
-  expect(document.querySelector('[role="dialog"] img')?.getAttribute("src")).toBe("data:image/png;base64,cGl4ZWw=");
+  expect(document.querySelector('[role="dialog"] img')?.getAttribute("src")).toBe(previewImage);
   expect(requests).toEqual([{ path: "/api/tabs/chip-owner/preview/read", body: { path: "/work/pixel.png", kind: "image" } }]);
+});
+
+it.each(["Documents", "message capsule"])("downloads the scoped original from %s fullscreen", async (surface) => {
+  const originalPath = "/work/stored.png";
+  const previewPath = "/work/stored-model.jpg";
+  const attachment = { kind: "image" as const, path: originalPath, previewPath, name: "pixel.png" };
+  const isDocuments = surface === "Documents";
+  await act(async () => root?.render(isDocuments
+    ? <DocumentDetail tabId="image-owner" document={{ ...attachment, shownAt: null }} home={null} onBack={() => {}} />
+    : <LocalArtifactScope tabId="image-owner"><AttachmentCapsule attachment={{ ...attachment, label: attachment.name }} /></LocalArtifactScope>));
+  const openLabel = isDocuments ? "Fullscreen pixel.png" : "Open image pixel.png";
+  await act(async () => host.querySelector<HTMLButtonElement>(`button[aria-label="${openLabel}"]`)!.click());
+  expect(document.querySelector('[role="dialog"] img')?.getAttribute("src")).toBe(previewImage);
+  expect(requests).toEqual([{ path: "/api/tabs/image-owner/preview/read", body: { path: previewPath, kind: "image" } }]);
+  const downloads: { href: string; name: string }[] = [];
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+    downloads.push({ href: this.getAttribute("href")!, name: this.download });
+  });
+  try {
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Save pixel.png"]')!.click());
+    expect(downloads).toEqual([{ href: originalImage, name: "pixel.png" }]);
+    expect(requests.at(-1)).toEqual({ path: "/api/tabs/image-owner/preview/read", body: { path: originalPath, kind: "image-original" } });
+  } finally {
+    click.mockRestore();
+  }
+});
+
+it("shows an original read refusal without downloading the preview", async () => {
+  await act(async () => root?.render(<LocalArtifactScope tabId="image-owner"><AttachmentCapsule attachment={{ kind: "image", path: "/work/forbidden.png" }} /></LocalArtifactScope>));
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Open image forbidden.png"]')!.click());
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  try {
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Save forbidden.png"]')!.click());
+    expect(click).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toBe("Original image unavailable");
+  } finally {
+    click.mockRestore();
+  }
 });
 
 it("loads a sent surface snip in the system transcript through the owning tab preview route", async () => {
@@ -138,7 +180,7 @@ it("loads a sent surface snip in the system transcript through the owning tab pr
   expect(chip).toBeTruthy();
   await act(async () => chip?.focus());
   const image = document.querySelector('[role="region"] img[alt="snip-s1-1792392169841.png"]');
-  expect(image?.getAttribute("src")).toBe("data:image/png;base64,cGl4ZWw=");
+  expect(image?.getAttribute("src")).toBe(previewImage);
   expect(requests).toEqual([{
     path: "/api/tabs/snip-owner/preview/read",
     body: { path, kind: "image" },
