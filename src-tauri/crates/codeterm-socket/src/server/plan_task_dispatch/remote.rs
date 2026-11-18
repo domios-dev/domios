@@ -7,6 +7,8 @@ use codeterm_service_core::service::ServiceState;
 use super::{dispatch_authorized_gates, invalid_dispatch, owned_str};
 use crate::server::{plan_refs, JsonRpcError};
 
+pub(super) mod brief;
+
 // The peer creates a lane and launches the Worker before answering; a busy Windows peer
 // outlives the 5s unary default, which closed live attempts as peer_offline.
 const WORKER_DISPATCH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
@@ -175,6 +177,12 @@ pub(super) fn dispatch(
     {
         return Err(invalid_dispatch("mesh Workers always require a peer lane"));
     }
+    let manifest = codeterm_service_core::service::plan::plan_skills::plan_skill_manifest(
+        &svc.plan_store,
+        &plan_id,
+    )
+    .map_err(super::super::plan::plan_rpc_err)?;
+    let skill_context = brief::plan_skill_context(&svc.plan_store, &plan_id, &manifest)?;
     let attempt_id = codeterm_service_core::plan::ids::short_id("attempt");
     let (peer_id, peer_name, peer_client, peer_state) = select_peer(svc, &peer_target)?;
     if let Some(client) = peer_client
@@ -215,17 +223,15 @@ pub(super) fn dispatch(
             "paired peer is offline; the origin attempt is retained for retry",
         ));
     }
-    let manifest = codeterm_service_core::service::plan::plan_skills::plan_skill_manifest(
-        &svc.plan_store,
-        &plan_id,
-    )
-    .map_err(super::super::plan::plan_rpc_err)?;
     let brief = super::brief::build_brief_with_manifest(
         (&preparation, &task),
         &plan_id,
-        &manifest,
+        &[],
         &authorized_gates,
     );
+    let origin_tab_id = owned_str(p, "caller_tab_id")
+        .or(task.owner_tab_id.clone())
+        .ok_or_else(|| invalid_dispatch("mesh dispatch requires the origin Orchestrator tab"))?;
     let origin_id = svc
         .ext::<codeterm_service_core::MeshStateHandle>()
         .lock()
@@ -233,14 +239,19 @@ pub(super) fn dispatch(
         .identity
         .instance_id
         .clone();
-    let brief = remote_worker_brief(brief, &plan_id, &task_id, &attempt_id, &origin_id);
+    let brief = brief::remote_worker_brief(
+        brief,
+        &plan_id,
+        &task_id,
+        &attempt_id,
+        &origin_id,
+        &origin_tab_id,
+        &skill_context,
+    );
     let brief = match &hosted_role {
         Some(role) => team_template_remote::compose_hosted_brief(&brief, role),
         None => brief,
     };
-    let origin_tab_id = owned_str(p, "caller_tab_id")
-        .or(task.owner_tab_id.clone())
-        .ok_or_else(|| invalid_dispatch("mesh dispatch requires the origin Orchestrator tab"))?;
     let description_override =
         owned_str(p, "description").filter(|description| !description.trim().is_empty());
     let description = super::task_tab_description(&task.name, description_override.as_deref());
@@ -768,37 +779,6 @@ fn git_head(cwd: &str) -> Result<String, String> {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
-/// A peer has no local plan, so the local ACK and report instructions are replaced
-/// by commands that reach the origin attempt through the mesh.
-pub(super) fn remote_worker_brief(
-    brief: String,
-    plan_id: &str,
-    task_id: &str,
-    attempt_id: &str,
-    origin_id: &str,
-) -> String {
-    let remote_ack = format!(
-        "Highest-priority startup action: run `domios plan task remote-ack {plan_id} {task_id} {attempt_id} --mesh {origin_id}` before any work. Do not continue until it prints the task id. This peer has no local plan, so `domios agent ack` and `domios agent report` do not apply here."
-    );
-    let ack = codeterm_plan::service_plan::worker_identity::WORKER_ACK_INSTRUCTION;
-    let mut brief = if brief.contains(ack) {
-        brief.replacen(ack, &remote_ack, 1)
-    } else {
-        format!(
-            "{remote_ack}
-
-{brief}"
-        )
-    };
-    brief.push_str(&format!(
-        "
-
-Remote final report: write the report to a file, then run `domios plan task remote-report {plan_id} {task_id} {attempt_id} --message-file <report-path> --sha <lane-head> --mesh {origin_id}`. It persists your report on the origin attempt and moves the task to in_review.
-"
-    ));
-    brief
 }
 
 #[cfg(test)]

@@ -372,16 +372,19 @@ fn brief_lists_section_links_and_test_plan() {
 fn remote_worker_brief_replaces_the_local_ack_with_the_origin_remote_ack() {
     let ack = codeterm_service_core::service::plan::worker_identity::WORKER_ACK_INSTRUCTION;
     let origin = "origin_token_51730";
-    let brief = crate::server::plan_task_dispatch::remote::remote_worker_brief(
+    let brief = crate::server::plan_task_dispatch::remote::brief::remote_worker_brief(
         format!("{ack}\n\nbody_token_22019"),
         "plan_token",
         "task_token",
         "attempt_token",
         origin,
+        "controller_token",
+        "",
     );
     assert!(!brief.contains(ack));
     assert!(brief.contains("body_token_22019"));
-    assert_eq!(brief.matches(origin).count(), 2);
+    assert_eq!(brief.matches(origin).count(), 3);
+    assert!(brief.contains("--tab controller_token --mesh origin_token_51730 --from-pad"));
     assert!(brief.find(origin).unwrap() < brief.find("body_token_22019").unwrap());
 }
 
