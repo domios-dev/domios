@@ -242,6 +242,16 @@ export function TabTopBar({
   const [bubblesOpen, setBubblesOpen] = useState(false);
   const usageLabel = shellTab ? (shellTab.agent_runtime_state?.agentName ?? resolveTabProvider(shellTab)?.displayName) : undefined;
   const usageContext = shellTab && "context" in shellTab ? shellTab.context : undefined;
+  const tabProvider = shellTab?.agent_type ?? (shellTab?.backing?.kind === "chat_backend" ? shellTab.backing.plugin_id : null);
+  const accountId = shellTab?.account?.id === "default" ? null : shellTab?.account?.id ?? null;
+  const usageSession = usageSource && {
+    provider: usageSource.trackingProvider,
+    accountId,
+    tabId,
+    threadId: shellTab?.agent_session_id,
+    context: usageContext,
+    label: usageLabel,
+  };
   useLayoutEffect(() => {
     const row = bubblesRef.current;
     if (!row) return;
@@ -324,21 +334,21 @@ export function TabTopBar({
         </>}
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
         {/* Order is priority: the first row keeps tokens, then changes, then plugins. */}
-        {usageSource?.kind === "unavailable" && usageVisible && (
-          <UnavailableLimitsBubble reason={usageSource.reason} session={{ provider: usageSource.trackingProvider, tabId, threadId: shellTab?.agent_session_id, context: usageContext, label: usageLabel }} />
+        {usageSource?.kind === "unavailable" && usageSession && usageVisible && (
+          <UnavailableLimitsBubble reason={usageSource.reason} session={usageSession} />
         )}
         {usageSource?.kind === "balance" && (
-          <BalanceBubble provider={usageSource.provider} accountId={usageSource.accountId} trackingEnabled={!!usageVisible} />
+          <BalanceBubble key={usageSource.accountId} provider={usageSource.provider} accountId={usageSource.accountId} trackingEnabled={!!usageVisible} />
         )}
-        {usageSource?.kind === "quota" && (
-          <QuotaBubble provider={usageSource.provider} accountId={usageSource.accountId} trackingEnabled={!!usageVisible}
-            session={{ provider: usageSource.trackingProvider, tabId, threadId: shellTab?.agent_session_id, context: usageContext, label: usageLabel }} />
+        {usageSource?.kind === "quota" && usageSession && (
+          <QuotaBubble key={usageSource.accountId} provider={usageSource.provider} accountId={usageSource.accountId} trackingEnabled={!!usageVisible}
+            session={usageSession} />
         )}
         {usageSource?.kind === "meter" && (
           <UsageBubble
             key={`${tabId}:${usageSource.provider}:${shellTab?.account?.id ?? "default"}`}
             provider={usageSource.provider}
-            accountId={usageSource.borrowedAccount || shellTab?.account?.id === "default" ? null : shellTab?.account?.id}
+            accountId={usageSource.borrowedAccount && usageSource.provider !== tabProvider ? null : accountId}
             providerLabel={usageLabel}
             tabId={tabId}
             threadId={shellTab?.agent_session_id}

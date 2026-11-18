@@ -185,7 +185,7 @@ fn compute_session(
                      FROM usage_snapshots
                      WHERE provider = ?1
                        AND parsed_ok = 1
-                       AND (?2 IS NULL OR account_id = ?2)
+                       AND account_id IS ?2
                        AND captured_at <= ?3
                        AND session_pct IS NOT NULL
                        AND session_resets_at IS NOT NULL
@@ -213,7 +213,7 @@ fn compute_session(
                      FROM usage_snapshots
                      WHERE provider = ?1
                        AND parsed_ok = 1
-                       AND (?2 IS NULL OR account_id = ?2)
+                       AND account_id IS ?2
                        AND captured_at <= ?3
                        AND ABS(session_resets_at - ?4) <= 60000
                        AND session_pct IS NOT NULL
@@ -408,7 +408,7 @@ fn day_delta_for_window(
                      FROM usage_snapshots
                      WHERE provider = ?1
                        AND parsed_ok = 1
-                       AND (?2 IS NULL OR account_id = ?2)
+                       AND account_id IS ?2
                        AND captured_at >= ?3
                        AND captured_at < ?4
                        AND weekly_pct IS NOT NULL
@@ -437,7 +437,7 @@ fn day_delta_for_window(
                      FROM usage_snapshots
                      WHERE provider = ?1
                        AND parsed_ok = 1
-                       AND (?2 IS NULL OR account_id = ?2)
+                       AND account_id IS ?2
                        AND captured_at < ?3
                        AND weekly_pct IS NOT NULL
                        AND ABS(weekly_resets_at - ?4) <= 60000
@@ -523,7 +523,7 @@ fn latest_weekly(
                      FROM usage_snapshots
                      WHERE provider = ?1
                        AND parsed_ok = 1
-                       AND (?2 IS NULL OR account_id = ?2)
+                       AND account_id IS ?2
                        AND captured_at <= ?3
                        AND weekly_pct IS NOT NULL
                        AND weekly_resets_at IS NOT NULL
@@ -553,7 +553,7 @@ fn recent_rate(
                      FROM usage_snapshots
                      WHERE provider = ?1
                        AND parsed_ok = 1
-                       AND (?2 IS NULL OR account_id = ?2)
+                       AND account_id IS ?2
                        AND captured_at >= ?3
                        AND captured_at <= ?4
                        AND weekly_pct IS NOT NULL
@@ -636,7 +636,7 @@ fn compute_baseline_with_calendar<Tz: TimeZone>(
                      FROM usage_snapshots
                      WHERE provider = ?1
                        AND parsed_ok = 1
-                       AND (?2 IS NULL OR account_id = ?2)
+                       AND account_id IS ?2
                        AND captured_at >= ?3
                        AND captured_at < ?4
                        AND weekly_pct IS NOT NULL

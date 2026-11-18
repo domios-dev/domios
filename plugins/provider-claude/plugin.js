@@ -1227,20 +1227,28 @@ function* detectClaudeLaunchSession(evidence) {
 
 // plugins/provider-claude/src/credentials.ts
 function* readClaudeOAuthToken(host2) {
-  const inheritedHome = host2.envGet("CLAUDE_CONFIG_DIR");
-  const credentialsPath = effectiveReadPath(inheritedHome, host2.expandHome("~/.claude/.credentials.json"), ".credentials.json", host2.platform() === "windows" ? "\\" : "/");
-  const fileCredentials = credentialsPath ? parseCredentials(yield* host2.io.fs.readFile(credentialsPath)) : null;
-  const credentials = (inheritedHome ? null : yield* readMacOsCredentials(host2)) ?? fileCredentials;
+  const configuredHome = host2.envGet("CLAUDE_SECURESTORAGE_CONFIG_DIR") || host2.envGet("CLAUDE_CONFIG_DIR");
+  const credentialHome = configuredHome?.startsWith("~/") || configuredHome === "~" ? host2.expandHome(configuredHome) : configuredHome;
+  if (configuredHome && !credentialHome) return null;
+  const keychainToken = oauthToken(yield* readMacOsCredentials(host2, credentialHome));
+  if (keychainToken) return keychainToken;
+  const credentialsPath = effectiveReadPath(credentialHome, host2.expandHome("~/.claude/.credentials.json"), ".credentials.json", host2.platform() === "windows" ? "\\" : "/");
+  return credentialsPath ? oauthToken(parseCredentials(yield* host2.io.fs.readFile(credentialsPath))) : null;
+}
+function oauthToken(credentials) {
   const oauth = credentials?.claudeAiOauth;
   const token = oauth && typeof oauth === "object" ? oauth.accessToken : null;
   return typeof token === "string" && token ? token : null;
 }
-function* readMacOsCredentials(host2) {
+function* readMacOsCredentials(host2, home) {
   if (host2.platform() !== "macos") return null;
+  const suffix = home ? host2.sha256?.(home.replace(/\/+$/, "")).slice(0, 8) : null;
+  if (home && !suffix) return null;
+  const service = suffix ? `Claude Code-credentials-${suffix}` : "Claude Code-credentials";
   const user = host2.envGet("USER");
   const args = ["find-generic-password"];
   if (user) args.push("-a", user);
-  args.push("-w", "-s", "Claude Code-credentials");
+  args.push("-w", "-s", service);
   const result = parseCredentials(yield* ioEncoded(host2.io.exec({ bin: "security", args, timeoutMs: 5e3 })));
   if (result?.code !== 0) return null;
   return parseCredentials(result.stdout);

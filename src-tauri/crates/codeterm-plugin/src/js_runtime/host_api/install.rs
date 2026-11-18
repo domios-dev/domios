@@ -95,6 +95,10 @@ pub(in crate::js_runtime) fn install(
         }
         out
     });
+    bind!("sha256", |s: String| -> String {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(s.as_bytes()))
+    });
     bind!("log", |level: String, msg: String| {
         match level.as_str() {
             "trace" => log::trace!("[plugin] {msg}"),

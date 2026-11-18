@@ -279,17 +279,13 @@ fn authenticated_account_limit_runs_scheduler_restart_and_one_durable_continuati
             .outcome,
         crate::multiplexer::types::TurnResumeOutcome::Sent
     );
-    assert!(fixture
-        .service
-        .ext::<crate::config::ConfigState>()
-        .lock()
-        .agents[PROVIDER]
-        .accounts
-        .as_ref()
-        .unwrap()
-        .profiles["account-b"]
-        .limit
-        .is_none());
+    {
+        let config = fixture.service.ext::<crate::config::ConfigState>().lock();
+        let accounts = config.agents[PROVIDER].accounts.as_ref().unwrap();
+        assert!(accounts.default_limit.is_none());
+        assert!(accounts.profiles["account-a"].limit.is_some());
+        assert!(accounts.profiles["account-b"].limit.is_none());
+    }
     assert!(config_path.is_file());
     assert!(other_process.ended.borrow().is_none());
     assert!(Arc::ptr_eq(

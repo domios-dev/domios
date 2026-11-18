@@ -30,11 +30,11 @@ function LimitsPill({ label, text, tone, children }: { label: string; text: stri
 }
 
 /** The tab's own session, whose reported context stands in when the account's limits cannot be read. */
-export interface TabUsageSession { provider: string; tabId: string; threadId?: string | null; context: unknown; label?: string }
+export interface TabUsageSession { provider: string; accountId?: string | null; tabId: string; threadId?: string | null; context: unknown; label?: string }
 
 /** Nothing readable for the account: the session's reported context when it has one, otherwise a dash that says why. */
 export function UnavailableLimitsBubble({ reason, session }: { reason: string; session?: TabUsageSession }) {
-  const { snapshot } = useUsageSnapshot({ provider: session?.provider ?? "", enabled: session !== undefined });
+  const { snapshot } = useUsageSnapshot({ provider: session?.provider ?? "", accountId: session?.accountId, enabled: session !== undefined });
   const runtime = ownRuntimeUsage(snapshot, session?.tabId, session?.threadId);
   const usage = session ? contextUsage(session.context, runtime) : null;
   useClaimContext(session?.tabId, usage !== null);

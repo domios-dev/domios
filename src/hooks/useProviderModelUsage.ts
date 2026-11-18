@@ -20,7 +20,7 @@ export function useProviderModelUsageState(
   enabled = true,
   accountId: string | null = null,
 ): ProviderModelUsageState {
-  const [usage, setUsage] = useState<ModelGroupUsage[]>(EMPTY_USAGE);
+  const [reading, setReading] = useState<{ provider: string; account: string | null; usage: ModelGroupUsage[] } | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
@@ -35,18 +35,12 @@ export function useProviderModelUsageState(
 
   useEffect(() => {
     let active = true;
-    if (!providerId || !enabled) {
-      setUsage(EMPTY_USAGE);
-      return;
-    }
+    if (!providerId || !enabled) return;
+    const publish = (usage: ModelGroupUsage[]) => {
+      if (active) setReading({ provider: providerId, account: accountId, usage });
+    };
     void invoke<unknown>("provider_model_usage", { providerId, accountId: accountId ?? undefined })
-      .then((result) => {
-        if (active) setUsage(modelGroupUsageFromResponse(result));
-      })
-      .catch(() => {
-        // Web mirror or a provider without a usage source: show none, never a guess.
-        if (active) setUsage(EMPTY_USAGE);
-      });
+      .then(result => publish(modelGroupUsageFromResponse(result)), () => publish(EMPTY_USAGE));
     return () => {
       active = false;
     };
@@ -54,6 +48,7 @@ export function useProviderModelUsageState(
 
   const refresh = useCallback(() => setRefreshToken((v) => v + 1), []);
 
+  const usage = enabled && reading?.provider === providerId && reading.account === accountId ? reading.usage : EMPTY_USAGE;
   return { usage, refresh };
 }
 
