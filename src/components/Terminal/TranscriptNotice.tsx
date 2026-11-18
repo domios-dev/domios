@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChatNoticeCard } from "@codeterm/chat-ui";
-import { Network } from "lucide-react";
+import { Info, Network } from "lucide-react";
 import { Button } from "../shared/Button";
 import { REMOTE_CHAT_COPY, type RemoteChatFailure, type RemoteChatState } from "../../lib/remoteChatState";
 
@@ -20,22 +20,25 @@ export function TranscriptNotice({ testId, sentence, details, action, centered, 
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const card = <ChatNoticeCard testId={testId} title={sentence} role="status" quiet
-    icon={mesh ? <Network size={16} aria-hidden="true" /> : null}
+  const Icon = mesh ? Network : Info;
+  const card = <ChatNoticeCard testId={testId} title={sentence} role="status" tone="var(--ct-muted-fg)"
+    icon={<Icon size={14} aria-hidden="true" />}
     expanded={expanded} onToggle={onToggle} detailsLabel="Details"
     status={action && <Button variant="ghost" size="sm" loading={action.loading} onClick={action.run}>{action.label}</Button>}>
-    <pre className="whitespace-pre-wrap break-words text-[11px] text-[var(--ct-muted-fg)]">{details}</pre>
-    <Button variant="ghost" size="compact" onClick={() => { if (details) void navigator.clipboard?.writeText(details).catch(() => {}); }}>Copy details</Button>
+    {details && <>
+      <pre className="whitespace-pre-wrap break-words text-[11px] text-[var(--ct-muted-fg)]">{details}</pre>
+      <Button variant="ghost" size="compact" className="px-0! border-x-0!"
+        onClick={() => { void navigator.clipboard?.writeText(details).catch(() => {}); }}>Copy details</Button>
+    </>}
   </ChatNoticeCard>;
   return centered ? <div className="flex min-h-full items-center justify-center">{card}</div> : card;
 }
 
-export function RemoteChatNotice({ state, machine, peerId, failure, centered, canRetrySend, busy, expanded, onToggle, onRetry, onOpenMesh }: {
+export function RemoteChatNotice({ state, machine, peerId, failure, canRetrySend, busy, expanded, onToggle, onRetry, onOpenMesh }: {
   state: RemoteChatState;
   machine: string;
   peerId: string;
   failure?: RemoteChatFailure;
-  centered?: boolean;
   canRetrySend?: boolean;
   busy?: boolean;
   expanded: boolean;
@@ -53,7 +56,7 @@ export function RemoteChatNotice({ state, machine, peerId, failure, centered, ca
   const action = canRetrySend || copy.action === "retry" ? { label: "Try again", run: onRetry, loading: busy }
     : copy.action === "mesh" ? { label: "Open Mesh", run: onOpenMesh } : undefined;
   return <TranscriptNotice testId="remote-chat-notice" sentence={copy.sentence(machine)} details={details} action={action}
-    mesh centered={centered} expanded={expanded} onToggle={onToggle} />;
+    mesh expanded={expanded} onToggle={onToggle} />;
 }
 
 export function RuntimeTranscriptNotice({ sentence, details, action, centered }: {
