@@ -45,6 +45,16 @@ for (const file of ["busy-sonnet-confirmation.txt"]) {
   assert.equal(pattern(commands.model.prompt.screenRegex, "foreign").test(screen), false);
   assert.ok(pattern(commands.model.prompt.screenRegex, "sonnet").test(`prefix\n${screen}\nfooter`));
 }
+for (const width of [90, 120]) {
+  const screen = fixture(`live-2.1.327-confirmation-${width}.txt`);
+  const confirmation = pattern(commands.model.prompt.screenRegex, "sonnet");
+  assert.ok(confirmation.test(screen));
+  assert.ok(confirmation.test(screen.replace(/\r?\n/g, "\r\n")));
+  assert.equal(pattern(commands.model.prompt.screenRegex, "haiku").test(screen), false);
+  assert.equal(confirmation.test(screen.replace("❯ 1.", "  1.").replace("  2.", "❯ 2.")), false);
+  assert.equal(confirmation.test(screen.replace("Sonnet 5.5\n", "Sonnet 5.50\n")), false);
+  assert.equal(confirmation.test(screen.replace("Enter to confirm · Esc to cancel", "Enter to select")), false);
+}
 const busy = fs.readFileSync(path.join(root, "tests/fixtures/tab-state/normal-working.txt"), "utf8");
 assert.equal(pattern(commands.model.prompt.screenRegex, "sonnet").test(busy), false);
 assert.equal(pattern(modelPicker.screenRegex, "sonnet").test(busy), false);
