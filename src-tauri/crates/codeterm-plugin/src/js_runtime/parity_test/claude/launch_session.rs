@@ -27,11 +27,16 @@ fn evidence(processes: Vec<LaunchProcess>) -> LaunchSessionEvidence {
 }
 
 #[test]
-fn exact_claude_switch_preflight_reads_shared_transcript_without_a_pid_record() {
+fn exact_switch_preflight_reads_shared_transcript_without_a_pid_record() {
     use crate::provider_account::{with_context, InvocationContext, SharedReadGrant};
     if require_plugins().is_none() {
         return;
     }
+    let manifest: crate::js_runtime::PluginManifest = serde_json::from_str(
+        &std::fs::read_to_string(plugin_fixture_root().join("plugin.json")).unwrap(),
+    )
+    .unwrap();
+    let home_environment = manifest.accounts.unwrap().home_environment;
     let temp = tempfile::tempdir().unwrap();
     let usual = temp.path().join("usual");
     let named = temp.path().join("named");
@@ -42,20 +47,16 @@ fn exact_claude_switch_preflight_reads_shared_transcript_without_a_pid_record() 
     codeterm_util::fs_links::directory_link(&projects, &named.join("projects")).unwrap();
     let evidence = temp.path().join("evidence");
     let _env = EnvGuard::new(&[
-        ("CLAUDE_CONFIG_DIR", usual.to_str().unwrap()),
+        (home_environment.as_str(), usual.to_str().unwrap()),
         (
             crate::session_evidence::EVIDENCE_DIR_ENV,
             evidence.to_str().unwrap(),
         ),
     ]);
     let invocation = InvocationContext::new(
-        "claude".into(),
+        manifest.id,
         "named".into(),
-        [(
-            "CLAUDE_CONFIG_DIR".into(),
-            Some(named.to_string_lossy().into_owned()),
-        )]
-        .into(),
+        [(home_environment, Some(named.to_string_lossy().into_owned()))].into(),
         vec![named],
         vec![usual],
     )

@@ -19,11 +19,11 @@ pub(super) fn detect_launch_session(
     evidence: &LaunchSessionEvidence,
 ) -> Option<LaunchSessionDetection> {
     let Some(dir) = registry_dir() else {
-        log::debug!("[claude-pid-registry] refused: registry_directory_unavailable");
+        log::debug!("[launch-pid-registry] refused: registry_directory_unavailable");
         return None;
     };
     if evidence.processes.is_empty() {
-        log::debug!("[claude-pid-registry] refused: process_tree_empty");
+        log::debug!("[launch-pid-registry] refused: process_tree_empty");
         return None;
     }
     let mut processes: Vec<_> = evidence.processes.iter().collect();
@@ -35,7 +35,7 @@ pub(super) fn detect_launch_session(
             match read_registry_session(&dir, process) {
                 Ok(session) => Some(session),
                 Err(reason) => {
-                    log::debug!("[claude-pid-registry] pid={pid} refused: {reason}");
+                    log::debug!("[launch-pid-registry] pid={pid} refused: {reason}");
                     None
                 }
             }
