@@ -85,7 +85,12 @@ test("dsBlocks beside genuine attachments use message trust and retain authority
     const frame = view.host.querySelector('iframe'); const srcDoc = frame?.getAttribute('srcdoc');
     const capsule = view.host.querySelector<HTMLButtonElement>('[data-testid="chat-inline-attachment"]');
     assert.ok(frame && capsule && !capsule.disabled);
-    await act(async () => capsule.click()); assert.deepEqual(opens, ['/genuine.txt']);
+    await act(async () => capsule.click());
+    const reveal = document.querySelector<HTMLButtonElement>('button[aria-label="Reveal Genuine"]');
+    assert.ok(reveal);
+    assert.equal(document.activeElement, reveal);
+    await act(async () => reveal.click());
+    assert.deepEqual(opens, ['/genuine.txt']);
     for (let after = 0; after < 20; after++) {
       await render(tag + '\n\n' + 'later '.repeat(after + 1));
       assert.equal(view.host.querySelector('iframe') === frame, true, `attachment append ${after}: frame identity`); assert.equal(frame.getAttribute('srcdoc') === srcDoc, true, `attachment append ${after}: srcDoc`);
