@@ -118,6 +118,13 @@ fn resumed_replay_stays_idle_and_first_new_turn_completes_once() {
             1
         );
         assert_eq!(rows.iter().filter(|row| row.id == original.id).count(), 1);
+        assert_eq!(
+            rows.iter()
+                .find(|row| row.id == original.id)
+                .unwrap()
+                .content,
+            "old reply"
+        );
         publish_events(
             &scene.fixture.service,
             &scene.session,
@@ -132,26 +139,8 @@ fn resumed_replay_stays_idle_and_first_new_turn_completes_once() {
         )
         .await
         .unwrap();
-        assert!(scene
-            .session
-            .state
-            .lock()
-            .notice
-            .as_deref()
-            .unwrap()
-            .contains("retained content or active turn"));
-        assert_eq!(
-            scene
-                .session
-                .cache
-                .lock()
-                .snapshot()
-                .iter()
-                .find(|row| row.id == original.id)
-                .unwrap()
-                .content,
-            "old reply"
-        );
+        assert!(scene.session.state.lock().notice.is_none());
+        assert_eq!(scene.session.cache.lock().snapshot(), rows);
     });
 }
 
