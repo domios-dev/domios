@@ -1,5 +1,5 @@
 {
-  "visibility": "selected",
+  "name": "domios-trusted",
   "allows_public_repositories": true,
   "restricted_to_workflows": true,
   "selected_workflows": [

@@ -100,6 +100,14 @@ every `pull_request` workflow, and the master publication jobs of `release.yml`,
 ref. Entries pin a branch, so isolation equals "who can push that branch": apply and read back the
 `owner-only-trusted-branches` ruleset before the runner policy.
 
+The retarget PATCH body omits `visibility` to preserve the selected repository grant. Confirm
+that the repository list contains only `domios-dev/domios` before and after the PATCH.
+If the list is empty, the owner restores the repository grant through the separate
+[repository access endpoint](https://docs.github.com/en/rest/actions/self-hosted-runner-groups#set-repository-access-for-a-self-hosted-runner-group-in-an-organization).
+Use `PUT /orgs/domios-dev/actions/runner-groups/<group-id>/repositories` with
+`{"selected_repository_ids":[1187898203]}` after confirming the repository ID with
+`gh api repos/domios-dev/domios --jq '.id'`. Read the grant back before requesting runners.
+
 Owner operation, after reviewing the ID and payload:
 
 ```bash
