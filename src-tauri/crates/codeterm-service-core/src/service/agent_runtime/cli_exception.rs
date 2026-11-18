@@ -28,6 +28,8 @@ struct Lease {
 
 static LEASES: LazyLock<Mutex<HashMap<String, Lease>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+// A closing tab must finish policy cleanup even when provisioning is still in flight.
+static POLICY_IO: Mutex<()> = Mutex::new(());
 
 fn record_policy(policy: &RestrictedCliPolicy) {
     log::debug!("[runtime-policy] phase=cli_exception tab={} epoch={} scope=service-operations executable_pinned=true executable_sha256={} config_sha256={} rule_sha256={}",
@@ -390,6 +392,10 @@ pub(super) fn prepare(
     let Some(sandbox) = sandbox(svc, context)? else {
         return Ok(None);
     };
+    let _policy_io = POLICY_IO.lock();
+    svc.mux
+        .read()
+        .ensure_tab_membership_mutable(&context.tab_id)?;
     let executable = instance_executable(svc).ok_or(DENIED)?;
     let existing = LEASES.lock().get(&context.tab_id).cloned();
     if let Some(mut lease) = existing {
@@ -503,6 +509,7 @@ pub(super) async fn validate_before_operation(
 }
 
 pub(super) fn revoke(tab: &str) -> Result<(), String> {
+    let _policy_io = POLICY_IO.lock();
     let lease = LEASES.lock().remove(tab);
     let Some(lease) = lease else {
         return Ok(());
@@ -526,6 +533,31 @@ pub(super) fn revoke(tab: &str) -> Result<(), String> {
                 .into(),
         )
     }
+}
+
+pub fn needs_project_handoff(svc: &ServiceContext, tab: &str, cwd: &str) -> bool {
+    if !cfg!(windows) {
+        return false;
+    }
+    if LEASES
+        .lock()
+        .get(tab)
+        .is_some_and(|lease| codeterm_paths::paths_equal(&lease.policy.cwd, cwd))
+    {
+        return true;
+    }
+    let provider = {
+        let mux = svc.mux.read();
+        mux.get_tab(tab).and_then(|tab| {
+            let policy = tab.restorable_launch.execution_sandbox.as_ref()?;
+            codeterm_paths::paths_equal(&policy.cwd, cwd)
+                .then(|| tab.agent_type.clone())
+                .flatten()
+        })
+    };
+    provider.is_some_and(|provider| {
+        metadata_directory(svc, &provider).is_ok_and(|directory| directory.is_some())
+    })
 }
 
 #[cfg(any(test, feature = "test-support"))]
