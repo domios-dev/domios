@@ -6,12 +6,12 @@ import {v2Prompt} from "./runtimeV2Requests";
 import {v2LoginEvents} from "./runtimeV2Auth";
 
 interface Part {seq:number;bytes:number;turn?:string;finished:boolean;part:Record<string,unknown>}
-interface State {epoch:number;nonce:string;thread:string;seq:number;seen:string[];evidenced:string[];completed:string[];turn?:string;parts:Record<string,Part>}
+interface State {epoch:number;nonce:string;thread:string;seq:number;seen:string[];evidenced:string[];completed:string[];pendingPrompts:string[];turn?:string;parts:Record<string,Part>}
 function current(ctx:RuntimeContext, raw:JsonValue):State {
   const old=object(raw);
-  if (old.epoch !== ctx.epoch || old.nonce !== ctx.bindingNonce || old.thread !== ctx.threadId) return {epoch:ctx.epoch,nonce:ctx.bindingNonce,thread:ctx.threadId!,seq:ctx.restoredRowOrdinal ?? 0,seen:[],evidenced:[],completed:[],parts:Object.create(null)};
+  if (old.epoch !== ctx.epoch || old.nonce !== ctx.bindingNonce || old.thread !== ctx.threadId) return {epoch:ctx.epoch,nonce:ctx.bindingNonce,thread:ctx.threadId!,seq:ctx.restoredRowOrdinal ?? 0,seen:[],evidenced:[],completed:[],pendingPrompts:[],parts:Object.create(null)};
   const state=old as unknown as State;
-  return {...state,seen:[...state.seen],evidenced:[...state.evidenced],completed:[...state.completed],parts:Object.fromEntries(Object.entries(state.parts).map(([id,part])=>[id,{...part,part:{...part.part}}]))};
+  return {...state,seen:[...state.seen],evidenced:[...state.evidenced],completed:[...state.completed],pendingPrompts:[...(state.pendingPrompts ?? [])],parts:Object.fromEntries(Object.entries(state.parts).map(([id,part])=>[id,{...part,part:{...part.part}}]))};
 }
 function witness(ctx:RuntimeContext, sequence:number|undefined, sendId?:string) {
   return ctx.streamWindow?.turnRequests?.find(value=>(!sendId || value.sendId === sendId) && value.written && value.afterSequence !== undefined && sequence !== undefined && sequence > value.afterSequence);
@@ -43,7 +43,10 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
     const turn=state.turn ?? ctx.activeTurnId ?? witness(ctx,sequence)?.turnId;
     if (frame.kind === "request") {
       const prompt=v2Prompt(ctx,frame);
-      if (prompt) events.push(prompt,{kind:"turnState",threadId:ctx.threadId,...(turn ? {turnId:turn} : {}),state:"needs_input",detail:frame.method === "permission.asked" ? "awaitingApproval" : "awaitingInput"});
+      if (prompt) {
+        state.pendingPrompts.push(String(frame.requestId));
+        events.push(prompt,{kind:"turnState",threadId:ctx.threadId,...(turn ? {turnId:turn} : {}),state:"needs_input",detail:frame.method === "permission.asked" ? "awaitingApproval" : "awaitingInput"});
+      }
       continue;
     }
     if (type === "session.inbox.enqueued") {echoed(ctx,state,data,sequence,events);continue;}
@@ -54,6 +57,7 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
     if (["session.execution.succeeded","session.execution.failed","session.execution.interrupted"].includes(type)) {
       if (turn && !state.completed.includes(turn)) {
         state.completed.push(turn);
+        state.pendingPrompts=[];
         const detail=type === "session.execution.failed" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : undefined;
         if (detail === "failed") events.push({kind:"notice",threadId:ctx.threadId,message:String(object(data.error).message ?? "OpenCode execution failed").slice(0,4096)});
         events.push({kind:"turnState",threadId:ctx.threadId,turnId:turn,state:"idle",...(detail ? {detail} : {})});delete state.turn;
@@ -62,7 +66,16 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
     }
     if (["permission.replied","form.replied","form.cancelled"].includes(type)) {
       const request=text(data.requestID) ?? text(data.formID) ?? text(data.id);
-      if (request) events.push({kind:"promptResolved",threadId:ctx.threadId,requestId:request});
+      if (request) {
+        events.push({kind:"promptResolved",threadId:ctx.threadId,requestId:request});
+        const pending=state.pendingPrompts.indexOf(request);
+        if (pending >= 0) {
+          state.pendingPrompts.splice(pending,1);
+          if (!state.pendingPrompts.length && turn && !state.completed.includes(turn)) {
+            events.push({kind:"turnState",threadId:ctx.threadId,turnId:turn,state:"working"});
+          }
+        }
+      }
       continue;
     }
     const message=text(data.assistantMessageID);

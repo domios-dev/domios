@@ -122,6 +122,25 @@ check("recorded stream maps delivery, tool lifecycle, text, forms and usage",()=
   for (const final of items.filter(e=>e.item.type !== "user")) if (final.item.toolStatus === "completed" || final.item.content === "Fixture tool turn complete.") assert.ok(history.some(row=>row.id === final.item.id));
   assert.equal(runtimeReduce(ctx,reduced.state,frames).events.length,0);
 });
+check("returns to working only when the active turn's final prompt settles",()=>{
+  const {ctx,frames}=prepared("v2-prompt-turn-state");
+  ctx.activeTurnId="active-turn";
+  const frame=(type:string)=>frames.find(frame=>(frame.params as Record<string,JsonValue>).type === type)!;
+  const permission=frame("permission.asked"), form=frame("form.created");
+  const asked=runtimeReduce(ctx,null,[frame("session.execution.started"),permission,form]);
+  assert.deepEqual(asked.events.filter(event=>event.kind === "turnState").map(event=>event.state),["working","needs_input","needs_input"]);
+
+  const first=runtimeReduce(ctx,asked.state,[frame("permission.replied")]);
+  assert.deepEqual(first.events.map(event=>event.kind),["promptResolved"]);
+  const last=runtimeReduce(ctx,first.state,[frame("form.replied")]);
+  assert.deepEqual(last.events.filter(event=>event.kind === "turnState"),[
+    {kind:"turnState",threadId:ctx.threadId,turnId:"active-turn",state:"working"},
+  ]);
+  assert.equal(runtimeReduce(ctx,last.state,[frame("form.replied")]).events.length,0);
+
+  const ended=runtimeReduce(ctx,asked.state,[frame("session.execution.succeeded"),frame("permission.replied"),frame("form.replied")]);
+  assert.deepEqual(ended.events.filter(event=>event.kind === "turnState").map(event=>event.state),["idle"]);
+});
 check("recorded thinking, shell and text stay reconcilable across an active interrupt",()=>{
   const ctx=loaded("v2-stream-and-stop"), {frames,interrupt}=fixture.streamAndInterrupt;
   const type=(frame:RuntimeFrame)=>(frame.params as Record<string,JsonValue>).type;
