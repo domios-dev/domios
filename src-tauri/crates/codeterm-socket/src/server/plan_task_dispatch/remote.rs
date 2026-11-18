@@ -177,6 +177,12 @@ pub(super) fn dispatch(
     {
         return Err(invalid_dispatch("mesh Workers always require a peer lane"));
     }
+    let manifest = codeterm_service_core::service::plan::plan_skills::plan_skill_manifest(
+        &svc.plan_store,
+        &plan_id,
+    )
+    .map_err(super::super::plan::plan_rpc_err)?;
+    let skill_context = brief::plan_skill_context(&svc.plan_store, &plan_id, &manifest)?;
     let attempt_id = codeterm_service_core::plan::ids::short_id("attempt");
     let (peer_id, peer_name, peer_client, peer_state) = select_peer(svc, &peer_target)?;
     if let Some(client) = peer_client
@@ -217,18 +223,12 @@ pub(super) fn dispatch(
             "paired peer is offline; the origin attempt is retained for retry",
         ));
     }
-    let manifest = codeterm_service_core::service::plan::plan_skills::plan_skill_manifest(
-        &svc.plan_store,
-        &plan_id,
-    )
-    .map_err(super::super::plan::plan_rpc_err)?;
     let brief = super::brief::build_brief_with_manifest(
         (&preparation, &task),
         &plan_id,
         &[],
         &authorized_gates,
     );
-    let skill_context = brief::plan_skill_context(&svc.plan_store, &plan_id, &manifest)?;
     let origin_tab_id = owned_str(p, "caller_tab_id")
         .or(task.owner_tab_id.clone())
         .ok_or_else(|| invalid_dispatch("mesh dispatch requires the origin Orchestrator tab"))?;
