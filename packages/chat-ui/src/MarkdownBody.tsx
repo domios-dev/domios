@@ -187,6 +187,7 @@ const LINE_BREAK_REHYPE_PLUGINS = [rehypeMarkdownLineBreaks] as unknown as Rehyp
 
 export interface RichMarkdownProps {
   text: string;
+  inlineParagraphs?: boolean;
   fontScale?: number;
   localArtifacts?: boolean;
   interactivePreviews?: boolean;
@@ -218,6 +219,7 @@ export function RichMarkdown(props: RichMarkdownProps) {
 
 function MarkdownProse({
   text,
+  inlineParagraphs = false,
   fontScale,
   localArtifacts = true,
   interactivePreviews = true,
@@ -231,6 +233,7 @@ function MarkdownProse({
   fences: readonly DsFenceSpan[];
   pendingFence?: number;
   text: string;
+  inlineParagraphs?: boolean;
   fontScale?: number;
   localArtifacts?: boolean;
   /** False for text from someone else: html and diagram fences stay code instead of running. */
@@ -276,7 +279,9 @@ function MarkdownProse({
         h6: ({ node: _node, ...props }) => (
           <h6 className="text-xs font-semibold mt-1 mb-0.5" style={{ color: "var(--ct-muted-fg)" }} {...props} />
         ),
-        p: ({ node: _node, children, ...props }) => <p className={`my-1 whitespace-pre-wrap ${TEXT_WRAP_CLASS}`} {...props}>{children}</p>,
+        p: ({ node: _node, children, ...props }) => inlineParagraphs
+          ? <span className={`whitespace-pre-wrap ${TEXT_WRAP_CLASS}`} {...props}>{children}</span>
+          : <p className={`my-1 whitespace-pre-wrap ${TEXT_WRAP_CLASS}`} {...props}>{children}</p>,
         ul: ({ node: _node, ...props }) => <ul className="my-1.5 list-disc pl-5 marker:text-[var(--ct-muted-fg)]" {...props} />,
         ol: ({ node, ...props }) => {
           const count = node?.children.filter((child) => child.type === "element" && child.tagName === "li").length ?? 0;
@@ -373,10 +378,10 @@ function MarkdownProse({
           />
         ),
     }),
-    [fontScale, h1Text, h2Text, h3Text, localArtifacts],
+    [fontScale, h1Text, h2Text, h3Text, localArtifacts, inlineParagraphs],
   );
   const splitParts = parts;
-  const cacheKey = JSON.stringify([renderedText, fontScale ?? null, localArtifacts, interactivePreviews, sourcePositions, Boolean(planLinks?.onOpenPlan), splitParts ? partContext?.id ?? null : null, sourceOffset]);
+  const cacheKey = JSON.stringify([renderedText, fontScale ?? null, localArtifacts, interactivePreviews, sourcePositions, inlineParagraphs, Boolean(planLinks?.onOpenPlan), splitParts ? partContext?.id ?? null : null, sourceOffset]);
   const cachedKeyRef = useRef<string | null>(null);
   const rendered = useMemo(() => {
     const previousKey = cachedKeyRef.current;
@@ -390,7 +395,7 @@ function MarkdownProse({
       children: renderedText,
     }));
   }, [cacheKey, renderedText, rehypePlugins, splitParts, components, planLinks?.onOpenPlan, interactivePreviews]);
-  return <InteractivePreviewsContext.Provider value={interactivePreviews}><MarkdownPlanLinksContext.Provider value={planLinks ?? {}}><MarkdownFenceContext.Provider value={{ fences, pending: pendingFence, original: normalized.start }}>{rendered}</MarkdownFenceContext.Provider></MarkdownPlanLinksContext.Provider></InteractivePreviewsContext.Provider>;
+  return <InteractivePreviewsContext.Provider value={interactivePreviews}><MarkdownPlanLinksContext.Provider value={planLinks ?? {}}><MarkdownFenceContext.Provider value={{ fences, pending: pendingFence, original: normalized.start }}>{inlineParagraphs && text.match(/^\s*/)?.[0]}{rendered}{inlineParagraphs && text.trim() && text.match(/\s*$/)?.[0]}</MarkdownFenceContext.Provider></MarkdownPlanLinksContext.Provider></InteractivePreviewsContext.Provider>;
 }
 
 const REMARK_PLUGINS = [remarkGfm, remarkCachedParse, remarkBareDomains, remarkCodeMetadata, remarkReferenceMarkers];
