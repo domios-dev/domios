@@ -100,6 +100,11 @@ macro_rules! agent_provider_model_behavior {
             None
         }
 
+        /// The model name used by the provider's terminal command UI.
+        fn model_switch_terminal_label(&self, _model: &str) -> Option<String> {
+            None
+        }
+
         /// In-agent command that exits the REPL cleanly, if supported.
         fn exit_command(&self) -> Option<&str> {
             None

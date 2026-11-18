@@ -5,6 +5,10 @@ fn fixture(relative: &str) -> String {
 }
 
 fn declarations() -> (CommandPicker, CommandPrompt) {
+    declarations_with_label("Sonnet 5.5")
+}
+
+fn declarations_with_label(display_name: &str) -> (CommandPicker, CommandPrompt) {
     let manifest: serde_json::Value = serde_json::from_str(&fixture("plugin.json")).unwrap();
     let commands: crate::agent::provider::ModelSwitchCommands =
         serde_json::from_value(manifest["commands"]["modelSwitchCommands"].clone()).unwrap();
@@ -16,7 +20,7 @@ fn declarations() -> (CommandPicker, CommandPrompt) {
         binding_nonce: "nonce".into(),
         cwd: None,
         model: "sonnet".into(),
-        display_name: "Sonnet 5.5".into(),
+        display_name: display_name.into(),
         readiness: None,
     };
     let manifest_path = super::super::tests::provider_path("plugin.json");
@@ -30,6 +34,74 @@ fn declarations() -> (CommandPicker, CommandPrompt) {
             .unwrap()
             .with_structural_confirmation(target.readiness.clone(), "sonnet"),
     )
+}
+
+#[test]
+fn picker_checks_current_confirmation_before_waiting_for_another_frame() {
+    let screens = codeterm_pty::pty::screen_state::ScreenState::default();
+    let pty = "pty";
+    screens.resize(pty, 120, 45);
+    let signal = screens.subscribe_screen_changes(pty);
+    let formatted = fixture("tests/fixtures/model-switch/eight-rc-5060e6f-confirmation.ansi");
+    let plain = fixture("tests/fixtures/model-switch/eight-rc-5060e6f-confirmation.txt");
+    let manifest_path = super::super::tests::provider_path("plugin.json");
+    let provider = crate::plugin::js_runtime::load_one(&manifest_path).unwrap();
+    let terminal_label =
+        crate::agent::provider::AgentProvider::model_switch_terminal_label(&provider, "sonnet")
+            .unwrap();
+    let (mut picker, mut prompt) = declarations_with_label(&terminal_label);
+    let (_, catalogue_prompt) = declarations_with_label("Claude Sonnet 5.5");
+    let picker_screen = fixture("tests/fixtures/model-switch/live-2.1.327-picker.txt");
+    let selected = picker_screen
+        .replace("❯ 5.", "  5.")
+        .replace("    4.", "  ❯ 4.");
+    let writes = std::cell::RefCell::new(Vec::new());
+    picker.injected();
+    prompt.injected();
+    picker
+        .respond(&picker_screen, |key| {
+            writes.borrow_mut().push(key.to_vec());
+            Ok(())
+        })
+        .unwrap();
+    let wait_generation = std::cell::Cell::new(None);
+    respond_to_dialogs(
+        Some(&mut picker),
+        Some(&mut prompt),
+        |picker| {
+            picker.respond(&selected, |key| {
+                writes.borrow_mut().push(key.to_vec());
+                screens.process(pty, formatted.as_bytes());
+                wait_generation.set(Some(signal.generation()));
+                Ok(())
+            })
+        },
+        |prompt| {
+            let screen = screens.get_screen_text(pty).unwrap();
+            assert!(screen.contains("❯ 1. Yes, switch to Sonnet 5.5"));
+            assert!(!catalogue_prompt.present(&plain));
+            assert!(!catalogue_prompt.present(&screen));
+            assert!(prompt.present(&plain));
+            assert_eq!(wait_generation.get(), Some(signal.generation()));
+            prompt.respond(&screen, |key| {
+                writes.borrow_mut().push(key.to_vec());
+                Ok(())
+            })
+        },
+    )
+    .unwrap();
+    assert!(prompt.answered());
+    respond_to_dialogs(
+        Some(&mut picker),
+        Some(&mut prompt),
+        |_| panic!("picker cannot repeat"),
+        |_| panic!("confirmation cannot repeat"),
+    )
+    .unwrap();
+    assert_eq!(
+        writes.into_inner(),
+        [b"\x1b[A".to_vec(), b"s".to_vec(), b"\r".to_vec()]
+    );
 }
 
 #[test]

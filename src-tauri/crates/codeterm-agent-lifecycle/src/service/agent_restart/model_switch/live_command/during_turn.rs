@@ -10,6 +10,27 @@ pub(super) enum ScreenStage {
     UnknownPrompt,
 }
 
+pub(super) fn respond_to_dialogs(
+    picker: Option<&mut CommandPicker>,
+    prompt: Option<&mut CommandPrompt>,
+    respond_picker: impl FnOnce(&mut CommandPicker) -> Result<(), String>,
+    respond_prompt: impl FnOnce(&mut CommandPrompt) -> Result<(), String>,
+) -> Result<(), String> {
+    if let Some(picker) = picker {
+        if !picker.submitted() {
+            respond_picker(picker)?;
+        }
+        if !picker.submitted() {
+            return Ok(());
+        }
+    }
+    // Read the confirmation after submit, before waiting for another frame.
+    if let Some(prompt) = prompt.filter(|prompt| !prompt.answered()) {
+        respond_prompt(prompt)?;
+    }
+    Ok(())
+}
+
 pub(super) fn screen_stage(
     screen: &str,
     picker: Option<&CommandPicker>,

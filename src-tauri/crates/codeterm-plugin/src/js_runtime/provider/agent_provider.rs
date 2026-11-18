@@ -1023,14 +1023,6 @@ impl AgentProvider for JsProvider {
         ))
     }
 
-    fn model_switch(&self) -> provider::ModelSwitchMode {
-        self.manifest.commands.model_switch
-    }
-
-    fn model_switch_commands(&self) -> Option<provider::ModelSwitchCommands> {
-        self.manifest.commands.model_switch_commands.clone()
-    }
-
     fn supports_lazy_skills(&self) -> bool {
         self.manifest.spawn.supports_lazy_skills
     }
