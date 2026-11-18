@@ -2277,8 +2277,8 @@ function v2Answer(ctx, op) {
 }
 
 // plugins/provider-opencode/src/runtimeV2Projection.ts
-function contentId(message, ordinal) {
-  return `${message}:content:${ordinal}`;
+function contentId(message, kind, ordinal) {
+  return `${message}:${kind}:${ordinal}`;
 }
 function toolId(message, id) {
   return `${message}:tool:${id}`;
@@ -2289,7 +2289,7 @@ function toolContent(raw) {
 function v2Content(message, raw, ordinal, seq, ts) {
   const part = object2(raw), type = part.type;
   const timestamp2 = ts !== void 0 ? { timestamp: new Date(ts).toISOString() } : {};
-  if (type === "text" || type === "reasoning") return { id: contentId(message, ordinal), seq, type: type === "text" ? "assistant" : "thinking", content: String(part.text ?? ""), ...timestamp2 };
+  if (type === "text" || type === "reasoning") return { id: contentId(message, type, ordinal), seq, type: type === "text" ? "assistant" : "thinking", content: String(part.text ?? ""), ...timestamp2 };
   if (type !== "tool" || !text(part.id) || !text(part.name)) return void 0;
   const state = object2(part.state), time = object2(part.time), status = String(state.status);
   return {
@@ -2322,10 +2322,13 @@ function v2History(raw) {
     } else if (message.type === "assistant") {
       const content = list(message.content);
       if (content.length > 512) fail("size_limit", "OpenCode history content exceeds its bound");
-      content.forEach((part, index2) => {
-        const row = v2Content(id, part, index2, rows.length + 1, ts);
+      const ordinals = { text: 0, reasoning: 0 };
+      for (const part of content.map(object2)) {
+        const kind = part.type;
+        const ordinal = kind === "text" || kind === "reasoning" ? ordinals[kind]++ : 0;
+        const row = v2Content(id, part, ordinal, rows.length + 1, ts);
         if (row) rows.push(row);
-      });
+      }
     }
   }
   return rows;
@@ -2542,7 +2545,8 @@ function v2Reduce(ctx, raw, frames) {
       continue;
     }
     if (/^session\.(text|reasoning)\./.test(type) && Number.isSafeInteger(data.ordinal) && Number(data.ordinal) >= 0) {
-      const rowId = contentId(message, Number(data.ordinal)), known = state.parts[rowId], kind = type.split(".")[1];
+      const kind = type.startsWith("session.text.") ? "text" : "reasoning";
+      const rowId = contentId(message, kind, Number(data.ordinal)), known = state.parts[rowId];
       if (known?.finished) continue;
       if (type.endsWith(".delta")) {
         if (turn && known?.turn === turn && !state.completed.includes(turn) && typeof data.delta === "string") {
