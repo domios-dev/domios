@@ -141,7 +141,7 @@ it.each(["Documents", "message capsule"])("downloads the scoped original from %s
   try {
     await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Save pixel.png"]')!.click());
     expect(downloads).toEqual([{ href: originalImage, name: "pixel.png" }]);
-    expect(requests.at(-1)).toEqual({ path: "/api/tabs/image-owner/preview/read", body: { path: originalPath, kind: "image-original" } });
+    expect(requests[requests.length - 1]).toEqual({ path: "/api/tabs/image-owner/preview/read", body: { path: originalPath, kind: "image-original" } });
   } finally {
     click.mockRestore();
   }
