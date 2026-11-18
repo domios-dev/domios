@@ -114,5 +114,40 @@ pub(super) fn callable_status(status: Option<&str>) -> &'static str {
         .unwrap_or("UNKNOWN")
 }
 
+pub(super) fn grant_detail(body: &serde_json::Value) -> &'static str {
+    let detail = body
+        .pointer("/error/details/detail")
+        .or_else(|| body.pointer("/error/details/reason"));
+    const DETAILS: &[&str] = &[
+        "generation_mismatch",
+        "key_conflict",
+        "proof_invalid",
+        "challenge_invalid",
+        "token_before_revocation",
+        "admission_invalid",
+        "linked_before_revocation",
+        "linked_account_missing",
+        "linked_account_changed",
+        "linked_mismatch",
+        "billing_unverified",
+        "interval_unverified",
+        "authority_read_failed",
+        "inventory_bound",
+        "online_inputs_missing",
+        "online_not_admitted",
+        "signer_key_unknown",
+        "signer_failed",
+        "signature_unverified",
+    ];
+    match detail {
+        None => "unreported",
+        Some(value) => DETAILS
+            .iter()
+            .copied()
+            .find(|detail| Some(*detail) == value.as_str())
+            .unwrap_or("unrecognized"),
+    }
+}
+
 #[cfg(test)]
 mod tests;

@@ -1,5 +1,5 @@
 use crate::*;
-use codeterm_account::Session;
+use codeterm_account::{account_mesh::wire::InstallationProof, InstallationId, Session};
 use serde::de::DeserializeOwned;
 use std::time::Duration;
 
@@ -15,7 +15,16 @@ pub trait InstallationProofSource: Send + Sync {
         &self,
         session: &Session,
         installation_id: &codeterm_account::InstallationId,
-    ) -> Result<codeterm_account::account_mesh::wire::InstallationProof>;
+    ) -> Result<InstallationProof>;
+
+    async fn replacement_proof(
+        &self,
+        _session: &Session,
+        _installation_id: &InstallationId,
+        _generation: u64,
+    ) -> Option<InstallationProof> {
+        None
+    }
 }
 
 #[async_trait]
@@ -24,7 +33,7 @@ impl InstallationProofSource for codeterm_account::account_mesh::AccountMesh {
         &self,
         session: &Session,
         installation_id: &codeterm_account::InstallationId,
-    ) -> Result<codeterm_account::account_mesh::wire::InstallationProof> {
+    ) -> Result<InstallationProof> {
         self.entitlements_proof(session, installation_id)
             .await
             .map_err(|refusal| {
@@ -36,6 +45,16 @@ impl InstallationProofSource for codeterm_account::account_mesh::AccountMesh {
                     _ => "Installation proof unavailable".into(),
                 }
             })
+    }
+
+    async fn replacement_proof(
+        &self,
+        session: &Session,
+        installation_id: &InstallationId,
+        generation: u64,
+    ) -> Option<InstallationProof> {
+        self.replacement_entitlements_proof(session, installation_id, generation)
+            .await
     }
 }
 #[async_trait]
@@ -69,6 +88,37 @@ pub struct Cloud {
     installation_proofs: Option<std::sync::Arc<dyn InstallationProofSource>>,
     revocations:
         Option<std::sync::Arc<dyn codeterm_account::session_revocation::SessionRevocationObserver>>,
+}
+
+enum CallFailure {
+    Other(String),
+    Refused {
+        status: &'static str,
+        reason: BillingRefusal,
+        detail: &'static str,
+    },
+    SessionRevoked,
+}
+
+impl CallFailure {
+    fn could_be_rekey(&self) -> bool {
+        matches!(
+            self,
+            Self::Refused {
+                status: "FAILED_PRECONDITION",
+                reason: BillingRefusal::Unknown,
+                detail: "unreported" | "generation_mismatch",
+            }
+        )
+    }
+
+    fn message(self) -> String {
+        match self {
+            Self::Other(message) => message,
+            Self::Refused { reason, .. } => reason.message().into(),
+            Self::SessionRevoked => codeterm_account::session_revocation::SESSION_REVOKED.into(),
+        }
+    }
 }
 impl Cloud {
     pub fn configured(
@@ -173,38 +223,61 @@ impl Cloud {
         name: &str,
         data: serde_json::Value,
     ) -> Result<T> {
+        self.call_with_failure(session, name, data)
+            .await
+            .map_err(CallFailure::message)
+    }
+
+    async fn call_with_failure<T: DeserializeOwned>(
+        &self,
+        session: &Session,
+        name: &str,
+        data: serde_json::Value,
+    ) -> std::result::Result<T, CallFailure> {
+        let generation = data
+            .pointer("/installation_proof/generation")
+            .and_then(|value| value.as_u64());
         let request = self
-            .request(session, name, data)?
+            .request(session, name, data)
+            .map_err(CallFailure::Other)?
             .build()
-            .map_err(|_| "Invalid billing request")?;
-        let (successful, body) = self.transport.execute(request).await?;
+            .map_err(|_| CallFailure::Other("Invalid billing request".into()))?;
+        let (successful, body) = self
+            .transport
+            .execute(request)
+            .await
+            .map_err(CallFailure::Other)?;
         if !successful || body.get("error").is_some() {
             static REFUSALS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
             let trace_id = REFUSALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            log::debug!(
-                "Billing callable refused: status={} reason={} trace_id={trace_id}",
-                callable_status(
-                    body.pointer("/error/status")
-                        .and_then(|value| value.as_str())
-                ),
-                refusal_reason(&body).code()
+            let status = callable_status(
+                body.pointer("/error/status")
+                    .and_then(|value| value.as_str()),
             );
-        }
-        if codeterm_account::session_revocation::is_session_revoked(&body) {
-            if let Some(observer) = &self.revocations {
-                observer.revoked(session).await;
+            let reason = refusal_reason(&body);
+            let detail = refusal::grant_detail(&body);
+            log::debug!(
+                "Billing callable refused: status={status} reason={} grant_detail={detail} proof_generation={generation:?} trace_id={trace_id}",
+                reason.code()
+            );
+            if codeterm_account::session_revocation::is_session_revoked(&body) {
+                if let Some(observer) = &self.revocations {
+                    observer.revoked(session).await;
+                }
+                return Err(CallFailure::SessionRevoked);
             }
-            return Err(codeterm_account::session_revocation::SESSION_REVOKED.into());
-        }
-        if !successful || body.get("error").is_some() {
-            return Err(refusal_message(&body));
+            return Err(CallFailure::Refused {
+                status,
+                reason,
+                detail,
+            });
         }
         serde_json::from_value(
             body.get("result")
                 .cloned()
-                .ok_or("Invalid callable response")?,
+                .ok_or_else(|| CallFailure::Other("Invalid callable response".into()))?,
         )
-        .map_err(|_| "Invalid billing response".into())
+        .map_err(|_| CallFailure::Other("Invalid billing response".into()))
     }
     #[cfg(debug_assertions)]
     fn local_dev_bearer(&self, session: &Session, target: &url::Url) -> Option<String> {
@@ -271,10 +344,6 @@ fn refusal_reason(body: &serde_json::Value) -> BillingRefusal {
     )
 }
 
-fn refusal_message(body: &serde_json::Value) -> String {
-    refusal_reason(body).message().into()
-}
-
 /// DEV QA issuer on loopback; its verdicts still need the pinned TEST signature to count.
 fn dev_issuer(url: &url::Url) -> bool {
     cfg!(debug_assertions) && url.scheme() == "http" && url.host_str() == Some("127.0.0.1")
@@ -299,28 +368,47 @@ impl BillingProvider for Cloud {
             },
             _ => (None, false),
         };
-        let has_proof = proof.is_some();
+        let generation = proof.as_ref().map(|proof| proof.generation);
         let data = entitlements_request(&self.installation_id, proof)?;
-        match self
-            .call::<ApplicationEnvelope>(session, "getEntitlements", data)
-            .await
-        {
+        let mut response = self
+            .call_with_failure::<ApplicationEnvelope>(session, "getEntitlements", data)
+            .await;
+        let refused_generation =
+            generation.filter(|_| response.as_ref().is_err_and(CallFailure::could_be_rekey));
+        if let (Some(generation), Some(source)) = (refused_generation, &self.installation_proofs) {
+            if let Some(proof) = source
+                .replacement_proof(session, &self.installation_id, generation)
+                .await
+                .filter(|proof| proof.generation > generation)
+            {
+                log::debug!("Retrying signed entitlements after installation rekey: old_generation={generation} new_generation={}", proof.generation);
+                let data = entitlements_request(&self.installation_id, Some(proof))?;
+                response = self
+                    .call_with_failure(session, "getEntitlements", data)
+                    .await;
+            }
+        }
+        match response {
             Ok(envelope) => Ok(Reading {
                 installation_sign_in_required: sign_in_required,
                 ..Reading::from(envelope)
             }),
-            Err(error)
-                if error != codeterm_account::session_revocation::SESSION_REVOKED && has_proof =>
-            {
-                self.call::<ApplicationEnvelope>(
+            Err(
+                CallFailure::SessionRevoked
+                | CallFailure::Refused {
+                    reason: BillingRefusal::SessionRevoked,
+                    ..
+                },
+            ) => Err(CallFailure::SessionRevoked.message()),
+            Err(_) if generation.is_some() => self
+                .call::<ApplicationEnvelope>(
                     session,
                     "getEntitlements",
                     serde_json::json!({"installation_id": self.installation_id}),
                 )
                 .await
-                .map(Reading::from)
-            }
-            Err(error) => Err(error),
+                .map(Reading::from),
+            Err(error) => Err(error.message()),
         }
     }
     async fn checkout_url(&self, session: &Session, plan: &str) -> Result<url::Url> {

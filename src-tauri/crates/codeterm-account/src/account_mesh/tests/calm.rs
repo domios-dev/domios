@@ -196,6 +196,49 @@ async fn fresh_rejoin() -> Harness {
 }
 
 #[tokio::test]
+async fn replacement_entitlement_proof_requires_new_key_in_same_login() {
+    let harness = fresh_rejoin().await;
+    let owner = session("owner");
+    let installation = crate::InstallationId::parse(INSTALLATION.into()).unwrap();
+    let previous = harness
+        .mesh
+        .entitlements_proof(&owner, &installation)
+        .await
+        .unwrap();
+    assert!(harness
+        .mesh
+        .replacement_entitlements_proof(&owner, &installation, previous.generation)
+        .await
+        .is_none());
+
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    let replacement = harness
+        .mesh
+        .replacement_entitlements_proof(&owner, &installation, previous.generation)
+        .await
+        .unwrap();
+    assert!(replacement.generation > previous.generation);
+    assert_ne!(replacement.key_id, previous.key_id);
+    assert_ne!(replacement.nonce, previous.nonce);
+
+    let different_login = crate::Session {
+        login_generation: owner.login_generation + 1,
+        ..owner
+    };
+    for wrong_session in [different_login, session("other")] {
+        assert!(harness
+            .mesh
+            .replacement_entitlements_proof(&wrong_session, &installation, previous.generation)
+            .await
+            .is_none());
+    }
+}
+
+#[tokio::test]
 async fn account_mesh_rejoin_retries_only_slot_recovery_after_transient_failure() {
     for (refusal, delay) in [
         (
