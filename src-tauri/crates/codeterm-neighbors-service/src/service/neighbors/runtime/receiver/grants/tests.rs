@@ -155,13 +155,114 @@ fn receiver_grants_never_read_a_foreign_account_or_another_installation() {
         link_nonce: None,
         remote_membership: None,
         admission: LinkAdmission::Account {
-            account_id: "owner".into(),
+            account_id: codeterm_account::account_mesh::account_id("owner"),
             installation_id: "air".into(),
             public_key: "key".into(),
         },
     };
-    assert!(owns_receiver_link("owner", Some("air"), &link));
-    assert!(!owns_receiver_link("friend", Some("air"), &link));
-    assert!(!owns_receiver_link("owner", Some("BLACKSTAR"), &link));
-    assert!(!owns_receiver_link("owner", None, &link));
+    assert!(owns_receiver_link(
+        &codeterm_account::account_mesh::account_id("owner"),
+        Some("air"),
+        &link
+    ));
+    assert!(!owns_receiver_link(
+        &codeterm_account::account_mesh::account_id("friend"),
+        Some("air"),
+        &link
+    ));
+    assert!(!owns_receiver_link(
+        &codeterm_account::account_mesh::account_id("owner"),
+        Some("BLACKSTAR"),
+        &link
+    ));
+    assert!(!owns_receiver_link(
+        &codeterm_account::account_mesh::account_id("owner"),
+        None,
+        &link
+    ));
+}
+
+#[test]
+fn receiver_grants_select_a_signed_client_using_the_opaque_mesh_account() {
+    use codeterm_mesh::{
+        account_mesh::{AccountMeshState, AccountPresence, SignedMembership, VerifiedMembership},
+        crown::generate_peer_keypair,
+        types::{AccessLevel, MeshIdentity, PairedPeer, PeerAddress, RELAY_PROTOCOL_VERSION},
+        MeshManager,
+    };
+    let (private, public) = generate_peer_keypair();
+    let mut mesh = MeshManager::in_memory(
+        MeshIdentity {
+            instance_id: "target-instance".into(),
+            private_key: Some(private),
+            public_key: Some(public.clone()),
+        },
+        "Target".into(),
+        7697,
+    );
+    let account = codeterm_account::account_mesh::account_id("owner");
+    assert_ne!(account, "owner");
+    let expires_at = mesh.now() + 3600;
+    mesh.apply_account_state(AccountMeshState {
+        presence: AccountPresence::SignedIn {
+            account_id: account.clone(),
+        },
+        membership: Some(SignedMembership {
+            token: "opaque-membership".into(),
+            verified: VerifiedMembership {
+                account_id: account,
+                installation_id: "target-installation".into(),
+                key_id: "fixture-key".into(),
+                key_generation: 1,
+                slot_revision: 1,
+                issued_at: 0,
+                expires_at,
+            },
+        }),
+        ..Default::default()
+    });
+    mesh.insert_account_peer_for_test(PairedPeer {
+        instance_id: "source-instance".into(),
+        instance_name: "Source".into(),
+        addresses: vec![PeerAddress {
+            ip: "100.84.159.37".into(),
+            is_tailscale: true,
+        }],
+        api_port: 7707,
+        public_key: public,
+        paired_at: "fixture".into(),
+        last_seen: None,
+        online: true,
+        is_primary: false,
+        access_level: AccessLevel::Full,
+        domios_version: None,
+        domios_build: None,
+        web_ui: None,
+        relay_protocol_version: RELAY_PROTOCOL_VERSION,
+        consecutive_misses: 0,
+        last_active_ms: None,
+    });
+    let mut status = ReceiverStatus {
+        receiver_installation_id: Some("source-instance".into()),
+        receiver_encryption_key_id: None,
+        receiver_machine_label: Some("Source".into()),
+        receiver_revision: 4,
+        is_me: false,
+        receiving_enabled: true,
+    };
+    assert!(mesh.traffic_open("source-instance"));
+    assert!(receiver_client(&mesh, "owner", &status).is_ok());
+    assert!(receiver_client(&mesh, "other-owner", &status).is_err());
+    status.receiver_installation_id = Some("another-installation".into());
+    assert!(receiver_client(&mesh, "owner", &status).is_err());
+    status.receiver_installation_id = Some("source-instance".into());
+    mesh.account_installations[0].signed_out = true;
+    assert!(receiver_client(&mesh, "owner", &status).is_err());
+    mesh.account_installations[0].signed_out = false;
+    let mut revoked = mesh.account_state().clone();
+    revoked
+        .revoked_installations
+        .insert("source-instance".into());
+    mesh.apply_account_state(revoked);
+    assert!(receiver_client(&mesh, "owner", &status).is_err());
 }

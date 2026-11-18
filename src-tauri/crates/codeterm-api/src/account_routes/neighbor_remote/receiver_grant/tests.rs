@@ -33,16 +33,18 @@ impl codeterm_account::CredentialStore for Credentials {
 }
 
 fn pair(state: &AppState, uid: &str, public: &str) {
+    let account = codeterm_account::account_mesh::account_id(uid);
+    assert_ne!(account, uid);
     let mut mesh = state.mesh.lock();
     let expires_at = mesh.now() + 3600;
     mesh.apply_account_state(AccountMeshState {
         presence: AccountPresence::SignedIn {
-            account_id: uid.into(),
+            account_id: account.clone(),
         },
         membership: Some(SignedMembership {
             token: "opaque-membership".into(),
             verified: VerifiedMembership {
-                account_id: uid.into(),
+                account_id: account.clone(),
                 installation_id: "source".into(),
                 key_id: "fixture-key".into(),
                 key_generation: 1,
@@ -78,6 +80,7 @@ fn request(token: &str, body: Value) -> Request<Body> {
     Request::builder()
         .method("POST")
         .uri("/api/neighbors/runtime")
+        .extension(codeterm_neighbors_service::service::account_mesh::tailnet::TailnetListener)
         .header("authorization", format!("Bearer {token}"))
         .header("content-type", "application/json")
         .header("x-codeterm-authenticated-origin", "Owner")
@@ -135,6 +138,10 @@ async fn receiver_grant_mesh_origin_reads_the_previous_receivers_persisted_full_
         .unwrap();
     let app = Router::new()
         .route("/api/neighbors/runtime", post(super::super::runtime))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::auth_middleware,
+        ))
         .with_state(state.clone());
     let token = sign_request(&key, "target").unwrap();
     let response = app
