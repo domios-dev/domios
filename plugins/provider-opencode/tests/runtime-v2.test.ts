@@ -65,6 +65,30 @@ check("model selection on resume updates the same session before loading it",()=
   assert.equal(step.kind,"complete");
   if(step.kind === "complete") assert.deepEqual(step.result,{kind:"threadLoaded",threadId:ctx.threadId,settings:ctx.settings});
 });
+check("events before and during restarted initialization preserve the v2 mapper",()=>{
+  for (const epoch of [2,3]) {
+    const ctx={...copy(fixture.context),tabId:"v2-restarted-events",epoch,bindingNonce:`restart-${epoch}`,settings:{model:"opencode/selected"}};
+    const initialize:Operation={kind:"initialize"};
+    let plan=runtimePlan(ctx,initialize), raw:JsonValue=null;
+    for (const body of [fixture.health,fixture.providers,fixture.integrations]) {
+      const reduction=runtimeReduce(ctx,raw,fixture.frames.slice(0,1));
+      if (body === fixture.health) assert.deepEqual(reduction,{state:null,events:[]});
+      raw=reduction.state;
+      const step=response(ctx,initialize,plan,body);
+      if (step.kind === "continue") plan=step.plan;
+      else assert.equal(step.kind,"complete");
+    }
+    const resume:Operation={kind:"resumeThread",threadId:ctx.threadId!,instructions:"opaque restart",settings:ctx.settings};
+    plan=runtimePlan(ctx,resume);
+    for (const [method,body] of [["v2.session.get",fixture.session],["v2.session.model",null],["v2.session.instructions",null]] as const) {
+      assert.equal(call(plan).method,method);
+      raw=runtimeReduce(ctx,raw,fixture.frames.slice(0,1)).state;
+      const step=response(ctx,resume,plan,body);
+      if (step.kind === "continue") plan=step.plan;
+      else {assert.equal(step.kind,"complete");if(step.kind === "complete") assert.deepEqual(step.result,{kind:"threadLoaded",threadId:ctx.threadId,settings:ctx.settings});}
+    }
+  }
+});
 check("recorded stream maps delivery, tool lifecycle, text, forms and usage",()=>{
   const {ctx,frames}=prepared("v2-stream"), reduced=runtimeReduce(ctx,null,frames), events=reduced.events;
   assert.equal(events.filter(e=>e.kind === "sendEvidence").length,1);

@@ -9,11 +9,42 @@ fn fixture() -> Value {
     .unwrap()
 }
 
+async fn initialize(provider: &dyn AgentProvider, context: &RuntimeContext, fixture: &Value) {
+    let initialize = RuntimeOperation::Initialize;
+    let mut handshake = provider.runtime_plan(context, &initialize).await.unwrap();
+    for body in [
+        json!({"healthy":true,"version":"fixture"}),
+        fixture["providers"].clone(),
+        fixture["auth"].clone(),
+    ] {
+        let step = provider
+            .runtime_response(
+                context,
+                &initialize,
+                &handshake.state,
+                &RpcReply::Success {
+                    value: json!({"body":body,"headers":{}}),
+                },
+            )
+            .await
+            .unwrap();
+        match step {
+            RuntimeStep::Continue { plan, .. } => handshake = plan,
+            RuntimeStep::Complete {
+                result: RuntimeResult::Initialized { .. },
+                ..
+            } => {}
+            _ => panic!("legacy handshake must complete"),
+        }
+    }
+}
+
 #[tokio::test]
 async fn opencode_runtime_source_fixture_matches_native_quickjs_projection() {
     let fixture = fixture();
     let provider = super::opencode();
     let mut context: RuntimeContext = serde_json::from_value(fixture["context"].clone()).unwrap();
+    initialize(&provider, &context, &fixture).await;
     let resume = RuntimeOperation::ResumeThread {
         thread_id: "ses_owned".into(),
         instructions: "opaque system instructions".into(),
@@ -101,6 +132,7 @@ async fn opencode_runtime_requests_use_the_shared_owned_reply_contract() {
     let fixture = fixture();
     let provider = super::opencode();
     let mut context: RuntimeContext = serde_json::from_value(fixture["context"].clone()).unwrap();
+    initialize(&provider, &context, &fixture).await;
     for (field, choice, expected) in [
         ("permission", "once", json!({"reply":"once"})),
         ("question", "0:1", json!({"answers":[["Beta"]]})),

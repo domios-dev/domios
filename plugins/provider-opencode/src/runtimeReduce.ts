@@ -51,7 +51,9 @@ function evidence(ctx:RuntimeContext, state:State, part:Record<string,unknown>, 
     {kind:"sendEvidence",threadId:ctx.threadId!,sendId:planned.sendId,turnId:witness.turnId,itemId:planned.messageId});
 }
 export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[]):RuntimeReduction {
-  if (binding(ctx).protocol === "v2") return v2Reduce(ctx,raw,frames);
+  const protocol=binding(ctx).protocol;
+  if (!protocol) return {state:raw,events:[]};
+  if (protocol === "v2") return v2Reduce(ctx,raw,frames);
   if (!ctx.threadId) return {state:raw,events:[]};
   const state=stateFor(ctx,raw), events:AgentEvent[]=[];
   for (let index=0;index<frames.length;index++) {
