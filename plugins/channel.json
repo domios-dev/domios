@@ -13,7 +13,7 @@
     {
       "id": "codex",
       "path": "provider-codex",
-      "version": "1.14.78",
+      "version": "1.14.79",
       "minCodeterm": "1.20.2"
     },
     {

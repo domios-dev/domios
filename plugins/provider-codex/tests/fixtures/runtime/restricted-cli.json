@@ -71,6 +71,7 @@
           "cwd": "//fixture/share/friend",
           "metadataDirectory": ".codex",
           "executable": "//fixture/share/bin/ALIAS~1/cli.exe",
+          "splitWindowsRoots": true,
           "executableSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "configSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           "ruleSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"

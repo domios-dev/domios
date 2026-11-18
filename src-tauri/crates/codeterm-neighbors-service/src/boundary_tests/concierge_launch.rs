@@ -212,7 +212,10 @@ async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy
         assert!(service.require_neighbor_restore_grant(id, false).is_ok());
         let session = agent_runtime::engine::for_tab(id).unwrap();
         let context = session.context.lock().clone();
-        assert!(context.restricted_cli.is_some());
+        assert_eq!(
+            context.restricted_cli.unwrap().split_windows_roots,
+            (access == MachineAccess::ReadOnly).then_some(true)
+        );
         assert_eq!(context.settings.network_access, Some(false));
         assert_eq!(
             context.settings.additional_directories,

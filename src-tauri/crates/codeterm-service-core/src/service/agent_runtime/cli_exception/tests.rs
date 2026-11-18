@@ -67,6 +67,42 @@ fn read_only_pad_policy_provisions_only_the_pinned_cli_exception() {
 }
 
 #[test]
+fn only_the_root_read_only_concierge_is_eligible_for_split_windows_roots() {
+    use crate::multiplexer::{state::MultiplexerState, types::NeighborAuthority};
+    use crate::service::test_fixture::ServiceFixture;
+
+    let (mux, tab_id) = MultiplexerState::new();
+    let service = ServiceFixture::new(mux);
+    let (directory, mut context, mut policy, _) = fixture();
+    let pad = directory.path().join("own-pad");
+    fs::create_dir(&pad).unwrap();
+    policy.intent = ExecutionIntent::ReadOnly;
+    policy.runtime_mode = Some("read-only-with-writable-roots".into());
+    policy.writable_roots = vec![plain_path(&pad.canonicalize().unwrap()).unwrap()];
+    context.tab_id = tab_id.clone();
+    context.settings.mode = policy.runtime_mode.clone();
+    context.settings.additional_directories = policy.writable_roots.clone();
+
+    for (root_tab_id, eligible) in [(None, Some(true)), (Some("root".into()), None)] {
+        {
+            let mut mux = service.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.neighbor_authority = Some(NeighborAuthority {
+                uid: "owner".into(),
+                friendship_id: "a".repeat(64),
+                root_tab_id,
+            });
+            tab.session_binding_nonce = Some(context.binding_nonce.clone());
+            tab.restorable_launch.execution_sandbox = Some(policy.clone());
+        }
+        assert_eq!(
+            sandbox(&service.service, &context).unwrap(),
+            Some((policy.clone(), eligible))
+        );
+    }
+}
+
+#[test]
 fn provisions_only_fresh_protected_policy_and_exact_executable_prefix() {
     let (_directory, context, sandbox, executable) = fixture();
     let policy = provision(&context, &sandbox, &executable, ".runtime-policy").unwrap();

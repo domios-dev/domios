@@ -53,7 +53,7 @@ export function codexNeedsWindowsSandboxSelection(raw: unknown, needsSplitRoots 
       throw {code:"invalid_schema",message:"Unknown configured Windows sandbox"};
     if (windows.sandbox !== "unelevated" || !needsSplitRoots) return false;
   }
-  if (windows.allow_mxc != null) {
+  if (windows.allow_mxc !== undefined && !(needsSplitRoots && windows.allow_mxc === null)) {
     if (typeof windows.allow_mxc !== "boolean") throw {code:"invalid_schema",message:"Invalid Windows MXC policy"};
     if (!windows.allow_mxc) return false;
   }
@@ -70,9 +70,15 @@ export function codexNeedsWindowsSandboxSelection(raw: unknown, needsSplitRoots 
 }
 
 export function codexNeedsSplitWindowsRoots(ctx: RuntimeContext): boolean {
-  const executable = ctx.restrictedCli?.executable;
+  const policy = ctx.restrictedCli;
   return ctx.settings.mode === "read-only-with-writable-roots"
-    && executable !== undefined && /^(?:[A-Za-z]:[\\/]|\/\/)/.test(executable);
+    && policy !== undefined && "splitWindowsRoots" in policy && policy.splitWindowsRoots === true;
+}
+
+export function codexManagedMxcRefusal(error: {code: number; message: string}): boolean {
+  // Codex can omit allow_mxc from requirements/read and reject it before opening the thread.
+  return error.code === -32600
+    && error.message.startsWith("failed to load configuration: invalid value for `windows.sandbox`: `Some(Mxc)` is not in the allowed set windows.allow_mxc = false (set by ");
 }
 
 export function codexWindowsSandboxOverride(raw: unknown): "mxc" | undefined {

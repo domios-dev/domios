@@ -65,6 +65,7 @@ for (const [index,entry] of cliReplay.operations.entries()) {
 assert.equal(codexNeedsWindowsSandboxSelection({config:{}}),true);
 for (const sandbox of ["mxc","elevated","unelevated"]) assert.equal(codexNeedsWindowsSandboxSelection({config:{windows:{sandbox}}}),false);
 assert.equal(codexNeedsWindowsSandboxSelection({config:{windows:{sandbox:"unelevated",allow_mxc:null}}},true),true);
+assert.throws(()=>codexNeedsWindowsSandboxSelection({config:{windows:{sandbox:null,allow_mxc:null}}}));
 assert.equal(codexNeedsWindowsSandboxSelection({config:{windows:{sandbox:"unelevated",allow_mxc:false}}},true),false);
 assert.equal(codexNeedsWindowsSandboxSelection({config:{windows:{sandbox:"elevated"}}},true),false);
 for (const prefer_mxc of [false,true]) assert.equal(codexNeedsWindowsSandboxSelection({config:{features:{prefer_mxc}}}),false);
