@@ -16,6 +16,8 @@ async fn admits_before_network(
     };
     let (client, _messages) = Client::channel(None, 16, 16);
     let (written, receipt) = oneshot::channel();
+    let boundary = RuntimeFailure::PrewriteRefused("fixture network boundary".into());
+    let expected_reason = boundary.to_string();
     execute(
         &client,
         &reqwest::Client::new(),
@@ -25,21 +27,18 @@ async fn admits_before_network(
         &Mutex::new(requests::Requests::default()),
         Write {
             text: json!({"id":1,"method":call.method,"params":call.params}).to_string(),
-            guard: Some(Arc::new(|| {
-                Err(RuntimeFailure::PrewriteRefused(
-                    "fixture network boundary".into(),
-                ))
-            })),
+            guard: Some(Arc::new(move || Err(boundary.clone()))),
             written,
             turn_write: None,
         },
     )
     .await
     .unwrap();
+    let actual = receipt.await.unwrap();
     assert!(
-        matches!(receipt.await.unwrap(), Err(RuntimeFailure::PrewriteRefused(reason)) if reason == "fixture network boundary"),
-        "{} must pass the actual transport declaration check",
-        call.method
+        matches!(&actual, Err(RuntimeFailure::PrewriteRefused(reason)) if reason == &expected_reason),
+        "{} must pass the actual transport declaration check; actual: {actual:?}",
+        call.method,
     );
 }
 
