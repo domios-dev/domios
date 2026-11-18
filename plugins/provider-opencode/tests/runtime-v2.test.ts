@@ -219,6 +219,67 @@ check("permission and form responses retain exact request identities",()=>{
     assert.throws(()=>runtimePlan(ctx,{...op,requestId:"foreign"}));
   }
 });
+check("five routed turns keep their stream identities and chronological order in resumed history",()=>{
+  const ctx=loaded("v2-routed-history"), threadId=ctx.threadId!;
+  const event=(frame:RuntimeFrame)=>(frame.params as Record<string,JsonValue>).type;
+  const inbox=fixture.frames.find(frame=>event(frame) === "session.inbox.enqueued")!;
+  const ended=fixture.frames.find(frame=>event(frame) === "session.text.ended")!;
+  const wireHistory=fixture.history.data as {type:string;id:string;time:{created:number};text?:string;content?:unknown[]}[];
+  const user=wireHistory.find(message=>message.type === "user")!;
+  const assistant=wireHistory.find(message=>message.type === "assistant" && message.content?.length === 1)!;
+  const history:unknown[]=[];
+  const visible:{id:string;type:string;content:string}[]=[];
+  let state:JsonValue=null;
+  for (let index=0;index<5;index++) {
+    const wireText=`<domios from="system" context="qa">Opaque prompt ${index}</domios>`;
+    const sendId=`routed-${index}`, input={text:wireText,attachments:[]};
+    ctx.claimedSends=[{sendId,threadId,input}];
+    const submit:Operation={kind:"submitTurn",threadId,sendId,input,settings:ctx.settings};
+    const planned=(call(runtimePlan(ctx,submit)).params as {body:{id:string}}).body;
+    const accepted=copy(inbox), reply=copy(ended);
+    const inboxEvent=accepted.params as {id:string;data:{inboxID:string;item:{payload:{text:string}}}};
+    inboxEvent.id+=`-${index}`;
+    inboxEvent.data.inboxID=planned.id;
+    inboxEvent.data.item.payload.text=wireText;
+    const replyEvent=reply.params as {id:string;data:{assistantMessageID:string;ordinal:number;text:string}};
+    replyEvent.id+=`-${index}`;
+    replyEvent.data.assistantMessageID=`reply-${index}`;
+    replyEvent.data.ordinal=0;
+    ctx.streamWindow={frameSequences:[3*index+1,3*index+2],turnRequests:[{sendId,turnId:planned.id,afterSequence:3*index,written:true}]};
+    const reduced=runtimeReduce(ctx,state,[accepted,reply]);
+    state=reduced.state;
+    assert.ok(reduced.events.some(event=>event.kind === "sendEvidence" && event.sendId === sendId && event.itemId === planned.id));
+    for (const event of reduced.events) {
+      if (event.kind === "chatItem") {
+        const {id,type,content}=event.item;
+        visible.push({id,type,content});
+      }
+    }
+    history.push(
+      {...user,id:planned.id,text:wireText,time:{created:2*index}},
+      {...assistant,id:replyEvent.data.assistantMessageID,content:[{type:"text",text:replyEvent.data.text}],time:{created:2*index+1}},
+    );
+  }
+  const restarted={...ctx,epoch:ctx.epoch+2,bindingNonce:"history-restart",claimedSends:[],streamWindow:undefined};
+  const initialize:Operation={kind:"initialize"};
+  let plan=runtimePlan(restarted,initialize);
+  for (const body of [fixture.health,fixture.providers]) plan=continued(response(restarted,initialize,plan,body));
+  assert.equal(response(restarted,initialize,plan,fixture.integrations).kind,"complete");
+  const resume:Operation={kind:"resumeThread",threadId,instructions:"opaque restart",settings:ctx.settings};
+  plan=runtimePlan(restarted,resume);
+  for (const body of [fixture.session,null]) plan=continued(response(restarted,resume,plan,body));
+  assert.equal(response(restarted,resume,plan,null).kind,"complete");
+  const read:Operation={kind:"readHistory",threadId,order:"desc"};
+  plan=runtimePlan(restarted,read);
+  assert.equal(call(plan).method,"v2.session.messages");
+  const step=response(restarted,read,plan,{data:history.reverse()});
+  if (step.kind !== "complete" || step.result.kind !== "historyPage") throw new Error("history page required");
+  assert.equal(step.result.threadId,threadId);
+  assert.equal(step.result.order,"desc");
+  assert.deepEqual(step.events ?? [],[]);
+  assert.equal(visible.length,10);
+  assert.deepEqual(step.result.items.map(({id,type,content})=>({id,type,content})),visible);
+});
 check("opaque history cursors and idle interrupt acknowledgements stay honest",()=>{
   const ctx=loaded("v2-history"), op:Operation={kind:"readHistory",threadId:ctx.threadId!,order:"desc",cursor:"opaque:page/+="}, plan=runtimePlan(ctx,op);
   assert.deepEqual((call(plan).params as Record<string,JsonValue>).query,{limit:"40",cursor:"opaque:page/+="});

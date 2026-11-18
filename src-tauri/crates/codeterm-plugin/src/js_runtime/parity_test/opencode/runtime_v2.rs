@@ -236,7 +236,6 @@ async fn opencode_v2_recorded_tool_permission_text_and_history_match_quickjs() {
     else {
         panic!("history page required")
     };
-    assert!(items
-        .iter()
-        .any(|row| row.content == "Fixture tool turn complete."));
+    assert_eq!(items.first().unwrap().id, "@message");
+    assert_eq!(items.last().unwrap().content, "Fixture tool turn complete.");
 }
