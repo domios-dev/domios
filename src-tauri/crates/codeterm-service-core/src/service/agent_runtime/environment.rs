@@ -2,6 +2,9 @@ use crate::service::ServiceContext;
 use parking_lot::Mutex;
 use std::{collections::HashMap, sync::LazyLock};
 
+#[cfg(windows)]
+mod windows_powershell;
+
 #[derive(Clone)]
 struct LaunchEnvironment {
     provider: String,
@@ -64,6 +67,30 @@ pub(super) fn compose_for_account_restart(
         invocation.apply_environment(&mut environment);
     }
     Ok(environment)
+}
+
+pub(super) fn prepare_spawn(
+    svc: &ServiceContext,
+    tab: &str,
+    launch: &super::launch_profile::ResolvedLaunch,
+    env: &mut HashMap<String, String>,
+    restricted_cli: bool,
+) -> Result<(), String> {
+    launch.apply_environment(
+        env,
+        crate::service::execution_sandbox::environment(svc, tab),
+    );
+    #[cfg(windows)]
+    if launch.capability.restricted_cli.is_some() {
+        windows_powershell::configure(svc, tab, env)?;
+    }
+    let scope = super::cli_exception::SCOPE_ENV;
+    env.remove(scope);
+    mark_runtime_agent(env, !launch.capability.turn_scoped_requests.is_empty());
+    if restricted_cli {
+        env.insert(scope.into(), super::cli_exception::SCOPE.into());
+    }
+    Ok(())
 }
 
 /// Applied last, so neither owner settings nor an inherited value can claim it.
