@@ -49,11 +49,32 @@ fn registry_session_id(raw: &str, pid: u32, start_token: &str) -> Option<String>
         return None;
     }
     let recorded_start = record.get("procStart")?.as_str()?.trim();
-    if start_token.is_empty() || recorded_start != start_token {
+    if !registry_start_matches(recorded_start, start_token, cfg!(target_os = "macos")) {
         return None;
     }
     let session_id = record.get("sessionId")?.as_str()?.trim();
     (!session_id.is_empty()).then(|| session_id.to_string())
+}
+
+fn registry_start_matches(recorded: &str, token: &str, macos: bool) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    if recorded == token {
+        return true;
+    }
+    if !macos || !token.bytes().all(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    // The macOS registry uses the local, second-resolution format of ps -o lstart=.
+    token
+        .parse::<i64>()
+        .ok()
+        .and_then(chrono::DateTime::from_timestamp_micros)
+        .is_some_and(|start| {
+            let local_start = start.with_timezone(&chrono::Local);
+            recorded == local_start.format("%a %b %e %T %Y").to_string()
+        })
 }
 
 #[cfg(test)]
@@ -109,5 +130,24 @@ mod tests {
     fn numeric_process_start_is_not_a_start_token() {
         let raw = serde_json::json!({"pid": 45044, "sessionId": "sid", "procStart": 7}).to_string();
         assert_eq!(registry_session_id(&raw, 45044, "7"), None);
+    }
+
+    #[test]
+    fn macos_registry_start_matches_the_local_second_and_rejects_a_different_start() {
+        use chrono::TimeZone;
+        let start = chrono::Local
+            .with_ymd_and_hms(2026, 11, 18, 11, 44, 8)
+            .single()
+            .unwrap()
+            .timestamp_micros()
+            + 789;
+        let recorded = "Wed Nov 18 11:44:08 2026";
+        assert!(registry_start_matches(recorded, &start.to_string(), true));
+        assert!(!registry_start_matches(
+            recorded,
+            &(start + 1_000_000).to_string(),
+            true
+        ));
+        assert!(!registry_start_matches(recorded, &start.to_string(), false));
     }
 }

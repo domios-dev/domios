@@ -62,7 +62,7 @@ fn launch_session_detection_native_js_parity() {
         session_id: "sid-own".into(),
         source: LaunchSessionSource::PidRegistry,
     });
-    let cases = vec![
+    let mut cases = vec![
         (
             evidence(vec![
                 process(100, 0, "4000"),
@@ -76,6 +76,31 @@ fn launch_session_detection_native_js_parity() {
         (evidence(vec![process(500, 1, "7000")]), None),
         (evidence(Vec::new()), None),
     ];
+    if cfg!(target_os = "macos") {
+        use chrono::TimeZone;
+        let start = chrono::Local
+            .with_ymd_and_hms(2026, 11, 18, 11, 44, 8)
+            .single()
+            .unwrap()
+            .timestamp_micros();
+        write(
+            2860,
+            json!({"pid":2860,"sessionId":"sid-macos","procStart":"Wed Nov 18 11:44:08 2026","kind":"interactive"}),
+        );
+        cases.extend([
+            (
+                evidence(vec![process(2860, 1, &start.to_string())]),
+                Some(LaunchSessionDetection {
+                    session_id: "sid-macos".into(),
+                    source: LaunchSessionSource::PidRegistry,
+                }),
+            ),
+            (
+                evidence(vec![process(2860, 1, &(start + 1_000_000).to_string())]),
+                None,
+            ),
+        ]);
+    }
     for (index, (evidence, expected)) in cases.into_iter().enumerate() {
         assert_eq!(
             native.detect_launch_session(&evidence),

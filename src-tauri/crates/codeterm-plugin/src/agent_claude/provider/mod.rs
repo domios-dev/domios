@@ -734,6 +734,14 @@ impl AgentProvider for ClaudeProvider {
         crate::provider::IntegrationKind::ClaudeSettingsJson
     }
 
+    fn named_account_session_hook(
+        &self,
+        home: &std::path::Path,
+        repair_consented: bool,
+    ) -> Result<Option<bool>, String> {
+        integration::named_account::session_hook(home, repair_consented).map(Some)
+    }
+
     fn install_integration(
         &self,
         api_port: u16,

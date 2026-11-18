@@ -72,5 +72,11 @@ eq(registrySessionId(record(200, "sid", 5000), 200, "5000"), null, "a numeric pr
 eq(registrySessionId(record(200, "sid", "5000"), 200, ""), null, "an unknown live start names nothing");
 eq(registrySessionId("{not json", 200, "5000"), null, "an unreadable record names nothing");
 
+const macStart = new Date(2026, 10, 18, 11, 44, 8).getTime() * 1_000 + 789;
+const macRecord = record(2860, "sid-macos", "Wed Nov 18 11:44:08 2026");
+eq(registrySessionId(macRecord, 2860, String(macStart), true), "sid-macos", "macOS matches the registry's local timestamp");
+eq(registrySessionId(macRecord, 2860, String(macStart + 1_000_000), true), null, "macOS rejects a reused pid with a different start");
+eq(registrySessionId(macRecord, 2860, String(macStart)), null, "the macOS format is platform scoped");
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

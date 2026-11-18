@@ -1,5 +1,5 @@
 import { tabActivity } from "../../lib/tabActivity";
-import { tabLaunched } from "../../lib/tabFailure";
+import { tabLaunched, tabSessionBound } from "../../lib/tabFailure";
 import { runtimeResponseDeadlinePending } from "../../lib/agentRuntimeState";
 import type { Tab } from "../../lib/types";
 import type { ChatBodyView } from "./chatBodyVisibility";
@@ -8,6 +8,9 @@ import { describeError, type ErrorDescription } from "../../lib/describeError";
 export function chatSetupView(tab: Partial<Tab> | null | undefined, chatSessionAttached = false): ChatBodyView {
   const launched = tabLaunched(tab);
   if (tab?.boot_stage === "spawn_failed" && !launched) return { kind: "launch_failed", reason: tab.boot_failure_reason ?? null };
+  if (!chatSessionAttached && tab?.boot_stage !== "spawn_failed" && tab?.boot_stage !== "awaiting_owner_prompt"
+    && tab?.backing?.kind === "pty" && tab.pty_id && !tab.frozen && !tabSessionBound(tab)
+    && tab.pending_prompt_kind === "provider" && tab.pending_prompt) return { kind: "terminal_prompt" };
   if (tab?.boot_stage !== "spawn_failed" && !chatSessionAttached && runtimeResponseDeadlinePending(tab?.agent_runtime_state, tab?.boot_failure_reason)) return { kind: "starting", label: "Starting…" };
   if (chatSessionAttached) return { kind: "none" };
   const activity = tabActivity(tab);

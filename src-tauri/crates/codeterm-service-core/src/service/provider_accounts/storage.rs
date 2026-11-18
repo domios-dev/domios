@@ -344,6 +344,9 @@ pub(super) fn provision_namespace(
             return Err("An isolated account path escapes its account home".into());
         }
     }
+    if let Some(outcome) = capability.seed_named_onboarding(&home) {
+        log::debug!("[provider-accounts] provider={provider} onboarding seed: {outcome:?}");
+    }
     let mut environment = BTreeMap::from([(
         capability.home_environment.clone(),
         Some(home.to_string_lossy().into_owned()),

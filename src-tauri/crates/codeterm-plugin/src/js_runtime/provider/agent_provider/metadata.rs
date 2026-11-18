@@ -32,6 +32,20 @@ macro_rules! js_provider_metadata {
             self.manifest.accounts.clone()
         }
 
+        fn named_account_session_hook(
+            &self,
+            home: &std::path::Path,
+            repair_consented: bool,
+        ) -> Result<Option<bool>, String> {
+            match self
+                .native()
+                .filter(|provider| provider.integration_kind() == self.integration_kind())
+            {
+                Some(native) => native.named_account_session_hook(home, repair_consented),
+                None => Ok(None),
+            }
+        }
+
         fn general_agent_offer_when_absent(&self) -> bool {
             self.manifest.general_agent_offer_when_absent
         }

@@ -60,6 +60,15 @@ macro_rules! agent_provider_integration {
             self.integration_kind() != IntegrationKind::None
         }
 
+        /// Inspect or provision hooks in an already validated private account home.
+        fn named_account_session_hook(
+            &self,
+            _home: &std::path::Path,
+            _repair_consented: bool,
+        ) -> Result<Option<bool>, String> {
+            Ok(None)
+        }
+
         /// Install CodeTerm's provider integration. `api_port` targets local callback
         /// routes when the integration uses hooks. Default no-op.
         fn install_integration(

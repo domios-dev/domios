@@ -526,15 +526,61 @@ fn invocation_at_typed(
     let state = svc.ext_or_init::<State>(State::default);
     let _provisioning = state.provisioning.lock();
     let usual = storage::usual_home(&capability)?;
-    storage::provision_namespace(
+    let invocation = storage::provision_namespace(
         &state.root,
         provider,
         account,
         namespace.ok_or("The selected account credential context is unavailable")?,
         &capability,
         &usual,
-    )
-    .map(Some)
+    )?;
+    let consented = svc
+        .configuration()
+        .agents
+        .get(provider)
+        .is_some_and(|config| {
+            config
+                .extra
+                .get(crate::config::schema::INTEGRATION_CONSENT_GRANTED)
+                .and_then(toml::Value::as_bool)
+                == Some(true)
+        });
+    if consented {
+        if let Err(error) = named_session_hook(svc, &invocation, &capability, true) {
+            log::debug!("[provider-accounts] {provider} named session hook unavailable: {error}");
+        }
+    }
+    Ok(Some(invocation))
+}
+
+fn named_session_hook(
+    svc: &super::ServiceContext,
+    invocation: &InvocationContext,
+    capability: &AccountCapability,
+    repair_consented: bool,
+) -> Result<Option<bool>, String> {
+    let home = invocation
+        .environment_entries()
+        .find(|(key, _)| *key == capability.home_environment)
+        .and_then(|(_, value)| value)
+        .ok_or("Named account home is unavailable")?;
+    svc.agent_registry
+        .with_provider(invocation.provider(), |provider| {
+            provider.named_account_session_hook(std::path::Path::new(home), repair_consented)
+        })
+        .ok_or_else(|| "Named account provider is unavailable".to_string())?
+}
+
+pub(crate) fn named_session_hook_for_tab(
+    svc: &super::ServiceContext,
+    tab: &str,
+) -> Result<Option<bool>, String> {
+    let Some(invocation) = for_tab(svc, tab)? else {
+        return Ok(None);
+    };
+    let capability =
+        capability(svc, invocation.provider()).ok_or("Named account declaration is unavailable")?;
+    named_session_hook(svc, &invocation, &capability, false)
 }
 
 pub fn for_tab(

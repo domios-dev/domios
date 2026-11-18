@@ -200,12 +200,17 @@ impl ServiceContext {
     /// Reads the provider's install report once for this launch; without hooks in
     /// place no session-start report can come, so readiness follows the input attach.
     fn settle_hookless_launch(&self, attempt: &LaunchAttempt, agent: &str) {
-        let available = crate::service::integration_silence::read_provider_facts(
-            &self.agent_registry,
-            agent,
-            false,
-        )
-        .is_some_and(|(facts, _)| session_start_hooks_available(&facts));
+        let available =
+            match super::provider_accounts::named_session_hook_for_tab(self, &attempt.tab_id) {
+                Ok(Some(available)) => available,
+                Ok(None) => crate::service::integration_silence::read_provider_facts(
+                    &self.agent_registry,
+                    agent,
+                    false,
+                )
+                .is_some_and(|(facts, _)| session_start_hooks_available(&facts)),
+                Err(_) => false,
+            };
         if available {
             return;
         }

@@ -16,6 +16,8 @@ use crate::prompts::CODETERM_RULE;
 use crate::provider::{HookEventBinding, HookIngestionRoute, IntegrationInstallOptions};
 use serde_json::Value as Json;
 
+pub(crate) mod named_account;
+
 const HOOK_TIMEOUT_SECONDS: u64 = 5;
 
 fn owned_hooks_have_bounded_timeout(json: &Json) -> bool {
