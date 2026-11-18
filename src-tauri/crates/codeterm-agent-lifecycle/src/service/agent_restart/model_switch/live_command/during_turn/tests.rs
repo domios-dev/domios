@@ -62,7 +62,7 @@ fn recorded_mid_turn_frames_authorize_only_their_declared_keys_once() {
                     Ok(())
                 })
                 .unwrap(),
-            ScreenStage::AwaitingEvidence => {}
+            ScreenStage::AwaitingEvidence | ScreenStage::PickerConfirmationPending => {}
             ScreenStage::UnknownPrompt | ScreenStage::Admission => panic!("unexpected prompt"),
         }
     }
@@ -217,28 +217,50 @@ fn cached_model_dialog_with_confirmation_footer_is_answered_once_after_picker() 
     for frame in [
         "live-2.1.327-confirmation-90.txt",
         "live-2.1.327-confirmation-120.txt",
+        "eight-rc-2.1.327-confirmation.txt",
     ] {
         let (mut picker, mut prompt) = declarations();
         let screen = fixture("tests/fixtures/model-switch/live-2.1.327-picker.txt");
         let confirmation = fixture(&format!("tests/fixtures/model-switch/{frame}"));
+        let partial = confirmation.split("  ❯ 1.").next().unwrap();
         let selected = screen.replace("❯ 5.", "  5.").replace("    4.", "  ❯ 4.");
         picker.injected();
         prompt.injected();
         let mut keys = Vec::new();
 
-        for screen in [&screen, &selected, &confirmation, &confirmation] {
+        assert_eq!(
+            screen_stage(partial, Some(&picker), Some(&prompt), true),
+            ScreenStage::UnknownPrompt
+        );
+        for (screen, expected) in [
+            (screen.as_str(), ScreenStage::Picker),
+            (&selected, ScreenStage::Picker),
+            (partial, ScreenStage::PickerConfirmationPending),
+            ("Unrelated prompt", ScreenStage::PickerConfirmationPending),
+            (&confirmation, ScreenStage::Confirmation),
+            (&confirmation, ScreenStage::Confirmation),
+        ] {
             let mut write = |key: &[u8]| {
                 keys.push(key.to_vec());
                 Ok(())
             };
-            match screen_stage(screen, Some(&picker), Some(&prompt), true) {
+            let stage = screen_stage(screen, Some(&picker), Some(&prompt), true);
+            assert_eq!(stage, expected, "{frame}");
+            match stage {
                 ScreenStage::Picker => picker.respond(screen, &mut write).unwrap(),
                 ScreenStage::Confirmation => prompt.respond(screen, write).unwrap(),
+                ScreenStage::PickerConfirmationPending => prompt
+                    .respond(screen, |_| panic!("unmatched frame must not write"))
+                    .unwrap(),
                 stage => panic!("unexpected switch stage {stage:?}"),
             }
         }
         assert!(picker.submitted());
         assert!(prompt.answered());
+        assert_eq!(
+            screen_stage("Unrelated prompt", Some(&picker), Some(&prompt), true),
+            ScreenStage::UnknownPrompt
+        );
         assert_eq!(keys, [b"\x1b[A".to_vec(), b"s".to_vec(), b"\r".to_vec()]);
         assert!(!prompt.present(
             &confirmation.replace("Yes, switch to Sonnet 5.5", "Yes, switch to Haiku 5.5")

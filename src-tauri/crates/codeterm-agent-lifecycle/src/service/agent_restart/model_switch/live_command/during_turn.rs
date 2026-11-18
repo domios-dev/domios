@@ -4,6 +4,7 @@ use super::*;
 pub(super) enum ScreenStage {
     Admission,
     Picker,
+    PickerConfirmationPending,
     Confirmation,
     AwaitingEvidence,
     UnknownPrompt,
@@ -21,6 +22,11 @@ pub(super) fn screen_stage(
         ScreenStage::Confirmation
     } else if picker.is_some_and(|picker| picker.rendering(screen)) {
         ScreenStage::AwaitingEvidence
+    } else if has_prompt
+        && picker.is_some_and(CommandPicker::submitted)
+        && prompt.is_some_and(|prompt| !prompt.answered())
+    {
+        ScreenStage::PickerConfirmationPending
     } else if has_prompt {
         ScreenStage::UnknownPrompt
     } else {
