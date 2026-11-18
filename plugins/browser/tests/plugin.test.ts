@@ -98,7 +98,7 @@ describe("browser plugin onAgentCommand", () => {
     expect(manifest.capabilities.view).toBeUndefined();
     expect(manifest.permissions).toEqual({ agentCommands: true, surfaces: true });
     expect(manifest.agentKeywords.length).toBeLessThanOrEqual(10);
-    expect(readFileSync(join(root, manifest.agentGuide), "utf8").length).toBeLessThan(16 * 1024);
+    expect(readFileSync(join(root, manifest.agentGuide)).length).toBeLessThan(16 * 1024);
   });
 });
 
