@@ -28,12 +28,43 @@ pub struct Preview {
 }
 
 fn owns_receiver_link(
-    uid: &str,
+    account: &str,
     installation: Option<&str>,
     link: &codeterm_mesh::account_mesh::ledger::LinkRecord,
 ) -> bool {
     matches!(&link.admission, codeterm_mesh::account_mesh::ledger::LinkAdmission::Account { account_id, installation_id, .. }
-        if account_id == uid && Some(installation_id.as_str()) == installation)
+        if account_id == account && Some(installation_id.as_str()) == installation)
+}
+
+fn receiver_client(
+    mesh: &codeterm_mesh::MeshManager,
+    uid: &str,
+    status: &ReceiverStatus,
+) -> Result<codeterm_mesh::transport::PeerClient, &'static str> {
+    let account = codeterm_account::account_mesh::account_id(uid);
+    if mesh.account_state().signed_in_account() != Some(account.as_str()) {
+        return Err("Mesh account does not match the current account");
+    }
+    let installations = mesh.peers_response().installations;
+    let receiver = installations
+        .iter()
+        .find(|row| {
+            row.active
+                && !row.signed_out
+                && Some(&row.installation_id) == status.receiver_installation_id.as_ref()
+        })
+        .ok_or("Previous receiver installation is unavailable")?;
+    let id = receiver
+        .instance_id
+        .as_deref()
+        .ok_or("Previous receiver has no admitted instance")?;
+    if !mesh.link_record(id).is_some_and(|link| {
+        owns_receiver_link(&account, status.receiver_installation_id.as_deref(), link)
+    }) {
+        return Err("Previous receiver link does not match its account and installation");
+    }
+    mesh.client_for(id)
+        .ok_or("Previous receiver has no available authenticated client")
 }
 
 fn grant(value: &Value) -> Result<Permission, String> {
@@ -173,32 +204,17 @@ impl NeighborsExt for ServiceContext {
         let client = if status.is_me {
             None
         } else {
-            self.try_ext::<crate::MeshStateHandle>().and_then(|handle| {
-                let mesh = handle.lock();
-                if mesh.account_state().signed_in_account() != Some(session.identity.uid.as_str()) {
-                    return None;
+            let selected = self
+                .try_ext::<crate::MeshStateHandle>()
+                .ok_or("Mesh is unavailable")
+                .and_then(|handle| receiver_client(&handle.lock(), &session.identity.uid, status));
+            match selected {
+                Ok(client) => Some(client),
+                Err(reason) => {
+                    log::debug!("[neighbors] previous receiver grant client unavailable: {reason}");
+                    None
                 }
-                let installations = mesh.peers_response().installations;
-                installations
-                    .iter()
-                    .find(|row| {
-                        row.active
-                            && !row.signed_out
-                            && Some(&row.installation_id)
-                                == status.receiver_installation_id.as_ref()
-                    })
-                    .and_then(|row| row.instance_id.as_deref())
-                    .filter(|id| {
-                        mesh.link_record(id).is_some_and(|link| {
-                            owns_receiver_link(
-                                &session.identity.uid,
-                                status.receiver_installation_id.as_deref(),
-                                link,
-                            )
-                        })
-                    })
-                    .and_then(|id| mesh.client_for(id))
-            })
+            }
         };
         let previous = match client {
             Some(client) => match client
