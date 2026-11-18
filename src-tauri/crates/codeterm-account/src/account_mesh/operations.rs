@@ -122,25 +122,44 @@ impl AccountMesh {
         if installation_id != &self.config.installation_id {
             return None;
         }
-        let mut signed = self.signed(None).await.ok()?;
-        if signed.session.identity.uid != session.identity.uid
-            || signed.session.login_generation != session.login_generation
+        let (epoch, captured, account, trust) = self.signed_session(None).await.ok()?;
+        if captured.identity.uid != session.identity.uid
+            || captured.login_generation != session.login_generation
         {
             return None;
         }
-        let (key, replacement_generation) = {
+        let (mut signed, replacement_generation) = {
             let _guard = self.key_lock.lock().await;
-            self.with(|inner| {
-                if !inner.is_current(signed.epoch) {
+            let (cached_key, binding) = self.with(|inner| {
+                if !inner.is_current(epoch)
+                    || inner.state.last_refusal == Some(AccountMeshRefusal::ReauthRequired)
+                {
                     return None;
                 }
-                let key = inner.key.as_ref()?;
-                let binding = inner.record.keys.get(&signed.account)?;
-                (binding.generation > generation && binding.key_id == key.key_id())
-                    .then(|| (key.clone(), binding.generation))
-            })?
+                let binding = inner.record.keys.get(&account)?;
+                (binding.generation > generation).then(|| (inner.key.clone(), binding.clone()))
+            })?;
+            let key = match cached_key {
+                Some(key) => key,
+                None => {
+                    let secret = self.ports.keys.load().await.ok()??;
+                    Arc::new(InstallationKey::from_secret(&secret)?)
+                }
+            };
+            if binding.key_id != key.key_id() {
+                return None;
+            }
+            (
+                Signed {
+                    epoch,
+                    session: captured,
+                    account,
+                    trust,
+                    key,
+                },
+                binding.generation,
+            )
         };
-        signed.key = key;
         signed.session = self.ports.sessions.session().await.ok()??;
         if signed.session.identity.uid != session.identity.uid
             || signed.session.login_generation != session.login_generation
@@ -218,6 +237,21 @@ impl AccountMesh {
 
     /// Captures the session only if it still belongs to the signed-in account of `epoch`.
     pub(super) async fn signed(&self, epoch: Option<u64>) -> Outcome<Signed> {
+        let (epoch, session, account, trust) = self.signed_session(epoch).await?;
+        let key = self.key().await?;
+        Ok(Signed {
+            epoch,
+            session,
+            account,
+            trust,
+            key,
+        })
+    }
+
+    async fn signed_session(
+        &self,
+        epoch: Option<u64>,
+    ) -> Outcome<(u64, Session, String, MembershipTrust)> {
         if self.state().last_refusal == Some(AccountMeshRefusal::ReauthRequired) {
             return Err(AccountMeshRefusal::ReauthRequired);
         }
@@ -246,14 +280,7 @@ impl AccountMesh {
         if account != signed_in || !self.with(|inner| inner.is_current(epoch)) {
             return Err(AccountMeshRefusal::Cancelled);
         }
-        let key = self.key().await?;
-        Ok(Signed {
-            epoch,
-            session,
-            account,
-            trust,
-            key,
-        })
+        Ok((epoch, session, account, trust))
     }
 
     pub(super) async fn prove<T: Serialize>(

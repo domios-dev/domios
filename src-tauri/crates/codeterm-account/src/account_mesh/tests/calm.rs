@@ -197,7 +197,7 @@ async fn fresh_rejoin() -> Harness {
 
 #[tokio::test]
 async fn replacement_entitlement_proof_requires_new_key_in_same_login() {
-    let harness = fresh_rejoin().await;
+    let mut harness = fresh_rejoin().await;
     let owner = session("owner");
     let installation = crate::InstallationId::parse(INSTALLATION.into()).unwrap();
     let previous = harness
@@ -225,6 +225,17 @@ async fn replacement_entitlement_proof_requires_new_key_in_same_login() {
     assert_ne!(replacement.key_id, previous.key_id);
     assert_ne!(replacement.nonce, previous.nonce);
 
+    harness.restart().await;
+    harness.sign_in("owner").await;
+    assert!(harness.mesh.with(|inner| inner.key.is_none()));
+    let from_store = harness
+        .mesh
+        .replacement_entitlements_proof(&owner, &installation, previous.generation)
+        .await
+        .unwrap();
+    assert_eq!(from_store.key_id, replacement.key_id);
+    assert_eq!(from_store.generation, replacement.generation);
+
     let different_login = crate::Session {
         login_generation: owner.login_generation + 1,
         ..owner
@@ -236,6 +247,39 @@ async fn replacement_entitlement_proof_requires_new_key_in_same_login() {
             .await
             .is_none());
     }
+}
+
+#[tokio::test]
+async fn replacement_entitlement_proof_leaves_missing_installation_key_unwritten() {
+    let mut harness = Harness::new().await;
+    let owner = session("owner");
+    let installation = crate::InstallationId::parse(INSTALLATION.into()).unwrap();
+    harness.sign_in("owner").await;
+    let enrolled = harness
+        .mesh
+        .entitlements_proof(&owner, &installation)
+        .await
+        .unwrap();
+    *harness.keys.0.lock().unwrap() = None;
+    harness.restart().await;
+    harness.sign_in("owner").await;
+    assert!(harness.mesh.with(|inner| inner.key.is_none()));
+    assert_eq!(
+        harness
+            .mesh
+            .with(|inner| inner.record.keys[&account_id("owner")].generation),
+        enrolled.generation
+    );
+    let calls = count(&harness.log, "registry:");
+
+    assert!(harness
+        .mesh
+        .replacement_entitlements_proof(&owner, &installation, enrolled.generation - 1)
+        .await
+        .is_none());
+    assert!(harness.keys.0.lock().unwrap().is_none());
+    assert!(harness.mesh.with(|inner| inner.key.is_none()));
+    assert_eq!(count(&harness.log, "registry:"), calls);
 }
 
 #[tokio::test]
