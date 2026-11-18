@@ -110,7 +110,7 @@ fn refused_remote_skill_context_leaves_task_unassigned_without_an_attempt() {
             "execution_intent": "mutating", "caller_tab_id": owner,
             "session_id": "owner-session", "session_binding_nonce": "owner-nonce"
         })),
-        svc,
+        &std::sync::Arc::new(svc.clone()),
         4,
     )
     .unwrap_err();
