@@ -12,6 +12,7 @@ import { toolKindVisual } from "./toolKindVisual";
 import { toolDurationLabel } from "./toolDuration";
 
 const QUIET = "var(--ct-muted-fg)";
+const RAIL = { color: QUIET, opacity: 0.6 };
 
 /** One file of a run: every edit to the same path, in order. */
 interface RunFile {

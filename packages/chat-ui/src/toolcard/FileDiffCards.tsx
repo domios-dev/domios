@@ -125,7 +125,7 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
   const visual = toolKindVisual.edit;
   const Glyph = visual.glyph;
   const name = diff.movePath ? `${diff.path} → ${diff.movePath}` : diff.path;
-  const basename = (diff.movePath ?? diff.path).replace(/\\/g, "/").split("/").filter(Boolean).at(-1) ?? diff.path;
+  const basename = (diff.movePath ?? diff.path).replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? diff.path;
   const heading = diff.kind === "add" ? `Created ${basename} +${diff.additions}` : `${name} +${diff.additions} −${diff.deletions}`;
   const cardLabel = diff.kind === "add" ? heading : `${visual.label} ${heading}`;
   const language = knownLanguageFromPath(diff.movePath ?? diff.path);
