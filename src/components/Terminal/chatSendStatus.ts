@@ -103,7 +103,7 @@ export async function sendTrackedChatMessage(
   tabId: string,
   messageId: string,
   message: string,
-  startupOverrideNonce?: string | null,
+  target?: import("./chatDeliveryModel").ChatSendTarget,
 ): Promise<import("../../../gen/ChatSendResult").ChatSendResult> {
   if (typeof tabId !== "string" || !tabId.trim() || tabId === "null" || tabId === "undefined") {
     throw new Error("Chat tab is not bound");
@@ -124,7 +124,7 @@ export async function sendTrackedChatMessage(
       tabId,
       text: message,
       clientToken: messageId,
-      ...(startupOverrideNonce ? { startupOverrideNonce } : {}),
+      ...target,
     }).then(status => { observeDeliveryStatus(status); return status; });
     const status = await Promise.race([request, new Promise<never>((_resolve, reject) => {
       deadline = setTimeout(() => reject(new Error("admission_unknown: send request is still unconfirmed")), ADMISSION_DEADLINE_MS);
@@ -132,15 +132,15 @@ export async function sendTrackedChatMessage(
     return status;
   } catch (error) {
     activeAdmissions.delete(key);
-    if (peer) {
+    if (isProvenAdmissionRefusal(error)) {
+      failChatSendRequest(tabId, messageId, error);
+    } else if (peer) {
       const failure = remoteChatFailure(error);
       const state = remoteChatState(undefined, failure)!;
       recordRemoteChatSendFailure(tabId, messageId, { ...failure, raw: failure.raw.slice(0, 4096), state });
       setRemoteChatFailure(tabId, failure);
       throw error;
-    }
-    if (isProvenAdmissionRefusal(error)) failChatSendRequest(tabId, messageId, error);
-    else {
+    } else {
       recordChatSendAdmissionFailure(tabId, messageId, hadDaemonResponse(error), error);
       void reconcileTrackedChatMessages(tabId).catch(() => {});
     }
@@ -172,8 +172,7 @@ export function isProvenAdmissionRefusal(error: unknown): boolean {
     "user admission sequence exhausted",
     "user token retention capacity reached",
     "user original exceeds 4 MiB storage bound",
-    "startup override ",
-    "Startup override ",
+    "The message recipient changed while preparing the message.",
   ].some((refusal) => message.includes(refusal));
 }
 

@@ -1,7 +1,7 @@
 import { useCallback, type ReactNode } from "react";
 import { levelIcon } from "../Notifications/levelIcon";
 import { RestoreStatePanel } from "./RestoreStatePanel";
-import { restoreStageView, transcriptLoadingStageView } from "../../lib/restoreStageView";
+import { restoreStageView, transcriptLoadingStageView, type RestoreStageView } from "../../lib/restoreStageView";
 import { DeferredPresence } from "../shared/DeferredPresence";
 import type { Tab, Workspace } from "../../lib/types";
 import { TabLaunchFailure } from "./TabLaunchFailure";
@@ -29,6 +29,7 @@ const UNAVAILABLE_COPY: Record<ChatUnavailableReason, string> = {
 
 interface ChatSetupStateProps {
   visible?: boolean;
+  frozenRestore?: RestoreStageView;
   waitingMessages?: number;
   workspace?: Workspace;
   tab: Tab | null | undefined;
@@ -47,6 +48,7 @@ interface ChatSetupStateProps {
 
 export function ChatSetupState({
   visible = true,
+  frozenRestore,
   waitingMessages = 0,
   workspace,
   tab,
@@ -71,10 +73,16 @@ export function ChatSetupState({
     return lock ? <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} /> : null;
   }
   if (view.kind === "terminal_prompt") {
-    return visible ? <section role="status" className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-[var(--ct-bg)] p-6">
+    return visible ? <section role="status" className="mx-auto my-2 flex w-full max-w-2xl items-center justify-between gap-4 p-3">
       <p>The agent is waiting for input in the terminal.</p>
       {onOpenTerminal && <button type="button" data-terminal-fallback-toggle="true" onClick={onOpenTerminal}>Open terminal</button>}
     </section> : null;
+  }
+  if (view.kind === "exited") {
+    return <ChatStatusBanner title="Agent exited" reason="Restart to continue this session."
+      action={isReadOnlyTab(tab) ? undefined : <button type="button" aria-label="Restart the agent" disabled={recovery.restarting}
+        onClick={() => void recovery.restart()}>{recovery.restarting ? "Restarting…" : "Restart"}</button>}
+      details={recovery.error} testId="chat-agent-exited" />;
   }
   if (tab?.boot_stage === "awaiting_owner_prompt" && tab.pending_prompt_kind === "provider" && tab.pending_prompt) {
     return visible ? <LaunchProviderQuestion key={JSON.stringify(tab.pending_prompt)} tabId={tab.id}
@@ -136,7 +144,7 @@ export function ChatSetupState({
   return (
     <DeferredPresence present={visible && view.kind === "starting"} className="chat-launch-overlay">
     <div className="h-full" data-testid="chat-setup-state" onKeyDown={handleKeyDown}>
-      <RestoreStatePanel view={view.kind === "starting" ? transcriptLoadingStageView(tab ?? {}) : restoreStageView(tab ?? {})} />
+      <RestoreStatePanel view={frozenRestore ?? (view.kind === "starting" ? transcriptLoadingStageView(tab ?? {}) : restoreStageView(tab ?? {}))} />
       {tab?.boot_stage === "launch_binding_unconfirmed" && !tab.agent_booting && <div className="absolute inset-x-0 bottom-8 flex flex-col items-center gap-3">
         <button type="button" disabled={recovery.restarting} onClick={() => void recovery.restart()}>{recovery.restarting ? "Restarting…" : "Restart agent"}</button>
         {recovery.error && <InlineErrorNotice error={recovery.error} operation="restarting this agent" />}

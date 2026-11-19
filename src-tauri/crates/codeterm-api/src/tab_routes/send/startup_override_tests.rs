@@ -52,7 +52,7 @@ fn signed_peer(state: &AppState) -> String {
 }
 
 #[test]
-fn startup_override_route_requires_authenticated_owner_and_rejected_callers_have_zero_effects() {
+fn startup_override_route_refuses_every_caller_without_waking_or_writing() {
     let (fixture, tab) = queue_fixture(true, None);
     attach_fixture_pty(&fixture, &tab);
     note_dispatched_for_test(&fixture.service, &tab);
@@ -103,6 +103,7 @@ fn startup_override_route_requires_authenticated_owner_and_rejected_callers_have
         ("peer", peer_token.as_str(), StatusCode::FORBIDDEN),
         ("push", push_token.as_str(), StatusCode::FORBIDDEN),
         ("missing", "", StatusCode::UNAUTHORIZED),
+        ("owner", "preview-test-token", StatusCode::FORBIDDEN),
     ] {
         let response = block_on(router.clone().oneshot(request(
             &tab,
@@ -134,16 +135,6 @@ fn startup_override_route_requires_authenticated_owner_and_rejected_callers_have
         .reconcile_user_send_statuses(&tab)
         .unwrap()
         .is_empty());
-    let response = block_on(router.oneshot(request(
-        &tab,
-        "preview-test-token",
-        Some(authority.binding_nonce()),
-    )))
-    .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    await_owner_idle(&fixture, &tab);
-    assert!(fixture.service.user_authority_is_ready(&authority));
-    assert_eq!(writes.load(Ordering::SeqCst), 1);
 }
 
 #[test]
@@ -172,4 +163,43 @@ fn ordinary_tab_chat_send_keeps_its_existing_admission_policy_without_override()
             .len(),
         1
     );
+}
+
+#[test]
+fn prepared_chat_send_rejects_a_changed_recipient_before_admission() {
+    let (fixture, tab) = queue_fixture(true, None);
+    attach_fixture_pty(&fixture, &tab);
+    fixture
+        .service
+        .set_agent_session_id(&tab, Some("replacement-session".into()));
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    let router = Router::new()
+        .route("/api/tabs/{id}/chat-send", post(chat_send_text))
+        .with_state(state.clone())
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            crate::auth::auth_middleware,
+        ));
+    let before = owner_wake_counts(&fixture.service, &tab);
+    let mut request = request(&tab, "preview-test-token", None);
+    *request.body_mut() = Body::from(
+        json!({
+            "text": "prepared attachment",
+            "client_token": "original-send",
+            "expected_recipient": {
+                "provider_id": "opaque-provider",
+                "binding_nonce": "retired-nonce",
+                "session_id": "opaque-session"
+            }
+        })
+        .to_string(),
+    );
+    let response = block_on(router.oneshot(request)).unwrap();
+    assert!(!response.status().is_success());
+    assert_eq!(owner_wake_counts(&fixture.service, &tab), before);
+    assert!(fixture
+        .service
+        .reconcile_user_send_statuses(&tab)
+        .unwrap()
+        .is_empty());
 }

@@ -7,6 +7,7 @@ export type ChatBodyView =
   | { kind: "none" }
   | { kind: "starting"; label: string }
   | { kind: "terminal_prompt" }
+  | { kind: "exited" }
   | { kind: "launch_failed"; reason: string | null }
   | { kind: "attach_failed"; reason: string }
   | { kind: "locked" }
@@ -29,7 +30,7 @@ export interface ChatBodyInput {
 export function chatBodyView(input: ChatBodyInput): ChatBodyView {
   if (input.locked) return { kind: "locked" };
   if (input.restoreLoadRefused) return { kind: "none" };
-  if (input.bootView.kind === "launch_failed" || input.bootView.kind === "terminal_prompt") return input.bootView;
+  if (input.bootView.kind === "launch_failed" || input.bootView.kind === "terminal_prompt" || input.bootView.kind === "exited") return input.bootView;
   if (input.attachmentError) return { kind: "attach_failed", reason: input.attachmentError };
   if ((input.firstTurnReady || input.hasUndeliveredSends) && !input.unavailable) return { kind: "none" };
   if (input.hasHeldWindow) return { kind: "none" };
@@ -56,6 +57,7 @@ export function chatRowsPartial(view: ChatBodyView, facts: { snapshotReady: bool
 /** A setup state beside rows takes a row of the log, so it and they can never cover each other. */
 export function setupFlowsInLog(view: ChatBodyView, restoreLoadRefused: boolean, hasRows: boolean): boolean {
   return restoreLoadRefused || view.kind === "attach_failed" || view.kind === "failed"
+    || view.kind === "exited" || view.kind === "terminal_prompt"
     || (view.kind === "launch_failed" && hasRows);
 }
 
@@ -102,5 +104,5 @@ export function railRowCount(placement: OutboundReportPlacement): number {
 }
 
 export function composerVisible(view: ChatBodyView): boolean {
-  return view.kind !== "launch_failed" && view.kind !== "terminal_prompt";
+  return view.kind !== "locked";
 }

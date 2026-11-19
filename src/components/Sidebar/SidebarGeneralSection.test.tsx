@@ -9,6 +9,7 @@ import type { SidebarWorkspaceDetailActions, SidebarWorkspaceDetailData } from "
 import { SidebarDnd } from "./sortable";
 import { publishNeighborGateways } from "../Neighbors/neighborGateways";
 import { tabAttention, type TabAttention } from "./tabAttention";
+import { projectAttachedRemoteTab } from "../../lib/remoteTabPortal";
 
 vi.mock("../../lib/bridge", async actual => ({ ...await actual<object>(), invoke: vi.fn().mockResolvedValue([]), listen: vi.fn().mockResolvedValue(() => {}) }));
 vi.mock("../../hooks/useWorkspaceCrons", () => ({ useWorkspaceCrons: () => ({ jobs: [], refresh: () => {} }) }));
@@ -41,25 +42,37 @@ const actions: SidebarWorkspaceDetailActions = {
   closeWorkspace: noop, newTerminal: noop, newSession: noop, newAgent: noop, openRemoteTab: noop,
 };
 
-async function mount(attention: Record<string, TabAttention> = {}, pairedGenerals: PairedGeneral[] = [], onActivate: (workspaceId: string, tabId: string) => void = noop) {
-  const tabs = Object.fromEntries([main, manager, agent, ...shells, surface].map((tab) => [tab.id, tab]));
-  const data: SidebarWorkspaceDetailData = {
-    tabs, tabStatuses: {}, attention, teams: [team], planIndex: [], plans: [], providers: [], providersLoading: false,
-    closingTabIds: new Set(), closingTeamIds: new Set(), activeTabIds: { general: main.id },
-    activeWorkspaceId: "general", isWorkspaceMode: true, workspaceCanvasActive: false, touchMode: true, compact: false,
-    sidebarActionText: "", orchestrators: [manager], newSessionDisabled: false,
-  };
+async function mount(
+  attention: Record<string, TabAttention> = {},
+  pairedGenerals: PairedGeneral[] = [],
+  onActivate: (workspaceId: string, tabId: string) => void = noop,
+  independentGeneralTabs: Tab[] = [],
+) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  const render = async (expanded: boolean) => act(async () => root.render(
-    <SidebarDnd handlers={{ reorderTabs: noop, reorderDisplay: noop, reorderWorkspaces: noop }}>
-      <PairedWorkspaceInventoryContext.Provider value={{ generals: pairedGenerals, browse: null }}>
-        <SidebarGeneralSection workspace={workspace} expanded={expanded} onToggle={noop} data={data}
-          actions={{ ...actions, activateTab: onActivate }} workspaces={[workspace]} />
-      </PairedWorkspaceInventoryContext.Provider>
-    </SidebarDnd>,
-  ));
+  const render = async (expanded: boolean, attachedTabs: Tab[] = [], activeTabId: string = main.id) => {
+    const renderWorkspace = {
+      ...workspace,
+      tabs: [...workspace.tabs, ...independentGeneralTabs.map((tab) => tab.id), ...attachedTabs.map((tab) => tab.id)],
+      active_tab_id: activeTabId,
+    };
+    const tabs = Object.fromEntries([main, manager, agent, ...shells, surface, ...independentGeneralTabs, ...attachedTabs].map((tab) => [tab.id, tab]));
+    const data: SidebarWorkspaceDetailData = {
+      tabs, tabStatuses: {}, attention, teams: [team], planIndex: [], plans: [], providers: [], providersLoading: false,
+      closingTabIds: new Set(), closingTeamIds: new Set(), activeTabIds: { general: activeTabId },
+      activeWorkspaceId: "general", isWorkspaceMode: true, workspaceCanvasActive: false, touchMode: true, compact: false,
+      sidebarActionText: "", orchestrators: [manager], newSessionDisabled: false,
+    };
+    await act(async () => root.render(
+      <SidebarDnd handlers={{ reorderTabs: noop, reorderDisplay: noop, reorderWorkspaces: noop }}>
+        <PairedWorkspaceInventoryContext.Provider value={{ generals: pairedGenerals, browse: null }}>
+          <SidebarGeneralSection workspace={renderWorkspace} expanded={expanded} onToggle={noop} data={data}
+            actions={{ ...actions, activateTab: onActivate }} workspaces={[renderWorkspace]} />
+        </PairedWorkspaceInventoryContext.Provider>
+      </SidebarDnd>,
+    ));
+  };
   await render(true);
   return { host, render, close: async () => { await act(async () => root.unmount()); host.remove(); } };
 }
@@ -165,6 +178,68 @@ it("lists paired General rows alphabetically and selects their composite viewer 
     expect(remoteRow).not.toBeNull();
     await act(async () => remoteRow?.querySelector("button")?.click());
     expect(activate).toHaveBeenCalledWith("general", "mesh:peer-a/main");
+  } finally { await view.close(); }
+});
+
+it("renders an observed General viewer once in its machine group before and after attachment", async () => {
+  const viewerId = "mesh:peer-a/main";
+  const attachedViewer = {
+    ...projectAttachedRemoteTab(main, { peer_id: "peer-a", peer_name: "Alpha" }, workspace.id),
+    focus_requested: true,
+  };
+  const peer: PairedGeneral = {
+    peerId: "peer-a", name: "Alpha", availability: "online", sessions: [{
+      viewerId, tab: { ...main, title: "Peer Main" }, status: "Idle",
+    }],
+  };
+  const independentGeneral: Tab = {
+    ...agent, id: "independent-general", title: "Independent General", role_profile: "general_agent", sort_order: 6,
+  };
+  const activate = vi.fn();
+  const view = await mount({ [viewerId]: tabAttention(attachedViewer, "Idle", []) }, [peer], activate, [independentGeneral]);
+  try {
+    const rowBeforeAttachment = view.host.querySelector<HTMLElement>(`[data-testid="tab-item"][data-tab-id="${viewerId}"]`);
+    expect(view.host.querySelectorAll(`[data-testid="tab-item"][data-tab-id="${viewerId}"]`)).toHaveLength(1);
+    expect(rowBeforeAttachment?.closest('[data-testid="paired-general-group"]')).not.toBeNull();
+
+    await view.render(true, [attachedViewer]);
+    const rowsAfterAttachment = view.host.querySelectorAll<HTMLElement>(`[data-testid="tab-item"][data-tab-id="${viewerId}"]`);
+    expect(rowsAfterAttachment).toHaveLength(1);
+    const rowAfterAttachment = rowsAfterAttachment[0];
+    expect(rowAfterAttachment.closest('[data-testid="paired-general-group"]')).not.toBeNull();
+    expect(rowAfterAttachment.querySelector('[data-kind="requested"]')).not.toBeNull();
+    expect(view.host.querySelector('[data-testid="tab-item"][data-tab-id="independent-general"]')).not.toBeNull();
+
+    await view.render(true, [attachedViewer], viewerId);
+    const selectedRow = view.host.querySelector<HTMLElement>(`[data-testid="tab-item"][data-tab-id="${viewerId}"]`)!;
+    expect(selectedRow.querySelector('button[aria-current="page"]')).not.toBeNull();
+    await act(async () => selectedRow.querySelector("button")?.click());
+    expect(activate).toHaveBeenCalledWith(workspace.id, viewerId);
+  } finally { await view.close(); }
+});
+
+it("keeps equal raw tab ids distinct across different peers", async () => {
+  const viewerA = "mesh:peer-a/shared";
+  const viewerB = "mesh:peer-b/shared";
+  const pairedGenerals: PairedGeneral[] = [
+    { peerId: "peer-a", name: "Alpha", availability: "online", sessions: [{
+      viewerId: viewerA, tab: { ...main, id: "shared", title: "Shared Main" },
+    }] },
+    { peerId: "peer-b", name: "Beta", availability: "online", sessions: [{
+      viewerId: viewerB, tab: { ...main, id: "shared", title: "Shared Main" },
+    }] },
+  ];
+  const activate = vi.fn();
+  const view = await mount({}, pairedGenerals, activate);
+  try {
+    const rowA = view.host.querySelector<HTMLElement>(`[data-testid="tab-item"][data-tab-id="${viewerA}"]`)!;
+    const rowB = view.host.querySelector<HTMLElement>(`[data-testid="tab-item"][data-tab-id="${viewerB}"]`)!;
+    expect(view.host.querySelectorAll('[data-testid="tab-item"][data-tab-id="mesh:peer-a/shared"], [data-testid="tab-item"][data-tab-id="mesh:peer-b/shared"]')).toHaveLength(2);
+    expect(rowA.closest('[data-testid="paired-general-group"]')?.getAttribute("aria-label")).toBe("Alpha General sessions");
+    expect(rowB.closest('[data-testid="paired-general-group"]')?.getAttribute("aria-label")).toBe("Beta General sessions");
+    await act(async () => rowA.querySelector("button")?.click());
+    await act(async () => rowB.querySelector("button")?.click());
+    expect(activate.mock.calls).toEqual([[workspace.id, viewerA], [workspace.id, viewerB]]);
   } finally { await view.close(); }
 });
 

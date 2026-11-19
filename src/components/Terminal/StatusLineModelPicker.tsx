@@ -320,6 +320,7 @@ export function ModelPickerPopover({
   serviceTierAvailability,
   showReasoning = true,
   showAdvanced = true,
+  showCurrentModel = true,
   immediate = false,
   runtimeControls,
   hostApprovals,
@@ -342,6 +343,7 @@ export function ModelPickerPopover({
   showReasoning?: boolean;
   /** Off where the caller keeps only model and effort, so speed, mode and runtime controls would be dropped. */
   showAdvanced?: boolean;
+  showCurrentModel?: boolean;
   immediate?: boolean;
   runtimeControls?: import("@codeterm/plugin-sdk").RuntimeSettings;
   hostApprovals?: HostApprovalsValue;
@@ -583,7 +585,7 @@ export function ModelPickerPopover({
               ) : group.label && <div className="ct-menu-caption">{group.label}</div>}
               <div id={groupId} role="listbox" aria-label={group.label || "Models"} hidden={!expanded}>
                 {expanded && group.rows.map((row) => {
-                  const isCurrent = matchesModel({ id: row.id, display_name: row.label }, currentModel);
+                  const isCurrent = showCurrentModel && matchesModel({ id: row.id, display_name: row.label }, currentModel);
                   return (
                   <div
                     key={row.id}

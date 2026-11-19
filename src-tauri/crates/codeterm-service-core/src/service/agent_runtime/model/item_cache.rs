@@ -51,6 +51,13 @@ impl ItemCache {
     pub fn retained(&self) -> (usize, usize) {
         (self.items.len(), self.cached_bytes)
     }
+    pub(crate) fn handoff_origin(
+        &self,
+    ) -> Option<crate::service::tab_chat::runtime_stored::handoff_origin::HandoffOrigin> {
+        self.items.iter().find_map(
+            crate::service::tab_chat::runtime_stored::handoff_origin::HandoffOrigin::recorded,
+        )
+    }
     fn row_bytes(row: &ChatMsg) -> usize {
         serde_json::to_vec(row).map_or(usize::MAX, |bytes| bytes.len())
     }

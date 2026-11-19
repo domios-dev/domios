@@ -86,6 +86,10 @@ export function lazyFirstTurnComposerIsLive(tab: TabActivityInput | null | undef
     && launch.binding_nonce === tab.session_binding_nonce;
 }
 
+export function hasExitedChatRecipient(tab: TabActivityInput | null | undefined): boolean {
+  return Boolean(tab?.exited_chat_recipient) && !tab?.agent_type;
+}
+
 function boundSessionRetiresShellStartup(tab: TabActivityInput | null | undefined): boolean {
   return tab?.agent_booting === false
     && Boolean(tab.agent_session_id?.trim())

@@ -55,7 +55,7 @@ it.each([
     const chatRootRef = useRef<HTMLDivElement>(null);
     const paste = useAttachments({ chatRootRef, enabled: true, onError: (error) => { throw new Error(error); } });
     return <div ref={chatRootRef}><DraftStorageFixture><MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}>
-      <ChatComposer tabId="paste" tabProvider={null} currentPtyId={null} pendingPrompt={null}
+      <ChatComposer tabId="paste" tabProvider={null} pendingPrompt={null}
         attachments={paste.attachments} addAttachments={paste.addAttachments} removeAttachment={paste.removeAttachment}
         clearAttachments={paste.clearAttachments} handlePasteEvent={paste.handlePasteEvent} inlineAttachmentSink={paste.inlineSinkRef}
         onWillSendMessage={() => {}} addOptimistic={() => "sent"} updateOptimistic={() => {}}

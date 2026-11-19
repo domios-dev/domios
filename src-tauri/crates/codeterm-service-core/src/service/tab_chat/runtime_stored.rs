@@ -5,6 +5,7 @@ use crate::{
 };
 use std::{collections::HashSet, path::Path, sync::LazyLock};
 
+pub(crate) mod handoff_origin;
 mod projection;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -257,7 +258,7 @@ fn read_stored_window(
     };
     let read_us = started.elapsed().as_micros();
     let projecting = std::time::Instant::now();
-    let (messages, start, end) = match input {
+    let (mut messages, start, end) = match input {
         StoredInput::Text(records, start, end) => (
             provider
                 .runtime_stored_history(session, &records)
@@ -273,6 +274,7 @@ fn read_stored_window(
             window.meta.new_offset,
         ),
     };
+    handoff_origin::restore(provider.id(), session, &mut messages);
     let projection_us = projecting.elapsed().as_micros();
     Ok(Some(StoredWindow {
         messages,

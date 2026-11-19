@@ -125,11 +125,11 @@ export function EditRunCard({ event, expanded, onToggle }: { event: ToolEvent; e
                 className={`${LINE_CLASS} gap-2`}
               >
                 <FileGlyph aria-hidden size={14} className="shrink-0" style={{ color: visual.color }} />
-                <span title={path} className="min-w-0 truncate">{file.kind === "add" && <span style={{ color: QUIET }}>Created </span>}{file.kind === "delete" && <span style={{ color: QUIET }}>Deleted </span>}<FilePathLabel path={file.path} />{file.movePath && <> → <FilePathLabel path={file.movePath} /></>}</span>
+                <span title={path} className="min-w-0 truncate">{file.kind === "add" && <span style={{ color: QUIET }}>Created </span>}{file.kind === "delete" && <span style={{ color: QUIET }}>Deleted </span>}{file.kind !== "add" && file.kind !== "delete" && <span style={{ color: QUIET }}>Edited </span>}<FilePathLabel path={file.path} />{file.movePath && <> → <FilePathLabel path={file.movePath} /></>}</span>
                 <Counts additions={file.additions} deletions={file.deletions} kind={file.kind} />
+                {file.durationMs !== undefined && <span data-testid="edit-run-duration" aria-label={`Duration ${file.durationMs} milliseconds`} title={`${file.durationMs}ms`} className="shrink-0 font-mono text-[10.5px]" style={{ color: QUIET }}>{toolDurationLabel(file.durationMs)}</span>}
                 <span role="status" aria-label={statusName(file.status)} className="flex size-4 shrink-0 items-center justify-center" style={{ color: file.status === "success" ? "var(--ct-green)" : QUIET }}><StatusGlyph status={file.status} /></span>
                 <ChevronRight aria-hidden size={14} data-testid="edit-run-chevron" className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} style={{ color: QUIET }} />
-                {file.durationMs !== undefined && <span data-testid="edit-run-duration" aria-label={`Duration ${file.durationMs} milliseconds`} title={`${file.durationMs}ms`} className="shrink-0 font-mono text-[10.5px]" style={{ color: QUIET }}>{toolDurationLabel(file.durationMs)}</span>}
               </button>
               {openFile && <button
                 type="button"

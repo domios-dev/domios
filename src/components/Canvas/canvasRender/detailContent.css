@@ -630,7 +630,11 @@ button.ct-detail__agent-head:hover .ct-detail__open {
   font-size: 13px;
   line-height: 1.55;
   overflow-wrap: anywhere;
-  white-space: pre-wrap;
+  white-space: normal;
+}
+
+.ct-activity-row__full :where(p, ul, ol) {
+  margin-block: 0.25rem;
 }
 
 @media (prefers-reduced-motion: reduce) {

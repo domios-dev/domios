@@ -30,9 +30,30 @@
   animation: ct-menu-in var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
 }
 
-/* Over a blurred modal scrim the glass backdrop shows the dialog through; a menu opened from a dialog is opaque. */
-.ct-menu.ct-menu--modal {
+/* Keep text from the underlying surface out of menus over busy content. */
+.ct-menu:is(.ct-menu--modal, .ct-menu--opaque) {
   background: var(--ct-glass-sheen), var(--ct-surface);
+}
+
+.ct-menu-sheet {
+  position: fixed;
+  bottom: calc(var(--ct-visual-bottom, 0px) + max(12px, var(--ct-keyboard-safe-bottom, env(safe-area-inset-bottom))));
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  width: auto;
+  max-width: 360px;
+  margin-inline: auto;
+}
+
+.ct-menu-sheet > .ct-menu {
+  --ct-menu-origin: bottom center;
+  --ct-menu-shift: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  max-height: var(--ct-menu-sheet-max-height, calc(var(--ct-visual-height, 100dvh) - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: 16px;
 }
 
 .ct-menu-page {

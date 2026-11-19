@@ -1,4 +1,4 @@
-use super::liveness::UserClearingEvent;
+use super::liveness::{UserClearingEvent, UserHeadLaunch};
 use super::*;
 
 impl super::super::ServiceContext {
@@ -69,15 +69,36 @@ impl super::super::ServiceContext {
                 return Ok(UserDrain::Idle);
             }
             self.chat_send_ledger.restore_user_record(&head);
+            match self.user_head_launch(&head) {
+                UserHeadLaunch::Wait(reason) => {
+                    self.pending_user_send(&head, reason);
+                    return Ok(UserDrain::Idle);
+                }
+                UserHeadLaunch::RecoveryEnded => {
+                    self.settle_ended_user_head(&head)?;
+                    continue;
+                }
+                _ => {}
+            }
             if let Some(carried) = self.carry_held_user_send(&head)? {
                 head = carried;
             }
+            #[cfg(test)]
+            test_support::run_after_user_carry(self, &head);
             if self.settle_degraded_user_send(&head)? {
                 continue;
             }
-            if self.user_authority_is_from_ended_launch(&head.authority) {
-                self.settle_ended_user_head(&head)?;
-                continue;
+            match self.user_head_launch(&head) {
+                UserHeadLaunch::Wait(reason) => {
+                    self.pending_user_send(&head, reason);
+                    return Ok(UserDrain::Idle);
+                }
+                UserHeadLaunch::Carry => continue,
+                UserHeadLaunch::Ended | UserHeadLaunch::RecoveryEnded => {
+                    self.settle_ended_user_head(&head)?;
+                    continue;
+                }
+                UserHeadLaunch::Current => {}
             }
             if head.state != UserSendState::Queued {
                 self.settle_ended_user_head(&head)?;
