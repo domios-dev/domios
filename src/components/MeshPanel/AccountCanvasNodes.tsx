@@ -15,6 +15,7 @@ import { MACHINE_CARD_WIDTH } from "./webGraphLayout";
 import type { MeshTarget } from "./accountMeshClient";
 import type { MachineRowView } from "./accountMachines";
 import { REAUTH_REQUIRED_COPY } from "./accountMachines";
+import { DuplicateMachineNameHint } from "./DuplicateMachineNameHint";
 import { MachineSessionControls } from "./MachineSessionControls";
 import { MachineName } from "./MachineName";
 import { MachineFooter, ACCESS_LABELS } from "./MachineFooter";
@@ -54,8 +55,10 @@ export interface MachineNodeActions {
 
 function SessionControls({ row, busy, actions }: { row: MachineRowView; busy: boolean; actions: MachineNodeActions }) {
   const target = row.controls.revoke;
-  if ((!row.canSignOut || !actions.onSignOut) && (!target || !actions.onRemove)) return null;
-  return <MachineSessionControls name={row.name} busy={busy} onSignOut={row.canSignOut && actions.onSignOut ? () => actions.onSignOut!(row) : undefined}
+  if ((!row.canSignOut || !actions.onSignOut) && (!target || !actions.onRemove) && !row.sameNameOthers) return null;
+  return <MachineSessionControls name={row.name} busy={busy} sameNameOthers={row.sameNameOthers}
+    identityPeer={row.sameNameOthers && row.online && row.target ? row.pairInstanceId ?? undefined : undefined}
+    rename={row.online && row.target && row.pairInstanceId && actions.onRename ? { displayName: row.displayName, save: next => actions.onRename!(row, next) } : undefined} onSignOut={row.canSignOut && actions.onSignOut ? () => actions.onSignOut!(row) : undefined}
     onRemove={target && actions.onRemove ? (alsoSignOut) => actions.onRemove!(row, target, alsoSignOut) : undefined} />;
 }
 
@@ -92,6 +95,8 @@ export function AccountMachineCard({ node, busy, now, actions, hint }: { node: A
         <SettingsPill tone={PILL_TONE[node.tone]}>{node.status}</SettingsPill>
       </div>
       <div role="status" aria-busy={node.row.connecting || undefined} className="text-[12px] text-[var(--ct-muted-fg)]">{node.row.connecting ? <BusyState inline label={node.detail} phase="work" /> : node.detail}</div>
+      <DuplicateMachineNameHint name={node.name} others={node.row.sameNameOthers} peerId={node.row.pairInstanceId ?? undefined}
+        rename={node.row.online && node.row.target && node.row.pairInstanceId && actions.onRename ? { displayName: node.row.displayName, save: next => actions.onRename!(node.row, next) } : undefined} />
       {seen && <div className={UI_TEXT.metaMuted}>Last seen {seen}</div>}
       {hint}
       <SessionControls row={node.row} busy={busy} actions={actions} />
@@ -125,16 +130,19 @@ export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions, h
   const secondary = pending ? "pairs when online" : row.status === "linked" ? ACCESS_LABELS[peer?.access_level ?? ""] : lastSeen ? `last seen ${lastSeen.replace(/(\d)([a-z]+)/g, "$1 $2")}` : null;
   const helper = !pending && ["endpoint_missing", "endpoint_stale", "expired", "signed_out", "blocked"].includes(row.status) ? row.detail : null;
   const target = row.controls.revoke;
+  const rename = actions.onRename && row.online && row.target && row.pairInstanceId
+    ? { displayName: row.displayName, save: (next: string) => actions.onRename!(row, next) } : undefined;
   return <div onClick={(event) => event.stopPropagation()}>
-    <MachineSessionControls name={name} busy={busy}
+    <MachineSessionControls name={name} busy={busy} sameNameOthers={row.sameNameOthers}
       identityPeer={actions.onRename && row.online && row.target ? row.pairInstanceId ?? undefined : undefined}
-      rename={actions.onRename && row.online && row.target ? { displayName: row.displayName, save: (next) => actions.onRename!(row, next) } : undefined}
+      rename={rename}
       onSignOut={row.canSignOut && actions.onSignOut ? () => actions.onSignOut!(row) : undefined}
       onRemove={target && actions.onRemove ? (alsoSignOut) => actions.onRemove!(row, target, alsoSignOut) : undefined}
       renderRow={(menu) => <MachineFooter label={label} secondary={secondary} tone={footer.tone} connecting={row.connecting}
         version={peer?.domios_version} build={peer?.domios_build} menu={menu}>
         {footer.plans && <button type="button" onClick={() => actions.onPlans(footer.key)} aria-label={`${plansAction("See plans")} for ${name}`} className={COMPACT_ACCENT}>{plansAction("See plans")}</button>}
       </MachineFooter>} />
+    <DuplicateMachineNameHint name={name} others={row.sameNameOthers} peerId={row.pairInstanceId ?? undefined} rename={rename} className="px-3.5 pb-2" />
     {helper && <p className="m-0 px-3.5 pb-2 text-[11px] text-[var(--ct-muted-fg)]">{helper}</p>}
     {(footer.callout || hint) && <div className="flex flex-col gap-2 px-3.5 pb-2.5">
       {footer.callout && <Callout callout={footer.callout} onDismiss={() => actions.onDismiss(footer.key)} />}

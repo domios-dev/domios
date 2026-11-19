@@ -18,6 +18,7 @@ interface Props {
   onGoOnline?: () => void;
   footer?: ReactNode;
   displayName?: string | null;
+  sameNameOthers?: number;
   onRename?: (name: string) => Promise<boolean>;
   renameDisabledReason?: string;
   peerId?: string;
@@ -35,6 +36,7 @@ function PeerTerminalComponent({
   footer,
   onRename,
   displayName,
+  sameNameOthers,
   renameDisabledReason,
   peerId,
 }: Props) {
@@ -62,7 +64,7 @@ function PeerTerminalComponent({
           {ip}
           {isThisMachine ? (offline ? " · offline" : " · this") : ""}
         </span>
-        {isThisMachine && <span onClick={(event) => event.stopPropagation()}><MachineSessionControls name={name} busy={false} identityPeer={null} rename={onRename ? { displayName, save: onRename } : undefined} /></span>}
+        {isThisMachine && <span onClick={(event) => event.stopPropagation()}><MachineSessionControls name={name} busy={false} identityPeer={null} sameNameOthers={sameNameOthers} rename={onRename ? { displayName, save: onRename } : undefined} /></span>}
       </div>
       {offline && onGoOnline && (
         <button

@@ -8,6 +8,7 @@ import { Button } from "../shared/Button";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { MachineGlyph } from "../shared/MachineGlyph";
 import { MachineJoinAction } from "./AddPeerPanel";
+import { DuplicateMachineNameHint } from "./DuplicateMachineNameHint";
 import { MachineSessionControls } from "./MachineSessionControls";
 import type { CanvasAccount } from "./MeshCanvas";
 import type { MeshOverviewState } from "./meshOverviewModel";
@@ -49,19 +50,22 @@ export function MeshOverview({ state, account, name, tailscale }: {
     guide.onOpen("mesh");
   };
   const localName = cleanMachineName(name) ?? "This machine";
+  const renameLocal = account.onRenameSelf ? { displayName: account.selfDisplayName, save: account.onRenameSelf } : undefined;
+  const localNameHint = <DuplicateMachineNameHint name={localName} others={account.selfSameNameOthers} rename={renameLocal} />;
   if (state.kind === "unreachable") {
     const { machine } = state;
     const remoteName = cleanMachineName(machine.name) ?? "Machine";
     const expanded = selected === machine.key;
     return <div className="mesh-overview__content">
       <div className="mesh-overview__nodes">
-        <MachineNode name={localName} tone="online" status="online" />
+        <div><MachineNode name={localName} tone="online" status="online" />{localNameHint}</div>
         <span className="mesh-overview__edge" aria-hidden="true" />
         <MachineNode name={remoteName} tone="muted" status="not reachable" peerId={machine.pairInstanceId}
           selected={expanded} onSelect={() => setSelected(expanded ? null : machine.key)} />
       </div>
       {expanded && <div className="mesh-overview__callout ct-card ct-card--static">
         <InlineErrorNotice description={{ title: `${remoteName} isn't reachable`, cause: `It's signed in, but Tailscale is off or needs permission on ${remoteName}.`, raw: machine.detail, actions: [] }}>
+          <DuplicateMachineNameHint name={remoteName} others={machine.sameNameOthers} className="pb-2" />
           <Button size="sm" variant="primary" onClick={() => openGuide()}>Open Tailscale setup</Button>
         </InlineErrorNotice>
       </div>}
@@ -73,7 +77,8 @@ export function MeshOverview({ state, account, name, tailscale }: {
     <div className="mesh-overview__local">
       <MachineNode name={localName} tone={signedOut ? undefined : off ? "warning" : "online"}
         status={signedOut ? "This machine" : off ? "Tailscale is off" : "online · this machine"} />
-      <div className="mesh-overview__identity"><MachineSessionControls name={localName} busy={false} identityPeer={null} rename={account.onRenameSelf ? { displayName: account.selfDisplayName, save: account.onRenameSelf } : undefined} /></div>
+      {localNameHint}
+      <div className="mesh-overview__identity"><MachineSessionControls name={localName} busy={false} identityPeer={null} rename={renameLocal} sameNameOthers={account.selfSameNameOthers} /></div>
     </div>
     <div className="neighbor-me__signin mesh-overview__copy" role="status">
       <p className="neighbor-me__title">{signedOut ? "Sign in to connect your machines" : off ? "Turn on Tailscale to reach your machines" : "No other machines yet"}</p>
