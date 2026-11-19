@@ -18,7 +18,9 @@ import { useAppearingTabs } from "./useAppearingTabs";
 import { projectUtilityShells } from "../General/generalOverviewModel";
 import { isSurfaceTab, surfaceOwnerId } from "../../lib/surfaceTab";
 import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
-import { TabItem } from "./TabItem";
+import { GeneralListMachineContext, TabItem } from "./TabItem";
+import { localInstanceLabel } from "../../lib/localInstanceName";
+import { useAccountMachineNames, useMeshMachineIdentities } from "../../lib/useMeshMachineIdentities";
 import { observedGeneralViewers } from "../../store/multiplexer/pairedWorkspaceProjection";
 import { useSidebarMachineFilter } from "./sidebarMachineFilter";
 import { remoteViewerIdentity } from "../../lib/remoteTabPortal";
@@ -36,6 +38,9 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
   onOpenJobs?: (workspaceId: string, target?: JobsTarget, scope?: JobsOpenScope) => void;
 }) {
   const { generals } = usePairedWorkspaceInventory();
+  const machineNames = useAccountMachineNames();
+  const { local_instance_name } = useMeshMachineIdentities();
+  const localMachine = machineNames.local ?? local_instance_name ?? localInstanceLabel();
   const machineFilter = useSidebarMachineFilter();
   const pairedGenerals = useMemo(() => [...generals].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }) || a.peerId.localeCompare(b.peerId)), [generals]);
@@ -75,7 +80,7 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         </SidebarDisclosure>
         <SpinalCordButton api={api} />
       </div>
-      {expanded && <GeneralWorkspaceTabs
+      {expanded && <GeneralListMachineContext.Provider value={localMachine}><GeneralWorkspaceTabs
         workspace={workspace}
         providerId={providerId}
         generalCwd={generalCwd}
@@ -127,7 +132,7 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         closingTeamIds={data.closingTeamIds}
         onCloseTeam={closeTeam}
         onOpenSentinelJob={openSentinelJob}
-      />}
+      /></GeneralListMachineContext.Provider>}
       {expanded && <div hidden={typeof machineFilter === "object"}><GeneralInventory
         generalWorkspaceId={workspaceId}
         onShowAllJobs={() => onOpenJobs?.(workspaceId, undefined, "machine")}
