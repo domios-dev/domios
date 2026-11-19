@@ -66,7 +66,11 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
   if (op.kind === "interrupt" && reply.kind === "success") {
     const body=object(reply.value).body;
     const protocol=binding(ctx).protocol;
-    if (protocol !== "v1" && typeof object(body).interrupted === "boolean") return done();
+    if (protocol !== "v1" && typeof object(body).interrupted === "boolean") {
+      return object(body).interrupted === false
+        ? done([{kind:"turnState",threadId:op.threadId,state:"idle",detail:"interrupted"}])
+        : done();
+    }
     if (protocol === "v2" || body !== true) return refused("OpenCode did not confirm the interrupt");
     const events:AgentEvent[]=op.activeTurnId ? [{kind:"turnState",threadId:op.threadId,turnId:op.activeTurnId,state:"idle",detail:"interrupted"}] : [];
     return done(events);

@@ -335,6 +335,11 @@ async fn respond_inner(
             if bridged {
                 return Ok(RespondPromptOutcome::Structured);
             }
+            log::debug!(
+                "[runtime-prompt] tab={tab} epoch={} request={:?} caller=prompt_response",
+                captured.epoch,
+                entry.request
+            );
             let result = engine::run(
                 svc,
                 &session.provider,

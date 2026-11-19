@@ -36,6 +36,12 @@ describe("tool call lifecycle", () => {
     expect(toolCallProgress({...call,toolStatus:"completed",toolCompletedAtMs:5000},999000)).toBe("completed · 4s");
     expect(materializeToolEvent({...call,toolStatus:"abandoned"})?.status).toBe("interrupted");
   });
+  it("shows a stalled command at its declared deadline and settles on the provider result", () => {
+    const command = {...call,toolInput:{deadlineAtMs:5000}};
+    expect(toolCallProgress(command,4999)).toBe("Running · 3s");
+    expect(toolCallProgress(command,5000)).toBe("Stalled · 4s");
+    expect(toolCallProgress({...command,toolStatus:"interrupted",toolCompletedAtMs:6000},7000)).toBe("interrupted · 5s");
+  });
   it("wires a running counter through the collapsed card and stops on an abandonment event", async () => {
     let tick: (() => void) | undefined;
     vi.spyOn(Date,"now").mockReturnValue(11000);

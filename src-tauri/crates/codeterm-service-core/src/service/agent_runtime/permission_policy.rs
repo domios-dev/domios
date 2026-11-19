@@ -384,6 +384,7 @@ async fn reply(
             values: vec![value],
         },
     };
+    log::debug!("[runtime-prompt] epoch={epoch} request={request:?} caller=permission_policy");
     engine::run(svc, &session.provider, session, &process, operation).await?;
     // A prompt already shown to the owner leaves the screen once the new setting answered it.
     if !session.prompts.lock().contains_key(request) {

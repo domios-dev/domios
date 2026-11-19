@@ -57,6 +57,44 @@ async fn initialize(provider: &dyn AgentProvider, context: &RuntimeContext, fixt
     }
 }
 
+async fn history_and_active(
+    provider: &dyn AgentProvider,
+    context: &RuntimeContext,
+    body: Value,
+    active: Value,
+) -> (
+    Vec<codeterm_types::agent::chat_types::ChatMsg>,
+    Vec<AgentRuntimeEvent>,
+) {
+    let operation = RuntimeOperation::ReadHistory {
+        thread_id: context.thread_id.clone().unwrap(),
+        cursor: None,
+        order: Some(HistoryOrder::Desc),
+    };
+    let plan = provider.runtime_plan(context, &operation).await.unwrap();
+    let RuntimeStep::Continue {
+        plan,
+        history: Some(RuntimeResult::HistoryPage { items, .. }),
+        ..
+    } = response(provider, context, &operation, &plan.state, body).await
+    else {
+        panic!("history chunk and status request required");
+    };
+    let RuntimeAction::Request { call } = &plan.action else {
+        panic!("active sessions request required");
+    };
+    assert_eq!(call.method, "v2.session.active");
+    let RuntimeStep::Complete {
+        result: RuntimeResult::HistoryPage { .. },
+        events,
+        ..
+    } = response(provider, context, &operation, &plan.state, active).await
+    else {
+        panic!("history completion required");
+    };
+    (items, events.unwrap_or_default())
+}
+
 #[tokio::test]
 async fn opencode_v2_recorded_tool_permission_text_and_history_match_quickjs() {
     let fixture = fixture();
@@ -215,27 +253,13 @@ async fn opencode_v2_recorded_tool_permission_text_and_history_match_quickjs() {
             }
         );
     }
-    let history = RuntimeOperation::ReadHistory {
-        thread_id: "ses_owned".into(),
-        cursor: None,
-        order: Some(HistoryOrder::Desc),
-    };
-    let plan = provider.runtime_plan(&context, &history).await.unwrap();
-    let page = response(
+    let (items, _) = history_and_active(
         &provider,
         &context,
-        &history,
-        &plan.state,
         fixture["history"].clone(),
+        json!({"data": {}}),
     )
     .await;
-    let RuntimeStep::Complete {
-        result: RuntimeResult::HistoryPage { items, .. },
-        ..
-    } = page
-    else {
-        panic!("history page required")
-    };
     assert_eq!(items.first().unwrap().id, "@message");
     assert_eq!(items.last().unwrap().content, "Fixture tool turn complete.");
 }
@@ -273,31 +297,57 @@ async fn opencode_v2_recorded_same_ordinal_fragments_match_resumed_history() {
     assert_eq!(live[1]["content"], "Fixture final.");
     assert_ne!(live[0]["id"], live[1]["id"]);
 
-    let history = RuntimeOperation::ReadHistory {
-        thread_id: context.thread_id.clone().unwrap(),
-        cursor: None,
-        order: Some(HistoryOrder::Desc),
-    };
-    let plan = provider.runtime_plan(&context, &history).await.unwrap();
-    let page = response(
+    let (items, _) = history_and_active(
         &provider,
         &context,
-        &history,
-        &plan.state,
         capture["history"].clone(),
+        json!({"data": {}}),
     )
     .await;
-    let RuntimeStep::Complete {
-        result: RuntimeResult::HistoryPage { items, .. },
-        ..
-    } = page
-    else {
-        panic!("history page required");
-    };
     assert_eq!(items.len(), 3);
     for (row, streamed) in items.iter().skip(1).zip(live) {
         assert_eq!(streamed["id"], row.id);
         assert_eq!(streamed["type"], row.kind);
         assert_eq!(streamed["content"], row.content);
     }
+}
+
+#[tokio::test]
+async fn opencode_v2_restore_recovers_an_interrupted_tool_without_the_previous_reducer() {
+    let fixture = fixture();
+    let capture: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../tests/fixtures/opencode-v2-abort.json"
+    )))
+    .unwrap();
+    let provider = super::opencode();
+    let context: RuntimeContext = serde_json::from_value(fixture["context"].clone()).unwrap();
+    initialize(&provider, &context, &fixture).await;
+    let frames: Vec<RuntimeFrame> = serde_json::from_value(capture["frames"].clone()).unwrap();
+    let reduction = provider
+        .runtime_reduce(&context, &Value::Null, &frames)
+        .await
+        .unwrap();
+    validate_runtime_reduction(&context, &reduction).unwrap();
+    assert!(reduction.events.iter().any(|event| matches!(
+        event,
+        AgentRuntimeEvent::ChatItem { item, .. } if item.id == "msg_restore:tool:call_restore"
+            && item.tool_completed_at_ms == Some(1795071728671)
+    )));
+    let (items, events) = history_and_active(
+        &provider,
+        &context,
+        capture["history"].clone(),
+        json!({"data": {"ses_foreign": {"type": "running"}}}),
+    )
+    .await;
+    assert_eq!(items.last().unwrap().id, "msg_restore:tool:call_restore");
+    assert!(matches!(
+        &events[..],
+        [AgentRuntimeEvent::TurnState {
+            state: RuntimeTurnState::Idle,
+            detail: Some(RuntimeTurnDetail::Interrupted),
+            ..
+        }]
+    ));
 }
