@@ -15,6 +15,8 @@ export interface DropdownMenuItem {
   label: string;
   "aria-label"?: string;
   labelContent?: ReactNode;
+  /** The custom label lays out its own columns and truncation. */
+  stretchLabelContent?: boolean;
   icon?: ReactNode;
   /** Short chip rendered beside the label (e.g. a model's catalog badge). */
   badge?: string;
@@ -527,7 +529,7 @@ function DropdownMenuRow({
       {item.icon && <span className="ct-menu-row__icon">{item.icon}</span>}
       <span className="min-w-0 flex-1 text-left">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate">{item.labelContent ?? item.label}</span>
+          <span className={item.stretchLabelContent ? "flex min-w-0 flex-1" : "truncate"}>{item.labelContent ?? item.label}</span>
           {item.badge && (
             <span
               data-badge-for={item["data-testid"]}
@@ -567,6 +569,8 @@ export interface DropdownSelectOption {
   group?: string;
   /** Rich row content in the open menu (an icon, a quiet state word); `label` still names it. */
   content?: ReactNode;
+  /** Give rich option content the available row width. */
+  stretchLabelContent?: boolean;
 }
 
 export const TOUCH_SELECT_HEIGHT = "min-h-9 pointer-coarse:min-h-11";
@@ -630,6 +634,7 @@ export function DropdownSelect({
     label: o.suffix ? `${o.label}${o.suffix}` : o.label,
     "aria-label": o.ariaLabel,
     labelContent: o.content,
+    stretchLabelContent: o.stretchLabelContent,
     description: o.description,
     unavailable: o.unavailable,
     badge: o.badge,
