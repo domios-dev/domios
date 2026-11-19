@@ -22,7 +22,7 @@
 </picture>
 </a>
 
-<p align="center"><a href="https://domios.dev/media/trailer.mp4">Watch the Domios trailer</a></p>
+<p align="center"><a href="https://youtu.be/kMZJDku4xcE">Watch the 3-minute film</a></p>
 
 ## Features at a glance
 
