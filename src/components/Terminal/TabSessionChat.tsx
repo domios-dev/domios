@@ -64,6 +64,7 @@ import {
 } from "../../store/multiplexer/selectors";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
+import { resolveModelDisplayName } from "../../lib/agentModelName";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { runtimeStatusLineIdentity, statusLineModelName } from "./statusLinePickerModel";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
@@ -781,12 +782,18 @@ function TabSessionChatBody({
       const fullId = Object.keys(tabAgentTypes).find((id) => id.startsWith(idShort));
       if (!fullId) continue;
       const providerId = tabAgentTypes[fullId] ?? "";
-      const key = `${fullId}:${providerId}`;
+      const descriptor = getAgentDescriptor(providerId);
+      const model = origin.model && providerId
+        ? resolveModelDisplayName(descriptor ? [descriptor] : [], providerId, origin.model)
+        : origin.model;
+      const resolvedOrigin = model === origin.model ? origin : { ...origin, model };
+      const key = `${fullId}:${providerId}:${model ?? ""}`;
       const prev = cache.get(msg.id);
       const entry: OriginProps = prev && prev.key === key
         ? prev
         : {
             key,
+            origin: resolvedOrigin,
             onOriginClick: () => {
               const workspaceId = planNav.workspaces.find((workspace) => workspace.tabs.includes(fullId))?.id;
               if (workspaceId) void selectTabByTab(workspaceId, fullId);
