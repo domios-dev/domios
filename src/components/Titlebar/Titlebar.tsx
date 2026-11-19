@@ -113,11 +113,9 @@ export function Titlebar({
         </button>
       )}
 
-      {IS_WEB && (
-        <div className="flex h-full shrink-0 items-center px-1 sm:px-2">
-          <WebPeerPicker compact />
-        </div>
-      )}
+      <div className="flex h-full shrink-0 items-center px-1 sm:px-2">
+        <WebPeerPicker compact />
+      </div>
 
       <div
         className="hidden h-full shrink-0 items-center gap-2 pl-3 pr-2 min-[430px]:flex"

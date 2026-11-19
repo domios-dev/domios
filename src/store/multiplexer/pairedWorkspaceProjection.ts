@@ -1,3 +1,4 @@
+import { isFirstRunGeneralTab } from "../../components/AgentPicker/constants";
 import { isGeneralAgent } from "../../lib/roleKind";
 import { remoteViewerIdentity } from "../../lib/remoteTabPortal";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
@@ -18,6 +19,7 @@ export interface PairedGeneral {
   availability: GeneralAvailability;
   sessions: ObservedPeerTab[];
   teamNames?: ReadonlyMap<string, string>;
+  cached?: boolean;
 }
 
 export interface BrowsedWorkspace {
@@ -33,7 +35,7 @@ export function observedGeneralViewers(
   generalWorkspaceId: string,
 ): Array<{ peer: PairedGeneral; session: ObservedPeerTab; attached: Tab | null }> {
   const seen = new Set<string>();
-  return peers.flatMap(peer => peer.sessions.flatMap(session => {
+  const observed = peers.flatMap(peer => peer.sessions.flatMap(session => {
     if (seen.has(session.viewerId)) return [];
     seen.add(session.viewerId);
     const candidate = tabs[session.viewerId];
@@ -42,6 +44,15 @@ export function observedGeneralViewers(
     if (attached?.workspace_id && attached.workspace_id !== generalWorkspaceId) return [];
     return [{ peer, session, attached }];
   }));
+  const byPeerId = new Map(peers.map(peer => [peer.peerId, peer]));
+  for (const tab of Object.values(tabs)) {
+    if (seen.has(tab.id) || tab.workspace_id !== generalWorkspaceId || !isGeneralAgent(tab)
+      || isFirstRunGeneralTab(tab) || tab.hidden || tab.show_in_tabbar === false) continue;
+    const identity = remoteViewerIdentity(tab);
+    const peer = identity && byPeerId.get(identity.peerId);
+    if (peer) observed.push({ peer, session: { viewerId: tab.id, tab }, attached: tab });
+  }
+  return observed;
 }
 
 export function pairedAvailability(peer: PairedPeer, installations: MeshPeersResponse["installations"]): GeneralAvailability {
@@ -63,7 +74,7 @@ function localSessions(peerId: string, snapshot: MultiplexerState, workspace: Wo
 
 export function projectPairedGeneral(peerId: string, snapshot: MultiplexerState): ObservedPeerTab[] {
   const general = snapshot.workspaces.find(workspace => workspace.protected);
-  return general ? localSessions(peerId, snapshot, general).filter(({ tab }) => isGeneralAgent(tab)) : [];
+  return general ? localSessions(peerId, snapshot, general).filter(({ tab }) => isGeneralAgent(tab) && !isFirstRunGeneralTab(tab)) : [];
 }
 
 export function projectBrowsedWorkspaces(peerId: string, snapshot: MultiplexerState): BrowsedWorkspace[] {

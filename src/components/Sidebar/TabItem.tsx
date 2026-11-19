@@ -6,9 +6,6 @@ import { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode 
 import { MultiplexerActionsContext, MuxStateStoreContext } from "../../store/multiplexer/context";
 import { createPortal } from "react-dom";
 import { ConfirmDialog } from "../Extensions/ConfirmDialog";
-import { REMOTE_CHAT_COPY, remoteMachineName } from "../../lib/remoteChatState";
-import { useRemoteChatStatus } from "../../lib/remoteChatStatus";
-import { UI_TEXT } from "../shared/design";
 import { Globe, TriangleAlert } from "lucide-react";
 import { surfaceBacking, tabRowLabel } from "../../lib/surfaceTab";
 import { SurfaceIcon } from "../Surface/surfaceIcon";
@@ -36,11 +33,9 @@ import { plainModelId } from "../../lib/agentModelName";
 import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
-import { managedByLabel, remoteIdentity as tabRemoteIdentity, useRemoteTabTeamName } from "./remoteOwnership";
-import { MachineProvenance } from "../shared/MachineProvenance";
-import { useMeshMachineIdentity, useMeshPeerName } from "../../lib/useMeshMachineIdentities";
-import { remoteTabKindLabel } from "./remoteTabPickerModel";
-import { machineLabel } from "../../lib/machineIdentity";
+import { managedByLabel } from "./remoteOwnership";
+import { RemoteMachineSummary, RemoteTabIcon, useRemoteTabPresentation, type ObservedTabMachine } from "./RemoteTabPresentation";
+import { matchesSidebarMachine, useSidebarMachineFilter } from "./sidebarMachineFilter";
 import { managedTabPresentation } from "../../lib/managedTab";
 import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
@@ -99,19 +94,8 @@ interface TabItemProps {
   /** Agent row disclosure for its read-only checklist detail. */
   checklistToggle?: ChecklistToggle | null;
   startedBy?: TabStartedBy | null;
-  machineLine?: TabMachineLine | null;
-  hideRemoteMachineLine?: boolean;
+  observedMachine?: ObservedTabMachine | null;
   readOnly?: boolean;
-}
-
-export interface TabMachineLine {
-  peerId?: string | null;
-  name: string;
-  status?: string;
-  hideName?: boolean;
-  repeatNameForNonProtected?: boolean;
-  suppressActivity?: boolean;
-  suppressAttention?: boolean;
 }
 
 export interface TabStartedBy {
@@ -261,17 +245,16 @@ function TabItemInner({
   ownerBadgeTab = null,
   attachmentToggle = null,
   checklistToggle = null,
-  machineLine = null,
-  hideRemoteMachineLine = false,
+  observedMachine = null,
   readOnly = false,
   trailingSlot,
   accounts,
 }: TabItemProps & { trailingSlot?: ReactNode; accounts?: ReturnType<typeof useTabAccounts> }) {
   const tab = useLiveRowTab(rowTab);
-  const visibleMachineLine = machineLine && !tab.remote_peer_id ? machineLine : null;
+  const machineFilter = useSidebarMachineFilter();
   const lock = useTabLock(tab);
   const activate = () => {
-    if (!openLockedPlans(lock)) onClick();
+    if (!observedMachine?.cached && !openLockedPlans(lock)) onClick();
   };
   const attachment = variant === "attachment";
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
@@ -329,30 +312,13 @@ function TabItemInner({
     ? (isGeneralAgent ? "General Agent" : roleShieldLabel(tab))
     : null;
   const managedBy = managedTabPresentation(tab.managed).label ?? managedByLabel(tab);
-  const remote = useRemoteChatStatus(tab.id, tab.remote_peer_id);
-  const remoteStateLabel = remote.state && REMOTE_CHAT_COPY[remote.state].label;
-  const peerId = tab.remote_peer_id ?? visibleMachineLine?.peerId;
-  const knownPeerName = useMeshPeerName(peerId);
-  const machine = remoteMachineName(peerId ?? "", knownPeerName, remote.peer?.name, visibleMachineLine?.name, tab.remote_peer_name);
-  const remoteIdentity = useMeshMachineIdentity(peerId, Boolean(peerId));
-  const remoteRole = tabRemoteIdentity(tab)?.role ?? roleShield ?? remoteTabKindLabel(tab);
-  const remoteTeam = useRemoteTabTeamName(tab, peerId);
-  const remoteStatus = remoteStateLabel || (remote.peer?.presence === "online" ? "online" : undefined);
-  const remoteLabel = peerId
-    ? `${displayTitle}, ${remoteRole}, ${remoteTeam ?? "No Team"}, on ${machineLabel(
-      machine,
-      remoteIdentity,
-      (visibleMachineLine?.status || remoteStateLabel)
-        || [remoteStatus, (tab.frozen ? "Sleeping" : tabState.launching ? "Starting" : tabState.status).toLowerCase()].filter(Boolean).join(", "),
-    )}`
-    : null;
-  const machineLineStatus = visibleMachineLine?.status ?? tabState.status.toLowerCase();
-  const machineLineLabel = visibleMachineLine
-    ? machineLabel(visibleMachineLine.name, remoteIdentity, machineLineStatus)
-    : null;
+  const remote = useRemoteTabPresentation(tab, tabState, observedMachine);
+  const remoteStateLabel = remote?.unavailable;
+  const machine = remote?.name;
+  const remoteLabel = remote ? `${displayTitle}, ${remote.label}` : null;
   const accessibleRowLabel = remoteLabel ?? accessibleTitle;
-  const showActivityMarkers = !visibleMachineLine?.suppressActivity;
-  const showAttentionMarkers = showActivityMarkers && !visibleMachineLine?.suppressAttention;
+  const showActivityMarkers = !remoteStateLabel;
+  const rowAttention = attention ?? tabAttention(tab, status, [], isActive);
   // A Team worker reads as name and role label; its description stays in the row's tooltip.
   const labelledWorker = tab.role === "Worker" && Boolean(tab.role_label?.trim());
   const activityDescription = hasAgent && tabState.phase === "compacting" ? tabState.label : labelledWorker ? null : description;
@@ -417,22 +383,42 @@ function TabItemInner({
     }).catch((error) => console.warn("Tab action failed:", error));
   };
 
-  const tabMenu = menuEntries.length > 0 ? (
+  const tabMenu = menuEntries.length > 0 || remote ? (
     <TabMenu
-      tab={tab}
+      tab={readOnly ? undefined : tab}
       accounts={accounts}
       entries={menuEntries}
       onAction={runMenuAction}
       onOpenChange={(open) => {
         if (open) telegramThread.refresh();
       }}
-      contextMenuTargetRef={tabRef}
-      // Touch rows open this menu by long press, so the trigger stays for assistive tech only.
-      className={touchMode ? "sr-only" : "sidebar-tab-kebab"}
-      identity={{ icon: menuIcon, title: isGeneralAgent ? "General Agent" : displayTitle, subtitle: menuSubtitle }}
+      contextMenuTargetRef={remote && touchMode ? undefined : tabRef}
+      className={touchMode ? remote ? "shrink-0" : "sr-only" : "sidebar-tab-kebab"}
+      identity={remote ? undefined : { icon: menuIcon, title: isGeneralAgent ? "General Agent" : displayTitle, subtitle: menuSubtitle }}
+      provenance={remote && <RemoteMachineSummary machine={remote} />}
       trigger={<RowMenuButton label="Tab actions" touchMode={touchMode} />}
     />
   ) : null;
+
+  const harnessIcon = provider ? (
+            <ProviderGlyph
+              iconSvg={provider.iconSvg} fallbackIconSvg={provider.fallbackIconSvg}
+              iconColor={provider.iconColor}
+              iconHint={provider.iconHint}
+              className={`leading-none ${touchMode ? "text-[15px]" : isSubTab ? "text-[10px]" : "text-[12px]"}`}
+              title={remote ? undefined : tabState.label ? `${providerName} · ${tabState.label}` : providerName}
+            />
+          ) : surfaceBacking(tab) ? (
+            ownerBadgeTab ? (
+              <OwnerBadgedSurfaceIcon tab={tab} ownerTab={ownerBadgeTab} size={touchMode ? 14 : 11} />
+            ) : (
+              <SurfaceIcon data-testid="tab-surface-icon" backing={surfaceBacking(tab)} size={touchMode ? 15 : isSubTab ? 11 : 13} />
+            )
+          ) : tab.tab_type === "Choice" ? (
+            <ChoiceIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
+          ) : (
+            utilityShell ? <ShellPurposeIcon purpose={tab.purpose} icon={tab.icon} running={shellRunning} /> : <TerminalIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
+          );
 
   const animClass = isClosing
     ? closePhase === 2
@@ -445,6 +431,7 @@ function TabItemInner({
   return (
     <div
       ref={tabRef}
+      hidden={!matchesSidebarMachine(machineFilter, remote?.peerId)}
       role="group"
       aria-label={accessibleRowLabel}
       data-testid="tab-item"
@@ -504,34 +491,21 @@ function TabItemInner({
         type="button"
         data-first-run-allowed={isFirstRunGeneralTab(tab) || undefined}
         data-first-run-home={isFirstRunGeneralTab(tab) || undefined}
-        aria-disabled={isFirstRunGeneralTab(tab) ? false : undefined}
-        aria-label={`${machineLineLabel ? accessibleRowLabel : remoteLabel ?? (isGeneralAgent ? accessibleTitle : `Open tab ${accessibleTitle}`)}${managedBy ? `, ${managedBy}` : ""}${restoreFailure.showFailureBadge ? ", launch failed" : ""}`}
+        aria-disabled={observedMachine?.cached || (isFirstRunGeneralTab(tab) ? false : undefined)}
+        aria-label={`${remoteLabel ?? (isGeneralAgent ? accessibleTitle : `Open tab ${accessibleTitle}`)}${managedBy ? `, ${managedBy}` : ""}${restoreFailure.showFailureBadge ? ", launch failed" : ""}`}
         aria-current={isActive ? "page" : undefined}
         onClick={activate}
         className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
       >
       <div className={`sidebar-tab-body flex-1 min-w-0 ${touchMode ? "gap-x-2.5" : "gap-x-2"}`}>
-        <span data-testid="tab-tab-icon" className={`sidebar-tab-body__icon relative leading-none ${lockedDimClass(lock)}`}>
-          {provider ? (
-            <ProviderGlyph
-              iconSvg={provider.iconSvg} fallbackIconSvg={provider.fallbackIconSvg}
-              iconColor={provider.iconColor}
-              iconHint={provider.iconHint}
-              className={`leading-none ${touchMode ? "text-[15px]" : isSubTab ? "text-[10px]" : "text-[12px]"}`}
-              title={tabState.label ? `${providerName} · ${tabState.label}` : providerName}
-            />
-          ) : surfaceBacking(tab) ? (
-            ownerBadgeTab ? (
-              <OwnerBadgedSurfaceIcon tab={tab} ownerTab={ownerBadgeTab} size={touchMode ? 14 : 11} />
-            ) : (
-              <SurfaceIcon data-testid="tab-surface-icon" backing={surfaceBacking(tab)} size={touchMode ? 15 : isSubTab ? 11 : 13} />
-            )
-          ) : tab.tab_type === "Choice" ? (
-            <ChoiceIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
-          ) : (
-            utilityShell ? <ShellPurposeIcon purpose={tab.purpose} icon={tab.icon} running={shellRunning} /> : <TerminalIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
-          )}
-          {!remoteStateLabel && showAttentionMarkers && <TabAttentionMark title={accessibleTitle} attention={attention ?? tabAttention(tab, status, [], isActive)} active={isActive} />}
+        <span data-testid="tab-tab-icon" title={remote ? "" : undefined} className={`sidebar-tab-body__icon relative leading-none ${lockedDimClass(lock)}`}>
+          {remote ? <RemoteTabIcon machine={remote}>
+            {harnessIcon}
+            <TabAttentionMark title={accessibleTitle} attention={rowAttention} active={isActive} remote />
+          </RemoteTabIcon> : <>
+            {harnessIcon}
+            <TabAttentionMark title={accessibleTitle} attention={rowAttention} active={isActive} />
+          </>}
         </span>
         <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
           <span
@@ -546,11 +520,11 @@ function TabItemInner({
           >
             {rowText.title}
           </span>
-          {!remoteStateLabel && showAttentionMarkers && <TabAttentionMark title={accessibleTitle} attention={attention ?? tabAttention(tab, status, [], isActive)} active={isActive} placement="title" />}
-          {!remoteStateLabel && showActivityMarkers && hasAgent && (
+          {showActivityMarkers && <TabAttentionMark title={accessibleTitle} attention={rowAttention} active={isActive} placement="title" remote={Boolean(remote)} />}
+          {showActivityMarkers && hasAgent && (
             <TabWorkingActivity activity={tabState} label={tabState.label} />
           )}
-          {!remoteStateLabel && showActivityMarkers && shellRunning && <TabWorkingActivity activity={tabState} label={`${displayTitle} working`} />}
+          {showActivityMarkers && shellRunning && <TabWorkingActivity activity={tabState} label={`${displayTitle} working`} />}
         </span>
         <span className={`sidebar-tab-body__trailing ${touchMode ? "gap-2.5" : "gap-2"}`}>
           <LockBadge view={lock} />
@@ -570,24 +544,7 @@ function TabItemInner({
           )}
           {trailingSlot}
         </span>
-        {visibleMachineLine ? (
-          <span className={`sidebar-tab-body__sub sidebar-tab-body__sub--machine truncate text-[length:var(--ct-font-size-meta)] ${UI_TEXT.metaMuted}`}>
-            <MachineProvenance
-              peerId={visibleMachineLine.peerId}
-              name={visibleMachineLine.name}
-              status={machineLineStatus}
-              hideName={visibleMachineLine.hideName || (visibleMachineLine.repeatNameForNonProtected && !tab.protected)}
-            />
-            <span className="truncate">· {machineLineStatus}</span>
-          </span>
-        ) : tab.remote_peer_id ? (
-          hideRemoteMachineLine && tab.role === "Worker" ? null : (
-          <span className={`sidebar-tab-body__sub sidebar-tab-body__sub--machine truncate text-[length:var(--ct-font-size-meta)] ${UI_TEXT.metaMuted}`}>
-            <MachineProvenance peerId={tab.remote_peer_id} name={machine} status={remoteStatus} />
-            <span className="truncate">· {remoteStateLabel || tabState.status}</span>
-          </span>
-          )
-        ) : collapsed && groupCollapsible && collapsedSummary ? (
+        {collapsed && groupCollapsible && collapsedSummary ? (
           <span
             data-testid="group-collapsed-summary"
             className="sidebar-tab-body__sub block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
@@ -613,7 +570,7 @@ function TabItemInner({
           <TriangleAlert size={13} aria-hidden="true" />
         </span>
       )}
-      {!remoteStateLabel && showActivityMarkers && !utilityShell && <span
+      {showActivityMarkers && !utilityShell && <span
         className="sr-only"
         role="status"
         aria-live="polite"
@@ -668,14 +625,10 @@ export function tabItemPropsEqual(prev: TabItemState, next: TabItemState): boole
     prev.collapsed !== next.collapsed ||
     prev.collapsedSummary !== next.collapsedSummary ||
     prev.ownerTitle !== next.ownerTitle ||
-    prev.machineLine?.peerId !== next.machineLine?.peerId ||
-    prev.machineLine?.name !== next.machineLine?.name ||
-    prev.machineLine?.status !== next.machineLine?.status ||
-    prev.machineLine?.hideName !== next.machineLine?.hideName ||
-    prev.machineLine?.repeatNameForNonProtected !== next.machineLine?.repeatNameForNonProtected ||
-    prev.machineLine?.suppressActivity !== next.machineLine?.suppressActivity ||
-    prev.machineLine?.suppressAttention !== next.machineLine?.suppressAttention ||
-    prev.hideRemoteMachineLine !== next.hideRemoteMachineLine ||
+    prev.observedMachine?.peerId !== next.observedMachine?.peerId ||
+    prev.observedMachine?.name !== next.observedMachine?.name ||
+    prev.observedMachine?.availability !== next.observedMachine?.availability ||
+    prev.observedMachine?.cached !== next.observedMachine?.cached ||
     prev.readOnly !== next.readOnly ||
     prev.variant !== next.variant ||
     prev.insetPx !== next.insetPx ||

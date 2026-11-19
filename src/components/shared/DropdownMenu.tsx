@@ -592,6 +592,7 @@ export function DropdownSelect({
   className,
   "data-testid": testId,
   focusOnPointerOpen,
+  showCheckmark = true,
 }: {
   options: DropdownSelectOption[];
   value: string;
@@ -611,6 +612,7 @@ export function DropdownSelect({
   className?: string;
   "data-testid"?: string;
   focusOnPointerOpen?: boolean;
+  showCheckmark?: boolean;
 }) {
   const selected = options.find((o) => o.value === value);
   const label = selected?.label ?? placeholder ?? "";
@@ -622,7 +624,7 @@ export function DropdownSelect({
     description: o.description,
     badge: o.badge,
     disabled: o.disabled,
-    icon: o.value === value ? <Check size={14} /> : <span className="w-3.5 h-3.5" />,
+    icon: showCheckmark ? o.value === value ? <Check size={14} /> : <span className="w-3.5 h-3.5" /> : undefined,
     selected: o.value === value,
     onClick: () => onChange(o.value),
     "data-testid": testId ? `${testId}-option-${o.value}` : undefined,

@@ -1,62 +1,66 @@
-import { cleanMachineName } from "../../lib/machineIdentity";
-import { remoteTeamName } from "./remoteOwnership";
 import { useState } from "react";
+import { cleanMachineName } from "../../lib/machineIdentity";
+import type { Tab } from "../../lib/types";
 import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
 import type { BrowsedWorkspace, ObservedPeerTab } from "../../store/multiplexer/pairedWorkspaceProjection";
-import { MachineProvenance } from "../shared/MachineProvenance";
+import { TabItem } from "./TabItem";
+import { TeamRunMachine } from "./RemoteTabPresentation";
+import { remoteTeamName } from "./remoteOwnership";
 import { SidebarDisclosure } from "./SidebarDisclosure";
-import { StatusDot } from "./StatusDot";
 
 interface WorkspaceBrowseSectionProps {
   selectedViewerId: string | null;
+  attachedTabs: Readonly<Record<string, Tab>>;
+  touchMode: boolean;
   onSelectViewer: (viewerId: string) => void;
+  onRenameViewer: (tab: Tab, title: string) => void;
 }
 
-export function WorkspaceBrowseSection({ selectedViewerId, onSelectViewer }: WorkspaceBrowseSectionProps) {
+export function WorkspaceBrowseSection(props: WorkspaceBrowseSectionProps) {
   const { browse } = usePairedWorkspaceInventory();
-  if (!browse) return null;
+  if (!browse || browse.availability !== "online") return null;
   const machine = cleanMachineName(browse.target.name, browse.target.id);
-  if (browse.availability !== "online") {
-    const status = browse.availability === "reconnecting" ? "Connecting"
-      : browse.availability.replace("-", " ");
-    return <p role="status" className="px-3 py-2 text-xs text-[var(--ct-muted-fg)]">{machine ? `${machine} · ` : ""}{status}</p>;
-  }
-  if (!browse.workspaces.length) return <p className="px-3 py-2 text-xs text-[var(--ct-muted-fg)]">No workspaces</p>;
-  return browse.workspaces.map(workspace => <WorkspaceRows
+  return browse.workspaces.filter(workspace => workspace.tabs.length > 0).map(workspace => <WorkspaceRows
     key={JSON.stringify([workspace.peerId, workspace.workspace.id])}
     workspace={workspace}
     hostName={machine}
-    selectedViewerId={selectedViewerId}
-    onSelectViewer={onSelectViewer}
+    {...props}
   />);
 }
 
-function WorkspaceRows({ workspace: { workspace, teams, tabs }, hostName, selectedViewerId, onSelectViewer }: WorkspaceBrowseSectionProps & {
+function WorkspaceRows({ workspace: { workspace, peerId, teams, tabs }, hostName, selectedViewerId, attachedTabs, touchMode, onSelectViewer, onRenameViewer }: WorkspaceBrowseSectionProps & {
   workspace: BrowsedWorkspace;
   hostName?: string;
 }) {
   const [expanded, setExpanded] = useState(true);
   const teamIds = new Set(teams.map(team => team.id));
-  const row = ({ viewerId, tab, status }: ObservedPeerTab) => (
-    <button key={viewerId} type="button" aria-current={selectedViewerId === viewerId || undefined}
-      className="ct-menu-row min-h-[44px] sm:min-h-0" onClick={() => onSelectViewer(viewerId)}>
-      <StatusDot status={status ?? null} />
-      <span className="truncate">{tab.title}</span>
-    </button>
-  );
+  const row = ({ viewerId, tab, status }: ObservedPeerTab, index: number) => {
+    const attached = attachedTabs[viewerId];
+    return <TabItem key={viewerId} tab={attached ?? { ...tab, id: viewerId }} index={index}
+      isActive={selectedViewerId === viewerId} onClick={() => onSelectViewer(viewerId)} onClose={() => undefined}
+      onRename={attached ? title => onRenameViewer(attached, title) : undefined}
+      canClose={false} readOnly={!attached} workspaceId={workspace.id} hasAgent={Boolean(tab.agent_type)}
+      status={status ?? null} touchMode={touchMode}
+      observedMachine={{ peerId, name: hostName ?? "Machine", availability: "online" }} />;
+  };
   return <section aria-label={workspace.name} className="px-2">
     <SidebarDisclosure expanded={expanded} onToggle={() => setExpanded(value => !value)}>
       <span className="truncate">{workspace.name}</span>
     </SidebarDisclosure>
-    {expanded && <>
+    <div hidden={!expanded}>
       {tabs.filter(({ tab }) => !tab.team_id || !teamIds.has(tab.team_id)).map(row)}
-      {teams.map(team => <div key={team.id} role="group" aria-label={remoteTeamName(team.id, team.name) ?? "Team"} className="pl-2">
-        <div className="px-2 py-1 text-xs">
-          {remoteTeamName(team.id, team.name) ?? "Team"}
-          {hostName && <MachineProvenance peerId={team.remote_peer_id} name={hostName} />}
-        </div>
-        {tabs.filter(({ tab }) => tab.team_id === team.id).map(row)}
-      </div>)}
-    </>}
+      {teams.map(team => {
+        const members = tabs.filter(({ tab }) => tab.team_id === team.id);
+        if (!members.length) return null;
+        const name = remoteTeamName(team.id, team.name) ?? "Team";
+        return <div key={team.id}>
+          <TeamRunMachine peerId={peerId} fallbackName={hostName} />
+          <section aria-label={name} className="sidebar-team-unit">
+            <div className="sidebar-team-header"><span className="sidebar-team-name">{name}</span></div>
+            {members.map(row)}
+          </section>
+        </div>;
+      })}
+    </div>
   </section>;
 }

@@ -80,8 +80,8 @@ function RemoteViewerPill({ tabId, tab }: { tabId: string; tab?: Tab }) {
     className="ct-bar-pill flex min-w-0 shrink-0 items-center gap-1.5 px-2"
     style={{ height: TAB_BAR_CONTROL_H, maxWidth: "min(14rem, 46vw)" }}
   >
-    <span className="min-w-0 truncate"><MachineProvenance peerId={viewer.peerId} name={viewer.machine} remote /></span>
-    {status && <span className="shrink-0 text-[var(--ct-muted-fg)]">{status}</span>}
+    <span className="min-w-0"><MachineProvenance peerId={viewer.peerId} name={viewer.machine} remote /></span>
+    {status && <span className="shrink-0 whitespace-nowrap text-[var(--ct-muted-fg)]">{status}</span>}
   </div>;
 }
 

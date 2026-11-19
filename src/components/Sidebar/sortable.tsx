@@ -42,23 +42,26 @@ export function SortableRow({
   id,
   data,
   disabled,
+  hidden,
   layoutStyle,
   children,
 }: {
   id: string;
   data: SortableGroupData;
   disabled?: boolean;
+  hidden?: boolean;
   layoutStyle?: CSSProperties;
   children: ReactNode;
 }) {
   const { setNodeRef, attributes, listeners, isDragging, items } =
-    useSortable({ id, data, disabled });
+    useSortable({ id, data, disabled: disabled || hidden });
   const { active, over } = useDndContext();
   const edge = active && over?.id === id
     ? sidebarDropEdge(items.map(String), String(active.id), id) : null;
   return (
     <div
       ref={setNodeRef}
+      hidden={hidden}
       data-dnd-id={id}
       data-dnd-group={`${data.group}:${data.groupKey}`}
       data-dnd-dragging={isDragging ? "true" : undefined}

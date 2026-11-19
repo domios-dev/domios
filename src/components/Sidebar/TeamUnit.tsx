@@ -30,10 +30,8 @@ import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDiscl
 import { refusalText } from "../../lib/refusalText";
 import { useProviderModelUsage } from "../../hooks/useProviderModelUsage";
 import { formatModelUsage, hasModelUsage, usageForModel } from "../../lib/modelGroups";
-import { useMeshPeerName } from "../../lib/useMeshMachineIdentities";
-import { cleanMachineName } from "../../lib/machineIdentity";
 import { remoteTeamName } from "./remoteOwnership";
-import { MachineProvenance } from "../shared/MachineProvenance";
+import { TeamRunMachine } from "./RemoteTabPresentation";
 
 export interface SidebarTeamActions {
   /// `managerTabId` is null when the Team holds no member that can spawn. The
@@ -478,10 +476,6 @@ export function TeamUnit({
   const teamTabCount = managerCount + workerCount + agentCount + terminalCount;
   const teamAttention = expanded ? null
     : mergeGroupAttention([attention.managers, attention.workers, attention.agents, attention.utilities]);
-  const peerName = useMeshPeerName(team.remote_peer_id);
-  const machine = team.remote_peer_id
-    ? peerName ?? cleanMachineName(team.remote_peer_name, team.remote_peer_id)
-    : undefined;
   const displayTitle = team.remote_peer_id
     ? remoteTeamName(team.id, team.name) ?? "Team"
     : plan?.title.trim() || team.name?.trim() || "Team";
@@ -602,11 +596,6 @@ export function TeamUnit({
           )}
         </span>
       )}
-      {!editing && machine && (
-        <div data-testid="team-remote-peer" className="text-[var(--ct-muted-fg)]">
-          <MachineProvenance peerId={team.remote_peer_id} name={machine} />
-        </div>
-      )}
       <TeamStatusTally
         key={`tally-${planMotion.revision}`}
         data-testid="team-status-tally"
@@ -622,6 +611,8 @@ export function TeamUnit({
   </>;
 
   return (
+    <>
+    {team.remote_peer_id && <TeamRunMachine peerId={team.remote_peer_id} fallbackName={team.remote_peer_name} />}
     <section
       aria-label={displayTitle}
       data-testid="team-unit"
@@ -802,5 +793,6 @@ export function TeamUnit({
         )}
       </button>
     </section>
+    </>
   );
 }

@@ -2,20 +2,19 @@ import { MachineGlyph } from "./MachineGlyph";
 import { MACHINE_KINDS, cleanMachineName, machineKind, machineLabel } from "../../lib/machineIdentity";
 import { useMeshMachineIdentity, useMeshPeerName } from "../../lib/useMeshMachineIdentities";
 
-export function MachineProvenance({ peerId, name, status, hideName = false, remote = false }: {
+export function MachineProvenance({ peerId, name, status, remote = false }: {
   peerId?: string | null;
   name: string;
   status?: string;
-  hideName?: boolean;
   remote?: boolean;
 }) {
   const identity = useMeshMachineIdentity(peerId, true, remote ? name : undefined);
   const displayName = useMeshPeerName(peerId) ?? cleanMachineName(name, peerId) ?? "Machine";
   const label = machineLabel(displayName, identity, status);
   return (
-    <span className="inline-flex min-w-0 items-baseline gap-1.5 text-[length:var(--ct-font-size-meta)]" title={label}>
-      <MachineGlyph {...identity} label={hideName ? `on ${label}` : undefined} />
-      {!hideName && <span className="min-w-0 truncate">{displayName}<span className="sr-only">, {MACHINE_KINDS[machineKind(identity?.kind)].word}{status && `, ${status}`}</span></span>}
+    <span className="inline-flex min-w-0 max-w-full items-baseline gap-1.5 text-[length:var(--ct-font-size-meta)]" title={label}>
+      <MachineGlyph {...identity} />
+      <span className="min-w-0 truncate">{displayName}<span className="sr-only">, {MACHINE_KINDS[machineKind(identity?.kind)].word}{status && `, ${status}`}</span></span>
     </span>
   );
 }
