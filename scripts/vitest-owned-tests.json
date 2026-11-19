@@ -179,6 +179,7 @@
   "plugins/analytics/ui/src/Dashboard.freshness.test.tsx",
   "src/lib/refreshGate.test.ts",
   "src/components/Canvas/missionControl/AnimatedNumber.test.tsx",
+  "src/components/Canvas/planView/reportActivity.test.tsx",
   "src/components/Canvas/missionControl/teamSpendLiveRefresh.test.tsx",
   "src/components/Canvas/map_canvas.test.tsx",
   "src/components/Canvas/EssenceMapCanvas.gesture.test.tsx",

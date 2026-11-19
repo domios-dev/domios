@@ -1,5 +1,7 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
+import { RichMarkdown } from "@codeterm/chat-ui/MarkdownBody";
+import { reportActivityBody, reportActivitySummary } from "./reportActivity";
 
 export interface ActivityLogRowProps {
   kind: string;
@@ -19,7 +21,9 @@ export interface ActivityLogRowProps {
 /** One activity event as a calm log row; expands to the full text unless it opens something. */
 export function ActivityLogRow({ kind, color, age, stamp, stampTitle, author, lead, text, onOpen, children, testIds = {}, data = {} }: ActivityLogRowProps) {
   const [expanded, setExpanded] = useState(false);
-  const flat = text.replace(/\s+/g, " ").trim();
+  const isReport = kind === "worker report";
+  const body = isReport ? reportActivityBody(text) : text;
+  const flat = isReport ? reportActivitySummary(text) : text.replace(/\s+/g, " ").trim();
   return (
     <div
       className="ct-row ct-activity-row"
@@ -41,7 +45,7 @@ export function ActivityLogRow({ kind, color, age, stamp, stampTitle, author, le
       </button>
       <div className="ct-activity-row__detail" hidden={!expanded}>
         {stamp && <div className="ct-activity-row__stamp" data-testid={testIds.stamp} title={stampTitle}>{stamp}</div>}
-        <p className="ct-activity-row__full">{text}</p>
+        {isReport ? expanded && <div className="ct-activity-row__full"><RichMarkdown text={body} localArtifacts={false} interactivePreviews={false} /></div> : <p className="ct-activity-row__full">{body}</p>}
         {children}
       </div>
     </div>

@@ -1,16 +1,6 @@
-import remarkGfm from "remark-gfm";
-import remarkParse from "remark-parse";
-import { unified } from "unified";
+import { markdownToPlainText } from "../../lib/markdownText";
 
 const PREVIEW_MAX_CHARS = 560;
-
-interface MarkdownNode {
-  type: string;
-  value?: string;
-  alt?: string;
-  checked?: boolean | null;
-  children?: MarkdownNode[];
-}
 
 function skipBlankLines(lines: string[], start: number): number {
   let cursor = start;
@@ -50,55 +40,6 @@ function stripCopiedCodeToolbars(text: string): string {
   return kept.join("\n");
 }
 
-function renderChildren(node: MarkdownNode, separator = ""): string {
-  return (node.children ?? []).map((child) => markdownNodeText(child)).join(separator);
-}
-
-function markdownNodeText(node: MarkdownNode): string {
-  switch (node.type) {
-    case "root":
-      return renderChildren(node, "\n");
-    case "paragraph":
-    case "heading":
-    case "blockquote":
-    case "listItem":
-      return renderChildren(node);
-    case "list":
-      return renderChildren(node, "\n");
-    case "table":
-      return renderChildren(node, "\n");
-    case "tableRow":
-      return renderChildren(node, " | ");
-    case "tableCell":
-    case "link":
-    case "delete":
-    case "strong":
-    case "emphasis":
-      return renderChildren(node);
-    case "text":
-    case "inlineCode":
-    case "code":
-      return node.value ?? "";
-    case "image":
-      return node.alt ?? "";
-    case "break":
-      return "\n";
-    case "thematicBreak":
-      return "\n";
-    default:
-      return renderChildren(node);
-  }
-}
-
-function normalizePreviewWhitespace(text: string): string {
-  return text
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n[ \t]+/g, "\n")
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
 function truncatePreview(text: string): string {
   if (text.length <= PREVIEW_MAX_CHARS) return text;
   const candidate = text.slice(0, PREVIEW_MAX_CHARS - 1);
@@ -109,6 +50,5 @@ function truncatePreview(text: string): string {
 
 export function queuedMessagePreview(text: string): string {
   const source = stripCopiedCodeToolbars(text);
-  const tree = unified().use(remarkParse).use(remarkGfm).parse(source) as MarkdownNode;
-  return truncatePreview(normalizePreviewWhitespace(markdownNodeText(tree)));
+  return truncatePreview(markdownToPlainText(source));
 }
