@@ -165,11 +165,67 @@ ${fence}`;
   };
 }
 
+// plugins/provider-opencode/src/runtimeProtocol.ts
+var object2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+var list = (value) => Array.isArray(value) ? value : [];
+var text = (value) => typeof value === "string" && value.length > 0 ? value : void 0;
+var json = (value) => value;
+function fail(code, message) {
+  throw { code, message };
+}
+function refused(message) {
+  return { kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false };
+}
+function request(method, params, state = { stage: method }) {
+  return { action: { kind: "request", call: { method, params: json(params) } }, state: json(state) };
+}
+function next(method, params, state) {
+  return { kind: "continue", plan: request(method, params, state) };
+}
+function done(events = []) {
+  return { kind: "complete", result: { kind: "done" }, events };
+}
+function own(ctx, thread) {
+  if (!thread || thread !== ctx.threadId) fail("binding_mismatch", "OpenCode session is outside this runtime binding");
+  return thread;
+}
+function modelParts(model) {
+  if (!model) return void 0;
+  const index = model.indexOf("/");
+  if (index <= 0 || index === model.length - 1) fail("invalid_schema", "OpenCode requires a qualified provider/model selection");
+  return { providerID: model.slice(0, index), modelID: model.slice(index + 1) };
+}
+function messageIdentity(sendId, now, counter) {
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(sendId) || !Number.isSafeInteger(now) || now < 0) fail("invalid_schema", "Invalid prompt identity");
+  const prefix = (BigInt(now) * 0x1000n + BigInt(counter) & 0xffffffffffffn).toString(16).padStart(12, "0");
+  return `msg_${prefix}${sendId.replace(/-/g, "_")}`;
+}
+function attachmentUrl(attachment) {
+  if (attachment.data) return `data:${attachment.mimeType};base64,${attachment.data}`;
+  if (attachment.url) return attachment.url;
+  if (!attachment.path) fail("invalid_schema", "Attachment has no runtime source");
+  const normalized = attachment.path.replace(/\\/g, "/");
+  return `file://${normalized.startsWith("/") ? "" : "/"}${normalized.split("/").map((segment) => encodeURIComponent(segment).replace(/%3A/gi, ":")).join("/")}`;
+}
+function utf8Length(value) {
+  let bytes2 = 0;
+  for (const character of value) {
+    const code = character.codePointAt(0);
+    bytes2 += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
+  }
+  return bytes2;
+}
+
 // plugins/provider-opencode/src/turnErrors.ts
+function isQuotaError(value) {
+  const error = object2(value);
+  return error.type === "provider.quota" || object2(object2(error.body).error).type === "insufficient_balance_error";
+}
 function turnError(value) {
   if (!value || typeof value !== "object") return null;
   const message = value;
-  return message.role === "assistant" && message.error?.name === "APIError" ? message.error : null;
+  const error = message.error;
+  return message.role === "assistant" && error && (error.name === "APIError" || isQuotaError(error)) ? error : null;
 }
 function sessionObservations(value) {
   const error = turnError(value);
@@ -177,10 +233,10 @@ function sessionObservations(value) {
     const message2 = value;
     return message2?.role === "assistant" && !message2.error && typeof message2.time?.completed === "number" ? { api_error: null, permission_mode: null, clears_api_error: true } : null;
   }
-  const status = error.data?.statusCode;
+  const status = error.status ?? error.statusCode ?? error.data?.statusCode;
   const message = value;
   const id = message.modelID?.includes("/") ? message.modelID : message.providerID && message.modelID ? `${message.providerID}/${message.modelID}` : null;
-  return { ...id && unavailableModelError(value) ? { unavailable_model: id } : {}, api_error: status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other", permission_mode: null, clears_api_error: false };
+  return { ...id && unavailableModelError(value) ? { unavailable_model: id } : {}, api_error: isQuotaError(error) ? "usage_limit" : status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other", permission_mode: null, clears_api_error: false };
 }
 function unavailableModelError(value) {
   const error = turnError(value);
@@ -1818,57 +1874,6 @@ var decisionModel = {
   }
 };
 
-// plugins/provider-opencode/src/runtimeProtocol.ts
-var object2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
-var list = (value) => Array.isArray(value) ? value : [];
-var text = (value) => typeof value === "string" && value.length > 0 ? value : void 0;
-var json = (value) => value;
-function fail(code, message) {
-  throw { code, message };
-}
-function refused(message) {
-  return { kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false };
-}
-function request(method, params, state = { stage: method }) {
-  return { action: { kind: "request", call: { method, params: json(params) } }, state: json(state) };
-}
-function next(method, params, state) {
-  return { kind: "continue", plan: request(method, params, state) };
-}
-function done(events = []) {
-  return { kind: "complete", result: { kind: "done" }, events };
-}
-function own(ctx, thread) {
-  if (!thread || thread !== ctx.threadId) fail("binding_mismatch", "OpenCode session is outside this runtime binding");
-  return thread;
-}
-function modelParts(model) {
-  if (!model) return void 0;
-  const index = model.indexOf("/");
-  if (index <= 0 || index === model.length - 1) fail("invalid_schema", "OpenCode requires a qualified provider/model selection");
-  return { providerID: model.slice(0, index), modelID: model.slice(index + 1) };
-}
-function messageIdentity(sendId, now, counter) {
-  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(sendId) || !Number.isSafeInteger(now) || now < 0) fail("invalid_schema", "Invalid prompt identity");
-  const prefix = (BigInt(now) * 0x1000n + BigInt(counter) & 0xffffffffffffn).toString(16).padStart(12, "0");
-  return `msg_${prefix}${sendId.replace(/-/g, "_")}`;
-}
-function attachmentUrl(attachment) {
-  if (attachment.data) return `data:${attachment.mimeType};base64,${attachment.data}`;
-  if (attachment.url) return attachment.url;
-  if (!attachment.path) fail("invalid_schema", "Attachment has no runtime source");
-  const normalized = attachment.path.replace(/\\/g, "/");
-  return `file://${normalized.startsWith("/") ? "" : "/"}${normalized.split("/").map((segment) => encodeURIComponent(segment).replace(/%3A/gi, ":")).join("/")}`;
-}
-function utf8Length(value) {
-  let bytes2 = 0;
-  for (const character of value) {
-    const code = character.codePointAt(0);
-    bytes2 += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
-  }
-  return bytes2;
-}
-
 // plugins/provider-opencode/src/runtimeAuth.ts
 function methods(ctx, providers, auth) {
   const provider = modelParts(ctx.settings.model)?.providerID;
@@ -2590,12 +2595,16 @@ function v2Reduce(ctx, raw, frames) {
       }
       continue;
     }
-    if (["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"].includes(type)) {
+    const quotaSessionError = type === "session.error" && isQuotaError(data.error);
+    if (quotaSessionError || ["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"].includes(type)) {
       if (turn && !state.completed.includes(turn)) {
         state.completed.push(turn);
         state.pendingPrompts = [];
-        const detail = type === "session.execution.failed" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : void 0;
-        if (detail === "failed") events.push({ kind: "notice", threadId: ctx.threadId, message: String(object2(data.error).message ?? "OpenCode execution failed").slice(0, 4096) });
+        const detail = type === "session.execution.failed" || quotaSessionError ? "failed" : type === "session.execution.interrupted" ? "interrupted" : void 0;
+        if (detail === "failed") {
+          const message2 = isQuotaError(data.error) ? "Provider balance or quota is exhausted \u2014 top up or switch model" : String(object2(data.error).message ?? "OpenCode execution failed").slice(0, 4096);
+          events.push({ kind: "notice", threadId: ctx.threadId, message: message2 });
+        }
         events.push({ kind: "turnState", threadId: ctx.threadId, turnId: turn, state: "idle", ...detail ? { detail } : {} });
         delete state.turn;
       }
