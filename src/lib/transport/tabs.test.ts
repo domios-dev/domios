@@ -60,7 +60,7 @@ it("uses a selected workspace from the target machine when provided", async () =
   await transport.mux_spawn_tab({ peerId: "machine-x", params: {
     agentId: "codex", workspaceId: "origin-workspace", remoteWorkspaceId: "peer-workspace",
   } });
-  const relay = calls[0].body as { body: Record<string, unknown> };
+  const relay = calls[0].body as { target_instance_id: string; body: Record<string, unknown> };
   expect(relay.target_instance_id).toBe("machine-x");
   expect(relay.body).toMatchObject({ agent: "codex", workspace_id: "peer-workspace" });
   expect(relay.body).not.toHaveProperty("cwd");
