@@ -14,6 +14,7 @@ export interface AnchoredPopoverProps {
   /** Space between anchor and popover; hover popovers pass 0 so the pointer never crosses a gap. */
   gap?: number;
   keepSide?: boolean;
+  bottomSheet?: boolean;
   children: ReactNode;
   className?: string;
   style?: CSSProperties;
@@ -38,6 +39,7 @@ export function AnchoredPopover({
   placement = "bottom-start",
   gap,
   keepSide,
+  bottomSheet = false,
   children,
   className = "",
   style,
@@ -51,7 +53,7 @@ export function AnchoredPopover({
   const viewer = useFullscreenViewer();
   const ownRef = useRef<HTMLDivElement>(null);
   const contentRef = floatingRef ?? ownRef;
-  const position = useAnchoredPopoverPosition(open, positionAnchor ?? anchor, contentRef, placement, { gap, keepSide });
+  const position = useAnchoredPopoverPosition(open && !bottomSheet, positionAnchor ?? anchor, contentRef, placement, { gap, keepSide });
   const anchorElement = "current" in anchor ? anchor : null;
 
   // Capture phase: triggers often sit in containers that stop pointer and key propagation.
@@ -89,8 +91,8 @@ export function AnchoredPopover({
       }}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
-      className={`ct-anchored-popover ${className}`.trim()}
-      style={{
+      className={`ct-anchored-popover ${bottomSheet ? "ct-menu-sheet " : ""}${className}`.trim()}
+      style={bottomSheet ? style : {
         top: position?.top ?? 0,
         left: position?.left ?? 0,
         width: width === "anchor" ? anchorElement?.current?.getBoundingClientRect().width : width ?? "max-content",

@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { usePhoneViewport } from "../../hooks/useSidebarViewport";
+import { useBackDismissal } from "../../lib/backDismissal";
 import { type MachineIdentity } from "../../lib/machineIdentity";
 import { readMachineIdentity, saveMachineIdentity, type MachineIdentityView } from "../../lib/machineIdentityClient";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
@@ -66,6 +68,8 @@ export function MachineIdentityPopover({ name, peerId, initial, onClose, anchor 
   const pending = useRef(Promise.resolve());
   const sequence = useRef(0);
   const editor = useRef<HTMLDivElement | null>(null);
+  const phone = usePhoneViewport();
+  useBackDismissal(true, onClose);
   useLayoutEffect(() => {
     editor.current?.querySelector<HTMLButtonElement>('[role="radio"][aria-checked="true"]')?.focus({ preventScroll: true });
   }, []);
@@ -90,8 +94,8 @@ export function MachineIdentityPopover({ name, peerId, initial, onClose, anchor 
     });
   }
 
-  return <AnchoredPopover open anchor={anchor} placement="bottom-end" onClose={onClose}>
-    <div ref={editor} className="ct-menu w-[min(340px,calc(100vw-24px))]">
+  return <AnchoredPopover open anchor={anchor} placement="bottom-end" bottomSheet={phone} onClose={onClose}>
+    <div ref={editor} className="ct-menu ct-menu--opaque w-[min(340px,calc(100vw-24px))]">
       <MachineIdentityEditor name={name} value={value} setValue={update} error={failure} retry={() => update(value)} />
     </div>
   </AnchoredPopover>;

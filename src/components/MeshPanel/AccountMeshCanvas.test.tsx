@@ -1,4 +1,5 @@
 import { __setInvokeForTest } from "../../lib/bridge";
+import { dismissTopSurface } from "../../lib/backDismissal";
 import { ServiceDrawer } from "./ServiceDrawer";
 import { PeerAccountFooterView } from "./AccountCanvasNodes";
 import { MachineVersion } from "./MachineFooter";
@@ -74,7 +75,7 @@ describe("Mesh canvas wiring", () => {
     await act(async () => element!.click());
   };
 
-  it("moves focus into the machine editor and returns it after Escape and an outside press", async () => {
+  it("returns focus to the machine editor trigger after Escape, an outside press, or Back", async () => {
     await act(async () => root.render(<MachineSessionControls name="Desk" busy={false} identityPeer={null} />));
     const trigger = button("More for Desk")!;
     const editor = () => document.querySelector('[role="group"][aria-label="Icon and colour"]');
@@ -90,6 +91,10 @@ describe("Mesh canvas wiring", () => {
     expect(document.activeElement).toBe(trigger);
     await open();
     await act(async () => host.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    expect(editor()).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    await open();
+    await act(async () => { expect(dismissTopSurface()).toBe(true); });
     expect(editor()).toBeNull();
     expect(document.activeElement).toBe(trigger);
   });
