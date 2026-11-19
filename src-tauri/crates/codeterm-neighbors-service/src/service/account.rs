@@ -324,15 +324,13 @@ impl NeighborsExt for ServiceContext {
         let service = self.clone();
         let attempt = id.clone();
         tokio::spawn(async move {
-            let (result, failure) = task.await.unwrap_or_else(|_| {
-                (
-                    Err(Error::Cancelled),
-                    Some(codeterm_account::SignInFailure {
-                        stage: codeterm_account::SignInStage::Publication,
-                        error: Error::Cancelled,
-                    }),
-                )
-            });
+            let (result, failure) = task.await.unwrap_or((
+                Err(Error::Cancelled),
+                Some(codeterm_account::SignInFailure {
+                    stage: codeterm_account::SignInStage::Publication,
+                    error: Error::Cancelled,
+                }),
+            ));
             service.ui.emit(
                 "account-sign-in",
                 serde_json::json!({

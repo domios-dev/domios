@@ -1,6 +1,7 @@
 use super::*;
 use crate::args::agent::ReportStatusArg;
 use crate::cmd::report_attribution::ReportBase;
+use crate::cmd::report_guard::enrich_ready_report;
 use serde_json::json;
 use std::fs;
 use std::path::Path;
