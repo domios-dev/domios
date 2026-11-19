@@ -16,6 +16,8 @@
     "providerId": "provider",
     "pluginId": "plugin",
     "peerId": "peer",
+    "sourceId": "notice",
+    "notificationAction": "read",
     "ordinaryTabId": "mesh:peer/tab",
     "ptyId": "pty",
     "clientId": "client",
@@ -341,6 +343,18 @@
       ]
     ],
     "mesh_peer_mux_state": [
+      [
+        "POST",
+        "/api/mesh/relay-to"
+      ]
+    ],
+    "mesh_peer_notifications_list": [
+      [
+        "POST",
+        "/api/mesh/relay-to"
+      ]
+    ],
+    "mesh_peer_notification_action": [
       [
         "POST",
         "/api/mesh/relay-to"
