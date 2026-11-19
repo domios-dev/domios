@@ -1,4 +1,4 @@
-import type {Operation, RpcReply, RuntimeContext, RuntimePlan, RuntimeSettings, RuntimeStep} from "@codeterm/plugin-sdk";
+import type {AgentEvent, Operation, OperationResult, RpcReply, RuntimeContext, RuntimePlan, RuntimeSettings, RuntimeStep} from "@codeterm/plugin-sdk";
 import {attachmentUrl, done, fail, list, messageIdentity, modelParts, next, object, own, refused, request, text} from "./runtimeProtocol";
 import {binding, claimed, loaded} from "./runtimeState";
 import {v2AuthEvents, v2LoginPlan, v2LoginResponse, v2Providers} from "./runtimeV2Auth";
@@ -26,8 +26,8 @@ export function v2Plan(ctx:RuntimeContext, op:Operation):RuntimePlan {
     case "resumeThread": return request("v2.session.get",{path:{sessionID:own(ctx,op.threadId)}});
     case "readHistory": {
       own(ctx,op.threadId);
-      if (op.order !== "desc" || op.cursor && op.cursor.length > 4096) fail("invalid_schema","Invalid OpenCode history page");
-      return request("v2.session.messages",{path:{sessionID:op.threadId},query:{limit:"40",...(op.cursor ? {cursor:op.cursor} : {order:"desc"})}});
+      if (op.cursor && op.cursor.length > 4096) fail("invalid_schema","Invalid OpenCode history page");
+      return request("v2.session.messages",{path:{sessionID:op.threadId},query:{limit:"40",...(op.cursor ? {cursor:op.cursor} : {order:op.order ?? "desc"})}});
     }
     case "submitTurn": {
       own(ctx,state.sessionId);
@@ -36,13 +36,6 @@ export function v2Plan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       const id=messageIdentity(op.sendId,Date.now(),++state.counter);
       claimed(ctx,{sendId:op.sendId,messageId:id,turnId:id});
       return prompt(op,id);
-    }
-    case "interrupt": {
-      const threadId=own(ctx,op.threadId);
-      const turnId=op.activeTurnId ?? ctx.activeTurns.find(turn=>turn.threadId === threadId)?.turnId;
-      const plan=request("v2.session.abort",{path:{sessionID:threadId},query:{resume:"false"},body:{}});
-      if (plan.action.kind === "request") plan.action.call.target={threadId,...(turnId ? {turnId} : {})};
-      return plan;
     }
     case "answer": return v2Answer(ctx,op);
     case "control":
@@ -53,8 +46,14 @@ export function v2Plan(ctx:RuntimeContext, op:Operation):RuntimePlan {
   }
 }
 function directory(value:string):string {return value.replace(/\\/g,"/").replace(/\/$/,"");}
+function finishHistory(op:Extract<Operation,{kind:"readHistory"}>, state:Record<string,unknown>, events:AgentEvent[]=[]):RuntimeStep {
+  const cursor=text(state.cursor);
+  return {kind:"complete",result:{kind:"historyPage",threadId:op.threadId,items:[],openItems:[],order:op.order ?? "desc",
+    ...(cursor ? {nextCursor:cursor} : {})},events};
+}
 export function v2Response(ctx:RuntimeContext, op:Operation, state:Record<string,unknown>, reply:RpcReply):RuntimeStep {
   if (reply.kind === "error") {
+    if (op.kind === "readHistory" && state.stage === "historyActive") return finishHistory(op,state);
     if (op.kind === "resumeThread" && reply.error.code === 404) return {kind:"refused",reason:{code:"thread_not_found",message:"The exact OpenCode session was not found"},beforeAcceptance:false};
     if (op.kind === "control" && op.action === "login") return done([{kind:"authLogin",login:{status:"failed",loginId:String(object(op.value).loginId),error:`Sign-in request was refused (${reply.error.code})`}}]);
     return refused(`OpenCode request was refused (${reply.error.code})`);
@@ -97,15 +96,34 @@ export function v2Response(ctx:RuntimeContext, op:Operation, state:Record<string
     }
     case "readHistory": {
       own(ctx,op.threadId);
+      if (state.stage === "historyActive") {
+        const sessions=value.data;
+        if (sessions === null || typeof sessions !== "object" || Array.isArray(sessions) ||
+          Object.values(sessions).some(session=>object(session).type !== "running")) {
+          return finishHistory(op,state);
+        }
+        const events:AgentEvent[]=[];
+        if (!Object.prototype.hasOwnProperty.call(sessions,op.threadId)) {
+          const detail=state.detail === "interrupted" ? "interrupted" : state.detail === "failed" ? "failed" : undefined;
+          events.push({kind:"turnState",threadId:op.threadId,state:"idle",...(detail ? {detail} : {})});
+        }
+        return finishHistory(op,state,events);
+      }
       if (!Array.isArray(value.data) || value.data.length > 40) return refused("Invalid bounded OpenCode history response");
       const cursor=text(object(value.cursor).next);
       if (cursor && (cursor.length > 4096 || cursor === op.cursor)) return refused("OpenCode history cursor did not advance");
-      return {kind:"complete",result:{kind:"historyPage",threadId:op.threadId,items:v2History(value.data),openItems:[],order:"desc",...(cursor ? {nextCursor:cursor} : {})}};
+      const order=op.order ?? "desc";
+      const history:Extract<OperationResult,{kind:"historyPage"}>={kind:"historyPage",threadId:op.threadId,items:v2History(value.data,order),openItems:[],order};
+      if (order === "desc" ? !op.cursor : !cursor) {
+        const latest=object(order === "desc" ? value.data[0] : value.data[value.data.length-1]);
+        const detail=latest.type === "assistant" && latest.finish === "error"
+          ? (object(latest.error).type === "aborted" ? "interrupted" : "failed") : undefined;
+        return {kind:"continue",history,beforeAcceptance:false,
+          plan:request("v2.session.active",{},{stage:"historyActive",...(detail ? {detail} : {}),...(cursor ? {cursor} : {})})};
+      }
+      return {kind:"complete",result:{...history,...(cursor ? {nextCursor:cursor} : {})}};
     }
-    case "interrupt":
-      if (typeof value.interrupted !== "boolean") return refused("OpenCode did not acknowledge the interrupt");
-      return done();
-    case "answer": return body === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
+    case "answer": return reply.value === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
     case "control":
       if (op.action === "auth") {
         if (state.stage === "authProviders") {v2Providers(ctx,body);return next("v2.integration.list",{query:{"location[directory]":ctx.cwd}},{stage:"authIntegrations"});}

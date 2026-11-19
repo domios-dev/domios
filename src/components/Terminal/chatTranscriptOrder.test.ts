@@ -15,6 +15,7 @@ import { createDeliveryProjectionMemory, queuedDeliveryIds, stableDeliveryEntrie
 import { conversationEntries } from "./chatPagingModel";
 import type { OutboundReportEntry } from "./ChatTranscriptRow";
 import { outboundReportRows, type LiveOutboundReport } from "./outboundReportRows";
+import { mergeAccountNoticeRows } from "./accountNoticeRows";
 
 // A long-running agent tab: three days of turns, each with the same report tool
 // call, read newest page first and paged back the way the Chat view pages it.
@@ -63,7 +64,7 @@ const allRows = (turns: number) => Array.from({ length: turns }, (_, turn) => tu
 function liveReceipt(turn: number): LiveOutboundReport {
   return {
     targetTabId: "lens0001",
-    at: turnAt(turn) + 11_000,
+    at: turnAt(turn) + 12_000,
     position: { source_session_id: authority.sourceSessionId, message_id: `call-${turn}` },
     descriptor: { reportId: `rep-${turn}`, recipient: "Lens", task: "pl_fixture/task_fixture", status: "in_review", sha: null,
       message: `opaque-report-${turn}`, taskOutcome: { persisted: true, transitionRejected: false, cause: null, reportOutcome: null } },
@@ -91,6 +92,7 @@ interface ViewInput {
   state: TranscriptState;
   visible: number;
   live?: readonly LiveOutboundReport[];
+  hostRows?: readonly NormalizedChatMessage[];
   sends?: readonly DeliverySend[];
   turnRunning?: boolean;
   memory?: DeliveryProjectionMemory;
@@ -99,13 +101,14 @@ interface ViewInput {
 const memory = () => createDeliveryProjectionMemory("session");
 
 /** The rendered column, top to bottom, through the same models TabSessionChat composes. */
-function renderedColumn({ state, visible, live = FULL_STORE, sends = [], turnRunning = false, memory: projectionMemory = memory() }: ViewInput) {
+function renderedColumn({ state, visible, live = FULL_STORE, hostRows = [], sends = [], turnRunning = false, memory: projectionMemory = memory() }: ViewInput) {
   const liveSends = deliveryProjectionSends(sends, null, queuedDeliveryIds(sends, turnRunning, projectionMemory));
   const projection = projectTranscript(state, liveSends);
-  const entries = stableDeliveryEntries(conversationEntries(projection.rows), liveSends, projection.echoes, projectionMemory);
+  const transcript = mergeAccountNoticeRows(projection.rows, hostRows);
+  const entries = stableDeliveryEntries(conversationEntries(transcript), liveSends, projection.echoes, projectionMemory);
   const start = Math.max(0, entries.length - visible);
   const window = entries.slice(start);
-  const cards = outboundReportRows({ rows: window, transcript: projection.rows, live, recipient: (tab) => tab ?? "parent" });
+  const cards = outboundReportRows({ rows: window, transcript, live, recipient: (tab) => tab ?? "parent" });
   const placed = placeChatRails({
     visible: true,
     hiddenBefore: start > 0 || (transcriptBackfillCursor(state) ?? 0) > 0,
@@ -114,7 +117,7 @@ function renderedColumn({ state, visible, live = FULL_STORE, sends = [], turnRun
     messageTimeMs: ({ msg }) => timestampMs(msg.timestamp),
     reportTimes: cards.rail.map(report => report.at),
     reportPositions: {
-      sourceMessageIds: projection.rows.map(msg => msg.sourceMessageId ?? msg.id),
+      sourceMessageIds: transcript.map(msg => msg.sourceMessageId ?? msg.id),
       messageId: ({ msg }) => msg.sourceMessageId ?? msg.id,
       reportMessageIds: cards.rail.map(report => report.position?.message_id ?? null),
     },
@@ -166,11 +169,14 @@ function scrollToTop(rows: NormalizedChatMessage[], live: readonly LiveOutboundR
 }
 
 /** Every finished report call is followed directly by its own card, exactly once. */
-function assertCardsFollowCalls(column: ReadonlyArray<{ key: string }>, turns: number, label: string) {
+function assertCardsAtReportTimes(column: ReadonlyArray<{ key: string; at: number }>, turns: number, label: string) {
   assert.equal(column.filter(item => item.key.startsWith("report-")).length, turns, `${label}: one card per report`);
   for (let turn = 0; turn < turns; turn++) {
+    const report = column.findIndex(item => item.key === `report-${turn}`);
     const call = column.findIndex(item => item.key === `call-${turn}`);
-    assert.equal(column[call + 1]?.key, `report-${turn}`, `${label}: report ${turn} follows its own tool call`);
+    const reply = column.findIndex(item => item.key === `reply-${turn}`);
+    assert.equal(column[report]?.at, turnAt(turn) + 12_000, `${label}: report ${turn} keeps its report receipt time`);
+    assert.ok(report > call && report < reply, `${label}: report ${turn} sits between its call and later reply`);
   }
 }
 
@@ -190,7 +196,7 @@ test("scrolling to the top pages in strict chronological order without duplicate
     for (let index = 1; index < steps.length; index++) assertPrependOnly(steps[index - 1], steps[index], `${label} page ${index}`);
     const final = steps[steps.length - 1];
     assert.equal(final.filter(item => item.key.startsWith("call-")).length, TURNS, `${label}: identical tool calls stay distinct rows`);
-    assertCardsFollowCalls(final, TURNS, label);
+    assertCardsAtReportTimes(final, TURNS, label);
   }
 });
 
@@ -198,7 +204,7 @@ test("a reload in the middle rebuilds every card from the transcript with an emp
   const before = scrollToTop(allRows(TURNS - 2), liveStore(range(0, TURNS - 2))).steps.slice(-1)[0]!;
   const after = scrollToTop(allRows(TURNS), liveStore(range(TURNS - 2, TURNS))).steps.slice(-1)[0]!;
   assertChronological(after, "after reload");
-  assertCardsFollowCalls(after, TURNS, "after reload");
+  assertCardsAtReportTimes(after, TURNS, "after reload");
   const reloadedPrefix = after.filter(item => before.some(old => old.key === item.key));
   assert.deepEqual(reloadedPrefix.map(item => item.key), before.map(item => item.key), "history reads the same after reload");
 });
@@ -212,8 +218,27 @@ test("a live receipt that arrives before its call's result renders once, then be
   const landed = renderedColumn({ state: snapshot(allRows(TURNS)), visible: WINDOW, live });
   assertChronological(landed, "after the result");
   const call = landed.findIndex(item => item.key === `call-${TURNS - 1}`);
-  assert.equal(landed[call + 1]?.key, `report-${TURNS - 1}`, "the card follows its own call");
+  const report = landed.findIndex(item => item.key === `report-${TURNS - 1}`);
+  assert.equal(landed[report]?.at, turnAt(TURNS - 1) + 12_000, "the card keeps the result's report time");
+  assert.ok(report > call, "the card renders at its timestamp after the issuing call");
   assert.equal(landed.filter(item => item.key === `report-${TURNS - 1}`).length, 1, "the live receipt never duplicates the transcript card");
+});
+
+test("history resync, a resumed VM epoch, a host row and a live report share one chronological column", () => {
+  const rows = turnRows(0).map((row, index) => ({
+    ...row,
+    sourceSessionId: index < 2 ? "vm-before-resume" : "vm-after-resume",
+    seq: index < 2 ? index : index - 2,
+  })).reverse();
+  const hostRows: NormalizedChatMessage[] = [{ id: "host-status", type: "system", content: "opaque host event", timestamp: iso(turnAt(0) + 15_000) }];
+  const column = renderedColumn({
+    state: snapshot(rows),
+    visible: 20,
+    live: [{ ...liveReceipt(0), at: turnAt(0) + 11_000 }],
+    hostRows,
+  });
+  assertChronological(column, "resynchronized resumed transcript");
+  assert.deepEqual(column.map(item => item.key), ["user-0", "call-0", "report-0", "host-status", "reply-0"]);
 });
 
 const status = (state: string, sequence = 1) => ({ tab_id: "tab", send_id: `tx-${sequence}`, correlationId: "", state, sequence,

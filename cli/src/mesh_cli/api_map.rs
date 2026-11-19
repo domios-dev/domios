@@ -720,6 +720,12 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             }
         }
         Commands::Mesh { action } => match action {
+            MeshAction::Identity { action: super::MeshIdentityAction::Set { kind, color, peer: None } } => (
+                "POST".into(),
+                "/api/mesh/identity".into(),
+                Some(serde_json::json!({ "kind": kind, "color": color }).to_string()),
+            ),
+            MeshAction::Identity { .. } => unsupported("Use either --mesh or --peer for the target"),
             MeshAction::Status => ("GET".into(), "/api/mesh/status".into(), None),
             MeshAction::Peers => ("GET".into(), "/api/mesh/peers".into(), None),
             MeshAction::Refresh => ("POST".into(), "/api/mesh/refresh".into(), None),

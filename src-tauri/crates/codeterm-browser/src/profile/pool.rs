@@ -121,7 +121,11 @@ pub async fn delete_named_profile(layout: &super::ProfileLayout, name: &str) -> 
 }
 
 impl ProfileLease {
-    pub(crate) async fn acquire_with<F, Fut>(dir: PathBuf, launch: F) -> Result<Self, String>
+    pub(crate) async fn acquire_with<F, Fut>(
+        dir: PathBuf,
+        exclusive: bool,
+        launch: F,
+    ) -> Result<Self, String>
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = Result<SharedBrowser, String>> + Send + 'static,
@@ -131,17 +135,24 @@ impl ProfileLease {
         // The task owns launch and cleanup even if its surface cancels the request.
         tokio::spawn(async move {
             let acquired = async {
-                let mut model = slot.lock().await;
+                let mut model = if exclusive {
+                    slot.try_lock().map_err(|_| "browser profile is in use")?
+                } else {
+                    slot.lock().await
+                };
                 if model.handle().is_some_and(|browser| !browser.is_alive()) {
                     if let Some(browser) = model.retire() {
                         browser.stop(CLOSE_DEADLINE, model.generation()).await;
                     }
                 }
+                if !model.can_acquire(exclusive) {
+                    return Err("browser profile is in use".into());
+                }
                 if model.handle().is_none() {
                     model.begin_launch();
                     model.install(Arc::new(launch().await?));
                 }
-                let (id, browser) = model.acquire().ok_or("profile has no browser")?;
+                let (id, browser) = model.acquire(exclusive).ok_or("profile has no browser")?;
                 Ok(Self {
                     id,
                     slot: Some(slot.clone()),

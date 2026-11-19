@@ -16,13 +16,21 @@ function session(ctx:RuntimeContext, raw:unknown, expected?:string):string {
 function historyPlan(ctx:RuntimeContext, op:Extract<Operation,{kind:"readHistory"}>):RuntimePlan {
   own(ctx,op.threadId);
   if (op.order !== "desc") fail("unsupported","OpenCode runtime history requires descending pages");
-  if (op.cursor && (op.cursor.length > 4096 || !op.cursor.startsWith("msg_"))) fail("invalid_schema","Invalid OpenCode history cursor");
+  if (op.cursor && op.cursor.length > 4096) fail("invalid_schema","Invalid OpenCode history cursor");
   return request("session.messages",{path:{sessionID:op.threadId},query:{limit:"40",...(op.cursor ? {before:op.cursor} : {})}});
 }
 export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
   if (!ctx.tabId || !ctx.bindingNonce || !Number.isSafeInteger(ctx.epoch) || ctx.epoch <= 0) fail("binding_mismatch","Runtime launch identity missing");
   if ("threadId" in op && op.threadId) own(ctx,op.threadId);
+  if (op.kind === "interrupt") {
+    const threadId=own(ctx,op.threadId);
+    const turnId=op.activeTurnId ?? ctx.activeTurns?.find(turn=>turn.threadId === threadId)?.turnId;
+    const plan=request("session.abort",{path:{sessionID:threadId}});
+    if (plan.action.kind === "request") plan.action.call.target={threadId,...(turnId ? {turnId} : {})};
+    return plan;
+  }
   const state=binding(ctx);
+  if (!state.protocol && op.kind === "resumeThread") return request("health",{},{stage:"recoverProtocol"});
   if (state.protocol === "v2" && op.kind !== "initialize") return v2Plan(ctx,op);
   switch (op.kind) {
     case "initialize": return request("health",{});
@@ -44,11 +52,6 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       if (plan.action.kind === "request") plan.action.call.target={threadId:op.threadId,turnId:messageId};
       return plan;
     }
-    case "interrupt": {
-      const plan=request("session.abort",{path:{sessionID:op.threadId}});
-      if (plan.action.kind === "request") plan.action.call.target={threadId:op.threadId,...(op.activeTurnId ? {turnId:op.activeTurnId} : {})};
-      return plan;
-    }
     case "answer": return answerPlan(ctx,op);
     case "control": {
       if (op.action === "auth") return request("provider.list",{}, {stage:"authProviders"});
@@ -60,6 +63,24 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
 }
 export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue, reply:RpcReply):RuntimeStep {
   const state=object(raw);
+  if (op.kind === "interrupt" && reply.kind === "success") {
+    const body=object(reply.value).body;
+    const protocol=binding(ctx).protocol;
+    if (protocol !== "v1" && typeof object(body).interrupted === "boolean") {
+      return object(body).interrupted === false
+        ? done([{kind:"turnState",threadId:op.threadId,state:"idle",detail:"interrupted"}])
+        : done();
+    }
+    if (protocol === "v2" || body !== true) return refused("OpenCode did not confirm the interrupt");
+    const events:AgentEvent[]=op.activeTurnId ? [{kind:"turnState",threadId:op.threadId,turnId:op.activeTurnId,state:"idle",detail:"interrupted"}] : [];
+    return done(events);
+  }
+  if (op.kind === "resumeThread" && state.stage === "recoverProtocol" && reply.kind === "success") {
+    const protocol=healthProtocol(object(object(reply.value).body));
+    if (!protocol) return refused("OpenCode did not confirm authenticated server health");
+    binding(ctx).protocol=protocol;
+    return {kind:"continue",plan:runtimePlan(ctx,op)};
+  }
   if (binding(ctx).protocol === "v2") return v2Response(ctx,op,state,reply);
   if (reply.kind === "error") {
     if (op.kind === "control" && op.action === "login" && text(object(op.value).loginId)) return done([{kind:"authLogin",login:{status:"failed",loginId:String(object(op.value).loginId),error:`Sign-in request was refused (${reply.error.code})`}}]);
@@ -71,13 +92,11 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     case "initialize": {
       if (state.stage === "health") {
         const health=object(body);
-        if (text(health.version) && Number.isSafeInteger(health.pid) && Array.isArray(health.urls) && text(object(health.paths).tmp)) {
-          binding(ctx).protocol="v2";
-          return v2Response(ctx,op,state,reply);
-        }
-        if (object(body).healthy !== true || !text(object(body).version)) return refused("OpenCode did not confirm authenticated server health");
-        binding(ctx).protocol="v1";
-        return next("provider.list",{}, {stage:"initializeProviders",version:object(body).version});
+        const protocol=healthProtocol(health);
+        if (!protocol) return refused("OpenCode did not confirm authenticated server health");
+        binding(ctx).protocol=protocol;
+        if (protocol === "v2") return v2Response(ctx,op,state,reply);
+        return next("provider.list",{}, {stage:"initializeProviders",version:health.version});
       }
       if (state.stage === "initializeProviders") return next("provider.auth",{}, {stage:"initializeMethods",version:state.version,providers:providerSummary(body)});
       if (state.stage !== "initializeMethods") return refused("Unexpected initialization response");
@@ -99,13 +118,8 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       own(ctx,op.threadId);
       const rows=historyRows(op.threadId,body);
       const cursor=text(object(envelope.headers)["x-next-cursor"]);
-      if (cursor && (cursor.length > 4096 || cursor === op.cursor || !cursor.startsWith("msg_"))) return refused("OpenCode history cursor did not advance");
+      if (cursor && (cursor.length > 4096 || cursor === op.cursor)) return refused("OpenCode history cursor did not advance");
       return {kind:"complete",result:{kind:"historyPage",threadId:op.threadId,items:rows,openItems:[],order:"desc",...(cursor ? {nextCursor:cursor} : {})}};
-    }
-    case "interrupt": {
-      if (body !== true) return refused("OpenCode did not confirm the interrupt");
-      const events:AgentEvent[]=op.activeTurnId ? [{kind:"turnState",threadId:op.threadId,turnId:op.activeTurnId,state:"idle",detail:"interrupted"}] : [];
-      return done(events);
     }
     case "answer": return done();
     case "control": {
@@ -120,4 +134,11 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     }
     default: return refused("Unsupported OpenCode runtime response");
   }
+}
+
+function healthProtocol(health:Record<string,unknown>):"v1"|"v2"|undefined {
+  if (!text(health.version)) return undefined;
+  if (Number.isSafeInteger(health.pid) && Array.isArray(health.urls) && text(object(health.paths).tmp)) return "v2";
+  if (health.healthy === true) return "v1";
+  return undefined;
 }

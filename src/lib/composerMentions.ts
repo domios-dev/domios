@@ -16,6 +16,7 @@ export interface ComposerMention {
   description: string;
   insertText: string;
   group: string;
+  machine?: { id: string; name: string };
   match: number;
   exact?: boolean;
   titlePrefix?: boolean;

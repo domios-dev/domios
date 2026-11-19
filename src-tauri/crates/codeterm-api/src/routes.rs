@@ -660,6 +660,11 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/mesh/ping", get(mesh_routes::mesh_ping))
         .route("/api/mesh/status", get(mesh_routes::mesh_status))
         .route("/api/mesh/peers", get(mesh_routes::mesh_peers))
+        .route(
+            "/api/mesh/identity",
+            get(crate::account_mesh_routes::machine_identity)
+                .post(crate::account_mesh_routes::set_machine_identity),
+        )
         .route("/api/mesh/relay-to", post(mesh_routes::mesh_relay_to_peer))
         .route(
             "/api/mesh/attachments/transfer",

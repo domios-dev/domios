@@ -193,7 +193,7 @@ Native auto-install uses stable, requires an attached application-host updater, 
 3. The native client durably records the verified target, stops the exact attached server, installs and relaunches the pair.
 4. The replacement records `verified` only after enrollment with the expected instance, target version and matching client/server build. Interrupted operations never replay automatically.
 
-Windows refusals name blocking tabs, their workspaces and running work. The Updates panel offers **Stop and retry** for each tab, with confirmation before closing it. The CLI prints the same list with explicit `domios tab close --tab ID` actions; a task-holding Worker may additionally require `--force`. Busy or unknown work is never stopped automatically. Observed idle holders close with the server.
+Automatic app updates save the desk before stopping its processes. Interrupted agents continue once when their own sessions are ready. Restored shell tabs with a recorded running command offer **Rerun command**. The shell that called the updater opens without a saved command. With `updater.require_idle_for_app_update = true`, a refusal names the busy tabs and their workspaces. The authenticated calling tab is exempt from the idle requirement.
 
 `success` requires a verified replacement running the target version. The CLI exits 2 if its connection ends before verification; run `domios update status` after restart. The instance data directory retains `native-update-handoff.json` and `native-update-installer.json`. Logs print the installer evidence path and, on Windows, the expected `%TEMP%\Domios-installer.log` path; the latter records installer preflight and completion with the actual installer path. A relaunched old version reports the expected/running versions and last installer stage.
 
@@ -220,4 +220,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 49 -->
+<!-- revision: 50 -->

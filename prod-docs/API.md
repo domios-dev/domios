@@ -55,6 +55,15 @@ Health `status:"ok"` proves liveness. `/api/startup` and `/api/startup/events` (
 
 Local account routes refuse Mesh. POST `/api/account/mesh/session-revoke {installation_id?:string|null}` signs out the selected machine (default: this one), returning `{ok:true,result:{target_installation_id,revoked_at}}` or typed refusal. Preserve key/pairings; UI confirms first.
 
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| GET | `/api/account/mesh/identity` | — | Read this machine's name, identity and whether it has made a choice |
+| POST | `/api/account/mesh/identity` | `{kind,color}` | Save as owner, or request owner approval as an authenticated agent |
+| GET | `/api/mesh/identity` | — | Read a paired target's identity through the signed relay |
+| POST | `/api/mesh/identity` | `{kind,color}` | Save or request owner approval on the paired target through the signed relay |
+
+An identity mutation reports `saved` with the identity or `awaiting_owner` with the notification ID.
+
 #### Neighbor read receipts
 
 `POST /api/account/neighbors/read`: local owner UI only; exactly `{friendship_id,through_message_id}` (64/32 lowercase hex). Reports open-conversation visibility, never history fetches; tab/Mesh callers refuse. Host reports concierge pickup separately. Persist read-up-to before relay dispatch; suppress duplicate/older batches; stop for paused/ended friends or Neighbors off.
@@ -211,4 +220,4 @@ Live authenticated Plan owners can recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 253 -->
+<!-- revision: 254 -->

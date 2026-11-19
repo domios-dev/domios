@@ -235,6 +235,7 @@ pub use status_reconciliation::SNAPSHOT_BUSY_ERROR;
 pub mod blocking;
 pub use blocking::run as blocking_run;
 pub mod launch_credentials;
+mod machine_identity;
 pub mod restored_launch;
 pub mod role_sync;
 pub mod store;

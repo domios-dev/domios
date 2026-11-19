@@ -9,6 +9,7 @@ const RESERVED: &str =
 
 struct Reservation {
     id: String,
+    initiating_tab: Option<String>,
     _writes: Vec<UpdateWriteReservation>,
 }
 
@@ -133,10 +134,14 @@ impl super::super::ServiceContext {
         request: codeterm_update::holders::ReserveHolders,
     ) -> Result<String, String> {
         let gate = self.ext_or_init(Gate::default).0.clone();
+        let policy = ShutdownPolicy {
+            initiating_tab: request.initiating_tab.as_deref(),
+            require_idle: self.configuration().updater.require_idle_for_app_update,
+        };
         reserve_with(
             &gate,
             &request.tabs,
-            request.initiating_tab.as_deref(),
+            policy,
             |expected| {
                 if self.update_holder_tab(&expected.process)?.as_deref()
                     != Some(expected.tab_id.as_str())
@@ -158,11 +163,16 @@ impl super::super::ServiceContext {
                 if session.generation != expected.pty_generation {
                     return Err("holder PTY generation changed".into());
                 }
-                session
-                    .write_queue
-                    .reserve_update_shutdown(expected.input_revision)
+                session.write_queue.reserve_update_shutdown(
+                    policy
+                        .requires_idle(&expected.tab_id)
+                        .then_some(expected.input_revision),
+                )
             },
             || {
+                if policy.require_idle {
+                    self.require_idle_update(policy.initiating_tab)?;
+                }
                 let mut actual = Vec::new();
                 for expected in &request.tabs {
                     actual.extend(
@@ -173,6 +183,19 @@ impl super::super::ServiceContext {
                 Ok(actual)
             },
         )
+    }
+
+    pub fn capture_reserved_update_shells(&self) {
+        let gate = self.ext_or_init(Gate::default);
+        let caller = gate
+            .0
+            .lock()
+            .reservation
+            .as_ref()
+            .map(|reservation| reservation.initiating_tab.clone());
+        if let Some(caller) = caller {
+            self.capture_update_shells(caller.as_deref());
+        }
     }
 
     pub fn release_update_shutdown(&self, id: &str) -> Result<(), String> {
@@ -191,16 +214,28 @@ impl super::super::ServiceContext {
 }
 
 fn changed(tab: &HolderTab, reason: &str) -> String {
-    let mut blocker = tab.clone();
-    blocker.busy = true;
-    blocker.command = format!("{} ({reason})", blocker.command);
-    codeterm_update::holders::refusal(&[blocker]).unwrap_or_else(|| reason.into())
+    format!(
+        "Update holder changed for {} in {}: {reason}. Retry the update.",
+        tab.title, tab.workspace
+    )
+}
+
+#[derive(Clone, Copy, Default)]
+struct ShutdownPolicy<'a> {
+    initiating_tab: Option<&'a str>,
+    require_idle: bool,
+}
+
+impl ShutdownPolicy<'_> {
+    fn requires_idle(self, tab: &str) -> bool {
+        self.require_idle && self.initiating_tab != Some(tab)
+    }
 }
 
 fn reserve_with(
     gate: &Arc<Mutex<GateState>>,
     expected: &[HolderTab],
-    initiating: Option<&str>,
+    policy: ShutdownPolicy<'_>,
     mut freeze: impl FnMut(&HolderTab) -> Result<UpdateWriteReservation, String>,
     validate: impl FnOnce() -> Result<Vec<HolderTab>, String>,
 ) -> Result<String, String> {
@@ -214,12 +249,13 @@ fn reserve_with(
             if state.retiring.contains(&tab.tab_id) {
                 return Err(changed(tab, "PTY retirement is in progress"));
             }
-            if Some(tab.tab_id.as_str()) != initiating && state.active.contains_key(&tab.tab_id) {
+            if policy.requires_idle(&tab.tab_id) && state.active.contains_key(&tab.tab_id) {
                 return Err(changed(tab, "input admission is in flight"));
             }
         }
         state.reservation = Some(Reservation {
             id: id.clone(),
+            initiating_tab: policy.initiating_tab.map(str::to_owned),
             _writes: Vec::new(),
         });
     }
@@ -248,11 +284,16 @@ fn reserve_with(
             return Err(changed(tab, "holder identity changed during reservation"));
         }
     }
-    let blocking: Vec<_> = actual
-        .into_iter()
-        .filter(|tab| Some(tab.tab_id.as_str()) != initiating)
-        .collect();
-    if let Some(refusal) = codeterm_update::holders::refusal(&blocking) {
+    let blocking = actual
+        .iter()
+        .filter(|tab| tab.busy && policy.requires_idle(&tab.tab_id))
+        .map(|tab| codeterm_update::holders::BusyTab {
+            tab_id: tab.tab_id.clone(),
+            title: tab.title.clone(),
+            workspace: tab.workspace.clone(),
+            command: tab.command.clone(),
+        });
+    if let Some(refusal) = codeterm_update::holders::refusal(blocking) {
         return Err(refusal);
     }
     let mut state = gate.lock();

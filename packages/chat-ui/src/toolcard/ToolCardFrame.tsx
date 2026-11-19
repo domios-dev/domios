@@ -37,6 +37,7 @@ interface ToolCardFrameProps {
   variant?: "smart" | "codeterm";
   visualOverride?: ToolKindVisual;
   disclosureLabel?: string;
+  disclosureToggleLabel?: { expanded: string; collapsed: string };
   /** Overflow items in place of the tool defaults (copy command, copy output, ask). */
   menu?: readonly ChatCardMenuItem[];
 }
@@ -76,7 +77,7 @@ export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[
   );
 }
 
-export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, subtitle, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel, expandable = true }: ToolCardFrameProps) {
+export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, subtitle, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, disclosureToggleLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel, expandable = true }: ToolCardFrameProps) {
   const host = useChatBlockHost();
   const compact = useCompactToolRow();
   const [technicalOpen, setTechnicalOpen] = useState(false);
@@ -125,7 +126,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         } : undefined}>
         <button
           type="button"
-          aria-label={disclosureLabel ? `${expanded ? "Hide" : "Show"} ${disclosureLabel}` : expanded ? "Collapse tool details" : "Expand tool details"}
+          aria-label={disclosureToggleLabel ? expanded ? disclosureToggleLabel.expanded : disclosureToggleLabel.collapsed : disclosureLabel ? `${expanded ? "Hide" : "Show"} ${disclosureLabel}` : expanded ? "Collapse tool details" : "Expand tool details"}
           aria-expanded={canExpand ? open : undefined}
           aria-controls={canExpand ? detailsId : undefined}
           disabled={!canExpand}
@@ -179,17 +180,18 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   );
 }
 
-export function ToolCardActionButton({ label, onClick, testId, primary = false }: { label: string; onClick: () => void; testId?: string; primary?: boolean }) {
+export function ToolCardActionButton({ label, onClick, testId, primary = false, ariaLabel, compactIcon = false }: { label: string; onClick: () => void; testId?: string; primary?: boolean; ariaLabel?: string; compactIcon?: boolean }) {
   return (
     <button
       type="button"
       data-testid={testId}
       title={label}
+      aria-label={ariaLabel}
       onClick={onClick}
       className={primary ? "ct-bar-pill ct-bar-pill--primary w-fit" : "ct-tool-action"}
       style={primary ? { height: 22 } : undefined}
     >
-      {label}
+      <span className={compactIcon ? "@max-[560px]:hidden" : undefined}>{label}</span>
       {!primary && <ArrowUpRight aria-hidden="true" size={12} />}
     </button>
   );

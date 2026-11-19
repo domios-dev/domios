@@ -12,9 +12,8 @@ pub struct ApplyOptions {
     pub channel: Channel,
     pub manifest_url: Option<String>,
     pub install_method: InstallMethod,
-    /// Tab that initiated the update (the GA/caller running `update install`).
-    /// Excluded from the shutdown sweep so it survives to hand off (Defect 3).
     pub initiating_tab_id: Option<String>,
+    pub continue_tab_id: Option<String>,
 }
 
 pub fn begin_apply(update_state: &std::sync::Arc<parking_lot::Mutex<UpdateState>>) {

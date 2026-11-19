@@ -47,15 +47,12 @@ pub(super) fn environment(
                     "CODETERM_API_PORT",
                     "CODETERM_SOCKET_PATH",
                     "CODETERM_CLI_PATH",
-                    "CODETERM_TEAM_ID",
-                    "CODETERM_PLAN_ID",
-                    "CODETERM_LANE_BASE",
                 ]
                 .contains(&key.as_str())
         })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect::<BTreeMap<_, _>>();
-    let allowed = |key: &str| {
+    let inherit = |key: &str| {
         [
             "PATH",
             "LANG",
@@ -77,14 +74,31 @@ pub(super) fn environment(
     let mut env: BTreeMap<_, _> = std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
         .chain(base)
-        .filter(|(key, _)| allowed(key))
+        .filter(|(key, _)| inherit(key))
         .collect();
     if changes.len() > 32 {
         return Err("Too many environment changes".into());
     }
     for entry in changes {
-        if !allowed(&entry.name) || entry.value.len() > 4096 || entry.value.contains('\0') {
+        if entry.name.is_empty()
+            || entry.name.len() > 4096
+            || entry.name.contains(['=', '\0'])
+            || entry.value.len() > 4096
+            || entry.value.contains('\0')
+        {
             return Err("Environment change denied".into());
+        }
+        let name = entry.name.to_uppercase();
+        if name == "CODETERM"
+            || name.starts_with("CODETERM_")
+            || name == "DOMIOS"
+            || name.starts_with("DOMIOS_")
+        {
+            log::debug!(
+                "Ignoring protected terminal environment key {:?}",
+                entry.name
+            );
+            continue;
         }
         #[cfg(windows)]
         {
@@ -304,3 +318,6 @@ impl Terminal {
         self.wait().await
     }
 }
+
+#[cfg(test)]
+mod tests;

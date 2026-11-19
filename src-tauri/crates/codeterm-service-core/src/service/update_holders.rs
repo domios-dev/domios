@@ -1,6 +1,7 @@
-use codeterm_update::holders::{HolderProcess, HolderTab};
+use codeterm_update::holders::{BusyTab, HolderProcess, HolderTab};
 
 mod reservation;
+mod shell_restore;
 pub use reservation::PtyInputRetirement;
 
 impl super::ServiceContext {
@@ -72,6 +73,57 @@ impl super::ServiceContext {
             }
         }
         Ok(tabs)
+    }
+
+    fn require_idle_update(&self, initiating_tab: Option<&str>) -> Result<(), String> {
+        use crate::multiplexer::types::{TabBacking, TabType};
+
+        let mux = self.mux.read();
+        let candidates: Vec<_> = mux
+            .all_tabs()
+            .filter(|tab| Some(tab.id.as_str()) != initiating_tab)
+            .filter(|tab| match tab.backing {
+                TabBacking::Pty => tab.pty_id.is_some() || tab.agent_booting,
+                TabBacking::ChatBackend { .. } => tab.agent_type.is_some() && !tab.frozen,
+                TabBacking::Surface(_) => false,
+            })
+            .filter(|tab| tab.tab_type == TabType::Terminal)
+            .map(|tab| {
+                let busy = holder_is_busy(
+                    tab.agent_type.is_some(),
+                    tab.agent_state.as_ref().map(|state| state.state),
+                    tab.shell_command_state.activity,
+                ) || tab.utility_command_pending
+                    || tab.pending_delivery.is_some();
+                let row = BusyTab {
+                    tab_id: tab.id.clone(),
+                    title: tab.title.clone(),
+                    workspace: mux
+                        .find_workspace_for_tab(&tab.id)
+                        .and_then(|id| mux.get_workspace(&id))
+                        .map(|workspace| workspace.name.clone())
+                        .unwrap_or_else(|| "Unknown workspace".into()),
+                    command: self
+                        .running_utility_command(&tab.id)
+                        .or_else(|| {
+                            tab.agent_state
+                                .as_ref()
+                                .and_then(|state| state.status_line.clone())
+                        })
+                        .unwrap_or_else(|| "activity unavailable".into()),
+                };
+                (busy, row)
+            })
+            .collect();
+        drop(mux);
+        let busy = candidates.into_iter().filter_map(|(busy, tab)| {
+            (busy
+                || self
+                    .chat_send_ledger
+                    .has_unsettled_update_input(&tab.tab_id))
+            .then_some(tab)
+        });
+        codeterm_update::holders::refusal(busy).map_or(Ok(()), Err)
     }
 
     #[cfg(not(windows))]

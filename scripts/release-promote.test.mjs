@@ -92,7 +92,7 @@ import { ciFailures } from './ci-result.mjs';
 
 const repository = 'domios-dev/domios';
 const sha = 'a'.repeat(40);
-const branch = 'release/1.20.0';
+const branch = 'release/next';
 const run = { id: 123, event: 'push', path: '.github/workflows/tests.yml', head_sha: sha, head_branch: branch,
   repository: { full_name: repository }, head_repository: { full_name: repository },
   actor: { login: 'rollacode' }, triggering_actor: { login: 'rollacode' },
@@ -235,7 +235,15 @@ test('CI result requires the complete release push graph and refuses a missing r
 });
 
 import { parseTestWaiver, verifyTestWaiver, waiverReleaseNotes } from './release-test-waiver.mjs';
+import { releaseTag } from './release-version.mjs';
 import { PLATFORMS } from './release-dry-run-manifest.mjs';
+
+test('release/next takes its app tag from the exact package version', () => {
+  assert.equal(releaseTag({ version: '1.20.3' }), 'v1.20.3');
+  assert.equal(releaseTag({ version: '1.21.0' }, 'v1.21.0'), 'v1.21.0');
+  assert.throws(() => releaseTag({ version: '1.21.0' }, 'v1.20.3'), /Expected tag v1.21.0/);
+  assert.throws(() => releaseTag({ version: 'next' }), /Expected an X.Y.Z version/);
+});
 
 const testJob = 'Fast checks / ts unit (1/4)';
 function waivedFixture() {
@@ -258,7 +266,7 @@ function waivedFixture() {
     files: [{ name: platform+'.bin', sha256: 'c'.repeat(64), size: 42 }] }));
   const assets = receipts.flatMap((receipt, index) => [asset(receipt.files[0]),
     { id: 100+index, name: `qualification-${receipt.platform}.json`, state: 'uploaded' }]);
-  return { waiver: { run_id: String(run.id), jobs: [testJob] }, run: failedRun, jobs, sha, repository, attempts: [failedRun],
+  return { waiver: { run_id: String(run.id), jobs: [testJob] }, run: failedRun, jobs, sha, repository, tag, attempts: [failedRun],
     draft: { id: 10, draft: true, tag_name: `qualification-${tag}-${run.id}`, target_commitish: sha,
       body: `<!-- qualification:${JSON.stringify({ source_sha: sha, run_id: String(run.id) })} -->\n<!-- qualification-complete -->` },
     assets, receipts };
@@ -340,8 +348,11 @@ test('Rust waiver derives only dependency failures and the named tests incomplet
 });
 
 function waiverRequest(input, route) {
+  if (route === `repos/${repository}/contents/package.json?ref=${sha}`) {
+    return { encoding: 'base64', content: Buffer.from(JSON.stringify({ version: input.tag.slice(1) })).toString('base64') };
+  }
   if (route.includes('/jobs?')) return { jobs: input.jobs, total_count: input.jobs.length };
-  if (route.includes('/releases/tags/')) return input.draft;
+  if (route.endsWith(`/releases/tags/qualification-${input.tag}-${input.run.id}`)) return input.draft;
   if (route.includes('/releases/10/assets?')) return input.assets;
   const assetId = /\/releases\/assets\/(\d+)$/.exec(route);
   if (assetId) return JSON.stringify(input.receipts[Number(assetId[1])-100]);

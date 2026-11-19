@@ -2,6 +2,62 @@ use super::*;
 use crate::types::{PairedPeer, PeerAddress, PeerAnnounce, WebUiAnnouncement, WebUiEndpoint};
 
 #[test]
+fn signed_machine_identity_announce_updates_the_publisher_and_ignores_stale_or_tampered_values() {
+    use crate::machine_identity::{MachineColor, MachineIdentity, MachineKind};
+    let (private_key, public_key) = crown::generate_peer_keypair();
+    let source = Arc::new(parking_lot::Mutex::new(MeshManager::in_memory(
+        types::MeshIdentity {
+            instance_id: "peer".into(),
+            private_key: Some(private_key),
+            public_key: Some(public_key.clone()),
+        },
+        "TestPeer".into(),
+        7685,
+    )));
+    let mut target = make_mesh_with_peer("peer", vec![]);
+    target.paired_peers.get_mut("peer").unwrap().public_key = public_key;
+    let initial = source.lock().build_announce();
+    let choice = MachineIdentity {
+        kind: MachineKind::Laptop,
+        color: MachineColor::Teal,
+    };
+    assert!(set_machine_identity(&source, choice, None).unwrap());
+    let updated = source.lock().build_announce();
+    assert!(
+        target
+            .apply_announce("peer", &updated)
+            .unwrap()
+            .identity_changed
+    );
+    assert_eq!(target.peer_machine_identity("peer"), Some(choice));
+    assert!(
+        !target
+            .apply_announce("peer", &initial)
+            .unwrap()
+            .identity_changed
+    );
+
+    assert!(set_machine_identity(
+        &source,
+        MachineIdentity {
+            color: MachineColor::Pink,
+            ..choice
+        },
+        None
+    )
+    .unwrap());
+    let mut tampered = serde_json::to_value(source.lock().build_announce()).unwrap();
+    tampered["machine_identity"]["revision"]["identity"]["color"] = serde_json::json!("violet");
+    assert!(
+        !target
+            .apply_announce("peer", &serde_json::from_value(tampered).unwrap())
+            .unwrap()
+            .identity_changed
+    );
+    assert_eq!(target.peer_machine_identity("peer"), Some(choice));
+}
+
+#[test]
 fn mesh_status_exposes_local_transport_and_web_ui_while_signed_out_without_peers() {
     use crate::network_transport::{TransportState, TransportStatus};
     let mut manager = MeshManager::in_memory(
@@ -121,6 +177,7 @@ fn peer_inventory_uses_authenticated_lease_without_mutating_cached_registry() {
 fn apply_announce_requires_a_signed_endpoint_record_to_replace_addresses() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5", "100.64.0.5"]);
     let ann = PeerAnnounce {
+        machine_identity: None,
         domios_version: None,
         domios_build: None,
         instance_id: "peer-A".into(),
@@ -148,6 +205,7 @@ fn apply_announce_requires_a_signed_endpoint_record_to_replace_addresses() {
 fn apply_announce_stores_and_clears_web_ui() {
     let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
     let with_https = PeerAnnounce {
+        machine_identity: None,
         domios_version: None,
         domios_build: None,
         instance_id: "peer-A".into(),
@@ -169,6 +227,7 @@ fn apply_announce_stores_and_clears_web_ui() {
     assert_eq!(m.paired_peers["peer-A"].web_ui, with_https.web_ui);
 
     let without = PeerAnnounce {
+        machine_identity: None,
         web_ui: None,
         relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
         ..with_https
@@ -182,6 +241,7 @@ fn apply_announce_stores_and_clears_web_ui() {
 fn apply_announce_rejects_spoofed_sender() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
     let ann = PeerAnnounce {
+        machine_identity: None,
         domios_version: None,
         domios_build: None,
         instance_id: "peer-A".into(),
@@ -204,6 +264,7 @@ fn apply_announce_rejects_spoofed_sender() {
 fn apply_announce_empty_list_is_noop() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
     let ann = PeerAnnounce {
+        machine_identity: None,
         domios_version: None,
         domios_build: None,
         instance_id: "peer-A".into(),
@@ -223,6 +284,7 @@ fn apply_announce_empty_list_is_noop() {
 fn apply_announce_same_addrs_returns_no_change() {
     let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
     let ann = PeerAnnounce {
+        machine_identity: None,
         domios_version: None,
         domios_build: None,
         instance_id: "peer-A".into(),
@@ -239,6 +301,7 @@ fn apply_announce_same_addrs_returns_no_change() {
 
 fn announce_with_protocol(relay_protocol_version: u16) -> PeerAnnounce {
     PeerAnnounce {
+        machine_identity: None,
         domios_version: None,
         domios_build: None,
         instance_id: "peer-A".into(),

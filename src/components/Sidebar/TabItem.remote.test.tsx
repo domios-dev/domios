@@ -22,23 +22,22 @@ const remote = (role?: Tab["role"], roleProfile?: string): Tab => ({
 
 describe("remote tab metadata", () => {
   it("keeps peer identity and controller attribution on separate lines", () => {
-    expect(remoteIdentity(remote("Worker"))).toEqual({ role: null, peer: "@ROG" });
-    expect(remoteIdentity(remote("Manager", "planner"))).toEqual({ role: "Planner", peer: "@ROG" });
-    expect(remoteIdentity(remote("Manager", "orchestrator"))).toEqual({ role: "Orchestrator", peer: "@ROG" });
+    expect(remoteIdentity(remote("Worker"))).toEqual({ role: null, peer: "ROG" });
+    expect(remoteIdentity(remote("Manager", "planner"))).toEqual({ role: "Planner", peer: "ROG" });
+    expect(remoteIdentity(remote("Manager", "orchestrator"))).toEqual({ role: "Orchestrator", peer: "ROG" });
     expect(managedByLabel(remote("Worker"))).toBe("managed by Hubble");
   });
 
   it("does not mix stream availability into identity", () => {
     expect(remoteIdentity({ ...remote("Worker"), remote_channels: { control: "unavailable", output: "unavailable", chat: "unavailable" } }))
-      .toEqual({ role: null, peer: "@ROG" });
+      .toEqual({ role: null, peer: "ROG" });
   });
 
-  it("renders a named network badge only for physical remotes", () => {
+  it("includes the machine and kind only for physical remotes", () => {
     for (const remotePeer of ["peer", undefined]) {
       const tab = { ...remote("Worker"), remote_peer_id: remotePeer };
       const html = renderToStaticMarkup(<TabItem tab={tab} index={0} isActive onClick={() => {}} onClose={() => {}} canClose workspaceId="workspace" />);
-      const badge = 'role="img" aria-label="on @ROG"';
-      expect(html.includes(badge)).toBe(Boolean(remotePeer));
+      expect(html.includes("on ROG, machine")).toBe(Boolean(remotePeer));
       expect(html).toContain(managedByLabel(tab)!);
     }
   });
@@ -48,8 +47,7 @@ describe("remote tab metadata", () => {
     try {
       const html = renderToStaticMarkup(<TabItem tab={{ ...remote("Manager", "orchestrator"), title: "Halley" }}
         index={0} isActive={false} onClick={() => {}} onClose={() => {}} canClose workspaceId="workspace" />);
-      expect(html).toContain('aria-label="Halley, Orchestrator on ROG, not paired"');
-      expect(html).toContain('aria-label="on ROG"');
+      expect(html).toContain('aria-label="Halley, Orchestrator on ROG, machine, not paired"');
       expect(html).not.toContain('data-testid="tab-working-activity"');
     } finally { resetRemoteChatStatus(); }
   });
@@ -69,7 +67,7 @@ describe("remote tab metadata", () => {
         hasAgent
       />,
     );
-    expect(html).toContain('role="img" aria-label="on @ROG"');
+    expect(html).toContain("on ROG, machine");
     expect(html).not.toContain("managed by Hubble");
   });
 });

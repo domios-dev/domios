@@ -17,6 +17,7 @@ export function tabMentionSource(read: () => { tabs: Record<string, Tab>; worksp
           : tab.team_id && tab.team_id !== scope.teamId ? "Tabs · Other Teams" : "Tabs · Workspace";
         return {
           kind: "tab" as const, id: `tabs:${tab.id}`, label: tab.title, group, providerId: tab.agent_type,
+          machine: tab.remote_peer_id ? { id: tab.remote_peer_id, name: tab.remote_peer_name ?? tab.remote_peer_id } : undefined,
           description: [tab.role ?? (tab.agent_type ? "Agent" : "Shell"), tab.description, tab.remote_peer_name ?? workspace?.name].filter(Boolean).join(" · "),
           insertText: canonicalMentionText("tab", tab.title, tab.id),
           match: mentionMatch(query, [tab.id, tab.title, (tab.description ?? "").replace(/\bagent\b/gi, ""), (tab.role ?? "").replace(/\bagent\b/gi, "")]),

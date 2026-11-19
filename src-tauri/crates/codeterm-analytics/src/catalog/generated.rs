@@ -251,6 +251,8 @@ pub enum SettingsSection {
     Privacy,
     #[serde(rename = "general")]
     General,
+    #[serde(rename = "mesh")]
+    Mesh,
     #[serde(rename = "notifications")]
     Notifications,
     #[serde(rename = "agents")]
@@ -275,6 +277,7 @@ impl SettingsSection {
             "account" => Some(Self::Account),
             "privacy" => Some(Self::Privacy),
             "general" => Some(Self::General),
+            "mesh" => Some(Self::Mesh),
             "notifications" => Some(Self::Notifications),
             "agents" => Some(Self::Agents),
             "secrets" => Some(Self::Secrets),

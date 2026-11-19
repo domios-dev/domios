@@ -34,6 +34,7 @@ impl MeshManager {
             })
         }) {
             self.paired_peers.clear();
+            self.peer_machine_identities.clear();
             self.links.clear();
             self.peer_services.clear();
         }

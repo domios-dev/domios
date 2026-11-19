@@ -20,6 +20,8 @@ import { AccountAvatar } from "./AccountAvatar";
 import { FIRST_RUN_DISABLED_REASON } from "../../lib/firstRunGate";
 import { plansAction } from "../billing/purchaseSwitch";
 import { useMultiplexer } from "../../store/multiplexer/context";
+import { MachineJoinPreview, MachineIdentitySaveError } from "../MeshPanel/MachineIdentityControls";
+import { useMachineJoin } from "../MeshPanel/MachineIdentityEditor";
 
 /** Who is signed in and on which plan: information, not actions, so it sits above the menu items and never takes focus. */
 function AccountHeader({ identity, email, avatarUrl, initial, badge, summary }: {
@@ -59,7 +61,11 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
   const model = accountTrayModel(account.model, billing.plan);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const pending = model.kind === "pending";
+  const join = useMachineJoin(open && model.kind === "signed_out");
+  const [retryHint, setRetryHint] = useState<SignInOption["hint"]>();
   const startSignIn = async (hint: SignInOption["hint"]) => {
+    setRetryHint(hint);
+    if (!await join.beforeJoin()) { setOpen(true); return; }
     const failure = await account.signIn(hint);
     if (!failure) return;
     createNoticePublisher({ upsertToast })(signInFailureToast(failure, () => startSignIn(hint)));
@@ -71,7 +77,7 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
       () => manageSubscription()));
   };
   const signInEntry = (option: SignInOption): DropdownMenuEntry =>
-    ({ label: option.label, icon: option.icon, disabled: pending, onClick: () => void startSignIn(option.hint) });
+    ({ label: option.label, icon: option.icon, disabled: pending, keepOpen: !!join.view, onClick: () => void startSignIn(option.hint) });
   const items: DropdownMenuEntry[] = model.kind === "signed_in" ? [
     ...(model.signInRequired ? [{ label: "Sign in again", icon: ACCOUNT_ENTRY_OPTIONS[0].icon,
       description: "Your plan is active; this machine needs a fresh sign-in to unlock it.",
@@ -108,10 +114,17 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
   const community = communityMenu();
   if (locked) community.items = community.items.map((item) => ({ ...item, disabled: true, title: FIRST_RUN_DISABLED_REASON }));
   items.push({separator:true,key:"community"},community);
+  const signedOutHeader = <>
+    {signedOutNotice && <p role="status" className="px-3 py-2 text-xs">{signedOutNotice}</p>}
+    {join.view && join.value && <div className="px-3 py-2 text-xs">
+      <MachineJoinPreview name={join.view.name} value={join.value} onChange={join.setDraft} />
+      {join.error && retryHint && <MachineIdentitySaveError error={join.error} retry={() => void startSignIn(retryHint)} />}
+    </div>}
+  </>;
   return <div className="flex items-center">
     {confirmSignOut && <SelfSessionSignOut onClose={() => setConfirmSignOut(false)} />}
     <DropdownMenu menuLabel={model.kind === "signed_in" ? `Account: ${model.identity}, ${model.plan}` : "Account"} items={items} onOpenChange={setOpen} focusOnPointerOpen
-      header={model.kind === "signed_in" ? <AccountHeader identity={model.identity} email={model.email} avatarUrl={model.avatarUrl} initial={model.initial} badge={model.badge} summary={model.plan} /> : signedOutNotice ? <p role="status" className="px-3 py-2 text-xs">{signedOutNotice}</p> : undefined} trigger={
+      header={model.kind === "signed_in" ? <AccountHeader identity={model.identity} email={model.email} avatarUrl={model.avatarUrl} initial={model.initial} badge={model.badge} summary={model.plan} /> : signedOutHeader} trigger={
       <button type="button" className={UI_TRAY_BTN} aria-label={billing.pending ? "Opening subscription" : model.name}
         title={billing.pending ? "Opening subscription…" : model.name} aria-haspopup="menu" aria-expanded={open} aria-busy={pending || billing.pending}>
         {pending

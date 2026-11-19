@@ -1,5 +1,8 @@
 use super::account_routes::{admit, unavailable};
-use super::{auth::CallerIdentity, routes::AppState};
+use super::{
+    auth::{AgentHeaders, CallerIdentity, RequestActor},
+    routes::AppState,
+};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -11,6 +14,7 @@ use codeterm_neighbors_service::prelude::*;
 use codeterm_neighbors_service::service::account_mesh::{
     AccountMeshOutcome, AccountMeshSnapshot, RevokedResultView, UpdatedResultView,
 };
+use codeterm_service_core::mesh::machine_identity::MachineIdentity;
 use serde::Deserialize;
 type Error = (StatusCode, String);
 
@@ -22,6 +26,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/account/mesh/enroll", post(enroll))
         .route("/api/account/mesh/list", post(list))
         .route("/api/account/mesh/rename", post(rename_self))
+        .route(
+            "/api/account/mesh/identity",
+            get(machine_identity).post(set_machine_identity),
+        )
         .route("/api/account/mesh/revoke", post(revoke))
         .route("/api/account/mesh/session-revoke", post(revoke_session))
         .route(
@@ -38,6 +46,52 @@ fn admit_summary(caller: Option<&Extension<CallerIdentity>>) -> Result<(), Error
             "Account mesh summary requires a local caller".into(),
         )),
     }
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct MachineIdentityView {
+    name: String,
+    identity: MachineIdentity,
+    chosen: bool,
+}
+
+pub(crate) async fn machine_identity(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+) -> Result<Json<MachineIdentityView>, Error> {
+    admit(caller.as_ref())?;
+    let manager = state.mesh.lock();
+    Ok(Json(MachineIdentityView {
+        name: manager.ident.instance_name.clone(),
+        identity: manager.machine_identity(),
+        chosen: manager.machine_identity_chosen(),
+    }))
+}
+
+pub(crate) async fn set_machine_identity(
+    State(state): State<AppState>,
+    headers: AgentHeaders,
+    Json(identity): Json<MachineIdentity>,
+) -> Result<Json<serde_json::Value>, Error> {
+    tokio::task::spawn_blocking(move || match headers.actor {
+        RequestActor::Owner => {
+            state
+                .svc
+                .update_machine_identity(identity, None)
+                .map_err(unavailable)?;
+            Ok(Json(
+                serde_json::json!({ "state": "saved", "identity": identity }),
+            ))
+        }
+        RequestActor::LocalAgent(_) | RequestActor::RemoteAgent(_) => state
+            .svc
+            .request_machine_identity(identity)
+            .map(Json)
+            .map_err(unavailable),
+        _ => Err((StatusCode::FORBIDDEN, "Owner authorization required".into())),
+    })
+    .await
+    .map_err(|error| unavailable(error.to_string()))?
 }
 
 pub async fn summary(

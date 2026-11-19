@@ -1503,6 +1503,10 @@
               "method": "GET",
               "path": "/api/session/{sessionID}/message"
             },
+            "v2.session.active": {
+              "method": "GET",
+              "path": "/api/session/active"
+            },
             "v2.session.prompt": {
               "method": "POST",
               "path": "/api/session/{sessionID}/prompt"
@@ -1515,7 +1519,7 @@
               "method": "PUT",
               "path": "/api/experimental/session/{sessionID}/instructions/entries/{key}"
             },
-            "v2.session.abort": {
+              "session.abort": {
               "method": "POST",
               "path": "/api/session/{sessionID}/interrupt"
             },
@@ -1591,6 +1595,7 @@
         "v2.session.instructions"
       ],
       "resumeThread": [
+        "health",
         "session.get",
         "v2.session.get",
         "v2.session.instructions",
@@ -1598,15 +1603,15 @@
       ],
       "readHistory": [
         "session.messages",
-        "v2.session.messages"
+        "v2.session.messages",
+        "v2.session.active"
       ],
       "submitTurn": [
         "session.prompt",
         "v2.session.prompt"
       ],
       "interrupt": [
-        "session.abort",
-        "v2.session.abort"
+        "session.abort"
       ],
       "answer": [
         "permission.reply",

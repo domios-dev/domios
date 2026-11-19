@@ -1,4 +1,4 @@
-// The origin cache must invalidate when `setFocusedTab` changes, or a stale closure routes Show Tab to the wrong handler.
+// Origin actions must use the current workspace navigation handler.
 
 import { act } from "react";
 import { Window } from "happy-dom";
@@ -36,22 +36,25 @@ function tabBase(id: string): Tab {
 }
 function originTab(id: string): Tab { return { id, pty_id: null, tab_type: "Terminal", title: id, cwd: null, agent_type: "claude" } as Tab; }
 
-function actionsWith(setFocusedTab: (tabId: string) => void): MultiplexerActionsContextType {
+function actionsWith(selectTabByTab: (workspaceId: string, tabId: string) => void): MultiplexerActionsContextType {
   const noop = () => {};
   const noopAsync = async () => undefined;
   return new Proxy({}, {
     get: (_t, prop) => {
-      if (prop === "setFocusedTab") return setFocusedTab;
+      if (prop === "selectTabByTab") return async (workspaceId: string, tabId: string) => selectTabByTab(workspaceId, tabId);
       if (prop === "spawnAgentTab") return async () => null;
       if (prop === "createOrchestrationPair") return async () => { throw new Error("not implemented"); };
-      if (prop === "createWorkspace" || prop === "createTab" || prop === "selectTabByTab") return noopAsync;
+      if (prop === "createWorkspace" || prop === "createTab") return noopAsync;
       return noop;
     },
   }) as MultiplexerActionsContextType;
 }
 
 function muxStateFor(tabs: Record<string, Tab>): ExtendedState {
-  return { workspaces: [], tabs, teams: [], active_workspace_id: null, focused_tab_id: Object.keys(tabs)[0] ?? null, notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [] };
+  return { workspaces: [
+    { id: "chat-workspace", name: "Chat", cwd: null, tabs: ["chat-tab"], active_tab_id: "chat-tab" },
+    { id: "sender-workspace", name: "Sender", cwd: null, tabs: ["wrkr0001-full-tab-id"], active_tab_id: "wrkr0001-full-tab-id" },
+  ], tabs, teams: [], active_workspace_id: "chat-workspace", focused_tab_id: Object.keys(tabs)[0] ?? null, notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [] } as ExtendedState;
 }
 function originReport(id: string, shortId: string, seq: number) {
   return { id, type: "user", content: `<domios from="tab" label="Worker" tab="${shortId}">report body ${seq}</domios>`, timestamp: String(1_700_000_000_000 + seq * 1000), seq, provider: "test",
@@ -79,41 +82,40 @@ async function main() {
     set.add(cb); return () => { set?.delete(cb); };
   }) as never);
 
-  test("origin action routes to the current setFocusedTab after its identity changes", async () => {
+  test("routed Show Tab selects the sender workspace by click and Enter", async () => {
     const calls: string[] = [];
-    const spyA = (id: string) => { calls.push(`A:${id}`); };
-    const spyB = (id: string) => { calls.push(`B:${id}`); };
+    const select = (workspaceId: string, id: string) => { calls.push(`${workspaceId}:${id}`); };
 
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
     const store = createMuxStateStore(() => muxStateFor({ [tabId]: tabBase(tabId), [originFull]: originTab(originFull) }));
 
-    const renderWith = (actions: MultiplexerActionsContextType) =>
+    const renderWith = () =>
       root.render(
         <MuxStateStoreContext.Provider value={store}>
-          <MultiplexerActionsContext.Provider value={actions}>
+          <MultiplexerActionsContext.Provider value={actionsWith(select)}>
             <TabSessionChat tabId={tabId} chatBackend isVisible />
           </MultiplexerActionsContext.Provider>
         </MuxStateStoreContext.Provider>,
       );
 
-    await act(async () => { renderWith(actionsWith(spyA)); });
+    await act(async () => { renderWith(); });
     await act(async () => { await Promise.resolve(); });
-
-    // Re-render with a FRESH setFocusedTab identity; tab/provider key is unchanged.
-    await act(async () => { renderWith(actionsWith(spyB)); });
-    await act(async () => { await Promise.resolve(); });
-
-    const button = host.querySelector<HTMLButtonElement>('button[title="Show Tab"]');
+    const button = host.querySelector<HTMLButtonElement>('button[data-testid="inbound-show-tab"]');
     assert(button, "origin 'Show Tab' action button present");
-    await act(async () => {
-      button!.dispatchEvent(new (globalThis as { MouseEvent: typeof MouseEvent }).MouseEvent("click", { bubbles: true }));
-    });
+    await act(async () => { button.click(); });
+    assert(calls[0] === `sender-workspace:${originFull}`, `click selects the sender workspace and tab (got ${JSON.stringify(calls)})`);
 
-    assert(calls.length === 1, `exactly one focus call (got ${JSON.stringify(calls)})`);
-    assert(calls[0] === `B:${originFull}`, `click must route to CURRENT setFocusedTab (got ${JSON.stringify(calls)})`);
-    console.log(`  origin-actions: routed ${calls[0]}`);
+    calls.length = 0;
+    await act(async () => {
+      button.focus();
+      button.dispatchEvent(new testWindow.KeyboardEvent("keydown", { key: "Enter", bubbles: true }) as unknown as Event);
+      button.click();
+      button.dispatchEvent(new testWindow.KeyboardEvent("keyup", { key: "Enter", bubbles: true }) as unknown as Event);
+    });
+    assert(calls[0] === `sender-workspace:${originFull}`, `Enter selects the sender workspace and tab (got ${JSON.stringify(calls)})`);
+    assert(calls.length === 1, `activation selects once (got ${JSON.stringify(calls)})`);
     await act(async () => root.unmount());
   });
 

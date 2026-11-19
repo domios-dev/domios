@@ -65,7 +65,7 @@ impl ServiceContext {
                     } if command_state.activity
                         == crate::multiplexer::types::ShellActivity::Running =>
                     {
-                        self.utility_command_started(tab_id, command_line.as_deref());
+                        self.utility_command_started(tab_id, pty_id, command_line.as_deref());
                     }
                     crate::agent::command_detection::CommandLifecycle::Finished { .. } => {
                         if let Err(error) = self.utility_command_finished(tab_id) {

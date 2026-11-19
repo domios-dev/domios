@@ -111,7 +111,7 @@ impl Write {
 
 #[derive(Clone)]
 pub(super) struct Ingress {
-    pub frame: RuntimeFrame,
+    pub frame: Option<RuntimeFrame>,
     pub sequence: u64,
 }
 
@@ -277,11 +277,18 @@ impl Client {
                     super::model::responsiveness::ingress(&frame);
                 }
                 let _ = self.0.events.send(Ingress {
-                    frame,
+                    frame: Some(frame),
                     sequence: self.0.event_sequence.fetch_add(1, Ordering::AcqRel) + 1,
                 });
             }
         }
+    }
+
+    fn note_stream_gap(&self) {
+        let _ = self.0.events.send(Ingress {
+            frame: None,
+            sequence: self.0.event_sequence.fetch_add(1, Ordering::AcqRel) + 1,
+        });
     }
 
     pub(super) fn trace_binding(&self, context: &codeterm_plugin::agent_runtime::RuntimeContext) {

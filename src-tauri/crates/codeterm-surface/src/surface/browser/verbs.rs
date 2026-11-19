@@ -391,7 +391,7 @@ impl BrowserRuntime {
             .unwrap_or(Value::Null))
     }
 
-    async fn wait(&self, page: &PageChannel, wait: WaitFor) -> Result<String, String> {
+    pub(super) async fn wait(&self, page: &PageChannel, wait: WaitFor) -> Result<String, String> {
         match &wait {
             WaitFor::Url(fragment) => {
                 let mut navigated = page

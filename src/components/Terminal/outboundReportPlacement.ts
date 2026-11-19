@@ -38,7 +38,7 @@ export function placeOutboundReports<M>(
   reportTimes.forEach((at, report) => {
     const anchor = positions?.reportMessageIds[report];
     const position = anchor == null ? undefined : sourceOrder.get(anchor);
-    if (position != null && positions) {
+    if (at == null && position != null && positions) {
       let slot = -1;
       let hasLater = false;
       for (let index = 0; index < messages.length; index++) {

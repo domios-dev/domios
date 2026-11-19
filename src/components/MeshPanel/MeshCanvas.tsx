@@ -267,6 +267,7 @@ export const MeshCanvas = memo(function MeshCanvas({
       ) : (
         <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
         <PeerTerminal
+          peerId={p.isThisMachine ? undefined : p.id}
           onRename={p.isThisMachine ? account?.onRenameSelf : row?.target && onRename ? (name) => onRename(row, name) : undefined}
           renameDisabledReason={row && (row.status === "signed_out" || !peers.find((peer) => peer.instance_id === p.id)?.online)
             ? "Connect to rename it, or rename it on that machine" : undefined}

@@ -4,6 +4,7 @@ import { placeQueuedRows } from "./queuedPlacement";
 import { mergeBatchesById, mergeById } from "./merge";
 import { reconcileSends, type ChatSend, type SendEcho } from "./sendOrder";
 import { timestampMs } from "./time";
+import { orderTimelineItems } from "./timelineOrder";
 import type { NormalizedChatMessage } from "./types";
 
 /** Half-open source window; byte boundaries align to complete records. */
@@ -131,8 +132,8 @@ function orderedSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
 /** Provider IDs survive every source window; the newest occurrence wins. */
 export function transcriptRows(state: TranscriptState): NormalizedChatMessage[] {
   const expanded = new Set(state.expandedGaps);
-  return mergeBatchesById(orderedSegments(state.segments).map(segment =>
-    segment.rows.filter(row => !expanded.has(row.id))));
+  return orderTimelineItems(mergeBatchesById(orderedSegments(state.segments).map(segment =>
+    segment.rows.filter(row => !expanded.has(row.id)))));
 }
 
 export function transcriptRowCount(state: TranscriptState): number {

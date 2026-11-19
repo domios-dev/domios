@@ -347,10 +347,14 @@ Neither the fixtures nor the oracle address production port 7685.
 
 ## Plugin test launcher troubleshooting
 
-If a fresh lane reports `Cannot find module .../node_modules/tsx/dist/cli.mjs`,
-its local dependencies are missing. Run `pnpm install --frozen-lockfile` in that
-lane, then rerun `node scripts/run-plugin-tests.mjs <provider>`; do not link
-another checkout's `node_modules` or count launcher failures as executed tests.
+Dispatch creates the Git worktree. Before running JS tests in a fresh Domios
+lane, install its checkout-local dependencies from the shared pnpm store.
+`CI=true pnpm install --frozen-lockfile` runs without interactive prompts.
+In PowerShell, set `$env:CI = 'true'` before running
+`pnpm.cmd install --frozen-lockfile`. A missing `node_modules` or
+`Cannot find module .../node_modules/tsx/dist/cli.mjs` indicates this setup is
+needed. Keep the lane's dependencies local so pnpm resolves workspace packages
+from the lane's own revision.
 
 `npm run test:plugins` uses the repository launcher, which selects Git Bash on
 Windows and `bash` elsewhere. If it reports that Git Bash is missing, install

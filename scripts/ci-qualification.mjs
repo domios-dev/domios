@@ -1,3 +1,4 @@
+import { RELEASE_BRANCH } from './release-version.mjs';
 import { sourceRepository } from './source-repository.mjs';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -18,14 +19,14 @@ export const QUALIFICATION_JOBS = [
 
 export function isReleasePushRun(run, sha, repository = sourceRepository()) {
   return run.path === '.github/workflows/tests.yml' && run.event === 'push' && run.head_sha === sha &&
-    /^release\/\d+\.\d+\.\d+$/.test(run.head_branch) &&
+    run.head_branch === RELEASE_BRANCH &&
     run.repository?.full_name === repository && run.head_repository?.full_name === repository &&
     ['rollacode', 'domios-dev'].includes(repository.split('/')[0]) &&
     run.actor?.login === 'rollacode' && run.triggering_actor?.login === 'rollacode';
 }
 
 export function selectReleasePushRun(runs, sha, branch, repository = sourceRepository(), waiver) {
-  if (!/^release\/\d+\.\d+\.\d+$/.test(branch) || !/^[a-f0-9]{40}$/.test(sha))
+  if (branch !== RELEASE_BRANCH || !/^[a-f0-9]{40}$/.test(sha))
     throw new Error('Invalid release qualification source');
   const run = runs.filter(run => isReleasePushRun(run, sha, repository) && run.head_branch === branch)
     .sort((a, b) => b.id - a.id)[0];

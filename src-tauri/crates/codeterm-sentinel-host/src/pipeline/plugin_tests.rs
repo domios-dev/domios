@@ -18,6 +18,35 @@ use std::sync::{
 const TEXT: &str = "opaque text with quotes \" and a newline\n";
 const BYTES: &[u8] = b"opaque file bytes\0\xff\n";
 
+#[test]
+fn code_string_named_binding_arrives_at_browser_as_typed_url() {
+    let manifest: Value =
+        serde_json::from_str(include_str!("../../../../../plugins/browser/plugin.json")).unwrap();
+    let descriptors = parse_descriptors(&manifest["capabilities"]["graphNodes"]["steps"]).unwrap();
+    let registry = GraphNodeRegistry::default();
+    registry
+        .register_steps(
+            "browser",
+            &descriptors,
+            Arc::new(Lifecycle {
+                submits: AtomicUsize::new(0),
+                panic_submit: false,
+            }),
+        )
+        .unwrap();
+    let step = registry.step("browser.read_page").unwrap();
+    let envelope = |value| ExecutionEnvelope {
+        media: "json".into(),
+        schema_id: None,
+        value,
+        text: String::new(),
+    };
+    let url = "https://example.com/posts/7";
+    let actual = plugin::inputs(&step, &envelope(json!({"url": url})), true, true).unwrap();
+    assert_eq!(actual["url"], [PortValue::Text { text: url.into() }]);
+    assert!(plugin::inputs(&step, &envelope(json!({"url": 7})), true, true).is_err());
+}
+
 struct Adapter {
     service: std::sync::Weak<ServiceContext>,
     plugin: String,

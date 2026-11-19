@@ -44,7 +44,7 @@ describe("outbound report placement", () => {
     const positions = { sourceMessageIds: ["a", "b", "newer"], messageId: (m: { at: number | null }) => (m.at === 100 ? "a" : "b"),
       reportMessageIds: ["b", "newer"] };
     const anchored = placeOutboundReports(messages, timeOf, [150, 900], positions, bounds);
-    expect([...anchored.afterIndex.entries()]).toEqual([[1, [0]]]);
+    expect([...anchored.afterIndex.entries()]).toEqual([[0, [0]]]);
   });
 
   it("an untimed report never reorders anything", () => {
@@ -151,13 +151,21 @@ describe("report timestamp unit normalization", () => {
 
 
 describe("report source positions", () => {
-  it("interleaves three reports before untimed final text using source order before time", () => {
+  it("uses source order only when a report has no timestamp", () => {
     const rows = [63, 65, 70, 71].map(seq => ({ id: `row-${seq}`, at: null }));
-    const placed = placeOutboundReports(rows, timeOf, [900, 900, 900], {
+    const placed = placeOutboundReports(rows, timeOf, [null, null, null], {
       sourceMessageIds: rows.map(row => row.id), messageId: row => row.id, reportMessageIds: ["row-63", "row-65", "row-70"],
     });
     expect([...placed.afterIndex]).toEqual([[0, [0]], [1, [1]], [2, [2]]]);
     expect(placed.trailing).toEqual([]);
+  });
+
+  it("authoritative report time overrides a stale sender source position", () => {
+    const rows = [{ id: "before", at: 100 }, { id: "after", at: 300 }];
+    const placed = placeOutboundReports(rows, timeOf, [200], {
+      sourceMessageIds: ["before", "after"], messageId: row => row.id, reportMessageIds: ["after"],
+    });
+    expect([...placed.afterIndex]).toEqual([[0, [0]]]);
   });
 });
 

@@ -335,6 +335,11 @@ async fn respond_inner(
             if bridged {
                 return Ok(RespondPromptOutcome::Structured);
             }
+            log::debug!(
+                "[runtime-prompt] tab={tab} epoch={} request={:?} caller=prompt_response",
+                captured.epoch,
+                entry.request
+            );
             let result = engine::run(
                 svc,
                 &session.provider,
@@ -350,6 +355,9 @@ async fn respond_inner(
                 remove(svc, &captured, Some(&entry.request));
             }
             if let Err(error) = result {
+                if matches!(&error, RuntimeFailure::ReplyRefused { .. }) {
+                    return Err(error.to_string());
+                }
                 session.state.lock().degrade(captured.epoch, &error);
                 clear(svc, &captured);
                 engine::publish(svc, tab, &session);
