@@ -94,6 +94,31 @@ impl Process {
             .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
     }
 
+    #[cfg(windows)]
+    pub(super) async fn capture_background(
+        &self,
+        target: codeterm_plugin::agent_runtime::RuntimeBackgroundProcess,
+        others: Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>,
+    ) -> Result<Option<super::process_boundary::BackgroundTree>, RuntimeFailure> {
+        let Some(boundary) = self.boundary.clone() else {
+            return Ok(None);
+        };
+        tokio::task::spawn_blocking(move || boundary.capture_background(&target, &others))
+            .await
+            .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+    }
+
+    #[cfg(windows)]
+    pub(super) async fn reap_background(
+        &self,
+        tree: super::process_boundary::BackgroundTree,
+    ) -> Result<(), RuntimeFailure> {
+        let boundary = self.boundary.clone().ok_or(RuntimeFailure::Superseded)?;
+        tokio::task::spawn_blocking(move || boundary.reap_background(tree))
+            .await
+            .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+    }
+
     pub(super) fn terminated(&self) -> bool {
         matches!(
             *self.ended.borrow(),

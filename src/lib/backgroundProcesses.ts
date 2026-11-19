@@ -4,6 +4,10 @@ export type BackgroundProcessEntry = import("../../gen/BackgroundProcessEntry").
 
 export type BackgroundProcessSnapshot = import("../../gen/BackgroundProcessSnapshot").BackgroundProcessSnapshot;
 
+export type BackgroundStopResult =
+  | { status: "stopped"; snapshot: BackgroundProcessSnapshot }
+  | { status: "degraded"; reason: "attributionUnavailable" | "exitUnconfirmed" };
+
 export function backgroundProcessesSuffix(authority: BackgroundProcessAuthority): string {
   const query = new URLSearchParams({
     rootThreadId: authority.rootThreadId,

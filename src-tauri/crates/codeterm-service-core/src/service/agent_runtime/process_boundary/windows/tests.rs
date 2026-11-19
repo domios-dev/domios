@@ -19,7 +19,9 @@ struct Tree {
     root: tokio::process::Child,
     boundary: Arc<Boundary>,
     shell: Member,
+    keeper_shell: Option<Member>,
     witnesses: Vec<Member>,
+    roster: Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>,
 }
 
 impl Drop for Tree {
@@ -27,8 +29,16 @@ impl Drop for Tree {
         for member in &self.witnesses {
             let _ = member.terminate_retained();
         }
+        let _ = self.shell.terminate_retained();
+        if let Some(keeper) = &self.keeper_shell {
+            let _ = keeper.terminate_retained();
+        }
         let _ = self.boundary.job.try_terminate();
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let _ = self.shell.wait(deadline);
+        if let Some(keeper) = &self.keeper_shell {
+            let _ = keeper.wait(deadline);
+        }
         for member in &self.witnesses {
             let _ = member.wait(deadline);
         }
@@ -40,6 +50,10 @@ fn outside(job: &crate::service::windows_job::Job, member: &Member) -> bool {
 }
 
 async fn external_tree() -> Tree {
+    fixture_tree(false).await
+}
+
+async fn fixture_tree(selective: bool) -> Tree {
     let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
     command
         .args(["--exact", HELPER, "--ignored", "--nocapture"])
@@ -47,6 +61,9 @@ async fn external_tree() -> Tree {
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .kill_on_drop(true);
+    if selective {
+        command.env("DOMIOS_SELECTIVE_TREE_FIXTURE", "1");
+    }
     crate::process_util::no_window_tokio_suspended(&mut command);
     let mut root = command.spawn().unwrap();
     let job = Arc::new(crate::service::windows_job::Job::contain(&root).unwrap());
@@ -68,25 +85,45 @@ async fn external_tree() -> Tree {
     })
     .await
     .unwrap();
-    let commands: Vec<u32> = serde_json::from_value(value["commands"].clone()).unwrap();
-    assert_eq!(commands.len(), 2);
-    let shell = Member::retain(value["shell"].as_u64().unwrap() as u32)
-        .unwrap()
-        .unwrap();
-    let witnesses = commands
-        .iter()
-        .map(|pid| Member::retain(*pid).unwrap().unwrap())
-        .collect();
+    let terminals = value["terminals"].as_array().unwrap();
+    assert_eq!(terminals.len(), if selective { 2 } else { 1 });
+    let cwd = value["cwd"].as_str().unwrap();
+    let mut roster = Vec::new();
+    let mut witnesses = Vec::new();
+    let mut shells = Vec::new();
+    for (index, terminal) in terminals.iter().enumerate() {
+        let commands: Vec<u32> = serde_json::from_value(terminal["commands"].clone()).unwrap();
+        assert_eq!(commands.len(), 2);
+        let shell = Member::retain(terminal["shell"].as_u64().unwrap() as u32)
+            .unwrap()
+            .unwrap();
+        assert!(
+            outside(&job, &shell),
+            "shell must start outside runtime Job"
+        );
+        shells.push(shell);
+        witnesses.extend(
+            commands
+                .into_iter()
+                .map(|pid| Member::retain(pid).unwrap().unwrap()),
+        );
+        roster.push(codeterm_plugin::agent_runtime::RuntimeBackgroundProcess {
+            process_id: format!("background-{index}"),
+            item_id: format!("item-{index}"),
+            command: terminal["command"].as_str().unwrap().into(),
+            cwd: cwd.into(),
+            os_pid: None,
+        });
+    }
+    let mut shells = shells.into_iter();
     let tree = Tree {
         root,
         boundary,
-        shell,
+        shell: shells.next().unwrap(),
+        keeper_shell: shells.next(),
         witnesses,
+        roster,
     };
-    assert!(
-        outside(&job, &tree.shell),
-        "shell must start outside runtime Job"
-    );
     for witness in &tree.witnesses {
         assert!(
             outside(&job, witness),
@@ -95,6 +132,41 @@ async fn external_tree() -> Tree {
         assert!(!witness.exited().unwrap());
     }
     tree
+}
+
+#[tokio::test]
+#[ignore = "requires the Microsoft Store pwsh app-execution alias; run with --ignored on a Windows host that has it"]
+async fn background_stop_reaps_only_the_selected_external_command() {
+    let tree = fixture_tree(true).await;
+    let boundary = tree.boundary.clone();
+    let roster = tree.roster.clone();
+    let captured =
+        tokio::task::spawn_blocking(move || boundary.capture_background(&roster[0], &roster[1..]))
+            .await
+            .unwrap()
+            .unwrap()
+            .expect("identify the exact target shell with no OS PID");
+
+    tree.shell.terminate_retained().unwrap();
+    tree.shell
+        .wait(Instant::now() + Duration::from_secs(5))
+        .unwrap();
+    assert!(tree.witnesses[..2]
+        .iter()
+        .all(|member| !member.exited().unwrap()));
+
+    let boundary = tree.boundary.clone();
+    tokio::task::spawn_blocking(move || boundary.reap_background(captured))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(tree.witnesses[..2]
+        .iter()
+        .all(|member| member.exited().unwrap()));
+    assert!(tree.witnesses[2..]
+        .iter()
+        .all(|member| !member.exited().unwrap()));
+    assert!(!tree.keeper_shell.as_ref().unwrap().exited().unwrap());
 }
 
 #[tokio::test]

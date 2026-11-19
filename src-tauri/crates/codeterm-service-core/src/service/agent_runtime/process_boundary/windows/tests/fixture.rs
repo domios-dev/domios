@@ -92,9 +92,20 @@ fn commands(output: OwnedHandle) -> Vec<u32> {
     }
 }
 
-pub(super) fn launch() {
-    let job = nested_job();
-    let (input_read, _input_write) = pipe();
+struct Shell {
+    console: HPCON,
+    _input: OwnedHandle,
+    _process: OwnedHandle,
+}
+
+impl Drop for Shell {
+    fn drop(&mut self) {
+        unsafe { ClosePseudoConsole(self.console) };
+    }
+}
+
+fn launch_shell(job: &OwnedHandle, script: &str) -> (Shell, serde_json::Value) {
+    let (input_read, input_write) = pipe();
     let (output_read, output_write) = pipe();
     let mut console = 0;
     assert_eq!(
@@ -140,14 +151,8 @@ pub(super) fn launch() {
     startup.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
     startup.lpAttributeList = attrs;
     let shell = packaged_shell();
-    let script = crate::test_support::fixture_manifest_dir()
-        .join("../../../tests/fixtures/agent-runtime/escaped-tree.mjs")
-        .canonicalize()
-        .unwrap();
-    let script = script.to_str().unwrap();
-    let script = script.strip_prefix(r"\\?\").unwrap_or(script);
     let command = format!(
-        "\"{}\" -NoLogo -NoProfile -NonInteractive -Command node '{script}'",
+        "\"{}\" -NoLogo -NoProfile -NonInteractive -Command \"try {{ [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 }} catch {{}}\n{script}\"",
         shell.display()
     );
     let application = wide(shell.as_os_str());
@@ -187,17 +192,48 @@ pub(super) fn launch() {
     let commands = commands(output_read);
     for pid in &commands {
         let member = Member::retain(*pid).unwrap().unwrap();
-        assert!(!in_job(&member, &job), "command must escape the shell Job");
+        assert!(!in_job(&member, job), "command must escape the shell Job");
     }
+    (
+        Shell {
+            console,
+            _input: input_write,
+            _process: process_handle,
+        },
+        serde_json::json!({"shell": process.dwProcessId, "commands": commands, "command": script}),
+    )
+}
+
+pub(super) fn launch() {
+    let job = nested_job();
+    let script = crate::test_support::fixture_manifest_dir()
+        .join("../../../tests/fixtures/agent-runtime/escaped-tree.mjs")
+        .canonicalize()
+        .unwrap();
+    let script = script.to_str().unwrap();
+    let script = script.strip_prefix(r"\\?\").unwrap_or(script);
+    let selective = std::env::var_os("DOMIOS_SELECTIVE_TREE_FIXTURE").is_some();
+    let commands = if selective {
+        vec![
+            format!("node '{script}' target"),
+            format!("node '{script}' keeper"),
+        ]
+    } else {
+        vec![format!("node '{script}'")]
+    };
+    let (shells, terminals): (Vec<_>, Vec<_>) = commands
+        .iter()
+        .map(|command| launch_shell(&job, command))
+        .unzip();
     println!(
         "fixture-pids:{}",
-        serde_json::json!({"shell": process.dwProcessId, "commands": commands})
+        serde_json::json!({"terminals": terminals, "cwd": std::env::current_dir().unwrap()})
     );
     std::io::stdout().flush().unwrap();
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).unwrap();
     unsafe {
         TerminateJobObject(job.as_raw_handle(), 1);
-        ClosePseudoConsole(console);
     }
+    drop(shells);
 }

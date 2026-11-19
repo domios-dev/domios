@@ -31,12 +31,24 @@ pub(in crate::service::agent_runtime::process_boundary) fn tree(
     below(boundary.pid, root, &parents()?)
 }
 
-/// The live descendants of one retained process, taken from a fresh snapshot.
-pub(in crate::service::agent_runtime::process_boundary) fn of(
-    pid: u32,
-    member: &Member,
+pub(in crate::service::agent_runtime::process_boundary) fn of<'a>(
+    roots: impl Iterator<Item = &'a Descendant>,
 ) -> Result<Vec<Descendant>, String> {
-    below(pid, member, &parents()?)
+    let mut roots = roots.peekable();
+    if roots.peek().is_none() {
+        return Ok(Vec::new());
+    }
+    let parents = parents()?;
+    let mut descendants = HashMap::new();
+    for root in roots {
+        for child in below(root.pid, &root.member, &parents)? {
+            descendants.entry(child.pid).or_insert(child);
+        }
+        if descendants.len() > 256 {
+            return Err("Runtime descendant snapshot exceeds 256 members".into());
+        }
+    }
+    Ok(descendants.into_values().collect())
 }
 
 fn below(
