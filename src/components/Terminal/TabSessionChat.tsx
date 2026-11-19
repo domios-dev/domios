@@ -115,6 +115,7 @@ import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
 import { BlueprintChatCards } from "./BlueprintChatCards";
 import { useTabChatBlockHost } from "./pinnedBlocks";
 import { interruptAgentArgs } from "../../lib/agentInterrupt";
+import { useStopSettlement, type StopReceipt } from "./useStopSettlement";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { HoldWhileHidden } from "./HoldWhileHidden";
@@ -247,9 +248,9 @@ function TabSessionChatBody({
   const isWatcherTab = watcherSpec != null;
   const promptLifecycle = useProviderPromptLifecycle(tab);
   const pendingPrompt: PendingPrompt | null = manualPendingPrompt(promptLifecycle.tab);
-  const composerActivity = promptLifecycle.resolved
+  const { activity: composerActivity, confirm: confirmStop } = useStopSettlement(tabId, tab, runtime.state, promptLifecycle.resolved
     ? tabActivity(promptLifecycle.tab, agentActivity.status === "Waiting" ? null : agentActivity.status)
-    : agentActivity;
+    : agentActivity);
   const descriptor = getAgentDescriptor(tabProvider);
   const promptAnswers = !readOnly && descriptor?.supports_prompt_answers === true;
   const structuredPrompts = descriptor?.supports_structured_prompts === true;
@@ -538,10 +539,13 @@ function TabSessionChatBody({
       return;
     }
     lastStopAtRef.current = now;
-    void invoke("interrupt_agent", args).then(composerErrorNotice.recover).catch((e) =>
+    void invoke<StopReceipt>("interrupt_agent", args).then(receipt => {
+      confirmStop(interruptTarget.id, receipt);
+      composerErrorNotice.recover();
+    }).catch((e) =>
       showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [interruptTarget, showComposerError, composerErrorNotice]);
+  }, [interruptTarget, showComposerError, composerErrorNotice, confirmStop]);
 
   const openJobs = useLatestCallback(() => {
     window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:jobs" } }));

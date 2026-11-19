@@ -291,7 +291,11 @@ pub async fn peer_cron_get(
 pub struct EventsStreamQuery {
     since: Option<String>,
     tab_id: Option<String>,
+    scope: Option<PeerEventScope>,
 }
+
+mod peer_events;
+pub(crate) use peer_events::PeerEventScope;
 
 fn event_matches_tab(event: &crate::events::SystemEvent, tab_id: Option<&str>) -> bool {
     let Some(tab_id) = tab_id else { return true };
@@ -377,11 +381,17 @@ fn overflow_payload(
 /// Absent `?since` ⇒ start live from now (old-client behavior).
 pub async fn events_stream(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    caller: Option<axum::Extension<crate::auth::CallerIdentity>>,
     Query(q): Query<EventsStreamQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, (StatusCode, String)>
 {
-    Ok(events_sse(state.events, q, &STREAMS))
+    let caller = caller.map(|caller| caller.0);
+    peer_events::validate_scope(&q, caller.as_ref())?;
+    let events = state.events.clone();
+    let scope = q.scope;
+    Ok(events_sse_filtered(events, q, &STREAMS, move |event| {
+        peer_events::visible(&state, caller.as_ref(), scope, event)
+    }))
 }
 
 pub(crate) fn events_sse(
@@ -389,11 +399,21 @@ pub(crate) fn events_sse(
     q: EventsStreamQuery,
     census: &StreamCensus,
 ) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
+    events_sse_filtered(events, q, census, |_| true)
+}
+
+fn events_sse_filtered(
+    events: crate::events::EventBroadcasterState,
+    q: EventsStreamQuery,
+    census: &StreamCensus,
+    visible: impl Fn(&crate::events::SystemEvent) -> bool + Send + 'static,
+) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
     use crate::events::ReplayPlan;
     // between the snapshot and buffered live events is deduped by seq below.
     let mut rx = events.subscribe();
     let snap = events.snapshot_ring();
     let boot = snap.boot_id.clone();
+    let watermark = snap.next_seq.saturating_sub(1);
     let since = q.since.as_deref().and_then(parse_since);
     let cursor_seq = since.as_ref().map(|(_, s)| *s);
     let plan = snap.plan(
@@ -401,6 +421,7 @@ pub(crate) fn events_sse(
         crate::events::ReplayBudget::default(),
     );
     let tab_id = q.tab_id;
+    let peer_scope = q.scope.is_some();
 
     let stream = async_stream::stream! {
         let (mut replayed_max, mut previous, replay) = match plan {
@@ -423,9 +444,16 @@ pub(crate) fn events_sse(
             if se.seq > replayed_max {
                 replayed_max = se.seq;
             }
-            if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) { continue; }
+            if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) || !visible(&se.event) { continue; }
             yield Ok(event_frame(se, previous));
             previous = Some(previous.map_or(se.seq, |seq| seq.max(se.seq)));
+        }
+        if peer_scope {
+            replayed_max = replayed_max.max(watermark);
+            previous = Some(replayed_max);
+            yield Ok(Event::default().data(serde_json::json!({
+                "event_type": "peer-replay-complete", "data": null, "boot": boot, "seq": replayed_max,
+            }).to_string()));
         }
         loop {
             match rx.recv().await {
@@ -434,7 +462,7 @@ pub(crate) fn events_sse(
                         continue;
                     }
                     replayed_max = se.seq;
-                    if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) { continue; }
+                    if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) || !visible(&se.event) { continue; }
                     yield Ok(event_frame(&se, previous));
                     previous = Some(previous.map_or(se.seq, |seq| seq.max(se.seq)));
                 }

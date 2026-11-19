@@ -931,6 +931,7 @@ pub struct RelayStreamQuery {
     pub since: Option<String>,
     #[serde(default)]
     pub tab: Option<String>,
+    scope: Option<crate::web_routes::PeerEventScope>,
 }
 
 /// `GET /api/mesh/relay-stream?peer=<id>&path=<streamable>&since=<cursor>` —
@@ -957,7 +958,15 @@ pub async fn mesh_relay_stream(
     // so a raw append needs no percent-encoding.
     let mut path = q.path.clone();
     let mut stream_tab_id = None;
-    if let Some(ordinary_id) = q.tab.as_deref() {
+    if q.scope.is_some() {
+        if q.path != "/api/events/stream" || q.tab.is_some() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Peer scope requires an unfiltered event stream".into(),
+            ));
+        }
+        path = format!("{bare}?scope=peer");
+    } else if let Some(ordinary_id) = q.tab.as_deref() {
         let owner = super::remote_tabs::validate_remote_stream_owner(&q.peer, ordinary_id, bare)
             .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
         stream_tab_id = Some(owner.tab_id.clone());
@@ -1005,12 +1014,12 @@ pub async fn mesh_relay_stream(
         )
     })?;
     if !resp.status().is_success() {
-        if surface_stream_tab(bare).is_some() {
+        if surface_stream_tab(bare).is_some() || q.scope.is_some() {
             let status = resp.status();
             let body = resp.text().await.map_err(|error| {
                 (
                     StatusCode::BAD_GATEWAY,
-                    format!("Surface stream refusal could not be read: {error}"),
+                    format!("Stream refusal could not be read: {error}"),
                 )
             })?;
             return Err((status, body));

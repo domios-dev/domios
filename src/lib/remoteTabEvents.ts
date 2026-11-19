@@ -38,7 +38,7 @@ interface ChatCursor {
 const chatCursorAdvanced = (prev: ChatCursor | null, next: ChatCursor): boolean => prev === null || next.boot !== prev.boot || next.seq > prev.seq;
 interface SubscriptionRecord {
     event: string;
-    kind: "chat" | "resize-owner" | "state" | "runtime" | "preview" | "provider-switch-status";
+    kind: "chat" | "resize-owner" | "runtime" | "preview" | "provider-switch-status";
     ordinaryTabId: string;
     peerId: string;
     remoteTabId: string;
@@ -120,10 +120,6 @@ function connect(record: SubscriptionRecord): void {
             && message.event_type === "provider-switch-status" && message.data.tab_id === record.remoteTabId) {
             record.handler({ payload: { ...message.data, tab_id: record.ordinaryTabId } });
         }
-        else if (progressed && record.kind === "state"
-            && (message.event_type === "mux-state-changed" || message.event_type === "tab-status-changed")) {
-            record.handler({ payload: { event_type: message.event_type, peer_id: record.peerId } });
-        }
     }, {
         signal: controller.signal, raw: true, onStarting: () => deadline.clear(), onReady: () => {
             deadline.arm();
@@ -159,16 +155,14 @@ export function subscribeRemoteTabEvent<T>(event: string, handler: (value: {
     const runtimePrefix = "agent-runtime-state:";
     const chatPrefix = "tab-chat-msg-";
     const ownerPrefix = "pty-resize-owner-changed:";
-    const statePrefix = "peer-state-changed:";
     const previewPrefix = "preview-index-state-";
     const providerSwitchPrefix = "provider-switch-status:";
     const kind = event.startsWith(runtimePrefix) ? "runtime" : event.startsWith(chatPrefix) ? "chat"
         : event.startsWith(previewPrefix) ? "preview" : event.startsWith(ownerPrefix) ? "resize-owner"
-            : event.startsWith(statePrefix) ? "state"
-                : event.startsWith(providerSwitchPrefix) ? "provider-switch-status" : null;
+            : event.startsWith(providerSwitchPrefix) ? "provider-switch-status" : null;
     if (!kind)
         return null;
-    const eventTarget = event.slice(kind === "runtime" ? runtimePrefix.length : kind === "chat" ? chatPrefix.length : kind === "preview" ? previewPrefix.length : kind === "state" ? statePrefix.length : kind === "provider-switch-status" ? providerSwitchPrefix.length : ownerPrefix.length);
+    const eventTarget = event.slice(kind === "runtime" ? runtimePrefix.length : kind === "chat" ? chatPrefix.length : kind === "preview" ? previewPrefix.length : kind === "provider-switch-status" ? providerSwitchPrefix.length : ownerPrefix.length);
     if (classifyTabTarget(eventTarget).kind === "invalid-remote") {
         throw new Error(`Invalid remote tab id "${eventTarget}"; local event fallback is forbidden`);
     }
@@ -213,11 +207,9 @@ export function subscribeRemoteTabEvent<T>(event: string, handler: (value: {
             subscriptions.delete(event);
     };
 }
-onRemoteTransportCredentials(() => resumeRemoteTabEvents(true));
-export function resumeRemoteTabEvents(credentialsChanged = false): void {
+onRemoteTransportCredentials(() => resumeRemoteTabEvents());
+export function resumeRemoteTabEvents(): void {
     for (const record of subscriptions.values()) {
-        if (record.kind === "state" && !credentialsChanged && !record.recovery.isAwaitingSignal())
-            continue;
         // Never supersede a connection still awaiting its first frame (the generation- churn race that blanked remote panes).
         if (record.recovery.currentCursor() == null && !record.recovery.isAwaitingSignal())
             continue;
