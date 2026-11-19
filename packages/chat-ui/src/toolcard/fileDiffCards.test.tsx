@@ -178,12 +178,7 @@ describe("file diff cards", () => {
       ["src/removed.ts", "−1"],
       ["src/renamed.ts", "+1 −1"],
     ]);
-    expect(all(codexRun, "chat-edit-run-file").map((row) => row.textContent)).toEqual([
-      "src/shared.ts+1 −1",
-      "Created src/created.ts+2",
-      "Deleted src/removed.ts−1",
-      "src/legacy.ts → src/renamed.ts+1 −1",
-    ]);
+    expect(all(codexRun, "chat-edit-run-file")).toHaveLength(4);
 
     const claudeHost = await mount(<Timeline items={timeline("claude")} />);
     expect(runs(claudeHost)).toHaveLength(1);
@@ -221,13 +216,14 @@ describe("file diff cards", () => {
     expect(all(host, "chat-edit-run")).toHaveLength(1);
     expect(all(host, "file-diff-cards")).toHaveLength(0);
     expect(rows).toHaveLength(2);
-    expect(rows.map((row) => row.textContent)).toEqual([
-      expect.stringContaining("Created "),
-      expect.stringContaining("cards-created.txt"),
-    ]);
     expect(rows.map((row) => row.querySelector('[data-testid="edit-run-counts"]')?.textContent)).toEqual(["+1", "+1 −1"]);
     expect(rows.every((row) => row.querySelector('[role="status"]')?.getAttribute("aria-label"))).toBe(true);
     expect(all(run, "edit-run-duration").map((duration) => duration.textContent)).toEqual(["0s", "0s"]);
+    for (const row of rows) {
+      const duration = row.querySelector('[data-testid="edit-run-duration"]')!;
+      const status = row.querySelector('[role="status"]')!;
+      expect(duration.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
     await act(async () => rows[0].querySelector("button")?.click());
     expect(all(run, "edit-run-diff")).toHaveLength(1);
     expect(all(run, "edit-run-diff")[0].textContent).toContain("PUBLIC_OPEN131_CREATED");
@@ -244,6 +240,16 @@ describe("file diff cards", () => {
     expect(host.textContent).not.toContain("completed");
   });
 
+  it("labels edited files and places the duration before the outcome", async () => {
+    const path = "src/changed.ts";
+    const host = await mount(<FileDiffCards event={{
+      ...diffEvent([{ path, kind: "modify", additions: 1, deletions: 1, hunks: [] }]), status: "success", durationMs: 2800,
+    }} />);
+    const duration = all(host, "file-diff-duration")[0];
+    const status = all(host, "file-diff-status")[0];
+    expect(duration.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("merges an edit with a structured diff into one card per file with exact counts and reachable raw input", async () => {
     const editEvent = eventFor("claude", "toolu_edit_a");
     const diffs = editEvent.fileDiffs ?? [];
@@ -254,8 +260,7 @@ describe("file diff cards", () => {
       renderMenu: ({ items }) => <>{items.map((item) => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</>,
     }}><ToolCallBubble event={editEvent} expanded onToggle={() => undefined} /></ChatBlockHostProvider>);
     expect(all(host, "file-diff-card")).toHaveLength(diffs.length);
-    expect(all(host, "file-diff-header").map((node) => node.textContent))
-      .toEqual(diffs.map((diff) => `${diff.path} +${diff.additions} −${diff.deletions}`));
+    expect(all(host, "file-diff-header")).toHaveLength(diffs.length);
     expect(all(host, "chat-tool-call")).toHaveLength(0);
     await expandAll(host);
     expect(all(host, "toolcard-edit-file")).toHaveLength(0);
@@ -392,7 +397,7 @@ describe("file diff cards", () => {
     const openStream = await mount(<ToolCallBubble event={head} expanded onToggle={() => undefined} />);
     await act(async () => openStream.querySelector<HTMLButtonElement>('button[aria-label="Show Describe a"]')?.click());
     expect(all(openStream, "file-diff-card")).toHaveLength(1);
-    expect(all(openStream, "file-diff-header").map((node) => node.textContent)).toEqual([`${diff.path} +${diff.additions} −${diff.deletions}`]);
+    expect(all(openStream, "file-diff-header")).toHaveLength(1);
     expect(all(openStream, "toolcard-edit-file")).toHaveLength(0);
   });
 

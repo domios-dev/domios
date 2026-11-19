@@ -17,6 +17,7 @@ const fixture = vi.hoisted(() => ({
   actions: null as { upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => void; dismissToast: (id: string) => void } | null,
 }));
 vi.mock("../store/multiplexer/hooks", () => ({ useMultiplexer: () => fixture.actions }));
+vi.mock("../components/Titlebar/UpdateTray", () => ({ UpdateTray: () => null }));
 vi.mock("../lib/buildMismatchGuard", () => ({
   onMismatch: (listener: typeof fixture.mismatch) => { fixture.mismatch = listener; return () => { fixture.mismatch = null; }; },
   checkBuildMismatch: () => fixture.pendingMismatch ?? Promise.resolve(fixture.initialMismatch), installBuildDriftTriggers: () => () => {},
@@ -31,6 +32,8 @@ vi.mock("../lib/webApi", async (importOriginal) => ({ ...await importOriginal<ty
 
 import { useAppNotices } from "./useAppNotices";
 import { NotificationToastContainer } from "../components/Notifications/NotificationToast";
+import { SettingsMenu } from "../components/Titlebar/SettingsMenu";
+import { getPwaInstallOffer, setPwaInstallOffer } from "../lib/pwaInstallOffer";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -40,7 +43,7 @@ function Harness() {
   const upsertToast = useCallback((toast: Omit<Notification, "timestamp" | "read">) => { fixture.published.push(toast.id); setToasts((current) => [...current.filter((item) => item.id !== toast.id), { ...toast, timestamp: 1, read: false }]); }, []);
   const dismissToast = useCallback((id: string) => setToasts((current) => current.filter((item) => item.id !== id)), []);
   fixture.actions = { upsertToast, dismissToast };
-  return <><Notices /><NotificationToastContainer toasts={toasts} onDismiss={dismissToast} /></>;
+  return <><Notices /><SettingsMenu onOpenSection={() => {}} /><NotificationToastContainer toasts={toasts} onDismiss={dismissToast} /></>;
 }
 
 let host: HTMLDivElement;
@@ -56,6 +59,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await act(async () => root.unmount()); host.remove();
   fixture.offer = null; fixture.initialMismatch = null; fixture.pendingMismatch = null; fixture.published = []; fixture.reload.mockReset(); fixture.accept.mockReset();
+  setPwaInstallOffer(null);
 });
 
 it("puts build drift and reload failure in the stack with Reload, Copy details and Retry", async () => {
@@ -134,27 +138,36 @@ it("shows offline and gateway state in the stack and removes them on recovery", 
   expect(toast("offline")).toBeNull(); expect(toast("gateway-unavailable")).toBeNull();
 });
 
-it("puts install prompts in the stack with the browser Install action", async () => {
+it("keeps the browser install action available without publishing a chat notice", async () => {
   const prompt = vi.fn(async () => {});
   const event = new Event("beforeinstallprompt", { cancelable: true });
   Object.assign(event, { prompt, userChoice: Promise.resolve({ outcome: "accepted" }) });
   await act(async () => window.dispatchEvent(event));
   expect(event.defaultPrevented).toBe(true);
-  expect(host.querySelector('[data-testid="pwa-chrome-install-hint"]')).toBeNull();
-  await act(async () => action("pwa-install", "Install").click());
+  expect(host.querySelector('[data-testid="pwa-install"]')).toBeNull();
+  expect(getPwaInstallOffer()?.kind).toBe("prompt");
+  await act(async () => host.querySelector<HTMLButtonElement>("[data-testid=titlebar-settings]")!
+    .dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
+  const install = document.querySelector<HTMLButtonElement>("[data-testid=settings-menu-install-domios]");
+  expect(install).not.toBeNull();
+  await act(async () => install!.click());
   expect(prompt).toHaveBeenCalledOnce();
 });
 
-it("puts iOS installation instructions in the stack with a persisted opt-out", async () => {
+it("keeps iOS installation instructions available without publishing a chat notice", async () => {
   await act(async () => root.unmount());
   const userAgent = navigator.userAgent;
   Object.defineProperty(navigator, "userAgent", { value: "iPhone", configurable: true });
   try {
     root = createRoot(host);
     await act(async () => root.render(<Harness />));
-    expect(toast("pwa-install-ios")).not.toBeNull();
-    expect(host.querySelector('[data-testid="pwa-install-hint"]')).toBeNull();
-    await act(async () => action("pwa-install-ios", "Do not show again").click());
+    expect(host.querySelector('[data-testid="pwa-install-ios"]')).toBeNull();
+    expect(getPwaInstallOffer()?.description).toContain("Add to Home Screen");
+    await act(async () => document.querySelector<HTMLButtonElement>("[data-testid=titlebar-settings]")!
+      .dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
+    const dismiss = document.querySelector<HTMLButtonElement>("[data-testid=settings-menu-dismiss-install]");
+    expect(dismiss).not.toBeNull();
+    await act(async () => dismiss!.click());
     expect(localStorage.getItem("codeterm-pwa-hint-dismissed")).toBe("1");
   } finally { Object.defineProperty(navigator, "userAgent", { value: userAgent, configurable: true }); }
 });

@@ -60,7 +60,7 @@ const INVENTORY: ForkSite[] = [
   { file: "src/components/Titlebar/Titlebar.tsx", anchor: "{IS_WEB && (", ordinal: 1, cls: "platform-adaptation", note: "web-only peer picker lives in the titlebar so host switching never depends on peer state" },
   { file: "src/hooks/useAppNotices.ts", anchor: "if (!IS_WEB) return;", ordinal: 1, cls: "platform-adaptation", note: "browser offline and gateway events are web-only" },
   { file: "src/hooks/usePwaSetup.ts", anchor: "if (!IS_WEB) return;", ordinal: 1, cls: "platform-adaptation", note: "service worker registration is web-only" },
-  { file: "src/hooks/usePwaSetup.ts", anchor: "if (!IS_WEB || isStandalone()) return;", ordinal: 1, cls: "platform-adaptation", note: "PWA install-prompt banner is web-only" },
+  { file: "src/hooks/usePwaSetup.ts", anchor: "if (!IS_WEB || isStandalone()) return;", ordinal: 1, cls: "platform-adaptation", note: "PWA install offer is web-only" },
   { file: "src/lib/serviceWorkerRegistration.ts", anchor: "if (!IS_WEB || !(\"serviceWorker\" in navigator)) return;", ordinal: 1, cls: "platform-adaptation", note: "service worker registration guard is web-only" },
   { file: "src/lib/hostBridge.ts", anchor: "if (!IS_WEB) return true;", ordinal: 1, cls: "capability-gate", note: "host bridge calls (plugin tab menu, Telegram thread state) need a host: always in Tauri, only with an authenticated web session" },
   { file: "src/components/Terminal/composerAttachmentHandoff.ts", anchor: "relayPeerId: () => (IS_WEB ? relayTarget()?.id ?? null : null),", ordinal: 1, cls: "platform-adaptation", note: "only the web mirror has a relay peer view; the desktop app addresses remote tabs by composite mesh ids" },
