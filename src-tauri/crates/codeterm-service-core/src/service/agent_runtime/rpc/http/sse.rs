@@ -88,11 +88,7 @@ pub(super) async fn consume(
     pending: &Mutex<requests::Requests>,
 ) -> Result<(), RuntimeFailure> {
     let mut decoder = Decoder::default();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| failure("SSE disconnected; runtime broken"))?
-    {
+    while let Ok(Some(chunk)) = response.chunk().await {
         for byte in chunk {
             if let Some(mut params) = decoder.push(byte)? {
                 redact_value(&mut params, password);
@@ -102,5 +98,5 @@ pub(super) async fn consume(
             }
         }
     }
-    Err(failure("SSE ended; runtime broken"))
+    Ok(())
 }

@@ -1,0 +1,77 @@
+{
+  "frames": [
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_tool_failed",
+        "created": 1795071728671,
+        "type": "session.tool.failed",
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_restore",
+          "id": "call_restore",
+          "error": {"type": "aborted", "message": "The user declined this tool call"},
+          "executed": false
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_step_failed",
+        "created": 1795071728675,
+        "type": "session.step.failed",
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_restore",
+          "error": {"type": "aborted", "message": "Step interrupted"},
+          "rawFinish": "tool_calls",
+          "tokens": {"input": 0, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}}
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_execution_interrupted",
+        "created": 1795071728677,
+        "type": "session.execution.interrupted",
+        "data": {"sessionID": "ses_owned", "reason": "shutdown"}
+      }
+    }
+  ],
+  "history": {
+    "data": [
+      {
+        "id": "msg_restore",
+        "type": "assistant",
+        "time": {"created": 1795071728445, "completed": 1795071728675},
+        "finish": "error",
+        "error": {"type": "aborted", "message": "Step interrupted"},
+        "content": [
+          {
+            "type": "tool",
+            "id": "call_restore",
+            "name": "shell",
+            "executed": false,
+            "state": {
+              "status": "error",
+              "input": {"command": "node --version", "timeout": 30000},
+              "error": {"type": "aborted", "message": "The user declined this tool call"}
+            },
+            "time": {"created": 1795071728585, "ran": 1795071728591, "completed": 1795071728671}
+          }
+        ]
+      },
+      {
+        "id": "msg_prompt",
+        "type": "user",
+        "text": "restore",
+        "time": {"created": 1795071728421}
+      }
+    ]
+  }
+}
