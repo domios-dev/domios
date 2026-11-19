@@ -2,6 +2,7 @@ import type {AgentEvent, Operation, RuntimeContext, RuntimePlan, RuntimeStep} fr
 import {done, fail, list, modelParts, next, object, refused, request, text} from "./runtimeProtocol";
 
 type Control = Extract<Operation,{kind:"control"}>;
+export const providerListParams = {responseFields:{all:["id","name"],connected:[]}};
 interface Method {id:string;name:string;available:boolean;input:"none"|"apiKey";unavailableReason?:string}
 interface Selection {provider:string;index?:number;label?:string;kind:"api"|"oauth"}
 
@@ -55,7 +56,7 @@ function loginEvent(loginId:string, status:"completed"|"failed", error?:string):
 export function loginPlan(ctx:RuntimeContext, op:Control):RuntimePlan {
   const {selection,value} = loginValue(op);
   if (modelParts(ctx.settings.model)?.providerID !== selection.provider) fail("binding_mismatch","Sign-in method targets another selected provider");
-  if (value.action === "start") return request("provider.list",{}, {stage:"loginProviders"});
+  if (value.action === "start") return request("provider.list",providerListParams, {stage:"loginProviders"});
   if (value.action !== "complete" && value.action !== "code") fail("unsupported","Unsupported sign-in challenge action");
   if (selection.kind !== "oauth" || selection.index === undefined) fail("invalid_schema","Sign-in callback requires its discovered OAuth method");
   const code = value.action === "code" ? text(value.code) : undefined;
@@ -84,7 +85,7 @@ export function loginResponse(ctx:RuntimeContext, op:Control, state:Record<strin
     }
     case "loginKey": case "loginCallback": {
       if (body !== true) return done([loginEvent(loginId,"failed","The server did not confirm authentication")]);
-      return next("provider.list",{}, {stage:"loginVerify"});
+      return next("provider.list",providerListParams, {stage:"loginVerify"});
     }
     case "loginVerify": return done([loginEvent(loginId,list(object(body).connected).includes(selection.provider) ? "completed" : "failed",list(object(body).connected).includes(selection.provider) ? undefined : "The provider did not confirm a connected account")]);
     default: return refused("Unknown sign-in response stage");
