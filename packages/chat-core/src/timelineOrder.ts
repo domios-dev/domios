@@ -22,19 +22,25 @@ function compareSource(left: TimelineOrderItem, right: TimelineOrderItem): numbe
   return compareText(leftId, rightId);
 }
 
-/** Sorts by authoritative time. Untimed rows retain reducer source order because
- *  provider sequence ordinals can restart, and follow timed rows without a known time. */
+/** Sort timestamped runs independently so untimed rows keep their source boundary. */
 export function orderTimelineItems<T extends TimelineOrderItem>(items: readonly T[]): T[] {
-  return items.map((item, index) => ({ item, index, at: timestampMs(item.timestamp) }))
-    .sort((left, right) => {
-      if (left.at != null && right.at != null) {
-        if (left.at !== right.at) return left.at - right.at;
-        const source = compareSource(left.item, right.item);
-        return source || left.index - right.index;
-      }
-      if (left.at != null && right.at == null) return -1;
-      if (left.at == null && right.at != null) return 1;
-      return left.index - right.index;
-    })
-    .map(({ item }) => item);
+  const ordered = items.map((item, index) => ({ item, index, at: timestampMs(item.timestamp) }));
+  const result = [...items];
+  let start = 0;
+  while (start < ordered.length) {
+    if (ordered[start].at == null) {
+      start++;
+      continue;
+    }
+    let end = start + 1;
+    while (end < ordered.length && ordered[end].at != null) end++;
+    const run = ordered.slice(start, end).sort((left, right) => {
+      if (left.at !== right.at) return left.at! - right.at!;
+      const source = compareSource(left.item, right.item);
+      return source || left.index - right.index;
+    });
+    run.forEach(({ item }, offset) => { result[start + offset] = item; });
+    start = end;
+  }
+  return result;
 }

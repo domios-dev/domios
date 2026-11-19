@@ -199,13 +199,7 @@ impl ItemCache {
         if item.timestamp.is_none() {
             item.timestamp = self
                 .index(&item.id)
-                .and_then(|index| self.items[index].timestamp.clone())
-                .or_else(|| {
-                    i64::try_from(at)
-                        .ok()
-                        .and_then(chrono::DateTime::<chrono::Utc>::from_timestamp_millis)
-                        .map(|timestamp| timestamp.to_rfc3339())
-                });
+                .and_then(|index| self.items[index].timestamp.clone());
         }
         if let Some(status) = item.tool_status.as_deref() {
             let previous = self.index(&item.id).map(|index| &self.items[index]);
