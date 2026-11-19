@@ -3,12 +3,12 @@ import type { ProviderDescriptor } from "../../lib/types";
 import { NO_HOST_PEER } from "../../lib/teamTemplates/hostPeers";
 import { Button } from "../shared/Button";
 import { DropdownSelect } from "../shared/DropdownMenu";
+import { MachinePlacement } from "../shared/MachinePlacement";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
 import { NEW_PEER_WORKSPACE, type PeerPlacement } from "./usePeerPlacement";
+import { LOCAL_MACHINE_ID } from "../../lib/machinePlacement";
 
 type TemplatePreview = import("../../lib/transport/teamTemplates").TemplatePreview;
-
-const HOME = "";
 
 function IssueLine({ text, children }: { text: string; children?: ReactNode }) {
   return (
@@ -49,28 +49,29 @@ export function TemplateWhere({ choice, preview, open, onOpen, showLink = true }
 }) {
   const { placement, remotePeer } = choice;
   const peers = placement.peers;
-  const options = [{ value: HOME, label: "This machine" }, ...(peers ?? []).map((peer) => ({ value: peer.id, label: peer.name }))];
+  const machines = placement.machines;
   const muted = "text-[11px] text-[var(--ct-muted-fg)]";
   return (
     <section aria-label="Where" className="flex flex-col gap-1.5 text-[12px]" data-testid="template-where">
       {!open && showLink && <Button type="button" variant="outline" className="self-start text-xs" onClick={onOpen}>Run on another machine</Button>}
       {open && (
         <div role="group" aria-label="Placement" className="flex flex-col gap-1.5">
-          <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Where it runs</div>
-          {peers !== null && peers.length === 0 && !remotePeer
+          {peers !== null && peers.length === 0 && !remotePeer && (machines?.length ?? 1) <= 1
             ? <p role="status" className={muted} data-testid="template-where-reason">{placement.peersReason ?? NO_HOST_PEER}</p>
             : (
-              <div className="grid grid-cols-[140px_minmax(0,176px)] items-center gap-x-3 gap-y-1.5" data-testid="template-where-grid">
-                <PlacementRow label="Start on" select={
-                  <DropdownSelect aria-label="Machine for this team" options={options}
-                    value={remotePeer?.id ?? HOME} disabled={peers === null} onChange={(peer) => choice.setRemotePeer(peer || null)} />} />
-                {remotePeer && <PlacementRow label={`Workspace on ${remotePeer.name}`} select={
-                  <DropdownSelect aria-label={`Workspace on ${remotePeer.name}`} options={workspaceOptions(placement, preview.needs_project === true)}
-                    value={placement.workspace} placeholder={placement.workspaces === null ? "Loading…" : "Choose a workspace"}
-                    disabled={placement.workspaces === null} onChange={placement.setWorkspace} />} />}
-                {remotePeer && placement.workspace === NEW_PEER_WORKSPACE && <PlacementRow label="Name" select={
-                  <input aria-label={`New workspace name on ${remotePeer.name}`} value={placement.newName} onChange={(event) => placement.setNewName(event.target.value)}
-                    className="w-full rounded border border-[var(--ct-border)] bg-transparent px-2 py-1 text-[12px]" placeholder="Workspace name" />} />}
+              <div className="flex flex-col gap-1.5" data-testid="template-where-grid">
+                <MachinePlacement choices={machines} testId="team-machine-placement" labelWidth="140px"
+                  value={remotePeer?.id ?? LOCAL_MACHINE_ID} disabled={peers === null}
+                  onChange={(machineId) => choice.setRemotePeer(machineId === LOCAL_MACHINE_ID ? null : machineId)} />
+                {remotePeer && <div className="grid grid-cols-[140px_minmax(0,176px)] items-center gap-x-3 gap-y-1.5">
+                  <PlacementRow label={`Workspace on ${remotePeer.name}`} select={
+                    <DropdownSelect aria-label={`Workspace on ${remotePeer.name}`} options={workspaceOptions(placement, preview.needs_project === true)}
+                      value={placement.workspace} placeholder={placement.workspaces === null ? "Loading…" : "Choose a workspace"}
+                      disabled={placement.workspaces === null} onChange={placement.setWorkspace} />} />
+                  {placement.workspace === NEW_PEER_WORKSPACE && <PlacementRow label="Name" select={
+                    <input aria-label={`New workspace name on ${remotePeer.name}`} value={placement.newName} onChange={(event) => placement.setNewName(event.target.value)}
+                      className="w-full rounded border border-[var(--ct-border)] bg-transparent px-2 py-1 text-[12px]" placeholder="Workspace name" />} />}
+                </div>}
               </div>
             )}
           {remotePeer && placement.workspacesReason && <p role="status" className={muted}>{placement.workspacesReason}</p>}

@@ -1,6 +1,9 @@
 import { invoke } from "../bridge";
 import { failureMessage } from "../../components/MeshPanel/accountMachines";
 import type { AccountMeshFailure } from "../../components/MeshPanel/accountMeshClient";
+import { cleanMachineName, type MeshIdentityProjection } from "../machineIdentity";
+import { machinePlacementChoicesFromPeers, type MachinePlacementChoice } from "../machinePlacement";
+import { RELAY_PROTOCOL_VERSION } from "../types";
 
 type MeshPeersResponse = import("../../../gen/MeshPeersResponse").MeshPeersResponse;
 type PairedPeer = import("../../../gen/PairedPeer").PairedPeer;
@@ -8,7 +11,7 @@ type PairedPeer = import("../../../gen/PairedPeer").PairedPeer;
 export interface HostPeer { id: string; name: string }
 
 /** Peers that can host a Team, or the plain reason none is listed. */
-export interface HostPeerListing { peers: HostPeer[]; reason: string | null }
+export interface HostPeerListing { peers: HostPeer[]; reason: string | null; machines?: MachinePlacementChoice[] }
 
 /** A workspace on the peer the Team can start in. */
 export interface PeerWorkspace { id: string; name: string }
@@ -19,7 +22,7 @@ export const NO_HOST_PEER = "No paired machine with Full access is online.";
 export function hostPeersOf(paired: readonly Pick<PairedPeer, "instance_id" | "instance_name" | "online" | "access_level">[]): HostPeer[] {
   return paired
     .filter((peer) => peer.online && peer.access_level === "full")
-    .map((peer) => ({ id: peer.instance_id, name: peer.instance_name }))
+    .map((peer) => ({ id: peer.instance_id, name: cleanMachineName(peer.instance_name, peer.instance_id) ?? "Paired machine" }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -33,11 +36,33 @@ export function hostListingFailure(error: unknown): string {
 }
 
 export async function listHostPeers(): Promise<HostPeerListing> {
-  const response = await invoke<Pick<MeshPeersResponse, "paired">>("mesh_list_peers");
+  const response = await invoke<MeshPeersResponse & MeshIdentityProjection>("mesh_list_peers");
   const peers = hostPeersOf(response.paired ?? []);
-  if (peers.length > 0) return { peers, reason: null };
+  const machines = machinePlacementChoicesFromPeers(
+    response.local_instance_name,
+    response.local_machine_identity,
+    (response.paired ?? []).map((peer) => ({
+      id: peer.instance_id,
+      name: peer.instance_name,
+      online: peer.online,
+      accessLevel: peer.access_level,
+      relayProtocolVersion: peer.relay_protocol_version,
+      identity: response.machine_identities?.[peer.instance_id],
+    })),
+  );
+  if (peers.length > 0) return { peers, reason: null, machines };
   const mesh = await invoke<{ last_refusal?: AccountMeshFailure | null }>("account_mesh_state").catch(() => null);
-  return { peers, reason: emptyHostReason(mesh?.last_refusal) };
+  return { peers, reason: emptyHostReason(mesh?.last_refusal), machines };
+}
+
+export function placementMachinesFromHostPeers(peers: readonly HostPeer[]): MachinePlacementChoice[] {
+  return machinePlacementChoicesFromPeers("This machine", undefined, peers.map((peer) => ({
+    id: peer.id,
+    name: peer.name,
+    online: true,
+    accessLevel: "full",
+    relayProtocolVersion: RELAY_PROTOCOL_VERSION,
+  })));
 }
 
 /** The peer's own workspaces a Team can join; its protected home workspace is not one of them. */
