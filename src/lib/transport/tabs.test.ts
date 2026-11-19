@@ -228,10 +228,11 @@ describe("tab command HTTP contract", () => {
     ]);
   });
 
-  it("preserves explicit startup consent on the human chat route", async () => {
+  it("preserves the expected recipient and terminal command intent on the human chat route", async () => {
     const { transport, calls } = fixture();
-    await transport.chat_send_text({ tabId: "tab", text: "opaque", clientToken: "once", startupOverrideNonce: "own-launch" });
-    expect(calls[0]).toMatchObject({ body: { text: "opaque", client_token: "once", startup_override_nonce: "own-launch" } });
+    const recipient = { provider_id: "fixture", binding_nonce: "own-launch", session_id: "own-session" };
+    await transport.chat_send_text({ tabId: "tab", text: "/help", clientToken: "once", expectedRecipient: recipient, terminalCommand: true });
+    expect(calls[0]).toMatchObject({ body: { text: "/help", client_token: "once", expected_recipient: recipient, terminal_command: true } });
   });
 
   it("preserves byte and item cursor units on history backfill", async () => {

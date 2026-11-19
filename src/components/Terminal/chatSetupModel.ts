@@ -1,20 +1,30 @@
-import { hasRetiredPtySession, tabActivity } from "../../lib/tabActivity";
+import { hasExitedChatRecipient, tabActivity } from "../../lib/tabActivity";
 import { tabLaunched } from "../../lib/tabFailure";
 import { runtimeResponseDeadlinePending } from "../../lib/agentRuntimeState";
-import type { Tab } from "../../lib/types";
+import type { ExpectedChatRecipient, Tab } from "../../lib/types";
 import type { ChatBodyView } from "./chatBodyVisibility";
 import { describeError, type ErrorDescription } from "../../lib/describeError";
 
 export function composerSendPolicy(tab: Partial<Tab> | null | undefined) {
+  const exited = hasExitedChatRecipient(tab) ? tab?.exited_chat_recipient : undefined;
+  const stopped = tab?.backing?.kind === "pty" && !tab.agent_type && !exited
+    && Boolean(tab.prior_session_binding_nonces?.length);
+  const recipient: ExpectedChatRecipient | undefined = exited
+    ? { provider_id: exited.provider_id, binding_nonce: exited.nonce, session_id: exited.session_id }
+    : tab?.agent_type && tab.backing?.kind !== "chat_backend" && (tab.session_binding_nonce || tab.agent_session_id)
+      ? { provider_id: tab.agent_type, binding_nonce: tab.session_binding_nonce ?? null, session_id: tab.agent_session_id ?? null }
+      : undefined;
   return {
-    allowed: Boolean(tab),
-    terminalFallback: Boolean(tab?.agent_type) && (tab?.boot_stage === "agent_ready" || tab?.boot_stage === "pty_reattached"),
+    allowed: Boolean(tab) && !stopped,
+    recipient,
+    terminalFallback: Boolean(recipient?.session_id && recipient.binding_nonce)
+      && tab?.boot_stage === "agent_ready" && !tab.frozen && !tab.agent_booting
+      && tab.reported_session_binding_nonce === recipient?.binding_nonce,
   };
 }
 
 export function chatSetupView(tab: Partial<Tab> | null | undefined, chatSessionAttached = false): ChatBodyView {
-  if (hasRetiredPtySession(tab) && !tab?.agent_booting
-    && (tab?.boot_stage == null || tab.boot_stage === "shell_ready" || tab.boot_stage === "pty_reattached")) return { kind: "exited" };
+  if (hasExitedChatRecipient(tab) && !tab?.agent_booting) return { kind: "exited" };
   const launched = tabLaunched(tab);
   if (tab?.boot_stage === "spawn_failed" && !launched) return { kind: "launch_failed", reason: tab.boot_failure_reason ?? null };
   const currentLaunchBound = Boolean(tab?.agent_session_id?.trim() && tab.session_binding_nonce

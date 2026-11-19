@@ -508,9 +508,12 @@ export function beginChatSendRetry(tabId: string, id: string): DeliverySend | un
   return next;
 }
 
-export function setChatSendDraft(tabId: string, id: string, draft: DeliveryDraft | undefined): void {
+export function setChatSendDraft(
+  tabId: string, id: string, draft: DeliveryDraft | undefined, target?: DeliverySend["target"],
+): void {
   const current = readChatSends(tabId);
-  const next = current.map((send) => send.id === id && !sameDraft(send.draft, draft) ? { ...send, draft } : send);
+  const next = current.map((send) => send.id === id && (!sameDraft(send.draft, draft) || (target && send.target !== target))
+    ? { ...send, draft, target: target ?? send.target } : send);
   if (next.some((send, index) => send !== current[index])) publish(tabId, next);
 }
 

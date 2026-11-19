@@ -184,7 +184,8 @@ it("keeps one held bubble and offers Restart after the provider returns to its s
   const fixture = await mount(true, false, "own-session");
   try {
     await fixture.patch({ frozen: false, pty_id: "own-pty", boot_stage: "shell_ready",
-      agent_type: null, agent_session_id: null, session_binding_nonce: null,
+      agent_type: null, agent_session_id: null, session_binding_nonce: "shell-nonce",
+      exited_chat_recipient: { provider_id: "body-ready-fixture", nonce: "own-nonce", session_id: "own-session" },
       prior_session_binding_nonces: [{ nonce: "own-nonce", session_id: "own-session" }] });
     const exited = fixture.host.querySelector('[role="status"][aria-label="Agent exited"]')!;
     expect(exited).not.toBeNull();
@@ -206,6 +207,18 @@ it("keeps one held bubble and offers Restart after the provider returns to its s
     expect(fixture.commands.filter(command => command === "restart_agent_tab")).toHaveLength(1);
     expect(fixture.commands.filter(command => command === "chat_send_text")).toHaveLength(1);
     expect(enabledComposer(fixture.host)).toBeDefined();
+  } finally { await fixture.dispose(); }
+});
+
+it("leaves a deliberately stopped tab with historical lineage in Terminal", async () => {
+  const fixture = await mount(true, false, "own-session");
+  try {
+    await fixture.patch({ frozen: false, pty_id: null, boot_stage: "shell_ready",
+      agent_type: null, agent_session_id: null, session_binding_nonce: null,
+      prior_session_binding_nonces: [{ nonce: "own-nonce", session_id: "own-session" }] });
+    expect(fixture.host.querySelector('[aria-label="Agent exited"]')).toBeNull();
+    expect(enabledComposer(fixture.host)).toBeUndefined();
+    expect(fixture.commands.filter(command => command === "wake_tab")).toHaveLength(1);
   } finally { await fixture.dispose(); }
 });
 

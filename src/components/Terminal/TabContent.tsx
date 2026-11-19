@@ -6,8 +6,8 @@ import { RestoreStatePanel } from "./RestoreStatePanel";
 import { DeferredPresence } from "../shared/DeferredPresence";
 import { dockedTabFailure, restoreActivityVisible, restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "../../lib/restoreStageView";
 import { useCurrentTabUiMode } from "../../hooks/useCurrentTabUiMode";
-import { resolveInitialTabUiMode } from "../../lib/clientTabUiMode";
-import { hasRetiredPtySession } from "../../lib/tabActivity";
+import { getClientTabUiMode, resolveInitialTabUiMode } from "../../lib/clientTabUiMode";
+import { hasExitedChatRecipient } from "../../lib/tabActivity";
 import { runtimeSessionUnavailable } from "../../lib/agentRuntimeState";
 import { useWakeOnOpen } from "./useWakeOnOpen";
 import { useRemoteChatStatus } from "../../lib/remoteChatStatus";
@@ -113,7 +113,8 @@ export function TabContent({
   </TabWrapper>;
   const sleepingTranscript = (hasSleepingTranscript(tab) || hasCachedTranscript) && restore.phase !== "ready";
   const loadRefused = runtimeSessionUnavailable(tab.agent_runtime_state);
-  const chatCapable = providerId ? descriptor?.supports_chat_ui !== false : hasRetiredPtySession(tab);
+  const chatCapable = hasExitedChatRecipient(tab)
+    || (descriptor?.supports_chat_ui ?? Boolean(providerId && getClientTabUiMode(tab.id) === "chat"));
   const chatOwnsStartup = tab.backing?.kind === "chat_backend"
     || (uiMode ?? resolveInitialTabUiMode(tab.id, { chatCapable })) === "chat";
   const dockedFailure = chatOwnsStartup ? dockedTabFailure(tab, wake) : null;
@@ -143,7 +144,7 @@ export function TabContent({
 
   const chatBacking = tab.backing?.kind === "chat_backend" ? tab.backing : null;
   const isChatBackend = chatBacking !== null;
-  const showSwitch = !isChatBackend && (descriptor?.supports_chat_ui === true || hasRetiredPtySession(tab));
+  const showSwitch = !isChatBackend && (descriptor?.supports_chat_ui === true || hasExitedChatRecipient(tab));
   const usageVisible = usageSource ? usageTrackingEnabled(
     trackingDescriptor?.settings_schema ?? [],
     usageEnabledByProvider?.[usageSource.trackingProvider],

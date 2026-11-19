@@ -57,20 +57,15 @@ fn validate_user_client_token(tab: &str, token: Option<&str>) -> Result<(), Send
 pub async fn chat_send_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    caller: Option<Extension<crate::auth::CallerIdentity>>,
+    _caller: Option<Extension<crate::auth::CallerIdentity>>,
     Path(id): Path<String>,
     Json(body): Json<SendTextBody>,
 ) -> Result<Json<codeterm_service_core::service::agent_pad::ChatSendResult>, SendRejection> {
     validate_user_client_token(&id, body.client_token.as_deref())?;
-    if body.startup_override_nonce.is_some()
-        && !matches!(
-            caller.as_ref().map(|caller| &caller.0),
-            Some(crate::auth::CallerIdentity::Local)
-        )
-    {
+    if body.startup_override_nonce.is_some() {
         return Err(SendRejection::from((
             StatusCode::FORBIDDEN,
-            "Startup override requires authenticated owner authority",
+            "Chat messages wait for agent readiness",
         )));
     }
     if crate::auth::remote_agent(&state, &headers)
@@ -88,22 +83,56 @@ pub async fn chat_send_text(
     let tab_id = crate::routes::resolve_tab_async(&state, &id)
         .await
         .map_err(SendRejection::from)?;
+    if body.terminal_command {
+        let target = tab_id.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            chat_send_allowed(&state, &target)?;
+            let refusal = |detail: &str| chat_admission_rejection(&target, detail.into());
+            if body.replay_only {
+                return Err(refusal(
+                    "admission_unknown: terminal commands cannot be replayed",
+                ));
+            }
+            let expected = body
+                .expected_recipient
+                .as_ref()
+                .ok_or_else(|| refusal("The terminal command has no recipient."))?;
+            let token = body
+                .client_token
+                .as_deref()
+                .filter(|token| !token.is_empty())
+                .ok_or_else(|| refusal("The terminal command has no send identity."))?;
+            let status = state
+                .svc
+                .send_composer_terminal_command(
+                    &target,
+                    expected,
+                    token,
+                    body.text.as_deref().unwrap_or_default(),
+                )
+                .map_err(|detail| chat_admission_rejection(&target, detail))?;
+            Ok::<_, SendRejection>(codeterm_service_core::service::agent_pad::chat_send_result(
+                status, None,
+            ))
+        })
+        .await
+        .map_err(|_| {
+            SendRejection::from((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "terminal command task failed",
+            ))
+        })??;
+        return Ok(Json(result));
+    }
     let owner = state.clone();
     let target = tab_id.clone();
     let client_token = body.client_token.clone();
     let replay_only = body.replay_only;
-    let startup_override_nonce = body.startup_override_nonce.clone();
+    let expected = body.expected_recipient;
     let (run_stages, reservation) = tokio::task::spawn_blocking(move || {
         let state = owner;
         let tab_id = target;
-        surface_send_refusal(&state, &tab_id)?;
-        state
-            .svc
-            .require_managed_send_allowed(&tab_id, None)
-            .map_err(|detail| DeliveryError::TabBusyRefused {
-                tab: tab_id.clone(),
-                detail,
-            })?;
+        chat_send_allowed(&state, &tab_id)?;
         let has_agent_identity = state.svc.tab_has_chat_send_target(&tab_id);
         if let Some(error) = chat_send_target_refusal(
             &tab_id,
@@ -117,17 +146,16 @@ pub async fn chat_send_text(
             false,
             has_agent_identity,
         );
-        if let Some(nonce) = startup_override_nonce.filter(|_| !replay_only) {
-            state
-                .svc
-                .override_user_startup(&tab_id, &nonce)
-                .map_err(|detail| chat_admission_rejection(&tab_id, detail))?;
-        }
-        let reservation = if state.svc.tab_chat_backing(&tab_id).is_none() {
+        let reservation = if expected.is_some() || state.svc.tab_chat_backing(&tab_id).is_none() {
             Some(
                 state
                     .svc
-                    .reserve_user_send_with_replay_only(&tab_id, client_token.clone(), replay_only)
+                    .reserve_chat_send_for_recipient(
+                        &tab_id,
+                        client_token.clone(),
+                        replay_only,
+                        expected.as_ref(),
+                    )
                     .map_err(|detail| chat_admission_rejection(&tab_id, detail))?,
             )
         } else {
@@ -177,6 +205,17 @@ pub async fn chat_send_text(
     .map_err(|_| SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat send task failed")))?
     .map_err(|detail| chat_admission_rejection(&tab_id, detail))?;
     Ok(Json(result))
+}
+
+fn chat_send_allowed(state: &AppState, tab_id: &str) -> Result<(), DeliveryError> {
+    surface_send_refusal(state, tab_id)?;
+    state
+        .svc
+        .require_managed_send_allowed(tab_id, None)
+        .map_err(|detail| DeliveryError::TabBusyRefused {
+            tab: tab_id.to_string(),
+            detail,
+        })
 }
 
 fn surface_send_refusal(state: &AppState, tab_id: &str) -> Result<(), DeliveryError> {
@@ -396,6 +435,11 @@ pub struct SendTextBody {
     pub(crate) replay_only: bool,
     #[serde(default)]
     pub(crate) startup_override_nonce: Option<String>,
+    #[serde(default)]
+    pub(crate) expected_recipient:
+        Option<codeterm_service_core::service::chat_send_transaction::ExpectedChatRecipient>,
+    #[serde(default)]
+    pub(crate) terminal_command: bool,
 }
 
 #[derive(Deserialize)]

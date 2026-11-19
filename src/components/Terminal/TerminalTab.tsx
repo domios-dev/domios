@@ -7,7 +7,7 @@ import { openLockedPlans } from "../billing/freeLimitGate";
 import { useTabLock } from "../billing/useTabLock";
 import { attachFrontendTerminalViewport } from "../../lib/frontendUpdate/terminal";
 import { useTabActivity } from "../../lib/useTabActivity";
-import { hasRetiredPtySession } from "../../lib/tabActivity";
+import { hasExitedChatRecipient } from "../../lib/tabActivity";
 import type { RestoreStageView } from "../../lib/restoreStageView";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { SquareTerminal, X } from "lucide-react";
@@ -124,7 +124,7 @@ export const TerminalTab = memo(function TerminalTab({
     tab?.backing?.kind === "chat_backend"
       ? true
       : !agentType
-        ? hasRetiredPtySession(tab)
+        ? hasExitedChatRecipient(tab)
         : agentDescriptor
           ? agentDescriptor.supports_chat_ui === true
           : true;

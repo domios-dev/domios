@@ -69,6 +69,23 @@ impl super::super::ServiceContext {
                 return Ok(UserDrain::Idle);
             }
             self.chat_send_ledger.restore_user_record(&head);
+            if head.authority.pty_id.is_none()
+                && !head.authority.prelaunch
+                && head.authority.session_id.is_some()
+                && !self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+                    tab.restorable_launch
+                        .exited_chat_binding
+                        .as_ref()
+                        .is_some_and(|exit| {
+                            exit.nonce == head.authority.binding_nonce
+                                && exit.provider_id == head.authority.provider_id
+                                && head.authority.session_id.as_ref() == Some(&exit.session_id)
+                        })
+                })
+            {
+                self.settle_ended_user_head(&head)?;
+                continue;
+            }
             if head.state == UserSendState::Queued
                 && head.handoff_session.is_none()
                 && !self
@@ -320,24 +337,14 @@ fn exited_user_send_wait(
     authority: &UserSendAuthority,
 ) -> Option<&'static str> {
     let exit = tab.restorable_launch.exited_chat_binding.as_ref()?;
-    if exit.nonce != authority.binding_nonce || exit.provider_id != authority.provider_id {
+    if exit.provider_id != authority.provider_id
+        || authority.observed_session_id.as_ref() != Some(&exit.session_id)
+    {
         return None;
     }
-    if exited_chat_authority(tab)
-        .is_some_and(|exited| exited.observed_session_id == authority.observed_session_id)
-    {
+    if tab.exited_chat_recipient().is_some() {
         return Some("awaiting_agent_restart");
     }
-    let session = authority.observed_session_id.as_deref()?;
-    let resume = tab.prior_session_binding_nonces.last()?;
-    (tab.agent_type.as_deref() == Some(exit.provider_id.as_str())
-        && tab.session_binding_nonce.as_ref() == Some(&resume.nonce)
-        && resume.resume_target_session_id.as_deref() == Some(session)
-        && tab
-            .agent_session_id
-            .as_deref()
-            .is_none_or(|current| current == session)
-        && !tab.launch_session_authenticated()
-        && tab.boot_stage != Some(codeterm_types::pty::BootStage::SpawnFailed))
-    .then_some("awaiting_agent_ready")
+    tab.resuming_exited_chat_recipient()
+        .map(|_| "awaiting_agent_ready")
 }

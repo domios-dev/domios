@@ -16,24 +16,12 @@ fn admit_without_dispatch(fixture: &ServiceFixture, tab: &str, payload: &str) ->
 
 #[test]
 fn exited_composer_admission_waits_for_its_authenticated_resume_and_writes_once() {
-    use crate::multiplexer::types::ExitedChatBinding;
     use codeterm_types::pty::BootStage;
 
     let (fixture, tab_id) = queue_fixture(true, None);
     let service = &fixture.service;
-    attach_fixture_pty(&fixture, &tab_id);
-    {
-        let mut mux = service.mux.write();
-        let tab = mux.get_tab_mut(&tab_id).unwrap();
-        tab.remember_superseded_binding_nonce();
-        tab.restorable_launch.exited_chat_binding = Some(ExitedChatBinding {
-            provider_id: tab.agent_type.take().unwrap(),
-            nonce: tab.session_binding_nonce.take().unwrap(),
-        });
-        tab.agent_session_id = None;
-        tab.reported_session_binding_nonce = None;
-        tab.boot_stage = Some(BootStage::ShellReady);
-    }
+    mark_ready(&fixture, &tab_id);
+    assert!(service.clear_tab_agent_identity_after_confirmed_exit(&tab_id, "fixture exit"));
     assert!(service.tab_has_chat_send_target(&tab_id));
     let reservation = service
         .reserve_user_send(&tab_id, Some("own-token".into()))
@@ -50,6 +38,20 @@ fn exited_composer_admission_waits_for_its_authenticated_resume_and_writes_once(
     assert_eq!(status.state, ChatSendState::Pending);
     await_owner_idle(&fixture, &tab_id);
     let send_id = status.send_id;
+    let snapshot = service.mux.read().to_session_snapshot();
+    *service.mux.write() =
+        crate::multiplexer::state::MultiplexerState::from_session_snapshot(&snapshot);
+    service.tab_env(&tab_id).unwrap();
+    assert!(service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .session_binding_nonce
+        .is_some());
+    assert!(service.tab_has_chat_send_target(&tab_id));
+    service.reconcile_user_send_statuses(&tab_id).unwrap();
+    await_owner_idle(&fixture, &tab_id);
     assert_eq!(
         service
             .chat_send_ledger
@@ -60,14 +62,18 @@ fn exited_composer_admission_waits_for_its_authenticated_resume_and_writes_once(
         Some("awaiting_agent_restart")
     );
 
-    {
+    let begin_resume = |pty_id: &str| {
         let mut mux = service.mux.write();
         let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.pty_id = Some(pty_id.into());
         tab.agent_type = Some("opaque-provider".into());
-        tab.session_binding_nonce = Some("resume-nonce".into());
-        tab.remember_resume_binding_nonce("opaque-session");
-        tab.boot_stage = Some(BootStage::LaunchWritten);
-    }
+        drop(mux);
+        let nonce = service.reserve_agent_launch_binding_nonce(&tab_id, Some("opaque-session"));
+        service.mux.write().get_tab_mut(&tab_id).unwrap().boot_stage =
+            Some(BootStage::LaunchWritten);
+        nonce
+    };
+    begin_resume("first-resumed-pty");
     service
         .drain_user_owner_with(&tab_id, |_, _, _, _| panic!("resume is not authenticated"))
         .unwrap();
@@ -87,12 +93,30 @@ fn exited_composer_admission_waits_for_its_authenticated_resume_and_writes_once(
         .unwrap()
         .agent_session_id = Some("opaque-session".into());
     mark_ready(&fixture, &tab_id);
+    assert!(service.clear_tab_agent_identity_after_confirmed_exit(&tab_id, "second fixture exit"));
+    service
+        .drain_user_owner_with(&tab_id, |_, _, _, _| {
+            panic!("the second provider exited before the drain")
+        })
+        .unwrap();
+    assert_eq!(
+        service.chat_send_ledger.status(&send_id).unwrap().state,
+        ChatSendState::Pending
+    );
+    let final_nonce = begin_resume("second-resumed-pty");
+    service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .agent_session_id = Some("opaque-session".into());
+    mark_ready(&fixture, &tab_id);
 
     let mut written = Vec::new();
     for _ in 0..2 {
         service
             .drain_user_owner_with(&tab_id, |record, text, _, _| {
-                assert_eq!(record.authority.binding_nonce, "resume-nonce");
+                assert_eq!(record.authority.binding_nonce, final_nonce);
                 assert_eq!(
                     record.authority.session_id.as_deref(),
                     Some("opaque-session")

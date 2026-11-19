@@ -177,6 +177,30 @@ impl RestorableLaunchParameters {
 pub struct ExitedChatBinding {
     pub provider_id: String,
     pub nonce: String,
+    pub session_id: String,
+}
+
+impl super::Tab {
+    pub fn exited_chat_recipient(&self) -> Option<&ExitedChatBinding> {
+        if !matches!(self.backing, super::TabBacking::Pty) || self.agent_type.is_some() {
+            return None;
+        }
+        self.restorable_launch.exited_chat_binding.as_ref()
+    }
+
+    pub fn resuming_exited_chat_recipient(&self) -> Option<&ExitedChatBinding> {
+        let exit = self.restorable_launch.exited_chat_binding.as_ref()?;
+        let resume = self.prior_session_binding_nonces.last()?;
+        (self.agent_type.as_ref() == Some(&exit.provider_id)
+            && self.session_binding_nonce.as_ref() == Some(&resume.nonce)
+            && resume.resume_target_session_id.as_ref() == Some(&exit.session_id)
+            && self
+                .agent_session_id
+                .as_ref()
+                .is_none_or(|session| session == &exit.session_id)
+            && !self.launch_session_authenticated())
+        .then_some(exit)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

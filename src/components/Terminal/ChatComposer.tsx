@@ -15,7 +15,7 @@ import { useComposerLayout } from "./useComposerLayout";
 import { evaluateWhen } from "../../lib/evaluateWhen";
 import { ComposerActions } from "./ComposerActions";
 import { isDuplicateSend } from "./chatSendGuard";
-import { invoke, listen } from "../../lib/bridge";
+import { listen } from "../../lib/bridge";
 import { useComposerRecall } from "./useComposerRecall";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { useChatDeliveryComposer } from "./chatDeliveryComposer";
@@ -101,7 +101,7 @@ declare global {
 function cliFallbackCommandPayload(text: string): string | null {
   const trimmed = text.trim();
   if (!CLI_FALLBACK_COMMANDS.has(trimmed)) return null;
-  return `${trimmed}\r`;
+  return trimmed;
 }
 
 const NO_SUGGESTIONS: SlashCommandSuggestion[] = [];
@@ -429,6 +429,12 @@ function ChatComposerImpl({
     const draft = buildDraft(extraAttachments);
     if (!draft) return;
     const { text, allAttachments, recordedVoiceAttachments, quoted } = draft;
+    const remote = parseCompositeTabId(tabId);
+    const remoteUnavailable = remote && readRemoteChatStatus(tabId, remote.peerId).state;
+    const terminalCommand = sendPolicy.terminalFallback && !chatBackend && !remoteUnavailable && currentPtyId
+      && !allAttachments.length && !recordedVoiceAttachments.length && !quoted
+      ? cliFallbackCommandPayload(text) : null;
+    const target = { expectedRecipient: sendPolicy.recipient, terminalCommand: terminalCommand ? true : undefined };
     const attachmentError = composerAttachmentError(provider?.attachments, text, allAttachments,
       recordedVoiceAttachments, capsules.registryRef.current, quoted);
     if (tabProvider && attachmentError) { flagComposerError(attachmentError); return; }
@@ -455,7 +461,7 @@ function ChatComposerImpl({
       ? voicePendingContent : portable || allAttachments.join(" "));
     const deliveryDraft = { text, attachments: allAttachments, recordedVoiceAttachments,
       ...(recordedVoiceAttachments.length ? { voiceTranscribing: true } : {}), capsules: registry, reply: quoted };
-    setChatSendDraft(tabId, optimisticId, deliveryDraft);
+    setChatSendDraft(tabId, optimisticId, deliveryDraft, target);
     setComposerInvalid(false);
     refocusComposer();
     let composed: string;
@@ -472,7 +478,7 @@ function ChatComposerImpl({
       }
       const readyDraft = { ...deliveryDraft, ...resolved, voiceTranscribing: false };
       setChatSendDraft(tabId, optimisticId, readyDraft);
-      const delivery = prepareChatDelivery(tabId, { ...send, draft: readyDraft }, expandDsTasks);
+      const delivery = terminalCommand ?? prepareChatDelivery(tabId, { ...send, draft: readyDraft }, expandDsTasks);
       composed = await delivery;
       if (!composed.trim()) {
         failChatSendRequest(tabId, optimisticId, "No message was sent because the prepared message is empty.");
@@ -487,17 +493,9 @@ function ChatComposerImpl({
       return;
     }
     try {
-      const remote = parseCompositeTabId(tabId);
-      const remoteUnavailable = remote && readRemoteChatStatus(tabId, remote.peerId).state;
-      const fallbackCommand = sendPolicy.terminalFallback && !chatBackend && !remoteUnavailable && allAttachments.length === 0
-        ? cliFallbackCommandPayload(composed) : null;
-      if (fallbackCommand) {
-        if (!currentPtyId) throw new Error("Tab has no PTY");
-        onOpenTerminalFallback?.();
-        await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
-      } else {
-        observeChatSendStatus(await sendTrackedChatMessage(tabId, optimisticId, composed));
-      }
+      const status = await sendTrackedChatMessage(tabId, optimisticId, composed, target);
+      observeChatSendStatus(status);
+      if (terminalCommand && status.state !== "failed") onOpenTerminalFallback?.();
       recall.remember(portable);
     } catch (e) {
       console.warn("[chat-send] optimistic delivery failed", {

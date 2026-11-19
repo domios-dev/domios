@@ -317,7 +317,7 @@ function TabSessionChatBody({
     if (voiceRetry && send.draft) setChatSendDraft(tabId, id, { ...send.draft, voiceTranscribing: true });
     let content = send.content;
     try {
-      content = await prepareChatDelivery(tabId, send, expandDeliveryTasks);
+      content = send.target?.terminalCommand ? send.content : await prepareChatDelivery(tabId, send, expandDeliveryTasks);
       if (voiceRetry && send.draft) setChatSendDraft(tabId, id, { ...send.draft, voiceTranscribing: false });
       updateChatSendContent(tabId, id, content);
     } catch (error) {
@@ -326,7 +326,7 @@ function TabSessionChatBody({
       return;
     }
     try {
-      observeChatSendStatus(await sendTrackedChatMessage(tabId, send.correlationId ?? send.id, content));
+      observeChatSendStatus(await sendTrackedChatMessage(tabId, send.correlationId ?? send.id, content, send.target));
     } catch {
       void invoke<import("./chatSendStatus").ChatSendStatus[]>("chat_send_status", { tabId })
         .then((statuses) => statuses.forEach(observeChatSendStatus)).catch(() => {});

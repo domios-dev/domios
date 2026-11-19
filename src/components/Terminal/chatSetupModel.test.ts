@@ -46,12 +46,16 @@ test("only undismissed backend-held messages are shown as waiting for launch", (
 
 test("the exact tab accepts composer sends throughout its lifecycle", () => {
   const retired = [{ nonce: "retired", session_id: "own-session" }];
+  const exit = { provider_id: "fixture", nonce: "retired", session_id: "own-session" };
   const states = {
     launching: { agent_type: "fixture", boot_stage: "agent_launching" },
     restoring: { agent_type: "fixture", frozen: true, boot_stage: "pty_starting" },
-    exited: { backing: { kind: "pty" }, boot_stage: "shell_ready", prior_session_binding_nonces: retired },
-    restarting: { backing: { kind: "pty" }, boot_stage: "pty_starting", prior_session_binding_nonces: retired },
-    ready: { agent_type: "fixture", boot_stage: "agent_ready" },
+    exited: { backing: { kind: "pty" }, boot_stage: "shell_ready", prior_session_binding_nonces: retired,
+      exited_chat_recipient: exit, session_binding_nonce: "restored-shell" },
+    restarting: { backing: { kind: "pty" }, boot_stage: "pty_starting", agent_booting: true,
+      prior_session_binding_nonces: retired, exited_chat_recipient: exit },
+    ready: { agent_type: "fixture", boot_stage: "agent_ready", agent_session_id: "own-session",
+      session_binding_nonce: "own-nonce", reported_session_binding_nonce: "own-nonce" },
     failed: { agent_type: "fixture", boot_stage: "spawn_failed" },
   } satisfies Record<string, Partial<Tab>>;
   for (const [state, tab] of Object.entries(states)) {
@@ -63,6 +67,12 @@ test("the exact tab accepts composer sends throughout its lifecycle", () => {
   assert.equal(composerVisible({ kind: "locked" }), false);
   assert.deepEqual(chatSetupView(states.exited, true), { kind: "exited" });
   assert.deepEqual(chatSetupView({ ...states.exited, boot_stage: "pty_reattached" }), { kind: "exited" });
+  assert.deepEqual(chatSetupView({ ...states.exited, boot_stage: "pty_starting" }), { kind: "exited" });
+  const stopped = { ...states.exited, exited_chat_recipient: undefined };
+  assert.notEqual(chatSetupView(stopped).kind, "exited");
+  assert.equal(composerSendPolicy(stopped).allowed, false);
+  assert.equal(composerSendPolicy({ ...states.ready, boot_stage: "pty_reattached",
+    reported_session_binding_nonce: null }).terminalFallback, false);
   assert.equal(chatSetupView(states.restarting).kind, "starting");
   assert.notEqual(chatSetupView({ backing: { kind: "pty" }, boot_stage: "shell_ready" }).kind, "exited");
 });

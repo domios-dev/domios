@@ -103,7 +103,7 @@ export async function sendTrackedChatMessage(
   tabId: string,
   messageId: string,
   message: string,
-  startupOverrideNonce?: string | null,
+  target?: import("./chatDeliveryModel").ChatSendTarget,
 ): Promise<import("../../../gen/ChatSendResult").ChatSendResult> {
   if (typeof tabId !== "string" || !tabId.trim() || tabId === "null" || tabId === "undefined") {
     throw new Error("Chat tab is not bound");
@@ -124,7 +124,7 @@ export async function sendTrackedChatMessage(
       tabId,
       text: message,
       clientToken: messageId,
-      ...(startupOverrideNonce ? { startupOverrideNonce } : {}),
+      ...target,
     }).then(status => { observeDeliveryStatus(status); return status; });
     const status = await Promise.race([request, new Promise<never>((_resolve, reject) => {
       deadline = setTimeout(() => reject(new Error("admission_unknown: send request is still unconfirmed")), ADMISSION_DEADLINE_MS);

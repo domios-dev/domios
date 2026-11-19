@@ -28,6 +28,7 @@ interface DurableDraft {
 }
 
 interface DurableSend {
+  target?: DeliverySend["target"];
   localAttempt?: DeliverySend["localAttempt"];
   id: string;
   content: BodyRef;
@@ -108,6 +109,7 @@ export function encodeChatSend(tabId: string, send: DeliverySend, revision = 0, 
     id: send.id,
     content: body(send.content),
     sentAtMs: send.sentAtMs,
+    ...(send.target !== undefined ? { target: send.target } : {}),
     ...(send.correlationId !== undefined ? { correlationId: send.correlationId } : {}),
     ...(send.echo !== undefined ? { echo: { body: body(send.echo.content), timestampMs: send.echo.timestampMs } } : {}),
     ...(!matchedRowInStatus && send.matchedRow !== undefined ? { matchedRow: send.matchedRow } : {}),
@@ -290,6 +292,7 @@ export function decodeChatSend(record: ChatSendDurableRecord): DeliverySend | nu
       id: value.id,
       content,
       sentAtMs: value.sentAtMs,
+      ...(value.target !== undefined ? { target: value.target } : {}),
       ...(value.correlationId !== undefined ? { correlationId: value.correlationId } : {}),
       ...(value.echo !== undefined ? { echo: { content: readRequiredBody(record, value.echo.body), timestampMs: value.echo.timestampMs } } : {}),
       ...(matchedRow !== undefined ? { matchedRow } : {}),
@@ -351,7 +354,7 @@ export function mergeChatSendRecord(
     if (previous && !sameValue(current[key], previous[key])) return;
     (merged as DeliverySend)[key] = next[key] as DeliverySend[K];
   };
-  for (const key of ["content", "sentAtMs", "echoBoundary", "localAttempt", "droppedUploads", "remoteFailure", "requestFailed", "requestError", "requestUncertain", "requestHadResponse", "admissionSettled", "wasHeld", "draft"] as const) patch(key);
+  for (const key of ["content", "sentAtMs", "target", "echoBoundary", "localAttempt", "droppedUploads", "remoteFailure", "requestFailed", "requestError", "requestUncertain", "requestHadResponse", "admissionSettled", "wasHeld", "draft"] as const) patch(key);
   if (!retry) patch("correlationId");
   if (!retry) patch("matchedRow");
   if (current.echo == null && next.echo != null && deliveryState(current) !== "failed"

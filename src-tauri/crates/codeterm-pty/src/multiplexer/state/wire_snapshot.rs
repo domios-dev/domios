@@ -4,6 +4,14 @@ use serde::{ser::SerializeMap, Serialize, Serializer};
 
 use super::Tab;
 
+#[derive(Serialize)]
+struct WireTab<'a> {
+    #[serde(flatten)]
+    tab: &'a Tab,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exited_chat_recipient: Option<&'a crate::multiplexer::types::ExitedChatBinding>,
+}
+
 pub(super) fn tabs<S: Serializer>(
     tabs: &HashMap<String, Tab>,
     serializer: S,
@@ -28,7 +36,13 @@ pub(super) fn tabs<S: Serializer>(
         }
         let overflow = wire.prior_session_binding_nonces.len().saturating_sub(2);
         wire.prior_session_binding_nonces.drain(..overflow);
-        map.serialize_entry(id, &wire)?;
+        map.serialize_entry(
+            id,
+            &WireTab {
+                tab: &wire,
+                exited_chat_recipient: wire.exited_chat_recipient(),
+            },
+        )?;
     }
     map.end()
 }

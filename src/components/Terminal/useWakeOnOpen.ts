@@ -30,7 +30,8 @@ export function useWakeOnOpen(tab: Tab | undefined, isVisible: boolean) {
   useEffect(() => {
     if (!id) return;
     if (shouldWakeOnOpen(tab, isVisible, state.requested)) requestWake(id);
-    if (!tab?.frozen && state.requested && !state.pending && restoreStageView(tab ?? {}, state).phase === "ready") {
+    const backendAttached = tab?.backing?.kind !== "pty" || tab.pty_id != null;
+    if (backendAttached && !tab?.frozen && state.requested && !state.pending && restoreStageView(tab ?? {}, state).phase === "ready") {
       update(id, idle);
     }
   }, [id, tab, isVisible, state]);
