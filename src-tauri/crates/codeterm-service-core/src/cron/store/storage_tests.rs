@@ -158,6 +158,9 @@ fn rename(name: &str) -> CronUpdateParams {
 
 fn running(run_id: &str) -> CronRunInfo {
     CronRunInfo {
+        scheduled_occurrence_at: None,
+        fired_at: None,
+        late_by_ms: None,
         provider: None,
         owner_instance_id: None,
         cancel_reason: None,
@@ -647,6 +650,7 @@ fn record(id: &str) -> CronJobRecord {
         created_at: 1,
         last_run_id: None,
         next_run: None,
+        next_occurrence_at: None,
         jitter_max_ms: None,
         tz: None,
         timeout_seconds: None,
@@ -707,6 +711,9 @@ fn storage_cron_unknown_identity_is_refused_and_historical_targets_stay_verbatim
     let f = fixture();
     let before = f.snapshot();
     let ghost_run = CronRunRecord {
+        scheduled_occurrence_at: None,
+        fired_at: None,
+        late_by_ms: None,
         provider: None,
         owner_instance_id: None,
         cancel_reason: None,

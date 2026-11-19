@@ -18,7 +18,7 @@ export function JobsMachineFilter({ value, peers, onChange }: { value: string; p
         ...(options.some((option) => option.id === value) ? [] : [{ value, label: "Unavailable machine" }]),
         ...options.map(option => {
           const row = { name: option.name, identity: identityOf(option.id), status: option.online ? "online" : "offline", local: option.id === THIS_MACHINE };
-          return { value: option.id, label: option.name, ariaLabel: machineRowLabel(row), content: <MachinePickerRow {...row} /> };
+          return { value: option.id, label: option.name, ariaLabel: machineRowLabel(row), stretchLabelContent: true, content: <MachinePickerRow {...row} /> };
         }),
       ]} />
   </div>;

@@ -1,5 +1,4 @@
 .mesh-overview {
-  background: radial-gradient(color-mix(in srgb, var(--ct-fg) 12%, transparent) 1px, transparent 1.6px) 0 0 / 18px 18px, var(--ct-bg);
   container-type: inline-size;
 }
 

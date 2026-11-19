@@ -42,6 +42,9 @@ fn session_owned_access_loss_ends_visible_round_and_rearms_its_cron() {
     };
     let mut job = cron.lock().get(&job_id).unwrap().clone();
     job.last_run = Some(CronRunInfo {
+        scheduled_occurrence_at: None,
+        fired_at: None,
+        late_by_ms: None,
         provider: None,
         owner_instance_id: None,
         run_id: "access-loss-run".into(),
@@ -265,6 +268,9 @@ fn fixture(running_cron: bool) -> (ServiceFixture, String, codeterm_service_core
         let job_id = state.cron_id.unwrap();
         let mut job = cron.lock().get(&job_id).unwrap().clone();
         job.last_run = Some(CronRunInfo {
+            scheduled_occurrence_at: None,
+            fired_at: None,
+            late_by_ms: None,
             provider: None,
             owner_instance_id: None,
             run_id: "running-round".into(),

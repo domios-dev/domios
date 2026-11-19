@@ -1837,6 +1837,10 @@ function fail(code, message) {
 function refused(message) {
   return { kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false };
 }
+function httpRefused(error) {
+  if (object2(error.data).kind === "response_too_large") return { kind: "refused", reason: { code: "size_limit", message: error.message }, beforeAcceptance: false };
+  return refused(`OpenCode request was refused (${error.code})`);
+}
 function request(method, params, state = { stage: method }) {
   return { action: { kind: "request", call: { method, params: json(params) } }, state: json(state) };
 }
@@ -1878,6 +1882,7 @@ function utf8Length(value) {
 }
 
 // plugins/provider-opencode/src/runtimeAuth.ts
+var providerListParams = { responseFields: { all: ["id", "name"], connected: [] } };
 function methods(ctx, providers, auth) {
   const provider = modelParts(ctx.settings.model)?.providerID;
   if (!provider) return [];
@@ -1932,7 +1937,7 @@ function loginEvent(loginId, status, error) {
 function loginPlan(ctx, op) {
   const { selection, value } = loginValue(op);
   if (modelParts(ctx.settings.model)?.providerID !== selection.provider) fail("binding_mismatch", "Sign-in method targets another selected provider");
-  if (value.action === "start") return request("provider.list", {}, { stage: "loginProviders" });
+  if (value.action === "start") return request("provider.list", providerListParams, { stage: "loginProviders" });
   if (value.action !== "complete" && value.action !== "code") fail("unsupported", "Unsupported sign-in challenge action");
   if (selection.kind !== "oauth" || selection.index === void 0) fail("invalid_schema", "Sign-in callback requires its discovered OAuth method");
   const code = value.action === "code" ? text(value.code) : void 0;
@@ -1963,7 +1968,7 @@ function loginResponse(ctx, op, state, body) {
     case "loginKey":
     case "loginCallback": {
       if (body !== true) return done([loginEvent(loginId, "failed", "The server did not confirm authentication")]);
-      return next("provider.list", {}, { stage: "loginVerify" });
+      return next("provider.list", providerListParams, { stage: "loginVerify" });
     }
     case "loginVerify":
       return done([loginEvent(loginId, list(object2(body).connected).includes(selection.provider) ? "completed" : "failed", list(object2(body).connected).includes(selection.provider) ? void 0 : "The provider did not confirm a connected account")]);
@@ -2488,7 +2493,7 @@ function v2Response(ctx, op, state, reply) {
     if (op.kind === "readHistory" && state.stage === "historyActive") return finishHistory(op, state);
     if (op.kind === "resumeThread" && reply.error.code === 404) return { kind: "refused", reason: { code: "thread_not_found", message: "The exact OpenCode session was not found" }, beforeAcceptance: false };
     if (op.kind === "control" && op.action === "login") return done([{ kind: "authLogin", login: { status: "failed", loginId: String(object2(op.value).loginId), error: `Sign-in request was refused (${reply.error.code})` } }]);
-    return refused(`OpenCode request was refused (${reply.error.code})`);
+    return httpRefused(reply.error);
   }
   const envelope = object2(reply.value), body = envelope.body, value = object2(body), data = object2(value.data);
   switch (op.kind) {
@@ -2958,7 +2963,7 @@ function runtimePlan(ctx, op) {
     case "answer":
       return answerPlan(ctx, op);
     case "control": {
-      if (op.action === "auth") return request("provider.list", {}, { stage: "authProviders" });
+      if (op.action === "auth") return request("provider.list", providerListParams, { stage: "authProviders" });
       if (op.action === "login") return loginPlan(ctx, op);
       fail("unsupported", `OpenCode runtime control ${op.action} is unsupported`);
     }
@@ -2988,7 +2993,7 @@ function runtimeResponse(ctx, op, raw, reply) {
   if (reply.kind === "error") {
     if (op.kind === "control" && op.action === "login" && text(object2(op.value).loginId)) return done([{ kind: "authLogin", login: { status: "failed", loginId: String(object2(op.value).loginId), error: `Sign-in request was refused (${reply.error.code})` } }]);
     if (op.kind === "resumeThread" && reply.error.code === 404) return { kind: "refused", reason: { code: "thread_not_found", message: "The exact OpenCode session was not found" }, beforeAcceptance: false };
-    return refused(`OpenCode request was refused (${reply.error.code})`);
+    return httpRefused(reply.error);
   }
   const envelope = object2(reply.value), body = envelope.body;
   switch (op.kind) {
@@ -2999,7 +3004,7 @@ function runtimeResponse(ctx, op, raw, reply) {
         if (!protocol) return refused("OpenCode did not confirm authenticated server health");
         binding(ctx).protocol = protocol;
         if (protocol === "v2") return v2Response(ctx, op, state, reply);
-        return next("provider.list", {}, { stage: "initializeProviders", version: health.version });
+        return next("provider.list", providerListParams, { stage: "initializeProviders", version: health.version });
       }
       if (state.stage === "initializeProviders") return next("provider.auth", {}, { stage: "initializeMethods", version: state.version, providers: providerSummary(body) });
       if (state.stage !== "initializeMethods") return refused("Unexpected initialization response");

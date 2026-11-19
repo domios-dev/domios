@@ -51,6 +51,7 @@
   "src/lib/sharedRead.test.ts",
   "src/lib/markdownLinks.test.tsx",
   "src/components/MeshPanel/WebAccessPanel.test.tsx",
+  "src/components/MeshPanel/CronDrawerSection/CronRunHistory.test.tsx",
   "src/components/AgentPicker/FirstRunGate.test.tsx",
   "src/components/Terminal/chatPagingModel.test.ts",
   "src/components/Terminal/useChatWindowView.paging.test.tsx",

@@ -230,11 +230,25 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                             println!("No runs yet.");
                         }
                         for r in arr {
+                            let time = |field: &str| r.get(field).and_then(|value| value.as_u64());
+                            let scheduled = time("scheduled_occurrence_at");
+                            let fired = time("fired_at");
+                            let status = r.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+                            let outcome = match (status, scheduled, fired, time("late_by_ms")) {
+                                ("Cancelled", Some(_), None, _) => "Missed".to_string(),
+                                (_, _, _, Some(delay)) => format!("{status} late_by_ms={delay}"),
+                                _ => status.to_string(),
+                            };
+                            let timestamp = |value: Option<u64>| {
+                                value.map_or_else(|| "-".into(), |value| value.to_string())
+                            };
                             println!(
-                                "{} {} started={} tab={}",
+                                "{} {} scheduled={} fired={} started={} tab={}",
                                 r.get("run_id").and_then(|v| v.as_str()).unwrap_or("?"),
-                                r.get("status").and_then(|v| v.as_str()).unwrap_or("?"),
-                                r.get("started_at").and_then(|v| v.as_u64()).unwrap_or(0),
+                                outcome,
+                                timestamp(scheduled),
+                                timestamp(fired),
+                                timestamp(time("started_at")),
                                 r.get("tab_id").and_then(|v| v.as_str()).unwrap_or("-"),
                             );
                         }

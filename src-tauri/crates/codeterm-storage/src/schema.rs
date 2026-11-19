@@ -58,6 +58,7 @@ const MIGRATIONS: &[&str] = &[
     blueprint_evidence::SCHEMA,
     cron::CANCEL_REASON_SCHEMA,
     cron::RUN_IDENTITY_SCHEMA,
+    cron::OCCURRENCE_SCHEMA,
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 

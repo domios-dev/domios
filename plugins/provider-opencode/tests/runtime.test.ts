@@ -77,6 +77,30 @@ check("discovered auth methods preserve supported inputs and explicit unsupporte
   assert.equal(discovered.at(-1)?.input,"apiKey");
   assert.equal(authEvents(ctx,fixture.providers,fixture.auth)[0].kind,"authentication");
 });
+check("legacy startup requests a compact provider list and keeps selected provider auth",()=>{
+  const ctx={...copy(fixture.context),tabId:"large-provider-list",settings:{model:"opencode/beam-free"}};
+  const op:Operation={kind:"initialize"};
+  const health=runtimePlan(ctx,op);
+  const catalogue=continuation(response(ctx,op,health.state,{healthy:true,version:"1.17.16"}));
+  const wire=call(catalogue);
+  assert.equal(wire.method,"provider.list");
+  assert.deepEqual(wire.params,{responseFields:{all:["id","name"],connected:[]}});
+  const raw={all:[{id:"opencode",name:"OpenCode",models:{"beam-free":{description:"x".repeat(5*1024*1024)}}}],connected:["opencode"]};
+  assert.ok(Buffer.byteLength(JSON.stringify(raw)) > 4*1024*1024);
+  const projected={all:raw.all.map(({id,name})=>({id,name})),connected:raw.connected};
+  const auth=continuation(response(ctx,op,catalogue.state,projected));
+  assert.equal(call(auth).method,"provider.auth");
+  assert.ok(Buffer.byteLength(JSON.stringify(auth.state)) < 1024);
+  const initialized=response(ctx,op,auth.state,{});
+  assert.equal(initialized.kind,"complete");
+  if (initialized.kind === "complete") {
+    assert.equal(initialized.result.kind,"initialized");
+    assert.deepEqual(initialized.events?.find(event=>event.kind === "auth"),{kind:"auth",state:"signedIn"});
+  }
+  assert.deepEqual(runtimeResponse(ctx,op,catalogue.state,{
+    kind:"error",error:{code:-32010,message:"HTTP response exceeded its byte limit",data:{kind:"response_too_large"}},
+  }),{kind:"refused",reason:{code:"size_limit",message:"HTTP response exceeded its byte limit"},beforeAcceptance:false});
+});
 check("API key stays out of continuation state and completes only after connected verification",()=>{
   const ctx=loaded("fixture-api-key"), op:Operation={kind:"control",threadId:ctx.threadId,action:"login",value:{action:"start",methodId:"api:paid",loginId:"host-key-challenge",apiKey:"opaque-key-fixture"}};
   let plan=runtimePlan(ctx,op);

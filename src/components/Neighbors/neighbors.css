@@ -29,7 +29,6 @@
   flex: 1;
 }
 
-/* The neighborhood sits on the Domios dot field, fading out toward the edges. */
 .neighbors-canvas {
   position: relative;
   container-type: size;
@@ -42,17 +41,6 @@
   justify-content: safe center;
   overflow: auto;
   padding: 2.5rem 1rem 3rem;
-  background:
-    radial-gradient(color-mix(in srgb, var(--ct-fg) 12%, transparent) 1px, transparent 1.6px) 0 0 / 22px 22px,
-    radial-gradient(ellipse at center, var(--ct-titlebar-bg) 0%, var(--ct-bg) 72%);
-}
-
-.neighbors-canvas::before {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse at center, transparent 30%, var(--ct-bg) 82%);
-  content: "";
-  pointer-events: none;
 }
 
 .neighbors-notices {
