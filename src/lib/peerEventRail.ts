@@ -7,6 +7,7 @@ export type PeerEvent =
   | { type: "reconcile" }
   | { type: "invalidate" }
   | { type: "tab-status-changed"; data: { tab_id: string; status: TabStatus } }
+  | { type: "chat-send-status"; data: { tab_id: string } }
   | { type: "mux-state-changed"; data: { generation?: number } };
 
 interface Cursor { boot: string; seq: number }
@@ -65,6 +66,12 @@ function openPeerLink(peerId: string, link: string, publish: Listener, transport
           publish({ type: "tab-status-changed", data: { tab_id: data.tab_id, status: data.status } });
         }
       }
+      if (frame.event_type === "chat-send-status") {
+        const data = frame.data as { tab_id?: unknown } | null;
+        if (typeof data?.tab_id === "string") {
+          publish({ type: "chat-send-status", data: { tab_id: data.tab_id } });
+        }
+      }
     }, {
       raw: true,
       signal: active.signal,
@@ -93,6 +100,7 @@ function openPeerLink(peerId: string, link: string, publish: Listener, transport
 }
 
 export function createPeerEventRail(transport = baseDaemonTransport) {
+  const observers = new Map<string, Set<Listener>>();
   const links = new Map<string, {
     link: string;
     listeners: Set<Listener>;
@@ -106,6 +114,7 @@ export function createPeerEventRail(transport = baseDaemonTransport) {
         const listeners = new Set([listener]);
         const stream = openPeerLink(peerId, link, event => {
           for (const receive of listeners) receive(event);
+          for (const receive of observers.get(peerId) ?? []) receive(event);
         }, transport);
         current = { link, listeners, stream };
         links.set(peerId, current);
@@ -118,6 +127,15 @@ export function createPeerEventRail(transport = baseDaemonTransport) {
           links.delete(peerId);
           record.stream.close();
         }
+      };
+    },
+    observe(peerId: string, listener: Listener): () => void {
+      const listeners = observers.get(peerId) ?? new Set();
+      listeners.add(listener);
+      observers.set(peerId, listeners);
+      return () => {
+        listeners.delete(listener);
+        if (!listeners.size) observers.delete(peerId);
       };
     },
     resume(peerId: string) { links.get(peerId)?.stream.resume(); },

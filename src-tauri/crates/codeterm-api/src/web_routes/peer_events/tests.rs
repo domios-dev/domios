@@ -40,6 +40,19 @@ fn peer_event_topics_follow_live_tab_and_mux_authority() {
     assert!(!topic_allowed(&isolated, &mux, owns));
     assert!(!topic_allowed(&isolated, &unrelated, owns));
     assert!(!topic_allowed(&AccessLevel::Custom(vec![]), &own, owns));
+    let chat = SystemEvent::Generic {
+        event_type: "chat-send-status".into(),
+        data: serde_json::json!({"tab_id": "owned"}),
+    };
+    use codeterm_service_core::mesh::types::Permission;
+    assert!(topic_allowed(&isolated, &chat, owns));
+    assert!(!topic_allowed(&isolated, &chat, |_| false));
+    assert!(topic_allowed(&AccessLevel::ReadOnly, &chat, owns));
+    assert!(!topic_allowed(
+        &AccessLevel::Custom(vec![Permission::ReadTabs]),
+        &chat,
+        owns,
+    ));
 }
 
 #[tokio::test]
@@ -61,12 +74,17 @@ async fn peer_event_stream_replays_every_tab_then_marks_live_boundary() {
     );
     let mut body = stream.into_response().into_body().into_data_stream();
     events.publish(status("live"));
+    events.publish(SystemEvent::Generic {
+        event_type: "chat-send-status".into(),
+        data: serde_json::json!({"tab_id": "live", "system_send": { "content": "x".repeat(100_000) }}),
+    });
     for (kind, tab) in [
         ("tab-status-changed", Some("first")),
         ("tab-status-changed", Some("second")),
         ("mux-state-changed", None),
         ("peer-replay-complete", None),
         ("tab-status-changed", Some("live")),
+        ("chat-send-status", Some("live")),
     ] {
         let next = tokio::time::timeout(std::time::Duration::from_secs(2), body.next())
             .await
@@ -81,6 +99,11 @@ async fn peer_event_stream_replays_every_tab_then_marks_live_boundary() {
         if kind == "peer-replay-complete" {
             assert_eq!(frame["seq"], 3);
             assert_eq!(frame["boot"], events.boot_id());
+        }
+        if kind == "chat-send-status" {
+            assert_eq!(frame["prev_seq"], 4);
+            assert_eq!(frame["seq"], 5);
+            assert_eq!(frame["data"], serde_json::json!({ "tab_id": "live" }));
         }
     }
     assert!(super::super::event_matches_tab(
