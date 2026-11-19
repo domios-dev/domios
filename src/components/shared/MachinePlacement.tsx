@@ -21,6 +21,7 @@ function choiceOption(choice: MachinePlacementChoice): DropdownSelectOption {
     ariaLabel: machineRowLabel(row),
     unavailable: choice.unavailableReason !== null,
     description: choice.unavailableReason ?? undefined,
+    stretchLabelContent: true,
     content: <MachinePickerRow {...row} />,
   };
 }
@@ -42,6 +43,7 @@ export function MachinePlacementMenu({ choices, value, onChange, trigger, menuLa
     return {
       label: choice.name,
       "aria-label": machineRowLabel(row),
+      stretchLabelContent: true,
       labelContent: <MachinePickerRow {...row} />,
       description: choice.unavailableReason ?? undefined,
       unavailable: choice.unavailableReason !== null,
@@ -52,7 +54,7 @@ export function MachinePlacementMenu({ choices, value, onChange, trigger, menuLa
     };
   });
   return <DropdownMenu items={items} trigger={trigger} menuLabel={menuLabel} header={header} disabled={disabled}
-    menuTestId={testId ? `${testId}-menu` : undefined} placement="bottom-end" />;
+    menuTestId={testId ? `${testId}-menu` : undefined} placement="bottom-end" opaque />;
 }
 
 export function MachinePlacement({ choices, value, onChange, disabled = false, testId, labelWidth = "100px" }: {
@@ -69,7 +71,7 @@ export function MachinePlacement({ choices, value, onChange, disabled = false, t
   if (value && !options.some((option) => option.value === value)) {
     options.unshift({ value, label: "Unavailable machine", disabled: true, description: "This machine is no longer paired." });
   }
-  return <div className={`grid min-w-0 items-center gap-2 text-[12px] ${labelWidth === "140px" ? "grid-cols-[140px_minmax(0,176px)]" : "grid-cols-[100px_minmax(0,1fr)]"}`}>
+  return <div className={`grid min-w-0 items-center gap-2 text-[12px] ${labelWidth === "140px" ? "grid-cols-[140px_minmax(0,1fr)]" : "grid-cols-[100px_minmax(0,1fr)]"}`}>
     <span className="truncate whitespace-nowrap">Where it runs</span>
     <DropdownSelect
       aria-label="Where it runs"
