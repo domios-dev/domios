@@ -1,0 +1,36 @@
+[
+  {
+    "version": "1.17.16",
+    "source": "Disposable Windows OpenCode free-tier request, selected fields with session ID replaced",
+    "event": {
+      "type": "session.error",
+      "properties": {
+        "sessionID": "ses_owned",
+        "error": {
+          "name": "APIError",
+          "data": {
+            "message": "OpenCode 1.18.0 or newer is required to use the free tier",
+            "isRetryable": false
+          }
+        }
+      }
+    }
+  },
+  {
+    "version": "1.19.6",
+    "source": "Disposable Windows OpenCode with a loopback model endpoint returning HTTP 400, selected fields with session ID replaced",
+    "event": {
+      "type": "session.error",
+      "properties": {
+        "sessionID": "ses_owned",
+        "error": {
+          "name": "APIError",
+          "data": {
+            "message": "Opaque fixture rejection",
+            "isRetryable": false
+          }
+        }
+      }
+    }
+  }
+]

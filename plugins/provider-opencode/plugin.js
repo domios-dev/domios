@@ -165,7 +165,81 @@ ${fence}`;
   };
 }
 
+// plugins/provider-opencode/src/runtimeProtocol.ts
+var object2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+var list = (value) => Array.isArray(value) ? value : [];
+var text = (value) => typeof value === "string" && value.length > 0 ? value : void 0;
+var json = (value) => value;
+function fail(code, message) {
+  throw { code, message };
+}
+function refused(message) {
+  return { kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false };
+}
+function httpRefused(error) {
+  if (object2(error.data).kind === "response_too_large") return { kind: "refused", reason: { code: "size_limit", message: error.message }, beforeAcceptance: false };
+  return refused(`OpenCode request was refused (${error.code})`);
+}
+function request(method, params, state = { stage: method }) {
+  return { action: { kind: "request", call: { method, params: json(params) } }, state: json(state) };
+}
+function next(method, params, state) {
+  return { kind: "continue", plan: request(method, params, state) };
+}
+function done(events = []) {
+  return { kind: "complete", result: { kind: "done" }, events };
+}
+function own(ctx, thread) {
+  if (!thread || thread !== ctx.threadId) fail("binding_mismatch", "OpenCode session is outside this runtime binding");
+  return thread;
+}
+function modelParts(model) {
+  if (!model) return void 0;
+  const index = model.indexOf("/");
+  if (index <= 0 || index === model.length - 1) fail("invalid_schema", "OpenCode requires a qualified provider/model selection");
+  return { providerID: model.slice(0, index), modelID: model.slice(index + 1) };
+}
+function messageIdentity(sendId, now, counter) {
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(sendId) || !Number.isSafeInteger(now) || now < 0) fail("invalid_schema", "Invalid prompt identity");
+  const prefix = (BigInt(now) * 0x1000n + BigInt(counter) & 0xffffffffffffn).toString(16).padStart(12, "0");
+  return `msg_${prefix}${sendId.replace(/-/g, "_")}`;
+}
+function attachmentUrl(attachment) {
+  if (attachment.data) return `data:${attachment.mimeType};base64,${attachment.data}`;
+  if (attachment.url) return attachment.url;
+  if (!attachment.path) fail("invalid_schema", "Attachment has no runtime source");
+  const normalized = attachment.path.replace(/\\/g, "/");
+  return `file://${normalized.startsWith("/") ? "" : "/"}${normalized.split("/").map((segment) => encodeURIComponent(segment).replace(/%3A/gi, ":")).join("/")}`;
+}
+function utf8Length(value) {
+  let bytes2 = 0;
+  for (const character of value) {
+    const code = character.codePointAt(0);
+    bytes2 += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
+  }
+  return bytes2;
+}
+
 // plugins/provider-opencode/src/turnErrors.ts
+function runtimeErrorMessage(error, fallback) {
+  return text(object2(error.data).message) ?? text(error.message) ?? fallback;
+}
+function runtimeTurnErrorEvents(threadId, turnId, seq, message) {
+  let bytes2 = 0;
+  let content = "";
+  for (const character of message) {
+    bytes2 += utf8Length(character);
+    if (bytes2 > 4096) break;
+    content += character;
+  }
+  const notice = { kind: "notice", threadId, message: content };
+  if (!turnId) return [notice];
+  return [notice, {
+    kind: "chatItem",
+    threadId,
+    item: { id: `${turnId}:error`, seq, type: "system", systemSubtype: "api_error", toolFlowId: turnId, content }
+  }];
+}
 function turnError(value) {
   if (!value || typeof value !== "object") return null;
   const message = value;
@@ -1826,61 +1900,6 @@ var decisionModel = {
   }
 };
 
-// plugins/provider-opencode/src/runtimeProtocol.ts
-var object2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
-var list = (value) => Array.isArray(value) ? value : [];
-var text = (value) => typeof value === "string" && value.length > 0 ? value : void 0;
-var json = (value) => value;
-function fail(code, message) {
-  throw { code, message };
-}
-function refused(message) {
-  return { kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false };
-}
-function httpRefused(error) {
-  if (object2(error.data).kind === "response_too_large") return { kind: "refused", reason: { code: "size_limit", message: error.message }, beforeAcceptance: false };
-  return refused(`OpenCode request was refused (${error.code})`);
-}
-function request(method, params, state = { stage: method }) {
-  return { action: { kind: "request", call: { method, params: json(params) } }, state: json(state) };
-}
-function next(method, params, state) {
-  return { kind: "continue", plan: request(method, params, state) };
-}
-function done(events = []) {
-  return { kind: "complete", result: { kind: "done" }, events };
-}
-function own(ctx, thread) {
-  if (!thread || thread !== ctx.threadId) fail("binding_mismatch", "OpenCode session is outside this runtime binding");
-  return thread;
-}
-function modelParts(model) {
-  if (!model) return void 0;
-  const index = model.indexOf("/");
-  if (index <= 0 || index === model.length - 1) fail("invalid_schema", "OpenCode requires a qualified provider/model selection");
-  return { providerID: model.slice(0, index), modelID: model.slice(index + 1) };
-}
-function messageIdentity(sendId, now, counter) {
-  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(sendId) || !Number.isSafeInteger(now) || now < 0) fail("invalid_schema", "Invalid prompt identity");
-  const prefix = (BigInt(now) * 0x1000n + BigInt(counter) & 0xffffffffffffn).toString(16).padStart(12, "0");
-  return `msg_${prefix}${sendId.replace(/-/g, "_")}`;
-}
-function attachmentUrl(attachment) {
-  if (attachment.data) return `data:${attachment.mimeType};base64,${attachment.data}`;
-  if (attachment.url) return attachment.url;
-  if (!attachment.path) fail("invalid_schema", "Attachment has no runtime source");
-  const normalized = attachment.path.replace(/\\/g, "/");
-  return `file://${normalized.startsWith("/") ? "" : "/"}${normalized.split("/").map((segment) => encodeURIComponent(segment).replace(/%3A/gi, ":")).join("/")}`;
-}
-function utf8Length(value) {
-  let bytes2 = 0;
-  for (const character of value) {
-    const code = character.codePointAt(0);
-    bytes2 += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
-  }
-  return bytes2;
-}
-
 // plugins/provider-opencode/src/runtimeAuth.ts
 var providerListParams = { responseFields: { all: ["id", "name"], connected: [] } };
 function methods(ctx, providers, auth) {
@@ -2668,7 +2687,10 @@ function v2Reduce(ctx, raw, frames) {
         const error = object2(data.error), bodyError = object2(object2(error.body).error);
         const quota = error.type === "provider.quota" || bodyError.type === "insufficient_balance_error";
         const detail = type === "session.execution.failed" || type === "session.error" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : void 0;
-        if (detail === "failed") events.push({ kind: "notice", threadId: ctx.threadId, message: quota ? "Provider balance or quota is exhausted \u2014 top up or switch model" : String(error.message ?? "OpenCode execution failed").slice(0, 4096) });
+        if (detail === "failed") {
+          const message2 = quota ? "Provider balance or quota is exhausted \u2014 top up or switch model" : runtimeErrorMessage(error, "OpenCode execution failed");
+          events.push(...runtimeTurnErrorEvents(ctx.threadId, turn, turn ? ++state.seq : state.seq, message2));
+        }
         events.push({ kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "idle", ...detail ? { detail } : {} });
         delete state.turn;
       }
@@ -2791,6 +2813,15 @@ function ownSession(event) {
   const params = object2(event.properties);
   return text(params.sessionID) ?? text(object2(params.part).sessionID) ?? text(object2(params.info).sessionID) ?? (String(event.type).startsWith("session.") ? text(object2(params.info).id) : void 0);
 }
+function currentTurn(ctx, state, index) {
+  const sequence = ctx.streamWindow?.frameSequences?.[index];
+  return state.turn ?? ctx.activeTurnId ?? ctx.streamWindow?.turnRequests?.find((request2) => request2.written && request2.afterSequence !== void 0 && sequence !== void 0 && sequence > request2.afterSequence)?.turnId;
+}
+function completeTurn(state, turn) {
+  state.completed.push(turn);
+  state.completed = state.completed.slice(-256);
+  delete state.turn;
+}
 function evidence(ctx, state, part, sequence, events) {
   const messageId = text(part.messageID), planned = binding(ctx).sends.find((send) => send.messageId === messageId);
   if (!planned || state.evidenced.includes(planned.sendId)) return;
@@ -2879,24 +2910,27 @@ function runtimeReduce(ctx, raw, frames) {
     }
     if (type === "session.status" || type === "session.idle") {
       const status = type === "session.idle" ? "idle" : object2(params.status).type;
-      const sequence = ctx.streamWindow?.frameSequences?.[index];
-      const turn = state.turn ?? ctx.activeTurnId ?? ctx.streamWindow?.turnRequests?.find((request2) => request2.written && request2.afterSequence !== void 0 && sequence !== void 0 && sequence > request2.afterSequence)?.turnId;
+      const turn = currentTurn(ctx, state, index);
       if (status === "busy" || status === "retry") {
         if (!turn || state.completed.includes(turn)) continue;
         state.turn = turn;
         events.push({ kind: "turnState", threadId: ctx.threadId, turnId: turn, state: "working" });
       } else if (status === "idle" && turn && !state.completed.includes(turn)) {
-        state.completed.push(turn);
-        state.completed = state.completed.slice(-256);
+        completeTurn(state, turn);
         events.push({ kind: "turnState", threadId: ctx.threadId, turnId: turn, state: "idle" });
-        delete state.turn;
       }
       continue;
     }
     if (type === "session.error") {
-      const error = object2(params.error), message = text(object2(error.data).message) ?? "OpenCode reported a session error";
-      const turn = state.turn ?? ctx.activeTurnId;
-      events.push({ kind: "notice", threadId: ctx.threadId, message: message.slice(0, 4096) }, { kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "idle", detail: "failed" });
+      const error = object2(params.error), turn = currentTurn(ctx, state, index);
+      if (turn && state.completed.includes(turn)) continue;
+      const interrupted = error.name === "MessageAbortedError";
+      if (!interrupted) {
+        const message = runtimeErrorMessage(error, "OpenCode reported a session error");
+        events.push(...runtimeTurnErrorEvents(ctx.threadId, turn, turn ? ++state.seq : state.seq, message));
+      }
+      if (turn) completeTurn(state, turn);
+      events.push({ kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "idle", detail: interrupted ? "interrupted" : "failed" });
       if (error.name === "ProviderAuthError") events.push({ kind: "auth", state: "signedOut" }, { kind: "authentication", authentication: { state: "needs_auth", methods: binding(ctx).methods } });
     }
   }

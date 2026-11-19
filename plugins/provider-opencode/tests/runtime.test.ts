@@ -8,6 +8,9 @@ import {messageIdentity} from "../src/runtimeProtocol";
 const fixture=JSON.parse(fs.readFileSync(new URL("./fixtures/runtime-contract.json",import.meta.url),"utf8")) as {
   context:RuntimeContext;frames:RuntimeFrame[];expectedKinds:string[];expectedUsage:unknown;providers:unknown;auth:unknown;question:RuntimeFrame;permission:RuntimeFrame;
 };
+const legacyErrors=JSON.parse(fs.readFileSync(new URL("./fixtures/legacy-turn-errors.json",import.meta.url),"utf8")) as Array<{
+  version:string;event:{type:string;properties:{sessionID:string;error:{name:string;data:{message:string;isRetryable:boolean}}}};
+}>;
 const copy=<T>(value:T):T=>JSON.parse(JSON.stringify(value));
 let count=0;
 function check(name:string, run:()=>void) {run();count++;console.log(`  ✓ OpenCode runtime ${name}`);}
@@ -59,6 +62,29 @@ check("unknown, foreign and prewrite user events never confirm sends",()=>{
     assert.equal(events.filter(event=>event.kind === "sendEvidence").length,0);
     assert.equal(events.filter(event=>event.kind === "turnState" && event.state === "working").length,0);
   }
+});
+check("legacy upstream failures reach the provider-error alert and settle the exact turn once",()=>{
+  assert.equal(legacyErrors.length,2);
+  for (const {version,event} of legacyErrors) {
+    const {ctx,message:turnId}=prepared(`upstream-error-${version}`);
+    const upstream=event.properties.error.data.message;
+    const error:RuntimeFrame={kind:"notification",method:"http/event",params:event};
+    const foreign:RuntimeFrame={...error,params:{...event,properties:{...event.properties,sessionID:"ses_foreign"}}};
+    const idle:RuntimeFrame={kind:"notification",method:"http/event",params:{type:"session.idle",properties:{sessionID:ctx.threadId!}}};
+    const failure=runtimeReduce(ctx,null,[foreign,error,idle,error]);
+    assert.deepEqual(failure.events,[
+      {kind:"notice",threadId:ctx.threadId,message:upstream},
+      {kind:"chatItem",threadId:ctx.threadId,item:{id:`${turnId}:error`,seq:1,type:"system",systemSubtype:"api_error",toolFlowId:turnId,content:upstream}},
+      {kind:"turnState",threadId:ctx.threadId,turnId,state:"idle",detail:"failed"},
+    ]);
+  }
+});
+check("legacy interruption settles without a provider-error alert",()=>{
+  const {ctx,message:turnId}=prepared("legacy-interrupted");
+  const frame:RuntimeFrame={kind:"notification",method:"http/event",params:{type:"session.error",properties:{sessionID:ctx.threadId!,error:{name:"MessageAbortedError"}}}};
+  assert.deepEqual(runtimeReduce(ctx,null,[frame]).events,[
+    {kind:"turnState",threadId:ctx.threadId,turnId,state:"idle",detail:"interrupted"},
+  ]);
 });
 check("prompt identity never authorizes replay and acknowledgment is not delivery evidence",()=>{
   const {ctx,op,plan,message}=prepared("fixture-no-replay");
