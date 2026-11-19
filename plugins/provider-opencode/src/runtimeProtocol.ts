@@ -1,4 +1,4 @@
-import type {AgentEvent, ChatAttachment, JsonValue, RuntimeContext, RuntimeFailure, RuntimePlan, RuntimeStep} from "@codeterm/plugin-sdk";
+import type {AgentEvent, ChatAttachment, JsonValue, RpcError, RuntimeContext, RuntimeFailure, RuntimePlan, RuntimeStep} from "@codeterm/plugin-sdk";
 
 export const object = (value:unknown):Record<string,unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string,unknown> : {};
 export const list = (value:unknown):unknown[] => Array.isArray(value) ? value : [];
@@ -6,6 +6,10 @@ export const text = (value:unknown):string|undefined => typeof value === "string
 export const json = (value:unknown):JsonValue => value as JsonValue;
 export function fail(code:RuntimeFailure["code"], message:string):never { throw {code,message} satisfies RuntimeFailure; }
 export function refused(message:string):RuntimeStep { return {kind:"refused",reason:{code:"provider_refused",message},beforeAcceptance:false}; }
+export function httpRefused(error:RpcError):RuntimeStep {
+  if (object(error.data).kind === "response_too_large") return {kind:"refused",reason:{code:"size_limit",message:error.message},beforeAcceptance:false};
+  return refused(`OpenCode request was refused (${error.code})`);
+}
 export function request(method:string, params:unknown, state:unknown = {stage:method}):RuntimePlan {
   return {action:{kind:"request",call:{method,params:json(params)}},state:json(state)};
 }

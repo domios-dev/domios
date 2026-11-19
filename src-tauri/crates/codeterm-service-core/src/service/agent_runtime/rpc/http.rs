@@ -1,15 +1,20 @@
 use super::*;
 use codeterm_plugin::agent_runtime::{
-    AgentRuntimeCapability, AgentRuntimeProtocol, RuntimeHttpSse,
+    validate_runtime_reply, AgentRuntimeCapability, AgentRuntimeProtocol, RpcReply, RuntimeHttpSse,
+    MAX_RUNTIME_VALUE_BYTES,
 };
 use reqwest::{redirect::Policy, Url};
+use std::collections::BTreeMap;
 use tokio::task::JoinSet;
 
 mod requests;
 mod sse;
 
-const BODY_LIMIT: usize = codeterm_plugin::agent_runtime::MAX_RUNTIME_VALUE_BYTES;
+const RESPONSE_BODY_LIMIT: usize = 16 * 1024 * 1024;
 const REQUEST_LIMIT: usize = 8;
+const RESPONSE_TOO_LARGE: i64 = -32010;
+
+type ResponseFields = BTreeMap<String, Vec<String>>;
 
 pub(in crate::service::agent_runtime) struct Launch {
     pub args: Vec<String>,
@@ -324,6 +329,7 @@ async fn execute(
         let url = route_url(origin, &route.path, &call["params"])?;
         let method = reqwest::Method::from_bytes(route.method.as_bytes())
             .map_err(|_| failure("HTTP method invalid"))?;
+        let fields = response_fields(&method, &call["params"])?;
         let mut request = http
             .request(method, url)
             .basic_auth(&declaration.username, Some(password))
@@ -333,9 +339,11 @@ async fn execute(
         }
         request
             .build()
+            .map(|request| (request, fields))
             .map_err(|_| RuntimeFailure::PrewriteRefused("HTTP request invalid".into()))
     })();
-    let request = match prepared.and_then(|request| write.begin(client).map(|_| request)) {
+    let (request, fields) = match prepared.and_then(|request| write.begin(client).map(|_| request))
+    {
         Ok(request) => request,
         Err(reason) => {
             write.finish(Err(reason));
@@ -361,6 +369,28 @@ async fn execute(
         finish_reply(write, status);
         return Ok(());
     }
+    let Some(raw_id) = frame.get("id") else {
+        write.finish(Ok(()));
+        return if status.is_success() {
+            Ok(())
+        } else {
+            Err(failure("HTTP notification outcome uncertain"))
+        };
+    };
+    let id: RpcId =
+        serde_json::from_value(raw_id.clone()).map_err(|_| failure("HTTP request id invalid"))?;
+    if !status.is_success() {
+        write.finish(Ok(()));
+        client.ingest(WireFrame::Response {
+            id,
+            result: Err(RpcFailure {
+                code: i64::from(status.as_u16()),
+                message: format!("HTTP request refused ({})", status.as_u16()),
+                data: None,
+            }),
+        });
+        return Ok(());
+    }
     let mut headers = serde_json::Map::new();
     for name in &declaration.response_headers {
         if let Some(value) = response
@@ -375,31 +405,112 @@ async fn execute(
             headers.insert(name.clone(), json!(value.replace(password, "[redacted]")));
         }
     }
-    let body = bounded_body(response).await;
-    if let Err(reason) = &body {
-        write.finish(Err(reason.clone()));
-        return Err(reason.clone());
-    }
-    let mut value = body?;
-    redact_value(&mut value, password);
+    let result = match read_response(response, headers, fields, password).await {
+        Ok(RpcReply::Success { value }) => Ok(value),
+        Ok(RpcReply::Error { error }) => Err(error),
+        Err(reason) => {
+            write.finish(Err(reason.clone()));
+            return Err(reason);
+        }
+    };
     write.finish(Ok(()));
-    if frame.get("id").is_some() {
-        let id: RpcId = serde_json::from_value(frame["id"].clone())
-            .map_err(|_| failure("HTTP request id invalid"))?;
-        let result = if status.is_success() {
-            Ok(json!({"body":value,"headers":headers}))
-        } else {
-            Err(RpcFailure {
-                code: i64::from(status.as_u16()),
-                message: format!("HTTP request refused ({})", status.as_u16()),
-                data: None,
-            })
-        };
-        client.ingest(WireFrame::Response { id, result });
-    } else if !status.is_success() {
-        return Err(failure("HTTP notification outcome uncertain"));
-    }
+    client.ingest(WireFrame::Response { id, result });
     Ok(())
+}
+
+fn response_fields(
+    method: &reqwest::Method,
+    params: &Value,
+) -> Result<Option<ResponseFields>, RuntimeFailure> {
+    let Some(fields) = params.get("responseFields") else {
+        return Ok(None);
+    };
+    let valid_name = |name: &str| !name.is_empty() && name.len() <= 64;
+    let fields: ResponseFields = serde_json::from_value(fields.clone())
+        .ok()
+        .filter(|fields: &ResponseFields| {
+            method == &reqwest::Method::GET
+                && !fields.is_empty()
+                && fields.len() <= 16
+                && fields.iter().all(|(name, members)| {
+                    valid_name(name)
+                        && members.len() <= 16
+                        && members.iter().all(|member| valid_name(member))
+                })
+        })
+        .ok_or_else(|| RuntimeFailure::PrewriteRefused("HTTP response fields invalid".into()))?;
+    Ok(Some(fields))
+}
+
+async fn read_response(
+    response: reqwest::Response,
+    headers: serde_json::Map<String, Value>,
+    fields: Option<ResponseFields>,
+    password: &str,
+) -> Result<RpcReply, RuntimeFailure> {
+    let Some(body) = bounded_body(response).await? else {
+        return Ok(response_too_large("transport_body", RESPONSE_BODY_LIMIT));
+    };
+    let password = password.to_owned();
+    tokio::task::spawn_blocking(move || {
+        prepare_response(&body, headers, fields.as_ref(), &password)
+    })
+    .await
+    .map_err(|_| failure("HTTP response task failed"))?
+}
+
+fn prepare_response(
+    bytes: &[u8],
+    headers: serde_json::Map<String, Value>,
+    fields: Option<&ResponseFields>,
+    password: &str,
+) -> Result<RpcReply, RuntimeFailure> {
+    let mut body: Value = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(bytes).map_err(|_| failure("HTTP response invalid"))?
+    };
+    if let (Some(fields), Some(object)) = (fields, body.as_object_mut()) {
+        object.retain(|name, value| {
+            let Some(members) = fields.get(name) else {
+                return false;
+            };
+            if !members.is_empty() {
+                if let Some(items) = value.as_array_mut() {
+                    for item in items {
+                        if let Some(item) = item.as_object_mut() {
+                            item.retain(|key, _| members.contains(key));
+                        }
+                    }
+                }
+            }
+            true
+        });
+    }
+    redact_value(&mut body, password);
+    let value = Value::Object(
+        [
+            ("body".into(), body),
+            ("headers".into(), Value::Object(headers)),
+        ]
+        .into(),
+    );
+    let reply = RpcReply::Success { value };
+    if validate_runtime_reply(&reply).is_ok() {
+        Ok(reply)
+    } else {
+        Ok(response_too_large("runtime_value", MAX_RUNTIME_VALUE_BYTES))
+    }
+}
+
+fn response_too_large(boundary: &str, limit: usize) -> RpcReply {
+    RpcReply::Error {
+        error: RpcFailure {
+            code: RESPONSE_TOO_LARGE,
+            message: "HTTP response exceeded its byte limit".into(),
+            data: Some(json!({"kind":"response_too_large","boundary":boundary,"limitBytes":limit})),
+        },
+    }
 }
 
 fn finish_reply(write: Write, status: reqwest::StatusCode) {
@@ -412,12 +523,12 @@ fn finish_reply(write: Write, status: reqwest::StatusCode) {
     });
 }
 
-async fn bounded_body(mut response: reqwest::Response) -> Result<Value, RuntimeFailure> {
+async fn bounded_body(mut response: reqwest::Response) -> Result<Option<Vec<u8>>, RuntimeFailure> {
     if response
         .content_length()
-        .is_some_and(|length| length > BODY_LIMIT as u64)
+        .is_some_and(|length| length > RESPONSE_BODY_LIMIT as u64)
     {
-        return Err(failure("HTTP body limit"));
+        return Ok(None);
     }
     let mut body = Vec::new();
     while let Some(chunk) = response
@@ -425,15 +536,12 @@ async fn bounded_body(mut response: reqwest::Response) -> Result<Value, RuntimeF
         .await
         .map_err(|_| failure("HTTP response interrupted"))?
     {
-        if body.len().saturating_add(chunk.len()) > BODY_LIMIT {
-            return Err(failure("HTTP body limit"));
+        if body.len().saturating_add(chunk.len()) > RESPONSE_BODY_LIMIT {
+            return Ok(None);
         }
         body.extend_from_slice(&chunk);
     }
-    if body.is_empty() {
-        return Ok(Value::Null);
-    }
-    serde_json::from_slice(&body).map_err(|_| failure("HTTP response invalid"))
+    Ok(Some(body))
 }
 
 #[cfg(test)]
