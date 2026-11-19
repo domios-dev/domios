@@ -87,9 +87,9 @@ test('invalid concurrency refuses without starting work', async () => {
 import { QUALIFICATION_JOBS, verifyQualification, selectQualificationArtifact, selectReleasePushRun,
   requireQualification } from './ci-qualification.mjs';
 import { isReleasePushRun, checkQualifiedRun, REQUIRED_JOBS } from './release-promote.mjs';
-import { requireQualificationWithGithub, requireReleasePrQualification, verifyPluginQualification } from './ci-workflow-api.mjs';
+import { requireQualificationWithGithub, requireReleasePrQualification } from './ci-workflow-api.mjs';
 import { ciFailures } from './ci-result.mjs';
-import { classifyPluginDiff, pluginQualificationName } from './plugin-release-scope.mjs';
+import { classifyPluginDiff, directPluginId } from './plugin-release-scope.mjs';
 
 const repository = 'domios-dev/domios';
 const sha = 'a'.repeat(40);
@@ -426,23 +426,10 @@ test('only one versioned plugin and its owned files qualify for lightweight CI',
   assert.equal(classifyPluginDiff(paths, before, after), null);
 });
 
-test('plugin-only CI requires the exact job, attempt and base', () => {
-  const tag = 'plugin-opencode-v1.14.29';
-  const base = 'b'.repeat(40);
-  const name = pluginQualificationName(tag, base);
-  const source = { id: 10, head_sha: 'a'.repeat(40), run_attempt: 2 };
-  const jobs = [name, 'CI result'].map(name => ({
-    name, head_sha: source.head_sha, run_id: source.id, run_attempt: 2, status: 'completed', conclusion: 'success',
-  }));
-  assert.doesNotThrow(() => verifyPluginQualification(jobs, source, tag, base));
-  assert.throws(() => verifyPluginQualification(jobs, source, tag, 'c'.repeat(40)));
-  assert.throws(() => verifyPluginQualification([{ ...jobs[0], run_attempt: 1 }, jobs[1]], source, tag, base));
-  const needs = Object.fromEntries(['policy', 'fast', 'rust', 'rust-warnings', 'qualification', 'release-dry-run']
-    .map(id => [id, { result: 'skipped' }]));
-  for (const id of ['admission', 'plugin-qualification']) needs[id] = { result: 'success' };
-  const options = { releaseHead: true, pluginId: 'opencode' };
-  assert.deepEqual(ciFailures('push', needs, '', options), []);
-  assert.deepEqual(ciFailures('workflow_dispatch', needs, '', options), ['admission']);
-  needs['plugin-qualification'].result = 'skipped';
-  assert.deepEqual(ciFailures('push', needs, '', options), ['plugin-qualification']);
+test('direct plugin PR naming identifies the one expected plugin', () => {
+  assert.equal(directPluginId('release/plugin-opencode'), 'opencode');
+  assert.equal(directPluginId('release/plugin-chat-preprocessor'), 'chat-preprocessor');
+  for (const ref of ['release/next', 'release/plugin-', 'release/plugin-opencode/topic', 'feature/plugin-opencode']) {
+    assert.equal(directPluginId(ref), null);
+  }
 });

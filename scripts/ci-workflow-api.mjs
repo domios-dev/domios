@@ -2,7 +2,6 @@ import { RELEASE_BRANCH } from './release-version.mjs';
 import {verifyQualification, selectQualificationArtifact, retainQualificationEvidence, qualificationAttemptNumbers, selectReleasePushRun} from './ci-qualification.mjs';
 import {readQualificationArchive} from './ci-qualification-archive.mjs';
 import {parseTestWaiver, testWaiverEvidence} from './release-test-waiver.mjs';
-import {fetchPluginReleaseBase, pluginQualificationName, pluginReleaseBetween} from './plugin-release-scope.mjs';
 export {readQualificationArchive} from './ci-qualification-archive.mjs';
 
 export async function verifyIssueReferences(github, selection) {
@@ -68,8 +67,7 @@ export async function requireQualificationWithGithub(github, context, sha, {runI
     verification_artifact:{id:artifact.id,expires_at:artifact.expires_at}});
 }
 
-export async function requireReleasePrQualification(github, context, verify = requireQualificationWithGithub,
-  { allowPluginOnly = false } = {}) {
+export async function requireReleasePrQualification(github, context, verify = requireQualificationWithGithub) {
   const pr = context.payload.pull_request;
   const repository = context.repo.owner + '/' + context.repo.repo;
   if (context.eventName !== 'pull_request' || pr?.base.ref !== 'master' || pr.user.login !== 'rollacode'
@@ -82,29 +80,7 @@ export async function requireReleasePrQualification(github, context, verify = re
     throw new Error('Superseded release PR head');
   const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {...context.repo,
     workflow_id: 'tests.yml', event: 'push', head_sha: pr.head.sha, branch: pr.head.ref, per_page: 100});
-  if (allowPluginOnly) {
-    const base = fetchPluginReleaseBase('refs/heads/master');
-    const plugin = pluginReleaseBetween(base, pr.head.sha);
-    if (plugin) {
-      if (base !== current.base.sha || base !== pr.base.sha) throw new Error('Superseded plugin release base');
-      const run = selectReleasePushRun(runs, pr.head.sha, pr.head.ref, repository);
-      const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRunAttempt, {
-        ...context.repo, run_id: run.id, attempt_number: run.run_attempt, per_page: 100,
-      });
-      verifyPluginQualification(jobs, run, plugin.tag, base);
-      return;
-    }
-  }
   const waiver = parseTestWaiver(current.body ?? '');
   const run = selectReleasePushRun(runs, pr.head.sha, pr.head.ref, repository, waiver);
   return verify(github, context, pr.head.sha, {runId: run.id, ...(waiver ? {waiver} : {})});
-}
-
-export function verifyPluginQualification(jobs, run, tag, base) {
-  for (const name of [pluginQualificationName(tag, base), 'CI result']) {
-    const matches = jobs.filter(job => job.name === name);
-    if (matches.length !== 1 || !matches.every(job => job.run_id === run.id && job.head_sha === run.head_sha &&
-        job.run_attempt === run.run_attempt && job.status === 'completed' && job.conclusion === 'success'))
-      throw new Error('Missing exact successful plugin qualification job: ' + name);
-  }
 }

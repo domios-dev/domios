@@ -79,20 +79,26 @@ change updates `API_VERSION`, the bundled API range and `frontend-release-contra
 For frontend-only releases, change the frontend contract version; do not change Rust or app version
 files, which select an application release. Frontend discovery is separate from app `latest`.
 
-For a plugin release, run `node scripts/release-plugin.mjs bump <id> <version>`, with explicit
-`--min-codeterm` only when a new host capability is required. Verify `release-plugin.mjs check`
-and `check-plugin.mjs <id>`, merge the checked PR, then with publication GO tag the verified master
-commit `plugin-<id>-v<version>`. Verify the installed version through `domios plugin update-system`.
-An owner push to `release/next` uses plugin-only qualification when its exact diff
-against master contains a version bump and files for one official plugin. It may
-also update only that plugin's entry in `plugins/channel.json` and explicitly
-owned shared test fixtures (`tests/fixtures/runtime-http-sse.json` for OpenCode).
-Any other change uses full release qualification. Wait for the exact push's
-plugin checks and CI result, then merge the owner release PR after its required
-checks pass. The master push skips app promotion for a qualified plugin-only
-tree. Publication still requires owner approval in the `release` environment.
+For a plugin release, start the owner-only branch `release/plugin-<id>` at current
+master. Real-merge the reviewed plugin lane there and run
+`node scripts/release-plugin.mjs bump <id> <version>`. Set `--min-codeterm` only
+when the plugin needs a new host capability. Open the owner PR directly into
+master. The required **Release qualification** job checks the exact master diff
+and whitespace, then runs `release-plugin.mjs check <tag>` and
+`check-plugin.mjs <id>` on hosted Ubuntu. The diff may contain only that
+plugin's directory, its one entry in `plugins/channel.json` and shared fixtures
+explicitly assigned to the plugin. Other changes require the full
+`release/next` path. **PR result** verifies that the full PR jobs were skipped
+for the plugin branch; both contexts are required by the existing master ruleset.
 
-Dispatch `plugin-release.yml` from a reviewed release branch with `tag=plugin-<id>-v<version>`; tag pushes do not publish. The dispatch's `publish_core_channel` job runs `scripts/publish-core-channel.mjs`, which uploads the whole
+Merge the checked PR into master using a merge commit. Real-merge that master
+commit into develop and verify ancestry on the remote before publishing. With
+publication GO, tag that exact master commit `plugin-<id>-v<version>` and dispatch
+`plugin-release.yml` on master with `tag=plugin-<id>-v<version>`. The workflow
+requires the owner actor, the tag at the dispatched master SHA, develop ancestry
+and approvals in the `release` environment. Verify the public release and channel
+before confirming the installed version through `domios plugin update-system`.
+Tag pushes do not publish. The dispatch's `publish_core_channel` job runs `scripts/publish-core-channel.mjs`, which uploads the whole
 `plugins/` tree as `codeterm-core.tar.gz` (+ `.sha256`, `.source-commit`) to the public
 `domios-dev/domios` release `codeterm-core-latest` with `GITHUB_TOKEN`, skips an older master
 commit, and verifies the anonymous download. Every install refreshes `codeterm-core` from there.
