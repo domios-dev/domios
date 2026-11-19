@@ -77,6 +77,7 @@ fn plan(directory: &Path, staged: &Path, data: &Path) -> Plan {
             instance_locks: vec![],
             token: String::new(),
         },
+        initiating_tab_id: None,
         snapshot: QuitSnapshot {
             ready,
             client: None,

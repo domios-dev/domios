@@ -397,9 +397,10 @@ pub fn run(
             return result;
         }
     };
+    let exact_shutdown = matches!(&control_result, Ok(Some(_)));
     let result = finish_server_control(
         control_result,
-        || shutdown(&running),
+        || shutdown(&running, exact_shutdown),
         |completion, cleanup| {
             let result = match completion {
                 QuitControl::Bootstrap(completion) => {
@@ -525,7 +526,7 @@ async fn shutdown_signal() -> io::Result<()> {
     }
 }
 
-fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
+fn shutdown(running: &crate::ComposedService, exact_shutdown: bool) -> io::Result<()> {
     use codeterm_service_core::{crash, service::session_persist, startup};
     crash::shutdown::mark_shutting_down_for(crash::shutdown::ShutdownReason::Signal);
     let spawn_gate = running.states.pty.lock().spawn_gate();
@@ -537,6 +538,9 @@ fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
         spawn_gate.wait_for_idle(std::time::Instant::now() + std::time::Duration::from_secs(6))
     {
         errors.push(error);
+    }
+    if exact_shutdown {
+        running.service.capture_reserved_update_shells();
     }
     match session_persist::write_session_snapshot(&running.service, &running.service.mux) {
         Ok(codeterm_service_core::session::store::SaveOutcome::Saved) => {}

@@ -47,6 +47,7 @@ pub async fn launch(
     package: StagedDebianPackage,
     target: QuitTarget,
     resources: std::path::PathBuf,
+    initiating_tab_id: Option<String>,
 ) -> Result<(), String> {
     let address = target
         .ready
@@ -72,9 +73,11 @@ pub async fn launch(
     if !snapshot_matches(&snapshot, &target) {
         return Err("update quit snapshot differs from attached pair".into());
     }
-    tokio::task::spawn_blocking(move || prepare_and_launch(package, target, snapshot, &resources))
-        .await
-        .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || {
+        prepare_and_launch(package, target, snapshot, &resources, initiating_tab_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn snapshot_matches(snapshot: &QuitSnapshot, target: &QuitTarget) -> bool {
@@ -103,6 +106,7 @@ fn prepare_and_launch(
     target: QuitTarget,
     snapshot: QuitSnapshot,
     resources: &Path,
+    initiating_tab_id: Option<String>,
 ) -> Result<(), String> {
     let graphical = ["DISPLAY", "WAYLAND_DISPLAY"]
         .iter()
@@ -161,6 +165,7 @@ fn prepare_and_launch(
         elevation,
         target,
         snapshot,
+        initiating_tab_id,
     };
     let plan_path = directory.join("handoff.json");
     std::fs::write(

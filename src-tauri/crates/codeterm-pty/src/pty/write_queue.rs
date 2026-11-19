@@ -181,13 +181,13 @@ impl WriteQueue {
 
     pub fn reserve_update_shutdown(
         &self,
-        expected_revision: u64,
+        idle_revision: Option<u64>,
     ) -> Result<UpdateWriteReservation, String> {
         let mut state = self.shared.state.lock();
         if state.closed
             || state.update_reserved
-            || state.requests != 0
-            || state.input_revision != expected_revision
+            || idle_revision
+                .is_some_and(|revision| state.requests != 0 || state.input_revision != revision)
         {
             return Err("PTY input changed or remains in flight since update preflight".into());
         }
