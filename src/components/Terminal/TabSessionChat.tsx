@@ -24,7 +24,7 @@ import { AccountTransitionActions } from "./AccountTransitionActions";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { runtimeResponseDeadlinePending, runtimeSessionUnavailable, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
-import { manualPendingPrompt, promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
+import { liveRuntimePrompt, manualPendingPrompt, promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
 
 import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
@@ -246,14 +246,15 @@ function TabSessionChatBody({
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const watcherSpec = tab?.watcher ?? null;
   const isWatcherTab = watcherSpec != null;
-  const promptLifecycle = useProviderPromptLifecycle(tab);
-  const pendingPrompt: PendingPrompt | null = manualPendingPrompt(promptLifecycle.tab);
+  const runtimePrompt = liveRuntimePrompt(tab);
+  const promptLifecycle = useProviderPromptLifecycle(runtimePrompt ? null : tab);
+  const pendingPrompt: PendingPrompt | null = runtimePrompt ?? manualPendingPrompt(promptLifecycle.tab);
   const { activity: composerActivity, confirm: confirmStop } = useStopSettlement(tabId, tab, runtime.state, promptLifecycle.resolved
     ? tabActivity(promptLifecycle.tab, agentActivity.status === "Waiting" ? null : agentActivity.status)
     : agentActivity);
   const descriptor = getAgentDescriptor(tabProvider);
   const promptAnswers = !readOnly && descriptor?.supports_prompt_answers === true;
-  const structuredPrompts = descriptor?.supports_structured_prompts === true;
+  const structuredPrompts = runtimePrompt !== null || descriptor?.supports_structured_prompts === true;
   const isActive = isVisible;
   const transcriptMounted = sessionActive ?? isActive;
   const resolvePeerName = useMeshPeerNameResolver(isActive);
@@ -480,7 +481,7 @@ function TabSessionChatBody({
   useEffect(() => {
     if (!sessionBindingSurface.showRecoveryAction) setBindingRecoveryOpen(false);
   }, [sessionBindingSurface.showRecoveryAction]);
-  const promptPart = promptMessagePart(descriptor, pendingPrompt, answeredPromptQuestion);
+  const promptPart = promptMessagePart(descriptor, pendingPrompt, answeredPromptQuestion, runtimePrompt);
 
   useEffect(() => {
     if (!pendingPrompt) setAnsweredPromptQuestion(null);
@@ -494,7 +495,7 @@ function TabSessionChatBody({
       if (pendingPrompt && !structuredPrompts) setAnsweredPromptQuestion(pendingPrompt.question);
       try {
         await invoke("mux_respond_prompt", promptResponseArgs(tabId, value, pendingPrompt, tab?.pending_prompt_kind ?? "structured"));
-        promptLifecycle.resolve(promptLifecycle.key);
+        if (!runtimePrompt) promptLifecycle.resolve(promptLifecycle.key);
         composerErrorNotice.recover();
       } catch (error) {
         setAnsweredPromptQuestion(null);
@@ -504,7 +505,7 @@ function TabSessionChatBody({
         promptResponseInFlight.current = false;
       }
     },
-    [pendingPrompt, structuredPrompts, tabId, tab?.pending_prompt_kind, showComposerError, promptLifecycle.key, promptLifecycle.resolve, composerErrorNotice],
+    [pendingPrompt, runtimePrompt, structuredPrompts, tabId, tab?.pending_prompt_kind, showComposerError, promptLifecycle.key, promptLifecycle.resolve, composerErrorNotice],
   );
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useLatestCallback((command: string) => {

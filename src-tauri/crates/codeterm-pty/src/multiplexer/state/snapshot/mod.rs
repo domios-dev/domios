@@ -146,7 +146,12 @@ impl MultiplexerState {
             {
                 tab.shell_command_state.activity = crate::multiplexer::types::ShellActivity::Idle;
             }
-            if tab.agent_type.is_some() {
+            if matches!(tab.backing, TabBacking::ChatBackend { .. }) {
+                tab.agent_state =
+                    Some(tab.provider_signals.access_state().unwrap_or_else(|| {
+                        super::status_view::chat_backend_agent_state(tab, *status)
+                    }));
+            } else if tab.agent_type.is_some() {
                 tab.agent_state = tab.provider_signals.access_state().or_else(|| {
                     Some(super::status_view::agent_state_for_status(
                         tab.agent_state.as_ref(),

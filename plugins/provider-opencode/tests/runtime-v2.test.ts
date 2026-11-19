@@ -148,6 +148,20 @@ check("returns to working only when the active turn's final prompt settles",()=>
   const ended=runtimeReduce(ctx,asked.state,[frame("session.execution.succeeded"),frame("permission.replied"),frame("form.replied")]);
   assert.deepEqual(ended.events.filter(event=>event.kind === "turnState").map(event=>event.state),["idle"]);
 });
+check("resolves the exact recorded permission request even without a turn id",()=>{
+  const {ctx,frames}=prepared("v2-permission-reply");
+  delete ctx.streamWindow;
+  const asked=frames.find(frame=>frame.kind === "request" && frame.method === "permission.asked");
+  const replied=frames.find(frame=>(frame.params as Record<string,JsonValue>).type === "permission.replied");
+  assert.ok(asked?.kind === "request" && replied);
+  const pending=runtimeReduce(ctx,null,[asked]);
+  const [prompt]=pending.events;
+  assert.ok(prompt.kind === "prompt" && prompt.permission);
+  assert.equal(prompt.requestId,asked.requestId);
+  const settled=runtimeReduce(ctx,pending.state,[replied]);
+  assert.deepEqual(settled.events,[{kind:"promptResolved",threadId:ctx.threadId,requestId:asked.requestId}]);
+  assert.deepEqual(runtimeReduce(ctx,settled.state,[replied]).events,[]);
+});
 check("settles a provider quota session error with a visible balance recovery notice",()=>{
   const {ctx,frames}=prepared("v2-provider-quota");
   ctx.activeTurnId="quota-turn";

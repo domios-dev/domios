@@ -10,18 +10,17 @@ pub(in crate::service::agent_runtime) fn release_lost_turn(
     svc: &ServiceContext,
     session: &Session,
 ) {
-    let (tab, thread, turn) = {
+    let (expired, turn) = {
         let mut context = session.context.lock();
         context.active_turns.clear();
-        (
-            context.tab_id.clone(),
-            context.thread_id.clone(),
-            context.active_turn_id.take(),
-        )
+        let turn = context.active_turn_id.take();
+        (context.clone(), turn)
     };
-    let Some(thread) = thread else {
+    super::super::prompt_answers::expire(svc, session, &expired);
+    let Some(thread) = expired.thread_id else {
         return;
     };
+    let tab = expired.tab_id;
     let shown_active = svc
         .mux
         .read()

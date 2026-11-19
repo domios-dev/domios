@@ -352,7 +352,13 @@ pub(super) fn answer(
                 context.tab_id
             );
             if session.prompts.lock().contains_key(&request) {
-                super::prompt_answers::publish(&owner, &session, request, prompt);
+                super::prompt_answers::publish(
+                    &owner,
+                    &session,
+                    request,
+                    prompt,
+                    codeterm_types::pty::PromptKind::Permission,
+                );
             }
         }
     });

@@ -269,6 +269,10 @@
               "value": "cancel"
             }
           ]
+        },
+        "permission": {
+          "action": "other",
+          "options": []
         }
       },
       {

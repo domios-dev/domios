@@ -153,7 +153,18 @@ impl ServiceContext {
         self.invalidate_guarded_agent_input(tab_id);
         self.open_lifecycle_epoch(tab_id);
         let nonce = uuid::Uuid::new_v4().to_string();
+        let mut retired_prompt = None;
         if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+            if tab.is_chat_backend()
+                && tab
+                    .pending_prompt
+                    .as_ref()
+                    .is_some_and(|prompt| prompt.request_id.is_some())
+            {
+                retired_prompt = tab.prompt_identity();
+                tab.pending_prompt = None;
+                tab.pending_prompt_kind = None;
+            }
             tab.remember_superseded_binding_nonce();
             tab.session_binding_nonce = Some(nonce.clone());
             tab.reported_session_binding_nonce = None;
@@ -181,6 +192,10 @@ impl ServiceContext {
             if let Some(session_id) = resume_target {
                 tab.remember_resume_binding_nonce(session_id);
             }
+        }
+        if let Some(identity) = retired_prompt {
+            self.resolve_prompt_notifications(tab_id, &identity);
+            self.emit_structured_prompt(tab_id, None, identity.kind);
         }
         if let Some(session_id) = resume_target {
             self.record_lifecycle(
