@@ -6,6 +6,10 @@ export interface RemoteTeamIdentity {
   title: string;
   peerName: string;
 }
+
+export function sharesObservedMachine(teamHostId?: string | null, workerHostId?: string | null): boolean {
+  return Boolean(teamHostId && workerHostId && teamHostId === workerHostId);
+}
 export function managedByLabel(tab: Tab): string | null {
   const controller = tab.ownership?.controller_title?.trim();
   return controller ? `managed by ${controller}` : null;

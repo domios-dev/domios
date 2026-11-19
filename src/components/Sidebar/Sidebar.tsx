@@ -657,14 +657,15 @@ export const Sidebar = memo(function Sidebar({
   );
   const compactGroups = useMemo<CompactRailGroup[]>(() => {
     if (!isCompact) return [];
-    const railGroup = (workspaceId: string, label: string, tabIds: readonly string[], keep: (tab: Tab) => boolean): CompactRailGroup => {
+    const railGroup = (workspaceId: string, label: string, tabIds: readonly string[], keep: (tab: Tab) => boolean, isGeneral = false): CompactRailGroup => {
       const workspaceActive = workspaceId === state.active_workspace_id && isWorkspaceMode;
       const tabs = tabsInWorkspace(tabIds, state.tabs).filter((tab) => isSidebarTabVisible(tab) && !tab.parent_tab_id && keep(tab));
       const active = tabs.find((tab) => isWorkspaceTabActive(workspaceActive, workspaceCanvasActive, tab.id, state.activeTabIds[workspaceId]));
-      return { workspaceId, label, tabs, activeTabId: active?.id ?? null };
+      const activeTabId = workspaceActive && !workspaceCanvasActive ? state.activeTabIds[workspaceId] ?? active?.id ?? null : active?.id ?? null;
+      return { workspaceId, label, tabs, activeTabId, isGeneral };
     };
     const groups: CompactRailGroup[] = [];
-    if (generalWorkspace) groups.push(railGroup(generalWorkspace.id, generalWorkspace.name, generalWorkspace.tabs, isGeneralSectionTab));
+    if (generalWorkspace) groups.push(railGroup(generalWorkspace.id, generalWorkspace.name, generalWorkspace.tabs, isGeneralSectionTab, true));
     const selected = ordinaryWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId);
     if (selected) groups.push(railGroup(selected.id, selected.name, selected.tabs, (tab) => anchorsTeam(tab)));
     return groups;
@@ -701,6 +702,7 @@ export const Sidebar = memo(function Sidebar({
                   groups={compactGroups}
                   attentionByTab={attention}
                   tabStatuses={state.tabStatuses}
+                  touchMode={touchMode}
                   onActivate={(workspaceId, tabId) => {
                     setActiveTab(workspaceId, tabId);
                     onNavigateToTab?.();
