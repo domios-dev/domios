@@ -6,6 +6,10 @@ import { RunChatPopup } from "./RunChatPopup";
 import { clearTranscriptWindows } from "../Terminal/transcriptStore";
 import type { ChatMsgEvent } from "../Terminal/chatSessionAuthority";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
+import type { CronJob, CronRunInfo } from "../../lib/types";
+import { CronDrawerSection } from "../MeshPanel/CronDrawerSection";
+import type { MeshResourceActionAdapter } from "../MeshPanel/meshResourceActions";
+import type { Service } from "../MeshPanel/types";
 
 const tabState = vi.hoisted(() => ({ tab: { agent_session_id: "session-1", session_binding_nonce: "nonce" } as { agent_session_id: string; session_binding_nonce: string } | undefined }));
 const transcriptRelay = vi.hoisted(() => ({ calls: [] as Array<{ peerId?: string; method: string; path: string }> }));
@@ -30,6 +34,107 @@ afterEach(() => {
   vi.useRealTimers();
   tabState.tab = { agent_session_id: "session-1", session_binding_nonce: "nonce" };
   transcriptRelay.calls = [];
+});
+
+const drawerRun: CronRunInfo = {
+  run_id: "drawer-run",
+  started_at: 1,
+  finished_at: 2,
+  status: "Success",
+  tab_id: null,
+  session_id: "drawer-session",
+  cwd: "/workspace",
+  provider: "claude",
+  owner_instance_id: null,
+};
+
+const drawerJob: CronJob = {
+  id: "drawer-job",
+  name: "Drawer job",
+  description: null,
+  workspace_id: "workspace-1",
+  schedule: "0 * * * *",
+  enabled: true,
+  agent: "claude",
+  model: null,
+  reasoning_effort: null,
+  task: "task",
+  cwd: null,
+  role: null,
+  oneshot: false,
+  max_history: 10,
+  created_at: 1,
+  last_run: drawerRun,
+  next_run: null,
+  jitter_max_ms: null,
+};
+
+function drawerService(id: string, sourcePeerId?: string): Service {
+  return {
+    id,
+    name: "Drawer job",
+    kind: "cron",
+    health_mode: "http",
+    health_interval: 60,
+    health: { status: "healthy" },
+    push_enabled: false,
+    registered_at: 1,
+    updated_at: 1,
+    enabled: true,
+    machine_id: sourcePeerId ?? "local-machine",
+    machine_name: "Machine",
+    schedule: "0 * * * *",
+    capabilities: { get: { allowed: true }, history: { allowed: true } },
+    source_peer_id: sourcePeerId,
+  } as Service;
+}
+
+const drawerActions: MeshResourceActionAdapter = {
+  get: async () => drawerJob,
+  history: async () => [drawerRun],
+  trigger: async () => undefined,
+  setEnabled: async () => undefined,
+  cancel: async () => undefined,
+  updateSchedule: async () => undefined,
+  remove: async () => undefined,
+  regenerateToken: async () => "",
+};
+
+async function openDrawerTranscript(service: Service) {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => {
+      root.render(<CronDrawerSection service={service} machineName="Local machine" onUpdate={() => undefined} actionAdapter={drawerActions} />);
+      await Promise.resolve();
+    });
+    const open = host.querySelector<HTMLButtonElement>('button[aria-label^="View transcript:"]');
+    expect(open).not.toBeNull();
+    await act(async () => open?.click());
+    await act(async () => { await Promise.resolve(); });
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+}
+
+it("normalizes the cron id in local Jobs drawer transcript requests", async () => {
+  await openDrawerTranscript(drawerService("cron_local-job"));
+  expect(transcriptRelay.calls).toEqual([{
+    peerId: undefined,
+    method: "GET",
+    path: "/api/crons/local-job/history/drawer-run",
+  }]);
+});
+
+it("normalizes the cron id and routes remote Mesh drawer transcripts to their peer", async () => {
+  await openDrawerTranscript(drawerService("cron_remote-job", "machine-air"));
+  expect(transcriptRelay.calls).toEqual([{
+    peerId: "machine-air",
+    method: "GET",
+    path: "/api/crons/remote-job/history/drawer-run",
+  }]);
 });
 
 it("reads a completed run by its retained session without requiring its closed tab", async () => {
