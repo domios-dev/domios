@@ -55,6 +55,20 @@ export interface AccountCanvas {
   notes: string[];
 }
 
+/** Use the same paired cards for the inventory and its header. */
+export function accountCanvasPeers(canvas: AccountCanvas, peers: PeerStatus[]): PeerStatus[] {
+  return peers.filter(peer => canvas.peerFooters.has(peer.instance_id));
+}
+
+export function accountCanvasMachineCounts(canvas: AccountCanvas, peers: readonly PeerStatus[]) {
+  return {
+    total: 1 + peers.length + canvas.nodes.length,
+    connected: 1 + peers.filter(peer => !peer.pending && peer.online
+      && canvas.peerFooters.get(peer.instance_id)?.row.status !== "signed_out").length
+      + canvas.nodes.filter(node => node.online === true).length,
+  };
+}
+
 const STATUS: Record<MachineStatus, { label: string; tone: MachineTone }> = {
   signed_out: { label: "Signed out", tone: "muted" },
   linked: { label: "Connected", tone: "ok" },

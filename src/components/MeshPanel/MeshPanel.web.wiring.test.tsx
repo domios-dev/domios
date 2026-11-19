@@ -20,6 +20,7 @@ const inventory: MeshDataResult = {
 };
 let meshData = inventory;
 let signedIn = true;
+let registryOnlyMachine = false;
 const refreshKeys: number[] = [];
 const registryRefreshKeys: number[] = [];
 const bridgeCommands: string[] = [];
@@ -31,10 +32,13 @@ vi.mock("./useCanvasAccount", () => ({ useCanvasAccount: (peers: readonly PeerSt
   registryRefreshKeys.push(key);
   return {
     canvas: accountCanvas({
-      view: { kind: "account", reauthRequired: false, self: null, saved: [], notes: [], machines: peers.map(peer => ({
+      view: { kind: "account", reauthRequired: false, self: null, saved: [], notes: [], machines: [...peers.map(peer => ({
         key: peer.instance_id, name: peer.name, status: "linked", detail: "Connected", online: peer.online,
         target: null, controls: { revoke: null }, pairInstanceId: peer.instance_id, lastSeenAt: null,
-      })) },
+      } as const)), ...(registryOnlyMachine ? [{
+        key: "registry-only", name: "Registry only", status: "signed_out" as const, detail: "Signed out", online: false,
+        target: null, controls: { revoke: null }, pairInstanceId: null, lastSeenAt: null,
+      }] : [])] },
       peers, loadFailed: false, listFailed: false, failures: new Map(),
     }),
     now: 0, busy: null, signingIn: false,
@@ -182,13 +186,16 @@ it("renders a loading header and inventory until cached or live data arrives, wi
     expect(host.querySelector('section[aria-label="Mesh inventory"][aria-busy="true"]')).not.toBeNull();
     expect(host.textContent).not.toContain("127.0.0.1");
 
-    const second = { ...inventory.peers[0], instance_id: "second", name: "Second machine" };
+    const second = { ...inventory.peers[0], instance_id: "second", name: "Second machine", online: true };
+    registryOnlyMachine = true;
     meshData = { ...inventory, peers: [...inventory.peers, second], error: null, loading: true };
     await act(async () => root.render(panel()));
-    expect(host.textContent).toContain("3 machines");
+    expect(host.textContent).toContain("4 machines · 2 connected");
+    expect(host.querySelector('section[aria-label^="Registry only,"]')).not.toBeNull();
     expect(host.querySelector('section[aria-label="Mesh inventory"]')).toBeNull();
     expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).not.toBeNull();
   } finally {
+    registryOnlyMachine = false;
     meshData = inventory;
     await act(async () => root.unmount());
     host.remove();
