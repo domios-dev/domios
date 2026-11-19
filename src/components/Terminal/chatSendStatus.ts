@@ -1,4 +1,5 @@
-import { invoke } from "../../lib/bridge";
+import { useEffect } from "react";
+import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { remoteChatFailure, remoteChatState } from "../../lib/remoteChatState";
 import { remoteChatPeer, setRemoteChatFailure } from "../../lib/remoteChatStatus";
@@ -18,6 +19,32 @@ type WireChatSendStatus = import("../../../gen/ChatSendStatus").ChatSendStatus;
 type SystemSendView = Pick<NonNullable<WireChatSendStatus["system_send"]>, "content" | "sent_at_ms">
   & Partial<NonNullable<WireChatSendStatus["system_send"]>>;
 export type ChatSendStatus = Omit<WireChatSendStatus, "system_send"> & { system_send?: SystemSendView };
+
+export function useChatSendStatusSubscription(
+  tabId: string | null,
+  observeStatus = observeDeliveryStatus,
+  reconcile?: () => void,
+): void {
+  useEffect(() => {
+    if (!tabId) return;
+    let cancelled = false;
+    let unlisten: UnlistenFn | undefined;
+    void listen<ChatSendStatus>("chat-send-status", ({ payload }) => {
+      if (!cancelled && payload.tab_id === tabId) void observeStatus(payload);
+    }).then((release) => {
+      if (cancelled) {
+        release();
+        return;
+      }
+      unlisten = release;
+      if (reconcile) reconcile();
+      else void reconcileTrackedChatMessages(tabId).catch(() => {});
+    }).catch((error: unknown) => {
+      console.warn("[chat-send] status subscription failed", error);
+    });
+    return () => { cancelled = true; unlisten?.(); };
+  }, [tabId, observeStatus, reconcile]);
+}
 
 export function reconcileTrackedChatMessages(tabId: string): Promise<ChatSendStatus[]> {
   const existing = reconciliationRuns.get(tabId);

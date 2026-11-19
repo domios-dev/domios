@@ -12,9 +12,9 @@ import {
   type ReactNode,
 } from "react";
 import { ExternalLink, MessageCircle, X } from "lucide-react";
-import type { Tab } from "../../../lib/types";
+import type { Tab, TabStatus } from "../../../lib/types";
 import { useReducedMotion } from "../missionControl/useReducedMotion";
-import { isProvenAdmissionRefusal, sendTrackedChatMessage } from "../../Terminal/chatSendStatus";
+import { isProvenAdmissionRefusal, sendTrackedChatMessage, useChatSendStatusSubscription } from "../../Terminal/chatSendStatus";
 import { addChatSend, beginChatSendRetry, failChatSendRequest, useChatSendSnapshot } from "../../Terminal/chatSendStore";
 import type { DeliverySend } from "../../Terminal/chatDeliveryModel";
 import type { ChatSendState } from "../../../../gen/ChatSendState";
@@ -37,6 +37,7 @@ import {
   createPlanReviewId,
   createPlanSendToken,
   resolvePlanAskOwner,
+  resolvePlanAskRecipient,
   resolvePlanReviewOwner,
   type PlanReviewAction,
   type PlanAskOwner,
@@ -267,6 +268,8 @@ export function PlanParagraphAsk({ kind, plan, sections, tabs, onOpenTab, childr
           anchor={open}
           owner={owner}
           reviewOwner={reviewOwner}
+          tabs={tabs}
+          statuses={statuses}
           motion={motion}
           onClose={closeAsk}
           onOpenTab={onOpenTab}
@@ -280,6 +283,8 @@ interface PlanAskPopoverProps {
   anchor: AskAnchor;
   owner: PlanAskOwner;
   reviewOwner: PlanAskOwner;
+  tabs?: Record<string, Tab>;
+  statuses: Record<string, TabStatus>;
   motion: Motion;
   onClose: () => void;
   onOpenTab?: (tabId: string) => void;
@@ -298,7 +303,7 @@ function trackedSendState(send: DeliverySend | undefined): ChatSendState | null 
   return null;
 }
 
-function PlanAskPopover({ anchor, owner, reviewOwner, motion, onClose, onOpenTab }: PlanAskPopoverProps) {
+function PlanAskPopover({ anchor, owner, reviewOwner, tabs, statuses, motion, onClose, onOpenTab }: PlanAskPopoverProps) {
   const inputId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -313,6 +318,7 @@ function PlanAskPopover({ anchor, owner, reviewOwner, motion, onClose, onOpenTab
   const resolvedRecipient = intent === "ask" ? owner : reviewOwner;
   const resolvedReady = resolvedRecipient.status === "ready" ? resolvedRecipient : null;
   const trackedTabId = attempt?.owner.tabId ?? resolvedReady?.tabId ?? "";
+  useChatSendStatusSubscription(attempt?.kind === "review" ? attempt.owner.tabId : null);
   const sendSnapshot = useChatSendSnapshot(trackedTabId);
   const trackedSend = attempt ? sendSnapshot.sends.find((send) => send.id === attempt.id) : undefined;
   const trackedState = trackedSendState(trackedSend);
@@ -326,8 +332,8 @@ function PlanAskPopover({ anchor, owner, reviewOwner, motion, onClose, onOpenTab
   const reference = target.status === "mapped" ? target.reference : null;
   const reviewReference = isSelectionReference(reference) ? reference : null;
   const quote = reference ? reference.quote : target.status === "unmapped" ? target.quote : "";
-  const exchangeOwner = attempt?.kind === "ask" && trackedState !== "failed"
-    ? ready?.tabId === attempt.owner.tabId ? ready : attempt.owner
+  const liveAskOwner = attempt?.kind === "ask"
+    ? resolvePlanAskRecipient(attempt.owner.tabId, attempt.owner.name, tabs, statuses)
     : null;
 
   useEffect(() => {
@@ -522,10 +528,14 @@ function PlanAskPopover({ anchor, owner, reviewOwner, motion, onClose, onOpenTab
           {statusText}
         </p>
       )}
-      {attempt?.kind === "ask" && trackedState !== "failed" && exchangeOwner && (
+      {attempt?.kind === "ask" && trackedState !== "failed" && (
         <>
           <p data-testid="plan-ask-question" className="plan-ask-question">{attempt.question}</p>
-          <PlanAskExchange owner={exchangeOwner} busy={ready?.tabId === exchangeOwner.tabId && ready.busy} askId={attempt.clientToken} />
+          <PlanAskExchange
+            owner={liveAskOwner?.status === "ready" ? liveAskOwner : attempt.owner}
+            askId={attempt.id}
+            clientToken={attempt.clientToken}
+          />
         </>
       )}
       {attempt && !canRetry && (

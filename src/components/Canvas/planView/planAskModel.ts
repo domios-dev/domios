@@ -70,7 +70,7 @@ function resolvePlanReviewRecipient(
   return resolvePlanAskRecipient(tabId, fallbackName, tabs, statuses);
 }
 
-function resolvePlanAskRecipient(
+export function resolvePlanAskRecipient(
   tabId: string,
   fallbackName: string,
   tabs: Record<string, Tab> | undefined,
@@ -187,9 +187,11 @@ interface ExchangeMessage {
 export function planAskReplies<T extends ExchangeMessage>(
   messages: readonly T[],
   askId: string,
+  clientToken: string,
 ): { asked: boolean; replies: T[] } {
+  const envelopeId = `"ask_id":${JSON.stringify(askId)}`;
   const start = messages.findIndex(
-    (message) => message.type === "user" && (message.correlationId === askId || message.content.includes(askId)),
+    (message) => message.type === "user" && (message.correlationId === clientToken || message.content.includes(envelopeId)),
   );
   if (start < 0) return { asked: false, replies: [] };
   const replies: T[] = [];
