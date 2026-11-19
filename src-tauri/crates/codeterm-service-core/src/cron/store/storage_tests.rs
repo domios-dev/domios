@@ -178,7 +178,7 @@ fn storage_cron_run_identity_survives_rehydration() {
     let f = fixture();
     let job = f.create(params("identity round trip"));
     let mut run = running("identity-run");
-    run.provider = Some("claude".into());
+    run.provider = Some("fixture-provider".into());
     run.owner_instance_id = Some("machine-b".into());
     commit(&f.cron, |store| {
         store.prepare_record_run(&job.id, run.clone())
@@ -191,7 +191,7 @@ fn storage_cron_run_identity_survives_rehydration() {
         .into_iter()
         .find(|saved| saved.run_id == "identity-run")
         .expect("rehydrated run");
-    assert_eq!(saved.provider.as_deref(), Some("claude"));
+    assert_eq!(saved.provider.as_deref(), Some("fixture-provider"));
     assert_eq!(saved.owner_instance_id.as_deref(), Some("machine-b"));
 }
 

@@ -3,10 +3,10 @@ use super::*;
 #[test]
 fn run_identity_round_trips_and_legacy_records_default_it() {
     let mut run = run("identity-run", 1, CronRunStatus::Success);
-    run.provider = Some("claude".into());
+    run.provider = Some("fixture-provider".into());
     run.owner_instance_id = Some("machine-b".into());
     let encoded = serde_json::to_value(&run).unwrap();
-    assert_eq!(encoded["provider"], "claude");
+    assert_eq!(encoded["provider"], "fixture-provider");
     assert_eq!(encoded["owner_instance_id"], "machine-b");
     assert_eq!(serde_json::from_value::<CronRunInfo>(encoded).unwrap(), run);
 

@@ -56,7 +56,7 @@ export function RunChatPopup({
     setLoaded(false);
     const load = () => {
       const request = cronId && runId
-        ? cronRunTranscriptRequest(cronId, { run_id: runId, owner_instance_id: ownerInstanceId }, ownerInstanceId)
+        ? cronRunTranscriptRequest(cronId, { run_id: runId, owner_instance_id: ownerInstanceId ?? undefined }, ownerInstanceId)
         : null;
       const transcript = request
         ? daemonTransportForPeer(request.targetInstanceId).json<{ messages?: ChatMessage[] }>("GET", request.path)

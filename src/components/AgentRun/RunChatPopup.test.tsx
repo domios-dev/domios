@@ -10,7 +10,8 @@ import type { NormalizedChatMessage } from "@codeterm/chat-core";
 const tabState = vi.hoisted(() => ({ tab: { agent_session_id: "session-1", session_binding_nonce: "nonce" } as { agent_session_id: string; session_binding_nonce: string } | undefined }));
 const transcriptRelay = vi.hoisted(() => ({ calls: [] as Array<{ peerId?: string; method: string; path: string }> }));
 vi.mock("../../store/multiplexer/hooks", () => ({ useMuxSelector: () => tabState.tab }));
-vi.mock("../../lib/daemonBootstrap", () => ({
+vi.mock("../../lib/daemonBootstrap", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../lib/daemonBootstrap")>(),
   daemonTransportForPeer: (peerId?: string) => ({
     json: async (method: string, path: string) => {
       transcriptRelay.calls.push({ peerId, method, path });

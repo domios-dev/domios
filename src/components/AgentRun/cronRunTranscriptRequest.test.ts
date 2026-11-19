@@ -15,7 +15,6 @@ describe("cronRunTranscriptRequest", () => {
   it("uses the source peer when an older remote run has no recorded owner", () => {
     expect(cronRunTranscriptRequest("cron-1", {
       run_id: "run-1",
-      owner_instance_id: null,
     }, "machine-air")).toEqual({
       targetInstanceId: "machine-air",
       path: "/api/crons/cron-1/history/run-1",
