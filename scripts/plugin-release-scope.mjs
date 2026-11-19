@@ -51,14 +51,24 @@ export function pluginReleaseBetween(base, head) {
   return classifyPluginDiff(files, channel(base), channel(head));
 }
 
-export function pluginQualificationName(tag, base) {
-  return 'Plugin qualification - ' + tag + ' from ' + base;
+export function directPluginId(headRef) {
+  const prefix = 'release/plugin-';
+  if (!headRef.startsWith(prefix)) return null;
+  const id = headRef.slice(prefix.length);
+  return segmentPattern.test(id) ? id : null;
+}
+
+export function checkDirectPluginRelease(base, head, headRef) {
+  const plugin = pluginReleaseBetween(base, head);
+  if (!plugin || plugin.id !== directPluginId(headRef))
+    throw new Error('Plugin PR must bump exactly its named plugin and touch only its owned files');
+  git('diff', '--check', base, head);
+  return plugin;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const ref = process.argv[2];
-  const base = ref === 'refs/heads/master' ? fetchPluginReleaseBase(ref) : ref;
-  const plugin = pluginReleaseBetween(base, process.argv[3]);
-  if (plugin) fs.appendFileSync(process.env.GITHUB_OUTPUT,
-    'id=' + plugin.id + '\ntag=' + plugin.tag + '\nbase=' + base + '\n');
+  const base = fetchPluginReleaseBase('refs/heads/master');
+  if (base !== process.env.PR_BASE_SHA) throw new Error('Update the plugin PR to the current master head');
+  const plugin = checkDirectPluginRelease(base, process.env.PR_HEAD_SHA, process.env.PR_HEAD_REF);
+  fs.appendFileSync(process.env.GITHUB_OUTPUT, 'id=' + plugin.id + '\ntag=' + plugin.tag + '\n');
 }
