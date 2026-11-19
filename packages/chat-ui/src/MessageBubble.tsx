@@ -674,16 +674,6 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
   return null;
 });
 
-function RoutingDetails({ routing, onFocusTab }: { routing: NonNullable<ChatMessage["routing"]>; onFocusTab?: (tab: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const tab = routing.tab;
-  return <div className="mb-2 text-xs text-ct-muted-fg" aria-label="Routing details">
-    <span>{[routing.kind, routing.label, routing.model].filter(Boolean).join(" · ")}</span>
-    {tab && onFocusTab && <button type="button" className="ml-2" onClick={() => onFocusTab(tab)}>Open sender tab</button>}
-    {routing.tip && <details onToggle={event => setOpen(event.currentTarget.open)}><summary>Reply details</summary>{open && <div className="whitespace-pre-wrap">{routing.tip}</div>}</details>}
-  </div>;
-}
-
 export const MessageBubble = React.memo(function MessageBubble(props: MessageBubbleProps) {
   const time = messageRowTime(props.message, props.item, props.origin);
   const content = <MessageBubbleContent {...props} />;
@@ -692,7 +682,6 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
   return (
     <MessageTimeFrame timestamp={props.showTimestamp === false || !time ? undefined : String(time.timestamp)} side="left">
       {content}
-      {props.message.type === "user" && props.message.routing && <RoutingDetails routing={props.message.routing} onFocusTab={props.onFocusTab} />}
     </MessageTimeFrame>
   );
 });
