@@ -46,7 +46,8 @@ export function MachineManagement({ machines }: { machines: MachinesController }
           {(row.canSignOut || row.controls.revoke) && <MachineSessionControls name={row.name} busy={machines.busy === row.key}
             onSignOut={row.canSignOut ? () => machines.revokeSession(row) : undefined}
             onRemove={row.controls.revoke ? alsoSignOut => machines.revoke(row, row.controls.revoke!, alsoSignOut) : undefined}
-            identityPeer={row.online && row.target ? row.pairInstanceId ?? undefined : undefined} />}
+            identityPeer={row.online && row.target ? row.pairInstanceId ?? undefined : undefined}
+            rename={row.online && row.target ? { displayName: row.displayName, save: name => machines.rename(row, name) } : undefined} />}
           {failure && <InlineErrorNotice role="alert" description={{ title: `Could not ${failure.operation}`, cause: failureMessage(failure.failure), raw: JSON.stringify(failure.failure), actions: [] }} />}
         </PeerMachineListRow>;
       })}
@@ -150,7 +151,7 @@ function SelfRow({ self, onRename, onPlans }: {
             Rename this machine
           </button>
         )}
-        <MachineSessionControls name={self.name} busy={saving} identityPeer={null} />
+        <MachineSessionControls name={self.name} busy={saving} identityPeer={null} rename={self.readOnly ? undefined : { displayName: self.displayName, save: onRename }} />
       </div>
       {self.planLimited && <div className="flex items-center justify-between gap-2">
         <span className={UI_TEXT.metaMuted}>This machine is outside your plan's machine limit.</span>

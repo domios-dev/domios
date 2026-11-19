@@ -17,6 +17,7 @@ interface Props {
   disabled?: boolean;
   onGoOnline?: () => void;
   footer?: ReactNode;
+  displayName?: string | null;
   onRename?: (name: string) => Promise<boolean>;
   renameDisabledReason?: string;
   peerId?: string;
@@ -33,6 +34,7 @@ function PeerTerminalComponent({
   onGoOnline,
   footer,
   onRename,
+  displayName,
   renameDisabledReason,
   peerId,
 }: Props) {
@@ -54,13 +56,13 @@ function PeerTerminalComponent({
           <MachineGlyph {...identity} size="tile" />
         </span>
         <span className="ml-2 min-w-0 flex-1 text-[14px] text-[var(--ct-fg)] font-medium truncate">
-          <MachineName name={name} onRename={onRename} disabledReason={renameDisabledReason} />
+          <MachineName name={name} displayName={displayName} onRename={onRename} disabledReason={renameDisabledReason} />
         </span>
         <span className="ml-auto max-w-[45%] truncate text-[11px] text-[var(--ct-muted-fg)] font-mono whitespace-nowrap">
           {ip}
           {isThisMachine ? (offline ? " · offline" : " · this") : ""}
         </span>
-        {isThisMachine && <span onClick={(event) => event.stopPropagation()}><MachineSessionControls name={name} busy={false} identityPeer={null} /></span>}
+        {isThisMachine && <span onClick={(event) => event.stopPropagation()}><MachineSessionControls name={name} busy={false} identityPeer={null} rename={onRename ? { displayName, save: onRename } : undefined} /></span>}
       </div>
       {offline && onGoOnline && (
         <button

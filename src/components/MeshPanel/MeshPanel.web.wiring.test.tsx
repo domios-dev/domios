@@ -193,7 +193,7 @@ it("renders a loading header and inventory until cached or live data arrives, ne
   }
 });
 
-it("dismisses the peer drawer before closing Mesh on the next Escape", async () => {
+it("opens the intended peer with a duplicate name and dismisses its drawer before closing Mesh on the next Escape", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const host = document.createElement("div");
   document.body.append(host);
@@ -203,11 +203,12 @@ it("dismisses the peer drawer before closing Mesh on the next Escape", async () 
     const [open, setOpen] = useState(true);
     return open ? <MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => setOpen(false)} /> : null;
   }
+  meshData = { ...inventory, thisMachine: { ...inventory.thisMachine, name: inventory.peers[0].name } };
   try {
     await act(async () => root.render(<Harness />));
-    await act(async () => host.querySelector<HTMLElement>('[role="button"][aria-label="Open Remote machine"]')!.click());
+    await act(async () => host.querySelector<HTMLElement>('[role="button"][aria-label^="Open Remote machine,"][aria-label$="offline"]')!.click());
     const drawer = host.querySelector('[role="dialog"]');
-    expect(drawer).not.toBeNull();
+    expect(drawer?.textContent).toContain(inventory.peers[0].ip);
     expect(drawer!.contains(document.activeElement)).toBe(true);
     await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true, cancelable: true })));
     expect(host.querySelector('[role="dialog"]')).toBeNull();
@@ -217,6 +218,7 @@ it("dismisses the peer drawer before closing Mesh on the next Escape", async () 
   } finally {
     await act(async () => root.unmount());
     host.remove();
+    meshData = inventory;
   }
 });
 
@@ -260,7 +262,7 @@ it("renders authoritative daemon and schedule data in the map and peer sections"
     await act(async () => root.render(<>
       <section aria-label="Mesh resource source">
         <MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} />
-        <ServiceDrawer state={{ kind: "peer", id: "Remote machine" }} services={inventory.services} peers={inventory.peers} thisMachineName="Local" onClose={() => {}} onActionDone={() => {}} />
+        <ServiceDrawer state={{ kind: "peer", id: inventory.peers[0].instance_id }} services={inventory.services} peers={inventory.peers} thisMachineName="Local" onClose={() => {}} onActionDone={() => {}} />
       </section>
       <GeneralInventorySections generalWorkspaceId={workspaces[0].id} workspaces={workspaces} teams={teams} tabs={tabs} inventory={inventory} jobs={[]} onCloseTab={() => {}} onRenameTab={() => {}} onNavigate={(workspaceId, tabId) => navigated.push([workspaceId, tabId])} />
     </>));

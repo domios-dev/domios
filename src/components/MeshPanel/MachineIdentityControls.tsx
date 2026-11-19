@@ -84,9 +84,9 @@ export function MachineJoinPreview({ name, value, onChange, initiallyExpanded = 
   </div>;
 }
 
-export function MachineIdentitySaveError({ error, retry }: { error: string; retry: () => void }) {
+export function MachineIdentitySaveError({ error, retry, title = "Couldn't save the icon and colour." }: { error: string; retry: () => void; title?: string }) {
   return <div className="flex flex-wrap items-baseline gap-x-3 border-t border-[var(--ct-border)] pt-2 text-[length:var(--ct-font-size-meta)]">
-    <span role="status" className="w-full">Couldn't save the icon and colour.</span>
+    <span role="status" className="w-full">{title}</span>
     <button type="button" className="machine-identity-action font-semibold text-[var(--ct-accent)]" onClick={retry}>Try again</button>
     <details className="min-w-0 flex-auto">
       <summary>Details</summary>

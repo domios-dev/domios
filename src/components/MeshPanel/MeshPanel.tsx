@@ -159,8 +159,8 @@ export function MeshPanel({ config, onClose, inventoryRequest }: Props) {
   const [meshAnnouncement, setMeshAnnouncement] = useState("");
   const mapRef = useRef<HTMLDivElement>(null);
   const [mapSize, setMapSize] = useState({ width: 800, height: 600 });
-  const handlePeerClick = useCallback((name: string) => {
-    setDrawerState({ kind: "peer", id: name });
+  const handlePeerClick = useCallback((id: string) => {
+    setDrawerState({ kind: "peer", id });
   }, []);
   const closeDrawer = useCallback(() => setDrawerState(null), []);
   const setupWebAccess = useCallback(async () => {

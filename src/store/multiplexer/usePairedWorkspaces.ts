@@ -3,6 +3,7 @@ import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import type { PlanIndexEntry } from "../../components/Canvas/plansApi";
 import { remoteTeamName } from "../../components/Sidebar/remoteOwnership";
 import { cleanMachineName } from "../../lib/machineIdentity";
+import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
 import { invoke } from "../../lib/bridge";
 import type { MeshPeersResponse, MultiplexerState } from "../../lib/types";
 import { setWorkspaceBrowseTarget, useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
@@ -40,6 +41,7 @@ interface WorkspaceBrowse {
 
 export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: boolean, cacheAccount: CacheAccount) {
   const peers = roster?.peers ?? null;
+  const accountNames = useAccountMachineNames();
   const rosterRevision = roster?.revision;
   const peerRoster = useRef<MeshPeersResponse | null>(peers);
   peerRoster.current = peers;
@@ -193,13 +195,13 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
     const observed = pairedAvailability(peer, peers?.installations);
     return {
       peerId: peer.instance_id,
-      name: cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine",
+      name: accountNames.peers.get(peer.instance_id) ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine",
       teamNames: known?.teamNames,
       availability: observed === "reconnecting" ? known?.availability ?? observed : observed,
       sessions: known?.sessions ?? (saved?.publicKey === peer.public_key ? saved.sessions : []),
       cached: !known?.sessions && saved !== undefined && saved.publicKey === peer.public_key,
     };
-  }), [general, peers, cachedPeers, cacheAccount]);
+  }), [general, peers, cachedPeers, cacheAccount, accountNames]);
   const peerWorkspaces = useMemo(() => generals.flatMap(peer => {
     const paired = peers?.paired.find(item => item.instance_id === peer.peerId);
     const known = general.get(peer.peerId);

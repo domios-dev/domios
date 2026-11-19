@@ -3,15 +3,16 @@ import { UI_BUTTON, UI_TEXT } from "../shared/design";
 import { DropdownMenu } from "../shared/DropdownMenu";
 import { useMeshMachineIdentity } from "../../lib/useMeshMachineIdentities";
 import { UNKNOWN_MACHINE } from "../../lib/machineIdentity";
-import { MachineIdentityPopover } from "./MachineIdentityEditor";
+import { MachineIdentityPopover, type MachineRename } from "./MachineIdentityEditor";
 
-export function MachineSessionControls({ name, busy, onSignOut, onRemove, renderRow, identityPeer }: {
+export function MachineSessionControls({ name, busy, onSignOut, onRemove, renderRow, identityPeer, rename }: {
   name: string;
   busy: boolean;
   onSignOut?: () => Promise<boolean>;
   onRemove?: (alsoSignOut: boolean) => Promise<boolean>;
   renderRow?: (menu: ReactNode) => ReactNode;
   identityPeer?: string | null;
+  rename?: MachineRename;
 }) {
   const [confirm, setConfirm] = useState<"sign_out" | "remove" | null>(null);
   const [alsoSignOut, setAlsoSignOut] = useState(false);
@@ -60,7 +61,7 @@ export function MachineSessionControls({ name, busy, onSignOut, onRemove, render
       ...(onRemove ? [{ label: "Remove from mesh", danger: true, onClick: () => setConfirm("remove") }] : []),
     ]} />
     {editingIdentity && <MachineIdentityPopover name={name} peerId={identityPeer ?? undefined}
-      initial={identity ?? UNKNOWN_MACHINE} onClose={closeIdentity} anchor={anchor} />}
+      rename={rename} initial={identity ?? UNKNOWN_MACHINE} onClose={closeIdentity} anchor={anchor} />}
   </span> : null;
   return renderRow ? renderRow(menu) : menu;
 }

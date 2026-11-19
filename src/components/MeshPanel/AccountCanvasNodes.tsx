@@ -85,7 +85,7 @@ export function AccountMachineCard({ node, busy, now, actions, hint }: { node: A
       <div className="flex items-center gap-2 min-w-0">
         <MachineGlyph {...identity} size="tile" />
         <span className={`min-w-0 flex flex-1 text-[14px] font-medium text-[var(--ct-fg)] ${lockedDimClass(lock)}`}>
-          <MachineName name={node.name} onRename={actions.onRename ? (name) => actions.onRename!(node.row, name) : undefined}
+          <MachineName name={node.name} displayName={node.row.displayName} onRename={actions.onRename ? (name) => actions.onRename!(node.row, name) : undefined}
             disabledReason={!node.row.target || !node.row.pairInstanceId || !node.row.online ? "Connect to rename it, or rename it on that machine" : undefined} />
         </span>
         <LockBadge view={lock} />
@@ -128,6 +128,7 @@ export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions, h
   return <div onClick={(event) => event.stopPropagation()}>
     <MachineSessionControls name={name} busy={busy}
       identityPeer={actions.onRename && row.online && row.target ? row.pairInstanceId ?? undefined : undefined}
+      rename={actions.onRename && row.online && row.target ? { displayName: row.displayName, save: (next) => actions.onRename!(row, next) } : undefined}
       onSignOut={row.canSignOut && actions.onSignOut ? () => actions.onSignOut!(row) : undefined}
       onRemove={target && actions.onRemove ? (alsoSignOut) => actions.onRemove!(row, target, alsoSignOut) : undefined}
       renderRow={(menu) => <MachineFooter label={label} secondary={secondary} tone={footer.tone} connecting={row.connecting}

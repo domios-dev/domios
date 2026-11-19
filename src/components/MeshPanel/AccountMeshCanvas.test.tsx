@@ -41,7 +41,7 @@ describe("Mesh canvas wiring", () => {
   let root: Root;
   let changed = 0;
   let selected = 0;
-  let clickedNames: string[] = [];
+  let clickedMachineIds: string[] = [];
 
   beforeEach(() => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -52,7 +52,7 @@ describe("Mesh canvas wiring", () => {
     presence.signIns = 0;
     changed = 0;
     selected = 0;
-    clickedNames = [];
+    clickedMachineIds = [];
   });
 
   afterEach(async () => {
@@ -64,7 +64,7 @@ describe("Mesh canvas wiring", () => {
     await act(async () => root.render(
       <AccountMeshClientProvider value={client}>
         <AccountMeshCanvas registryRefreshKey={registryRefreshKey} onAccountChanged={() => { changed++; }} thisMachine={{ name: "Studio PC", ip: "127.0.0.1" }} peers={peers}
-          recentPushes={[]} onPeerClick={(name) => { selected++; clickedNames.push(name); }} webUiBaseUrl="http://127.0.0.1:7686" onOpenPeerWebUi={() => { selected++; }} width={1200} height={800} />
+          recentPushes={[]} onPeerClick={(name) => { selected++; clickedMachineIds.push(name); }} webUiBaseUrl="http://127.0.0.1:7686" onOpenPeerWebUi={() => { selected++; }} width={1200} height={800} />
       </AccountMeshClientProvider>,
     ));
   }
@@ -225,7 +225,7 @@ describe("Mesh canvas wiring", () => {
     expect(button("Rename Workstation")).not.toBeNull();
     expect(selected).toBe(0);
     await click(host.querySelector('[role="button"][aria-label^="Open Workstation,"]'));
-    expect(clickedNames).toEqual(["Studio PC"]);
+    expect(clickedMachineIds).toEqual(["__local_machine__"]);
   });
 
   it("keeps the rename draft after a refusal and saves it on the next Enter", async () => {
@@ -345,7 +345,7 @@ describe("Mesh canvas wiring", () => {
     await act(async () => client.emit(client.state));
     expect(button("Rename Travel Mac")).not.toBeNull();
     await click(host.querySelector('[role="button"][aria-label^="Open Travel Mac,"]'));
-    expect(clickedNames).toEqual(["mac.local"]);
+    expect(clickedMachineIds).toEqual(["mesh-mac"]);
     await act(async () => client.emit({ ...client.state, account_epoch: 2 }));
     expect(button("Rename MacBook")).not.toBeNull();
   });
@@ -487,7 +487,7 @@ describe("Mesh canvas wiring", () => {
       return undefined as T;
     });
     try {
-      await act(async () => root.render(<ServiceDrawer state={{ kind: "peer", id: "MacBook" }} services={[]} peers={[peer("mesh-mac", "MacBook")]}
+      await act(async () => root.render(<ServiceDrawer state={{ kind: "peer", id: "mesh-mac" }} services={[]} peers={[peer("mesh-mac", "MacBook")]}
         thisMachineName="Local" onClose={() => {}} onActionDone={() => {}} />));
       const select = host.querySelector<HTMLSelectElement>('select[aria-label="Access for MacBook here"]')!;
       expect([...select.options].map(option => option.textContent)).toEqual(["Full access", "Read only", "Its own agents only"]);
@@ -505,6 +505,32 @@ describe("Mesh canvas wiring", () => {
     } finally {
       __setInvokeForTest(null);
     }
+  });
+
+  it("renames a duplicate from the notice without saving the label suffix", async () => {
+    const local = { ...selfRow, display_name: "BLACKSTAR [dev]" };
+    const remote = { ...macRow, display_name: "BLACKSTAR [air]" };
+    const client = new FakeAccountMeshClient(snapshot({
+      registry: { observed_at: NOW, rows: [local, remote] },
+      self: { ...snapshot().self!, display_name: local.display_name },
+      pairs: [pair("mesh-mac", "BLACKSTAR [air]", { installation_id: remote.installation_id })],
+    }));
+    await mount(client, [peer("mesh-mac", "BLACKSTAR [air]")]);
+    expect(host.textContent).toContain("Two machines are named BLACKSTAR");
+    expect(host.textContent).toContain("BLACKSTAR #1");
+    expect(host.textContent).toContain("BLACKSTAR #2");
+    await click([...host.querySelectorAll("button")].find(button => button.textContent === "Rename") ?? null);
+    const input = document.querySelector<HTMLInputElement>("[data-machine-name]")!;
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("BLACKSTAR");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Studio");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(client.renameCalls).toEqual([[selfRow.metadata_revision, "Studio"]]);
+    expect(host.textContent).not.toContain("Two machines are named BLACKSTAR");
+    expect(host.textContent).not.toContain("BLACKSTAR #");
   });
 
   it("explains an empty account on the canvas", async () => {

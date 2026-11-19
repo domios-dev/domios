@@ -11,6 +11,7 @@ import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { MachineGlyph } from "../shared/MachineGlyph";
 import { MachinePickerRow, MachineThisBadge, machineRowLabel } from "../shared/MachineRow";
 import { cleanMachineName, machineLabel, type MeshIdentityProjection } from "../../lib/machineIdentity";
+import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
 import { menuKeyAction } from "./menuKeyboard";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import { hasLocalInstanceName, localInstanceLabel, onMeshPeersLoaded, rememberLocalInstanceName } from "../../lib/localInstanceName";
@@ -25,6 +26,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const target = useWorkspaceBrowseTarget();
   const filter = useSidebarMachineFilter();
+  const accountNames = useAccountMachineNames();
   const [identities, setIdentities] = useState<MeshIdentityProjection>({});
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -104,20 +106,20 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   );
 
   const selectedPeer = peers.find(peer => peer.instance_id === target?.id);
-  const label = target ? cleanMachineName(selectedPeer?.instance_name ?? target.name, target.id) ?? "Machine" : localName;
+  const label = target ? accountNames.peers.get(target.id) ?? cleanMachineName(selectedPeer?.instance_name ?? target.name, target.id) ?? "Machine" : accountNames.local ?? localName;
   const identity = target ? identities.machine_identities?.[target.id] : identities.local_machine_identity;
-  const localMachine = { name: localName, identity: identities.local_machine_identity, status: "online", local: true };
+  const localMachine = { name: accountNames.local ?? localName, identity: identities.local_machine_identity, status: "online", local: true };
   const pillLabel = filter === "local" ? machineRowLabel(localMachine) : machineLabel(label, identity);
 
   const switchTo = useCallback(
     (selection: PairedPeer | "all" | "local") => {
       setSidebarMachineFilter(typeof selection === "string" ? selection : {
         id: selection.instance_id,
-        name: cleanMachineName(selection.instance_name, selection.instance_id) ?? "Machine",
+        name: accountNames.peers.get(selection.instance_id) ?? cleanMachineName(selection.instance_name, selection.instance_id) ?? "Machine",
       });
       closeMenu();
     },
-    [closeMenu],
+    [accountNames, closeMenu],
   );
 
   return (
@@ -159,7 +161,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
           </button>
           {peers.map((p) => {
             const active = target?.id === p.instance_id;
-            const name = cleanMachineName(p.instance_name, p.instance_id) ?? "Machine";
+            const name = accountNames.peers.get(p.instance_id) ?? cleanMachineName(p.instance_name, p.instance_id) ?? "Machine";
             const compatible = p.relay_protocol_version === RELAY_PROTOCOL_VERSION;
             const status = p.online ? compatible ? "online" : "update required" : "offline";
             const identity = identities.machine_identities?.[p.instance_id];

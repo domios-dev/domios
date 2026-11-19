@@ -31,8 +31,10 @@ export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => 
   }), [openPlans, dismissFailure, rename, revoke, revokeSession]);
   const self = view.kind === "account" ? view.self : null;
   return useMemo(() => ({
+    duplicateNames: view.kind === "account" ? view.duplicateNames : undefined,
+    selfInstallationId: self?.installationId,
     moreMachines: !!snapshot?.registry?.cursor,
-    canvas, busy, signingIn, cancelSignIn: account.cancelSignIn, now, actions, selfName: self?.displayName ?? undefined, onRenameSelf: self && !self.readOnly ? renameSelf : undefined, removed: view.kind === "account" && view.removed, onRejoin: () => { void signIn(); }, reauthRequired: view.kind === "account" && view.reauthRequired,
+    canvas, busy, signingIn, cancelSignIn: account.cancelSignIn, now, actions, selfName: self?.displayName ? self.name : undefined, selfDisplayName: self?.displayName, onRenameSelf: self && !self.readOnly ? renameSelf : undefined, removed: view.kind === "account" && view.removed, onRejoin: () => { void signIn(); }, reauthRequired: view.kind === "account" && view.reauthRequired,
     limitMachines: view.kind === "account" && view.machineLimit ? machines : undefined,
     onSignIn: () => { void signIn(); },
     onRetry: () => { void load(); },
