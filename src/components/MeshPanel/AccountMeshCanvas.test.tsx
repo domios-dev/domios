@@ -26,7 +26,9 @@ vi.mock("@codeterm/canvas-camera", async (original) => ({
   useCanvasViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, transformRef: { current: { x: 0, y: 0, scale: 1 } }, setTransform: () => {}, fitToView: () => {}, zoomBy: () => {} }),
 }));
 
-const { AccountMeshCanvas } = await import("./AccountMeshCanvas");
+const { MeshCanvas } = await import("./MeshCanvas");
+const { useCanvasAccount } = await import("./useCanvasAccount");
+const { accountCanvasPeers } = await import("./accountCanvas");
 const { useMeshConnections } = await import("./useMeshConnections");
 
 const peer = (instanceId: string, name: string, patch: Partial<PeerStatus> = {}): PeerStatus => ({
@@ -57,11 +59,20 @@ describe("Mesh canvas wiring", () => {
     host.remove();
   });
 
+  function CanvasHarness({ peers, registryRefreshKey }: { peers: PeerStatus[]; registryRefreshKey: number }) {
+    const account = useCanvasAccount(peers, onAccountChanged, registryRefreshKey, {
+      presence: presence.current, signingIn: false, signIn: async () => { presence.signIns++; },
+    });
+    return <MeshCanvas account={account} thisMachine={{ name: "Studio PC", ip: "127.0.0.1" }} peers={accountCanvasPeers(account.canvas, peers)}
+      recentPushes={[]} onPeerClick={(name) => { selected++; clickedMachineIds.push(name); }} webUiBaseUrl="http://127.0.0.1:7686"
+      onOpenPeerWebUi={() => { selected++; }} width={1200} height={800} />;
+  }
+  const onAccountChanged = () => { changed++; };
+
   async function mount(client: FakeAccountMeshClient, peers: PeerStatus[] = [], registryRefreshKey = 0) {
     await act(async () => root.render(
       <AccountMeshClientProvider value={client}>
-        <AccountMeshCanvas meshAccount={{ presence: presence.current, signingIn: false, signIn: async () => { presence.signIns++; } }} registryRefreshKey={registryRefreshKey} onAccountChanged={() => { changed++; }} thisMachine={{ name: "Studio PC", ip: "127.0.0.1" }} peers={peers}
-          recentPushes={[]} onPeerClick={(name) => { selected++; clickedMachineIds.push(name); }} webUiBaseUrl="http://127.0.0.1:7686" onOpenPeerWebUi={() => { selected++; }} width={1200} height={800} />
+        <CanvasHarness peers={peers} registryRefreshKey={registryRefreshKey} />
       </AccountMeshClientProvider>,
     ));
   }
@@ -541,6 +552,7 @@ describe("Mesh canvas wiring", () => {
   it("uses plural copy inside each card when two other machines share the name", async () => {
     const rows = [selfRow, macRow, lenovoRow].map(row => ({ ...row, display_name: "BLACKSTAR" }));
     const client = new FakeAccountMeshClient(snapshot({
+      binding: "other",
       registry: { observed_at: NOW, rows },
       self: { ...snapshot().self!, display_name: "BLACKSTAR" },
     }));
@@ -548,6 +560,15 @@ describe("Mesh canvas wiring", () => {
     const cards = host.querySelectorAll('[aria-label^="BLACKSTAR #"][role="group"], section[aria-label^="BLACKSTAR #"]');
     expect(cards).toHaveLength(3);
     for (const card of cards) expect(card.textContent).toContain("Same name as 2 others");
+    const local = button("Rename BLACKSTAR #3 in Icon and colour")!;
+    expect(local.getAttribute("aria-disabled")).toBeNull();
+    const remote = button("Rename BLACKSTAR #1 in Icon and colour")!;
+    expect(remote.getAttribute("aria-disabled")).toBe("true");
+    expect(document.getElementById(remote.getAttribute("aria-describedby")!)?.textContent).toBe(remote.title);
+    await click(remote);
+    expect(document.querySelector("[data-machine-name]")).toBeNull();
+    await click(local);
+    expect(document.activeElement).toBe(document.querySelector("[data-machine-name]"));
   });
 
   it("explains an empty account on the canvas", async () => {

@@ -57,13 +57,15 @@ function PeerTerminalComponent({
           className="flex items-center gap-2 rounded focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]">
           <MachineGlyph {...identity} size="tile" />
         </span>
-        <span className="ml-2 min-w-0 flex-1 text-[14px] text-[var(--ct-fg)] font-medium truncate">
-          <MachineName name={name} displayName={displayName} onRename={onRename} disabledReason={renameDisabledReason} />
-        </span>
-        <span className="ml-auto max-w-[45%] truncate text-[11px] text-[var(--ct-muted-fg)] font-mono whitespace-nowrap">
-          {ip}
-          {isThisMachine ? (offline ? " · offline" : " · this") : ""}
-        </span>
+        <div className={`flex min-w-0 flex-1 ${isThisMachine ? "flex-col" : "items-center gap-2"}`}>
+          <span className="min-w-0 flex-1 text-[14px] font-medium text-[var(--ct-fg)]">
+            <MachineName name={name} displayName={displayName} onRename={onRename} disabledReason={renameDisabledReason} />
+          </span>
+          <span className={`truncate whitespace-nowrap font-mono text-[11px] text-[var(--ct-muted-fg)] ${isThisMachine ? "" : "max-w-[45%]"}`}>
+            {ip}
+            {isThisMachine ? (offline ? " · offline" : " · this") : ""}
+          </span>
+        </div>
         {isThisMachine && <span onClick={(event) => event.stopPropagation()}><MachineSessionControls name={name} busy={false} identityPeer={null} sameNameOthers={sameNameOthers} rename={onRename ? { displayName, save: onRename } : undefined} /></span>}
       </div>
       {offline && onGoOnline && (

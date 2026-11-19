@@ -6,15 +6,15 @@ import type { MeshAccount } from "./useMeshAccount";
 import { useMyMachines } from "./useMyMachines";
 
 /** My machines projected onto the Mesh canvas, live with the account and the paired peers. */
-export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => void, registryRefreshKey: number, account: MeshAccount): CanvasAccount {
-  const machines = useMyMachines({ account: account.presence, onSignIn: account.signIn, signingIn: account.signingIn, cancelSignIn: account.cancelSignIn, onChanged });
+export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => void, registryRefreshKey: number, account: MeshAccount, enabled = true): CanvasAccount {
+  const machines = useMyMachines({ account: account.presence, onSignIn: account.signIn, signingIn: account.signingIn, cancelSignIn: account.cancelSignIn, onChanged, enabled });
   const { view, snapshot, loadFailed, listFailure, failures, busy, signingIn, openPlans, dismissFailure, signIn, load, rename, renameSelf, revoke, revokeSession, retryEnrollment } = machines;
   const lastRefreshKey = useRef(registryRefreshKey);
   useEffect(() => {
     if (lastRefreshKey.current === registryRefreshKey) return;
     lastRefreshKey.current = registryRefreshKey;
-    void load();
-  }, [registryRefreshKey, load]);
+    if (enabled) void load();
+  }, [registryRefreshKey, load, enabled]);
   const canvas = useMemo(
     () => accountCanvas({ view, peers, loadFailed, listFailed: listFailure !== null, failures }),
     [view, peers, loadFailed, listFailure, failures],

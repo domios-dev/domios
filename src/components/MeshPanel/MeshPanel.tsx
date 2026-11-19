@@ -6,8 +6,9 @@ import { invoke, listen } from "../../lib/bridge";
 import { BusySpinner, BusyState } from "../shared/BusyState";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab } from "./types";
-import type { RecentPush } from "./MeshCanvas";
-import { AccountMeshCanvas } from "./AccountMeshCanvas";
+import { MeshCanvas, type RecentPush } from "./MeshCanvas";
+import { accountCanvasMachineCounts, accountCanvasPeers } from "./accountCanvas";
+import { useCanvasAccount } from "./useCanvasAccount";
 import { useMeshAccount } from "./useMeshAccount";
 import { useCanvasTailscale } from "./useCanvasTailscale";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
@@ -85,6 +86,10 @@ export function MeshPanel({ config, onClose, inventoryRequest }: Props) {
   const meshOff = !config.mesh.enabled;
   const unavailable = !meshOff && meshDataUnavailable(data);
   const graphReady = data.loaded;
+  const inventoryShown = activeTab === "inventory" && !meshOff && graphReady;
+  const canvasAccount = useCanvasAccount(data.peers, triggerRefresh, registryRefreshKey, account, inventoryShown);
+  const canvasPeers = useMemo(() => accountCanvasPeers(canvasAccount.canvas, data.peers), [canvasAccount.canvas, data.peers]);
+  const machineCounts = useMemo(() => accountCanvasMachineCounts(canvasAccount.canvas, canvasPeers), [canvasAccount.canvas, canvasPeers]);
 
   useEffect(() => {
     let unlistenHealth: (() => void) | null = null;
@@ -226,14 +231,16 @@ export function MeshPanel({ config, onClose, inventoryRequest }: Props) {
       >
         <div className="ct-section-toolbar__identity flex items-center gap-3 mr-4 shrink-0">
           <strong>Mesh</strong>
-          <div className={`${UI_TEXT.meta} opacity-70`}>
+          <div className={UI_TEXT.meta}>
             {header.kind === "off"
               ? <span role="status">Mesh is off.</span>
               : header.kind === "unavailable"
               ? <span role="status">Mesh data is unavailable.</span>
               : header.kind === "loading"
                 ? <DeferredLoader state="present" aria-busy="true"><BusyState inline label="Loading peers" phase="work" /></DeferredLoader>
-                : account.presence === "signed_in" ? `${header.count + 1} machine${header.count === 0 ? "" : "s"}` : null}
+                : inventoryShown && account.presence === "signed_in" && canvasAccount.canvas.card?.kind !== "loading"
+                  ? <>· {machineCounts.total} machine{machineCounts.total === 1 ? "" : "s"} <span className="text-[var(--ct-muted)]">· {machineCounts.connected} connected</span></>
+                  : null}
             {connecting > 0 && <span role="status" className="ml-2"><BusyState inline label={`${connecting} peer${connecting === 1 ? "" : "s"} connecting`} phase="work" /></span>}
           </div>
           {activeTab !== "inventory" && <button
@@ -288,18 +295,16 @@ export function MeshPanel({ config, onClose, inventoryRequest }: Props) {
             <Loader label="Loading mesh" />
           </section>
         )}
-        {activeTab === "inventory" && !meshOff && graphReady && (
+        {inventoryShown && (
           <div ref={mapRef} className="absolute inset-0">
-            <AccountMeshCanvas
-              meshAccount={account}
+            <MeshCanvas
+              account={canvasAccount}
               touch={touchUi}
-              registryRefreshKey={registryRefreshKey}
-              onAccountChanged={triggerRefresh}
               onRefresh={refreshAll}
               webCard={webCard}
               webStatus={deriveWebUiView(serve?.snapshot, serveLoading).label}
               thisMachine={data.thisMachine}
-              peers={data.peers}
+              peers={canvasPeers}
               services={data.services}
               loading={data.loading}
               error={data.error}
