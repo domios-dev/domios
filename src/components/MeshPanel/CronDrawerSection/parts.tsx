@@ -44,7 +44,12 @@ const CANCEL_REASON_LABEL: Record<CronCancelReason, string> = {
 };
 
 /** A run's outcome in words; a cancelled run says why when its record knows. */
-export function runOutcomeLabel(run: Pick<CronRunInfo, "status" | "cancel_reason">): string {
+export function missedOccurrence(run: Pick<CronRunInfo, "scheduled_occurrence_at" | "fired_at" | "status">): boolean {
+  return run.status === "Cancelled" && run.scheduled_occurrence_at != null && run.fired_at == null;
+}
+
+export function runOutcomeLabel(run: Pick<CronRunInfo, "status" | "cancel_reason" | "scheduled_occurrence_at" | "fired_at">): string {
+  if (missedOccurrence(run)) return "Missed";
   return run.status === "Cancelled" && run.cancel_reason ? CANCEL_REASON_LABEL[run.cancel_reason] : runStatusLabel(run.status);
 }
 

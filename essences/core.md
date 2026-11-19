@@ -79,6 +79,8 @@ What one Domios instance remembers across restarts: configuration, the workspace
 
 System cron ownership is persisted explicitly and exposed to clients. System jobs allow enable/disable and refuse deletion or schedule/task edits; their built-in creator restores protection during startup.
 
+Recurring cron jobs preserve their configured cadence after a run fails. History preserves the scheduled occurrence, fire and admission times, and whether an occurrence fired late or was missed.
+
 A missing or unreadable workspace folder, including a retired drive or volume, is checked at startup, workspace open and spawn refusal without polling. The sidebar marks the workspace and its view offers Choose folder instead of session creation. Relocation validates the new folder and keeps workspace, tab, Team, Plan and session identities; paths beneath the old root are rebased for bound Plans, idle tabs and stored launches, while active or outside-root paths are reported unchanged. Launches refuse an unusable cwd with a human recovery message and never fall back to another folder.
 
 ### PTY {#core:pty}

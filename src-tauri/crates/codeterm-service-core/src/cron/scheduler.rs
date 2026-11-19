@@ -7,9 +7,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::store::{
-    commit, finish_run, is_stale_fire, CronJob, CronRunInfo, CronRunStatus, STALE_FIRE_MS,
-};
+#[cfg(test)]
+use codeterm_cron::occurrence::STALE_FIRE_MS;
+use codeterm_cron::occurrence::{FireDecision, Occurrence};
+
+use super::store::{commit, finish_run, CronCommitError, CronJob, CronRunInfo, CronRunStatus};
 use crate::service::ServiceState;
 
 pub use codeterm_agent_model::cron::CronState;
@@ -61,6 +63,7 @@ pub fn start(cron_state: CronState, cron_wake: CronWake, service: ServiceState) 
 #[derive(Clone)]
 struct FireSpec {
     job_id: String,
+    occurrence: Option<Occurrence>,
     agent: String,
     launch_profile: Option<String>,
     model: Option<String>,
@@ -79,6 +82,7 @@ struct FireSpec {
 fn fire_spec(job: &CronJob) -> FireSpec {
     FireSpec {
         job_id: job.id.clone(),
+        occurrence: job.occurrence(),
         agent: job.agent.clone(),
         launch_profile: None,
         model: job.model.clone(),
@@ -104,64 +108,71 @@ enum TickWait {
 }
 
 fn tick(cron_state: &CronState, service: &ServiceState) -> TickWait {
-    tick_with(cron_state, |spec| fire_job(cron_state, service, spec))
+    tick_with(
+        cron_state,
+        |spec| fire_job(cron_state, service, spec),
+        || service.emit_cron_changed(),
+    )
 }
 
-fn tick_with(cron_state: &CronState, mut fire: impl FnMut(&FireSpec) -> FireStart) -> TickWait {
+fn tick_with(
+    cron_state: &CronState,
+    mut fire: impl FnMut(&FireSpec) -> FireStart,
+    mut on_missed: impl FnMut(),
+) -> TickWait {
     if scheduler_unavailable(cron_state) {
         return TickWait::Unavailable;
     }
-    let now_ms = cron_state.lock().now_ms();
-    let mut next_fire: Option<u64> = None;
-    let mut to_fire: Vec<FireSpec> = Vec::new();
-    let mut stale: Vec<String> = Vec::new();
-
-    {
-        let store = cron_state.lock();
-        for job in store.list_enabled() {
-            if let Some(nr) = job.next_run {
-                if nr <= now_ms {
-                    if is_stale_fire(nr, now_ms, job.oneshot) {
-                        stale.push(job.id.clone());
-                        continue;
-                    }
-                    if store.is_job_running(&job.id) {
-                        log::info!("[cron] skip {}: previous run still active", job.id);
-                        let recheck = now_ms + 30_000;
-                        next_fire = Some(match next_fire {
-                            Some(current) => current.min(recheck),
-                            None => recheck,
-                        });
-                        continue;
-                    }
-                    to_fire.push(fire_spec(job));
-                } else {
-                    next_fire = Some(match next_fire {
-                        Some(current) => current.min(nr),
-                        None => nr,
-                    });
-                }
+    let needs_occurrence: Vec<_> = cron_state
+        .lock()
+        .list_enabled()
+        .into_iter()
+        .filter(|job| job.next_run.is_some() && job.occurrence().is_none())
+        .map(|job| job.id.clone())
+        .collect();
+    for job_id in needs_occurrence {
+        if let Err(error) = commit(cron_state, |store| {
+            store.prepare_restore_occurrence(&job_id)
+        }) {
+            match refused_start(cron_state, &error) {
+                FireStart::Fenced => return TickWait::Settlement,
+                _ if scheduler_unavailable(cron_state) => return TickWait::Unavailable,
+                _ => {}
             }
         }
     }
 
-    for job_id in &stale {
-        match commit(cron_state, |store| store.prepare_skip_stale_fire(job_id)) {
-            Ok(committed) if committed.value => log::info!(
-                "[cron] skip {job_id}: slot missed by more than {} min, moved to the next slot",
-                STALE_FIRE_MS / 60_000
-            ),
-            Ok(_) => {}
-            Err(error) => log::error!("[cron] could not skip stale slot for {job_id}: {error}"),
-        }
-    }
+    let mut due: Vec<_> = {
+        let store = cron_state.lock();
+        let now = store.now_ms();
+        store
+            .list_enabled()
+            .into_iter()
+            .filter_map(|job| {
+                let occurrence = job.occurrence()?;
+                let decision = occurrence.decision(now, job.oneshot, store.job_has_active_run(job));
+                (!matches!(decision, FireDecision::WaitUntil(_)))
+                    .then(|| (occurrence, decision, fire_spec(job)))
+            })
+            .collect()
+    };
+    due.sort_by_key(|(slot, _, _)| slot.due_at);
 
-    let had_due_jobs = !to_fire.is_empty() || !stale.is_empty();
-    let mut recorded_any = false;
     let mut refused = HashSet::new();
-    for spec in to_fire {
-        match fire(&spec) {
-            FireStart::Recorded => recorded_any = true,
+    for (occurrence, decision, spec) in due {
+        let outcome = match decision {
+            FireDecision::Missed => record_scheduled_fire(
+                cron_state,
+                &spec.job_id,
+                &uuid::Uuid::new_v4().to_string(),
+                occurrence,
+                None,
+            ),
+            _ => fire(&spec),
+        };
+        match outcome {
+            FireStart::Recorded => {}
+            FireStart::Missed => on_missed(),
             FireStart::Refused => {
                 if scheduler_unavailable(cron_state) {
                     return TickWait::Unavailable;
@@ -172,36 +183,21 @@ fn tick_with(cron_state: &CronState, mut fire: impl FnMut(&FireSpec) -> FireStar
         }
     }
 
-    if had_due_jobs {
-        let store = cron_state.lock();
-        for job in store.list_enabled() {
-            if !refused.contains(&job.id) {
-                if let Some(nr) = job.next_run {
-                    next_fire = Some(match next_fire {
-                        Some(current) => current.min(nr),
-                        None => nr,
-                    });
-                }
+    let store = cron_state.lock();
+    let now = store.now_ms();
+    let wait = store
+        .list_enabled()
+        .into_iter()
+        .filter_map(|job| {
+            let slot = job.occurrence()?;
+            match slot.decision(now, job.oneshot, store.job_has_active_run(job)) {
+                FireDecision::WaitUntil(at) => Some(at.saturating_sub(now)),
+                _ => (!refused.contains(&job.id)).then_some(100),
             }
-        }
-    }
-
-    // Sleep duration: min of (next_fire - now, 60s)
-    match next_fire {
-        Some(nr) => {
-            let now_ms = cron_state.lock().now_ms();
-            if nr > now_ms {
-                TickWait::Until((nr - now_ms).min(FAILURE_DEADLINE_MS))
-            } else {
-                if recorded_any && refused.is_empty() {
-                    TickWait::Until(100)
-                } else {
-                    TickWait::Until(FAILURE_DEADLINE_MS)
-                }
-            }
-        }
-        None => TickWait::Until(FAILURE_DEADLINE_MS),
-    }
+        })
+        .min()
+        .unwrap_or(FAILURE_DEADLINE_MS);
+    TickWait::Until(wait.min(FAILURE_DEADLINE_MS))
 }
 
 fn scheduler_unavailable(cron_state: &CronState) -> bool {
@@ -218,10 +214,12 @@ fn scheduler_unavailable(cron_state: &CronState) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FireStart {
     Recorded,
+    Missed,
     Refused,
     Fenced,
 }
 
+#[cfg(test)]
 impl std::ops::Not for FireStart {
     type Output = bool;
 
@@ -284,13 +282,9 @@ fn fire_job_with_spawn(
     let job_timeout = spec.timeout_seconds;
 
     let run_id = uuid::Uuid::new_v4().to_string();
-    match record_fire_start(cron_state, job_id, &run_id) {
-        FireStart::Recorded => {}
-        outcome => return outcome,
-    }
-    log::info!("Cron fired: job={}, run={}", job_id, run_id);
-    crate::flow_trace::record(&run_id, "cron.started", "", "", "fired", None);
-
+    let Some(occurrence) = spec.occurrence else {
+        return FireStart::Refused;
+    };
     // Spawn agent via the unified spawn_tab surface.
     let skill_block = spec
         .skill
@@ -362,6 +356,17 @@ fn fire_job_with_spawn(
             report_target_tab_id: report_target_tab_id.map(str::to_string),
         },
     );
+
+    let fired_at = cron_state.lock().now_ms();
+    match record_scheduled_fire(cron_state, job_id, &run_id, occurrence, Some(fired_at)) {
+        FireStart::Recorded => {}
+        outcome => return outcome,
+    }
+    log::info!(
+        "Cron fired: job={job_id}, run={run_id}, scheduled_at={}, fired_at={fired_at}",
+        occurrence.scheduled_at,
+    );
+    crate::flow_trace::record(&run_id, "cron.started", "", "", "fired", None);
 
     match spawn(spawn_spec) {
         Ok(handle) => {
@@ -490,22 +495,16 @@ fn record_role_launch_failure(
     }
     service.emit_cron_changed();
 }
-/// Records the run start before any dispatch. Only a recorded start dispatches: a
-/// refused or unconfirmed record is never promoted to a launched run.
-pub(crate) fn record_fire_start(cron_state: &CronState, job_id: &str, run_id: &str) -> FireStart {
-    let (provider, started_at) = {
-        let store = cron_state.lock();
-        (
-            store.get(job_id).map(|job| job.agent.clone()),
-            store.now_ms(),
-        )
-    };
-    let run = CronRunInfo {
-        provider,
+fn run_to_record(store: &super::store::CronStore, job_id: &str, run_id: &str) -> CronRunInfo {
+    CronRunInfo {
+        provider: store.get(job_id).map(|job| job.agent.clone()),
         owner_instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
         cancel_reason: None,
         run_id: run_id.to_string(),
-        started_at,
+        scheduled_occurrence_at: None,
+        fired_at: None,
+        late_by_ms: None,
+        started_at: store.now_ms(),
         finished_at: None,
         status: CronRunStatus::Running,
         tab_id: None,
@@ -513,30 +512,66 @@ pub(crate) fn record_fire_start(cron_state: &CronState, job_id: &str, run_id: &s
         cwd: None,
         summary: None,
         report_delivery: None,
-    };
-    match commit(cron_state, |store| {
-        store.prepare_record_run(job_id, run.clone())
+    }
+}
+
+fn record_scheduled_fire(
+    cron: &CronState,
+    job_id: &str,
+    run_id: &str,
+    occurrence: Occurrence,
+    fired_at: Option<u64>,
+) -> FireStart {
+    let mut decision = None;
+    let recorded = commit(cron, |store| {
+        let mut run = run_to_record(store, job_id, run_id);
+        run.fired_at = fired_at;
+        let prepared = store.prepare_scheduled_run(job_id, occurrence, run)?;
+        decision = prepared.value;
+        Ok(prepared)
+    });
+    if let Err(error) = recorded {
+        if !error.applied() {
+            return refused_start(cron, &error);
+        }
+        log::error!("Failed to save cron scheduler history: {error}");
+    }
+    match decision {
+        Some(FireDecision::Fire { .. }) => FireStart::Recorded,
+        Some(FireDecision::Missed) => {
+            log::info!(
+                "[cron] missed job={job_id}, run={run_id}, scheduled_at={}",
+                occurrence.scheduled_at
+            );
+            FireStart::Missed
+        }
+        _ => FireStart::Refused,
+    }
+}
+
+fn refused_start(cron: &CronState, error: &CronCommitError) -> FireStart {
+    log::error!("Failed to record cron scheduler change: {error}");
+    if scheduler_unavailable(cron) {
+        return FireStart::Refused;
+    }
+    if matches!(
+        error,
+        CronCommitError::Fenced(_) | CronCommitError::Unconfirmed(_)
+    ) {
+        FireStart::Fenced
+    } else {
+        FireStart::Refused
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn record_fire_start(cron: &CronState, job_id: &str, run_id: &str) -> FireStart {
+    match commit(cron, |store| {
+        store.prepare_record_run(job_id, run_to_record(store, job_id, run_id))
     }) {
         Ok(_) => FireStart::Recorded,
-        Err(error) => {
-            if error.applied() {
-                log::error!("Failed to record cron run: {}", error);
-                return FireStart::Recorded;
-            }
-            if scheduler_unavailable(cron_state) {
-                return FireStart::Refused;
-            }
-            log::error!("Failed to record cron run: {}", error);
-            if matches!(
-                &error,
-                super::store::CronCommitError::Fenced(_)
-                    | super::store::CronCommitError::Unconfirmed(_)
-            ) {
-                FireStart::Fenced
-            } else {
-                FireStart::Refused
-            }
-        }
+        Err(error) if error.applied() => FireStart::Recorded,
+        Err(error) => refused_start(cron, &error),
     }
 }
 
@@ -628,17 +663,24 @@ mod tests {
         let late = slot.expect("due slot") + super::STALE_FIRE_MS + 60_000;
         fixture.clock.set_ms(late);
         let fired = AtomicUsize::new(0);
-        super::tick_with(&fixture.cron, |_| {
-            fired.fetch_add(1, Ordering::SeqCst);
-            super::FireStart::Recorded
-        });
+        super::tick_with(
+            &fixture.cron,
+            |_| {
+                fired.fetch_add(1, Ordering::SeqCst);
+                super::FireStart::Recorded
+            },
+            || {},
+        );
         assert_eq!(fired.load(Ordering::SeqCst), 0);
-        let next = fixture
-            .cron
-            .lock()
-            .get(&job_id)
-            .and_then(|job| job.next_run);
+        let store = fixture.cron.lock();
+        let next = store.get(&job_id).and_then(|job| job.next_run);
         assert!(next.is_some_and(|next| next > late));
+        let history = store.get_history(&job_id);
+        let missed = history.first().expect("missed occurrence persisted");
+        assert_eq!(missed.scheduled_occurrence_at, slot);
+        assert_eq!(missed.fired_at, None);
+        assert_eq!(missed.finished_at, Some(late));
+        drop(store);
         fixture.storage.shutdown().wait(TEST_DEADLINE).unwrap();
     }
 
@@ -653,11 +695,99 @@ mod tests {
             .and_then(|job| job.next_run);
         fixture.clock.set_ms(slot.expect("due slot") + 60_000);
         let fired = AtomicUsize::new(0);
-        super::tick_with(&fixture.cron, |spec| {
-            fired.fetch_add(1, Ordering::SeqCst);
-            super::record_fire_start(&fixture.cron, &spec.job_id, "late-run")
-        });
+        super::tick_with(
+            &fixture.cron,
+            |spec| {
+                fired.fetch_add(1, Ordering::SeqCst);
+                let fired_at = fixture.cron.lock().now_ms();
+                super::record_scheduled_fire(
+                    &fixture.cron,
+                    &spec.job_id,
+                    "late-run",
+                    spec.occurrence.unwrap(),
+                    Some(fired_at),
+                )
+            },
+            || {},
+        );
         assert_eq!(fired.load(Ordering::SeqCst), 1);
+        let store = fixture.cron.lock();
+        let history = store.get_history(&job_id);
+        let run = history.first().expect("late occurrence persisted");
+        assert_eq!(run.scheduled_occurrence_at, slot);
+        assert_eq!(run.fired_at, slot.map(|at| at + 60_000));
+        assert_eq!(run.late_by_ms, Some(60_000));
+        drop(store);
+        let snapshot = fixture
+            .storage
+            .crons()
+            .snapshot()
+            .wait(TEST_DEADLINE)
+            .unwrap()
+            .value;
+        let stored = &snapshot.states[0].history[0];
+        assert_eq!(stored.scheduled_occurrence_at, slot);
+        assert_eq!(stored.fired_at, slot.map(|at| at + 60_000));
+        assert_eq!(stored.late_by_ms, Some(60_000));
+        fixture.storage.shutdown().wait(TEST_DEADLINE).unwrap();
+    }
+
+    #[test]
+    fn active_job_does_not_delay_other_slots_due_at_the_same_time() {
+        let fixture = storage_fixture();
+        let active_id = create_due_job(&fixture);
+        let active_slot = fixture
+            .cron
+            .lock()
+            .get(&active_id)
+            .unwrap()
+            .occurrence()
+            .unwrap();
+        assert_eq!(
+            super::record_scheduled_fire(
+                &fixture.cron,
+                &active_id,
+                "already-running",
+                active_slot,
+                Some(active_slot.due_at),
+            ),
+            super::FireStart::Recorded,
+        );
+        let first = create_due_job(&fixture);
+        fixture.clock.set_ms(active_slot.due_at);
+        let second = create_due_job(&fixture);
+        let due_at = fixture.cron.lock().now_ms();
+        let mut dispatched = Vec::new();
+        super::tick_with(
+            &fixture.cron,
+            |spec| {
+                dispatched.push(spec.job_id.clone());
+                super::record_scheduled_fire(
+                    &fixture.cron,
+                    &spec.job_id,
+                    &format!("run-{}", spec.job_id),
+                    spec.occurrence.unwrap(),
+                    Some(due_at),
+                )
+            },
+            || {},
+        );
+
+        dispatched.sort();
+        let mut expected = vec![first, second];
+        expected.sort();
+        assert_eq!(dispatched, expected);
+        let store = fixture.cron.lock();
+        assert_eq!(store.get_history(&active_id).len(), 1);
+        for id in expected {
+            let history = store.get_history(&id);
+            let run = history.first().expect("admitted run");
+            assert_eq!(run.scheduled_occurrence_at, Some(due_at));
+            assert_eq!(run.fired_at, Some(due_at));
+            assert_eq!(run.started_at, due_at);
+            assert_eq!(run.late_by_ms, None);
+        }
+        drop(store);
         fixture.storage.shutdown().wait(TEST_DEADLINE).unwrap();
     }
 
@@ -824,10 +954,21 @@ mod tests {
         let attempts = Arc::new(AtomicUsize::new(0));
         let first_attempts = attempts.clone();
         assert_eq!(
-            super::tick_with(&fixture.cron, |spec| {
-                first_attempts.fetch_add(1, Ordering::SeqCst);
-                super::record_fire_start(&fixture.cron, &spec.job_id, "settled-run")
-            }),
+            super::tick_with(
+                &fixture.cron,
+                |spec| {
+                    first_attempts.fetch_add(1, Ordering::SeqCst);
+                    let fired_at = fixture.cron.lock().now_ms();
+                    super::record_scheduled_fire(
+                        &fixture.cron,
+                        &spec.job_id,
+                        "settled-run",
+                        spec.occurrence.unwrap(),
+                        Some(fired_at),
+                    )
+                },
+                || {}
+            ),
             super::TickWait::Settlement
         );
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
@@ -841,10 +982,21 @@ mod tests {
             .recv_timeout(TEST_DEADLINE)
             .expect("settlement wakes the scheduler signal");
         let second_attempts = attempts.clone();
-        super::tick_with(&fixture.cron, |spec| {
-            second_attempts.fetch_add(1, Ordering::SeqCst);
-            super::record_fire_start(&fixture.cron, &spec.job_id, "settled-run")
-        });
+        super::tick_with(
+            &fixture.cron,
+            |spec| {
+                second_attempts.fetch_add(1, Ordering::SeqCst);
+                let fired_at = fixture.cron.lock().now_ms();
+                super::record_scheduled_fire(
+                    &fixture.cron,
+                    &spec.job_id,
+                    "settled-run",
+                    spec.occurrence.unwrap(),
+                    Some(fired_at),
+                )
+            },
+            || {},
+        );
 
         let store = fixture.cron.lock();
         let run = store
@@ -866,18 +1018,40 @@ mod tests {
         let first_attempts = attempts.clone();
 
         assert_eq!(
-            super::tick_with(&fixture.cron, |spec| {
-                first_attempts.fetch_add(1, Ordering::SeqCst);
-                super::record_fire_start(&fixture.cron, &spec.job_id, "closed-run")
-            }),
+            super::tick_with(
+                &fixture.cron,
+                |spec| {
+                    first_attempts.fetch_add(1, Ordering::SeqCst);
+                    let fired_at = fixture.cron.lock().now_ms();
+                    super::record_scheduled_fire(
+                        &fixture.cron,
+                        &spec.job_id,
+                        "closed-run",
+                        spec.occurrence.unwrap(),
+                        Some(fired_at),
+                    )
+                },
+                || {}
+            ),
             super::TickWait::Unavailable
         );
         let second_attempts = attempts.clone();
         assert_eq!(
-            super::tick_with(&fixture.cron, |spec| {
-                second_attempts.fetch_add(1, Ordering::SeqCst);
-                super::record_fire_start(&fixture.cron, &spec.job_id, "closed-run")
-            }),
+            super::tick_with(
+                &fixture.cron,
+                |spec| {
+                    second_attempts.fetch_add(1, Ordering::SeqCst);
+                    let fired_at = fixture.cron.lock().now_ms();
+                    super::record_scheduled_fire(
+                        &fixture.cron,
+                        &spec.job_id,
+                        "closed-run",
+                        spec.occurrence.unwrap(),
+                        Some(fired_at),
+                    )
+                },
+                || {}
+            ),
             super::TickWait::Unavailable
         );
 

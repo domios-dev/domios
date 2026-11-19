@@ -26,10 +26,10 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 pub use codeterm_cron::schedule::{
-    cap_jitter_max_ms_at, compute_backoff, compute_next_run, compute_next_run_at,
-    compute_next_run_in, compute_next_run_jittered, compute_next_run_jittered_at,
-    compute_next_run_jittered_in, is_stale_fire, parse_oneshot_schedule, parse_oneshot_schedule_at,
-    parse_tz, to_6field, validate_schedule, validate_tz, MAX_CONSECUTIVE_FAILURES, STALE_FIRE_MS,
+    cap_jitter_max_ms_at, compute_next_run, compute_next_run_at, compute_next_run_in,
+    compute_next_run_jittered, compute_next_run_jittered_at, compute_next_run_jittered_in,
+    parse_oneshot_schedule, parse_oneshot_schedule_at, parse_tz, to_6field, validate_schedule,
+    validate_tz, MAX_CONSECUTIVE_FAILURES,
 };
 
 pub use crate::storage::CronCancelReason;
@@ -72,6 +72,15 @@ pub struct CronRunInfo {
     #[ts(optional)]
     pub cancel_reason: Option<CronCancelReason>,
     pub run_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub scheduled_occurrence_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub fired_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub late_by_ms: Option<u64>,
     pub started_at: u64,
     pub finished_at: Option<u64>,
     pub status: CronRunStatus,
@@ -140,6 +149,9 @@ pub struct CronJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub next_run: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub next_occurrence_at: Option<u64>,
     /// None → 10% of interval clamped to [1m, 30m]. Some(0) → off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -159,6 +171,18 @@ pub struct CronJob {
 }
 
 impl CronJob {
+    pub fn occurrence(&self) -> Option<codeterm_cron::occurrence::Occurrence> {
+        Some(codeterm_cron::occurrence::Occurrence {
+            scheduled_at: self.next_occurrence_at?,
+            due_at: self.next_run?,
+        })
+    }
+
+    fn set_occurrence(&mut self, occurrence: Option<codeterm_cron::occurrence::Occurrence>) {
+        self.next_occurrence_at = occurrence.map(|slot| slot.scheduled_at);
+        self.next_run = occurrence.map(|slot| slot.due_at);
+    }
+
     pub fn is_plan_control_loop(&self) -> bool {
         self.protected && self.role.as_deref() == Some("curator")
     }

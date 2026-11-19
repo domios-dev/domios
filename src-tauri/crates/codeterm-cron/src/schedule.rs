@@ -5,8 +5,9 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::occurrence::Occurrence;
+
 pub const MAX_CONSECUTIVE_FAILURES: u32 = 5;
-pub const STALE_FIRE_MS: u64 = 10 * 60 * 1000;
 const MAX_SCHEDULE_LOOKAHEAD_MS: u64 = 5 * 366 * 24 * 60 * 60 * 1000;
 const MAX_AUTO_JITTER_MS: u64 = 30 * 60 * 1000;
 
@@ -151,39 +152,77 @@ pub fn compute_next_run_jittered_at(
     tz: Option<&str>,
     now_ms: u64,
 ) -> Result<Option<u64>, String> {
+    Ok(
+        next_occurrence_at(schedule, jitter_max_ms, tz, now_ms)?
+            .map(|occurrence| occurrence.due_at),
+    )
+}
+
+pub fn next_occurrence_at(
+    schedule: &str,
+    jitter_max_ms: Option<u64>,
+    tz: Option<&str>,
+    now_ms: u64,
+) -> Result<Option<Occurrence>, String> {
     let (next, second) = upcoming_fires(schedule, tz, now_ms)?;
-    let interval_ms = second.map(|following| following.saturating_sub(next));
-
-    let max = match jitter_max_ms {
-        Some(0) => return Ok(Some(next)),
-        Some(n) => n.min(interval_ms.unwrap_or_default() / 2),
-        None => interval_ms
-            .map(|interval| (interval / 10).min(MAX_AUTO_JITTER_MS))
-            .unwrap_or_default(),
+    let max = jitter_limit(jitter_max_ms, next, second);
+    use rand::Rng;
+    let offset = if max == 0 {
+        0
+    } else {
+        rand::thread_rng().gen_range(0..=max)
     };
-    if max == 0 {
-        return Ok(Some(next));
+    Ok(Some(Occurrence {
+        scheduled_at: next,
+        due_at: next.saturating_add(offset),
+    }))
+}
+
+pub fn restore_occurrence_at(
+    schedule: &str,
+    jitter_max_ms: Option<u64>,
+    tz: Option<&str>,
+    due_at: u64,
+) -> Result<Option<Occurrence>, String> {
+    use chrono::TimeZone;
+
+    fn previous<Z: TimeZone>(schedule: &cron::Schedule, zone: Z, before: i64) -> Option<u64> {
+        let before = zone.timestamp_millis_opt(before).single()?;
+        schedule
+            .after(&before)
+            .next_back()
+            .and_then(|previous| previous.timestamp_millis().try_into().ok())
     }
-    use rand::Rng;
-    let offset = rand::thread_rng().gen_range(0..=max);
-    Ok(Some(next.saturating_add(offset)))
+
+    let schedule = parse_schedule(schedule)?;
+    let tz = parse_tz(tz)?;
+    let Ok(before) = i64::try_from(due_at.saturating_add(1)) else {
+        return Ok(None);
+    };
+    let scheduled_at = match tz {
+        Some(zone) => previous(&schedule, zone, before),
+        None => previous(&schedule, chrono::Utc, before),
+    };
+    let Some(scheduled_at) = scheduled_at.filter(|at| *at <= due_at) else {
+        return Ok(None);
+    };
+    let (following, _) = first_two_fires_after(&schedule, tz, scheduled_at);
+    Ok(
+        (due_at - scheduled_at <= jitter_limit(jitter_max_ms, scheduled_at, following)).then_some(
+            Occurrence {
+                scheduled_at,
+                due_at,
+            },
+        ),
+    )
 }
 
-/// A recurring slot missed by more than the stale window (sleep, late boot) is skipped
-/// rather than fired late; a one-shot job always fires.
-pub fn is_stale_fire(next_run_ms: u64, now_ms: u64, oneshot: bool) -> bool {
-    !oneshot && now_ms.saturating_sub(next_run_ms) > STALE_FIRE_MS
-}
-
-pub fn compute_backoff(consecutive_failures: u32, base_ms: u64) -> u64 {
-    let factor = 1u64
-        .checked_shl(consecutive_failures.min(10))
-        .unwrap_or(1024);
-    let raw = base_ms.saturating_mul(factor);
-    let capped = raw.min(3_600_000);
-    use rand::Rng;
-    let jitter = (capped as f64 * 0.25 * rand::thread_rng().gen::<f64>()) as u64;
-    capped + jitter
+fn jitter_limit(jitter_max_ms: Option<u64>, occurrence: u64, following: Option<u64>) -> u64 {
+    let interval = following.map_or(0, |following| following.saturating_sub(occurrence));
+    match jitter_max_ms {
+        Some(requested) => requested.min(interval / 2),
+        None => (interval / 10).min(MAX_AUTO_JITTER_MS),
+    }
 }
 
 pub fn validate_schedule(schedule: &str) -> Result<(), String> {

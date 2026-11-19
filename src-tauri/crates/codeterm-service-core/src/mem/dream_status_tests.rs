@@ -170,6 +170,9 @@ fn rem_completion_links_own_diary_without_cron() {
         .record_run(
             &job.id,
             CronRunInfo {
+                scheduled_occurrence_at: None,
+                fired_at: None,
+                late_by_ms: None,
                 provider: None,
                 owner_instance_id: None,
                 cancel_reason: None,

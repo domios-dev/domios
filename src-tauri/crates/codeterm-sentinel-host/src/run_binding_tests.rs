@@ -341,6 +341,7 @@ fn cron_job(run: CronRunInfo) -> CronJob {
         created_at: 0,
         last_run: Some(run),
         next_run: None,
+        next_occurrence_at: None,
         jitter_max_ms: Some(0),
         tz: None,
         timeout_seconds: None,
@@ -351,6 +352,9 @@ fn cron_job(run: CronRunInfo) -> CronJob {
 
 fn run_info(run_id: &str, tab_id: &str) -> CronRunInfo {
     CronRunInfo {
+        scheduled_occurrence_at: None,
+        fired_at: None,
+        late_by_ms: None,
         provider: None,
         owner_instance_id: None,
         cancel_reason: None,
