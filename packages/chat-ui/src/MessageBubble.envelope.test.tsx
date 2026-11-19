@@ -52,6 +52,7 @@ for (const kind of ["tab"] as const) {
       host.remove();
     }
   });
+}
 
 test("merged user and routed turn renders a user bubble and a named routed card", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
