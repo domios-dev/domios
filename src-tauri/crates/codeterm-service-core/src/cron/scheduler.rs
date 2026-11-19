@@ -493,12 +493,19 @@ fn record_role_launch_failure(
 /// Records the run start before any dispatch. Only a recorded start dispatches: a
 /// refused or unconfirmed record is never promoted to a launched run.
 pub(crate) fn record_fire_start(cron_state: &CronState, job_id: &str, run_id: &str) -> FireStart {
+    let (provider, started_at) = {
+        let store = cron_state.lock();
+        (
+            store.get(job_id).map(|job| job.agent.clone()),
+            store.now_ms(),
+        )
+    };
     let run = CronRunInfo {
-        provider: cron_state.lock().get(job_id).map(|job| job.agent.clone()),
+        provider,
         owner_instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
         cancel_reason: None,
         run_id: run_id.to_string(),
-        started_at: cron_state.lock().now_ms(),
+        started_at,
         finished_at: None,
         status: CronRunStatus::Running,
         tab_id: None,
