@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import { EVENT_STREAM_LOST, EVENT_STREAM_READY } from "../../lib/eventStreamReady";
 import { onResync } from "../../lib/resync";
 import { classifyTabTarget } from "../../lib/remoteTabTransport";
-import { onRemoteTabEventSignal, type RemoteTabEventSignal } from "../../lib/remoteTabEvents";
+import { onRemoteTabEventSignal } from "../../lib/remoteTabEvents";
 import { useAgentDescriptors } from "../../lib/useAgentDescriptor";
 import { useTabActivity } from "../../lib/useTabActivity";
 import { isProviderSelectable } from "../../lib/providerAvailability";
@@ -19,6 +19,7 @@ function providerSwitchStatusEvent(tabId: string): string {
 }
 
 type DialogPhase = "choosing" | "waiting" | "switching" | "complete";
+type StatusRegistration = () => Promise<void>;
 const MAX_EARLY_STATUS_OPERATIONS = 128;
 
 export function useProviderSwitch(tab: Tab, initialProviderId: string) {
@@ -34,7 +35,6 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   const [phase, setPhase] = useState<DialogPhase>("choosing");
   const [error, setError] = useState<string | null>(null);
   const [statusUncertainty, setStatusUncertainty] = useState<string | null>(null);
-  const [observationLost, setObservationLost] = useState(false);
   const [retryAfterSeconds, setRetryAfterSeconds] = useState<number | null>(null);
   const [switchStatus, setSwitchStatus] = useState<ProviderSwitchStatusPhase | null>(null);
   const [result, setResult] = useState<ProviderSwitchResult | null>(null);
@@ -43,7 +43,7 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   const activeOperationId = useRef<string | null>(null);
   const acceptedStatus = useRef<ProviderSwitchStatus | null>(null);
   const earlyStatuses = useRef(new Map<string, ProviderSwitchStatus>());
-  const statusRegistration = useRef<() => Promise<void>>(() => Promise.resolve());
+  const statusRegistration = useRef<StatusRegistration | null>(null);
   const statusHandler = useRef<(status: ProviderSwitchStatus) => void>(() => {});
   const reconciliationRequests = useRef(new Map<string, Promise<void>>());
   const reconciliationAgain = useRef(new Set<string>());
@@ -55,6 +55,14 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
     activeOperationId.current = null;
     acceptedStatus.current = null;
     earlyStatuses.current.clear();
+  }
+
+  function stopObserving() {
+    statusRegistration.current = null;
+    submitting.current = false;
+    clearAttempt();
+    reconciliationRequests.current.clear();
+    reconciliationAgain.current.clear();
   }
 
   function failSwitch(detail: string) {
@@ -96,13 +104,9 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
     setPhase("switching");
   }
 
-  function markUnconfirmed(operationId: string, detail: string) {
-    if (activeOperationId.current !== operationId) return;
-    setStatusUncertainty(detail);
-  }
-
-  function reconcileAcceptedStatus(operationId: string): Promise<void> {
-    if (activeOperationId.current !== operationId) return Promise.resolve();
+  function reconcileAcceptedStatus(operationId: string, registration: StatusRegistration): Promise<void> {
+    const isCurrent = () => statusRegistration.current === registration && activeOperationId.current === operationId;
+    if (!isCurrent()) return Promise.resolve();
     const current = reconciliationRequests.current.get(operationId);
     if (current) {
       reconciliationAgain.current.add(operationId);
@@ -115,17 +119,19 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
           operationId,
           wait: false,
         });
-        if (activeOperationId.current !== operationId) return;
+        if (!isCurrent()) return;
         if (!status || status.operation_id !== operationId) {
           throw new Error("The provider switch status did not match the accepted operation.");
         }
         applyStatus({ ...status, tab_id: tab.id });
       } catch (failure) {
-        markUnconfirmed(operationId, failure instanceof Error ? failure.message : String(failure));
+        if (isCurrent()) setStatusUncertainty(failure instanceof Error ? failure.message : String(failure));
       } finally {
-        reconciliationRequests.current.delete(operationId);
-        if (reconciliationAgain.current.delete(operationId) && activeOperationId.current === operationId) {
-          void reconcileAcceptedStatus(operationId);
+        if (statusRegistration.current === registration) {
+          reconciliationRequests.current.delete(operationId);
+          if (reconciliationAgain.current.delete(operationId) && isCurrent()) {
+            void reconcileAcceptedStatus(operationId, registration);
+          }
         }
       }
     })();
@@ -148,59 +154,49 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
     earlyStatuses.current.set(status.operation_id, preferProviderSwitchStatus(previous, status));
   };
 
-  useEffect(() => {
-    setObservationLost(false);
-    let active = true;
+  useLayoutEffect(() => {
     let unlisten: UnlistenFn | null = null;
-    let registration: Promise<void> | null = null;
+    let registering: Promise<void> | null = null;
+    const isCurrent = () => statusRegistration.current === ensureStatusListener;
     const ensureStatusListener = (): Promise<void> => {
-      if (!active) return Promise.reject(new Error("The provider status listener is no longer active."));
+      if (!isCurrent()) return Promise.reject(new Error("The provider status listener is no longer active."));
       if (unlisten) return Promise.resolve();
-      if (registration) return registration;
+      if (registering) return registering;
       const attempt = listen<ProviderSwitchStatus>(statusEvent, ({ payload }) => {
-        if (active) statusHandler.current(payload);
+        if (isCurrent()) statusHandler.current(payload);
       }).then((stop) => {
-        if (active) unlisten = stop;
+        if (isCurrent()) unlisten = stop;
         else stop();
       });
-      registration = attempt.catch((failure) => {
-        registration = null;
+      registering = attempt.catch((failure) => {
+        registering = null;
         throw failure;
       });
-      return registration;
+      return registering;
     };
-    const handleStreamSignal = (signal: RemoteTabEventSignal) => {
-      if (signal !== "resync") setObservationLost(signal === "lost");
+    const refresh = () => {
       const operationId = activeOperationId.current;
-      if (operationId) void reconcileAcceptedStatus(operationId);
+      if (operationId) void reconcileAcceptedStatus(operationId, ensureStatusListener);
     };
     statusRegistration.current = ensureStatusListener;
-    const stopRemoteSignals = remoteStatusTarget
-      ? onRemoteTabEventSignal(statusEvent, handleStreamSignal)
-      : null;
-    if (!remoteStatusTarget) {
-      const onReady = () => handleStreamSignal("ready");
-      const onLost = () => handleStreamSignal("lost");
-      window.addEventListener(EVENT_STREAM_READY, onReady);
-      window.addEventListener(EVENT_STREAM_LOST, onLost);
-      const stopResync = onResync(() => handleStreamSignal("resync"));
-      void ensureStatusListener().catch(() => undefined);
-      return () => {
-        active = false;
-        unlisten?.();
-        stopRemoteSignals?.();
-        window.removeEventListener(EVENT_STREAM_READY, onReady);
-        window.removeEventListener(EVENT_STREAM_LOST, onLost);
+    let stopSignals: () => void;
+    if (remoteStatusTarget) {
+      stopSignals = onRemoteTabEventSignal(statusEvent, refresh);
+    } else {
+      window.addEventListener(EVENT_STREAM_READY, refresh);
+      window.addEventListener(EVENT_STREAM_LOST, refresh);
+      const stopResync = onResync(refresh);
+      stopSignals = () => {
+        window.removeEventListener(EVENT_STREAM_READY, refresh);
+        window.removeEventListener(EVENT_STREAM_LOST, refresh);
         stopResync();
-        statusRegistration.current = () => Promise.resolve();
       };
     }
     void ensureStatusListener().catch(() => undefined);
     return () => {
-      active = false;
+      if (isCurrent()) stopObserving();
       unlisten?.();
-      stopRemoteSignals?.();
-      statusRegistration.current = () => Promise.resolve();
+      stopSignals();
     };
   }, [statusEvent, remoteStatusTarget, tab.id]);
 
@@ -212,7 +208,8 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   }
 
   async function submit(force = false) {
-    if (!provider || submitting.current || activeOperationId.current !== null || retryAfterSeconds !== null) return;
+    const registration = statusRegistration.current;
+    if (!registration || !provider || submitting.current || activeOperationId.current !== null || retryAfterSeconds !== null) return;
     submitting.current = true;
     clearAttempt();
     setSwitchStatus(null);
@@ -221,14 +218,16 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
     setError(null);
     let accepted: ProviderSwitchStatus | ProviderSwitchResult | void;
     try {
-      await statusRegistration.current();
+      await registration();
+      if (statusRegistration.current !== registration) return;
       accepted = await switchTabProvider(getTabProviderApi(), tab.id, provider.id, { model, reasoningEffort: effort, force });
     } catch (failure) {
-      earlyStatuses.current.clear();
+      if (statusRegistration.current !== registration) return;
       submitting.current = false;
       failSwitch(failure instanceof Error ? failure.message : String(failure));
       return;
     }
+    if (statusRegistration.current !== registration) return;
     const early = accepted && "operation_id" in accepted ? earlyStatuses.current.get(accepted.operation_id) : undefined;
     earlyStatuses.current.clear();
     submitting.current = false;
@@ -236,7 +235,7 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
       activeOperationId.current = accepted.operation_id;
       const initial = { ...accepted, tab_id: tab.id };
       applyStatus(early ? preferProviderSwitchStatus(initial, early) : initial);
-      if (activeOperationId.current === accepted.operation_id) await reconcileAcceptedStatus(accepted.operation_id);
+      await reconcileAcceptedStatus(accepted.operation_id, registration);
       return;
     }
     if (!accepted || !accepted.handoff_delivered || !accepted.binding_restored) {
@@ -273,5 +272,5 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   }
 
   return { providers, providerId, setProviderId, provider, selectedModel, setModel, model, setEffort, effort, efforts,
-    phase, setPhase, error, statusUncertainty, observationLost, retryAfterSeconds, switchStatus, result, history, ready, activity, submit, showHistory };
+    phase, setPhase, error, statusUncertainty, retryAfterSeconds, switchStatus, result, history, ready, activity, submit, showHistory, stopObserving };
 }
