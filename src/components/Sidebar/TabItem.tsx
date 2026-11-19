@@ -9,7 +9,7 @@ import { ConfirmDialog } from "../Extensions/ConfirmDialog";
 import { REMOTE_CHAT_COPY, remoteMachineName } from "../../lib/remoteChatState";
 import { useRemoteChatStatus } from "../../lib/remoteChatStatus";
 import { UI_TEXT } from "../shared/design";
-import { Globe, Network, TriangleAlert } from "lucide-react";
+import { Globe, TriangleAlert } from "lucide-react";
 import { surfaceBacking, tabRowLabel } from "../../lib/surfaceTab";
 import { SurfaceIcon } from "../Surface/surfaceIcon";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
@@ -36,7 +36,10 @@ import { plainModelId } from "../../lib/agentModelName";
 import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
-import { managedByLabel, meshBadgeLabel, namedManagerRole } from "./remoteOwnership";
+import { managedByLabel, remoteIdentity as tabRemoteIdentity } from "./remoteOwnership";
+import { MachineProvenance } from "../shared/MachineProvenance";
+import { useMeshMachineIdentity } from "../../lib/useMeshMachineIdentities";
+import { machineLabel } from "../../lib/machineIdentity";
 import { managedTabPresentation } from "../../lib/managedTab";
 import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
@@ -216,15 +219,6 @@ function TabDescriptionSubtitle({ description }: { description: string | null })
   );
 }
 
-function MeshDot({ label }: { label: string | null }) {
-  if (!label) return null;
-  return (
-    <span data-testid="remote-managed-by" className="sidebar-mesh-dot" role="img" aria-label={label} title={label}>
-      <Network size={9} strokeWidth={2.25} aria-hidden="true" />
-    </span>
-  );
-}
-
 function TabItemInner({
   isActive,
   onClick,
@@ -320,9 +314,12 @@ function TabItemInner({
   const remote = useRemoteChatStatus(tab.id, tab.remote_peer_id);
   const remoteStateLabel = remote.state && REMOTE_CHAT_COPY[remote.state].label;
   const machine = remoteMachineName(tab.remote_peer_id ?? "", remote.peer?.name, tab.remote_peer_name);
-  const meshLabel = remoteStateLabel ? `on ${machine}` : meshBadgeLabel(tab);
-  const remoteRole = namedManagerRole(tab) ?? roleShield;
-  const remoteLabel = remoteStateLabel ? `${displayTitle}, ${remoteRole ? `${remoteRole} on` : "on"} ${machine}, ${remoteStateLabel}` : null;
+  const remoteIdentity = useMeshMachineIdentity(tab.remote_peer_id, Boolean(tab.remote_peer_id));
+  const remoteRole = tabRemoteIdentity(tab)?.role ?? roleShield;
+  const remoteStatus = remoteStateLabel || (remote.peer?.presence === "online" ? "online" : undefined);
+  const remoteLabel = tab.remote_peer_id
+    ? `${displayTitle}, ${remoteRole ? `${remoteRole} on` : "on"} ${machineLabel(machine, remoteIdentity, remoteStatus)}`
+    : null;
   // A Team worker reads as name and role label; its description stays in the row's tooltip.
   const labelledWorker = tab.role === "Worker" && Boolean(tab.role_label?.trim());
   const activityDescription = hasAgent && tabState.phase === "compacting" ? tabState.label : labelledWorker ? null : description;
@@ -475,7 +472,7 @@ function TabItemInner({
         data-first-run-allowed={isFirstRunGeneralTab(tab) || undefined}
         data-first-run-home={isFirstRunGeneralTab(tab) || undefined}
         aria-disabled={isFirstRunGeneralTab(tab) ? false : undefined}
-        aria-label={remoteLabel ?? `${isGeneralAgent ? accessibleTitle : `Open tab ${accessibleTitle}`}${managedBy ? `, ${managedBy}` : ""}${restoreFailure.showFailureBadge ? ", launch failed" : ""}`}
+        aria-label={`${remoteLabel ?? (isGeneralAgent ? accessibleTitle : `Open tab ${accessibleTitle}`)}${managedBy ? `, ${managedBy}` : ""}${restoreFailure.showFailureBadge ? ", launch failed" : ""}`}
         aria-current={isActive ? "page" : undefined}
         onClick={activate}
         className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
@@ -540,8 +537,11 @@ function TabItemInner({
           )}
           {trailingSlot}
         </span>
-        {remoteStateLabel ? (
-          <span className={`sidebar-tab-body__sub block truncate text-[11px] ${UI_TEXT.metaMuted}`}>{machine} · {remoteStateLabel}</span>
+        {tab.remote_peer_id ? (
+          <span className={`sidebar-tab-body__sub sidebar-tab-body__sub--machine truncate text-[length:var(--ct-font-size-meta)] ${UI_TEXT.metaMuted}`}>
+            <MachineProvenance peerId={tab.remote_peer_id} name={machine} status={remoteStatus} />
+            <span className="truncate">· {remoteStateLabel || tabState.status}</span>
+          </span>
         ) : collapsed && groupCollapsible && collapsedSummary ? (
           <span
             data-testid="group-collapsed-summary"
@@ -578,7 +578,6 @@ function TabItemInner({
         {accessibleTitle} tab status {tabState.phase === "compacting" ? tabState.label : tabState.status}
       </span>}
       <div className={`shrink-0 relative z-[1] flex items-center justify-end ${touchMode ? "" : `sidebar-tab-end ${tabText}`}`}>
-        {(remoteStateLabel || (!attachment && !touchMode)) && <MeshDot label={meshLabel} />}
         {checklistToggle && <ChecklistToggleButton toggle={checklistToggle} title={displayTitle} />}
         {attachmentToggle && attachmentToggle.count > 0 && <AttachmentToggleButton toggle={attachmentToggle} />}
         {touchMode && tabMenu}

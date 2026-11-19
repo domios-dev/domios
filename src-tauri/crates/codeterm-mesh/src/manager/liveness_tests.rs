@@ -47,6 +47,7 @@ fn apply_gossip_peer_info_updates_last_active() {
     mesh.paired_peers
         .insert("peer-1".into(), paired_peer("peer-1"));
     mesh.apply_gossip_peer_info(&types::GossipPeerInfo {
+        machine_identity: None,
         instance_id: "peer-1".into(),
         instance_name: "peer".into(),
         addresses: vec![types::PeerAddress::from_ip("192.0.2.9")],
@@ -68,6 +69,7 @@ fn apply_offline_announce_clears_addresses_and_marks_peer_offline() {
         .apply_announce(
             "peer-1",
             &types::PeerAnnounce {
+                machine_identity: None,
                 domios_version: None,
                 domios_build: None,
                 instance_id: "peer-1".into(),
@@ -100,6 +102,7 @@ fn apply_online_empty_announce_keeps_existing_addresses() {
         .apply_announce(
             "peer-1",
             &types::PeerAnnounce {
+                machine_identity: None,
                 domios_version: None,
                 domios_build: None,
                 instance_id: "peer-1".into(),
@@ -131,6 +134,7 @@ fn apply_offline_announce_reports_change_when_addresses_already_empty() {
         .apply_announce(
             "peer-1",
             &types::PeerAnnounce {
+                machine_identity: None,
                 domios_version: None,
                 domios_build: None,
                 instance_id: "peer-1".into(),

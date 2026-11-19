@@ -30,6 +30,7 @@ import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDiscl
 import { refusalText } from "../../lib/refusalText";
 import { useProviderModelUsage } from "../../hooks/useProviderModelUsage";
 import { formatModelUsage, hasModelUsage, usageForModel } from "../../lib/modelGroups";
+import { MachineProvenance } from "../shared/MachineProvenance";
 
 export interface SidebarTeamActions {
   /// `managerTabId` is null when the Team holds no member that can spawn. The
@@ -581,11 +582,6 @@ export function TeamUnit({
         <span className="sidebar-team-title-row">
           <span data-testid="team-name" className={`sidebar-team-name ${lockedDimClass(lock)}`.trim()}>{displayTitle}</span>
           <LockBadge view={lock} />
-          {team.remote_peer_name && (
-            <span data-testid="team-remote-peer" className="sidebar-team-remote-peer text-[10px] text-[var(--ct-muted-fg)]">
-              @{team.remote_peer_name}
-            </span>
-          )}
           {closing && <span role="status" aria-label={`Closing ${displayTitle}`} aria-busy="true">Closing…</span>}
           {workingWorkerCount > 0 && (
             <span
@@ -596,6 +592,11 @@ export function TeamUnit({
             ><ActivityDots size="small" tone="muted" active /></span>
           )}
         </span>
+      )}
+      {!editing && team.remote_peer_name && (
+        <div data-testid="team-remote-peer" className="text-[var(--ct-muted-fg)]">
+          <MachineProvenance peerId={team.remote_peer_id} name={team.remote_peer_name} />
+        </div>
       )}
       <TeamStatusTally
         key={`tally-${planMotion.revision}`}

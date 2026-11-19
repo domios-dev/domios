@@ -101,6 +101,10 @@ impl ServiceContext {
             }
             let value = if request.starts_with("role-sync:") {
                 self.answer_role_sync(&request, label)?
+            } else if request
+                .starts_with(crate::service::machine_identity::MACHINE_IDENTITY_REQUEST)
+            {
+                self.answer_machine_identity(&request, label)?
             } else {
                 handler
                     .handler

@@ -38,7 +38,7 @@ async function mount(client: FakeAccountMeshClient, account: AccountPresence, pr
 const button = (name: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)
   ?? [...document.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent?.trim() === name && !candidate.hasAttribute("aria-label"))
   ?? null;
-const row = (list: string, name: string) => host.querySelector<HTMLLIElement>(`ul[aria-label="${list}"] li[aria-label="${name}"]`);
+const row = (list: string, name: string) => host.querySelector<HTMLLIElement>(`ul[aria-label="${list}"] li[aria-label^="${name},"]`);
 const account = (name: string) => row("Your account's machines", name);
 const click = async (target: HTMLElement | null) => {
   expect(target).not.toBeNull();

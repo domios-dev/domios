@@ -1,0 +1,86 @@
+.machine-options-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.ct-machine-menu-row:disabled {
+  opacity: 1;
+}
+
+.ct-menu-row.machine-identity-action {
+  width: auto;
+  min-height: 24px;
+}
+
+.machine-options__group > button:focus-visible {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: -2px;
+}
+
+.machine-options {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  font-size: var(--ct-font-size-meta);
+}
+
+.machine-options__group {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.machine-options__group:has(.machine-options__swatch) {
+  grid-template-columns: repeat(7, minmax(28px, 1fr));
+}
+
+.machine-options__group > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 48px;
+  border-radius: 6px;
+  line-height: 1.15;
+  padding: 3px;
+}
+
+.machine-options__group > button:has(.machine-options__swatch) {
+  min-height: 28px;
+}
+
+.machine-options__group > button:hover {
+  background: var(--ct-hover);
+}
+
+.machine-options__group > button[aria-checked="true"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 14%, transparent);
+}
+
+.machine-options__swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+
+@media (max-width: 639px) {
+  .ct-machine-menu-row,
+  .ct-machine-switcher,
+  .ct-menu-row.machine-identity-action {
+    min-height: 44px;
+  }
+
+  .machine-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .machine-options__group:has(.machine-options__swatch) {
+    grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
+  }
+
+  .machine-options__group > button:has(.machine-options__swatch) {
+    min-height: 44px;
+  }
+}

@@ -1,3 +1,4 @@
+import { MachineProvenance } from "../shared/MachineProvenance";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NotificationBody } from "./NotificationBody";
@@ -157,6 +158,7 @@ export function NotificationPanel({
                     {timeAgo(notif.timestamp)}
                   </span>
                 </div>
+                {notif.peer_name && <div className="text-[var(--ct-muted-fg)]"><MachineProvenance name={notif.peer_name} remote /></div>}
                 {notif.body && (
                   <>
                     <button

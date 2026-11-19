@@ -48,6 +48,7 @@ pub async fn mesh_sync(
     }
     let mut mesh = state.mesh.lock();
     if let Some(voucher) = sender_id.as_deref() {
+        mesh.apply_machine_identity_sync(voucher, &payload.peers);
         for info in sync_input_for_access(full_access, Some(voucher), &payload.peers) {
             mesh.apply_gossip_peer_info(info);
         }

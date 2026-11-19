@@ -11,9 +11,18 @@
   --ct-font-size-sm: 0.8125rem;
   --ct-font-size-md: 0.875rem;
   --ct-font-size-lg: 1rem;
+  --ct-font-size-meta: 11px;
   --ct-line-height: 1.45;
   --ct-capsule-font-size: 14px;
   --ct-capsule-line-height: 20px;
+
+  --ct-machine-blue: light-dark(#1f62d0, #5b9cff);
+  --ct-machine-teal: light-dark(#0b7d70, #2ec4b0);
+  --ct-machine-green: light-dark(#2b7d36, #5cc46a);
+  --ct-machine-yellow: light-dark(#8a6200, #e0b23a);
+  --ct-machine-pink: light-dark(#b8327e, #f06cb4);
+  --ct-machine-violet: light-dark(#6d48c8, #a985ff);
+  --ct-machine-graphite: light-dark(#5c6670, #9aa4ae);
 
   /* Input / control rhythm */
   --ct-control-height: 2.125rem;
