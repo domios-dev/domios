@@ -19,6 +19,26 @@ pub(super) fn loopback_request(
     body: &serde_json::Value,
     agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
 ) -> Result<reqwest::Request, (StatusCode, String)> {
+    let token = sign(state, origin, agent)?;
+    loopback_request_with_auth(
+        state,
+        cmd,
+        body,
+        format!("Bearer {token}").parse().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Invalid signed authorization".into(),
+            )
+        })?,
+    )
+}
+
+pub(super) fn loopback_request_with_auth(
+    state: &AppState,
+    cmd: &codeterm_service_core::mesh::types::RelayCommand,
+    body: &serde_json::Value,
+    authorization: axum::http::HeaderValue,
+) -> Result<reqwest::Request, (StatusCode, String)> {
     let method = cmd.method.to_ascii_uppercase();
     if !matches!(method.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE") {
         return Err((
@@ -37,7 +57,7 @@ pub(super) fn loopback_request(
         request = request.json(body);
     }
     request
-        .bearer_auth(sign(state, origin, agent)?)
+        .header(axum::http::header::AUTHORIZATION, authorization)
         .timeout(super::local_forward_deadline(&cmd.method, &cmd.path))
         .build()
         .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))

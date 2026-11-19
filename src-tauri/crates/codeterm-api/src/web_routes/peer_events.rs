@@ -1,37 +1,71 @@
 use super::EventsStreamQuery;
 use crate::{auth::CallerIdentity, events::SystemEvent, routes::AppState};
-use axum::http::{Method, StatusCode};
-use codeterm_service_core::{api_support::access_policy::check_access, mesh::types::AccessLevel};
+use axum::http::StatusCode;
+use codeterm_service_core::{
+    api_support::access_policy::{allows_full_dispatch, PeerOperation, PeerResource, PeerScope},
+    mesh::types::AccessLevel,
+};
 use serde::Deserialize;
 
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PeerEventScope {
     Peer,
+    Tab,
+    Notifications,
+    Template,
 }
 
 pub(super) fn validate_scope(
+    state: &AppState,
     query: &EventsStreamQuery,
     caller: Option<&CallerIdentity>,
 ) -> Result<(), (StatusCode, String)> {
-    if query.scope.is_some() && query.tab_id.is_some() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Peer events do not take a tab filter".into(),
-        ));
-    }
-    if query.scope.is_none()
-        && matches!(
+    let Some(scope) = query.scope else {
+        return if matches!(caller, Some(CallerIdentity::Peer { .. })) {
+            Err((
+                StatusCode::FORBIDDEN,
+                "Authenticated peer events require a scope".into(),
+            ))
+        } else {
+            Ok(())
+        };
+    };
+    let tab = query.tab_id.as_deref().filter(|tab| !tab.is_empty());
+    let allowed = match (scope, tab) {
+        (PeerEventScope::Tab, Some(tab)) => [PeerOperation::ReadTabs, PeerOperation::ReadOutput]
+            .iter()
+            .any(|operation| {
+                authorized(
+                    state,
+                    caller,
+                    PeerScope::new(*operation, PeerResource::Tab(tab)),
+                )
+            }),
+        (PeerEventScope::Peer, None) => authorized(
+            state,
             caller,
-            Some(CallerIdentity::Peer {
-                access_level: AccessLevel::AgentIsolated,
-                ..
-            })
-        )
-    {
+            PeerScope::new(PeerOperation::Rail, PeerResource::Host),
+        ),
+        (PeerEventScope::Notifications, None) => authorized(
+            state,
+            caller,
+            PeerScope::new(PeerOperation::ReadHost, PeerResource::Host),
+        ),
+        (PeerEventScope::Template, None) => matches!(caller,
+            Some(CallerIdentity::Peer { access_level, .. }) if allows_full_dispatch(access_level)
+        ),
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Event scope does not match its resource".into(),
+            ))
+        }
+    };
+    if !allowed {
         return Err((
             StatusCode::FORBIDDEN,
-            "Agent-isolated peers require scoped peer events".into(),
+            "Peer is not authorized for this event scope".into(),
         ));
     }
     Ok(())
@@ -41,53 +75,100 @@ pub(super) fn visible(
     state: &AppState,
     caller: Option<&CallerIdentity>,
     scope: Option<PeerEventScope>,
+    tab: Option<&str>,
     event: &SystemEvent,
 ) -> bool {
-    if let Some(CallerIdentity::Peer { instance_id, .. }) = caller {
-        let access = state
-            .mesh
-            .lock()
-            .paired_peers
-            .get(instance_id)
-            .map(|peer| peer.access_level.clone());
-        let Some(access) = access else { return false };
-        return if scope.is_some() {
-            topic_allowed(&access, event, |id| {
-                state
-                    .svc
-                    .mux
-                    .read()
-                    .get_tab(id)
-                    .is_some_and(|tab| crate::auth::peer_owns_tab(instance_id, tab))
-            })
-        } else {
-            access != AccessLevel::AgentIsolated
-                && check_access(&access, &Method::GET, "/api/events/stream")
-        };
-    }
-    scope.is_none() || topic_allowed(&AccessLevel::Full, event, |_| false)
+    use PeerOperation::ReadHost;
+    let scope = match scope {
+        Some(PeerEventScope::Peer) => topic_scope(event),
+        Some(PeerEventScope::Tab) => tab.and_then(|tab| tab_topic(event, tab)),
+        Some(PeerEventScope::Notifications) => match event {
+            SystemEvent::Generic { event_type, .. }
+                if matches!(
+                    event_type.as_str(),
+                    "notification-created"
+                        | "notification-updated"
+                        | "notification-answered"
+                        | "notification-resolved"
+                        | "notification-cleared"
+                ) =>
+            {
+                Some(PeerScope::new(ReadHost, PeerResource::Host))
+            }
+            _ => None,
+        },
+        Some(PeerEventScope::Template) => match event {
+            SystemEvent::Generic { event_type, .. } if event_type == "notification-answered" => {
+                Some(PeerScope::new(
+                    PeerOperation::FullAccess,
+                    PeerResource::Host,
+                ))
+            }
+            _ => None,
+        },
+        None => return !matches!(caller, Some(CallerIdentity::Peer { .. })),
+    };
+    scope.is_some_and(|scope| authorized(state, caller, scope))
 }
 
-fn topic_allowed(
-    access: &AccessLevel,
-    event: &SystemEvent,
-    owns_tab: impl FnOnce(&str) -> bool,
-) -> bool {
+fn authorized(state: &AppState, caller: Option<&CallerIdentity>, scope: PeerScope<'_>) -> bool {
+    let Some(CallerIdentity::Peer {
+        access_level,
+        instance_id,
+        ..
+    }) = caller
+    else {
+        return scope.allowed(&AccessLevel::Full);
+    };
+    scope.allowed_with_owner(access_level, |id| {
+        state
+            .svc
+            .mux
+            .read()
+            .get_tab(id)
+            .is_some_and(|tab| crate::auth::peer_owns_tab(instance_id, tab))
+    })
+}
+
+fn topic_scope(event: &SystemEvent) -> Option<PeerScope<'_>> {
+    use PeerOperation::{ReadMux, ReadTabs};
     match event {
-        SystemEvent::MuxStateChanged => check_access(access, &Method::GET, "/api/mux/state"),
-        SystemEvent::Generic { event_type, data } => match event_type.as_str() {
-            "mux-state-changed" => check_access(access, &Method::GET, "/api/mux/state"),
-            "tab-status-changed" => data
+        SystemEvent::MuxStateChanged => Some(PeerScope::new(ReadMux, PeerResource::Host)),
+        SystemEvent::Generic { event_type, .. } if event_type == "mux-state-changed" => {
+            Some(PeerScope::new(ReadMux, PeerResource::Host))
+        }
+        SystemEvent::Generic { event_type, data } if event_type == "tab-status-changed" => {
+            let id = data
                 .get("tab_id")
                 .and_then(serde_json::Value::as_str)
-                .is_some_and(|id| {
-                    check_access(access, &Method::GET, "/api/tabs")
-                        && (*access != AccessLevel::AgentIsolated || owns_tab(id))
-                }),
-            _ => false,
-        },
-        _ => false,
+                .filter(|id| !id.is_empty())?;
+            Some(PeerScope::new(ReadTabs, PeerResource::Tab(id)))
+        }
+        _ => None,
     }
+}
+
+fn tab_topic<'a>(event: &SystemEvent, tab: &'a str) -> Option<PeerScope<'a>> {
+    use PeerOperation::{ReadOutput, ReadPreview, ReadTabs};
+    let SystemEvent::Generic { event_type, data } = event else {
+        return None;
+    };
+    let operation = match event_type.as_str() {
+        "pty-resize-owner-changed" | "provider-switch-status" | "tab-status-changed"
+            if data.get("tab_id").and_then(serde_json::Value::as_str) == Some(tab) =>
+        {
+            ReadTabs
+        }
+        "agent-runtime-state"
+            if data.get("tab_id").and_then(serde_json::Value::as_str) == Some(tab) =>
+        {
+            ReadOutput
+        }
+        name if name.strip_prefix("tab-chat-msg-") == Some(tab) => ReadOutput,
+        name if name.strip_prefix("preview-index-state-") == Some(tab) => ReadPreview,
+        _ => return None,
+    };
+    Some(PeerScope::new(operation, PeerResource::Tab(tab)))
 }
 
 #[cfg(test)]

@@ -359,9 +359,16 @@ async fn agent_relay_cannot_spend_peer_workspace_or_rpc_authority() {
         body: json!({"force":true}),
         delivery_id: None,
     };
-    let refusal = perform_relay(&first, "second", &cmd, AuthenticatedOrigin::Agent, None)
-        .await
-        .unwrap_err();
+    let refusal = perform_relay(
+        &first,
+        "second",
+        &cmd,
+        AuthenticatedOrigin::Agent,
+        None,
+        None,
+    )
+    .await
+    .unwrap_err();
     assert_eq!(refusal.0, StatusCode::FORBIDDEN);
     assert!(first.svc.mux.read().get_workspace(&workspace).is_some());
     let app = Router::new()
@@ -492,4 +499,186 @@ async fn agent_mesh_send_and_tab_list_succeed_without_owner_authority() {
     }
     assert_eq!(writes.texts.lock().len(), 1);
     assert!(writes.texts.lock()[0].contains("remote-agent-payload"));
+}
+
+#[tokio::test]
+async fn signed_peer_and_loopback_inventory_use_the_same_restricted_grant() {
+    use axum::routing::get;
+    use codeterm_service_core::service::store::ServiceCreate;
+
+    let a = ServiceFixture::new(MultiplexerState::new().0);
+    let b = ServiceFixture::new(MultiplexerState::new().0);
+    let source = state(&a, "inventory-origin");
+    let target = state(&b, "inventory-target");
+    pair(&target, &source);
+    assert!(target
+        .mesh
+        .lock()
+        .set_peer_access("inventory-origin", AccessLevel::ReadOnly));
+    let service: ServiceCreate = serde_json::from_value(json!({
+        "name": "inventory service", "kind": "daemon", "health_mode": "http",
+    }))
+    .unwrap();
+    let id = target.svc.services_store.create(service).unwrap();
+    let token = origin::sign(&source, AuthenticatedOrigin::Owner, None).unwrap();
+    let signed_headers = headers(&token);
+    let app = Router::new()
+        .route("/api/mesh/inventory", get(crate::mesh_inventory::inventory))
+        .route(
+            "/api/services/{id}",
+            get(crate::services_routes::get_service).delete(crate::services_routes::delete_service),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            target.clone(),
+            crate::auth::auth_middleware,
+        ))
+        .with_state(target.clone());
+    let cmd = RelayCommand {
+        method: "GET".into(),
+        path: "/api/mesh/inventory".into(),
+        body: Value::Null,
+        delivery_id: None,
+    };
+    let signed = origin::loopback_request_with_auth(
+        &target,
+        &cmd,
+        &cmd.body,
+        signed_headers["authorization"].clone(),
+    )
+    .unwrap();
+    let forwarded = app.clone().oneshot(wire_request(signed)).await.unwrap();
+    assert_eq!(forwarded.status(), StatusCode::OK);
+    let forwarded: Value =
+        serde_json::from_slice(&to_bytes(forwarded.into_body(), 65536).await.unwrap()).unwrap();
+    let direct = app
+        .clone()
+        .oneshot(
+            Request::get(cmd.path)
+                .header("authorization", &signed_headers["authorization"])
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(direct.status(), StatusCode::OK);
+    let direct: Value =
+        serde_json::from_slice(&to_bytes(direct.into_body(), 65536).await.unwrap()).unwrap();
+
+    for view in [direct, forwarded] {
+        let capability = &view["resources"][0]["capabilities"];
+        assert_eq!(view["resources"][0]["resource_id"], id);
+        assert_eq!(capability["get"]["allowed"], true);
+        assert_eq!(capability["delete"]["allowed"], false);
+    }
+    for (method, status) in [
+        (Method::GET, StatusCode::OK),
+        (Method::DELETE, StatusCode::FORBIDDEN),
+    ] {
+        let answer = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(format!("/api/services/{id}"))
+                    .header("authorization", &signed_headers["authorization"])
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(answer.status(), status);
+    }
+}
+
+#[tokio::test]
+async fn grant_change_fences_already_buffered_peer_events_and_isolated_resume_filters_replay() {
+    use axum::routing::get;
+    use futures_util::StreamExt;
+
+    let a = ServiceFixture::new(MultiplexerState::new().0);
+    let (mux, own_tab) = MultiplexerState::new();
+    let b = ServiceFixture::new(mux);
+    let source = state(&a, "rail-origin");
+    let target = state(&b, "rail-target");
+    pair(&target, &source);
+    {
+        let mut mux = target.svc.mux.write();
+        mux.get_tab_mut(&own_tab).unwrap().ownership = Some(codeterm_types::pty::RemoteOwnership {
+            controller_title: "owned".into(),
+            controller_tab_id: None,
+            peer_id: "rail-origin".into(),
+            peer_name: "rail-origin".into(),
+            team: None,
+        });
+    }
+    let status = |tab: &str| crate::events::SystemEvent::Generic {
+        event_type: "tab-status-changed".into(),
+        data: json!({"tab_id":tab,"status":"Working"}),
+    };
+    target.events.publish(status(&own_tab));
+    target.events.publish(status("another-owner"));
+    target
+        .events
+        .publish(crate::events::SystemEvent::MuxStateChanged);
+
+    let token = origin::sign(&source, AuthenticatedOrigin::Owner, None).unwrap();
+    let app = Router::new()
+        .route("/api/events/stream", get(crate::web_routes::events_stream))
+        .layer(axum::middleware::from_fn_with_state(
+            target.clone(),
+            crate::auth::auth_middleware,
+        ))
+        .with_state(target.clone());
+    let connect = || {
+        Request::get(format!(
+            "/api/events/stream?scope=peer&since={}:0",
+            target.events.boot_id()
+        ))
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap()
+    };
+
+    let unscoped = app
+        .clone()
+        .oneshot(
+            Request::get("/api/events/stream")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unscoped.status(), StatusCode::FORBIDDEN);
+
+    let old = app.clone().oneshot(connect()).await.unwrap();
+    assert_eq!(old.status(), StatusCode::OK);
+    let mut body = old.into_body().into_data_stream();
+    target.events.publish(status("queued-live"));
+    {
+        let mut mesh = target.mesh.lock();
+        assert!(mesh.set_peer_access("rail-origin", AccessLevel::ReadOnly));
+        assert!(mesh.set_peer_access("rail-origin", AccessLevel::Full));
+    }
+    assert!(body.next().await.is_none());
+
+    assert!(target
+        .mesh
+        .lock()
+        .set_peer_access("rail-origin", AccessLevel::AgentIsolated));
+    let new = app.oneshot(connect()).await.unwrap();
+    assert_eq!(new.status(), StatusCode::OK);
+    let mut body = new.into_body().into_data_stream();
+    let first = body.next().await.unwrap().unwrap();
+    let frame: Value = serde_json::from_slice(first.strip_prefix(b"data: ").unwrap()).unwrap();
+    assert_eq!(frame["data"]["tab_id"], own_tab);
+
+    let boundary = body.next().await.unwrap().unwrap();
+    let frame: Value = serde_json::from_slice(boundary.strip_prefix(b"data: ").unwrap()).unwrap();
+    assert_eq!(frame["event_type"], "peer-replay-complete");
+    target.events.publish(status("another-owner"));
+    target.events.publish(status(&own_tab));
+    let live = body.next().await.unwrap().unwrap();
+    let frame: Value = serde_json::from_slice(live.strip_prefix(b"data: ").unwrap()).unwrap();
+    assert_eq!(frame["data"]["tab_id"], own_tab);
 }
