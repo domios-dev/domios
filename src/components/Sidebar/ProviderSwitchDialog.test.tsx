@@ -55,8 +55,12 @@ function button(label: string) {
   return button;
 }
 
-function hasButton(label: string): boolean {
-  return Array.from(document.querySelectorAll<HTMLButtonElement>("button")).some((candidate) => candidate.textContent === label);
+const completedSentence = "Baton now continues on Target · Sonnet 5.5.";
+
+function expectCompletion() {
+  const dialog = document.querySelector('[role="dialog"]');
+  expect(dialog?.querySelector('[role="status"]')?.textContent).toBe(completedSentence);
+  expect(Array.from(dialog?.querySelectorAll("button") ?? [], (entry) => entry.textContent)).toEqual(["Close"]);
 }
 
 function mockStatusReads(read: () => ProviderSwitchStatus | Promise<ProviderSwitchStatus>) {
@@ -66,22 +70,22 @@ function mockStatusReads(read: () => ProviderSwitchStatus | Promise<ProviderSwit
 }
 
 it("maps pending status to target startup feedback", () => {
-  expect(providerSwitchStatusView({ phase: "pending", error: null }, "Codex"))
+  expect(providerSwitchStatusView({ phase: "pending", error: null }, "Codex", "Baton", "GPT-6.2-Sol"))
     .toEqual({ kind: "busy", label: "Starting Codex…" });
 });
 
 it("maps running status to generic switch feedback", () => {
-  expect(providerSwitchStatusView({ phase: "running", error: null }, "Codex"))
+  expect(providerSwitchStatusView({ phase: "running", error: null }, "Codex", "Baton", "GPT-6.2-Sol"))
     .toEqual({ kind: "busy", label: "Switching to Codex…" });
 });
 
 it("maps completed status to a bound confirmation", () => {
-  expect(providerSwitchStatusView({ phase: "completed", error: null }, "Codex"))
-    .toEqual({ kind: "complete", label: "Bound — continuing" });
+  expect(providerSwitchStatusView({ phase: "completed", error: null }, "Codex", "Baton", "GPT-6.2-Sol"))
+    .toEqual({ kind: "complete", label: "Baton now continues on Codex · GPT-6.2-Sol." });
 });
 
 it("preserves daemon failure reasons in the status view", () => {
-  expect(providerSwitchStatusView({ phase: "failed", error: "provider_switch_auth_timeout: fixture" }, "Codex"))
+  expect(providerSwitchStatusView({ phase: "failed", error: "provider_switch_auth_timeout: fixture" }, "Codex", "Baton", "GPT-6.2-Sol"))
     .toEqual({ kind: "failed", reason: "provider_switch_auth_timeout: fixture" });
 });
 
@@ -102,21 +106,23 @@ it("confirmation sends one target selection and shows its result", async () => {
   __setTabProviderApiForTest({ switchProvider: send });
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(document.getElementById(dialog?.getAttribute("aria-labelledby") ?? "")?.textContent).toBe("Switch provider");
+    expect(document.getElementById(dialog?.getAttribute("aria-describedby") ?? "")?.textContent)
+      .toBe("Baton continues with another provider, using recent messages and task context. The full history stays here.");
     expect(document.querySelector('[aria-label="Agent provider: Target"]')).not.toBeNull();
     expect(document.querySelector('[aria-label="Agent model: Sonnet 5.5"]')).not.toBeNull();
     expect(document.querySelector('[aria-label="Agent effort: Effort"]')).not.toBeNull();
     expect(send).not.toHaveBeenCalled();
-    await act(async () => { const confirm = button("Switch harness"); confirm.click(); confirm.click(); });
+    await act(async () => { const confirm = button("Switch"); confirm.click(); confirm.click(); });
     expect(send).toHaveBeenCalledExactlyOnceWith("owned", "target", { model: "model-token", reasoningEffort: "effort-token", force: false });
+    await act(async () => root.render(<ProviderSwitchDialog tab={{ ...tab, agent_type: "target" }} initialProviderId="target" onClose={() => {}} />));
+    for (const name of ["Agent provider: Target", "Agent model: Sonnet 5.5", "Agent effort: Effort"]) {
+      expect(document.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)?.disabled).toBe(true);
+    }
+    expect(dialog?.textContent).not.toContain("No models published");
     await act(async () => finish(result));
-    expect(button("Previous harness: source")).not.toBeNull();
-    __setInvokeForTest(async <T,>(command: string) => {
-      expect(command).toBe("read_provider_history");
-      return [{ type: "user", content: "opaque-prior-🪵" }] as T;
-    });
-    await act(async () => button("Previous harness: source").click());
-    expect(document.querySelector('[aria-label="Previous harness transcript"]')?.textContent).toContain("opaque-prior-🪵");
+    expectCompletion();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -215,17 +221,16 @@ it("keeps matching early terminal evidence when another same-tab operation repor
   const readStatus = mockStatusReads(() => acceptedStatus);
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     expect(send).toHaveBeenCalledTimes(1);
     expect(document.querySelector('[role="status"]')).toBeNull();
-    expect(document.querySelector('[aria-label="Previous harness transcript"]')).toBeNull();
     const completed = { ...acceptedStatus, phase: "completed", outcome: result };
     await act(async () => publishStatus(completed));
     await act(async () => publishStatus({ ...acceptedStatus, operation_id: "other-operation", phase: "failed", error: "foreign failure" }));
     await act(async () => accept(acceptedStatus));
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("Bound — continuing");
+    expect(document.querySelector('[role="status"]')?.textContent).toBe(completedSentence);
     expect(document.querySelector('[role="status"]')?.textContent).not.toContain("foreign failure");
-    expect(button("Previous harness: source")).not.toBeNull();
+    expectCompletion();
     expect(readStatus).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
@@ -238,16 +243,16 @@ it("ignores another operation's terminal event in the accessible dialog while th
   __setInvokeForTest(async <T,>() => acceptedStatus as T);
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     await act(async () => publishStatus({ ...acceptedStatus, operation_id: "other-operation", phase: "completed", outcome: result }));
     expect(document.querySelector('[role="status"]')?.textContent).toContain("Starting Target…");
-    expect(hasButton("Previous harness: source")).toBe(false);
+    expect(document.querySelector('[role="status"]')?.textContent).not.toBe(completedSentence);
     await act(async () => publishStatus({ ...acceptedStatus, phase: "running" }));
     expect(document.querySelector('[role="status"]')?.textContent).toContain("Switching to Target…");
     expect(document.querySelector('[role="status"]')?.hasAttribute("aria-busy")).toBe(false);
     await act(async () => publishStatus({ ...acceptedStatus, phase: "completed", outcome: result }));
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("Bound — continuing");
-    expect(hasButton("Previous harness: source")).toBe(true);
+    expect(document.querySelector('[role="status"]')?.textContent).toBe(completedSentence);
+    expectCompletion();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -266,13 +271,13 @@ it("reconciles a completed remote operation before its peer status stream is rea
   const readStatus = mockStatusReads(() => completed);
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={remoteTab} initialProviderId="target" onClose={() => {}} />));
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     expect(send).toHaveBeenCalledTimes(1);
     expect(readStatus).toHaveBeenCalledExactlyOnceWith("provider_switch_status", {
       tabId: remoteTab.id, operationId: acceptedStatus.operation_id, wait: false,
     });
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("Bound — continuing");
-    expect(hasButton("Previous harness: source")).toBe(true);
+    expect(document.querySelector('[role="status"]')?.textContent).toBe(completedSentence);
+    expectCompletion();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -284,7 +289,7 @@ it("keeps an exit action available when accepted switch status cannot be reconci
   __setInvokeForTest(async () => { throw new Error("status endpoint unavailable"); });
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={onClose} />));
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     expect(document.querySelector('[role="alert"]')?.textContent).toContain("Check this tab before trying again");
     expect(document.querySelector('[role="alert"]')?.textContent).toContain("status endpoint unavailable");
     expect(button("Close").disabled).toBe(false);
@@ -302,7 +307,7 @@ it("reconciles the accepted operation on peer stream signals", async () => {
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={remoteTab} initialProviderId="target" onClose={() => {}} />));
     expect(remoteSignals.handler).not.toBeNull();
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     expect(readStatus).toHaveBeenCalledTimes(1);
     await act(async () => remoteSignals.handler?.("resync"));
     expect(readStatus).toHaveBeenCalledTimes(2);
@@ -325,7 +330,7 @@ it.each(["Close", "Escape"])("dismisses a running switch via %s without a stream
   const readStatus = mockStatusReads(() => ({ ...pending, phase: "running" }));
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={remoteTab} initialProviderId="target" onClose={onClose} />));
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     expect(readStatus).toHaveBeenCalledExactlyOnceWith("provider_switch_status", {
       tabId: remoteTab.id, operationId: pending.operation_id, wait: false,
     });
@@ -357,7 +362,7 @@ it("drops a queued refresh when the dialog unmounts with a status read in flight
   const readStatus = mockStatusReads(() => running).mockReturnValueOnce(heldRead);
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     expect(readStatus).toHaveBeenCalledExactlyOnceWith("provider_switch_status", {
       tabId: tab.id, operationId: running.operation_id, wait: false,
     });
@@ -382,7 +387,7 @@ it("discards a switch receipt that arrives after dismissal", async () => {
   const readStatus = mockStatusReads(() => running);
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={onClose} />));
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     expect(send).toHaveBeenCalledTimes(1);
     await act(async () => publishStatus(running));
     expect(readStatus).not.toHaveBeenCalled();
@@ -411,13 +416,13 @@ it("allows retry when a peer-loss refresh reports a failed switch", async () => 
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={remoteTab} initialProviderId="target" onClose={() => {}} />));
     expect(remoteSignals.handler).not.toBeNull();
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     expect(readStatus).toHaveBeenCalledTimes(1);
     await act(async () => remoteSignals.handler?.("lost"));
     expect(readStatus).toHaveBeenCalledTimes(2);
-    expect(document.querySelector('[aria-label="The harness authentication check timed out"]')).not.toBeNull();
-    expect(button("Switch harness").disabled).toBe(false);
-    await act(async () => button("Switch harness").click());
+    expect(document.querySelector('[aria-label="The provider authentication check timed out"]')).not.toBeNull();
+    expect(button("Switch").disabled).toBe(false);
+    await act(async () => button("Switch").click());
     expect(readStatus).toHaveBeenLastCalledWith("provider_switch_status", {
       tabId: remoteTab.id, operationId: retry.operation_id, wait: false,
     });
@@ -440,7 +445,7 @@ it("clears status uncertainty when a recovered snapshot repeats the same running
   });
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     expect(document.querySelector('[role="alert"]')?.textContent).toContain("temporary status read failure");
     expect(button("Close").disabled).toBe(false);
     await act(async () => window.dispatchEvent(new Event(EVENT_STREAM_READY)));
@@ -448,7 +453,7 @@ it("clears status uncertainty when a recovered snapshot repeats the same running
     expect(document.querySelector('[role="alert"]')).toBeNull();
     expect(document.querySelector('[role="status"]')?.textContent).toContain("Switching to Target…");
     await act(async () => publishStatus({ ...running, phase: "completed", outcome: result }));
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("Bound — continuing");
+    expect(document.querySelector('[role="status"]')?.textContent).toBe(completedSentence);
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -469,16 +474,16 @@ it("allows one retry after a failure event while the accepted status read is hel
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
     await act(async () => {
-      button("Switch harness").click();
+      button("Switch").click();
       await readStarted;
     });
     await act(async () => publishStatus({ ...acceptedStatus, phase: "failed", error: "provider_switch_auth_timeout: fixture" }));
-    expect(document.querySelector('[aria-label="The harness authentication check timed out"]')).not.toBeNull();
-    await act(async () => button("Switch harness").click());
+    expect(document.querySelector('[aria-label="The provider authentication check timed out"]')).not.toBeNull();
+    await act(async () => button("Switch").click());
     expect(send).toHaveBeenCalledTimes(2);
-    expect(hasButton("Previous harness: source")).toBe(true);
+    expectCompletion();
     await act(async () => resolveHeldRead(acceptedStatus));
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("Bound — continuing");
+    expect(document.querySelector('[role="status"]')?.textContent).toBe(completedSentence);
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -496,10 +501,10 @@ it("recovers from a rejected initial status-listener registration on the next sw
   __setTabProviderApiForTest({ switchProvider: send });
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     expect(registrations).toBe(2);
     expect(send).toHaveBeenCalledTimes(1);
-    expect(hasButton("Previous harness: source")).toBe(true);
+    expectCompletion();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -511,7 +516,7 @@ it("reconciles the accepted operation on stream readiness, resync and loss signa
   const read = mockStatusReads(() => acceptedStatus);
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     expect(read).toHaveBeenCalledTimes(1);
     await act(async () => window.dispatchEvent(new Event(EVENT_STREAM_READY)));
     await act(async () => fireResync("overflow"));
@@ -530,12 +535,12 @@ it("shows daemon failure details and keeps the existing retry path", async () =>
   __setInvokeForTest(async <T,>() => acceptedStatus as T);
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     await act(async () => publishStatus({ ...acceptedStatus, phase: "failed", error: "provider_switch_auth_timeout: fixture" }));
-    expect(document.querySelector('[aria-label="The harness authentication check timed out"]')).not.toBeNull();
-    await act(async () => button("Switch harness").click());
+    expect(document.querySelector('[aria-label="The provider authentication check timed out"]')).not.toBeNull();
+    await act(async () => button("Switch").click());
     expect(send).toHaveBeenCalledTimes(2);
-    expect(button("Previous harness: source")).not.toBeNull();
+    expectCompletion();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -547,13 +552,13 @@ it("disables unavailable targets with a reason and refuses submission from a sta
   __setTabProviderApiForTest({ switchProvider: send });
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="unavailable" onClose={() => {}} />));
-    expect(button("Switch harness").disabled).toBe(true);
+    expect(button("Switch").disabled).toBe(true);
     const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Agent provider:"]');
     await act(async () => trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
     const unavailable = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')).find(item => item.textContent?.includes("Unavailable target"));
     expect(unavailable?.disabled).toBe(true);
     expect(unavailable?.textContent).toContain("not installed");
-    await act(async () => { unavailable?.click(); button("Switch harness").click(); });
+    await act(async () => { unavailable?.click(); button("Switch").click(); });
     expect(send).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
@@ -584,12 +589,12 @@ it("offers an explicit retry after an authentication probe timeout", async () =>
   __setTabProviderApiForTest({ switchProvider: send });
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    await act(async () => button("Switch harness").click());
-    expect(document.querySelector('[aria-label="The harness authentication check timed out"]')).not.toBeNull();
+    await act(async () => button("Switch").click());
+    expect(document.querySelector('[aria-label="The provider authentication check timed out"]')).not.toBeNull();
     expect(send).toHaveBeenCalledTimes(1);
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     expect(send).toHaveBeenCalledTimes(2);
-    expect(button("Previous harness: source")).not.toBeNull();
+    expectCompletion();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -601,7 +606,7 @@ it("keeps technical details collapsed and copies them without the Error prefix",
   vi.stubGlobal("navigator", { clipboard: { writeText } });
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     const disclosure = button("Details");
     const picker = document.querySelector('[aria-label="Agent provider: Target"]');
     const sentence = document.getElementById(picker?.getAttribute("aria-describedby") ?? "");
@@ -624,7 +629,7 @@ it("names the selected harness in an installation refusal", async () => {
   __setTabProviderApiForTest({ switchProvider: async () => { throw new Error("provider_switch_unavailable: fixture executable missing"); } });
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     const notice = document.querySelector('[role="status"]');
     expect(notice?.textContent).toContain("Target isn't installed on this machine");
     expect(notice?.querySelector("pre")?.hidden).toBe(true);
@@ -639,14 +644,14 @@ it("disables a known cooldown until its deadline without retrying the switch", a
   __setTabProviderApiForTest({ switchProvider: send });
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     expect(button("Switch in 19 s").disabled).toBe(true);
     await act(async () => { vi.advanceTimersByTime(18999); button("Switch in 19 s").click(); });
     expect(send).toHaveBeenCalledTimes(1);
     await act(async () => vi.advanceTimersByTime(1));
-    expect(button("Switch harness").disabled).toBe(false);
+    expect(button("Switch").disabled).toBe(false);
     expect(send).toHaveBeenCalledTimes(1);
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     expect(send).toHaveBeenCalledTimes(2);
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
@@ -658,7 +663,7 @@ it("keeps the tab restart cooldown when the target harness changes", async () =>
   __setTabProviderApiForTest({ switchProvider: send });
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    await act(async () => button("Switch harness").click());
+    await act(async () => button("Switch").click());
     expect(button("Switch in 19 s").disabled).toBe(true);
     const picker = document.querySelector<HTMLButtonElement>('button[aria-label="Agent provider: Target"]');
     await act(async () => picker?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));

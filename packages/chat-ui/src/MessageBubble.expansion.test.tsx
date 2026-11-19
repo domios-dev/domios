@@ -134,12 +134,14 @@ async function run() {
   });
 
   const handoffRegion = host.querySelector('[aria-label="handoff fixture"]');
-  const handoffToggle = handoffRegion?.querySelector<HTMLButtonElement>('button[aria-expanded]');
-  assert(handoffToggle?.getAttribute("aria-expanded") === "false", "handoff uses the collapsed system disclosure");
-  for (const fragment of handoffFragments) assert(!handoffRegion?.textContent?.includes(fragment), "handoff body stays behind disclosure");
+  const handoffDetails = handoffRegion?.querySelector("details");
+  assert(handoffDetails && !handoffDetails.open, "handoff starts with Details collapsed");
+  assert(handoffRegion?.querySelector('[role="separator"]')?.getAttribute("aria-label") === "Continued on another provider", "unlabelled handoffs use a human-readable divider");
+  const handoffToggle = handoffDetails.querySelector("summary");
+  assert(handoffToggle?.textContent === "Details", "handoff shows a Details action");
   await act(async () => handoffToggle.click());
-  assert(handoffToggle.getAttribute("aria-expanded") === "true", "handoff disclosure opens");
-  for (const fragment of handoffFragments) assert(handoffRegion?.textContent?.includes(fragment), "all original fragments are readable in the system message");
+  assert(handoffDetails.open, "handoff details equal an open native disclosure");
+  for (const fragment of handoffFragments) assert(handoffDetails.querySelector("pre")?.textContent?.includes(fragment), "all original fragments are readable in Details");
 
   const cards = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="chat-tool-call"], [data-testid="chat-sent-to-card"]'));
   const send = cards.find((card) => card.textContent?.includes("Sent to"));

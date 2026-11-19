@@ -9,6 +9,18 @@ import { enrichTimelineItems } from "./chatEnrichment";
 
 const fixtures = JSON.parse(readFileSync(new URL("../../../tests/fixtures/message-envelope.json", import.meta.url), "utf8")) as Array<{ name: string; raw: string; segments: MessageSegment[] }>;
 const item = (message: NormalizedChatMessage): TimelineItem => ({ kind: "message", message });
+{
+  const body = "opaque handoff payload";
+  const attrs = { from: "system", context: "provider-handoff", label: "Codex", model: "GPT-6.2-Sol" };
+  const earlier = item({ id: "earlier", type: "assistant", content: "earlier answer" });
+  const boundary = item({ id: "boundary", type: "system", content: "synthetic boundary", systemSubtype: "provider_handoff" });
+  const handoff = item({ id: "handoff", type: "user", content: body, segments: [{ type: "frame", from: "system", kind: "system", attrs, body, tip: null }] });
+  const rows = enrichTimelineItems([earlier, boundary, handoff], new WeakMap());
+  assert.deepEqual(rows.map((entry) => entry.msg.content), ["earlier answer", body]);
+  assert.deepEqual(rows[1].origin, { kind: "system", context: "provider-handoff" });
+  assert.equal(rows[1].msg.routing?.label, "Codex");
+  assert.equal(rows[1].msg.routing?.model, "GPT-6.2-Sol");
+}
 const screenshot = fixtures.find((fixture) => fixture.name === "owner merged screenshot")!;
 for (const provider of ["claude", "codex", "opencode", "plugin"]) {
   const raw: NormalizedChatMessage = { id: provider, provider, type: "user", content: screenshot.raw, segments: screenshot.segments };
