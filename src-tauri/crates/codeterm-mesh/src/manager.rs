@@ -62,6 +62,7 @@ pub struct MeshManager {
     pending_links: HashMap<String, account_admission::PendingLink>,
     account_ready: bool,
     remote_access_epoch: u64,
+    peer_grant_epochs: HashMap<String, u64>,
 }
 
 impl MeshManager {
@@ -152,6 +153,7 @@ impl MeshManager {
             pending_links: HashMap::new(),
             account_ready: true,
             remote_access_epoch: 0,
+            peer_grant_epochs: HashMap::new(),
         }
     }
 
@@ -325,6 +327,7 @@ impl MeshManager {
         self.peer_request_retry.remove(instance_id);
         self.links.remove(instance_id);
         self.peer_services.prune(instance_id);
+        self.peer_grant_epochs.remove(instance_id);
         self.protocol_refusals.forget(instance_id);
         self.bump_gate();
     }

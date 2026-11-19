@@ -386,11 +386,12 @@ pub async fn events_stream(
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, (StatusCode, String)>
 {
     let caller = caller.map(|caller| caller.0);
-    peer_events::validate_scope(&q, caller.as_ref())?;
+    peer_events::validate_scope(&state, &q, caller.as_ref())?;
     let events = state.events.clone();
     let scope = q.scope;
+    let tab = q.tab_id.clone();
     Ok(events_sse_filtered(events, q, &STREAMS, move |event| {
-        peer_events::visible(&state, caller.as_ref(), scope, event)
+        peer_events::visible(&state, caller.as_ref(), scope, tab.as_deref(), event)
     }))
 }
 
@@ -421,7 +422,7 @@ fn events_sse_filtered(
         crate::events::ReplayBudget::default(),
     );
     let tab_id = q.tab_id;
-    let peer_scope = q.scope.is_some();
+    let peer_scope = matches!(q.scope, Some(PeerEventScope::Peer));
 
     let stream = async_stream::stream! {
         let (mut replayed_max, mut previous, replay) = match plan {

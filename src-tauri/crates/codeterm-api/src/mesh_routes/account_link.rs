@@ -1,4 +1,4 @@
-use axum::{body::Body, extract::State as AxumState, http::StatusCode, response::Response, Json};
+use axum::{body::Body, extract::State as AxumState, http::StatusCode, Json};
 use codeterm_neighbors_service::prelude::*;
 use futures_util::StreamExt;
 
@@ -27,15 +27,6 @@ pub(crate) fn fence_body(
     let blocked =
         Box::pin(codeterm_service_core::mesh::account_mesh::wait_until_blocked(mesh, peer_id));
     Body::from_stream(body.into_data_stream().take_until(blocked))
-}
-
-pub(crate) fn fence_response(
-    response: Response,
-    mesh: codeterm_service_core::MeshStateHandle,
-    peer_id: String,
-) -> Response {
-    let (parts, body) = response.into_parts();
-    Response::from_parts(parts, fence_body(body, mesh, peer_id))
 }
 
 pub async fn mesh_link_hello(

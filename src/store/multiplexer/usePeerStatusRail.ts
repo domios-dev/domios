@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
-import { peerEventRail } from "../../lib/peerEventRail";
+import { peerEventRail, type PeerEvent } from "../../lib/peerEventRail";
 import { pairedAvailability } from "./pairedWorkspaceProjection";
 import type { PairedRoster } from "./useMeshPeerProjection";
 
-export function usePeerStatusRail(roster: PairedRoster | null, wake: (peerId: string) => void) {
+export function usePeerStatusRail(roster: PairedRoster | null, wake: (peerId: string, event: PeerEvent) => void) {
   const subscriptions = useRef(new Map<string, { link: string; stop: () => void }>());
   useEffect(() => {
     const active = subscriptions.current;
@@ -17,7 +17,7 @@ export function usePeerStatusRail(roster: PairedRoster | null, wake: (peerId: st
     }
     for (const [peerId, link] of peers) {
       if (active.has(peerId)) peerEventRail.resume(peerId);
-      else active.set(peerId, { link, stop: peerEventRail.subscribe(peerId, link, () => wake(peerId)) });
+      else active.set(peerId, { link, stop: peerEventRail.subscribe(peerId, link, event => wake(peerId, event)) });
     }
   }, [roster, wake]);
   useEffect(() => {

@@ -246,3 +246,81 @@ fn mesh_control_denied_below_full() {
         "/api/mesh/announce"
     ));
 }
+
+#[test]
+fn read_grants_are_scoped_to_the_actual_operation() {
+    let tabs = AccessLevel::Custom(vec![Permission::ReadTabs]);
+    let output = AccessLevel::Custom(vec![Permission::ReadOutput]);
+    assert!(check_access(&tabs, &Method::GET, "/api/tabs"));
+    assert!(!check_access(&output, &Method::GET, "/api/tabs"));
+    assert!(!check_access(&tabs, &Method::GET, "/api/tabs/owned/output"));
+    assert!(check_access(
+        &output,
+        &Method::GET,
+        "/api/tabs/owned/output"
+    ));
+    assert!(!check_access(
+        &tabs,
+        &Method::POST,
+        "/api/tabs/owned/chat-raw/history"
+    ));
+    assert!(check_access(
+        &output,
+        &Method::POST,
+        "/api/tabs/owned/chat-raw/history"
+    ));
+    assert!(!check_access(
+        &AccessLevel::ReadOnly,
+        &Method::POST,
+        "/api/tabs/owned/chat-view"
+    ));
+    assert!(!check_access(
+        &AccessLevel::ReadOnly,
+        &Method::GET,
+        "/api/unknown"
+    ));
+    assert!(!check_access(
+        &AccessLevel::Full,
+        &Method::GET,
+        "/api/unknown"
+    ));
+}
+
+#[test]
+fn isolated_output_stream_requires_one_owned_tab() {
+    let access = AccessLevel::AgentIsolated;
+    for (path, allowed) in [
+        ("/api/output/stream", false),
+        ("/api/output/stream?tab_id=", false),
+        ("/api/output/stream?tab_id=owned&tab_id=foreign", false),
+        ("/api/output/stream?tab_id=foreign", false),
+        ("/api/output/stream?tab_id=%6fwned", true),
+    ] {
+        assert_eq!(
+            peer_access_allowed(&access, "peer", &Method::GET, path, |id| (id == "owned")
+                .then(|| "peer".to_owned()),),
+            allowed,
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn cron_run_history_has_a_distinct_resource_scope() {
+    let path = "/api/crons/job/history/run";
+    let scope = request_scope(&Method::GET, path).unwrap();
+    assert_eq!(
+        scope,
+        PeerScope::new(
+            PeerOperation::ReadCronRun,
+            PeerResource::CronRun {
+                cron_id: "job",
+                run_id: "run"
+            }
+        )
+    );
+    assert!(scope.allowed(&AccessLevel::ReadOnly));
+    assert!(scope.allowed(&AccessLevel::Custom(vec![Permission::ManageCrons])));
+    assert!(!scope.allowed(&AccessLevel::Custom(vec![Permission::ReadOutput])));
+    assert!(!scope.allowed(&AccessLevel::AgentIsolated));
+}
