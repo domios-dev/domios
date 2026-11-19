@@ -353,6 +353,20 @@ afterEach(async () => {
 });
 
 describe("Plan reader paragraph Ask", () => {
+  it("selects Plan document prose and enables Comment for the passage", async () => {
+    const { host } = await render(<PlanPlanView mode="focus" planId={ASK_PLAN.id} plans={[ASK_PLAN]} tabs={ownerTab()} />);
+    const sectionText = host.querySelector<HTMLElement>(".plan-document-section-body")!;
+    expect(sectionText.classList.contains("ct-canvas-text")).toBe(true);
+    const paragraph = planBody(host).querySelector("p")!;
+    const phrase = textNodes(paragraph).find((node) => node.data.includes("flow first"))!;
+    const start = phrase.data.indexOf("flow first");
+    await select(phrase, start, phrase, start + "flow first".length);
+    await click(q(host, "plan-ask-trigger"));
+
+    expect(q(host, "plan-ask-quote")?.textContent).toBe("flow first");
+    expect(q(host, "plan-ask-type-comment")).not.toBeNull();
+  });
+
   it("reveals one labelled gutter trigger that glides between hovered paragraphs and list items", async () => {
     const { host } = await render(<PlanPlanView mode="focus" planId={ASK_PLAN.id} plans={[ASK_PLAN]} tabs={ownerTab()} />);
     const body = planBody(host);
