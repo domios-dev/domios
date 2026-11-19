@@ -5,7 +5,9 @@ use super::{
     model::SurfaceOpenRequest,
 };
 use crate::service::ServiceContext;
+use codeterm_plugin::blueprint_step::PortValue;
 use codeterm_plugin::{blueprint_step::StepInputContext, surfaces::SurfaceRegistryHandle};
+use codeterm_surface::surface::{NamedPageRead, PageCapture, BROWSER_RUNTIME};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -39,6 +41,11 @@ fn parse(raw: &str) -> Result<Call, String> {
         });
     }
     serde_json::from_value(value).map_err(|_| "invalid step surface call".into())
+}
+
+fn named_page_refusal(outcome: &str, text: String) -> Value {
+    let reply = json!({"outcome": outcome, "text": text, "final_url": "", "profile": ""});
+    json!({"result": reply.to_string()})
 }
 
 impl ServiceContext {
@@ -84,6 +91,20 @@ impl ServiceContext {
             let mux = self.mux.read();
             agent_call::resolve_caller_tab(&mux, owner).ok_or("step owner closed")?
         };
+        if surface.stream_runtime() == Some(BROWSER_RUNTIME) {
+            if verb == "read_named_page" && plugin == "browser" && raw == "[]" {
+                return self.step_named_page(context);
+            }
+            if !matches!(
+                verb,
+                "open" | "goto" | "wait" | "status" | "text" | "snapshot" | "close"
+            ) || (verb == "open" && !call.args.is_empty())
+            {
+                return Err(
+                    "Blueprint Browser calls only support read-only page navigation".into(),
+                );
+            }
+        }
         if verb == "status" && call.surface.is_none() {
             return Ok(json!(codeterm_wire::plugin_host::HostSurfaceResult {
                 result: if context.surfaces.lock().is_empty() {
@@ -170,5 +191,71 @@ impl ServiceContext {
             context.surfaces.lock().remove(&identity.tab);
         }
         result
+    }
+
+    fn step_named_page(&self, context: &StepInputContext) -> Result<Value, String> {
+        use crate::config::{
+            browser_blueprint_origins, browser_blueprint_profiles,
+            BROWSER_BLUEPRINT_ORIGINS_SETTING, BROWSER_BLUEPRINT_PROFILES_SETTING,
+        };
+        let request = &context.request;
+        let capture = match request.node_type.as_str() {
+            "browser.read_page" => PageCapture::Text,
+            "browser.snapshot_page" => PageCapture::Snapshot,
+            _ => return Err("named profile reads require a Browser read or snapshot node".into()),
+        };
+        let profile = request.params["profile"]
+            .as_str()
+            .ok_or("a named browser profile is required")?;
+        let (allowed, origins) = {
+            let config = self.ext::<crate::config::ConfigState>().lock();
+            let allowed = browser_blueprint_profiles(&config)
+                .and_then(Value::as_array)
+                .is_some_and(|profiles| profiles.iter().any(|name| name.as_str() == Some(profile)));
+            let origins = browser_blueprint_origins(&config)
+                .and_then(|setting| setting.get(profile))
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|site| site.as_str().map(str::to_owned))
+                .collect::<Vec<_>>();
+            (allowed, origins)
+        };
+        if !allowed || crate::service::browser::profile::validate_named_profile(profile).is_err() {
+            return Ok(named_page_refusal("profile_not_allowed",
+                format!("The owner must allow the named profile in {BROWSER_BLUEPRINT_PROFILES_SETTING}")));
+        }
+        if context.cancellation.is_cancelled() {
+            return Err("the Blueprint step was cancelled".into());
+        }
+        let url = match request.inputs.get("url").and_then(|values| values.first()) {
+            Some(PortValue::Text { text }) => Some(text.as_str()),
+            _ => request.params["url"].as_str(),
+        }
+        .map(str::trim)
+        .filter(|url| url.len() <= 2048 && !url.chars().any(char::is_whitespace))
+        .ok_or("named profile navigation requires an HTTP(S) URL without URL credentials")?;
+        if !codeterm_surface::surface::allows_page_origin(&origins, url) {
+            return Ok(named_page_refusal("origin_not_allowed",
+                format!("The owner must allow this origin for the named profile in {BROWSER_BLUEPRINT_ORIGINS_SETTING}")));
+        }
+        let read = NamedPageRead {
+            profile,
+            url,
+            origins: &origins,
+            wait_text: request.params["wait_text"]
+                .as_str()
+                .filter(|text| !text.trim().is_empty()),
+            limit: request.params["limit"]
+                .as_u64()
+                .filter(|n| *n >= 1)
+                .map_or(200, |n| n.min(2000) as usize),
+            capture,
+            deadline: context.deadline,
+        };
+        let runtimes = self.ext::<std::sync::Arc<super::SurfaceRuntimeRegistry>>();
+        let result = agent_call::block_on_runtime(runtimes.read_named_page(read))?;
+        let result = serde_json::to_string(&result).map_err(|error| error.to_string())?;
+        Ok(json!({"result": result}))
     }
 }

@@ -51,19 +51,30 @@ Full format, validation diagnostics, editor schema and sharing: `domios docs BLU
 
 ## Read a web page into the next node
 
-The Browser plugin's `browser.read_page` node opens a browser for the run, reads the page text and closes the browser. `domios blueprint nodes` lists it. The code node below gets the redacted page text and returns its first line. Route `browser_busy`, `needs_human` and `navigation_failed` to a notify node, or to `@stop`, when the run should report them.
+The Browser plugin's `browser.read_page` node opens a browser for the run, reads the page text and closes the browser. `domios blueprint nodes` lists it alongside `browser.snapshot_page`, which returns an accessibility snapshot. The code node below gets the redacted page text and returns its first line.
 
 ```yaml
 - id: read
   uses: browser.read_page
   with: {url: {lit: "https://example.com"}, limit: {lit: 50}}
-  outcomes: [read, navigation_failed, needs_human, browser_busy]
-  routes: {read: first_line, navigation_failed: "@stop", needs_human: "@stop", browser_busy: "@stop"}
+  outcomes: [read, navigation_failed, needs_human, browser_busy, profile_not_allowed, origin_not_allowed]
+  routes: {read: first_line, navigation_failed: "@stop", needs_human: "@stop", browser_busy: "@stop", profile_not_allowed: "@stop", origin_not_allowed: "@stop"}
 - id: first_line
   code: {lang: python, src: 'def main(value): return value.splitlines()[0]'}
   bind: {in: read.out.text}
 ```
 
-The Browser plugin's own doc (section *Blueprint node*) explains the parameters and outcomes.
+Use `bind: {url: prior.out}` for a runtime URL produced by a step with a string output. The bound URL takes precedence over the literal. Both nodes accept an HTTP(S) URL of up to 2048 characters and optional `wait_text`, `profile` and `limit`. The default limit is 200, with a maximum of 2000 text lines or 256 snapshot entries.
 
-<!-- revision: 19 -->
+Omit `profile` for a temporary browser. To use an existing named profile, set both grants from an owner-authenticated shell.
+
+```bash
+domios config set plugins.browser.blueprint_profiles '["Work"]'
+domios config set plugins.browser.blueprint_origins '{"Work":["https://example.com"]}'
+```
+
+Origin grants apply to navigation and redirects. Each grant command replaces its complete setting. Set the profile list to `[]` to revoke access to all profiles. A busy profile returns `browser_busy`. Missing grants return `profile_not_allowed` or `origin_not_allowed`. The node returns `needs_human` for a login prompt, captcha or dialog, and `navigation_failed` when the page cannot be read.
+
+Both nodes return `profile`, `final_url` and an opaque `capture_id` for each successful capture. `browser.snapshot_page` returns a JSON `snapshot` with `items` and `truncated`. Items contain `role`, `name` and `depth`, plus an absolute HTTP(S) `href` for links and a string `value` where available. Bind the JSON as `listing.out.snapshot` when the snapshot step ID is `listing`. On failure, `text` or `snapshot.error` carries the reason and `capture_id` is empty.
+
+<!-- revision: 20 -->

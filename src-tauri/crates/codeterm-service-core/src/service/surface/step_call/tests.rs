@@ -77,3 +77,60 @@ fn step_surface_never_targets_ui_surface_or_another_run() {
     .unwrap();
     assert_eq!(denied["error"], "surface was not opened by this step run");
 }
+
+#[test]
+fn named_blueprint_profiles_require_owner_allowlist_before_open() {
+    let (fixture, mut context) = fixture();
+    let service = &fixture.service;
+    let registry = service.ext::<SurfaceRegistryHandle>();
+    registry.register("browser", registry.get("fixture").unwrap());
+    context.plugin = "browser".into();
+    context.request.node_type = "browser.read_page".into();
+    context.request.params = json!({"url": "https://example.com", "profile": "Unlisted"});
+    let answer: Value = serde_json::from_str(&service.step_surface_call(
+        "browser",
+        &context,
+        "read_named_page",
+        "[]",
+    ))
+    .unwrap();
+    let refusal: Value = serde_json::from_str(answer["result"].as_str().unwrap()).unwrap();
+    assert_eq!(refusal["outcome"], "profile_not_allowed");
+    assert!(refusal["text"]
+        .as_str()
+        .unwrap()
+        .contains("plugins.browser.blueprint_profiles"));
+    assert_eq!(refusal["profile"], "");
+    assert!(context.surfaces.lock().is_empty());
+
+    service.ext::<crate::config::ConfigState>().lock().plugins.insert(
+        "browser".into(),
+        json!({"blueprint_profiles":["Unlisted"],"blueprint_origins":{"Unlisted":["https://example.com"]}}),
+    );
+    context.request.inputs.insert(
+        "url".into(),
+        vec![PortValue::Text {
+            text: "https://other.example/path".into(),
+        }],
+    );
+    let answer: Value = serde_json::from_str(&service.step_surface_call(
+        "browser",
+        &context,
+        "read_named_page",
+        "[]",
+    ))
+    .unwrap();
+    let refusal: Value = serde_json::from_str(answer["result"].as_str().unwrap()).unwrap();
+    assert_eq!(refusal["outcome"], "origin_not_allowed");
+    assert!(context.surfaces.lock().is_empty());
+
+    let bypass: Value = serde_json::from_str(&service.step_surface_call(
+        "browser",
+        &context,
+        "open",
+        r#"["--profile","Unlisted"]"#,
+    ))
+    .unwrap();
+    assert!(bypass["error"].is_string());
+    assert!(context.surfaces.lock().is_empty());
+}

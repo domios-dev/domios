@@ -217,6 +217,7 @@ struct Instance {
 pub struct SurfaceRuntimeRegistry {
     factories: HashMap<String, Arc<dyn SurfaceRuntimeFactory>>,
     instances: Mutex<HashMap<String, Instance>>,
+    browser: Option<Arc<super::browser::BrowserRuntimeFactory>>,
 }
 
 impl SurfaceRuntimeRegistry {
@@ -224,16 +225,26 @@ impl SurfaceRuntimeRegistry {
         Self {
             factories,
             instances: Mutex::new(HashMap::new()),
+            browser: None,
         }
     }
 
     pub fn with_builtin_runtimes(data_dir: &Path) -> Self {
         let mut factories: HashMap<String, Arc<dyn SurfaceRuntimeFactory>> = HashMap::new();
-        factories.insert(
-            super::browser::BROWSER_RUNTIME.to_string(),
-            Arc::new(super::browser::BrowserRuntimeFactory::new(data_dir)),
-        );
-        Self::new(factories)
+        let browser = Arc::new(super::browser::BrowserRuntimeFactory::new(data_dir));
+        factories.insert(super::browser::BROWSER_RUNTIME.to_string(), browser.clone());
+        Self {
+            browser: Some(browser),
+            ..Self::new(factories)
+        }
+    }
+
+    pub async fn read_named_page(
+        &self,
+        read: super::NamedPageRead<'_>,
+    ) -> Result<super::NamedPageResult, String> {
+        let browser = self.browser.as_ref().ok_or("Browser runtime unavailable")?;
+        Ok(browser.read_named_page(read).await)
     }
 
     pub fn runtime_names(&self) -> Vec<String> {

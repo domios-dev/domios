@@ -1,5 +1,7 @@
 mod accessible_wait;
 mod atomic;
+mod blueprint_origins;
+mod blueprint_read;
 mod calls;
 mod completion;
 mod diagnostics;
@@ -28,6 +30,9 @@ mod typing;
 mod upload;
 mod verbs;
 mod viewport;
+
+pub use blueprint_origins::allows_page_origin;
+pub use blueprint_read::{NamedPageRead, NamedPageResult, PageCapture};
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -195,6 +200,13 @@ impl BrowserRuntime {
 
     /// Starts (or reuses) Chromium under the requested profile and binds its page listener.
     async fn ensure_page(&self) -> Result<PageChannel, String> {
+        self.ensure_page_with_profile(None).await
+    }
+
+    async fn ensure_page_with_profile(
+        &self,
+        exclusive_profile: Option<&str>,
+    ) -> Result<PageChannel, String> {
         self.viewport.lock().await.start(self.host.viewport());
         let layout = self.layout.clone();
         self.swept
@@ -204,17 +216,19 @@ impl BrowserRuntime {
             })
             .await;
         self.apply_resume_profile().await;
-        let profile = self.profile_request.lock().clone();
         let viewport = self.host.viewport();
-        let opened = self
-            .host
-            .open(OpenOptions {
-                profile,
-                width: viewport.width as f64,
-                height: viewport.height as f64,
-                dpr: viewport.dpr,
-            })
-            .await?;
+        let options = OpenOptions {
+            profile: exclusive_profile
+                .map(str::to_owned)
+                .unwrap_or_else(|| self.profile_request.lock().clone()),
+            width: viewport.width as f64,
+            height: viewport.height as f64,
+            dpr: viewport.dpr,
+        };
+        let opened = match exclusive_profile {
+            Some(_) => self.host.open_exclusive(options).await?,
+            None => self.host.open(options).await?,
+        };
         let page = self.host.page().ok_or("the browser has no page")?;
         if !opened.reused {
             self.shared.unbind();
