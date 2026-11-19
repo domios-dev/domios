@@ -116,7 +116,12 @@ function stubTop(element: Element, top: number) {
 }
 
 function q<T extends Element = HTMLElement>(root: ParentNode, testId: string): T | null {
-  return root.querySelector<T>(`[data-testid="${testId}"]`);
+  const selector = `[data-testid="${testId}"]`;
+  const local = root.querySelector<T>(selector);
+  if (local) return local;
+  const dialogId = root.querySelector('[data-testid="plan-ask-trigger"]')?.getAttribute("aria-controls");
+  const dialog = dialogId ? document.getElementById(dialogId) : null;
+  return dialog?.matches(selector) ? (dialog as unknown as T) : dialog?.querySelector<T>(selector) ?? null;
 }
 
 function textNode(root: Node, needle: string): Text {
@@ -399,8 +404,10 @@ describe("Plan reader paragraph Ask", () => {
     await key(first, "Enter");
     const popover = q(host, "plan-ask-popover")!;
     expect(popover.getAttribute("role")).toBe("dialog");
-    expect(document.activeElement).toBe(q(host, "plan-ask-input"));
-    expect(popover.querySelector("label")?.textContent).toBe("Ask about this paragraph");
+    const input = q<HTMLTextAreaElement>(host, "plan-ask-input")!;
+    expect(document.activeElement).toBe(input);
+    expect(input.getAttribute("aria-label")).toBe("Ask about this paragraph");
+    expect(input.placeholder).toBe("Ask about this paragraph…");
     await key(q(host, "plan-ask-input")!, "Escape");
     expect(q(host, "plan-ask-popover")).toBeNull();
     expect(document.activeElement).toBe(first);
@@ -452,7 +459,7 @@ describe("Plan reader paragraph Ask", () => {
 
     await click(trigger);
     expect(q(host, "plan-ask-quote")!.textContent).toBe("flow first");
-    expect(q(host, "plan-ask-popover")!.querySelector("label")?.textContent).toBe("Ask about selected text");
+    expect(q<HTMLTextAreaElement>(host, "plan-ask-input")?.placeholder).toBe("Ask about selected text…");
     await typeQuestion(host, "Is it blocking?");
     await click(q(host, "plan-ask-send"));
     expect(sentReference()).toMatchObject({
@@ -586,7 +593,7 @@ describe("Plan reader paragraph Ask", () => {
       { id: "u1", type: "user", content: "question text", correlationId: askCorrelationId },
       { id: "a1", type: "assistant", content: "Partial" },
     ]);
-    const streaming = Array.from(host.querySelectorAll('[data-testid="plan-ask-reply"]'));
+    const streaming = q(host, "plan-ask-exchange")!.querySelectorAll('[data-testid="plan-ask-reply"]');
     expect(streaming).toHaveLength(1);
     expect(streaming[0].textContent).toContain("Partial");
 
@@ -596,7 +603,7 @@ describe("Plan reader paragraph Ask", () => {
       { id: "a2", type: "assistant", content: "Later unrelated reply" },
     ]);
     await rerender(ui("idle"));
-    const replies = Array.from(host.querySelectorAll('[data-testid="plan-ask-reply"]'));
+    const replies = q(host, "plan-ask-exchange")!.querySelectorAll('[data-testid="plan-ask-reply"]');
     expect(replies).toHaveLength(1);
     expect(replies[0].textContent).toContain("Partial reply, now complete");
     expect(q(host, "plan-ask-exchange")!.textContent).not.toContain("Unrelated");

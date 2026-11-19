@@ -8,11 +8,15 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import { ExternalLink, MessageCircle, X } from "lucide-react";
 import type { Tab, TabStatus } from "../../../lib/types";
+import { useAnchoredPopoverPosition } from "../../shared/useAnchoredPopoverPosition";
 import { useReducedMotion } from "../missionControl/useReducedMotion";
 import { isProvenAdmissionRefusal, sendTrackedChatMessage, useChatSendStatusSubscription } from "../../Terminal/chatSendStatus";
 import { addChatSend, beginChatSendRetry, failChatSendRequest, useChatSendSnapshot } from "../../Terminal/chatSendStore";
@@ -106,6 +110,7 @@ function focusBlock(block: HTMLElement | null) {
 }
 
 export function PlanParagraphAsk({ kind, plan, sections, tabs, onOpenTab, children }: PlanParagraphAskProps) {
+  const dialogId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
@@ -255,6 +260,7 @@ export function PlanParagraphAsk({ kind, plan, sections, tabs, onOpenTab, childr
           title={askLabel(active.target)}
           aria-haspopup="dialog"
           aria-expanded={open !== null}
+          aria-controls={open ? dialogId : undefined}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => (open ? closeAsk() : openAsk(active))}
           onKeyDown={onTriggerKeyDown}
@@ -265,7 +271,9 @@ export function PlanParagraphAsk({ kind, plan, sections, tabs, onOpenTab, childr
       {open && (
         <PlanAskPopover
           key={open.key}
+          id={dialogId}
           anchor={open}
+          triggerRef={triggerRef}
           owner={owner}
           reviewOwner={reviewOwner}
           tabs={tabs}
@@ -280,7 +288,9 @@ export function PlanParagraphAsk({ kind, plan, sections, tabs, onOpenTab, childr
 }
 
 interface PlanAskPopoverProps {
+  id: string;
   anchor: AskAnchor;
+  triggerRef: RefObject<HTMLButtonElement | null>;
   owner: PlanAskOwner;
   reviewOwner: PlanAskOwner;
   tabs?: Record<string, Tab>;
@@ -303,10 +313,10 @@ function trackedSendState(send: DeliverySend | undefined): ChatSendState | null 
   return null;
 }
 
-function PlanAskPopover({ anchor, owner, reviewOwner, tabs, statuses, motion, onClose, onOpenTab }: PlanAskPopoverProps) {
-  const inputId = useId();
+function PlanAskPopover({ id, anchor, triggerRef, owner, reviewOwner, tabs, statuses, motion, onClose, onOpenTab }: PlanAskPopoverProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const position = useAnchoredPopoverPosition(true, triggerRef, dialogRef, "bottom-start", { gap: 8 });
   const mountedRef = useRef(true);
   const sendingRef = useRef(false);
   const attemptRef = useRef<PlanAskAttempt | null>(null);
@@ -338,7 +348,7 @@ function PlanAskPopover({ anchor, owner, reviewOwner, tabs, statuses, motion, on
 
   useEffect(() => {
     mountedRef.current = true;
-    (inputRef.current ?? dialogRef.current)?.focus();
+    (inputRef.current ?? dialogRef.current)?.focus({ preventScroll: true });
     return () => {
       mountedRef.current = false;
     };
@@ -407,9 +417,13 @@ function PlanAskPopover({ anchor, owner, reviewOwner, tabs, statuses, motion, on
         ? "Question delivery is unconfirmed; it may have reached the agent."
         : null;
   const dismissLabel = phase === "sending" || attempt ? "Dismiss" : "Cancel";
+  const showMessageTypes = reference && target.mode === "selection" && !attempt;
+  const showComposer = ready && reference && (!attempt || canRetry || phase === "sending");
+  const showDismiss = attempt && !canRetry && !showComposer;
 
-  return (
+  return createPortal(
     <div
+      id={id}
       ref={dialogRef}
       role="dialog"
       aria-label={label}
@@ -418,7 +432,12 @@ function PlanAskPopover({ anchor, owner, reviewOwner, tabs, statuses, motion, on
       data-ask-mode={target.mode}
       data-motion={motion}
       className="plan-ask-popover"
-      style={{ top: anchor.top }}
+      style={position ? {
+        "--plan-ask-top": `${position.top}px`,
+        "--plan-ask-left": `${position.left}px`,
+        "--plan-ask-max-height": `${position.maxHeight}px`,
+        "--plan-ask-max-width": `${position.maxWidth}px`,
+      } as CSSProperties : undefined}
       onKeyDown={(event) => {
         if (event.code !== "Escape") return;
         event.preventDefault();
@@ -451,28 +470,45 @@ function PlanAskPopover({ anchor, owner, reviewOwner, tabs, statuses, motion, on
           <X size={13} aria-hidden />
         </button>
       </header>
-      <blockquote data-testid="plan-ask-quote" className="plan-ask-quote">{quote}</blockquote>
-      {recipient.status === "missing" && (
-        <p role="status" data-testid="plan-ask-owner-missing" className="plan-ask-note">
-          No plan owner is recorded. Nothing was sent.
-        </p>
-      )}
-      {recipient.status === "offline" && (
-        <p role="status" data-testid="plan-ask-owner-missing" data-owner-tab-id={recipient.tabId} className="plan-ask-note">
-          {recipient.name} isn't running. Nothing was sent.
-        </p>
-      )}
-      {!reference && (
-        <p role="status" data-testid="plan-ask-unmapped" className="plan-ask-note">
-          This text can't be traced to its source. Select text inside one section.
-        </p>
-      )}
-      {intent === "ask" && ready?.busy && !attempt && (
-        <p role="status" data-testid="plan-ask-busy" className="plan-ask-note">
-          {ready.name} is busy. The reply appears here.
-        </p>
-      )}
-      {reference && target.mode === "selection" && !attempt && (
+      <div className="plan-ask-content">
+        <blockquote data-testid="plan-ask-quote" className="plan-ask-quote">{quote}</blockquote>
+        {recipient.status === "missing" && (
+          <p role="status" data-testid="plan-ask-owner-missing" className="plan-ask-note">
+            No plan owner is recorded. Nothing was sent.
+          </p>
+        )}
+        {recipient.status === "offline" && (
+          <p role="status" data-testid="plan-ask-owner-missing" data-owner-tab-id={recipient.tabId} className="plan-ask-note">
+            {recipient.name} isn't running. Nothing was sent.
+          </p>
+        )}
+        {!reference && (
+          <p role="status" data-testid="plan-ask-unmapped" className="plan-ask-note">
+            This text can't be traced to its source. Select text inside one section.
+          </p>
+        )}
+        {intent === "ask" && ready?.busy && !attempt && (
+          <p role="status" data-testid="plan-ask-busy" className="plan-ask-note">
+            {ready.name} is busy. The reply appears here.
+          </p>
+        )}
+        {statusText && (
+          <p role="status" data-testid={attempt?.kind === "review" ? "plan-review-sent" : "plan-ask-delivery"} data-send-state={trackedState ?? undefined} className="plan-ask-note">
+            {statusText}
+          </p>
+        )}
+        {attempt?.kind === "ask" && trackedState !== "failed" && (
+          <>
+            <p data-testid="plan-ask-question" className="plan-ask-question">{attempt.question}</p>
+            <PlanAskExchange
+              owner={liveAskOwner?.status === "ready" ? liveAskOwner : attempt.owner}
+              askId={attempt.id}
+              clientToken={attempt.clientToken}
+            />
+          </>
+        )}
+      </div>
+      {showMessageTypes && (
         <div className="plan-ask-actions" role="group" aria-label="Message type" data-testid="plan-ask-type-selector">
           {(["ask", "comment", "request_change"] as const).map((value) => (
             <button
@@ -489,14 +525,14 @@ function PlanAskPopover({ anchor, owner, reviewOwner, tabs, statuses, motion, on
           ))}
         </div>
       )}
-      {ready && reference && (!attempt || canRetry || phase === "sending") && (
+      {showComposer && (
         <div className="plan-ask-compose">
-          <label htmlFor={inputId} className="plan-ask-label">{label}</label>
           <textarea
-            id={inputId}
             ref={inputRef}
             data-testid="plan-ask-input"
             className="plan-ask-input"
+            aria-label={label}
+            placeholder={`${label}…`}
             rows={2}
             value={question}
             disabled={phase === "sending" || Boolean(attempt)}
@@ -523,24 +559,10 @@ function PlanAskPopover({ anchor, owner, reviewOwner, tabs, statuses, motion, on
           </div>
         </div>
       )}
-      {statusText && (
-        <p role="status" data-testid={attempt?.kind === "review" ? "plan-review-sent" : "plan-ask-delivery"} data-send-state={trackedState ?? undefined} className="plan-ask-note">
-          {statusText}
-        </p>
-      )}
-      {attempt?.kind === "ask" && trackedState !== "failed" && (
-        <>
-          <p data-testid="plan-ask-question" className="plan-ask-question">{attempt.question}</p>
-          <PlanAskExchange
-            owner={liveAskOwner?.status === "ready" ? liveAskOwner : attempt.owner}
-            askId={attempt.id}
-            clientToken={attempt.clientToken}
-          />
-        </>
-      )}
-      {attempt && !canRetry && (
+      {showDismiss && (
         <button type="button" data-testid="plan-ask-dismiss" className="plan-ask-button" onClick={onClose}>Dismiss</button>
       )}
-    </div>
+    </div>,
+    document.fullscreenElement ?? document.body,
   );
 }
