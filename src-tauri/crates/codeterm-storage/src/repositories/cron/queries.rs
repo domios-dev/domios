@@ -12,13 +12,13 @@ use std::collections::{BTreeMap, HashMap};
 pub(crate) const JOB_COLUMNS: &str = "id, name, description, workspace_id, team_id, schedule, \
      enabled, agent, model, reasoning_effort, task, cwd, role, skill, creator_tab_id, \
      report_target_tab_id, oneshot, max_history, created_at, last_run_id, next_run, \
-     jitter_max_ms, tz, timeout_seconds, consecutive_failures, protected";
+     jitter_max_ms, tz, timeout_seconds, consecutive_failures, protected, next_occurrence_at";
 
 const RUN_COLUMNS: &str = "job_id, run_id, ordinal, started_at, finished_at, status, tab_id, \
-     session_id, cwd, summary, report_delivery, cancel_reason, provider, owner_instance_id";
+     session_id, cwd, summary, report_delivery, cancel_reason, provider, owner_instance_id, scheduled_occurrence_at, fired_at, late_by_ms";
 
 const MIRROR_COLUMNS: &str = "job_id, run_id, NULL, started_at, finished_at, status, tab_id, \
-     session_id, cwd, summary, report_delivery, cancel_reason, provider, owner_instance_id, origin, imported_revision, imported_differing";
+     session_id, cwd, summary, report_delivery, cancel_reason, provider, owner_instance_id, scheduled_occurrence_at, fired_at, late_by_ms, origin, imported_revision, imported_differing";
 
 fn corrupt(detail: &'static str) -> StorageError {
     StorageError::Corrupt {
@@ -65,6 +65,7 @@ struct RawJob {
     timeout_seconds: Option<i64>,
     consecutive_failures: i64,
     protected: bool,
+    next_occurrence_at: Option<i64>,
 }
 
 fn raw_job(row: &Row<'_>) -> rusqlite::Result<RawJob> {
@@ -95,6 +96,7 @@ fn raw_job(row: &Row<'_>) -> rusqlite::Result<RawJob> {
         timeout_seconds: row.get(23)?,
         consecutive_failures: row.get(24)?,
         protected: row.get(25)?,
+        next_occurrence_at: row.get(26)?,
     })
 }
 
@@ -121,6 +123,7 @@ fn decode_job(raw: RawJob) -> Result<CronJobRecord, StorageError> {
         created_at: from_sql_u64("cron created at", raw.created_at)?,
         last_run_id: raw.last_run_id.map(run_id).transpose()?,
         next_run: optional_u64("cron next run", raw.next_run)?,
+        next_occurrence_at: optional_u64("cron next occurrence", raw.next_occurrence_at)?,
         jitter_max_ms: optional_u64("cron jitter", raw.jitter_max_ms)?,
         tz: raw.tz,
         timeout_seconds: optional_u64("cron timeout", raw.timeout_seconds)?,
@@ -144,6 +147,9 @@ struct RawRun {
     report_delivery: Option<String>,
     cancel_reason: Option<String>,
     provider: Option<String>,
+    scheduled_occurrence_at: Option<i64>,
+    fired_at: Option<i64>,
+    late_by_ms: Option<i64>,
     owner_instance_id: Option<String>,
 }
 
@@ -162,12 +168,21 @@ fn raw_run(row: &Row<'_>) -> rusqlite::Result<RawRun> {
         report_delivery: row.get(10)?,
         cancel_reason: row.get(11)?,
         provider: row.get(12)?,
+        scheduled_occurrence_at: row.get(14)?,
+        fired_at: row.get(15)?,
+        late_by_ms: row.get(16)?,
         owner_instance_id: row.get(13)?,
     })
 }
 
 fn decode_run(raw: RawRun) -> Result<CronRunRecord, StorageError> {
     Ok(CronRunRecord {
+        scheduled_occurrence_at: optional_u64(
+            "scheduled_occurrence_at",
+            raw.scheduled_occurrence_at,
+        )?,
+        fired_at: optional_u64("fired_at", raw.fired_at)?,
+        late_by_ms: optional_u64("late_by_ms", raw.late_by_ms)?,
         cancel_reason: raw
             .cancel_reason
             .as_deref()
@@ -284,9 +299,9 @@ fn mirrors(
         .query_map([only.map(CronJobId::as_str)], |row| {
             Ok((
                 raw_run(row)?,
-                row.get::<_, String>(14)?,
-                row.get::<_, i64>(15)?,
-                row.get::<_, String>(16)?,
+                row.get::<_, String>(17)?,
+                row.get::<_, i64>(18)?,
+                row.get::<_, String>(19)?,
             ))
         })
         .map_err(|e| sqlite_error("read cron last-run divergence", e))?;

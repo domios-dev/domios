@@ -130,6 +130,9 @@ pub struct CronRunRecord {
     pub owner_instance_id: Option<String>,
     pub cancel_reason: Option<CronCancelReason>,
     pub run_id: CronRunId,
+    pub scheduled_occurrence_at: Option<u64>,
+    pub fired_at: Option<u64>,
+    pub late_by_ms: Option<u64>,
     pub started_at: u64,
     pub finished_at: Option<u64>,
     pub status: CronRunState,
@@ -147,6 +150,15 @@ impl CronRunRecord {
                 "cron cancel reason",
                 "requires cancelled status",
             ));
+        }
+        for (name, value) in [
+            ("scheduled occurrence", self.scheduled_occurrence_at),
+            ("fire time", self.fired_at),
+            ("admission delay", self.late_by_ms),
+        ] {
+            if let Some(value) = value {
+                to_sql_u64(name, value)?;
+            }
         }
         to_sql_u64("run start", self.started_at)?;
         if let Some(finished) = self.finished_at {
@@ -203,6 +215,7 @@ pub struct CronJobRecord {
     pub created_at: u64,
     pub last_run_id: Option<CronRunId>,
     pub next_run: Option<u64>,
+    pub next_occurrence_at: Option<u64>,
     pub jitter_max_ms: Option<u64>,
     pub tz: Option<String>,
     pub timeout_seconds: Option<u64>,
@@ -244,6 +257,7 @@ impl CronJobRecord {
         to_sql_u64("cron created at", self.created_at)?;
         for (field, value) in [
             ("cron next run", self.next_run),
+            ("cron next occurrence", self.next_occurrence_at),
             ("cron jitter", self.jitter_max_ms),
             ("cron timeout", self.timeout_seconds),
         ] {
@@ -315,10 +329,13 @@ pub enum CronRunField {
     CancelReason,
     Provider,
     OwnerInstanceId,
+    ScheduledOccurrenceAt,
+    FiredAt,
+    LateByMs,
 }
 
 impl CronRunField {
-    const ALL: [CronRunField; 11] = [
+    const ALL: [CronRunField; 14] = [
         CronRunField::StartedAt,
         CronRunField::FinishedAt,
         CronRunField::Status,
@@ -330,6 +347,9 @@ impl CronRunField {
         CronRunField::CancelReason,
         CronRunField::Provider,
         CronRunField::OwnerInstanceId,
+        CronRunField::ScheduledOccurrenceAt,
+        CronRunField::FiredAt,
+        CronRunField::LateByMs,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -345,6 +365,9 @@ impl CronRunField {
             CronRunField::CancelReason => "cancel_reason",
             CronRunField::Provider => "provider",
             CronRunField::OwnerInstanceId => "owner_instance_id",
+            CronRunField::LateByMs => "late_by_ms",
+            CronRunField::FiredAt => "fired_at",
+            CronRunField::ScheduledOccurrenceAt => "scheduled_occurrence_at",
         }
     }
 
@@ -380,6 +403,11 @@ impl CronRunField {
             CronRunField::CancelReason => left.cancel_reason != right.cancel_reason,
             CronRunField::Provider => left.provider != right.provider,
             CronRunField::OwnerInstanceId => left.owner_instance_id != right.owner_instance_id,
+            CronRunField::LateByMs => left.late_by_ms != right.late_by_ms,
+            CronRunField::FiredAt => left.fired_at != right.fired_at,
+            CronRunField::ScheduledOccurrenceAt => {
+                left.scheduled_occurrence_at != right.scheduled_occurrence_at
+            }
         };
         CronRunField::ALL
             .into_iter()
