@@ -334,7 +334,21 @@ fn parse_since(raw: &str) -> Option<(String, u64)> {
     Some((boot.to_string(), seq.parse().ok()?))
 }
 
-fn event_frame(se: &crate::events::SeqEvent, previous: Option<u64>) -> Event {
+fn event_frame(
+    se: &crate::events::SeqEvent,
+    previous: Option<u64>,
+    peer_boot: Option<&str>,
+) -> Event {
+    if let Some((boot, tab)) = peer_boot.zip(peer_events::chat_send_status_tab(&se.event)) {
+        // Routed send bodies can exceed the shared rail's frame budget.
+        return Event::default().data(
+            serde_json::json!({
+                "prev_seq": previous, "seq": se.seq, "boot": boot,
+                "event_type": "chat-send-status", "data": { "tab_id": tab },
+            })
+            .to_string(),
+        );
+    }
     let previous = previous.map_or_else(|| "null".to_string(), |seq| seq.to_string());
     Event::default().data(format!(
         "{{\"prev_seq\":{previous},{}",
@@ -446,7 +460,7 @@ fn events_sse_filtered(
                 replayed_max = se.seq;
             }
             if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) || !visible(&se.event) { continue; }
-            yield Ok(event_frame(se, previous));
+            yield Ok(event_frame(se, previous, peer_scope.then_some(boot.as_str())));
             previous = Some(previous.map_or(se.seq, |seq| seq.max(se.seq)));
         }
         if peer_scope {
@@ -464,7 +478,7 @@ fn events_sse_filtered(
                     }
                     replayed_max = se.seq;
                     if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) || !visible(&se.event) { continue; }
-                    yield Ok(event_frame(&se, previous));
+                    yield Ok(event_frame(&se, previous, peer_scope.then_some(boot.as_str())));
                     previous = Some(previous.map_or(se.seq, |seq| seq.max(se.seq)));
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {

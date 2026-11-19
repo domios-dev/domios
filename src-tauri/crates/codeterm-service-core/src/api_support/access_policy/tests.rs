@@ -269,6 +269,29 @@ fn read_grants_are_scoped_to_the_actual_operation() {
         &Method::POST,
         "/api/tabs/owned/chat-raw/history"
     ));
+    for (method, action) in [
+        (Method::POST, "chat-raw/start"),
+        (Method::POST, "chat-raw/stop"),
+        (Method::POST, "chat-raw/resume"),
+        (Method::POST, "chat-send/admissions"),
+        (Method::GET, "chat-send"),
+        (Method::GET, "chat-send/dismissals"),
+    ] {
+        let path = format!("/api/tabs/owned/{action}");
+        assert!(check_access(&output, &method, &path));
+        assert!(!check_access(&tabs, &method, &path));
+    }
+    let dismissals = "/api/tabs/owned/chat-send/dismissals";
+    assert!(!check_access(
+        &AccessLevel::ReadOnly,
+        &Method::POST,
+        dismissals
+    ));
+    assert!(check_access(
+        &AccessLevel::Custom(vec![Permission::SendInput]),
+        &Method::POST,
+        dismissals,
+    ));
     assert!(!check_access(
         &AccessLevel::ReadOnly,
         &Method::POST,

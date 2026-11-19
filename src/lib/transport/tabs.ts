@@ -302,8 +302,11 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                     refusal?.code, refusal?.bytes_written);
             }
             if (suffix === "/chat-send" && relay.data != null) {
-                const status = (item: ChatSendStatus): ChatSendStatus => ({ ...item, tab_id: ordinary });
-                return Array.isArray(relay.data) ? relay.data.map(status) : status(relay.data as ChatSendStatus);
+                const project = (receipt: ChatSendStatus): ChatSendStatus => {
+                    if (receipt?.tab_id !== remoteTab) throw new Error("Remote Chat send receipt tab mismatch");
+                    return { ...receipt, tab_id: ordinary };
+                };
+                return Array.isArray(relay.data) ? relay.data.map(project) : project(relay.data as ChatSendStatus);
             }
             return relay.data;
         },

@@ -14,6 +14,18 @@ describe("remote tab transport adapter", () => {
   it("preserves an immediate timestamp in the peer's camelCase request", () => {
     expect(remoteTransportCall("delayed_send_create", { tabId: "mesh:peer/owned", text: "opaque body", scheduledAtMs: 1 })).toMatchObject({ method: "POST", suffix: "/delayed-messages", body: { text: "opaque body", scheduledAtMs: 1 } });
   });
+  it("routes recovery to B without rewriting its cursor or the original client tokens", () => {
+    const tabId = "mesh:peer-b/shared";
+    const cursor = JSON.stringify({ kind: "bytes", incarnation: "B/incarnation", offset: 309, session_binding_nonce: "B/nonce" });
+    expect(remoteTransportCall("chat_resume", { tabId, cursor })).toEqual({
+      ordinaryTabId: tabId, peerId: "peer-b", remoteTabId: "shared", method: "POST",
+      suffix: "/chat-raw/resume", body: { cursor }, select: undefined,
+    });
+    expect(remoteTransportCall("chat_send_admissions", { tabId, clientTokens: ["local/one", "local/two"] })).toEqual({
+      ordinaryTabId: tabId, peerId: "peer-b", remoteTabId: "shared", method: "POST",
+      suffix: "/chat-send/admissions", body: { clientTokens: ["local/one", "local/two"] }, select: undefined,
+    });
+  });
   it("resolves child authority from the owning peer's current tab",()=>{
     const call=remoteTransportCall("agent_runtime_child_authority",{tabId:"mesh:peer/owned"});
     expect(call).toMatchObject({peerId:"peer",method:"GET",suffix:"/runtime-authority"});

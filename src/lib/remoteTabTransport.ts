@@ -133,6 +133,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "chat_start": return call("POST", "/chat-raw/start", { subscriptionId: args.subscriptionId,
       ...(args.knownWindow != null ? { knownWindow: args.knownWindow } : {}) });
     case "chat_stop": return call("POST", "/chat-raw/stop", { subscriptionId: args.subscriptionId });
+    case "chat_resume": return call("POST", "/chat-raw/resume", { cursor: args.cursor });
     case "chat_backfill": return call("POST", "/chat-raw/backfill", { before_offset: args.beforeOffset, max_bytes: args.maxBytes, offset_kind: args.offsetKind });
     case "chat_history_page": return call("POST", "/chat-raw/history", { source: args.source, session_id: args.sessionId, before_offset: args.beforeOffset });
     case "chat_send_text": return call("POST", "/chat-send", {
@@ -143,6 +144,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "chat_send_dismissals": return call("GET", "/chat-send/dismissals");
     case "chat_send_delete": return call("POST", "/chat-send/dismissals", args.dismissal);
     case "chat_send_status": return call("GET", "/chat-send");
+    case "chat_send_admissions": return call("POST", "/chat-send/admissions", { clientTokens: args.clientTokens });
     case "shell_command_snapshot": return call("GET", "/shell-commands");
     case "delayed_send_list": return call("GET", "/delayed-messages");
     case "system_heartbeat_list": return call("GET", "/system-heartbeats");

@@ -88,9 +88,20 @@ function connect(record: SubscriptionRecord): void {
             boot?: string;
             seq?: number;
         };
+        if (record.kind === "chat" && message.event_type === "overflow") {
+            const reset = message.data;
+            if (typeof reset?.boot === "string" && typeof reset.next_seq === "number") {
+                record.recovery.noteProgress(generation, { boot: reset.boot, seq: reset.next_seq - 1 });
+            }
+            signalRemoteTabEvent(record.event, "resync");
+            return;
+        }
         let progressed = true;
         if (message.boot && typeof message.seq === "number") {
+            const previous = record.recovery.currentCursor();
             progressed = record.recovery.noteProgress(generation, { boot: message.boot, seq: message.seq });
+            if (record.kind === "chat" && previous && previous.boot !== message.boot)
+                signalRemoteTabEvent(record.event, "resync");
         }
         if (record.kind === "provider-switch-status" && message.event_type === "overflow")
             signalRemoteTabEvent(record.event, "resync");
@@ -98,7 +109,8 @@ function connect(record: SubscriptionRecord): void {
             for (const handler of previewHandlers.get(record.ordinaryTabId) ?? []) handler({ payload: message.data });
         }
         if (progressed && message.data && record.kind === "chat"
-            && message.event_type === `tab-chat-msg-${record.remoteTabId}`) {
+            && message.event_type === `tab-chat-msg-${record.remoteTabId}`
+            && (message.data.tab_id == null || message.data.tab_id === record.remoteTabId)) {
             publishRemoteTransportState(record.ordinaryTabId, "chat", "available");
             record.handler({ payload: { ...message.data, tab_id: record.ordinaryTabId } });
         }
@@ -125,6 +137,8 @@ function connect(record: SubscriptionRecord): void {
             deadline.arm();
             if (record.kind === "provider-switch-status")
                 signalRemoteTabEvent(record.event, "ready");
+            if (record.kind === "chat" && generation > 1)
+                signalRemoteTabEvent(record.event, "resync");
         }, onActivity: () => deadline.arm(),
         onEnd(end) {
             const reason: StreamEndReason = end.reason === "http" ? streamResponseFailureReason(end.status ?? 500)

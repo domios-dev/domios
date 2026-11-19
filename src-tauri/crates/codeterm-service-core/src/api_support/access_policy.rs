@@ -221,7 +221,13 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
                 let operation = match (method, action) {
                     (
                         &Method::GET,
-                        "output" | "output/stream" | "text" | "chat" | "shell-commands",
+                        "output"
+                        | "output/stream"
+                        | "text"
+                        | "chat"
+                        | "shell-commands"
+                        | "chat-send"
+                        | "chat-send/dismissals",
                     ) => ReadOutput,
                     (
                         &Method::GET,
@@ -235,13 +241,19 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
                     ) => ReadTabs,
                     (
                         &Method::POST,
-                        "chat-raw/history"
+                        "chat-raw/start"
+                        | "chat-raw/stop"
+                        | "chat-raw/history"
                         | "chat-raw/backfill"
                         | "chat-raw/resume"
+                        | "chat-send/admissions"
                         | "agent/runtime/thread-history",
                     ) => ReadOutput,
                     _ if is_preview_read(method, path) => ReadPreview,
-                    (&Method::POST, "send" | "attachments" | "chat-send") => SendInput,
+                    (
+                        &Method::POST,
+                        "send" | "attachments" | "chat-send" | "chat-send/dismissals",
+                    ) => SendInput,
                     (
                         &Method::POST,
                         "exec" | "respond" | "report" | "clear" | "close" | "prompt/respond"
