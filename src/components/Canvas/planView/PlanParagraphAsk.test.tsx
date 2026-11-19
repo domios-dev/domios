@@ -2,7 +2,11 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RichMarkdown } from "@codeterm/chat-ui/MarkdownBody";
+import type { ChatSendResult } from "../../../../gen/ChatSendResult";
+import type { ChatSendState } from "../../../../gen/ChatSendState";
 import type { Tab } from "../../../lib/types";
+import { forgetChatSendsInMemory, observeDeliveryStatus, recordChatSendAdmissionFailure } from "../../Terminal/chatSendStore";
+import type { ChatSendStatus } from "../../Terminal/chatSendStatus";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import { PERF_SPEC_ID, PERF_SPEC_SECTIONS } from "../perfFixtureSections";
 import type { PlanSectionView } from "../planProjection";
@@ -188,6 +192,32 @@ function sentReference(call = 0): Record<string, unknown> {
   return JSON.parse(text.slice(text.lastIndexOf("\n") + 1)) as Record<string, unknown>;
 }
 
+let sendSequence = 0;
+let queuedSendStates: ChatSendState[] = [];
+
+function deliveryStatus(tabId: string, clientToken: string, state: ChatSendState): ChatSendStatus {
+  sendSequence += 1;
+  return {
+    tab_id: tabId,
+    send_id: `plan-send-${sendSequence}`,
+    correlationId: clientToken,
+    state,
+    error: null,
+    ledger_id: "plan-review-test-ledger",
+    sequence: sendSequence,
+    retained_from: 1,
+  };
+}
+
+function queueSendStates(...states: ChatSendState[]) {
+  queuedSendStates = [...states];
+  sendTrackedChatMessage.mockImplementation(async (tabId: string, clientToken: string) => {
+    const status = deliveryStatus(tabId, clientToken, queuedSendStates.shift() ?? "delivered");
+    observeDeliveryStatus(status);
+    return status as ChatSendResult;
+  });
+}
+
 function textNodes(root: Node): Text[] {
   const found: Text[] = [];
   const visit = (node: Node) => {
@@ -210,14 +240,18 @@ function specSource(sectionId: string): string {
   return PERF_SPEC_SECTIONS.find((section) => section.id === sectionId)!.body;
 }
 
-async function renderRepeatedSpecAsk(plan = ASK_PLAN, tabs = ownerTab()) {
-  return render(
-    <PlanParagraphAsk kind="spec" plan={plan} sections={[REVIEW_SPEC_SECTION]} tabs={tabs}>
+function repeatedSpecAskElement(plan = ASK_PLAN, tabs = ownerTab(), onOpenTab?: (tabId: string) => void) {
+  return (
+    <PlanParagraphAsk kind="spec" plan={plan} sections={[REVIEW_SPEC_SECTION]} tabs={tabs} onOpenTab={onOpenTab}>
       <div data-plan-ask-body="" data-section-id={REVIEW_SPEC_SECTION.id}>
         <RichMarkdown text={REVIEW_SPEC_BODY} sourcePositions />
       </div>
-    </PlanParagraphAsk>,
+    </PlanParagraphAsk>
   );
+}
+
+async function renderRepeatedSpecAsk(plan = ASK_PLAN, tabs = ownerTab(), onOpenTab?: (tabId: string) => void) {
+  return render(repeatedSpecAskElement(plan, tabs, onOpenTab));
 }
 
 async function selectRepeatedSpecPhrase(host: HTMLElement) {
@@ -232,10 +266,12 @@ async function selectRepeatedSpecPhrase(host: HTMLElement) {
 beforeEach(() => {
   setReducedMotion(false);
   transcript.messages = [];
+  forgetChatSendsInMemory();
+  sendSequence = 0;
   sendTrackedChatMessage.mockReset();
   isProvenAdmissionRefusal.mockReset();
   isProvenAdmissionRefusal.mockReturnValue(false);
-  sendTrackedChatMessage.mockResolvedValue({ state: "delivered" });
+  queueSendStates();
 });
 
 afterEach(async () => {
@@ -316,11 +352,12 @@ describe("Plan reader paragraph Ask", () => {
     await click(q(host, "plan-ask-send"));
 
     expect(sendTrackedChatMessage).toHaveBeenCalledTimes(1);
-    const [tabId, askId, text] = sendTrackedChatMessage.mock.calls[0] as [string, string, string];
+    const [tabId, clientToken, text] = sendTrackedChatMessage.mock.calls[0] as [string, string, string];
     expect(tabId).toBe("orch-1");
     expect(text).toContain("Why login first?");
+    expect(sentReference().ask_id).not.toBe(clientToken);
     expect(sentReference()).toEqual({
-      ask_id: askId,
+      ask_id: sentReference().ask_id,
       plan_id: "pl_ask",
       document: "plan",
       spec_id: null,
@@ -474,7 +511,7 @@ describe("Plan reader paragraph Ask", () => {
     expect(q(host, "plan-ask-busy")).not.toBeNull();
     await typeQuestion(host, "Status?");
     await click(q(host, "plan-ask-send"));
-    const askId = sendTrackedChatMessage.mock.calls[0][1] as string;
+    const askCorrelationId = sendTrackedChatMessage.mock.calls[0][1] as string;
 
     expect(q(host, "plan-ask-question")!.textContent).toBe("Status?");
     expect(q(host, "plan-ask-reply")).toBeNull();
@@ -482,7 +519,7 @@ describe("Plan reader paragraph Ask", () => {
 
     transcript.messages = [
       { id: "a0", type: "assistant", content: "Unrelated earlier answer" },
-      { id: "u1", type: "user", content: "question text", correlationId: askId },
+      { id: "u1", type: "user", content: "question text", correlationId: askCorrelationId },
       { id: "a1", type: "assistant", content: "Partial" },
     ];
     await rerender(ui("working"));
@@ -563,8 +600,10 @@ describe("Spec reader paragraph Ask", () => {
     await click(q(host, "plan-ask-send"));
 
     expect(sendTrackedChatMessage).toHaveBeenCalledTimes(1);
-    const [tabId, reviewId, text] = sendTrackedChatMessage.mock.calls[0] as [string, string, string];
+    const [tabId, clientToken, text] = sendTrackedChatMessage.mock.calls[0] as [string, string, string];
+    const reviewId = sentReference().review_id;
     expect(tabId).toBe("orch-1");
+    expect(reviewId).not.toBe(clientToken);
     expect(text).toContain(`One-item plan review: ${label}`);
     expect(q(host, "plan-review-sent")?.textContent).toContain(action === "request_change" ? "Change request sent" : "Comment sent");
     expect(sentReference()).toEqual({
@@ -640,30 +679,117 @@ describe("Spec reader paragraph Ask", () => {
     expect(sendTrackedChatMessage).not.toHaveBeenCalled();
   });
 
-  it("keeps one review id and only offers retry after a proven non-delivery", async () => {
-    sendTrackedChatMessage
-      .mockResolvedValueOnce({ state: "failed" })
-      .mockResolvedValueOnce({ state: "delivered" });
+  it("does not submit to a hidden-only Planner binding", async () => {
+    const plan: Plan = {
+      ...ASK_PLAN,
+      owner: { tab_id: null, session_id: null, title: null },
+      planner: { kind: "tab", tab_id: "planner-1", session_id: "planner-session", title: "Planning" },
+    };
+    const hiddenPlanner = { ...reviewTabs()["planner-1"], hidden: true } as Tab;
+    const { host } = await renderRepeatedSpecAsk(plan, { "planner-1": hiddenPlanner });
+    await selectRepeatedSpecPhrase(host);
+    await click(q(host, "plan-ask-type-comment"));
+
+    expect(q(host, "plan-ask-owner-missing")?.getAttribute("data-owner-tab-id")).toBe("planner-1");
+    expect(q(host, "plan-ask-input")).toBeNull();
+    expect(q(host, "plan-ask-send")).toBeNull();
+    expect(sendTrackedChatMessage).not.toHaveBeenCalled();
+  });
+
+  it("falls back from a hidden Planner to the live Orchestrator", async () => {
+    const plan: Plan = {
+      ...ASK_PLAN,
+      planner: { kind: "tab", tab_id: "planner-1", session_id: "planner-session", title: "Planning" },
+    };
+    const tabs = reviewTabs();
+    tabs["planner-1"] = { ...tabs["planner-1"], hidden: true } as Tab;
+    const { host } = await renderRepeatedSpecAsk(plan, tabs);
+    await selectRepeatedSpecPhrase(host);
+    await click(q(host, "plan-ask-type-comment"));
+    await typeQuestion(host, "Use the visible fallback owner.");
+    await click(q(host, "plan-ask-send"));
+
+    expect(sendTrackedChatMessage.mock.calls[0][0]).toBe("orch-1");
+  });
+
+  it("updates a held review to failed and retries with a fresh token but the same review id", async () => {
+    queueSendStates("held", "delivered");
     const { host } = await renderRepeatedSpecAsk();
     await selectRepeatedSpecPhrase(host);
     await click(q(host, "plan-ask-type-request_change"));
     await typeQuestion(host, "Clarify the selected passage.");
     await click(q(host, "plan-ask-send"));
 
-    const originalId = sendTrackedChatMessage.mock.calls[0][1];
+    const originalToken = sendTrackedChatMessage.mock.calls[0][1] as string;
+    const reviewId = sentReference().review_id;
+    expect(q(host, "plan-review-sent")?.getAttribute("data-send-state")).toBe("held");
+    expect(q(host, "plan-ask-send")).toBeNull();
+
+    await act(async () => observeDeliveryStatus(deliveryStatus("orch-1", originalToken, "failed")));
     expect(q(host, "plan-review-sent")?.getAttribute("data-send-state")).toBe("failed");
     expect(q(host, "plan-ask-send")?.textContent).toBe("Retry");
     expect(q(host, "plan-review-sent")?.textContent).toContain("Change request was not sent");
 
     await click(q(host, "plan-ask-send"));
     expect(sendTrackedChatMessage).toHaveBeenCalledTimes(2);
-    expect(sendTrackedChatMessage.mock.calls[1][1]).toBe(originalId);
-    expect(sentReference(1)).toMatchObject({ review_id: originalId, item_count: 1 });
+    expect(sendTrackedChatMessage.mock.calls[1][1]).not.toBe(originalToken);
+    expect(sentReference(1)).toMatchObject({ review_id: reviewId, item_count: 1 });
     expect(q(host, "plan-review-sent")?.textContent).toContain("Change request sent");
   });
 
-  it.each(["held", "written", "submit_unconfirmed"] as const)("does not retry a review with %s delivery", async (state) => {
-    sendTrackedChatMessage.mockResolvedValue({ state });
+  it("updates a held review to delivered through the send ledger", async () => {
+    queueSendStates("held");
+    const { host } = await renderRepeatedSpecAsk();
+    await selectRepeatedSpecPhrase(host);
+    await click(q(host, "plan-ask-type-comment"));
+    await typeQuestion(host, "Deliver this held comment once.");
+    await click(q(host, "plan-ask-send"));
+
+    expect(q(host, "plan-review-sent")?.getAttribute("data-send-state")).toBe("held");
+    expect(q(host, "plan-ask-send")).toBeNull();
+    expect(q(host, "plan-ask-dismiss")).not.toBeNull();
+
+    await act(async () => observeDeliveryStatus(deliveryStatus(
+      "orch-1", sendTrackedChatMessage.mock.calls[0][1] as string, "delivered",
+    )));
+    expect(q(host, "plan-review-sent")?.getAttribute("data-send-state")).toBe("delivered");
+    expect(q(host, "plan-review-sent")?.textContent).toContain("Comment sent");
+    expect(sendTrackedChatMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps delivery status and retry bound to the submitted recipient after live resolution changes", async () => {
+    queueSendStates("failed", "delivered");
+    const plan: Plan = {
+      ...ASK_PLAN,
+      planner: { kind: "tab", tab_id: "planner-1", session_id: "planner-session", title: "Planning" },
+    };
+    const onOpenTab = vi.fn();
+    const { host, rerender } = await renderRepeatedSpecAsk(plan, reviewTabs(), onOpenTab);
+    await selectRepeatedSpecPhrase(host);
+    await click(q(host, "plan-ask-type-comment"));
+    await typeQuestion(host, "Keep the original recipient.");
+    await click(q(host, "plan-ask-send"));
+
+    const originalToken = sendTrackedChatMessage.mock.calls[0][1] as string;
+    const reviewId = sentReference().review_id;
+    expect(sendTrackedChatMessage.mock.calls[0][0]).toBe("planner-1");
+    expect(q(host, "plan-review-sent")?.textContent).toContain("to Planning");
+
+    await rerender(repeatedSpecAskElement(plan, ownerTab(), onOpenTab));
+    expect(q(host, "plan-review-sent")?.textContent).toContain("to Planning");
+    await click(q(host, "plan-ask-expand"));
+    expect(onOpenTab).toHaveBeenCalledWith("planner-1");
+    await click(q(host, "plan-ask-send"));
+
+    expect(sendTrackedChatMessage).toHaveBeenCalledTimes(2);
+    expect(sendTrackedChatMessage.mock.calls[1][0]).toBe("planner-1");
+    expect(sendTrackedChatMessage.mock.calls[1][1]).not.toBe(originalToken);
+    expect(sentReference(1).review_id).toBe(reviewId);
+    expect(q(host, "plan-review-sent")?.textContent).toContain("to Planning");
+  });
+
+  it.each(["written", "submit_unconfirmed"] as const)("does not retry a review with %s delivery", async (state) => {
+    queueSendStates(state);
     const { host } = await renderRepeatedSpecAsk();
     await selectRepeatedSpecPhrase(host);
     await click(q(host, "plan-ask-type-comment"));
@@ -677,7 +803,10 @@ describe("Spec reader paragraph Ask", () => {
   });
 
   it("treats an ambiguous send rejection as unconfirmed and lets the user dismiss it", async () => {
-    sendTrackedChatMessage.mockRejectedValue(new Error("connection lost"));
+    sendTrackedChatMessage.mockImplementationOnce(async (tabId: string, clientToken: string) => {
+      recordChatSendAdmissionFailure(tabId, clientToken, false, new Error("connection lost"));
+      throw new Error("connection lost");
+    });
     const { host } = await renderRepeatedSpecAsk();
     await selectRepeatedSpecPhrase(host);
     await click(q(host, "plan-ask-type-comment"));
@@ -690,9 +819,8 @@ describe("Spec reader paragraph Ask", () => {
     expect(sendTrackedChatMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("retries a proven admission refusal with the same tracked review id", async () => {
-    sendTrackedChatMessage.mockRejectedValueOnce(new Error("known admission refusal"))
-      .mockResolvedValueOnce({ state: "delivered" });
+  it("retries a proven admission refusal with a fresh token and stable review id", async () => {
+    sendTrackedChatMessage.mockRejectedValueOnce(new Error("known admission refusal"));
     isProvenAdmissionRefusal.mockReturnValueOnce(true);
     const { host } = await renderRepeatedSpecAsk();
     await selectRepeatedSpecPhrase(host);
@@ -701,9 +829,11 @@ describe("Spec reader paragraph Ask", () => {
     await click(q(host, "plan-ask-send"));
 
     expect(q(host, "plan-review-sent")?.getAttribute("data-send-state")).toBe("failed");
-    const id = sendTrackedChatMessage.mock.calls[0][1];
+    const token = sendTrackedChatMessage.mock.calls[0][1] as string;
+    const reviewId = sentReference().review_id;
     await click(q(host, "plan-ask-send"));
-    expect(sendTrackedChatMessage.mock.calls[1][1]).toBe(id);
+    expect(sendTrackedChatMessage.mock.calls[1][1]).not.toBe(token);
+    expect(sentReference(1).review_id).toBe(reviewId);
   });
 
   it("switches Cancel to Dismiss while a tracked review is still sending", async () => {

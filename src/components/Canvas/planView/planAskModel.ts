@@ -43,14 +43,31 @@ export function resolvePlanReviewOwner(
   });
   if (recipient?.kind === "planner") {
     const name = plan.planner?.kind === "tab" ? plan.planner.title?.trim() || "Planner" : "Planner";
-    return resolvePlanAskRecipient(recipient.tabId, name, tabs, statuses);
+    return resolvePlanReviewRecipient(recipient.tabId, name, tabs, statuses);
   }
-  if (recipient?.kind === "orchestrator") return resolvePlanAskOwner(plan, tabs, statuses);
+  if (recipient?.kind === "orchestrator") {
+    return resolvePlanReviewRecipient(recipient.tabId, ownerName(plan.owner) || FALLBACK_OWNER_NAME, tabs, statuses);
+  }
 
   if (plan.planner?.kind === "tab") {
-    return resolvePlanAskRecipient(plan.planner.tab_id, plan.planner.title?.trim() || "Planner", tabs, statuses);
+    return resolvePlanReviewRecipient(plan.planner.tab_id, plan.planner.title?.trim() || "Planner", tabs, statuses);
   }
-  return resolvePlanAskOwner(plan, tabs, statuses);
+  const ownerTab = ownerTabId(plan.owner);
+  return ownerTab
+    ? resolvePlanReviewRecipient(ownerTab, ownerName(plan.owner) || FALLBACK_OWNER_NAME, tabs, statuses)
+    : { status: "missing" };
+}
+
+function resolvePlanReviewRecipient(
+  tabId: string,
+  fallbackName: string,
+  tabs: Record<string, Tab> | undefined,
+  statuses?: Record<string, TabStatus>,
+): PlanAskOwner {
+  const tab = tabs?.[tabId];
+  const name = tab?.title?.trim() || fallbackName;
+  if (tab?.hidden) return { status: "offline", tabId, name };
+  return resolvePlanAskRecipient(tabId, fallbackName, tabs, statuses);
 }
 
 function resolvePlanAskRecipient(
@@ -74,7 +91,7 @@ function resolvePlanAskRecipient(
   };
 }
 
-function createPlanMessageId(kind: "ask" | "review"): string {
+function createPlanMessageId(kind: "ask" | "review" | "send"): string {
   const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
   return `plan-${kind}-${random}`;
 }
@@ -85,6 +102,10 @@ export function createPlanAskId(): string {
 
 export function createPlanReviewId(): string {
   return createPlanMessageId("review");
+}
+
+export function createPlanSendToken(): string {
+  return createPlanMessageId("send");
 }
 
 export const PLAN_ASK_OFFSET_UNIT = "utf16_code_unit";
