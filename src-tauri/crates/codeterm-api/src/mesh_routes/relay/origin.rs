@@ -1,13 +1,22 @@
 use axum::http::{HeaderMap, StatusCode};
 
-use crate::{auth::AuthenticatedOrigin, routes::AppState};
+use crate::{
+    auth::{AuthenticatedOrigin, CallerIdentity},
+    routes::AppState,
+};
 
 pub(super) fn peer_client(
     state: &AppState,
     headers: &HeaderMap,
     client: codeterm_service_core::mesh::transport::PeerClient,
 ) -> Result<codeterm_service_core::mesh::transport::PeerClient, (StatusCode, String)> {
-    let origin = crate::auth::authenticated_origin(state, headers)?;
+    let (caller, origin) = crate::auth::authenticated_request(state, headers)?;
+    if !matches!(caller, CallerIdentity::Local | CallerIdentity::Tab(_)) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Outbound mesh signing requires a local caller".into(),
+        ));
+    }
     let agent = crate::auth::authenticated_agent(state, headers)?;
     Ok(client.with_signed_token(sign(state, origin, agent.as_ref())?))
 }
