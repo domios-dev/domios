@@ -42,6 +42,19 @@ describe("remote tab metadata", () => {
     }
   });
 
+  it("includes the remote Team and status in the row name", () => {
+    const tab = remote("Worker");
+    tab.remote_peer_name = "ROG [dev-peer]";
+    tab.agent_type = "codex";
+    tab.agent_session_id = "worker-session";
+    tab.ownership = { ...tab.ownership!, team: { id: "crew-id", title: "Deployments" } };
+    const html = renderToStaticMarkup(<TabItem tab={tab} index={0} isActive={false}
+      onClick={() => {}} onClose={() => {}} canClose={false} workspaceId="workspace" status="Working" />);
+    const rowLabel = html.match(/aria-label="([^"]*One[^"]*)"/)?.[1];
+    for (const word of ["Worker", "Deployments", "ROG", "working"]) expect(rowLabel).toContain(word);
+    expect(rowLabel).not.toContain("[dev-peer]");
+  });
+
   it("keeps a redundant same-host Worker line out of the row while retaining accessible provenance", () => {
     const html = renderToStaticMarkup(<TabItem tab={remote("Worker")} index={0} isActive={false}
       onClick={() => {}} onClose={() => {}} canClose={false} workspaceId="workspace" hideRemoteMachineLine />);
@@ -65,7 +78,8 @@ describe("remote tab metadata", () => {
     try {
       const html = renderToStaticMarkup(<TabItem tab={{ ...remote("Manager", "orchestrator"), title: "Halley" }}
         index={0} isActive={false} onClick={() => {}} onClose={() => {}} canClose workspaceId="workspace" />);
-      expect(html).toContain('aria-label="Halley, Orchestrator on ROG, machine, not paired"');
+      const rowLabel = html.match(/aria-label="([^"]*Halley[^"]*)"/)?.[1];
+      for (const word of ["Orchestrator", "No Team", "ROG", "not paired"]) expect(rowLabel).toContain(word);
       expect(html).not.toContain('data-testid="tab-working-activity"');
     } finally { resetRemoteChatStatus(); }
   });

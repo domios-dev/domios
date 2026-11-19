@@ -11,13 +11,15 @@ const STATUS_COLORS: Record<TabStatus, string> = {
 export function StatusDot({
   status,
   animate,
+  showIdle = false,
   label = status ?? undefined,
 }: {
   status: TabStatus | null;
   animate?: boolean;
+  showIdle?: boolean;
   label?: string;
 }) {
-  if (!status || status === "Idle") return null;
+  if (!status || (status === "Idle" && !showIdle)) return null;
   const color = STATUS_COLORS[status];
   return (
     <span

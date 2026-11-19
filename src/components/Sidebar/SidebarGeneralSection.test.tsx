@@ -218,6 +218,16 @@ it("renders an observed General viewer once in its machine group before and afte
   } finally { await view.close(); }
 });
 
+it("keeps project viewers opened by machine browsing out of the General list", async () => {
+  const attached = projectAttachedRemoteTab(agent, { peer_id: "peer-a", peer_name: "Alpha" }, workspace.id);
+  const view = await mount();
+  try {
+    await view.render(true, [attached]);
+    expect(view.host.querySelector(`[data-tab-id="${attached.id}"]`)).toBeNull();
+    expect(view.host.querySelector(`[data-tab-id="${main.id}"]`)).not.toBeNull();
+  } finally { await view.close(); }
+});
+
 it("keeps equal raw tab ids distinct across different peers", async () => {
   const viewerA = "mesh:peer-a/shared";
   const viewerB = "mesh:peer-b/shared";

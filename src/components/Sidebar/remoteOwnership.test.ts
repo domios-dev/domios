@@ -21,7 +21,7 @@ describe("canonical remote ownership presentation", () => {
   it("uses physical remote identity regardless of controller ownership", () => {
     expect(remoteIdentity(targetOwned())).toBe(null);
     expect(remoteIdentity(targetOwned({ remote_peer_id: "peer-123", remote_peer_name: "remote-token" }))?.peer).toBe("remote-token");
-    expect(remoteIdentity(targetOwned({ remote_peer_id: "peer-123", ownership: undefined }))?.peer).toBe("peer-123");
+    expect(remoteIdentity(targetOwned({ remote_peer_id: "peer-123", ownership: undefined }))?.peer).toBe("Machine");
   });
 
   it("managed-by names the controller, never the peer", () => {
@@ -45,6 +45,16 @@ describe("canonical remote ownership presentation", () => {
     expect(team.id).toEqual("mesh:peer-123/team_7d63c175");
     expect(team.title).toEqual("Remote Tab Portal");
     expect(team.peerName).toEqual("Mac-Air");
+  });
+
+  it("resolves an unlabelled origin Team from the owning peer inventory", () => {
+    const tab = targetOwned();
+    const ownership = tab.ownership!;
+    tab.ownership = { ...ownership, peer_name: "peer-123", team: { id: "team_7d63c175", title: "team_7d63c175" } };
+    const peer = { peerId: "peer-123", name: "Air", availability: "online" as const, sessions: [],
+      teamNames: new Map([["team_7d63c175", "Remote Operations"]]) };
+    expect(remoteTeamIdentity(tab, [peer])).toMatchObject({ title: "Remote Operations", peerName: undefined });
+    expect(remoteTeamIdentity(tab)?.title).toBe("Team");
   });
 
   it("does not synthesize a remote Team for a transport-remote origin projection", () => {
