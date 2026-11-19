@@ -19,7 +19,7 @@ for (const kind of ["tab"] as const) {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
-    let focused = "";
+    let focused = false;
     try {
       for (const state of ["held", "delivered"] as const) {
         const send: DeliverySend = { id: "host", correlationId: "token", content: wire, sentAtMs: 1000,
@@ -29,7 +29,7 @@ for (const kind of ["tab"] as const) {
         const messages = state === "held" ? [{ id: "host", type: "user" as const, content: wire, segments: sends[0].segments }]
           : projectTranscriptParts([{ id: "echo", type: "user", content: wire, correlationId: "token", segments: [{ type: "text", text: wire }] }], sends);
         const [entry] = enrichTimelineItems(messages.map(message => ({ kind: "message" as const, message })), new WeakMap());
-        await act(async () => root.render(<MessageBubble key={state} message={entry.msg} origin={entry.origin} onFocusTab={tab => { focused = tab; }} />));
+        await act(async () => root.render(<MessageBubble key={state} message={entry.msg} origin={entry.origin} onOriginClick={() => { focused = true; }} />));
         const card = host.querySelector<HTMLElement>('[data-testid="chat-inbound-message"]');
         expect(card?.textContent).toContain("Received from Weaver");
         expect(card?.textContent).toContain("opaque-model");
@@ -44,8 +44,9 @@ for (const kind of ["tab"] as const) {
         const notice = host.querySelector<HTMLButtonElement>('button[aria-expanded="false"]');
         if (!host.querySelector("strong") && notice) await act(async () => notice.click());
         expect(host.querySelector("strong")?.textContent).toBe("Opaque body");
+        focused = false;
         await act(async () => card?.querySelector<HTMLButtonElement>('button[title="Show Tab"]')?.click());
-        expect(focused).toBe("8494e5c7");
+        expect(focused).toBe(true);
       }
     } finally {
       await act(async () => root.unmount());
