@@ -75,12 +75,6 @@
   transform: scale(0.98);
 }
 @keyframes session-picker-dismiss { to { opacity: 0; } }
-.ct-msg-sheet-wrap {
-  bottom: calc(var(--ct-visual-bottom, 0px) + max(12px, var(--ct-keyboard-safe-bottom, env(safe-area-inset-bottom))));
-}
-.ct-msg-sheet-wrap .ct-msg-menu {
-  max-height: calc(var(--ct-visual-height, 100dvh) - 24px);
-}
 .ct-menu.ct-model-picker {
   max-width: calc(100vw - 16px);
   max-height: min(440px, calc(var(--ct-visual-height, 100vh) - 16px));
