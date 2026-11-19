@@ -73,6 +73,106 @@ fn assignment_attempt_retains_planned_provider_and_model() {
     assert_eq!(attempt.agent_type.as_deref(), Some("codex"));
     assert_eq!(attempt.model.as_deref(), Some("gpt-6-luna"));
     assert_eq!(attempt.reasoning_effort.as_deref(), Some("xhigh"));
+    assert_eq!(attempt.placement, crate::plan::WorkerPlacement::Shared);
+    assert!(attempt
+        .checkout_path
+        .as_deref()
+        .is_some_and(|path| !path.is_empty()));
+    assert!(attempt.shared_start_files.is_some());
+}
+
+#[test]
+fn git_repository_assignment_records_shared_start_commit() {
+    let (_dir, store, plan, task) = fixture();
+    let project = _dir.path();
+    for args in [
+        &["init", "--initial-branch=main"][..],
+        &["config", "user.email", "test@example.invalid"][..],
+        &["config", "user.name", "Test User"][..],
+    ] {
+        let output = codeterm_util::process_util::git_command()
+            .args(args)
+            .current_dir(project)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+    }
+    std::fs::write(project.join("README.md"), "fixture\n").unwrap();
+    for args in [&["add", "README.md"][..], &["commit", "-m", "initial"][..]] {
+        let output = codeterm_util::process_util::git_command()
+            .args(args)
+            .current_dir(project)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+    }
+    let expected_head = String::from_utf8(
+        codeterm_util::process_util::git_command()
+            .args(["rev-parse", "HEAD"])
+            .current_dir(project)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+
+    store
+        .assign_task_with_runtime_binding(
+            &plan,
+            &task,
+            "worker",
+            None,
+            None,
+            Some(&binding("worker-session")),
+            None,
+            4,
+        )
+        .unwrap();
+
+    let assigned = store.inspect_task_for_test(&task).unwrap().task;
+    let attempt = assigned.execution_attempts.last().unwrap();
+    assert_eq!(attempt.placement, crate::plan::WorkerPlacement::Shared);
+    assert_eq!(
+        attempt.shared_start_sha.as_deref(),
+        Some(expected_head.as_str())
+    );
+    assert!(attempt.checkout_path.is_some());
+    assert!(attempt.shared_start_files.is_none());
+}
+
+#[test]
+fn non_repository_assignment_preserves_intent_without_checkout_binding() {
+    let (_dir, store, plan, task) = fixture();
+    store
+        .edit_plan_fixture(&plan, 3, |plan| {
+            plan.tasks[0].execution_intent = crate::plan::TaskExecutionIntent::NonRepository;
+            Ok(())
+        })
+        .unwrap();
+
+    store
+        .assign_task_with_runtime_binding(
+            &plan,
+            &task,
+            "worker",
+            None,
+            None,
+            Some(&binding("worker-session")),
+            None,
+            4,
+        )
+        .unwrap();
+
+    let assigned = store.inspect_task_for_test(&task).unwrap().task;
+    let attempt = assigned.execution_attempts.last().unwrap();
+    assert_eq!(
+        attempt.placement,
+        crate::plan::WorkerPlacement::NonRepository
+    );
+    assert!(attempt.checkout_path.is_none());
+    assert!(attempt.execution_intent.is_none());
 }
 
 fn authority(task: &Task, tab: &str) -> TaskMutationAuthority {

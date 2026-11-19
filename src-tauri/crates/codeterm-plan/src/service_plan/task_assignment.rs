@@ -2,6 +2,7 @@ use super::interruption::{authorize_task_mutation_for_owner, TaskMutationAuthori
 use super::task_attempts::{new_assignment_attempt, record_noncompetitive_replacement_attempt};
 use super::{PlanError, PlanStore};
 use crate::plan::TaskStatus;
+use crate::plan::{ExecutionIntent, TaskExecutionIntent, WorkerPlacement};
 
 pub struct AssignmentRuntimeBinding {
     pub session_id: String,
@@ -54,6 +55,15 @@ impl PlanStore {
         }) {
             return Err(PlanError::Io("invalid assignment runtime binding".into()));
         }
+        let requires_repository = self
+            .task_dispatch_preflight_projection(plan_id, task_id)?
+            .execution_intent
+            .requires_repository();
+        let shared_inspection = if peer.is_none() && requires_repository {
+            Some(self.inspect_shared_dispatch(plan_id, task_id, now_ms)?)
+        } else {
+            None
+        };
         self.with_task_rows(plan_id, task_id, super::store_db::hot_write::TaskHistory::LiveAndReported, now_ms, |edit| {
             if let Some(authority) = authority {
                 authorize_task_mutation_for_owner(edit.owner_tab.as_deref(), &edit.task, authority)?;
@@ -68,6 +78,32 @@ impl PlanStore {
             task.peer = peer.map(str::to_string);
             task.updated_at = now_ms;
             let mut attempt = new_assignment_attempt(task, tab, peer, role, now_ms);
+            // Manual assignment records the same readiness identity as
+            // dispatch, including shared checkout evidence where applicable.
+            match task.execution_intent {
+                TaskExecutionIntent::NonRepository => {
+                    attempt.placement = WorkerPlacement::NonRepository;
+                }
+                TaskExecutionIntent::RepositoryMutation => {
+                    attempt.execution_intent = Some(ExecutionIntent::Mutating);
+                    if peer.is_none() {
+                        attempt.placement = WorkerPlacement::Shared;
+                        let inspected = shared_inspection.as_ref().ok_or_else(|| {
+                            PlanError::InvalidPlanText("shared assignment checkout was not inspected".into())
+                        })?;
+                        inspected.recheck(&inspected.checkout, &task.files)?;
+                        attempt.checkout_path = Some(inspected.checkout.clone());
+                        match &inspected.start {
+                            super::shared_checkout::SharedStart::Commit(head) => {
+                                attempt.shared_start_sha = Some(head.clone());
+                            }
+                            super::shared_checkout::SharedStart::Files(hashes) => {
+                                attempt.shared_start_files = Some(hashes.clone());
+                            }
+                        }
+                    }
+                }
+            }
             if let Some(binding) = binding {
                 attempt.session_id = Some(binding.session_id.clone());
                 attempt.session_binding_nonce = Some(binding.session_binding_nonce.clone());

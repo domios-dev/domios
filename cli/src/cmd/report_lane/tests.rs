@@ -104,6 +104,41 @@ fn only_explicit_nonrepository_intent_skips_repository_guards() {
 }
 
 #[test]
+fn shared_assignment_scope_is_reportable_and_nonrepository_scope_skips_checkout() {
+    let shared = task_readiness_scope_from_task(
+        &json!({
+            "execution_intent": "repository_mutation",
+            "execution_attempts": [{
+                "executor_tab_id": "tab-a",
+                "placement": "shared",
+                "execution_intent": "mutating",
+                "checkout_path": "C:/project",
+                "shared_start_sha": "start"
+            }]
+        }),
+        "tab-a",
+    );
+    assert!(shared.shared);
+    assert!(shared.recorded_checkout);
+    assert!(shared.requires_repository);
+    assert!(enrich_ready_report(
+        Some(&shared),
+        Some(ReportStatusArg::InReview),
+        None,
+        None,
+        ReportBase::default(),
+        None,
+        false,
+    )
+    .is_ok());
+
+    let non_repository =
+        task_readiness_scope_from_task(&json!({ "execution_intent": "non_repository" }), "tab-a");
+    assert!(!non_repository.requires_repository);
+    assert!(non_repository.worktree_path.is_none());
+}
+
+#[test]
 fn open_attempt_worktree_and_base_win_as_one_scope() {
     let task = json!({
         "id": "task_a",
