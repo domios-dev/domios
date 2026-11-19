@@ -53,7 +53,6 @@ function PeerTerminalComponent({
           className="flex items-center gap-2 rounded focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]">
           <MachineGlyph {...identity} size="tile" />
         </span>
-        {isThisMachine && <span onClick={(event) => event.stopPropagation()}><MachineSessionControls name={name} busy={false} identityPeer={null} /></span>}
         <span className="ml-2 min-w-0 flex-1 text-[14px] text-[var(--ct-fg)] font-medium truncate">
           <MachineName name={name} onRename={onRename} disabledReason={renameDisabledReason} />
         </span>
@@ -61,6 +60,7 @@ function PeerTerminalComponent({
           {ip}
           {isThisMachine ? (offline ? " · offline" : " · this") : ""}
         </span>
+        {isThisMachine && <span onClick={(event) => event.stopPropagation()}><MachineSessionControls name={name} busy={false} identityPeer={null} /></span>}
       </div>
       {offline && onGoOnline && (
         <button

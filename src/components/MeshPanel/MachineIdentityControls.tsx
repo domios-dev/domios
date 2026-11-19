@@ -43,11 +43,11 @@ export function MachineIdentityControls({ value, onChange }: { value: MachineIde
     <RadioChoices label="Kind" values={kinds} value={value.kind} onChange={kind => onChange({ ...value, kind })}>
       {kind => ({
         label: MACHINE_KINDS[kind].label,
-        body: <><MachineGlyph kind={kind} color={value.color} size="mark-15" /><span>{MACHINE_KINDS[kind].label}</span></>,
+        body: <><MachineGlyph kind={kind} color={value.color} size="mark-15" muted={kind !== value.kind} /><span>{MACHINE_KINDS[kind].label}</span></>,
       })}
     </RadioChoices>
     <RadioChoices label="Colour" values={MACHINE_COLORS} value={value.color} onChange={color => onChange({ ...value, color })}>
-      {color => ({ label: color, body: <span className="machine-options__swatch" style={{ backgroundColor: `var(--ct-machine-${color})` }} /> })}
+      {color => ({ label: color[0].toUpperCase() + color.slice(1), body: <span className="machine-options__swatch" style={{ backgroundColor: `var(--ct-machine-${color})` }} /> })}
     </RadioChoices>
   </div>;
 }
