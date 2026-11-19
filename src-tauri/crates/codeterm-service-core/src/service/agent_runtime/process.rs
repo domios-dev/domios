@@ -67,6 +67,29 @@ impl Process {
             .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
     }
 
+    pub(super) async fn capture_tools(
+        &self,
+    ) -> Result<Option<super::process_boundary::ToolTree>, RuntimeFailure> {
+        let Some(boundary) = self.boundary.clone() else {
+            return Ok(None);
+        };
+        tokio::task::spawn_blocking(move || boundary.capture_tools().map(Some))
+            .await
+            .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+    }
+
+    pub(super) async fn reap_orphans(
+        &self,
+        tree: super::process_boundary::ToolTree,
+    ) -> Result<Vec<u32>, RuntimeFailure> {
+        let Some(boundary) = self.boundary.clone() else {
+            return Ok(Vec::new());
+        };
+        tokio::task::spawn_blocking(move || boundary.reap_orphans(&tree))
+            .await
+            .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+    }
+
     pub(super) fn terminated(&self) -> bool {
         matches!(
             *self.ended.borrow(),

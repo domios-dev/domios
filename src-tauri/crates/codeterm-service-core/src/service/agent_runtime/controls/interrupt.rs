@@ -308,6 +308,10 @@ fn interrupt_pressed(
         } else {
             Vec::new()
         };
+        let tools = process.capture_tools().await.unwrap_or_else(|reason| {
+            log::debug!("[agent-runtime] interrupt tool tree capture failed: {reason}");
+            None
+        });
         let interrupted = async {
             if target.turns.is_empty() && background {
                 return Ok(());
@@ -339,8 +343,18 @@ fn interrupt_pressed(
             .await
         }
         .await;
+        let degrade = |reason: RuntimeFailure| {
+            if engine::validate_binding(svc, &session).is_ok()
+                && session.context.lock().epoch == target.epoch
+            {
+                session.state.lock().degrade(target.epoch, &reason);
+                engine::publish_degraded(svc, tab, &session);
+                svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
+            }
+            reason
+        };
         if background {
-            if let Err(reason) = super::super::background::cleanup(
+            super::super::background::cleanup(
                 svc,
                 &session,
                 &process,
@@ -349,15 +363,12 @@ fn interrupt_pressed(
                 true,
             )
             .await
-            {
-                if engine::validate_binding(svc, &session).is_ok()
-                    && session.context.lock().epoch == target.epoch
-                {
-                    session.state.lock().degrade(target.epoch, &reason);
-                    engine::publish_degraded(svc, tab, &session);
-                    svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
-                }
-                return Err(reason);
+            .map_err(degrade)?;
+        }
+        if let Some(tools) = tools.filter(|_| !process.terminated()) {
+            let reaped = process.reap_orphans(tools).await.map_err(degrade)?;
+            if !reaped.is_empty() {
+                log::info!("[tab-stop] reaped orphaned tool processes tab={tab} pids={reaped:?}");
             }
         }
         drop(permit);
