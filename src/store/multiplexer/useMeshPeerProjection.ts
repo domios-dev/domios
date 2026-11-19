@@ -4,11 +4,17 @@ import { updateRemoteChatPeers } from "../../lib/remoteChatStatus";
 import type { MeshPeersResponse } from "../../lib/types";
 import { rememberMachineIdentities } from "../../lib/useMeshMachineIdentities";
 
+export interface PairedRoster {
+  peers: MeshPeersResponse;
+  revision: number;
+}
+
 export function useMeshPeerProjection(
   remoteProjectionActiveRef: RefObject<boolean>,
   hasPairedPeersRef: RefObject<boolean | null>,
   markRemoteChannelsReconnecting: () => void,
   requestRemoteRefresh: () => void,
+  acceptPairedPeers: (roster: PairedRoster) => void,
 ) {
   useEffect(() => {
     remoteProjectionActiveRef.current = true;
@@ -29,6 +35,7 @@ export function useMeshPeerProjection(
           if (!identityOnly) {
             hasPairedPeersRef.current = peers.paired.length > 0;
             updateRemoteChatPeers(peers);
+            acceptPairedPeers({ peers, revision: generation });
           }
         }
       } catch {}
@@ -61,5 +68,5 @@ export function useMeshPeerProjection(
       identityUnlisten?.();
       muxUnlisten?.();
     };
-  }, [remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh]);
+  }, [remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh, acceptPairedPeers]);
 }

@@ -164,6 +164,31 @@ pub(super) fn resolve_relay_peer(
             candidates,
         } => peer_name_ambiguous_error(&name, &candidates),
     })?;
+    relay_peer_client(mesh, peer)
+}
+
+pub(super) fn resolve_exact_relay_peer(
+    mesh: &codeterm_service_core::mesh::MeshManager,
+    instance_id: &str,
+) -> Result<ResolvedRelayPeer, (StatusCode, String)> {
+    let peer = mesh.paired_peers.get(instance_id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            serde_json::json!({
+                "code": PEER_NOT_PAIRED_REASON,
+                "message": "The requested installation is no longer paired",
+                "bytes_written": false,
+            })
+            .to_string(),
+        )
+    })?;
+    relay_peer_client(mesh, peer)
+}
+
+fn relay_peer_client(
+    mesh: &codeterm_service_core::mesh::MeshManager,
+    peer: &codeterm_service_core::mesh::types::PairedPeer,
+) -> Result<ResolvedRelayPeer, (StatusCode, String)> {
     if !codeterm_service_core::mesh::types::is_supported_relay_protocol(peer.relay_protocol_version)
     {
         return Err(super::origin::protocol_refusal(

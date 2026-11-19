@@ -356,10 +356,6 @@
       [
         "POST",
         "/api/mesh/relay-to"
-      ],
-      [
-        "GET",
-        "/api/mesh/peers"
       ]
     ],
     "mesh_remote_tab_action": [

@@ -4,6 +4,8 @@ import { DEV_BUILD } from "../../lib/devBuild";
 import { projectAttachedRemoteTab, saveAttachedRemoteTabs, setRemoteTabsDismissed, type RemotePeerTabs } from "../../lib/remoteTabPortal";
 import { managersToAttach, TEMPLATE_PEER_OUTCOME_EVENT, type TemplatePeerStartOutcome } from "../../lib/teamTemplates/peerStartOutcome";
 import type { Tab } from "../../lib/types";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { remoteChatPeer } from "../../lib/remoteChatStatus";
 import type { Action } from "./reducer";
 import { remoteTabsFromOrdinaryProjection } from "./remoteTabProjection";
 import type { ExtendedState } from "./tree";
@@ -24,6 +26,9 @@ export function useRemoteAttachments({ attachedRef, stateRef, dispatch, applyRem
   }, [attachedRef]);
 
   const attachRemoteTab = useCallback((workspaceId: string, peer: RemotePeerTabs, tab: Tab) => {
+    if (tab.remote_peer_id || tab.remote_tab_id || tab.id.startsWith("mesh:")
+      || !parseCompositeTabId(`mesh:${peer.peer_id}/${tab.id}`)
+      || remoteChatPeer(peer.peer_id)?.presence === "not-paired") return;
     const projected = projectAttachedRemoteTab(tab, peer, workspaceId);
     setRemoteTabsDismissed([projected.id], false);
     remember({ ...attachedRef.current, [projected.id]: projected });
