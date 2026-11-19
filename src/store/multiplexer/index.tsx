@@ -860,14 +860,25 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     executionMode?: string,
     launchProfile?: string,
     accountId?: string,
+    machineId?: string,
+    remoteWorkspaceId?: string,
   ): Promise<SpawnedTab | null> => {
-    if (precheckFreeLimit(["agent.tabs"])) return null;
+    if (machineId === undefined && precheckFreeLimit(["agent.tabs"])) return null;
+    const attachPeerSpawn = async (peerId: string, remoteTabId: string): Promise<SpawnedTab> => {
+      const peer = await guardedInvoke<RemotePeerTabs>("mesh_peer_tabs_list", { peerId });
+      const tab = peer.tabs.find((candidate) => candidate.id === remoteTabId);
+      if (!tab) throw new Error(`${peer.peer_name} did not publish the created agent tab`);
+      attachRemoteTab(workspaceId, peer, tab);
+      return { workspaceId, tabId: `mesh:${peerId}/${remoteTabId}` };
+    };
     if (intent === "fresh_general") {
       const guardKey = `${workspaceId}:fresh_general`;
       if (spawnInFlight.current.has(guardKey)) return null;
       spawnInFlight.current.add(guardKey);
       try {
-        const result = await spawnFreshGeneralSession(workspaceId, agentId, cwd, guardedInvoke, { model, reasoningEffort, preset, accountId });
+        const result = await spawnFreshGeneralSession(workspaceId, agentId, cwd, guardedInvoke,
+          machineId !== undefined ? {} : { model, reasoningEffort, preset, accountId }, machineId);
+        if (machineId !== undefined) return await attachPeerSpawn(machineId, result.tab_id);
         applyBackendState(result.snapshot);
         return { workspaceId: result.workspace_id, tabId: result.tab_id };
       } catch (error) {
@@ -883,8 +894,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     spawnInFlight.current.add(guardKey);
     try {
       const res = await guardedInvoke<AtomicSpawn>("mux_spawn_tab", {
-        params: { agentId, workspaceId, cwd, model, reasoningEffort, ...(launchProfile ? { launchProfile } : {}), ...(accountId ? { accountId } : {}), ...atomicSpawnPreset(getAgentDescriptor(agentId), preset, executionMode) },
+        ...(machineId !== undefined ? { peerId: machineId } : {}),
+        params: { agentId, workspaceId, cwd, model, reasoningEffort, ...(launchProfile ? { launchProfile } : {}), ...(accountId ? { accountId } : {}),
+          ...(remoteWorkspaceId ? { remoteWorkspaceId } : {}), ...atomicSpawnPreset(getAgentDescriptor(agentId), preset, executionMode) },
       });
+      if (machineId !== undefined) return await attachPeerSpawn(machineId, res.tab_id);
       applyBackendState(res.snapshot);
       if (res.launch_command) {
         if (cwd) setPendingCwd(res.tab_id, cwd);
@@ -904,7 +918,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     } finally {
       spawnInFlight.current.delete(guardKey);
     }
-  }, [refreshFromBackend, guardedInvoke, guardedWebJson, applyBackendState]);
+  }, [refreshFromBackend, guardedInvoke, guardedWebJson, applyBackendState, attachRemoteTab]);
 
   // from the descriptor registry rather than hardcoding a vendor id.
   const spawnClaudeTab = useCallback(async (workspaceId: string, cwd?: string) => {

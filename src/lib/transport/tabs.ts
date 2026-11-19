@@ -24,6 +24,9 @@ function exactPeerId(args: Args): string {
     if (!peerId.trim()) throw new Error("An exact peer installation id is required");
     return peerId;
 }
+function hasPeerTarget(args: Args): boolean {
+    return args.peerId !== undefined || args.peer_id !== undefined;
+}
 export interface PtyCursors { offsets: Map<string, number>; truncations: Map<string, number> }
 /** One relayed request on a paired peer; the peer's own refusal travels back as the error. */
 async function relayToPeer(client: TabsTransportClient, peer: string, method: string, path: string, body: unknown): Promise<unknown> {
@@ -357,7 +360,9 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         }),
         save_session: (a: Args = {}) => clientFor(a).json("POST", "/api/session/save"),
         restart_general_agent: (a: Args = {}) => clientFor(a).json("POST", "/api/agents/general/restart"),
-        spawn_general_agent_session: (a: Args) => clientFor(a).json<AtomicSpawn>("POST", "/api/agents/general/sessions", a.params),
+        spawn_general_agent_session: (a: Args) => hasPeerTarget(a)
+            ? relayToPeer(clientFor(a), exactPeerId(a), "POST", "/api/agents/general/sessions", a.params) as Promise<AtomicSpawn>
+            : clientFor(a).json<AtomicSpawn>("POST", "/api/agents/general/sessions", a.params),
         provider_switch_status: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/switch-provider/${enc(s(a, "operationId"))}?wait=${a.wait === true}`),
         read_provider_history: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/provider-history?file=${enc(s(a, "file"))}`),
         switch_agent_provider: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/switch-provider`, { provider: a.providerId, model: a.model, reasoning_effort: a.reasoningEffort, force: a.force === true }),
@@ -403,9 +408,25 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                 preset?: string;
                 launchProfile?: string;
                 accountId?: string;
+                remoteWorkspaceId?: string;
             };
-        }): Promise<AtomicSpawn> => {
+        }): Promise<AtomicSpawn | { tab_id: string; workspace_id?: string }> => {
             const p = a.params;
+            if (hasPeerTarget(a)) {
+                const result = await relayToPeer(clientFor(a), exactPeerId(a), "POST", "/api/agents/spawn", {
+                    agent: p.agentId,
+                    ...(p.remoteWorkspaceId ? { workspace_id: p.remoteWorkspaceId } : {}),
+                    model: p.model,
+                    reasoning_effort: p.reasoningEffort,
+                    preset: p.preset,
+                    launch_profile: p.launchProfile,
+                });
+                if (!result || typeof result !== "object" || typeof (result as { tab_id?: unknown }).tab_id !== "string") {
+                    throw new Error("The selected machine did not return the created agent");
+                }
+                const created = result as { tab_id: string; workspace_id?: string };
+                return { tab_id: created.tab_id, ...(created.workspace_id ? { workspace_id: created.workspace_id } : {}) };
+            }
             const result = await clientFor(a).json<{
                 tab_id: string;
                 workspace_id?: string;

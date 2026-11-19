@@ -22,6 +22,73 @@ it("carries the client's known window to chat attach", async () => {
   expect(calls[0].body).toEqual({ subscriptionId: "sub", knownWindow });
 });
 
+it("relays General creation to the exact peer with a peer-default request", async () => {
+  const { transport, calls } = fixture([{ ok: true, data: { tab_id: "general-tab" }, peer: { instance_id: "machine-x" } }]);
+  const params = { role: "general_agent", intent: "fresh_general" };
+  await transport.spawn_general_agent_session({ peerId: "machine-x", params });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({
+    method: "POST",
+    path: "/api/mesh/relay-to",
+    body: { target_instance_id: "machine-x", method: "POST", path: "/api/agents/general/sessions", body: params },
+  });
+});
+
+it("relays a single agent to the exact peer without leaking the origin workspace or cwd", async () => {
+  const { transport, calls } = fixture([{ ok: true, data: { tab_id: "remote-agent" }, peer: { instance_id: "machine-x" } }]);
+  const result = await transport.mux_spawn_tab({ peerId: "machine-x", params: {
+    agentId: "codex", workspaceId: "origin-workspace", cwd: "C:/origin/repo", model: "model-x", reasoningEffort: "high",
+  } });
+  expect(result).toEqual({ tab_id: "remote-agent" });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({
+    method: "POST",
+    path: "/api/mesh/relay-to",
+    body: {
+      target_instance_id: "machine-x", method: "POST", path: "/api/agents/spawn",
+      body: { agent: "codex", model: "model-x", reasoning_effort: "high" },
+    },
+  });
+  const relayBody = calls[0].body as { body: Record<string, unknown> };
+  expect(relayBody.body).not.toHaveProperty("workspace_id");
+  expect(relayBody.body).not.toHaveProperty("cwd");
+  expect(relayBody.body).not.toHaveProperty("role");
+});
+
+it("uses a selected workspace from the target machine when provided", async () => {
+  const { transport, calls } = fixture([{ ok: true, data: { tab_id: "remote-agent" }, peer: { instance_id: "machine-x" } }]);
+  await transport.mux_spawn_tab({ peerId: "machine-x", params: {
+    agentId: "codex", workspaceId: "origin-workspace", remoteWorkspaceId: "peer-workspace",
+  } });
+  const relay = calls[0].body as { target_instance_id: string; body: Record<string, unknown> };
+  expect(relay.target_instance_id).toBe("machine-x");
+  expect(relay.body).toMatchObject({ agent: "codex", workspace_id: "peer-workspace" });
+  expect(relay.body).not.toHaveProperty("cwd");
+});
+
+it("surfaces a peer refusal without making a local spawn request", async () => {
+  const { transport, calls } = fixture([{ ok: false, error: "OFFLINE", peer: { instance_id: "machine-x" } }]);
+  await expect(transport.mux_spawn_tab({ peerId: "machine-x", params: { agentId: "codex", workspaceId: "origin-workspace" } }))
+    .rejects.toThrow("OFFLINE");
+  expect(calls).toHaveLength(1);
+  expect(calls[0].body).toMatchObject({ target_instance_id: "machine-x", path: "/api/agents/spawn" });
+});
+
+it("surfaces a peer General refusal without making a local session request", async () => {
+  const { transport, calls } = fixture([{ ok: false, error: "PEER-REFUSAL", peer: { instance_id: "machine-x" } }]);
+  await expect(transport.spawn_general_agent_session({ peerId: "machine-x", params: { role: "general_agent", intent: "fresh_general" } }))
+    .rejects.toThrow("PEER-REFUSAL");
+  expect(calls).toHaveLength(1);
+  expect(calls[0].body).toMatchObject({ target_instance_id: "machine-x", path: "/api/agents/general/sessions" });
+});
+
+it("does not reinterpret an empty remote target as a local General request", async () => {
+  const { transport, calls } = fixture();
+  expect(() => transport.spawn_general_agent_session({ peerId: "", params: { role: "general_agent", intent: "fresh_general" } }))
+    .toThrow("exact peer installation id");
+  expect(calls).toHaveLength(0);
+});
+
 function fixture(responses: unknown[] = [{}]) {
   const calls: Array<{ method: string; path: string; body: unknown; opts: unknown }> = [];
   const client: TabsTransportClient = {
