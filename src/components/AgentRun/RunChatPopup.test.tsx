@@ -45,7 +45,7 @@ const drawerRun: CronRunInfo = {
   session_id: "drawer-session",
   cwd: "/workspace",
   provider: "claude",
-  owner_instance_id: null,
+  owner_instance_id: undefined,
 };
 
 const drawerJob: CronJob = {

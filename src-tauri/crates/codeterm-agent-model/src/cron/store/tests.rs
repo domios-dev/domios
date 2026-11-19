@@ -896,7 +896,7 @@ fn timeout_completion_leaves_riga_minute_32_occurrence_due_on_time() {
     use codeterm_cron::occurrence::FireDecision;
 
     const NOV_19_UTC: u64 = 1_795_046_400_000;
-    let at = |hour, minute| NOV_19_UTC + (hour * 60 + minute) * 60_000;
+    let at = |hour: u64, minute: u64| NOV_19_UTC + (hour * 60 + minute) * 60_000;
     let (mut store, clock) = mock_store(at(14, 31));
     let mut params = make_params("cadence", "ws", "32 * * * *");
     params.tz = Some("Europe/Riga".into());

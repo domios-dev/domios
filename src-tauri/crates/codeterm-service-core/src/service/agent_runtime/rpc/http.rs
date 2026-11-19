@@ -493,7 +493,8 @@ fn prepare_response(
             ("body".into(), body),
             ("headers".into(), Value::Object(headers)),
         ]
-        .into(),
+        .into_iter()
+        .collect(),
     );
     let reply = RpcReply::Success { value };
     if validate_runtime_reply(&reply).is_ok() {
