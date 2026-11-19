@@ -11,7 +11,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountPresence } from "./accountMachines";
 import { AccountMeshClientProvider } from "./accountMeshClient";
-import { FakeAccountMeshClient, macRow, NOW, pair, selfRow, snapshot } from "./accountMachines.testdata";
+import { FakeAccountMeshClient, lenovoRow, macRow, NOW, pair, selfRow, snapshot } from "./accountMachines.testdata";
 import type { PeerStatus } from "./useMeshData";
 
 const presence = vi.hoisted(() => ({ current: "signed_in" as AccountPresence, signIns: 0 }));
@@ -506,7 +506,7 @@ describe("Mesh canvas wiring", () => {
     }
   });
 
-  it("renames a duplicate from the notice without saving the label suffix", async () => {
+  it("shows duplicate hints on the cards and renames from the card menu without saving the suffix", async () => {
     const local = { ...selfRow, display_name: "BLACKSTAR [dev]" };
     const remote = { ...macRow, display_name: "BLACKSTAR [air]" };
     const client = new FakeAccountMeshClient(snapshot({
@@ -515,10 +515,16 @@ describe("Mesh canvas wiring", () => {
       pairs: [pair("mesh-mac", "BLACKSTAR [air]", { installation_id: remote.installation_id })],
     }));
     await mount(client, [peer("mesh-mac", "BLACKSTAR [air]")]);
-    expect(host.textContent).toContain("Two machines are named BLACKSTAR");
-    expect(host.textContent).toContain("BLACKSTAR #1");
-    expect(host.textContent).toContain("BLACKSTAR #2");
-    await click([...host.querySelectorAll("button")].find(button => button.textContent === "Rename") ?? null);
+    const localCard = host.querySelector('[role="group"][aria-label^="BLACKSTAR #2,"]')!;
+    const remoteCard = host.querySelector('[role="group"][aria-label^="BLACKSTAR #1,"]')!;
+    expect(localCard.textContent).toContain("Same name as 1 other");
+    expect(remoteCard.textContent).toContain("Same name as 1 other");
+    expect(localCard.querySelector('button[aria-label="Rename BLACKSTAR #2 in Icon and colour"]')).not.toBeNull();
+    const more = button("More for BLACKSTAR #2")!;
+    await act(async () => more.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    const rename = [...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent?.startsWith("Rename…"));
+    expect(rename?.textContent).toContain("Same name as 1 other");
+    await click(rename as HTMLElement ?? null);
     const input = document.querySelector<HTMLInputElement>("[data-machine-name]")!;
     expect(document.activeElement).toBe(input);
     expect(input.value).toBe("BLACKSTAR");
@@ -528,8 +534,20 @@ describe("Mesh canvas wiring", () => {
     });
     await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
     expect(client.renameCalls).toEqual([[selfRow.metadata_revision, "Studio"]]);
-    expect(host.textContent).not.toContain("Two machines are named BLACKSTAR");
+    expect(host.textContent).not.toContain("Same name as 1 other");
     expect(host.textContent).not.toContain("BLACKSTAR #");
+  });
+
+  it("uses plural copy inside each card when two other machines share the name", async () => {
+    const rows = [selfRow, macRow, lenovoRow].map(row => ({ ...row, display_name: "BLACKSTAR" }));
+    const client = new FakeAccountMeshClient(snapshot({
+      registry: { observed_at: NOW, rows },
+      self: { ...snapshot().self!, display_name: "BLACKSTAR" },
+    }));
+    await mount(client);
+    const cards = host.querySelectorAll('[aria-label^="BLACKSTAR #"][role="group"], section[aria-label^="BLACKSTAR #"]');
+    expect(cards).toHaveLength(3);
+    for (const card of cards) expect(card.textContent).toContain("Same name as 2 others");
   });
 
   it("explains an empty account on the canvas", async () => {

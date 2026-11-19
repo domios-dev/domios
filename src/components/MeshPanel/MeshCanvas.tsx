@@ -22,8 +22,7 @@ import { TailscaleFooter, TailscaleMachineHint, type CanvasTailscale } from "./T
 import { differentNetwork } from "./networkTransport";
 import { offersTailscaleSetup, suggestsRemoteTailscale } from "./tailscaleSetup";
 import { Button } from "../shared/Button";
-import type { DuplicateMachineName } from "../../lib/registryMachineNames";
-import { DuplicateMachineNotices } from "./DuplicateMachineNotices";
+import { DuplicateMachineNameHint } from "./DuplicateMachineNameHint";
 import { MeshOverview } from "./MeshOverview";
 import { meshOverviewState } from "./meshOverviewModel";
 import { MachineLimitPaywall } from "./MachineLimitPaywall";
@@ -56,8 +55,7 @@ interface PeerLayout {
 export interface CanvasAccount {
   selfName?: string;
   selfDisplayName?: string | null;
-  selfInstallationId?: string;
-  duplicateNames?: DuplicateMachineName[];
+  selfSameNameOthers?: number;
   onRenameSelf?: (name: string) => Promise<boolean>;
   canvas: AccountCanvas;
   busy: string | null;
@@ -279,6 +277,7 @@ export const MeshCanvas = memo(function MeshCanvas({
         <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
         <PeerTerminal
           peerId={p.isThisMachine ? undefined : p.id}
+          sameNameOthers={p.isThisMachine ? account?.selfSameNameOthers : undefined}
           displayName={p.isThisMachine ? account?.selfDisplayName : row?.displayName}
           onRename={p.isThisMachine ? account?.onRenameSelf : row?.target && onRename ? (name) => onRename(row, name) : undefined}
           renameDisabledReason={row && (row.status === "signed_out" || !peers.find((peer) => peer.instance_id === p.id)?.online)
@@ -292,6 +291,8 @@ export const MeshCanvas = memo(function MeshCanvas({
             </div>}
             {account?.reauthRequired && !account.removed && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} onCancel={account.cancelSignIn} />}
             <LocalMachineFooter state={tailscale?.state} />
+            <DuplicateMachineNameHint name={p.name} others={account?.selfSameNameOthers} className="px-3.5 pb-2"
+              rename={account?.onRenameSelf ? { displayName: account.selfDisplayName, save: account.onRenameSelf } : undefined} />
             {tailscale && tailscale.state.kind !== "connected" && <TailscaleFooter tailscale={tailscale} />}
           </> : peerFooter(p.id)}
           inventory={peerInventoryModel(services, peers.find((peer) => peer.instance_id === p.id) ?? { instance_id: p.id, name: p.name, online: true }, !!p.isThisMachine, loading, error)}
@@ -317,7 +318,6 @@ export const MeshCanvas = memo(function MeshCanvas({
     : undefined;
 
   const accountActions = <>
-    <DuplicateMachineNotices account={account} />
     {account?.onRetryEnrollment && <button type="button" onMouseDown={(event) => event.stopPropagation()}
       disabled={account.busy !== null} aria-busy={account.busy === "enrollment"}
       onClick={account.onRetryEnrollment} className="ct-btn ct-btn-compact absolute bottom-3 right-3 z-10">Retry enrollment</button>}
