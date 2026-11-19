@@ -24,6 +24,12 @@ develop and dispatch the protected publication from the tagged master SHA.
 
 Release branches carry no required status check: their checks exist only after the push, so such a rule rejects every direct release push. The script deletes a previously applied `release-required-checks` ruleset. Release heads stay owner-only through `owner-only-trusted-branches`; qualification gates the master PR and publication.
 
+Owner PRs from `release/docs` use the same required contexts. A hosted release
+check admits only `README.md` and regular raster image assets in `docs/readme/`,
+checks the exact master diff and whitespace, verifies local README images,
+and runs the public privacy guard. The docs route publishes no packages.
+Use `release/next` for everything outside these scoped PR routes.
+
 Inspect existing rulesets and environment branch policies first. The named rulesets are updated in place. The script reconciles the `release` environment's deployment branch policies to exactly two branch entries and deletes every other branch or tag policy: `release/next` (release push dry run and owner dispatches) and `master` (publication). Verify that the final list contains only those two and that the only reviewer is `rollacode`. Self-review must remain enabled so the sole owner can approve their own run. Disable environment administrator bypass in the environment settings if available.
 
 If develop has a live rule requiring the old `CI result` context, the owner replaces it with `PR result`; a rule naming a context no PR emits blocks every develop merge.

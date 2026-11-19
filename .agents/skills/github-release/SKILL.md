@@ -105,6 +105,14 @@ commit, and verifies the anonymous download. Every install refreshes `codeterm-c
 For 1.19 only, a marked transition step publishes the same archive to `rollacode/codeterm-releases`
 for 1.18.x clients.
 
+For public README-only updates, start the owner-only `release/docs` branch from
+current master and open a PR into master. The hosted **Release qualification**
+checks the exact diff, whitespace, public privacy and local image references.
+Only `README.md` and regular PNG, JPEG, GIF or WebP images directly under
+`docs/readme/` qualify. **PR result** requires the broad PR jobs to be skipped.
+Merge after both required statuses pass. The docs route has no app or plugin
+publication, and changes outside its scope follow `release/next`.
+
 Application publication also publishes the verified source commit's core channel after public
 updater verification, under the same channel concurrency lock as standalone plugin releases.
 If the public channel is absent, recover it with `node scripts/release-plugin.mjs check`, then
