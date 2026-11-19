@@ -429,7 +429,7 @@ fn response_fields(
     let fields: ResponseFields = serde_json::from_value(fields.clone())
         .ok()
         .filter(|fields: &ResponseFields| {
-            method == &reqwest::Method::GET
+            *method == reqwest::Method::GET
                 && !fields.is_empty()
                 && fields.len() <= 16
                 && fields.iter().all(|(name, members)| {
