@@ -3,7 +3,7 @@ import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import { EVENT_STREAM_LOST, EVENT_STREAM_READY } from "../../lib/eventStreamReady";
 import { onResync } from "../../lib/resync";
 import { classifyTabTarget } from "../../lib/remoteTabTransport";
-import { onRemoteTabEventSignal } from "../../lib/remoteTabEvents";
+import { onRemoteTabEventSignal, type RemoteTabEventSignal } from "../../lib/remoteTabEvents";
 import { useAgentDescriptors } from "../../lib/useAgentDescriptor";
 import { useTabActivity } from "../../lib/useTabActivity";
 import { isProviderSelectable } from "../../lib/providerAvailability";
@@ -61,16 +61,14 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
     clearAttempt();
     setError(detail);
     setStatusUncertainty(null);
-    setObservationLost(false);
     setRetryAfterSeconds(describeError(detail, { operation: "switching the harness" }).retryAfterSeconds ?? null);
     setSwitchStatus({ phase: "failed", error: detail });
     setPhase("choosing");
   }
 
-  function applyStatus(status: ProviderSwitchStatus, source: "accepted" | "snapshot" | "event") {
+  function applyStatus(status: ProviderSwitchStatus) {
     if (status.operation_id !== activeOperationId.current || status.tab_id !== tab.id) return;
-    if (source !== "accepted") setStatusUncertainty(null);
-    if (source === "event") setObservationLost(false);
+    setStatusUncertainty(null);
     const current = acceptedStatus.current;
     const preferred = preferProviderSwitchStatus(current ?? undefined, status);
     if (current && preferred === current) return;
@@ -89,8 +87,6 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
       setSwitchStatus({ phase: "completed", error: null });
       setResult(outcome);
       setError(null);
-      setStatusUncertainty(null);
-      setObservationLost(false);
       setRetryAfterSeconds(null);
       setPhase("complete");
       return;
@@ -123,7 +119,7 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
         if (!status || status.operation_id !== operationId) {
           throw new Error("The provider switch status did not match the accepted operation.");
         }
-        applyStatus({ ...status, tab_id: tab.id }, "snapshot");
+        applyStatus({ ...status, tab_id: tab.id });
       } catch (failure) {
         markUnconfirmed(operationId, failure instanceof Error ? failure.message : String(failure));
       } finally {
@@ -140,7 +136,7 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   statusHandler.current = (status) => {
     if (status.tab_id !== tab.id) return;
     if (activeOperationId.current === status.operation_id) {
-      applyStatus(status, "event");
+      applyStatus(status);
       return;
     }
     if (!submitting.current) return;
@@ -153,6 +149,7 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   };
 
   useEffect(() => {
+    setObservationLost(false);
     let active = true;
     let unlisten: UnlistenFn | null = null;
     let registration: Promise<void> | null = null;
@@ -172,21 +169,21 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
       });
       return registration;
     };
-    const reconcileAfterSignal = (lost: boolean) => {
-      setObservationLost(lost);
+    const handleStreamSignal = (signal: RemoteTabEventSignal) => {
+      if (signal !== "resync") setObservationLost(signal === "lost");
       const operationId = activeOperationId.current;
       if (operationId) void reconcileAcceptedStatus(operationId);
     };
     statusRegistration.current = ensureStatusListener;
     const stopRemoteSignals = remoteStatusTarget
-      ? onRemoteTabEventSignal(statusEvent, (signal) => reconcileAfterSignal(signal !== "ready"))
+      ? onRemoteTabEventSignal(statusEvent, handleStreamSignal)
       : null;
     if (!remoteStatusTarget) {
-      const onReady = () => reconcileAfterSignal(false);
-      const onLost = () => reconcileAfterSignal(true);
+      const onReady = () => handleStreamSignal("ready");
+      const onLost = () => handleStreamSignal("lost");
       window.addEventListener(EVENT_STREAM_READY, onReady);
       window.addEventListener(EVENT_STREAM_LOST, onLost);
-      const stopResync = onResync(() => reconcileAfterSignal(true));
+      const stopResync = onResync(() => handleStreamSignal("resync"));
       void ensureStatusListener().catch(() => undefined);
       return () => {
         active = false;
@@ -235,13 +232,10 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
     const early = accepted && "operation_id" in accepted ? earlyStatuses.current.get(accepted.operation_id) : undefined;
     earlyStatuses.current.clear();
     submitting.current = false;
-    setStatusUncertainty(null);
     if (accepted && "operation_id" in accepted) {
       activeOperationId.current = accepted.operation_id;
       const initial = { ...accepted, tab_id: tab.id };
-      const observed = early ? { ...early, tab_id: tab.id } : null;
-      const preferred = observed ? preferProviderSwitchStatus(initial, observed) : initial;
-      applyStatus(preferred, observed && preferred === observed ? "event" : "accepted");
+      applyStatus(early ? preferProviderSwitchStatus(initial, early) : initial);
       if (activeOperationId.current === accepted.operation_id) await reconcileAcceptedStatus(accepted.operation_id);
       return;
     }
@@ -251,7 +245,6 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
     }
     setSwitchStatus({ phase: "completed", error: null });
     setResult(accepted);
-    setObservationLost(false);
     setPhase("complete");
   }
 
