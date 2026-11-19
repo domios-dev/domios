@@ -667,18 +667,43 @@ function parsePatch(path, patch) {
   if (files.length === 1 && path && files[0].kind !== "rename") files[0].path = path;
   return files;
 }
+function fileChangeKind(value) {
+  switch (String(value ?? "").toLowerCase()) {
+    case "add":
+    case "added":
+    case "create":
+    case "created":
+      return "add";
+    case "delete":
+    case "deleted":
+      return "delete";
+    case "modify":
+    case "modified":
+      return "modify";
+    case "rename":
+    case "renamed":
+      return "rename";
+    default:
+      return void 0;
+  }
+}
 function opencodeFileDiffs(path, edits, metadata) {
   const value = record2(metadata);
-  if (Array.isArray(value.files)) {
-    return value.files.flatMap((entry) => {
-      const item = record2(entry);
-      const filePath = typeof item.filePath === "string" ? item.filePath : "";
-      return opencodeFileDiffs(filePath, [], { diff: item.diff }).map((diff) => ({
+  const listedFiles = Array.isArray(value.files) ? value.files.map(record2).filter((item) => Object.keys(item).length > 0) : [];
+  const singleFile = record2(value.filediff);
+  const files = listedFiles.length ? listedFiles : Object.keys(singleFile).length ? [singleFile] : [];
+  if (files.length) {
+    const nestedDiffs = files.flatMap((item) => {
+      const filePath = typeof item.filePath === "string" ? item.filePath : typeof item.file === "string" ? item.file : typeof item.path === "string" ? item.path : "";
+      const patch2 = typeof item.diff === "string" ? item.diff : typeof item.patch === "string" ? item.patch : "";
+      const kind = fileChangeKind(item.type ?? item.status);
+      return opencodeFileDiffs(filePath, [], { diff: patch2 }).map((diff) => ({
         ...diff,
-        ...item.type === "add" || item.type === "delete" ? { kind: item.type } : {},
+        ...kind ? { kind } : {},
         ...typeof item.movePath === "string" ? { movePath: item.movePath, kind: "rename" } : {}
       }));
     });
+    if (nestedDiffs.length) return nestedDiffs;
   }
   const patch = typeof value.diff === "string" ? value.diff : typeof value.patch === "string" ? value.patch : "";
   const diffs = patch ? parsePatch(path, patch) : [];
@@ -1180,7 +1205,13 @@ function toolFileDiffs(part) {
   const input = state.input && typeof state.input === "object" ? state.input : {};
   const path = String(input.filePath ?? input.file_path ?? input.path ?? "");
   const edits = extractCanonicalEdits(input);
-  const metadata = state.metadata && typeof state.metadata === "object" ? state.metadata : {};
+  let metadata = state.metadata && typeof state.metadata === "object" ? state.metadata : {};
+  const hasFiles = Array.isArray(metadata.files) && metadata.files.some((file) => file && typeof file === "object" && Object.keys(file).length > 0);
+  const fileDiff = metadata.filediff && typeof metadata.filediff === "object" ? metadata.filediff : {};
+  if (part.tool?.toLowerCase() === "apply_patch" && typeof metadata.diff !== "string" && typeof metadata.patch !== "string" && !hasFiles && !Object.keys(fileDiff).length) {
+    const patch = typeof input.patch === "string" ? input.patch : typeof input.input === "string" ? input.input : "";
+    if (patch) metadata = { ...metadata, patch };
+  }
   const creation = part.tool === "write" && metadata.exists === false && typeof input.content === "string" ? [{ path, old: "", new: input.content }] : [];
   const diffs = opencodeFileDiffs(path, [...edits, ...creation], metadata);
   if (creation.length) {
@@ -1203,6 +1234,12 @@ function canonicalToolFields(name, input) {
   if (lower === "bash" || lower === "shell" || lower === "exec" || lower === "run") {
     return { kind: "command", summary: cleanToolText(command, "Command"), detail: command, edits: [] };
   }
+  if (lower === "apply_patch") {
+    const patch = text2("patch") || text2("input");
+    const paths = opencodeFileDiffs("", [], { patch }).map((diff) => diff.path).filter(Boolean);
+    const summary = paths.length ? paths.join("\n") : "Apply patch";
+    return { kind: "edit", summary, detail: summary, edits: [] };
+  }
   if (lower === "edit" || lower === "multiedit" || lower === "write") {
     return { kind: "edit", summary: path || "File edit", detail: path, edits };
   }
@@ -1211,6 +1248,20 @@ function canonicalToolFields(name, input) {
   }
   if (lower === "glob" || lower === "grep" || lower === "search") {
     return { kind: "search", summary: cleanToolText(pattern || path, "Search"), detail: pattern || path, edits: [] };
+  }
+  if (lower === "webfetch") {
+    const url = text2("url");
+    return { kind: "fetch", summary: cleanToolText(url, "Fetch URL"), detail: url, edits: [] };
+  }
+  if (lower === "todoread" || lower === "todowrite" || lower === "question") {
+    const summary = lower === "todoread" ? "Read tasks" : lower === "question" ? "Ask question" : "Update tasks";
+    return { kind: "task", summary, detail: "", edits: [] };
+  }
+  if (lower === "skill") {
+    const name2 = text2("name") || text2("skill");
+    const directory3 = text2("dir");
+    const summary = cleanToolText(name2 || directory3, "Read skill");
+    return { kind: "read", summary, detail: directory3 || name2 || "", edits: [] };
   }
   return { kind: "generic", summary: cleanToolText(tool, "Tool"), detail: tool, edits };
 }
@@ -2286,23 +2337,51 @@ function toolId(message, id) {
 function toolContent(raw) {
   return list(raw).map(object2).filter((part) => part.type === "text" && typeof part.text === "string").map((part) => String(part.text)).join("\n");
 }
+function toolInput(raw) {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw;
+  if (typeof raw !== "string") return {};
+  try {
+    return object2(JSON.parse(raw));
+  } catch (_) {
+    return {};
+  }
+}
+function errorText(raw) {
+  if (typeof raw === "string") return raw;
+  const error = object2(raw), data = object2(error.data);
+  return text(error.message) || text(data.message) || text(error.type) || "Tool failed";
+}
 function v2Content(message, raw, ordinal, seq, ts) {
   const part = object2(raw), type = part.type;
   const timestamp2 = ts !== void 0 ? { timestamp: new Date(ts).toISOString() } : {};
   if (type === "text" || type === "reasoning") return { id: contentId(message, type, ordinal), seq, type: type === "text" ? "assistant" : "thinking", content: String(part.text ?? ""), ...timestamp2 };
   if (type !== "tool" || !text(part.id) || !text(part.name)) return void 0;
-  const state = object2(part.state), time = object2(part.time), status = String(state.status);
+  const name = String(part.name), id = String(part.id), state = object2(part.state), time = object2(part.time);
+  const input = toolInput(state.input), metadata = { ...object2(part.metadata), ...object2(state.metadata) };
+  const error = object2(state.error), aborted = state.status === "error" && error.type === "aborted";
+  const timedOut = !aborted && metadata.timeout === true;
+  const failed = !aborted && (state.status === "error" || timedOut);
+  const status = aborted ? "interrupted" : failed ? "failed" : state.status === "streaming" ? "running" : String(state.status);
+  const canonical = canonicalToolFields(name, input);
+  const partForDiffs = { type: "tool", tool: name, state: { ...state, input, metadata, status: String(state.status) } };
+  const diffs = toolFileDiffs(partForDiffs);
+  const result = state.error ? errorText(state.error) : toolContent(state.content);
   return {
-    id: toolId(message, String(part.id)),
+    id: toolId(message, id),
     seq,
     type: "tool_call",
     content: "",
-    toolName: String(part.name),
-    toolId: String(part.id),
-    toolInput: object2(state.input),
+    toolName: name,
+    toolId: id,
+    toolKind: canonical.kind,
+    toolSummary: canonical.summary,
+    toolDetail: canonical.detail,
+    toolEdits: canonical.edits,
+    fileDiffs: diffs,
+    toolInput: input,
     toolStatus: status,
-    ...state.content ? { toolResult: toolContent(state.content) } : {},
-    ...state.error ? { toolResult: String(object2(state.error).message ?? "Tool failed"), toolError: true } : {},
+    ...result ? { toolResult: result } : {},
+    ...aborted ? { toolInterrupted: true } : failed ? { toolError: true } : state.status === "completed" ? { toolError: false } : {},
     ...typeof time.ran === "number" ? { toolStartedAtMs: time.ran } : {},
     ...typeof time.completed === "number" ? { toolCompletedAtMs: time.completed } : {},
     ...timestamp2
