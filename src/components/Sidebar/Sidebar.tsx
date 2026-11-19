@@ -44,6 +44,8 @@ import { SidebarSkeleton } from "./SidebarSkeleton";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
+import { WorkspaceBrowseSection } from "./WorkspaceBrowseSection";
+import { useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 import { SidebarCompactRail, type CompactRailGroup } from "./SidebarCompactRail";
 import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
 import type { SidebarTeamActions } from "./TeamUnit";
@@ -136,6 +138,7 @@ export const Sidebar = memo(function Sidebar({
     upsertToast,
   } = useMultiplexer();
   const backendState = useMuxSelector(selectSidebarState, sidebarStateEqual);
+  const workspaceBrowseTarget = useWorkspaceBrowseTarget();
   const selectedState = firstRunSelection(firstRunActive, { ...backendState, focused_tab_id: null });
   const visibleTabs = useMemo(() => firstRunSidebarTabs(firstRunActive, backendState.tabs), [firstRunActive, backendState.tabs]);
   const state = { ...selectedState, tabs: visibleTabs };
@@ -722,7 +725,15 @@ export const Sidebar = memo(function Sidebar({
               {!isCompact && !restoring && <SidebarStructuralSection label="WORKSPACES" testId="workspaces-section-toggle"
                 firstRunMuted={firstRunActive}
                 expanded={workspacesSectionExpanded} onToggle={toggleWorkspacesSection}>
-                {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (
+                {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (workspaceBrowseTarget ? (
+                  <WorkspaceBrowseSection
+                    selectedViewerId={state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null}
+                    onSelectViewer={tabId => {
+                      setActiveTab(generalWorkspace?.id ?? "", tabId);
+                      onNavigateToTab?.();
+                    }}
+                  />
+                ) : (
                   <>
                     <WorkspaceCardGrid
                       workspaces={ordinaryWorkspaces}
@@ -747,7 +758,7 @@ export const Sidebar = memo(function Sidebar({
                       />
                     )}
                   </>
-                )}
+                ))}
               </SidebarStructuralSection>}
               </SidebarDnd>
             </div>

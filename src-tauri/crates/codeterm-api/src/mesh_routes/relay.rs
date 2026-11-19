@@ -222,7 +222,8 @@ fn sanitize_cross_peer_parent(obj: &mut serde_json::Map<String, serde_json::Valu
 /// assumption (it only ever talks to the daemon that served it).
 #[derive(serde::Deserialize)]
 pub struct PeerRelayCommand {
-    pub target_peer_id: String,
+    pub target_peer_id: Option<String>,
+    pub target_instance_id: Option<String>,
     #[serde(default = "default_relay_method")]
     pub method: String,
     pub path: String,
@@ -350,7 +351,11 @@ pub async fn mesh_relay_to_peer(
     }
     let (client, peer_id, peer_name, peer_version) = {
         let mesh = state.mesh.lock();
-        resolve_relay_peer(&mesh, &req.target_peer_id)?
+        match (&req.target_instance_id, &req.target_peer_id) {
+            (Some(id), None) => resolve_exact_relay_peer(&mesh, id)?,
+            (None, Some(target)) => resolve_relay_peer(&mesh, target)?,
+            _ => return Err((StatusCode::BAD_REQUEST, "Provide one relay target".into())),
+        }
     };
     let client = origin::peer_client(&state, &headers, client)?;
     let answered_by = |response| {
@@ -1125,8 +1130,8 @@ use peer_authorization::{
     PeerRelayAuthorization,
 };
 use peer_resolution::{
-    peer_not_paired_error, peer_unroutable_error, resolve_relay_peer, AnsweringPeer,
-    PeerRelayResponse,
+    peer_not_paired_error, peer_unroutable_error, resolve_exact_relay_peer, resolve_relay_peer,
+    AnsweringPeer, PeerRelayResponse,
 };
 #[cfg(test)]
 use peer_resolution::{

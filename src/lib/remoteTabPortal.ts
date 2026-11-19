@@ -1,10 +1,17 @@
 import type { Tab } from "./types";
 import { frontendCacheRepository, frontendCacheScope, type FrontendCacheRecord } from "./frontendCacheRecords";
+import { parseCompositeTabId } from "./remoteTabTransport";
 
 export interface RemotePeerTabs {
   peer_id: string;
   peer_name: string;
   tabs: Tab[];
+}
+
+export function remoteViewerIdentity(tab: Tab) {
+  const identity = parseCompositeTabId(tab.id);
+  return identity && identity.peerId === tab.remote_peer_id && identity.remoteTabId === tab.remote_tab_id
+    ? identity : null;
 }
 
 const CACHE_SCOPE = "codeterm:remote-tab-attachments:v1";
@@ -41,7 +48,7 @@ function validAttachments(records: FrontendCacheRecord[], schemaVersion: unknown
   for (const record of records) {
     if (record.kind !== "attachment") continue;
     const tab = record.value as Tab | null;
-    if (!tab || typeof tab !== "object" || record.id !== tab.id || !record.id.startsWith("mesh:")) return null;
+    if (!tab || typeof tab !== "object" || record.id !== tab.id || !remoteViewerIdentity(tab)) continue;
     tabs[record.id] = tab;
   }
   return tabs;
@@ -119,7 +126,7 @@ export function saveAttachedRemoteTabs(tabs: Record<string, Tab>): void {
   const scope = cacheScope();
   if (!scope) return;
   const cache = cacheFor(scope);
-  const valid = Object.fromEntries(Object.entries(tabs).filter(([id, tab]) => id === tab.id && id.startsWith("mesh:")));
+  const valid = Object.fromEntries(Object.entries(tabs).filter(([id, tab]) => id === tab.id && remoteViewerIdentity(tab)));
   const previousIds = Object.keys(cache.tabs);
   cache.tabs = valid;
   if (!cache.hydrated) {

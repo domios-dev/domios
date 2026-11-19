@@ -362,9 +362,16 @@ function AppInner() {
 
   const navigateToNotificationTab = useCallback(
     (tabId: string, workspaceId: string | null) => {
-      const owner = workspaceId ?? stateRef.current.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id;
-      if (owner) {
-        void selectTabByTab(owner, tabId);
+      const workspaces = stateRef.current.workspaces;
+      const owner = workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id;
+      if (tabId.startsWith("mesh:")) {
+        const viewerWorkspace = owner ?? workspaces.find((workspace) => workspace.protected)?.id;
+        if (viewerWorkspace) void selectTabByTab(viewerWorkspace, tabId);
+        return;
+      }
+      const workspace = workspaceId ?? owner;
+      if (workspace) {
+        void selectTabByTab(workspace, tabId);
         return;
       }
       setFocusedTab(tabId);

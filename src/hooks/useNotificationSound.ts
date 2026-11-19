@@ -6,6 +6,7 @@ import {
   establishChimeOnFirstGesture,
   playArrivalChime,
   shouldSoundArrival,
+  subscribeRemoteNotificationArrival,
   type GestureTarget,
 } from "../lib/notificationSound";
 import type { AgentLevelChoice } from "../lib/types";
@@ -53,18 +54,21 @@ export function useNotificationSound(
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let dropped = false;
-    void listen<{ level?: string | null }>(ARRIVAL_EVENT, (event) => {
-      if (!shouldSoundArrival(enabledRef.current, levelsRef.current, event.payload?.level)) return;
+    const onArrival = (level?: string | null) => {
+      if (!shouldSoundArrival(enabledRef.current, levelsRef.current, level)) return;
       const context = chimeContext();
       if (!context) return;
       playArrivalChime(context);
-    }).then((off) => {
+    };
+    const unsubscribeRemote = subscribeRemoteNotificationArrival(onArrival);
+    void listen<{ level?: string | null }>(ARRIVAL_EVENT, (event) => onArrival(event.payload?.level)).then((off) => {
       if (dropped) off();
       else unlisten = off;
     });
     return () => {
       dropped = true;
       unlisten?.();
+      unsubscribeRemote();
     };
   }, []);
 }

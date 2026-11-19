@@ -137,7 +137,8 @@ describe("remote Tab portal projection", () => {
     setFrontendCacheStorageForTests(new FakeStorage());
     configureDaemonTransport({ origin: "http://fixture.test", token: "remote-test-structural" });
     const projected = projectAttachedRemoteTab(source({ kind: "pty" }, "pty"), { peer_id: "peer", peer_name: "Peer" }, "ws");
-    saveAttachedRemoteTabs({ [projected.id]: projected, invalid: { ...projected, id: "local" } });
+    const wrongHost = { ...projected, id: "mesh:other/remote-tab" };
+    saveAttachedRemoteTabs({ [projected.id]: projected, invalid: { ...projected, id: "local" }, [wrongHost.id]: wrongHost });
     await (await import("./remoteTabPortal")).hydrateAttachedRemoteTabs();
     expect(Object.keys(loadAttachedRemoteTabs())).toEqual(["mesh:peer/remote-tab"]);
   });
