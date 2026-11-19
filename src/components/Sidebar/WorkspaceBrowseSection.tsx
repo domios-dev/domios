@@ -1,3 +1,4 @@
+import { useMeshPeerName } from "../../lib/useMeshMachineIdentities";
 import { useState } from "react";
 import { cleanMachineName } from "../../lib/machineIdentity";
 import type { Tab } from "../../lib/types";
@@ -19,7 +20,7 @@ interface WorkspaceBrowseSectionProps {
 export function WorkspaceBrowseSection(props: WorkspaceBrowseSectionProps) {
   const { browse } = usePairedWorkspaceInventory();
   if (!browse || browse.availability !== "online") return null;
-  const machine = cleanMachineName(browse.target.name, browse.target.id);
+  const machine = useMeshPeerName(browse.target.id) ?? cleanMachineName(browse.target.name, browse.target.id);
   return browse.workspaces.filter(workspace => workspace.tabs.length > 0).map(workspace => <WorkspaceRows
     key={JSON.stringify([workspace.peerId, workspace.workspace.id])}
     workspace={workspace}

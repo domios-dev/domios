@@ -1,3 +1,5 @@
+import { registryMachineNames, type DuplicateMachineName } from "../../lib/registryMachineNames";
+import { cleanMachineName } from "../../lib/machineIdentity";
 import { connectionPresentation, type ConnectionPhase } from "./connectionPhase";
 import type { Notification } from "../../lib/notificationTypes";
 import { DEV_BUILD } from "../../lib/devBuild";
@@ -17,6 +19,7 @@ export interface MachineRowView {
   transport?: import("./networkTransport").NetworkIdentity;
   key: string;
   name: string;
+  displayName?: string | null;
   status: MachineStatus;
   detail: string;
   online: boolean | null;
@@ -36,7 +39,7 @@ export interface SelfRowView {
 export type MyMachinesView =
   | { kind: "loading" }
   | { kind: "sign_in"; headline: string; blocked: boolean; saved: MachineRowView[]; notes: string[] }
-  | { kind: "account"; machineLimit?: { limit: number; activeCount: number }; reauthRequired: boolean; removed?: boolean; self: SelfRowView | null; machines: MachineRowView[]; saved: MachineRowView[]; notes: string[] };
+  | { kind: "account"; machineLimit?: { limit: number; activeCount: number }; reauthRequired: boolean; removed?: boolean; self: SelfRowView | null; machines: MachineRowView[]; duplicateNames?: DuplicateMachineName[]; saved: MachineRowView[]; notes: string[] };
 export interface MyMachinesInput {
   account: AccountPresence;
   snapshot: AccountMeshSnapshot | null;
@@ -60,10 +63,11 @@ export function myMachinesView({ account, snapshot, listFailure = null, now }: M
   const usable = snapshot.traffic !== "blocked_signed_out" && snapshot.binding !== "other" && refusal?.reason !== "enrollment_budget";
   const selfId = snapshot.local_installation_id;
   const unique = new Map((snapshot.registry?.rows ?? []).map(row => [row.installation_id, row]));
+  const { labels, duplicates } = registryMachineNames(snapshot.registry?.cursor ? [] : [...unique.values()]);
   const machines = [...unique.values()].filter(row => row.installation_id !== selfId).map(row => {
     const pair = snapshot.pairs.find(pair => pair.installation_id === row.installation_id) ?? null;
     const phase = snapshot.connections?.find(connection => connection.installation_id === row.installation_id)?.phase;
-    const result = machineRow(row, pair, now, usable, phase);
+    const result = machineRow(row, pair, now, usable, phase, labels.get(row.installation_id));
     return machineLimit ? { ...result, controls: { ...result.controls, plans: true } } : result;
   });
   if (refusal && !snapshot.publication_failure) notes.push(enrollmentRetryMessage(snapshot, now) ?? failureMessage(refusal, DEV_BUILD, snapshot.retry_at ?? undefined, true));
@@ -76,16 +80,16 @@ export function myMachinesView({ account, snapshot, listFailure = null, now }: M
     kind: "account", machineLimit,
     removed: ownRow?.active === false,
     reauthRequired: snapshot.enrollment === "refused" && ["reauth_required", "generation_mismatch", "key_conflict", "revoked"].includes(refusal?.reason ?? ""),
-    self: own ? { readOnly: !usable, planLimited: locked, name: ownRow?.display_name ?? own.display_name ?? "This machine", installationId: own.installation_id,
+    self: own ? { readOnly: !usable, planLimited: locked, name: labels.get(selfId) ?? cleanMachineName(ownRow?.display_name ?? own.display_name) ?? "This machine", installationId: own.installation_id,
       metadataRevision: ownRow?.metadata_revision ?? own.metadata_revision, displayName: ownRow?.display_name ?? own.display_name } : null,
-    machines, saved: [], notes,
+    machines, duplicateNames: duplicates.length ? duplicates : undefined, saved: [], notes,
   };
 }
 
-function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, now: number, usable: boolean, phase?: ConnectionPhase): MachineRowView {
-  const name = row.display_name ?? "Unnamed machine";
+function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, now: number, usable: boolean, phase?: ConnectionPhase, label?: string): MachineRowView {
+  const name = label ?? cleanMachineName(row.display_name) ?? "Unnamed machine";
   const target: MeshTarget = { installation_id: row.installation_id, key_id: row.key_id, key_generation: row.key_generation, slot_revision: row.slot_revision };
-  const base = { key: row.installation_id, name, transport: row.endpoint?.transport, online: pair?.online ?? null,
+  const base = { key: row.installation_id, name, displayName: row.display_name, transport: row.endpoint?.transport, online: pair?.online ?? null,
     target: usable ? target : null, pairInstanceId: pair?.instance_id ?? null, lastSeenAt: row.authenticated_at,
     canSignOut: usable && row.presence !== "signed_out", controls: { revoke: usable && row.active ? target : null } };
   if (!row.active || row.eligibility === "revoked") return { ...base, status: "revoked", detail: "Removed from your mesh", online: false };

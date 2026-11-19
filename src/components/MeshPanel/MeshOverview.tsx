@@ -73,7 +73,7 @@ export function MeshOverview({ state, account, name, tailscale }: {
     <div className="mesh-overview__local">
       <MachineNode name={localName} tone={signedOut ? undefined : off ? "warning" : "online"}
         status={signedOut ? "This machine" : off ? "Tailscale is off" : "online · this machine"} />
-      <div className="mesh-overview__identity"><MachineSessionControls name={localName} busy={false} identityPeer={null} /></div>
+      <div className="mesh-overview__identity"><MachineSessionControls name={localName} busy={false} identityPeer={null} rename={account.onRenameSelf ? { displayName: account.selfDisplayName, save: account.onRenameSelf } : undefined} /></div>
     </div>
     <div className="neighbor-me__signin mesh-overview__copy" role="status">
       <p className="neighbor-me__title">{signedOut ? "Sign in to connect your machines" : off ? "Turn on Tailscale to reach your machines" : "No other machines yet"}</p>

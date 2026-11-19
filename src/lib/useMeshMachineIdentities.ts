@@ -1,11 +1,37 @@
 import { useSyncExternalStore } from "react";
 import { cleanMachineName, type MachineIdentity, type MeshIdentityProjection } from "./machineIdentity";
+import { registryMachineNames } from "./registryMachineNames";
+import type { AccountMeshSnapshot } from "../components/MeshPanel/accountMeshClient";
 import type { MeshPeersResponse } from "./types";
 
 const subscribers = new Set<() => void>();
 type Snapshot = MeshIdentityProjection & Pick<MeshPeersResponse, "installations"> & { peers?: MeshPeersResponse["paired"] };
 const empty: Snapshot = {};
 let snapshot = empty;
+let accountNames: { local?: string; peers: ReadonlyMap<string, string> } = { peers: new Map() };
+
+export function rememberAccountMachineNames(account: AccountMeshSnapshot | null) {
+  const registry = account?.registry;
+  const labels = registryMachineNames(account?.traffic !== "blocked_signed_out" && account?.binding !== "other"
+    && registry && !registry.cursor ? registry.rows : []).labels;
+  const local = account ? labels.get(account.local_installation_id) : undefined;
+  const peers = new Map((account?.pairs ?? []).flatMap(pair => {
+    const label = labels.get(pair.installation_id);
+    return label ? [[pair.instance_id, label] as const] : [];
+  }));
+  if (local === accountNames.local && peers.size === accountNames.peers.size &&
+    [...peers].every(([id, name]) => accountNames.peers.get(id) === name)) return;
+  accountNames = { local, peers };
+  subscribers.forEach(listener => listener());
+}
+
+export function accountPeerMachineName(peerId: string): string | undefined {
+  return accountNames.peers.get(peerId);
+}
+
+export function useAccountMachineNames() {
+  return useSyncExternalStore(subscribe, () => accountNames, () => accountNames);
+}
 
 function subscribe(listener: () => void) {
   subscribers.add(listener);
@@ -36,7 +62,7 @@ export function useMeshPeerName(peerId?: string | null): string | undefined {
     const peer = snapshot.peers?.find(peer => peer.instance_id === peerId);
     const installation = snapshot.installations?.find(candidate =>
       candidate.instance_id === peerId || candidate.installation_id === peerId);
-    return cleanMachineName(peer?.instance_name, peerId) ?? cleanMachineName(installation?.name, peerId);
+    return accountPeerMachineName(peerId) ?? cleanMachineName(peer?.instance_name, peerId) ?? cleanMachineName(installation?.name, peerId);
   };
   return useSyncExternalStore(peerId ? subscribe : ignoreSubscription, readName, readName);
 }

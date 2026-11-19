@@ -40,7 +40,12 @@ export function useMachineJoin(enabled: boolean, peerId?: string) {
   return { view: view && !view.chosen ? view : undefined, value: draft ?? view?.identity, setDraft, beforeJoin, error };
 }
 
-export function MachineIdentityEditor({ name, value, setValue, error, retry, onClose, phone }: {
+export interface MachineRename {
+  displayName?: string | null;
+  save: (name: string) => Promise<boolean>;
+}
+
+export function MachineIdentityEditor({ name, value, setValue, error, retry, onClose, phone, nameField }: {
   name: string;
   value: MachineIdentity;
   setValue: (identity: MachineIdentity) => void;
@@ -48,6 +53,7 @@ export function MachineIdentityEditor({ name, value, setValue, error, retry, onC
   retry: () => void;
   onClose: () => void;
   phone: boolean;
+  nameField?: React.ReactNode;
 }) {
   const providerId = useContext(PageDataContext)?.config.config.general_agent.agent_provider;
   const displayName = cleanMachineName(name) ?? "This machine";
@@ -76,29 +82,64 @@ export function MachineIdentityEditor({ name, value, setValue, error, retry, onC
         </div>
       </div>
     </div>
+    {nameField}
     <MachineIdentityControls value={value} onChange={setValue} />
     {error && <MachineIdentitySaveError error={error} retry={retry} />}
     {phone && <Button className="machine-identity-editor__done" onClick={onClose}>Done</Button>}
   </div>;
 }
 
-export function MachineIdentityPopover({ name, peerId, initial, onClose, anchor }: {
+export function MachineIdentityPopover({ name, peerId, initial, onClose, anchor, rename, focusName }: {
   name: string;
   peerId?: string;
   initial: MachineIdentity;
   onClose: () => void;
   anchor: React.RefObject<HTMLElement | null>;
+  rename?: MachineRename;
+  focusName?: boolean;
 }) {
   const [value, setValue] = useState(initial);
   const [failure, setFailure] = useState<string>();
+  const baseName = cleanMachineName(rename?.displayName);
+  const [draft, setDraft] = useState<string>();
+  const [nameError, setNameError] = useState<string>();
+  const savedName = useRef(baseName);
+  const namePending = useRef(false);
+  const [savingName, setSavingName] = useState(false);
+  const previewName = draft?.trim() && draft.trim() !== baseName ? draft.trim() : name;
+  async function saveName() {
+    if (!rename || draft === undefined || namePending.current) return;
+    const next = cleanMachineName(draft);
+    if (!next || new TextEncoder().encode(next).length > 128 || [...next].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) {
+      setNameError("Enter a machine name up to 128 bytes without control characters.");
+      return;
+    }
+    if (next === (savedName.current ?? baseName)) {
+      setNameError(undefined);
+      return;
+    }
+    namePending.current = true;
+    setSavingName(true);
+    try {
+      if (!await rename.save(next)) throw new Error("The machine is unavailable.");
+      savedName.current = next;
+      setDraft(current => current === draft ? next : current);
+      setNameError(undefined);
+    } catch (error) {
+      setNameError(error instanceof Error ? error.message : String(error));
+    } finally {
+      namePending.current = false;
+      setSavingName(false);
+    }
+  }
   const pending = useRef(Promise.resolve());
   const sequence = useRef(0);
   const editor = useRef<HTMLDivElement | null>(null);
   const phone = usePhoneViewport();
   useBackDismissal(true, onClose);
   useLayoutEffect(() => {
-    editor.current?.querySelector<HTMLButtonElement>('[role="radio"][aria-checked="true"]')?.focus({ preventScroll: true });
-  }, []);
+    editor.current?.querySelector<HTMLElement>(focusName ? "[data-machine-name]" : '[role="radio"][aria-checked="true"]')?.focus({ preventScroll: true });
+  }, [focusName]);
   useEffect(() => {
     let live = true;
     void readMachineIdentity(peerId).then(result => {
@@ -122,7 +163,21 @@ export function MachineIdentityPopover({ name, peerId, initial, onClose, anchor 
 
   return <AnchoredPopover open anchor={anchor} placement="bottom-end" bottomSheet={phone} className={phone ? "machine-identity-sheet" : undefined} onClose={onClose}>
     <div ref={editor} className="ct-menu ct-menu--opaque machine-identity-menu">
-      <MachineIdentityEditor name={name} value={value} setValue={update} error={failure} retry={() => update(value)} onClose={onClose} phone={phone} />
+      <MachineIdentityEditor name={previewName} value={value} setValue={update} error={failure} retry={() => update(value)} onClose={onClose} phone={phone}
+        nameField={rename && <>
+          <label className="grid gap-1 text-[length:var(--ct-font-size-meta)] text-[var(--ct-muted-fg)]">
+            Machine name
+            <input className="ct-field text-[var(--ct-fg)]" data-machine-name value={draft ?? baseName ?? ""} readOnly={savingName} aria-busy={savingName || undefined}
+              onChange={event => { setDraft(event.target.value); setNameError(undefined); }}
+              onBlur={() => void saveName()} maxLength={128}
+              onKeyDown={event => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                void saveName();
+              }} />
+          </label>
+          {nameError && <MachineIdentitySaveError title="Couldn't save the machine name." error={nameError} retry={() => void saveName()} />}
+        </>} />
     </div>
   </AnchoredPopover>;
 }

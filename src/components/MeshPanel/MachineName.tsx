@@ -2,12 +2,13 @@ import { Pencil } from "lucide-react";
 import { UI_BUTTON } from "../shared/design";
 import { useMachineName } from "./useMachineName";
 
-export function MachineName({ name, onRename, disabledReason }: {
+export function MachineName({ name, onRename, disabledReason, displayName }: {
   name: string;
   onRename?: (name: string) => Promise<boolean>;
   disabledReason?: string;
+  displayName?: string | null;
 }) {
-  const { editing, draft, setDraft, saving, failed, begin, cancel, save } = useMachineName(name, onRename);
+  const { editing, draft, setDraft, saving, failed, begin, cancel, save } = useMachineName(displayName ?? name, onRename);
   return <span className="group/name flex min-w-0 flex-1 items-center gap-1" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
     {editing ? <><input aria-label={`Name for ${name}`} value={draft} autoFocus disabled={saving} aria-busy={saving}
       className="min-w-0 w-full rounded border border-[var(--ct-accent)] bg-[var(--ct-bg)] px-1 text-[var(--ct-fg)]"
