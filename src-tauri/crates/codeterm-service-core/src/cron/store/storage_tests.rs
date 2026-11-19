@@ -848,11 +848,15 @@ fn storage_cron_legacy_and_storage_backends_never_cross() {
 }
 
 #[test]
-fn storage_cron_previous_schema_is_refused_without_upgrade() {
+fn storage_cron_previous_schema_upgrades_in_place() {
     let temp = tempfile::tempdir().expect("temp root");
     std::fs::create_dir_all(instance(&temp)).unwrap();
     Storage::seed_before_cron_schema(&instance(&temp)).expect("seed");
-    assert!(Storage::open(instance(&temp), StorageConfig::default()).is_err());
+    let storage = Storage::open(instance(&temp), StorageConfig::default()).expect("upgrade seed");
+    storage
+        .shutdown()
+        .wait(DEADLINE)
+        .expect("close upgraded storage");
 }
 
 #[test]
