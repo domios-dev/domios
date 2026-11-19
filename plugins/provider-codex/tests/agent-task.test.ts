@@ -15,7 +15,7 @@ vm.runInNewContext(readFileSync(new URL("../plugin.js", import.meta.url), "utf8"
 });
 const plugin = (module.exports as { default: {
   runAgentTask(input: AgentTaskInput): HostIoSteps<AgentTaskResult>;
-  abortAgentTask(runId: string): HostIoSteps<null>;
+  abortAgentTask(runId: string): HostIoSteps<void>;
 } }).default;
 
 const input: AgentTaskInput = {
@@ -81,15 +81,15 @@ const concurrent = start("other-run");
 attach(concurrent, "exec-other");
 const abort = plugin.abortAgentTask(input.runId);
 assert.deepEqual(plain(abort.next().value), { op: "execClose", job: "exec-cancelled" });
-assert.deepEqual(plain(abort.next()), { done: true, value: null });
+assert.deepEqual(plain(abort.next()), { done: true });
 assert.deepEqual(plain(cancelled.next(receipt("thread-cancelled")).value), {
   status: "cancelled", output: null,
 });
 assert.equal(plain(concurrent.next(receipt("thread-other")).value).output.threadId, "thread-other");
-assert.deepEqual(plain(plugin.abortAgentTask(input.runId).next()), { done: true, value: null });
+assert.deepEqual(plain(plugin.abortAgentTask(input.runId).next()), { done: true });
 
 const starting = start();
-assert.deepEqual(plain(plugin.abortAgentTask(input.runId).next()), { done: true, value: null });
+assert.deepEqual(plain(plugin.abortAgentTask(input.runId).next()), { done: true });
 assert.deepEqual(plain(starting.next({ jobId: "exec-late" }).value), { op: "execClose", job: "exec-late" });
 assert.deepEqual(plain(starting.next().value), { status: "cancelled", output: null });
 

@@ -1356,7 +1356,6 @@ function* abortAgentTask(runId) {
     runs.delete(runId);
     if (run.job) yield* ioValue({ op: "execClose", job: run.job });
   }
-  return null;
 }
 
 // plugins/provider-codex/src/runtimeHistoryBounds.ts

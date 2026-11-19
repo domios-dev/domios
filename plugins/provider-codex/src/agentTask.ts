@@ -139,12 +139,11 @@ export function* runAgentTask(input: AgentTaskInput): HostIoSteps<AgentTaskResul
   }
 }
 
-export function* abortAgentTask(runId: string): HostIoSteps<null> {
+export function* abortAgentTask(runId: string): HostIoSteps<void> {
   const run = runs.get(runId);
   if (run) {
     run.cancelled = true;
     runs.delete(runId);
     if (run.job) yield* ioValue({ op: "execClose", job: run.job });
   }
-  return null;
 }
