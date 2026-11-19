@@ -1438,6 +1438,7 @@ dependencies = [
  "async-trait",
  "base64 0.23.1",
  "block2",
+ "codeterm-frontend-shell",
  "codeterm-util",
  "dirs 6.0.0",
  "futures-util",

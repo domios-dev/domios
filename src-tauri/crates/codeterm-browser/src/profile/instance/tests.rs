@@ -51,10 +51,19 @@ fn dev_identity_requires_exact_name_port_and_development_identifier() {
     let health =
         json!({"instance":{"name":"qa","api_port":"7790","identifier":"com.domios.dev.qa"}});
     verify_dev_identity(&health, "qa", 7790).unwrap();
+    let hyphenated = json!({"instance":{
+        "name":"acceptance-r161", "api_port":7707,
+        "identifier":"com.domios.dev.acceptance.r161"
+    }});
+    verify_dev_identity(&hyphenated, "acceptance-r161", 7707).unwrap();
+    assert!(verify_dev_identity(&hyphenated, "acceptance-r162", 7707).is_err());
+    assert!(verify_dev_identity(&hyphenated, "acceptance-r161", 7708).is_err());
     for (field, value) in [
         ("name", "other"),
         ("api_port", "7685"),
         ("identifier", "com.domios.app"),
+        ("identifier", "com.domios.developer"),
+        ("identifier", "com.domios.dev.bad/name"),
     ] {
         let mut wrong = health.clone();
         wrong["instance"][field] = json!(value);
