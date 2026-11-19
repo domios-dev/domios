@@ -1,19 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Check, ChevronDown } from "lucide-react";
-import { flushSync } from "react-dom";
 import { listen } from "../../lib/bridge";
-import { resetWebEvents } from "../../lib/webEvents";
-import { resetOutputStream } from "../../lib/outputStream";
 import { formatLastActiveBadge, rankPeersByLastActive } from "../../lib/peerRanking";
 import {
-  clearRelayTarget,
   localJson,
   relayPeerUsable,
-  relayTarget,
-  setRelayTarget,
   selfHost,
-  invalidateWebRequestContext,
 } from "../../lib/webApi";
+import { setWorkspaceBrowseTarget, useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { MachineGlyph } from "../shared/MachineGlyph";
 import { machineLabel, type MeshIdentityProjection } from "../../lib/machineIdentity";
@@ -21,24 +15,15 @@ import { menuKeyAction } from "./menuKeyboard";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import { hasLocalInstanceName, localInstanceLabel, onMeshPeersLoaded, rememberLocalInstanceName } from "../../lib/localInstanceName";
 
-let nextPeerSwitchId = 0;
-
 type PairedPeer = Pick<import("../../../gen/PairedPeer").PairedPeer, "instance_id" | "instance_name" | "addresses" | "api_port" | "online" | "relay_protocol_version" | "last_active_ms">;
 type MeshPeers = Omit<Pick<import("../../../gen/MeshPeersResponse").MeshPeersResponse, "paired" | "local_instance_name">, "paired"> & {paired: PairedPeer[]} & MeshIdentityProjection;
 
-/**
- * Web-mirror peer switcher (top-left). Lists the LOCAL daemon's paired mesh
- * peers; selecting one sets a relay target so every request is proxied
- * through the local daemon's mesh relay (the browser stays pointed at its own
- * daemon — no re-point, no peer-scoped token). Selecting the gateway machine
- * clears the target. In-place switch reattaches events and refreshes mux state.
- */
+/** Selects which paired host supplies the Web workspace inventory. */
 export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [peers, setPeers] = useState<PairedPeer[]>([]);
   const [localName, setLocalName] = useState(localInstanceLabel);
   const [open, setOpen] = useState(false);
-  const [displayTarget, setDisplayTarget] = useState(relayTarget);
-  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
+  const target = useWorkspaceBrowseTarget();
   const [identities, setIdentities] = useState<MeshIdentityProjection>({});
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -89,17 +74,6 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     };
   }, [refresh]);
 
-  useEffect(() => {
-    const ready = (event: Event) => {
-      const detail = (event as CustomEvent<{ switchId: number; success: boolean }>).detail;
-      if (detail.switchId !== nextPeerSwitchId) return;
-      setDisplayTarget(relayTarget());
-      setSwitchingTo(null);
-    };
-    window.addEventListener("codeterm-peer-switch-ready", ready);
-    return () => window.removeEventListener("codeterm-peer-switch-ready", ready);
-  }, []);
-
   const menuItems = useCallback(
     () => Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? []),
     [],
@@ -128,32 +102,16 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     [closeMenu, menuItems],
   );
 
-  const target = displayTarget;
   const onSelf = !target;
-  const label = switchingTo ? `Connecting to ${switchingTo}` : onSelf ? localName : target.name;
+  const label = onSelf ? localName : target.name;
   const identity = onSelf ? identities.local_machine_identity : identities.machine_identities?.[target.id];
 
   const switchTo = useCallback(
     (peer: PairedPeer | null) => {
-      const switchId = ++nextPeerSwitchId;
-      const nextName = peer?.instance_name ?? localName;
-      setSwitchingTo(nextName);
-      invalidateWebRequestContext();
-      flushSync(() => {
-        window.dispatchEvent(new CustomEvent("codeterm-peer-switch-reset", { detail: { switchId } }));
-      });
-      if (peer) {
-        setRelayTarget(peer.instance_id, peer.instance_name);
-      } else {
-        clearRelayTarget();
-      }
-      invalidateWebRequestContext();
+      setWorkspaceBrowseTarget(peer ? { id: peer.instance_id, name: peer.instance_name } : null);
       closeMenu();
-      resetOutputStream();
-      resetWebEvents();
-      window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind", { detail: { switchId } }));
     },
-    [closeMenu, localName],
+    [closeMenu],
   );
 
   return (

@@ -10,6 +10,7 @@ import {
   useReducer,
   useEffect,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
 import { invoke, listen, reopenClosedTab, reopenClosedGroup, restoreOrphanedTab } from "../../lib/bridge";
@@ -52,7 +53,7 @@ import { buildInitialState, HYDRATED_GENERATION } from "./initialState";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
 import { mountMuxPerfTestHook } from "./muxPerfTestHook";
 import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
-import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType, type SpawnedTab } from "./context";
+import { MultiplexerActionsContext, MuxStateStoreContext, PairedWorkspaceInventoryContext, type MultiplexerActionsContextType, type SpawnedTab } from "./context";
 import { createMuxStateStore } from "./selectorStore";
 import { createRefreshCoalescer } from "./refreshCoalescer";
 import { isMuxStatusDelta, statusDeltaAction, type MuxStatusDelta } from "./statusDelta";
@@ -72,16 +73,19 @@ import {
 } from "../../lib/remoteTabPortal";
 import { onRemoteTransportState } from "../../lib/remoteTabTransportState";
 import { remoteChatPeer, resetRemoteChatStatus } from "../../lib/remoteChatStatus";
-import { useMeshPeerProjection } from "./useMeshPeerProjection";
+import { useMeshPeerProjection, type PairedRoster } from "./useMeshPeerProjection";
 import { useRemoteAttachments } from "./useRemoteAttachments";
 import { resumeRemoteOutputStreams } from "../../lib/outputStream";
 import { resumeRemoteTabEvents, subscribeRemoteTabEvent } from "../../lib/remoteTabEvents";
 import { spawnFreshGeneralSession, type SessionLaunchIntent } from "../../lib/generalSession";
+import { usePairedWorkspaces } from "./usePairedWorkspaces";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { workspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 
 import { isSnapshotRefusal, isStorageUnavailableError, muxStateEventAction, tabBootStageEventAction } from "./stateEvents";
 export { STORAGE_UNAVAILABLE_MESSAGE, isStorageUnavailableError, isSnapshotRefusal, muxStateEventAction, tabBootStageEventAction } from "./stateEvents";
 
-export { useMultiplexer } from "./context";
+export { useMultiplexer, usePairedWorkspaceInventory } from "./context";
 export { useMuxState, useMuxSelector } from "./selectorStore";
 export { highestTitleLevel } from "./tree";
 
@@ -150,12 +154,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     // Every client owns its selection: the daemon's active tab only seeds a client that has none yet.
     dispatch({ type: "SET_STATE", state: guarded, force, pageOwnedSelection: true,
       initialSelection: !reconciledRef.current ? initialPageSelection(guarded, loadClientPageSelection()) : undefined });
-    const remoteTabs = Object.fromEntries(
-      Object.entries(stateRef.current.tabs).filter(([, tab]) => Boolean(tab.remote_peer_id)),
-    );
-    if (Object.keys(remoteTabs).length > 0) {
-      applyRemoteProjection(remoteTabs);
-    }
+    const remoteTabs = remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs));
+    if (Object.keys(remoteTabs).length > 0) applyRemoteProjection(remoteTabs);
   }, [applyRemoteProjection]);
 
   const { generation, workspaces, tabs, teams, activeTabIds, active_workspace_id,
@@ -346,7 +346,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       }
     }
   }, []);
-  useMeshPeerProjection(remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh);
+  const [pairedRoster, setPairedRoster] = useState<PairedRoster | null>(null);
+  useMeshPeerProjection(remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh, setPairedRoster);
+  const { generals, browse, refreshGeneral, refreshBrowse } = usePairedWorkspaces(pairedRoster);
+  const pairedInventory = useMemo(() => ({ generals, browse }), [generals, browse]);
+  const pairedInventoryRef = useRef(pairedInventory);
+  pairedInventoryRef.current = pairedInventory;
 
   // Live telemetry leaves the controller signature unchanged, so a streaming snapshot never re-reads remote tabs.
   const remoteControllers = useMemo(() => remoteControllerSignature(state.tabs), [state.tabs]);
@@ -357,16 +362,22 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     void requestRemoteRefresh();
   }, [remoteControllers, requestRemoteRefresh]);
 
-  const remotePeerSubscriptions = JSON.stringify(Object.values(state.tabs)
-    .filter((tab) => tab.remote_peer_id)
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .filter((tab, index, tabs) => tabs.findIndex((item) => item.remote_peer_id === tab.remote_peer_id) === index)
-    .map((tab) => tab.id));
+  const remotePeerSubscriptions = JSON.stringify(generals.flatMap(peer => {
+    if (peer.availability !== "online" && peer.availability !== "reconnecting" && peer.availability !== "unreachable") return [];
+    const candidate = peer.sessions[0]?.viewerId
+      ?? Object.values(state.tabs).find(tab => tab.remote_peer_id === peer.peerId && parseCompositeTabId(tab.id)?.peerId === peer.peerId)?.id
+      ?? (browse?.target.id === peer.peerId ? browse.workspaces.find(workspace => workspace.tabs.length)?.tabs[0]?.viewerId : undefined);
+    return candidate ? [[peer.peerId, candidate]] : [];
+  }).sort(([a], [b]) => a.localeCompare(b)));
   useEffect(() => {
-    const stops = (JSON.parse(remotePeerSubscriptions) as string[]).map((id) =>
-      subscribeRemoteTabEvent(`peer-state-changed:${id}`, () => { void requestRemoteRefresh(); }));
+    const stops = (JSON.parse(remotePeerSubscriptions) as [string, string][]).map(([peerId, id]) =>
+      subscribeRemoteTabEvent(`peer-state-changed:${id}`, () => {
+        refreshGeneral(peerId);
+        refreshBrowse(peerId);
+        if (Object.values(stateRef.current.tabs).some(tab => tab.remote_peer_id === peerId)) void requestRemoteRefresh();
+      }));
     return () => { for (const stop of stops) stop?.(); };
-  }, [remotePeerSubscriptions, requestRemoteRefresh]);
+  }, [remotePeerSubscriptions, refreshGeneral, refreshBrowse, requestRemoteRefresh]);
 
   const { attachRemoteTab, detachRemoteTab, removeRemoteMachineTabs } = useRemoteAttachments({
     attachedRef: attachedRemoteTabsRef, stateRef, dispatch, applyRemoteProjection,
@@ -951,6 +962,25 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
     const remote = stateRef.current.tabs[tabId];
+    const route = parseCompositeTabId(tabId);
+    if (route) {
+      const { generals, browse } = pairedInventoryRef.current;
+      const general = generals.find(peer => peer.peerId === route.peerId);
+      if (remote) {
+        if (remote.remote_peer_id !== route.peerId || remote.remote_tab_id !== route.remoteTabId || !remote.workspace_id) return;
+        workspaceId = remote.workspace_id;
+      } else {
+        const session = general?.sessions.find(item => item.viewerId === tabId)
+          ?? (browse?.target === workspaceBrowseTarget() && browse?.target.id === route.peerId
+            ? browse.workspaces.flatMap(workspace => workspace.tabs).find(item => item.viewerId === tabId)
+            : undefined);
+        const viewerWorkspace = stateRef.current.workspaces.find(workspace => workspace.protected);
+        if (!general || !session || !viewerWorkspace) return;
+        attachRemoteTab(viewerWorkspace.id, { peer_id: route.peerId, peer_name: general.name, tabs: [] }, session.tab);
+        if (general.availability === "online") void guardedInvoke("mux_set_focused_tab", { tabId }).catch(() => undefined);
+        return;
+      }
+    } else if (tabId.startsWith("mesh:") || remote?.remote_peer_id) return;
     const selected = stateRef.current.activeTabIds[workspaceId];
     const event = agentTabSelection(stateRef.current.active_workspace_id !== workspaceId || selected !== tabId, remote?.agent_type);
     const recordSelection = () => { if (event) void recordProductEvent(event); };
@@ -958,8 +988,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "user", id: workspaceId });
       dispatch({ type: "SET_ACTIVE_TAB", source: "user", workspaceId, tabId });
       dispatch({ type: "SET_FOCUSED_TAB", tabId });
-      const presence = remoteChatPeer(remote.remote_peer_id)?.presence;
-      if (!presence || presence === "online") void guardedInvoke("mux_set_focused_tab", { tabId }).then(recordSelection).catch(() => undefined);
+      const presence = pairedInventoryRef.current.generals.find(peer => peer.peerId === remote.remote_peer_id)?.availability;
+      if (presence === "online" || presence === "reconnecting") void guardedInvoke("mux_set_focused_tab", { tabId }).then(recordSelection).catch(() => undefined);
       else recordSelection();
       return;
     }
@@ -971,7 +1001,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "user", id: workspaceId });
     dispatch({ type: "SET_ACTIVE_TAB", source: "user", workspaceId, tabId });
     dispatch({ type: "SET_FOCUSED_TAB", tabId });
-  }, [guardedInvoke, restoreFromBackend]);
+  }, [attachRemoteTab, guardedInvoke, restoreFromBackend]);
 
   // Select + focus a just-spawned tab by resolving its owning tab; a fresh
   // tab may lag local state, so fall back to an authoritative snapshot.
@@ -1156,7 +1186,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   return (
     <MuxStateStoreContext.Provider value={muxStateStoreRef.current}>
       <MultiplexerActionsContext.Provider value={actions}>
-        {children}
+        <PairedWorkspaceInventoryContext.Provider value={pairedInventory}>
+          {children}
+        </PairedWorkspaceInventoryContext.Provider>
       </MultiplexerActionsContext.Provider>
     </MuxStateStoreContext.Provider>
   );
