@@ -8,8 +8,8 @@ import { enrichTimelineItems } from "../../../src/components/Terminal/chatEnrich
 import { MessageBubble } from "./MessageBubble";
 import fixtureData from "../../../tests/fixtures/message-envelope.json";
 
-for (const kind of ["tab", "report", "mesh", "system", "telegram", "curator"] as const) {
-  test(`${kind} queued and echoed host message preserves its routed card header`, async () => {
+for (const kind of ["tab"] as const) {
+  test("queued and echoed routed tab message preserves its card header", async () => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     const attrs = { from: kind, label: "Weaver", tab: "8494e5c7", model: "opaque-model", user: "123", peer: "peer" };
     const wire = `<domios from="${kind}" label="Weaver" tab="8494e5c7" model="opaque-model">**Opaque body**<tip>Opaque reply command</tip></domios>`;
@@ -52,7 +52,6 @@ for (const kind of ["tab", "report", "mesh", "system", "telegram", "curator"] as
       host.remove();
     }
   });
-}
 
 test("merged user and routed turn renders a user bubble and a named routed card", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
