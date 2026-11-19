@@ -32,6 +32,13 @@ export function machineColor(color?: string | null): MachineColor {
   return MACHINE_COLORS.find(candidate => candidate === color) ?? "graphite";
 }
 
+export function cleanMachineName(name?: string | null, peerId?: string | null): string | undefined {
+  const clean = name?.replace(/\s*\[[^\]]*\]/g, "").trim();
+  return clean && clean !== peerId && !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(clean)
+    ? clean
+    : undefined;
+}
+
 export function machineLabel(name: string, identity?: MachineIdentity | null, status?: string): string {
-  return [name, MACHINE_KINDS[machineKind(identity?.kind)].word, status].filter(Boolean).join(", ");
+  return [cleanMachineName(name) ?? "Machine", MACHINE_KINDS[machineKind(identity?.kind)].word, status].filter(Boolean).join(", ");
 }
