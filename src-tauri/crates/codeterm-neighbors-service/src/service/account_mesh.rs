@@ -223,6 +223,34 @@ impl MeshTransport for TransportBridge {
     }
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct RegistryMachineName {
+    installation_id: String,
+    admitted_at: u64,
+    display_name: Option<String>,
+    active: bool,
+}
+
+fn current_registry_names(state: &LifecycleState) -> Vec<RegistryMachineName> {
+    state
+        .signed_registry
+        .as_ref()
+        .filter(|registry| state.signed_in_account() == Some(registry.account_id.as_str()))
+        .map(|registry| {
+            registry
+                .rows
+                .iter()
+                .map(|row| RegistryMachineName {
+                    installation_id: row.installation_id.clone(),
+                    admitted_at: row.admitted_at,
+                    display_name: row.display_name.clone(),
+                    active: row.active,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// `account_mesh_state`: account-owned fields plus authenticated runtime connections.
 #[derive(Clone, Debug, Serialize)]
 pub struct AccountMeshSnapshot {
@@ -230,6 +258,7 @@ pub struct AccountMeshSnapshot {
     #[serde(flatten)]
     pub view: AccountMeshView,
     pub pairs: Vec<serde_json::Value>,
+    pub registry_names: Vec<RegistryMachineName>,
     pub connections: Vec<codeterm_mesh::manager::PeerConnection>,
 }
 
@@ -481,6 +510,7 @@ impl NeighborsExt for ServiceContext {
             local_installation_id: service.installation_id.clone(),
             view,
             pairs: self.account_mesh_pairs(),
+            registry_names: current_registry_names(&state),
             connections: self
                 .try_ext::<crate::MeshStateHandle>()
                 .map(|mesh| mesh.lock().connection_phases())

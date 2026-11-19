@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { cleanMachineName, type MachineIdentity, type MeshIdentityProjection } from "./machineIdentity";
-import { registryMachineNames } from "./registryMachineNames";
+import { accountMachineNameProjection } from "./registryMachineNames";
 import type { AccountMeshSnapshot } from "../components/MeshPanel/accountMeshClient";
 import type { MeshPeersResponse } from "./types";
 
@@ -11,14 +11,7 @@ let snapshot = empty;
 let accountNames: { local?: string; peers: ReadonlyMap<string, string> } = { peers: new Map() };
 
 export function rememberAccountMachineNames(account: AccountMeshSnapshot | null) {
-  const registry = account?.registry;
-  const labels = registryMachineNames(account?.traffic !== "blocked_signed_out" && account?.binding !== "other"
-    && registry && !registry.cursor ? registry.rows : []).labels;
-  const local = account ? labels.get(account.local_installation_id) : undefined;
-  const peers = new Map((account?.pairs ?? []).flatMap(pair => {
-    const label = labels.get(pair.installation_id);
-    return label ? [[pair.instance_id, label] as const] : [];
-  }));
+  const { local, peers } = accountMachineNameProjection(account);
   if (local === accountNames.local && peers.size === accountNames.peers.size &&
     [...peers].every(([id, name]) => accountNames.peers.get(id) === name)) return;
   accountNames = { local, peers };

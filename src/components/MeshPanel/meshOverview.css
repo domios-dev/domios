@@ -87,6 +87,10 @@
   margin-top: 0;
 }
 
+.mesh-overview .ct-btn-sm {
+  font-size: var(--ct-font-size-sm);
+}
+
 .mesh-overview__guide {
   display: inline-flex;
   align-items: center;

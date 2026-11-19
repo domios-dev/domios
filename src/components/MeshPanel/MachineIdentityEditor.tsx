@@ -57,6 +57,7 @@ export function MachineIdentityEditor({ name, value, setValue, error, retry, onC
 }) {
   const providerId = useContext(PageDataContext)?.config.config.general_agent.agent_provider;
   const displayName = cleanMachineName(name) ?? "This machine";
+  const appearance = `${MACHINE_KINDS[value.kind].label} · ${machineColourLabel(value.color)}`;
   return <div role="group" aria-label="Icon and colour" className="machine-identity-editor">
     {phone && <span className="machine-identity-editor__handle" aria-hidden="true" />}
     <div className="flex items-center justify-between text-[length:var(--ct-font-size-md)] font-semibold">
@@ -68,7 +69,7 @@ export function MachineIdentityEditor({ name, value, setValue, error, retry, onC
         <MachineGlyph {...value} size="tile" />
         <div className="min-w-0">
           <div className="truncate font-semibold" title={displayName}>{displayName}</div>
-          <div className="machine-identity-editor__meta">{MACHINE_KINDS[value.kind].label} · {machineColourLabel(value.color)}</div>
+          <div className="machine-identity-editor__meta truncate" title={appearance}>{appearance}</div>
         </div>
       </div>
       <div className="border-l border-[var(--ct-border)] pl-3">
@@ -85,7 +86,7 @@ export function MachineIdentityEditor({ name, value, setValue, error, retry, onC
     {nameField}
     <MachineIdentityControls value={value} onChange={setValue} />
     {error && <MachineIdentitySaveError error={error} retry={retry} />}
-    {phone && <Button className="machine-identity-editor__done" onClick={onClose}>Done</Button>}
+    {phone && <Button size="sm" className="machine-identity-editor__done" onClick={onClose}>Done</Button>}
   </div>;
 }
 
@@ -161,7 +162,7 @@ export function MachineIdentityPopover({ name, peerId, initial, onClose, anchor,
     });
   }
 
-  return <AnchoredPopover open anchor={anchor} placement="bottom-end" bottomSheet={phone} className={phone ? "machine-identity-sheet" : undefined} onClose={onClose}>
+  return <AnchoredPopover open anchor={anchor} placement="top-start" bottomSheet={phone} className={phone ? "machine-identity-sheet" : undefined} onClose={onClose}>
     <div ref={editor} className="ct-menu ct-menu--opaque machine-identity-menu">
       <MachineIdentityEditor name={previewName} value={value} setValue={update} error={failure} retry={() => update(value)} onClose={onClose} phone={phone}
         nameField={rename && <>

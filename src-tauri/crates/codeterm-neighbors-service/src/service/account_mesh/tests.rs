@@ -166,6 +166,7 @@ fn account_mesh_snapshot_and_outcomes_match_the_desktop_client() {
         local_installation_id: "installation-a".into(),
         view: state.view(),
         pairs: Vec::new(),
+        registry_names: current_registry_names(&state),
     };
     let value = serde_json::to_value(&snapshot).unwrap();
     for key in [
@@ -175,6 +176,7 @@ fn account_mesh_snapshot_and_outcomes_match_the_desktop_client() {
         "self",
         "registry",
         "registry_failure",
+        "registry_names",
         "pairs",
         "limit_notice",
     ] {
@@ -242,6 +244,44 @@ fn account_mesh_unchanged_lifecycle_pushes_do_not_wake_the_gate() {
         "same projection, no wakeup"
     );
     assert!(publish_mesh_state(&sender, mesh_state(&signed_in(2))));
+}
+
+#[test]
+fn account_mesh_names_require_the_current_accounts_verified_registry() {
+    use codeterm_account::account_mesh::registry_snapshot::VerifiedRegistry;
+
+    let mut state = signed_in(1);
+    state.owner = Some("b".repeat(64));
+    assert_eq!(
+        state.binding(),
+        codeterm_account::account_mesh::Binding::Other
+    );
+    let registry = VerifiedRegistry {
+        grant: serde_json::from_value(
+            json!({"payload":"p","signature":"s","key_id":"k","alg":"Ed25519"}),
+        )
+        .unwrap(),
+        account_id: "a".repeat(64),
+        revision: 2,
+        issued_at: 1,
+        revoked_installations: Default::default(),
+        rows: serde_json::from_value(json!([{
+            "installation_id":"installation-a", "key_id":"k", "key_generation":1,
+            "slot_revision":2, "active":true, "presence":"present",
+            "admitted_at":1, "authenticated_at":1, "display_name":"BLACKSTAR",
+            "metadata_revision":1, "publication":"complete", "membership_expires_at":null,
+            "eligibility":"eligible", "endpoint":null
+        }]))
+        .unwrap(),
+    };
+    state.signed_registry = Some(registry);
+    let names = current_registry_names(&state);
+    assert_eq!(names[0].display_name.as_deref(), Some("BLACKSTAR"));
+
+    state.signed_registry.as_mut().unwrap().account_id = "b".repeat(64);
+    assert!(current_registry_names(&state).is_empty());
+    state.presence = Presence::SignedOut;
+    assert!(current_registry_names(&state).is_empty());
 }
 
 #[test]

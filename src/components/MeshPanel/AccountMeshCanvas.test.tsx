@@ -20,9 +20,6 @@ vi.mock("../../lib/daemonBootstrap", async (original) => ({
   ...await original<typeof import("../../lib/daemonBootstrap")>(),
   daemonTransportForPeer: (peerId: string) => { relay.forPeer(peerId); return { json: relay.json }; },
 }));
-vi.mock("./useMeshAccount", () => ({
-  useMeshAccount: () => ({ presence: presence.current, signIn: async () => { presence.signIns++; } }),
-}));
 vi.mock("@codeterm/canvas-camera", async (original) => ({
   ...await original<typeof import("@codeterm/canvas-camera")>(),
   formatLayerTransform: () => "",
@@ -63,7 +60,7 @@ describe("Mesh canvas wiring", () => {
   async function mount(client: FakeAccountMeshClient, peers: PeerStatus[] = [], registryRefreshKey = 0) {
     await act(async () => root.render(
       <AccountMeshClientProvider value={client}>
-        <AccountMeshCanvas registryRefreshKey={registryRefreshKey} onAccountChanged={() => { changed++; }} thisMachine={{ name: "Studio PC", ip: "127.0.0.1" }} peers={peers}
+        <AccountMeshCanvas meshAccount={{ presence: presence.current, signingIn: false, signIn: async () => { presence.signIns++; } }} registryRefreshKey={registryRefreshKey} onAccountChanged={() => { changed++; }} thisMachine={{ name: "Studio PC", ip: "127.0.0.1" }} peers={peers}
           recentPushes={[]} onPeerClick={(name) => { selected++; clickedMachineIds.push(name); }} webUiBaseUrl="http://127.0.0.1:7686" onOpenPeerWebUi={() => { selected++; }} width={1200} height={800} />
       </AccountMeshClientProvider>,
     ));
@@ -193,6 +190,7 @@ describe("Mesh canvas wiring", () => {
     await mount(new FakeAccountMeshClient(snapshot({ binding: "none", self: null, registry: null })));
     const card = node("Mesh inventory");
     expect(card?.textContent).toContain("Sign in to connect your machines");
+    expect(host.querySelector('[role="toolbar"]')).toBeNull();
     const signIn = [...card!.querySelectorAll("button")].find((element) => element.textContent === "Sign in") ?? null;
     expect(document.activeElement).toBe(signIn);
     await click(signIn);
@@ -332,6 +330,7 @@ describe("Mesh canvas wiring", () => {
 
   it("relays a connected account machine's rename and disables disconnected machines", async () => {
     const client = new FakeAccountMeshClient(snapshot({ pairs: [pair("mesh-mac", "mac.local", { installation_id: macRow.installation_id })] }));
+    const priorAccount = client.state;
     await mount(client, [peer("mesh-mac", "mac.local")]);
     expect(button("Rename Lenovo")?.disabled).toBe(true);
     expect(button("Rename Lenovo")?.title).toBe("Connect to rename it, or rename it on that machine");
@@ -346,7 +345,7 @@ describe("Mesh canvas wiring", () => {
     expect(button("Rename Travel Mac")).not.toBeNull();
     await click(host.querySelector('[role="button"][aria-label^="Open Travel Mac,"]'));
     expect(clickedMachineIds).toEqual(["mesh-mac"]);
-    await act(async () => client.emit({ ...client.state, account_epoch: 2 }));
+    await act(async () => client.emit({ ...priorAccount, account_epoch: 2 }));
     expect(button("Rename MacBook")).not.toBeNull();
   });
 
@@ -536,5 +535,6 @@ describe("Mesh canvas wiring", () => {
   it("explains an empty account on the canvas", async () => {
     await mount(new FakeAccountMeshClient(snapshot({ registry: { observed_at: NOW, rows: [selfRow] } })));
     expect(host.textContent).toContain("No other machines yet");
+    expect(host.querySelector('[role="toolbar"]')).toBeNull();
   });
 });

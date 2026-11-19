@@ -8,6 +8,7 @@ import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab } from "./types";
 import type { RecentPush } from "./MeshCanvas";
 import { AccountMeshCanvas } from "./AccountMeshCanvas";
+import { useMeshAccount } from "./useMeshAccount";
 import { useCanvasTailscale } from "./useCanvasTailscale";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
@@ -57,6 +58,7 @@ function normalizeTab(t: unknown): MeshTab {
 
 export function MeshPanel({ config, onClose, inventoryRequest }: Props) {
   const touchUi = useTouchOptimizedUi();
+  const account = useMeshAccount();
   const connecting = useMeshConnections(config.mesh.enabled);
   const goOnline = useCallback(async () => {
     await invoke("mesh_set_enabled", { enabled: true });
@@ -231,7 +233,7 @@ export function MeshPanel({ config, onClose, inventoryRequest }: Props) {
               ? <span role="status">Mesh data is unavailable.</span>
               : header.kind === "loading"
                 ? <DeferredLoader state="present" aria-busy="true"><BusyState inline label="Loading peers" phase="work" /></DeferredLoader>
-                : `${header.count} peer${header.count === 1 ? "" : "s"}`}
+                : account.presence === "signed_in" ? `${header.count + 1} machine${header.count === 0 ? "" : "s"}` : null}
             {connecting > 0 && <span role="status" className="ml-2"><BusyState inline label={`${connecting} peer${connecting === 1 ? "" : "s"} connecting`} phase="work" /></span>}
           </div>
           {activeTab !== "inventory" && <button
@@ -289,6 +291,7 @@ export function MeshPanel({ config, onClose, inventoryRequest }: Props) {
         {activeTab === "inventory" && !meshOff && graphReady && (
           <div ref={mapRef} className="absolute inset-0">
             <AccountMeshCanvas
+              meshAccount={account}
               touch={touchUi}
               registryRefreshKey={registryRefreshKey}
               onAccountChanged={triggerRefresh}
