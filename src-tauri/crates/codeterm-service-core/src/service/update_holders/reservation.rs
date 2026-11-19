@@ -185,17 +185,15 @@ impl super::super::ServiceContext {
         )
     }
 
-    pub fn capture_reserved_update_shells(&self) {
+    pub fn capture_shutdown_shells(&self) {
         let gate = self.ext_or_init(Gate::default);
-        let caller = gate
+        let initiating_tab = gate
             .0
             .lock()
             .reservation
             .as_ref()
-            .map(|reservation| reservation.initiating_tab.clone());
-        if let Some(caller) = caller {
-            self.capture_update_shells(caller.as_deref());
-        }
+            .and_then(|reservation| reservation.initiating_tab.clone());
+        self.capture_running_shells(initiating_tab.as_deref());
     }
 
     pub fn release_update_shutdown(&self, id: &str) -> Result<(), String> {
