@@ -62,6 +62,12 @@ describe("remote tab transport adapter", () => {
     expect(call?.remoteTabId).toBe("restored");
     expect(call?.body).toEqual({ fresh: true });
   });
+  it("reruns a restored shell on the owning peer", () => {
+    expect(remoteTransportCall("mux_rerun_restored_shell", { tabId: "mesh:peer/restored" })).toEqual({
+      ordinaryTabId: "mesh:peer/restored", peerId: "peer", remoteTabId: "restored",
+      method: "POST", suffix: "/rerun-restored-shell", body: null, select: undefined,
+    });
+  });
   it("routes local previews to the composite tab's owning daemon", () => {
     for (const command of ["read_local_preview_file", "read_html_preview_file", "check_local_preview_files"]) {
       const call = remoteTransportCall(command, { tabId: "mesh:peer/shared", path: "/work/preview.html", kind: "page", paths: ["/work/preview.html"] });

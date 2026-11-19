@@ -2,7 +2,7 @@ use crate::multiplexer::types::ShellActivity;
 use crate::service::ServiceContext;
 
 impl ServiceContext {
-    pub(super) fn capture_update_shells(&self, initiating_tab: Option<&str>) {
+    pub(super) fn capture_running_shells(&self, initiating_tab: Option<&str>) {
         let mut mux = self.mux.write();
         let interrupted: Vec<_> = mux
             .all_tabs()
