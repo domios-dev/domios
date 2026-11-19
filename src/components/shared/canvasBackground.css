@@ -1,0 +1,8 @@
+.ct-canvas-background {
+  --ct-canvas-background-strength: 0.9;
+
+  background:
+    radial-gradient(ellipse at center, transparent 30%, var(--ct-bg) 82%),
+    radial-gradient(color-mix(in srgb, var(--ct-fg) calc(12% * var(--ct-canvas-background-strength)), transparent) 1px, transparent 1.6px) 0 0 / 22px 22px,
+    radial-gradient(ellipse at center, color-mix(in srgb, var(--ct-titlebar-bg) calc(100% * var(--ct-canvas-background-strength)), var(--ct-bg)) 0%, var(--ct-bg) 72%);
+}

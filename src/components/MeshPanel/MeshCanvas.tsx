@@ -328,7 +328,7 @@ export const MeshCanvas = memo(function MeshCanvas({
   const overview = account && meshOverviewState(account.canvas, peers, tailscale?.state, account.moreMachines);
   const overviewAvailable = overview && overview.kind !== "inventory";
   if (account && overview && overview.kind !== "inventory" && !showInventory) {
-    return <section aria-label="Mesh inventory" className="mesh-overview relative flex h-full w-full overflow-auto">
+    return <section aria-label="Mesh inventory" className="mesh-overview ct-canvas-background relative flex h-full w-full overflow-auto">
       {(overview.kind === "unreachable" || overview.kind === "tailscale_off") &&
         <CanvasToolbar label="Mesh inventory controls" onRefresh={onRefresh}
           view={<button type="button" className="ct-bar-pill" aria-label="Show inventory" onClick={() => setShowInventory(true)}>
@@ -346,7 +346,7 @@ export const MeshCanvas = memo(function MeshCanvas({
   if (shown === "list") {
     const scale = listCardScale(width);
     return (
-      <div className="relative flex h-full w-full flex-col overflow-hidden" style={{ minHeight: height, background: "var(--ct-bg)" }}>
+      <div className="ct-canvas-background relative flex h-full w-full flex-col overflow-hidden" style={{ minHeight: height }}>
         <div className="shrink-0 px-3 pb-2 pt-3">
           <CanvasToolbar floating={false} label="Mesh inventory controls" view={inventoryToggle} onRefresh={onRefresh} />
         </div>
@@ -376,11 +376,10 @@ export const MeshCanvas = memo(function MeshCanvas({
       ref={containerRef}
       {...stage.interactions}
       tabIndex={0}
-      className="relative w-full h-full overflow-hidden"
+      className="ct-canvas-background relative w-full h-full overflow-hidden"
       onMouseDown={handlers.onMouseDown}
       style={{
         minHeight: height,
-        background: "var(--ct-bg)",
         cursor: isDragging ? "grabbing" : "grab",
         userSelect: "none",
         touchAction: "none",
