@@ -16,13 +16,13 @@
   --ct-capsule-font-size: 14px;
   --ct-capsule-line-height: 20px;
 
-  --ct-machine-blue: light-dark(#1f62d0, #5b9cff);
-  --ct-machine-teal: light-dark(#0b7d70, #2ec4b0);
-  --ct-machine-green: light-dark(#2b7d36, #5cc46a);
-  --ct-machine-yellow: light-dark(#8a6200, #e0b23a);
-  --ct-machine-pink: light-dark(#b8327e, #f06cb4);
-  --ct-machine-violet: light-dark(#6d48c8, #a985ff);
-  --ct-machine-graphite: light-dark(#5c6670, #9aa4ae);
+  --ct-machine-blue: #5b9cff;
+  --ct-machine-teal: #2ec4b0;
+  --ct-machine-green: #5cc46a;
+  --ct-machine-yellow: #e0b23a;
+  --ct-machine-pink: #f06cb4;
+  --ct-machine-violet: #a985ff;
+  --ct-machine-graphite: #9aa4ae;
 
   /* Input / control rhythm */
   --ct-control-height: 2.125rem;
@@ -140,6 +140,17 @@
   --ct-window-close-hover: #e81123;
 
   --ct-sheen: #fff;
+}
+
+:root[data-ct-theme="light"],
+[data-ct-theme="light"]:not(:root) {
+  --ct-machine-blue: #1f62d0;
+  --ct-machine-teal: #0b7d70;
+  --ct-machine-green: #2b7d36;
+  --ct-machine-yellow: #8a6200;
+  --ct-machine-pink: #b8327e;
+  --ct-machine-violet: #6d48c8;
+  --ct-machine-graphite: #5c6670;
 }
 
 /* Reduced motion */

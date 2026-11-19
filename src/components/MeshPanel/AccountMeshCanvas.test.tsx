@@ -2,6 +2,7 @@ import { __setInvokeForTest } from "../../lib/bridge";
 import { ServiceDrawer } from "./ServiceDrawer";
 import { PeerAccountFooterView } from "./AccountCanvasNodes";
 import { MachineVersion } from "./MachineFooter";
+import { MachineSessionControls } from "./MachineSessionControls";
 import { accountCanvas } from "./accountCanvas";
 import { myMachinesView } from "./accountMachines";
 import { act } from "react";
@@ -72,6 +73,26 @@ describe("Mesh canvas wiring", () => {
     expect(element).not.toBeNull();
     await act(async () => element!.click());
   };
+
+  it("moves focus into the machine editor and returns it after Escape and an outside press", async () => {
+    await act(async () => root.render(<MachineSessionControls name="Desk" busy={false} identityPeer={null} />));
+    const trigger = button("More for Desk")!;
+    const editor = () => document.querySelector('[role="group"][aria-label="Icon and colour"]');
+    const open = async () => {
+      await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+      expect(document.activeElement?.textContent).toBe("Change icon and colour");
+      await click(document.activeElement as HTMLElement);
+      expect(editor()?.contains(document.activeElement)).toBe(true);
+    };
+    await open();
+    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })));
+    expect(editor()).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    await open();
+    await act(async () => host.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    expect(editor()).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
 
   it("counts active lifecycle work and clears the overall count on backoff", async () => {
     const state = snapshot({ connections: [{ installation_id: macRow.installation_id, phase: "verifying" }] });

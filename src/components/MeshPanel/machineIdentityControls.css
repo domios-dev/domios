@@ -28,6 +28,7 @@
 .machine-options__group {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
   gap: 4px;
 }
 
@@ -38,16 +39,17 @@
 .machine-options__group > button {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   flex-direction: column;
   gap: 3px;
-  min-height: 48px;
+  min-height: 53px;
   border-radius: 6px;
   line-height: 1.15;
-  padding: 3px;
+  padding: 5px 3px;
 }
 
 .machine-options__group > button:has(.machine-options__swatch) {
+  justify-content: center;
   min-height: 28px;
 }
 
