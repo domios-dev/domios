@@ -146,7 +146,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
           role="menu"
           aria-label="Machines"
           onKeyDown={onMenuKeyDown}
-          className="ct-menu ct-peer-menu w-max max-w-[min(24rem,calc(100vw-2rem))]"
+          className="ct-menu ct-menu--opaque ct-peer-menu w-max max-w-[min(24rem,calc(100vw-2rem))]"
         >
           <button type="button" role="menuitem" data-testid="peer-picker-all"
             aria-current={filter === "all" ? "true" : undefined}

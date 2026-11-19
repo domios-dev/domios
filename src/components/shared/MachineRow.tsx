@@ -13,7 +13,7 @@ export function machineRowLabel({ name, identity, status, local }: MachineRowPro
 }
 
 export function MachineThisBadge({ className = "" }: { className?: string }) {
-  return <span className={`shrink-0 rounded border border-[var(--ct-border)] px-1 py-px text-[length:var(--ct-font-size-meta)] leading-none text-[var(--ct-muted-fg)] ${className}`}>
+  return <span className={`ct-neutral-badge shrink-0 px-1 py-px text-[length:var(--ct-font-size-meta)] leading-none ${className}`}>
     this
   </span>;
 }
