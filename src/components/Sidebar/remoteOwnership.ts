@@ -7,13 +7,10 @@ import { roleDisplayLabel, roleKindLabel, hasTeamAuthority } from "../../lib/rol
 
 export interface RemoteTeamIdentity {
   id: string;
-  title: string;
+  title?: string;
   peerName?: string;
 }
 
-export function sharesObservedMachine(teamHostId?: string | null, workerHostId?: string | null): boolean {
-  return Boolean(teamHostId && workerHostId && teamHostId === workerHostId);
-}
 export function managedByLabel(tab: Tab): string | null {
   const controller = tab.ownership?.controller_title?.trim();
   return controller ? `managed by ${controller}` : null;
@@ -26,14 +23,8 @@ export function namedManagerRole(tab: Tab): string | null {
   return hasTeamAuthority(tab) ? roleKindLabel(tab) : null;
 }
 
-export function remoteIdentity(tab: Tab): { role: string | null; peer: string } | null {
-  if (!tab.remote_peer_id) return null;
-  const peer = cleanMachineName(tab.remote_peer_name, tab.remote_peer_id) ?? "Machine";
-  return { role: namedManagerRole(tab), peer };
-}
-
 export function remoteTeamName(teamId: string | null | undefined, ...names: Array<string | null | undefined>): string | undefined {
-  return names.map(name => name?.trim()).find(name => name && name !== teamId
+  return names.map(name => name?.trim()).find(name => name && name !== teamId && name.toLowerCase() !== "team"
     && !/^team_[\da-f]+$/i.test(name) && cleanMachineName(name));
 }
 
@@ -44,7 +35,7 @@ export function remoteTeamIdentity(tab: Tab, peers: readonly PairedGeneral[] = [
   const peer = peers.find(candidate => candidate.peerId === owner.peer_id);
   return {
     id: `mesh:${owner.peer_id}/${owner.team.id}`,
-    title: remoteTeamName(owner.team.id, peer?.teamNames?.get(owner.team.id), owner.team.title) ?? "Team",
+    title: remoteTeamName(owner.team.id, peer?.teamNames?.get(owner.team.id), owner.team.title),
     peerName: cleanMachineName(owner.peer_name, owner.peer_id),
   };
 }

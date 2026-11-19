@@ -32,7 +32,7 @@ export interface MultiplexerActionsContextType {
   /** Reorder the workspace list to the given order. */
   reorderWorkspaces: (orderedWorkspaceIds: string[]) => void;
   createTab: (workspaceId: string, cwd?: string, shell?: string) => Promise<{ id: string } | void>;
-  attachRemoteTab?: (workspaceId: string, peer: RemotePeerTabs, tab: RemotePeerTabs["tabs"][number]) => void;
+  attachRemoteTab?: (workspaceId: string, peer: RemotePeerTabs, tab: RemotePeerTabs["tabs"][number], status?: TabStatus) => void;
   /** Removes this machine's attachment of a remote tab; the tab keeps running on its peer. */
   detachRemoteTab?: (tabId: string) => void;
   removeRemoteMachineTabs?: (peerId: string, tabIds: readonly string[]) => void;
@@ -84,7 +84,7 @@ export interface MultiplexerActionsContextType {
 
 export const MultiplexerActionsContext = createContext<MultiplexerActionsContextType | null>(null);
 export const MuxStateStoreContext = createContext<MuxStateStore | null>(null);
-type PairedWorkspaceInventory = Pick<ReturnType<typeof usePairedWorkspaces>, "generals" | "browse">;
+type PairedWorkspaceInventory = Pick<ReturnType<typeof usePairedWorkspaces>, "generals" | "browse"> & { ready?: boolean; peerWorkspaces?: ReturnType<typeof usePairedWorkspaces>["peerWorkspaces"] };
 export const PairedWorkspaceInventoryContext = createContext<PairedWorkspaceInventory>({ generals: [], browse: null });
 
 export function usePairedWorkspaceInventory(): PairedWorkspaceInventory {

@@ -1,5 +1,5 @@
 import { isTabDragDisabled } from "./tabDragModel";
-import { memo, type ReactNode } from "react";
+import { memo, useContext, type ReactNode } from "react";
 import type { Tab } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
@@ -8,6 +8,7 @@ import { sameIds, sameTabItemRow, SidebarSingleTabRow, type SidebarSingleTabRowP
 import { SurfaceOwnerBlock } from "./SurfaceAttachments";
 import { attachmentInset, ownerRowInset, type OwnerRowContext } from "./surfaceAttachmentModel";
 import { SortableContext, SortableRow, TAB_PREFIX, verticalListSortingStrategy } from "./sortable";
+import { matchesSidebarMachine, SidebarWholeTeam, useSidebarMachineFilter } from "./sidebarMachineFilter";
 import { terminalOrigin } from "./teamRowLabels";
 
 export interface SidebarOwnerTabRowProps extends Omit<SidebarSingleTabRowProps, "activity" | "isClosing" | "isAppearing"> {
@@ -24,12 +25,13 @@ export interface SidebarOwnerTabRowProps extends Omit<SidebarSingleTabRowProps, 
 }
 
 /** Drags an owner, its attached surfaces and anything nested under it as one unit. */
-export function SidebarSortableBlock({ tab, group, groupKey, pinnedIds, toWorkspaceOrder, className, children }: Pick<SidebarSingleTabRowProps, "tab" | "group" | "groupKey" | "pinnedIds" | "toWorkspaceOrder"> & {
+export function SidebarSortableBlock({ tab, group, groupKey, pinnedIds, toWorkspaceOrder, className, hidden, children }: Pick<SidebarSingleTabRowProps, "tab" | "group" | "groupKey" | "pinnedIds" | "toWorkspaceOrder"> & {
   className?: string;
+  hidden?: boolean;
   children: ReactNode;
 }) {
   return (
-    <SortableRow id={`${TAB_PREFIX}${tab.id}`} disabled={isTabDragDisabled(tab)} data={{ group, groupKey, pinnedIds, toWorkspaceOrder }}>
+    <SortableRow id={`${TAB_PREFIX}${tab.id}`} hidden={hidden} disabled={isTabDragDisabled(tab)} data={{ group, groupKey, pinnedIds, toWorkspaceOrder }}>
       <div className={className}>{children}</div>
     </SortableRow>
   );
@@ -102,6 +104,9 @@ function sameShellRow(prev: SidebarShellRowProps, next: SidebarShellRowProps): b
 
 /** A team member block that renders only when one of its own rows changes. */
 export const SidebarShellRow = memo(function SidebarShellRow({ showStartedBy = true, detail = null, ...props }: SidebarShellRowProps) {
+  const filter = useSidebarMachineFilter();
+  const wholeTeam = useContext(SidebarWholeTeam);
+  const hidden = !wholeTeam && !matchesSidebarMachine(filter, props.tab.remote_peer_id);
   const creatorId = props.tab.spawned_by_tab_id ?? null;
   const creator = creatorId ? props.tabs[creatorId] : null;
   const origin = terminalOrigin(creatorId, creator?.title, Boolean(creator));
@@ -109,12 +114,12 @@ export const SidebarShellRow = memo(function SidebarShellRow({ showStartedBy = t
     ? { id: origin.id, label: origin.label, onOpen: () => props.onActivateTab(origin.id) }
     : { id: origin.kind === "closed" ? origin.id : null, label: origin.kind === "closed" ? "a closed tab" : "an unknown tab" };
   if (props.sortable === false) {
-    return <div className="sidebar-team-member">
+    return <div hidden={hidden} className="sidebar-team-member">
       <SidebarOwnerTabRow {...props} context="team" startedBy={showStartedBy ? startedBy : undefined} />
       {detail}
     </div>;
   }
-  return <SidebarSortableBlock {...props} className="sidebar-team-member">
+  return <SidebarSortableBlock {...props} hidden={hidden} className="sidebar-team-member">
     <SidebarOwnerTabRow {...props} context="team" ownerSortable={false} startedBy={showStartedBy ? startedBy : undefined} />
     {detail}
   </SidebarSortableBlock>;

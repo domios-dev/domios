@@ -1,3 +1,4 @@
+import { isConciergeTab } from "../../lib/tabInputPolicy";
 import { useMemo } from "react";
 import type { ApiConfig, Workspace } from "../../lib/types";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
@@ -17,10 +18,9 @@ import { useAppearingTabs } from "./useAppearingTabs";
 import { projectUtilityShells } from "../General/generalOverviewModel";
 import { isSurfaceTab, surfaceOwnerId } from "../../lib/surfaceTab";
 import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
-import { useMeshMachineIdentities } from "../../lib/useMeshMachineIdentities";
 import { TabItem } from "./TabItem";
-import { MachineProvenance } from "../shared/MachineProvenance";
-import { observedGeneralViewers, type GeneralAvailability, type PairedGeneral } from "../../store/multiplexer/pairedWorkspaceProjection";
+import { observedGeneralViewers } from "../../store/multiplexer/pairedWorkspaceProjection";
+import { useSidebarMachineFilter } from "./sidebarMachineFilter";
 import { remoteViewerIdentity } from "../../lib/remoteTabPortal";
 
 /** The protected General workspace: its agents and the machine-wide inventory below them. */
@@ -36,21 +36,18 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
   onOpenJobs?: (workspaceId: string, target?: JobsTarget, scope?: JobsOpenScope) => void;
 }) {
   const { generals } = usePairedWorkspaceInventory();
-  const machineIdentities = useMeshMachineIdentities();
+  const machineFilter = useSidebarMachineFilter();
   const pairedGenerals = useMemo(() => [...generals].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }) || a.peerId.localeCompare(b.peerId)), [generals]);
   const viewers = useMemo(() => observedGeneralViewers(pairedGenerals, data.tabs, workspace.id), [pairedGenerals, data.tabs, workspace.id]);
   const workspaceId = workspace.id;
-  const localMachineLine = pairedGenerals.length > 0
-    ? { name: machineIdentities.local_instance_name || "This machine", repeatNameForNonProtected: true }
-    : null;
   const sortedTabs = useMemo(() => tabsInWorkspace(workspace.tabs, data.tabs), [workspace.tabs, data.tabs]);
   const conciergeIds = useNeighborGatewayIds();
   const sessionTabs = useMemo(() => {
     const utilityIds = new Set(projectUtilityShells(workspaces, data.tabs, data.teams, workspaceId).map(({ tab }) => tab.id));
     const sessions = sortedTabs.filter((tab) => !utilityIds.has(tab.id)
       && (tab.team_id || !remoteViewerIdentity(tab))
-      && !(isSurfaceTab(tab) && utilityIds.has(surfaceOwnerId(tab) ?? "")) && !conciergeIds.has(tab.id));
+      && !(isSurfaceTab(tab) && utilityIds.has(surfaceOwnerId(tab) ?? "")) && !isConciergeTab(tab) && !conciergeIds.has(tab.id));
     return [...sessions.filter(isGeneralSectionTab), ...sessions.filter((tab) => !isGeneralSectionTab(tab))];
   }, [sortedTabs, workspaces, data.tabs, data.teams, workspaceId, conciergeIds]);
   const generalCwd = workspace.cwd ?? sortedTabs.find((tab) => tab.protected)?.cwd ?? null;
@@ -82,7 +79,24 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         workspace={workspace}
         providerId={providerId}
         generalCwd={generalCwd}
-        machineLine={localMachineLine}
+        observedRows={viewers.map(({ peer, session, attached }, index) => (
+          <TabItem
+            key={session.viewerId}
+            tab={attached ?? { ...session.tab, id: session.viewerId }}
+            index={index}
+            isActive={isActiveVisual && !data.workspaceCanvasActive && data.activeTabIds[workspaceId] === session.viewerId}
+            onClick={() => activateTab(session.viewerId)}
+            onClose={() => undefined}
+            onRename={attached ? title => renameTab(session.viewerId, title) : undefined}
+            canClose={false}
+            readOnly={!attached}
+            workspaceId={workspaceId}
+            hasAgent={Boolean(session.tab.agent_type)}
+            status={data.tabStatuses[session.viewerId] ?? session.status ?? null}
+            attention={attached ? data.attention[session.viewerId] : null}
+            observedMachine={{ peerId: peer.peerId, name: peer.name, availability: peer.availability, cached: peer.cached && !attached }}
+          />
+        ))}
         activeTabId={data.activeTabIds[workspaceId] ?? null}
         sortedTabs={sessionTabs}
         tabs={data.tabs}
@@ -114,17 +128,7 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         onCloseTeam={closeTeam}
         onOpenSentinelJob={openSentinelJob}
       />}
-      {expanded && pairedGenerals.map((peer) => <PairedGeneralRows
-        key={peer.peerId}
-        peer={peer}
-        activeTabId={isActiveVisual && !data.workspaceCanvasActive ? data.activeTabIds[workspaceId] ?? null : null}
-        workspaceId={workspaceId}
-        viewers={viewers.filter(viewer => viewer.peer === peer)}
-        tabStatuses={data.tabStatuses}
-        attentionByTab={data.attention}
-        onSelect={activateTab}
-      />)}
-      {expanded && <GeneralInventory
+      {expanded && <div hidden={typeof machineFilter === "object"}><GeneralInventory
         generalWorkspaceId={workspaceId}
         onShowAllJobs={() => onOpenJobs?.(workspaceId, undefined, "machine")}
         workspaces={workspaces}
@@ -135,59 +139,7 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         onCloseTab={actions.closeTab}
         onRenameTab={actions.renameTab}
         onNavigate={actions.activateTab}
-      />}
+      /></div>}
     </section>
   );
-}
-
-function availabilityLabel(availability: GeneralAvailability): string {
-  switch (availability) {
-    case "signed-out": return "signed out";
-    case "update-required": return "update required";
-    default: return availability;
-  }
-}
-
-function PairedGeneralRows({ peer, activeTabId, workspaceId, viewers, tabStatuses, attentionByTab, onSelect }: {
-  peer: PairedGeneral;
-  activeTabId: string | null;
-  workspaceId: string;
-  viewers: ReturnType<typeof observedGeneralViewers>;
-  tabStatuses: SidebarWorkspaceDetailData["tabStatuses"];
-  attentionByTab: SidebarWorkspaceDetailData["attention"];
-  onSelect: (tabId: string) => void;
-}) {
-  const status = availabilityLabel(peer.availability);
-  const suppressActivity = peer.availability !== "online";
-  return <div role="group" aria-label={`${peer.name} General sessions`} data-testid="paired-general-group" className="sidebar-paired-general-group">
-    {viewers.length > 0 ? viewers.map(({ session: { viewerId, tab, status: tabStatus }, attached }, index) => {
-      const isAttachedViewer = Boolean(attached);
-      const projectedTab = tab.id === viewerId ? tab : { ...tab, id: viewerId };
-      return <TabItem
-        key={viewerId}
-        tab={projectedTab}
-        index={index}
-        isActive={activeTabId === viewerId}
-        onClick={() => onSelect(viewerId)}
-        onClose={() => undefined}
-        canClose={false}
-        readOnly
-        workspaceId={workspaceId}
-        hasAgent={Boolean(projectedTab.agent_type)}
-        status={isAttachedViewer ? tabStatuses[viewerId] ?? tabStatus ?? null : tabStatus ?? null}
-        attention={isAttachedViewer ? attentionByTab[viewerId] ?? null : null}
-        machineLine={{
-          peerId: peer.peerId,
-          name: peer.name,
-          status: suppressActivity ? status : undefined,
-          repeatNameForNonProtected: true,
-          suppressActivity,
-          suppressAttention: suppressActivity || !isAttachedViewer,
-        }}
-      />;
-    }) : <div role="status" className="sidebar-paired-general-empty">
-      <MachineProvenance peerId={peer.peerId} name={peer.name} status={peer.availability === "online" ? "no General sessions" : status} />
-      <span className="truncate">· {peer.availability === "online" ? "no General sessions" : status}</span>
-    </div>}
-  </div>;
 }

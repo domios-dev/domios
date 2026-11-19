@@ -195,7 +195,7 @@ describe("web host picker recovery", () => {
     if (failure !== "pending") await stateLoad;
     await renderShell(false);
     const menu = await openHosts();
-    expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(3);
+    expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(4);
     expect(fetchMock.mock.calls.some(([url]) => String(url) === `${selfHost()}/api/mesh/peers`)).toBe(true);
     const healthy = menu.querySelector<HTMLButtonElement>('[data-peer-name="Healthy"]')!;
     expect(healthy.disabled).toBe(false);

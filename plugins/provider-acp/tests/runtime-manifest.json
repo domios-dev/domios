@@ -149,7 +149,7 @@
     "enabled": true,
     "spawnable": true,
     "sessionConfig": true,
-    "agentTasks": true
+    "agentTasks": false
   },
   "scenarios": [
     "cancel-mid-tool.json",

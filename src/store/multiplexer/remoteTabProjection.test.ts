@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Tab } from "../../lib/types";
+import { tabActivity } from "../../lib/tabActivity";
 import { reducer } from "./reducer";
 import type { ExtendedState } from "./tree";
 import {
@@ -71,11 +72,11 @@ test("attached refresh reads each owning peer once and skips ordinary-projected 
     ] };
   });
   assert.deepEqual(reads, ["peer"]);
-  assert.equal(refreshed[one.id].agent_state?.state, "working");
-  assert.equal(refreshed[two.id].agent_state?.state, "idle");
-  assert.deepEqual(Object.keys(refreshed), Object.keys(projected));
+  assert.equal(refreshed.tabs[one.id].agent_state?.state, "working");
+  assert.equal(refreshed.tabs[two.id].agent_state?.state, "idle");
+  assert.deepEqual(Object.keys(refreshed.tabs), Object.keys(projected));
   const ordinaryReads: string[] = [];
-  await refreshAttachedRemoteAgentStates(refreshed, refreshed, async (peerId) => {
+  await refreshAttachedRemoteAgentStates(refreshed.tabs, refreshed.tabs, async (peerId) => {
     ordinaryReads.push(peerId);
     throw new Error("Ordinary-projected tabs already have live state");
   });
@@ -86,7 +87,8 @@ test("unreachable peers retain state and unrelated identities cannot change it",
   const one = { ...attachedTab("shared-tab"), agent_state: { state: "working" as const } };
   const projected = { [one.id]: one };
   const failed = await refreshAttachedRemoteAgentStates(projected, {}, async () => { throw new Error("offline"); });
-  assert.deepEqual(failed, projected);
+  assert.deepEqual(failed.tabs, projected);
+  assert.deepEqual(failed.statuses, {});
   assert.deepEqual(applyRemotePeerAgentStates(projected, {
     peer_id: "other", peer_name: "Other", tabs: [{ ...local, id: "shared-tab" }],
   }), projected);
@@ -94,6 +96,47 @@ test("unreachable peers retain state and unrelated identities cannot change it",
     peer_id: "peer", peer_name: "Mac", tabs: [{ ...local, id: "shared-tab", agent_state: null }],
   });
   assert.equal(cleared[one.id].agent_state, null);
+});
+
+test("an attached chat projects its peer status into mux activity and clears on authoritative idle", async () => {
+  const id = "mesh:peer/shared-chat";
+  const attachment: Tab = {
+    ...attachedTab("shared-chat"),
+    agent_type: "acp",
+    agent_session_id: "peer-session",
+    backing: { kind: "chat_backend", plugin_id: "acp", session_id: "peer-session" },
+    agent_state: { state: "idle" },
+  };
+  const projected = { [id]: attachment };
+  const working = await refreshAttachedRemoteAgentStates(projected, {}, async () => ({
+    peer_id: "peer",
+    peer_name: "Mac",
+    tabs: [{ ...attachment, id: "shared-chat", remote_peer_id: undefined, remote_tab_id: undefined,
+      agent_state: { state: "working", phase: "tool" } }],
+    tab_statuses: { "shared-chat": "Working" },
+  }));
+  assert.equal(working.statuses[id], "Working");
+  const workingState: ExtendedState = {
+    workspaces: [], tabs: {}, teams: [], notifications: [], tabStatuses: {},
+    toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
+    active_workspace_id: null, focused_tab_id: null,
+  };
+  const active = reducer(workingState, {
+    type: "SET_REMOTE_TABS", tabs: working.tabs, remoteStatuses: working.statuses,
+  });
+  assert.equal(active.tabStatuses[id], "Working");
+  assert.equal(tabActivity(active.tabs[id], active.tabStatuses[id]).canStop, true);
+
+  const idle = await refreshAttachedRemoteAgentStates(working.tabs, {}, async () => ({
+    peer_id: "peer",
+    peer_name: "Mac",
+    tabs: [{ ...attachment, id: "shared-chat", remote_peer_id: undefined, remote_tab_id: undefined,
+      agent_state: { state: "idle", status_line: "tool_call pending" } }],
+    tab_statuses: { "shared-chat": "Idle" },
+  }));
+  const settled = reducer(active, { type: "SET_REMOTE_TABS", tabs: idle.tabs, remoteStatuses: idle.statuses });
+  assert.equal(settled.tabStatuses[id], "Idle");
+  assert.equal(tabActivity(settled.tabs[id], settled.tabStatuses[id]).canStop, false);
 });
 
 test("a peer PTY that appears after the attach reaches the attachment, and a gone one clears it", () => {
@@ -131,7 +174,7 @@ test("an attachment the answering peer no longer lists leaves; an unreachable pe
   const refreshed = await refreshAttachedRemoteAgentStates(projected, {}, async (peerId) => ({
     peer_id: peerId, peer_name: "Mac", tabs: [{ ...local, id: "kept", pty_id: "pty" }],
   }));
-  assert.deepEqual(Object.keys(refreshed), [kept.id]);
+  assert.deepEqual(Object.keys(refreshed.tabs), [kept.id]);
   const offline = await refreshAttachedRemoteAgentStates(projected, {}, async () => { throw new Error("offline"); });
-  assert.deepEqual(Object.keys(offline).sort(), [closed.id, kept.id].sort());
+  assert.deepEqual(Object.keys(offline.tabs).sort(), [closed.id, kept.id].sort());
 });

@@ -95,7 +95,7 @@ fn exited_composer_admission_waits_for_its_authenticated_resume_and_writes_once(
         .agent_session_id = Some("opaque-session".into());
     mark_ready(&fixture, &tab_id);
     let (at_carry, carry_ready) = mpsc::channel();
-    let (exit_committed, exit_ready) = mpsc::channel();
+    let (exit_committed, exit_ready) = mpsc::channel::<bool>();
     let check_id = send_id.clone();
     after_next_user_carry(Box::new(move |_, head| {
         at_carry.send(()).unwrap();

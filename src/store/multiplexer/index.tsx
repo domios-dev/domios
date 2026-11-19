@@ -80,7 +80,6 @@ import { resumeRemoteTabEvents, subscribeRemoteTabEvent } from "../../lib/remote
 import { spawnFreshGeneralSession, type SessionLaunchIntent } from "../../lib/generalSession";
 import { usePairedWorkspaces } from "./usePairedWorkspaces";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
-import { workspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 
 import { isSnapshotRefusal, isStorageUnavailableError, muxStateEventAction, tabBootStageEventAction } from "./stateEvents";
 export { STORAGE_UNAVAILABLE_MESSAGE, isStorageUnavailableError, isSnapshotRefusal, muxStateEventAction, tabBootStageEventAction } from "./stateEvents";
@@ -94,7 +93,7 @@ export function webBootHasSyncCache(): boolean {
   return IS_WEB && loadCachedStateSync() !== null;
 }
 
-export function MultiplexerProvider({ children }: { children: ReactNode }) {
+export function MultiplexerProvider({ children, pairedCacheAccount }: { children: ReactNode; pairedCacheAccount?: string | false | null }) {
   const [state, dispatch] = useReducer(reducer, null, buildInitialState);
   useContextCompactionObserver(state.tabs, state.tabStatuses, state.generation > HYDRATED_GENERATION);
   const upsertToast = useCallback(
@@ -127,8 +126,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const peerSwitchRef = useRef(0);
   const attachedRemoteTabsRef = useRef<Record<string, Tab>>(loadAttachedRemoteTabs());
 
-  const applyRemoteProjection = useCallback((tabs: Record<string, Tab>) => {
-    dispatch({ type: "SET_REMOTE_TABS", tabs: visibleRemoteTabs(reconcileAttachedRemoteTabs(tabs, attachedRemoteTabsRef.current)) });
+  const applyRemoteProjection = useCallback((tabs: Record<string, Tab>, remoteStatuses?: Record<string, TabStatus | null>) => {
+    dispatch({ type: "SET_REMOTE_TABS", tabs: visibleRemoteTabs(reconcileAttachedRemoteTabs(tabs, attachedRemoteTabsRef.current)), remoteStatuses });
   }, []);
 
   useEffect(() => {
@@ -218,7 +217,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     });
     const attached = attachedRemoteTabsRef.current;
     const starting = { ...Object.fromEntries(retained.map(tab => [tab.id, tab])), ...attached };
-    const projected = await refreshAttachedRemoteAgentStates(
+    const projection = await refreshAttachedRemoteAgentStates(
       reconcileAttachedRemoteTabs(remote, starting),
       remote,
       (peerId) => {
@@ -231,11 +230,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     const current = attachedRemoteTabsRef.current;
     const kept = visibleRemoteTabs(Object.fromEntries(Object.entries({ ...starting, ...current }).flatMap(([id, tab]) => {
       if (current[id] !== attached[id]) return current[id] ? [[id, current[id]]] : [];
-      return projected[id] ? [[id, projected[id] ?? tab]] : [];
+      return projection.tabs[id] ? [[id, projection.tabs[id] ?? tab]] : [];
     })));
     attachedRemoteTabsRef.current = kept;
     if (Object.keys(kept).length !== Object.keys(current).length) saveAttachedRemoteTabs(kept);
-    applyRemoteProjection(projected);
+    applyRemoteProjection(projection.tabs, projection.statuses);
     resumeRemoteOutputStreams();
     resumeRemoteTabEvents();
   }, [applyRemoteProjection]);
@@ -347,9 +346,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }
   }, []);
   const [pairedRoster, setPairedRoster] = useState<PairedRoster | null>(null);
-  useMeshPeerProjection(remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh, setPairedRoster);
-  const { generals, browse, refreshGeneral, refreshBrowse } = usePairedWorkspaces(pairedRoster);
-  const pairedInventory = useMemo(() => ({ generals, browse }), [generals, browse]);
+  const [rosterSettled, setRosterSettled] = useState(false);
+  const settleInitialRoster = useCallback(() => setRosterSettled(true), []);
+  useMeshPeerProjection(remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh, setPairedRoster, settleInitialRoster);
+  const { generals, browse, peerWorkspaces, refreshGeneral, refreshBrowse, ready } = usePairedWorkspaces(pairedRoster, rosterSettled, pairedCacheAccount ?? null);
+  const pairedInventory = useMemo(() => ({ generals, browse, peerWorkspaces, ready }), [generals, browse, peerWorkspaces, ready]);
   const pairedInventoryRef = useRef(pairedInventory);
   pairedInventoryRef.current = pairedInventory;
 
@@ -364,9 +365,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const remotePeerSubscriptions = JSON.stringify(generals.flatMap(peer => {
     if (peer.availability !== "online" && peer.availability !== "reconnecting" && peer.availability !== "unreachable") return [];
-    const candidate = peer.sessions[0]?.viewerId
+    const candidate = (peer.cached ? undefined : peer.sessions[0]?.viewerId)
       ?? Object.values(state.tabs).find(tab => tab.remote_peer_id === peer.peerId && parseCompositeTabId(tab.id)?.peerId === peer.peerId)?.id
-      ?? (browse?.target.id === peer.peerId ? browse.workspaces.find(workspace => workspace.tabs.length)?.tabs[0]?.viewerId : undefined);
+      ?? peerWorkspaces.find(workspace => workspace.peerId === peer.peerId && workspace.tabs.some(tab => !tab.peerId))
+        ?.tabs.find(tab => !tab.peerId)?.viewerId;
     return candidate ? [[peer.peerId, candidate]] : [];
   }).sort(([a], [b]) => a.localeCompare(b)));
   useEffect(() => {
@@ -980,19 +982,18 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     const remote = stateRef.current.tabs[tabId];
     const route = parseCompositeTabId(tabId);
     if (route) {
-      const { generals, browse } = pairedInventoryRef.current;
+      const { generals, peerWorkspaces } = pairedInventoryRef.current;
       const general = generals.find(peer => peer.peerId === route.peerId);
       if (remote) {
         if (remote.remote_peer_id !== route.peerId || remote.remote_tab_id !== route.remoteTabId || !remote.workspace_id) return;
         workspaceId = remote.workspace_id;
       } else {
-        const session = general?.sessions.find(item => item.viewerId === tabId)
-          ?? (browse?.target === workspaceBrowseTarget() && browse?.target.id === route.peerId
-            ? browse.workspaces.flatMap(workspace => workspace.tabs).find(item => item.viewerId === tabId)
-            : undefined);
+        const session = (general?.cached ? undefined : general?.sessions.find(item => item.viewerId === tabId))
+          ?? (general?.availability === "online" ? peerWorkspaces?.filter(workspace => workspace.peerId === route.peerId)
+            .flatMap(workspace => workspace.tabs).find(item => !item.peerId && item.viewerId === tabId) : undefined);
         const viewerWorkspace = stateRef.current.workspaces.find(workspace => workspace.protected);
         if (!general || !session || !viewerWorkspace) return;
-        attachRemoteTab(viewerWorkspace.id, { peer_id: route.peerId, peer_name: general.name, tabs: [] }, session.tab);
+        attachRemoteTab(viewerWorkspace.id, { peer_id: route.peerId, peer_name: general.name, tabs: [] }, session.tab, session.status);
         if (general.availability === "online") void guardedInvoke("mux_set_focused_tab", { tabId }).catch(() => undefined);
         return;
       }

@@ -202,9 +202,10 @@ async function main() {
     otherMenu.querySelector(`[data-testid="${ITEM_TEST_ID}"]`)?.getAttribute("aria-checked") === "false",
     "only the one bound tab is checked",
   );
-  const remoteMenu = await openMenu(remote.host);
-  assert(!remoteMenu.querySelector('[data-testid="tab-menu-plugins"]'), "a peer's tab has no Plugins entry");
-  assert(!remoteMenu.querySelector('[role="menuitemcheckbox"]'), "a peer's tab offers no local receiver action");
+  const remoteMenu = await openPlugins(remote.host);
+  assert(!remoteMenu.querySelector(`[data-testid="${ITEM_TEST_ID}"]`), "the remote submenu never exposes the local contribution");
+  assert(remoteMenu.querySelector('[data-testid="tab-menu-telegram-connect"]')?.getAttribute("aria-disabled") === "true",
+    "a peer's tab cannot activate this machine's Telegram control");
 
   bridge.bindings[ITEM.pluginId] = "tab-other";
   const loadsBefore = counts().loads;

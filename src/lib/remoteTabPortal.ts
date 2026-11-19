@@ -1,4 +1,4 @@
-import type { Tab } from "./types";
+import type { Tab, TabStatus } from "./types";
 import { frontendCacheRepository, frontendCacheScope, type FrontendCacheRecord } from "./frontendCacheRecords";
 import { parseCompositeTabId } from "./remoteTabTransport";
 
@@ -6,6 +6,7 @@ export interface RemotePeerTabs {
   peer_id: string;
   peer_name: string;
   tabs: Tab[];
+  tab_statuses?: Record<string, TabStatus>;
 }
 
 export function remoteViewerIdentity(tab: Tab) {

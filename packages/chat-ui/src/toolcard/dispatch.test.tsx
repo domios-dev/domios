@@ -69,7 +69,7 @@ if (!searchHost.textContent?.includes("Search")) throw new Error("rg command did
 const readHost = await render(
   <ToolCallBubble event={tool("command", "sed -n '1,80p' src/main.ts && tail -20 src/lib.ts")} expanded={false} onToggle={() => {}} />,
 );
-if (!readHost.textContent?.includes("Read") || !readHost.textContent.includes("main.ts, lib.ts")) throw new Error("read-only shell pipeline did not use a named ReadCard");
+if (!readHost.textContent?.includes("Read") || !readHost.textContent.includes("src/main.ts, src/lib.ts")) throw new Error("read-only shell pipeline did not use a named ReadCard");
 
 const fileDiff = (path: string, additions: number, deletions: number) => ({
   path, additions, deletions,

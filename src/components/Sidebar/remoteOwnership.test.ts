@@ -1,6 +1,6 @@
 import { describe, expect, finish, it } from "../../test/standaloneTest";
 import type { Tab } from "../../lib/types";
-import { managedByLabel, namedManagerRole, remoteIdentity, remoteTeamIdentity } from "./remoteOwnership";
+import { managedByLabel, namedManagerRole, remoteTeamIdentity, remoteTeamName } from "./remoteOwnership";
 
 function targetOwned(overrides: Partial<Tab> = {}): Tab {
   return {
@@ -18,24 +18,18 @@ function targetOwned(overrides: Partial<Tab> = {}): Tab {
 }
 
 describe("canonical remote ownership presentation", () => {
-  it("uses physical remote identity regardless of controller ownership", () => {
-    expect(remoteIdentity(targetOwned())).toBe(null);
-    expect(remoteIdentity(targetOwned({ remote_peer_id: "peer-123", remote_peer_name: "remote-token" }))?.peer).toBe("remote-token");
-    expect(remoteIdentity(targetOwned({ remote_peer_id: "peer-123", ownership: undefined }))?.peer).toBe("Machine");
-  });
-
   it("managed-by names the controller, never the peer", () => {
     expect(managedByLabel(targetOwned())).toEqual("managed by Puccini");
   });
 
-  it("shows the peer alone for workers and a named profile for managing roles", () => {
+  it("gives a named profile to managing roles", () => {
     const worker = targetOwned({ remote_peer_id: "peer-123", remote_peer_name: "BLACKSTAR", role: "Worker" });
     const planner = { ...worker, role: "Manager" as const, role_profile: "planner" };
     const orchestrator = { ...worker, role: "Manager" as const, role_profile: "orchestrator" as const };
-    expect(remoteIdentity(worker)).toEqual({ role: null, peer: "BLACKSTAR" });
-    expect(remoteIdentity(planner)).toEqual({ role: "Planner", peer: "BLACKSTAR" });
+    expect(namedManagerRole(worker)).toBeNull();
+    expect(namedManagerRole(planner)).toBe("Planner");
     // Stored authority stays Manager + role_profile; this surface is a display label.
-    expect(remoteIdentity(orchestrator)).toEqual({ role: "Orchestrator", peer: "BLACKSTAR" });
+    expect(namedManagerRole(orchestrator)).toBe("Orchestrator");
     expect(namedManagerRole({ ...worker, role: "Manager", role_profile: "review_lead" })).toEqual("Review lead");
     expect(namedManagerRole({ ...worker, role: "Manager", role_profile: null })).toEqual(null);
   });
@@ -54,7 +48,13 @@ describe("canonical remote ownership presentation", () => {
     const peer = { peerId: "peer-123", name: "Air", availability: "online" as const, sessions: [],
       teamNames: new Map([["team_7d63c175", "Remote Operations"]]) };
     expect(remoteTeamIdentity(tab, [peer])).toMatchObject({ title: "Remote Operations", peerName: undefined });
-    expect(remoteTeamIdentity(tab)?.title).toBe("Team");
+    expect(remoteTeamIdentity(tab)?.title).toBe(undefined);
+  });
+
+  it("uses the plan then the workspace name for an unnamed peer Team", () => {
+    const id = "team_7d63c175";
+    expect(remoteTeamName(id, id, "Fixture plan", "Workspace name")).toBe("Fixture plan");
+    expect(remoteTeamName(id, id, undefined, "Workspace name")).toBe("Workspace name");
   });
 
   it("does not synthesize a remote Team for a transport-remote origin projection", () => {

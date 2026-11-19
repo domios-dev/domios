@@ -15,6 +15,7 @@ export function useMeshPeerProjection(
   markRemoteChannelsReconnecting: () => void,
   requestRemoteRefresh: () => void,
   acceptPairedPeers: (roster: PairedRoster) => void,
+  settleInitialRoster: () => void,
 ) {
   useEffect(() => {
     remoteProjectionActiveRef.current = true;
@@ -39,7 +40,10 @@ export function useMeshPeerProjection(
           }
         }
       } catch {}
-      if (!identityOnly && active && generation === peerReadGeneration) void requestRemoteRefresh();
+      if (!identityOnly && active && generation === peerReadGeneration) {
+        settleInitialRoster();
+        void requestRemoteRefresh();
+      }
     };
     const onMeshStateChanged = () => {
       markRemoteChannelsReconnecting();
@@ -50,7 +54,7 @@ export function useMeshPeerProjection(
         meshUnlisten = fn;
         void refreshPeers();
       } else fn();
-    });
+    }).catch(() => { if (active) void refreshPeers(); });
     void listen("mesh-identity-changed", () => { void refreshPeers(true); }).then((fn) => {
       if (active) identityUnlisten = fn;
       else fn();
@@ -68,5 +72,5 @@ export function useMeshPeerProjection(
       identityUnlisten?.();
       muxUnlisten?.();
     };
-  }, [remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh, acceptPairedPeers]);
+  }, [remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh, acceptPairedPeers, settleInitialRoster]);
 }

@@ -256,8 +256,7 @@ impl ChatBackendProvider for JsChatBackend {
             return Err("agent task cancelled or expired".into());
         }
         let context = serde_json::to_value(&request.input).map_err(|e| e.to_string())?;
-        let _scope =
-            super::host_exec::host_env_scope(chatbackend_host_exec_env(&self.vm, &context)?);
+        let _scope = super::host_exec::host_env_scope(HashMap::new());
         let output = super::vm::call_json_interruptible(
             &self.vm,
             "runAgentTask",

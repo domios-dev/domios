@@ -93,3 +93,20 @@ fn agent_task_methods_without_a_capability_are_refused() {
         !super::super::JsChatBackend::from_manifest(Arc::new(vm), &manifest).supports_agent_tasks()
     );
 }
+
+#[test]
+fn bundled_agent_tasks_match_capability_declarations() {
+    let root = super::workspace_plugins_root();
+    for (id, expected) in [("codex", true), ("acp", false), ("opencode", false)] {
+        let directory = root.join(format!("provider-{id}"));
+        let manifest_json = std::fs::read_to_string(directory.join("plugin.json")).unwrap();
+        let source = std::fs::read_to_string(directory.join("plugin.js")).unwrap();
+        let manifest = serde_json::from_str(&manifest_json).unwrap();
+        let vm = super::super::PluginVm::from_source_with(id, source, Some(manifest_json)).unwrap();
+        let backend = super::super::JsChatBackend::from_manifest(Arc::new(vm), &manifest);
+        assert_eq!(backend.supports_agent_tasks(), expected, "{id}");
+        if expected {
+            assert!(backend.abort_agent_task("unknown-run").is_ok());
+        }
+    }
+}

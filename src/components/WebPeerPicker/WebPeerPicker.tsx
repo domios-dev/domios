@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { listen } from "../../lib/bridge";
-import { formatLastActiveBadge, rankPeersByLastActive } from "../../lib/peerRanking";
+import { rankPeersByLastActive } from "../../lib/peerRanking";
 import {
   localJson,
-  relayPeerUsable,
-  selfHost,
 } from "../../lib/webApi";
-import { setWorkspaceBrowseTarget, useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
+import { useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
+import { setSidebarMachineFilter, useSidebarMachineFilter } from "../Sidebar/sidebarMachineFilter";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { MachineGlyph } from "../shared/MachineGlyph";
+import { MachinePickerRow, MachineThisBadge, machineRowLabel } from "../shared/MachineRow";
 import { cleanMachineName, machineLabel, type MeshIdentityProjection } from "../../lib/machineIdentity";
 import { menuKeyAction } from "./menuKeyboard";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
@@ -24,6 +24,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [localName, setLocalName] = useState(localInstanceLabel);
   const [open, setOpen] = useState(false);
   const target = useWorkspaceBrowseTarget();
+  const filter = useSidebarMachineFilter();
   const [identities, setIdentities] = useState<MeshIdentityProjection>({});
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -102,13 +103,18 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     [closeMenu, menuItems],
   );
 
-  const onSelf = !target;
-  const label = onSelf ? localName : cleanMachineName(target.name, target.id) ?? "Machine";
-  const identity = onSelf ? identities.local_machine_identity : identities.machine_identities?.[target.id];
+  const selectedPeer = peers.find(peer => peer.instance_id === target?.id);
+  const label = target ? cleanMachineName(selectedPeer?.instance_name ?? target.name, target.id) ?? "Machine" : localName;
+  const identity = target ? identities.machine_identities?.[target.id] : identities.local_machine_identity;
+  const localMachine = { name: localName, identity: identities.local_machine_identity, status: "online", local: true };
+  const pillLabel = filter === "local" ? machineRowLabel(localMachine) : machineLabel(label, identity);
 
   const switchTo = useCallback(
-    (peer: PairedPeer | null) => {
-      setWorkspaceBrowseTarget(peer ? { id: peer.instance_id, name: cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine" } : null);
+    (selection: PairedPeer | "all" | "local") => {
+      setSidebarMachineFilter(typeof selection === "string" ? selection : {
+        id: selection.instance_id,
+        name: cleanMachineName(selection.instance_name, selection.instance_id) ?? "Machine",
+      });
       closeMenu();
     },
     [closeMenu],
@@ -120,15 +126,17 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         ref={triggerRef}
         type="button"
         data-testid="peer-picker-button"
-        aria-label={`Switch Domios host, current host ${machineLabel(label, identity)}`}
+        aria-label={`Filter sidebar by machine, ${filter === "all" ? "All machines, " : ""}${pillLabel}`}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => (open ? closeMenu() : setOpen(true))}
-        className={`ct-bar-pill ct-machine-switcher ${compact ? "min-w-0 max-w-[126px] sm:max-w-none" : ""}`}
-        title="Switch Domios host"
+        data-filtered={filter !== "all" || undefined}
+        className={`ct-bar-pill ct-machine-switcher ${compact ? "min-w-0 max-w-[min(10rem,40vw)] sm:max-w-none" : ""}`}
+        title="Filter sidebar by machine"
       >
         <MachineGlyph {...identity} />
-        <span className="max-w-[104px] truncate sm:max-w-none">{label}</span>
+        <span className="min-w-0 truncate">{label}</span>
+        {filter === "local" && <MachineThisBadge className="hidden min-[400px]:inline-flex" />}
         <ChevronDown size={12} className="shrink-0 opacity-60" aria-hidden="true" />
       </button>
       <AnchoredPopover open={open} anchor={rootRef} placement={compact ? "bottom-end" : "bottom-start"} onClose={dismissMenu}>
@@ -136,37 +144,24 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
           ref={menuRef}
           data-testid="peer-picker-menu"
           role="menu"
-          aria-label="Domios hosts"
+          aria-label="Machines"
           onKeyDown={onMenuKeyDown}
-          className="ct-menu ct-peer-menu w-[320px]"
+          className="ct-menu ct-peer-menu w-max max-w-[min(24rem,calc(100vw-2rem))]"
         >
-          <button
-            type="button"
-            role="menuitem"
-            data-testid="peer-picker-self"
-            aria-label={machineLabel(localName, identities.local_machine_identity, "online")}
-            title={`${localName} · ${selfHost().replace(/^https?:\/\//, "")}`}
-            aria-current={onSelf ? "true" : undefined}
-            onClick={() => switchTo(null)}
-            className="ct-menu-row ct-machine-menu-row"
-          >
-            <span className="ct-menu-row__icon">
-              <MachineGlyph {...identities.local_machine_identity} size="mark-15" />
-            </span>
-            <span className="min-w-0 flex-1 truncate">
-              {localName}
-            </span>
-            <HostStatus status="online" />
-            {onSelf && <Check aria-hidden size={14} className="ct-menu-row__check shrink-0" />}
+          <button type="button" role="menuitem" data-testid="peer-picker-all"
+            aria-current={filter === "all" ? "true" : undefined}
+            onClick={() => switchTo("all")} className="ct-menu-row ct-machine-menu-row">All machines</button>
+          <button type="button" role="menuitem" data-testid="peer-picker-self"
+            aria-current={filter === "local" ? "true" : undefined}
+            aria-label={machineRowLabel(localMachine)} onClick={() => switchTo("local")}
+            className="ct-menu-row ct-machine-menu-row">
+            <MachinePickerRow {...localMachine} />
           </button>
           {peers.map((p) => {
             const active = target?.id === p.instance_id;
             const name = cleanMachineName(p.instance_name, p.instance_id) ?? "Machine";
-            const badge = formatLastActiveBadge(p.last_active_ms);
             const compatible = p.relay_protocol_version === RELAY_PROTOCOL_VERSION;
-            const available = relayPeerUsable(p);
-            const status = p.online && !compatible ? "update required"
-              : badge && badge !== "active now" ? badge : p.online ? "online" : "offline";
+            const status = p.online ? compatible ? "online" : "update required" : "offline";
             const identity = identities.machine_identities?.[p.instance_id];
             const endpoint = p.addresses?.[0]?.ip;
             return (
@@ -176,41 +171,20 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
                 key={p.instance_id}
                 data-testid="peer-picker-item"
                 aria-current={active ? "true" : undefined}
-                aria-label={machineLabel(name, identity, status)}
+                aria-label={machineRowLabel({ name, identity, status })}
                 data-peer-id={p.instance_id}
                 data-peer-name={name}
                 data-peer-online={String(!!p.online)}
-                disabled={!available}
                 onClick={() => switchTo(p)}
                 className="ct-menu-row ct-machine-menu-row min-h-[44px] sm:min-h-0"
                 title={[name, status, endpoint && `${endpoint}:${p.api_port}`].filter(Boolean).join(" · ")}
               >
-                <span className="ct-menu-row__icon">
-                  <MachineGlyph {...identity} size="mark-15" />
-                </span>
-                <span className="min-w-0 flex-1 truncate">{name}</span>
-                <HostStatus status={status} />
-                {active && <Check aria-hidden size={14} className="ct-menu-row__check shrink-0" />}
+                <MachinePickerRow name={name} identity={identity} status={status} />
               </button>
             );
           })}
-          {peers.length === 0 && (
-            <div className="px-2 py-1.5 text-[10.5px] text-[var(--ct-muted)]">
-              No other machines yet.
-            </div>
-          )}
         </div>
       </AnchoredPopover>
     </div>
-  );
-}
-
-function HostStatus({ status }: { status: string }) {
-  const tone = status === "online" ? "var(--ct-green)" : status === "update required" ? "var(--ct-yellow)" : "var(--ct-muted)";
-  return (
-    <span className="flex shrink-0 items-center gap-1.5 text-[length:var(--ct-font-size-meta)] text-[var(--ct-muted-fg)]">
-      <span aria-hidden="true" className="size-2 rounded-full" style={{ backgroundColor: tone }} />
-      {status}
-    </span>
   );
 }

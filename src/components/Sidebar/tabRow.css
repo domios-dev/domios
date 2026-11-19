@@ -54,10 +54,16 @@
   display: none;
 }
 
-.sidebar-tab-body__sub--machine {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
+.sidebar-remote-tab-icon {
+  position: relative;
+  display: inline-flex;
+}
+
+.sidebar-remote-tab-icon__badge {
+  display: inline-flex;
+  line-height: 1;
+  background: var(--ct-bg);
+  border-radius: 50%;
 }
 
 .sidebar-tab-end {

@@ -349,8 +349,10 @@ test("machine removal names the actual rows and calls only the local removal act
         <TabItem tab={halley} index={0} isActive={false} onClick={open} onClose={close} canClose workspaceId="fixture" />
       </MultiplexerActionsContext.Provider>
     </MuxStateStoreContext.Provider>));
-    const activation = host.querySelector<HTMLButtonElement>('button[aria-label="Halley, Orchestrator on ROG, machine, offline"]');
+    const activation = host.querySelector<HTMLButtonElement>('button[aria-label^="Halley,"]');
     assert(activation, "the named activation stays available");
+    const label = activation.getAttribute("aria-label") ?? "";
+    assert(["Orchestrator", "ROG", "offline"].every(part => label.includes(part)), "the activation names its role, machine and state");
     await act(async () => activation.click());
     assert(open.mock.callCount() === 1, "the unavailable tab opens");
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Tab actions"]')!
