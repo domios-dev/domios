@@ -181,6 +181,10 @@ test("optimistic chat session preserves committed send identity across stream up
     v().allMessages.some((row) => row.content === "streamed"),
     "the streamed delta landed (ordinal assertions below depend on it)",
   );
+  assert(
+    v().allMessages.findIndex((row) => row.id === "a-1") < v().allMessages.findIndex((row) => row.id === "chip-echo"),
+    "display chronology places the latest appended row before the prior echo",
+  );
 
   assert(
     v().addOptimistic === mountedIdentity,
@@ -200,7 +204,7 @@ test("optimistic chat session preserves committed send identity across stream up
   const secondKey = rows.find((row) => row.id === secondId)?.timestamp;
   const { readChatSends } = await import("./chatSendStore");
   const boundary = readChatSends("tab").find((send) => send.id === secondId)?.echoBoundary;
-  assert(boundary?.lastRowId === "a-1", "the stable send callback captures the latest committed row");
+  assert(boundary?.lastRowId === "a-1", "the stable send callback captures the append boundary");
   assert(boundary.sourceSessionId === "sid-1" && boundary.sessionBindingNonce === "nonce-1", "the boundary belongs to the attached session");
   assert(typeof secondKey === "string", "the second send projects with its own key");
   assert(

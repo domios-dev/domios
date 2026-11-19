@@ -24,6 +24,10 @@ function msg(id: string, content: string, ts: number, seq = 0): NormalizedChatMe
   return { id, type: "assistant", content, timestamp: String(ts), seq };
 }
 
+function fileRow(row: NormalizedChatMessage, recordStart: number): NormalizedChatMessage {
+  return { ...row, sourceRecord: { kind: "jsonl", incarnation: "file", record_start: recordStart, record_row: 0 } };
+}
+
 interface BackfillPage {
   start_offset: number;
   end_offset: number;
@@ -117,20 +121,21 @@ async function main(): Promise<void> {
   }
 
   // Large session: bounded snapshot tail + a positive start_offset cursor.
-  state.snapshot = Array.from({ length: CHAT_PAGE_SIZE }, (_, i) => msg(`s-${i}`, `snap-${i}`, 20_000 + i, i));
+  state.snapshot = Array.from({ length: CHAT_PAGE_SIZE }, (_, i) => fileRow(msg(`s-${i}`, `snap-${i}`, 20_000 + i, i), 5000 + i));
   state.startOffset = 5000;
   state.endOffset = 8000;
   state.pages.set(5000, {
     start_offset: 3000,
     end_offset: 5000,
-    messages: Array.from({ length: CHAT_PAGE_SIZE }, (_, i) => msg(`p1-${i}`, `page1-${i}`, i === CHAT_PAGE_SIZE - 1 ? 20_000 : 10_000 + i, i)),
+    messages: Array.from({ length: CHAT_PAGE_SIZE }, (_, i) =>
+      fileRow(msg(`p1-${i}`, `page1-${i}`, i === CHAT_PAGE_SIZE - 1 ? 20_000 : 10_000 + i, i), 3000 + i)),
     source_session_id: "sid-1",
   });
   // Page 2: reaches the start of the file.
   state.pages.set(3000, {
     start_offset: 0,
     end_offset: 3000,
-    messages: Array.from({ length: 10 }, (_, i) => msg(`p2-${i}`, `page2-${i}`, 5_000 + i, i)),
+    messages: Array.from({ length: 10 }, (_, i) => fileRow(msg(`p2-${i}`, `page2-${i}`, 5_000 + i, i), i)),
     source_session_id: "sid-1",
   });
 

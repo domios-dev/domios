@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { captureSendEchoBoundary, type ChatSend } from "./sendOrder";
-import { createTranscriptState, projectTranscript, reduceTranscript, transcriptRows, type TranscriptState } from "./transcript";
+import { createTranscriptState, projectTranscript, reduceTranscript, transcriptRows, transcriptSourceRows, type TranscriptState } from "./transcript";
 import type { NormalizedChatMessage } from "./types";
 
 const authority = { sourceSessionId: "own-session", sessionBindingNonce: "own-launch" };
@@ -39,6 +39,23 @@ test("identical pre-send history cannot match even when its clock is newer", () 
   const result = projectTranscript(history, [{ ...send("send-a"), sentAtMs: serverAt - 30_000 }]);
   assert.deepEqual(result.pending.map((row) => row.id), ["send-a"]);
   assert.equal(result.echoes.size, 0);
+});
+
+test("untokened echoes use the source append boundary even when the displayed order differs", () => {
+  const stale = { ...user("stale"), timestamp: String(serverAt + 1_000) };
+  const anchor: NormalizedChatMessage = { id: "anchor", type: "assistant", content: "reply", timestamp: String(serverAt) };
+  const initial = append(createTranscriptState(), [stale, anchor]);
+  const pending: ChatSend = {
+    id: "pending", content, sentAtMs: serverAt,
+    echoBoundary: captureSendEchoBoundary(initial.authority, transcriptSourceRows(initial)),
+  };
+  assert.deepEqual(transcriptRows(initial).map(row => row.id), ["anchor", "stale"]);
+  assert.equal(projectTranscript(initial, [pending]).echoes.size, 0);
+
+  const echo = { ...user("appended"), timestamp: String(serverAt - 1_000) };
+  const result = projectTranscript(append(initial, [echo]), [pending]);
+  assert.equal(result.echoes.get("pending")?.timestampMs, serverAt - 1_000);
+  assert.deepEqual(result.rows.map(row => row.id), ["appended", "anchor", "stale"]);
 });
 
 test("a send never reconciles against another bound session or launch", () => {
@@ -281,7 +298,7 @@ test("ledger JSONL claims ignore stale boundaries, captions and clocks across re
     const result = projectTranscript(state, [current]);
     assert.equal(result.pending.length, 0);
     assert.equal(result.echoes.size, 1);
-    assert.deepEqual(result.rows.map(row => row.id), ["history", "native"]);
+    assert.deepEqual(result.rows.map(row => row.id), ["native", "history"]);
   }
   for (const changed of [
     { ...record, incarnation: "replaced-file" }, { ...record, record_start: 91 }, { ...record, record_row: 1 },
