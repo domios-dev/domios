@@ -21,6 +21,7 @@ import { useMeshMachineIdentities } from "../../lib/useMeshMachineIdentities";
 import { TabItem } from "./TabItem";
 import { MachineProvenance } from "../shared/MachineProvenance";
 import type { GeneralAvailability, ObservedPeerTab, PairedGeneral } from "../../store/multiplexer/pairedWorkspaceProjection";
+import { remoteViewerIdentity } from "../../lib/remoteTabPortal";
 
 /** The protected General workspace: its agents and the machine-wide inventory below them. */
 export function SidebarGeneralSection({ workspace, expanded, onToggle, providerId, api, data, actions, workspaces, onOpenJobs }: {
@@ -38,18 +39,22 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
   const machineIdentities = useMeshMachineIdentities();
   const pairedGenerals = useMemo(() => [...generals].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }) || a.peerId.localeCompare(b.peerId)), [generals]);
+  const pairedViewerIds = useMemo(() => new Set(pairedGenerals.flatMap((peer) => peer.sessions.map(({ viewerId }) => viewerId))), [pairedGenerals]);
   const workspaceId = workspace.id;
   const localMachineLine = pairedGenerals.length > 0
     ? { name: machineIdentities.local_instance_name || "This machine", repeatNameForNonProtected: true }
     : null;
   const sortedTabs = useMemo(() => tabsInWorkspace(workspace.tabs, data.tabs), [workspace.tabs, data.tabs]);
+  const attachedPairedViewerIds = useMemo(() => new Set(sortedTabs.flatMap((tab) =>
+    remoteViewerIdentity(tab) && pairedViewerIds.has(tab.id) ? [tab.id] : [])), [sortedTabs, pairedViewerIds]);
   const conciergeIds = useNeighborGatewayIds();
   const sessionTabs = useMemo(() => {
     const utilityIds = new Set(projectUtilityShells(workspaces, data.tabs, data.teams, workspaceId).map(({ tab }) => tab.id));
     const sessions = sortedTabs.filter((tab) => !utilityIds.has(tab.id)
+      && !attachedPairedViewerIds.has(tab.id)
       && !(isSurfaceTab(tab) && utilityIds.has(surfaceOwnerId(tab) ?? "")) && !conciergeIds.has(tab.id));
     return [...sessions.filter(isGeneralSectionTab), ...sessions.filter((tab) => !isGeneralSectionTab(tab))];
-  }, [sortedTabs, workspaces, data.tabs, data.teams, workspaceId, conciergeIds]);
+  }, [sortedTabs, workspaces, data.tabs, data.teams, workspaceId, conciergeIds, attachedPairedViewerIds]);
   const generalCwd = workspace.cwd ?? sortedTabs.find((tab) => tab.protected)?.cwd ?? null;
   const isActiveVisual = workspaceId === data.activeWorkspaceId && data.isWorkspaceMode;
   const { activate, activateTab, closeTab, renameTab, openRemoteTab, openSentinelJob, closeTeam } =
@@ -117,6 +122,10 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         peer={peer}
         activeTabId={isActiveVisual && !data.workspaceCanvasActive ? data.activeTabIds[workspaceId] ?? null : null}
         workspaceId={workspaceId}
+        tabs={data.tabs}
+        tabStatuses={data.tabStatuses}
+        attentionByTab={data.attention}
+        attachedViewerIds={attachedPairedViewerIds}
         onSelect={activateTab}
       />)}
       {expanded && <GeneralInventory
@@ -143,16 +152,26 @@ function availabilityLabel(availability: GeneralAvailability): string {
   }
 }
 
-function PairedGeneralRows({ peer, activeTabId, workspaceId, onSelect }: {
+function PairedGeneralRows({ peer, activeTabId, workspaceId, tabs, tabStatuses, attentionByTab, attachedViewerIds, onSelect }: {
   peer: PairedGeneral;
   activeTabId: string | null;
   workspaceId: string;
+  tabs: SidebarWorkspaceDetailData["tabs"];
+  tabStatuses: SidebarWorkspaceDetailData["tabStatuses"];
+  attentionByTab: SidebarWorkspaceDetailData["attention"];
+  attachedViewerIds: ReadonlySet<string>;
   onSelect: (tabId: string) => void;
 }) {
   const status = availabilityLabel(peer.availability);
   const suppressActivity = peer.availability !== "online";
   return <div role="group" aria-label={`${peer.name} General sessions`} data-testid="paired-general-group" className="sidebar-paired-general-group">
     {peer.sessions.length > 0 ? peer.sessions.map(({ viewerId, tab, status: tabStatus }: ObservedPeerTab, index) => {
+      const attachedTab = tabs[viewerId];
+      const attachedIdentity = attachedTab ? remoteViewerIdentity(attachedTab) : null;
+      const isAttachedViewer = attachedViewerIds.has(viewerId)
+        && attachedIdentity?.ordinaryTabId === viewerId
+        && attachedIdentity.peerId === peer.peerId
+        && attachedIdentity.remoteTabId === tab.id;
       const projectedTab = tab.id === viewerId ? tab : { ...tab, id: viewerId };
       return <TabItem
         key={viewerId}
@@ -165,14 +184,15 @@ function PairedGeneralRows({ peer, activeTabId, workspaceId, onSelect }: {
         readOnly
         workspaceId={workspaceId}
         hasAgent={Boolean(projectedTab.agent_type)}
-        status={tabStatus ?? null}
+        status={isAttachedViewer ? tabStatuses[viewerId] ?? tabStatus ?? null : tabStatus ?? null}
+        attention={isAttachedViewer ? attentionByTab[viewerId] ?? null : null}
         machineLine={{
           peerId: peer.peerId,
           name: peer.name,
           status: suppressActivity ? status : undefined,
           repeatNameForNonProtected: true,
           suppressActivity,
-          suppressAttention: true,
+          suppressAttention: suppressActivity || !isAttachedViewer,
         }}
       />;
     }) : <div role="status" className="sidebar-paired-general-empty">
