@@ -266,13 +266,17 @@ fn execute(
             operation
                 .begin_effect()
                 .map_err(|error| error.to_string())?;
-            serde_json::from_str(&host_exec::start_with_host_env(
+            let started: Value = serde_json::from_str(&host_exec::start_with_host_env(
                 sandbox.plugin_id(),
                 &options,
                 &host_exec::current_host_env(),
                 sandbox.clone(),
             ))
-            .map_err(|error| Failure::from(error.to_string()))
+            .map_err(|error| Failure::from(error.to_string()))?;
+            if let Some(job) = started.get("jobId").and_then(Value::as_str) {
+                operation.attach_exec_job(sandbox.plugin_id(), job);
+            }
+            Ok(started)
         }
         FetchStart { options } => {
             let prepared = super::prepare_fetch(sandbox, &options.to_string())?;

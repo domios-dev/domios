@@ -5,6 +5,7 @@ import { runPromptSteps } from "../../provider-shared/runPromptStep";
 import { sessionRecords, type SessionRecordInput } from "../../provider-shared/sessionRecords";
 import { buildCodexLaunchSpec, codexCommandFromSpec, CODEX_LAUNCH_CONFIG, hostOwnedCodexLaunchArgs } from "./launchSpec";
 import { cloudExports } from "./cloud/plugin";
+import { abortAgentTask, runAgentTask } from "./agentTask";
 
 import { runtimeStoredHistory, runtimeStoredRecords, storedHistoryAvailable } from "./runtimeStoredHistory";
 import { runtimePlan, runtimeResponse, runtimeReduce } from "./runtime";
@@ -140,6 +141,8 @@ const plugin = {
   parseUsageRecord,
   ...runPromptSteps(() => host.agentRun, { sandbox: "read-only" }),
   ...cloudExports(() => host),
+  runAgentTask,
+  abortAgentTask,
   sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
   runtimeStoredRecords,

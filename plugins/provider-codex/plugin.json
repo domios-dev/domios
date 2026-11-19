@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.14.80",
-  "minCodeterm": "1.20.2",
+  "version": "1.14.81",
+  "minCodeterm": "1.21.0",
   "hostApi": 2,
   "accounts": {
     "credentialFiles": [
