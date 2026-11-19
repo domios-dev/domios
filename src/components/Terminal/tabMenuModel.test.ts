@@ -192,10 +192,14 @@ describe("tab menu model", () => {
     expect(open?.kind === "item" ? open.hint : "present").toBeUndefined();
   });
 
-  it("omits the Plugins entry when it would hold nothing", () => {
+  it("keeps only the inert Telegram action visible when a remote tab has no local plugin controls", () => {
     for (const surface of SURFACES) {
       const entries = buildTabMenu(input(surface, { tab: tab({ remote_peer_id: "peer-1" }) }));
-      expect(submenu(entries, "plugins")).toBeUndefined();
+      const pluginsEntry = submenu(entries, "plugins");
+      const attach = child(pluginsEntry, "telegram-open");
+      expect(pluginsEntry?.entries.length).toBe(1);
+      expect(attach?.kind === "item" ? attach.unavailable : null).toBe(true);
+      expect(attach?.kind === "item" ? attach.action : "missing").toBeNull();
     }
   });
 
@@ -236,6 +240,21 @@ it("offers Detach on a remote tab and names the machine its Close acts on", () =
   expect(local.some((entry) => entry.id === "detach")).toBe(false);
   const localClose = local.find((entry) => entry.id === "close");
   expect(localClose?.kind === "item" ? localClose.label : null).not.toContain("PEER-NAME");
+});
+
+it("keeps remote Telegram controls visible with an inert owner-only reason", () => {
+  const remote = tab({ id: "mesh:peer/one", remote_peer_id: "peer", remote_tab_id: "one", connected_services: ["telegram"] });
+  const entries = buildTabMenu(input("header", { tab: remote }));
+  const plugins = submenu(entries, "plugins");
+  const open = child(plugins, "telegram-open");
+  const close = child(plugins, "telegram-close");
+  for (const entry of [open, close]) {
+    expect(entry?.kind).toBe("item");
+    if (entry?.kind !== "item") throw new Error("Missing remote Telegram control");
+    expect(entry.unavailable).toBe(true);
+    expect(entry.hint).toBe("Telegram controls are only available on the owning machine.");
+    expect(entry.action).toBeNull();
+  }
 });
 
 it("offers a session fork only for a declaring provider and a bound local tab", () => {

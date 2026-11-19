@@ -126,6 +126,8 @@ import { MessageSelectionBar } from "./MessageSelectionBar";
 import { useChatMessageSelection } from "./useChatMessageSelection";
 import { streamingMessageId } from "./streamingMessage";
 import { requestChatMessageReveal } from "../../lib/chatMessageReveal";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { useRemoteViewerConnection, type RemoteViewerConnection } from "./useRemoteViewerConnection";
 
 interface Props {
   inputStatus?: ReactNode;
@@ -166,7 +168,16 @@ const NO_ASKS: readonly Notification[] = [];
 
 
 export function TabSessionChat(props: Props) {
-  return <ComposerIssuesProvider key={props.tabId}><TabSessionChatBody {...props} /></ComposerIssuesProvider>;
+  return parseCompositeTabId(props.tabId)
+    ? <RemoteTabSessionChat {...props} />
+    : <ComposerIssuesProvider key={props.tabId}><TabSessionChatBody {...props} /></ComposerIssuesProvider>;
+}
+
+function RemoteTabSessionChat(props: Props) {
+  const tabSelector = useLatestCallback((state: Parameters<typeof selectTab>[0]) => selectTab(state, props.tabId), [props.tabId]);
+  const tab = useMuxSelector(tabSelector, tabFieldsEqual);
+  const connection = useRemoteViewerConnection(props.tabId, tab);
+  return <ComposerIssuesProvider key={props.tabId}><TabSessionChatBody {...props} remoteConnection={connection} /></ComposerIssuesProvider>;
 }
 
 function TabSessionChatBody({
@@ -179,7 +190,8 @@ function TabSessionChatBody({
   isVisible = true,
   sessionActive,
   chatBackend = false,
-}: Props) {
+  remoteConnection,
+}: Props & { remoteConnection?: RemoteViewerConnection }) {
   if (isCodeTermFrontendTestMode()) {
     const counts = (window.__renderCounts ??= {});
     counts[tabId] = (counts[tabId] ?? 0) + 1;
@@ -199,7 +211,7 @@ function TabSessionChatBody({
   const openPlanTarget = usePlanTargetNavigation();
   const tabSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
-  const remoteChat = useRemoteChatNotice(tabId, tab, deliverySends);
+  const remoteChat = useRemoteChatNotice(tabId, tab, deliverySends, remoteConnection);
   const tabLock = useTabLock(tab);
   const readOnly = isInputBlockedTab(tab, tabLock);
   const workspaceSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => s.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? s.tabs[tabId]?.workspace_id ?? null, [tabId]);
@@ -352,9 +364,9 @@ function TabSessionChatBody({
   const signInState = signIn ? runtime.state : null;
   const launchedFailure = dockedTabFailure(tab && { ...tab, agent_runtime_state: runtime.state ?? undefined });
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
-  const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
-  const chatChannelLoading = !firstTurnReady && !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
-  const chatLoading = !showRemoteState && chatChannelLoading;
+  const remoteChatReconnecting = remoteChat.connectionState === "reconnecting";
+  const chatChannelLoading = !firstTurnReady && !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering);
+  const chatLoading = !showRemoteState && !remoteChatReconnecting && chatChannelLoading;
   const restoreLoadRefused = runtimeSessionUnavailable(runtime.state);
   const undelivered = useMemo(() => sendsOfCurrentAttempt(undeliveredSends(deliverySends), tab?.pty_id, tab?.session_binding_nonce),
     [deliverySends, tab?.pty_id, tab?.session_binding_nonce]);
@@ -1074,6 +1086,7 @@ function TabSessionChatBody({
       </div>
       <ComposerBackgroundWorkProvider tabId={tabId} messages={allMessages}>
       <ChatComposerSurface tab={tab} lock={tabLock} view={setupView} providerId={tabProvider ?? undefined} tabId={tabId}>
+        {remoteChatReconnecting && !remoteChat.state && <span className="sr-only" role="status" aria-live="polite">Reconnecting</span>}
       {isWatcherTab && watcherSpec ? (
         <WatcherReadOnlyBar
           watcher={watcherSpec}
@@ -1149,6 +1162,7 @@ function TabSessionChatBody({
           observeChatSendStatus={observeChatSendStatus}
           showComposerError={showComposerError}
           onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
+          sendUnavailableReason={remoteChat.sendUnavailableReason}
         />}
       </>
       )}

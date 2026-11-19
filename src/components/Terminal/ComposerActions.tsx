@@ -18,6 +18,7 @@ interface Props {
   onSendWithAttachments: (paths: string[]) => void;
   onError: (msg: string) => void;
   sendDisabled: boolean;
+  sendUnavailableReason?: string | null;
   hasText: boolean;
   children: ReactNode;
   cardHeader?: ReactNode;
@@ -42,6 +43,7 @@ function ComposerActionsBody({
   onSendWithAttachments,
   onError,
   sendDisabled,
+  sendUnavailableReason,
   hasText,
   children,
   cardHeader,
@@ -94,6 +96,7 @@ function ComposerActionsBody({
           <ComposerActionButton
             voiceUi={voiceUi}
             sendDisabled={sendDisabled}
+            sendUnavailableReason={sendUnavailableReason}
             onSend={onSend}
             onSchedule={onSchedule}
           />

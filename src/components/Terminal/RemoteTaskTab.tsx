@@ -4,6 +4,16 @@ import {InlineErrorNotice} from "../shared/ErrorNotice";
 import {Button} from "../shared/Button";
 import {remoteTaskCall, useRemoteTask, type RemoteTaskCall} from "./useRemoteTask";
 
+export function RemoteTaskUnavailable() {
+  const reason = "This action is only available on the owning machine.";
+  return <section aria-label="Remote task" className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4">
+    <div className="flex gap-2">
+      <Button variant="ghost" className="opacity-50" aria-disabled="true" title={reason} aria-description={reason}>Run remote task</Button>
+      <Button variant="ghost" className="opacity-50" aria-disabled="true" title={reason} aria-description={reason}>Refresh remote task</Button>
+    </div>
+  </section>;
+}
+
 export function RemoteTaskTab({tabId, pluginId, sessionId, capability, call: injectedCall}: {
   tabId: string; pluginId: string; sessionId: string; capability: RemoteTaskCapability; call?: RemoteTaskCall;
 }) {

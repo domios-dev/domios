@@ -218,8 +218,9 @@ test("remote chat keeps selectable cached rows and the composer when pairing is 
   meshPeer(true);
   const id = "mesh:remote-fixture/cached";
   const tab = tabBase(id, { remote_peer_id: "remote-fixture", remote_peer_name: "Local label",
-    remote_tab_id: "cached", agent_session_id: "session", session_binding_nonce: "nonce" });
-  const { host, root } = await renderTabSessionChat(id, muxStateFor({ [id]: tab }), () => ({
+    remote_tab_id: "cached", agent_session_id: "session", session_binding_nonce: "nonce",
+    remote_channels: { chat: "reconnecting" } });
+  const { host, root, commands } = await renderTabSessionChat(id, muxStateFor({ [id]: tab }), () => ({
     text: "", offset: 1, start_offset: 0, pending: false, messages: [{ id: "reply", type: "assistant", content: "cached reply" }],
   }));
   const log = host.querySelector('[role="log"]')!;
@@ -227,11 +228,30 @@ test("remote chat keeps selectable cached rows and the composer when pairing is 
   const placeholder = composer.placeholder;
   try {
     assert(log.textContent?.includes("cached reply"), "initial attachment populated the log");
+    assert(!host.querySelector('[data-testid="chat-setup-state"]'), "reconnecting leaves cached chat visible");
+    assert(Array.from(host.querySelectorAll('[role="status"]')).some(status => status.textContent === "Reconnecting"), "reconnecting announces its state");
+    const draft = "retain this remote draft";
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(testWindow.HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(composer, draft);
+      composer.dispatchEvent(new testWindow.Event("input", { bubbles: true }) as unknown as Event);
+    });
     await act(async () => updateRemoteChatPeers({ paired: [], local_instance_name: "Local" }));
     const card = log.querySelector('[data-testid="remote-chat-notice"]')!;
     assert(card.querySelector('[role="status"]')?.textContent === "ROG isn't paired with this computer anymore.", "one named sentence");
     assert(log.textContent?.includes("cached reply"), "cached transcript stays available");
     assert(host.querySelector("textarea") === composer && composer.placeholder === placeholder && !composer.disabled, "composer stays usable");
+    assert(composer.value === draft, "the draft survives loss of pairing");
+    const send = host.querySelector<HTMLButtonElement>('[data-testid="composer-send-button"]');
+    assert(send?.getAttribute("aria-disabled") === "true" && send.getAttribute("aria-description") === "ROG isn't paired", "unavailable send stays visible with its reason");
+    assert(!send.disabled, "unavailable send remains focusable");
+    await act(async () => {
+      const pointerUp = new testWindow.Event("pointerup", { bubbles: true });
+      Object.defineProperty(pointerUp, "button", { value: 0 });
+      send.dispatchEvent(pointerUp as unknown as Event);
+    });
+    assert(composer.value === draft, "an unavailable send does not clear the draft");
+    assert(!commands.includes("chat_send_text"), "an unavailable send does not reach chat delivery");
     const details = [...card.querySelectorAll("button")].find(button => button.textContent === "Details")!;
     assert(details.getAttribute("aria-expanded") === "false" && !card.querySelector("pre"), "Details starts collapsed");
     await act(async () => details.click());

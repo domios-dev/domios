@@ -205,6 +205,7 @@ function ChatComposerImpl({
   contextSlot = null,
   chatBackend = false,
   isActive = true,
+  sendUnavailableReason,
 }: {
   tabId: string;
   tabProvider: string | null;
@@ -216,6 +217,7 @@ function ChatComposerImpl({
    *  When false, refocusComposer is a no-op — prevents background tabs
    *  from stealing focus after an async send completes. */
   isActive?: boolean;
+  sendUnavailableReason?: string | null;
   pendingPrompt: PendingPrompt | null;
   attachments: string[];
   addAttachments: (paths: string[]) => void;
@@ -423,7 +425,7 @@ function ChatComposerImpl({
   }
 
   async function send(extraAttachments: string[] = []) {
-    if (!startupSend.allowed) return;
+    if (!startupSend.allowed || sendUnavailableReason) return;
     const startupOverrideNonce = startupSend.overrideNonce;
     const draft = buildDraft(extraAttachments);
     if (!draft) return;
@@ -598,6 +600,7 @@ function ChatComposerImpl({
       onSendWithAttachments={(paths) => void send(paths)}
       onError={flagComposerError}
       sendDisabled={!startupSend.allowed || (!input.trim() && attachments.length === 0 && !reply.reply)}
+      sendUnavailableReason={sendUnavailableReason}
       hasText={input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
       cardHeader={(reply.reply || attachments.length > 0) && <>
         {reply.reply && <ReplyQuote label={reply.reply.label} excerpt={reply.reply.excerpt} onRemove={() => { reply.clear(); refocusComposer(); }} />}
@@ -841,4 +844,5 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.contextSlot === b.contextSlot
   && a.chatBackend === b.chatBackend
   && a.isActive === b.isActive
+  && a.sendUnavailableReason === b.sendUnavailableReason
 );
