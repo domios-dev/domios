@@ -127,6 +127,7 @@ struct Plan {
     elevation: Elevation,
     target: QuitTarget,
     snapshot: codeterm_types::app_quit::QuitSnapshot,
+    initiating_tab_id: Option<String>,
 }
 
 pub fn exact_pair(

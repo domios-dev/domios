@@ -1,3 +1,4 @@
+import { releaseTag } from './release-version.mjs';
 import { isReleasePushRun, latestQualificationJobs, QUALIFICATION_JOBS, resolveQualificationOrigins } from './ci-qualification.mjs';
 import { REQUIRED_JOBS, verifyAssetDigests } from './release-promote.mjs';
 import { PLATFORMS } from './release-dry-run-manifest.mjs';
@@ -62,7 +63,7 @@ function onlyFailedSteps(job, names) {
   }
 }
 
-export function verifyTestWaiver({ waiver, run, jobs, attempts, sha, repository, warningLog = '', draft, assets, receipts,
+export function verifyTestWaiver({ waiver, run, jobs, attempts, sha, repository, tag, warningLog = '', draft, assets, receipts,
   now = Date.now(), publicationRecovery = false, admission }) {
   validateTestWaiver(waiver);
   if (!isReleasePushRun(run, sha, repository) || String(run.id) !== waiver.run_id ||
@@ -103,7 +104,7 @@ export function verifyTestWaiver({ waiver, run, jobs, attempts, sha, repository,
   }
   const green = effective.filter(job => job.conclusion === 'success');
   resolveQualificationOrigins(green, jobs, run, attempts, sha, repository);
-  const tag = 'v' + run.head_branch.slice('release/'.length);
+  if (!/^v\d+\.\d+\.\d+$/.test(tag ?? '')) throw new Error('Missing package version for waived run');
   const recordedWaiver = { ...waiver, actor: 'rollacode', derived_jobs: derived.map(job => ({ name: job.name, conclusion: job.conclusion })) };
   const recovering = publicationRecovery && draft?.draft === false && draft.tag_name === tag &&
     admission?.sha === sha && admission.repository === repository && String(admission.run_id) === String(run.id) &&
@@ -126,6 +127,10 @@ export function* testWaiverEvidence(sha, waiver, repository, publicationRecovery
   validateTestWaiver(waiver);
   const root = `repos/${repository}`;
   const run = yield { route: `${root}/actions/runs/${waiver.run_id}` };
+  if (!isReleasePushRun(run, sha, repository) || String(run.id) !== waiver.run_id) throw new Error('Foreign waived run');
+  const manifest = yield { route: `${root}/contents/package.json?ref=${sha}` };
+  if (manifest.encoding !== 'base64' || typeof manifest.content !== 'string') throw new Error('Missing package.json for waived run');
+  const tag = releaseTag(JSON.parse(Buffer.from(manifest.content, 'base64').toString('utf8')));
   const jobs = [];
   for (let page = 1; ; page++) {
     if (page > 20) throw new Error('Waiver job inventory exceeds bound');
@@ -142,7 +147,6 @@ export function* testWaiverEvidence(sha, waiver, repository, publicationRecovery
   let warningLog = '';
   const warningJob = latestQualificationJobs(jobs, run, sha).find(job => job.name === 'rust-warnings / report');
   if (warningJob?.conclusion === 'failure') warningLog = yield { route: `${root}/actions/jobs/${warningJob.id}/logs`, raw: true };
-  const tag = 'v' + run.head_branch.slice('release/'.length);
   let draft = yield { route: `${root}/releases/tags/qualification-${tag}-${run.id}`, optional: true };
   if (!draft) draft = yield { route: `${root}/releases/tags/${tag}` };
   const assets = [];
@@ -164,5 +168,5 @@ export function* testWaiverEvidence(sha, waiver, repository, publicationRecovery
     if (matches.length !== 1) throw new Error('Missing published release admission for waiver recovery');
     admission = JSON.parse(yield { route: `${root}/releases/assets/${matches[0].id}`, raw: true });
   }
-  return verifyTestWaiver({ waiver, run, jobs, attempts, sha, repository, warningLog, draft, assets, receipts, publicationRecovery, admission });
+  return verifyTestWaiver({ waiver, run, jobs, attempts, sha, repository, tag, warningLog, draft, assets, receipts, publicationRecovery, admission });
 }

@@ -9,11 +9,11 @@ workflow does not update live required-check settings.
 
 | Event | Checks |
 | --- | --- |
-| Owner push to exact release/X.Y.Z | Full fast/Rust/warnings graph, qualification and reusable dry-run packaging in the same run, with per-branch concurrency |
-| Owner release/X.Y.Z PR into master | Hosted light graph plus read-only same-SHA Release qualification reader |
+| Owner push to exact release/next | Full fast/Rust/warnings graph, qualification and reusable dry-run packaging in the same run, with release-push concurrency |
+| Owner release/next PR into master | Hosted light graph plus read-only same-SHA Release qualification reader |
 | Any PR into develop | Hosted repository guards, fmt-check, TS static checks/unit/Vitest, plugin bundle checks/tests, one workspace cargo check --all-targets, then PR result |
-| Other PR into master | Existing repository refusal: master accepts only the owner's release/X.Y.Z |
-| Owner CI dispatch | tests.yml diagnostic scope from release/X.Y.Z, for a full 40-hex source_ref reachable from master, develop or that branch |
+| Other PR into master | Existing repository refusal: master accepts only the owner's release/next |
+| Owner CI dispatch | tests.yml diagnostic scope from release/next, for a full 40-hex source_ref reachable from master, develop or that branch |
 
 Every PR job uses literal ubuntu-24.04, independent of runner
 variables. It requests a read-only token, no repository/environment secrets,
@@ -33,7 +33,7 @@ and trigger review do not prove a live hosted run.
 The source guards finish successfully before either test branch can acquire compilers.
 Shared guards cover sizes, provider boundary, crate layering, Tauri reach,
 changed-file comments, API/prompt/eval documentation, secret scanning, issue
-metadata and master accepting only owner release/X.Y.Z PRs. Each runner checks
+metadata and master accepting only owner release/next PRs. Each runner checks
 its tools through ci-runner-paths before dependency work or compilation.
 Hosted jobs use pinned Node/Python/pnpm setup before preflight and script use.
 Self-hosted jobs use the pinned github-script action's bundled Node runtime,
@@ -64,7 +64,7 @@ can admit publication. A newer commit can still supersede an older run.
 CI result reads named failing/timed-out child jobs from the Actions API; timeouts remain failures rather than cancelling siblings. Hosted TS checks have 15-minute bounds; generated types and the private guard role have 20 minutes.
 
 The release push runs full qualification and dry-run packaging together from `github.sha`.
-Only owner pushes to exact release/X.Y.Z branches enter that graph. Open or refresh the release
+Only owner pushes to `release/next` enter that graph. The exact source package.json sets the app version. Open or refresh the release
 PR after this push run is green. Its hosted read-only reader validates the current PR head and
 branch tip, selects the completed green tests.yml push run for the exact SHA, branch, repository
 and owner actors, then validates unexpired receipts from that run. Missing, failed, foreign,
@@ -91,8 +91,8 @@ compares signatures, URLs and sha256 metadata with qualification, then HEAD-chec
 status and size, including Debian and the mirror. Issue closure requires that evidence and the
 same qualification identity. Payload signature verification remains in qualification.
 
-Before the first push of each application release, the OWNER retargets every approved acquiring
-workflow in the runner-group payload to that exact release branch and reads the policy back.
+The release Orchestrator pins the reviewed runner-group payload once to `release/next` under
+standing owner permission. Read it back for each release.
 See [the runner policy procedure](public-repo.md#runner-isolation-is-a-publicization-prerequisite).
 Require restricted_to_workflows=true and exact reviewed refs, selected repository access and no
 unrestricted repository runners. Preparing the payload changes no live policy. Hosted unsigned
@@ -175,7 +175,7 @@ This design changes neither the runtime CLI pin nor its trust policy.
 
 For a runner-only diagnostic, dispatch the existing CI workflow with
 scope=preflight and an exact source_ref. For example, from the source checkout:
-gh workflow run tests.yml --ref release/1.15.3 -f source_ref=<full-40-hex-sha> -f scope=preflight.
+gh workflow run tests.yml --ref release/next -f source_ref=<full-40-hex-sha> -f scope=fast.
 This probes hosted Linux/Windows/macOS plus Ubuntu light/build services, Mac and Windows
 self-hosted classes. It installs tools only on hosted runners, compiles nothing,
 runs no suites and writes no qualification receipt. The CI diagnostic result still reports
@@ -221,7 +221,7 @@ the environment-less hosted ARM64 compile; signing credentials stay private.
 For a fast diagnostic of a commit that is already on master, develop or the release
 branch, dispatch from the release branch with the full 40-hex SHA:
 
-gh workflow run tests.yml --ref release/X.Y.Z -f source_ref=<full-40-hex-sha> -f scope=fast
+gh workflow run tests.yml --ref release/next -f source_ref=<full-40-hex-sha> -f scope=fast
 
 Admission refuses any other dispatching ref, an abbreviated or symbolic source_ref, and a
 commit not reachable from one of those owner-only branches: diagnostics run with farm

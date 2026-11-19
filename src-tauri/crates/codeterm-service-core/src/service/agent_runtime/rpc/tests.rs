@@ -104,7 +104,7 @@ async fn process_start_notification_is_retained_before_subscriber_attachment() {
     .unwrap();
     let mut events = client.subscribe();
     assert!(
-        matches!(events.try_recv().unwrap().frame, RuntimeFrame::Notification { method, .. } if method == "fixture/started")
+        matches!(events.try_recv().unwrap().frame, Some(RuntimeFrame::Notification { method, .. }) if method == "fixture/started")
     );
 }
 
@@ -227,7 +227,7 @@ async fn parallel_tool_output_burst_stays_inside_the_event_queue() {
     .unwrap();
     let mut seen = 0;
     while let Ok(frame) = events.try_recv() {
-        let RuntimeFrame::Notification { params, .. } = frame.frame else {
+        let Some(RuntimeFrame::Notification { params, .. }) = frame.frame else {
             panic!("unexpected frame")
         };
         assert_eq!(params["seq"], seen);
@@ -255,7 +255,7 @@ async fn responsiveness_disabled_observer_keeps_ingress_order_and_payload() {
             .await
             .unwrap()
             .unwrap();
-        let RuntimeFrame::Notification { method, params } = event.frame else {
+        let Some(RuntimeFrame::Notification { method, params }) = event.frame else {
             panic!("unexpected request");
         };
         assert_eq!(method, frame["method"].as_str().unwrap());
@@ -485,7 +485,7 @@ async fn first_ingress_during_write_keeps_the_prewrite_sequence_boundary() {
         assert_eq!(witness.after_sequence(), Some(0));
         assert!(!witness.written());
         assert!(
-            matches!(first.frame,RuntimeFrame::Notification{params,..} if params["text"]=="first chunk")
+            matches!(first.frame,Some(RuntimeFrame::Notification{params,..}) if params["text"]=="first chunk")
         );
         release.send(()).unwrap();
         witness.wait().await.unwrap();

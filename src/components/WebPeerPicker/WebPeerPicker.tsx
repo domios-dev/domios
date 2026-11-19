@@ -15,6 +15,8 @@ import {
   invalidateWebRequestContext,
 } from "../../lib/webApi";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
+import { MachineGlyph } from "../shared/MachineGlyph";
+import { machineLabel, type MeshIdentityProjection } from "../../lib/machineIdentity";
 import { menuKeyAction } from "./menuKeyboard";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import { hasLocalInstanceName, localInstanceLabel, onMeshPeersLoaded, rememberLocalInstanceName } from "../../lib/localInstanceName";
@@ -22,7 +24,7 @@ import { hasLocalInstanceName, localInstanceLabel, onMeshPeersLoaded, rememberLo
 let nextPeerSwitchId = 0;
 
 type PairedPeer = Pick<import("../../../gen/PairedPeer").PairedPeer, "instance_id" | "instance_name" | "addresses" | "api_port" | "online" | "relay_protocol_version" | "last_active_ms">;
-type MeshPeers = Omit<Pick<import("../../../gen/MeshPeersResponse").MeshPeersResponse, "paired" | "local_instance_name">, "paired"> & {paired: PairedPeer[]};
+type MeshPeers = Omit<Pick<import("../../../gen/MeshPeersResponse").MeshPeersResponse, "paired" | "local_instance_name">, "paired"> & {paired: PairedPeer[]} & MeshIdentityProjection;
 
 /**
  * Web-mirror peer switcher (top-left). Lists the LOCAL daemon's paired mesh
@@ -37,7 +39,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const [displayTarget, setDisplayTarget] = useState(relayTarget);
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
-  const [switchFailed, setSwitchFailed] = useState(false);
+  const [identities, setIdentities] = useState<MeshIdentityProjection>({});
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -48,6 +50,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
       const paired = res.paired ?? [];
       setLocalName(rememberLocalInstanceName(res.local_instance_name));
       setPeers(rankPeersByLastActive(paired));
+      setIdentities({ local_machine_identity: res.local_machine_identity, machine_identities: res.machine_identities });
     } catch {
       // Peer list is a convenience — keep the last known list on errors.
       if (hasLocalInstanceName()) return;
@@ -63,6 +66,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   useEffect(() => {
     let active = true;
     let unlisten: (() => void) | undefined;
+    let stopIdentity: (() => void) | undefined;
     const stopPeersLoaded = onMeshPeersLoaded(() => void refresh());
     void refresh();
     void listen("mesh-state-changed", () => void refresh()).then((registered) => {
@@ -73,10 +77,15 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         registered();
       }
     }).catch(() => undefined);
+    void listen("mesh-identity-changed", () => void refresh()).then(registered => {
+      if (active) stopIdentity = registered;
+      else registered();
+    }).catch(() => undefined);
     return () => {
       active = false;
       stopPeersLoaded();
       unlisten?.();
+      stopIdentity?.();
     };
   }, [refresh]);
 
@@ -86,7 +95,6 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
       if (detail.switchId !== nextPeerSwitchId) return;
       setDisplayTarget(relayTarget());
       setSwitchingTo(null);
-      setSwitchFailed(!detail.success);
     };
     window.addEventListener("codeterm-peer-switch-ready", ready);
     return () => window.removeEventListener("codeterm-peer-switch-ready", ready);
@@ -123,13 +131,13 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const target = displayTarget;
   const onSelf = !target;
   const label = switchingTo ? `Connecting to ${switchingTo}` : onSelf ? localName : target.name;
+  const identity = onSelf ? identities.local_machine_identity : identities.machine_identities?.[target.id];
 
   const switchTo = useCallback(
     (peer: PairedPeer | null) => {
       const switchId = ++nextPeerSwitchId;
       const nextName = peer?.instance_name ?? localName;
       setSwitchingTo(nextName);
-      setSwitchFailed(false);
       invalidateWebRequestContext();
       flushSync(() => {
         window.dispatchEvent(new CustomEvent("codeterm-peer-switch-reset", { detail: { switchId } }));
@@ -154,14 +162,14 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         ref={triggerRef}
         type="button"
         data-testid="peer-picker-button"
-        aria-label={`Switch Domios host, current host ${label}`}
+        aria-label={`Switch Domios host, current host ${machineLabel(label, identity)}`}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => (open ? closeMenu() : setOpen(true))}
-        className={`flex min-h-[44px] items-center gap-1.5 rounded text-xs text-[var(--ct-fg)] bg-[var(--ct-hover)] hover:bg-[var(--ct-active)] border border-[var(--ct-border)] sm:min-h-0 sm:h-7 ${compact ? "min-w-0 max-w-[126px] px-2 sm:max-w-none" : "px-2.5"}`}
+        className={`ct-bar-pill ct-machine-switcher ${compact ? "min-w-0 max-w-[126px] sm:max-w-none" : ""}`}
         title="Switch Domios host"
       >
-        <span className={`w-2 h-2 shrink-0 rounded-full ${switchingTo ? "animate-pulse bg-[var(--ct-muted,#8b949e)]" : switchFailed ? "bg-[var(--ct-red,#f85149)]" : "bg-[var(--ct-green,#3fb950)]"}`} />
+        <MachineGlyph {...identity} />
         <span className="max-w-[104px] truncate sm:max-w-none">{label}</span>
         <ChevronDown size={12} className="shrink-0 opacity-60" aria-hidden="true" />
       </button>
@@ -178,16 +186,19 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
             type="button"
             role="menuitem"
             data-testid="peer-picker-self"
+            aria-label={machineLabel(localName, identities.local_machine_identity, "online")}
+            title={`${localName} · ${selfHost().replace(/^https?:\/\//, "")}`}
             aria-current={onSelf ? "true" : undefined}
             onClick={() => switchTo(null)}
-            className="ct-menu-row"
+            className="ct-menu-row ct-machine-menu-row"
           >
             <span className="ct-menu-row__icon">
-              <span className="w-2 h-2 rounded-full bg-[var(--ct-green)]" />
+              <MachineGlyph {...identities.local_machine_identity} size="mark-15" />
             </span>
             <span className="min-w-0 flex-1 truncate">
-              {localName} ({selfHost().replace(/^https?:\/\//, "")})
+              {localName}
             </span>
+            <HostStatus status="online" />
             {onSelf && <Check aria-hidden size={14} className="ct-menu-row__check shrink-0" />}
           </button>
           {peers.map((p) => {
@@ -195,6 +206,10 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
             const badge = formatLastActiveBadge(p.last_active_ms);
             const compatible = p.relay_protocol_version === RELAY_PROTOCOL_VERSION;
             const available = relayPeerUsable(p);
+            const status = p.online && !compatible ? "update required"
+              : badge && badge !== "active now" ? badge : p.online ? "online" : "offline";
+            const identity = identities.machine_identities?.[p.instance_id];
+            const endpoint = p.addresses?.[0]?.ip;
             return (
               <button
                 type="button"
@@ -202,27 +217,20 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
                 key={p.instance_id}
                 data-testid="peer-picker-item"
                 aria-current={active ? "true" : undefined}
+                aria-label={machineLabel(p.instance_name, identity, status)}
                 data-peer-id={p.instance_id}
                 data-peer-name={p.instance_name}
                 data-peer-online={String(!!p.online)}
                 disabled={!available}
                 onClick={() => switchTo(p)}
-                className="ct-menu-row"
-                title={!p.online ? `${p.instance_name} is offline` : compatible ? p.instance_name : `Update Domios on ${p.instance_name}`}
+                className="ct-menu-row ct-machine-menu-row min-h-[44px] sm:min-h-0"
+                title={[p.instance_name, status, endpoint && `${endpoint}:${p.api_port}`].filter(Boolean).join(" · ")}
               >
                 <span className="ct-menu-row__icon">
-                  <span className={`w-2 h-2 rounded-full ${p.online ? "bg-[var(--ct-green)]" : "bg-[var(--ct-muted)]"}`} />
+                  <MachineGlyph {...identity} size="mark-15" />
                 </span>
                 <span className="min-w-0 flex-1 truncate">{p.instance_name}</span>
-                {badge && (
-                  <span className="shrink-0 text-[10px] text-[var(--ct-muted)]">{badge}</span>
-                )}
-                {!p.online && !badge && (
-                  <span className="shrink-0 text-[10px] text-[var(--ct-muted)]">offline</span>
-                )}
-                {p.online && !compatible && (
-                  <span className="shrink-0 text-[10px] text-[var(--ct-muted)]">update required</span>
-                )}
+                <HostStatus status={status} />
                 {active && <Check aria-hidden size={14} className="ct-menu-row__check shrink-0" />}
               </button>
             );
@@ -235,5 +243,15 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         </div>
       </AnchoredPopover>
     </div>
+  );
+}
+
+function HostStatus({ status }: { status: string }) {
+  const tone = status === "online" ? "var(--ct-green)" : status === "update required" ? "var(--ct-yellow)" : "var(--ct-muted)";
+  return (
+    <span className="flex shrink-0 items-center gap-1.5 text-[length:var(--ct-font-size-meta)] text-[var(--ct-muted-fg)]">
+      <span aria-hidden="true" className="size-2 rounded-full" style={{ backgroundColor: tone }} />
+      {status}
+    </span>
   );
 }

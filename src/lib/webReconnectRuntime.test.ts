@@ -36,6 +36,10 @@ async function main(): Promise<void> {
   let requestArrived: (() => void) | undefined;
   const requested = () => new Promise<void>((resolve) => { requestArrived = resolve; });
   browser.addEventListener("codeterm-event-stream-disconnected", () => pendingWait?.());
+  let streamLost!: () => void;
+  const firstStreamLoss = new Promise<void>((resolve) => { streamLost = resolve; });
+  let streamLossSignals = 0;
+  browser.addEventListener("codeterm-event-stream-lost", () => { streamLossSignals++; streamLost(); });
   let refusal = false;
   globalThis.fetch = muxMockFetch(async (input, options) => {
     // A wake first proves the open carrier with a health read; it is not an event stream.
@@ -75,6 +79,8 @@ async function main(): Promise<void> {
     const failure = waiting();
     streams[0].error(new Error("offline"));
     await failure;
+    await firstStreamLoss;
+    assert.equal(streamLossSignals, 1, "event stream loss notifies active status observers");
     const connection = requested();
     const reconnectedCatalogue = new Promise<void>((resolve) => { catalogueReady = resolve; });
     browser.dispatchEvent(new Event("online"));

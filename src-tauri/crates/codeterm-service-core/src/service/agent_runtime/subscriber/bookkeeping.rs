@@ -266,11 +266,35 @@ pub(super) async fn resync(
         if read_thread != thread_id {
             return Err(RuntimeFailure::Superseded);
         }
-        let epoch = session.context.lock().epoch;
+        let current = session.context.lock().clone();
+        if current.epoch != context.epoch || current.thread_id.as_ref() != Some(&thread_id) {
+            return Err(RuntimeFailure::Superseded);
+        }
+        let epoch = current.epoch;
+        let mut revised_tools = Vec::new();
         for mut item in items {
             super::turn_lifecycle::reconcile_finished_item(session, &thread_id, &mut item);
-            session.cache.lock().reconcile(item.clone());
-            events::reconcile_history(&mut session.maps.lock(), epoch, &thread_id, item);
+            let mut cache = session.cache.lock();
+            let existing_tool = item.kind == "tool_call"
+                && cache.get(&item.id).is_some_and(|old| {
+                    old.tool_status != item.tool_status || old.tool_result != item.tool_result
+                });
+            let item = cache.reconcile(item);
+            drop(cache);
+            events::reconcile_history(&mut session.maps.lock(), epoch, &thread_id, item.clone());
+            if existing_tool {
+                revised_tools.push(item);
+            }
+        }
+        if !revised_tools.is_empty() {
+            crate::service::tab_chat::structured_sink::emit_chat_msgs(
+                svc.ui.as_ref(),
+                &current.tab_id,
+                &revised_tools,
+                None,
+                Some(&thread_id),
+                Some(&current.binding_nonce),
+            );
         }
         for mut open in open_items {
             super::turn_lifecycle::reconcile_finished_item(session, &thread_id, &mut open.item);

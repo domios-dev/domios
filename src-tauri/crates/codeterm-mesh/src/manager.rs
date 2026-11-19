@@ -2,7 +2,9 @@ mod account_admission;
 mod account_gate;
 mod connection_lifecycle;
 mod connection_observer;
+mod machine_identity;
 pub use connection_lifecycle::{ConnectionPhase, PeerConnection};
+pub use machine_identity::set_machine_identity;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -20,6 +22,9 @@ pub use announce::PeerAnnounceChange;
 /// Single Mutex — no lock ordering concerns.
 pub struct MeshManager {
     pub ident: identity::IdentityManager,
+    machine_identity: crate::machine_identity::Revision,
+    peer_machine_identities: HashMap<String, crate::machine_identity::Revision>,
+    machine_identity_writer: Arc<parking_lot::Mutex<()>>,
     pub paired_peers: HashMap<String, PairedPeer>,
     pub account_installations: Vec<types::AccountInstallation>,
     pub(crate) announce_slots: Arc<tokio::sync::Semaphore>,
@@ -90,14 +95,27 @@ impl MeshManager {
             );
         }
         let mut manager = Self::in_memory(identity, instance_name, api_port);
+        manager.load_machine_identity();
         manager.disk_persist = true;
         manager
     }
 
     pub fn in_memory(identity: types::MeshIdentity, instance_name: String, api_port: u16) -> Self {
         let ident = identity::IdentityManager::new(identity, instance_name);
+        let machine_identity = crate::machine_identity::Revision {
+            identity: crate::machine_identity::MachineIdentity::inferred(
+                &ident.identity.instance_id,
+                std::env::consts::OS,
+                std::env::var_os("DISPLAY").is_none()
+                    && std::env::var_os("WAYLAND_DISPLAY").is_none(),
+            ),
+            number: 0,
+        };
         Self {
             ident,
+            machine_identity,
+            peer_machine_identities: HashMap::new(),
+            machine_identity_writer: Default::default(),
             paired_peers: HashMap::new(),
             account_installations: Vec::new(),
             announce_slots: Arc::new(tokio::sync::Semaphore::new(8)),
@@ -276,6 +294,14 @@ impl MeshManager {
             }
         }
         MeshPeersResponse {
+            local_machine_identity: self.machine_identity(),
+            machine_identities: paired
+                .iter()
+                .filter_map(|peer| {
+                    self.peer_machine_identity(&peer.instance_id)
+                        .map(|identity| (peer.instance_id.clone(), identity))
+                })
+                .collect(),
             installations: installations.into_values().collect(),
             paired,
             local_instance_name: self.ident.instance_name.clone(),
@@ -295,6 +321,7 @@ impl MeshManager {
 
     pub fn remove_account_peer(&mut self, instance_id: &str) {
         self.paired_peers.remove(instance_id);
+        self.peer_machine_identities.remove(instance_id);
         self.peer_request_retry.remove(instance_id);
         self.links.remove(instance_id);
         self.peer_services.prune(instance_id);
@@ -317,6 +344,7 @@ impl MeshManager {
             .paired_peers
             .values()
             .map(|p| types::GossipPeerInfo {
+                machine_identity: None,
                 instance_id: p.instance_id.clone(),
                 instance_name: p.instance_name.clone(),
                 addresses: p.addresses.clone(),
@@ -326,6 +354,7 @@ impl MeshManager {
             })
             .collect();
         peers.push(types::GossipPeerInfo {
+            machine_identity: self.sign_machine_identity(),
             instance_id: self.ident.identity.instance_id.clone(),
             instance_name: self.ident.instance_name.clone(),
             addresses: self.local_announce_addresses(),

@@ -1,6 +1,6 @@
 import { describe, expect, finish, it } from "../../test/standaloneTest";
 import type { Tab } from "../../lib/types";
-import { meshBadgeLabel, managedByLabel, namedManagerRole, remoteIdentity, remoteTeamIdentity } from "./remoteOwnership";
+import { managedByLabel, namedManagerRole, remoteIdentity, remoteTeamIdentity } from "./remoteOwnership";
 
 function targetOwned(overrides: Partial<Tab> = {}): Tab {
   return {
@@ -18,10 +18,10 @@ function targetOwned(overrides: Partial<Tab> = {}): Tab {
 }
 
 describe("canonical remote ownership presentation", () => {
-  it("badges only physically remote tabs regardless of controller ownership", () => {
-    expect(meshBadgeLabel(targetOwned())).toBe(null);
-    expect(meshBadgeLabel(targetOwned({ remote_peer_id: "peer-123", remote_peer_name: "remote-token" }))).toBe("on @remote-token");
-    expect(meshBadgeLabel(targetOwned({ remote_peer_id: "peer-123", ownership: undefined }))).toBe("on @peer-123");
+  it("uses physical remote identity regardless of controller ownership", () => {
+    expect(remoteIdentity(targetOwned())).toBe(null);
+    expect(remoteIdentity(targetOwned({ remote_peer_id: "peer-123", remote_peer_name: "remote-token" }))?.peer).toBe("remote-token");
+    expect(remoteIdentity(targetOwned({ remote_peer_id: "peer-123", ownership: undefined }))?.peer).toBe("peer-123");
   });
 
   it("managed-by names the controller, never the peer", () => {
@@ -32,10 +32,10 @@ describe("canonical remote ownership presentation", () => {
     const worker = targetOwned({ remote_peer_id: "peer-123", remote_peer_name: "BLACKSTAR", role: "Worker" });
     const planner = { ...worker, role: "Manager" as const, role_profile: "planner" };
     const orchestrator = { ...worker, role: "Manager" as const, role_profile: "orchestrator" as const };
-    expect(remoteIdentity(worker)).toEqual({ role: null, peer: "@BLACKSTAR" });
-    expect(remoteIdentity(planner)).toEqual({ role: "Planner", peer: "@BLACKSTAR" });
+    expect(remoteIdentity(worker)).toEqual({ role: null, peer: "BLACKSTAR" });
+    expect(remoteIdentity(planner)).toEqual({ role: "Planner", peer: "BLACKSTAR" });
     // Stored authority stays Manager + role_profile; this surface is a display label.
-    expect(remoteIdentity(orchestrator)).toEqual({ role: "Orchestrator", peer: "@BLACKSTAR" });
+    expect(remoteIdentity(orchestrator)).toEqual({ role: "Orchestrator", peer: "BLACKSTAR" });
     expect(namedManagerRole({ ...worker, role: "Manager", role_profile: "review_lead" })).toEqual("Review lead");
     expect(namedManagerRole({ ...worker, role: "Manager", role_profile: null })).toEqual(null);
   });

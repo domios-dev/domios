@@ -8,6 +8,7 @@ pub mod discovery;
 pub mod endpoint_gossip;
 pub mod health;
 pub mod identity;
+pub mod machine_identity;
 pub mod manager;
 pub mod network_transport;
 pub mod paired_resolve;

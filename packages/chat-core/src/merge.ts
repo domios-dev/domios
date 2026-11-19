@@ -20,7 +20,9 @@ export function mergeBatchesById<T extends NormalizedChatMessage>(batches: Itera
       const value = incoming[index];
       const existing = known.get(value.id);
       if (existing) {
-        existing.value = value;
+        existing.value = value.timestamp == null && existing.value.timestamp != null
+          ? { ...value, timestamp: existing.value.timestamp }
+          : value;
         anchor = existing;
         continue;
       }

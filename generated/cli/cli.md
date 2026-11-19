@@ -1869,6 +1869,18 @@ Push our current address list to paired peers without re-detecting locally. Use 
 
 - `--to` — Optional target peer (instance_id or name). Omit for all peers
 
+#### `domios mesh identity`
+
+Manage the kind icon and colour of an installation
+
+#### `domios mesh identity set`
+
+Set the machine's kind and colour. Requires owner authority
+
+- `--color`
+- `--kind`
+- `--peer` — Set the identity on this paired machine by name or ID
+
 #### `domios mesh offline`
 
 Go offline: stop pinging peers, stop announcing, stop refreshing local addresses (which keeps Tailscale alive). The daemon stays up; peers will time out our presence on their side. Local-only command

@@ -53,6 +53,84 @@ fn sse_fails_closed_on_malformed_or_oversized_events() {
 }
 
 #[tokio::test]
+async fn http_event_stream_reconnects_once_and_marks_the_history_gap() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+    let endpoint = origin.join("event").unwrap();
+    let launch = Launch {
+        args: vec![],
+        password: "fixture-password".into(),
+        declaration: serde_json::from_value(json!({
+            "readinessPrefix":"fixture listening on ", "passwordEnv":"FIXTURE_PASSWORD",
+            "username":"fixture", "usernameEnv":"FIXTURE_USERNAME",
+            "eventPath":"/event", "eventMethod":"fixture/event", "routes":{}
+        }))
+        .unwrap(),
+        url: origin,
+    };
+    let (client, _writes) = Client::channel(None, 16, 16);
+    let mut events = client.subscribe();
+    let http = reqwest::Client::builder().no_proxy().build().unwrap();
+    let fixture = async {
+        for value in ["first", "after-gap"] {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = BufReader::new(socket);
+            let mut request = String::new();
+            socket.read_line(&mut request).await.unwrap();
+            assert_eq!(request, "GET /event HTTP/1.1\r\n");
+            loop {
+                let mut header = String::new();
+                assert_ne!(socket.read_line(&mut header).await.unwrap(), 0);
+                if header == "\r\n" {
+                    break;
+                }
+            }
+            let body = format!("data: {}\n\n", json!({"value":value}));
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            socket
+                .get_mut()
+                .write_all(response.as_bytes())
+                .await
+                .unwrap();
+        }
+    };
+    let read = async {
+        let initial = connect_events(&http, &endpoint, &launch).await.unwrap();
+        assert!(matches!(
+            stream_events(
+                initial,
+                &client,
+                &http,
+                &endpoint,
+                &launch,
+                &Mutex::new(requests::Requests::default())
+            )
+            .await,
+            Err(RuntimeFailure::PipeFailure { .. })
+        ));
+        let first = events.try_recv().unwrap();
+        let gap = events.try_recv().unwrap();
+        let resumed = events.try_recv().unwrap();
+        assert_eq!([first.sequence, gap.sequence, resumed.sequence], [1, 2, 3]);
+        assert!(
+            matches!(first.frame, Some(RuntimeFrame::Notification { params, .. }) if params["value"] == "first")
+        );
+        assert!(gap.frame.is_none());
+        assert!(
+            matches!(resumed.frame, Some(RuntimeFrame::Notification { params, .. }) if params["value"] == "after-gap")
+        );
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(fixture, read);
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
 async fn http_readiness_requires_exact_owned_origin_and_stdout_signal() {
     let declaration = serde_json::from_value(json!({"readinessPrefix":"fixture listening on ","passwordEnv":"FIXTURE_PASSWORD","username":"fixture","usernameEnv":"FIXTURE_USERNAME","eventPath":"/event","eventMethod":"fixture/event","routes":{}})).unwrap();
     let launch = Launch {
@@ -152,8 +230,8 @@ fn http_requests_drop_foreign_and_duplicate_events_and_claim_answers_once() {
         .is_none());
 }
 
-#[test]
-fn http_v2_recorded_permission_and_form_use_exact_session_routes() {
+#[tokio::test]
+async fn http_v2_reply_refusal_keeps_transport_open_and_never_replays() {
     let fixture: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../../tests/fixtures/runtime-http-sse.json"
@@ -162,7 +240,7 @@ fn http_v2_recorded_permission_and_form_use_exact_session_routes() {
     let declaration: RuntimeHttpSse =
         serde_json::from_value(fixture["capability"]["httpSse"]["alternatives"][0].clone())
             .unwrap();
-    let (client, _messages) = Client::channel(None, 16, 16);
+    let (client, mut messages) = Client::channel(None, 16, 16);
     client.trace_binding(&codeterm_plugin::agent_runtime::RuntimeContext {
         thread_id: Some("ses_owned".into()),
         ..Default::default()
@@ -186,19 +264,74 @@ fn http_v2_recorded_permission_and_form_use_exact_session_routes() {
         else {
             panic!("own request required")
         };
-        let (_, reply) = requests
-            .reply(&json!({"id":request_id,"result":{"opaque":true}}))
+        let permission = frame["method"] == "permission.asked";
+        if permission {
+            let pending = Mutex::new(requests);
+            let mut bookkeeping = std::pin::pin!(client.reply(
+                &request_id,
+                Err(RpcFailure {
+                    code: -32602,
+                    message: "Request not handled by host".into(),
+                    data: None,
+                })
+            ));
+            let write = tokio::select! {
+                write = messages.recv() => write.unwrap(),
+                unexpected = &mut bookkeeping => panic!("bookkeeping completed before transport: {unexpected:?}"),
+            };
+            // Removing routes proves no HTTP request is attempted.
+            let mut no_routes = declaration.clone();
+            no_routes.routes.clear();
+            execute(
+                &client,
+                &reqwest::Client::new(),
+                &Url::parse("http://127.0.0.1:1").unwrap(),
+                &no_routes,
+                "unused",
+                &pending,
+                write,
+            )
+            .await
             .unwrap();
+            assert_eq!(bookkeeping.await, Ok(()));
+            requests = pending.into_inner();
+        }
+        let body = if permission {
+            json!({"decision":"always"})
+        } else {
+            json!({"answer":{"choice":"beta"}})
+        };
+        let mut result = std::pin::pin!(client.reply(&request_id, Ok(body.clone())));
+        let write = tokio::select! {
+            write = messages.recv() => write.unwrap(),
+            unexpected = &mut result => panic!("reply finished before HTTP status: {unexpected:?}"),
+        };
+        let (id, reply) = requests
+            .reply(&serde_json::from_str(&write.text).unwrap())
+            .unwrap();
+        assert_eq!(id, request_id);
         assert_eq!(reply["params"]["path"]["sessionID"], "ses_owned");
+        assert_eq!(reply["params"]["body"], body);
         assert_eq!(
             reply["method"],
-            if frame["method"] == "permission.asked" {
+            if permission {
                 "v2.permission.reply"
             } else {
                 "v2.form.reply"
             }
         );
         requests.claim(&request_id).unwrap();
+        if permission {
+            finish_reply(write, reqwest::StatusCode::NOT_FOUND);
+            assert_eq!(
+                result.await,
+                Err(RuntimeFailure::ReplyRefused { status: 404 })
+            );
+        } else {
+            finish_reply(write, reqwest::StatusCode::NO_CONTENT);
+            assert_eq!(result.await, Ok(()));
+        }
+        assert!(client.ended().borrow().is_none());
         assert!(requests
             .reply(&json!({"id":request_id,"result":{}}))
             .is_err());

@@ -667,18 +667,43 @@ function parsePatch(path, patch) {
   if (files.length === 1 && path && files[0].kind !== "rename") files[0].path = path;
   return files;
 }
+function fileChangeKind(value) {
+  switch (String(value ?? "").toLowerCase()) {
+    case "add":
+    case "added":
+    case "create":
+    case "created":
+      return "add";
+    case "delete":
+    case "deleted":
+      return "delete";
+    case "modify":
+    case "modified":
+      return "modify";
+    case "rename":
+    case "renamed":
+      return "rename";
+    default:
+      return void 0;
+  }
+}
 function opencodeFileDiffs(path, edits, metadata) {
   const value = record2(metadata);
-  if (Array.isArray(value.files)) {
-    return value.files.flatMap((entry) => {
-      const item = record2(entry);
-      const filePath = typeof item.filePath === "string" ? item.filePath : "";
-      return opencodeFileDiffs(filePath, [], { diff: item.diff }).map((diff) => ({
+  const listedFiles = Array.isArray(value.files) ? value.files.map(record2).filter((item) => Object.keys(item).length > 0) : [];
+  const singleFile = record2(value.filediff);
+  const files = listedFiles.length ? listedFiles : Object.keys(singleFile).length ? [singleFile] : [];
+  if (files.length) {
+    const nestedDiffs = files.flatMap((item) => {
+      const filePath = typeof item.filePath === "string" ? item.filePath : typeof item.file === "string" ? item.file : typeof item.path === "string" ? item.path : "";
+      const patch2 = typeof item.diff === "string" ? item.diff : typeof item.patch === "string" ? item.patch : "";
+      const kind = fileChangeKind(item.type ?? item.status);
+      return opencodeFileDiffs(filePath, [], { diff: patch2 }).map((diff) => ({
         ...diff,
-        ...item.type === "add" || item.type === "delete" ? { kind: item.type } : {},
+        ...kind ? { kind } : {},
         ...typeof item.movePath === "string" ? { movePath: item.movePath, kind: "rename" } : {}
       }));
     });
+    if (nestedDiffs.length) return nestedDiffs;
   }
   const patch = typeof value.diff === "string" ? value.diff : typeof value.patch === "string" ? value.patch : "";
   const diffs = patch ? parsePatch(path, patch) : [];
@@ -1180,7 +1205,13 @@ function toolFileDiffs(part) {
   const input = state.input && typeof state.input === "object" ? state.input : {};
   const path = String(input.filePath ?? input.file_path ?? input.path ?? "");
   const edits = extractCanonicalEdits(input);
-  const metadata = state.metadata && typeof state.metadata === "object" ? state.metadata : {};
+  let metadata = state.metadata && typeof state.metadata === "object" ? state.metadata : {};
+  const hasFiles = Array.isArray(metadata.files) && metadata.files.length > 0;
+  const hasFileDiff = metadata.filediff !== null && typeof metadata.filediff === "object";
+  if (part.tool?.toLowerCase() === "apply_patch" && typeof metadata.diff !== "string" && typeof metadata.patch !== "string" && !hasFiles && !hasFileDiff) {
+    const patch = typeof input.patch === "string" ? input.patch : typeof input.input === "string" ? input.input : "";
+    if (patch) metadata = { ...metadata, patch };
+  }
   const creation = part.tool === "write" && metadata.exists === false && typeof input.content === "string" ? [{ path, old: "", new: input.content }] : [];
   const diffs = opencodeFileDiffs(path, [...edits, ...creation], metadata);
   if (creation.length) {
@@ -1203,6 +1234,12 @@ function canonicalToolFields(name, input) {
   if (lower === "bash" || lower === "shell" || lower === "exec" || lower === "run") {
     return { kind: "command", summary: cleanToolText(command, "Command"), detail: command, edits: [] };
   }
+  if (lower === "apply_patch") {
+    const patch = text2("patch") || text2("input");
+    const paths = opencodeFileDiffs("", [], { patch }).map((diff) => diff.path).filter(Boolean);
+    const summary = paths.length ? paths.join("\n") : "Apply patch";
+    return { kind: "edit", summary, detail: summary, edits: [] };
+  }
   if (lower === "edit" || lower === "multiedit" || lower === "write") {
     return { kind: "edit", summary: path || "File edit", detail: path, edits };
   }
@@ -1211,6 +1248,20 @@ function canonicalToolFields(name, input) {
   }
   if (lower === "glob" || lower === "grep" || lower === "search") {
     return { kind: "search", summary: cleanToolText(pattern || path, "Search"), detail: pattern || path, edits: [] };
+  }
+  if (lower === "webfetch") {
+    const url = text2("url");
+    return { kind: "fetch", summary: cleanToolText(url, "Fetch URL"), detail: url, edits: [] };
+  }
+  if (lower === "todoread" || lower === "todowrite" || lower === "question") {
+    const summary = lower === "todoread" ? "Read tasks" : lower === "question" ? "Ask question" : "Update tasks";
+    return { kind: "task", summary, detail: "", edits: [] };
+  }
+  if (lower === "skill") {
+    const name2 = text2("name") || text2("skill");
+    const directory3 = text2("dir");
+    const summary = cleanToolText(name2 || directory3, "Read skill");
+    return { kind: "read", summary, detail: directory3 || name2 || "", edits: [] };
   }
   return { kind: "generic", summary: cleanToolText(tool, "Tool"), detail: tool, edits };
 }
@@ -2226,7 +2277,7 @@ function v2Prompt(ctx, frame) {
       threadId: ctx.threadId,
       requestId: frame.requestId,
       prompt: { question: `${action}: ${list(params.resources).filter((value) => typeof value === "string").join(", ")}`, options: [{ label: "Allow once", value: "once" }, { label: "Always allow", value: "always" }, { label: "Reject", value: "reject" }] },
-      permission: { action: action === "shell" ? "command" : ["edit", "write"].includes(action) ? "write" : ["read", "glob", "grep"].includes(action) ? "read" : "other", options: [{ value: "once", decision: "allow_once" }, { value: "always", decision: "allow_always" }, { value: "reject", decision: "reject_once" }] }
+      permission: { action: action === "shell" ? "command" : ["edit", "write"].includes(action) ? "write" : ["read", "glob", "grep"].includes(action) ? "read" : "other", options: [{ value: "once", decision: "allow_once" }, { value: "reject", decision: "reject_once" }] }
     };
   }
   const form = object2(params.form);
@@ -2286,38 +2337,67 @@ function toolId(message, id) {
 function toolContent(raw) {
   return list(raw).map(object2).filter((part) => part.type === "text" && typeof part.text === "string").map((part) => String(part.text)).join("\n");
 }
+function toolInput(raw) {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw;
+  if (typeof raw !== "string") return {};
+  try {
+    return object2(JSON.parse(raw));
+  } catch (_) {
+    return {};
+  }
+}
+function errorText(raw) {
+  if (typeof raw === "string") return raw;
+  const error = object2(raw), data = object2(error.data);
+  return text(error.message) || text(data.message) || text(error.type) || "Tool failed";
+}
 function v2Content(message, raw, ordinal, seq, ts) {
   const part = object2(raw), type = part.type;
   const timestamp2 = ts !== void 0 ? { timestamp: new Date(ts).toISOString() } : {};
   if (type === "text" || type === "reasoning") return { id: contentId(message, type, ordinal), seq, type: type === "text" ? "assistant" : "thinking", content: String(part.text ?? ""), ...timestamp2 };
   if (type !== "tool" || !text(part.id) || !text(part.name)) return void 0;
-  const state = object2(part.state), time = object2(part.time), status = String(state.status);
+  const name = String(part.name), id = String(part.id), state = object2(part.state), time = object2(part.time);
+  const input = toolInput(state.input), metadata = { ...object2(part.metadata), ...object2(state.metadata) };
+  const error = object2(state.error), aborted = state.status === "error" && error.type === "aborted";
+  const timedOut = !aborted && metadata.timeout === true;
+  const failed = !aborted && (state.status === "error" || timedOut);
+  const status = aborted ? "interrupted" : failed ? "failed" : state.status === "streaming" ? "running" : String(state.status);
+  const canonical = canonicalToolFields(name, input);
+  const partForDiffs = { type: "tool", tool: name, state: { ...state, input, metadata, status: String(state.status) } };
+  const diffs = toolFileDiffs(partForDiffs);
+  const result = state.error ? errorText(state.error) : toolContent(state.content);
   return {
-    id: toolId(message, String(part.id)),
+    id: toolId(message, id),
     seq,
     type: "tool_call",
     content: "",
-    toolName: String(part.name),
-    toolId: String(part.id),
-    toolInput: object2(state.input),
+    toolName: name,
+    toolId: id,
+    toolKind: canonical.kind,
+    toolSummary: canonical.summary,
+    toolDetail: canonical.detail,
+    toolEdits: canonical.edits,
+    fileDiffs: diffs,
+    toolInput: input,
     toolStatus: status,
-    ...state.content ? { toolResult: toolContent(state.content) } : {},
-    ...state.error ? { toolResult: String(object2(state.error).message ?? "Tool failed"), toolError: true } : {},
+    ...result ? { toolResult: result } : {},
+    ...aborted ? { toolInterrupted: true } : failed ? { toolError: true } : state.status === "completed" ? { toolError: false } : {},
     ...typeof time.ran === "number" ? { toolStartedAtMs: time.ran } : {},
     ...typeof time.completed === "number" ? { toolCompletedAtMs: time.completed } : {},
     ...timestamp2
   };
 }
-function v2History(raw) {
+function v2History(raw, order = "desc") {
   const entries = list(raw), rows = [];
-  for (let index = entries.length - 1; index >= 0; index--) {
-    const message = object2(entries[index]), id = text(message.id), created = object2(message.time).created;
+  const chronological = order === "desc" ? [...entries].reverse() : entries;
+  for (const entry of chronological) {
+    const message = object2(entry), id = text(message.id), created = object2(message.time).created;
     if (!id) fail("invalid_schema", "OpenCode history message is missing its identity");
     const ts = typeof created === "number" ? created : void 0;
     if (message.type === "user") {
-      rows.push({ id, seq: rows.length + 1, type: "user", content: String(message.text ?? ""), ...ts !== void 0 ? { timestamp: new Date(ts).toISOString() } : {}, attachments: list(message.files).map((raw2, index2) => {
+      rows.push({ id, seq: rows.length + 1, type: "user", content: String(message.text ?? ""), ...ts !== void 0 ? { timestamp: new Date(ts).toISOString() } : {}, attachments: list(message.files).map((raw2, index) => {
         const file = object2(raw2);
-        return { id: `${id}:file:${index2}`, mimeType: String(file.mime ?? "application/octet-stream"), url: String(file.uri) };
+        return { id: `${id}:file:${index}`, mimeType: String(file.mime ?? "application/octet-stream"), url: String(file.uri) };
       }) });
     } else if (message.type === "assistant") {
       const content = list(message.content);
@@ -2358,8 +2438,8 @@ function v2Plan(ctx, op) {
       return request("v2.session.get", { path: { sessionID: own(ctx, op.threadId) } });
     case "readHistory": {
       own(ctx, op.threadId);
-      if (op.order !== "desc" || op.cursor && op.cursor.length > 4096) fail("invalid_schema", "Invalid OpenCode history page");
-      return request("v2.session.messages", { path: { sessionID: op.threadId }, query: { limit: "40", ...op.cursor ? { cursor: op.cursor } : { order: "desc" } } });
+      if (op.cursor && op.cursor.length > 4096) fail("invalid_schema", "Invalid OpenCode history page");
+      return request("v2.session.messages", { path: { sessionID: op.threadId }, query: { limit: "40", ...op.cursor ? { cursor: op.cursor } : { order: op.order ?? "desc" } } });
     }
     case "submitTurn": {
       own(ctx, state.sessionId);
@@ -2368,13 +2448,6 @@ function v2Plan(ctx, op) {
       const id = messageIdentity(op.sendId, Date.now(), ++state.counter);
       claimed(ctx, { sendId: op.sendId, messageId: id, turnId: id });
       return prompt(op, id);
-    }
-    case "interrupt": {
-      const threadId = own(ctx, op.threadId);
-      const turnId = op.activeTurnId ?? ctx.activeTurns.find((turn) => turn.threadId === threadId)?.turnId;
-      const plan = request("v2.session.abort", { path: { sessionID: threadId }, query: { resume: "false" }, body: {} });
-      if (plan.action.kind === "request") plan.action.call.target = { threadId, ...turnId ? { turnId } : {} };
-      return plan;
     }
     case "answer":
       return v2Answer(ctx, op);
@@ -2389,8 +2462,20 @@ function v2Plan(ctx, op) {
 function directory(value) {
   return value.replace(/\\/g, "/").replace(/\/$/, "");
 }
+function finishHistory(op, state, events = []) {
+  const cursor = text(state.cursor);
+  return { kind: "complete", result: {
+    kind: "historyPage",
+    threadId: op.threadId,
+    items: [],
+    openItems: [],
+    order: op.order ?? "desc",
+    ...cursor ? { nextCursor: cursor } : {}
+  }, events };
+}
 function v2Response(ctx, op, state, reply) {
   if (reply.kind === "error") {
+    if (op.kind === "readHistory" && state.stage === "historyActive") return finishHistory(op, state);
     if (op.kind === "resumeThread" && reply.error.code === 404) return { kind: "refused", reason: { code: "thread_not_found", message: "The exact OpenCode session was not found" }, beforeAcceptance: false };
     if (op.kind === "control" && op.action === "login") return done([{ kind: "authLogin", login: { status: "failed", loginId: String(object2(op.value).loginId), error: `Sign-in request was refused (${reply.error.code})` } }]);
     return refused(`OpenCode request was refused (${reply.error.code})`);
@@ -2437,16 +2522,37 @@ function v2Response(ctx, op, state, reply) {
     }
     case "readHistory": {
       own(ctx, op.threadId);
+      if (state.stage === "historyActive") {
+        const sessions = value.data;
+        if (sessions === null || typeof sessions !== "object" || Array.isArray(sessions) || Object.values(sessions).some((session2) => object2(session2).type !== "running")) {
+          return finishHistory(op, state);
+        }
+        const events = [];
+        if (!Object.prototype.hasOwnProperty.call(sessions, op.threadId)) {
+          const detail = state.detail === "interrupted" ? "interrupted" : state.detail === "failed" ? "failed" : void 0;
+          events.push({ kind: "turnState", threadId: op.threadId, state: "idle", ...detail ? { detail } : {} });
+        }
+        return finishHistory(op, state, events);
+      }
       if (!Array.isArray(value.data) || value.data.length > 40) return refused("Invalid bounded OpenCode history response");
       const cursor = text(object2(value.cursor).next);
       if (cursor && (cursor.length > 4096 || cursor === op.cursor)) return refused("OpenCode history cursor did not advance");
-      return { kind: "complete", result: { kind: "historyPage", threadId: op.threadId, items: v2History(value.data), openItems: [], order: "desc", ...cursor ? { nextCursor: cursor } : {} } };
+      const order = op.order ?? "desc";
+      const history = { kind: "historyPage", threadId: op.threadId, items: v2History(value.data, order), openItems: [], order };
+      if (order === "desc" ? !op.cursor : !cursor) {
+        const latest = object2(order === "desc" ? value.data[0] : value.data[value.data.length - 1]);
+        const detail = latest.type === "assistant" && latest.finish === "error" ? object2(latest.error).type === "aborted" ? "interrupted" : "failed" : void 0;
+        return {
+          kind: "continue",
+          history,
+          beforeAcceptance: false,
+          plan: request("v2.session.active", {}, { stage: "historyActive", ...detail ? { detail } : {}, ...cursor ? { cursor } : {} })
+        };
+      }
+      return { kind: "complete", result: { ...history, ...cursor ? { nextCursor: cursor } : {} } };
     }
-    case "interrupt":
-      if (typeof value.interrupted !== "boolean") return refused("OpenCode did not acknowledge the interrupt");
-      return done();
     case "answer":
-      return body === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
+      return reply.value === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
     case "control":
       if (op.action === "auth") {
         if (state.stage === "authProviders") {
@@ -2465,14 +2571,14 @@ function v2Response(ctx, op, state, reply) {
 // plugins/provider-opencode/src/runtimeV2Reduce.ts
 function current(ctx, raw) {
   const old = object2(raw);
-  if (old.epoch !== ctx.epoch || old.nonce !== ctx.bindingNonce || old.thread !== ctx.threadId) return { epoch: ctx.epoch, nonce: ctx.bindingNonce, thread: ctx.threadId, seq: ctx.restoredRowOrdinal ?? 0, seen: [], evidenced: [], completed: [], parts: /* @__PURE__ */ Object.create(null) };
+  if (old.protocol !== "v2" || old.epoch !== ctx.epoch || old.nonce !== ctx.bindingNonce || old.thread !== ctx.threadId) return { protocol: "v2", epoch: ctx.epoch, nonce: ctx.bindingNonce, thread: ctx.threadId, seq: ctx.restoredRowOrdinal ?? 0, seen: [], evidenced: [], completed: [], pendingPrompts: [], parts: /* @__PURE__ */ Object.create(null) };
   const state = old;
-  return { ...state, seen: [...state.seen], evidenced: [...state.evidenced], completed: [...state.completed], parts: Object.fromEntries(Object.entries(state.parts).map(([id, part]) => [id, { ...part, part: { ...part.part } }])) };
+  return { ...state, seen: [...state.seen], evidenced: [...state.evidenced], completed: [...state.completed], pendingPrompts: [...state.pendingPrompts ?? []], parts: Object.fromEntries(Object.entries(state.parts).map(([id, part]) => [id, { ...part, part: { ...part.part } }])) };
 }
 function witness(ctx, sequence, sendId) {
   return ctx.streamWindow?.turnRequests?.find((value) => (!sendId || value.sendId === sendId) && value.written && value.afterSequence !== void 0 && sequence !== void 0 && sequence > value.afterSequence);
 }
-function echoed(ctx, state, data, sequence, events) {
+function echoed(ctx, state, data, sequence, created, events) {
   const id = text(data.inboxID), item = object2(data.item), payload = object2(item.payload);
   const planned = binding(ctx).sends.find((send) => send.messageId === id);
   if (!planned || item.type !== "user" || state.evidenced.includes(planned.sendId)) return;
@@ -2482,9 +2588,18 @@ function echoed(ctx, state, data, sequence, events) {
   if (files.length !== claim.input.attachments.length || files.some((file, index) => file.uri !== attachmentUrl(claim.input.attachments[index]))) return;
   state.evidenced.push(planned.sendId);
   events.push(
-    { kind: "chatItem", threadId: ctx.threadId, item: { id: planned.messageId, seq: ++state.seq, type: "user", content: claim.input.text, attachments: claim.input.attachments.map((attachment) => ({ id: attachment.id, mimeType: attachment.mimeType, url: attachmentUrl(attachment) })) } },
+    { kind: "chatItem", threadId: ctx.threadId, item: { id: planned.messageId, seq: ++state.seq, type: "user", content: claim.input.text, ...created !== void 0 ? { timestamp: new Date(created).toISOString() } : {}, attachments: claim.input.attachments.map((attachment) => ({ id: attachment.id, mimeType: attachment.mimeType, url: attachmentUrl(attachment) })) } },
     { kind: "sendEvidence", threadId: ctx.threadId, sendId: planned.sendId, turnId: proof.turnId, itemId: planned.messageId }
   );
+}
+function toolRow(message, part, seq, finished, timestamp2) {
+  const row = v2Content(message, part, 0, seq, timestamp2);
+  const deadline = object2(part.time).deadline;
+  if (row && !finished && typeof deadline === "number") {
+    row.toolKind = "command";
+    row.toolInput = { ...object2(row.toolInput), deadlineAtMs: deadline };
+  }
+  return row;
 }
 function v2Reduce(ctx, raw, frames) {
   const loginEvents = v2LoginEvents(ctx, frames);
@@ -2493,8 +2608,20 @@ function v2Reduce(ctx, raw, frames) {
   const emit = (row) => events.push({ kind: "chatItem", threadId: ctx.threadId, item: row });
   for (let index = 0; index < frames.length; index++) {
     const frame = frames[index], event = object2(frame.params), data = object2(event.data), type = String(event.type), id = text(event.id);
-    if ((text(data.sessionID) ?? text(object2(data.form).sessionID)) !== ctx.threadId) continue;
     if (event.location && text(object2(event.location).directory)?.replace(/\\/g, "/").replace(/\/$/, "") !== ctx.cwd.replace(/\\/g, "/").replace(/\/$/, "")) continue;
+    if (type === "shell.exited") {
+      const shellId = text(data.id), exitedAt = event.created;
+      if (!event.location || !shellId || typeof exitedAt !== "number" || !Number.isSafeInteger(exitedAt)) continue;
+      const known = Object.values(state.parts).find((entry) => entry.shell?.id === shellId);
+      if (!known?.shell) continue;
+      const time = object2(known.part.time), deadline = time.deadline;
+      if (typeof deadline === "number" && deadline <= exitedAt) continue;
+      known.part.time = { ...time, deadline: exitedAt };
+      const row = toolRow(known.shell.message, known.part, known.seq, false, known.timestamp);
+      if (row) emit(row);
+      continue;
+    }
+    if ((text(data.sessionID) ?? text(object2(data.form).sessionID)) !== ctx.threadId) continue;
     if (!id || state.seen.includes(id)) continue;
     state.seen.push(id);
     state.seen = state.seen.slice(-512);
@@ -2502,11 +2629,14 @@ function v2Reduce(ctx, raw, frames) {
     const turn = state.turn ?? ctx.activeTurnId ?? witness(ctx, sequence)?.turnId;
     if (frame.kind === "request") {
       const prompt2 = v2Prompt(ctx, frame);
-      if (prompt2) events.push(prompt2, { kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "needs_input", detail: frame.method === "permission.asked" ? "awaitingApproval" : "awaitingInput" });
+      if (prompt2) {
+        state.pendingPrompts.push(String(frame.requestId));
+        events.push(prompt2, { kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "needs_input", detail: frame.method === "permission.asked" ? "awaitingApproval" : "awaitingInput" });
+      }
       continue;
     }
     if (type === "session.inbox.enqueued") {
-      echoed(ctx, state, data, sequence, events);
+      echoed(ctx, state, data, sequence, typeof event.created === "number" ? event.created : void 0, events);
       continue;
     }
     if (type === "session.execution.started") {
@@ -2517,18 +2647,28 @@ function v2Reduce(ctx, raw, frames) {
       continue;
     }
     if (["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"].includes(type)) {
-      if (turn && !state.completed.includes(turn)) {
-        state.completed.push(turn);
+      if (!turn || !state.completed.includes(turn)) {
+        if (turn) state.completed.push(turn);
+        state.pendingPrompts = [];
         const detail = type === "session.execution.failed" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : void 0;
         if (detail === "failed") events.push({ kind: "notice", threadId: ctx.threadId, message: String(object2(data.error).message ?? "OpenCode execution failed").slice(0, 4096) });
-        events.push({ kind: "turnState", threadId: ctx.threadId, turnId: turn, state: "idle", ...detail ? { detail } : {} });
+        events.push({ kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "idle", ...detail ? { detail } : {} });
         delete state.turn;
       }
       continue;
     }
     if (["permission.replied", "form.replied", "form.cancelled"].includes(type)) {
       const request2 = text(data.requestID) ?? text(data.formID) ?? text(data.id);
-      if (request2) events.push({ kind: "promptResolved", threadId: ctx.threadId, requestId: request2 });
+      if (request2) {
+        events.push({ kind: "promptResolved", threadId: ctx.threadId, requestId: request2 });
+        const pending = state.pendingPrompts.indexOf(request2);
+        if (pending >= 0) {
+          state.pendingPrompts.splice(pending, 1);
+          if (!state.pendingPrompts.length && turn && !state.completed.includes(turn)) {
+            events.push({ kind: "turnState", threadId: ctx.threadId, turnId: turn, state: "working" });
+          }
+        }
+      }
       continue;
     }
     const message = text(data.assistantMessageID);
@@ -2555,33 +2695,50 @@ function v2Reduce(ctx, raw, frames) {
         }
       } else if (type.endsWith(".ended") || type.endsWith(".started") && !known) {
         const finished = type.endsWith(".ended"), seq = known?.seq ?? ++state.seq, content = finished ? String(data.text ?? "") : "";
-        const row = v2Content(message, { type: kind, text: content }, Number(data.ordinal), seq);
+        const timestamp2 = known?.timestamp ?? (typeof event.created === "number" ? event.created : void 0);
+        const row = v2Content(message, { type: kind, text: content }, Number(data.ordinal), seq, timestamp2);
         if (row) {
           emit(row);
-          state.parts[rowId] = { seq, bytes: utf8Length(content), turn, finished, part: {} };
+          state.parts[rowId] = { seq, bytes: utf8Length(content), ...turn ? { turn } : {}, ...timestamp2 !== void 0 ? { timestamp: timestamp2 } : {}, finished, part: {} };
         }
       }
       continue;
     }
     if (type.startsWith("session.tool.") && text(data.id)) {
       const rowId = toolId(message, String(data.id)), known = state.parts[rowId];
-      if (known?.finished || !known && type !== "session.tool.input.started") continue;
-      const seq = known?.seq ?? ++state.seq, previous = known?.part ?? {}, previousState = object2(previous.state);
-      const part = { ...previous, type: "tool", id: data.id, name: data.name ?? previous.name, time: { ...object2(previous.time) } };
       const finished = type === "session.tool.success" || type === "session.tool.failed";
+      if (known?.finished || !known && !finished && type !== "session.tool.input.started") continue;
+      const seq = known?.seq ?? ++state.seq, previous = known?.part ?? {}, previousState = object2(previous.state);
+      const name = text(data.name) ?? text(previous.name);
+      if (!name && !finished) continue;
+      const part = { type: "tool", id: data.id, name: name ?? "tool", time: { ...object2(previous.time) } };
+      let shell = known?.shell;
       if (type === "session.tool.input.started" && !known) part.state = { status: "pending", input: {} };
       else if (type === "session.tool.called") {
         part.state = { status: "running", input: object2(data.input) };
-        object2(part.time).ran = event.created;
+        if (typeof event.created === "number") object2(part.time).ran = event.created;
       } else if (finished) {
-        part.state = { ...previousState, status: type.endsWith("success") ? "completed" : "error", ...data.content ? { content: data.content } : {}, ...data.error ? { error: data.error } : {} };
-        object2(part.time).completed = event.created;
-      } else if (type === "session.tool.progress") part.state = { ...previousState, metadata: data.metadata };
-      else continue;
-      const row = v2Content(message, part, 0, seq);
+        part.state = { ...previousState, status: type.endsWith("success") ? "completed" : "error", ...data.content ? { content: data.content } : {}, ...data.error ? { error: data.error } : {}, ...data.metadata ? { metadata: data.metadata } : {} };
+        if (typeof event.created === "number") object2(part.time).completed = event.created;
+      } else if (type === "session.tool.progress" && known) {
+        part.state = previousState;
+        const input = object2(previousState.input), timeout = input.timeout;
+        const timing = object2(part.time);
+        const shellId = text(object2(data.metadata).shellID);
+        if (name === "shell" && shellId && !shell) {
+          shell = { id: shellId, message };
+          if (typeof event.created === "number" && typeof timeout === "number" && Number.isSafeInteger(timeout) && timeout > 0 && Number.isSafeInteger(event.created + timeout)) timing.deadline = event.created + timeout;
+        }
+      } else continue;
+      const timestamp2 = known?.timestamp ?? (typeof event.created === "number" ? event.created : void 0);
+      const row = toolRow(message, part, seq, finished, timestamp2);
       if (row) {
+        if (!name) {
+          delete row.toolName;
+          delete row.toolInput;
+        }
         emit(row);
-        state.parts[rowId] = { seq, bytes: 0, finished, part };
+        state.parts[rowId] = { seq, bytes: 0, ...timestamp2 !== void 0 ? { timestamp: timestamp2 } : {}, finished, part: finished ? {} : part, ...!finished && shell ? { shell } : {} };
       }
     }
   }
@@ -2589,7 +2746,15 @@ function v2Reduce(ctx, raw, frames) {
   state.completed = state.completed.slice(-256);
   const keys = Object.keys(state.parts);
   for (const key of keys.slice(0, Math.max(0, keys.length - 256))) delete state.parts[key];
-  if (utf8Length(JSON.stringify(state)) > 240 * 1024) fail("size_limit", "OpenCode reducer state exceeds its bounded budget");
+  let bytes2 = utf8Length(JSON.stringify(state));
+  for (const entry of Object.values(state.parts)) {
+    if (bytes2 <= 240 * 1024) break;
+    const partState = object2(entry.part.state);
+    if (partState.input === void 0) continue;
+    bytes2 -= utf8Length(JSON.stringify(partState.input)) - 2;
+    entry.part.state = { ...partState, input: {} };
+  }
+  if (bytes2 > 240 * 1024) fail("size_limit", "OpenCode reducer state exceeds its bounded budget");
   return { state: json(state), events };
 }
 
@@ -2636,8 +2801,8 @@ function evidence(ctx, state, part, sequence, events) {
 }
 function runtimeReduce(ctx, raw, frames) {
   const protocol = binding(ctx).protocol;
+  if (protocol === "v2" || !protocol && object2(raw).protocol === "v2") return v2Reduce(ctx, raw, frames);
   if (!protocol) return { state: raw, events: [] };
-  if (protocol === "v2") return v2Reduce(ctx, raw, frames);
   if (!ctx.threadId) return { state: raw, events: [] };
   const state = stateFor(ctx, raw), events = [];
   for (let index = 0; index < frames.length; index++) {
@@ -2735,13 +2900,21 @@ function session(ctx, raw, expected) {
 function historyPlan(ctx, op) {
   own(ctx, op.threadId);
   if (op.order !== "desc") fail("unsupported", "OpenCode runtime history requires descending pages");
-  if (op.cursor && (op.cursor.length > 4096 || !op.cursor.startsWith("msg_"))) fail("invalid_schema", "Invalid OpenCode history cursor");
+  if (op.cursor && op.cursor.length > 4096) fail("invalid_schema", "Invalid OpenCode history cursor");
   return request("session.messages", { path: { sessionID: op.threadId }, query: { limit: "40", ...op.cursor ? { before: op.cursor } : {} } });
 }
 function runtimePlan(ctx, op) {
   if (!ctx.tabId || !ctx.bindingNonce || !Number.isSafeInteger(ctx.epoch) || ctx.epoch <= 0) fail("binding_mismatch", "Runtime launch identity missing");
   if ("threadId" in op && op.threadId) own(ctx, op.threadId);
+  if (op.kind === "interrupt") {
+    const threadId = own(ctx, op.threadId);
+    const turnId = op.activeTurnId ?? ctx.activeTurns?.find((turn) => turn.threadId === threadId)?.turnId;
+    const plan = request("session.abort", { path: { sessionID: threadId } });
+    if (plan.action.kind === "request") plan.action.call.target = { threadId, ...turnId ? { turnId } : {} };
+    return plan;
+  }
   const state = binding(ctx);
+  if (!state.protocol && op.kind === "resumeThread") return request("health", {}, { stage: "recoverProtocol" });
   if (state.protocol === "v2" && op.kind !== "initialize") return v2Plan(ctx, op);
   switch (op.kind) {
     case "initialize":
@@ -2770,11 +2943,6 @@ function runtimePlan(ctx, op) {
       if (plan.action.kind === "request") plan.action.call.target = { threadId: op.threadId, turnId: messageId };
       return plan;
     }
-    case "interrupt": {
-      const plan = request("session.abort", { path: { sessionID: op.threadId } });
-      if (plan.action.kind === "request") plan.action.call.target = { threadId: op.threadId, ...op.activeTurnId ? { turnId: op.activeTurnId } : {} };
-      return plan;
-    }
     case "answer":
       return answerPlan(ctx, op);
     case "control": {
@@ -2788,6 +2956,22 @@ function runtimePlan(ctx, op) {
 }
 function runtimeResponse(ctx, op, raw, reply) {
   const state = object2(raw);
+  if (op.kind === "interrupt" && reply.kind === "success") {
+    const body2 = object2(reply.value).body;
+    const protocol = binding(ctx).protocol;
+    if (protocol !== "v1" && typeof object2(body2).interrupted === "boolean") {
+      return object2(body2).interrupted === false ? done([{ kind: "turnState", threadId: op.threadId, state: "idle", detail: "interrupted" }]) : done();
+    }
+    if (protocol === "v2" || body2 !== true) return refused("OpenCode did not confirm the interrupt");
+    const events = op.activeTurnId ? [{ kind: "turnState", threadId: op.threadId, turnId: op.activeTurnId, state: "idle", detail: "interrupted" }] : [];
+    return done(events);
+  }
+  if (op.kind === "resumeThread" && state.stage === "recoverProtocol" && reply.kind === "success") {
+    const protocol = healthProtocol(object2(object2(reply.value).body));
+    if (!protocol) return refused("OpenCode did not confirm authenticated server health");
+    binding(ctx).protocol = protocol;
+    return { kind: "continue", plan: runtimePlan(ctx, op) };
+  }
   if (binding(ctx).protocol === "v2") return v2Response(ctx, op, state, reply);
   if (reply.kind === "error") {
     if (op.kind === "control" && op.action === "login" && text(object2(op.value).loginId)) return done([{ kind: "authLogin", login: { status: "failed", loginId: String(object2(op.value).loginId), error: `Sign-in request was refused (${reply.error.code})` } }]);
@@ -2799,13 +2983,11 @@ function runtimeResponse(ctx, op, raw, reply) {
     case "initialize": {
       if (state.stage === "health") {
         const health = object2(body);
-        if (text(health.version) && Number.isSafeInteger(health.pid) && Array.isArray(health.urls) && text(object2(health.paths).tmp)) {
-          binding(ctx).protocol = "v2";
-          return v2Response(ctx, op, state, reply);
-        }
-        if (object2(body).healthy !== true || !text(object2(body).version)) return refused("OpenCode did not confirm authenticated server health");
-        binding(ctx).protocol = "v1";
-        return next("provider.list", {}, { stage: "initializeProviders", version: object2(body).version });
+        const protocol = healthProtocol(health);
+        if (!protocol) return refused("OpenCode did not confirm authenticated server health");
+        binding(ctx).protocol = protocol;
+        if (protocol === "v2") return v2Response(ctx, op, state, reply);
+        return next("provider.list", {}, { stage: "initializeProviders", version: health.version });
       }
       if (state.stage === "initializeProviders") return next("provider.auth", {}, { stage: "initializeMethods", version: state.version, providers: providerSummary(body) });
       if (state.stage !== "initializeMethods") return refused("Unexpected initialization response");
@@ -2828,13 +3010,8 @@ function runtimeResponse(ctx, op, raw, reply) {
       own(ctx, op.threadId);
       const rows = historyRows(op.threadId, body);
       const cursor = text(object2(envelope.headers)["x-next-cursor"]);
-      if (cursor && (cursor.length > 4096 || cursor === op.cursor || !cursor.startsWith("msg_"))) return refused("OpenCode history cursor did not advance");
+      if (cursor && (cursor.length > 4096 || cursor === op.cursor)) return refused("OpenCode history cursor did not advance");
       return { kind: "complete", result: { kind: "historyPage", threadId: op.threadId, items: rows, openItems: [], order: "desc", ...cursor ? { nextCursor: cursor } : {} } };
-    }
-    case "interrupt": {
-      if (body !== true) return refused("OpenCode did not confirm the interrupt");
-      const events = op.activeTurnId ? [{ kind: "turnState", threadId: op.threadId, turnId: op.activeTurnId, state: "idle", detail: "interrupted" }] : [];
-      return done(events);
     }
     case "answer":
       return done();
@@ -2851,6 +3028,12 @@ function runtimeResponse(ctx, op, raw, reply) {
     default:
       return refused("Unsupported OpenCode runtime response");
   }
+}
+function healthProtocol(health) {
+  if (!text(health.version)) return void 0;
+  if (Number.isSafeInteger(health.pid) && Array.isArray(health.urls) && text(object2(health.paths).tmp)) return "v2";
+  if (health.healthy === true) return "v1";
+  return void 0;
 }
 
 // plugins/provider-opencode/src/sessionContent.ts

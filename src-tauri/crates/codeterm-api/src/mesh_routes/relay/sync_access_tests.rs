@@ -3,6 +3,7 @@ use codeterm_service_core::mesh::types::{GossipPeerInfo, MeshSyncPayload, PeerAd
 
 fn peer(instance_id: &str) -> GossipPeerInfo {
     GossipPeerInfo {
+        machine_identity: None,
         instance_id: instance_id.into(),
         instance_name: instance_id.into(),
         addresses: vec![PeerAddress::from_ip("100.64.0.1")],

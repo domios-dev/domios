@@ -28,7 +28,13 @@ pub(crate) async fn check_and_apply(
             server_stop
                 .prepare_detached_update(&package.version)
                 .await?;
-            codeterm_update::debian::handoff::launch(package, target, resources).await?;
+            codeterm_update::debian::handoff::launch(
+                package,
+                target,
+                resources,
+                opts.initiating_tab_id,
+            )
+            .await?;
             update_state.lock().set_phase(UpdatePhase::Applying);
             return Ok(ApplyResult::Restarting);
         }
@@ -294,12 +300,7 @@ async fn stop_pair_server(
 ) -> Result<(), String> {
     log::info!("[updater] stopping the attached server before installing the pair");
     let request = holders.shutdown_reservation_request();
-    let reservation = async move {
-        match request {
-            Some(request) => stop.reserve_install_shutdown(request).await.map(Some),
-            None => Ok(None),
-        }
-    };
+    let reservation = stop.reserve_install_shutdown(request);
     let result = stop_reserved_server(stop, reservation).await;
     if server_stop_owes_relaunch(&result) {
         stopped.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -316,7 +317,7 @@ async fn stop_pair_server(
 
 async fn stop_reserved_server(
     stop: &dyn ServerStop,
-    reservation: impl std::future::Future<Output = Result<Option<String>, String>> + Send,
+    reservation: impl std::future::Future<Output = Result<String, String>> + Send,
 ) -> Result<(), ServerStopError> {
     let reservation = reservation.await.map_err(|reason| ServerStopError {
         dispatched: false,
@@ -324,14 +325,12 @@ async fn stop_reserved_server(
     })?;
     let result = stop.stop_server().await;
     if result.as_ref().is_err_and(|error| !error.dispatched) {
-        if let Some(id) = reservation {
-            stop.release_install_shutdown(&id)
-                .await
-                .map_err(|reason| ServerStopError {
-                    dispatched: false,
-                    reason,
-                })?;
-        }
+        stop.release_install_shutdown(&reservation)
+            .await
+            .map_err(|reason| ServerStopError {
+                dispatched: false,
+                reason,
+            })?;
     }
     result
 }

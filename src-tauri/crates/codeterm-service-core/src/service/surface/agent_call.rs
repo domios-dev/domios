@@ -447,7 +447,7 @@ impl ServiceContext {
 }
 
 /// Plugin calls arrive on socket threads or the blocking pool; never block an async worker in place.
-fn block_on_runtime<F: std::future::Future>(future: F) -> F::Output {
+pub(super) fn block_on_runtime<F: std::future::Future>(future: F) -> F::Output {
     use tokio::runtime::{Handle, RuntimeFlavor};
     match Handle::try_current() {
         Ok(handle) if handle.runtime_flavor() == RuntimeFlavor::MultiThread => {

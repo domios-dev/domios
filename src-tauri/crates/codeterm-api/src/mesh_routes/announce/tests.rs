@@ -110,6 +110,7 @@ async fn announce_offline_routes_and_refreshes_membership_but_rejects_replay() {
         "renewed".parse().unwrap(),
     );
     let announce = PeerAnnounce {
+        machine_identity: None,
         domios_version: None,
         domios_build: None,
         instance_id: PEER.into(),
@@ -201,6 +202,7 @@ async fn announce_offline_routes_and_refreshes_membership_but_rejects_replay() {
         "renewed-again".parse().unwrap(),
     );
     let announce = PeerAnnounce {
+        machine_identity: None,
         domios_version: None,
         domios_build: None,
         instance_id: PEER.into(),

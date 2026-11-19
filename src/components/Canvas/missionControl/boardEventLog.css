@@ -18,14 +18,14 @@
   padding-top: 6px;
   border-top: 1px solid color-mix(in srgb, var(--ct-border) 65%, transparent);
   font-family: var(--ct-font-mono);
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   color: var(--ct-muted-fg);
 }
 
 .mc-board-log-day {
   grid-column: 1 / -1;
   margin-top: 8px;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   font-weight: 600;
   color: var(--ct-fg);
 }
@@ -36,14 +36,14 @@
 
 .mc-board-log-time {
   font-family: var(--ct-font-mono);
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   color: var(--ct-muted-fg);
 }
 
 .mc-board-log-kind,
 .mc-board-log-author {
   min-width: 0;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   color: var(--ct-muted-fg);
   white-space: nowrap;
   overflow: hidden;
@@ -112,7 +112,7 @@
   background: none;
   color: var(--ct-muted-fg);
   font: inherit;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   line-height: inherit;
   cursor: pointer;
 }

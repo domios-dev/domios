@@ -203,6 +203,8 @@ Numeric and enum settings are checked on CLI, REST, Tauri, and config-file load.
 
 Other numeric limits and accepted enum values are reported by `domios config set <key> <value>` when a value is refused.
 
+Set `updater.require_idle_for_app_update = true` in `config.toml` to require idle tabs before an automatic app update. The default allows the app update to stop and restore busy tabs. The tab that starts the update is exempt.
+
 ## When config.toml fails to load
 
 A `config.toml` that cannot be read or parsed is never treated as empty and never overwritten. The original is renamed to `config.toml.corrupt-<unix-ms>` (newest 5 kept), one ERROR line names the file and the error, and one action-needed notification names the kept copy. Every successful save also writes a rotating backup under `state-backups/config.toml/` (newest 10 kept); the newest backup that parses is restored, so confinement ceilings and other settings survive. With no valid backup Domios runs on in-memory defaults and refuses every save until the file is fixed or a valid one is put back (picked up without a restart). The API credential comes from the separate local secret store and is never regenerated after a parse error. During the one-time migration an intact legacy token can be salvaged and rotated; otherwise a missing credential refuses token-authenticated calls. A save that finds a hand-edited file that no longer parses preserves it the same way first.
@@ -235,4 +237,4 @@ Domios account sign-in and product analytics settings: `domios docs ACCOUNT`.
 
 **Docker server:** See the distribution's packaging/docker/README.md for setup and recovery.
 Docs vectors build only on the first enabled hybrid-doc search. With docs hybrid search disabled, startup does not load a model for docs; BM25 remains available while an enabled vector build warms. Actual mem vector search still loads its model on demand.
-<!-- revision: 135 -->
+<!-- revision: 136 -->

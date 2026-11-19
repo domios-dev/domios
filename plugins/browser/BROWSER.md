@@ -121,20 +121,11 @@ Wait replies identify the matching node/text excerpt and page. Check it: text ma
 
 `snapshot --json --with-text --out evidence/page.json` and `text 12000 --out evidence/page.txt` save redacted output in the caller's pad. Replies give path, Unicode characters, UTF-8 bytes, items (snapshot entries or text lines) and truncation. Relative/absolute paths stay inside that pad, including with `--of`; traversal, links and device names refuse.
 
-## Blueprint node
+## Blueprint page reads
 
-`uses: browser.read_page` reads one page in a Blueprint run, using a separate browser visible under the owning Tab. The node closes it on success or failure. Calls use the exact host-granted surface identity; existing owner browsers stay untouched.
+`browser.read_page` returns page text; `browser.snapshot_page` returns structured accessibility items. Both accept `with.url` or `bind: {url: prior.out}` and return `profile`, `final_url`, `capture_id` and `captured_at` (host UTC time with milliseconds).
 
-- `with:` takes `url` (http or https, at most 2048 characters), an optional `wait_text`, and `limit`, the number of text lines to keep (default 200, at most 2000). A bound `url` input from an earlier node wins over `with.url`.
-- Outputs: `text` (the page text, with credentials redacted) and `final_url`. Bind them downstream as `read.out.text` and `read.out.final_url`.
-- Outcomes:
-  - `read`: the page was read.
-  - `navigation_failed`: the URL is invalid, navigation or `wait_text` failed, or the step deadline was too short.
-  - `needs_human`: `status` reported a captcha, login or dialog.
-  - `browser_busy`: the step already holds a surface and cannot open another.
-- Owner browser state is private: an identity-free step `status` reports only the step's own surface state.
-
-On every outcome other than `read`, `text` holds the reason.
+Omit `profile` for a temporary browser. A named profile requires owner grants for the profile and page origin, and refuses while the profile is in use. See `domios docs BLUEPRINT-RECIPES` for setup, limits and outcomes.
 
 ## Batch and interactions
 
@@ -157,4 +148,4 @@ Each step uses standalone validation, authority and redaction; put `--of` in its
 - `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
 - `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
 
-<!-- revision: 23 -->
+<!-- revision: 25 -->

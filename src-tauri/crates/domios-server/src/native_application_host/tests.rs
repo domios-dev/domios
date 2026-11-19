@@ -6,7 +6,7 @@ fn shell_update_caller_needs_no_continuation() {
     let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
     assert_eq!(
         register_update_continuation(&fixture.service, Some(&tab_id)),
-        Ok(())
+        Ok(false)
     );
     assert!(fixture
         .service
@@ -16,7 +16,10 @@ fn shell_update_caller_needs_no_continuation() {
         .unwrap()
         .turn_resume
         .is_none());
-    assert_eq!(register_update_continuation(&fixture.service, None), Ok(()));
+    assert_eq!(
+        register_update_continuation(&fixture.service, None),
+        Ok(false)
+    );
 }
 
 #[test]
@@ -26,9 +29,12 @@ fn agent_update_caller_still_requires_its_own_session() {
     let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
     assert_eq!(
         register_update_continuation(&fixture.service, Some(&tab_id)),
-        Err("no_agent_session".into())
+        Ok(false)
     );
-    assert!(register_update_continuation(&fixture.service, Some("missing-tab")).is_err());
+    assert_eq!(
+        register_update_continuation(&fixture.service, Some("missing-tab")),
+        Ok(false)
+    );
     assert!(fixture
         .service
         .mux
@@ -70,6 +76,7 @@ async fn missing_native_attachment_refuses_before_registering_continuation() {
             manifest_url: None,
             install_method: codeterm_update::InstallMethod::Nsis,
             initiating_tab_id: Some("missing-caller".into()),
+            continue_tab_id: Some("missing-caller".into()),
         })
         .await;
     assert_eq!(result, Err("native_capability_unavailable".into()));

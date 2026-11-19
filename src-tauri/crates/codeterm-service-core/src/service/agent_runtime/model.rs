@@ -55,6 +55,9 @@ pub enum RuntimeFailure {
     Deadline,
     HookFailed(String),
     Refused(String),
+    ReplyRefused {
+        status: u16,
+    },
     SignInRequired,
     ConversationMissing,
     SessionLoadRefused(String),
@@ -108,6 +111,7 @@ impl std::fmt::Display for RuntimeFailure {
             Self::Deadline => formatter.write_str("Runtime did not respond in time"),
             Self::HookFailed(reason) => write!(formatter, "Provider operation failed: {reason}"),
             Self::Refused(reason) => write!(formatter, "{REFUSED_PREFIX}{reason}"),
+            Self::ReplyRefused { status } => write!(formatter, "{REFUSED_PREFIX}HTTP prompt reply ({status})"),
             Self::SignInRequired => formatter.write_str("Sign-in required"),
             Self::ConversationMissing => formatter.write_str("ConversationMissing: The provider's saved conversation rollout is unavailable. Start a new conversation to continue."),
             Self::SessionLoadRefused(reason) => formatter.write_str(reason),
@@ -229,7 +233,9 @@ impl RuntimeFailure {
             | Self::WrittenAwaitingEvidence => Code::ProcessUnavailable,
             Self::InvalidFrame(_) | Self::ProtocolError { .. } => Code::ProtocolError,
             Self::HookFailed(_) => Code::HookFailed,
-            Self::Refused(_) | Self::PrewriteRefused(_) => Code::ProviderRefused,
+            Self::Refused(_) | Self::ReplyRefused { .. } | Self::PrewriteRefused(_) => {
+                Code::ProviderRefused
+            }
             Self::SignInRequired => Code::AuthenticationRequired,
             Self::ConversationMissing => Code::ThreadNotFound,
             Self::SessionLoadRefused(_) => Code::SessionLoadRefused,

@@ -52,11 +52,8 @@ fn wait_loaded(fixture: &RuntimeFixture, old_epoch: u64) {
     });
 }
 
-#[test]
-fn crashed_worker_resumes_own_thread_once_and_replacement_crash_stops() {
-    let fixture = RuntimeFixture::new();
+fn crash_worker_during_turn(fixture: &RuntimeFixture) -> usize {
     let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
-    let original = session.context.lock().clone();
     agent_runtime::transport::send(
         &fixture.service,
         &fixture.tab,
@@ -68,11 +65,24 @@ fn crashed_worker_resumes_own_thread_once_and_replacement_crash_stops() {
     .unwrap();
     assert!(session.context.lock().active_turn_id.is_some());
     let count = fixture.requests().len();
+    fixture.exits.lock().pop().unwrap().send(()).unwrap();
+    count
+}
+
+#[test]
+fn crashed_worker_resumes_own_thread_once_and_replacement_crash_stops() {
+    let mut methods = fixture_request_methods();
+    methods.insert("control".into(), json!(["control", "thread/inject_items"]));
+    let fixture =
+        RuntimeFixture::prepared_with_runtime(SOURCE, true, json!({"requestMethods": methods}))
+            .launch();
+    let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
+    let original = session.context.lock().clone();
     let (notified, notification) = std::sync::mpsc::channel();
     fixture.ui.listen("notification-created", move |_| {
         let _ = notified.send(());
     });
-    fixture.exits.lock().pop().unwrap().send(()).unwrap();
+    let count = crash_worker_during_turn(&fixture);
     wait_requests(&fixture, count + 5);
     let requests = fixture.requests();
     assert_eq!(
@@ -84,11 +94,17 @@ fn crashed_worker_resumes_own_thread_once_and_replacement_crash_stops() {
             "initialize",
             "resumeThread",
             "readHistory",
-            "control",
+            "thread/inject_items",
             "submitTurn"
         ]
     );
     assert_eq!(requests[count + 1]["params"]["threadId"], "own-thread");
+    let injection = &requests[count + 3]["params"];
+    assert_eq!(injection["threadId"], "own-thread");
+    assert_eq!(injection["action"], "restoreContext");
+    let abort_note = &injection["value"]["additionalContext"][0];
+    assert_eq!(abort_note["key"], "domios-turn-aborted");
+    assert_eq!(abort_note["kind"], "application");
     assert_eq!(requests[count + 4]["params"]["threadId"], "own-thread");
     assert_eq!(
         requests
@@ -139,6 +155,23 @@ fn crashed_worker_resumes_own_thread_once_and_replacement_crash_stops() {
             .count(),
         1
     );
+}
+
+#[test]
+fn crashed_worker_without_context_injection_still_resumes() {
+    let fixture = RuntimeFixture::new();
+    let count = crash_worker_during_turn(&fixture);
+    wait_requests(&fixture, count + 4);
+    let requests = fixture.requests();
+    assert_eq!(
+        requests[count..]
+            .iter()
+            .map(|request| request["method"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["initialize", "resumeThread", "readHistory", "submitTurn"]
+    );
+    assert_eq!(requests[count + 1]["params"]["threadId"], "own-thread");
+    assert_eq!(requests[count + 3]["params"]["threadId"], "own-thread");
 }
 
 #[test]

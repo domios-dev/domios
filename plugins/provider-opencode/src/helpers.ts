@@ -643,7 +643,13 @@ export function toolFileDiffs(part: OpencodePart): FileDiff[] {
   const input = state.input && typeof state.input === "object" ? state.input as Record<string, unknown> : {};
   const path = String(input.filePath ?? input.file_path ?? input.path ?? "");
   const edits = extractCanonicalEdits(input);
-  const metadata = state.metadata && typeof state.metadata === "object" ? state.metadata as Record<string, unknown> : {};
+  let metadata = state.metadata && typeof state.metadata === "object" ? state.metadata as Record<string, unknown> : {};
+  const hasFiles = Array.isArray(metadata.files) && metadata.files.length > 0;
+  const hasFileDiff = metadata.filediff !== null && typeof metadata.filediff === "object";
+  if (part.tool?.toLowerCase() === "apply_patch" && typeof metadata.diff !== "string" && typeof metadata.patch !== "string" && !hasFiles && !hasFileDiff) {
+    const patch = typeof input.patch === "string" ? input.patch : typeof input.input === "string" ? input.input : "";
+    if (patch) metadata = { ...metadata, patch };
+  }
   const creation = part.tool === "write" && metadata.exists === false && typeof input.content === "string"
     ? [{ path, old: "", new: input.content }] : [];
   const diffs = opencodeFileDiffs(path, [...edits, ...creation], metadata);
@@ -668,6 +674,12 @@ export function canonicalToolFields(name: string, input: unknown): CanonicalTool
   if (lower === "bash" || lower === "shell" || lower === "exec" || lower === "run") {
     return { kind: "command", summary: cleanToolText(command, "Command"), detail: command, edits: [] };
   }
+  if (lower === "apply_patch") {
+    const patch = text("patch") || text("input");
+    const paths = opencodeFileDiffs("", [], { patch }).map((diff) => diff.path).filter(Boolean);
+    const summary = paths.length ? paths.join("\n") : "Apply patch";
+    return { kind: "edit", summary, detail: summary, edits: [] };
+  }
   if (lower === "edit" || lower === "multiedit" || lower === "write") {
     return { kind: "edit", summary: path || "File edit", detail: path, edits: edits };
   }
@@ -676,6 +688,20 @@ export function canonicalToolFields(name: string, input: unknown): CanonicalTool
   }
   if (lower === "glob" || lower === "grep" || lower === "search") {
     return { kind: "search", summary: cleanToolText(pattern || path, "Search"), detail: pattern || path, edits: [] };
+  }
+  if (lower === "webfetch") {
+    const url = text("url");
+    return { kind: "fetch", summary: cleanToolText(url, "Fetch URL"), detail: url, edits: [] };
+  }
+  if (lower === "todoread" || lower === "todowrite" || lower === "question") {
+    const summary = lower === "todoread" ? "Read tasks" : lower === "question" ? "Ask question" : "Update tasks";
+    return { kind: "task", summary, detail: "", edits: [] };
+  }
+  if (lower === "skill") {
+    const name = text("name") || text("skill");
+    const directory = text("dir");
+    const summary = cleanToolText(name || directory, "Read skill");
+    return { kind: "read", summary, detail: directory || name || "", edits: [] };
   }
   return { kind: "generic", summary: cleanToolText(tool, "Tool"), detail: tool, edits: edits };
 }

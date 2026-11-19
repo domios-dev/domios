@@ -197,6 +197,26 @@ impl Worker {
             .timeout(Duration::from_secs(30))
             .build()
             .map_err(|e| e.to_string())?;
+        let reservation = client
+            .post(format!("http://{address}/api/update/reserve"))
+            .bearer_auth(&self.plan.target.token)
+            .json(&crate::holders::ReserveHolders {
+                tabs: Vec::new(),
+                initiating_tab: self.plan.initiating_tab_id.clone(),
+            })
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+        if !reservation.status().is_success() {
+            return Err(reservation
+                .text()
+                .await
+                .map_err(|error| error.to_string())?);
+        }
+        let reservation: String = reservation
+            .json()
+            .await
+            .map_err(|error| error.to_string())?;
         self.quit_dispatched = true;
         self.deadline = Some(Instant::now() + Duration::from_secs(30));
         let response = client
@@ -205,8 +225,6 @@ impl Worker {
             .json(&self.plan.snapshot)
             .send()
             .await
-            .map_err(|e| e.to_string())?
-            .error_for_status()
             .map_err(|e| e.to_string())?;
         match response
             .json::<QuitApiReply>()
@@ -220,6 +238,18 @@ impl Worker {
                 && shutdown_completion == QuitCompletion::default() =>
             {
                 Ok(())
+            }
+            QuitApiReply::Refused { reason } => {
+                self.quit_dispatched = false;
+                client
+                    .post(format!("http://{address}/api/update/release"))
+                    .bearer_auth(&self.plan.target.token)
+                    .json(&reservation)
+                    .send()
+                    .await
+                    .and_then(reqwest::Response::error_for_status)
+                    .map_err(|error| error.to_string())?;
+                Err(format!("exact application quit refused: {reason:?}"))
             }
             _ => Err("exact application quit was not confirmed".into()),
         }

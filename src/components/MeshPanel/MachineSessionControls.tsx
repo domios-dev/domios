@@ -1,17 +1,24 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 import { DropdownMenu } from "../shared/DropdownMenu";
+import { useMeshMachineIdentity } from "../../lib/useMeshMachineIdentities";
+import { UNKNOWN_MACHINE } from "../../lib/machineIdentity";
+import { MachineIdentityPopover } from "./MachineIdentityEditor";
 
-export function MachineSessionControls({ name, busy, onSignOut, onRemove, renderRow }: {
+export function MachineSessionControls({ name, busy, onSignOut, onRemove, renderRow, identityPeer }: {
   name: string;
   busy: boolean;
   onSignOut?: () => Promise<boolean>;
   onRemove?: (alsoSignOut: boolean) => Promise<boolean>;
   renderRow?: (menu: ReactNode) => ReactNode;
+  identityPeer?: string | null;
 }) {
   const [confirm, setConfirm] = useState<"sign_out" | "remove" | null>(null);
   const [alsoSignOut, setAlsoSignOut] = useState(false);
   const [acting, setActing] = useState(false);
+  const [editingIdentity, setEditingIdentity] = useState(false);
+  const anchor = useRef<HTMLSpanElement | null>(null);
+  const identity = useMeshMachineIdentity(identityPeer, identityPeer !== undefined);
   const disabled = busy || acting;
   const submit = async () => {
     setActing(true);
@@ -34,11 +41,16 @@ export function MachineSessionControls({ name, busy, onSignOut, onRemove, render
       <button type="button" disabled={disabled} className={`${UI_BUTTON.ghost} ${UI_BUTTON.compact}`} onClick={() => { setConfirm(null); setAlsoSignOut(false); }}>Cancel</button>
     </div>
   </div>;
-  const menu = onSignOut || onRemove ? <DropdownMenu placement="bottom-end" disabled={disabled}
+  const menu = onSignOut || onRemove || identityPeer !== undefined ? <span ref={anchor} className="inline-flex">
+    <DropdownMenu placement="bottom-end" disabled={disabled}
     trigger={<button type="button" disabled={disabled} aria-label={`More for ${name}`} className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded text-[18px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]">⋯</button>}
     items={[
+      ...(identityPeer !== undefined ? [{ label: "Change icon and colour", onClick: () => setEditingIdentity(true) }] : []),
       ...(onSignOut ? [{ label: "Sign out this machine", onClick: () => setConfirm("sign_out") }] : []),
       ...(onRemove ? [{ label: "Remove from mesh", danger: true, onClick: () => setConfirm("remove") }] : []),
-    ]} /> : null;
+    ]} />
+    {editingIdentity && <MachineIdentityPopover name={name} peerId={identityPeer ?? undefined}
+      initial={identity ?? UNKNOWN_MACHINE} onClose={() => setEditingIdentity(false)} anchor={anchor} />}
+  </span> : null;
   return renderRow ? renderRow(menu) : menu;
 }

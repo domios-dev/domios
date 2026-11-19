@@ -12,8 +12,9 @@ export function v2Prompt(ctx:RuntimeContext, frame:Extract<RuntimeFrame,{kind:"r
     if (params.sessionID !== ctx.threadId || params.id !== frame.requestId) return undefined;
     const action=text(params.action);
     if (!action) fail("invalid_schema","Permission request has no action");
+    // Always may settle sibling requests before their automatic replies reach OpenCode.
     return {kind:"prompt",threadId:ctx.threadId!,requestId:frame.requestId,prompt:{question:`${action}: ${list(params.resources).filter(value=>typeof value === "string").join(", ")}`,options:[{label:"Allow once",value:"once"},{label:"Always allow",value:"always"},{label:"Reject",value:"reject"}]},
-      permission:{action:action === "shell" ? "command" : ["edit","write"].includes(action) ? "write" : ["read","glob","grep"].includes(action) ? "read" : "other",options:[{value:"once",decision:"allow_once"},{value:"always",decision:"allow_always"},{value:"reject",decision:"reject_once"}]}};
+      permission:{action:action === "shell" ? "command" : ["edit","write"].includes(action) ? "write" : ["read","glob","grep"].includes(action) ? "read" : "other",options:[{value:"once",decision:"allow_once"},{value:"reject",decision:"reject_once"}]}};
   }
   const form=object(params.form);
   if (frame.method !== "form.created" || form.sessionID !== ctx.threadId || form.id !== frame.requestId) return undefined;

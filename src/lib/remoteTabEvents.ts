@@ -3,6 +3,28 @@ import { createRemoteChannelRecovery, createSilenceDeadline, streamResponseFailu
 import { classifyTabTarget, onRemoteTransportCredentials, parseCompositeTabId, remoteTabTransportHttp, } from "./remoteTabTransport";
 import { publishRemoteTransportState } from "./remoteTabTransportState";
 let eventClient: TransportClient | undefined;
+export type RemoteTabEventSignal = "ready" | "resync" | "lost";
+const lifecycleListeners = new Map<string, Set<(signal: RemoteTabEventSignal) => void>>();
+
+export function onRemoteTabEventSignal(
+    event: string,
+    handler: (signal: RemoteTabEventSignal) => void,
+): () => void {
+    const listeners = lifecycleListeners.get(event) ?? new Set();
+    listeners.add(handler);
+    lifecycleListeners.set(event, listeners);
+    return () => {
+        listeners.delete(handler);
+        if (!listeners.size)
+            lifecycleListeners.delete(event);
+    };
+}
+
+function signalRemoteTabEvent(event: string, signal: RemoteTabEventSignal): void {
+    for (const handler of lifecycleListeners.get(event) ?? [])
+        handler(signal);
+}
+
 export function bindRemoteTabEventsTransport(client: TransportClient): void {
     eventClient = client;
     for (const record of subscriptions.values())
@@ -16,7 +38,7 @@ interface ChatCursor {
 const chatCursorAdvanced = (prev: ChatCursor | null, next: ChatCursor): boolean => prev === null || next.boot !== prev.boot || next.seq > prev.seq;
 interface SubscriptionRecord {
     event: string;
-    kind: "chat" | "resize-owner" | "state" | "runtime" | "preview";
+    kind: "chat" | "resize-owner" | "state" | "runtime" | "preview" | "provider-switch-status";
     ordinaryTabId: string;
     peerId: string;
     remoteTabId: string;
@@ -70,6 +92,8 @@ function connect(record: SubscriptionRecord): void {
         if (message.boot && typeof message.seq === "number") {
             progressed = record.recovery.noteProgress(generation, { boot: message.boot, seq: message.seq });
         }
+        if (record.kind === "provider-switch-status" && message.event_type === "overflow")
+            signalRemoteTabEvent(record.event, "resync");
         if (progressed && message.data && message.event_type === `preview-index-state-${record.remoteTabId}`) {
             for (const handler of previewHandlers.get(record.ordinaryTabId) ?? []) handler({ payload: message.data });
         }
@@ -92,12 +116,20 @@ function connect(record: SubscriptionRecord): void {
             && message.event_type === "agent-runtime-state" && message.data.tab_id === record.remoteTabId) {
             record.handler({ payload: { ...message.data, tab_id: record.ordinaryTabId } });
         }
+        else if (progressed && message.data && record.kind === "provider-switch-status"
+            && message.event_type === "provider-switch-status" && message.data.tab_id === record.remoteTabId) {
+            record.handler({ payload: { ...message.data, tab_id: record.ordinaryTabId } });
+        }
         else if (progressed && record.kind === "state"
             && (message.event_type === "mux-state-changed" || message.event_type === "tab-status-changed")) {
             record.handler({ payload: { event_type: message.event_type, peer_id: record.peerId } });
         }
     }, {
-        signal: controller.signal, raw: true, onStarting: () => deadline.clear(), onReady: () => deadline.arm(), onActivity: () => deadline.arm(),
+        signal: controller.signal, raw: true, onStarting: () => deadline.clear(), onReady: () => {
+            deadline.arm();
+            if (record.kind === "provider-switch-status")
+                signalRemoteTabEvent(record.event, "ready");
+        }, onActivity: () => deadline.arm(),
         onEnd(end) {
             const reason: StreamEndReason = end.reason === "http" ? streamResponseFailureReason(end.status ?? 500)
                 : end.reason === "eof" ? "eof" : "error";
@@ -108,6 +140,8 @@ function connect(record: SubscriptionRecord): void {
             const settled = record.settlements.get(generation);
             record.settlements.delete(generation);
             settled?.resolve();
+            if (ownsGeneration && !record.disposed && record.kind === "provider-switch-status")
+                signalRemoteTabEvent(record.event, "lost");
             if (controller.signal.aborted)
                 return;
             const decision = record.recovery.handleStreamEnd(generation, reason);
@@ -127,13 +161,14 @@ export function subscribeRemoteTabEvent<T>(event: string, handler: (value: {
     const ownerPrefix = "pty-resize-owner-changed:";
     const statePrefix = "peer-state-changed:";
     const previewPrefix = "preview-index-state-";
+    const providerSwitchPrefix = "provider-switch-status:";
     const kind = event.startsWith(runtimePrefix) ? "runtime" : event.startsWith(chatPrefix) ? "chat"
         : event.startsWith(previewPrefix) ? "preview" : event.startsWith(ownerPrefix) ? "resize-owner"
             : event.startsWith(statePrefix) ? "state"
-                : null;
+                : event.startsWith(providerSwitchPrefix) ? "provider-switch-status" : null;
     if (!kind)
         return null;
-    const eventTarget = event.slice(kind === "runtime" ? runtimePrefix.length : kind === "chat" ? chatPrefix.length : kind === "preview" ? previewPrefix.length : kind === "state" ? statePrefix.length : ownerPrefix.length);
+    const eventTarget = event.slice(kind === "runtime" ? runtimePrefix.length : kind === "chat" ? chatPrefix.length : kind === "preview" ? previewPrefix.length : kind === "state" ? statePrefix.length : kind === "provider-switch-status" ? providerSwitchPrefix.length : ownerPrefix.length);
     if (classifyTabTarget(eventTarget).kind === "invalid-remote") {
         throw new Error(`Invalid remote tab id "${eventTarget}"; local event fallback is forbidden`);
     }

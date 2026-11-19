@@ -1,6 +1,13 @@
 use super::*;
 use crate::pty::write_queue::WriteQueue;
 
+fn strict() -> ShutdownPolicy<'static> {
+    ShutdownPolicy {
+        require_idle: true,
+        ..Default::default()
+    }
+}
+
 fn snapshot(queue: &WriteQueue) -> HolderTab {
     HolderTab {
         process: HolderProcess {
@@ -29,8 +36,8 @@ fn idle_to_busy_before_shutdown_refuses_and_releases_every_input_reservation() {
     let result = reserve_with(
         &state,
         &[expected],
-        None,
-        |tab| queue.reserve_update_shutdown(tab.input_revision),
+        strict(),
+        |tab| queue.reserve_update_shutdown(Some(tab.input_revision)),
         || Ok(vec![current]),
     );
     let refusal = result.as_ref().unwrap_err();
@@ -54,8 +61,8 @@ fn new_input_after_preflight_refuses_even_before_busy_state_is_reported() {
     let result = reserve_with(
         &state,
         &[expected.clone()],
-        None,
-        |tab| queue.reserve_update_shutdown(tab.input_revision),
+        strict(),
+        |tab| queue.reserve_update_shutdown(Some(tab.input_revision)),
         || Ok(vec![expected]),
     );
     assert!(result.unwrap_err().contains("Build in Project"));
@@ -70,8 +77,8 @@ fn committed_reservation_blocks_new_admission_and_raw_writes_until_release() {
     reserve_with(
         &state,
         &[expected.clone()],
-        None,
-        |tab| queue.reserve_update_shutdown(tab.input_revision),
+        strict(),
+        |tab| queue.reserve_update_shutdown(Some(tab.input_revision)),
         || Ok(vec![expected]),
     )
     .unwrap();
@@ -92,7 +99,7 @@ fn active_service_admission_prevents_shutdown_without_freezing_or_teardown() {
     let result = reserve_with(
         &state,
         &[expected],
-        None,
+        strict(),
         |_| panic!("in-flight work must refuse before freezing"),
         || panic!("no shutdown authority"),
     );
@@ -112,8 +119,8 @@ fn server_reservation_blocks_agent_and_shell_admission_and_requires_its_release_
     let id = reserve_with(
         &gate,
         &[expected.clone()],
-        None,
-        |holder| queue.reserve_update_shutdown(holder.input_revision),
+        strict(),
+        |holder| queue.reserve_update_shutdown(Some(holder.input_revision)),
         || {
             assert!(svc.admit_update_input(&tab).is_err());
             Ok(vec![expected])
@@ -172,14 +179,47 @@ fn changed_holder_identity_cannot_authorize_shutdown() {
         let refused = reserve_with(
             &state,
             &[expected],
-            None,
-            |tab| queue.reserve_update_shutdown(tab.input_revision),
+            strict(),
+            |tab| queue.reserve_update_shutdown(Some(tab.input_revision)),
             || Ok(vec![current]),
         );
         assert!(refused
             .unwrap_err()
             .contains("holder identity changed during reservation"));
         assert!(state.lock().reservation.is_none());
+        assert!(queue.admit_work().is_ok());
+    }
+}
+
+#[test]
+fn active_holder_reserves_by_default_and_the_initiator_reserves_in_idle_only_mode() {
+    for require_idle in [false, true] {
+        let queue = WriteQueue::new(Box::new(std::io::sink()));
+        let mut busy = snapshot(&queue);
+        busy.busy = true;
+        queue.admit_work().unwrap();
+        let gate = Arc::new(Mutex::new(GateState::default()));
+        gate.lock().active.insert(busy.tab_id.clone(), 1);
+        let policy = ShutdownPolicy {
+            require_idle,
+            initiating_tab: require_idle.then_some(busy.tab_id.as_str()),
+        };
+        reserve_with(
+            &gate,
+            std::slice::from_ref(&busy),
+            policy,
+            |tab| {
+                queue.reserve_update_shutdown(
+                    policy
+                        .requires_idle(&tab.tab_id)
+                        .then_some(tab.input_revision),
+                )
+            },
+            || Ok(vec![busy.clone()]),
+        )
+        .unwrap();
+        assert!(queue.admit_work().is_err());
+        gate.lock().reservation = None;
         assert!(queue.admit_work().is_ok());
     }
 }

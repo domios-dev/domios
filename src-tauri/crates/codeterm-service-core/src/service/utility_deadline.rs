@@ -26,7 +26,14 @@ pub struct Armed {
 static ARMED: LazyLock<Mutex<HashMap<String, Armed>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-type RunningCommands = HashMap<String, (Option<String>, u64)>;
+#[derive(Clone)]
+struct RunningCommand {
+    pty_id: String,
+    command: Option<String>,
+    started_ms: u64,
+}
+
+type RunningCommands = HashMap<String, RunningCommand>;
 static COMMANDS: LazyLock<Mutex<RunningCommands>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 static EXPIRING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
@@ -50,7 +57,15 @@ impl ServiceContext {
         COMMANDS
             .lock()
             .get(tab_id)
-            .and_then(|(command, _)| command.clone())
+            .and_then(|entry| entry.command.clone())
+    }
+
+    pub(super) fn running_command_on_pty(&self, tab_id: &str, pty_id: &str) -> Option<String> {
+        COMMANDS
+            .lock()
+            .get(tab_id)
+            .filter(|entry| entry.pty_id == pty_id)
+            .and_then(|entry| entry.command.clone())
     }
 
     pub(crate) fn utility_deadline_snapshot(&self, tab_id: &str) -> Option<serde_json::Value> {
@@ -105,14 +120,14 @@ impl ServiceContext {
         let mut model = DeadlineModel::default();
         model.set_timeout(duration)?;
         let current = COMMANDS.lock().get(tab_id).cloned();
-        if let Some((_, started)) = &current {
-            model.command_started(*started)?;
+        if let Some(entry) = &current {
+            model.command_started(entry.started_ms)?;
         }
         let deadline = Deadline {
             tab_id: tab_id.into(),
             owner: owner.into(),
             model,
-            command: current.and_then(|(command, _)| command),
+            command: current.and_then(|entry| entry.command),
         };
         persist(self, &deadline)?;
         arm(self, deadline, &mut armed)?;
@@ -124,12 +139,17 @@ impl ServiceContext {
         remove_deadline(self, tab_id, &mut armed)
     }
 
-    pub(crate) fn utility_command_started(&self, tab_id: &str, command: Option<&str>) {
+    pub(crate) fn utility_command_started(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        command: Option<&str>,
+    ) {
         if !self
             .mux
             .read()
             .get_tab(tab_id)
-            .is_some_and(|tab| tab.is_utility_shell())
+            .is_some_and(|tab| tab.is_utility_shell() && tab.pty_id.as_deref() == Some(pty_id))
         {
             return;
         }
@@ -138,9 +158,14 @@ impl ServiceContext {
             return;
         }
         let started = now_ms();
-        COMMANDS
-            .lock()
-            .insert(tab_id.into(), (command.map(str::to_string), started));
+        COMMANDS.lock().insert(
+            tab_id.into(),
+            RunningCommand {
+                pty_id: pty_id.into(),
+                command: command.map(str::to_string),
+                started_ms: started,
+            },
+        );
         let Some(entry) = armed.get(tab_id) else {
             return;
         };

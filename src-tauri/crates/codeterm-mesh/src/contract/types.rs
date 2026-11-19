@@ -141,6 +141,12 @@ pub struct WebUiAnnouncement {
 /// sender's instance_id wholesale — stale entries must die.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerAnnounce {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::machine_identity::deserialize_signed"
+    )]
+    pub machine_identity: Option<crate::machine_identity::SignedMachineIdentity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domios_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -222,6 +228,12 @@ pub enum Permission {
 /// Peer info shared during gossip (no secrets — just addressing).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GossipPeerInfo {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::machine_identity::deserialize_signed"
+    )]
+    pub machine_identity: Option<crate::machine_identity::SignedMachineIdentity>,
     pub instance_id: String,
     pub instance_name: String,
     pub addresses: Vec<PeerAddress>,
@@ -315,6 +327,9 @@ pub struct AccountInstallation {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct MeshPeersResponse {
+    pub local_machine_identity: crate::machine_identity::MachineIdentity,
+    pub machine_identities:
+        std::collections::BTreeMap<String, crate::machine_identity::MachineIdentity>,
     pub installations: Vec<AccountInstallation>,
     pub paired: Vec<PairedPeer>,
     pub local_instance_name: String,

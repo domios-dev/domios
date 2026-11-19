@@ -195,7 +195,7 @@ function TabSessionChatBody({
   const floatingBottomInset = useChatLayoutInsets(chatRootRef);
   const chatFollowTailRef = useRef(true);
 
-  const { setFocusedTab, selectTabByTab, upsertToast, dismissToast, answerNotification } = useMultiplexer();
+  const { selectTabByTab, upsertToast, dismissToast, answerNotification } = useMultiplexer();
   const openPlanTarget = usePlanTargetNavigation();
   const tabSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
@@ -750,12 +750,11 @@ function TabSessionChatBody({
   // Preserve origin prop identities so streamed chunks do not re-render old bubbles.
   type OriginProps = { key: string; origin?: ChatOrigin; onOriginClick?: () => void; originAvatar?: ReactNode };
   const originPropsCacheRef = useRef<Map<string, OriginProps>>(new Map());
-  const originFocusRef = useRef<((tabId: string) => void) | null>(null);
+  const originNavigationRef = useRef<{ selectTabByTab: typeof selectTabByTab; workspaces: typeof planNav.workspaces } | null>(null);
   const originPropsById = useMemo(() => {
-    // onOriginClick closes over setFocusedTab, so a new setFocusedTab identity
-    // must rebind every entry — drop the cache instead of reusing stale closures.
-    if (originFocusRef.current !== setFocusedTab) {
-      originFocusRef.current = setFocusedTab;
+    const navigation = originNavigationRef.current;
+    if (!navigation || navigation.selectTabByTab !== selectTabByTab || navigation.workspaces !== planNav.workspaces) {
+      originNavigationRef.current = { selectTabByTab, workspaces: planNav.workspaces };
       originPropsCacheRef.current = new Map();
     }
     const cache = originPropsCacheRef.current;
@@ -788,14 +787,17 @@ function TabSessionChatBody({
         ? prev
         : {
             key,
-            onOriginClick: () => setFocusedTab(fullId),
+            onOriginClick: () => {
+              const workspaceId = planNav.workspaces.find((workspace) => workspace.tabs.includes(fullId))?.id;
+              if (workspaceId) void selectTabByTab(workspaceId, fullId);
+            },
             originAvatar: providerId ? <OriginProviderAvatar providerId={providerId} /> : undefined,
           };
       next.set(msg.id, entry);
     }
     originPropsCacheRef.current = next;
     return next;
-  }, [pluginMetaVersion, renderedEnrichedMessages, resolvePluginName, tabAgentTypes, setFocusedTab]);
+  }, [pluginMetaVersion, renderedEnrichedMessages, resolvePluginName, tabAgentTypes, planNav.workspaces, selectTabByTab]);
 
   const watcherModelBubble = useMemo(() => {
     if (!effectiveChatBackend || !chatBacking) return undefined;

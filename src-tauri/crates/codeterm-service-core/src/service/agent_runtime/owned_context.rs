@@ -1,7 +1,41 @@
-use super::{engine::Session, model::RuntimeFailure};
+use super::{
+    engine::{self, Session},
+    model::{self, RuntimeFailure},
+    process::Process,
+};
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::{RuntimeContext, RuntimeOperation, RuntimeResult};
 use serde_json::{json, Value};
+use std::sync::Arc;
+
+pub(super) async fn inject_abort_note(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    process: &Arc<Process>,
+    thread: &str,
+) {
+    let Some(cause) = session.abort_note.lock().take() else {
+        return;
+    };
+    let operation = RuntimeOperation::Control {
+        thread_id: Some(thread.to_string()),
+        action: "restoreContext".into(),
+        value: super::abort_provenance::abort_note_context(&cause),
+    };
+    let supports_context_injection = session
+        .adapter
+        .lock()
+        .as_ref()
+        .and_then(|adapter| adapter.agent_runtime())
+        .is_some_and(|capability| model::permits(&capability, &operation, "thread/inject_items"));
+    if !supports_context_injection {
+        return;
+    }
+    if let Err(reason) = engine::run(svc, &session.provider, session, process, operation).await {
+        let tab = session.context.lock().tab_id.clone();
+        log::warn!("[agent-runtime] tab={tab} abort notice not delivered to the agent: {reason}");
+    }
+}
 
 fn application_entry(entry: &Value) -> bool {
     let keep = entry["kind"].as_str() == Some("application");

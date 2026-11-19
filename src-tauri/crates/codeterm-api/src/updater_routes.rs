@@ -230,8 +230,7 @@ pub struct InstallUpdateQuery {
     /// Message to continue through the General Agent's restart-resume claim.
     /// Persisted before restart so the next boot folds it into that one claim.
     pub after_update: Option<String>,
-    /// Tab that initiated the update — excluded from the shutdown sweep so the
-    /// caller survives to hand off / relaunch (Defect 3).
+    /// Authenticated caller requesting its own continuation.
     pub continue_tab: Option<String>,
 }
 
@@ -355,7 +354,7 @@ async fn install_update_inner(
 
     // Persist before restart — the next boot folds it into the General Agent's resume claim.
     if let Some(text) = q.after_update.as_deref() {
-        let tab_id = caller_tab_id.ok_or((
+        let tab_id = caller_tab_id.clone().ok_or((
             StatusCode::BAD_REQUEST,
             codeterm_service_core::service::turn_resume::CALLER_TAB_REQUIRED,
         ))?;
@@ -419,7 +418,8 @@ async fn install_update_inner(
                     channel,
                     manifest_url,
                     install_method,
-                    initiating_tab_id: continue_tab,
+                    initiating_tab_id: caller_tab_id,
+                    continue_tab_id: continue_tab,
                 };
                 let outcome =
                     single_flight::apply_with_lease(lease, app.as_ref(), opts.clone()).await;

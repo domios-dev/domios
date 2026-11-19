@@ -28,11 +28,17 @@ upsert_ruleset() {
 jq -n --argjson owner "$owner_id" '{name:"owner-only-trusted-branches",target:"branch",enforcement:"active",
   bypass_actors:[{actor_id:$owner,actor_type:"User",bypass_mode:"always"}],
   conditions:{ref_name:{include:["refs/heads/master","refs/heads/release/**","refs/heads/develop","refs/heads/rename/domios"],exclude:[]}},
-  rules:[{type:"creation"},{type:"update"}]}' > "$scratch/owner.json"
+  rules:[{type:"creation"},{type:"update"},{type:"deletion"}]}' > "$scratch/owner.json"
 upsert_ruleset owner-only-trusted-branches "$scratch/owner.json"
 
+# Install the stable branch's rewrite protection before narrowing the shared rule.
+jq -n '{name:"release-next-no-rewrite",target:"branch",enforcement:"active",bypass_actors:[],
+  conditions:{ref_name:{include:["refs/heads/release/next"],exclude:[]}},
+  rules:[{type:"non_fast_forward"}]}' > "$scratch/release-next.json"
+upsert_ruleset release-next-no-rewrite "$scratch/release-next.json"
+
 jq -n '{name:"trusted-branch-integrity",target:"branch",enforcement:"active",bypass_actors:[],
-  conditions:{ref_name:{include:["refs/heads/master","refs/heads/release/**","refs/heads/develop","refs/heads/rename/domios"],exclude:[]}},
+  conditions:{ref_name:{include:["refs/heads/master","refs/heads/release/**","refs/heads/develop","refs/heads/rename/domios"],exclude:["refs/heads/release/next"]}},
   rules:[{type:"deletion"},{type:"non_fast_forward"}]}' > "$scratch/integrity.json"
 upsert_ruleset trusted-branch-integrity "$scratch/integrity.json"
 
@@ -65,16 +71,16 @@ for id in $stale; do api --method DELETE "repos/$repo/rulesets/$id"; done
 jq -n --argjson owner "$owner_id" '{wait_timer:0,prevent_self_review:false,
   reviewers:[{type:"User",id:$owner}],deployment_branch_policy:{protected_branches:false,custom_branch_policies:true}}' > "$scratch/environment.json"
 api --method PUT "repos/$repo/environments/release" --input "$scratch/environment.json"
-# release/* serves the release push dry run and owner dispatches; master serves the one publication path,
+# release/next serves the release push dry run and owner dispatches; master serves the one publication path,
 # the merge push of the release PR. Anything else is removed.
 policies=$(api "repos/$repo/environments/release/deployment-branch-policies" --paginate --jq '.branch_policies[] | "\(.id) \(.type // "branch") \(.name)"')
 while read -r id type name; do
   [[ -n "$id" ]] || continue
-  [[ "$type" == branch && ( "$name" == 'release/*' || "$name" == master ) ]] || \
+  [[ "$type" == branch && ( "$name" == 'release/next' || "$name" == master ) ]] || \
     api --method DELETE "repos/$repo/environments/release/deployment-branch-policies/$id"
 done <<< "$policies"
 existing=$(cut -d' ' -f2- <<< "$policies")
-for name in 'release/*' master; do
+for name in 'release/next' master; do
   grep -qxF "branch $name" <<< "$existing" || \
     api --method POST "repos/$repo/environments/release/deployment-branch-policies" -f name="$name" -f type=branch
 done

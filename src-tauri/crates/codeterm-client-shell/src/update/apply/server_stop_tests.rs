@@ -49,11 +49,9 @@ async fn only_a_stop_refused_before_dispatch_releases_the_reservation() {
             dispatched,
             released: std::sync::atomic::AtomicUsize::new(0),
         };
-        let result = super::stop_reserved_server(
-            &stop,
-            std::future::ready(Ok(Some("reserved-operation".into()))),
-        )
-        .await;
+        let result =
+            super::stop_reserved_server(&stop, std::future::ready(Ok("reserved-operation".into())))
+                .await;
         assert_eq!(result.unwrap_err().dispatched, dispatched);
         assert_eq!(
             stop.released.load(std::sync::atomic::Ordering::SeqCst),

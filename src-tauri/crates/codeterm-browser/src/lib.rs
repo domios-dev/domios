@@ -192,13 +192,14 @@ impl BrowserHost {
         outcome
     }
 
-    async fn launch(&self, profile: ProfileKind) -> Result<Arc<Runtime>, String> {
+    async fn launch(&self, profile: ProfileKind, exclusive: bool) -> Result<Arc<Runtime>, String> {
         let viewport = self.viewport.lock().current();
         self.frames.set_params(ScreencastParams::new(viewport));
         let runtime = runtime::launch(
             self.config.binary.clone(),
             &self.config.layout,
             profile,
+            exclusive,
             viewport,
             self.frames.clone(),
         )
@@ -208,6 +209,19 @@ impl BrowserHost {
 
     /// Start or reuse this instance's Chromium; a different profile relaunches it.
     pub async fn open(&self, options: OpenOptions) -> Result<OpenedBrowser, String> {
+        self.open_with_access(options, false).await
+    }
+
+    pub async fn open_exclusive(&self, options: OpenOptions) -> Result<OpenedBrowser, String> {
+        profile::validate_named_profile(&options.profile)?;
+        self.open_with_access(options, true).await
+    }
+
+    async fn open_with_access(
+        &self,
+        options: OpenOptions,
+        exclusive: bool,
+    ) -> Result<OpenedBrowser, String> {
         let _lifecycle = self.lifecycle.lock().await;
         let wanted = ProfileKind::from_request(&options.profile);
         let current = self.current();
@@ -217,9 +231,11 @@ impl BrowserHost {
                 .map(|runtime| (&runtime.mode, runtime.is_alive())),
             &wanted,
         );
-        if let (OpenPlan::Reuse, Some(runtime)) = (&plan, &current) {
-            self.resize(runtime, viewport_request(&options)).await?;
-            return Ok(OpenedBrowser::from_runtime(runtime, true));
+        if !exclusive {
+            if let (OpenPlan::Reuse, Some(runtime)) = (&plan, &current) {
+                self.resize(runtime, viewport_request(&options)).await?;
+                return Ok(OpenedBrowser::from_runtime(runtime, true));
+            }
         }
         drop(current);
         close_result(self.stop_current().await).map_err(|error| error.to_string())?;
@@ -228,7 +244,7 @@ impl BrowserHost {
             *model = ViewportModel::new(ViewportMode::Owned, model.current());
             model.apply(viewport_request(&options));
         }
-        let runtime = self.launch(wanted).await?;
+        let runtime = self.launch(wanted, exclusive).await?;
         Ok(OpenedBrowser::from_runtime(&runtime, false))
     }
 
@@ -278,7 +294,7 @@ impl BrowserHost {
         };
         drop(current);
         close_result(self.stop_current().await).map_err(|error| error.to_string())?;
-        let runtime = self.launch(wanted).await?;
+        let runtime = self.launch(wanted, false).await?;
         if let Some(url) = carry {
             if let Err(error) = runtime
                 .page

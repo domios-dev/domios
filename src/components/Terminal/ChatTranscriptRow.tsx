@@ -21,6 +21,7 @@ export interface OutboundReportEntry {
   targetTabId: string;
   at: number | null;
   descriptor: OutboundReportDescriptor;
+  position?: { source_session_id: string; message_id: string } | null;
 }
 
 export interface OriginRowProps {

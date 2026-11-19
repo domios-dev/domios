@@ -1,3 +1,4 @@
+import { RELEASE_BRANCH } from './release-version.mjs';
 import {verifyQualification, selectQualificationArtifact, retainQualificationEvidence, qualificationAttemptNumbers, selectReleasePushRun} from './ci-qualification.mjs';
 import {readQualificationArchive} from './ci-qualification-archive.mjs';
 import {parseTestWaiver, testWaiverEvidence} from './release-test-waiver.mjs';
@@ -70,8 +71,8 @@ export async function requireReleasePrQualification(github, context, verify = re
   const pr = context.payload.pull_request;
   const repository = context.repo.owner + '/' + context.repo.repo;
   if (context.eventName !== 'pull_request' || pr?.base.ref !== 'master' || pr.user.login !== 'rollacode'
-    || pr.head.repo.full_name !== repository || !/^release\/\d+\.\d+\.\d+$/.test(pr.head.ref))
-    throw new Error('master accepts only an owner release/X.Y.Z PR');
+    || pr.head.repo.full_name !== repository || pr.head.ref !== RELEASE_BRANCH)
+    throw new Error('master accepts only an owner release/next PR');
   const current = (await github.rest.pulls.get({...context.repo, pull_number: pr.number})).data;
   const branch = (await github.rest.repos.getBranch({...context.repo, branch: pr.head.ref})).data;
   if (current.head.sha !== pr.head.sha || current.head.ref !== pr.head.ref || current.head.repo.full_name !== repository

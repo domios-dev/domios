@@ -67,7 +67,7 @@ describe("Mesh canvas wiring", () => {
     ));
   }
   const button = (label: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
-  const node = (name: string) => host.querySelector<HTMLElement>(`section[aria-label="${name}"]`);
+  const node = (name: string) => host.querySelector<HTMLElement>(`section[aria-label="${name}"], section[aria-label^="${name},"]`);
   const click = async (element: HTMLElement | null) => {
     expect(element).not.toBeNull();
     await act(async () => element!.click());
@@ -144,8 +144,8 @@ describe("Mesh canvas wiring", () => {
     await mount(client, peers, 1);
     expect(client.listCalls).toBe(1);
     expect(button("Rename Travel Mac")).not.toBeNull();
-    expect(host.querySelector('[role="button"][aria-label="Open Travel Mac"]')).not.toBeNull();
-    expect(host.querySelector('[role="button"][aria-label="Open mac.local"]')).toBeNull();
+    expect(host.querySelector('[role="button"][aria-label^="Open Travel Mac,"]')).not.toBeNull();
+    expect(host.querySelector('[role="button"][aria-label^="Open mac.local,"]')).toBeNull();
     await mount(client, peers, 1);
     await act(async () => client.emit(client.state));
     expect(client.listCalls).toBe(1);
@@ -196,7 +196,7 @@ describe("Mesh canvas wiring", () => {
     expect(host.querySelector("input")).toBeNull();
     expect(button("Rename Workstation")).not.toBeNull();
     expect(selected).toBe(0);
-    await click(host.querySelector('[role="button"][aria-label="Open Workstation"]'));
+    await click(host.querySelector('[role="button"][aria-label^="Open Workstation,"]'));
     expect(clickedNames).toEqual(["Studio PC"]);
   });
 
@@ -298,7 +298,7 @@ describe("Mesh canvas wiring", () => {
     const loadMore = [...host.querySelectorAll("button")].find((element) => element.textContent === "Load more machines");
     await click(loadMore ?? null);
     expect(client.listCalls).toBe(1);
-    expect(host.querySelector('section[aria-label="MacBook"]')).not.toBeNull();
+    expect(host.querySelector('section[aria-label^="MacBook,"]')).not.toBeNull();
     expect(host.textContent).not.toContain("Showing part of your account's machines.");
   });
 
@@ -316,7 +316,7 @@ describe("Mesh canvas wiring", () => {
     expect(client.listCalls).toBe(0);
     await act(async () => client.emit(client.state));
     expect(button("Rename Travel Mac")).not.toBeNull();
-    await click(host.querySelector('[role="button"][aria-label="Open Travel Mac"]'));
+    await click(host.querySelector('[role="button"][aria-label^="Open Travel Mac,"]'));
     expect(clickedNames).toEqual(["mac.local"]);
     await act(async () => client.emit({ ...client.state, account_epoch: 2 }));
     expect(button("Rename MacBook")).not.toBeNull();
@@ -378,9 +378,9 @@ describe("Mesh canvas wiring", () => {
     const state = snapshot({ registry: { observed_at: NOW, rows: [selfRow, remote] }, pairs: [pair("mesh-mac", "MacBook", { installation_id: remote.installation_id, online: true })] });
     const client = new FakeAccountMeshClient(state);
     await mount(client, [peer("mesh-mac", "MacBook")]);
-    const open = host.querySelector<HTMLElement>('[role="button"][aria-label="Open MacBook"]');
+    const open = host.querySelector<HTMLElement>('[role="button"][aria-label^="Open MacBook,"]');
     expect(open?.getAttribute("aria-disabled")).toBe("true");
-    expect(host.querySelector('[role="group"][aria-label="MacBook"]')?.textContent).toContain("Signed out");
+    expect(host.querySelector('[role="group"][aria-label^="MacBook,"]')?.textContent).toContain("Signed out");
     expect(button("Disconnect MacBook")).toBeNull();
     await click(open);
     const relay = host.querySelector<SVGElement>('g[aria-label*="MacBook: Signed out"]');
@@ -397,12 +397,14 @@ describe("Mesh canvas wiring", () => {
   it("shows one version and replaces the footer with confirmation, then restores it on Cancel", async () => {
     const client = new FakeAccountMeshClient(snapshot({ pairs: [pair("mesh-mac", "MacBook", { installation_id: macRow.installation_id })] }));
     await mount(client, [peer("mesh-mac", "MacBook", { domios_version: "1.19.2", domios_build: "66576d9" })]);
-    const card = host.querySelector('[role="group"][aria-label="MacBook"]')!;
+    const card = host.querySelector('[role="group"][aria-label^="MacBook,"]')!;
     expect(card.textContent?.match(/Connected/g)).toHaveLength(1);
     expect(card.textContent?.match(/Domios 1.19.2/g)).toHaveLength(1);
     const more = button("More for MacBook")!;
     more.focus();
     await act(async () => more.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    expect(document.activeElement?.textContent).toBe("Change icon and colour");
+    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
     expect(document.activeElement?.textContent).toBe("Sign out this machine");
     await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
     expect(document.activeElement?.textContent).toBe("Remove from mesh");

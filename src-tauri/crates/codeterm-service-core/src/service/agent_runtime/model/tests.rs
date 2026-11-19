@@ -463,13 +463,47 @@ fn live_tool_elapsed_boundaries_follow_events_and_survive_updates() {
     };
     let start = cache.reconcile_live(row("running"), 1_000);
     assert_eq!(start.tool_started_at_ms, Some(1_000));
+    assert!(start.timestamp.is_none());
     let progress = cache.reconcile_live(row("running"), 601_000);
     assert_eq!(progress.tool_started_at_ms, Some(1_000));
+    assert_eq!(progress.timestamp, start.timestamp);
     assert_eq!(progress.tool_completed_at_ms, None);
     let abandoned = cache.reconcile_live(row("abandoned"), 602_000);
     assert_eq!(abandoned.tool_started_at_ms, Some(1_000));
     assert_eq!(abandoned.tool_completed_at_ms, Some(602_000));
     assert_eq!(cache.snapshot().len(), 1);
+}
+
+#[test]
+fn live_reconciliation_preserves_provider_time_without_inventing_missing_time() {
+    let mut cache = ItemCache::default();
+    let provider_time = "2026-11-19T08:00:00.000Z";
+    let first = cache.reconcile_live(
+        ChatMsg {
+            id: "provider-row".into(),
+            timestamp: Some(provider_time.into()),
+            ..Default::default()
+        },
+        1_000,
+    );
+    let update = cache.reconcile_live(
+        ChatMsg {
+            id: "provider-row".into(),
+            content: "updated".into(),
+            ..Default::default()
+        },
+        2_000,
+    );
+    let untimed = cache.reconcile_live(
+        ChatMsg {
+            id: "untimed-row".into(),
+            ..Default::default()
+        },
+        3_000,
+    );
+    assert_eq!(first.timestamp.as_deref(), Some(provider_time));
+    assert_eq!(update.timestamp.as_deref(), Some(provider_time));
+    assert!(untimed.timestamp.is_none());
 }
 
 fn observe_turn(
