@@ -676,7 +676,13 @@ pub(super) async fn handle(
             )
             .await?;
         } else {
-            super::prompt_answers::publish(svc, session, id.clone(), prompt);
+            super::prompt_answers::publish(
+                svc,
+                session,
+                id.clone(),
+                prompt,
+                codeterm_types::pty::PromptKind::Permission,
+            );
         }
     } else {
         let owner = svc.clone();

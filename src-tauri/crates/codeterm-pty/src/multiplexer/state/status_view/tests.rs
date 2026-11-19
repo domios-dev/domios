@@ -1,4 +1,5 @@
 use super::*;
+use crate::multiplexer::types::TabBacking;
 
 #[test]
 fn chat_backend_turn_state_is_published_without_a_pty() {
@@ -29,6 +30,53 @@ fn chat_backend_turn_state_is_published_without_a_pty() {
         assert_eq!(
             mux.snapshot_with_status(&tracker).tab_statuses[&tab_id],
             expected
+        );
+    }
+}
+
+#[test]
+fn chat_backend_permission_projects_only_the_visible_request() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = TabBacking::ChatBackend {
+        plugin_id: "fixture".into(),
+        session_id: "own-session".into(),
+    };
+    let stale_approval = TabVerdict {
+        state: TimelineState::Question,
+        subtype: Some(QuestionSubtype::Permission),
+    }
+    .into();
+    let working = agent_state_for_status(None, TabStatus::Working);
+    let idle = agent_state_for_status(None, TabStatus::Idle);
+    let prompt = serde_json::from_value(serde_json::json!({
+        "request_id": "bound-request",
+        "question": "opaque",
+        "options": [{"label": "opaque", "value": "once"}]
+    }))
+    .unwrap();
+    let tracker = TabStatusTracker::new();
+    for (state, prompt, kind, expected_status, expected_subtype) in [
+        (
+            working.clone(),
+            Some(prompt),
+            Some(PromptKind::Permission),
+            TabStatus::Waiting,
+            Some(QuestionSubtype::Permission),
+        ),
+        (working, None, None, TabStatus::Working, None),
+        (stale_approval, None, None, TabStatus::Idle, None),
+        (idle, None, None, TabStatus::Idle, None),
+    ] {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_state = Some(state);
+        tab.pending_prompt = prompt;
+        tab.pending_prompt_kind = kind;
+        let snapshot = mux.snapshot_with_status(&tracker);
+        assert_eq!(snapshot.tab_statuses[&tab_id], expected_status);
+        assert_eq!(
+            snapshot.tabs[&tab_id].agent_state.as_ref().unwrap().subtype,
+            expected_subtype
         );
     }
 }

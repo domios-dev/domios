@@ -828,6 +828,7 @@ check("verified descendant approvals surface on the root without adopting the ch
     assert.equal(result.events.length,2);
     const prompt=result.events[0];if(prompt.kind !== "prompt")throw new Error("Expected root prompt");
     assert.equal(prompt.threadId,ctx.threadId);assert.equal(prompt.requestId,37);
+    assert.deepEqual(plain(prompt.permission ?? null),method.endsWith("/requestApproval") ? {action:"other",options:[]} : null);
     assert.deepEqual(plain(result.events[1]),{kind:"turnState",threadId:ctx.threadId!,state:"needs_input",detail:method.endsWith("/requestApproval") ? "awaitingApproval" : "awaitingInput",turnId:"root-turn"});
     const value=method === "item/permissions/requestApproval" ? "deny" : method === "item/tool/requestUserInput" ? "Yes" : "decline";
     const answer=plain(hooks.runtimePlan({...context,pendingRequest:{requestId:37,method,params}},{kind:"answer",requestId:37,answer:{kind:"choice",values:[value]}}));

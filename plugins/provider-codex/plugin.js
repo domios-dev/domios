@@ -3583,7 +3583,16 @@ function runtimeReduce(ctx, raw, frames) {
       if (!serverRequestMethods.includes(frame.method)) continue;
       const prompt = runtimePrompt(frame.method, params, frame.requestId);
       const turnId2 = descendant ? ctx.activeTurnId : text2(params.turnId);
-      if (prompt) events.push({ kind: "prompt", threadId: ctx.threadId, requestId: frame.requestId, prompt }, { kind: "turnState", threadId: ctx.threadId, state: "needs_input", detail: requestDetail(frame.method), ...turnId2 ? { turnId: turnId2 } : {} });
+      const detail = requestDetail(frame.method);
+      if (prompt) {
+        events.push({
+          kind: "prompt",
+          threadId: ctx.threadId,
+          requestId: frame.requestId,
+          prompt,
+          ...detail === "awaitingApproval" ? { permission: { action: "other", options: [] } } : {}
+        }, { kind: "turnState", threadId: ctx.threadId, state: "needs_input", detail, ...turnId2 ? { turnId: turnId2 } : {} });
+      }
       continue;
     }
     if (ctx.threadId && descendant && frame.kind === "notification" && frame.method === "serverRequest/resolved") {
