@@ -18,6 +18,7 @@ fn external_conpty_peer() {
 struct Tree {
     root: tokio::process::Child,
     boundary: Arc<Boundary>,
+    shell: Member,
     witnesses: Vec<Member>,
 }
 
@@ -79,10 +80,11 @@ async fn external_tree() -> Tree {
     let tree = Tree {
         root,
         boundary,
+        shell,
         witnesses,
     };
     assert!(
-        outside(&job, &shell),
+        outside(&job, &tree.shell),
         "shell must start outside runtime Job"
     );
     for witness in &tree.witnesses {
@@ -124,6 +126,56 @@ async fn retirement_captures_external_conpty_descendants() {
             "external command survived retirement"
         );
     }
+    tree.root.wait().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires the Microsoft Store pwsh app-execution alias; run with --ignored on a Windows host that has it"]
+async fn stop_reaps_commands_orphaned_outside_every_job() {
+    let mut tree = external_tree().await;
+    let boundary = tree.boundary.clone();
+    let tools = tokio::task::spawn_blocking(move || boundary.capture_tools())
+        .await
+        .unwrap()
+        .unwrap();
+    let tools = Arc::new(tools);
+    let owner = tree.boundary.clone();
+    let reap = |tools: Arc<super::super::ToolTree>| {
+        let boundary = owner.clone();
+        tokio::task::spawn_blocking(move || boundary.reap_orphans(&tools))
+    };
+    assert!(
+        reap(tools.clone()).await.unwrap().unwrap().is_empty(),
+        "commands under a live shell are not orphans"
+    );
+    for witness in &tree.witnesses {
+        assert!(!witness.exited().unwrap());
+    }
+    // The fixture ends its shell Job on input, as a provider ends an interrupted tool.
+    use tokio::io::AsyncWriteExt;
+    let mut input = tree.root.stdin.take().unwrap();
+    input
+        .write_all(
+            b"stop
+",
+        )
+        .await
+        .unwrap();
+    input.flush().await.unwrap();
+    tree.shell
+        .wait(std::time::Instant::now() + Duration::from_secs(10))
+        .unwrap();
+    for witness in &tree.witnesses {
+        assert!(
+            !witness.exited().unwrap(),
+            "Job-only teardown leaves commands alive"
+        );
+    }
+    let reaped = reap(tools).await.unwrap().unwrap();
+    for witness in &tree.witnesses {
+        assert!(witness.exited().unwrap(), "orphaned command survived Stop");
+    }
+    assert!(reaped.len() >= tree.witnesses.len());
     tree.root.wait().await.unwrap();
 }
 

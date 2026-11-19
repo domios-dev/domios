@@ -14,6 +14,14 @@ use windows as native;
 mod unix;
 #[cfg(unix)]
 use unix as native;
+#[cfg(any(windows, test))]
+mod orphans;
+
+/// The runtime process tree retained before a Stop, so tools it orphans can still be ended.
+pub(super) struct ToolTree {
+    #[cfg(windows)]
+    nodes: Vec<native::Descendant>,
+}
 
 pub(super) struct Member {
     pub pid: u32,
@@ -116,13 +124,74 @@ impl Boundary {
     }
 
     fn infrastructure(&self, member: &Member) -> bool {
-        member.pid == self.pid
-            || self
-                .infrastructure
-                .get(&member.pid)
-                .is_some_and(|original| {
-                    original.token() == member.native.token() && !original.exited().unwrap_or(true)
+        self.infrastructure_process(member.pid, &member.native)
+    }
+
+    fn infrastructure_process(&self, pid: u32, native: &native::Member) -> bool {
+        pid == self.pid
+            || self.infrastructure.get(&pid).is_some_and(|original| {
+                original.token() == native.token() && !original.exited().unwrap_or(true)
+            })
+    }
+
+    /// Retains the whole runtime process tree before a Stop, including tools outside the owned Job.
+    pub(super) fn capture_tools(&self) -> Result<ToolTree, RuntimeFailure> {
+        #[cfg(windows)]
+        let tree = ToolTree {
+            nodes: native::tree(self).map_err(failure)?,
+        };
+        // Unix has no parent-linked capture yet; a tool that leaves the owned group stays a known gap.
+        #[cfg(unix)]
+        let tree = ToolTree {};
+        Ok(tree)
+    }
+
+    /// Ends tool processes the Stop orphaned and confirms their exit; returns the reaped pids.
+    pub(super) fn reap_orphans(&self, tree: &ToolTree) -> Result<Vec<u32>, RuntimeFailure> {
+        #[cfg(windows)]
+        {
+            let nodes = tree
+                .nodes
+                .iter()
+                .map(|node| {
+                    Ok(orphans::Node {
+                        pid: node.pid,
+                        parent: node.parent,
+                        infrastructure: self.infrastructure_process(node.pid, &node.member),
+                        exited: node.member.exited()?,
+                    })
                 })
+                .collect::<Result<Vec<_>, String>>()
+                .map_err(failure)?;
+            let orphaned = orphans::orphaned(&nodes);
+            let mut late = Vec::new();
+            for &position in &orphaned {
+                let node = &tree.nodes[position];
+                late.extend(native::descendants_of(node.pid, &node.member).map_err(failure)?);
+            }
+            let reaped: std::collections::BTreeMap<u32, &native::Member> = orphaned
+                .iter()
+                .map(|&position| &tree.nodes[position])
+                .chain(&late)
+                .map(|node| (node.pid, &node.member))
+                .collect();
+            for member in reaped.values() {
+                member.terminate_retained().map_err(failure)?;
+            }
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let survivors: Vec<u32> = reaped
+                .iter()
+                .filter(|(_, member)| member.wait(deadline).is_err())
+                .map(|(pid, _)| *pid)
+                .collect();
+            orphans::confirm_reaped(&survivors).map_err(failure)?;
+            Ok(reaped.into_keys().collect())
+        }
+        #[cfg(unix)]
+        {
+            let ToolTree {} = tree;
+            Ok(Vec::new())
+        }
     }
 
     pub(super) fn verify_interrupt(
