@@ -1,11 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import { loadRemoteNotifications } from "../../lib/remoteNotifications";
 import { publishRemoteNotificationArrival } from "../../lib/notificationSound";
 import type { Notification } from "../../lib/types";
 import type { StreamEnd } from "../../lib/transportClient";
 import type { PairedRoster } from "./useMeshPeerProjection";
-import { createRemoteNotificationSource, type RemoteNotificationCursor, type RemoteNotificationEventHandlers, type RemoteNotificationSourceAction } from "./remoteNotificationSource";
+import { createRemoteNotificationSource, type RemoteNotificationCursor, type RemoteNotificationEventHandlers, type RemoteNotificationRouteLease, type RemoteNotificationSourceAction } from "./remoteNotificationSource";
 
 const ports = {
   load: loadRemoteNotifications,
@@ -36,7 +36,7 @@ export function useRemoteNotificationSource({
 }: {
   roster: PairedRoster | null;
   dispatch: (action: RemoteNotificationSourceAction) => void;
-}): void {
+}) {
   const rosterRef = useRef(roster);
   const dispatchRef = useRef(dispatch);
   const sourceRef = useRef<ReturnType<typeof createRemoteNotificationSource> | null>(null);
@@ -56,4 +56,15 @@ export function useRemoteNotificationSource({
   useEffect(() => {
     sourceRef.current?.sync(roster);
   }, [roster]);
+
+  return useCallback((peerId: string, publicKey: string): RemoteNotificationRouteLease | undefined => {
+    const route = sourceRef.current?.captureRoute(peerId, publicKey);
+    if (!route) return;
+    const isCurrent = () => {
+      const peer = rosterRef.current?.peers.paired.find(candidate => candidate.instance_id === peerId);
+      return peer?.public_key === publicKey && route.isCurrent();
+    };
+    if (!isCurrent()) return;
+    return { isCurrent, confirm: action => { if (isCurrent()) route.confirm(action); } };
+  }, []);
 }

@@ -1,8 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { __setInvokeForTest } from "../../lib/bridge";
 import type { Notification } from "../../lib/notificationTypes";
 import { RELAY_PROTOCOL_VERSION, type MeshPeersResponse } from "../../lib/types";
 import { createRemoteNotificationSource, MAX_BUFFERED_REMOTE_NOTIFICATION_ACTIONS, type RemoteNotificationEventHandlers, type RemoteNotificationSourceAction } from "./remoteNotificationSource";
 import type { PairedRoster } from "./useMeshPeerProjection";
+import { reducer, type Action } from "./reducer";
+import type { ExtendedState } from "./tree";
+import { createMuxNotificationActions } from "./useMuxNotificationActions";
+
+afterEach(() => {
+  __setInvokeForTest(null);
+  vi.restoreAllMocks();
+});
 
 function peer(instanceId: string, publicKey: string): MeshPeersResponse["paired"][number] {
   return {
@@ -39,6 +48,86 @@ function flushMicrotasks(): Promise<void> {
 }
 
 describe("remote notification source", () => {
+  it("orders exact action receipts after peer history and leaves denied rows untouched", async () => {
+    const a = peer("install-a", "key-a");
+    const b = peer("install-b", "key-b");
+    let paired = roster([a, b]);
+    let state: ExtendedState = {
+      workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
+      notifications: [notification("Local")], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+    };
+    const dispatch = (action: Action) => { state = reducer(state, action); };
+    const idA = "remote-notification/install-a/same-source-id";
+    const idB = "remote-notification/install-b/same-source-id";
+    const loads = new Map<string, (rows: Notification[]) => void>();
+    const handlers = new Map<string, RemoteNotificationEventHandlers>();
+    const source = createRemoteNotificationSource(dispatch, {
+      load(peerId) { return new Promise(resolve => loads.set(peerId, resolve)); },
+      subscribe(peerId, _cursor, handler) {
+        handlers.set(peerId, handler);
+        return () => undefined;
+      },
+    });
+    const actions = createMuxNotificationActions({
+      notifications: () => state.notifications,
+      roster: () => paired,
+      dispatch,
+      captureRoute: source.captureRoute,
+    });
+    const calls: Array<[string, Record<string, unknown> | undefined]> = [];
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    __setInvokeForTest(async <T>(command: string, args?: Record<string, unknown>) => {
+      calls.push([command, args]);
+      if (args?.peerId === "install-b") throw new Error("Refused");
+      return {} as T;
+    });
+
+    source.sync(paired);
+    for (const peerId of ["install-a", "install-b"]) {
+      handlers.get(peerId)!.ready();
+      loads.get(peerId)!([notification("Same notice")]);
+    }
+    await flushMicrotasks();
+    expect(state.notifications.map(row => row.id)).toEqual(["same-source-id", idA, idB]);
+
+    handlers.get("install-a")!.ready();
+    await actions.markRead(idA);
+    loads.get("install-a")!([notification("Stale unread A")]);
+    await flushMicrotasks();
+    expect(state.notifications.find(row => row.id === idA)?.read).toBe(true);
+    expect(state.notifications.find(row => row.id === idB)?.read).toBe(false);
+
+    await actions.markAllRead();
+    expect(state.notifications.find(row => row.id === "same-source-id")?.read).toBe(true);
+    expect(state.notifications.find(row => row.id === idB)?.read).toBe(false);
+
+    handlers.get("install-a")!.ready();
+    await actions.clearNotifications();
+    loads.get("install-a")!([notification("Stale retained A")]);
+    await flushMicrotasks();
+    expect(state.notifications.map(row => row.id)).toEqual([idB]);
+    expect(calls).toEqual([
+      ["mesh_peer_notification_action", { peerId: "install-a", sourceId: "same-source-id", notificationAction: "read" }],
+      ["mesh_peer_notification_action", { peerId: "install-b", sourceId: "same-source-id", notificationAction: "read" }],
+      ["mark_notification_read", { id: "same-source-id" }],
+      ["mesh_peer_notification_action", { peerId: "install-b", sourceId: "same-source-id", notificationAction: "delete" }],
+      ["mesh_peer_notification_action", { peerId: "install-a", sourceId: "same-source-id", notificationAction: "delete" }],
+      ["clear_notifications", undefined],
+    ]);
+
+    const oldB = source.captureRoute("install-b", "key-b")!;
+    paired = roster([a]);
+    source.sync(paired);
+    paired = roster([a, b]);
+    source.sync(paired);
+    handlers.get("install-b")!.ready();
+    oldB.confirm({ type: "MARK_READ", id: idB });
+    loads.get("install-b")!([notification("Replacement B")]);
+    await flushMicrotasks();
+    expect(state.notifications).toEqual([expect.objectContaining({ id: idB, read: false, title: "Replacement B" })]);
+    source.dispose();
+  });
+
   it("qualifies colliding peer items, applies buffered events after history, resumes from cursor, and clears revoked routes", async () => {
     const actions: RemoteNotificationSourceAction[] = [];
     const subscriptions = new Map<string, RemoteNotificationEventHandlers[]>();

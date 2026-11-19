@@ -1,5 +1,6 @@
 import { updateNotificationAnswer, type AnswerUpdate } from "../../lib/notificationAnswer";
-import { admitBellNotification } from "../../lib/notificationAdmission";
+import { admitBellNotification, isRemoteNotification } from "../../lib/notificationAdmission";
+import { remoteNotificationRoute } from "../../lib/remoteNotifications";
 import { applyShellState, type ShellCommandState } from "../../lib/shellCommandState";
 import { reconcilePageSelection, seededSelection, type PageSelection } from "./pageSelection";
 import { TitleLevel } from "../../lib/types";
@@ -40,6 +41,7 @@ export type Action =
   | { type: "SET_TAB_PTY"; tabId: string; ptyId: string }
   | { type: "ADD_NOTIFICATION"; notification: Notification }
   | { type: "HYDRATE_NOTIFICATIONS"; notifications: Notification[] }
+  | { type: "REPLACE_REMOTE_NOTIFICATION_HISTORY"; peerId: string; notifications: Notification[] }
   | { type: "UPSERT_TOAST"; toast: Notification }
   | { type: "MARK_READ"; id: string }
   | { type: "UPDATE_NOTIFICATION_SUMMARY"; id: string; title: string; body: string }
@@ -609,13 +611,23 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     case "MARK_ALL_READ":
       return {
         ...state,
-        notifications: state.notifications.map((n) => ({ ...n, read: true })),
+        notifications: state.notifications.map((n) => isRemoteNotification(n) || n.read ? n : { ...n, read: true }),
       };
 
     case "HYDRATE_NOTIFICATIONS": {
       const notifications = new Map(action.notifications.map((notification) => [notification.id, notification]));
       for (const notification of state.notifications) notifications.set(notification.id, notification);
       return { ...state, notificationsLoaded: true, notifications: [...notifications.values()].reduce<Notification[]>((records, notification) => admitBellNotification(records, notification, "agent_notification"), []) };
+    }
+
+    case "REPLACE_REMOTE_NOTIFICATION_HISTORY": {
+      const notifications = state.notifications.filter(row => row.remote_origin?.peerId !== action.peerId);
+      const peerRows = action.notifications.filter(row => remoteNotificationRoute(row)?.peerId === action.peerId);
+      if (notifications.length === state.notifications.length && peerRows.length === 0) return state;
+      return {
+        ...state,
+        notifications: peerRows.reduce((records, row) => admitBellNotification(records, row, "agent_notification"), notifications),
+      };
     }
 
     case "DELETE_NOTIFICATION":
@@ -628,7 +640,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     case "CLEAR_NOTIFICATIONS":
       return {
         ...state,
-        notifications: [],
+        notifications: state.notifications.filter(isRemoteNotification),
       };
 
     case "DISMISS_TOAST":

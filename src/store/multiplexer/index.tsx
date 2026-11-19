@@ -2,7 +2,6 @@ import { createNoticePublisher } from "../../lib/notices";
 import { agentTabSelection, recordProductEvent } from "../../lib/productAnalytics";
 import { useContextCompactionObserver } from "../../components/Terminal/useContextCompactionObserver";
 import { tabCloseRejectionNotice } from "./tabCloseRejection";
-import { sendNotificationAnswer, type AnswerResult } from "../../lib/notificationAnswerSend";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
 import {
   useCallback,
@@ -74,6 +73,7 @@ import {
 import { onRemoteTransportState } from "../../lib/remoteTabTransportState";
 import { remoteChatPeer, resetRemoteChatStatus } from "../../lib/remoteChatStatus";
 import { useMeshPeerProjection, type PairedRoster } from "./useMeshPeerProjection";
+import { useMuxNotificationActions } from "./useMuxNotificationActions";
 import { useRemoteAttachments } from "./useRemoteAttachments";
 import { resumeRemoteOutputStreams } from "../../lib/outputStream";
 import { resumeRemoteTabEvents, subscribeRemoteTabEvent } from "../../lib/remoteTabEvents";
@@ -1043,46 +1043,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_TAB_PTY", tabId, ptyId });
   }, []);
 
-  const markRead = useCallback((id: string) => {
-    dispatch({ type: "MARK_READ", id });
-    void invoke("mark_notification_read", { id }).catch((err) => {
-      console.warn("Failed to mark notification read:", err);
-    });
-  }, []);
-
-  const markAllRead = useCallback(() => {
-    const unreadIds = stateRef.current.notifications
-      .filter((notification) => !notification.read)
-      .map((notification) => notification.id);
-    dispatch({ type: "MARK_ALL_READ" });
-    void Promise.all(unreadIds.map((id) => invoke("mark_notification_read", { id }))).catch((err) => {
-      console.warn("Failed to mark all notifications read:", err);
-    });
-  }, []);
-
-  const deleteNotification = useCallback((id: string) => {
-    dispatch({ type: "DELETE_NOTIFICATION", id });
-    void invoke("clear_notifications", { id }).catch((err) => {
-      console.warn("Failed to delete notification:", err);
-    });
-  }, []);
-
-  const pendingAnswers = useRef(new Set<string>());
-  const answerNotification = useCallback((id: string, label: string) => {
-    void sendNotificationAnswer(
-      id, label, pendingAnswers.current,
-      stateRef.current.notifications.find((entry) => entry.id === id),
-      (answerId, answerLabel) => invoke<AnswerResult>("answer_notification", { id: answerId, label: answerLabel }),
-      (answerId, update) => dispatch({ type: "UPDATE_NOTIFICATION_ANSWER", id: answerId, update }),
-    );
-  }, []);
-
-  const clearNotifications = useCallback(() => {
-    dispatch({ type: "CLEAR_NOTIFICATIONS" });
-    void invoke("clear_notifications").catch((err) => {
-      console.warn("Failed to clear notifications:", err);
-    });
-  }, []);
+  const { markRead, markAllRead, deleteNotification, clearNotifications, answerNotification } =
+    useMuxNotificationActions(stateRef, pairedRoster, dispatch);
 
   const dismissToast = useCallback((id: string) => {
     dispatch({ type: "DISMISS_TOAST", id });

@@ -47,3 +47,11 @@ test("paired installations qualify bell identity and exact action routes", () =>
   assert.equal(remoteNotificationRoute({ ...first, id: "local-fallback" }), null);
   assert.equal(remoteNotificationRoute({ ...first, tab_id: "mesh:install-b/agent" }), null);
 });
+
+test("identical notifications without a tab still retain separate peer origins", () => {
+  const source = { ...notice, tab_id: null };
+  const a = projectRemoteNotification("a", "Same name", source);
+  const b = projectRemoteNotification("b", "Same name", source);
+  const admitted = [source, a, b].reduce<Notification[]>((rows, row) => admitBellNotification(rows, row, "agent_notification"), []);
+  assert.deepEqual(admitted.map(row => row.id), [source.id, a.id, b.id]);
+});

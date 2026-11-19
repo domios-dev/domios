@@ -8,13 +8,22 @@ import type { PairedRoster } from "./useMeshPeerProjection";
 
 export const MAX_BUFFERED_REMOTE_NOTIFICATION_ACTIONS = 512;
 
+export type ConfirmedRemoteNotificationAction =
+  | { type: "MARK_READ"; id: string }
+  | { type: "DELETE_NOTIFICATION"; id: string };
+
+export interface RemoteNotificationRouteLease {
+  isCurrent(): boolean;
+  confirm(action: ConfirmedRemoteNotificationAction): void;
+}
+
 export type RemoteNotificationSourceAction =
+  | ConfirmedRemoteNotificationAction
   | { type: "REPLACE_REMOTE_NOTIFICATION_HISTORY"; peerId: string; notifications: Notification[] }
   | { type: "ADD_NOTIFICATION"; notification: Notification }
   | { type: "UPDATE_NOTIFICATION_SUMMARY"; id: string; title: string; body: string }
   | { type: "UPDATE_NOTIFICATION_ANSWER"; id: string; update: AnswerUpdate }
   | { type: "RESOLVE_NOTIFICATION"; id: string }
-  | { type: "DELETE_NOTIFICATION"; id: string }
   | { type: "DISMISS_TOAST"; id: string };
 
 export interface RemoteNotificationCursor {
@@ -151,6 +160,21 @@ export function createRemoteNotificationSource(dispatch: Dispatch, ports: Remote
     }
   };
 
+  const applyActions = (source: PeerSource, actions: RemoteNotificationSourceAction[]) => {
+    if (!source.loading) {
+      for (const action of actions) dispatch(action);
+      return;
+    }
+    if (source.bufferOverflowed) return;
+    if (source.buffered.length + actions.length > MAX_BUFFERED_REMOTE_NOTIFICATION_ACTIONS) {
+      source.buffered = [];
+      source.bufferOverflowed = true;
+      source.refreshAgain = true;
+      return;
+    }
+    source.buffered.push(...actions);
+  };
+
   const receiveFrame = (source: PeerSource, generation: number, value: unknown) => {
     if (!isCurrent(source) || !source.recovery.isCurrent(generation)) return;
     const frame = record(value) as RemoteEventFrame | null;
@@ -177,18 +201,7 @@ export function createRemoteNotificationSource(dispatch: Dispatch, ports: Remote
     const actions = frame.event_type === "notification-cleared" && action.type === "DELETE_NOTIFICATION"
       ? [action, { type: "DISMISS_TOAST", id: action.id } as const]
       : [action];
-    if (source.loading) {
-      if (source.bufferOverflowed) return;
-      if (source.buffered.length + actions.length > MAX_BUFFERED_REMOTE_NOTIFICATION_ACTIONS) {
-        source.buffered = [];
-        source.bufferOverflowed = true;
-        source.refreshAgain = true;
-        return;
-      }
-      source.buffered.push(...actions);
-    } else {
-      for (const next of actions) dispatch(next);
-    }
+    applyActions(source, actions);
   };
 
   const connect = (source: PeerSource) => {
@@ -249,6 +262,14 @@ export function createRemoteNotificationSource(dispatch: Dispatch, ports: Remote
   });
 
   return {
+    captureRoute(peerId: string, publicKey: string): RemoteNotificationRouteLease | undefined {
+      const source = sources.get(peerId);
+      if (!source || !isCurrent(source) || source.publicKey !== publicKey) return;
+      return {
+        isCurrent: () => isCurrent(source),
+        confirm: action => { if (isCurrent(source)) applyActions(source, [action]); },
+      };
+    },
     sync(roster: PairedRoster | null) {
       if (disposed) return;
       const peers = new Map((roster?.peers?.paired ?? [])
