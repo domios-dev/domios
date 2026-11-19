@@ -93,6 +93,26 @@ test("routed card renders Rust attachment segments beside its body", async () =>
   }
 });
 
+test("agent sender fixture renders its model and message-specific controls", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const fixture = (fixtureData as Array<{ name: string; raw: string; segments: MessageSegment[] }>).find((entry) => entry.name === "agent sender with model")!;
+  const [entry] = enrichTimelineItems([{ kind: "message", message: { id: "agent-sender", type: "user", content: fixture.raw, segments: fixture.segments } }], new WeakMap());
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<MessageBubble message={entry.msg} origin={entry.origin} onOriginClick={() => {}} />));
+    expect(host.querySelector('[role="group"][aria-label="Received from AGENT"]')?.textContent).toContain("gpt-6.1-sol");
+    expect(host.querySelector('button[aria-label="Show tab AGENT"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label="Collapse message"]')).not.toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Collapse message"]')?.click());
+    expect(host.querySelector('button[aria-label="Expand message"]')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 for (const structured of [false, true]) {
   test(`relayed inline capsules keep one continuous paragraph (${structured ? "segments" : "markers"})`, async () => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

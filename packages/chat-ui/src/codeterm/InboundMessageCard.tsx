@@ -32,6 +32,8 @@ export function InboundMessageCard({ message, sender, model, channel = "tab", ex
       expanded={expanded}
       onToggle={onToggle}
       onFocusTab={onFocusTab}
+      focusTabName={sender}
+      disclosureToggleLabel={{ expanded: "Collapse message", collapsed: "Expand message" }}
     >
       <CompactMessageContent segments={message.segments} text={decodeCliMessageText(message.content)} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
     </InboundActivityCard>
