@@ -148,6 +148,21 @@ check("returns to working only when the active turn's final prompt settles",()=>
   const ended=runtimeReduce(ctx,asked.state,[frame("session.execution.succeeded"),frame("permission.replied"),frame("form.replied")]);
   assert.deepEqual(ended.events.filter(event=>event.kind === "turnState").map(event=>event.state),["idle"]);
 });
+check("settles a provider quota session error with a visible balance recovery notice",()=>{
+  const {ctx,frames}=prepared("v2-provider-quota");
+  ctx.activeTurnId="quota-turn";
+  const started=copy(frames.find(frame=>(frame.params as Record<string,JsonValue>).type === "session.execution.started")!);
+  const error=copy(started), params=error.params as Record<string,JsonValue>;
+  params.id="quota-error";
+  params.type="session.error";
+  params.data={sessionID:ctx.threadId!,error:{type:"provider.quota",status:402,body:{error:{type:"insufficient_balance_error",message:"Insufficient Balance"}}}};
+  const working=runtimeReduce(ctx,null,[started]);
+  const failed=runtimeReduce(ctx,working.state,[error]);
+  assert.deepEqual(failed.events,[
+    {kind:"notice",threadId:ctx.threadId,message:"DeepSeek balance is empty — top up or switch model"},
+    {kind:"turnState",threadId:ctx.threadId,turnId:"quota-turn",state:"idle",detail:"failed"},
+  ]);
+});
 check("recorded thinking, shell and text stay reconcilable across an active interrupt",()=>{
   const ctx=loaded("v2-stream-and-stop"), {frames,interrupt}=fixture.streamAndInterrupt;
   const type=(frame:RuntimeFrame)=>(frame.params as Record<string,JsonValue>).type;
