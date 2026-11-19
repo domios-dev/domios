@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::Serialize;
 
@@ -30,6 +30,8 @@ pub struct NamedPageResult {
     text: String,
     final_url: String,
     profile: String,
+    #[serde(skip)]
+    pub captured_at: Option<SystemTime>,
 }
 
 impl BrowserRuntimeFactory {
@@ -43,6 +45,7 @@ impl BrowserRuntimeFactory {
         );
         let mut outcome = "navigation_failed";
         let mut final_url = String::new();
+        let mut captured_at = None;
         let mut reply = tokio::time::timeout_at(
             read.deadline
                 .checked_sub(Duration::from_secs(16))
@@ -89,10 +92,12 @@ impl BrowserRuntimeFactory {
                                 .await?
                         }
                     };
+                    let completed_at = SystemTime::now();
                     let after = main_frame(&page).await?;
                     if before["loaderId"] != after["loaderId"] || before["url"] != after["url"] {
                         return Err("the document changed during capture".into());
                     }
+                    captured_at = Some(completed_at);
                     outcome = "read";
                     Ok(content.text)
                 })
@@ -108,11 +113,13 @@ impl BrowserRuntimeFactory {
         if let Err(error) = browser.close().await {
             outcome = "navigation_failed";
             reply = Err(error.message());
+            captured_at = None;
         }
         NamedPageResult {
             outcome,
             text: browser.redact_text(&reply.unwrap_or_else(|error| error)),
             final_url: browser.redact_text(&final_url),
+            captured_at,
             profile: if status.profile == read.profile {
                 status.profile
             } else {

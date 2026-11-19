@@ -75,6 +75,6 @@ domios config set plugins.browser.blueprint_origins '{"Work":["https://example.c
 
 Origin grants apply to navigation and redirects. Each grant command replaces its complete setting. Set the profile list to `[]` to revoke access to all profiles. A busy profile returns `browser_busy`. Missing grants return `profile_not_allowed` or `origin_not_allowed`. The node returns `needs_human` for a login prompt, captcha or dialog, and `navigation_failed` when the page cannot be read.
 
-Both nodes return `profile`, `final_url` and an opaque `capture_id` for each successful capture. `browser.snapshot_page` returns a JSON `snapshot` with `items` and `truncated`. Items contain `role`, `name` and `depth`, plus an absolute HTTP(S) `href` for links and a string `value` where available. Bind the JSON as `listing.out.snapshot` when the snapshot step ID is `listing`. On failure, `text` or `snapshot.error` carries the reason and `capture_id` is empty.
+Both nodes return `profile`, `final_url`, an opaque `capture_id`, and the host-recorded completion time `captured_at` for each successful capture. The timestamp is RFC 3339 UTC with three fractional digits, for example `2026-11-19T07:23:04.005Z`. `browser.snapshot_page` returns a JSON `snapshot` with `items` and `truncated`. Items contain `role`, `name` and `depth`, plus an absolute HTTP(S) `href` for links and a string `value` where available. Bind the JSON as `listing.out.snapshot` when the snapshot step ID is `listing`. On failure, `text` or `snapshot.error` carries the reason, and `capture_id` and `captured_at` are empty.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->

@@ -80,6 +80,11 @@
               "kind": "text",
               "minItems": 1,
               "maxItems": 1
+            },
+            "captured_at": {
+              "kind": "text",
+              "minItems": 1,
+              "maxItems": 1
             }
           },
           "outcomes": [
@@ -201,6 +206,11 @@
               "maxItems": 1
             },
             "capture_id": {
+              "kind": "text",
+              "minItems": 1,
+              "maxItems": 1
+            },
+            "captured_at": {
               "kind": "text",
               "minItems": 1,
               "maxItems": 1

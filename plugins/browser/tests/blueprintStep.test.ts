@@ -8,6 +8,7 @@ const {readPage} = ioTestExport({readPage: readPageSteps});
 type Answer = { result: string } | { error: string };
 
 const STATUS = "owner: Owner\nprofile: temporary\npage: Example Domain — https://example.com/landing\nneeds human: none";
+const CAPTURED_AT = "2026-11-19T07:23:04.005Z";
 
 function fakeSurface(answers: Partial<Record<string, Answer>> = {}) {
   const calls: { verb: string; args: string[] }[] = [];
@@ -21,7 +22,10 @@ function fakeSurface(answers: Partial<Record<string, Answer>> = {}) {
       : verb === "status" ? { result: STATUS }
         : verb === "text" ? { result: "Example Domain\nsecond line" }
           : { result: `${verb} ok` });
-    return JSON.stringify(verb === "open" && !("error" in answer) ? { ...answer, surface: { tab: "run-surface", instance: "run-instance" } } : answer);
+    if ("error" in answer) return JSON.stringify(answer);
+    if (verb === "open") return JSON.stringify({ ...answer, surface: { tab: "run-surface", instance: "run-instance" } });
+    if (verb === "text" || verb === "snapshot") return JSON.stringify({ ...answer, captured_at: CAPTURED_AT });
+    return JSON.stringify(answer);
   };
   return { call, calls, verbs: () => calls.map((entry) => entry.verb) };
 }
@@ -65,6 +69,7 @@ describe("browser.read_page Blueprint step", () => {
     expect(texts(update)).toEqual({ text: "Example Domain\nsecond line", finalUrl: "https://example.com/landing" });
     expect(update.outputs.profile).toEqual([{ kind: "text", text: "temporary" }]);
     expect(update.outputs.capture_id).toEqual([{ kind: "text", text: "op-1" }]);
+    expect(update.outputs.captured_at).toEqual([{ kind: "text", text: CAPTURED_AT }]);
   });
 
   it("waits for wait_text, keeps limit lines and lets a bound url input win", () => {
@@ -141,7 +146,7 @@ describe("browser.read_page Blueprint step", () => {
       expect(verb).toBe("read_named_page");
       expect(JSON.parse(args)).toEqual([]);
       return JSON.stringify({ result: JSON.stringify({
-        outcome: "read", text: "Example Domain", final_url: "https://example.com/landing", profile: "Work",
+        outcome: "read", text: "Example Domain", final_url: "https://example.com/landing", profile: "Work", captured_at: CAPTURED_AT,
       }) });
     };
     const first = readPage(req, call);
@@ -149,6 +154,7 @@ describe("browser.read_page Blueprint step", () => {
     expect(texts(first)).toEqual({ text: "Example Domain", finalUrl: "https://example.com/landing" });
     expect(first.outputs.profile).toEqual([{ kind: "text", text: "Work" }]);
     expect(first.outputs.capture_id).toEqual([{ kind: "text", text: "op-1" }]);
+    expect(first.outputs.captured_at).toEqual([{ kind: "text", text: CAPTURED_AT }]);
     expect(second.outputs.capture_id).toEqual([{ kind: "text", text: "op-2" }]);
   });
 
@@ -164,6 +170,7 @@ describe("browser.read_page Blueprint step", () => {
     expect(update.outcome).toBe(outcome);
     expect(texts(update)).toEqual({ text, finalUrl: "" });
     expect(update.outputs.capture_id).toEqual([{ kind: "text", text: "" }]);
+    expect(update.outputs.captured_at).toEqual([{ kind: "text", text: "" }]);
     expect(surface.verbs()).toEqual(["read_named_page"]);
   });
 
@@ -179,6 +186,7 @@ describe("browser.read_page Blueprint step", () => {
     expect(surface.calls[4].args).toEqual(["1", "--with-text", "--json"]);
     expect(update.outputs.snapshot).toEqual([{ kind: "json", value: { items: [link], truncated: true } }]);
     expect(update.outputs.capture_id).toEqual([{ kind: "text", text: "op-1" }]);
+    expect(update.outputs.captured_at).toEqual([{ kind: "text", text: CAPTURED_AT }]);
   });
 
   it("keeps a named-profile snapshot's structured control values and link targets", () => {
@@ -190,11 +198,23 @@ describe("browser.read_page Blueprint step", () => {
       outcome: "read",
       profile: "Work",
       final_url: "https://example.com",
+      captured_at: CAPTURED_AT,
       text: JSON.stringify({ items, truncated: false }),
     }) } });
     const req = request({ profile: "Work" }, "https://example.com");
     const update = readPage({ ...req, nodeType: "browser.snapshot_page" }, surface.call);
     expect(update.outputs.snapshot).toEqual([{ kind: "json", value: { items, truncated: false } }]);
+    expect(update.outputs.captured_at).toEqual([{ kind: "text", text: CAPTURED_AT }]);
+  });
+
+  it("requires a host capture timestamp for a successful read", () => {
+    const surface = fakeSurface();
+    const call = (verb: string, args: string) => verb === "text"
+      ? JSON.stringify({ result: "Example Domain" })
+      : surface.call(verb, args);
+    const update = readPage(request({ url: "https://example.com" }), call);
+    expect(update.outcome).toBe("navigation_failed");
+    expect(update.outputs.captured_at).toEqual([{ kind: "text", text: "" }]);
   });
 
   it("is exported as the plugin's only step entry point", () => {

@@ -2,6 +2,12 @@ use super::*;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 use std::sync::Arc;
 
+#[test]
+fn capture_timestamp_uses_utc_with_exact_milliseconds() {
+    let captured = std::time::UNIX_EPOCH + std::time::Duration::from_micros(1_234_567);
+    assert_eq!(capture_timestamp(captured), "1970-01-01T00:00:01.234Z");
+}
+
 fn fixture() -> (ServiceFixture, StepInputContext) {
     let (mut mux, owner) = MultiplexerState::new();
     let workspace = mux.list_workspaces()[0].id.clone();

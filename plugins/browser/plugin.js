@@ -70,11 +70,12 @@ var TEXT_BYTES = 23e3;
 var TRUNCATED = "\n[truncated]";
 var VERB_MARGIN_MS = 16e3;
 var NO_BROWSER = /^no browser open\b/;
+var CAPTURE_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 function* ask(call, verb, args, surface) {
   try {
     const reply = JSON.parse(yield* ioResolve(call(verb, JSON.stringify(surface ? { args, surface } : args))));
     if (typeof reply?.error === "string") return { error: reply.error };
-    if (typeof reply?.result === "string") return { result: reply.result, surface: reply.surface };
+    if (typeof reply?.result === "string") return { result: reply.result, surface: reply.surface, captured_at: reply.captured_at };
   } catch {
   }
   return { error: `the browser runtime returned no answer for ${verb}` };
@@ -129,7 +130,11 @@ function* readPage(request, call, now = Date.now) {
   const snapshot = request.nodeType === "browser.snapshot_page";
   const limit = Math.min(lineLimit(request.params?.limit), snapshot ? MAX_SNAPSHOT_ITEMS : MAX_LINES);
   const deadline = now() + Math.max(0, Number(request.deadlineMs) || 0);
-  const finish = (outcome, text, finalUrl = "", profile = "") => {
+  const finish = (outcome, text, finalUrl = "", profile = "", capturedAt = "") => {
+    if (outcome === "read" && (typeof capturedAt !== "string" || !CAPTURE_TIMESTAMP.test(capturedAt))) {
+      outcome = "navigation_failed";
+      text = "the browser returned no valid capture timestamp";
+    }
     const safe = redactCredentials(text);
     let content = { kind: "text", text: boundText(safe, outcome === "read" ? limit : MAX_LINES) };
     if (snapshot) {
@@ -149,7 +154,8 @@ function* readPage(request, call, now = Date.now) {
         [snapshot ? "snapshot" : "text"]: [content],
         final_url: [{ kind: "text", text: boundText(redactCredentials(finalUrl), 1, 8e3) }],
         profile: [{ kind: "text", text: profile }],
-        capture_id: [{ kind: "text", text: outcome === "read" ? request.context.operation : "" }]
+        capture_id: [{ kind: "text", text: outcome === "read" ? request.context.operation : "" }],
+        captured_at: [{ kind: "text", text: outcome === "read" ? capturedAt : "" }]
       }
     };
   };
@@ -163,7 +169,7 @@ function* readPage(request, call, now = Date.now) {
     if ("error" in reply) return finish("navigation_failed", reply.error);
     try {
       const captured = JSON.parse(reply.result);
-      return finish(captured.outcome, captured.text, captured.final_url, captured.profile);
+      return finish(captured.outcome, captured.text, captured.final_url, captured.profile, captured.captured_at);
     } catch {
       return finish("navigation_failed", "the browser runtime returned an invalid named-profile read");
     }
@@ -201,7 +207,7 @@ function* readPage(request, call, now = Date.now) {
       surface
     );
     if ("error" in read) return finish("navigation_failed", read.error, finalUrl);
-    return finish("read", read.result, finalUrl, statusField(status.result, "profile") ?? "");
+    return finish("read", read.result, finalUrl, statusField(status.result, "profile") ?? "", read.captured_at);
   } finally {
     if (surface) yield* ask(call, "close", [], surface);
   }

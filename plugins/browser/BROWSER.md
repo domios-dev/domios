@@ -123,7 +123,7 @@ Wait replies identify the matching node/text excerpt and page. Check it: text ma
 
 ## Blueprint page reads
 
-`browser.read_page` returns page text; `browser.snapshot_page` returns structured accessibility items. Both accept `with.url` or `bind: {url: prior.out}` and return `profile`, `final_url` and `capture_id`.
+`browser.read_page` returns page text; `browser.snapshot_page` returns structured accessibility items. Both accept `with.url` or `bind: {url: prior.out}` and return `profile`, `final_url`, `capture_id` and `captured_at` (host UTC time with milliseconds).
 
 Omit `profile` for a temporary browser. A named profile requires owner grants for the profile and page origin, and refuses while the profile is in use. See `domios docs BLUEPRINT-RECIPES` for setup, limits and outcomes.
 
@@ -148,4 +148,4 @@ Each step uses standalone validation, authority and redaction; put `--of` in its
 - `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
 - `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->

@@ -10,6 +10,7 @@ use codeterm_plugin::{blueprint_step::StepInputContext, surfaces::SurfaceRegistr
 use codeterm_surface::surface::{NamedPageRead, PageCapture, BROWSER_RUNTIME};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::time::SystemTime;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -46,6 +47,11 @@ fn parse(raw: &str) -> Result<Call, String> {
 fn named_page_refusal(outcome: &str, text: String) -> Value {
     let reply = json!({"outcome": outcome, "text": text, "final_url": "", "profile": ""});
     json!({"result": reply.to_string()})
+}
+
+fn capture_timestamp(completed_at: SystemTime) -> String {
+    chrono::DateTime::<chrono::Utc>::from(completed_at)
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
 impl ServiceContext {
@@ -186,11 +192,15 @@ impl ServiceContext {
                 actor: None,
             }
         };
-        let result = self.execute_surface_plan(plugin, surface, caller, verb, call.args, plan);
-        if verb == "close" && result.is_ok() {
+        let mut result =
+            self.execute_surface_plan(plugin, surface, caller, verb, call.args, plan)?;
+        if verb == "close" {
             context.surfaces.lock().remove(&identity.tab);
         }
-        result
+        if plugin == "browser" && matches!(verb, "text" | "snapshot") {
+            result["captured_at"] = json!(capture_timestamp(SystemTime::now()));
+        }
+        Ok(result)
     }
 
     fn step_named_page(&self, context: &StepInputContext) -> Result<Value, String> {
@@ -255,7 +265,10 @@ impl ServiceContext {
         };
         let runtimes = self.ext::<std::sync::Arc<super::SurfaceRuntimeRegistry>>();
         let result = agent_call::block_on_runtime(runtimes.read_named_page(read))?;
-        let result = serde_json::to_string(&result).map_err(|error| error.to_string())?;
-        Ok(json!({"result": result}))
+        let mut payload = serde_json::to_value(&result).map_err(|error| error.to_string())?;
+        if let Some(completed_at) = result.captured_at {
+            payload["captured_at"] = json!(capture_timestamp(completed_at));
+        }
+        Ok(json!({"result": payload.to_string()}))
     }
 }

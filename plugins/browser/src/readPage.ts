@@ -3,7 +3,7 @@ import { redactCredentials } from "./redaction";
 
 type SurfaceCall = (verb: string, argsJson: string) => string | HostIoSteps<string>;
 type SurfaceIdentity = { tab: string; instance: string };
-type Reply = { result: string; surface?: SurfaceIdentity } | { error: string };
+type Reply = { result: string; surface?: SurfaceIdentity; captured_at?: string } | { error: string };
 export type ReadPageOutcome = "read" | "navigation_failed" | "needs_human" | "browser_busy" | "profile_not_allowed" | "origin_not_allowed";
 type SnapshotItem = { role: string; name: string; depth: number; href?: string; value?: string };
 type SnapshotValue = { items: SnapshotItem[]; truncated: boolean; error?: string };
@@ -12,6 +12,7 @@ type NamedPageReply = {
   text: string;
   final_url: string;
   profile: string;
+  captured_at?: string;
 };
 
 const DEFAULT_LINES = 200;
@@ -25,12 +26,13 @@ const TRUNCATED = "\n[truncated]";
 const VERB_MARGIN_MS = 16_000;
 // Core answers `status` itself, without touching any runtime, when the owner has no browser.
 const NO_BROWSER = /^no browser open\b/;
+const CAPTURE_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 function* ask(call: SurfaceCall, verb: string, args: string[], surface?: SurfaceIdentity): HostIoSteps<Reply> {
   try {
-    const reply = JSON.parse(yield* ioResolve(call(verb, JSON.stringify(surface ? { args, surface } : args)))) as { result?: unknown; error?: unknown; surface?: SurfaceIdentity };
+    const reply = JSON.parse(yield* ioResolve(call(verb, JSON.stringify(surface ? { args, surface } : args)))) as { result?: unknown; error?: unknown; surface?: SurfaceIdentity; captured_at?: string };
     if (typeof reply?.error === "string") return { error: reply.error };
-    if (typeof reply?.result === "string") return { result: reply.result, surface: reply.surface };
+    if (typeof reply?.result === "string") return { result: reply.result, surface: reply.surface, captured_at: reply.captured_at };
   } catch { /* an unparseable answer is reported below */ }
   return { error: `the browser runtime returned no answer for ${verb}` };
 }
@@ -94,7 +96,11 @@ export function* readPage(request: BlueprintStepRequest, call: SurfaceCall | und
   const snapshot = request.nodeType === "browser.snapshot_page";
   const limit = Math.min(lineLimit(request.params?.limit), snapshot ? MAX_SNAPSHOT_ITEMS : MAX_LINES);
   const deadline = now() + Math.max(0, Number(request.deadlineMs) || 0);
-  const finish = (outcome: ReadPageOutcome, text: string, finalUrl = "", profile = ""): BlueprintJobUpdate => {
+  const finish = (outcome: ReadPageOutcome, text: string, finalUrl = "", profile = "", capturedAt = ""): BlueprintJobUpdate => {
+    if (outcome === "read" && (typeof capturedAt !== "string" || !CAPTURE_TIMESTAMP.test(capturedAt))) {
+      outcome = "navigation_failed";
+      text = "the browser returned no valid capture timestamp";
+    }
     const safe = redactCredentials(text);
     let content: BlueprintOutputValue = { kind: "text", text: boundText(safe, outcome === "read" ? limit : MAX_LINES) };
     if (snapshot) {
@@ -117,6 +123,7 @@ export function* readPage(request: BlueprintStepRequest, call: SurfaceCall | und
       final_url: [{ kind: "text", text: boundText(redactCredentials(finalUrl), 1, 8000) }],
       profile: [{ kind: "text", text: profile }],
       capture_id: [{ kind: "text", text: outcome === "read" ? request.context.operation : "" }],
+      captured_at: [{ kind: "text", text: outcome === "read" ? capturedAt : "" }],
     },
     };
   };
@@ -130,7 +137,7 @@ export function* readPage(request: BlueprintStepRequest, call: SurfaceCall | und
     if ("error" in reply) return finish("navigation_failed", reply.error);
     try {
       const captured = JSON.parse(reply.result) as NamedPageReply;
-      return finish(captured.outcome, captured.text, captured.final_url, captured.profile);
+      return finish(captured.outcome, captured.text, captured.final_url, captured.profile, captured.captured_at);
     } catch {
       return finish("navigation_failed", "the browser runtime returned an invalid named-profile read");
     }
@@ -164,7 +171,7 @@ export function* readPage(request: BlueprintStepRequest, call: SurfaceCall | und
     const read = yield* ask(call, snapshot ? "snapshot" : "text",
       snapshot ? [String(limit), "--with-text", "--json"] : [String(TEXT_CHARS)], surface);
     if ("error" in read) return finish("navigation_failed", read.error, finalUrl);
-    return finish("read", read.result, finalUrl, statusField(status.result, "profile") ?? "");
+    return finish("read", read.result, finalUrl, statusField(status.result, "profile") ?? "", read.captured_at);
   } finally {
     if (surface) yield* ask(call, "close", [], surface);
   }
