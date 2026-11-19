@@ -3,6 +3,7 @@ export interface AgentRuntimeState {
   agentName?: string;
   iconSvg?: string;
   binaryVersion?: string;
+  backgroundProcesses?: import("./backgroundProcesses").BackgroundProcessSnapshot;
   controls?: import("@codeterm/plugin-sdk").RuntimeSettings;
   authentication?: import("@codeterm/plugin-sdk").RuntimeAuthentication;
   notice?: string | null;
@@ -28,6 +29,13 @@ export interface AgentRuntimeState {
   history?: RuntimeHistoryState;
   historyPages?: number;
   historyError?: string;
+}
+
+export function withoutLiveBackgroundProcesses<T extends { agent_runtime_state?: AgentRuntimeState | null }>(tab: T): T {
+  if (!tab.agent_runtime_state?.backgroundProcesses) return tab;
+  const state = { ...tab.agent_runtime_state };
+  delete state.backgroundProcesses;
+  return { ...tab, agent_runtime_state: state };
 }
 
 export type RuntimeHistoryState = "loading" | "complete" | "failed";

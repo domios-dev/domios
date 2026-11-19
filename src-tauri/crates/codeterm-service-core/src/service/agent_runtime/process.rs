@@ -8,6 +8,8 @@ pub struct Process {
     pub ended: watch::Receiver<Option<RuntimeFailure>>,
     stop: watch::Sender<Option<bool>>,
     turn_members: parking_lot::Mutex<Vec<super::process_boundary::Member>>,
+    pub(super) background_changed: tokio::sync::Notify,
+    pub(super) background_operation: tokio::sync::Mutex<()>,
     boundary: Option<Arc<super::process_boundary::Boundary>>,
 }
 impl Process {
@@ -32,6 +34,8 @@ impl Process {
             ended: exit,
             stop,
             boundary: None,
+            background_changed: Default::default(),
+            background_operation: Default::default(),
             turn_members: parking_lot::Mutex::new(Vec::new()),
         }
     }
@@ -371,6 +375,8 @@ pub(super) fn spawn(
         ended: exit,
         stop,
         boundary: Some(boundary),
+        background_changed: Default::default(),
+        background_operation: Default::default(),
         turn_members: parking_lot::Mutex::new(Vec::new()),
     })
 }

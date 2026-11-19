@@ -289,6 +289,7 @@ async function mountProvider(options: {
     get inventory() { return inventory; },
     get focusedTabId() { return latestState.focused_tab_id; },
     get tabStatuses() { return latestState.tabStatuses; },
+    get tabs() { return latestState.tabs; },
     peerListeners,
     get actions() { return actions; },
     get muxGetStateCalls() {
@@ -604,7 +605,8 @@ test("the peer rail opens without viewers and wakes browse and attached status f
   const peer = { ...onlinePeer, instance_id: "status-peer", relay_protocol_version: RELAY_PROTOCOL_VERSION };
   const workingTab: Tab = {
     id: "second", workspace_id: "same-workspace", title: "Second", tab_type: "Terminal",
-    pty_id: null, cwd: null, agent_type: "opaque-agent", agent_session_id: "thread",
+    pty_id: null, cwd: null, agent_type: "opaque-agent", agent_session_id: "thread", session_binding_nonce: "nonce",
+    agent_runtime_state: { state: "loaded", epoch: 1 },
   };
   let present = false;
   let status: "Idle" | "Working" = "Idle";
@@ -637,6 +639,18 @@ test("the peer rail opens without viewers and wakes browse and attached status f
     await harness.act(async () => events({ type: "tab-status-changed", data: { tab_id: "second", status } }));
     assert(harness.inventory.browse?.workspaces[0].tabs[0]?.status === "Working", "browse shows the peer tab's status");
     assert(harness.tabStatuses[discovered.viewerId] === "Working", "the attached view uses the same wake");
+    const process = { threadId: "thread", processId: "p1", itemId: "cmd", command: "python fixture.py", cwd: "/work", osPid: null };
+    workingTab.agent_runtime_state = {
+      state: "loaded", epoch: 1,
+      backgroundProcesses: { rootThreadId: "thread", bindingNonce: "nonce", epoch: 1, processes: [process] },
+    };
+    await harness.act(async () => events({ type: "mux-state-changed", data: {} }));
+    const projectedProcess = harness.tabs[discovered.viewerId]?.agent_runtime_state?.backgroundProcesses?.processes[0];
+    assert(projectedProcess?.processId === "p1", "owner roster reaches the attached viewer through the peer rail");
+
+    workingTab.agent_runtime_state = { state: "loaded", epoch: 1 };
+    await harness.act(async () => events({ type: "mux-state-changed", data: {} }));
+    assert(!harness.tabs[discovered.viewerId]?.agent_runtime_state?.backgroundProcesses, "the same rail clears the exited process");
   } finally {
     await harness.act(async () => setWorkspaceBrowseTarget(null));
     await harness.unmount();

@@ -13,7 +13,7 @@ export function ComposerBackgroundWorkProvider({ tabId, messages, children }: { 
     return tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null);
   });
   const descriptor = useAgentDescriptor(providerId);
-  const work = useComposerBackgroundWork(tabId, descriptor?.agent_runtime?.backgroundProcesses === true, descriptor?.supports_subagent_visibility === true, messages);
+  const work = useComposerBackgroundWork(tabId, descriptor?.supports_subagent_visibility === true, messages);
   return <ComposerBackgroundWorkContext.Provider value={work}>{children}</ComposerBackgroundWorkContext.Provider>;
 }
 

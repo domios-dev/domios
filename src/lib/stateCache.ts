@@ -1,3 +1,4 @@
+import { withoutLiveBackgroundProcesses } from "./agentRuntimeState";
 import { buildHash } from "./buildStamp";
 import type { MultiplexerState, Tab } from "./types";
 import {
@@ -195,8 +196,10 @@ export async function loadCachedStateAsync(): Promise<MultiplexerState | null> {
 export function saveStateSnapshot(state: StateCacheInput): Promise<FrontendCacheWriteResult | null> {
   const scope = cacheScope();
   if (!scope) return Promise.resolve(null);
-  liveCache.set(scope, { schemaVersion: SCHEMA_VERSION, buildHash: buildHash(), state });
-  const { records, counts } = projectRecords(state);
+  const tabs = Object.fromEntries(Object.entries(state.tabs).map(([id, tab]) => [id, withoutLiveBackgroundProcesses(tab)]));
+  const cached = { ...state, tabs };
+  liveCache.set(scope, { schemaVersion: SCHEMA_VERSION, buildHash: buildHash(), state: cached });
+  const { records, counts } = projectRecords(cached);
   const metadata = metadataFor(state, counts) as unknown as Record<string, unknown>;
   return frontendCacheRepository.write(scope, records, metadata).catch(() => null);
 }

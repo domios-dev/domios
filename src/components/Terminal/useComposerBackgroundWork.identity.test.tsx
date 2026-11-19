@@ -21,7 +21,7 @@ describe("composer background work", () => {
     let current = { tabs: { tab: { id: "tab", agent_session_id: "own" } } } as unknown as ExtendedState;
     const mux = createMuxStateStore(() => current);
     let work!: ReturnType<typeof useComposerBackgroundWork>;
-    function Probe() { work = useComposerBackgroundWork("tab", false, false, []); return null; }
+    function Probe() { work = useComposerBackgroundWork("tab", false, []); return null; }
     const root = createRoot(document.createElement("div"));
     try {
       await act(async () => root.render(<MuxStateStoreContext.Provider value={mux}><Probe /></MuxStateStoreContext.Provider>));
@@ -34,40 +34,36 @@ describe("composer background work", () => {
       expect(work.items).toHaveLength(0);
     } finally { await act(async () => root.unmount()); }
   });
-  it("refreshes the runtime roster after compaction and drops failed liveness evidence", async () => {
-    const { __setInvokeForTest } = await import("../../lib/bridge");
-    const identity = {rootThreadId:"root",bindingNonce:"nonce",epoch:1};
-    const current = {tabs:{tab:{id:"tab",agent_session_id:"root",session_binding_nonce:"nonce",agent_runtime_state:{state:"loaded",epoch:1}}}} as unknown as ExtendedState;
+  it("uses owner roster updates without transcript changes and drops stale bindings", async () => {
+    const identity = { rootThreadId:"root", bindingNonce:"nonce", epoch:1 };
+    const roster = { ...identity, processes:[{ threadId:"root", processId:"process", itemId:"command", command:"node fixture.mjs", cwd:"/fixture", osPid:null }] };
+    let current = { tabs:{ tab:{ id:"tab", agent_session_id:"root", session_binding_nonce:"nonce", agent_runtime_state:{ state:"loaded", epoch:1 } } } } as unknown as ExtendedState;
     const mux = createMuxStateStore(() => current);
-    let reads = 0;
-    __setInvokeForTest(async <T,>() => {
-      if (++reads > 1) throw new Error("Fixture roster unavailable");
-      return {...identity,processes:[{threadId:"root",processId:"process",itemId:"command",command:"node fixture.mjs",cwd:"/fixture",osPid:1}]} as T;
-    });
     let work!: ReturnType<typeof useComposerBackgroundWork>;
-    function Probe({transcript}:{transcript:NormalizedChatMessage[]}) {
-      work = useComposerBackgroundWork("tab",true,false,transcript);
-      return null;
-    }
+    function Probe() { work = useComposerBackgroundWork("tab", false, []); return null; }
     const root = createRoot(document.createElement("div"));
-    const command: NormalizedChatMessage = {id:"command",type:"tool_call",content:"",timestamp:new Date(Date.now()-20_000).toISOString()};
-    const boundary: NormalizedChatMessage = {id:"boundary",type:"system",content:"",sourceSessionId:"root",timelineMarker:{kind:"context_compaction"}};
-    const render = (transcript:NormalizedChatMessage[]) => root.render(<MuxStateStoreContext.Provider value={mux}><Probe transcript={transcript}/></MuxStateStoreContext.Provider>);
+    const update = async (backgroundProcesses?: typeof roster, epoch = 1) => {
+      const tab = { ...current.tabs.tab, agent_runtime_state:{ state:"loaded" as const, epoch, backgroundProcesses } };
+      current = { ...current, tabs:{ tab } };
+      await act(async () => mux.notify());
+    };
     try {
-      await act(async () => render([command]));
-      expect(work.items[0]?.status).toBe("running");
-      await act(async () => render([command,boundary]));
-      expect(reads).toBe(2);
+      await act(async () => root.render(<MuxStateStoreContext.Provider value={mux}><Probe /></MuxStateStoreContext.Provider>));
+      expect(work.items).toHaveLength(0);
+      await update(roster);
+      expect(work.items.map(item => item.processId)).toEqual(["process"]);
+      await update();
+      expect(work.items).toHaveLength(0);
+      await update(roster, 2);
       expect(work.items).toHaveLength(0);
     } finally {
       await act(async () => root.unmount());
-      __setInvokeForTest(null);
     }
   });
   it("keeps one value while transcript renders leave the work unchanged", async () => {
     const values: Array<ReturnType<typeof useComposerBackgroundWork>> = [];
     function Probe({ transcript }: { transcript: NormalizedChatMessage[] }) {
-      values.push(useComposerBackgroundWork("tab", false, true, transcript));
+      values.push(useComposerBackgroundWork("tab", true, transcript));
       return null;
     }
     const host = document.createElement("div");

@@ -1,3 +1,4 @@
+import { withoutLiveBackgroundProcesses } from "./agentRuntimeState";
 import type { Tab, TabStatus } from "./types";
 import { frontendCacheRepository, frontendCacheScope, type FrontendCacheRecord } from "./frontendCacheRecords";
 import { parseCompositeTabId } from "./remoteTabTransport";
@@ -56,7 +57,7 @@ function validAttachments(records: FrontendCacheRecord[], schemaVersion: unknown
 }
 
 function attachmentRecords(tabs: Record<string, Tab>): FrontendCacheRecord[] {
-  return Object.entries(tabs).map(([id, tab]) => ({ kind: "attachment", id, value: tab }));
+  return Object.entries(tabs).map(([id, tab]) => ({ kind: "attachment", id, value: withoutLiveBackgroundProcesses(tab) }));
 }
 
 async function persistAttachments(scope: string, cache: AttachmentCache): Promise<void> {

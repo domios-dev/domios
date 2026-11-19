@@ -22,10 +22,7 @@ pub enum RuntimeEvent {
         thread_id: String,
         message: String,
     },
-    BackgroundProcessesUpdated {
-        thread_id: String,
-        processes: Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>,
-    },
+    BackgroundProcessesUpdated,
     SessionUpdated {
         login: Option<RuntimeLoginState>,
         auth: Option<RuntimeAuthState>,
@@ -133,8 +130,6 @@ struct RefusedClaim {
 #[derive(Default)]
 pub struct RuntimeMaps {
     pub authentication: Option<codeterm_plugin::agent_runtime::RuntimeAuthentication>,
-    pub background_processes:
-        HashMap<String, Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>>,
     epoch: u64,
     restore_binding: Option<RestoreBinding>,
     current_turns: HashMap<String, String>,
@@ -337,13 +332,7 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             thread_id: thread_id.clone(),
             message: message.clone(),
         },
-        AgentRuntimeEvent::BackgroundProcesses {
-            thread_id,
-            processes,
-        } => RuntimeEvent::BackgroundProcessesUpdated {
-            thread_id: thread_id.clone(),
-            processes: processes.clone(),
-        },
+        AgentRuntimeEvent::BackgroundProcesses { .. } => RuntimeEvent::BackgroundProcessesUpdated,
         AgentRuntimeEvent::AuthLogin { login } => RuntimeEvent::SessionUpdated {
             login: Some(login.clone()),
             auth: None,
@@ -494,14 +483,7 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
         RuntimeEvent::AuthenticationDeclared { authentication } => {
             maps.authentication = Some(authentication.clone())
         }
-        RuntimeEvent::Notice { .. } => {}
-        RuntimeEvent::BackgroundProcessesUpdated {
-            thread_id,
-            processes,
-        } => {
-            maps.background_processes
-                .insert(thread_id.clone(), processes.clone());
-        }
+        RuntimeEvent::Notice { .. } | RuntimeEvent::BackgroundProcessesUpdated => {}
         RuntimeEvent::SessionUpdated { auth, .. } => {
             if let Some(auth) = auth {
                 maps.auth = Some(auth.clone());
@@ -521,7 +503,6 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
             turn_id,
             ..
         } => {
-            maps.background_processes.remove(thread_id);
             if turn_id
                 .as_ref()
                 .is_none_or(|turn| maps.current_turns.get(thread_id) == Some(turn))
