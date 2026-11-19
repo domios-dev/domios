@@ -329,12 +329,11 @@ export const MeshCanvas = memo(function MeshCanvas({
   const overviewAvailable = overview && overview.kind !== "inventory";
   if (account && overview && overview.kind !== "inventory" && !showInventory) {
     return <section aria-label="Mesh inventory" className="mesh-overview relative flex h-full w-full overflow-auto">
-      <div className="absolute right-3 top-3">
-        <CanvasToolbar floating={false} label="Mesh inventory controls" onRefresh={onRefresh}
+      {(overview.kind === "unreachable" || overview.kind === "tailscale_off") &&
+        <CanvasToolbar label="Mesh inventory controls" onRefresh={onRefresh}
           view={<button type="button" className="ct-bar-pill" aria-label="Show inventory" onClick={() => setShowInventory(true)}>
             <Network size={13} aria-hidden="true" />
-          </button>} />
-      </div>
+          </button>} />}
       <MeshOverview state={overview} account={account} name={account.selfName ?? thisMachine.name} tailscale={tailscale} />
       <AccountNotes notes={account.canvas.notes} />
       {accountActions}

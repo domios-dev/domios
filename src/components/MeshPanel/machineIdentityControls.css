@@ -123,9 +123,12 @@ body:has(.machine-identity-menu) > .ct-cursor-tip {
   background: var(--ct-border);
 }
 
-.machine-identity-editor__done {
+.ct-btn.machine-identity-editor__done {
+  width: 100%;
   min-height: 44px;
-  background: color-mix(in srgb, var(--ct-bg) 65%, var(--ct-surface));
+  border-radius: 10px;
+  background: var(--ct-bg);
+  font-size: var(--ct-font-size-sm);
 }
 
 @media (max-width: 640px) {

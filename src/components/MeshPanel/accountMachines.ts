@@ -39,7 +39,7 @@ export interface SelfRowView {
 export type MyMachinesView =
   | { kind: "loading" }
   | { kind: "sign_in"; headline: string; blocked: boolean; saved: MachineRowView[]; notes: string[] }
-  | { kind: "account"; machineLimit?: { limit: number; activeCount: number }; reauthRequired: boolean; removed?: boolean; self: SelfRowView | null; machines: MachineRowView[]; duplicateNames?: DuplicateMachineName[]; saved: MachineRowView[]; notes: string[] };
+  | { kind: "account"; machineLimit?: { limit: number; activeCount: number }; reauthRequired: boolean; removed?: boolean; self: SelfRowView | null; registrySelfName?: string; machines: MachineRowView[]; duplicateNames?: DuplicateMachineName[]; saved: MachineRowView[]; notes: string[] };
 export interface MyMachinesInput {
   account: AccountPresence;
   snapshot: AccountMeshSnapshot | null;
@@ -63,7 +63,7 @@ export function myMachinesView({ account, snapshot, listFailure = null, now }: M
   const usable = snapshot.traffic !== "blocked_signed_out" && snapshot.binding !== "other" && refusal?.reason !== "enrollment_budget";
   const selfId = snapshot.local_installation_id;
   const unique = new Map((snapshot.registry?.rows ?? []).map(row => [row.installation_id, row]));
-  const { labels, duplicates } = registryMachineNames(snapshot.registry?.cursor ? [] : [...unique.values()]);
+  const { labels, duplicates } = registryMachineNames(snapshot.registry_names ?? []);
   const machines = [...unique.values()].filter(row => row.installation_id !== selfId).map(row => {
     const pair = snapshot.pairs.find(pair => pair.installation_id === row.installation_id) ?? null;
     const phase = snapshot.connections?.find(connection => connection.installation_id === row.installation_id)?.phase;
@@ -77,7 +77,7 @@ export function myMachinesView({ account, snapshot, listFailure = null, now }: M
   const own = snapshot.self;
   const ownRow = unique.get(selfId);
   return {
-    kind: "account", machineLimit,
+    kind: "account", machineLimit, registrySelfName: labels.get(selfId),
     removed: ownRow?.active === false,
     reauthRequired: snapshot.enrollment === "refused" && ["reauth_required", "generation_mismatch", "key_conflict", "revoked"].includes(refusal?.reason ?? ""),
     self: own ? { readOnly: !usable, planLimited: locked, name: labels.get(selfId) ?? cleanMachineName(ownRow?.display_name ?? own.display_name) ?? "This machine", installationId: own.installation_id,

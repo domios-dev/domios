@@ -2,12 +2,11 @@ import { useEffect, useMemo, useRef } from "react";
 import { accountCanvas } from "./accountCanvas";
 import type { CanvasAccount } from "./MeshCanvas";
 import type { PeerStatus } from "./useMeshData";
-import { useMeshAccount } from "./useMeshAccount";
+import type { MeshAccount } from "./useMeshAccount";
 import { useMyMachines } from "./useMyMachines";
 
 /** My machines projected onto the Mesh canvas, live with the account and the paired peers. */
-export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => void, registryRefreshKey = 0): CanvasAccount {
-  const account = useMeshAccount();
+export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => void, registryRefreshKey: number, account: MeshAccount): CanvasAccount {
   const machines = useMyMachines({ account: account.presence, onSignIn: account.signIn, signingIn: account.signingIn, cancelSignIn: account.cancelSignIn, onChanged });
   const { view, snapshot, loadFailed, listFailure, failures, busy, signingIn, openPlans, dismissFailure, signIn, load, rename, renameSelf, revoke, revokeSession, retryEnrollment } = machines;
   const lastRefreshKey = useRef(registryRefreshKey);
@@ -34,7 +33,7 @@ export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => 
     duplicateNames: view.kind === "account" ? view.duplicateNames : undefined,
     selfInstallationId: self?.installationId,
     moreMachines: !!snapshot?.registry?.cursor,
-    canvas, busy, signingIn, cancelSignIn: account.cancelSignIn, now, actions, selfName: self?.displayName ? self.name : undefined, selfDisplayName: self?.displayName, onRenameSelf: self && !self.readOnly ? renameSelf : undefined, removed: view.kind === "account" && view.removed, onRejoin: () => { void signIn(); }, reauthRequired: view.kind === "account" && view.reauthRequired,
+    canvas, busy, signingIn, cancelSignIn: account.cancelSignIn, now, actions, selfName: view.kind === "account" ? view.registrySelfName ?? (self?.displayName ? self.name : undefined) : undefined, selfDisplayName: self?.displayName, onRenameSelf: self && !self.readOnly ? renameSelf : undefined, removed: view.kind === "account" && view.removed, onRejoin: () => { void signIn(); }, reauthRequired: view.kind === "account" && view.reauthRequired,
     limitMachines: view.kind === "account" && view.machineLimit ? machines : undefined,
     onSignIn: () => { void signIn(); },
     onRetry: () => { void load(); },
