@@ -1,4 +1,5 @@
 import type { PlanView as Plan } from "../Canvas/planProjection";
+import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
 import { countWorkingTabs } from "./tabStatuses";
 import { useMemo, type ReactNode } from "react";
 import { MonitorUp, Plus } from "lucide-react";
@@ -186,10 +187,11 @@ export function SidebarWorkspaceTabs({
   );
   const { attachedIds, looseTabs, looseChildIds } = dragModel;
 
+  const { generals } = usePairedWorkspaceInventory();
   const remoteTeams = useMemo(() => {
     const map = new Map<string, Team>();
     for (const tab of sortedTabs) {
-      const identity = remoteTeamIdentity(tab);
+      const identity = remoteTeamIdentity(tab, generals);
       if (identity && !map.has(identity.id)) {
         map.set(identity.id, {
           id: identity.id,
@@ -203,7 +205,7 @@ export function SidebarWorkspaceTabs({
       }
     }
     return map;
-  }, [sortedTabs, ws.id]);
+  }, [sortedTabs, ws.id, generals]);
 
   const teamById = useMemo(
     () => new Map(teams.filter((team) => team.workspace_id === ws.id).map((team) => [team.id, team])),

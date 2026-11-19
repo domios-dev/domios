@@ -1,3 +1,5 @@
+import { cleanMachineName } from "./machineIdentity";
+
 export type RemoteChatPresence = "online" | "offline" | "not-paired" | "signed-out";
 export type RemoteChatState = Exclude<RemoteChatPresence, "online"> | "unreachable" | "refused" | "too-old" | "generic";
 
@@ -62,6 +64,5 @@ export function remoteChatFailure(error: unknown, at = Date.now()): RemoteChatFa
 }
 
 export function remoteMachineName(peerId: string, ...labels: Array<string | null | undefined>): string {
-  return labels.map(label => label?.trim()).find(label => label && label !== peerId
-    && !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(label)) ?? "the other computer";
+  return labels.map(label => cleanMachineName(label, peerId)).find(Boolean) ?? "the other computer";
 }

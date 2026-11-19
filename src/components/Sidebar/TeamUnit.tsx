@@ -30,6 +30,9 @@ import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDiscl
 import { refusalText } from "../../lib/refusalText";
 import { useProviderModelUsage } from "../../hooks/useProviderModelUsage";
 import { formatModelUsage, hasModelUsage, usageForModel } from "../../lib/modelGroups";
+import { useMeshPeerName } from "../../lib/useMeshMachineIdentities";
+import { cleanMachineName } from "../../lib/machineIdentity";
+import { remoteTeamName } from "./remoteOwnership";
 import { MachineProvenance } from "../shared/MachineProvenance";
 
 export interface SidebarTeamActions {
@@ -475,7 +478,13 @@ export function TeamUnit({
   const teamTabCount = managerCount + workerCount + agentCount + terminalCount;
   const teamAttention = expanded ? null
     : mergeGroupAttention([attention.managers, attention.workers, attention.agents, attention.utilities]);
-  const displayTitle = plan?.title.trim() || team.name?.trim() || "Team";
+  const peerName = useMeshPeerName(team.remote_peer_id);
+  const machine = team.remote_peer_id
+    ? peerName ?? cleanMachineName(team.remote_peer_name, team.remote_peer_id)
+    : undefined;
+  const displayTitle = team.remote_peer_id
+    ? remoteTeamName(team.id, team.name) ?? "Team"
+    : plan?.title.trim() || team.name?.trim() || "Team";
   const buckets = useMemo(
     () => (plan ? deriveTeamTaskBuckets(plan, tabs) : EMPTY_BUCKETS),
     [plan, tabs],
@@ -593,9 +602,9 @@ export function TeamUnit({
           )}
         </span>
       )}
-      {!editing && team.remote_peer_name && (
+      {!editing && machine && (
         <div data-testid="team-remote-peer" className="text-[var(--ct-muted-fg)]">
-          <MachineProvenance peerId={team.remote_peer_id} name={team.remote_peer_name} />
+          <MachineProvenance peerId={team.remote_peer_id} name={machine} />
         </div>
       )}
       <TeamStatusTally

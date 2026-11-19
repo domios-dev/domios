@@ -7,8 +7,9 @@ import { BusySpinner } from "../shared/BusyState";
 import type { MeshPeersResponse, PairedPeer, Tab } from "../../lib/types";
 import type { RemotePeerTabs } from "../../lib/remoteTabPortal";
 import { groupRemoteTabs, peerTopologyOf, type PeerTopology } from "./remoteTabPickerModel";
+import { StatusDot } from "./StatusDot";
 import { MachineGlyph } from "../shared/MachineGlyph";
-import { machineLabel, type MachineIdentity, type MeshIdentityProjection } from "../../lib/machineIdentity";
+import { cleanMachineName, machineLabel, type MachineIdentity, type MeshIdentityProjection } from "../../lib/machineIdentity";
 
 interface RemoteTabPickerProps {
   onAttach: (peer: RemotePeerTabs, tab: Tab) => void;
@@ -30,12 +31,16 @@ export function RemoteTabPicker({ onAttach, onClose }: RemoteTabPickerProps) {
     };
     document.addEventListener("keydown", onKeyDown);
     void invoke<MeshPeersResponse & MeshIdentityProjection>("mesh_list_peers")
-      .then((value) => { setPeers(value.paired.filter(peer => peer.online)); setIdentities(value.machine_identities ?? {}); })
+      .then((value) => {
+        setPeers(value.paired.filter(peer => peer.online));
+        setIdentities(value.machine_identities ?? {});
+      })
       .catch((cause) => setError(String(cause)))
       .finally(() => setLoading(false));
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
+  const selectedName = selectedPeer && (cleanMachineName(selectedPeer.instance_name, selectedPeer.instance_id) ?? "Machine");
   const groups = useMemo(() => groupRemoteTabs(remote?.tabs ?? [], topology), [remote, topology]);
 
   const choosePeer = (peer: PairedPeer) => {
@@ -72,7 +77,7 @@ export function RemoteTabPicker({ onAttach, onClose }: RemoteTabPickerProps) {
           )}
           {selectedPeer && <MachineGlyph {...identities[selectedPeer.instance_id]} size="mark-15" />}
           <h2 id="remote-tab-picker-title" className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--ct-fg)]">
-            {selectedPeer ? selectedPeer.instance_name : "Open remote Tab"}
+            {selectedName ?? "Open remote Tab"}
           </h2>
           <button type="button" aria-label="Close remote Tab picker" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded hover:bg-[var(--ct-hover)]">
             <X size={14} />
@@ -81,13 +86,16 @@ export function RemoteTabPicker({ onAttach, onClose }: RemoteTabPickerProps) {
         <div className="max-h-[min(60vh,420px)] min-h-40 overflow-y-auto p-2">
           {loading && <div role="status" aria-label="Loading" className="flex h-32 items-center justify-center text-[var(--ct-muted-fg)]"><BusySpinner size={17} icon={LoaderCircle} /></div>}
           {!loading && error && <InlineErrorNotice error={error} operation="loading remote tabs" blocking />}
-          {!loading && !error && !selectedPeer && peers.map((peer) => (
-            <button key={peer.instance_id} type="button" onClick={() => choosePeer(peer)} className="ct-menu-row ct-machine-menu-row" aria-label={machineLabel(peer.instance_name, identities[peer.instance_id], "online")}>
-              <span className="ct-menu-row__icon"><MachineGlyph {...identities[peer.instance_id]} size="mark-15" /></span>
-              <span className="min-w-0 flex-1 truncate">{peer.instance_name}</span>
-              <span className="shrink-0 text-[length:var(--ct-font-size-meta)] text-[var(--ct-muted-fg)]">online</span>
-            </button>
-          ))}
+          {!loading && !error && !selectedPeer && peers.map((peer) => {
+            const name = cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine";
+            return (
+              <button key={peer.instance_id} type="button" onClick={() => choosePeer(peer)} className="ct-menu-row ct-machine-menu-row" aria-label={machineLabel(name, identities[peer.instance_id], "online")}>
+                <span className="ct-menu-row__icon"><MachineGlyph {...identities[peer.instance_id]} size="mark-15" /></span>
+                <span className="min-w-0 flex-1 truncate">{name}</span>
+                <span className="shrink-0 text-[length:var(--ct-font-size-meta)] text-[var(--ct-muted-fg)]">online</span>
+              </button>
+            );
+          })}
           {!loading && !error && !selectedPeer && peers.length === 0 && <div className="px-3 py-8 text-center text-[12px] text-[var(--ct-muted-fg)]">No online machines</div>}
           {!loading && !error && selectedPeer && groups.map((workspace) => (
             <section key={workspace.id ?? ""} aria-label={workspace.name} className="mb-1">
@@ -96,10 +104,11 @@ export function RemoteTabPicker({ onAttach, onClose }: RemoteTabPickerProps) {
                 <div key={team.id ?? ""} role="group" aria-label={team.name ?? `${workspace.name} Tabs`}>
                   {team.name && <div className="truncate px-3 pb-0.5 pt-1 text-[11px] text-[var(--ct-muted-fg)]">{team.name}</div>}
                   {team.rows.map((row) => (
-                    <button key={row.tab.id} type="button" onClick={() => { if (remote) onAttach(remote, row.tab); onClose(); }} className={`flex w-full min-w-0 items-center gap-3 rounded py-2 pr-3 text-left hover:bg-[var(--ct-hover)] ${team.name ? "pl-5" : "pl-3"}`}>
-                      <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+                    <button key={row.tab.id} type="button" aria-label={[row.title, row.kind, team.name ?? "No Team", selectedName, row.statusLabel].filter(Boolean).join(", ")} onClick={() => { if (remote) onAttach(remote, row.tab); onClose(); }} className={`flex w-full min-w-0 items-center gap-3 rounded py-2 pr-3 text-left hover:bg-[var(--ct-hover)] ${team.name ? "pl-5" : "pl-3"}`}>
+                      <StatusDot status={row.status} label={row.statusLabel} showIdle />
                       <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--ct-fg)]">{row.title}</span>
                       <span className="max-w-[45%] shrink-0 truncate text-[11px] text-[var(--ct-muted-fg)]">{row.kind}</span>
+                      <span className="shrink-0 text-[11px] text-[var(--ct-muted-fg)]">{row.statusLabel}</span>
                     </button>
                   ))}
                 </div>

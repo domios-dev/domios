@@ -1,3 +1,5 @@
+import { cleanMachineName } from "../../lib/machineIdentity";
+import { remoteTeamName } from "./remoteOwnership";
 import { useState } from "react";
 import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
 import type { BrowsedWorkspace, ObservedPeerTab } from "../../store/multiplexer/pairedWorkspaceProjection";
@@ -13,16 +15,17 @@ interface WorkspaceBrowseSectionProps {
 export function WorkspaceBrowseSection({ selectedViewerId, onSelectViewer }: WorkspaceBrowseSectionProps) {
   const { browse } = usePairedWorkspaceInventory();
   if (!browse) return null;
+  const machine = cleanMachineName(browse.target.name, browse.target.id);
   if (browse.availability !== "online") {
     const status = browse.availability === "reconnecting" ? "Connecting"
       : browse.availability.replace("-", " ");
-    return <p role="status" className="px-3 py-2 text-xs text-[var(--ct-muted-fg)]">{browse.target.name} · {status}</p>;
+    return <p role="status" className="px-3 py-2 text-xs text-[var(--ct-muted-fg)]">{machine ? `${machine} · ` : ""}{status}</p>;
   }
   if (!browse.workspaces.length) return <p className="px-3 py-2 text-xs text-[var(--ct-muted-fg)]">No workspaces</p>;
   return browse.workspaces.map(workspace => <WorkspaceRows
     key={JSON.stringify([workspace.peerId, workspace.workspace.id])}
     workspace={workspace}
-    hostName={browse.target.name}
+    hostName={machine}
     selectedViewerId={selectedViewerId}
     onSelectViewer={onSelectViewer}
   />);
@@ -30,7 +33,7 @@ export function WorkspaceBrowseSection({ selectedViewerId, onSelectViewer }: Wor
 
 function WorkspaceRows({ workspace: { workspace, teams, tabs }, hostName, selectedViewerId, onSelectViewer }: WorkspaceBrowseSectionProps & {
   workspace: BrowsedWorkspace;
-  hostName: string;
+  hostName?: string;
 }) {
   const [expanded, setExpanded] = useState(true);
   const teamIds = new Set(teams.map(team => team.id));
@@ -47,10 +50,10 @@ function WorkspaceRows({ workspace: { workspace, teams, tabs }, hostName, select
     </SidebarDisclosure>
     {expanded && <>
       {tabs.filter(({ tab }) => !tab.team_id || !teamIds.has(tab.team_id)).map(row)}
-      {teams.map(team => <div key={team.id} role="group" aria-label={team.name ?? "Team"} className="pl-2">
+      {teams.map(team => <div key={team.id} role="group" aria-label={remoteTeamName(team.id, team.name) ?? "Team"} className="pl-2">
         <div className="px-2 py-1 text-xs">
-          {team.name ?? "Team"}
-          <MachineProvenance peerId={team.remote_peer_id} name={hostName} />
+          {remoteTeamName(team.id, team.name) ?? "Team"}
+          {hostName && <MachineProvenance peerId={team.remote_peer_id} name={hostName} />}
         </div>
         {tabs.filter(({ tab }) => tab.team_id === team.id).map(row)}
       </div>)}
