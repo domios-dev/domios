@@ -199,7 +199,12 @@ impl MultiplexerState {
                 agent_session_id: tab.and_then(|p| p.agent_session_id.clone()),
                 agent_identity: tab.map(|p| AgentIdentitySnapshot {
                     description_origin: p.description_origin,
-                    agent_runtime_state: p.agent_runtime_state.clone(),
+                    agent_runtime_state: p.agent_runtime_state.clone().map(|mut state| {
+                        if let Some(fields) = state.as_object_mut() {
+                            fields.remove("backgroundProcesses");
+                        }
+                        state
+                    }),
                     agent_runtime_config: p.agent_runtime_config.clone(),
                     agent_runtime_questions: p.agent_runtime_questions.clone(),
                     provisioned_cwd: normalized_snapshot_cwd(p.provisioned_cwd.as_deref()),

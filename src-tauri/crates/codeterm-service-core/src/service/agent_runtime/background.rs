@@ -5,7 +5,10 @@ use super::{
     process_boundary::Member,
 };
 use crate::service::ServiceContext;
+
+mod roster;
 use codeterm_plugin::agent_runtime::*;
+pub(super) use roster::{changed_by, preserve_projection, watch};
 use serde::Deserialize;
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
@@ -28,7 +31,6 @@ trait CleanupIo {
     fn ended(&self) -> bool {
         false
     }
-    fn roster(&mut self, _thread: &str, _processes: &[RuntimeBackgroundProcess]) {}
 }
 
 pub(super) fn supported(session: &Session) -> bool {
@@ -50,31 +52,14 @@ struct RuntimeIo<'a> {
 #[async_trait::async_trait]
 impl CleanupIo for RuntimeIo<'_> {
     async fn run(&mut self, operation: RuntimeOperation) -> Result<RuntimeResult, RuntimeFailure> {
-        let cleaned = match &operation {
-            RuntimeOperation::BackgroundProcesses {
-                thread_id,
-                action: RuntimeBackgroundProcessAction::Clean,
-            } => Some(thread_id.clone()),
-            _ => None,
-        };
-        let result = engine::run(
+        engine::run(
             self.svc,
             &self.session.provider,
             self.session,
             self.process,
             operation,
         )
-        .await?;
-        if let Some(thread) = cleaned {
-            if matches!(result, RuntimeResult::Done) {
-                self.session
-                    .maps
-                    .lock()
-                    .background_processes
-                    .remove(&thread);
-            }
-        }
-        Ok(result)
+        .await
     }
     async fn verify(
         &mut self,
@@ -97,18 +82,10 @@ impl CleanupIo for RuntimeIo<'_> {
         } else {
             self.process.finish().await?;
         }
-        self.session.maps.lock().background_processes.clear();
         Ok(())
     }
     fn ended(&self) -> bool {
         self.process.terminated()
-    }
-    fn roster(&mut self, thread: &str, processes: &[RuntimeBackgroundProcess]) {
-        self.session
-            .maps
-            .lock()
-            .background_processes
-            .insert(thread.into(), processes.into());
     }
 }
 
@@ -129,7 +106,11 @@ pub(super) async fn cleanup(
         captured,
         failure_cleanup: mode == Mode::Failure,
     };
-    coordinate(&mut io, &context, mode, enabled).await
+    let result = coordinate(&mut io, &context, mode, enabled).await;
+    if enabled && mode == Mode::Interrupt {
+        process.background_changed.notify_one();
+    }
+    result
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -271,16 +252,23 @@ async fn list_for_tab_inner(
     authority: BackgroundProcessAuthority,
 ) -> Result<BackgroundProcessSnapshot, RuntimeFailure> {
     let (session, context, process) = session_for_authority(svc, tab, &authority)?;
+    roster::refresh(svc, &session, &process, &context, &authority).await
+}
+
+async fn read_owned(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    process: &Arc<Process>,
+    context: &RuntimeContext,
+) -> Result<Vec<BackgroundProcessEntry>, RuntimeFailure> {
     let mut io = RuntimeIo {
         svc,
-        session: &session,
-        process: &process,
+        session,
+        process,
         captured: Vec::new(),
         failure_cleanup: false,
     };
-    let processes = list_owned(&mut io, &context).await?;
-    validate_current_session(svc, tab, &authority, &session)?;
-    Ok(snapshot(&authority, processes))
+    list_owned(&mut io, context).await
 }
 
 pub async fn stop_for_tab(
@@ -306,6 +294,8 @@ async fn stop_for_tab_inner(
     }
     let authority = request.authority();
     let (session, context, process) = session_for_authority(svc, tab, &authority)?;
+    let _operation = process.background_operation.lock().await;
+    validate_current_session(svc, tab, &authority, &session)?;
     if !owns_runtime_thread(&context, &request.thread_id) {
         return Err(RuntimeFailure::Superseded);
     }
@@ -348,7 +338,9 @@ async fn stop_for_tab_inner(
     }
     let processes = list_owned(&mut io, &context).await?;
     validate_current_session(svc, tab, &authority, &session)?;
-    Ok(snapshot(&authority, processes))
+    let snapshot = snapshot(&authority, processes);
+    roster::publish(svc, &context, Some(&snapshot));
+    Ok(snapshot)
 }
 
 async fn coordinate(
@@ -477,7 +469,6 @@ async fn drain(
     );
     for thread in threads {
         let processes = list(io, &thread).await?;
-        io.roster(&thread, &processes);
         if roster.len() + processes.len() > MAX_BACKGROUND_PROCESSES {
             return Err(refused(
                 "Owned background process roster exceeded its total bound",

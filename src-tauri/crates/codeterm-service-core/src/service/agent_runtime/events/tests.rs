@@ -101,35 +101,6 @@ fn a_working_turn_becomes_active_and_idle_clears_it() {
 }
 
 #[test]
-fn idle_thread_prunes_its_background_roster() {
-    let mut maps = RuntimeMaps::default();
-    fold(
-        &mut maps,
-        1,
-        &RuntimeEvent::BackgroundProcessesUpdated {
-            thread_id: "child".into(),
-            processes: Vec::new(),
-        },
-    );
-    assert!(maps.background_processes.contains_key("child"));
-    fold(
-        &mut maps,
-        1,
-        &RuntimeEvent::TurnUpdated {
-            thread_id: "child".into(),
-            turn_id: Some("turn".into()),
-            state: RuntimeTurnState::Idle,
-            detail: None,
-            status_line: None,
-            started_at: None,
-            completed_at: None,
-            parent_thread_id: Some("root".into()),
-        },
-    );
-    assert!(!maps.background_processes.contains_key("child"));
-}
-
-#[test]
 fn runtime_evidence_preserves_the_protocol_item_through_translation_and_fold() {
     let source = AgentRuntimeEvent::SendEvidence {
         thread_id: "own-thread".into(),
