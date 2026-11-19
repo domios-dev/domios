@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
+import { EVENT_STREAM_LOST, EVENT_STREAM_READY } from "../../lib/eventStreamReady";
+import { onResync } from "../../lib/resync";
 import { classifyTabTarget } from "../../lib/remoteTabTransport";
+import { onRemoteTabEventSignal } from "../../lib/remoteTabEvents";
 import { useAgentDescriptors } from "../../lib/useAgentDescriptor";
 import { useTabActivity } from "../../lib/useTabActivity";
 import { isProviderSelectable } from "../../lib/providerAvailability";
@@ -9,11 +12,14 @@ import { reasoningEffortsForModel, resolveEffort, resolveProviderModel } from ".
 import type { Tab } from "../../lib/types";
 import { getTabProviderApi } from "./tabProviderApi";
 import { supportsProviderHandoff, switchTabProvider, type ProviderSwitchResult, type ProviderSwitchStatus } from "./tabProviderMenu";
-import type { ProviderSwitchStatusPhase } from "./providerSwitchStatusModel";
+import { preferProviderSwitchStatus, type ProviderSwitchStatusPhase } from "./providerSwitchStatusModel";
 
 function providerSwitchStatusEvent(tabId: string): string {
   return classifyTabTarget(tabId).kind === "remote" ? `provider-switch-status:${tabId}` : "provider-switch-status";
 }
+
+type DialogPhase = "choosing" | "waiting" | "switching" | "complete" | "unconfirmed";
+const MAX_EARLY_STATUS_OPERATIONS = 128;
 
 export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   const providers = useAgentDescriptors().filter((provider) => supportsProviderHandoff(provider) && provider.id !== tab.agent_type);
@@ -25,7 +31,7 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   const effort = resolveEffort(provider, model, selectedEffort);
   const efforts = reasoningEffortsForModel(provider, model);
   const activity = useTabActivity(tab.id, tab);
-  const [phase, setPhase] = useState<"choosing" | "waiting" | "switching" | "complete">("choosing");
+  const [phase, setPhase] = useState<DialogPhase>("choosing");
   const [error, setError] = useState<string | null>(null);
   const [retryAfterSeconds, setRetryAfterSeconds] = useState<number | null>(null);
   const [switchStatus, setSwitchStatus] = useState<ProviderSwitchStatusPhase | null>(null);
@@ -33,13 +39,24 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   const [history, setHistory] = useState<Array<{ kind: string; content: string }> | null>(null);
   const submitting = useRef(false);
   const activeOperationId = useRef<string | null>(null);
-  const earlyStatus = useRef<ProviderSwitchStatus | null>(null);
-  const statusListenerReady = useRef<Promise<void>>(Promise.resolve());
+  const acceptedStatus = useRef<ProviderSwitchStatus | null>(null);
+  const earlyStatuses = useRef(new Map<string, ProviderSwitchStatus>());
+  const statusRegistration = useRef<() => Promise<void>>(() => Promise.resolve());
   const statusHandler = useRef<(status: ProviderSwitchStatus) => void>(() => {});
+  const reconciliationRequests = useRef(new Map<string, Promise<void>>());
+  const reconciliationAgain = useRef(new Set<string>());
   const ready = activity.status === "Idle" && !activity.launching;
+  const statusEvent = providerSwitchStatusEvent(tab.id);
+  const remoteStatusTarget = classifyTabTarget(tab.id).kind === "remote";
+
+  function clearAttempt() {
+    activeOperationId.current = null;
+    acceptedStatus.current = null;
+    earlyStatuses.current.clear();
+  }
 
   function failSwitch(detail: string) {
-    activeOperationId.current = null;
+    clearAttempt();
     setError(detail);
     setRetryAfterSeconds(describeError(detail, { operation: "switching the harness" }).retryAfterSeconds ?? null);
     setSwitchStatus({ phase: "failed", error: detail });
@@ -47,17 +64,22 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   }
 
   function applyStatus(status: ProviderSwitchStatus) {
-    if (status.phase === "failed") {
-      failSwitch(status.error ?? "The destination provider could not be bound.");
+    if (status.operation_id !== activeOperationId.current || status.tab_id !== tab.id) return;
+    const current = acceptedStatus.current;
+    const preferred = preferProviderSwitchStatus(current ?? undefined, status);
+    if (current && preferred === current) return;
+    acceptedStatus.current = preferred;
+    if (preferred.phase === "failed") {
+      failSwitch(preferred.error ?? "The destination provider could not be bound.");
       return;
     }
-    if (status.phase === "completed") {
-      const outcome = status.outcome;
+    if (preferred.phase === "completed") {
+      const outcome = preferred.outcome;
       if (!outcome?.handoff_delivered || !outcome.binding_restored) {
         failSwitch("The provider did not confirm handoff delivery and session binding.");
         return;
       }
-      activeOperationId.current = null;
+      clearAttempt();
       setSwitchStatus({ phase: "completed", error: null });
       setResult(outcome);
       setError(null);
@@ -65,58 +87,134 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
       setPhase("complete");
       return;
     }
-    setSwitchStatus({ phase: status.phase, error: status.error });
+    setSwitchStatus({ phase: preferred.phase, error: preferred.error });
+    setError(null);
+    setPhase("switching");
+  }
+
+  function markUnconfirmed(operationId: string, detail: string) {
+    if (activeOperationId.current !== operationId) return;
+    setSwitchStatus({ phase: "unconfirmed", error: detail });
+    setPhase("unconfirmed");
+  }
+
+  function reconcileAcceptedStatus(operationId: string): Promise<void> {
+    if (activeOperationId.current !== operationId) return Promise.resolve();
+    const current = reconciliationRequests.current.get(operationId);
+    if (current) {
+      reconciliationAgain.current.add(operationId);
+      return current;
+    }
+    const request = (async () => {
+      try {
+        const status = await invoke<ProviderSwitchStatus | null>("provider_switch_status", {
+          tabId: tab.id,
+          operationId,
+          wait: false,
+        });
+        if (activeOperationId.current !== operationId) return;
+        if (!status || status.operation_id !== operationId) {
+          throw new Error("The provider switch status did not match the accepted operation.");
+        }
+        applyStatus({ ...status, tab_id: tab.id });
+      } catch (failure) {
+        markUnconfirmed(operationId, failure instanceof Error ? failure.message : String(failure));
+      } finally {
+        reconciliationRequests.current.delete(operationId);
+        if (reconciliationAgain.current.delete(operationId) && activeOperationId.current === operationId) {
+          void reconcileAcceptedStatus(operationId);
+        }
+      }
+    })();
+    reconciliationRequests.current.set(operationId, request);
+    return request;
   }
 
   statusHandler.current = (status) => {
     if (status.tab_id !== tab.id) return;
-    if (activeOperationId.current === null) {
-      earlyStatus.current = status;
+    if (activeOperationId.current === status.operation_id) {
+      applyStatus(status);
       return;
     }
-    if (status.operation_id === activeOperationId.current) applyStatus(status);
+    if (!submitting.current) return;
+    const previous = earlyStatuses.current.get(status.operation_id);
+    if (!previous && earlyStatuses.current.size >= MAX_EARLY_STATUS_OPERATIONS) {
+      const oldest = earlyStatuses.current.keys().next();
+      if (!oldest.done) earlyStatuses.current.delete(oldest.value);
+    }
+    earlyStatuses.current.set(status.operation_id, preferProviderSwitchStatus(previous, status));
   };
 
   useEffect(() => {
     let active = true;
     let unlisten: UnlistenFn | null = null;
-    const ready = listen<ProviderSwitchStatus>(providerSwitchStatusEvent(tab.id), ({ payload }) => {
-      if (active) statusHandler.current(payload);
-    }).then((stop) => {
-      if (active) unlisten = stop;
-      else stop();
-    });
-    statusListenerReady.current = ready;
-    void ready.catch(() => undefined);
+    let registration: Promise<void> | null = null;
+    const ensureStatusListener = (): Promise<void> => {
+      if (!active) return Promise.reject(new Error("The provider status listener is no longer active."));
+      if (unlisten) return Promise.resolve();
+      if (registration) return registration;
+      const attempt = listen<ProviderSwitchStatus>(statusEvent, ({ payload }) => {
+        if (active) statusHandler.current(payload);
+      }).then((stop) => {
+        if (active) unlisten = stop;
+        else stop();
+      });
+      registration = attempt.catch((failure) => {
+        registration = null;
+        throw failure;
+      });
+      return registration;
+    };
+    const reconcileAfterSignal = () => {
+      const operationId = activeOperationId.current;
+      if (operationId) void reconcileAcceptedStatus(operationId);
+    };
+    statusRegistration.current = ensureStatusListener;
+    const stopRemoteSignals = remoteStatusTarget
+      ? onRemoteTabEventSignal(statusEvent, reconcileAfterSignal)
+      : null;
+    if (!remoteStatusTarget) {
+      window.addEventListener(EVENT_STREAM_READY, reconcileAfterSignal);
+      window.addEventListener(EVENT_STREAM_LOST, reconcileAfterSignal);
+    }
+    const stopResync = remoteStatusTarget ? null : onResync(reconcileAfterSignal);
+    void ensureStatusListener().catch(() => undefined);
     return () => {
       active = false;
       unlisten?.();
+      stopRemoteSignals?.();
+      if (!remoteStatusTarget) {
+        window.removeEventListener(EVENT_STREAM_READY, reconcileAfterSignal);
+        window.removeEventListener(EVENT_STREAM_LOST, reconcileAfterSignal);
+      }
+      stopResync?.();
+      statusRegistration.current = () => Promise.resolve();
     };
-  }, [tab.id]);
+  }, [statusEvent, remoteStatusTarget, tab.id]);
 
   function setProviderId(id: string) {
     updateProviderId(id);
     setError(null);
-    setRetryAfterSeconds(null);
     setSwitchStatus(null);
   }
 
   async function submit(force = false) {
     if (!provider || submitting.current || retryAfterSeconds !== null) return;
     submitting.current = true;
-    activeOperationId.current = null;
-    earlyStatus.current = null;
+    clearAttempt();
     setSwitchStatus(null);
     setPhase("switching");
     setError(null);
     try {
-      await statusListenerReady.current;
+      await statusRegistration.current();
       const accepted = await switchTabProvider(getTabProviderApi(), tab.id, provider.id, { model, reasoningEffort: effort, force });
       if (accepted && "operation_id" in accepted) {
         activeOperationId.current = accepted.operation_id;
-        const observed = earlyStatus.current;
-        earlyStatus.current = null;
-        applyStatus(observed?.operation_id === accepted.operation_id ? observed : accepted);
+        const early = earlyStatuses.current.get(accepted.operation_id);
+        earlyStatuses.current.clear();
+        const initial = { ...accepted, tab_id: tab.id };
+        applyStatus(early ? preferProviderSwitchStatus(initial, { ...early, tab_id: tab.id }) : initial);
+        if (activeOperationId.current === accepted.operation_id) await reconcileAcceptedStatus(accepted.operation_id);
         return;
       }
       if (!accepted || !accepted.handoff_delivered || !accepted.binding_restored) {
@@ -125,9 +223,12 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
       setSwitchStatus({ phase: "completed", error: null });
       setResult(accepted);
       setPhase("complete");
-    } catch (error) {
-      failSwitch(error instanceof Error ? error.message : String(error));
-    } finally { submitting.current = false; }
+    } catch (failure) {
+      failSwitch(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      earlyStatuses.current.clear();
+      submitting.current = false;
+    }
   }
 
   const submitRef = useRef(submit);
@@ -151,7 +252,7 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
       const rows: unknown = await invoke("read_provider_history", { tabId: tab.id, file: result.previous_history_path });
       if (!Array.isArray(rows)) throw new Error("The previous transcript is unavailable.");
       setHistory(rows.filter((row): row is { type: string; content: string } => row !== null && typeof row === "object" && typeof row.type === "string" && typeof row.content === "string").map((row) => ({ kind: row.type, content: row.content })));
-    } catch (error) { setError(String(error)); }
+    } catch (failure) { setError(String(failure)); }
   }
 
   return { providers, providerId, setProviderId, provider, selectedModel, setModel, model, setEffort, effort, efforts,

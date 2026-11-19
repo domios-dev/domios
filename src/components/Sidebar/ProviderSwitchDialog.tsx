@@ -38,7 +38,7 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
       if (workspaceId) await navigation.show({ workspaceId, tabId: launch.tab_id });
     } catch (failure) { setInstallError(failure instanceof Error ? failure.message : String(failure)); }
   }
-  const statusView = providerSwitchStatusView(switchStatus ?? (phase === "switching" ? { phase: "pending", error: null } : null), provider?.display_name ?? "the new provider");
+  const statusView = providerSwitchStatusView(switchStatus, provider?.display_name ?? "the new provider");
   const failure = statusView?.kind === "failed" ? statusView.reason : error ?? installError;
   return <FormDialog titleId={titleId} descriptionId={descriptionId} onCancel={() => { if (phase !== "switching") onClose(); }} onSubmit={(event) => { event.preventDefault(); if (ready) void submit(); }} className="max-w-lg">
     <h2 id={titleId} className="font-semibold">Switch harness</h2>
@@ -59,16 +59,20 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
       onInstallProvider={(id) => void install(id)}
     />}
     {failure && <SwitchFailure error={failure} id={errorId} harnessName={provider?.display_name} operation={error || statusView?.kind === "failed" ? "switching the harness" : "starting the installer"} />}
-    {statusView?.kind === "busy" && <div role="status" aria-live="polite" aria-busy="true" className="flex items-center gap-3 rounded-md border border-[var(--ct-border)] p-3 text-sm">
-      <BusySpinner icon={LoaderCircle} size={16} />
+    {statusView?.kind === "busy" && <div role="status" aria-live="polite" className="flex items-center gap-3 rounded-md border border-[var(--ct-border)] p-3 text-sm">
+      <span aria-hidden="true"><BusySpinner icon={LoaderCircle} size={16} /></span>
       <span>{statusView.label}</span>
     </div>}
     {statusView?.kind === "complete" && <div role="status" aria-live="polite" className="text-sm">{statusView.label}</div>}
+    {statusView?.kind === "unconfirmed" && <div role="alert" aria-live="assertive" className="text-sm">
+      <p>The switch may have completed, but Domios could not confirm its status. Check this tab before starting another switch.</p>
+      <p className="mt-1 text-[var(--ct-muted-fg)]">{statusView.reason}</p>
+    </div>}
     {phase === "waiting" && <p role="status">Waiting for this tab to become idle. Cancel to keep the current harness.</p>}
     {result && <Button size="sm" onClick={() => void showHistory()}>Previous harness: {result.previous_provider}</Button>}
     {history && <section aria-label="Previous harness transcript" className="max-h-72 overflow-auto text-sm">{history.map((row, index) => <article key={index}><strong>{row.kind}</strong><pre className="whitespace-pre-wrap">{row.content}</pre></article>)}</section>}
     <div className="flex justify-end gap-2">
-      <Button size="sm" disabled={phase === "switching"} onClick={onClose}>{phase === "complete" ? "Close" : "Cancel"}</Button>
+      <Button size="sm" disabled={phase === "switching"} onClick={onClose}>{phase === "complete" || phase === "unconfirmed" ? "Close" : "Cancel"}</Button>
       {phase === "choosing" && !ready && <>
         <Button size="sm" onClick={() => setPhase("waiting")} disabled={!provider || retryAfterSeconds !== null}>Wait for idle</Button>
         <Button size="sm" variant="danger" onClick={() => void submit(true)} disabled={!provider || activity.launching || retryAfterSeconds !== null}>Stop and switch</Button>

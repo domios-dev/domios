@@ -3,6 +3,28 @@ import { createRemoteChannelRecovery, createSilenceDeadline, streamResponseFailu
 import { classifyTabTarget, onRemoteTransportCredentials, parseCompositeTabId, remoteTabTransportHttp, } from "./remoteTabTransport";
 import { publishRemoteTransportState } from "./remoteTabTransportState";
 let eventClient: TransportClient | undefined;
+export type RemoteTabEventSignal = "ready" | "resync" | "lost";
+const lifecycleListeners = new Map<string, Set<(signal: RemoteTabEventSignal) => void>>();
+
+export function onRemoteTabEventSignal(
+    event: string,
+    handler: (signal: RemoteTabEventSignal) => void,
+): () => void {
+    const listeners = lifecycleListeners.get(event) ?? new Set();
+    listeners.add(handler);
+    lifecycleListeners.set(event, listeners);
+    return () => {
+        listeners.delete(handler);
+        if (!listeners.size)
+            lifecycleListeners.delete(event);
+    };
+}
+
+function signalRemoteTabEvent(event: string, signal: RemoteTabEventSignal): void {
+    for (const handler of lifecycleListeners.get(event) ?? [])
+        handler(signal);
+}
+
 export function bindRemoteTabEventsTransport(client: TransportClient): void {
     eventClient = client;
     for (const record of subscriptions.values())
@@ -70,6 +92,8 @@ function connect(record: SubscriptionRecord): void {
         if (message.boot && typeof message.seq === "number") {
             progressed = record.recovery.noteProgress(generation, { boot: message.boot, seq: message.seq });
         }
+        if (record.kind === "provider-switch-status" && message.event_type === "overflow")
+            signalRemoteTabEvent(record.event, "resync");
         if (progressed && message.data && message.event_type === `preview-index-state-${record.remoteTabId}`) {
             for (const handler of previewHandlers.get(record.ordinaryTabId) ?? []) handler({ payload: message.data });
         }
@@ -101,7 +125,11 @@ function connect(record: SubscriptionRecord): void {
             record.handler({ payload: { event_type: message.event_type, peer_id: record.peerId } });
         }
     }, {
-        signal: controller.signal, raw: true, onStarting: () => deadline.clear(), onReady: () => deadline.arm(), onActivity: () => deadline.arm(),
+        signal: controller.signal, raw: true, onStarting: () => deadline.clear(), onReady: () => {
+            deadline.arm();
+            if (record.kind === "provider-switch-status")
+                signalRemoteTabEvent(record.event, "ready");
+        }, onActivity: () => deadline.arm(),
         onEnd(end) {
             const reason: StreamEndReason = end.reason === "http" ? streamResponseFailureReason(end.status ?? 500)
                 : end.reason === "eof" ? "eof" : "error";
@@ -112,6 +140,8 @@ function connect(record: SubscriptionRecord): void {
             const settled = record.settlements.get(generation);
             record.settlements.delete(generation);
             settled?.resolve();
+            if (ownsGeneration && !record.disposed && record.kind === "provider-switch-status")
+                signalRemoteTabEvent(record.event, "lost");
             if (controller.signal.aborted)
                 return;
             const decision = record.recovery.handleStreamEnd(generation, reason);

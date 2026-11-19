@@ -2,7 +2,7 @@ import { configureDaemonTransport } from "./daemonBootstrap";
 import { configureRemoteTabTransport } from "./remoteTabTransport";
 import { afterEach, describe, expect, finish, it, vi } from "../test/standaloneTest";
 import {
-  remoteTabEventSubscriptionSnapshot, resumeRemoteTabEvents, subscribeRemoteTabEvent,
+  onRemoteTabEventSignal, remoteTabEventSubscriptionSnapshot, resumeRemoteTabEvents, subscribeRemoteTabEvent,
 } from "./remoteTabEvents";
 import { onRemoteTransportState } from "./remoteTabTransportState";
 
@@ -48,6 +48,34 @@ describe("remote chat event subscription ownership", () => {
       await delivered;
       expect(received).toEqual([{ ...status, tab_id: "mesh:peer/tab" }]);
     } finally { stop!(); }
+  });
+
+  it("signals provider switch stream readiness, overflow and loss", async () => {
+    const event = "provider-switch-status:mesh:peer/tab";
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    vi.stubGlobal("fetch", async () => new Response(new ReadableStream({ start(controller) { stream = controller; } })));
+    const received: string[] = [];
+    const waits = new Map<string, () => void>();
+    const when = (signal: string) => new Promise<void>((resolve) => waits.set(signal, resolve));
+    const ready = when("ready");
+    const stopSignals = onRemoteTabEventSignal(event, (signal) => {
+      received.push(signal);
+      waits.get(signal)?.();
+    });
+    const stop = subscribeRemoteTabEvent(event, () => undefined)!;
+    try {
+      await ready;
+      const resynced = when("resync");
+      stream.enqueue(new TextEncoder().encode('data: {"boot":"b","seq":1,"event_type":"overflow","data":{}}\n\n'));
+      await resynced;
+      const lost = when("lost");
+      stream.error(new Error("peer stream lost"));
+      await lost;
+      expect(received).toEqual(["ready", "resync", "lost"]);
+    } finally {
+      stop();
+      stopSignals();
+    }
   });
 
   it("forwards peer state changes without local mux events", async () => {
