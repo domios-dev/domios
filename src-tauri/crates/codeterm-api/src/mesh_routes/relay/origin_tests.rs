@@ -128,69 +128,84 @@ async fn relay_wire_round_trips_preserve_agent_and_owner_authority_through_neste
         .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
-    let peer = second.mesh.lock().sign_request().unwrap();
+    let mesh = first.mesh.lock().sign_request().unwrap();
     let app = Router::new()
         .merge(crate::transport_capabilities::router())
         .route(
             "/api/surfaces/{tab_id}/call",
             post(crate::surface_routes::call),
         )
+        .route("/api/mesh/relay-to", post(super::mesh_relay_to_peer))
         .layer(axum::middleware::from_fn_with_state(
-            first.clone(),
+            second.clone(),
             crate::auth::auth_middleware,
         ))
-        .with_state(first.clone());
+        .with_state(second.clone());
+    let destination = || PeerClient::new_signed("127.0.0.1", 1, "discarded");
     for (label, token, expected) in [
         ("agent", agent, AuthenticatedOrigin::Agent),
         ("owner", "owner-secret".into(), AuthenticatedOrigin::Owner),
-        ("peer", peer, AuthenticatedOrigin::Mesh),
+        ("mesh", mesh, AuthenticatedOrigin::Mesh),
     ] {
-        let mut caller_headers = headers(&token);
-        assert_eq!(
-            authenticated_origin(&first, &caller_headers).unwrap(),
-            expected
-        );
-        for hops in 0..3 {
-            for (method, path, body) in [
-                ("GET", "/api/system/default-cwd".into(), Value::Null),
-                (
-                    "POST",
-                    format!("/api/surfaces/{surface}/call"),
-                    json!({
-                        "method":"profiles.create", "args":{"name":format!("{label}-{hops}")},
-                    }),
-                ),
-            ] {
-                let cmd = RelayCommand {
-                    method: method.into(),
-                    path,
-                    body,
-                    delivery_id: None,
-                };
-                let origin = authenticated_origin(&first, &caller_headers).unwrap();
-                let request = origin::loopback_request(
-                    &first,
-                    origin,
-                    &cmd,
-                    &cmd.body,
-                    crate::auth::authenticated_agent(&first, &caller_headers)
-                        .unwrap()
-                        .as_ref(),
-                )
-                .unwrap();
-                let response = app.clone().oneshot(wire_request(request)).await.unwrap();
-                if method == "GET" {
-                    assert_eq!(
-                        response.status(),
-                        if expected == AuthenticatedOrigin::Agent {
-                            StatusCode::FORBIDDEN
-                        } else {
-                            StatusCode::OK
-                        },
-                        "{label} hops={hops}"
-                    );
-                } else {
-                    assert_eq!(response.status(), StatusCode::OK);
+        let caller = headers(&token);
+        let initiating_agent = crate::auth::authenticated_agent(&first, &caller).unwrap();
+        for (method, path, body) in [
+            ("GET", "/api/system/default-cwd".into(), Value::Null),
+            (
+                "POST",
+                format!("/api/surfaces/{surface}/call"),
+                json!({"method":"profiles.create","args":{"name":label}}),
+            ),
+            (
+                "POST",
+                "/api/mesh/relay-to".into(),
+                json!({"target_peer_id":"first","method":"GET","path":"/api/system/default-cwd"}),
+            ),
+        ] {
+            let cmd = RelayCommand {
+                method: method.into(),
+                path,
+                body,
+                delivery_id: None,
+            };
+            let client = origin::peer_client(&first, &caller, destination()).unwrap();
+            let outward = client.relay_request(&cmd).unwrap();
+            let authorization = outward.headers()["authorization"].clone();
+            let loopback =
+                origin::loopback_request_with_auth(&second, &cmd, &cmd.body, authorization.clone())
+                    .unwrap();
+
+            assert_eq!(loopback.headers()["authorization"], authorization);
+            assert_eq!(
+                authenticated_origin(&second, loopback.headers()).unwrap(),
+                expected
+            );
+            assert_eq!(
+                crate::auth::authenticated_agent(&second, loopback.headers()).unwrap(),
+                initiating_agent,
+            );
+            assert!(matches!(
+                crate::auth::caller_identity(&second, loopback.headers()),
+                Ok(crate::auth::CallerIdentity::Peer { instance_id, .. }) if instance_id == "first"
+            ));
+            assert!(matches!(
+                origin::peer_client(&second, loopback.headers(), destination()),
+                Err((StatusCode::FORBIDDEN, _))
+            ));
+
+            let response = app.clone().oneshot(wire_request(loopback)).await.unwrap();
+            if cmd.path == "/api/mesh/relay-to"
+                || (method == "GET" && expected == AuthenticatedOrigin::Agent)
+            {
+                assert_eq!(
+                    response.status(),
+                    StatusCode::FORBIDDEN,
+                    "{label} {}",
+                    cmd.path
+                );
+            } else {
+                assert_eq!(response.status(), StatusCode::OK, "{label} {}", cmd.path);
+                if method == "POST" {
                     let body: Value = serde_json::from_slice(
                         &to_bytes(response.into_body(), 65536).await.unwrap(),
                     )
@@ -201,53 +216,10 @@ async fn relay_wire_round_trips_preserve_agent_and_owner_authority_through_neste
                             "{body}"
                         );
                     } else {
-                        assert!(body.get("result").is_some(), "{label} hops={hops}: {body}");
+                        assert!(body.get("result").is_some(), "{label}: {body}");
                     }
                 }
             }
-            let cmd = RelayCommand {
-                method: "POST".into(),
-                path: "/api/mesh/relay-to".into(),
-                body: json!({
-                    "target_peer_id":"first", "method":"GET", "path":"/api/system/default-cwd",
-                }),
-                delivery_id: None,
-            };
-            let client = origin::peer_client(
-                &first,
-                &caller_headers,
-                PeerClient::new_signed("127.0.0.1", 1, "discarded"),
-            )
-            .unwrap();
-            let outward = client.relay_request(&cmd).unwrap();
-            assert_eq!(
-                authenticated_origin(&second, outward.headers()).unwrap(),
-                expected
-            );
-            let received_origin = authenticated_origin(&second, outward.headers()).unwrap();
-            let loopback = origin::loopback_request(
-                &second,
-                received_origin,
-                &cmd,
-                &cmd.body,
-                crate::auth::authenticated_agent(&second, outward.headers())
-                    .unwrap()
-                    .as_ref(),
-            )
-            .unwrap();
-            let client = origin::peer_client(
-                &second,
-                loopback.headers(),
-                PeerClient::new_signed("127.0.0.1", 1, "discarded"),
-            )
-            .unwrap();
-            let returning = client.relay_request(&cmd).unwrap();
-            assert_eq!(
-                authenticated_origin(&first, returning.headers()).unwrap(),
-                expected
-            );
-            caller_headers = returning.headers().clone();
-            caller_headers.insert("x-codeterm-authenticated-origin", "Owner".parse().unwrap());
         }
     }
 }
@@ -473,12 +445,11 @@ async fn agent_mesh_send_and_tab_list_succeed_without_owner_authority() {
             .unwrap();
         assert_eq!(agent.tab_id, source_tab);
         assert_eq!(agent.instance_id, "origin-machine");
-        let request = origin::loopback_request(
+        let request = origin::loopback_request_with_auth(
             &second,
-            AuthenticatedOrigin::Agent,
             &cmd,
             &cmd.body,
-            Some(&agent),
+            outward.headers()["authorization"].clone(),
         )
         .unwrap();
         let response = app.clone().oneshot(wire_request(request)).await.unwrap();
