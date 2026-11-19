@@ -121,7 +121,7 @@ Standard envelope fields (separate from event properties):
 - **Resource:** `workspaces`, `teams`, `agent_tabs`, `mesh_machines`, `memory_items`, `neighbors`
 - **UpgradeSource:** `limit_dialog`, `account_settings`
 - **CheckoutOutcome:** `opened`, `returned`, `failed`
-- **SettingsSection:** `root`, `account`, `privacy`, `general`, `notifications`, `agents`, `secrets`, `jobs`, `logs`, `guide`, `about`, `agent_provider`
+- **SettingsSection:** `root`, `account`, `privacy`, `general`, `mesh`, `notifications`, `agents`, `secrets`, `jobs`, `logs`, `guide`, `about`, `agent_provider`
 - **ProviderChangeOutcome:** `applied`, `pending`
 - **ModelChangeMode:** `live`, `restart`, `next_turn`
 - **ModelChangeOutcome:** `observed`, `pending`
@@ -165,4 +165,4 @@ Authenticated server refusals with `UNAUTHENTICATED` and `details: {"reason":"se
 
 Headless sign-in: `domios account login --no-browser` prints an authorization URL. Open it on another machine, then paste the whole redirected callback URL into stdin; it must include both code and state. A failed loopback navigation still leaves that URL in the browser's address bar. Bare codes are refused. EOF on stdin leaves the flow pending in the daemon until its normal timeout. In a Domios tab, `domios account login --no-browser --code-from-pad callback.txt` completes that pending flow from the calling tab's pad without replacing its state/verifier. Keep callback values out of logs and shell history. The existing timeout and single-use checks apply.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->

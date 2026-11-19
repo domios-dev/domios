@@ -11,7 +11,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setListenForTest } from "./bridge";
-import { __resetChimeContextForTest, establishChimeContext } from "./notificationSound";
+import { __resetChimeContextForTest, establishChimeContext, publishRemoteNotificationArrival } from "./notificationSound";
 import { useNotificationSound } from "../hooks/useNotificationSound";
 import type { AgentLevelChoice } from "./types";
 
@@ -157,6 +157,9 @@ async function mountListener() {
       check(handler, "the hook subscribes to the daemon arrival event");
       await act(async () => handler({ payload: { level } }));
     },
+    async arriveRemote(level: string) {
+      await act(async () => publishRemoteNotificationArrival(level));
+    },
     async done() {
       await act(async () => root.unmount());
       host.remove();
@@ -203,6 +206,13 @@ async function main() {
     afterArrival.built === 1,
     `and it sounds on the context the gesture established, got ${afterArrival.built} context(s)`,
   );
+
+  const beforeRemoteArrival = observed().notes;
+  await listener.arriveRemote("action_needed");
+  const afterRemoteArrival = observed().notes;
+  check(afterRemoteArrival > beforeRemoteArrival, "remote arrivals use the same level-gated chime");
+  await listener.arriveRemote("verbose");
+  check(observed().notes === afterRemoteArrival, "a remote verbose arrival follows the silent shipped level policy");
 
   const context = probe.last;
   check(context, "the probe recorded the context the gesture established");

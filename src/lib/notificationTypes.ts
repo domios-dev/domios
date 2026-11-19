@@ -5,6 +5,12 @@ export type CallerNotificationAction = import("../../gen/CallerNotificationActio
 
 export type NotificationPromptIdentity = import("../../gen/PromptIdentity").PromptIdentity;
 
+export interface RemoteNotificationOrigin {
+  peerId: string;
+  sourceId: string;
+  peerName: string;
+}
+
 /** The answer slot of one notification: the tab captured when the question was
  * sent, and the single label it may ever hold. */
 export type NotificationAnswer = Omit<import("../../gen/AnswerSlot").AnswerSlot, "answered_via"> & Partial<Pick<import("../../gen/AnswerSlot").AnswerSlot, "answered_via">>;
@@ -23,5 +29,6 @@ icon_color?: string | null;
 icon_hint?: string | null;
 answer_pending?: boolean;
 answer_error?: string;
+remote_origin?: RemoteNotificationOrigin;
 };
 
