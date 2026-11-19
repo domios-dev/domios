@@ -5,7 +5,7 @@ import { rustRouteContracts, routeMatches } from "./transportRouteAudit";
 import type { TransportClient } from "./transportClient";
 import fixtures from "./transportCommandContracts.json";
 
-const result = { ok: true, status: 200, data: [], paired: [], plans: [], themes: [], path: "path", text: "text", output: "output", line: "line", offset: 4, pty_id: "pty", generation: 1,
+const result = { ok: true, status: 200, data: [], peer: { instance_id: "peer", instance_name: "Peer" }, paired: [], plans: [], themes: [], path: "path", text: "text", output: "output", line: "line", offset: 4, pty_id: "pty", generation: 1,
   tabs: {tab:{agent_session_id:"root",session_binding_nonce:"nonce",agent_runtime_state:{state:"loaded",epoch:4}}} };
 function fixture() {
   const calls: string[][] = [];
@@ -32,12 +32,12 @@ describe("audited command registry", () => {
     client.json = async () => { throw new Error("Unexpected selected-peer request"); };
     client.localJson = async <T>(_method: string, path: string) => {
       localCalls.push(path);
-      return { ok: true, data: [], paired: [] } as T;
+      return { ok: true, data: [], peer: result.peer } as T;
     };
     const registry = createCommandRegistry(client);
     await dispatchCommand(registry, "mesh_peer_tabs_list", { peerId: "peer" });
     await dispatchCommand(registry, "mesh_remote_tab_action", { peerId: "peer", ordinaryTabId: "mesh:peer/tab", suffix: "/inspect", method: "GET" });
-    expect(localCalls).toEqual(["/api/mesh/relay-to", "/api/mesh/peers", "/api/mesh/relay-to"]);
+    expect(localCalls).toEqual(["/api/mesh/relay-to", "/api/mesh/relay-to"]);
   });
   it("rejects unknown and prototype command names before dispatch", async () => {
     const { client, calls } = fixture();

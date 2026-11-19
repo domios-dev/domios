@@ -22,10 +22,11 @@ const s = (args: Args, key: string, alias?: string): string => String(args[key] 
 export interface PtyCursors { offsets: Map<string, number>; truncations: Map<string, number> }
 /** One relayed request on a paired peer; the peer's own refusal travels back as the error. */
 async function relayToPeer(client: TabsTransportClient, peer: string, method: string, path: string, body: unknown): Promise<unknown> {
-    const response = await client.json<{ ok?: boolean; data?: unknown; error?: string | null }>("POST", "/api/mesh/relay-to", {
-        target_peer_id: peer, method, path, body,
+    const response = await client.json<{ ok?: boolean; data?: unknown; error?: string | null; peer?: { instance_id: string } }>("POST", "/api/mesh/relay-to", {
+        target_instance_id: peer, method, path, body,
     });
     if (!response.ok) throw new Error(response.error ?? `${peer} did not answer ${method} ${path}`);
+    if (response.peer?.instance_id !== peer) throw new Error("Relay answered for a different installation");
     return response.data;
 }
 export function createTabsTransport(client: TabsTransportClient, cursors: PtyCursors = { offsets: new Map(), truncations: new Map() }) {
@@ -168,22 +169,17 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                 ok?: boolean;
                 data?: unknown;
                 error?: string | null;
+                peer?: { instance_id: string; instance_name: string };
             }>("POST", "/api/mesh/relay-to", {
-                target_peer_id: peer,
+                target_instance_id: peer,
                 method: "GET",
                 path: "/api/tabs?local_only=true",
                 body: null,
             });
             if (!response.ok)
                 throw new Error(response.error ?? "Failed to list remote Tabs");
-            const peers = await clientFor(a).json<{
-                paired?: Array<{
-                    instance_id: string;
-                    instance_name: string;
-                }>;
-            }>("GET", "/api/mesh/peers");
-            const peerName = peers.paired?.find((item) => item.instance_id === peer)?.instance_name ?? peer;
-            return { peer_id: peer, peer_name: peerName, tabs: response.data ?? [] };
+            if (response.peer?.instance_id !== peer) throw new Error("Relay answered for a different installation");
+            return { peer_id: peer, peer_name: response.peer.instance_name, tabs: response.data ?? [] };
         },
         mesh_peer_workspaces_list: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "GET", "/api/workspaces", null),
         // The peer's published multiplexer state: the only read that names both its workspaces and Teams.
@@ -211,7 +207,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                         pty_id?: string;
                     }>;
                 }>("POST", "/api/mesh/relay-to", {
-                    target_peer_id: peer,
+                    target_instance_id: peer,
                     method: "GET",
                     path: `/api/tabs/inspect?tab_ids=${enc(remoteTab)}`,
                     body: null,
@@ -220,7 +216,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             };
             if (suffix === "/pty/write") {
                 return writeRemotePty<unknown>(remotePtyIds, ordinary, resolvePtyId, (ptyId) => clientFor(a).json<RemotePtyWriteResponse<unknown>>("POST", "/api/mesh/relay-to", {
-                    target_peer_id: peer,
+                    target_instance_id: peer,
                     method: s(a, "method"),
                     path: `/api/pty/${enc(ptyId)}/write`,
                     body: a.body ?? null,
@@ -250,7 +246,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                     throw new Error("Unsupported remote PTY action");
             }
             const response = await clientFor(a).json("POST", "/api/mesh/relay-to", {
-                target_peer_id: peer,
+                target_instance_id: peer,
                 method: s(a, "method"),
                 path,
                 body: a.body ?? null,

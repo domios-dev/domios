@@ -8,6 +8,7 @@ import type {
 import type { RemotePeerTabs } from "../../lib/remoteTabPortal";
 import type { MuxStateStore } from "./selectorStore";
 import type { SessionLaunchIntent } from "../../lib/generalSession";
+import type { usePairedWorkspaces } from "./usePairedWorkspaces";
 
 /** Ids returned by a successful spawn — enough to resolve + select the tab. */
 export interface SpawnedTab {
@@ -80,6 +81,12 @@ export interface MultiplexerActionsContextType {
 
 export const MultiplexerActionsContext = createContext<MultiplexerActionsContextType | null>(null);
 export const MuxStateStoreContext = createContext<MuxStateStore | null>(null);
+type PairedWorkspaceInventory = Pick<ReturnType<typeof usePairedWorkspaces>, "generals" | "browse">;
+export const PairedWorkspaceInventoryContext = createContext<PairedWorkspaceInventory>({ generals: [], browse: null });
+
+export function usePairedWorkspaceInventory(): PairedWorkspaceInventory {
+  return useContext(PairedWorkspaceInventoryContext);
+}
 
 /** Stable action callbacks — identity does not change when mux state updates. */
 export function useMultiplexer(): MultiplexerActionsContextType {

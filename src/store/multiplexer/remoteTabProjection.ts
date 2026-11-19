@@ -1,5 +1,5 @@
 import type { Tab } from "../../lib/types";
-import { projectAttachedRemoteTab, type RemotePeerTabs } from "../../lib/remoteTabPortal";
+import { projectAttachedRemoteTab, remoteViewerIdentity, type RemotePeerTabs } from "../../lib/remoteTabPortal";
 
 export function shouldRefreshRemoteTabs(
   hasPairedPeers: boolean | null,
@@ -23,7 +23,7 @@ export function remoteControllerSignature(tabs: Readonly<Record<string, Tab>>): 
 
 export function remoteTabsFromOrdinaryProjection(tabs: Tab[]): Record<string, Tab> {
   return Object.fromEntries(
-    tabs.filter((tab) => Boolean(tab.remote_peer_id)).map((tab) => [tab.id, tab]),
+    tabs.filter(remoteViewerIdentity).map(tab => [tab.id, tab]),
   );
 }
 
@@ -69,8 +69,8 @@ export async function refreshAttachedRemoteAgentStates(
   const peerIds = [...new Set(attachments.map((tab) => tab.remote_peer_id!))];
   const peers = await Promise.allSettled(peerIds.map(readPeer));
   let tabs = projected;
-  for (const peer of peers) {
-    if (peer.status !== "fulfilled") continue;
+  for (const [index, peer] of peers.entries()) {
+    if (peer.status !== "fulfilled" || peer.value.peer_id !== peerIds[index]) continue;
     tabs = withoutVanishedAttachments(applyRemotePeerAgentStates(tabs, peer.value), attachments, peer.value);
   }
   return tabs;
