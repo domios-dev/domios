@@ -11,6 +11,8 @@ import { publishNeighborGateways } from "../Neighbors/neighborGateways";
 import { tabAttention, type TabAttention } from "./tabAttention";
 import { setSidebarMachineFilter } from "./sidebarMachineFilter";
 import { projectAttachedRemoteTab } from "../../lib/remoteTabPortal";
+import { rememberAccountMachineNames } from "../../lib/useMeshMachineIdentities";
+import { machine, pair, snapshot } from "../MeshPanel/accountMachines.testdata";
 
 vi.mock("../../lib/bridge", async actual => ({ ...await actual<object>(), invoke: vi.fn().mockResolvedValue([]), listen: vi.fn().mockResolvedValue(() => {}) }));
 vi.mock("../../hooks/useWorkspaceCrons", () => ({ useWorkspaceCrons: () => ({ jobs: [], refresh: () => {} }) }));
@@ -181,6 +183,33 @@ it("lists paired General rows alphabetically and selects their composite viewer 
     await act(async () => remoteRow?.querySelector("button")?.click());
     expect(activate).toHaveBeenCalledWith("general", "mesh:peer-a/main");
   } finally { await view.close(); }
+});
+
+it("adds the shared machine label to local and peer General subtitles only", async () => {
+  const peerId = "peer-general";
+  rememberAccountMachineNames(snapshot({
+    local_installation_id: "local-installation",
+    registry_names: [
+      machine("local-installation", "Desk [dev-main]", { admitted_at: 10 }),
+      machine("peer-installation", "Desk [dev-peer]", { admitted_at: 20 }),
+    ],
+    pairs: [pair(peerId, "Desk", { installation_id: "peer-installation" })],
+  }));
+  const viewerId = `mesh:${peerId}/main`;
+  const view = await mount({}, [{
+    peerId, name: "Desk [dev-peer]", availability: "online",
+    sessions: [{ viewerId, tab: main }],
+  }]);
+  try {
+    const subtitle = (id: string) => view.host.querySelector(`[data-tab-id="${id}"] [data-testid="tab-subline"]`)?.textContent;
+    expect(subtitle(main.id)).toBe("General Agent · Desk #1");
+    expect(subtitle(viewerId)).toBe("General Agent · Desk #2");
+    expect(subtitle(manager.id)).not.toContain("Desk");
+    expect(view.host.querySelector(`[data-tab-id="${agent.id}"]`)?.textContent).not.toContain("Desk");
+  } finally {
+    await view.close();
+    rememberAccountMachineNames(null);
+  }
 });
 
 it("retains one observed General viewer and the same row after attachment", async () => {

@@ -2,7 +2,7 @@ import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
-import { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { MultiplexerActionsContext, MuxStateStoreContext } from "../../store/multiplexer/context";
 import { createPortal } from "react-dom";
 import { ConfirmDialog } from "../Extensions/ConfirmDialog";
@@ -190,16 +190,17 @@ function TabWorkingActivity({ activity, label }: { activity: TabActivity; label?
   );
 }
 
-function TabSubline({ parts, role, generalAgent }: { parts: string[]; role: string | null; generalAgent: boolean }) {
-  if (!parts.length) return null;
+export const GeneralListMachineContext = createContext<string | null>(null);
+
+function TabSubline({ role, generalAgent, machine }: { role: string | null; generalAgent: boolean; machine?: string | null }) {
+  if (!role) return null;
   return (
     <span data-testid="tab-subline" className="flex min-w-0 items-center gap-1 truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">
-      {parts.map((part, index) => (
-        <span key={index}>
-          {index > 0 && " · "}
-          {part === role ? (generalAgent ? <span data-testid="general-agent-subtitle">{part}</span> : <RoleBadge label={part} />) : part}
-        </span>
-      ))}
+      {generalAgent ? <span className="shrink-0" data-testid="general-agent-subtitle">{role}</span> : <span><RoleBadge label={role} /></span>}
+      {machine && <>
+        <span className="shrink-0" aria-hidden="true"> · </span>
+        <span className="min-w-0 truncate" title={machine}>{machine}</span>
+      </>}
     </span>
   );
 }
@@ -253,6 +254,7 @@ function TabItemInner({
   const tab = useLiveRowTab(rowTab);
   const machineFilter = useSidebarMachineFilter();
   const wholeTeam = useContext(SidebarWholeTeam);
+  const localGeneralMachine = useContext(GeneralListMachineContext);
   const lock = useTabLock(tab);
   const activate = () => {
     if (!observedMachine?.cached && !openLockedPlans(lock)) onClick();
@@ -316,6 +318,7 @@ function TabItemInner({
   const remote = useRemoteTabPresentation(tab, tabState, observedMachine);
   const remoteStateLabel = remote?.unavailable;
   const machine = remote?.name;
+  const generalMachine = localGeneralMachine && isGeneralAgent && !wholeTeam ? machine ?? localGeneralMachine : null;
   const remoteLabel = remote ? `${displayTitle}, ${remote.label}` : null;
   const accessibleRowLabel = remoteLabel ?? accessibleTitle;
   const showActivityMarkers = !remoteStateLabel;
@@ -323,7 +326,7 @@ function TabItemInner({
   // A Team worker reads as name and role label; its description stays in the row's tooltip.
   const labelledWorker = tab.role === "Worker" && Boolean(tab.role_label?.trim());
   const activityDescription = hasAgent && tabState.phase === "compacting" ? tabState.label : labelledWorker ? null : description;
-  const rowText = tabRowText({ title: displayTitle, description: activityDescription, typeLabel: roleShield });
+  const rowText = tabRowText({ title: displayTitle, description: activityDescription, typeLabel: generalMachine ? accessibleTitle : roleShield });
   const isSubTab =
     !anchorsTeam(tab) && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
@@ -554,7 +557,7 @@ function TabItemInner({
           </span>
         ) : attachment ? null : (
           <span className="sidebar-tab-body__sub">
-            <TabSubline parts={rowText.typeLabel ? [rowText.typeLabel] : []} role={rowText.typeLabel} generalAgent={isGeneralAgent} />
+            <TabSubline role={rowText.typeLabel} generalAgent={isGeneralAgent} machine={generalMachine} />
             <TabDescriptionSubtitle description={rowText.description} />
           </span>
         )}
