@@ -8,8 +8,7 @@ export interface ProviderSwitchStatusPhase {
 export type ProviderSwitchStatusView =
   | { kind: "busy"; label: string }
   | { kind: "complete"; label: string }
-  | { kind: "failed"; reason: string }
-  | { kind: "unconfirmed"; reason: string };
+  | { kind: "failed"; reason: string };
 
 const terminalPhases = new Set(["completed", "failed"]);
 
@@ -41,7 +40,6 @@ export function providerSwitchStatusView(
     case "running": return { kind: "busy", label: `Switching to ${targetName}…` };
     case "completed": return { kind: "complete", label: "Bound — continuing" };
     case "failed": return { kind: "failed", reason: status.error ?? "The provider switch failed." };
-    case "unconfirmed": return { kind: "unconfirmed", reason: status.error ?? "The switch status could not be confirmed." };
     default: return { kind: "busy", label: `Switching to ${targetName}…` };
   }
 }

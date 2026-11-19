@@ -18,7 +18,7 @@ function providerSwitchStatusEvent(tabId: string): string {
   return classifyTabTarget(tabId).kind === "remote" ? `provider-switch-status:${tabId}` : "provider-switch-status";
 }
 
-type DialogPhase = "choosing" | "waiting" | "switching" | "complete" | "unconfirmed";
+type DialogPhase = "choosing" | "waiting" | "switching" | "complete";
 const MAX_EARLY_STATUS_OPERATIONS = 128;
 
 export function useProviderSwitch(tab: Tab, initialProviderId: string) {
@@ -33,6 +33,8 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   const activity = useTabActivity(tab.id, tab);
   const [phase, setPhase] = useState<DialogPhase>("choosing");
   const [error, setError] = useState<string | null>(null);
+  const [statusUncertainty, setStatusUncertainty] = useState<string | null>(null);
+  const [observationLost, setObservationLost] = useState(false);
   const [retryAfterSeconds, setRetryAfterSeconds] = useState<number | null>(null);
   const [switchStatus, setSwitchStatus] = useState<ProviderSwitchStatusPhase | null>(null);
   const [result, setResult] = useState<ProviderSwitchResult | null>(null);
@@ -58,13 +60,17 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   function failSwitch(detail: string) {
     clearAttempt();
     setError(detail);
+    setStatusUncertainty(null);
+    setObservationLost(false);
     setRetryAfterSeconds(describeError(detail, { operation: "switching the harness" }).retryAfterSeconds ?? null);
     setSwitchStatus({ phase: "failed", error: detail });
     setPhase("choosing");
   }
 
-  function applyStatus(status: ProviderSwitchStatus) {
+  function applyStatus(status: ProviderSwitchStatus, source: "accepted" | "snapshot" | "event") {
     if (status.operation_id !== activeOperationId.current || status.tab_id !== tab.id) return;
+    if (source !== "accepted") setStatusUncertainty(null);
+    if (source === "event") setObservationLost(false);
     const current = acceptedStatus.current;
     const preferred = preferProviderSwitchStatus(current ?? undefined, status);
     if (current && preferred === current) return;
@@ -83,6 +89,8 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
       setSwitchStatus({ phase: "completed", error: null });
       setResult(outcome);
       setError(null);
+      setStatusUncertainty(null);
+      setObservationLost(false);
       setRetryAfterSeconds(null);
       setPhase("complete");
       return;
@@ -94,8 +102,7 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
 
   function markUnconfirmed(operationId: string, detail: string) {
     if (activeOperationId.current !== operationId) return;
-    setSwitchStatus({ phase: "unconfirmed", error: detail });
-    setPhase("unconfirmed");
+    setStatusUncertainty(detail);
   }
 
   function reconcileAcceptedStatus(operationId: string): Promise<void> {
@@ -116,7 +123,7 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
         if (!status || status.operation_id !== operationId) {
           throw new Error("The provider switch status did not match the accepted operation.");
         }
-        applyStatus({ ...status, tab_id: tab.id });
+        applyStatus({ ...status, tab_id: tab.id }, "snapshot");
       } catch (failure) {
         markUnconfirmed(operationId, failure instanceof Error ? failure.message : String(failure));
       } finally {
@@ -133,7 +140,7 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   statusHandler.current = (status) => {
     if (status.tab_id !== tab.id) return;
     if (activeOperationId.current === status.operation_id) {
-      applyStatus(status);
+      applyStatus(status, "event");
       return;
     }
     if (!submitting.current) return;
@@ -165,29 +172,37 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
       });
       return registration;
     };
-    const reconcileAfterSignal = () => {
+    const reconcileAfterSignal = (lost: boolean) => {
+      setObservationLost(lost);
       const operationId = activeOperationId.current;
       if (operationId) void reconcileAcceptedStatus(operationId);
     };
     statusRegistration.current = ensureStatusListener;
     const stopRemoteSignals = remoteStatusTarget
-      ? onRemoteTabEventSignal(statusEvent, reconcileAfterSignal)
+      ? onRemoteTabEventSignal(statusEvent, (signal) => reconcileAfterSignal(signal !== "ready"))
       : null;
     if (!remoteStatusTarget) {
-      window.addEventListener(EVENT_STREAM_READY, reconcileAfterSignal);
-      window.addEventListener(EVENT_STREAM_LOST, reconcileAfterSignal);
+      const onReady = () => reconcileAfterSignal(false);
+      const onLost = () => reconcileAfterSignal(true);
+      window.addEventListener(EVENT_STREAM_READY, onReady);
+      window.addEventListener(EVENT_STREAM_LOST, onLost);
+      const stopResync = onResync(() => reconcileAfterSignal(true));
+      void ensureStatusListener().catch(() => undefined);
+      return () => {
+        active = false;
+        unlisten?.();
+        stopRemoteSignals?.();
+        window.removeEventListener(EVENT_STREAM_READY, onReady);
+        window.removeEventListener(EVENT_STREAM_LOST, onLost);
+        stopResync();
+        statusRegistration.current = () => Promise.resolve();
+      };
     }
-    const stopResync = remoteStatusTarget ? null : onResync(reconcileAfterSignal);
     void ensureStatusListener().catch(() => undefined);
     return () => {
       active = false;
       unlisten?.();
       stopRemoteSignals?.();
-      if (!remoteStatusTarget) {
-        window.removeEventListener(EVENT_STREAM_READY, reconcileAfterSignal);
-        window.removeEventListener(EVENT_STREAM_LOST, reconcileAfterSignal);
-      }
-      stopResync?.();
       statusRegistration.current = () => Promise.resolve();
     };
   }, [statusEvent, remoteStatusTarget, tab.id]);
@@ -195,40 +210,49 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   function setProviderId(id: string) {
     updateProviderId(id);
     setError(null);
+    setStatusUncertainty(null);
     setSwitchStatus(null);
   }
 
   async function submit(force = false) {
-    if (!provider || submitting.current || retryAfterSeconds !== null) return;
+    if (!provider || submitting.current || activeOperationId.current !== null || retryAfterSeconds !== null) return;
     submitting.current = true;
     clearAttempt();
     setSwitchStatus(null);
+    setStatusUncertainty(null);
     setPhase("switching");
     setError(null);
+    let accepted: ProviderSwitchStatus | ProviderSwitchResult | void;
     try {
       await statusRegistration.current();
-      const accepted = await switchTabProvider(getTabProviderApi(), tab.id, provider.id, { model, reasoningEffort: effort, force });
-      if (accepted && "operation_id" in accepted) {
-        activeOperationId.current = accepted.operation_id;
-        const early = earlyStatuses.current.get(accepted.operation_id);
-        earlyStatuses.current.clear();
-        const initial = { ...accepted, tab_id: tab.id };
-        applyStatus(early ? preferProviderSwitchStatus(initial, { ...early, tab_id: tab.id }) : initial);
-        if (activeOperationId.current === accepted.operation_id) await reconcileAcceptedStatus(accepted.operation_id);
-        return;
-      }
-      if (!accepted || !accepted.handoff_delivered || !accepted.binding_restored) {
-        throw new Error("The provider did not confirm handoff delivery and session binding.");
-      }
-      setSwitchStatus({ phase: "completed", error: null });
-      setResult(accepted);
-      setPhase("complete");
+      accepted = await switchTabProvider(getTabProviderApi(), tab.id, provider.id, { model, reasoningEffort: effort, force });
     } catch (failure) {
-      failSwitch(failure instanceof Error ? failure.message : String(failure));
-    } finally {
       earlyStatuses.current.clear();
       submitting.current = false;
+      failSwitch(failure instanceof Error ? failure.message : String(failure));
+      return;
     }
+    const early = accepted && "operation_id" in accepted ? earlyStatuses.current.get(accepted.operation_id) : undefined;
+    earlyStatuses.current.clear();
+    submitting.current = false;
+    setStatusUncertainty(null);
+    if (accepted && "operation_id" in accepted) {
+      activeOperationId.current = accepted.operation_id;
+      const initial = { ...accepted, tab_id: tab.id };
+      const observed = early ? { ...early, tab_id: tab.id } : null;
+      const preferred = observed ? preferProviderSwitchStatus(initial, observed) : initial;
+      applyStatus(preferred, observed && preferred === observed ? "event" : "accepted");
+      if (activeOperationId.current === accepted.operation_id) await reconcileAcceptedStatus(accepted.operation_id);
+      return;
+    }
+    if (!accepted || !accepted.handoff_delivered || !accepted.binding_restored) {
+      failSwitch("The provider did not confirm handoff delivery and session binding.");
+      return;
+    }
+    setSwitchStatus({ phase: "completed", error: null });
+    setResult(accepted);
+    setObservationLost(false);
+    setPhase("complete");
   }
 
   const submitRef = useRef(submit);
@@ -256,5 +280,5 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   }
 
   return { providers, providerId, setProviderId, provider, selectedModel, setModel, model, setEffort, effort, efforts,
-    phase, setPhase, error, retryAfterSeconds, switchStatus, result, history, ready, activity, submit, showHistory };
+    phase, setPhase, error, statusUncertainty, observationLost, retryAfterSeconds, switchStatus, result, history, ready, activity, submit, showHistory };
 }

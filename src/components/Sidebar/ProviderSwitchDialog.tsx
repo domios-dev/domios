@@ -18,7 +18,7 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
   const descriptionId = useId();
   const errorId = useId();
   const { providers, providerId, setProviderId, provider, selectedModel, setModel, model, setEffort, effort,
-    phase, setPhase, error, retryAfterSeconds, switchStatus, result, history, ready, activity, submit, showHistory } = useProviderSwitch(tab, initialProviderId);
+    phase, setPhase, error, statusUncertainty, observationLost, retryAfterSeconds, switchStatus, result, history, ready, activity, submit, showHistory } = useProviderSwitch(tab, initialProviderId);
   const navigation = usePickerNavigation();
   const [installError, setInstallError] = useState<string | null>(null);
   const locked = phase !== "choosing";
@@ -40,7 +40,10 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
   }
   const statusView = providerSwitchStatusView(switchStatus, provider?.display_name ?? "the new provider");
   const failure = statusView?.kind === "failed" ? statusView.reason : error ?? installError;
-  return <FormDialog titleId={titleId} descriptionId={descriptionId} onCancel={() => { if (phase !== "switching") onClose(); }} onSubmit={(event) => { event.preventDefault(); if (ready) void submit(); }} className="max-w-lg">
+  const showObservationLost = observationLost && phase === "switching";
+  const canExit = phase !== "switching" || showObservationLost || statusUncertainty !== null;
+  const closeLabel = phase === "complete" || showObservationLost || statusUncertainty !== null ? "Close" : "Cancel";
+  return <FormDialog titleId={titleId} descriptionId={descriptionId} onCancel={() => { if (canExit) onClose(); }} onSubmit={(event) => { event.preventDefault(); if (ready) void submit(); }} className="max-w-lg">
     <h2 id={titleId} className="font-semibold">Switch harness</h2>
     <p id={descriptionId} className="text-sm text-[var(--ct-muted-fg)]">{tab.title || "This tab"} continues on another harness using recent messages and task context. The full history stays here.</p>
     {phase !== "complete" && <OrchestrationRoleRow
@@ -64,15 +67,17 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
       <span>{statusView.label}</span>
     </div>}
     {statusView?.kind === "complete" && <div role="status" aria-live="polite" className="text-sm">{statusView.label}</div>}
-    {statusView?.kind === "unconfirmed" && <div role="alert" aria-live="assertive" className="text-sm">
-      <p>The switch may have completed, but Domios could not confirm its status. Check this tab before starting another switch.</p>
-      <p className="mt-1 text-[var(--ct-muted-fg)]">{statusView.reason}</p>
+    {(showObservationLost || statusUncertainty) && <div role="alert" aria-live="assertive" className="text-sm">
+      {showObservationLost
+        ? <p>Live status updates are disconnected. Closing this dialog will not cancel the provider switch.</p>
+        : <p>The switch may have completed, but Domios could not confirm its status. Check this tab before trying again.</p>}
+      {statusUncertainty && <p className="mt-1 text-[var(--ct-muted-fg)]">{statusUncertainty}</p>}
     </div>}
     {phase === "waiting" && <p role="status">Waiting for this tab to become idle. Cancel to keep the current harness.</p>}
     {result && <Button size="sm" onClick={() => void showHistory()}>Previous harness: {result.previous_provider}</Button>}
     {history && <section aria-label="Previous harness transcript" className="max-h-72 overflow-auto text-sm">{history.map((row, index) => <article key={index}><strong>{row.kind}</strong><pre className="whitespace-pre-wrap">{row.content}</pre></article>)}</section>}
     <div className="flex justify-end gap-2">
-      <Button size="sm" disabled={phase === "switching"} onClick={onClose}>{phase === "complete" || phase === "unconfirmed" ? "Close" : "Cancel"}</Button>
+      <Button size="sm" disabled={!canExit} onClick={onClose}>{closeLabel}</Button>
       {phase === "choosing" && !ready && <>
         <Button size="sm" onClick={() => setPhase("waiting")} disabled={!provider || retryAfterSeconds !== null}>Wait for idle</Button>
         <Button size="sm" variant="danger" onClick={() => void submit(true)} disabled={!provider || activity.launching || retryAfterSeconds !== null}>Stop and switch</Button>
