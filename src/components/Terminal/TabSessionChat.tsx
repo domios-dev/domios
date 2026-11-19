@@ -317,7 +317,7 @@ function TabSessionChatBody({
     if (voiceRetry && send.draft) setChatSendDraft(tabId, id, { ...send.draft, voiceTranscribing: true });
     let content = send.content;
     try {
-      content = send.target?.terminalCommand ? send.content : await prepareChatDelivery(tabId, send, expandDeliveryTasks);
+      content = await prepareChatDelivery(tabId, send, expandDeliveryTasks);
       if (voiceRetry && send.draft) setChatSendDraft(tabId, id, { ...send.draft, voiceTranscribing: false });
       updateChatSendContent(tabId, id, content);
     } catch (error) {
@@ -1154,8 +1154,6 @@ function TabSessionChatBody({
           idlePlaceholder={signInState ? "Sign in to start" : undefined}
           tabId={tabId}
           tabProvider={tabProvider}
-          currentPtyId={currentPtyId}
-          chatBackend={effectiveChatBackend}
           isActive={isActive}
           pendingPrompt={pendingPrompt}
           attachments={attachments}
@@ -1172,7 +1170,6 @@ function TabSessionChatBody({
           updateOptimistic={updateOptimistic}
           observeChatSendStatus={observeChatSendStatus}
           showComposerError={showComposerError}
-          onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
           sendUnavailableReason={remoteChat.sendUnavailableReason}
         />}
       </>

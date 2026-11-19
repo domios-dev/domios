@@ -49,8 +49,6 @@ import {
   isImeKeyEvent,
 } from "./composerComposition";
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
-import { parseCompositeTabId } from "../../lib/remoteTabTransport";
-import { readRemoteChatStatus } from "../../lib/remoteChatStatus";
 import { failChatSendRequest, readChatSends, setChatSendDraft } from "./chatSendStore";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
 import { composeAttachmentDraft } from "./meshAttachmentHandoff";
@@ -75,16 +73,6 @@ import { useStartupSend } from "./useStartupSend";
 import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
 
 const VOICE_TRANSCRIBE_ERROR = "Voice transcription failed";
-const CLI_FALLBACK_COMMANDS = new Set([
-  "/usage",
-  "/config",
-  "/doctor",
-  "/mcp",
-  "/hooks",
-  "/theme",
-  "/permissions",
-  "/help",
-]);
 
 declare global {
   interface Window {
@@ -98,11 +86,6 @@ declare global {
   }
 }
 
-function cliFallbackCommandPayload(text: string): string | null {
-  const trimmed = text.trim();
-  if (!CLI_FALLBACK_COMMANDS.has(trimmed)) return null;
-  return trimmed;
-}
 
 const NO_SUGGESTIONS: SlashCommandSuggestion[] = [];
 
@@ -184,7 +167,6 @@ function recordComposerIgnoredKey(key: string): void {
 function ChatComposerImpl({
   tabId,
   tabProvider,
-  currentPtyId,
   pendingPrompt,
   attachments,
   removeAttachment,
@@ -195,7 +177,6 @@ function ChatComposerImpl({
   updateOptimistic,
   observeChatSendStatus,
   showComposerError,
-  onOpenTerminalFallback,
   promptDock,
   idlePlaceholder,
   replacement,
@@ -203,16 +184,11 @@ function ChatComposerImpl({
   pluginError,
   sessionIntent,
   contextSlot = null,
-  chatBackend = false,
   isActive = true,
   sendUnavailableReason,
 }: {
   tabId: string;
   tabProvider: string | null;
-  currentPtyId: string | null;
-  /** This tab is backed by a plugin chatBackend (no PTY) — send via the
-   *  tab-level `chat_send_text` instead of writing to a PTY. */
-  chatBackend?: boolean;
   /** Whether this composer's tab is the currently active/focused tab.
    *  When false, refocusComposer is a no-op — prevents background tabs
    *  from stealing focus after an async send completes. */
@@ -229,7 +205,6 @@ function ChatComposerImpl({
   updateOptimistic: (id: string, content: string) => void;
   observeChatSendStatus: (status: ChatSendStatus) => void;
   showComposerError: (message: string) => void;
-  onOpenTerminalFallback?: () => void;
   promptDock?: ReactNode;
   /** What the empty input says instead of "Message", e.g. while the agent waits for a sign-in. */
   idlePlaceholder?: string;
@@ -429,12 +404,7 @@ function ChatComposerImpl({
     const draft = buildDraft(extraAttachments);
     if (!draft) return;
     const { text, allAttachments, recordedVoiceAttachments, quoted } = draft;
-    const remote = parseCompositeTabId(tabId);
-    const remoteUnavailable = remote && readRemoteChatStatus(tabId, remote.peerId).state;
-    const terminalCommand = sendPolicy.terminalFallback && !chatBackend && !remoteUnavailable && currentPtyId
-      && !allAttachments.length && !recordedVoiceAttachments.length && !quoted
-      ? cliFallbackCommandPayload(text) : null;
-    const target = { expectedRecipient: sendPolicy.recipient, terminalCommand: terminalCommand ? true : undefined };
+    const target = { expectedRecipient: sendPolicy.recipient };
     const attachmentError = composerAttachmentError(provider?.attachments, text, allAttachments,
       recordedVoiceAttachments, capsules.registryRef.current, quoted);
     if (tabProvider && attachmentError) { flagComposerError(attachmentError); return; }
@@ -478,8 +448,7 @@ function ChatComposerImpl({
       }
       const readyDraft = { ...deliveryDraft, ...resolved, voiceTranscribing: false };
       setChatSendDraft(tabId, optimisticId, readyDraft);
-      const delivery = terminalCommand ?? prepareChatDelivery(tabId, { ...send, draft: readyDraft }, expandDsTasks);
-      composed = await delivery;
+      composed = await prepareChatDelivery(tabId, { ...send, draft: readyDraft }, expandDsTasks);
       if (!composed.trim()) {
         failChatSendRequest(tabId, optimisticId, "No message was sent because the prepared message is empty.");
         pendingDraftsRef.current.delete(dupKey);
@@ -495,7 +464,6 @@ function ChatComposerImpl({
     try {
       const status = await sendTrackedChatMessage(tabId, optimisticId, composed, target);
       observeChatSendStatus(status);
-      if (terminalCommand && status.state !== "failed") onOpenTerminalFallback?.();
       recall.remember(portable);
     } catch (e) {
       console.warn("[chat-send] optimistic delivery failed", {
@@ -690,10 +658,6 @@ function ChatComposerImpl({
               }
               if (e.key === "Tab" || enterIntent === "submit") {
                 e.preventDefault();
-                if (enterIntent === "submit" && cliFallbackCommandPayload(input)) {
-                  void send();
-                  return;
-                }
                 const cmd = suggestions[pickerHighlight];
                 if (cmd) pickSuggestion(cmd);
                 return;
@@ -819,7 +783,6 @@ function ChatComposerImpl({
 export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   a.tabId === b.tabId
   && a.tabProvider === b.tabProvider
-  && a.currentPtyId === b.currentPtyId
   && a.pendingPrompt === b.pendingPrompt
   && a.attachments === b.attachments
   && a.addAttachments === b.addAttachments
@@ -831,7 +794,6 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.updateOptimistic === b.updateOptimistic
   && a.observeChatSendStatus === b.observeChatSendStatus
   && a.showComposerError === b.showComposerError
-  && a.onOpenTerminalFallback === b.onOpenTerminalFallback
   && a.replacement === b.replacement
   && a.promptDock === b.promptDock
   && a.idlePlaceholder === b.idlePlaceholder
@@ -839,7 +801,6 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.pluginError === b.pluginError
   && a.sessionIntent === b.sessionIntent
   && a.contextSlot === b.contextSlot
-  && a.chatBackend === b.chatBackend
   && a.isActive === b.isActive
   && a.sendUnavailableReason === b.sendUnavailableReason
 );

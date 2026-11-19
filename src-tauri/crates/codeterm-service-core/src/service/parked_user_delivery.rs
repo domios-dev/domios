@@ -476,11 +476,11 @@ impl super::ServiceContext {
             })
     }
 
-    fn user_authority_is_from_ended_launch(&self, authority: &UserSendAuthority) -> bool {
-        let mux = self.mux.read();
-        let Some(tab) = mux.get_tab(&authority.tab_id) else {
-            return false;
-        };
+    fn user_authority_is_from_ended_launch(
+        &self,
+        tab: &crate::multiplexer::types::Tab,
+        authority: &UserSendAuthority,
+    ) -> bool {
         let same_pty = tab.pty_id.as_deref() == authority.pty_id.as_deref();
         let same_provider = tab.agent_type.as_deref() == Some(authority.provider_id.as_str());
         let in_flight_prelaunch = prelaunch_authority_matches_current_launch(tab, authority);

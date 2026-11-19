@@ -132,15 +132,15 @@ export async function sendTrackedChatMessage(
     return status;
   } catch (error) {
     activeAdmissions.delete(key);
-    if (peer) {
+    if (isProvenAdmissionRefusal(error)) {
+      failChatSendRequest(tabId, messageId, error);
+    } else if (peer) {
       const failure = remoteChatFailure(error);
       const state = remoteChatState(undefined, failure)!;
       recordRemoteChatSendFailure(tabId, messageId, { ...failure, raw: failure.raw.slice(0, 4096), state });
       setRemoteChatFailure(tabId, failure);
       throw error;
-    }
-    if (isProvenAdmissionRefusal(error)) failChatSendRequest(tabId, messageId, error);
-    else {
+    } else {
       recordChatSendAdmissionFailure(tabId, messageId, hadDaemonResponse(error), error);
       void reconcileTrackedChatMessages(tabId).catch(() => {});
     }
@@ -172,8 +172,7 @@ export function isProvenAdmissionRefusal(error: unknown): boolean {
     "user admission sequence exhausted",
     "user token retention capacity reached",
     "user original exceeds 4 MiB storage bound",
-    "startup override ",
-    "Startup override ",
+    "The message recipient changed while preparing the message.",
   ].some((refusal) => message.includes(refusal));
 }
 

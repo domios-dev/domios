@@ -139,7 +139,6 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
       text: args.text,
       client_token: args.clientToken,
       ...(args.expectedRecipient ? { expected_recipient: args.expectedRecipient } : {}),
-      ...(args.terminalCommand === true ? { terminal_command: true } : {}),
     });
     case "chat_send_dismissals": return call("GET", "/chat-send/dismissals");
     case "chat_send_delete": return call("POST", "/chat-send/dismissals", args.dismissal);

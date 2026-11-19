@@ -17,9 +17,6 @@ export function composerSendPolicy(tab: Partial<Tab> | null | undefined) {
   return {
     allowed: Boolean(tab) && !stopped,
     recipient,
-    terminalFallback: Boolean(recipient?.session_id && recipient.binding_nonce)
-      && tab?.boot_stage === "agent_ready" && !tab.frozen && !tab.agent_booting
-      && tab.reported_session_binding_nonce === recipient?.binding_nonce,
   };
 }
 

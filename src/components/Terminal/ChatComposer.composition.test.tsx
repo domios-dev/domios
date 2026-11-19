@@ -40,7 +40,7 @@ function emptyMuxState(): ExtendedState {
   };
 }
 
-type SendCall = { tabId: string; text: string; clientToken: string; expectedRecipient?: ExpectedChatRecipient; terminalCommand?: boolean };
+type SendCall = { tabId: string; text: string; clientToken: string; expectedRecipient?: ExpectedChatRecipient };
 type BridgeListener = (event: { payload: unknown }) => void;
 
 interface Harness {
@@ -129,7 +129,6 @@ async function renderComposer(tabId: string, options: HarnessOptions = {}): Prom
       <ChatComposer
         tabId={tabId}
         tabProvider={null}
-        currentPtyId={options.tab?.pty_id ?? null}
         pendingPrompt={null}
         attachments={attachments}
         addAttachments={(paths) => setAttachments((current) => [...current, ...paths])}
@@ -216,7 +215,7 @@ test("an exited draft keeps its original recipient while an attachment is transf
   } finally { await teardown(h); }
 });
 
-test.each([true, false])("slash fallback requires an authenticated ready launch (%s)", async (ready) => {
+test.each([true, false])("slash text uses tracked admission during ready and reattached states (%s)", async (ready) => {
   const tabId = ready ? "slash-ready" : "slash-reattached-shell";
   const h = await renderComposer(tabId, { tab: {
     id: tabId, pty_id: "own-pty", tab_type: "Terminal", title: "Fixture", cwd: null, backing: { kind: "pty" },
@@ -227,10 +226,15 @@ test.each([true, false])("slash fallback requires an authenticated ready launch 
   try {
     setDomValue(h.el, "/help");
     await fire(h.el, inputEvent({ isComposing: false }));
-    await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13 }));
+    const send = h.host.querySelector<HTMLButtonElement>('[data-testid="composer-send-button"]');
+    assert(send && !send.disabled, "Send is available for the slash draft");
+    await act(async () => send.dispatchEvent(new window.PointerEvent("pointerup", {
+      bubbles: true, button: 0, pointerType: "mouse",
+    })));
     await flush();
     assert(h.sendCalls.length === 1, "slash submission creates one classified send");
-    assert(Boolean(h.sendCalls[0].terminalCommand) === ready, "the reattached shell never gets a raw command");
+    assert(h.sendCalls[0].text === "/help", "the slash text enters the same Chat route as other text");
+    assert(h.sendCalls[0].expectedRecipient?.binding_nonce === "own-nonce", "the send pins the recipient");
   } finally { await teardown(h); }
 });
 

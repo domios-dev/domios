@@ -1,4 +1,4 @@
-use super::liveness::UserClearingEvent;
+use super::liveness::{UserClearingEvent, UserHeadLaunch};
 use super::*;
 
 impl super::super::ServiceContext {
@@ -69,49 +69,36 @@ impl super::super::ServiceContext {
                 return Ok(UserDrain::Idle);
             }
             self.chat_send_ledger.restore_user_record(&head);
-            if head.authority.pty_id.is_none()
-                && !head.authority.prelaunch
-                && head.authority.session_id.is_some()
-                && !self.mux.read().get_tab(tab_id).is_some_and(|tab| {
-                    tab.restorable_launch
-                        .exited_chat_binding
-                        .as_ref()
-                        .is_some_and(|exit| {
-                            exit.nonce == head.authority.binding_nonce
-                                && exit.provider_id == head.authority.provider_id
-                                && head.authority.session_id.as_ref() == Some(&exit.session_id)
-                        })
-                })
-            {
-                self.settle_ended_user_head(&head)?;
-                continue;
-            }
-            if head.state == UserSendState::Queued
-                && head.handoff_session.is_none()
-                && !self
-                    .chat_send_ledger
-                    .user_payload_may_have_been_written(&head.send_id)
-                && !self.local_recordings.has_write_ticket(&head.send_id)
-            {
-                let waiting = self
-                    .mux
-                    .read()
-                    .get_tab(tab_id)
-                    .and_then(|tab| exited_user_send_wait(tab, &head.authority));
-                if let Some(reason) = waiting {
+            match self.user_head_launch(&head) {
+                UserHeadLaunch::Wait(reason) => {
                     self.pending_user_send(&head, reason);
                     return Ok(UserDrain::Idle);
                 }
+                UserHeadLaunch::RecoveryEnded => {
+                    self.settle_ended_user_head(&head)?;
+                    continue;
+                }
+                _ => {}
             }
             if let Some(carried) = self.carry_held_user_send(&head)? {
                 head = carried;
             }
+            #[cfg(test)]
+            test_support::run_after_user_carry(self, &head);
             if self.settle_degraded_user_send(&head)? {
                 continue;
             }
-            if self.user_authority_is_from_ended_launch(&head.authority) {
-                self.settle_ended_user_head(&head)?;
-                continue;
+            match self.user_head_launch(&head) {
+                UserHeadLaunch::Wait(reason) => {
+                    self.pending_user_send(&head, reason);
+                    return Ok(UserDrain::Idle);
+                }
+                UserHeadLaunch::Carry => continue,
+                UserHeadLaunch::Ended | UserHeadLaunch::RecoveryEnded => {
+                    self.settle_ended_user_head(&head)?;
+                    continue;
+                }
+                UserHeadLaunch::Current => {}
             }
             if head.state != UserSendState::Queued {
                 self.settle_ended_user_head(&head)?;
@@ -330,21 +317,4 @@ impl super::super::ServiceContext {
         }
         Ok(UserDrain::Idle)
     }
-}
-
-fn exited_user_send_wait(
-    tab: &crate::multiplexer::types::Tab,
-    authority: &UserSendAuthority,
-) -> Option<&'static str> {
-    let exit = tab.restorable_launch.exited_chat_binding.as_ref()?;
-    if exit.provider_id != authority.provider_id
-        || authority.observed_session_id.as_ref() != Some(&exit.session_id)
-    {
-        return None;
-    }
-    if tab.exited_chat_recipient().is_some() {
-        return Some("awaiting_agent_restart");
-    }
-    tab.resuming_exited_chat_recipient()
-        .map(|_| "awaiting_agent_ready")
 }

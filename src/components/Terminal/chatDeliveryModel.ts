@@ -18,7 +18,6 @@ export interface DeliveryDraft {
 }
 export interface ChatSendTarget {
   expectedRecipient?: ExpectedChatRecipient;
-  terminalCommand?: boolean;
 }
 export type DeliverySend = ChatSend & { target?: ChatSendTarget; localAttempt?: { ptyId: string; bindingNonce: string }; droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestError?: string; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft;
   wasHeld?: boolean; remoteFailure?: RemoteChatFailure & { state: RemoteChatState } };

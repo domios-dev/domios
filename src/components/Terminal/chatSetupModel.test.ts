@@ -60,7 +60,6 @@ test("the exact tab accepts composer sends throughout its lifecycle", () => {
   } satisfies Record<string, Partial<Tab>>;
   for (const [state, tab] of Object.entries(states)) {
     assert.equal(composerSendPolicy(tab).allowed, true, state);
-    assert.equal(composerSendPolicy(tab).terminalFallback, state === "ready", state);
     assert.equal(composerVisible(chatSetupView(tab)), true, state);
   }
   assert.equal(composerSendPolicy(undefined).allowed, false);
@@ -71,8 +70,6 @@ test("the exact tab accepts composer sends throughout its lifecycle", () => {
   const stopped = { ...states.exited, exited_chat_recipient: undefined };
   assert.notEqual(chatSetupView(stopped).kind, "exited");
   assert.equal(composerSendPolicy(stopped).allowed, false);
-  assert.equal(composerSendPolicy({ ...states.ready, boot_stage: "pty_reattached",
-    reported_session_binding_nonce: null }).terminalFallback, false);
   assert.equal(chatSetupView(states.restarting).kind, "starting");
   assert.notEqual(chatSetupView({ backing: { kind: "pty" }, boot_stage: "shell_ready" }).kind, "exited");
 });

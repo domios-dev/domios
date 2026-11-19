@@ -188,7 +188,7 @@ impl super::Tab {
         self.restorable_launch.exited_chat_binding.as_ref()
     }
 
-    pub fn resuming_exited_chat_recipient(&self) -> Option<&ExitedChatBinding> {
+    pub fn exited_chat_resume_target(&self) -> Option<&ExitedChatBinding> {
         let exit = self.restorable_launch.exited_chat_binding.as_ref()?;
         let resume = self.prior_session_binding_nonces.last()?;
         (self.agent_type.as_ref() == Some(&exit.provider_id)
@@ -197,9 +197,15 @@ impl super::Tab {
             && self
                 .agent_session_id
                 .as_ref()
-                .is_none_or(|session| session == &exit.session_id)
-            && !self.launch_session_authenticated())
+                .is_none_or(|session| session == &exit.session_id))
         .then_some(exit)
+    }
+
+    pub fn resuming_exited_chat_recipient(&self) -> Option<&ExitedChatBinding> {
+        self.exited_chat_resume_target().filter(|_| {
+            !self.launch_session_authenticated()
+                && self.boot_stage != Some(codeterm_types::pty::BootStage::SpawnFailed)
+        })
     }
 }
 

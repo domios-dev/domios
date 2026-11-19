@@ -9,20 +9,76 @@ pub(super) enum UserClearingEvent {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum HeadProgress {
-    Wait(UserClearingEvent),
-    Terminalize,
-}
-
-fn head_progress(ended_launch: bool, event: UserClearingEvent) -> HeadProgress {
-    if ended_launch {
-        HeadProgress::Terminalize
-    } else {
-        HeadProgress::Wait(event)
-    }
+pub(super) enum UserHeadLaunch {
+    Current,
+    Wait(&'static str),
+    Carry,
+    Ended,
+    RecoveryEnded,
 }
 
 impl crate::service::ServiceContext {
+    pub(super) fn user_head_launch(&self, head: &UserSendRecord) -> UserHeadLaunch {
+        use codeterm_types::pty::BootStage;
+        let authority = &head.authority;
+        let never_written = head.state == UserSendState::Queued
+            && head.handoff_session.is_none()
+            && !self
+                .chat_send_ledger
+                .user_payload_may_have_been_written(&head.send_id)
+            && !self.local_recordings.has_write_ticket(&head.send_id);
+        let mux = self.mux.read();
+        let Some(tab) = mux.get_tab(&authority.tab_id) else {
+            return UserHeadLaunch::Current;
+        };
+        let recovery = tab
+            .restorable_launch
+            .exited_chat_binding
+            .as_ref()
+            .filter(|exit| {
+                exit.provider_id == authority.provider_id
+                    && authority.observed_session_id.as_ref() == Some(&exit.session_id)
+            });
+        let detached =
+            authority.pty_id.is_none() && !authority.prelaunch && authority.session_id.is_some();
+        if detached && recovery.is_none_or(|exit| exit.nonce != authority.binding_nonce) {
+            return UserHeadLaunch::RecoveryEnded;
+        }
+        let ended = self.user_authority_is_from_ended_launch(tab, authority);
+        if let Some(exit) = recovery.filter(|_| never_written) {
+            if tab.exited_chat_recipient().is_some() {
+                return UserHeadLaunch::Wait("awaiting_agent_restart");
+            }
+            if tab.exited_chat_resume_target().is_some()
+                && tab.boot_stage == Some(BootStage::SpawnFailed)
+            {
+                return UserHeadLaunch::RecoveryEnded;
+            }
+            let reserving_resume = tab.boot_stage == Some(BootStage::PtyStarting)
+                && tab.agent_type.as_ref() == Some(&exit.provider_id)
+                && tab
+                    .agent_session_id
+                    .as_ref()
+                    .is_none_or(|session| session == &exit.session_id)
+                && !tab.launch_session_authenticated();
+            if reserving_resume || tab.resuming_exited_chat_recipient().is_some() {
+                return UserHeadLaunch::Wait("awaiting_agent_ready");
+            }
+            if ended
+                && tab.launch_session_authenticated()
+                && tab.agent_type.as_ref() == Some(&exit.provider_id)
+                && tab.agent_session_id.as_ref() == Some(&exit.session_id)
+            {
+                return UserHeadLaunch::Carry;
+            }
+        }
+        if ended {
+            UserHeadLaunch::Ended
+        } else {
+            UserHeadLaunch::Current
+        }
+    }
+
     pub(super) fn settle_ended_user_head(&self, head: &UserSendRecord) -> Result<(), String> {
         let store = &self.pending_delivery_payloads.user_sends;
         let settlement = store.settle_ended_head(
@@ -54,15 +110,17 @@ impl crate::service::ServiceContext {
         reason: &str,
         event: UserClearingEvent,
     ) -> Result<bool, String> {
-        match head_progress(
-            self.user_authority_is_from_ended_launch(&head.authority),
-            event,
-        ) {
-            HeadProgress::Terminalize => {
+        match self.user_head_launch(head) {
+            UserHeadLaunch::Ended | UserHeadLaunch::RecoveryEnded => {
                 self.settle_ended_user_head(head)?;
                 Ok(false)
             }
-            HeadProgress::Wait(event) => {
+            UserHeadLaunch::Carry => Ok(false),
+            launch => {
+                let reason = match launch {
+                    UserHeadLaunch::Wait(reason) => reason,
+                    _ => reason,
+                };
                 log::debug!(
                     "[chat-send] head wait send_id={} reason={reason} clears_on={event:?}",
                     head.send_id
@@ -70,23 +128,6 @@ impl crate::service::ServiceContext {
                 self.pending_user_send(head, reason);
                 Ok(true)
             }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_head_wait_requires_a_live_launch_and_a_clearing_event() {
-        for event in [
-            UserClearingEvent::Readiness,
-            UserClearingEvent::Identity,
-            UserClearingEvent::Settlement,
-        ] {
-            assert_eq!(head_progress(false, event), HeadProgress::Wait(event));
-            assert_eq!(head_progress(true, event), HeadProgress::Terminalize);
         }
     }
 }

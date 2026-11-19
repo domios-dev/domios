@@ -44,7 +44,6 @@ impl ServiceContext {
         if let Some(tab) = mux.get_tab_mut(tab_id) {
             changed = tab.agent_session_id != session_id;
             if changed {
-                self.revoke_tab_pty_input(tab);
                 if tab
                     .restorable_launch
                     .exited_chat_binding

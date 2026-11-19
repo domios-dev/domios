@@ -83,47 +83,6 @@ pub async fn chat_send_text(
     let tab_id = crate::routes::resolve_tab_async(&state, &id)
         .await
         .map_err(SendRejection::from)?;
-    if body.terminal_command {
-        let target = tab_id.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            chat_send_allowed(&state, &target)?;
-            let refusal = |detail: &str| chat_admission_rejection(&target, detail.into());
-            if body.replay_only {
-                return Err(refusal(
-                    "admission_unknown: terminal commands cannot be replayed",
-                ));
-            }
-            let expected = body
-                .expected_recipient
-                .as_ref()
-                .ok_or_else(|| refusal("The terminal command has no recipient."))?;
-            let token = body
-                .client_token
-                .as_deref()
-                .filter(|token| !token.is_empty())
-                .ok_or_else(|| refusal("The terminal command has no send identity."))?;
-            let status = state
-                .svc
-                .send_composer_terminal_command(
-                    &target,
-                    expected,
-                    token,
-                    body.text.as_deref().unwrap_or_default(),
-                )
-                .map_err(|detail| chat_admission_rejection(&target, detail))?;
-            Ok::<_, SendRejection>(codeterm_service_core::service::agent_pad::chat_send_result(
-                status, None,
-            ))
-        })
-        .await
-        .map_err(|_| {
-            SendRejection::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "terminal command task failed",
-            ))
-        })??;
-        return Ok(Json(result));
-    }
     let owner = state.clone();
     let target = tab_id.clone();
     let client_token = body.client_token.clone();
@@ -438,8 +397,6 @@ pub struct SendTextBody {
     #[serde(default)]
     pub(crate) expected_recipient:
         Option<codeterm_service_core::service::chat_send_transaction::ExpectedChatRecipient>,
-    #[serde(default)]
-    pub(crate) terminal_command: bool,
 }
 
 #[derive(Deserialize)]

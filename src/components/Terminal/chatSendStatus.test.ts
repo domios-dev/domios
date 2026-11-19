@@ -267,9 +267,8 @@ test("request rejection is logged and rethrown without a UI status channel", asy
 
 test("only proven pre-admission refusal allows Retry", () => {
   assert.equal(isProvenAdmissionRefusal(new Error("user send capacity: 32 unsettled admissions")), true);
-  assert.equal(isProvenAdmissionRefusal(new Error("startup override requires the provider launch command to be written")), true);
-  assert.equal(isProvenAdmissionRefusal(new Error("Startup override requires authenticated owner authority")), true);
-  assert.equal(isProvenAdmissionRefusal(new Error("admission_unknown: startup override response lost")), false);
+  assert.equal(isProvenAdmissionRefusal(new Error("The message recipient changed while preparing the message.")), true);
+  assert.equal(isProvenAdmissionRefusal(new Error("admission_unknown: recipient response lost")), false);
   assert.equal(isProvenAdmissionRefusal(new Error("admission_unknown: durability could not be qualified")), false);
   assert.equal(isProvenAdmissionRefusal(new TypeError("Failed to fetch")), false);
   assert.equal(isProvenAdmissionRefusal(new Error("connection reset")), false);
@@ -311,18 +310,36 @@ test("a send request that hit its deadline resolves to Retry once durable absenc
   assert.notEqual(beginChatSendRetry(tabId, "deadline-bubble"), undefined);
 });
 
-test("reconnect leaves an ambiguous response uncertain even when no admission is retained", async () => {
+test("a lost slash response stays uncertain even when no admission is retained", async () => {
   const tabId = "ambiguous-admission";
-  addChatSend(tabId, { id: "ambiguous-bubble", correlationId: "ambiguous-token", content: "opaque", sentAtMs: 1 });
+  addChatSend(tabId, { id: "ambiguous-bubble", correlationId: "ambiguous-token", content: "/help", sentAtMs: 1 });
   __setInvokeForTest(async <T>(command: string) => {
     if (command === "chat_send_text") throw new Error("opaque-ambiguous-response");
     if (command === "chat_send_status") return [] as T;
     return [{ correlationId: "ambiguous-token", evidence: "absent" }] as T;
   });
-  await assert.rejects(sendTrackedChatMessage(tabId, "ambiguous-token", "opaque"));
+  await assert.rejects(sendTrackedChatMessage(tabId, "ambiguous-token", "/help"));
   await reconcileTrackedChatMessages(tabId);
   assert.equal(deliveryState(readChatSends(tabId)[0]), "uncertain");
   assert.equal(beginChatSendRetry(tabId, "ambiguous-bubble"), undefined);
+});
+
+test("a changed recipient makes the existing send bubble retryable without querying the ledger", async () => {
+  const tabId = "changed-recipient";
+  const reason = "The message recipient changed while preparing the message.";
+  const calls: string[] = [];
+  addChatSend(tabId, { id: "own-bubble", correlationId: "original-send", content: "opaque", sentAtMs: 1 });
+  __setInvokeForTest(async (command: string) => {
+    calls.push(command);
+    throw new Error(reason);
+  });
+  await assert.rejects(sendTrackedChatMessage(tabId, "original-send", "opaque"), /recipient changed/);
+  const [send] = readChatSends(tabId);
+  assert.equal(send?.id, "own-bubble");
+  assert.equal(send?.requestError, reason);
+  assert.equal(deliveryState(send), "failed");
+  assert.notEqual(beginChatSendRetry(tabId, "own-bubble"), undefined);
+  assert.deepEqual(calls, ["chat_send_text"]);
 });
 
 

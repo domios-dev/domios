@@ -14,10 +14,22 @@ fn admit_without_dispatch(fixture: &ServiceFixture, tab: &str, payload: &str) ->
     record
 }
 
+fn begin_exact_resume(fixture: &ServiceFixture, tab_id: &str, pty_id: &str) -> String {
+    use codeterm_types::pty::BootStage;
+    let service = &fixture.service;
+    {
+        let mut mux = service.mux.write();
+        let tab = mux.get_tab_mut(tab_id).unwrap();
+        tab.pty_id = Some(pty_id.into());
+        tab.agent_type = Some("opaque-provider".into());
+    }
+    let nonce = service.reserve_agent_launch_binding_nonce(tab_id, Some("opaque-session"));
+    service.mux.write().get_tab_mut(tab_id).unwrap().boot_stage = Some(BootStage::LaunchWritten);
+    nonce
+}
+
 #[test]
 fn exited_composer_admission_waits_for_its_authenticated_resume_and_writes_once() {
-    use codeterm_types::pty::BootStage;
-
     let (fixture, tab_id) = queue_fixture(true, None);
     let service = &fixture.service;
     mark_ready(&fixture, &tab_id);
@@ -62,18 +74,7 @@ fn exited_composer_admission_waits_for_its_authenticated_resume_and_writes_once(
         Some("awaiting_agent_restart")
     );
 
-    let begin_resume = |pty_id: &str| {
-        let mut mux = service.mux.write();
-        let tab = mux.get_tab_mut(&tab_id).unwrap();
-        tab.pty_id = Some(pty_id.into());
-        tab.agent_type = Some("opaque-provider".into());
-        drop(mux);
-        let nonce = service.reserve_agent_launch_binding_nonce(&tab_id, Some("opaque-session"));
-        service.mux.write().get_tab_mut(&tab_id).unwrap().boot_stage =
-            Some(BootStage::LaunchWritten);
-        nonce
-    };
-    begin_resume("first-resumed-pty");
+    let first_nonce = begin_exact_resume(&fixture, &tab_id, "first-resumed-pty");
     service
         .drain_user_owner_with(&tab_id, |_, _, _, _| panic!("resume is not authenticated"))
         .unwrap();
@@ -93,17 +94,47 @@ fn exited_composer_admission_waits_for_its_authenticated_resume_and_writes_once(
         .unwrap()
         .agent_session_id = Some("opaque-session".into());
     mark_ready(&fixture, &tab_id);
-    assert!(service.clear_tab_agent_identity_after_confirmed_exit(&tab_id, "second fixture exit"));
-    service
-        .drain_user_owner_with(&tab_id, |_, _, _, _| {
-            panic!("the second provider exited before the drain")
-        })
-        .unwrap();
+    let (at_carry, carry_ready) = mpsc::channel();
+    let (exit_committed, exit_ready) = mpsc::channel();
+    let check_id = send_id.clone();
+    after_next_user_carry(Box::new(move |_, head| {
+        at_carry.send(()).unwrap();
+        assert!(exit_ready.recv_timeout(TEST_DEADLINE).unwrap());
+        assert_eq!(head.send_id, check_id);
+        assert_eq!(head.authority.binding_nonce, first_nonce);
+    }));
+    std::thread::scope(|scope| {
+        let exited_tab_id = &tab_id;
+        scope.spawn(move || {
+            carry_ready
+                .recv_timeout(TEST_DEADLINE)
+                .expect("the drain reached the carry boundary");
+            let cleared = service.clear_tab_agent_identity_after_confirmed_exit(
+                exited_tab_id,
+                "second fixture exit",
+            );
+            exit_committed.send(cleared).unwrap();
+        });
+        service
+            .drain_user_owner_with(&tab_id, |_, _, _, _| {
+                panic!("the second provider exited after carry")
+            })
+            .unwrap();
+    });
     assert_eq!(
         service.chat_send_ledger.status(&send_id).unwrap().state,
         ChatSendState::Pending
     );
-    let final_nonce = begin_resume("second-resumed-pty");
+    assert_eq!(
+        service
+            .chat_send_ledger
+            .status(&send_id)
+            .unwrap()
+            .pending_reason
+            .as_deref(),
+        Some("awaiting_agent_restart")
+    );
+    let final_nonce = begin_exact_resume(&fixture, &tab_id, "second-resumed-pty");
     service
         .mux
         .write()
@@ -132,6 +163,55 @@ fn exited_composer_admission_waits_for_its_authenticated_resume_and_writes_once(
             .unwrap();
     }
     assert_eq!(written, [send_id]);
+}
+
+#[test]
+fn exited_composer_admission_settles_definitive_resume_failure_before_write() {
+    use codeterm_types::pty::BootStage;
+    let (fixture, tab_id) = queue_fixture(true, None);
+    let service = &fixture.service;
+    mark_ready(&fixture, &tab_id);
+    assert!(service.clear_tab_agent_identity_after_confirmed_exit(&tab_id, "fixture exit"));
+    let status = service
+        .start_human_chat_send(
+            &tab_id,
+            crate::service::messenger::HumanInput::composer("held during recovery"),
+            None,
+            Some("own-failed-resume-token".into()),
+        )
+        .unwrap();
+    assert_eq!(status.state, ChatSendState::Pending);
+    await_owner_idle(&fixture, &tab_id);
+
+    begin_exact_resume(&fixture, &tab_id, "failed-resume-pty");
+    let writes = Arc::new(AtomicUsize::new(0));
+    let attempted = writes.clone();
+    let _boundary = UserSubmitBoundary::install(
+        &tab_id,
+        Arc::new(move |record, _| {
+            attempted.fetch_add(1, Ordering::SeqCst);
+            Err(DeliveryError::SubmitUnconfirmed {
+                tab: record.authority.tab_id.clone(),
+                detail: "unexpected handoff".into(),
+            })
+        }),
+    );
+    service.emit_boot_stage(
+        &tab_id,
+        BootStage::SpawnFailed,
+        Some("fixture resume failed"),
+    );
+    await_owner_idle(&fixture, &tab_id);
+    assert_eq!(writes.load(Ordering::SeqCst), 0);
+    let failed = service.chat_send_ledger.status(&status.send_id).unwrap();
+    assert_eq!(failed.state, ChatSendState::Failed);
+    assert_eq!(failed.error.as_deref(), Some("launch_ended_before_write"));
+    assert!(service
+        .pending_delivery_payloads
+        .user_sends
+        .head(&tab_id)
+        .unwrap()
+        .is_none());
 }
 
 #[test]

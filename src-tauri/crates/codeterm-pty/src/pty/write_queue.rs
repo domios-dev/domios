@@ -79,17 +79,13 @@ impl GuardedInputGate {
 
     pub fn invalidate(&self) {
         if let Ok(_writer) = self.state.writer.lock() {
-            self.revoke();
+            let _ = self
+                .state
+                .epoch
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |epoch| {
+                    Some(epoch.wrapping_add(if epoch & 1 == 0 { 2 } else { 1 }))
+                });
         }
-    }
-
-    pub fn revoke(&self) {
-        let _ = self
-            .state
-            .epoch
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |epoch| {
-                Some(epoch.wrapping_add(if epoch & 1 == 0 { 2 } else { 1 }))
-            });
     }
 }
 
@@ -307,10 +303,6 @@ impl WriteQueue {
 
     pub fn send(&self, data: Vec<u8>) -> Result<(), String> {
         self.enqueue(vec![data], None, None, || {})
-    }
-
-    pub fn send_guarded(&self, data: Vec<u8>, permit: GuardedInputPermit) -> Result<(), String> {
-        self.enqueue(vec![data], Some(permit), None, || {})
     }
 
     pub fn send_and_wait(&self, data: Vec<u8>, timeout: Duration) -> Result<(), String> {

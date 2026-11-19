@@ -33,11 +33,4 @@ impl ExpectedChatRecipient {
             None => self.binding_nonce.is_some() && self.binding_nonce == tab.session_binding_nonce,
         }
     }
-
-    pub(crate) fn matches_exact_launch(&self, tab: &Tab) -> bool {
-        self.session_id.is_some()
-            && self.binding_nonce == tab.session_binding_nonce
-            && self.matches(tab)
-            && tab.launch_session_authenticated()
-    }
 }

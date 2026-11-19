@@ -86,11 +86,7 @@ fn clear_agent_identity_with_prompt(
     }
 }
 
-fn clear_exited_agent_identity(
-    service: &ServiceContext,
-    tab: &mut crate::multiplexer::types::Tab,
-) -> ClearedAgentIdentity {
-    service.revoke_tab_pty_input(tab);
+fn clear_exited_agent_identity(tab: &mut crate::multiplexer::types::Tab) -> ClearedAgentIdentity {
     if let (true, Some(provider_id), Some(nonce), Some(session_id)) = (
         tab.launch_session_authenticated(),
         tab.agent_type.as_ref(),
@@ -179,7 +175,7 @@ impl ServiceContext {
         let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
-                .map(|tab| clear_exited_agent_identity(self, tab))
+                .map(clear_exited_agent_identity)
                 .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
@@ -197,7 +193,6 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
                 .map(|tab| {
-                    self.revoke_tab_pty_input(tab);
                     let retired_recipient =
                         tab.restorable_launch.exited_chat_binding.take().is_some();
                     let mut identity = clear_agent_identity_with_prompt(tab);
@@ -294,7 +289,7 @@ impl ServiceContext {
         let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
-                .map(|tab| clear_exited_agent_identity(self, tab))
+                .map(clear_exited_agent_identity)
                 .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
@@ -377,7 +372,7 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
                 .filter(|tab| crate::service::launch_readiness::attempt_owns_tab(tab, attempt))
-                .map(|tab| clear_exited_agent_identity(self, tab))
+                .map(clear_exited_agent_identity)
                 .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
