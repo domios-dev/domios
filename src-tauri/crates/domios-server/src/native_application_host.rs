@@ -52,12 +52,12 @@ impl ApplicationHost for NativeApplicationHost {
             .ok_or("native_capability_unavailable")?;
         let request = endpoint.update_request();
         let operation_id = request.operation_id;
-        let tab = options.initiating_tab_id.clone();
         let service = self.service.clone();
-        let prepare_tab = tab.clone();
-        tokio::task::spawn_blocking(move || {
-            register_update_continuation(&service, prepare_tab.as_deref())?;
-            codeterm_commands::update::shutdown::persist_session(&service)
+        let continue_tab = options.continue_tab_id;
+        let tab = tokio::task::spawn_blocking(move || {
+            let registered = register_update_continuation(&service, continue_tab.as_deref())?;
+            codeterm_commands::update::shutdown::persist_session(&service)?;
+            Ok::<_, String>(continue_tab.filter(|_| registered))
         })
         .await
         .map_err(|e| e.to_string())??;
@@ -114,25 +114,23 @@ impl ApplicationHost for NativeApplicationHost {
 fn register_update_continuation(
     service: &codeterm_service_core::service::ServiceContext,
     tab_id: Option<&str>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
+    use codeterm_service_core::service::turn_resume::{DEFAULT_CONTINUE, DISABLED};
+
     let Some(tab_id) = tab_id else {
-        return Ok(());
+        return Ok(false);
     };
-    let shell = service.mux.read().get_tab(tab_id).is_some_and(|tab| {
-        tab.agent_type.is_none()
-            && matches!(
-                tab.backing,
-                codeterm_service_core::multiplexer::types::TabBacking::Pty
-            )
+    let bound_agent = service.mux.read().get_tab(tab_id).is_some_and(|tab| {
+        tab.agent_type.is_some() && tab.agent_session_id.is_some()
     });
-    if shell {
-        return Ok(());
+    if !bound_agent {
+        return Ok(false);
     }
-    service.request_turn_resume_for_caller(
-        tab_id,
-        tab_id,
-        codeterm_service_core::service::turn_resume::DEFAULT_CONTINUE,
-    )
+    match service.request_turn_resume_for_caller(tab_id, tab_id, DEFAULT_CONTINUE) {
+        Ok(()) => Ok(true),
+        Err(reason) if reason == DISABLED || reason == "no_agent_session" => Ok(false),
+        Err(reason) => Err(reason),
+    }
 }
 
 fn admission_error(reason: codeterm_types::native_host::NativeHostRejection) -> String {

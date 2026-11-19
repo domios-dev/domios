@@ -8,7 +8,7 @@ fn update_reservation_refuses_before_enqueue_and_releases_without_replaying() {
         data: writes.clone(),
     }));
     let reservation = queue
-        .reserve_update_shutdown(queue.input_revision())
+        .reserve_update_shutdown(Some(queue.input_revision()))
         .unwrap();
     let callback = std::cell::Cell::new(false);
     let error = queue
@@ -43,9 +43,14 @@ fn update_reservation_cannot_discard_an_in_flight_write() {
     });
     observed.recv_timeout(Duration::from_secs(1)).unwrap();
     assert!(queue
-        .reserve_update_shutdown(queue.input_revision())
+        .reserve_update_shutdown(Some(queue.input_revision()))
         .is_err());
+    let reservation = queue.reserve_update_shutdown(None).unwrap();
+    assert!(is_update_reserved(
+        &queue.send(b"new work".to_vec()).unwrap_err()
+    ));
     release.send(()).unwrap();
+    drop(reservation);
     thread.join().unwrap().unwrap();
     assert_eq!(*writes.lock().unwrap(), b"original");
 }

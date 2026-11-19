@@ -27,11 +27,18 @@ pub struct ReserveHolders {
 
 pub const REFUSAL_PREFIX: &str = "Update blocked by busy tabs: ";
 
-pub fn refusal(tabs: &[HolderTab]) -> Option<String> {
+#[derive(Serialize)]
+pub struct BusyTab {
+    pub tab_id: String,
+    pub title: String,
+    pub workspace: String,
+    pub command: String,
+}
+
+pub fn refusal(tabs: impl IntoIterator<Item = BusyTab>) -> Option<String> {
     let busy: Vec<_> = tabs
-        .iter()
-        .filter(|tab| tab.busy)
-        .map(|tab| (&tab.tab_id, tab))
+        .into_iter()
+        .map(|tab| (tab.tab_id.clone(), tab))
         .collect::<std::collections::BTreeMap<_, _>>()
         .into_values()
         .collect();
@@ -40,17 +47,12 @@ pub fn refusal(tabs: &[HolderTab]) -> Option<String> {
     }
     let descriptions = busy
         .iter()
-        .map(|tab| {
-            format!(
-                "{} in {}: {}. Close explicitly with `domios tab close --tab {}`",
-                tab.title, tab.workspace, tab.command, tab.tab_id
-            )
-        })
+        .map(|tab| format!("{} in {}: {}", tab.title, tab.workspace, tab.command))
         .collect::<Vec<_>>()
         .join("; ");
     let details = serde_json::to_string(&busy).unwrap_or_default();
     Some(format!(
-        "{REFUSAL_PREFIX}{descriptions}. Then retry the update.\n[update-blocking-tabs]{details}"
+        "{REFUSAL_PREFIX}{descriptions}. Wait for these tabs to finish, then retry the update.\n[update-blocking-tabs]{details}"
     ))
 }
 
