@@ -20,7 +20,7 @@ interface Props {
   displayName?: string | null;
   sameNameOthers?: number;
   onRename?: (name: string) => Promise<boolean>;
-  renameDisabledReason?: string;
+  renameUnavailable?: boolean;
   peerId?: string;
 }
 
@@ -37,7 +37,7 @@ function PeerTerminalComponent({
   onRename,
   displayName,
   sameNameOthers,
-  renameDisabledReason,
+  renameUnavailable,
   peerId,
 }: Props) {
   const identity = useMeshMachineIdentity(peerId, true, isThisMachine ? undefined : name);
@@ -59,7 +59,7 @@ function PeerTerminalComponent({
         </span>
         <div className={`flex min-w-0 flex-1 ${isThisMachine ? "flex-col" : "items-center gap-2"}`}>
           <span className="min-w-0 flex-1 text-[14px] font-medium text-[var(--ct-fg)]">
-            <MachineName name={name} displayName={displayName} onRename={onRename} disabledReason={renameDisabledReason} />
+            <MachineName name={name} displayName={displayName} onRename={onRename} renameUnavailable={renameUnavailable} />
           </span>
           <span className={`truncate whitespace-nowrap font-mono text-[11px] text-[var(--ct-muted-fg)] ${isThisMachine ? "" : "max-w-[45%]"}`}>
             {ip}

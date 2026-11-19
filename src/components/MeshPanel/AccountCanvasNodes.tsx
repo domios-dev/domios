@@ -89,7 +89,7 @@ export function AccountMachineCard({ node, busy, now, actions, hint }: { node: A
         <MachineGlyph {...identity} size="tile" />
         <span className={`min-w-0 flex flex-1 text-[14px] font-medium text-[var(--ct-fg)] ${lockedDimClass(lock)}`}>
           <MachineName name={node.name} displayName={node.row.displayName} onRename={actions.onRename ? (name) => actions.onRename!(node.row, name) : undefined}
-            disabledReason={!node.row.target || !node.row.pairInstanceId || !node.row.online ? "Connect to rename it, or rename it on that machine" : undefined} />
+            renameUnavailable={!node.row.target || !node.row.pairInstanceId || !node.row.online} />
         </span>
         <LockBadge view={lock} />
         <SettingsPill tone={PILL_TONE[node.tone]}>{node.status}</SettingsPill>

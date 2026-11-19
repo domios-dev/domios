@@ -31,6 +31,8 @@ const { useCanvasAccount } = await import("./useCanvasAccount");
 const { accountCanvasPeers } = await import("./accountCanvas");
 const { useMeshConnections } = await import("./useMeshConnections");
 
+const renameUnavailableReason = "Rename it on that machine, or when it's back online.";
+
 const peer = (instanceId: string, name: string, patch: Partial<PeerStatus> = {}): PeerStatus => ({
   instance_id: instanceId, name, ip: "100.64.0.2", api_port: 7685, online: true, access_level: "full", last_seen: null, relay_protocol_version: 2, ...patch,
 });
@@ -82,6 +84,18 @@ describe("Mesh canvas wiring", () => {
     expect(element).not.toBeNull();
     await act(async () => element!.click());
   };
+  async function expectUnavailableRename(label: string) {
+    const control = button(label)!;
+    expect(control.getAttribute("aria-disabled")).toBe("true");
+    expect(control.getAttribute("aria-description")).toBe(renameUnavailableReason);
+    await act(async () => control.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" })));
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(renameUnavailableReason);
+    await act(async () => control.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse" })));
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    await click(control);
+    expect(host.querySelector('input[aria-label^="Name for "]')).toBeNull();
+    expect(document.querySelector("[data-machine-name]")).toBeNull();
+  }
 
   it("returns focus to the machine editor trigger after Escape, an outside press, or Back", async () => {
     await act(async () => root.render(<MachineSessionControls name="Desk" busy={false} identityPeer={null} />));
@@ -343,8 +357,7 @@ describe("Mesh canvas wiring", () => {
     const client = new FakeAccountMeshClient(snapshot({ pairs: [pair("mesh-mac", "mac.local", { installation_id: macRow.installation_id })] }));
     const priorAccount = client.state;
     await mount(client, [peer("mesh-mac", "mac.local")]);
-    expect(button("Rename Lenovo")?.disabled).toBe(true);
-    expect(button("Rename Lenovo")?.title).toBe("Connect to rename it, or rename it on that machine");
+    await expectUnavailableRename("Rename Lenovo");
     client.listRows = client.state.registry!.rows.map((row) => row.installation_id === macRow.installation_id ? { ...row, display_name: "Travel Mac", metadata_revision: row.metadata_revision + 1 } : row);
     await editName("MacBook", "Travel Mac", "Enter");
     expect(client.peerRenameCalls).toEqual([["mesh-mac", macRow.metadata_revision, "Travel Mac"]]);
@@ -363,8 +376,7 @@ describe("Mesh canvas wiring", () => {
   it("disables rename for an offline paired machine", async () => {
     const client = new FakeAccountMeshClient(snapshot({ pairs: [pair("mesh-mac", "mac.local", { installation_id: macRow.installation_id, online: false })] }));
     await mount(client, [peer("mesh-mac", "mac.local", { online: false })]);
-    expect(button("Rename MacBook")?.disabled).toBe(true);
-    expect(button("Rename MacBook")?.title).toBe("Connect to rename it, or rename it on that machine");
+    await expectUnavailableRename("Rename MacBook");
     expect(client.peerRenameCalls).toEqual([]);
   });
 
@@ -562,11 +574,7 @@ describe("Mesh canvas wiring", () => {
     for (const card of cards) expect(card.textContent).toContain("Same name as 2 others");
     const local = button("Rename BLACKSTAR #3 in Icon and colour")!;
     expect(local.getAttribute("aria-disabled")).toBeNull();
-    const remote = button("Rename BLACKSTAR #1 in Icon and colour")!;
-    expect(remote.getAttribute("aria-disabled")).toBe("true");
-    expect(document.getElementById(remote.getAttribute("aria-describedby")!)?.textContent).toBe(remote.title);
-    await click(remote);
-    expect(document.querySelector("[data-machine-name]")).toBeNull();
+    await expectUnavailableRename("Rename BLACKSTAR #1 in Icon and colour");
     await click(local);
     expect(document.activeElement).toBe(document.querySelector("[data-machine-name]"));
   });
