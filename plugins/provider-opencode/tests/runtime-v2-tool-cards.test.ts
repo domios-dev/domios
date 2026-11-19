@@ -58,6 +58,25 @@ const created=firstDiff(assertRow(byId("call-write")));
 assert.equal(created?.path,"src/new.ts");
 assert.equal(created?.kind,"add");
 
+const open131Write=assertRow(byId("call-open131-write"));
+const open131CreateDiff=firstDiff(open131Write);
+assert.equal(open131Write.toolKind,"edit");
+assert.equal(open131CreateDiff?.path,"C:/Users/User/AppData/Local/Temp/domios-open131-1d8cadc0/cards-created.txt");
+assert.equal(open131CreateDiff?.kind,"add");
+assert.equal(open131CreateDiff?.additions,1);
+assert.equal(open131CreateDiff?.deletions,0);
+assert.equal(open131Write.toolDurationMs,10);
+
+const open131Edit=assertRow(byId("call-open131-edit"));
+const open131EditDiff=firstDiff(open131Edit);
+assert.equal(open131EditDiff?.path,open131CreateDiff?.path);
+assert.equal(open131EditDiff?.kind,"modify");
+assert.equal(open131EditDiff?.additions,1);
+assert.equal(open131EditDiff?.deletions,1);
+assert.deepEqual(open131EditDiff?.hunks[0]?.lines,["-PUBLIC_OPEN131_CREATED","+PUBLIC_OPEN131_EDITED"]);
+assert.equal(open131Edit.toolDurationMs,10);
+assert.notEqual(open131Write.id,open131Edit.id,"distinct native calls retain distinct row identities");
+
 const applyPatch=v2Content("patch-message",{
   id:"call-apply-patch",
   type:"tool",

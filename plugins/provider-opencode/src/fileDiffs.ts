@@ -19,6 +19,7 @@ function parsePatch(path: string, patch: string): FileDiff[] {
     hunk = undefined;
   };
   for (const line of patch.replace(/\r\n/g, "\n").split("\n")) {
+    if (line === "\\ No newline at end of file") continue;
     const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
     if (line.startsWith("diff --git ")) {
       finish();
