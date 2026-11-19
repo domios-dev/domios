@@ -126,6 +126,8 @@ impl CronCancelReason {
 /// One run row; the same row backs a history entry and a job's last run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CronRunRecord {
+    pub provider: Option<String>,
+    pub owner_instance_id: Option<String>,
     pub cancel_reason: Option<CronCancelReason>,
     pub run_id: CronRunId,
     pub started_at: u64,
@@ -151,6 +153,8 @@ impl CronRunRecord {
             to_sql_u64("run finish", finished)?;
         }
         optional("run tab", &self.tab_id, MAX_LABEL_BYTES)?;
+        optional("run provider", &self.provider, MAX_LABEL_BYTES)?;
+        optional("run owner", &self.owner_instance_id, MAX_LABEL_BYTES)?;
         optional("run session", &self.session_id, MAX_LABEL_BYTES)?;
         optional("run cwd", &self.cwd, MAX_PATH_BYTES)?;
         optional("run summary", &self.summary, MAX_TEXT_BYTES)?;
@@ -161,6 +165,8 @@ impl CronRunRecord {
         RECORD_OVERHEAD
             + self.run_id.0.len()
             + [
+                &self.provider,
+                &self.owner_instance_id,
                 &self.tab_id,
                 &self.session_id,
                 &self.cwd,
@@ -307,10 +313,12 @@ pub enum CronRunField {
     Summary,
     ReportDelivery,
     CancelReason,
+    Provider,
+    OwnerInstanceId,
 }
 
 impl CronRunField {
-    const ALL: [CronRunField; 9] = [
+    const ALL: [CronRunField; 11] = [
         CronRunField::StartedAt,
         CronRunField::FinishedAt,
         CronRunField::Status,
@@ -320,6 +328,8 @@ impl CronRunField {
         CronRunField::Summary,
         CronRunField::ReportDelivery,
         CronRunField::CancelReason,
+        CronRunField::Provider,
+        CronRunField::OwnerInstanceId,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -333,6 +343,8 @@ impl CronRunField {
             CronRunField::Summary => "summary",
             CronRunField::ReportDelivery => "report_delivery",
             CronRunField::CancelReason => "cancel_reason",
+            CronRunField::Provider => "provider",
+            CronRunField::OwnerInstanceId => "owner_instance_id",
         }
     }
 
@@ -366,6 +378,8 @@ impl CronRunField {
             CronRunField::Summary => left.summary != right.summary,
             CronRunField::ReportDelivery => left.report_delivery != right.report_delivery,
             CronRunField::CancelReason => left.cancel_reason != right.cancel_reason,
+            CronRunField::Provider => left.provider != right.provider,
+            CronRunField::OwnerInstanceId => left.owner_instance_id != right.owner_instance_id,
         };
         CronRunField::ALL
             .into_iter()

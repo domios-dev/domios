@@ -333,6 +333,21 @@ pub async fn peer_cron_history_request(
     .await
 }
 
+pub async fn peer_cron_run_transcript_request(
+    mesh: &codeterm_service_core::MeshStateHandle,
+    instance_id: &str,
+    id: &str,
+    run_id: &str,
+) -> Result<serde_json::Value, String> {
+    peer_authed_request(
+        mesh,
+        instance_id,
+        PeerMethod::Get,
+        &format!("/api/crons/{id}/history/{run_id}"),
+    )
+    .await
+}
+
 pub async fn peer_cron_get_request(
     mesh: &codeterm_service_core::MeshStateHandle,
     instance_id: &str,

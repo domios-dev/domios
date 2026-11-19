@@ -91,6 +91,8 @@ mod tests {
 
     fn running(run_id: &str) -> CronRunInfo {
         CronRunInfo {
+            provider: None,
+            owner_instance_id: None,
             cancel_reason: None,
             run_id: run_id.to_string(),
             started_at: 1,

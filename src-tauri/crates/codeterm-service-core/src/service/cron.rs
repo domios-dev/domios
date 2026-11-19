@@ -723,6 +723,8 @@ impl ServiceContext {
             .as_millis() as u64;
 
         let mut run_info = CronRunInfo {
+            provider: Some(agent.clone()),
+            owner_instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
             cancel_reason: None,
             run_id: run_id.clone(),
             started_at: now,

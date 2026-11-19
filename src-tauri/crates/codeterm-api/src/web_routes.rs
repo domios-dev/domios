@@ -275,6 +275,18 @@ pub async fn peer_cron_history(
     Ok(Json(value))
 }
 
+pub async fn peer_cron_run_transcript(
+    AxumState(state): AxumState<AppState>,
+    _headers: HeaderMap,
+    Path((instance_id, id, run_id)): Path<(String, String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let value =
+        commands_mesh::peer_cron_run_transcript_request(&state.mesh, &instance_id, &id, &run_id)
+            .await
+            .map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
+    Ok(Json(value))
+}
+
 pub async fn peer_cron_get(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,

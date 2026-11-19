@@ -183,6 +183,8 @@ fn create_job(cron: &CronState, name: &str, workspace_id: &str) -> crate::cron::
 
 fn record_active_run(cron: &CronState, job_id: &str, run_id: &str, tab_id: &str) {
     let run = CronRunInfo {
+        provider: None,
+        owner_instance_id: None,
         cancel_reason: None,
         run_id: run_id.into(),
         started_at: 1_700_000_000_000,

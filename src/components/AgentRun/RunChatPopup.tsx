@@ -5,6 +5,8 @@ import { MessageBubble } from "@codeterm/chat-ui";
 import { reduceToolEvents, type NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
 import { LiveRunTranscript } from "./useRunTranscript";
 import { invoke } from "../../lib/bridge";
+import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
+import { cronRunTranscriptRequest } from "./cronRunTranscriptRequest";
 
 interface Props {
   title: string;
@@ -15,6 +17,9 @@ interface Props {
   cwd: string;
   sessionId: string;
   tabId?: string | null;
+  cronId?: string;
+  runId?: string;
+  ownerInstanceId?: string | null;
   live?: boolean;
   onClose: () => void;
 }
@@ -29,6 +34,9 @@ export function RunChatPopup({
   sessionId,
   live,
   tabId,
+  cronId,
+  runId,
+  ownerInstanceId,
   onClose,
 }: Props) {
   const [detachedSession, setDetachedSession] = useState<string | null>(null);
@@ -47,11 +55,13 @@ export function RunChatPopup({
     setError(null);
     setLoaded(false);
     const load = () => {
-      invoke<{ messages?: ChatMessage[] }>("session_transcript", {
-        provider,
-        cwd,
-        sessionId,
-      })
+      const request = cronId && runId
+        ? cronRunTranscriptRequest(cronId, { run_id: runId, owner_instance_id: ownerInstanceId }, ownerInstanceId)
+        : null;
+      const transcript = request
+        ? daemonTransportForPeer(request.targetInstanceId).json<{ messages?: ChatMessage[] }>("GET", request.path)
+        : invoke<{ messages?: ChatMessage[] }>("session_transcript", { provider, cwd, sessionId });
+      transcript
         .then((res) => {
           if (cancelled) return;
           setMessages(Array.isArray(res.messages) ? res.messages : []);
@@ -69,7 +79,7 @@ export function RunChatPopup({
     return () => {
       cancelled = true;
     };
-  }, [provider, cwd, sessionId, watching]);
+  }, [provider, cwd, sessionId, cronId, runId, ownerInstanceId, watching]);
 
   useEffect(() => {
     const el = scrollRef.current;

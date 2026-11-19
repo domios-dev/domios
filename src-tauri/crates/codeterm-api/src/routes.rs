@@ -418,6 +418,10 @@ pub(super) fn create_router_with_preview_admission(
             "/api/mesh/peers/{id}/crons/{cron_id}/history",
             get(blocking_json(web_routes::peer_cron_history)),
         )
+        .route(
+            "/api/mesh/peers/{id}/crons/{cron_id}/history/{run_id}",
+            get(blocking_json(web_routes::peer_cron_run_transcript)),
+        )
         .merge(super::runtime_login::router())
         .merge(super::tab_todo_routes::router())
         .merge(super::client_selection_routes::router())
@@ -514,6 +518,10 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/crons/{id}/trigger", post(cron_routes::cron_trigger))
         .route("/api/crons/{id}/cancel", post(cron_routes::cron_cancel))
         .route("/api/crons/{id}/history", get(cron_routes::cron_history))
+        .route(
+            "/api/crons/{id}/history/{run_id}",
+            get(cron_routes::cron_run_transcript),
+        )
         .route(
             "/api/services",
             get(services_routes::list_services).post(services_routes::create_service),

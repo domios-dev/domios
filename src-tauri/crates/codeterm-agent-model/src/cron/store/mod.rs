@@ -64,6 +64,12 @@ pub enum CronRunStatus {
 pub struct CronRunInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub owner_instance_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub cancel_reason: Option<CronCancelReason>,
     pub run_id: String,
     pub started_at: u64,

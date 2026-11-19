@@ -15,10 +15,10 @@ pub(crate) const JOB_COLUMNS: &str = "id, name, description, workspace_id, team_
      jitter_max_ms, tz, timeout_seconds, consecutive_failures, protected";
 
 const RUN_COLUMNS: &str = "job_id, run_id, ordinal, started_at, finished_at, status, tab_id, \
-     session_id, cwd, summary, report_delivery, cancel_reason";
+     session_id, cwd, summary, report_delivery, cancel_reason, provider, owner_instance_id";
 
 const MIRROR_COLUMNS: &str = "job_id, run_id, NULL, started_at, finished_at, status, tab_id, \
-     session_id, cwd, summary, report_delivery, cancel_reason, origin, imported_revision, imported_differing";
+     session_id, cwd, summary, report_delivery, cancel_reason, provider, owner_instance_id, origin, imported_revision, imported_differing";
 
 fn corrupt(detail: &'static str) -> StorageError {
     StorageError::Corrupt {
@@ -143,6 +143,8 @@ struct RawRun {
     summary: Option<String>,
     report_delivery: Option<String>,
     cancel_reason: Option<String>,
+    provider: Option<String>,
+    owner_instance_id: Option<String>,
 }
 
 fn raw_run(row: &Row<'_>) -> rusqlite::Result<RawRun> {
@@ -159,6 +161,8 @@ fn raw_run(row: &Row<'_>) -> rusqlite::Result<RawRun> {
         summary: row.get(9)?,
         report_delivery: row.get(10)?,
         cancel_reason: row.get(11)?,
+        provider: row.get(12)?,
+        owner_instance_id: row.get(13)?,
     })
 }
 
@@ -169,6 +173,8 @@ fn decode_run(raw: RawRun) -> Result<CronRunRecord, StorageError> {
             .as_deref()
             .map(CronCancelReason::from_sql)
             .transpose()?,
+        provider: raw.provider,
+        owner_instance_id: raw.owner_instance_id,
         run_id: run_id(raw.run_id)?,
         started_at: from_sql_u64("run start", raw.started_at)?,
         finished_at: optional_u64("run finish", raw.finished_at)?,
@@ -278,9 +284,9 @@ fn mirrors(
         .query_map([only.map(CronJobId::as_str)], |row| {
             Ok((
                 raw_run(row)?,
-                row.get::<_, String>(12)?,
-                row.get::<_, i64>(13)?,
                 row.get::<_, String>(14)?,
+                row.get::<_, i64>(15)?,
+                row.get::<_, String>(16)?,
             ))
         })
         .map_err(|e| sqlite_error("read cron last-run divergence", e))?;
