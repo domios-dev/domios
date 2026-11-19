@@ -5,6 +5,7 @@ import type { TabStatus } from "./types";
 
 export type PeerEvent =
   | { type: "reconcile" }
+  | { type: "invalidate" }
   | { type: "tab-status-changed"; data: { tab_id: string; status: TabStatus } }
   | { type: "mux-state-changed"; data: { generation?: number } };
 
@@ -28,6 +29,7 @@ function openPeerLink(peerId: string, link: string, publish: Listener, transport
     const cursor = recovery.currentCursor();
     if (cursor) params.set("since", `${cursor.boot}:${cursor.seq}`);
     let replaying = true;
+    let admitted = false;
 
     deadline.arm();
     transport().subscribe(`/api/mesh/relay-stream?${params}`, (_name, raw) => {
@@ -67,13 +69,14 @@ function openPeerLink(peerId: string, link: string, publish: Listener, transport
       raw: true,
       signal: active.signal,
       onStarting: deadline.clear,
-      onReady: () => { replaying = true; deadline.arm(); },
+      onReady: () => { admitted = true; replaying = true; deadline.arm(); },
       onActivity: deadline.arm,
       onEnd(end) {
         deadline.clear();
         if (!recovery.isCurrent(generation) || active.signal.aborted) return;
         const reason = end.reason === "http" ? streamResponseFailureReason(end.status ?? 500)
           : end.reason === "eof" ? "eof" : "error";
+        if (admitted || !replaying) publish({ type: "invalidate" });
         if (recovery.handleStreamEnd(generation, reason) === "reconnect") connect();
       },
     });

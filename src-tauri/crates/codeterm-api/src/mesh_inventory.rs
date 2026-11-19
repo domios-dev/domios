@@ -7,6 +7,7 @@ use codeterm_mesh::contract::inventory::{
     InventoryCapability, InventoryFreshness, InventoryOperation, InventoryProvenance,
     InventoryUnavailableReason,
 };
+use codeterm_service_core::api_support::access_policy::{PeerOperation, PeerResource, PeerScope};
 use codeterm_service_core::mesh::types::AccessLevel;
 use codeterm_service_core::mesh_host::{MeshInventoryResource, MeshInventoryView};
 use codeterm_service_core::service::store::{Service, ServiceKind};
@@ -24,6 +25,10 @@ pub fn project_view(
     let machine_name = machine_name.into();
     let resources = services
         .into_iter()
+        .filter(|service| {
+            operation_scope(&service.kind, &service.id, InventoryOperation::Get)
+                .is_some_and(|scope| scope.allowed(access))
+        })
         .map(|service| project_resource(&machine_id, &machine_name, service, access, &provenance))
         .collect();
     MeshInventoryView {
@@ -85,12 +90,12 @@ fn capability_for_operation(
     provenance: &InventoryProvenance,
     operation: InventoryOperation,
 ) -> InventoryCapability {
-    let Some((method, path)) = operation_route(kind, id, operation) else {
+    let Some(scope) = operation_scope(kind, id, operation) else {
         return InventoryCapability::unavailable(
             InventoryUnavailableReason::UnsupportedResourceKind,
         );
     };
-    if !codeterm_service_core::api_support::access_policy::check_access(access, &method, &path) {
+    if !scope.allowed(access) {
         return InventoryCapability::unavailable(InventoryUnavailableReason::NotAuthorized);
     }
     if protected && operation == InventoryOperation::Delete {
@@ -115,48 +120,23 @@ fn capability_for_operation(
     InventoryCapability::allowed()
 }
 
-fn operation_route(
+fn operation_scope<'a>(
     kind: &ServiceKind,
-    id: &str,
+    id: &'a str,
     operation: InventoryOperation,
-) -> Option<(axum::http::Method, String)> {
-    let (prefix, supported) = match kind {
-        ServiceKind::Cron => ("/api/crons", true),
-        ServiceKind::Daemon => (
-            "/api/services",
-            matches!(
-                operation,
-                InventoryOperation::Get | InventoryOperation::Delete
-            ),
-        ),
-    };
-    if !supported {
-        return None;
-    }
-    let (method, suffix) = match operation {
-        InventoryOperation::Get => (axum::http::Method::GET, ""),
-        InventoryOperation::History if matches!(kind, ServiceKind::Cron) => {
-            (axum::http::Method::GET, "/history")
+) -> Option<PeerScope<'a>> {
+    use InventoryOperation::*;
+    use PeerOperation::*;
+    let (operation, resource) = match (kind, operation) {
+        (ServiceKind::Cron, Get | History) => (ReadCron, PeerResource::Cron(id)),
+        (ServiceKind::Cron, UpdateSchedule | Delete | Enable | Disable | Trigger | Cancel) => {
+            (ManageCron, PeerResource::Cron(id))
         }
-        InventoryOperation::UpdateSchedule if matches!(kind, ServiceKind::Cron) => {
-            (axum::http::Method::PUT, "")
-        }
-        InventoryOperation::Delete => (axum::http::Method::DELETE, ""),
-        InventoryOperation::Enable if matches!(kind, ServiceKind::Cron) => {
-            (axum::http::Method::POST, "/enable")
-        }
-        InventoryOperation::Disable if matches!(kind, ServiceKind::Cron) => {
-            (axum::http::Method::POST, "/disable")
-        }
-        InventoryOperation::Trigger if matches!(kind, ServiceKind::Cron) => {
-            (axum::http::Method::POST, "/trigger")
-        }
-        InventoryOperation::Cancel if matches!(kind, ServiceKind::Cron) => {
-            (axum::http::Method::POST, "/cancel")
-        }
+        (ServiceKind::Daemon, Get) => (ReadService, PeerResource::Service(id)),
+        (ServiceKind::Daemon, Delete) => (FullAccess, PeerResource::Service(id)),
         _ => return None,
     };
-    Some((method, format!("{prefix}/{id}{suffix}")))
+    Some(PeerScope::new(operation, resource))
 }
 
 pub async fn inventory(

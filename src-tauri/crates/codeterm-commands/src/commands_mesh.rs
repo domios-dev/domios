@@ -13,7 +13,7 @@ pub async fn fetch_peer_services_view(
         .unwrap_or_default()
         .as_secs();
 
-    let (addresses, port, online, token, cache_fresh, link_nonce) = {
+    let (addresses, port, online, token, cache_fresh, link_nonce, generation) = {
         let m = mesh.lock();
         let peer = m
             .paired_peers
@@ -30,6 +30,7 @@ pub async fn fetch_peer_services_view(
             m.peer_services.is_fresh(instance_id, now),
             m.link_record(instance_id)
                 .and_then(|record| record.link_nonce.clone()),
+            m.peer_services.generation(),
         )
     };
 
@@ -38,11 +39,21 @@ pub async fn fetch_peer_services_view(
     } else {
         fetch_peer_services(&addresses, port, &token).await
     };
-    let (outcome, status) = outcome;
+    let (mut outcome, status) = outcome;
 
     let mut m = mesh.lock();
-    if !matches!(&outcome, FetchOutcome::Skipped) {
+    if !m.traffic_open(instance_id)
+        || m.link_record(instance_id)
+            .and_then(|record| record.link_nonce.as_deref())
+            != link_nonce.as_deref()
+        || m.peer_services.generation() != generation
+    {
+        outcome = FetchOutcome::Failed("Peer inventory changed while reading".into());
+    } else if !matches!(&outcome, FetchOutcome::Skipped) {
         m.record_peer_inventory_status(instance_id, link_nonce.as_deref(), status.unwrap_or(0));
+        if matches!(status, Some(401 | 403)) {
+            m.peer_services.prune(instance_id);
+        }
     }
     let online = m
         .account_mesh_pairs()

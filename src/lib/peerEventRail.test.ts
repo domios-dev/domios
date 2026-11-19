@@ -28,7 +28,7 @@ it("shares a link, resumes its cursor and reconciles once after each replay", ()
   receive("mux-state-changed", {}, "boot-b", 4);
   receive("peer-replay-complete", null, "boot-b", 5);
   receive("peer-replay-complete", null, "boot-b", 5);
-  expect(events.slice(2)).toEqual([{ type: "reconcile" }]);
+  expect(events.slice(2)).toEqual([{ type: "invalidate" }, { type: "reconcile" }]);
   calls[1][2]?.onEnd?.({ reason: "eof" });
   expect(new URL(calls[2][0], "http://local").searchParams.get("since")).toBe("boot-b:5");
   const stopNew = rail.subscribe("peer", "key-two", () => {});
@@ -38,6 +38,19 @@ it("shares a link, resumes its cursor and reconciles once after each replay", ()
   stopOther();
   expect(calls[3][2]?.signal?.aborted).toBe(false);
   stopNew();
+});
+
+
+it("invalidates an admitted rail closed before its replay boundary", () => {
+  const calls: Parameters<TransportClient["subscribe"]>[] = [];
+  const subscribe: TransportClient["subscribe"] = (...args) => { calls.push(args); return () => {}; };
+  const rail = createPeerEventRail(() => ({ subscribe }) as TransportClient);
+  const events: PeerEvent[] = [];
+  const stop = rail.subscribe("peer", "key", event => events.push(event));
+  calls[0][2]?.onReady?.();
+  calls[0][2]?.onEnd?.({ reason: "eof" });
+  expect(events).toEqual([{ type: "invalidate" }]);
+  stop();
 });
 
 void finish();

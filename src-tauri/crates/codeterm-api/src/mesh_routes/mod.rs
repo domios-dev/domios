@@ -112,7 +112,7 @@ pub async fn mesh_peers(
 
 #[derive(serde::Deserialize)]
 pub struct SetAccessBody {
-    pub access_level: String,
+    pub access_level: codeterm_service_core::mesh::types::AccessLevel,
 }
 
 /// Web-mirror twin of the `mesh_set_access` Tauri command.
@@ -124,24 +124,11 @@ pub async fn mesh_set_access(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
         require_administrator(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-        let level = match body.access_level.as_str() {
-            "full" => codeterm_service_core::mesh::types::AccessLevel::Full,
-            "read_only" => codeterm_service_core::mesh::types::AccessLevel::ReadOnly,
-            "agent_isolated" => codeterm_service_core::mesh::types::AccessLevel::AgentIsolated,
-            _ => {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    format!("Invalid access level: {}", body.access_level),
-                ))
-            }
-        };
         {
             let mut m = state.mesh.lock();
-            let peer = m
-                .paired_peers
-                .get_mut(&instance_id)
-                .ok_or_else(|| (StatusCode::NOT_FOUND, "Peer not found".to_string()))?;
-            peer.access_level = level;
+            if !m.set_peer_access(&instance_id, body.access_level.clone()) {
+                return Err((StatusCode::NOT_FOUND, "Peer not found".to_string()));
+            }
             let _ = m.save();
         }
         state.svc.ui.emit(
@@ -149,7 +136,7 @@ pub async fn mesh_set_access(
             serde_json::to_value(serde_json::Value::Null).unwrap_or_default(),
         );
         log::info!(
-            "[mesh/api] Set access level for {} to {}",
+            "[mesh/api] Set access level for {} to {:?}",
             instance_id,
             body.access_level
         );

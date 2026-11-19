@@ -3,6 +3,14 @@ use axum::response::IntoResponse;
 use futures_util::StreamExt;
 use std::sync::Arc;
 
+fn topic_allowed(
+    access: &AccessLevel,
+    event: &SystemEvent,
+    owns_tab: impl FnOnce(&str) -> bool,
+) -> bool {
+    topic_scope(event).is_some_and(|scope| scope.allowed_with_owner(access, owns_tab))
+}
+
 fn status(tab: &str) -> SystemEvent {
     SystemEvent::Generic {
         event_type: "tab-status-changed".into(),
@@ -87,4 +95,23 @@ async fn peer_event_stream_replays_every_tab_then_marks_live_boundary() {
         &SystemEvent::MuxStateChanged,
         Some("first")
     ));
+}
+
+#[test]
+fn scoped_tab_topics_bind_topic_class_and_exact_tab() {
+    use codeterm_service_core::mesh::types::Permission;
+    let event = |name: &str| SystemEvent::Generic {
+        event_type: name.into(),
+        data: serde_json::json!({"tab_id": "owned"}),
+    };
+    let tabs = AccessLevel::Custom(vec![Permission::ReadTabs]);
+    let output = AccessLevel::Custom(vec![Permission::ReadOutput]);
+    let metadata = event("provider-switch-status");
+    let chat = event("tab-chat-msg-owned");
+    assert!(tab_topic(&metadata, "owned").unwrap().allowed(&tabs));
+    assert!(!tab_topic(&metadata, "owned").unwrap().allowed(&output));
+    assert!(tab_topic(&chat, "owned").unwrap().allowed(&output));
+    assert!(!tab_topic(&chat, "owned").unwrap().allowed(&tabs));
+    assert!(tab_topic(&chat, "other").is_none());
+    assert!(tab_topic(&event("notification-created"), "owned").is_none());
 }

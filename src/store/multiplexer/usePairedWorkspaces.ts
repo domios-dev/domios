@@ -79,6 +79,22 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
     void writePairedGeneralCache(cacheScope, next);
   }, [cacheAccount, cacheScope, cachedPeers, general, peers]);
 
+  const invalidatePeerInventory = useCallback((peerId: string) => {
+    const running = reads.current.get(peerId);
+    reads.current.delete(peerId);
+    running?.controller.abort();
+    const peer = peerRoster.current?.paired.find(item => item.instance_id === peerId);
+    if (!peer) return;
+    const account = accountRef.current;
+    setGeneral(previous => new Map(previous).set(peerId, {
+      account,
+      publicKey: peer.public_key,
+      sessions: [],
+      workspaces: [],
+      availability: "unreachable",
+    }));
+  }, []);
+
   const refreshPeerInventory = useCallback((peerId: string) => {
     const roster = peerRoster.current;
     const peer = roster?.paired.find(item => item.instance_id === peerId);
@@ -212,7 +228,7 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
     }
     return known.workspaces ?? [];
   }), [generals, peers, general, cacheAccount, browse]);
-  return { generals, browse, peerWorkspaces, refreshPeerInventory, ready };
+  return { generals, browse, peerWorkspaces, refreshPeerInventory, invalidatePeerInventory, ready };
 }
 
 async function readTeamPlanTitles(peerId: string, signal: AbortSignal) {

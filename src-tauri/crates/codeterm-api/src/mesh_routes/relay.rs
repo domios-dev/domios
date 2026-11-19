@@ -1,5 +1,4 @@
 use crate::routes::AppState;
-use crate::stream_census::{track, StreamGuard, StreamKind};
 use axum::{
     body::Body,
     extract::{Path as AxumPath, Query, State as AxumState},
@@ -12,6 +11,11 @@ use std::sync::LazyLock;
 mod caller;
 mod capability;
 mod origin;
+mod peer_rail;
+mod peer_stream;
+#[cfg(test)]
+use peer_stream::is_streamable_relay_path;
+pub use peer_stream::mesh_relay_stream;
 
 mod sync;
 pub use sync::mesh_sync;
@@ -472,16 +476,28 @@ pub async fn mesh_relay(
         .delivery_id
         .as_deref()
         .map(str::trim)
-        .filter(|id| !id.is_empty())
+        .filter(|id| !id.is_empty() && is_tab_send(&cmd.method, &cmd.path))
     else {
-        return perform_relay(&state, &sender_id, &cmd, origin, agent.as_ref())
-            .await
-            .map(Json);
+        return perform_relay(
+            &state,
+            &sender_id,
+            &cmd,
+            origin,
+            agent.as_ref(),
+            headers.get(header::AUTHORIZATION),
+        )
+        .await
+        .map(Json);
     };
 
     // At-most-once (#240): one dispatch per (authenticated sender, delivery_id);
     // duplicates replay; a saturated in-flight window is rejected, never grown.
-    let key = super::send_dedupe::dedupe_key(&format!("{sender_id}:{origin:?}"), delivery_id);
+    let agent_tab = agent
+        .as_ref()
+        .map(|agent| agent.tab_id.as_str())
+        .unwrap_or_default();
+    let key =
+        super::send_dedupe::dedupe_key(&format!("{sender_id}:{origin:?}:{agent_tab}"), delivery_id);
     let entry = match super::send_dedupe::MeshDeliveryDedupe::global()
         .acquire(key.clone(), super::send_dedupe::now_ms())
     {
@@ -511,16 +527,23 @@ pub async fn mesh_relay(
 
     // Cache the outcome so concurrent duplicates ack it; fold transport/validation
     // errors into ok:false rather than an axum error waiters could never observe.
-    let response = perform_relay(&state, &sender_id, &cmd, origin, agent.as_ref())
-        .await
-        .unwrap_or_else(
-            |(status, message)| codeterm_service_core::mesh::types::RelayResponse {
-                ok: false,
-                status: status.as_u16(),
-                data: None,
-                error: Some(message),
-            },
-        );
+    let response = perform_relay(
+        &state,
+        &sender_id,
+        &cmd,
+        origin,
+        agent.as_ref(),
+        headers.get(header::AUTHORIZATION),
+    )
+    .await
+    .unwrap_or_else(
+        |(status, message)| codeterm_service_core::mesh::types::RelayResponse {
+            ok: false,
+            status: status.as_u16(),
+            data: None,
+            error: Some(message),
+        },
+    );
     entry.complete(response.clone());
     if !outcome_holds_dedupe(&response) {
         super::send_dedupe::MeshDeliveryDedupe::global().forget(&key);
@@ -537,11 +560,6 @@ fn saturated_response() -> codeterm_service_core::mesh::types::RelayResponse {
         Some(false),
         "mesh delivery window saturated by in-flight sends; nothing written".into(),
     )
-}
-
-fn is_tab_listing(method: &str, path: &str) -> bool {
-    method.eq_ignore_ascii_case("GET")
-        && codeterm_service_core::api_support::access_policy::request_path(path) == "/api/tabs"
 }
 
 /// A logical tab send (POST `.../send`).
@@ -659,8 +677,10 @@ async fn perform_relay(
     cmd: &codeterm_service_core::mesh::types::RelayCommand,
     origin: crate::auth::AuthenticatedOrigin,
     agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
+    authorization: Option<&HeaderValue>,
 ) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
-    let mut response = perform_relay_unredacted(state, sender_id, cmd, origin, agent).await?;
+    let mut response =
+        perform_relay_unredacted(state, sender_id, cmd, origin, agent, authorization).await?;
     if let Some(data) = response.data.as_mut() {
         crate::peer_redaction::redact_for_peer(data);
     }
@@ -683,12 +703,22 @@ fn relay_prewrite_refusal(
     }
 }
 
+fn grant_refusal() -> codeterm_service_core::mesh::types::RelayResponse {
+    relay_failure(
+        StatusCode::FORBIDDEN.as_u16(),
+        codeterm_mesh::contract::delivery::PEER_RELAY_NOT_AUTHORIZED,
+        Some(false),
+        "Peer authorization changed or is unavailable".into(),
+    )
+}
+
 async fn perform_relay_unredacted(
     state: &AppState,
     sender_id: &str,
     cmd: &codeterm_service_core::mesh::types::RelayCommand,
     origin: crate::auth::AuthenticatedOrigin,
     agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
+    authorization: Option<&HeaderValue>,
 ) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
     // debug, not info — polling peers once put 285k of these in a single
     // rotated log generation, the largest contributor to a 250 MB log dir.
@@ -699,17 +729,23 @@ async fn perform_relay_unredacted(
         sender_id
     );
 
+    if sender_id != "local"
+        && codeterm_service_core::api_support::access_policy::is_local_only_path(&cmd.path)
+    {
+        return Ok(grant_refusal());
+    }
     validate_relay_path(&cmd.path).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
-    let mut isolated_peer = None;
+    let mut admitted_grant = None;
     if sender_id != "local" {
-        let (access, protocol_version) = state
-            .mesh
-            .lock()
-            .paired_peers
-            .get(sender_id)
-            .map(|peer| (peer.access_level.clone(), peer.relay_protocol_version))
-            .unwrap_or((codeterm_service_core::mesh::types::AccessLevel::ReadOnly, 0));
+        let (grant, protocol_version) = {
+            let mesh = state.mesh.lock();
+            let Some(grant) = crate::auth::peer_grant::PeerGrant::capture(&mesh, sender_id) else {
+                return Ok(grant_refusal());
+            };
+            (grant, mesh.paired_peers[sender_id].relay_protocol_version)
+        };
+        let access = grant.access();
         if !codeterm_service_core::mesh::types::is_supported_relay_protocol(protocol_version) {
             return Ok(relay_failure(
                 StatusCode::UPGRADE_REQUIRED.as_u16(),
@@ -718,15 +754,19 @@ async fn perform_relay_unredacted(
                 codeterm_mesh::version::peer_upgrade_message(),
             ));
         }
-        let method = Method::from_bytes(cmd.method.as_bytes()).map_err(|_| {
-            (
-                StatusCode::BAD_REQUEST,
-                format!("Unsupported method: {}", cmd.method),
-            )
-        })?;
+        let method =
+            Method::from_bytes(cmd.method.to_ascii_uppercase().as_bytes()).map_err(|_| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Unsupported method: {}", cmd.method),
+                )
+            })?;
         let tab_owner = |tab_id: &str| crate::auth::tab_owner_peer_id(state, tab_id);
         let authorization =
-            authorize_peer_relay(sender_id, &access, &method, &cmd.path, &cmd.body, tab_owner);
+            authorize_peer_relay(sender_id, access, &method, &cmd.path, &cmd.body, tab_owner);
+        if !grant.current(&state.mesh.lock()) {
+            return Ok(grant_refusal());
+        }
         if !origin.owner_trusted()
             && matches!(authorization, PeerRelayAuthorization::WorkspaceClose { .. })
         {
@@ -765,9 +805,7 @@ async fn perform_relay_unredacted(
             }
             PeerRelayAuthorization::Forward => {}
         }
-        if access == codeterm_service_core::mesh::types::AccessLevel::AgentIsolated {
-            isolated_peer = Some(sender_id);
-        }
+        admitted_grant = Some(grant);
     }
 
     let sender_name = {
@@ -788,7 +826,19 @@ async fn perform_relay_unredacted(
         cmd.method,
         cmd.path
     );
-    let request = origin::loopback_request(state, origin, cmd, &body, agent)?;
+    let request = if sender_id == "local" {
+        origin::loopback_request(state, origin, cmd, &body, agent)?
+    } else if let Some(authorization) = authorization {
+        origin::loopback_request_with_auth(state, cmd, &body, authorization.clone())?
+    } else {
+        return Ok(grant_refusal());
+    };
+    if admitted_grant
+        .as_ref()
+        .is_some_and(|grant| !grant.current(&state.mesh.lock()))
+    {
+        return Ok(grant_refusal());
+    }
     let client = local_forward_http_client();
 
     // Recheck immediately before forwarding. Once the downstream route may
@@ -802,14 +852,32 @@ async fn perform_relay_unredacted(
     };
 
     let status = resp.status().as_u16();
-    let bytes = resp.bytes().await.unwrap_or_default();
-    let mut data = relay_response_data(&bytes);
-    if let Some(peer_id) = isolated_peer {
-        if status < 400 && is_tab_listing(&cmd.method, &cmd.path) {
-            crate::tab_routes::retain_peer_owned_tab_rows(state, peer_id, &mut data);
-        }
+    let observation =
+        codeterm_service_core::api_support::access_policy::is_observation(&cmd.method, &cmd.path);
+    let result = resp.bytes().await;
+    if observation
+        && admitted_grant
+            .as_ref()
+            .is_some_and(|grant| !grant.current(&state.mesh.lock()))
+    {
+        return Ok(grant_refusal());
     }
-
+    let bytes = match result {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return Ok(relay_failure(
+                if status < 400 {
+                    StatusCode::BAD_GATEWAY.as_u16()
+                } else {
+                    status
+                },
+                codeterm_mesh::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED,
+                None,
+                format!("The route answered, but its response body could not be read: {error}"),
+            ));
+        }
+    };
+    let data = relay_response_data(&bytes);
     if status < 400 && cmd.path.contains("/send") && cmd.method.eq_ignore_ascii_case("POST") {
         let target_tab = cmd.path.split('/').nth(3).unwrap_or("unknown").to_string();
         let preview = cmd
@@ -879,23 +947,7 @@ fn relay_error_summary(status: u16, data: &serde_json::Value) -> String {
     }
 }
 
-/// The only two cursor'd SSE streams a relay target may serve. Both carry D1
-/// frames unmodified, including surface state, frames and notices.
-fn is_streamable_relay_path(bare: &str) -> bool {
-    matches!(bare, "/api/events/stream" | "/api/output/stream")
-        || surface_stream_tab(bare).is_some()
-}
-
-fn surface_stream_tab(path: &str) -> Option<&str> {
-    let tab = path
-        .strip_prefix("/api/surfaces/")?
-        .strip_suffix("/stream")?;
-    (!tab.is_empty() && !tab.contains('/') && !tab.contains('\\') && tab != "." && tab != "..")
-        .then_some(tab)
-}
-
-/// Read-only plugin-UI asset paths (peer `/api/plugins/{id}/ui/...`). Never a
-/// mutating plugin route — the relay-asset proxy is read-only, ui/-scoped.
+/// Read-only plugin-UI asset paths (peer `/api/plugins/{id}/ui/...`).
 fn is_relay_asset_path(rel: &str) -> bool {
     !rel.contains("..") && rel.starts_with("plugins/") && rel.contains("/ui/")
 }
@@ -921,144 +973,6 @@ fn copy_content_type(from: &reqwest::Response, fallback: &'static str) -> Header
         .and_then(|v| v.to_str().ok())
         .and_then(|s| HeaderValue::from_str(s).ok())
         .unwrap_or_else(|| HeaderValue::from_static(fallback))
-}
-
-#[derive(serde::Deserialize)]
-pub struct RelayStreamQuery {
-    pub peer: String,
-    pub path: String,
-    #[serde(default)]
-    pub since: Option<String>,
-    #[serde(default)]
-    pub tab: Option<String>,
-    scope: Option<crate::web_routes::PeerEventScope>,
-}
-
-/// `GET /api/mesh/relay-stream?peer=<id>&path=<streamable>&since=<cursor>` —
-/// browser→local (local token). Opens a signed, un-timed stream to the peer's
-/// own `/api/events|output/stream?since=` and pipes bytes verbatim. Peer
-/// unreachable → 504 `peer-unreachable` so the client shows a banner + backoff,
-/// never a silent poll.
-pub async fn mesh_relay_stream(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Query(q): Query<RelayStreamQuery>,
-) -> Result<Response, (StatusCode, String)> {
-    let diagnostic_level = crate::stream_diagnostics::configured_level(
-        state.config.lock().diagnostics.terminal_transport,
-    );
-
-    let bare = q.path.split('?').next().unwrap_or(&q.path);
-    if !is_streamable_relay_path(bare) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!("Not a streamable relay path: {bare}"),
-        ));
-    }
-    // so a raw append needs no percent-encoding.
-    let mut path = q.path.clone();
-    let mut stream_tab_id = None;
-    if q.scope.is_some() {
-        if q.path != "/api/events/stream" || q.tab.is_some() {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                "Peer scope requires an unfiltered event stream".into(),
-            ));
-        }
-        path = format!("{bare}?scope=peer");
-    } else if let Some(ordinary_id) = q.tab.as_deref() {
-        let owner = super::remote_tabs::validate_remote_stream_owner(&q.peer, ordinary_id, bare)
-            .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
-        stream_tab_id = Some(owner.tab_id.clone());
-        path = format!("{bare}?tab_id={}", owner.tab_id);
-    } else if bare == "/api/output/stream" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "remote tab stream requires composite tab".into(),
-        ));
-    }
-    if let Some(since) = q.since.as_deref().filter(|s| !s.is_empty()) {
-        let sep = if path.contains('?') { '&' } else { '?' };
-        path = format!("{path}{sep}since={since}");
-    }
-    validate_relay_path(&path).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-
-    let client = {
-        let mesh = state.mesh.lock();
-        let peer = mesh
-            .paired_peers
-            .get(&q.peer)
-            .ok_or_else(|| peer_not_paired_error(&q.peer))?;
-        if !peer.online {
-            return Err((
-                StatusCode::SERVICE_UNAVAILABLE,
-                "remote tab unavailable".into(),
-            ));
-        }
-        if !codeterm_service_core::mesh::types::is_supported_relay_protocol(
-            peer.relay_protocol_version,
-        ) {
-            return Err((
-                StatusCode::UPGRADE_REQUIRED,
-                origin::protocol_refusal(&peer.instance_name, peer.relay_protocol_version).1,
-            ));
-        }
-        mesh.client_for(&q.peer)
-            .ok_or_else(|| peer_unroutable_error(&peer.instance_name))?
-    };
-    let client = origin::peer_client(&state, &headers, client)?;
-    let resp = client.open_relay_stream(&path).await.map_err(|e| {
-        (
-            StatusCode::GATEWAY_TIMEOUT,
-            format!("peer-unreachable: {e}"),
-        )
-    })?;
-    if !resp.status().is_success() {
-        if surface_stream_tab(bare).is_some() || q.scope.is_some() {
-            let status = resp.status();
-            let body = resp.text().await.map_err(|error| {
-                (
-                    StatusCode::BAD_GATEWAY,
-                    format!("Stream refusal could not be read: {error}"),
-                )
-            })?;
-            return Err((status, body));
-        }
-        return Err((
-            StatusCode::BAD_GATEWAY,
-            format!("peer-unreachable: HTTP {}", resp.status().as_u16()),
-        ));
-    }
-
-    let content_type = copy_content_type(&resp, "text/event-stream");
-    let body = if bare == "/api/output/stream" {
-        super::relay_stream::output_body(
-            resp.bytes_stream(),
-            diagnostic_level,
-            q.tab.clone().unwrap_or_else(|| "*".into()),
-            stream_tab_id,
-            q.since.as_deref(),
-            StreamGuard::relayed(StreamKind::Output, q.peer.clone()),
-        )
-    } else {
-        Body::from_stream(track(
-            resp.bytes_stream(),
-            StreamGuard::relayed(
-                if surface_stream_tab(bare).is_some() {
-                    StreamKind::Surface
-                } else {
-                    StreamKind::Events
-                },
-                q.peer.clone(),
-            ),
-        ))
-    };
-    let body = super::account_link::fence_body(body, state.mesh.clone(), q.peer.clone());
-    let mut out = Response::new(body);
-    out.headers_mut().insert(header::CONTENT_TYPE, content_type);
-    out.headers_mut()
-        .insert("x-accel-buffering", HeaderValue::from_static("no"));
-    Ok(out)
 }
 
 #[derive(serde::Deserialize)]
