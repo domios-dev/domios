@@ -83,6 +83,15 @@ For a plugin release, run `node scripts/release-plugin.mjs bump <id> <version>`,
 `--min-codeterm` only when a new host capability is required. Verify `release-plugin.mjs check`
 and `check-plugin.mjs <id>`, merge the checked PR, then with publication GO tag the verified master
 commit `plugin-<id>-v<version>`. Verify the installed version through `domios plugin update-system`.
+An owner push to `release/next` uses plugin-only qualification when its exact diff
+against master contains a version bump and files for one official plugin. It may
+also update only that plugin's entry in `plugins/channel.json` and explicitly
+owned shared test fixtures (`tests/fixtures/runtime-http-sse.json` for OpenCode).
+Any other change uses full release qualification. Wait for the exact push's
+plugin checks and CI result, then merge the owner release PR after its required
+checks pass. The master push skips app promotion for a qualified plugin-only
+tree. Publication still requires owner approval in the `release` environment.
+
 Dispatch `plugin-release.yml` from a reviewed release branch with `tag=plugin-<id>-v<version>`; tag pushes do not publish. The dispatch's `publish_core_channel` job runs `scripts/publish-core-channel.mjs`, which uploads the whole
 `plugins/` tree as `codeterm-core.tar.gz` (+ `.sha256`, `.source-commit`) to the public
 `domios-dev/domios` release `codeterm-core-latest` with `GITHUB_TOKEN`, skips an older master

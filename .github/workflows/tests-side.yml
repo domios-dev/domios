@@ -20,6 +20,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+    outputs:
+      plugin_id: ${{ steps.plugin.outputs.id }}
     steps:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
@@ -41,6 +43,13 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
         run: node scripts/ci-git-history.mjs policy
+      - name: Identify an owner single-plugin release PR
+        id: plugin
+        if: github.base_ref == 'master' && github.head_ref == 'release/next' && github.event.pull_request.user.login == 'rollacode' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/plugin-release-scope.mjs "$PR_BASE_SHA" "$PR_HEAD_SHA"
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs bash,curl,git,node,python,tar
       - name: Embedded docs and generated contract preflight
@@ -99,6 +108,8 @@ jobs:
         if: ${{ !cancelled() }}
   fmt:
     name: fmt-check
+    needs: guards
+    if: needs.guards.outputs.plugin_id == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -124,6 +135,7 @@ jobs:
   ts-static:
     name: ts static checks
     needs: guards
+    if: needs.guards.outputs.plugin_id == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -158,6 +170,7 @@ jobs:
   ts-unit:
     name: ts unit
     needs: guards
+    if: needs.guards.outputs.plugin_id == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -170,6 +183,7 @@ jobs:
   ts-vitest:
     name: ts vitest
     needs: guards
+    if: needs.guards.outputs.plugin_id == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -182,6 +196,7 @@ jobs:
   plugins:
     name: plugin bundles + tests
     needs: guards
+    if: needs.guards.outputs.plugin_id == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -196,6 +211,7 @@ jobs:
   rust-check:
     name: Rust workspace check
     needs: guards
+    if: needs.guards.outputs.plugin_id == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -243,10 +259,12 @@ jobs:
       - name: Require every side PR check
         env:
           RESULTS: ${{ toJSON(needs) }}
+          PLUGIN_ID: ${{ needs.guards.outputs.plugin_id }}
         run: |
           node --input-type=module - <<'JS'
           const jobs = JSON.parse(process.env.RESULTS);
-          const failed = Object.entries(jobs).filter(([, job]) => job.result !== 'success');
+          const failed = Object.entries(jobs).filter(([name, job]) =>
+            job.result !== (process.env.PLUGIN_ID && name !== 'guards' ? 'skipped' : 'success'));
           for (const [name, job] of failed) console.error(name + ': ' + job.result);
           if (failed.length) process.exit(1);
           JS

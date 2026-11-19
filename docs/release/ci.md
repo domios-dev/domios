@@ -9,8 +9,8 @@ workflow does not update live required-check settings.
 
 | Event | Checks |
 | --- | --- |
-| Owner push to exact release/next | Full fast/Rust/warnings graph, qualification and reusable dry-run packaging in the same run, with release-push concurrency |
-| Owner release/next PR into master | Hosted light graph plus read-only same-SHA Release qualification reader |
+| Owner push to exact release/next | Single-plugin qualification when eligible. Otherwise full CI and reusable dry-run packaging in the same run |
+| Owner release/next PR into master | Hosted PR checks and read-only same-SHA qualification. Eligible plugin-only PRs reuse the push checks |
 | Any PR into develop | Hosted repository guards, fmt-check, TS static checks/unit/Vitest, plugin bundle checks/tests, one workspace cargo check --all-targets, then PR result |
 | Other PR into master | Existing repository refusal: master accepts only the owner's release/next |
 | Owner CI dispatch | tests.yml diagnostic scope from release/next, for a full 40-hex source_ref reachable from master, develop or that branch |
@@ -64,6 +64,15 @@ can admit publication. A newer commit can still supersede an older run.
 CI result reads named failing/timed-out child jobs from the Actions API; timeouts remain failures rather than cancelling siblings. Hosted TS checks have 15-minute bounds; generated types and the private guard role have 20 minutes.
 
 The release push runs full qualification and dry-run packaging together from `github.sha`.
+An owner push to `release/next` can qualify a single official plugin on a hosted
+light runner. The exact diff against master must bump only that plugin and
+touch only its directory, its own channel entry, and explicitly owned shared
+fixtures. Qualification runs `scripts/release-plugin.mjs check <tag>` and
+`scripts/check-plugin.mjs <id>`. The release PR checks the exact green push
+against its master base. The master merge skips application promotion. Use the
+protected `plugin-release.yml` dispatch for publication. Any other diff uses the
+full graph described below.
+
 Only owner pushes to `release/next` enter that graph. The exact source package.json sets the app version. Open or refresh the release
 PR after this push run is green. Its hosted read-only reader validates the current PR head and
 branch tip, selects the completed green tests.yml push run for the exact SHA, branch, repository
