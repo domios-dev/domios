@@ -1,14 +1,29 @@
 import type { ProviderSessionObservations } from "@codeterm/plugin-sdk";
+import { object } from "./runtimeProtocol";
+
+interface TurnError {
+  name?: string;
+  status?: number;
+  statusCode?: number;
+  data?: { message?: string; statusCode?: number; isRetryable?: boolean };
+}
 
 interface Message {
   role?: string;
-  error?: { name?: string; data?: { message?: string; statusCode?: number; isRetryable?: boolean } };
+  error?: TurnError;
+}
+
+export function isQuotaError(value: unknown): boolean {
+  const error = object(value);
+  return error.type === "provider.quota" ||
+    object(object(error.body).error).type === "insufficient_balance_error";
 }
 
 export function turnError(value: unknown): Message["error"] | null {
   if (!value || typeof value !== "object") return null;
   const message = value as Message;
-  return message.role === "assistant" && message.error?.name === "APIError" ? message.error : null;
+  const error = message.error;
+  return message.role === "assistant" && error && (error.name === "APIError" || isQuotaError(error)) ? error : null;
 }
 
 export function sessionObservations(value: unknown): ProviderSessionObservations | null {
@@ -18,10 +33,10 @@ export function sessionObservations(value: unknown): ProviderSessionObservations
     return message?.role === "assistant" && !message.error && typeof message.time?.completed === "number"
       ? { api_error: null, permission_mode: null, clears_api_error: true } : null;
   }
-  const status = error.data?.statusCode;
+  const status = error.status ?? error.statusCode ?? error.data?.statusCode;
   const message = value as { providerID?: string; modelID?: string };
   const id = message.modelID?.includes("/") ? message.modelID : message.providerID && message.modelID ? `${message.providerID}/${message.modelID}` : null;
-  return { ...(id && unavailableModelError(value) ? { unavailable_model: id } : {}), api_error: status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other", permission_mode: null, clears_api_error: false };
+  return { ...(id && unavailableModelError(value) ? { unavailable_model: id } : {}), api_error: isQuotaError(error) ? "usage_limit" : status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other", permission_mode: null, clears_api_error: false };
 }
 
 export function unavailableModelError(value: unknown): boolean {
