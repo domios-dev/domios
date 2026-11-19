@@ -196,8 +196,9 @@ fn report(authority: TaskMutationAuthority) -> BoundWorkerReport {
     BoundWorkerReport {
         message: "owned candidate".into(),
         status: Some(ReportStatus::InReview),
-        sha: Some("123456789abcdef".into()),
-        branch: Some("lane/test".into()),
+        // This lifecycle fixture is a plain folder without Git history.
+        sha: None,
+        branch: None,
         authority: Some(authority),
         ..Default::default()
     }
