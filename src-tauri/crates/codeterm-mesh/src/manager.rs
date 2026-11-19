@@ -11,7 +11,7 @@ use std::sync::Arc;
 use super::account_mesh::{self, ledger::LinkLedger};
 use super::ports::{default_last_activity, LastActivityProvider};
 use super::types::{self, MeshPeersResponse, MeshStatus, PairedPeer};
-use super::{crown, identity, peer_services, peers, transport};
+use super::{crown, identity, peers, transport};
 
 mod announce;
 pub use account_admission::{AdmissionContext, LinkConfirmation, PendingLink};
@@ -44,7 +44,6 @@ pub struct MeshManager {
     /// Paired peers whose latest announce was never acknowledged; flushed when they reconnect.
     unacked_announce: std::collections::HashSet<String>,
     last_gossip_claim_ids: Vec<String>,
-    pub peer_services: peer_services::PeerServicesCache,
     pub protocol_refusals: crate::protocol_refusals::ProtocolRefusals,
     pub last_activity: Arc<dyn LastActivityProvider>,
     connection_observer: Option<connection_observer::ConnectionObserver>,
@@ -135,7 +134,6 @@ impl MeshManager {
             local_gossip_generation: 0,
             unacked_announce: std::collections::HashSet::new(),
             last_gossip_claim_ids: Vec::new(),
-            peer_services: peer_services::PeerServicesCache::default(),
             protocol_refusals: Default::default(),
             last_activity: default_last_activity(),
             connection_observer: None,
@@ -326,7 +324,6 @@ impl MeshManager {
         self.peer_machine_identities.remove(instance_id);
         self.peer_request_retry.remove(instance_id);
         self.links.remove(instance_id);
-        self.peer_services.prune(instance_id);
         self.peer_grant_epochs.remove(instance_id);
         self.protocol_refusals.forget(instance_id);
         self.bump_gate();
@@ -413,15 +410,22 @@ impl MeshManager {
                 ));
             }
         }
-        let addr = peer
-            .addresses
+        let mut addresses = types::sanitize_addresses(&peer.addresses);
+        addresses.sort_by_key(types::address_tier);
+        let mut endpoints = addresses
             .iter()
-            .min_by_key(|a| types::address_tier(a))?;
-        Some(transport::PeerClient::new_signed(
-            &addr.ip,
-            peer.api_port,
-            &token,
-        ))
+            .map(|address| transport::peer_http_origin(&address.ip, peer.api_port));
+        let primary = endpoints.next()?;
+        let mut alternatives = Vec::new();
+        for endpoint in endpoints {
+            if endpoint != primary && !alternatives.contains(&endpoint) {
+                alternatives.push(endpoint);
+            }
+        }
+        Some(
+            transport::PeerClient::new_signed_url(primary, &token)
+                .with_relay_alternatives(alternatives),
+        )
     }
 }
 

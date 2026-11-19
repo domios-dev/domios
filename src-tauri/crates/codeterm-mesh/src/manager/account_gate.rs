@@ -36,7 +36,6 @@ impl MeshManager {
             self.paired_peers.clear();
             self.peer_machine_identities.clear();
             self.links.clear();
-            self.peer_services.clear();
         }
         if matches!(state.presence, AccountPresence::SignedOut) {
             self.remote_access_epoch = self.remote_access_epoch.wrapping_add(1);

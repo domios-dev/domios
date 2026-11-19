@@ -592,14 +592,17 @@ pub(crate) fn local_forward_deadline(method: &str, path: &str) -> std::time::Dur
     }
 }
 
-fn local_forward_http_client() -> reqwest::Client {
-    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+fn local_forward_http_client() -> Result<&'static reqwest::Client, (StatusCode, String)> {
+    static CLIENT: LazyLock<Result<reqwest::Client, reqwest::Error>> = LazyLock::new(|| {
         reqwest::Client::builder()
+            .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
+            .retry(reqwest::retry::never())
             .build()
-            .unwrap_or_default()
     });
-    CLIENT.clone()
+    CLIENT
+        .as_ref()
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
 
 /// A locally generated relay failure that carries a delivery code the sender can
@@ -624,15 +627,19 @@ fn relay_failure(
     }
 }
 
-/// The relay's own loopback call never produced a peer answer. A deadline leaves
-/// the outcome unknown (the route may still be writing); anything else — a
-/// refused or broken loopback connection — wrote nothing. Pure, so a test can
-/// drive both arms without fabricating a transport error.
 fn forward_failure_response(
+    connect_failed: bool,
     timed_out: bool,
     detail: String,
 ) -> codeterm_service_core::mesh::types::RelayResponse {
-    if timed_out {
+    if connect_failed {
+        relay_failure(
+            StatusCode::BAD_GATEWAY.as_u16(),
+            codeterm_mesh::contract::delivery::PEER_LOCAL_API_UNREACHABLE,
+            Some(false),
+            format!("local relay failed: {detail}"),
+        )
+    } else if timed_out {
         relay_failure(
             StatusCode::GATEWAY_TIMEOUT.as_u16(),
             codeterm_mesh::contract::delivery::RELAY_DELIVERY_DEADLINE_EXCEEDED,
@@ -642,9 +649,9 @@ fn forward_failure_response(
     } else {
         relay_failure(
             StatusCode::BAD_GATEWAY.as_u16(),
-            codeterm_mesh::contract::delivery::PEER_LOCAL_API_UNREACHABLE,
-            Some(false),
-            format!("local relay failed: {detail}"),
+            codeterm_mesh::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED,
+            None,
+            format!("local relay lost the route response: {detail}"),
         )
     }
 }
@@ -652,7 +659,23 @@ fn forward_failure_response(
 fn local_forward_failure(
     error: &reqwest::Error,
 ) -> codeterm_service_core::mesh::types::RelayResponse {
-    forward_failure_response(error.is_timeout(), error.to_string())
+    forward_failure_response(error.is_connect(), error.is_timeout(), error.to_string())
+}
+
+fn local_reply_unconfirmed(
+    status: u16,
+    error: impl std::fmt::Display,
+) -> codeterm_service_core::mesh::types::RelayResponse {
+    relay_failure(
+        if status < 400 {
+            StatusCode::BAD_GATEWAY.as_u16()
+        } else {
+            status
+        },
+        codeterm_mesh::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED,
+        None,
+        format!("The route answered, but its response body could not be read: {error}"),
+    )
 }
 
 /// Keep an outcome deduped unless it is definitively-not-delivered, whose
@@ -839,7 +862,7 @@ async fn perform_relay_unredacted(
     {
         return Ok(grant_refusal());
     }
-    let client = local_forward_http_client();
+    let client = local_forward_http_client()?;
 
     // Recheck immediately before forwarding. Once the downstream route may
     // have written to a PTY, its result and dedupe receipt must remain intact.
@@ -852,6 +875,12 @@ async fn perform_relay_unredacted(
     };
 
     let status = resp.status().as_u16();
+    let is_json = resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .is_some_and(|value| value.eq_ignore_ascii_case("application/json"));
     let observation =
         codeterm_service_core::api_support::access_policy::is_observation(&cmd.method, &cmd.path);
     let result = resp.bytes().await;
@@ -864,20 +893,16 @@ async fn perform_relay_unredacted(
     }
     let bytes = match result {
         Ok(bytes) => bytes,
-        Err(error) => {
-            return Ok(relay_failure(
-                if status < 400 {
-                    StatusCode::BAD_GATEWAY.as_u16()
-                } else {
-                    status
-                },
-                codeterm_mesh::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED,
-                None,
-                format!("The route answered, but its response body could not be read: {error}"),
-            ));
-        }
+        Err(error) => return Ok(local_reply_unconfirmed(status, error)),
     };
-    let data = relay_response_data(&bytes);
+    let data = if is_json {
+        match serde_json::from_slice(&bytes) {
+            Ok(data) => data,
+            Err(error) => return Ok(local_reply_unconfirmed(status, error)),
+        }
+    } else {
+        relay_response_data(&bytes)
+    };
     if status < 400 && cmd.path.contains("/send") && cmd.method.eq_ignore_ascii_case("POST") {
         let target_tab = cmd.path.split('/').nth(3).unwrap_or("unknown").to_string();
         let preview = cmd

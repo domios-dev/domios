@@ -78,6 +78,7 @@
   "src/components/MeshPanel/MeshPanel.web.wiring.test.tsx",
   "src/components/MeshPanel/AddPeerPanel.test.tsx",
   "src/components/MeshPanel/useMeshData.test.tsx",
+  "src/components/MeshPanel/meshResourceActions.test.tsx",
   "src/components/MeshPanel/accountMachines.test.tsx",
   "src/components/MeshPanel/AccountMeshCanvas.test.tsx",
   "src/components/MeshPanel/MeshCanvas.web.test.tsx",

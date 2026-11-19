@@ -1,19 +1,7 @@
 import type { CronJob, CronRunInfo } from "../../lib/types";
-import {
-  cronAction,
-  cronDelete,
-  cronGet,
-  cronHistory,
-  cronUpdate,
-  peerCronAction,
-  peerCronDelete,
-  peerCronGet,
-  peerCronHistory,
-  peerCronUpdate,
-  peerServiceDelete,
-  servicesDelete,
-  servicesRegenerateToken,
-} from "./meshApi";
+import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
+import { OutcomeUnknown } from "../../lib/streamMux";
+import { InvalidJsonResponseError, TransportError } from "../../lib/transportClient";
 import { serviceIdToCronId, type InventoryCapability, type InventoryOperation, type Service } from "./types";
 
 export interface MeshResourceTarget {
@@ -45,7 +33,7 @@ export const OPERATION_LABELS: Record<InventoryOperation, string> = {
 };
 
 export function resourceTarget(service: Service, localMachineName: string): MeshResourceTarget {
-  const id = service.machine_id ?? service.source_peer_id ?? service.source_peer ?? "local";
+  const id = service.source_peer_id ?? service.machine_id ?? "local";
   return {
     id,
     name: service.machine_name ?? service.source_peer ?? localMachineName,
@@ -79,51 +67,44 @@ export function capabilitySummary(service: Service): string {
     : available.map((operation) => OPERATION_LABELS[operation]).join(", ");
 }
 
-export function createMeshResourceActionAdapter(): MeshResourceActionAdapter {
-  const peerId = (service: Service): string | null => service.source_peer_id ?? service.source_peer ?? null;
-  const cronId = (service: Service): string => serviceIdToCronId(service.id);
+export function createMeshResourceActionAdapter(transportForPeer = daemonTransportForPeer): MeshResourceActionAdapter {
+  const client = (service: Service) => {
+    if (service.source_peer && !service.source_peer_id) throw new Error("Remote resource requires an installation ID");
+    return transportForPeer(service.source_peer_id);
+  };
+  const resourceId = (service: Service) => service.resource_id ?? service.id;
+  const cronPath = (service: Service) => `/api/crons/${encodeURIComponent(serviceIdToCronId(resourceId(service)))}`;
+  const servicePath = (service: Service) => `/api/services/${encodeURIComponent(resourceId(service))}`;
 
   return {
-    get: (service) => {
-      const instanceId = peerId(service);
-      return instanceId ? peerCronGet(instanceId, cronId(service)) : cronGet(cronId(service));
+    get: async (service) => client(service).json("GET", cronPath(service)),
+    history: async (service) => client(service).json("GET", `${cronPath(service)}/history`),
+    trigger: async (service) => client(service).json("POST", `${cronPath(service)}/trigger`),
+    setEnabled: async (service, enabled) => client(service).json("POST", `${cronPath(service)}/${enabled ? "enable" : "disable"}`),
+    cancel: async (service) => client(service).json("POST", `${cronPath(service)}/cancel`),
+    updateSchedule: async (service, schedule) => client(service).json(service.source_peer_id ? "PUT" : "PATCH", cronPath(service), { schedule }),
+    remove: async (service) => client(service).json("DELETE", service.kind === "cron" ? cronPath(service) : servicePath(service)),
+    regenerateToken: async (service) => {
+      if (resourceTarget(service, "").remote) throw new Error("Push tokens can only be rotated locally");
+      const result = await client(service).json<{ token: string }>("POST", `${servicePath(service)}/regenerate-token`);
+      return result.token;
     },
-    history: (service) => {
-      const instanceId = peerId(service);
-      return instanceId ? peerCronHistory(instanceId, cronId(service)) : cronHistory(cronId(service));
-    },
-    trigger: (service) => {
-      const instanceId = peerId(service);
-      return instanceId ? peerCronAction(instanceId, cronId(service), "trigger") : cronAction(cronId(service), "trigger");
-    },
-    setEnabled: (service, enabled) => {
-      const instanceId = peerId(service);
-      const action = enabled ? "enable" : "disable";
-      return instanceId ? peerCronAction(instanceId, cronId(service), action) : cronAction(cronId(service), action);
-    },
-    cancel: (service) => {
-      const instanceId = peerId(service);
-      return instanceId ? peerCronAction(instanceId, cronId(service), "cancel") : cronAction(cronId(service), "cancel");
-    },
-    updateSchedule: (service, schedule) => {
-      const instanceId = peerId(service);
-      const patch = { schedule };
-      return instanceId ? peerCronUpdate(instanceId, cronId(service), patch) : cronUpdate(cronId(service), patch);
-    },
-    remove: (service) => {
-      const instanceId = peerId(service);
-      if (instanceId) {
-        return service.kind === "cron"
-          ? peerCronDelete(instanceId, cronId(service))
-          : peerServiceDelete(instanceId, service.id);
-      }
-      return service.kind === "cron" ? cronDelete(cronId(service)) : servicesDelete(service.id);
-    },
-    regenerateToken: (service) => servicesRegenerateToken(service.id),
   };
 }
 
+export function isUnconfirmedMutation(error: unknown): boolean {
+  if (error instanceof OutcomeUnknown || error instanceof InvalidJsonResponseError) return true;
+  if (!(error instanceof TransportError)) return false;
+  try {
+    const { code } = JSON.parse(error.body)?.error ?? {};
+    return code === "mesh_transport_submit_unconfirmed" || code === "relay_delivery_deadline_exceeded";
+  } catch {
+    return false;
+  }
+}
+
 export function mutationFailure(action: string, target: MeshResourceTarget, error: unknown): string {
+  if (isUnconfirmedMutation(error)) return `${action} outcome is unconfirmed on ${target.name}.`;
   const detail = error instanceof Error ? error.message : String(error);
   return `${action} failed: target machine ${target.name} rejected or failed the request${detail ? ` (${detail})` : ""}.`;
 }

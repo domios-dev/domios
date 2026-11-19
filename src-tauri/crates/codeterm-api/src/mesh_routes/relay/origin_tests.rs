@@ -541,6 +541,31 @@ async fn signed_peer_and_loopback_inventory_use_the_same_restricted_grant() {
         assert_eq!(capability["get"]["allowed"], true);
         assert_eq!(capability["delete"]["allowed"], false);
     }
+    let trigger = RelayCommand {
+        method: "POST".into(),
+        path: "/api/crons/disposable-b/trigger".into(),
+        body: Value::Null,
+        delivery_id: None,
+    };
+    let refused = perform_relay(
+        &target,
+        "inventory-origin",
+        &trigger,
+        AuthenticatedOrigin::Owner,
+        None,
+        signed_headers.get("authorization"),
+    )
+    .await
+    .unwrap();
+    assert!(!refused.ok);
+    assert_eq!(refused.status, 403);
+    let error = &refused.data.as_ref().unwrap()["error"];
+    assert_eq!(
+        error["code"],
+        codeterm_mesh::contract::delivery::PEER_RELAY_NOT_AUTHORIZED
+    );
+    assert_eq!(error["bytes_written"], false);
+
     for (method, status) in [
         (Method::GET, StatusCode::OK),
         (Method::DELETE, StatusCode::FORBIDDEN),

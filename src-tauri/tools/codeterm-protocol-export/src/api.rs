@@ -64,7 +64,6 @@ pub(super) fn export_api(config: &Config) -> Result<(), Box<dyn std::error::Erro
     codeterm_mesh::contract::inventory::InventoryProvenance::export_all(config)?;
     codeterm_worker_services::store::HealthSnapshot::export_all(config)?;
     codeterm_worker_services::store::Service::export_all(config)?;
-    codeterm_mesh::peer_services::PeerServicesView::export_all(config)?;
     codeterm_mesh::serve_setup::ServeResult::export_all(config)?;
     codeterm_mesh::contract::inventory::InventoryFreshness::export_all(config)?;
     codeterm_mesh::manager::ConnectionPhase::export_all(config)?;

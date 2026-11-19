@@ -58,7 +58,7 @@ pub(super) fn loopback_request_with_auth(
     let method = reqwest::Method::from_bytes(method.as_bytes())
         .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
     let url = format!("http://127.0.0.1:{}{}", state.api_port, cmd.path);
-    let mut request = super::local_forward_http_client().request(method.clone(), url);
+    let mut request = super::local_forward_http_client()?.request(method.clone(), url);
     if matches!(
         method,
         reqwest::Method::POST | reqwest::Method::PUT | reqwest::Method::PATCH

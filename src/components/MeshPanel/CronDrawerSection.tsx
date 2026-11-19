@@ -10,6 +10,7 @@ import {
   capabilityFor,
   capabilityReason,
   createMeshResourceActionAdapter,
+  isUnconfirmedMutation,
   mutationFailure,
   resourceTarget,
   unavailableFailure,
@@ -97,6 +98,7 @@ export function CronDrawerSection({ service, machineName, onUpdate, actionAdapte
       const message = mutationFailure(label, target, error);
       setAnnouncement(message);
       onAnnouncement?.(message);
+      if (isUnconfirmedMutation(error)) onUpdate();
       return false;
     } finally {
       setBusy(false);

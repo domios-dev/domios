@@ -5,6 +5,9 @@ import type { CronJob } from "../../lib/types";
 import type { Service } from "./types";
 import type { DrawerState } from "./ServiceDrawer";
 import type { MeshResourceActionAdapter } from "./meshResourceActions";
+import { expect, it } from "vitest";
+import { createTransportClient } from "../../lib/transportClient";
+import { createMeshResourceActionAdapter, isUnconfirmedMutation } from "./meshResourceActions";
 
 let useReactState!: typeof import("react").useState;
 let MeshServiceDrawer!: typeof import("./ServiceDrawer").ServiceDrawer;
@@ -260,4 +263,61 @@ function DrawerHarness({ service, actionAdapter, onClose }: { service: Service; 
   return <MeshServiceDrawer state={state} services={[service]} peers={[]} thisMachineName="Local machine" onClose={() => { setState(null); onClose(); }} onActionDone={() => {}} actionAdapter={actionAdapter} />;
 }
 
-void main();
+it("keeps target capabilities, outcomes and focus observable in the drawer", main);
+
+it("submits each resource action to its exact installation or to the local transport", async () => {
+  const requests: unknown[] = [];
+  const denial = { error: { code: "peer_relay_not_authorized", message: "Peer grant refused", bytes_written: false } };
+  const ambiguity = { error: { code: "mesh_transport_submit_unconfirmed", message: "B response lost" } };
+  const receipt = { run_id: "run-on-b" };
+  let reply = { ok: true, status: 200, data: receipt as unknown };
+  const transportForPeer = (relayPeerId?: string) => createTransportClient({
+    origin: "http://localhost",
+    token: "initiating-user",
+    relayPeerId,
+    fetch: async (input, init) => {
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer initiating-user");
+      const path = new URL(String(input)).pathname;
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      requests.push({ method: init?.method, path, body });
+      return Response.json(relayPeerId ? reply : receipt);
+    },
+  });
+  const actions = createMeshResourceActionAdapter(transportForPeer);
+  const cron = resource({ id: "local-row", resource_id: "cron_job b", name: "Backup", kind: "cron", source_peer_id: "install-b", source_peer: "B" });
+  const daemon = resource({ id: "daemon-row", resource_id: "svc b", name: "Worker", kind: "daemon", source_peer_id: "install-b" });
+
+  expect(await actions.trigger(cron)).toEqual(receipt);
+  await actions.get(cron);
+  await actions.history(cron);
+  await actions.updateSchedule(cron, "0 4 * * *");
+  await actions.setEnabled(cron, true);
+  await actions.setEnabled(cron, false);
+  await actions.cancel(cron);
+  await actions.remove(cron);
+  await actions.remove(daemon);
+  expect(requests.splice(0)).toEqual([
+    ["POST", "/api/crons/job%20b/trigger", null],
+    ["GET", "/api/crons/job%20b", null],
+    ["GET", "/api/crons/job%20b/history", null],
+    ["PUT", "/api/crons/job%20b", { schedule: "0 4 * * *" }],
+    ["POST", "/api/crons/job%20b/enable", null],
+    ["POST", "/api/crons/job%20b/disable", null],
+    ["POST", "/api/crons/job%20b/cancel", null],
+    ["DELETE", "/api/crons/job%20b", null],
+    ["DELETE", "/api/services/svc%20b", null],
+  ].map(([method, path, body]) => ({
+    method: "POST", path: "/api/mesh/relay-to", body: { target_instance_id: "install-b", method, path, body },
+  })));
+
+  reply = { ok: false, status: 403, data: denial };
+  await expect(actions.trigger(cron)).rejects.toMatchObject({ status: 403, body: JSON.stringify(denial) });
+  reply = { ok: false, status: 504, data: ambiguity };
+  const failure = await actions.trigger(cron).catch((error: unknown) => error);
+  expect(isUnconfirmedMutation(failure)).toBe(true);
+  expect(requests.splice(0)).toHaveLength(2);
+
+  await expect(actions.trigger({ ...cron, source_peer_id: undefined })).rejects.toThrow("installation ID");
+  await actions.updateSchedule({ ...cron, source_peer: undefined, source_peer_id: undefined }, "0 5 * * *");
+  expect(requests).toEqual([{ method: "PATCH", path: "/api/crons/job%20b", body: { schedule: "0 5 * * *" } }]);
+});

@@ -9,7 +9,7 @@ use axum::{
     response::sse::{Event, KeepAlive, Sse},
     Json,
 };
-use codeterm_commands::{commands, commands_mesh};
+use codeterm_commands::commands;
 use futures_core::Stream;
 use serde::Deserialize;
 use std::time::{Duration, SystemTime};
@@ -202,88 +202,6 @@ pub async fn tab_chat_view(
             "blocking task failed".to_string(),
         )
     })?
-}
-
-/// Peer services for the Mesh tab — same cache+failover logic as the
-/// Tauri command (`commands_mesh::fetch_peer_services_view`).
-pub async fn peer_services(
-    AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
-    Path(instance_id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let view = commands_mesh::fetch_peer_services_view(&state.mesh, &instance_id)
-        .await
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    Ok(Json(view))
-}
-
-pub async fn peer_service_delete(
-    AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
-    Path((instance_id, id)): Path<(String, String)>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let value = commands_mesh::peer_service_delete_request(&state.mesh, &instance_id, &id)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
-    Ok(Json(value))
-}
-
-pub async fn peer_cron_action(
-    AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
-    Path((instance_id, id, action)): Path<(String, String, String)>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let value = commands_mesh::peer_cron_action_request(&state.mesh, &instance_id, &id, &action)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
-    Ok(Json(value))
-}
-
-pub async fn peer_cron_update(
-    AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
-    Path((instance_id, id)): Path<(String, String)>,
-    Json(patch): Json<codeterm_service_core::cron::store::CronUpdateParams>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let patch = serde_json::to_value(patch)
-        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
-    let value = commands_mesh::peer_cron_update_request(&state.mesh, &instance_id, &id, patch)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
-    Ok(Json(value))
-}
-
-pub async fn peer_cron_delete(
-    AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
-    Path((instance_id, id)): Path<(String, String)>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let value = commands_mesh::peer_cron_delete_request(&state.mesh, &instance_id, &id)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
-    Ok(Json(value))
-}
-
-pub async fn peer_cron_history(
-    AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
-    Path((instance_id, id)): Path<(String, String)>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let value = commands_mesh::peer_cron_history_request(&state.mesh, &instance_id, &id)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
-    Ok(Json(value))
-}
-
-pub async fn peer_cron_get(
-    AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
-    Path((instance_id, id)): Path<(String, String)>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let value = commands_mesh::peer_cron_get_request(&state.mesh, &instance_id, &id)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
-    Ok(Json(value))
 }
 
 /// Optional replay cursor: `?since=<boot_id>:<seq>` (D1).
