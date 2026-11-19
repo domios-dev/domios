@@ -172,19 +172,30 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             const peer = s(a, "peerId", "peer_id");
             const response = await clientFor(a).json<{
                 ok?: boolean;
-                data?: unknown;
+                data?: MultiplexerState;
                 error?: string | null;
                 peer?: { instance_id: string; instance_name: string };
             }>("POST", "/api/mesh/relay-to", {
                 target_instance_id: peer,
                 method: "GET",
-                path: "/api/tabs?local_only=true",
+                path: "/api/mux/state",
                 body: null,
             });
             if (!response.ok)
                 throw new Error(response.error ?? "Failed to list remote Tabs");
             if (response.peer?.instance_id !== peer) throw new Error("Relay answered for a different installation");
-            return { peer_id: peer, peer_name: response.peer.instance_name, tabs: response.data ?? [] };
+            const snapshot = response.data;
+            if (!snapshot?.tabs || typeof snapshot.tabs !== "object") throw new Error("Remote peer returned no multiplexer snapshot");
+            const tabs = Object.values(snapshot.tabs).filter(tab =>
+                !tab.id.startsWith("mesh:") && !tab.remote_peer_id && !tab.remote_tab_id);
+            const localTabIds = new Set(tabs.map(tab => tab.id));
+            return {
+                peer_id: peer,
+                peer_name: response.peer.instance_name,
+                tabs,
+                tab_statuses: Object.fromEntries(Object.entries(snapshot.tab_statuses ?? {})
+                    .filter(([tabId]) => localTabIds.has(tabId))),
+            };
         },
         mesh_peer_workspaces_list: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "GET", "/api/workspaces", null),
         // The peer's published multiplexer state: the only read that names both its workspaces and Teams.

@@ -127,8 +127,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const peerSwitchRef = useRef(0);
   const attachedRemoteTabsRef = useRef<Record<string, Tab>>(loadAttachedRemoteTabs());
 
-  const applyRemoteProjection = useCallback((tabs: Record<string, Tab>) => {
-    dispatch({ type: "SET_REMOTE_TABS", tabs: visibleRemoteTabs(reconcileAttachedRemoteTabs(tabs, attachedRemoteTabsRef.current)) });
+  const applyRemoteProjection = useCallback((tabs: Record<string, Tab>, remoteStatuses?: Record<string, TabStatus | null>) => {
+    dispatch({ type: "SET_REMOTE_TABS", tabs: visibleRemoteTabs(reconcileAttachedRemoteTabs(tabs, attachedRemoteTabsRef.current)), remoteStatuses });
   }, []);
 
   useEffect(() => {
@@ -218,7 +218,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     });
     const attached = attachedRemoteTabsRef.current;
     const starting = { ...Object.fromEntries(retained.map(tab => [tab.id, tab])), ...attached };
-    const projected = await refreshAttachedRemoteAgentStates(
+    const projection = await refreshAttachedRemoteAgentStates(
       reconcileAttachedRemoteTabs(remote, starting),
       remote,
       (peerId) => {
@@ -231,11 +231,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     const current = attachedRemoteTabsRef.current;
     const kept = visibleRemoteTabs(Object.fromEntries(Object.entries({ ...starting, ...current }).flatMap(([id, tab]) => {
       if (current[id] !== attached[id]) return current[id] ? [[id, current[id]]] : [];
-      return projected[id] ? [[id, projected[id] ?? tab]] : [];
+      return projection.tabs[id] ? [[id, projection.tabs[id] ?? tab]] : [];
     })));
     attachedRemoteTabsRef.current = kept;
     if (Object.keys(kept).length !== Object.keys(current).length) saveAttachedRemoteTabs(kept);
-    applyRemoteProjection(projected);
+    applyRemoteProjection(projection.tabs, projection.statuses);
     resumeRemoteOutputStreams();
     resumeRemoteTabEvents();
   }, [applyRemoteProjection]);
@@ -976,7 +976,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
             : undefined);
         const viewerWorkspace = stateRef.current.workspaces.find(workspace => workspace.protected);
         if (!general || !session || !viewerWorkspace) return;
-        attachRemoteTab(viewerWorkspace.id, { peer_id: route.peerId, peer_name: general.name, tabs: [] }, session.tab);
+        attachRemoteTab(viewerWorkspace.id, { peer_id: route.peerId, peer_name: general.name, tabs: [] }, session.tab, session.status);
         if (general.availability === "online") void guardedInvoke("mux_set_focused_tab", { tabId }).catch(() => undefined);
         return;
       }

@@ -59,6 +59,33 @@ it("lists notification history from the exact paired installation", async () => 
   });
 });
 
+it("lists attached peer tabs with only their authoritative status snapshot", async () => {
+  const { transport, calls } = fixture([{
+    ok: true,
+    peer: { instance_id: "install-b", instance_name: "Peer B" },
+    data: {
+      tabs: {
+        "remote-chat": { id: "remote-chat", pty_id: null, tab_type: "Terminal", title: "Chat", cwd: null },
+        "mesh:install-a/attached": { id: "mesh:install-a/attached", pty_id: "mesh:install-a/attached", tab_type: "Terminal", title: "Other", cwd: null },
+        "nested-remote": { id: "nested-remote", pty_id: null, tab_type: "Terminal", title: "Nested", cwd: null, remote_peer_id: "install-a", remote_tab_id: "source" },
+      },
+      tab_statuses: { "remote-chat": "Working", "mesh:install-a/attached": "Idle", "nested-remote": "Idle", unrelated: "Error" },
+    },
+  }]);
+
+  expect(await transport.mesh_peer_tabs_list({ peerId: "install-b" })).toEqual({
+    peer_id: "install-b",
+    peer_name: "Peer B",
+    tabs: [{ id: "remote-chat", pty_id: null, tab_type: "Terminal", title: "Chat", cwd: null }],
+    tab_statuses: { "remote-chat": "Working" },
+  });
+  expect(calls[0]).toMatchObject({
+    method: "POST",
+    path: "/api/mesh/relay-to",
+    body: { target_instance_id: "install-b", method: "GET", path: "/api/mux/state", body: null },
+  });
+});
+
 it.each([
   ["read", "POST", "/api/notifications/source%2Fid/read", null],
   ["delete", "DELETE", "/api/notifications/source%2Fid", null],

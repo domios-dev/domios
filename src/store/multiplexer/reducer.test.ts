@@ -367,10 +367,16 @@ test("SET_REMOTE_TABS places a remote tab in its controller workspace", () => {
   } as unknown as Tab;
   const next = reducer(
     { ...base(), workspaces: [workspaceA, workspaceB] },
-    { type: "SET_REMOTE_TABS", tabs: { [remote.id]: remote } },
+    { type: "SET_REMOTE_TABS", tabs: { [remote.id]: remote }, remoteStatuses: { [remote.id]: "Working" } },
   );
   assert(next.workspaces[0].tabs.length === 0, "unrelated first workspace stays unchanged");
   assert(next.workspaces[1].tabs[0] === remote.id, "remote tab follows its controller workspace");
+  assert(next.tabStatuses[remote.id] === "Working", "peer status follows its exact composite viewer id");
+  const cleared = reducer(next, { type: "SET_REMOTE_TABS", tabs: { [remote.id]: remote }, remoteStatuses: { [remote.id]: null } });
+  assert(!Object.prototype.hasOwnProperty.call(cleared.tabStatuses, remote.id), "a fresh snapshot without peer status clears the prior status");
+  const forged = reducer(next, { type: "SET_REMOTE_TABS", tabs: { [remote.id]: { ...remote, remote_tab_id: "other" } },
+    remoteStatuses: { [remote.id]: "Idle" } });
+  assert(forged.tabStatuses[remote.id] === "Working", "a mismatched attachment cannot overwrite peer status");
 });
 
 test("SET_STATE seeds tabStatuses from the snapshot (reload hydration)", () => {
