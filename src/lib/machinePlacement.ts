@@ -60,7 +60,7 @@ export function machinePlacementChoicesFromPeers(
 ): MachinePlacementChoice[] {
   const local: MachinePlacementChoice = {
     id: LOCAL_MACHINE_ID,
-    name: cleanMachineName(localName) ?? "This machine",
+    name: cleanMachineName(localName) ?? "Local machine",
     local: true,
     online: true,
     status: "online",
