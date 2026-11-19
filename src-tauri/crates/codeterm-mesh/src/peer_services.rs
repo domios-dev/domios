@@ -18,11 +18,20 @@ pub const FRESH_WINDOW_SECS: u64 = 10;
 pub struct PeerServicesEntry {
     pub services: Vec<serde_json::Value>,
     pub fetched_at: u64,
+    #[serde(skip)]
+    invalidated: bool,
+}
+
+impl PeerServicesEntry {
+    fn is_fresh(&self, now: u64) -> bool {
+        !self.invalidated && now.saturating_sub(self.fetched_at) < FRESH_WINDOW_SECS
+    }
 }
 
 #[derive(Default)]
 pub struct PeerServicesCache {
     entries: HashMap<String, PeerServicesEntry>,
+    generation: u64,
 }
 
 impl PeerServicesCache {
@@ -32,6 +41,7 @@ impl PeerServicesCache {
             PeerServicesEntry {
                 services,
                 fetched_at: now,
+                invalidated: false,
             },
         );
     }
@@ -43,15 +53,28 @@ impl PeerServicesCache {
     pub fn is_fresh(&self, instance_id: &str, now: u64) -> bool {
         self.entries
             .get(instance_id)
-            .map(|e| now.saturating_sub(e.fetched_at) < FRESH_WINDOW_SECS)
+            .map(|e| e.is_fresh(now))
             .unwrap_or(false)
     }
 
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub fn invalidate(&mut self, instance_id: &str) {
+        self.generation = self.generation.wrapping_add(1);
+        if let Some(entry) = self.entries.get_mut(instance_id) {
+            entry.invalidated = true;
+        }
+    }
+
     pub fn prune(&mut self, instance_id: &str) {
+        self.invalidate(instance_id);
         self.entries.remove(instance_id);
     }
 
     pub fn clear(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
         self.entries.clear();
     }
 }
@@ -114,25 +137,20 @@ pub fn build_view(
         FetchOutcome::Skipped => PeerServicesView {
             services: cached
                 .map(|e| {
-                    if peer_online && now.saturating_sub(e.fetched_at) < FRESH_WINDOW_SECS {
+                    if peer_online && e.is_fresh(now) {
                         e.services.clone()
                     } else {
                         annotate_cached_services(e.services.clone(), peer_online, None)
                     }
                 })
                 .unwrap_or_default(),
-            stale: !cached
-                .map(|e| now.saturating_sub(e.fetched_at) < FRESH_WINDOW_SECS)
-                .unwrap_or(false),
+            stale: !cached.map(|e| e.is_fresh(now)).unwrap_or(false),
             fetched_at: cached.map(|e| e.fetched_at),
             peer_online,
             error: None,
             freshness: if !peer_online {
                 InventoryFreshness::Offline
-            } else if cached
-                .map(|e| now.saturating_sub(e.fetched_at) < FRESH_WINDOW_SECS)
-                .unwrap_or(false)
-            {
+            } else if cached.map(|e| e.is_fresh(now)).unwrap_or(false) {
                 InventoryFreshness::Fresh
             } else {
                 InventoryFreshness::Stale

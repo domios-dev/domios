@@ -70,8 +70,8 @@ fn mesh_inventory_capability_projection_respects_access_and_resource_kind() {
         read_only.capabilities[&InventoryOperation::UpdateSchedule].unavailable_reason,
         Some(InventoryUnavailableReason::NotAuthorized)
     );
-    assert!(read_only.capabilities[&InventoryOperation::Get].allowed);
-    assert!(read_only.capabilities[&InventoryOperation::History].allowed);
+    assert!(!read_only.capabilities[&InventoryOperation::Get].allowed);
+    assert!(!read_only.capabilities[&InventoryOperation::History].allowed);
 
     let stale = project_resource(
         "machine-b",

@@ -101,6 +101,7 @@ pub enum TransportErrorKind {
 pub struct TransportError {
     kind: TransportErrorKind,
     detail: String,
+    status: Option<u16>,
 }
 
 impl TransportError {
@@ -108,6 +109,7 @@ impl TransportError {
         Self {
             kind,
             detail: detail.into(),
+            status: None,
         }
     }
 
@@ -139,9 +141,10 @@ impl TransportError {
             TransportErrorKind::SubmitUnconfirmed => {
                 crate::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED
             }
-            TransportErrorKind::PeerRejected => {
-                crate::contract::delivery::MESH_TRANSPORT_PEER_REJECTED
-            }
+            TransportErrorKind::PeerRejected => match self.status {
+                Some(401 | 403) => crate::contract::delivery::PEER_RELAY_NOT_AUTHORIZED,
+                _ => crate::contract::delivery::MESH_TRANSPORT_PEER_REJECTED,
+            },
             TransportErrorKind::BadResponse => {
                 crate::contract::delivery::MESH_TRANSPORT_BAD_RESPONSE
             }
@@ -162,6 +165,9 @@ impl TransportError {
     /// HTTP status a caller can surface: 504 for an undecidable timeout, 502
     /// for every case where the hop itself did not produce a usable answer.
     pub fn http_status(&self) -> u16 {
+        if let Some(status) = self.status {
+            return status;
+        }
         match self.kind {
             TransportErrorKind::SubmitUnconfirmed => 504,
             _ => 502,
@@ -437,11 +443,16 @@ impl PeerClient {
                 )
             })
         } else {
+            let status = resp.status().as_u16();
             let body = resp.text().await.unwrap_or_default();
-            Err(TransportError::new(
+            let mut error = TransportError::new(
                 TransportErrorKind::PeerRejected,
                 format!("Relay failed: {}", body),
-            ))
+            );
+            if matches!(status, 401 | 403) {
+                error.status = Some(status);
+            }
+            Err(error)
         }
     }
 

@@ -1,6 +1,8 @@
 use crate::routes::AppState;
 use axum::http::{Method, StatusCode};
-use codeterm_service_core::api_support::access_policy::{peer_access_allowed, request_path};
+use codeterm_service_core::api_support::access_policy::{
+    allows_full_dispatch, is_local_only_path, peer_access_allowed, request_path, request_scope,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum PeerRelayAuthorization<'a> {
@@ -28,7 +30,10 @@ pub(super) fn authorize_peer_relay<'a>(
     body: &serde_json::Value,
     tab_owner: impl FnOnce(&str) -> Option<String>,
 ) -> PeerRelayAuthorization<'a> {
-    if !peer_access_allowed(access, peer_id, method, path, tab_owner) {
+    let forward_to_routed_policy = allows_full_dispatch(access)
+        && !is_local_only_path(path)
+        && request_scope(method, path).is_none();
+    if !forward_to_routed_policy && !peer_access_allowed(access, peer_id, method, path, tab_owner) {
         return PeerRelayAuthorization::Rejected;
     }
     let path = request_path(path);
