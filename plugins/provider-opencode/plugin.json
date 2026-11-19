@@ -1,6 +1,6 @@
 {
   "id": "opencode",
-  "version": "1.14.28",
+  "version": "1.14.29",
   "minCodeterm": "1.20.2",
   "hostApi": 2,
   "capabilities": {
@@ -324,7 +324,7 @@
           "v2.session.instructions"
         ],
         "resumeThread": [
-        "health",
+          "health",
           "session.get",
           "v2.session.get",
           "v2.session.instructions",
@@ -339,7 +339,7 @@
           "v2.session.prompt"
         ],
         "interrupt": [
-        "session.abort"
+          "session.abort"
         ],
         "answer": [
           "permission.reply",
