@@ -82,7 +82,7 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
         const error=object(data.error), bodyError=object(object(error.body).error);
         const quota=error.type === "provider.quota" || bodyError.type === "insufficient_balance_error";
         const detail=type === "session.execution.failed" || type === "session.error" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : undefined;
-        if (detail === "failed") events.push({kind:"notice",threadId:ctx.threadId,message:quota ? "DeepSeek balance is empty — top up or switch model" : String(error.message ?? "OpenCode execution failed").slice(0,4096)});
+        if (detail === "failed") events.push({kind:"notice",threadId:ctx.threadId,message:quota ? "Provider balance or quota is exhausted — top up or switch model" : String(error.message ?? "OpenCode execution failed").slice(0,4096)});
         events.push({kind:"turnState",threadId:ctx.threadId,...(turn ? {turnId:turn} : {}),state:"idle",...(detail ? {detail} : {})});delete state.turn;
       }
       continue;

@@ -169,7 +169,8 @@ ${fence}`;
 function turnError(value) {
   if (!value || typeof value !== "object") return null;
   const message = value;
-  return message.role === "assistant" && message.error?.name === "APIError" ? message.error : null;
+  const error = message.error;
+  return message.role === "assistant" && error && (error.name === "APIError" || error.type === "provider.quota") ? error : null;
 }
 function sessionObservations(value) {
   const error = turnError(value);
@@ -177,10 +178,12 @@ function sessionObservations(value) {
     const message2 = value;
     return message2?.role === "assistant" && !message2.error && typeof message2.time?.completed === "number" ? { api_error: null, permission_mode: null, clears_api_error: true } : null;
   }
-  const status = error.data?.statusCode;
+  const status = error.status ?? error.statusCode ?? error.data?.statusCode;
+  const bodyError = error.body?.error;
   const message = value;
   const id = message.modelID?.includes("/") ? message.modelID : message.providerID && message.modelID ? `${message.providerID}/${message.modelID}` : null;
-  return { ...id && unavailableModelError(value) ? { unavailable_model: id } : {}, api_error: status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other", permission_mode: null, clears_api_error: false };
+  const quota = error.type === "provider.quota" || bodyError?.type === "insufficient_balance_error";
+  return { ...id && unavailableModelError(value) ? { unavailable_model: id } : {}, api_error: quota ? "usage_limit" : status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other", permission_mode: null, clears_api_error: false };
 }
 function unavailableModelError(value) {
   const error = turnError(value);
@@ -2653,12 +2656,14 @@ function v2Reduce(ctx, raw, frames) {
       }
       continue;
     }
-    if (["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"].includes(type)) {
+    if (["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted", "session.error"].includes(type)) {
       if (!turn || !state.completed.includes(turn)) {
         if (turn) state.completed.push(turn);
         state.pendingPrompts = [];
-        const detail = type === "session.execution.failed" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : void 0;
-        if (detail === "failed") events.push({ kind: "notice", threadId: ctx.threadId, message: String(object2(data.error).message ?? "OpenCode execution failed").slice(0, 4096) });
+        const error = object2(data.error), bodyError = object2(object2(error.body).error);
+        const quota = error.type === "provider.quota" || bodyError.type === "insufficient_balance_error";
+        const detail = type === "session.execution.failed" || type === "session.error" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : void 0;
+        if (detail === "failed") events.push({ kind: "notice", threadId: ctx.threadId, message: quota ? "Provider balance or quota is exhausted \u2014 top up or switch model" : String(error.message ?? "OpenCode execution failed").slice(0, 4096) });
         events.push({ kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "idle", ...detail ? { detail } : {} });
         delete state.turn;
       }

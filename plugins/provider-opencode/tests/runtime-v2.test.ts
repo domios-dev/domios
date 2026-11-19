@@ -159,7 +159,7 @@ check("settles a provider quota session error with a visible balance recovery no
   const working=runtimeReduce(ctx,null,[started]);
   const failed=runtimeReduce(ctx,working.state,[error]);
   assert.deepEqual(failed.events,[
-    {kind:"notice",threadId:ctx.threadId,message:"DeepSeek balance is empty — top up or switch model"},
+    {kind:"notice",threadId:ctx.threadId,message:"Provider balance or quota is exhausted — top up or switch model"},
     {kind:"turnState",threadId:ctx.threadId,turnId:"quota-turn",state:"idle",detail:"failed"},
   ]);
 });
