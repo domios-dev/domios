@@ -5,7 +5,7 @@ import { remoteTeamName } from "../../components/Sidebar/remoteOwnership";
 import { cleanMachineName } from "../../lib/machineIdentity";
 import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
 import { invoke } from "../../lib/bridge";
-import type { MeshPeersResponse, MultiplexerState } from "../../lib/types";
+import type { MeshPeersResponse, MultiplexerState, Tab } from "../../lib/types";
 import { setWorkspaceBrowseTarget, useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 import { pairedGeneralCacheScope, readPairedGeneralCache, writePairedGeneralCache, type CachedPeerGeneral } from "./pairedGeneralCache";
 import type { PairedRoster } from "./useMeshPeerProjection";
@@ -120,15 +120,18 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
         });
       }
     };
-    void invoke<MultiplexerState>("mesh_peer_mux_state", { peerId, signal })
-      .then(snapshot => {
+    void Promise.all([
+      invoke<MultiplexerState>("mesh_peer_mux_state", { peerId, signal }),
+      readPeerOrdinaryTabs(peerId, signal),
+    ])
+      .then(([snapshot, ordinaryTabs]) => {
         if (!signal.aborted) {
           const sessions = projectPairedGeneral(peerId, snapshot);
           const teamNames = new Map((snapshot.teams ?? []).flatMap(team => {
             const name = team.name?.trim();
             return name && name !== team.id ? [[team.id, name] as const] : [];
           }));
-          const workspaces = projectBrowsedWorkspaces(peerId, snapshot);
+          const workspaces = projectBrowsedWorkspaces(peerId, snapshot, ordinaryTabs);
           publish(() => ({ account, publicKey: peer.public_key, sessions, teamNames, workspaces, availability: "online" }));
           const needsPlanTitle = workspaces.some(workspace => {
             const namedTeams = new Set(workspace.teams.filter(team => remoteTeamName(team.id, team.name)).map(team => team.id));
@@ -229,6 +232,15 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
     return known.workspaces ?? [];
   }), [generals, peers, general, cacheAccount, browse]);
   return { generals, browse, peerWorkspaces, refreshPeerInventory, invalidatePeerInventory, ready };
+}
+
+async function readPeerOrdinaryTabs(peerId: string, signal: AbortSignal): Promise<Tab[]> {
+  try {
+    const tabs = await daemonTransportForPeer(peerId).json<Tab[]>("GET", "/api/tabs", undefined, { signal });
+    return Array.isArray(tabs) ? tabs : [];
+  } catch {
+    return [];
+  }
 }
 
 async function readTeamPlanTitles(peerId: string, signal: AbortSignal) {

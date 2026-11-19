@@ -9,6 +9,7 @@ import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import type { TabAttention } from "./tabAttention";
 import { tabsInWorkspace } from "./workspaceTabs";
 import { useAppearingTabs } from "./useAppearingTabs";
+import { SidebarWholeWorkspace } from "./sidebarMachineFilter";
 
 /** Sidebar-wide data every workspace detail reads; built once per sidebar render. */
 export interface SidebarWorkspaceDetailData {
@@ -80,10 +81,10 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions, obser
   actions: SidebarWorkspaceDetailActions;
   observedContent?: ReactNode;
 }) {
-  const readOnly = observedContent !== undefined;
+  const readOnly = observedContent != null;
   const workspaceId = workspace.id;
   const cwd = workspace.cwd ?? null;
-  const isActiveVisual = workspaceId === data.activeWorkspaceId && data.isWorkspaceMode;
+  const isActiveVisual = !readOnly && workspaceId === data.activeWorkspaceId && data.isWorkspaceMode;
   const sortedTabs = useMemo(() => tabsInWorkspace(workspace.tabs, data.tabs), [workspace.tabs, data.tabs]);
   const appearingTabIds = useAppearingTabs(workspace.tabs);
   const { activate, activateTab, closeTab, renameTab, newSession, openSentinelJob, closeTeam } =
@@ -117,6 +118,7 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions, obser
         countActiveJobs
         uiFontScale={data.uiFontScale}
       />
+      <SidebarWholeWorkspace.Provider value>
       {readOnly ? observedContent : <SidebarWorkspaceTabs
         workspace={workspace}
         activeTabId={data.activeTabIds[workspaceId] ?? null}
@@ -151,6 +153,7 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions, obser
         onCloseTeam={closeTeam}
         onOpenSentinelJob={openSentinelJob}
       />}
+      </SidebarWholeWorkspace.Provider>
     </div>
   );
 }

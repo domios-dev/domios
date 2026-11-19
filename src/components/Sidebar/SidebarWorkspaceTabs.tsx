@@ -2,7 +2,7 @@ import { isConciergeTab } from "../../lib/tabInputPolicy";
 import type { PlanView as Plan } from "../Canvas/planProjection";
 import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
 import { countWorkingTabs } from "./tabStatuses";
-import { useMemo, type ReactNode } from "react";
+import { useContext, useMemo, type ReactNode } from "react";
 import { MonitorUp, Plus } from "lucide-react";
 import type {
   Tab,
@@ -31,7 +31,7 @@ import { curatorTabAttention, groupAttention, tabAttention } from "./tabAttentio
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import { SidebarCronRow } from "./SidebarResourceRow";
 import { SidebarShellRow, SidebarOwnerTabRow, SidebarSortableBlock } from "./SidebarShellRow";
-import { matchesSidebarMachine, SidebarWholeTeam, useSidebarMachineFilter, wholeSidebarTeam } from "./sidebarMachineFilter";
+import { matchesSidebarMachine, SidebarWholeTeam, SidebarWholeWorkspace, useSidebarMachineFilter, wholeSidebarTeam } from "./sidebarMachineFilter";
 import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
 import { AgentChecklistDisclosure, type ChecklistToggle } from "./AgentChecklist";
 import { showsChecklist } from "./agentChecklistModel";
@@ -174,7 +174,8 @@ export function SidebarWorkspaceTabs({
   onOpenSentinelJob,
   observedRows,
 }: SidebarWorkspaceTabsProps) {
-  const filter = useSidebarMachineFilter();
+  const configuredFilter = useSidebarMachineFilter();
+  const filter = useContext(SidebarWholeWorkspace) ? "all" : configuredFilter;
   const { jobs: workspaceCrons, refresh: refreshCrons } = useWorkspaceCrons(ws.id);
   const conciergeIds = useNeighborGatewayIds();
   // A tab bound to a Neighbor lives under that Neighbor, wherever it was created.

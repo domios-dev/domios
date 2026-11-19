@@ -29,6 +29,8 @@ export interface BrowsedWorkspace {
   teams: Team[];
   tabs: ObservedPeerTab[];
   planTitles?: ReadonlyMap<string, string>;
+  selected?: boolean;
+  tabIds?: readonly string[];
 }
 
 export function observedGeneralViewers(
@@ -79,18 +81,58 @@ export function projectPairedGeneral(peerId: string, snapshot: MultiplexerState)
   return general ? localSessions(peerId, snapshot, general).filter(({ tab }) => isGeneralAgent(tab) && !isFirstRunGeneralTab(tab)) : [];
 }
 
-export function projectBrowsedWorkspaces(peerId: string, snapshot: MultiplexerState): BrowsedWorkspace[] {
-  return snapshot.workspaces.filter(workspace => !workspace.protected).map(workspace => ({
-    peerId,
-    workspace,
-    teams: (snapshot.teams ?? []).filter(team => team.workspace_id === workspace.id)
-      .map(team => ({ ...team, remote_peer_id: peerId })),
-    tabs: [...localSessions(peerId, snapshot, workspace), ...workspace.tabs.flatMap(id => {
-      const tab = snapshot.tabs[id];
-      const route = parseCompositeTabId(id);
-      if (!route || !tab || tab.id !== id || tab.workspace_id !== workspace.id || tab.hidden
-        || tab.show_in_tabbar === false || tab.remote_peer_id !== route.peerId || tab.remote_tab_id !== route.remoteTabId) return [];
-      return [{ viewerId: id, tab, peerId: route.peerId, status: snapshot.tab_statuses?.[id] }];
-    })],
-  }));
+export function deskWorkspaceMembership(
+  workspaces: readonly Workspace[],
+  tabs: Readonly<Record<string, Tab>>,
+  teams: readonly Team[],
+  ordinaryTabs: readonly Tab[] = [],
+): Map<string, Tab[]> {
+  const byWorkspace = new Map(workspaces.map(workspace => [workspace.id, [] as Tab[]]));
+  const teamOwners = new Map(teams.map(team => [team.id, team.workspace_id]));
+  const seen = new Set<string>();
+  const place = (tab: Tab, workspaceId: string) => {
+    const teamOwner = tab.team_id ? teamOwners.get(tab.team_id) : undefined;
+    const destination = byWorkspace.get(teamOwner ?? tab.workspace_id ?? workspaceId);
+    if (!destination || seen.has(tab.id)) return;
+    seen.add(tab.id);
+    destination.push(tab);
+  };
+  for (const workspace of workspaces) {
+    for (const id of workspace.tabs) {
+      const tab = tabs[id];
+      if (tab?.id === id) place(tab, workspace.id);
+    }
+  }
+  for (const tab of ordinaryTabs) {
+    if (tab.workspace_id && remoteViewerIdentity(tab)) place(tab, tab.workspace_id);
+  }
+  for (const members of byWorkspace.values()) members.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  return byWorkspace;
+}
+
+export function projectBrowsedWorkspaces(
+  peerId: string,
+  snapshot: MultiplexerState,
+  ordinaryTabs: readonly Tab[] = [],
+): BrowsedWorkspace[] {
+  const ordered = [...snapshot.workspaces].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  const teams = snapshot.teams ?? [];
+  const membership = deskWorkspaceMembership(ordered, snapshot.tabs, teams, ordinaryTabs);
+  return ordered.filter(workspace => !workspace.protected).map(workspace => {
+    const members = membership.get(workspace.id) ?? [];
+    const sessions = members.flatMap(tab => {
+      const route = remoteViewerIdentity(tab);
+      const viewerId = route ? tab.id : `mesh:${peerId}/${tab.id}`;
+      if ((!route && (tab.id.startsWith("mesh:") || tab.remote_peer_id || tab.remote_tab_id)) || !parseCompositeTabId(viewerId)) return [];
+      return [{ viewerId, tab, peerId: route?.peerId, status: snapshot.tab_statuses?.[tab.id] }];
+    });
+    return {
+      peerId,
+      workspace,
+      selected: snapshot.active_workspace_id === workspace.id,
+      teams: teams.filter(team => team.workspace_id === workspace.id).map(team => ({ ...team, remote_peer_id: peerId })),
+      tabIds: sessions.map(session => session.viewerId),
+      tabs: sessions.filter(({ tab }) => !tab.hidden && tab.show_in_tabbar !== false),
+    };
+  });
 }
