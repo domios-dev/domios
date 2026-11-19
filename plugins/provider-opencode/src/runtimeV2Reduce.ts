@@ -6,10 +6,10 @@ import {v2Prompt} from "./runtimeV2Requests";
 import {v2LoginEvents} from "./runtimeV2Auth";
 
 interface Part {seq:number;bytes:number;turn?:string;finished:boolean;part:Record<string,unknown>}
-interface State {epoch:number;nonce:string;thread:string;seq:number;seen:string[];evidenced:string[];completed:string[];pendingPrompts:string[];turn?:string;parts:Record<string,Part>}
+interface State {protocol:"v2";epoch:number;nonce:string;thread:string;seq:number;seen:string[];evidenced:string[];completed:string[];pendingPrompts:string[];turn?:string;parts:Record<string,Part>}
 function current(ctx:RuntimeContext, raw:JsonValue):State {
   const old=object(raw);
-  if (old.epoch !== ctx.epoch || old.nonce !== ctx.bindingNonce || old.thread !== ctx.threadId) return {epoch:ctx.epoch,nonce:ctx.bindingNonce,thread:ctx.threadId!,seq:ctx.restoredRowOrdinal ?? 0,seen:[],evidenced:[],completed:[],pendingPrompts:[],parts:Object.create(null)};
+  if (old.protocol !== "v2" || old.epoch !== ctx.epoch || old.nonce !== ctx.bindingNonce || old.thread !== ctx.threadId) return {protocol:"v2",epoch:ctx.epoch,nonce:ctx.bindingNonce,thread:ctx.threadId!,seq:ctx.restoredRowOrdinal ?? 0,seen:[],evidenced:[],completed:[],pendingPrompts:[],parts:Object.create(null)};
   const state=old as unknown as State;
   return {...state,seen:[...state.seen],evidenced:[...state.evidenced],completed:[...state.completed],pendingPrompts:[...(state.pendingPrompts ?? [])],parts:Object.fromEntries(Object.entries(state.parts).map(([id,part])=>[id,{...part,part:{...part.part}}]))};
 }
@@ -103,7 +103,7 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
       } else if (type.endsWith(".ended") || type.endsWith(".started") && !known) {
         const finished=type.endsWith(".ended"), seq=known?.seq ?? ++state.seq, content=finished ? String(data.text ?? "") : "";
         const row=v2Content(message,{type:kind,text:content},Number(data.ordinal),seq);
-        if (row) {emit(row);state.parts[rowId]={seq,bytes:utf8Length(content),turn,finished,part:{}};}
+        if (row) {emit(row);state.parts[rowId]={seq,bytes:utf8Length(content),...(turn ? {turn} : {}),finished,part:{}};}
       }
       continue;
     }
@@ -111,20 +111,35 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
       const rowId=toolId(message,String(data.id)), known=state.parts[rowId];
       if (known?.finished || !known && type !== "session.tool.input.started") continue;
       const seq=known?.seq ?? ++state.seq, previous=known?.part ?? {}, previousState=object(previous.state);
-      const part:Record<string,unknown>={...previous,type:"tool",id:data.id,name:data.name ?? previous.name,time:{...object(previous.time)}};
+      const name=text(data.name) ?? text(previous.name);
+      if (!name) continue;
+      const part:Record<string,unknown>={type:"tool",id:data.id,name,time:{...object(previous.time)}};
       const finished=type === "session.tool.success" || type === "session.tool.failed";
       if (type === "session.tool.input.started" && !known) part.state={status:"pending",input:{}};
-      else if (type === "session.tool.called") {part.state={status:"running",input:object(data.input)};object(part.time).ran=event.created;}
+      else if (type === "session.tool.called") {
+        part.state={status:"running",input:object(data.input)};
+        if (typeof event.created === "number") object(part.time).ran=event.created;
+      }
       else if (finished) {
-        part.state={...previousState,status:type.endsWith("success") ? "completed" : "error",...(data.content ? {content:data.content} : {}),...(data.error ? {error:data.error} : {})};object(part.time).completed=event.created;
-      } else if (type === "session.tool.progress") part.state={...previousState,metadata:data.metadata};
+        part.state={...previousState,status:type.endsWith("success") ? "completed" : "error",...(data.content ? {content:data.content} : {}),...(data.error ? {error:data.error} : {})};
+        if (typeof event.created === "number") object(part.time).completed=event.created;
+      } else if (type === "session.tool.progress" && known) part.state=previousState;
       else continue;
       const row=v2Content(message,part,0,seq);
-      if (row) {emit(row);state.parts[rowId]={seq,bytes:0,finished,part};}
+      if (row) {emit(row);state.parts[rowId]={seq,bytes:0,finished,part:finished ? {} : part};}
     }
   }
   state.evidenced=state.evidenced.slice(-256);state.completed=state.completed.slice(-256);
   const keys=Object.keys(state.parts);for (const key of keys.slice(0,Math.max(0,keys.length-256))) delete state.parts[key];
-  if (utf8Length(JSON.stringify(state)) > 240*1024) fail("size_limit","OpenCode reducer state exceeds its bounded budget");
+  // Keep identities and offsets when a running tool's arguments exhaust the state budget.
+  let bytes=utf8Length(JSON.stringify(state));
+  for (const entry of Object.values(state.parts)) {
+    if (bytes <= 240*1024) break;
+    const partState=object(entry.part.state);
+    if (partState.input === undefined) continue;
+    bytes-=utf8Length(JSON.stringify(partState.input))-2;
+    entry.part.state={...partState,input:{}};
+  }
+  if (bytes > 240*1024) fail("size_limit","OpenCode reducer state exceeds its bounded budget");
   return {state:json(state),events};
 }

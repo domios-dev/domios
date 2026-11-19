@@ -175,17 +175,86 @@ check("recorded thinking, shell and text stay reconcilable across an active inte
   });
   const working=runtimeReduce(ctx,first.state,[nextFrames[0],...late]);
   assert.deepEqual(working.events,[{kind:"turnState",threadId:ctx.threadId,turnId:"second",state:"working"}]);
+
+  // The host retains the transport and reducer state across a QuickJS reset.
+  const reset={...ctx,tabId:"v2-stream-and-stop-reset"};
+  assert.equal(binding(reset).protocol,undefined);
   const stop:Operation={kind:"interrupt",threadId:ctx.threadId!,activeTurnId:"second"};
-  const plan=runtimePlan(ctx,stop);
+  const plan=runtimePlan(reset,stop);
   assert.deepEqual(call(plan),{
-    method:"v2.session.abort",target:{threadId:ctx.threadId,turnId:"second"},
-    params:{path:{sessionID:ctx.threadId},query:{resume:"false"},body:{}},
+    method:"session.abort",target:{threadId:ctx.threadId,turnId:"second"},
+    params:{path:{sessionID:ctx.threadId}},
   });
-  assert.throws(()=>runtimePlan(ctx,{...stop,threadId:"foreign"}),{code:"binding_mismatch"});
-  assert.deepEqual(response(ctx,stop,plan,interrupt),{kind:"complete",result:{kind:"done"},events:[]});
-  const completed=runtimeReduce(ctx,working.state,nextFrames.slice(1));
+  const manifest=JSON.parse(fs.readFileSync(new URL("../plugin.json",import.meta.url),"utf8"));
+  const transport=manifest.capabilities.agentRuntime.httpSse;
+  assert.deepEqual(transport.alternatives[0].routes[call(plan).method],{method:"POST",path:"/api/session/{sessionID}/interrupt"});
+  assert.deepEqual(transport.routes[call(plan).method],{method:"POST",path:"/session/{sessionID}/abort"});
+  assert.throws(()=>runtimePlan(reset,{...stop,threadId:"foreign"}),{code:"binding_mismatch"});
+  assert.deepEqual(response(reset,stop,plan,interrupt),{kind:"complete",result:{kind:"done"},events:[]});
+  assert.equal(response(reset,stop,plan,{interrupted:"true"}).kind,"refused");
+  const completed=runtimeReduce(reset,working.state,nextFrames.slice(1));
   assert.deepEqual(completed.events,[{kind:"turnState",threadId:ctx.threadId,turnId:"second",state:"idle",detail:"interrupted"}]);
-  assert.deepEqual(runtimeReduce(ctx,completed.state,nextFrames.slice(1)).events,[]);
+  assert.deepEqual(runtimeReduce(reset,completed.state,nextFrames.slice(1)).events,[]);
+});
+check("bookkeeping can reestablish a lost mapper and page history in ascending order",()=>{
+  const ctx={...copy(fixture.context),tabId:"v2-bookkeeping",settings:{}};
+  const threadId=ctx.threadId!;
+  const resume:Operation={kind:"resumeThread",threadId,instructions:"opaque recovery",settings:ctx.settings};
+  const health=runtimePlan(ctx,resume);
+  assert.equal(call(health).method,"health");
+  assert.equal(response(ctx,resume,health,{version:"2.3.0"}).kind,"refused");
+  const get=continued(response(ctx,resume,health,fixture.health));
+  assert.equal(call(get).method,"v2.session.get");
+  const instructions=continued(response(ctx,resume,get,fixture.session));
+  assert.equal(call(instructions).method,"v2.session.instructions");
+  assert.equal(response(ctx,resume,instructions,null).kind,"complete");
+
+  const read:Operation={kind:"readHistory",threadId,order:"asc"};
+  const plan=runtimePlan(ctx,read);
+  assert.deepEqual(call(plan).params,{path:{sessionID:threadId},query:{limit:"40",order:"asc"}});
+  const page=response(ctx,read,plan,{data:[...fixture.history.data].reverse(),cursor:{next:"opaque-next"}});
+  if(page.kind !== "complete" || page.result.kind !== "historyPage") throw new Error("history page required");
+  assert.equal(page.result.order,"asc");
+  assert.deepEqual(page.result.items,v2History(fixture.history.data));
+  const following={...read,cursor:page.result.nextCursor};
+  const second=runtimePlan(ctx,following);
+  assert.deepEqual(call(second).params,{path:{sessionID:threadId},query:{limit:"40",cursor:"opaque-next"}});
+  assert.equal(response(ctx,following,second,{data:[],cursor:{}}).kind,"complete");
+});
+check("bookkeeping serializes untracked text and bounds retained tool payloads",()=>{
+  const ctx=loaded("v2-bookkeeping-state");
+  delete ctx.activeTurnId;
+  ctx.activeTurns=[];
+  const frames=fixture.streamAndInterrupt.frames;
+  const frame=(type:string)=>copy(frames.find(frame=>(frame.params as Record<string,JsonValue>).type === type)!);
+  const vector=(frame:RuntimeFrame)=>frame.params as {data:Record<string,JsonValue>};
+  const strictJson=(value:unknown)=>JSON.stringify(value,(_key,entry)=>{
+    assert.notEqual(entry,undefined);
+    return entry;
+  });
+  const source=frame("session.text.started");
+  const text=runtimeReduce(ctx,null,[source]);
+  assert.equal(text.events[0]?.kind,"chatItem");
+  strictJson(text);
+
+  ctx.activeTurnId="tool-turn";
+  const called=frame("session.tool.called"), success=frame("session.tool.success");
+  const large="工具".repeat(50_000);
+  vector(called).data.input={data:large};
+  vector(success).data.content=[{type:"text",text:large}];
+  const running=runtimeReduce(ctx,text.state,[frame("session.tool.input.started"),called]);
+  const row=running.events.filter(event=>event.kind === "chatItem").at(-1)?.item;
+  assert.equal(row?.toolStatus,"running");
+  assert.deepEqual(row?.toolInput,{data:large});
+  assert.ok(Buffer.byteLength(strictJson(running.state)) <= 240*1024);
+  const reduced=runtimeReduce(ctx,running.state,[success]);
+  const completed=reduced.events.find(event=>event.kind === "chatItem")?.item;
+  assert.equal(completed?.id,row?.id);
+  assert.equal(completed?.toolStatus,"completed");
+  assert.equal(completed?.toolResult,large);
+  assert.ok(Buffer.byteLength(strictJson(reduced.state)) <= 240*1024);
+  assert.ok(!strictJson(reduced.state).includes(large));
+  assert.deepEqual(runtimeReduce(ctx,reduced.state,[success]).events,[]);
 });
 check("recorded resumed turn keeps reasoning and text with the same ordinal in separate rows",()=>{
   const ctx=loaded("v2-resumed-fragments"), capture=fixture.sameMessageFragments;
