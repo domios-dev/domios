@@ -1,6 +1,6 @@
 import type { PlanView as Plan } from "../planProjection";
 import { TaskHistoryControls, type TaskHistoryController } from "./TaskHistoryControls";
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import type { ApiConfig, Tab } from "../../../lib/types";
 import { DetailContent } from "../canvasRender/DetailContent";
 import type { SectionNavArgs } from "../nodeRegistry";
@@ -19,6 +19,7 @@ export interface TaskSegmentPanelProps {
   panelRef: RefObject<HTMLElement | null>;
   detail: PlanTaskDetail | null;
   historyController?: TaskHistoryController;
+  footer?: ReactNode;
   fallbackPlan?: Plan | null;
   taskRef: string;
   loading?: boolean;
@@ -36,6 +37,7 @@ export function TaskSegmentPanel({
   panelRef,
   detail,
   historyController,
+  footer,
   fallbackPlan = null,
   taskRef,
   loading = false,
@@ -93,6 +95,7 @@ export function TaskSegmentPanel({
             />
           </SelectionAsk>
           {exactDetail && <TaskHistoryControls detail={detail!} controller={historyController} />}
+          {footer}
         </>
       ) : (
         <p data-testid="plan-task-segment-missing" className="plan-task-segment__note">

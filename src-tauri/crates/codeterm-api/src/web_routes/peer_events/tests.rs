@@ -19,6 +19,28 @@ fn status(tab: &str) -> SystemEvent {
 }
 
 #[test]
+fn peer_plan_topics_follow_read_plan_grant() {
+    for event_type in ["plan-changed", "plans-loaded"] {
+        let event = SystemEvent::Generic {
+            event_type: event_type.into(),
+            data: serde_json::json!({"plan_id":"plan-B"}),
+        };
+        assert!(topic_allowed(&AccessLevel::Full, &event, |_| false));
+        assert!(topic_allowed(&AccessLevel::ReadOnly, &event, |_| false));
+        assert!(!topic_allowed(&AccessLevel::AgentIsolated, &event, |_| {
+            true
+        }));
+        assert!(!topic_allowed(
+            &AccessLevel::Custom(vec![
+                codeterm_service_core::mesh::types::Permission::ReadTabs
+            ]),
+            &event,
+            |_| true
+        ));
+    }
+}
+
+#[test]
 fn peer_event_topics_follow_live_tab_and_mux_authority() {
     let owns = |tab: &str| tab == "owned";
     let own = status("owned");

@@ -800,6 +800,7 @@ export const Sidebar = memo(function Sidebar({
                         workspace={observedWorkspace}
                         attachedTabs={state.tabs}
                         touchMode={touchMode}
+                        onOpenCanvas={onNavigateToTab}
                         onRenameViewer={(tab, title) => {
                           if (tab.workspace_id) renameTab(tab.workspace_id, tab.id, title);
                         }}

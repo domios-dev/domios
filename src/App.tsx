@@ -1056,7 +1056,7 @@ function AppInner() {
           ) : mainView === "workspace" ? (
             <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
-          <PlanSidePanelHost api={stableApiConfig} />
+          <PlanSidePanelHost api={stableApiConfig} onOpenCanvas={handleNavigateToTab} />
           </>}
         </main>
         </div>

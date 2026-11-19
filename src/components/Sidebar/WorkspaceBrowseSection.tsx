@@ -8,6 +8,8 @@ import { remoteTeamName } from "./remoteOwnership";
 import { SidebarWholeTeam, useSidebarMachineFilter, wholeSidebarTeam } from "./sidebarMachineFilter";
 import { partitionTeamMembers } from "./workspaceTeamModel";
 import { countWorkingTabs } from "./tabStatuses";
+import { planSidePanelStore } from "../Canvas/planSidePanelStore";
+import { openWorkspacePlanCanvas } from "../Canvas/workspacePlanEntry";
 
 interface WorkspaceBrowseSectionProps {
   workspace: BrowsedWorkspace;
@@ -16,11 +18,12 @@ interface WorkspaceBrowseSectionProps {
   touchMode: boolean;
   onSelectViewer: (viewerId: string) => void;
   onRenameViewer: (tab: Tab, title: string) => void;
+  onOpenCanvas?: () => void;
 }
 
 export function WorkspaceBrowseSection({
   workspace: { workspace, peerId, teams, tabs, planTitles },
-  selectedViewerId, attachedTabs, touchMode, onSelectViewer, onRenameViewer,
+  selectedViewerId, attachedTabs, touchMode, onSelectViewer, onRenameViewer, onOpenCanvas,
 }: WorkspaceBrowseSectionProps) {
   const filter = useSidebarMachineFilter();
   const { generals, peerWorkspaces } = usePairedWorkspaceInventory();
@@ -73,6 +76,16 @@ export function WorkspaceBrowseSection({
           remote_peer_id: peerId,
           remote_peer_name: host?.name,
         }} workspaceName={workspace.name} plan={null} tabs={attachedTabs}
+          onOpenEffort={({ jump }) => {
+            const remoteTeam = { peerId, teamId, name: name ?? "Team" };
+            if (jump) {
+              planSidePanelStore.close();
+              onOpenCanvas?.();
+              openWorkspacePlanCanvas({ remoteTeam, jump });
+            } else {
+              planSidePanelStore.open({ remoteTeam, planId: "" });
+            }
+          }}
           managers={section(managers)} managerCount={managers.length} workingManagerCount={working(managers)}
           workers={section(workers)} workerCount={workers.length} workingWorkerCount={working(workers)}
           agents={section(agents)} agentCount={agents.length} workingAgentCount={working(agents)}

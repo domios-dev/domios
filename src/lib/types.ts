@@ -35,7 +35,7 @@ export type { MemoryConfig } from "../../gen/MemoryConfig";
 export type { UiConfig } from "./configWireFallbacks";
 export type { ReplacedModelDefault } from "../../gen/ReplacedModelDefault";
 export type { ModelDefaultsConfig } from "../../gen/ModelDefaultsConfig";
-export type ApiConfig = import("../../gen/ApiConfig").ApiConfig & { token: string | null };
+export type ApiConfig = import("../../gen/ApiConfig").ApiConfig & { token: string | null; peerId?: string };
 export type AppConfig = Omit<import("../../gen/AppConfig").AppConfig, "api" | "notifications"> & { api: ApiConfig; notifications: NotificationConfig };
 import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../packages/plugin-sdk/src/agentRuntime";
 import type { RemoteChannelAvailabilityMap } from "./remoteTabTransportState";

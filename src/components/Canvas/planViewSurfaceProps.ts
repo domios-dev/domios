@@ -3,6 +3,8 @@ import type { ApiConfig, Notification, Tab, Team, Workspace } from "../../lib/ty
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import type { PlanTarget } from "./teamViewNavigation";
 import type { PlanIndexEntry } from "./plansApi";
+import type { ReactNode } from "react";
+import type { PlanTaskDetail } from "./types";
 
 /** Shared read-only context for Spec | Plan | Board and parked plan surfaces. */
 export interface PlanViewSurfaceProps {
@@ -37,4 +39,5 @@ export interface PlanViewSurfaceProps {
   onOpenView?: (mode: "spec" | "plan" | "tasks") => void;
   /** The single plan and task jump; it lands in the owning team view. */
   onOpenPlanTarget?: (target: PlanTarget) => void;
+  renderTaskActions?: (detail: PlanTaskDetail) => ReactNode;
 }

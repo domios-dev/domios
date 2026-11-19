@@ -113,7 +113,7 @@ export function MissionControlPlanSurface({
     [effectivePlans],
   );
   const teamRevision = `${plansRevision}:${boardEvents}`;
-  const team = useTeamMissionControl(api, boardTeamId, teamRevision, setTeamError);
+  const team = useTeamMissionControl(api?.peerId ? undefined : api, boardTeamId, teamRevision, setTeamError);
   // The daemon's team projection owns the active slot, so a draft absent from the plan feed still fills it.
   const selectedSummary = useMemo(() => {
     if (listedPlan || !teamId) return listedPlan;
@@ -132,10 +132,10 @@ export function MissionControlPlanSurface({
       .sort((a, b) => b.updated_at - a.updated_at);
   }, [effectivePlans, selectedPlan]);
 
-  const boardState = useDeferredPlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0, !boardTeamId || Boolean(teamError));
+  const boardState = useDeferredPlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0, Boolean(api?.peerId) || !boardTeamId || Boolean(teamError));
   const recordedEvents = boardState.state?.mission_control?.event_log.recorded_events ?? 0;
   useEffect(() => setBoardEvents(boardState.state?.revision ?? String(recordedEvents)), [boardState.state?.revision, recordedEvents]);
-  const spendRead = useTeamSpendRead(api, boardTeamId, teamRevision);
+  const spendRead = useTeamSpendRead(api?.peerId ? undefined : api, boardTeamId, teamRevision);
   const teamSpend = spendRead.spend;
   const boardPreviousPlans = team?.archivedPlans ?? previousPlans;
   const refPlans = useMemo(() => {
@@ -205,7 +205,7 @@ export function MissionControlPlanSurface({
         itemCount={plans.length}
         testId="mission-control-reconnecting"
       />
-      {showsData && selectedPlan && (
+      {showsData && selectedPlan && !api?.peerId && (
         <MissionControlControls
           scope="board"
           planId={selectedPlan.id}
@@ -269,7 +269,7 @@ export function MissionControlPlanSurface({
         {(loading && plans.length === 0 || showsData && !selectedPlan && (team || boardTeamId)) && (
           <MissionControlTeamBoard
             teamId={boardTeamId}
-            api={api}
+            api={api?.peerId ? undefined : api}
             team={team}
             error={teamError}
             plans={effectivePlans}
@@ -293,7 +293,7 @@ export function MissionControlPlanSurface({
         )}
         {showsData && selectedPlan && (
           <MissionControlBoard
-            api={api}
+            api={api?.peerId ? undefined : api}
             plan={selectedPlan}
             state={boardState.state}
             loading={boardState.loading}

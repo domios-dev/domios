@@ -1,6 +1,44 @@
 use super::*;
 
 #[test]
+fn remote_team_plan_reads_require_read_plan_and_keep_writes_full() {
+    for path in [
+        "/api/teams/team-B/mission-control/state?limit=1",
+        "/api/plans",
+        "/api/plans/plan-B/projection?view=list",
+        "/api/plans/plan-B/board-state",
+        "/api/plans/plan-B/tasks",
+        "/api/plans/plan-B/tasks/task-B",
+        "/api/plans/plan-B/tasks/task-B/history?kind=milestones",
+        "/api/specs/spec-B",
+    ] {
+        let scope = request_scope(&Method::GET, path).unwrap();
+        assert_eq!(scope.operation, PeerOperation::ReadPlan, "{path}");
+        assert!(scope.allowed(&AccessLevel::ReadOnly), "{path}");
+        assert!(!scope.allowed(&AccessLevel::AgentIsolated), "{path}");
+        assert!(
+            !scope.allowed(&AccessLevel::Custom(vec![Permission::ReadTabs])),
+            "{path}"
+        );
+    }
+    assert!(!check_access(
+        &AccessLevel::ReadOnly,
+        &Method::PATCH,
+        "/api/plans/plan-B/tasks/task-B",
+    ));
+    assert!(!check_access(
+        &AccessLevel::ReadOnly,
+        &Method::POST,
+        "/api/mesh/rpc",
+    ));
+    assert!(check_access(
+        &AccessLevel::Full,
+        &Method::POST,
+        "/api/mesh/rpc",
+    ));
+}
+
+#[test]
 fn local_only_paths_are_denied_at_every_peer_access_level() {
     for path in [
         "/api/secrets/opaque/value",

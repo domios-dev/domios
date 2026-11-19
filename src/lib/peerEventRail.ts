@@ -2,12 +2,15 @@ import { baseDaemonTransport } from "./daemonBootstrap";
 import { createRemoteChannelRecovery, createSilenceDeadline, streamResponseFailureReason } from "./remoteChannelRecovery";
 import type { TransportClient } from "./transportClient";
 import type { TabStatus } from "./types";
+import type { CommittedPlanChange } from "../../gen/CommittedPlanChange";
 
 export type PeerEvent =
   | { type: "reconcile" }
   | { type: "invalidate" }
   | { type: "tab-status-changed"; data: { tab_id: string; status: TabStatus } }
   | { type: "chat-send-status"; data: { tab_id: string } }
+  | { type: "plan-changed"; data: CommittedPlanChange }
+  | { type: "plans-loaded" }
   | { type: "mux-state-changed"; data: { generation?: number } };
 
 interface Cursor { boot: string; seq: number }
@@ -72,6 +75,16 @@ function openPeerLink(peerId: string, link: string, publish: Listener, transport
           publish({ type: "chat-send-status", data: { tab_id: data.tab_id } });
         }
       }
+      if (frame.event_type === "plan-changed") {
+        const data = frame.data as Partial<CommittedPlanChange> | null;
+        if (typeof data?.plan_id === "string" && typeof data.revision === "string"
+          && typeof data.previous_revision === "string" && typeof data.reset === "boolean"
+          && typeof data.deleted === "boolean" && Array.isArray(data.task_ids)
+          && data.task_ids.every(id => typeof id === "string")) {
+          publish({ type: "plan-changed", data: data as CommittedPlanChange });
+        }
+      }
+      if (frame.event_type === "plans-loaded") publish({ type: "plans-loaded" });
     }, {
       raw: true,
       signal: active.signal,
