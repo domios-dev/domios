@@ -74,13 +74,15 @@ bash evals/upgrade-restore/run.sh prepare /tmp/upgrade-worst.json /tmp/upgrade-w
 ```
 
 Start the target build with the prepared `bin/` directory first in its PATH,
-for example `/tmp/upgrade-real/bin`, and `CODETERM_INSTANCE=upgrade-restore-real`.
+for example `/tmp/upgrade-real/bin`, set `CLAUDE_CONFIG_DIR` to the prepared
+`claude-config` directory, and use `CODETERM_INSTANCE=upgrade-restore-real`.
 Use the same named instance and port for its subsequent restart. The daemon's
 provider descriptor must resolve `codex` to the prepared fake executable;
 verification refuses a real executable before touching any provider session.
 The supported resolver searches the daemon's inherited PATH first, then persisted
 machine/user PATH and finally known installation directories. On Windows it uses
-PATHEXT to find `codex.cmd`; keep `.CMD` in PATHEXT. Set PATH in the backend
+PATHEXT to find `codex.cmd` and `claude.cmd`; keep `.CMD` in PATHEXT. Set PATH
+and `CLAUDE_CONFIG_DIR` in the backend
 launcher on both initial launch and restart, not only in `dev-front` or the bench
 shell. The Windows desktop handoff forwards PATH and PATHEXT to the native client
 that launches the daemon. An already running daemon retains its launch environment.
@@ -165,8 +167,9 @@ Canonical Rust selectors: `./build.sh test-one app api::session_exchange` and
 `./build.sh test-one cli cmd::manifest`; rebuild CLI with `./build.sh cli` to
 regenerate its contract artifacts before the manifest check.
 
-The first implementation supports the official Codex runtime protocol. A capture
-containing other providers fails closed before replay. Hidden tabs omitted by
+The harness provides isolated fake Codex and Claude backings. It never reads
+owner Claude credentials or session directories. A capture containing other
+providers fails closed before replay. Hidden tabs omitted by
 Domios's snapshot writer also fail closed because no persisted replay backing
 exists. These failures require an owner decision or added backing; they are not
 skips, and unit fixtures are not pre/post DEV proof. The capture command requires

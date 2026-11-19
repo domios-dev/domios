@@ -77,14 +77,15 @@ it("offers named cards while independent installation checks run and keeps the s
     invalidateAgentProviders();
   }
 });
-it("models installation, sign-in, startup, readiness and failure recovery", () => {
+it("models installation, startup, readiness and failure recovery", () => {
   let phase: FirstRunPhase = "choosing";
   const phases = [];
-  for (const event of ["install", "installed", "authenticated", "ready"] as const) {
+  for (const event of ["install", "installed", "ready"] as const) {
     phase = firstRunTransition(phase, event);
     phases.push(phase);
   }
-  expect(phases).toEqual(["installing", "signIn", "starting", "ready"]);
+  expect(phases).toEqual(["installing", "starting", "ready"]);
+  expect(firstRunTransition("choosing", "start")).toBe("starting");
   expect(firstRunTransition("installing", "ready")).toBe("installing");
   expect(firstRunTransition("installing", "failure")).toBe("failed");
   expect(firstRunTransition("failed", "install")).toBe("installing");
@@ -403,32 +404,54 @@ for (const success of [true, false]) {
   });
 }
 
-it("keeps multi-method sign-in on Get started and continues only authenticated completion", async () => {
-  const signedOut = { state: "loginPending", epoch: 0, auth: "signedOut", loginMethods: ["browser"],
-    loginChoices: [{ id: "plan", label: "Plan account" }, { id: "metered", label: "Usage account" }] };
+it.each(["signedIn", "signedOut"] as const)("opens General without any Welcome sign-in UI for a provider that is %s", async auth => {
+  let finishLaunch!: () => void;
+  const launch = new Promise<void>(resolve => { finishLaunch = resolve; });
+  const state = snapshot();
+  state.tabs.general.agent_runtime_state = { state: "loaded", epoch: 1, auth, loginMethods: ["browser"] };
   vi.mocked(invoke).mockImplementation(async (command) => {
-    if (command === "agent_runtime_login") return { state: signedOut, login: { status: "pending", loginId: "own-login" } };
-    if (command === "mux_get_state") return snapshot();
+    if (command === "agent_runtime_login") return { state: state.tabs.general.agent_runtime_state };
+    if (command === "complete_general_agent_first_run") return launch;
+    if (command === "mux_get_state") return state;
   });
   const available = { ...provider("fixture", "pty"), cli_login: { methods: [], urlPattern: "", timeoutMs: 1000 } };
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
+  const signIn = /sign[ -]?in|continue in browser/i;
+  const observed: string[] = [];
+  const record = (mutations: MutationRecord[]) => {
+    observed.push(host.textContent ?? "");
+    for (const mutation of mutations) {
+      if (mutation.oldValue) observed.push(mutation.oldValue);
+      for (const node of mutation.addedNodes) {
+        observed.push(node.textContent ?? "");
+        if (node instanceof Element) {
+          observed.push(node.getAttribute("aria-label") ?? "");
+          for (const control of node.querySelectorAll("[aria-label]")) {
+            observed.push(control.getAttribute("aria-label") ?? "");
+          }
+        }
+      }
+    }
+  };
+  const observer = new MutationObserver(record);
+  observer.observe(host, { subtree: true, childList: true, characterDataOldValue: true, attributeFilter: ["aria-label"], attributeOldValue: true });
   try {
     await act(async () => root.render(<FirstRunGeneralPicker providers={[available]} home={{ workspaceId: "welcome", tabId: "home" }} />));
-    await act(async () => host.querySelector<HTMLButtonElement>("[data-testid=agent-picker-confirm]")!.click());
-    expect(invoke).not.toHaveBeenCalledWith("complete_general_agent_first_run", expect.anything());
-    const method = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Usage account")!;
-    await act(async () => method.click());
-    expect(invoke).toHaveBeenCalledWith("agent_runtime_login", { tabId: "home", request: { method: "browser", account: "metered", providerId: "fixture" } });
-    const completed = { state: { ...signedOut, state: "loaded", auth: "signedIn" }, session_binding_nonce: null, tab_id: "other" };
-    await act(async () => events.get("agent-runtime-state")!({ payload: completed }));
-    await act(async () => events.get("agent-runtime-state")!({ payload: { ...completed, tab_id: "home", session_binding_nonce: "foreign-nonce" } }));
-    expect(invoke).not.toHaveBeenCalledWith("complete_general_agent_first_run", expect.anything());
-    await act(async () => events.get("agent-runtime-state")!({ payload: { ...completed, tab_id: "home" } }));
+    const confirm = [...host.querySelectorAll("button")].find(button => button.textContent === "Start General agent")!;
+    await act(async () => confirm.click());
+    expect(host.querySelector('[aria-current="step"]')?.textContent).toBe("Start General");
+    expect(host.textContent).not.toMatch(signIn);
     expect(invoke).toHaveBeenCalledWith("complete_general_agent_first_run", { providerId: "fixture" });
+    expect(navigation.show).not.toHaveBeenCalled();
+    await act(async () => finishLaunch());
     expect(navigation.show).toHaveBeenCalledExactlyOnceWith({ workspaceId: "welcome", tabId: "general" });
+    expect(invoke).not.toHaveBeenCalledWith("agent_runtime_login", expect.anything());
+    record(observer.takeRecords());
+    expect(observed.join("\n")).not.toMatch(signIn);
   } finally {
+    observer.disconnect();
     await act(async () => root.unmount());
     host.remove();
   }

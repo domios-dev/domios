@@ -66,6 +66,9 @@ import { clearPersistedChatScrollState } from "./chatViewport";
 import { adoptChatStartTiming, beginChatStartTiming, chatStartTimingEdge } from "./chatStartTiming";
 import { useChatWindowView } from "./useChatWindowView";
 import { useChatActivationReconcile } from "./useChatActivationReconcile";
+import { remoteChatPeer, setRemoteChatFailure } from "../../lib/remoteChatStatus";
+import { remoteChatFailure } from "../../lib/remoteChatState";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 
 export {
   TEST_CHAT_REPLY_EVENT,
@@ -107,6 +110,7 @@ export function useChatSession({
   onError,
   active = true,
   retainAttachment = false,
+  pauseAttachment = false,
   diagnosticSink,
   allowUnboundAuthority = false,
   localAttempt,
@@ -114,6 +118,7 @@ export function useChatSession({
   history,
   live = true,
   queueSendsBehindTurn = false,
+  hostRows,
 }: {
   tabId: string;
   agentSessionId: string | null;
@@ -122,6 +127,7 @@ export function useChatSession({
   /** Visibility starts the first attachment. Retained views keep it until unmount. */
   active?: boolean;
   retainAttachment?: boolean;
+  pauseAttachment?: boolean;
   diagnosticSink?: ChatSessionDiagnosticSink;
   /** Plugin chatBackend tabs have tab-owned backing without a PTY session id. */
   allowUnboundAuthority?: boolean;
@@ -132,12 +138,14 @@ export function useChatSession({
   /** Rows keep committing to the store; a held view renders them when live again. */
   live?: boolean;
   queueSendsBehindTurn?: boolean;
+  hostRows?:readonly ChatMessage[];
 }) {
   const activatedRef = useRef(false);
   if (active) activatedRef.current = true;
-  const attachmentActive = active || (retainAttachment && activatedRef.current);
+  const retainWindow = active || (retainAttachment && activatedRef.current);
+  const attachmentActive = retainWindow && !pauseAttachment;
   const windowKey = transcriptWindowKey(tabId, agentSessionId);
-  const { transcript, anchorKey, snapshotBinding } = useTranscriptWindow(windowKey, live, attachmentActive);
+  const { transcript, anchorKey, snapshotBinding } = useTranscriptWindow(windowKey, live, retainWindow);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [listenerReady, setListenerReady] = useState(false);
@@ -221,6 +229,8 @@ export function useChatSession({
   ) => commitTranscriptBatch(windowKeyRef.current, { kind, authority, range, rows }), []);
 
   const reconcileSendStatuses = useCallback(async () => {
+    const presence = remoteChatPeer(parseCompositeTabId(tabId)?.peerId)?.presence;
+    if (presence && presence !== "online") return;
     if (sendStatusInFlightRef.current) {
       sendStatusQueuedRef.current = true;
       return;
@@ -279,6 +289,7 @@ export function useChatSession({
     interruptedStartRecoveryRef.current = false;
     markTranscriptSnapshotReady(windowKeyRef.current, sessionBindingNonceRef.current);
     adoptChatStartTiming(tabId);
+    if (parseCompositeTabId(tabId)) setRemoteChatFailure(tabId);
     attachmentStateRef.current = "attached";
     setAttachmentState("attached");
     setTranscriptUnavailable(null);
@@ -464,6 +475,7 @@ export function useChatSession({
   }, [tabId]);
 
   const view = useChatWindowView({
+    hostRows,
     queueSendsBehindTurn,
     localAttempt,
     tabId,
@@ -583,7 +595,8 @@ export function useChatSession({
         setAttachmentState("failed");
         setError(msg);
         setLoading(false);
-        onErrorRef.current?.(msg);
+        if (parseCompositeTabId(tabId)) setRemoteChatFailure(tabId, remoteChatFailure(e));
+        else onErrorRef.current?.(msg);
       }
     })();
     return () => {
@@ -794,7 +807,8 @@ export function useChatSession({
         setAttachmentState("failed");
         setError(msg);
         setLoading(false);
-        onErrorRef.current?.(msg);
+        if (parseCompositeTabId(tabId)) setRemoteChatFailure(tabId, remoteChatFailure(e));
+        else onErrorRef.current?.(msg);
       }
     })();
     return () => {
@@ -882,6 +896,7 @@ export function useChatSession({
     retry,
     setError,
     allMessages: view.allMessages,
+    documentAttachmentNames: view.documentAttachmentNames,
     enrichedMessages: view.enrichedMessages,
     hiddenMessageCount: view.hiddenMessageCount,
     olderMessageLabel: view.olderMessageLabel,

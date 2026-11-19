@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
 use crate::plan::InterruptionCheckpoint;
@@ -51,6 +50,19 @@ pub struct WorkerInterruptionRequest {
     pub occurred_at: u64,
 }
 
+fn account_matches(
+    svc: &super::ServiceContext,
+    tab: &str,
+    provider: &str,
+    account: Option<&str>,
+) -> bool {
+    svc.mux.read().get_tab(tab).is_some_and(|tab| {
+        tab.agent_type.as_deref() == Some(provider)
+            && codeterm_service_core::service::provider_accounts::selected_account(tab)
+                == account.unwrap_or("default")
+    })
+}
+
 pub trait WorkerInterruptionExt {
     fn verify_task_owner_session(
         &self,
@@ -62,10 +74,12 @@ pub trait WorkerInterruptionExt {
     fn signal_provider_exhaustion(
         &self,
         provider: &str,
+        account: Option<&str>,
     ) -> Result<usize, crate::service::plan::PlanError>;
     fn signal_provider_recovery(
         &self,
         provider: &str,
+        account: Option<&str>,
     ) -> Result<usize, crate::service::plan::PlanError>;
     fn pause_exhausted_worker(
         &self,
@@ -140,12 +154,16 @@ impl WorkerInterruptionExt for super::ServiceContext {
     fn signal_provider_exhaustion(
         &self,
         provider: &str,
+        account: Option<&str>,
     ) -> Result<usize, crate::service::plan::PlanError> {
         let tabs = self
             .plan_store
             .provider_exhaustion_tabs_projection(provider)?;
         let mut interrupted = 0;
         for tab in tabs {
+            if !account_matches(self, &tab, provider, account) {
+                continue;
+            }
             if self.signal_worker_interruption(&tab, WorkerInterruptionEvent::ProviderExhausted)? {
                 interrupted += 1;
             }
@@ -156,6 +174,7 @@ impl WorkerInterruptionExt for super::ServiceContext {
     fn signal_provider_recovery(
         &self,
         provider: &str,
+        account: Option<&str>,
     ) -> Result<usize, crate::service::plan::PlanError> {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -164,6 +183,9 @@ impl WorkerInterruptionExt for super::ServiceContext {
         let targets = self.plan_store.provider_recovery_projection(provider)?;
         let mut resumed = 0;
         for target in targets {
+            if !account_matches(self, &target.owner_tab_id, provider, account) {
+                continue;
+            }
             self.plan_store.resume_from_provider_exhaustion(
                 &target.plan_id,
                 &target.task_id,
@@ -563,9 +585,9 @@ impl WorkerInterruptionExt for super::ServiceContext {
 }
 
 fn git(worktree: &Path, args: &[&str]) -> Result<String, String> {
-    let mut command = Command::new("git");
+    let mut command = crate::process_util::git_command();
     command.args(args).current_dir(worktree);
-    crate::process_util::no_window_std(&mut command);
+
     let output = command
         .output()
         .map_err(|error| format!("git {}: {error}", args.join(" ")))?;

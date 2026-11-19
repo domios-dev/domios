@@ -1,3 +1,4 @@
+import { effectiveReadPath } from "../../provider-shared/readHome";
 import { type HostIoSteps } from "@codeterm/plugin-sdk";
 export interface TurnContext {
   used_tokens: number;
@@ -89,7 +90,7 @@ export function* composeSettingsArgs(args: string[]): HostIoSteps<string[] | nul
     overlay = { ...overlay, ...value };
   }
   if (enabled) {
-    const path = host.expandHome("~/.claude/settings.json");
+    const path = effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), host.expandHome("~/.claude/settings.json"), "settings.json", host.platform() === "windows" ? "\\" : "/");
     const user = path ? settingsObject((yield* host.io.fs.fileExists(path)) ? (yield* host.io.fs.readFileHead(path, 65_537)) : "{}") : null;
     const composed = user ? statuslineSettings({ ...user, ...overlay }) : null;
     if (composed) overlay = { ...overlay, ...JSON.parse(composed) };

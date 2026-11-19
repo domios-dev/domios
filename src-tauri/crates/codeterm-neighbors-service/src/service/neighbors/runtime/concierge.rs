@@ -6,6 +6,7 @@ pub mod options;
 pub mod restore;
 pub mod retirement;
 use super::super::storage::ConciergeOptions;
+use crate::service::agent_runtime::cli_exception::needs_project_handoff;
 
 pub fn launch_error(error: String) -> Error {
     if error.starts_with("neighbor_restore_grant_required:") {
@@ -320,6 +321,15 @@ impl NeighborsExt for ServiceContext {
             })
             .unwrap_or_default();
         self.stop_neighbor_concierge_listener(friendship);
+        let old = if let Some(id) = old
+            .as_deref()
+            .filter(|id| needs_project_handoff(self, id, &cwd))
+        {
+            self.close_tab_async(id).await.map_err(launch_error)?;
+            None
+        } else {
+            old
+        };
         let created = match create(
             provider,
             model,
@@ -563,6 +573,10 @@ impl NeighborsExt for ServiceContext {
             super::super::confinement::prepare_folder(metadata, friendship, &permission).await?;
         self.require_neighbor_history_generation(generation)
             .map_err(|error| error.to_string())?;
+        let retire_before_create = retire_before_create
+            || old
+                .as_deref()
+                .is_some_and(|id| needs_project_handoff(self, id, &cwd));
         if retire_before_create {
             self.stop_neighbor_concierge_listener(friendship);
             if let Some(old) = &old {

@@ -1,7 +1,7 @@
 name: Release publication
 
 # Rehearses publication of a green dry run's retained bytes; nothing is rebuilt, re-signed or published.
-# Publication itself is the master merge push of the release PR (release.yml). Dispatch from release/X.Y.Z.
+# Publication itself is the master merge push of the release PR (release.yml). Dispatch from release/next.
 "on":
   workflow_dispatch:
     inputs:
@@ -10,7 +10,7 @@ name: Release publication
         required: true
         type: string
       tag:
-        description: Release tag vX.Y.Z (the run's branch must be release/X.Y.Z)
+        description: Release tag vX.Y.Z (the run's branch must be release/next)
         required: true
         type: string
       rehearsal:
@@ -29,7 +29,7 @@ concurrency:
 jobs:
   publish:
     name: publish ${{ inputs.tag }}
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && github.ref == 'refs/heads/release/next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     environment: release
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 60
@@ -71,7 +71,7 @@ jobs:
           INPUT_REHEARSAL: ${{ inputs.rehearsal }}
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF" =~ ^refs/heads/release/[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::dispatch from release/X.Y.Z"; exit 1; }
+          [ "$GITHUB_REF" = refs/heads/release/next ] || { echo "::error::dispatch from release/next"; exit 1; }
           # One publication path: the master merge push of the release PR. This workflow only rehearses.
           [ "$INPUT_REHEARSAL" = true ] || { echo "::error::publication runs only from the master merge push of the release PR; dispatch with rehearsal=true"; exit 1; }
           run="$INPUT_RUN"; tag="$INPUT_TAG"; mode=rehearsal

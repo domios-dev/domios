@@ -20,8 +20,19 @@ pub(super) fn assert_installed_descriptors() {
     );
     for entry in plugin_dirs {
         let manifest = entry.path().join("plugin.json");
-        let provider = load_one(&manifest)
-            .unwrap_or_else(|error| panic!("load {}: {error}", manifest.display()));
+        let uses_http_runtime = super::super::PluginManifest::load(&manifest)
+            .unwrap_or_else(|error| panic!("parse {}: {error}", manifest.display()))
+            .capabilities
+            .agent_runtime
+            .is_some_and(|runtime| runtime.http_sse.is_some());
+        let provider = if uses_http_runtime {
+            super::super::provider_observation::with_fixture_version(Some("2.3.0"), || {
+                load_one(&manifest)
+            })
+        } else {
+            load_one(&manifest)
+        }
+        .unwrap_or_else(|error| panic!("load {}: {error}", manifest.display()));
         let descriptor = provider.describe();
         let command = provider.build_launch_command(&AgentLaunchParams {
             task: Some(task.into()),

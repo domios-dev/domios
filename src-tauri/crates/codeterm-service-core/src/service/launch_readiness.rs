@@ -37,7 +37,7 @@ pub(crate) const OWNER_PROMPT_DEADLINE: std::time::Duration =
 /// The one launch an observation speaks for: the tab, the PTY it launched on,
 /// and that launch's binding nonce. A prior PTY or a rotated nonce is a
 /// different attempt and can never settle this one.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LaunchAttempt {
     pub tab_id: String,
     pub pty_id: String,
@@ -939,12 +939,14 @@ impl ServiceContext {
                 "[launch-readiness] Tab {} owner prompt expired: {reason}",
                 attempt.tab_id
             ),
-            LaunchSettlement::Provisional { stage, reason } => match stage {
-                BootStage::LaunchDeadlineElapsed => {
-                    self.record_launch_output_deadline(attempt, reason)
+            LaunchSettlement::Provisional { stage, reason } => {
+                if *stage == BootStage::LaunchDeadlineElapsed {
+                    self.record_launch_output_deadline(attempt, reason);
+                } else {
+                    self.record_provisional_launch(attempt, *stage, reason);
                 }
-                stage => self.record_provisional_launch(attempt, *stage, reason),
-            },
+                self.detect_exact_launch_attempt(attempt);
+            }
             LaunchSettlement::Failed { reason, exit_code } => {
                 log::error!(
                     "[launch-readiness] refused unproved exit settlement: tab={} attempt={} verdict_source=readiness-evidence tree_evidence=missing reason={reason} exit_code={exit_code:?}",

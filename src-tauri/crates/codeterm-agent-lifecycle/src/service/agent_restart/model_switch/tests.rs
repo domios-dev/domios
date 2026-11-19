@@ -58,6 +58,11 @@ fn busy_switch_stages_for_every_host_owned_mode_without_provider_operation() {
     {
         let (mux, tab_id) = seeded_tab_for("staging-provider", general);
         let fixture = ServiceFixture::new(mux);
+        let analytics =
+            crate::async_runtime::block_on(crate::test_support::record_product_analytics(
+                &fixture.service,
+                fixture.temp.path().join("analytics.json"),
+            ));
         let _pty = fixture.bind_test_pty_session(&tab_id, SESSION, NONCE);
         let pty_id = fixture
             .service
@@ -133,6 +138,7 @@ fn busy_switch_stages_for_every_host_owned_mode_without_provider_operation() {
             .pending_model_selection
             .is_none());
         assert!(!restart_attempted(&fixture, &tab_id));
+        assert!(crate::async_runtime::block_on(analytics.events()).is_empty());
     }
 }
 

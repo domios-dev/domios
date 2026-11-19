@@ -118,8 +118,8 @@ export function framePrefix(attrs: Record<string, string>, body: string, tip?: s
   if (from === "cli") {
     return { origin: { kind: "system", context: "CLI" }, body };
   }
-  if (from === "system") {
-    return { origin: { kind: "system", ...(attrs.context ? { context: attrs.context } : {}) }, body };
+  if (from === "system" || from === "curator") {
+    return { origin: { kind: "system", ...(attrs.context || from === "curator" ? { context: attrs.context ?? "curator" } : {}) }, body };
   }
   if (from === "reminder") {
     return {

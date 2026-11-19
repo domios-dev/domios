@@ -320,3 +320,32 @@ fn task_dispatch_and_respawn_accept_launch_profile() {
         assert_eq!(profile.as_deref(), Some("gemini-cli"));
     }
 }
+
+#[test]
+fn dispatch_and_respawn_accept_worker_role_overrides() {
+    use clap::Parser;
+    for role in ["qa", "reviewer", "release_manager"] {
+        for (verb, extra) in [
+            ("dispatch", vec!["--execution-intent", "mutating"]),
+            ("respawn", vec!["--attempt", "source"]),
+        ] {
+            let mut args = vec![
+                "domios", "plan", "task", verb, "plan", "task", "--role", role,
+            ];
+            args.extend(extra);
+            let parsed = Cli::try_parse_from(args).unwrap();
+            let crate::Commands::Plan {
+                action: crate::PlanAction::Task { action },
+            } = parsed.command
+            else {
+                panic!("expected task action");
+            };
+            let selected = match action {
+                super::PlanTaskAction::Dispatch { role, .. }
+                | super::PlanTaskAction::Respawn { role, .. } => role,
+                _ => panic!("expected launch"),
+            };
+            assert_eq!(selected.unwrap().as_str(), role);
+        }
+    }
+}

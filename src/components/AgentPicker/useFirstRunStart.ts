@@ -13,9 +13,9 @@ interface PendingStart {
   controller: AbortController;
 }
 
-export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void, beforeStart?: (providerId: string, signal: AbortSignal) => Promise<void>) {
+export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void) {
   const [phase, transition] = useReducer(firstRunTransition, "choosing");
-  const busy = phase === "installing" || phase === "signIn" || phase === "starting";
+  const busy = phase === "installing" || phase === "starting";
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const attempt = useRef<PendingStart | null>(null);
@@ -61,12 +61,8 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void,
         await installAndWait(providerId, current.controller.signal);
         if (attempt.current !== current) return;
         transition("installed");
-        setProgress("Installation complete. Checking sign-in…");
+        setProgress("Starting General agent…");
       }
-      await beforeStart?.(providerId, current.controller.signal);
-      if (attempt.current !== current) return;
-      transition("authenticated");
-      setProgress("Starting General agent…");
       current.deadline = setTimeout(() => fail("Timed out waiting for the General agent to become ready."), 300_000);
       await invoke("complete_general_agent_first_run", { providerId });
       const state = await invoke<MultiplexerState>("mux_get_state");

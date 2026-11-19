@@ -122,8 +122,7 @@ fn create_lane_bundle_with_limit(
         ));
     }
     let reference = format!("refs/heads/{}", request.branch);
-    let mut command = std::process::Command::new("git");
-    codeterm_service_core::process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     let output = command
         .current_dir(&checkout)
         .args(["check-ref-format", &reference])
@@ -172,13 +171,18 @@ fn create_lane_bundle_with_limit(
     let temp = tempfile::tempdir()
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let bundle_path = temp.path().join("worker-lane.bundle");
-    let mut command = std::process::Command::new("git");
-    codeterm_service_core::process_util::no_window_std(&mut command);
-    let output = command
+    let mut command = codeterm_util::process_util::git_command();
+    command
         .current_dir(&checkout)
         .args(["bundle", "create"])
         .arg(&bundle_path)
-        .arg(&reference)
+        .arg(&reference);
+    if request.base_commit == lane_tip {
+        command.arg("--max-count=1");
+    } else {
+        command.arg(format!("^{}", request.base_commit));
+    }
+    let output = command
         .output()
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     if !output.status.success() {
@@ -224,7 +228,7 @@ pub(crate) fn remote_worker_spawn_params(
     workspace_id: String,
     worktree_path: String,
     origin_peer_id: String,
-    _origin_peer_name: &str,
+    origin_peer_name: &str,
 ) -> codeterm_service_core::service::SpawnAgentParams {
     let suffix: String = request.attempt_id.chars().take(6).collect();
     codeterm_service_core::service::SpawnAgentParams {
@@ -245,6 +249,13 @@ pub(crate) fn remote_worker_spawn_params(
         execution_intent: Some(codeterm_service_core::plan::ExecutionIntent::Mutating),
         workspace_id: Some(workspace_id),
         task: Some(request.brief),
+        ownership: Some(codeterm_types::pty::RemoteOwnership {
+            controller_title: request.origin_tab_id.clone(),
+            controller_tab_id: Some(request.origin_tab_id.clone()),
+            peer_id: origin_peer_id.clone(),
+            peer_name: origin_peer_name.into(),
+            team: None,
+        }),
         report_target_tab_id: Some(request.origin_tab_id),
         report_target_mesh_peer: Some(origin_peer_id.clone()),
         remote_task_binding: Some(codeterm_service_core::service::RemoteTaskBinding {
@@ -269,6 +280,8 @@ mod tests {
     use crate::routes::AppState;
     use codeterm_service_core::mesh::types::AccessLevel;
     use codeterm_service_core::service::test_fixture::ServiceFixture;
+
+    mod bundle_range;
 
     fn app_state(fixture: &ServiceFixture) -> crate::routes::AppState {
         let config = codeterm_service_core::config::schema::AppConfig::default();
@@ -326,8 +339,7 @@ mod tests {
     }
 
     fn git(cwd: &std::path::Path, args: &[&str]) -> String {
-        let mut command = std::process::Command::new("git");
-        codeterm_service_core::process_util::no_window_std(&mut command);
+        let mut command = codeterm_util::process_util::git_command();
         let output = command.current_dir(cwd).args(args).output().unwrap();
         assert!(
             output.status.success(),
@@ -566,6 +578,12 @@ mod tests {
             let mux = fixture.service.mux.read();
             let tab = mux.get_tab(&result.tab_id).unwrap();
             assert_eq!(tab.report_target_mesh_peer.as_deref(), Some("peer-origin"));
+            let ownership = tab.ownership.as_ref().expect("stamped remote ownership");
+            assert_eq!(ownership.peer_id, "peer-origin");
+            assert_eq!(
+                ownership.controller_tab_id.as_deref(),
+                Some("origin-orchestrator")
+            );
             assert_eq!(
                 tab.report_target_tab_id.as_deref(),
                 Some("origin-orchestrator")

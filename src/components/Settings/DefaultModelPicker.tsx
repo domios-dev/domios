@@ -26,7 +26,7 @@ export function DefaultModelPicker({ providerId, value, serviceTier, onChange }:
       <span className="min-w-0 truncate">{label || (descriptor ? "Harness default" : "Loading models…")}</span>
       <ChevronDown size={13} aria-hidden="true" />
     </button>
-    {open && descriptor && <ModelPickerPopover descriptor={descriptor}
+    {open && descriptor && <ModelPickerPopover key={descriptor.id} descriptor={descriptor}
       gate={{ interactive: true, timing: "live", confirmRestart: false, note: "Used for new sessions" }}
       triggerRef={trigger} currentModel={current} currentEffort={undefined} currentServiceTier={serviceTier} showReasoning={false} busy={false} failure={null}
       onCommit={(selection) => { onChange(selection.model, selection.serviceTier); close(); }} onClose={close} />}

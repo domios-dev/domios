@@ -22,10 +22,9 @@ export function createDeliveryProjectionMemory(key: string): DeliveryProjectionM
 // following turn that also ends without its echo proves its row is not coming here.
 const TURN_ENDS_BEFORE_UNECHOED_RELEASE = 2;
 
-// A delivered receipt alone keeps the tail: a loaded claimed record places it exactly, and
-// releasing before the echo would move it twice when the record cannot be located.
 function tailWaitEnded(send: DeliverySend, state: DeliveryState, turnEnds: number): boolean {
   return Boolean(send.dismissed) || send.echo != null || state === "failed"
+    || (state === "delivered" && send.matchedRow?.source.record.kind === "structured")
     || ((state === "uncertain" || state === "delivered") && turnEnds >= TURN_ENDS_BEFORE_UNECHOED_RELEASE);
 }
 

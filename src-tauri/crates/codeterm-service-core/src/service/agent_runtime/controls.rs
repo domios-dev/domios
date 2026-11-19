@@ -34,6 +34,21 @@ pub fn routed_tab(svc: &ServiceContext, tab: &str) -> Option<String> {
         .then_some(tab)
 }
 
+pub fn restart_resume_tab(svc: &ServiceContext, tab: &str) -> bool {
+    let provider = svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .and_then(|target| target.agent_type.clone());
+    provider
+        .and_then(|provider| {
+            svc.agent_registry.with_provider(&provider, |provider| {
+                provider.model_switch() == crate::agent::provider::ModelSwitchMode::RestartResume
+            })
+        })
+        .unwrap_or(false)
+}
+
 impl ServiceContext {
     pub fn agent_switch_model_with_restart_fallback(
         &self,
@@ -44,6 +59,20 @@ impl ServiceContext {
         options: super::model::ModelSwitchOptions,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
         if let Some(tab) = routed_tab(self, tab) {
+            if restart_resume_tab(self, &tab) {
+                if mode.is_some() || options.service_tier.is_some() {
+                    return Err(ModelSwitchError::NotSwitchable(
+                        "RestartResume cannot change runtime mode or service tier".into(),
+                    ));
+                }
+                return self.lifecycle_port().agent_switch_model_with_fallback(
+                    &tab,
+                    model,
+                    effort,
+                    options.force,
+                    options.restart_resume,
+                );
+            }
             return switch(self, &tab, model, effort, mode, options.service_tier);
         }
         if options.service_tier.is_some() {

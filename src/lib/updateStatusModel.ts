@@ -67,9 +67,31 @@ export function unavailableSourceKeys(errors: Readonly<Record<string, string>>):
 
 export interface UpdateFailure { message: string; details: string; channelUnavailable: boolean }
 
+export interface BlockingUpdateTab { tab_id: string; title: string; workspace: string; command: string }
+const BLOCKING_TABS_MARKER = "[update-blocking-tabs]";
+
+export function blockingUpdateTabs(raw: string | null | undefined): BlockingUpdateTab[] {
+  if (!raw?.includes(BLOCKING_TABS_MARKER)) return [];
+  try {
+    const values: unknown = JSON.parse(raw.slice(raw.indexOf(BLOCKING_TABS_MARKER) + BLOCKING_TABS_MARKER.length));
+    if (!Array.isArray(values)) return [];
+    const tabs = values.filter((value): value is BlockingUpdateTab => {
+      if (typeof value !== "object" || value === null) return false;
+      const record = value as Record<string, unknown>;
+      return ["tab_id", "title", "workspace", "command"].every(key => typeof record[key] === "string");
+    });
+    return [...new Map(tabs.map(tab => [tab.tab_id, tab])).values()];
+  } catch { return []; }
+}
+
 /** Describes a failed update the owner started; a failed check never reaches here. */
 export function classifyUpdateFailure(detail: unknown): UpdateFailure {
   const raw = detail instanceof Error ? detail.toString() : String(detail);
+  const blockers = blockingUpdateTabs(raw);
+  if (blockers.length) return { message: raw.slice(0, raw.indexOf(BLOCKING_TABS_MARKER)).replace(/^Error: /, "").trim(), details: raw, channelUnavailable: false };
+  if (/Update failed: expected version|installer launch|client cleanup did not complete/.test(raw)) {
+    return { message: raw.replace(/^Error: /, ""), details: raw, channelUnavailable: false };
+  }
   try {
     const refusal: unknown = JSON.parse(raw.replace(/^Error: /, ""));
     if (typeof refusal === "object" && refusal !== null && "kind" in refusal

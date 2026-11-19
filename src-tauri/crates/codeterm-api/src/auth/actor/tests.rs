@@ -1,6 +1,21 @@
 use super::*;
 
 #[test]
+fn local_actor_narrowing_does_not_misreport_a_verified_remote_agent_as_unsigned() {
+    let agent = RequestActor::RemoteAgent(codeterm_service_core::mesh::crown::AuthenticatedAgent {
+        instance_id: "remote-peer".into(),
+        tab_id: "remote-controller".into(),
+        can_spawn: true,
+    });
+    let error = resolve(agent).unwrap_err();
+    assert_eq!(error.0, StatusCode::FORBIDDEN);
+    assert_eq!(
+        error.1,
+        "This operation requires an authenticated local actor or owner credential"
+    );
+}
+
+#[test]
 fn actor_authority_requires_owner_or_credential_bound_local_tab() {
     let tab = TabCaller {
         tab_id: "own-tab".into(),

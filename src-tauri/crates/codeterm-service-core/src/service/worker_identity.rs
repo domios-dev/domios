@@ -63,7 +63,11 @@ pub fn persist_attempt_executor_identity_for_mux(
             .and_then(|config| config.get("launchProfile"))
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned);
-        (binding, profile)
+        (
+            binding,
+            profile,
+            tab.and_then(|tab| tab.role_profile.clone()),
+        )
     };
     let binding = capture();
     let receipt = store.update_attempt_executor_identity_with_undo(
@@ -74,6 +78,7 @@ pub fn persist_attempt_executor_identity_for_mux(
         binding.0.as_ref().map(|binding| binding.0.as_str()),
         binding.0.as_ref().map(|binding| binding.1.as_str()),
         binding.1.as_deref(),
+        binding.2.as_deref(),
         now,
     )?;
     if capture() != binding {

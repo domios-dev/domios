@@ -33,8 +33,8 @@ fn expected_pty_spec() -> SpawnTabSpec {
         detach_from_team: false,
         purpose: Default::default(),
         cwd: Some("/lane".into()),
-        title: Some("cron:nightly".into()),
-        description: None,
+        title: Some("Cron".into()),
+        description: Some("nightly".into()),
         task_description_managed: false,
         icon: None,
         cmd: None,
@@ -67,6 +67,8 @@ fn spawn_routing_cron_chat_backend_reaches_the_chat_runtime_with_the_job_brief()
 
     assert_eq!(spec.visibility, TabVisibility::Hidden);
     assert_eq!(spec.team_id.as_deref(), Some("team-1"));
+    assert_eq!(spec.title.as_deref(), Some("Cron"));
+    assert_eq!(spec.description.as_deref(), Some("nightly"));
     match spec.command {
         TabCommand::ChatBackend {
             plugin_id, config, ..
@@ -84,8 +86,6 @@ fn spawn_routing_cron_chat_backend_reaches_the_chat_runtime_with_the_job_brief()
     }
 }
 
-/// Negative control: with no chat backend registered under that id, the spec is
-/// byte-identical to the one the fire sites hand-built before this change.
 #[test]
 fn spawn_routing_cron_pty_provider_spec_matches_the_expected_contract() {
     let chatbackends = registry_with_spawnable("gamma-shell");
@@ -95,6 +95,21 @@ fn spawn_routing_cron_pty_provider_spec_matches_the_expected_contract() {
         serde_json::to_value(&spec).unwrap(),
         serde_json::to_value(expected_pty_spec()).unwrap()
     );
+}
+
+#[test]
+fn cron_spawn_spec_fits_long_multiline_names_to_the_tab_description() {
+    let registry = ChatBackendRegistry::new();
+    let mut input = inputs("pty-agent");
+    input.job_name = format!("Nightly\nrelease\u{2028}rollup\u{1b}{}", "é".repeat(250));
+
+    let mut spec = build_cron_spawn_spec(&registry, input);
+    crate::service::spawn::prepare_tab_identity_for_test(&mut spec).unwrap();
+
+    assert_eq!(spec.title.as_deref(), Some("Cron"));
+    let description = spec.description.unwrap();
+    assert!(description.starts_with("Nightly release rollup "));
+    assert_eq!(description.chars().count(), MAX_TAB_DESCRIPTION_CHARS);
 }
 
 #[test]
@@ -188,6 +203,7 @@ fn curator_round_is_visible_manager_without_activation_for_both_transports() {
         let spec = build_cron_spawn_spec(&registry, input);
         assert_eq!(spec.visibility, TabVisibility::Visible);
         assert_eq!(spec.title.as_deref(), Some("Curator"));
+        assert_eq!(spec.description.as_deref(), Some("nightly"));
         assert_eq!(spec.team_id.as_deref(), Some("team-1"));
         assert_eq!(spec.parent_tab_id.as_deref(), Some("tab-creator"));
         match &spec.command {

@@ -17,12 +17,15 @@ pub fn list_agent_provider_values(
 ) -> Vec<serde_json::Value> {
     let started = std::time::Instant::now();
     let revision = registry.catalogue_revision();
+    let cache_key = codeterm_plugin::provider_account::current()
+        .map(|context| format!("providers@{}", context.cache_key()))
+        .unwrap_or_else(|| "providers".into());
     let revision_us = started.elapsed().as_micros();
     let cache_started = std::time::Instant::now();
     let cached = registry
         .catalogue_values_cache
         .lock()
-        .get("providers", &revision);
+        .get(&cache_key, &revision);
     if let Some(values) = cached.filter(|values| {
         super::catalogue_cache::misses_still_hold(
             super::catalogue_cache::unresolved_listing(values),
@@ -77,7 +80,7 @@ pub fn list_agent_provider_values(
         registry
             .catalogue_values_cache
             .lock()
-            .insert("providers".into(), revision, values.clone());
+            .insert(cache_key, revision, values.clone());
     }
     log::debug!(
         "[providers.timing] cache=miss revision_us={} cache_us={} descriptors_us={} values_us={} publish_us={} total_us={}",

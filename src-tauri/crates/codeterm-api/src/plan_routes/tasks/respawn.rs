@@ -28,6 +28,7 @@ pub(super) fn respawn_spawn_params(
         description: Some(description),
         task_description_managed: true,
         role: Some("Worker".into()),
+        role_profile: draft.role_profile.clone(),
         execution_intent: Some(draft.execution_intent.clone()),
         parent_tab_id: draft.parent_tab_id.clone(),
         task: Some(draft.task_prompt.clone()),
@@ -158,6 +159,10 @@ pub async fn task_respawn(
             )
         })?;
     draft.parent_tab_id = Some(parent_tab_id.clone());
+    state
+        .svc
+        .resolve_respawn_role(&mut draft)
+        .map_err(|error| text_err(axum::http::StatusCode::BAD_REQUEST, error))?;
     let spawn_params =
         respawn_spawn_params(&draft, &original_task.name, original_task.lane.base.clone());
     crate::agent_routes::spawn_rejection::validate_spawn_options(

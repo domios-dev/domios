@@ -196,9 +196,7 @@ async fn publish_with_origin(
                 ..
             } if Some(thread_id) == context.thread_id.as_ref() => svc
                 .chat_send_ledger
-                .status(send_id)
-                .and_then(|status| status.correlation_id)
-                .and_then(|token| neighbor_message_id(&token).map(str::to_owned))
+                .neighbor_message_for_send(send_id)
                 .map(|message| {
                     (
                         thread_id.clone(),
@@ -635,14 +633,6 @@ fn apply(
     if !matches!(session.state.lock().phase, RuntimePhase::Loading) {
         svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
     }
-}
-
-fn neighbor_message_id(correlation: &str) -> Option<&str> {
-    correlation
-        .strip_prefix("runtime-envelope:neighbor:")?
-        .rsplit('_')
-        .next()
-        .filter(|id| !id.is_empty())
 }
 
 #[cfg(test)]

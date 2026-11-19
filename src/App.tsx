@@ -228,6 +228,7 @@ function AppInner() {
       return open ? "memory" : "workspace";
     });
   }, []);
+  const [meshInventoryRequest, setMeshInventoryRequest] = useState(0);
   const setMeshOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
       const wasOpen = cur === "mesh";
@@ -411,6 +412,10 @@ function AppInner() {
       } else if (panel?.startsWith("settings:") && isSettingsLinkId(panel.slice("settings:".length))) {
         setSettingsSection(panel.slice("settings:".length) as SettingsLinkId);
         setSettingsOpen(true);
+      } else if (panel === "mesh") {
+        setMeshInventoryRequest(request => request + 1);
+        setMeshOpen(true);
+        closeSidebarOnMobile();
       } else if (panel === "neighbors") {
         setMainView("neighbors");
         closeSidebarOnMobile();
@@ -425,7 +430,7 @@ function AppInner() {
     };
     window.addEventListener("codeterm:open-panel", onOpenPanel);
     return () => window.removeEventListener("codeterm:open-panel", onOpenPanel);
-  }, [closeSidebarOnMobile, setExtensionsOpen]);
+  }, [closeSidebarOnMobile, setExtensionsOpen, setMeshOpen]);
 
   // dismiss any covering Extensions/glance overlay and focus the new tab.
   useEffect(() => {
@@ -897,6 +902,7 @@ function AppInner() {
                 config={config}
                 onConfigUpdate={updateConfig}
                 onClose={closeMesh}
+                inventoryRequest={meshInventoryRequest}
               />
             </div>
           )}

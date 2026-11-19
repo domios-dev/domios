@@ -18,10 +18,14 @@ function pattern(template: string, model: string, effort = "", displayName?: str
 
 const modelScreen = fixture("model-picker.txt");
 const modelPicker = commands.model.picker;
-const capturedPicker = fixture("live-2.1.318-picker.txt");
-assert.ok(pattern(modelPicker.screenRegex, "sonnet").test(capturedPicker));
-assert.equal(pattern(modelPicker.selectedRegex, "sonnet").exec(capturedPicker)?.groups?.position, "5");
-assert.equal(pattern(modelPicker.targetRegex, "sonnet").exec(capturedPicker)?.groups?.position, "4");
+for (const file of ["live-2.1.318-picker.txt", "live-2.1.327-picker.txt"]) {
+  const capturedPicker = fixture(file);
+  const screen = pattern(modelPicker.screenRegex, "sonnet");
+  assert.ok(screen.test(capturedPicker));
+  assert.equal(pattern(modelPicker.selectedRegex, "sonnet").exec(capturedPicker)?.groups?.position, "5");
+  assert.equal(pattern(modelPicker.targetRegex, "sonnet").exec(capturedPicker)?.groups?.position, "4");
+  assert.equal(screen.test(capturedPicker.replace("s to use this session only · ", "")), false);
+}
 assert.equal(commands.model.command, "/model");
 assert.equal(modelPicker.responseKey, "s");
 assert.ok(pattern(modelPicker.screenRegex, "opus").test(modelScreen));
@@ -35,11 +39,31 @@ assert.equal(commands.model.confirmationPromptKind, "switch_confirmation");
 assert.equal(commands.effort.confirmationPromptKind, "switch_confirmation");
 assert.equal(commands.duringTurn, true);
 assert.deepEqual(commands.model.prompt.responseKeys, ["\r"]);
+const namedAccountScreen = fixture("eight-rc-5060e6f-confirmation.txt");
+assert.ok(pattern(commands.model.prompt.screenRegex, "sonnet").test(namedAccountScreen));
+assert.equal(pattern(commands.model.prompt.screenRegex, "sonnet", "", "Claude Sonnet 5.5")
+  .test(namedAccountScreen), false);
 for (const file of ["busy-sonnet-confirmation.txt"]) {
   const screen = fixture(file);
   assert.ok(pattern(commands.model.prompt.screenRegex, "sonnet").test(screen));
   assert.equal(pattern(commands.model.prompt.screenRegex, "foreign").test(screen), false);
   assert.ok(pattern(commands.model.prompt.screenRegex, "sonnet").test(`prefix\n${screen}\nfooter`));
+}
+for (const file of [
+  "live-2.1.327-confirmation-90.txt",
+  "live-2.1.327-confirmation-120.txt",
+  "eight-rc-2.1.327-confirmation.txt",
+]) {
+  const screen = fixture(file);
+  const confirmation = pattern(commands.model.prompt.screenRegex, "sonnet");
+  assert.ok(confirmation.test(screen), file);
+  assert.ok(confirmation.test(screen.replace(/\r?\n/g, "\r\n")));
+  assert.equal(pattern(commands.model.prompt.screenRegex, "haiku").test(screen), false);
+  assert.equal(confirmation.test(screen.replace("❯ 1.", "  1.").replace("  2.", "❯ 2.")), false);
+  assert.equal(confirmation.test(screen.replace(/Sonnet 5\.5(\r?\n)/, "Sonnet 5.50$1")), false);
+  assert.equal(confirmation.test(screen.replace("Enter to confirm · Esc to cancel", "Enter to select")), false);
+  assert.equal(confirmation.test(screen.replace("This conversation is cached for the current model.", "Other context.")), false);
+  assert.equal(confirmation.test(screen.replace("2. No, go back", "2. Skip")), false);
 }
 const busy = fs.readFileSync(path.join(root, "tests/fixtures/tab-state/normal-working.txt"), "utf8");
 assert.equal(pattern(commands.model.prompt.screenRegex, "sonnet").test(busy), false);

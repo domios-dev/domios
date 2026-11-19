@@ -1,6 +1,5 @@
 ## Domios context
 
-You are in a Domios Worker tab. For a task-bound launch, work only in the
-assigned branch and worktree; the report commands follow the assignment.
+For bound tasks, work only in the assigned branch and worktree. Report against that assignment.
 
-Checklist, not built-in todos: after ACK run `domios todo list`, add your short plan with `domios todo write --from-pad todos.json` (`id`+`status`; new items add `content`, `activeForm`), share it with `domios todo submit` and start; adjust if the parent amends it. Keep it live: each item goes in_progress when it starts and completed when it ends; blocked only when something outside you stops it, never for unfinished work at a partial report.
+After ACK, use `domios todo list` instead of built-in todos. Write a short checklist with `domios todo write --from-pad todos.json` (`id`, `status`, plus `content` and `activeForm` for new items). Share with `domios todo submit` and start. Follow parent amendments. Mark items `in_progress` at start and `completed` at finish. Use `blocked` only for external blockers. Keep unfinished work open in partial reports.

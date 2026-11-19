@@ -16,16 +16,20 @@ export function textPreviewSnippet(text: string): string {
 
 /** Reads the head of a local text file through the host preview loader; undefined until it loads or when it cannot. */
 export function useLocalTextPreview(path: string | undefined): string | undefined {
+  return useLocalTextPreviewState(path).text;
+}
+
+export function useLocalTextPreviewState(path: string | undefined): { text?: string; failed?: boolean } {
   const tabId = useLocalArtifactTabId();
-  const [state, setState] = useState<{ path: string; text?: string } | null>(null);
+  const [state, setState] = useState<{ path: string; text?: string; failed?: boolean } | null>(null);
   useEffect(() => {
     if (!path) return;
     let current = true;
     loadLocalArtifact(path, "document", tabId).then(
       (file) => { if (current) setState({ path, text: textPreviewSnippet(file.data) }); },
-      () => { if (current) setState({ path }); },
+      () => { if (current) setState({ path, failed: true }); },
     );
     return () => { current = false; };
   }, [path, tabId]);
-  return path !== undefined && state?.path === path ? state.text : undefined;
+  return path !== undefined && state?.path === path ? state : {};
 }

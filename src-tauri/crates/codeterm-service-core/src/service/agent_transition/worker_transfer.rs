@@ -111,8 +111,10 @@ impl ServiceContext {
         let destination_team = mux
             .get_team(&destination_team_id)
             .ok_or_else(|| "worker transfer refused: destination Team is missing".to_string())?;
-        if source_team.lifecycle != TeamLifecycle::Active
-            || destination_team.lifecycle != TeamLifecycle::Active
+        if !matches!(
+            source_team.lifecycle,
+            TeamLifecycle::Active | TeamLifecycle::Forming
+        ) || destination_team.lifecycle != TeamLifecycle::Active
             || worker.team_id.as_deref() != Some(source_team_id.as_str())
             || !unique_team_anchor(&mux, &source_team_id, &source_manager_tab_id)
             || !unique_team_anchor(&mux, &destination_team_id, destination_manager_tab_id)

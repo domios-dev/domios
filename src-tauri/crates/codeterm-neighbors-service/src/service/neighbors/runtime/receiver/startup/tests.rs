@@ -310,3 +310,84 @@ async fn closed_or_reassigned_concierge_keeps_local_receivers_during_restart_act
                 && payload["receiver_unavailable"] == true));
     }
 }
+
+#[tokio::test]
+async fn transient_activation_preserves_receivers_until_an_event_retries_successfully() {
+    for preparation_failure in [false, true] {
+        let (fixture, ticket) = fixture().await;
+        let service = &fixture.service;
+        service.set_neighbor_friend_receiver_for_test("friend", Some(true), 9);
+        service
+            .remember_neighbor_projection_activation("owner", 1, 1)
+            .unwrap();
+        assert!(service.neighbor_projection_activated("owner", 1, 1));
+        let before = json!(service.neighbor_friend_receiver_snapshot());
+        for _ in 0..2 {
+            service
+                .activate_prepared_neighbor(
+                    ticket.clone(),
+                    0,
+                    async move {
+                        if preparation_failure {
+                            Err(Error::Transport.into())
+                        } else {
+                            Ok(())
+                        }
+                    },
+                    |_| async { Err(Error::Transport.into()) },
+                )
+                .await
+                .unwrap();
+        }
+        assert_eq!(json!(service.neighbor_friend_receiver_snapshot()), before);
+        assert!(service.neighbor_activation_stale());
+        assert!(!service.neighbor_projection_activated("owner", 1, 1));
+        assert_eq!(
+            fixture
+                .ui
+                .0
+                .lock()
+                .iter()
+                .filter(|(name, _)| name == "neighbor-activation-status")
+                .count(),
+            1
+        );
+        assert!(!fixture
+            .ui
+            .0
+            .lock()
+            .iter()
+            .any(|(name, _)| name == "neighbor-runtime-status"));
+        service
+            .activate_prepared_neighbor(ticket, 0, async { Ok(()) }, |_| async { Ok(()) })
+            .await
+            .unwrap();
+        assert!(!service.neighbor_activation_stale());
+        assert_eq!(json!(service.neighbor_friend_receiver_snapshot()), before);
+    }
+}
+
+#[tokio::test]
+async fn definitive_activation_failure_still_invalidates_local_authority() {
+    let (fixture, ticket) = fixture().await;
+    let service = &fixture.service;
+    service.set_neighbor_friend_receiver_for_test("friend", Some(true), 9);
+    assert!(service
+        .activate_prepared_neighbor::<(), _, _, _>(
+            ticket,
+            0,
+            async { Err(Error::LocalKeyUnavailable.into()) },
+            |_| async { panic!("A missing key cannot activate a receiver") },
+        )
+        .await
+        .is_err());
+    assert!(!service.neighbor_friend_receiving_here("friend"));
+    assert!(!service.neighbor_activation_stale());
+    assert!(fixture
+        .ui
+        .0
+        .lock()
+        .iter()
+        .any(|(name, value)| name == "neighbor-runtime-status"
+            && value["receiver_unavailable"] == true));
+}

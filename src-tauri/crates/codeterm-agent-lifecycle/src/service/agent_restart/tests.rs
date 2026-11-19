@@ -21,6 +21,8 @@ fn command_prompt_ownership_is_bound_to_pty_and_nonce_and_released_on_exit() {
     drop(RestartClaim {
         tracker: tracker.clone(),
         tab_id: tab_id.clone(),
+        settling: false,
+        remembers_target: false,
     });
     assert!(!tracker.lock().in_progress.contains(&tab_id));
     assert!(!tracker.lock().command_ptys.contains_key(&tab_id));
@@ -46,6 +48,8 @@ fn command_prompt_ownership_suppresses_picker_until_operation_exits() {
     let claim = RestartClaim {
         tracker,
         tab_id: tab_id.clone(),
+        settling: false,
+        remembers_target: false,
     };
     let prompt = serde_json::from_value(serde_json::json!({"question":"opaque picker", "options":[{"label":"target", "value":"4"}]})).unwrap();
     let decision = crate::agent::prompt::PromptDecision::NewPrompt {
@@ -78,7 +82,11 @@ fn fresh_tracker() -> RestartTracker {
 }
 
 fn check(tracker: &RestartTracker, tab_id: &str) -> Result<(), AgentRestartError> {
-    drop(claim_restart_attempt(tracker, tab_id, false)?);
+    drop(claim_restart_attempt(
+        tracker,
+        tab_id,
+        RestartAdmission::Standard,
+    )?);
     Ok(())
 }
 
@@ -122,16 +130,40 @@ fn rate_limit_resets_after_window() {
 #[test]
 fn automatic_and_manual_restart_claims_are_mutually_exclusive() {
     let tracker = fresh_tracker();
-    let automatic = claim_restart_attempt(&tracker, "tab-1", true).unwrap();
+    let automatic =
+        claim_restart_attempt(&tracker, "tab-1", RestartAdmission::AutomaticRecovery).unwrap();
     assert!(matches!(
-        claim_restart_attempt(&tracker, "tab-1", false),
+        claim_restart_attempt(&tracker, "tab-1", RestartAdmission::Standard),
         Err(AgentRestartError::BadRequest(message)) if message.contains("already in progress")
     ));
     drop(automatic);
     assert!(matches!(
-        claim_restart_attempt(&tracker, "tab-1", false),
+        claim_restart_attempt(&tracker, "tab-1", RestartAdmission::Standard),
         Err(AgentRestartError::RateLimited { .. })
     ));
+}
+
+#[test]
+fn automatic_recovery_cooldown_preserves_the_first_recovery_and_exempts_model_switches() {
+    let tracker = fresh_tracker();
+    let tab = "tab-1";
+    let mut model_switch =
+        claim_restart_attempt(&tracker, tab, RestartAdmission::ModelSwitch).unwrap();
+    model_switch.begin_settling();
+    assert!(tracker.lock().model_switch_busy(tab));
+    drop(claim_restart_attempt(&tracker, tab, RestartAdmission::AutomaticRecovery).unwrap());
+    drop(model_switch);
+    assert!(!tracker.lock().model_switch_busy(tab));
+    drop(claim_restart_attempt(&tracker, tab, RestartAdmission::ModelSwitch).unwrap());
+    assert!(matches!(
+        claim_restart_attempt(&tracker, tab, RestartAdmission::AutomaticRecovery),
+        Err(AgentRestartError::RateLimited { .. })
+    ));
+    tracker.lock().last_automatic_restart.insert(
+        tab.into(),
+        Instant::now() - Duration::from_secs(RESTART_RATE_LIMIT_SECS),
+    );
+    assert!(claim_restart_attempt(&tracker, tab, RestartAdmission::AutomaticRecovery).is_ok());
 }
 
 #[test]
@@ -140,13 +172,16 @@ fn concurrent_manual_and_automatic_restart_claims_admit_exactly_one() {
     let barrier = Arc::new(std::sync::Barrier::new(2));
     let admitted = Arc::new(Mutex::new(Vec::new()));
     std::thread::scope(|scope| {
-        for automatic in [false, true] {
+        for admission in [
+            RestartAdmission::Standard,
+            RestartAdmission::AutomaticRecovery,
+        ] {
             let tracker = tracker.clone();
             let barrier = barrier.clone();
             let admitted = admitted.clone();
             scope.spawn(move || {
                 barrier.wait();
-                let claim = claim_restart_attempt(&tracker, "tab-concurrent", automatic);
+                let claim = claim_restart_attempt(&tracker, "tab-concurrent", admission);
                 admitted.lock().push(claim.is_ok());
                 barrier.wait();
                 drop(claim);
@@ -582,6 +617,9 @@ fn outcome(session_id: Option<&str>, stale: bool, auto_approve: bool) -> Restart
         old_pty_torn_down: true,
         agent_ready: true,
         binding_restored: true,
+        source_account_restored: false,
+        account_target_refused: false,
+        account_refusal_nonce: None,
         recovered_in_place: false,
         old_pty_id: Some("pty-old".into()),
         new_pty_id: Some("pty-new".into()),
@@ -880,6 +918,9 @@ fn settle_snapshot_and_outcome(tab_id: &str) -> (TabRestartSnapshot, RestartOutc
         old_pty_torn_down: true,
         agent_ready: true,
         binding_restored: false,
+        source_account_restored: false,
+        account_target_refused: false,
+        account_refusal_nonce: None,
         recovered_in_place: false,
         old_pty_id: Some("pty-old".into()),
         new_pty_id: Some("pty-new".into()),

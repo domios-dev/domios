@@ -25,14 +25,15 @@ import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRun
 import { useNeighbors } from "./useNeighbors";
 import { clearNeighborCaches, lastKnownNeighborIdentity, readNeighborCache, writeNeighborCache, type CachedFriend, type CachedNeighbors } from "./neighborListCache";
 import { ActivityDots } from "../shared/ActivityDots";
-import { conciergeNeedsAttention, conciergeStatusLine, useConciergeStatus } from "./useConciergeStatus";
+import { conciergeNeedsAttention, conciergeStatusLine, parseConciergeStatus } from "./useConciergeStatus";
 import { resetNeighborStatus, useNeighborStatus } from "./neighborStatusStore";
 import { resetPausedFriends, setFriendPaused, usePausedFriends } from "./neighborPause";
-import { FriendReceiveConfirm, friendReceiveItems, friendReceivingLine, useFriendReceiveRequest } from "./neighborFriendReceiving";
+import { FriendReceiveConfirm, friendReceiveItems, useFriendReceiveRequest } from "./neighborFriendReceiving";
 import { friendReceiverState } from "./useReceiverState";
 import { useNeighborPeer } from "./neighborProjection";
 import { RemoteNeighborSection } from "./RemoteNeighborSection";
 import { FriendRow } from "./FriendRow";
+import { neighborSidebarLine } from "./neighborSidebarLine";
 
 const ROW = "sidebar-tab sidebar-tab-dimmed group flex items-center hover:bg-[var(--ct-hover)]";
 
@@ -81,7 +82,6 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
   }, [model.kind, identity]);
   useEffect(() => { if (identity && neighbors.list) writeNeighborCache(identity, neighbors.list); }, [identity, neighbors.list]);
   const friendKey = friends.map(friend => friend.friendship_id).join(",");
-  const concierges = useConciergeStatus(runtimeClient, friends.length > 0 && enabled);
 
   // The list row names the bound concierge; the shared runtime status and agent events fill in or update the rest.
   const status = useNeighborStatus(runtimeClient, friendKey !== "");
@@ -127,15 +127,19 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
       const name = neighborName(friend);
       const conciergeId = allBindings[friend.friendship_id];
       const concierge = conciergeId ? tabs[conciergeId] : undefined;
-      const lifecycle = concierges[friend.friendship_id];
+      const observation = status?.observations?.[friend.friendship_id];
+      const lifecycle = parseConciergeStatus(observation?.concierge ?? status?.concierges?.[friend.friendship_id]);
       const needsAttention = conciergeNeedsAttention(lifecycle);
       const paused = isPaused(friend.friendship_id, listedPaused(friend));
       // A friend received on another machine says where; its concierge there, not here, is the one that answers.
-      const receiver = enabled ? friendReceiverState(status, friend.friendship_id) : null;
-      const elsewhere = receiver !== null && !receiver.receiving_here;
-      const line = loading ? "refreshing" : !enabled ? "off" : elsewhere ? friendReceivingLine(receiver)
-        : paused ? `disabled${!receiver ? " · concierge location unknown" : ""}` : !receiver ? friendReceivingLine(null)
-        : paid ? lifecycle?.state === "ready" ? "" : conciergeStatusLine(lifecycle) : "paused by plan";
+      const receiver = enabled ? friendReceiverState(status, friend.friendship_id, "my_receiver" in friend ? friend.my_receiver : undefined) : null;
+      const displayedReceiver = receiver ?? observation?.receiver;
+      const elsewhere = displayedReceiver != null && !displayedReceiver.receiving_here;
+      const localKnown = concierge !== undefined && !elsewhere;
+      const activity = concierge ? tabActivity(concierge, tabStatuses[concierge.id]) : null;
+      const stateLine = neighborSidebarLine(displayedReceiver ?? null, localKnown, lifecycle, activity, paused, paid);
+      const stale = status?.status_stale || observation?.stale || (!receiver && localKnown);
+      const line = loading ? "refreshing" : !enabled ? "off" : `${stateLine}${stale ? " · stale" : ""}`;
       const pauseItem = { label: `${paused ? "Enable" : "Disable"} ${name}`, onClick: () => togglePaused(friend, paused) };
       const receiveItems = friendReceiveItems(receiver, operation => receive.open(friend.friendship_id, operation));
       return <li key={friend.friendship_id}>

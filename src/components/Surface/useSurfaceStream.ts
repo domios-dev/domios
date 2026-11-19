@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { browserViewerTarget, ownsViewport } from "./viewportOwnerModel";
-import { createViewportResizer } from "./viewportResizer";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { browserViewerTarget } from "./viewportOwnerModel";
 import { publishNotice } from "../../lib/notices";
 import { createFrameFeed, type FrameFeed } from "./frameFeed";
 import { type StreamViewport } from "./streamModel";
 import { streamLifecycleAction } from "./streamLifecycle";
 import type { SurfaceState } from "./surfaceChromeModel";
-import { isPreviewPaused, NOTICE_KIND, resizeArgs, SURFACE_METHOD, type Disconnect, type StreamFrame, type SurfaceNotice, type SurfaceStreamTransport } from "./surfaceStreamTransport";
+import { isPreviewPaused, NOTICE_KIND, resizeArgs, type Disconnect, type StreamFrame, type SurfaceNotice, type SurfaceStreamTransport } from "./surfaceStreamTransport";
 
 export interface SurfaceStream {
   state: SurfaceState;
@@ -18,7 +17,7 @@ export interface SurfaceStream {
   setNotice(notice: SurfaceNotice | null): void;
   onViewport(viewport: StreamViewport): void;
   onHidden(): void;
-  onInteraction(): void;
+  takeControl(): void;
 }
 
 interface Connection {
@@ -36,23 +35,7 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
   const pausedRef = useRef(false);
   const connection = useRef<Connection>({ disconnect: null, sent: null, latest: null });
   const [viewer] = useState(() => crypto.randomUUID());
-  const owner = useRef(state.viewportOwner);
-  owner.current = state.viewportOwner;
   const [feed] = useState(() => createFrameFeed());
-
-  const resizer = useMemo<{ current: ReturnType<typeof createViewportResizer> | null }>(() => ({ current: null }), [transport]);
-  useEffect(() => () => { resizer.current?.dispose(); resizer.current = null; }, [resizer]);
-
-  const sendResize = useCallback((viewport: StreamViewport) => {
-    connection.current.sent = viewport;
-    resizer.current ??= createViewportResizer(
-      (next) => ownsViewport(viewer, owner.current)
-        ? transport.invoke(SURFACE_METHOD.resize, { ...resizeArgs(next), viewer })
-        : Promise.resolve(),
-      (error) => publishNotice({ kind: "debug", severity: "Warning", title: "Background surface resize failed", detail: String(error) }),
-    );
-    resizer.current.push(viewport);
-  }, [resizer, transport, viewer]);
 
   const connect = useCallback((viewport: StreamViewport) => {
     const current = connection.current;
@@ -82,13 +65,9 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
         pausedRef.current = true;
         setPaused(next);
       },
-      open: () => {
-        resizer.current?.dispose();
-        resizer.current = null;
-        if (current.latest && ownsViewport(viewer, owner.current)) sendResize(current.latest);
-      },
+      open: () => undefined,
     }, viewer, browserViewerTarget());
-  }, [transport, feed, viewer, resizer, sendResize]);
+  }, [transport, feed, viewer]);
 
   useEffect(() => {
     const current = connection.current;
@@ -116,21 +95,12 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
     current.latest = viewport;
     const action = streamLifecycleAction(visible, current.disconnect !== null, current.sent, viewport);
     if (action === "connect") connect(viewport);
-    else if (action === "resize" && ownsViewport(viewer, owner.current)) sendResize(viewport);
     else if (action === "disconnect") {
       current.disconnect?.();
       current.disconnect = null;
       current.sent = null;
     }
-  }, [connect, sendResize, visible, viewer]);
-
-  useEffect(() => {
-    const current = connection.current;
-    if (visible && ownsViewport(viewer, state.viewportOwner) && current.disconnect && current.latest
-      && streamLifecycleAction(true, true, current.sent, current.latest) === "resize") {
-      sendResize(current.latest);
-    }
-  }, [visible, viewer, state.viewportOwner, sendResize]);
+  }, [connect, visible]);
 
   const onHidden = useCallback(() => {
     const current = connection.current;
@@ -139,12 +109,12 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
     current.sent = null;
   }, []);
 
-  const onInteraction = useCallback(() => {
+  const takeControl = useCallback(() => {
     const current = connection.current;
-    if (!visible || !current.disconnect || !current.latest || ownsViewport(viewer, owner.current)) return;
+    if (!visible || !current.disconnect || !current.latest) return;
     void transport.invoke("viewport.claim", { ...resizeArgs(current.latest), viewer })
       .catch((error: unknown) => publishNotice({ kind: "debug", severity: "Warning", title: "Surface viewport claim failed", detail: String(error) }));
   }, [transport, viewer, visible]);
 
-  return { state, notice, paused, unavailable, frames: feed, setNotice, onViewport, onHidden, onInteraction };
+  return { state, notice, paused, unavailable, frames: feed, setNotice, onViewport, onHidden, takeControl };
 }

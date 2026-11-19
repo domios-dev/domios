@@ -1,11 +1,11 @@
 import { useState, type CSSProperties } from "react";
-import { MessageBubble } from "@codeterm/chat-ui";
-import type { NormalizedChatMessage } from "@codeterm/chat-core";
-import { ChatLiveOperation } from "../../../../src/components/Terminal/ChatLiveOperation";
+import { LocalArtifactScope, MessageBubble } from "@codeterm/chat-ui";
+import { formatAttachmentMarker, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { DEFAULT_THEME, themeToCSS } from "../../../../src/lib/themeCss";
 import { ChatBottomBar } from "../ChatBottomBar";
 import { agentTab } from "../fixtures";
 import { defineSpecimen } from "../types";
+import { mockLocalPreview } from "../../mocks/backend";
 
 const operation: NormalizedChatMessage = {
   id: "fixture-live-operation", type: "tool_call", content: "", toolKind: "command", toolStatus: "running",
@@ -13,6 +13,8 @@ const operation: NormalizedChatMessage = {
   toolStartedAtMs: Date.now() - 12_000,
 };
 const tab = agentTab("fixture-live-chat", { title: "Pulse", agent_state: { state: "working" } } as Parameters<typeof agentTab>[1]);
+const layoutNotes = "/tmp/gallery/layout-notes.txt";
+mockLocalPreview(layoutNotes, { data: "Compare chat layout in light and dark.", media_type: "text/plain" });
 
 function LiveChatStage() {
   const [light, setLight] = useState(false);
@@ -24,9 +26,11 @@ function LiveChatStage() {
     </div>
     <div className="flex flex-col" style={{ height: 460 }}>
       <div role="log" aria-label="Conversation" className="min-h-0 flex-1 overflow-y-auto">
-        <MessageBubble message={{ id: "fixture-user", type: "user", content: "Check the chat layout in both themes." }} />
+        <LocalArtifactScope tabId={tab.id}>
+          <MessageBubble message={{ id: "fixture-user", type: "user", content: `Check the chat layout in both themes. ${formatAttachmentMarker(layoutNotes, "file", "layout-notes.txt")}` }} />
+        </LocalArtifactScope>
         <MessageBubble message={{ id: "fixture-assistant", type: "assistant", content: "I’m inspecting the chat fixture and capturing the current operation." }} />
-        <ChatLiveOperation message={operation} />
+        <MessageBubble message={operation} />
       </div>
       <ChatBottomBar tab={tab} />
     </div>
@@ -35,6 +39,6 @@ function LiveChatStage() {
 
 export default defineSpecimen({
   id: "chat-live-operation", title: "Chat live operation", category: "Chat", stage: "wide",
-  where: "src/components/Terminal/ChatLiveOperation.tsx", Component: LiveChatStage,
+  where: "packages/chat-ui/src/MessageBubble.tsx", Component: LiveChatStage,
   states: [{ id: "running", label: "Running operation · transcript tail", props: {} }],
 });

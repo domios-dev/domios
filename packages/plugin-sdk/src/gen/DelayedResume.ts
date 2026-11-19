@@ -4,7 +4,7 @@
  * A delayed resume to schedule via the T7 delayed-send machinery: send `text`
  * at `at`, then optionally press `then_keys`.
  */
-export type DelayedResume = { 
+export type DelayedResume = {
 /**
  * ISO-8601 wall-clock time to fire the resume.
  */

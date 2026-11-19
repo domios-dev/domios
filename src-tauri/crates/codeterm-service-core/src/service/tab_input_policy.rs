@@ -1,14 +1,19 @@
 use super::ServiceContext;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TabInputError {
     CuratorReadOnly,
+    ConciergeReadOnly { friend: String },
 }
 
 impl std::fmt::Display for TabInputError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::CuratorReadOnly => f.write_str("curator_read_only: Curator round, read-only"),
+            Self::ConciergeReadOnly { friend } => write!(
+                f,
+                "concierge_read_only: Concierge for {friend} — message {friend} in Neighbors"
+            ),
         }
     }
 }
@@ -25,6 +30,31 @@ fn authorize(
 }
 
 impl ServiceContext {
+    pub(crate) fn require_enveloped_input_allowed(
+        &self,
+        target: &str,
+        envelope: &super::messenger::MessageEnvelope,
+    ) -> Result<(), String> {
+        if envelope.kind == super::messenger::MessageKind::System {
+            return Ok(());
+        }
+        if envelope.neighbor_message.is_some() {
+            let mux = self.mux.read();
+            let id = mux.resolve_tab_id(target);
+            let authority = id
+                .as_deref()
+                .and_then(|id| mux.get_tab(id))
+                .and_then(|tab| tab.neighbor_authority.as_ref());
+            if authority.is_some_and(|authority| {
+                authority.root_tab_id.is_none()
+                    && envelope.from_neighbor.as_deref() == Some(authority.friendship_id.as_str())
+            }) {
+                return Ok(());
+            }
+        }
+        self.require_tab_input_allowed(target, Some(&envelope.from_tab))
+    }
+
     pub(crate) fn require_admitted_input_allowed(
         &self,
         target: &str,
@@ -44,7 +74,7 @@ impl ServiceContext {
         target: &str,
         source: Option<&str>,
     ) -> Result<(), String> {
-        let (id, curator, source) = {
+        let (id, curator, source, friendship) = {
             let mux = self.mux.read();
             let id = mux
                 .resolve_tab_id(target)
@@ -57,8 +87,21 @@ impl ServiceContext {
                 .and_then(|id| mux.get_tab(id))
                 .is_some_and(|tab| tab.role_profile.as_deref() == Some("curator"));
             let source = source.and_then(|id| mux.resolve_tab_id(id));
-            (id, curator, source)
+            let friendship = id
+                .as_deref()
+                .and_then(|id| mux.get_tab(id))
+                .and_then(|tab| tab.neighbor_authority.as_ref())
+                .filter(|authority| authority.root_tab_id.is_none())
+                .map(|authority| authority.friendship_id.clone());
+            (id, curator, source, friendship)
         };
+        if let Some(friendship) = friendship {
+            let friend = self
+                .neighbors()
+                .neighbor_friend_display_name(&friendship)
+                .unwrap_or_else(|| "your friend".into());
+            return Err(TabInputError::ConciergeReadOnly { friend }.to_string());
+        }
         let owner = if curator {
             id.and_then(|id| {
                 self.try_ext::<super::curator_runtime::CuratorTabs>()

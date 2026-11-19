@@ -102,6 +102,7 @@ pub(super) fn artifact_policy(
     references: std::collections::HashSet<String>,
     configured: &[String],
 ) -> Result<PreviewPolicy, String> {
+    let agent_pads = svc.agent_pad_data_dir.join("runtime").join("agent-pads");
     codeterm_local_preview::PreviewPolicy::for_context(
         references,
         codeterm_local_preview::PreviewRoots {
@@ -116,6 +117,11 @@ pub(super) fn artifact_policy(
                 .chain(["chat", "images", "files"].map(crate::attachments::bucket_dir))
                 .collect(),
             own_pad: tab_id.and_then(|tab| agent_pad_root(svc, tab)),
+            agent_pads: tab_id.map(|_| {
+                PathBuf::from(crate::paths::strip_verbatim_prefix(
+                    &agent_pads.to_string_lossy(),
+                ))
+            }),
             workspace: tab_id
                 .and_then(|tab| svc.mux.read().get_tab(tab).and_then(|tab| tab.cwd.clone()))
                 .map(PathBuf::from),
@@ -139,7 +145,7 @@ pub fn read(
 }
 
 /// Reads an item of a `<ds-canvas src>` file: the tab must reference the canvas, and the item
-/// must be one the canvas names, exactly as an inline canvas item must be named by its message.
+/// must be one the canvas names.
 pub fn read_canvas_item(
     svc: &super::ServiceContext,
     tab_id: &str,
@@ -165,9 +171,27 @@ fn read_with(
     kind: &str,
 ) -> Result<LocalPreviewFile, String> {
     let result = policy.and_then(|policy| {
+        if kind == "image-original" {
+            return html_preview::read_original_image_file(
+                path,
+                &policy,
+                super::image_attachments::MAX_SOURCE_BYTES,
+            );
+        }
         if kind == "image" {
-            return super::image_attachments::preview(std::path::Path::new(path), || {
-                html_preview::read_artifact_file(path, &policy, 150 * 1024 * 1024)
+            let source = std::path::Path::new(path);
+            if matches!(
+                super::image_attachments::extension(source).as_str(),
+                "gif" | "webp" | "svg"
+            ) {
+                return html_preview::read_local_image_file(path, &policy);
+            }
+            return super::image_attachments::preview(source, || {
+                html_preview::read_image_artifact_file(
+                    path,
+                    &policy,
+                    super::image_attachments::MAX_SOURCE_BYTES,
+                )
             });
         }
         read_local_preview_file_guarded(path, kind, |path, canonical| {
@@ -232,8 +256,9 @@ pub fn write_canvas(
         |path, canonical| policy.authorize_write(path, canonical),
         base,
         document,
-    )?;
-    Ok(match outcome {
+    );
+    svc.record_product_canvas_file(&outcome, base, document);
+    Ok(match outcome? {
         html_preview::CanvasWrite::Written => CanvasWriteResponse::Written,
         html_preview::CanvasWrite::Conflict(current) => CanvasWriteResponse::Conflict { current },
     })

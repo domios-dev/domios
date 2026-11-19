@@ -2,6 +2,49 @@ use crate::Cli;
 use clap::Parser;
 
 #[test]
+fn pad_attachments_are_repeatable_and_file_only_sends_need_no_text_source() {
+    for count in 1..=4 {
+        let mut args = vec!["domios", "account", "neighbors", "send", "pair"];
+        for _ in 0..count {
+            args.extend(["--attach", "logs.zip"]);
+        }
+        let cli = Cli::try_parse_from(args).unwrap();
+        let crate::Commands::Account {
+            action:
+                crate::args::account::AccountAction::Neighbors {
+                    action:
+                        crate::args::account::NeighborAction::Send {
+                            attach, from_pad, ..
+                        },
+                },
+        } = cli.command
+        else {
+            panic!("expected Neighbor send")
+        };
+        assert_eq!(attach, vec!["logs.zip"; count]);
+        assert!(from_pad.is_none());
+        assert!(super::validate_attachments(&attach).is_ok());
+    }
+    assert!(super::validate_attachments(&vec!["logs.zip".into(); 5]).is_err());
+    assert!(Cli::try_parse_from(["domios", "account", "neighbors", "send", "pair"]).is_err());
+    let (path, command) = super::request(crate::args::account::NeighborAction::Send {
+        friendship_id: "pair".into(),
+        from_pad: None,
+        attach: vec!["logs.zip".into()],
+        kind: "question".into(),
+        in_reply_to: None,
+    });
+    assert_eq!(path, "/api/account/neighbors/runtime");
+    assert_eq!(
+        command,
+        serde_json::json!({
+            "operation":"send","friendship_id":"pair","body":"","kind":"question",
+            "in_reply_to":null,"attach":["logs.zip"]
+        })
+    );
+}
+
+#[test]
 fn list_parses_with_json_and_renders_ids_scopes_and_both_request_directions() {
     for args in [
         vec!["domios", "account", "neighbors", "list"],
@@ -464,6 +507,62 @@ fn receive_here_is_one_friend_with_required_revision_and_explicit_takeover() {
         friendship_id: "one".into(),
         expected_receiver_revision: 0,
         takeover_confirmed: false,
+        preview: false,
+        grant_choice: None,
+        expected_grant_digest: None,
+        adopt_scope_from_pad: None,
     });
     assert_eq!(body["takeover_confirmed"], false);
+}
+
+#[test]
+fn receive_here_previews_and_binds_the_owner_grant_choice() {
+    let args = [
+        "domios",
+        "account",
+        "neighbors",
+        "receive-here",
+        "friend",
+        "--expected-receiver-revision",
+        "3",
+    ];
+    for choice in ["keep", "adopt"] {
+        let mut command = args.to_vec();
+        command.extend([
+            "--takeover-confirmed",
+            "--grant-choice",
+            choice,
+            "--expected-grant-digest",
+            "snapshot",
+        ]);
+        let cli = crate::Cli::try_parse_from(command).unwrap();
+        let crate::Commands::Account {
+            action: crate::args::account::AccountAction::Neighbors { action },
+        } = cli.command
+        else {
+            panic!("wrong command")
+        };
+        let (_, body) = super::request(action);
+        assert_eq!(
+            body["grant_decision"],
+            serde_json::json!({"choice":choice,"expected_digest":"snapshot","scope":null})
+        );
+        assert_eq!(body["takeover_confirmed"], true);
+    }
+    let mut command = args.to_vec();
+    command.push("--preview");
+    let cli = crate::Cli::try_parse_from(command).unwrap();
+    let crate::Commands::Account {
+        action: crate::args::account::AccountAction::Neighbors { action },
+    } = cli.command
+    else {
+        panic!("wrong command")
+    };
+    assert_eq!(
+        super::request(action).1,
+        serde_json::json!({"operation":"receiver_grants","friendship_id":"friend"})
+    );
+    let mut missing_digest = args.to_vec();
+    missing_digest.extend(["--grant-choice", "adopt"]);
+    assert!(crate::Cli::try_parse_from(missing_digest).is_err());
 }

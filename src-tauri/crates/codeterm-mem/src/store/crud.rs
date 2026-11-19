@@ -116,7 +116,7 @@ pub fn replace_existing_with_context(
         return Err(format!("mem item {id} not found"));
     };
     let author = ctx.author.clone();
-    super::guard_instruction(&author, item.kind.as_str(), item.pinned)?;
+    super::author::guard_save(ctx, item)?;
     let (source, source_path) = normalized_sources(item);
     let previous_source_path: Option<String> = conn
         .query_row(
@@ -179,8 +179,8 @@ pub fn replace_existing_with_context(
     let now = chrono::Utc::now().to_rfc3339();
     let tags = serde_json::to_string(&item.tags).map_err(|e| format!("serialize tags: {e}"))?;
     conn.execute(
-        "UPDATE mem_items SET title=?1, summary=?2, area=?3, tags_json=?4, body_inline=?5, body_blob_path=?6, source=?7, importance=?8, updated_at=?9, source_path=?10, is_pinned_wakeup=?11, scope=?12, seed_fingerprint=NULL, author_kind=?14, author_uid=?15, author_friendship=?16, author_label=?17 WHERE id=?13",
-        params![item.title, item.summary, item.area, tags, inline, blob, source, item.importance, now, source_path, if item.pinned { 1 } else { 0 }, item.scope.as_str(), id, author.kind.as_str(), author.account_uid, author.friendship_id, author.label],
+        "UPDATE mem_items SET title=?1, summary=?2, area=?3, tags_json=?4, body_inline=?5, body_blob_path=?6, source=?7, importance=?8, updated_at=?9, source_path=?10, is_pinned_wakeup=?11, scope=?12, seed_fingerprint=NULL, author_kind=?14, author_uid=?15, author_friendship=?16, author_label=?17, neighbor_skill_authorized=?18 WHERE id=?13",
+        params![item.title, item.summary, item.area, tags, inline, blob, source, item.importance, now, source_path, if item.pinned { 1 } else { 0 }, item.scope.as_str(), id, author.kind.as_str(), author.account_uid, author.friendship_id, author.label, super::author::neighbor_skill_save_authorized(ctx, item)],
     ).map_err(|e| format!("replace mem item: {e}"))?;
     conn.execute("DELETE FROM mem_fts WHERE mem_id=?1", params![id])
         .map_err(|e| e.to_string())?;
@@ -256,7 +256,7 @@ fn insert_with_options_with_context(
 ) -> Result<String, String> {
     let kind_str = item.kind.as_str();
     let author = ctx.author.clone();
-    super::guard_instruction(&author, item.kind.as_str(), item.pinned)?;
+    super::author::guard_save(ctx, item)?;
     let (source, source_path) = normalized_sources(item);
     let slug = ids::slugify(&item.title);
     let candidate = ids::compose(kind_str, &slug);
@@ -311,8 +311,8 @@ fn insert_with_options_with_context(
            (id, uid, kind, scope, title, summary, area, tags_json,
             body_inline, body_blob_path, source, importance,
             created_at, updated_at, accessed_at,
-            source_path, source_size, source_mtime, is_pinned_wakeup, seed_fingerprint, author_kind, author_uid, author_friendship, author_label)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)"#,
+            source_path, source_size, source_mtime, is_pinned_wakeup, seed_fingerprint, author_kind, author_uid, author_friendship, author_label, neighbor_skill_authorized)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)"#,
         params![
             &id,
             &uid,
@@ -334,6 +334,7 @@ fn insert_with_options_with_context(
             pinned_int,
             fingerprint,
             author.kind.as_str(), author.account_uid, author.friendship_id, author.label,
+            super::author::neighbor_skill_save_authorized(ctx, item),
         ],
     )
     .map_err(|e| format!("insert mem_item: {}", e))?;

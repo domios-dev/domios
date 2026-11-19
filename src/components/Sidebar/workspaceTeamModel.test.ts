@@ -64,6 +64,20 @@ describe("partitionTeamMembers", () => {
     expect(roleShieldLabel(managers[0].tab)).toBe("ORCHESTRATOR");
   });
 
+  it("uses a declared role label before falling back to a humanized package kind", () => {
+    const design = member("design", { role: "Manager", role_profile: "design_lead" });
+    const engineering = member("engineering", { role: "Manager", role_profile: "engineering_lead", role_label: "engineering_lead" });
+    const production = member("production", { role: "Manager", role_profile: "production_lead", role_label: "Executive Producer" });
+    const editor = member("editor", { role: "Worker", role_profile: "video_editor", role_label: " " });
+    const constructor = member("constructor", { role: "Manager", role_profile: "constructor" });
+
+    expect(roleShieldLabel(design.tab)).toBe("Design lead");
+    expect(roleShieldLabel(engineering.tab)).toBe("Engineering lead");
+    expect(roleShieldLabel(production.tab)).toBe("Executive Producer");
+    expect(roleShieldLabel(editor.tab)).toBe("Video editor");
+    expect(roleShieldLabel(constructor.tab)).toBe("Constructor");
+  });
+
   it("does not classify plugin surfaces as agents from a stale provider field", () => {
     const { agents, terminals } = partitionTeamMembers([
       { ...surface("board", null), tab: { ...surface("board", null).tab, agent_type: "provider" } },

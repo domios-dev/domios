@@ -61,7 +61,7 @@ impl ChatSendLedger {
     ) {
         self.submit_claims
             .lock()
-            .insert(send_id.to_string(), claim.with_trace_id(send_id));
+            .insert(send_id.to_string(), claim.with_user_send_id(send_id));
     }
 
     pub(crate) fn take_user_submit_claim(

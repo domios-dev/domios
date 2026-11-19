@@ -6,16 +6,16 @@ import type { Surface } from "./Surface";
  * The action a classifier recommends. Any combination may be present; the
  * reactor branches ONLY on these generic fields.
  */
-export type TabStateAction = { 
+export type TabStateAction = {
 /**
  * Key names to inject, e.g. `["down", "enter"]` — same vocabulary as
  * `domios send --actions`.
  */
-keys?: Array<string>, 
+keys?: Array<string>,
 /**
  * A resume to schedule for later (rate-limit recovery).
  */
-delayedResume?: DelayedResume, 
+delayedResume?: DelayedResume,
 /**
  * A user-facing surface (questions / limit notice / auth prompt).
  */

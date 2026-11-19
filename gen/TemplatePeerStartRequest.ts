@@ -4,11 +4,11 @@ import type { TemplatePeerStartAsk } from "./TemplatePeerStartAsk";
 /**
  * Start a template on a paired peer Main.
  */
-export type TemplatePeerStartRequest = { peer: string, start: TemplatePeerStartAsk, 
+export type TemplatePeerStartRequest = { peer: string, start: TemplatePeerStartAsk,
 /**
  * The origin workspace that shows the peer's managers as remote tabs once they start.
  */
-origin_workspace_id?: string | null, 
+origin_workspace_id?: string | null,
 /**
  * The tab that receives the outcome once it is known.
  */

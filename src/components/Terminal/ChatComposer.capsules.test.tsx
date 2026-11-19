@@ -166,10 +166,10 @@ it("keeps a short paste as ordinary text", async () => {
   expect(handlePasteEvent).toHaveBeenCalledTimes(1);
 });
 
-it("pasting copied tags restores capsules", async () => {
+it("restores copied image tags as inline file references", async () => {
   const { textarea, calls } = await renderComposer("capsule-paste-tags");
   await paste(textarea, `again ${formatAttachmentMarker(SHOT_2, "image", "image1")}`);
-  expect(textarea.value).toBe(`again ${capsuleToken("image1")}`);
+  expect(textarea.value).toBe("again @b2-pasted-image-2.png ");
   expect(await sendAndRead(textarea, calls)).toEqual([`again ${formatAttachmentMarker(SHOT_2, "image", "image1")}`]);
 });
 

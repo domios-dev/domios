@@ -193,6 +193,8 @@ fn authentication_declarations_are_cleared_with_the_runtime_epoch() {
                 id: "own-method".into(),
                 name: "Sign in".into(),
                 available: true,
+                input: None,
+                unavailable_reason: None,
             },
         ],
     };
@@ -291,15 +293,13 @@ fn append_requires_the_exact_thread_row_and_byte_offset() {
             content: "suffix".into(),
             offset,
         };
-        let event = translate_with_items(&source, &mut maps, true).unwrap();
-        assert!(matches!(event, RuntimeEvent::Notice { .. }));
-        fold(&mut maps, 1, &event);
+        assert!(translate_with_items(&source, &mut maps, true).is_none());
         assert_eq!(maps.items[0].item.content, "🌍");
     }
 }
 
 #[test]
-fn settled_turn_appends_are_refused_once_per_row() {
+fn settled_turn_appends_are_dropped_with_one_diagnostic_per_row() {
     let mut maps = RuntimeMaps::default();
     let turn = |id: &str, state| {
         translate(&AgentRuntimeEvent::TurnState {
@@ -325,13 +325,10 @@ fn settled_turn_appends_are_refused_once_per_row() {
         content: "late".into(),
         offset: 4,
     };
-    assert!(matches!(
-        translate_with_items(&append, &mut maps, false),
-        Some(RuntimeEvent::Notice { .. })
-    ));
     for _ in 0..100 {
         assert!(translate_with_items(&append, &mut maps, false).is_none());
     }
+    assert_eq!(maps.reconciliation_misses.len(), 1);
     assert_eq!(maps.items[0].item.content, "🌍");
     assert!(matches!(
         translate_with_items(&append, &mut maps, true),
@@ -393,9 +390,7 @@ fn tool_patches_cannot_blank_or_retype_conversation_rows() {
                 ..Default::default()
             },
         };
-        let event = translate_with_items(&patch, &mut maps, false).unwrap();
-        assert!(matches!(event, RuntimeEvent::Notice { .. }));
-        fold(&mut maps, 1, &event);
+        assert!(translate_with_items(&patch, &mut maps, false).is_none());
         assert_eq!(maps.items[0].item, original);
     }
 }
@@ -598,6 +593,7 @@ fn restart_replay_uses_source_identity_for_two_identical_written_prompts() {
             seq: ordinal as i64,
             kind: "user".into(),
             content: "identical opaque prompt".into(),
+            timestamp: Some("2026-11-11T08:00:00Z".into()),
             attachments: Some(vec![codeterm_types::agent::chat_types::ChatAttachment {
                 id: format!("image-{ordinal}"),
                 mime_type: "image/png".into(),
@@ -613,6 +609,7 @@ fn restart_replay_uses_source_identity_for_two_identical_written_prompts() {
                 id: source.into(),
                 kind: "user".into(),
                 content: "identical opaque prompt".into(),
+                timestamp: Some("2026-11-11T08:40:00Z".into()),
                 ..Default::default()
             },
         };
@@ -666,6 +663,7 @@ fn restart_replay_uses_source_identity_for_two_identical_written_prompts() {
     let users = cache.snapshot();
     assert_eq!(users.len(), 2);
     for (ordinal, row) in users.iter().enumerate() {
+        assert_eq!(row.timestamp.as_deref(), Some("2026-11-11T08:40:00Z"));
         assert_eq!(
             row.attachments.as_ref().unwrap()[0].id,
             format!("image-{ordinal}")

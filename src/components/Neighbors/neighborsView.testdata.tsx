@@ -47,10 +47,11 @@ function emit(event: string, payload: unknown = null) {
 }
 
 function runtime(bindings: Record<string, string> = {}): NeighborRuntimeClient {
-  return {
-    subscribe: vi.fn(async () => () => {}), status: vi.fn(async () => channelStatus({ enrolled: false, bindings, friend_receivers: {} })), receiveFriend: vi.fn(async () => {}), rotate: vi.fn(async () => {}),
+  const client: NeighborRuntimeClient = {
+    subscribe: vi.fn(async () => () => {}), status: vi.fn(async () => channelStatus({ enrolled: false, bindings, friend_receivers: {} })), receiveFriend: vi.fn(async () => {}), receiverGrants: vi.fn(async (friendship: string) => { const status = await client.status(); return { revision: status.friend_receivers?.[friendship]?.revision ?? 0, previous_machine: null, local: permissionResponse(), previous: null, different: false, digest: "fixture", unavailable: true }; }), rotate: vi.fn(async () => {}),
     permission: vi.fn(async () => permissionResponse()), send: vi.fn(), deliveryStatus: vi.fn(), retry: vi.fn(async () => {}),
   };
+  return client;
 }
 
 async function render(access: NeighborList["access"] = "paid", options: { canInvite?: boolean; omitEligibility?: boolean; trial?: ReferralTrial; bindings?: Record<string, string>; outgoing?: NeighborList["outgoing"]; runtimeClient?: NeighborRuntimeClient; friend?: NeighborList["friends"][number] } = {}) {

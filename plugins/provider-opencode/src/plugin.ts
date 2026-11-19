@@ -10,6 +10,8 @@ import { modelProviderExports } from "./modelProviders";
 import { modelSwitch } from "./modelSwitch";
 import { decisionModel } from "./decisionModel";
 import { variantLaunch } from "./modelVariants";
+import {runtimePlan, runtimeResponse, runtimeReduce} from "./runtime";
+import {cliGeneration, v2Arguments, v2ConfigCommand, type CliGeneration} from "./cliLaunch";
 
 // OpenCode (sst/opencode) provider plugin (runtime logic, capability: agentProvider).
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
@@ -53,7 +55,8 @@ function hostOwnedPermissions(hostOwned?: HostOwnedCapabilities): Record<string,
   };
 }
 
-function withPadPermissionConfig(command: string, instructions?: string[], cleanup?: string, launchConfig: Record<string, unknown> = {}, resumeSession?: string | null, hostOwned?: HostOwnedCapabilities): string {
+function withPadPermissionConfig(command: string, instructions?: string[], cleanup?: string, launchConfig: Record<string, unknown> = {}, resumeSession?: string | null, hostOwned?: HostOwnedCapabilities, generation:CliGeneration=1): string {
+  if (generation===2) return v2ConfigCommand(command,launchConfig,instructions,resumeSession??undefined,hostOwned);
   const platform = host.platform();
   const config = {
     ...launchConfig,
@@ -76,6 +79,7 @@ function withPadPermissionConfig(command: string, instructions?: string[], clean
 }
 
 const plugin = {
+  runtimePlan, runtimeResponse, runtimeReduce,
   usageAccounting: () => "transcript" as const,
   parseUsageRecord,
   usageSqlQuery: (scoped: boolean) => `SELECT rowid, id, data FROM message WHERE rowid > ?1 AND rowid <= ?2 ${scoped ? "AND session_id = ?3 " : ""}ORDER BY rowid ASC`,
@@ -209,7 +213,8 @@ const plugin = {
 
   *buildLaunchCommand(params: LaunchParams): HostIoSteps<string> {
     const p = params || {};
-    const launch = variantLaunch(p.args ?? []);
+    const generation=yield* cliGeneration();
+    const launch = generation===2 ? v2Arguments(p.args??[]) : variantLaunch(p.args ?? []);
     const parts: string[] = [];
     let taskPath: string | null = null;
     if (p.task) {
@@ -217,10 +222,11 @@ const plugin = {
       if (!taskPath) throw new Error("failed to write OpenCode task instructions");
     }
     parts.push("opencode");
+    if (generation===2) parts.push("--standalone");
     if (p.skipPermissions) parts.push("--auto");
     // reply over HTTP instead of scraping the PTY picker.
     const sps = p.structuredPromptServer;
-    if (sps && sps.port) {
+    if (generation===1 && sps && sps.port) {
       const platform = host.platform();
       parts.push("--hostname", host.shell.quoteFor(String(sps.hostname || "127.0.0.1"), platform));
       parts.push("--port", host.shell.quoteFor(String(sps.port), platform));
@@ -236,21 +242,23 @@ const plugin = {
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : undefined, undefined, launch.config, p.sessionId, p.hostOwned);
+    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : undefined, undefined, launch.config, p.sessionId, p.hostOwned,generation);
   },
 
   *buildResumeCommand(sessionId: string, skipPermissions?: boolean): HostIoSteps<string> {
-    return withPadPermissionConfig((yield* resumeLaunch(sessionId, skipPermissions)).parts.join(" "), undefined, undefined, {}, sessionId);
+    const generation=yield* cliGeneration();
+    return withPadPermissionConfig((yield* resumeLaunch(sessionId, skipPermissions,generation)).parts.join(" "), undefined, undefined, {}, sessionId,undefined,generation);
   },
 
   // A resumed session re-reads `instructions`, so the composed prompt is
   // re-applied through the same session-config channel buildLaunchCommand uses.
   *buildResumeCommandWithContext(params: ResumeParams): HostIoSteps<string> {
     const p = params || ({} as ResumeParams);
+    const generation=yield* cliGeneration();
     const platform = host.platform();
-    const launch = (yield* resumeLaunch(p.sessionId, p.skipPermissions));
+    const launch = (yield* resumeLaunch(p.sessionId, p.skipPermissions,generation));
     const parts = launch.parts;
-    const variant = variantLaunch(p.args ? (yield* resumeLaunchArgs(p.args, p.sessionId)) : []);
+    const variant = generation===2 ? v2Arguments(p.args??[]) : variantLaunch(p.args ? (yield* resumeLaunchArgs(p.args, p.sessionId)) : []);
     const args = variant.args;
     for (let i = 0; i < args.length; i++) {
       const arg = String(args[i]);
@@ -262,16 +270,16 @@ const plugin = {
       }
     }
     const systemPrompt = p.systemPrompt;
-    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId, p.hostOwned);
+    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId, p.hostOwned,generation);
     const taskPath = (yield* host.io.fs.writeTempFile(systemPrompt, ".ct-task.md"));
-    if (!taskPath) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId, p.hostOwned);
+    if (!taskPath) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId, p.hostOwned,generation);
     const project = launch.directory
       ? host.shell.quoteFor(launch.directory, platform)
       : null;
     const prologue = project
       ? platform === "windows" ? `Set-Location -LiteralPath ${project} -ErrorAction Stop;` : `cd -- ${project} &&`
       : "";
-    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], undefined, variant.config, p.sessionId, p.hostOwned);
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], undefined, variant.config, p.sessionId, p.hostOwned,generation);
   },
 
   // absent from opencode's env, or event field structure changed in a new release).
@@ -567,11 +575,12 @@ function* resumeLaunchArgs(args: string[], sessionId: string): HostIoSteps<strin
   return retained;
 }
 
-function* resumeLaunch(sessionId: string, skipPermissions?: boolean): HostIoSteps<{ parts: string[]; directory: string | null }> {
+function* resumeLaunch(sessionId: string, skipPermissions?: boolean,generation:CliGeneration=1): HostIoSteps<{ parts: string[]; directory: string | null }> {
   const platform = host.platform();
-  const db = opencodeDbPath();
+  const db = generation===1 ? opencodeDbPath() : null;
   const directory = db && (yield* host.io.fs.fileExists(db)) ? (yield* scanSessionDirectory(db, sessionId)) : null;
   const parts = ["opencode"];
+  if (generation===2) parts.push("--standalone");
   if (directory) parts.push(host.shell.quoteFor(directory, platform));
   parts.push("--session", host.shell.quoteFor(sessionId, platform));
   if (skipPermissions) parts.push("--auto");

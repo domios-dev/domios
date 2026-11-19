@@ -1,7 +1,7 @@
 use crate::executor::{Client, GenericClient};
 use crate::{db_error, StoreResult};
 
-pub(crate) const VERSION: i64 = 2;
+pub(crate) const VERSION: i64 = 3;
 
 pub(crate) fn verify_version(
     client: &mut impl GenericClient,
@@ -35,6 +35,7 @@ pub(crate) fn verify_version(
 const STEPS: &[&str] = &[
     include_str!("migrations/001_storage.sql"),
     include_str!("migrations/002_authorship.sql"),
+    include_str!("migrations/003_neighbor_skill_saves.sql"),
 ];
 
 pub(crate) fn run(

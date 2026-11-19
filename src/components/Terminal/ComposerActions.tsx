@@ -6,7 +6,6 @@ import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import { useAttachmentUploads } from "./useAttachmentUploads";
 import { useComposerVoice } from "./voice/useComposerVoice";
 import { ComposerIssuesProvider, useHasComposerIssuesProvider } from "./ComposerIssuesContext";
-import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 
 export { storeBrowserFiles, useWebFileDrop } from "./composerFiles";
 
@@ -30,7 +29,6 @@ interface Props {
 export function ComposerActions(props: Props) {
   const provided = useHasComposerIssuesProvider();
   return provided ? <ComposerActionsBody {...props} /> : <ComposerIssuesProvider>
-    <AgentRuntimeBanner state={null} onRetry={() => {}} />
     <ComposerActionsBody {...props} />
   </ComposerIssuesProvider>;
 }

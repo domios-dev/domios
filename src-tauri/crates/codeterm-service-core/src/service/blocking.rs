@@ -1,7 +1,7 @@
 pub async fn run<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
-    tokio::task::spawn_blocking(work)
+    codeterm_plugin::js_runtime::spawn_blocking(work)
         .await
         .map_err(|error| format!("blocking service task failed: {error}"))?
 }

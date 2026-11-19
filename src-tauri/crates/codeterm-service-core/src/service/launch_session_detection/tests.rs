@@ -1,5 +1,7 @@
 use super::*;
 
+#[path = "tests/named_account.rs"]
+mod named_account;
 #[path = "tests/restored_hook.rs"]
 mod restored_hook;
 #[path = "tests/resumed_outbox.rs"]

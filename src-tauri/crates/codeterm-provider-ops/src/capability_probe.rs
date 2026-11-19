@@ -19,6 +19,7 @@ mod tests;
 pub struct ProbeTarget {
     pub provider: String,
     pub project: PathBuf,
+    pub invocation: Option<Arc<codeterm_plugin::provider_account::InvocationContext>>,
 }
 
 pub trait CapabilityProbeHost: Send + Sync {
@@ -34,6 +35,7 @@ struct Request {
     tab: String,
     provider: String,
     project: PathBuf,
+    invocation: Option<Arc<codeterm_plugin::provider_account::InvocationContext>>,
 }
 fn cache() -> &'static Mutex<ProbeCache<Request>> {
     static CACHE: OnceLock<Mutex<ProbeCache<Request>>> = OnceLock::new();
@@ -46,6 +48,7 @@ fn request(host: Arc<dyn CapabilityProbeHost>, tab: &str) -> Result<Request, Pro
         tab: tab.into(),
         provider: target.provider,
         project: target.project,
+        invocation: target.invocation,
     })
 }
 fn unavailable(reason: ProbeFailure) -> ProbeSnapshot {
@@ -56,6 +59,11 @@ pub fn refresh(host: Arc<dyn CapabilityProbeHost>, tab: &str, force: bool) -> Pr
         Ok(request) => request,
         Err(reason) => return unavailable(reason),
     };
+    let invocation = request.invocation.clone();
+    codeterm_plugin::provider_account::with_context(invocation, || refresh_request(request, force))
+}
+fn refresh_request(request: Request, force: bool) -> ProbeSnapshot {
+    let host = &request.host;
     let binary = host.cli_binary(&request.provider).and_then(|binary| {
         match codeterm_plugin::js_runtime::probe_bin(&binary).resolution {
             codeterm_plugin::js_runtime::BinResolution::Found(path) => Some(path),
@@ -77,7 +85,12 @@ pub fn refresh(host: Arc<dyn CapabilityProbeHost>, tab: &str, force: bool) -> Pr
         publish(&request, &result);
         return result;
     };
-    let key = (request.provider.clone(), project);
+    let namespace = request
+        .invocation
+        .as_ref()
+        .map(|context| format!("{}@{}", request.provider, context.cache_key()))
+        .unwrap_or_else(|| request.provider.clone());
+    let key = (namespace, project);
     let start = {
         cache()
             .lock()
@@ -119,6 +132,9 @@ pub fn invalidate_and_rebuild(provider: &str) {
     model_catalog::clear_capability_overlay(provider);
     let requests = cache().lock().invalidate(provider);
     for request in requests {
+        codeterm_plugin::provider_account::with_context(request.invocation.clone(), || {
+            model_catalog::clear_capability_overlay(provider)
+        });
         request.host.publish(&request.provider, None, None);
         let tabs = request.host.matching_tabs(provider, Some(&request.project));
         publish(&request, &ProbeSnapshot::Pending);
@@ -129,7 +145,18 @@ pub fn invalidate_and_rebuild(provider: &str) {
 }
 
 fn publish(request: &Request, snapshot: &ProbeSnapshot) {
-    if request.host.validate(&request.tab).is_ok() {
+    if request.host.validate(&request.tab).is_ok_and(|target| {
+        target.provider == request.provider
+            && target.project == request.project
+            && target
+                .invocation
+                .as_ref()
+                .map(|context| context.cache_key())
+                == request
+                    .invocation
+                    .as_ref()
+                    .map(|context| context.cache_key())
+    }) {
         request
             .host
             .publish(&request.provider, Some(&request.project), Some(snapshot));

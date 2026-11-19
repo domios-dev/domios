@@ -64,3 +64,40 @@ fn transfer_ignores_a_dead_planner_pointer() {
         Some(destination_owner.as_str())
     );
 }
+
+#[test]
+fn plan_adoption_refuses_a_planner_without_changing_owner_or_hierarchy() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = codeterm_service_core::service::plan::PlanStore::new_for_test(dir.path());
+    let (mut mux, owner) = MultiplexerState::new();
+    let team = mux.resolve_or_mint_team_for_parent(&owner).unwrap().team_id;
+    let workspace = mux.find_workspace_for_tab(&owner).unwrap();
+    let planner = mux.create_tab(&workspace).unwrap();
+    mux.set_tab_role_kind(&planner, AgentRole::Manager, Some("planner"), Some(&owner))
+        .unwrap();
+    let plan = store
+        .create_plan_for_team(
+            "Adoption authority".into(),
+            dir.path().display().to_string(),
+            codeterm_service_core::plan::OrchestratorRef::from_tab(&owner),
+            team.clone(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let before = store.get(&plan.id).unwrap();
+    assert!(adopt_plan_for_team_core(
+        &mut mux,
+        &store,
+        &team,
+        &plan.id,
+        TeamMutationCaller::AgentTab(planner.clone()),
+        2
+    )
+    .is_err());
+    assert_eq!(store.get(&plan.id).unwrap(), before);
+    assert_eq!(
+        mux.get_tab(&planner).unwrap().parent_tab_id.as_deref(),
+        Some(owner.as_str())
+    );
+}

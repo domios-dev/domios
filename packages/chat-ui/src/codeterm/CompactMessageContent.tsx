@@ -37,13 +37,13 @@ export function CompactMessageContent({ text, markdown = false, segments, fontSc
   const collapsible = !parentOwnsBounds && lines.length > collapseAfter;
   const [expanded, setExpanded] = React.useState(false);
   const textSize = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
-  const renderText = (content: string, fullscreen = false) => {
+  const renderText = (content: string, fullscreen = false, inlineParagraphs = false) => {
     const part = segments ? { text: content, files: [], inline: null } : userMessageAttachments(content);
     const normalized = normalizeMessageText(part.text);
     const shown = fullscreen || outerFullscreen || expanded || !collapsible ? normalized : normalized.split("\n").slice(0, collapseAfter).join("\n");
     const body = part.inline ? <InlineAttachmentText segments={part.inline} />
       : !markdown && hasPlanRefs(shown) ? <LinkedText text={shown} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
-      : <RichMarkdown text={shown} fontScale={fontScale} planLinks={{ onOpenPlan, resolvePlanRef }} />;
+      : <RichMarkdown text={shown} inlineParagraphs={inlineParagraphs} fontScale={fontScale} planLinks={{ onOpenPlan, resolvePlanRef }} />;
     return <>{part.files.length > 0 && <AttachmentStrip images={[]} files={part.files} captioned={Boolean(shown.trim())} />}{body}</>;
   };
 
@@ -52,7 +52,7 @@ export function CompactMessageContent({ text, markdown = false, segments, fontSc
 
     <div data-testid="codeterm-message-content" className={`min-w-0 ${textSize}`}>
       {parts.reply && <ReplyQuote label={parts.reply.label ?? "Quote"} excerpt={parts.reply.excerpt ?? ""} />}
-      {segments ? <EnvelopeContent segments={segments} renderText={(text) => renderText(text, fullscreen)} renderInlineText={(text) => renderText(text, fullscreen)} /> : <OrderedAttachmentContent content={text} renderText={(text) => renderText(text, fullscreen)} renderInlineText={(text) => renderText(text, fullscreen)} />}
+      {segments ? <EnvelopeContent segments={segments} renderText={(text) => renderText(text, fullscreen)} renderInlineText={(text) => renderText(text, fullscreen, true)} /> : <OrderedAttachmentContent content={text} renderText={(text) => renderText(text, fullscreen)} renderInlineText={(text) => renderText(text, fullscreen, true)} />}
       {collapsible && !fullscreen && !outerFullscreen && !parts.inline && (
         <button
           type="button"

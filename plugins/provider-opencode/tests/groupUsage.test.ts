@@ -9,6 +9,7 @@ import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import { ocHost } from "./hostFixture.testdata";
+import { groupFromModelId } from "../src/helpers";
 
 let passed = 0;
 let failed = 0;
@@ -79,7 +80,10 @@ function loadOpencodeWithHost(host: unknown) {
         status: 200,
         body: JSON.stringify({
           is_available: true,
-          balance_infos: [{ currency: "USD", total_balance: "0.62", topped_up_balance: "0.62" }],
+          balance_infos: [
+            { currency: "CNY", total_balance: "4.50" },
+            { currency: "USD", total_balance: "0.62", topped_up_balance: "0.62" },
+          ],
         }),
       });
     },
@@ -87,11 +91,15 @@ function loadOpencodeWithHost(host: unknown) {
   const rows = p.modelGroupUsage() as Array<Record<string, unknown>>;
   const deepseek = rows.find((r) => r.group === "deepseek");
   const xai = rows.find((r) => r.group === "xai");
-  assert(
-    fetched.indexOf("api.deepseek.com") !== -1 &&
-      fetched.indexOf("opencodeAuth") !== -1 &&
-      fetched.indexOf("deepseekKey") !== -1,
-    "the balance read names its own URL and the declared credential secret",
+  eq(
+    JSON.parse(fetched),
+    {
+      url: "https://api.deepseek.com/user/balance",
+      method: "GET",
+      timeoutMs: 4000,
+      credential: { id: "opencodeAuth", headers: { Authorization: "Bearer {deepseekKey}" } },
+    },
+    "the balance uses only a host credential template",
   );
   eq(deepseek?.spend_remaining_cents, 62, "deepseek remaining credit is read live");
   eq(deepseek?.spend_limit_cents, undefined, "no included limit is invented");
@@ -119,7 +127,31 @@ function loadOpencodeWithHost(host: unknown) {
 
 {
   const p = loadOpencodeWithHost(ocHost({ fs: { fileExists: () => false } }));
-  eq(p.modelGroupUsage(), [], "no session store ⇒ no usage, never a guess");
+  eq(p.modelGroupUsage(), [], "no session store or readable balance leaves usage empty");
+}
+
+{
+  let now = 1_000_000;
+  let infos = [{ currency: "USD", total_balance: "0.00" }];
+  const p = loadOpencodeWithHost(ocHost({
+    fs: { fileExists: () => false },
+    unixNowMs: () => now,
+    fetch: () => JSON.stringify({ status: 200, body: JSON.stringify({ balance_infos: infos }) }),
+  }));
+  const group = groupFromModelId("deepseek/deepseek-flash");
+  const rows = p.modelGroupUsage() as Array<Record<string, unknown>>;
+  eq(rows.map(row => row.group), [group], "the balance-only row matches the selected model's group without a session store");
+  eq(rows[0].spend_remaining_cents, 0, "a real zero balance is reported");
+  eq(rows[0].spend_cents, undefined, "a balance with no history leaves spend unknown");
+
+  infos = [{ currency: "USD", total_balance: "3.00 extra" }];
+  eq(p.modelGroupUsage(), rows, "the successful balance is cached within the TTL");
+  now += 60_000;
+  eq(p.modelGroupUsage(), [], "a malformed USD amount leaves balance unknown after refresh");
+
+  infos = [{ currency: "CNY", total_balance: "3.00" }];
+  now += 60_000;
+  eq(p.modelGroupUsage(), [], "a CNY balance cannot populate the USD spend meter");
 }
 
 // Usage is re-read only when the db or its WAL changes, or after the TTL.

@@ -260,6 +260,36 @@ fn store_limits(svc: &ServiceContext, provider: &str) {
 }
 
 #[test]
+fn selected_account_reads_only_its_own_stored_limits() {
+    let (fixture, tab, _peer, _cleanup) = runtime_fixture();
+    let svc = &fixture.service;
+    put_on_profile(svc, &tab, UNDECLARED_PROFILE);
+    let provider = own_provider(svc, &tab);
+    let usual = rate_sample(&provider, &[window("primary", 10.0, 300)], 1000);
+    let mut named = rate_sample(&provider, &[window("primary", 80.0, 300)], 2000);
+    named.account_id = Some("work".into());
+    svc.usage_store.insert_runtime_snapshot(&usual).unwrap();
+    svc.usage_store.insert_runtime_snapshot(&named).unwrap();
+    assert_eq!(for_tab(svc, &tab).unwrap()["session_pct"], 10.0);
+    svc.mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .restorable_launch
+        .account_id = Some("work".into());
+    let selected = for_tab(svc, &tab).unwrap();
+    assert_eq!(selected["session_pct"], 80.0);
+    assert_eq!(selected["account_id"], "work");
+    svc.mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .restorable_launch
+        .account_id = Some("missing".into());
+    assert_eq!(for_tab(svc, &tab).unwrap()["limits_reported"], false);
+}
+
+#[test]
 fn a_tab_on_an_account_profile_reports_the_native_accounts_limits() {
     let (fixture, tab, _peer, _cleanup) = runtime_fixture();
     let svc = &fixture.service;
@@ -339,6 +369,7 @@ fn the_own_reading_stays_binding_checked_while_the_limits_answer_does_not_depend
         UsageProjection {
             tab_id: tab.clone(),
             thread_id: None,
+            account_id: None,
             provider,
             nonce,
             epoch: 1,

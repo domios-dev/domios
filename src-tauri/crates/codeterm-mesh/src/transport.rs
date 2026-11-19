@@ -346,8 +346,13 @@ impl PeerClient {
                 .await
                 .map_err(|e| format!("Bad response: {}", e))
         } else {
+            let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            Err(format!("HTTP error: {}", body))
+            if body.is_empty() {
+                Err(format!("HTTP error: {status}"))
+            } else {
+                Err(format!("HTTP error: {status}: {body}"))
+            }
         }
     }
 
@@ -380,7 +385,17 @@ impl PeerClient {
         self.build_post(path, body, timeout)
             .send()
             .await
-            .map_err(|e| format!("Network error: {}", e))
+            .map_err(|error| {
+                if error.is_timeout() {
+                    let deadline = timeout.unwrap_or(CLIENT_DEFAULT_TIMEOUT);
+                    format!("Network error: peer POST {path} timed out after {deadline:?}")
+                } else {
+                    format!(
+                        "Network error: {error} ({})",
+                        safe_reqwest_error_detail(&error, "send")
+                    )
+                }
+            })
     }
 
     /// Send mesh sync payload and receive theirs.

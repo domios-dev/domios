@@ -291,7 +291,7 @@ fn activity_gate(
     now: Instant,
     reset_due: bool,
 ) -> bool {
-    let active = provider_active(inner, &key.provider, now);
+    let active = provider_active(inner, key, now);
     let accounts = inner.accounts.lock();
     let state = accounts.get(key);
     let interval = if reset_due {
@@ -382,13 +382,21 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
     {
         let svc = inner.svc.clone();
         let provider = key.provider.clone();
-        let fetched = tokio::task::spawn_blocking(move || {
-            svc.agent_registry
-                .with_provider(&provider, |p| p.model_group_usage())
+        let account = key.account_id.clone();
+        let fetched = codeterm_plugin::js_runtime::spawn_blocking(move || {
+            let invocation =
+                crate::service::provider_accounts::invocation(&svc, &provider, account.as_deref())?;
+            Ok::<_, String>(codeterm_plugin::provider_account::with_context(
+                invocation,
+                || {
+                    svc.agent_registry
+                        .with_provider(&provider, |p| p.model_group_usage())
+                },
+            ))
         })
         .await;
         match fetched {
-            Ok(Some(_)) => {
+            Ok(Ok(Some(_))) => {
                 on_success(&inner, &key);
                 emit_event(&inner.svc, &key, 0);
             }
@@ -430,19 +438,21 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
                             let exhausted = snapshot_is_exhausted(&snap);
                             match register_exhaustion_reading(&inner, &key, exhausted) {
                                 Some(ExhaustionSignal::Confirmed) => {
-                                    if let Err(error) = inner
-                                        .svc
-                                        .lifecycle_port()
-                                        .signal_provider_exhaustion(&key.provider)
+                                    if let Err(error) =
+                                        inner.svc.lifecycle_port().signal_provider_exhaustion(
+                                            &key.provider,
+                                            key.account_id.as_deref(),
+                                        )
                                     {
                                         log::error!("[worker-interruption] signal failed: {error}");
                                     }
                                 }
                                 Some(ExhaustionSignal::Recovered) => {
-                                    if let Err(error) = inner
-                                        .svc
-                                        .lifecycle_port()
-                                        .signal_provider_recovery(&key.provider)
+                                    if let Err(error) =
+                                        inner.svc.lifecycle_port().signal_provider_recovery(
+                                            &key.provider,
+                                            key.account_id.as_deref(),
+                                        )
                                     {
                                         log::error!("[worker-interruption] signal failed: {error}");
                                     }
@@ -528,7 +538,7 @@ fn on_success(inner: &Arc<UsagePollerInner>, key: &AccountKey) {
     state.consecutive_failures = 0;
     state.last_success_at = Some(Instant::now());
     drop(accounts);
-    let active_recently = provider_active(inner, &key.provider, Instant::now());
+    let active_recently = provider_active(inner, key, Instant::now());
     let mut accounts = inner.accounts.lock();
     let state = accounts.entry(key.clone()).or_default();
     if active_recently {
@@ -671,10 +681,14 @@ fn visible_tabs_for_provider(svc: &ServiceContext, provider: &str) -> Vec<String
         .collect()
 }
 
-fn provider_active(inner: &UsagePollerInner, provider: &str, now: Instant) -> bool {
+fn provider_active(inner: &UsagePollerInner, key: &AccountKey, now: Instant) -> bool {
     let tabs = inner.svc.mux.read().snapshot().tabs;
     tabs.values()
-        .filter(|tab| tab.agent_type.as_deref() == Some(provider))
+        .filter(|tab| {
+            tab.agent_type.as_deref() == Some(key.provider.as_str())
+                && crate::service::provider_accounts::selected_account(tab)
+                    == key.account_id.as_deref().unwrap_or("default")
+        })
         .any(|tab| {
             inner.svc.resolved_tab_status(tab) == Some(codeterm_types::pty::TabStatus::Working)
                 || inner
@@ -684,8 +698,14 @@ fn provider_active(inner: &UsagePollerInner, provider: &str, now: Instant) -> bo
         })
 }
 
-fn accounts_for_tabs(_svc: &ServiceContext, _tabs: &[String]) -> Vec<Option<String>> {
-    vec![None]
+fn accounts_for_tabs(svc: &ServiceContext, tabs: &[String]) -> Vec<Option<String>> {
+    let mux = svc.mux.read();
+    let mut accounts = std::collections::BTreeSet::new();
+    for tab in tabs.iter().filter_map(|id| mux.get_tab(id)) {
+        let account = crate::service::provider_accounts::selected_account(tab);
+        accounts.insert((account != "default").then(|| account.to_owned()));
+    }
+    accounts.into_iter().collect()
 }
 
 fn emit_event(svc: &ServiceContext, key: &AccountKey, snapshot_id: i64) {

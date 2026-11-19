@@ -59,6 +59,51 @@ fn revoked_after_paste_is_submit_uncertainty_with_no_recovery_writes() {
     assert_eq!(&*io.writes.borrow(), &["paste:envelope"]);
 }
 
+#[test]
+fn exact_appended_turn_settles_late_key_failure_without_replaying_payload() {
+    let io = RevokedAfterPaste {
+        generation: Cell::new(0),
+        writes: RefCell::new(Vec::new()),
+    };
+    let outcome = run(&io, "envelope", true, tui(), opts());
+    assert!(matches!(
+        outcome,
+        Err(InjectionError::SubmitNeverConfirmed { .. })
+    ));
+    let result =
+        settlement::settle_exact_turn(outcome, true, "envelope".len(), 0, Duration::ZERO).unwrap();
+    assert!(result.submit_observed);
+    assert!(!result.submit_anomaly);
+    assert_eq!(result.bytes_written, "envelope".len());
+    assert_eq!(result.submit_key_writes, 0);
+    assert_eq!(&*io.writes.borrow(), &["paste:envelope"]);
+}
+
+#[test]
+fn late_failure_without_exact_turn_or_queued_payload_remains_uncertain() {
+    for (exact_turn, queued_bytes) in [(false, 8), (true, 0)] {
+        let outcome = Err(InjectionError::SubmitNeverConfirmed {
+            waited: Duration::ZERO,
+            screen_tail: String::new(),
+        });
+        assert!(matches!(
+            settlement::settle_exact_turn(outcome, exact_turn, queued_bytes, 0, Duration::ZERO),
+            Err(InjectionError::SubmitNeverConfirmed { .. })
+        ));
+    }
+}
+
+#[test]
+fn exact_turn_never_promotes_prewrite_refusal() {
+    let outcome = Err(InjectionError::WriteQueueFull {
+        pty_id: "owned".into(),
+    });
+    assert!(matches!(
+        settlement::settle_exact_turn(outcome, true, 0, 0, Duration::ZERO),
+        Err(InjectionError::WriteQueueFull { .. })
+    ));
+}
+
 struct PtyDiesAfterPaste {
     generation: Cell<u64>,
     payload_writes: Cell<usize>,

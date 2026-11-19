@@ -1,7 +1,6 @@
 import { DsPersistentList } from "./dsBlocks.segments";
 import { DsHtmlBoundary } from "./dsBlocks.html";
 import { DS_KINDS, isDsKind, parseDsOpening, validateDsBlock, type DsBlock, type DsKind, type DsOpening } from "./dsBlocks.schema";
-import { dsCanvasFilePaths } from "./dsCanvas";
 export { DS_KINDS, DS_TASK_STATUSES, decodeDsEntities, isDsAbsolutePath, isDsTaskRef, serializeDsBlock } from "./dsBlocks.schema";
 export type { DsKind, DsBlock, DsTaskStatus, DsTaskItem, DsTaskSnapshot } from "./dsBlocks.schema";
 
@@ -20,8 +19,9 @@ interface Candidate {
   jsonQuote: boolean; jsonEscape: boolean;
 }
 const HEADER_LIMIT = 16_384;
-const JSON_BODY_KINDS: readonly DsKind[] = ["tasks", "canvas"];
-const previewFileCount = (block: DsBlock) => block.kind === "image" ? block.sources.length : block.kind === "page" || block.kind === "document" ? 1 : block.kind === "canvas" ? ("body" in block ? dsCanvasFilePaths(block.body).length : 1) : 0;
+const JSON_BODY_KINDS: readonly DsKind[] = ["tasks"];
+const JSON_CLOSE_KINDS: readonly DsKind[] = ["tasks", "canvas"];
+const previewFileCount = (block: DsBlock) => block.kind === "image" ? block.sources.length : block.kind === "page" || block.kind === "document" || block.kind === "canvas" ? 1 : 0;
 const INERT_NAMES = ["context", "quoted-context", "quoted_context", "handoff", "provider-handoff", "provider_handoff", "environment_context", "system-reminder", "instructions", "INSTRUCTIONS", "previous_messages", "conversation_history", "tool_result", "tool_output", "transcript", "pasted_content"];
 
 const closesInert = (line: string, name: string) => new RegExp(`</${name}(?:\\s[^>]*)?>`).test(line);
@@ -267,7 +267,7 @@ export class DsBlockScanner {
         if (opening.kind !== "html" && !JSON_BODY_KINDS.includes(opening.kind)) c.invalid = true;
         continue;
       }
-      if (c.kind && JSON_BODY_KINDS.includes(c.kind)) {
+      if (c.kind && JSON_CLOSE_KINDS.includes(c.kind)) {
         if (c.jsonQuote) {
           if (c.jsonEscape) c.jsonEscape = false;
           else if (char === "\\") c.jsonEscape = true;

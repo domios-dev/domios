@@ -94,8 +94,27 @@ impl Job {
         {
             return Err(std::io::Error::last_os_error().to_string());
         }
-        if list.count != list.assigned || list.count as usize > list.ids.len() {
+        if list.assigned as usize > list.ids.len() || list.count > list.assigned {
             return Err("Owned Job process snapshot exceeded its bound".into());
+        }
+        if list.count == 0 && list.assigned != 0 {
+            let mut accounting: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION =
+                unsafe { std::mem::zeroed() };
+            if unsafe {
+                QueryInformationJobObject(
+                    self.0 as HANDLE,
+                    JobObjectBasicAccountingInformation,
+                    (&mut accounting as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
+                    std::mem::size_of_val(&accounting) as u32,
+                    std::ptr::null_mut(),
+                )
+            } == 0
+            {
+                return Err(std::io::Error::last_os_error().to_string());
+            }
+            if accounting.ActiveProcesses != 0 {
+                return Err("Owned Job membership changed during process snapshot".into());
+            }
         }
         list.ids[..list.count as usize]
             .iter()

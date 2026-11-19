@@ -337,6 +337,7 @@ fn mesh_worker_peer_offline_attempt_can_be_retried() {
             "peer-origin",
             "peer",
             "codex",
+            None,
             "base-sha",
             "main",
             10,

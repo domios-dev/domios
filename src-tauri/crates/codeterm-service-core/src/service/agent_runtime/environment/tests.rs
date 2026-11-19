@@ -1,6 +1,131 @@
 use super::*;
 
 #[test]
+fn json_spawn_account_reaches_pty_and_chat_launch_environments() {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::{
+        orchestrator::PreparedAgentCommand, provider_accounts, test_fixture::ServiceFixture,
+    };
+    use codeterm_plugin::{
+        js_runtime::{JsProvider, PluginManifest, PluginVm},
+        provider_account::with_context,
+    };
+    use codeterm_types::{
+        agent::LaunchSpec,
+        config::provider_accounts::{ProviderAccountConfig, IMPLICIT_ACCOUNT},
+    };
+    use serde_json::json;
+    use std::sync::Arc;
+
+    let (mux, tab_id) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    let account_root = fixture.temp.path().join("account-storage");
+    provider_accounts::test_support::configure(
+        svc,
+        account_root.clone(),
+        fixture.temp.path().join("account-config.toml"),
+    )
+    .unwrap();
+    let nonce = svc.rotate_session_binding_nonce(&tab_id);
+
+    for (provider, home_key) in [
+        ("fixture-account-a", "FIXTURE_PROVIDER_HOME_A"),
+        ("fixture-account-b", "FIXTURE_PROVIDER_HOME_B"),
+    ] {
+        let manifest = PluginManifest::from_json_str(
+            &json!({
+                "id": provider,
+                "version": "1.0.0",
+                "displayName": "Account fixture",
+                "capabilities": { "agentProvider": true },
+                "accounts": {
+                    "homeEnvironment": home_key,
+                    "defaultHome": fixture.temp.path().join("usual-home"),
+                    "secretEnvironment": [],
+                    "isolatedPaths": ["auth.json"],
+                    "sharedPaths": [],
+                    "continuation": "unverified"
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        svc.agent_registry
+            .register_provider(Box::new(JsProvider::new(
+                manifest,
+                Arc::new(PluginVm::from_source(provider, "module.exports = {};".into()).unwrap()),
+            )));
+        let config = svc.ext::<crate::config::ConfigState>();
+        {
+            let mut config = config.lock();
+            let policy = config
+                .agents
+                .entry(provider.into())
+                .or_default()
+                .accounts
+                .get_or_insert_with(Default::default);
+            policy.order.push("second".into());
+            policy.profiles.insert(
+                "second".into(),
+                ProviderAccountConfig {
+                    credential_namespace: Some("second-home".into()),
+                    ..Default::default()
+                },
+            );
+        }
+        let params = svc
+            .spawn_params_from_json(&json!({
+                "agent": provider,
+                "account_id": "second",
+                "account_namespace": "untrusted"
+            }))
+            .unwrap();
+        let (selected, invocation, _reservation) = provider_accounts::spawn_params(svc, params)
+            .expect("the selected launch account is available");
+        assert_eq!(selected.account_id.as_deref(), Some("second"));
+        assert_eq!(selected.account_namespace.as_deref(), Some("second-home"));
+        let home = account_root
+            .join("provider-accounts")
+            .join(provider)
+            .join("second-home");
+        assert!(home.is_dir());
+        with_context(invocation, || {
+            let pty = PreparedAgentCommand::from_spec(LaunchSpec {
+                program: "fixture".into(),
+                ..Default::default()
+            })
+            .with_execution_environment(None);
+            assert_eq!(
+                pty.direct.unwrap().env_set[home_key],
+                home.to_str().unwrap()
+            );
+            let chat = compose(svc, &tab_id, provider, &nonce).unwrap();
+            assert_eq!(chat[home_key], home.to_str().unwrap());
+        });
+
+        let omitted = svc
+            .spawn_params_from_json(&json!({"agent": provider}))
+            .unwrap();
+        let (selected, invocation, _reservation) =
+            provider_accounts::spawn_params(svc, omitted).unwrap();
+        assert_eq!(selected.account_id.as_deref(), Some(IMPLICIT_ACCOUNT));
+        assert!(invocation.is_none());
+
+        let unknown = svc
+            .spawn_params_from_json(&json!({"agent": provider, "account_id": "unknown"}))
+            .unwrap();
+        assert_eq!(
+            svc.spawn_agent_sync(unknown).err().as_deref(),
+            Some("The selected harness account no longer exists")
+        );
+        assert!(svc
+            .spawn_params_from_json(&json!({"agent": provider, "account_id": 17}))
+            .is_err());
+    }
+}
+
+#[test]
 fn only_a_runtime_that_holds_input_behind_its_turn_is_marked() {
     let marker = codeterm_util::tab_launch::RUNTIME_AGENT_ENV;
     let mut env = HashMap::new();

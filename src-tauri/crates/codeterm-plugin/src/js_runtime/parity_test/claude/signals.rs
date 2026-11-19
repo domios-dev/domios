@@ -37,10 +37,17 @@ fn parity_claude_auth_probe_and_status() {
         json!({"loggedIn":"true"}),
         json!({}),
         json!({"loggedIn":true,"authMethod":9}),
+        json!({"loggedIn":true,"email":"alex@fixture.test"}),
+        json!({"loggedIn":false,"email":"alex@fixture.test"}),
+        json!({"loggedIn":true,"email":" alex@fixture.test"}),
     ] {
         assert_eq!(
             native.parse_auth_status(&record),
             js.parse_auth_status(&record)
+        );
+        assert_eq!(
+            native.account_identity(Some(&record)),
+            js.account_identity(Some(&record))
         );
     }
 }

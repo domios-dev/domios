@@ -3,11 +3,11 @@
 /**
  * Optional structured payload extracted by the classifier.
  */
-export type TabStateData = { 
+export type TabStateData = {
 /**
  * ISO-8601 reset time for a rate limit, if parsed.
  */
-resetAt?: string, 
+resetAt?: string,
 /**
  * Clarifying questions to surface to the user.
  */

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { Script } from "node:vm";
 
-function fixture(platform = "linux") {
+function fixture(platform = "linux", version = "1.19.6") {
   let now = 1_000_000;
   let modified = 1;
   let configuration = 1;
@@ -16,12 +16,14 @@ function fixture(platform = "linux") {
   const host = {
     platform: () => platform,
     unixNowMs: () => now,
+    providerVersionJson: () => JSON.stringify({ version, status: "detected" }),
     envGet: () => null,
     expandHome: (value: string) => value,
     exec: () => { throw new Error("synchronous discovery is forbidden"); },
     execStart: (text: string) => {
       const options = JSON.parse(text);
       assert.equal(options.timeoutMs, 10000);
+      assert.deepEqual(options.args, version === "2.3.0" ? ["models", "--standalone"] : options.args.includes("--verbose") ? ["models", "--verbose"] : ["models"]);
       if (options.args.includes("--verbose")) {
         verboseStarts++;
         return JSON.stringify({ jobId: "verbose" });
@@ -81,20 +83,23 @@ test("discovery yields while cheap detection and cached Supporter reads remain c
 
 test("catalogue refresh honours the ten-minute TTL and binary mtime on both platforms", () => {
   for (const platform of ["linux", "windows"]) {
-    const f = fixture(platform);
-    f.discover();
-    f.complete();
-    f.advance(599_999);
-    f.discover();
-    assert.equal(f.starts(), 1);
-    f.advance(1);
-    f.discover();
-    assert.equal(f.starts(), 2);
-    f.complete();
-    f.replaceBinary();
-    f.discover();
-    assert.equal(f.starts(), 3);
-    f.complete();
+    for (const version of ["1.19.6", "2.3.0"]) {
+      const f = fixture(platform, version);
+      f.discover();
+      assert.equal(f.complete()[0].id, "fixture/model");
+      f.advance(599_999);
+      f.discover();
+      assert.equal(f.starts(), 1);
+      f.advance(1);
+      f.discover();
+      assert.equal(f.starts(), 2);
+      f.complete();
+      f.replaceBinary();
+      f.discover();
+      assert.equal(f.starts(), 3);
+      f.complete();
+      assert.equal(f.verboseStarts(), version === "2.3.0" ? 0 : 3);
+    }
   }
 });
 

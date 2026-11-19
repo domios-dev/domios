@@ -4,9 +4,31 @@ use super::*;
 pub(super) enum ScreenStage {
     Admission,
     Picker,
+    PickerConfirmationPending,
     Confirmation,
     AwaitingEvidence,
     UnknownPrompt,
+}
+
+pub(super) fn respond_to_dialogs(
+    picker: Option<&mut CommandPicker>,
+    prompt: Option<&mut CommandPrompt>,
+    respond_picker: impl FnOnce(&mut CommandPicker) -> Result<(), String>,
+    respond_prompt: impl FnOnce(&mut CommandPrompt) -> Result<(), String>,
+) -> Result<(), String> {
+    if let Some(picker) = picker {
+        if !picker.submitted() {
+            respond_picker(picker)?;
+        }
+        if !picker.submitted() {
+            return Ok(());
+        }
+    }
+    // Read the confirmation after submit, before waiting for another frame.
+    if let Some(prompt) = prompt.filter(|prompt| !prompt.answered()) {
+        respond_prompt(prompt)?;
+    }
+    Ok(())
 }
 
 pub(super) fn screen_stage(
@@ -21,6 +43,11 @@ pub(super) fn screen_stage(
         ScreenStage::Confirmation
     } else if picker.is_some_and(|picker| picker.rendering(screen)) {
         ScreenStage::AwaitingEvidence
+    } else if has_prompt
+        && picker.is_some_and(CommandPicker::submitted)
+        && prompt.is_some_and(|prompt| !prompt.answered())
+    {
+        ScreenStage::PickerConfirmationPending
     } else if has_prompt {
         ScreenStage::UnknownPrompt
     } else {

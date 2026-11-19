@@ -12,11 +12,13 @@ fn detected(
 ) -> DetectedLaunchSession {
     DetectedLaunchSession {
         provider_id: provider.into(),
+        pty_id: "own-pty".into(),
         binding_nonce: nonce.into(),
         detection: LaunchSessionDetection {
             session_id: session.into(),
             source,
         },
+        invocation: None,
     }
 }
 

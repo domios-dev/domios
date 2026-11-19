@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::OnceLock;
 use std::time::SystemTime;
 
-use codeterm_util::process_util;
 use parking_lot::RwLock;
 
 pub fn global_plan_database_path() -> PathBuf {
@@ -155,8 +153,7 @@ pub fn warm_project_roots(cwds: &[PathBuf], parallelism: usize) {
 }
 
 fn worktree_top(cwd: &Path) -> Option<PathBuf> {
-    let mut cmd = Command::new("git");
-    process_util::no_window_std(&mut cmd);
+    let mut cmd = codeterm_util::process_util::git_command();
     let out = cmd
         .current_dir(cwd)
         .args(["rev-parse", "--show-toplevel"])

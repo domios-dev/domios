@@ -956,7 +956,7 @@
     "provider_model_usage": [
       [
         "GET",
-        "/api/agents/providers/provider/model-usage"
+        "/api/agents/providers/provider/model-usage?account_id=account"
       ]
     ],
     "get_default_cwd": [

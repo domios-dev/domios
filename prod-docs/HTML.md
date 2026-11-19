@@ -57,8 +57,9 @@ marker: only a Domios-delivered `<domios from=...>` frame carries provenance.
 ## Chat blocks
 
 Live typed ds-tag cards (guide, plugin, connect, setting, choice, agent, job,
-checklist, tasks) and the `ds-canvas` board, which sets images, HTML items,
-files and notes side by side, are catalogued in `domios docs CHAT-BLOCKS`.
+checklist, tasks) and the `ds-canvas` board, which reads a `.canvas.json` file
+to set images, HTML items, files and notes side by side, are catalogued in
+`domios docs CHAT-BLOCKS`.
 
 ## File-backed HTML
 
@@ -143,4 +144,4 @@ The rendered document carries a visible `Local untrusted HTML` banner. Use
 ct.file.renderHtml({ target: '#canvas', maxBytes: 2 * 1024 * 1024 })
 ```
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

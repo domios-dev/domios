@@ -1,7 +1,7 @@
 {
   "id": "opencode",
-  "version": "1.14.19",
-  "minCodeterm": "1.19.2",
+  "version": "1.14.30",
+  "minCodeterm": "1.20.2",
   "hostApi": 2,
   "capabilities": {
     "attachments": {
@@ -76,6 +76,296 @@
             "sideEffects": true
           }
         }
+      ]
+    },
+    "chatBackend": {
+      "spawnable": true,
+      "sessionConfig": true,
+      "agentTasks": true
+    },
+    "agentRuntime": {
+      "runtime": "http-sse",
+      "command": {
+        "binary": "opencode",
+        "args": [
+          "serve",
+          "--hostname={httpHost}",
+          "--port={httpPort}"
+        ]
+      },
+      "httpSse": {
+        "readinessPrefix": "opencode server listening on ",
+        "passwordEnv": "OPENCODE_SERVER_PASSWORD",
+        "username": "opencode",
+        "usernameEnv": "OPENCODE_SERVER_USERNAME",
+        "eventPath": "/event",
+        "eventMethod": "http/event",
+        "requestEvents": {
+          "permission.asked": {
+            "typePointer": "/type",
+            "idPointer": "/properties/id",
+            "threadPointer": "/properties/sessionID",
+            "replyMethod": "permission.reply",
+            "rejectMethod": "permission.reply",
+            "rejectBody": {
+              "reply": "reject"
+            },
+            "pathParams": {
+              "requestID": "/properties/id"
+            }
+          },
+          "question.asked": {
+            "typePointer": "/type",
+            "idPointer": "/properties/id",
+            "threadPointer": "/properties/sessionID",
+            "replyMethod": "question.reply",
+            "rejectMethod": "question.reject",
+            "pathParams": {
+              "requestID": "/properties/id"
+            }
+          }
+        },
+        "responseHeaders": [
+          "x-next-cursor"
+        ],
+        "routes": {
+          "health": {
+            "method": "GET",
+            "path": "/global/health"
+          },
+          "provider.list": {
+            "method": "GET",
+            "path": "/provider"
+          },
+          "provider.auth": {
+            "method": "GET",
+            "path": "/provider/auth"
+          },
+          "provider.authorize": {
+            "method": "POST",
+            "path": "/provider/{providerID}/oauth/authorize"
+          },
+          "provider.callback": {
+            "method": "POST",
+            "path": "/provider/{providerID}/oauth/callback"
+          },
+          "provider.key": {
+            "method": "PUT",
+            "path": "/auth/{providerID}"
+          },
+          "session.create": {
+            "method": "POST",
+            "path": "/session"
+          },
+          "session.get": {
+            "method": "GET",
+            "path": "/session/{sessionID}"
+          },
+          "session.messages": {
+            "method": "GET",
+            "path": "/session/{sessionID}/message"
+          },
+          "session.prompt": {
+            "method": "POST",
+            "path": "/session/{sessionID}/prompt_async"
+          },
+          "session.abort": {
+            "method": "POST",
+            "path": "/session/{sessionID}/abort"
+          },
+          "permission.reply": {
+            "method": "POST",
+            "path": "/permission/{requestID}/reply"
+          },
+          "question.reply": {
+            "method": "POST",
+            "path": "/question/{requestID}/reply"
+          },
+          "question.reject": {
+            "method": "POST",
+            "path": "/question/{requestID}/reject"
+          }
+        },
+        "alternatives": [
+          {
+            "readinessPrefix": "server listening on ",
+            "passwordEnv": "OPENCODE_PASSWORD",
+            "username": "opencode",
+            "usernameEnv": "OPENCODE_SERVER_USERNAME",
+            "eventPath": "/api/event",
+            "eventMethod": "http/event",
+            "responseHeaders": [],
+            "routes": {
+              "health": {
+                "method": "GET",
+                "path": "/api/info"
+              },
+              "v2.integration.list": {
+                "method": "GET",
+                "path": "/api/integration"
+              },
+              "v2.integration.authorize": {
+                "method": "POST",
+                "path": "/api/integration/{integrationID}/connect/oauth"
+              },
+              "v2.integration.status": {
+                "method": "GET",
+                "path": "/api/integration/{integrationID}/connect/oauth/{attemptID}"
+              },
+              "v2.integration.complete": {
+                "method": "POST",
+                "path": "/api/integration/{integrationID}/connect/oauth/{attemptID}/complete"
+              },
+              "v2.integration.cancel": {
+                "method": "DELETE",
+                "path": "/api/integration/{integrationID}/connect/oauth/{attemptID}"
+              },
+              "v2.integration.key": {
+                "method": "POST",
+                "path": "/api/integration/{integrationID}/connect/key"
+              },
+              "v2.session.create": {
+                "method": "POST",
+                "path": "/api/session"
+              },
+              "v2.session.get": {
+                "method": "GET",
+                "path": "/api/session/{sessionID}"
+              },
+              "v2.session.messages": {
+                "method": "GET",
+                "path": "/api/session/{sessionID}/message"
+              },
+              "v2.session.prompt": {
+                "method": "POST",
+                "path": "/api/session/{sessionID}/prompt"
+              },
+              "v2.session.model": {
+                "method": "POST",
+                "path": "/api/session/{sessionID}/model"
+              },
+              "v2.session.instructions": {
+                "method": "PUT",
+                "path": "/api/experimental/session/{sessionID}/instructions/entries/{key}"
+              },
+              "session.abort": {
+                "method": "POST",
+                "path": "/api/session/{sessionID}/interrupt"
+              },
+              "v2.permission.reply": {
+                "method": "POST",
+                "path": "/api/session/{sessionID}/permission/{requestID}/reply"
+              },
+              "v2.form.reply": {
+                "method": "POST",
+                "path": "/api/session/{sessionID}/form/{formID}/reply"
+              },
+              "v2.form.reject": {
+                "method": "DELETE",
+                "path": "/api/session/{sessionID}/form/{formID}"
+              },
+              "v2.provider.list": {
+                "method": "GET",
+                "path": "/api/provider"
+              }
+            },
+            "requestEvents": {
+              "permission.asked": {
+                "typePointer": "/type",
+                "idPointer": "/data/id",
+                "threadPointer": "/data/sessionID",
+                "replyMethod": "v2.permission.reply",
+                "rejectMethod": "v2.permission.reply",
+                "rejectBody": {
+                  "decision": "reject"
+                },
+                "pathParams": {
+                  "sessionID": "/data/sessionID",
+                  "requestID": "/data/id"
+                }
+              },
+              "form.created": {
+                "typePointer": "/type",
+                "idPointer": "/data/form/id",
+                "threadPointer": "/data/form/sessionID",
+                "replyMethod": "v2.form.reply",
+                "rejectMethod": "v2.form.reject",
+                "pathParams": {
+                  "sessionID": "/data/form/sessionID",
+                  "formID": "/data/form/id"
+                }
+              }
+            },
+            "completionEvents": true
+          }
+        ],
+        "completionEvents": true
+      },
+      "hostApprovals": true,
+      "interrupt": {
+        "beforeFirstTurn": true
+      },
+      "localImagePaths": true,
+      "usage": true,
+      "turnScopedRequests": [
+        "submitTurn"
+      ],
+      "requestMethods": {
+        "initialize": [
+          "health",
+          "provider.list",
+          "provider.auth",
+          "v2.integration.list",
+          "v2.provider.list"
+        ],
+        "openThread": [
+          "session.create",
+          "v2.session.create",
+          "v2.session.instructions"
+        ],
+        "resumeThread": [
+          "health",
+          "session.get",
+          "v2.session.get",
+          "v2.session.instructions",
+          "v2.session.model"
+        ],
+        "readHistory": [
+          "session.messages",
+          "v2.session.messages"
+        ],
+        "submitTurn": [
+          "session.prompt",
+          "v2.session.prompt"
+        ],
+        "interrupt": [
+          "session.abort"
+        ],
+        "answer": [
+          "permission.reply",
+          "question.reply",
+          "question.reject",
+          "v2.permission.reply",
+          "v2.form.reply",
+          "v2.form.reject"
+        ],
+        "control": [
+          "provider.list",
+          "provider.auth",
+          "provider.authorize",
+          "provider.callback",
+          "provider.key",
+          "v2.integration.list",
+          "v2.integration.authorize",
+          "v2.integration.status",
+          "v2.integration.complete",
+          "v2.integration.cancel",
+          "v2.integration.key",
+          "v2.provider.list"
+        ]
+      },
+      "notificationMethods": [
+        "http/event"
       ]
     }
   },
@@ -260,7 +550,7 @@
       "--variant",
       "{effort}"
     ],
-    "modelSwitch": "next_turn"
+    "modelSwitch": "restart_resume"
   },
   "permissions": {
     "subprocess": {

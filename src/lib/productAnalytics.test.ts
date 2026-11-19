@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ProductEvent } from "./productAnalytics.generated";
-import { emitFeatureUsed, emitProductEvent, isProductEvent, type AnalyticsEndpoint } from "./productAnalytics";
+import { agentTabSelection, emitFeatureUsed, emitProductEvent, isProductEvent, type AnalyticsEndpoint } from "./productAnalytics";
 
 test("UI emitter sends plain counts through the local event endpoint", async () => {
   const calls: Parameters<AnalyticsEndpoint>[] = [];
@@ -13,6 +13,43 @@ test("consent off makes no endpoint request", async () => {
   let calls = 0;
   await emitProductEvent(async () => { calls++; }, "off", { event_type: "analytics_opted_in", event_properties: {} });
   assert.equal(calls, 0);
+});
+
+test("human agent tab selection excludes no-ops and shell tabs and sends no identity", () => {
+  assert.deepEqual(agentTabSelection(true, "private-provider"), { event_type: "agent_tab_selected", event_properties: {} });
+  assert.equal(agentTabSelection(false, "private-provider"), null);
+  assert.equal(agentTabSelection(true, null), null);
+});
+
+test("deferred actions have closed payloads and share the consent and failure boundary", async () => {
+  const events: ProductEvent[] = [
+    { event_type: "agent_provider_changed", event_properties: { provider_id: "codex", outcome: "applied" } },
+    { event_type: "agent_model_changed", event_properties: { mode: "live", outcome: "observed" } },
+    { event_type: "agent_tab_selected", event_properties: {} },
+    { event_type: "mesh_request_completed", event_properties: { operation: "plan", outcome: "success" } },
+    { event_type: "canvas_element_saved", event_properties: { operation: "create", kind: "note" } },
+    { event_type: "ds_block_interacted", event_properties: { kind: "choice", action: "submit" } },
+    { event_type: "blueprint_run_completed", event_properties: { outcome: "success" } },
+    { event_type: "plugin_enabled_changed", event_properties: { enabled: false } },
+    { event_type: "update_checked", event_properties: { offers: 0 } },
+    { event_type: "account_created", event_properties: { auth_provider: "firebase" } },
+    { event_type: "neighbor_invite_created", event_properties: {} },
+  ];
+  const sent: unknown[] = [];
+  for (const event of events) {
+    await emitProductEvent(async (...args) => { sent.push(args); }, "on", event);
+    await emitProductEvent(async (...args) => { sent.push(args); }, "off", event);
+    for (const field of ["model", "peer", "path", "message", "error", "email", "secret"]) {
+      assert.equal(isProductEvent({ ...event, event_properties: { ...event.event_properties, [field]: "private" } }), false);
+    }
+  }
+  assert.deepEqual(sent, events.map(event => ["POST", "/api/analytics/event", event]));
+  for (const event of [
+    { event_type: "plugin_enabled_changed", event_properties: { enabled: "false" } },
+    { event_type: "agent_model_changed", event_properties: { mode: "private-model", outcome: "observed" } },
+    { event_type: "ds_block_interacted", event_properties: { kind: "private-kind", action: "open" } },
+    { event_type: "mesh_request_completed", event_properties: { operation: "private-method", outcome: "private-error" } },
+  ]) assert.equal(isProductEvent(event), false);
 });
 test("analytics delivery failure does not fail the product action", async () => {
   await emitProductEvent(async () => { throw new Error("offline"); }, "on", { event_type: "analytics_opted_in", event_properties: {} });

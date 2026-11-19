@@ -1,6 +1,6 @@
 use super::support::*;
 use crate::account_mesh::wire::ProofEndpoint;
-use crate::account_mesh::{AccountMeshRefusal, InstallationKey, ProofContext};
+use crate::account_mesh::{AccountMeshRefusal, EnrollTrigger, InstallationKey, ProofContext};
 
 #[tokio::test]
 async fn entitlements_proof_reuses_persisted_key_and_generation_across_restart() {
@@ -73,4 +73,46 @@ async fn entitlements_proof_refuses_foreign_installation_account_and_session_gen
         Err(AccountMeshRefusal::Cancelled)
     );
     assert_eq!(harness.calls("enroll_key"), 0);
+}
+
+#[tokio::test]
+async fn account_switch_restores_mesh_and_entitlement_proofs_when_challenge_issuer_is_ahead() {
+    let harness = Harness::new().await;
+    let id = crate::InstallationId::parse(INSTALLATION.into()).unwrap();
+    harness
+        .registry
+        .script
+        .lock()
+        .unwrap()
+        .challenge_issuer_ahead = 2;
+    for (index, uid) in ["user-1", "user-2", "user-1"].into_iter().enumerate() {
+        if index != 0 {
+            harness.logout().await;
+        }
+        harness.sign_in(uid).await;
+        let mut session = session(uid);
+        session.login_generation += index as u64;
+        *harness.sessions.0.lock().unwrap() = Some(session.clone());
+        let proof = harness
+            .mesh
+            .entitlements_proof(&session, &id)
+            .await
+            .unwrap();
+        assert_eq!(proof.timestamp, START + 2);
+        harness
+            .mesh
+            .refresh(EnrollTrigger::Automatic)
+            .await
+            .unwrap();
+        let state = harness.state();
+        assert_eq!(
+            state.current_membership(START).unwrap().verified.account_id,
+            crate::account_mesh::membership::account_id(uid)
+        );
+        assert_eq!(
+            state.self_installation.as_ref().unwrap().key_id,
+            proof.key_id
+        );
+    }
+    assert_eq!(harness.calls("enroll_key"), 2);
 }

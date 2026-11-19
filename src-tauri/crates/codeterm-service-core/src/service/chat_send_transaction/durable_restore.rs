@@ -1,10 +1,19 @@
 use super::*;
+use crate::service::messenger::InputProvenance;
 use crate::service::pending_delivery_payloads::user_sends::{
     continuity::{ReceiptState, UserSendReceipt},
     UserSendState,
 };
 
 impl ChatSendLedger {
+    pub(crate) fn neighbor_message_for_send(&self, send_id: &str) -> Option<String> {
+        self.state
+            .lock()
+            .neighbor_message_by_send
+            .get(send_id)
+            .cloned()
+    }
+
     pub(crate) fn reserved_user_status(&self, reservation: &UserReservation) -> ChatSendStatus {
         let state = self.state.lock();
         ChatSendStatus {
@@ -97,6 +106,16 @@ impl ChatSendLedger {
         state.terminal_failures.remove(&status.send_id);
         state.payload_by_id.remove(&status.send_id);
         state.by_id.insert(status.send_id.clone(), status.clone());
+        if let Some(message) = record
+            .client_token
+            .as_deref()
+            .filter(|_| record.input_provenance == InputProvenance::Neighbor)
+            .and_then(neighbor_message_id)
+        {
+            state
+                .neighbor_message_by_send
+                .insert(record.send_id.clone(), message.to_owned());
+        }
         if let Some(token) = &record.client_token {
             state
                 .token_by_id
@@ -211,6 +230,14 @@ impl ChatSendLedger {
         state.by_id.insert(receipt.send_id.clone(), status);
         Self::prune_terminal(&mut state);
     }
+}
+
+fn neighbor_message_id(token: &str) -> Option<&str> {
+    let id = token
+        .strip_prefix("runtime-envelope:neighbor:")?
+        .rsplit('_')
+        .next()?;
+    codeterm_neighbors::wire::hex_id(id, 32).then_some(id)
 }
 
 fn receipt_failure_reason(receipt: ReceiptState) -> &'static str {

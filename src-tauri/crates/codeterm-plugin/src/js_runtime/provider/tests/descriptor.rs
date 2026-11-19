@@ -64,3 +64,65 @@ fn descriptor_refreshes_metadata_explicitly_and_reads_current_catalogue() {
         before.settings_schema.len() + 1
     );
 }
+
+#[tokio::test]
+async fn live_catalogue_refresh_replaces_the_previous_default_and_excludes_seed_models() {
+    use crate::model_catalog;
+
+    let id = "descriptor-live-catalogue-refresh";
+    let directory = tempfile::tempdir().unwrap();
+    let cache = directory.path().join("models_cache.json");
+    let mut manifest: Value = serde_json::from_str(MIN_MANIFEST).unwrap();
+    manifest["id"] = json!(id);
+    manifest["models"] = json!([
+        {"id": "seed-only", "displayName": "Seed only"},
+        {"id": "older", "displayName": "Older"}
+    ]);
+    manifest["defaultModel"] = json!("older");
+    manifest["modelCatalogue"] = json!({
+        "authority": "authoritative",
+        "liveDiscoveryRequired": true,
+        "configFiles": [cache]
+    });
+    let provider = Arc::new(load(
+        &manifest.to_string(),
+        r#"module.exports.default = {
+            discoverModels() {
+                return [
+                    {id:"new-default", displayName:"New default"},
+                    {id:"new-alternative", displayName:"New alternative"},
+                    {id:"older", displayName:"Older"}
+                ];
+            }
+        };"#,
+    ));
+    model_catalog::put_live(
+        id,
+        vec![ModelInfo {
+            id: "older".into(),
+            display_name: "Older".into(),
+            ..ModelInfo::default()
+        }],
+        Some("older".into()),
+    );
+    let before = provider.describe();
+    assert_eq!(before.default_model.as_deref(), Some("older"));
+    std::fs::write(cache, b"updated").unwrap();
+
+    assert!(model_catalog::refresh_models(provider.clone(), false)
+        .await
+        .is_some());
+    let after = provider.describe();
+    assert!(after.catalogue_version > before.catalogue_version);
+    assert_eq!(after.default_model.as_deref(), Some("new-default"));
+    assert_eq!(
+        after
+            .available_models
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>(),
+        ["new-default", "new-alternative", "older"]
+    );
+    model_catalog::unregister(id);
+    model_catalog::cleanup(id);
+}

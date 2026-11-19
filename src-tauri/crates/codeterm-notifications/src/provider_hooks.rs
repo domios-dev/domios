@@ -1,5 +1,10 @@
 use serde_json::Value as Json;
 
+pub fn lock_integration_changes() -> parking_lot::MutexGuard<'static, ()> {
+    static CHANGES: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+    CHANGES.lock()
+}
+
 fn runtime_api_port() -> Result<u16, String> {
     let value = std::env::var("CODETERM_API_PORT")
         .map_err(|_| "CODETERM_API_PORT is missing from the running instance".to_string())?;
@@ -20,6 +25,7 @@ fn install_provider_integration_body(
             "Review and consent are required before changing global provider configuration".into(),
         );
     }
+    let _integration_write = lock_integration_changes();
     let (kind, status) = registry
         .with_provider(&provider_id, |provider| {
             (provider.integration_kind(), provider.check_integration())
@@ -212,7 +218,6 @@ impl Drop for ReconciliationGuard {
 
 pub fn spawn_reconciliation(
     provider: std::sync::Arc<dyn crate::agent::provider::AgentProvider>,
-    mut consented: ProviderConfigs,
     config: Option<crate::config::ConfigState>,
     notice: Option<Box<dyn FnOnce(String, String) + Send>>,
 ) -> Option<std::sync::Arc<IntegrationCompletion>> {
@@ -244,6 +249,19 @@ pub fn spawn_reconciliation(
         .name(format!("integration-repair-{id}"))
         .spawn(move || {
             let _guard = guard;
+            let _integration_write = lock_integration_changes();
+            let mut consented = match config.as_ref() {
+                Some(config) => config.lock().agents.clone(),
+                None => crate::config::load_config().agents,
+            };
+            if recorded_flag(
+                &consented,
+                &id,
+                crate::config::schema::INTEGRATION_CONSENT_GRANTED,
+            ) == Some(false)
+            {
+                return;
+            }
             if let Ok(api_port) = port.as_ref() {
                 provider.ensure_integration_on_startup(*api_port);
             }

@@ -114,6 +114,7 @@ fn vm_error_kind(e: &VmError) -> &'static str {
         VmError::CallCancelled => "cancelled",
         VmError::AdmissionBusy => "busy",
         VmError::IoUnconfirmed => "io_unconfirmed",
+        VmError::ContinuationLimit { .. } => "continuation_limit",
         VmError::OffRuntimeRequired => "off_runtime_required",
     }
 }

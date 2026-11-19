@@ -1,5 +1,9 @@
 # Study: one shared DS canvas
 
+Owner decision (17 Nov): a board lives in a `NAME.canvas.json` file and chat
+uses only `<ds-canvas src="ABSOLUTE_PATH.canvas.json" />`. The transient inline
+body proposal below is superseded.
+
 The owner's idea (16 Nov): make one shared DS canvas, place images, HTML and other things on it, show an area of it when needed, and fill it from the CLI (`domios canvas …`). "If this is hard, don't. If it simplifies things, explain how."
 
 This is a research study for that decision. Nothing has been built. Line counts were measured on `feature/1.20.1` at `7cab8842b9` with `wc -l` and exclude tests unless stated. Figures marked *estimate* are judgement, not measurement.
@@ -10,7 +14,7 @@ This is a research study for that decision. Nothing has been built. Line counts 
 
 - **Little to deduplicate.** The pan/zoom camera (`@codeterm/canvas-camera`) and the toolbar (`CanvasToolbar`) are already shared by every canvas. The repeated code is a thin camera-policy layer above the camera, about 380 lines across five surfaces. A shared hook would remove about 200 of them. The large canvases (plans, memory, mesh, Blueprint, essence map) render thousands of domain objects with Canvas 2D, WebGL or SVG. Moving them onto a DOM canvas of placed items would be slower and would delete nothing.
 - **The value is new capability.** Agents could build visual reports, side-by-side comparisons and boards in the chat. Most of the parts already exist: the image viewer is already a canvas of placed items (`ZoomCanvas`), and ds-html is already a hardened sandbox.
-- **Smallest useful step.** Do Iris's `CanvasHeader` and a shared camera-policy hook. Then add a transient `<ds-canvas>` chat block that carries its items inline, like `<ds-tasks>` carries a snapshot. It needs no storage, no daemon and no new CLI. Add persistent canvases, `domios canvas new|add|…` and mesh sharing only after agents actually use the block.
+- **Smallest useful step.** Do Iris's `CanvasHeader` and a shared camera-policy hook. The shipped board reads a `.canvas.json` file through `<ds-canvas src="ABSOLUTE_PATH.canvas.json" />`; multi-visual examples use that file to keep screenshots, HTML cards and notes together.
 
 ## 1. Inventory
 
@@ -122,12 +126,11 @@ Position and size are in world units. Without explicit `x`/`y`, items flow onto 
 ### 2.4 Chat block
 
 ```text
-<ds-canvas id="cv_7f3a" view="compare" />
-<ds-canvas>{"title":"Header options","items":[…]}</ds-canvas>
+<ds-canvas src="/absolute/board.canvas.json" view="compare" />
 ```
 
-- `id` points at a stored canvas (phase 3). An inline JSON body is a transient canvas that lives in the message (phase 1), the same pattern as the `<ds-tasks>` snapshot body.
-- **Inline, the block is static until clicked (Iris).** It shows a fitted, non-interactive preview of the whole canvas or of `view`, about 320px high, with a hairline frame and the title as a small caption. Click or Enter opens the full viewer. It never pans or zooms in place, because the wheel must keep scrolling the chat. There is no inline toolbar and no editing in the chat.
+- The `.canvas.json` file owns the board's items, views and title; the tag optionally names a view to open.
+- **In chat, the board is static until clicked (Iris).** It shows a fitted, non-interactive preview of the whole canvas or of `view`, about 320px high, with a hairline frame and the title as a small caption. Click or Enter opens the full viewer. It never pans or zooms in place, because the wheel must keep scrolling the chat. There is no inline toolbar and no editing in the chat.
 - Grammar, escaping and inertness follow `domios docs CHAT-BLOCKS`. The 32-preview limit and the per-kind byte bounds apply to the whole canvas.
 
 ### 2.5 CLI and API
@@ -142,7 +145,7 @@ domios canvas add cv_7f3a --kind note --from-pad note.md
 domios canvas move cv_7f3a a --x 0 --y 0 [--w --h]
 domios canvas remove cv_7f3a a
 domios canvas view cv_7f3a compare --x 0 --y 0 --w 1160 --h 400
-domios canvas show cv_7f3a [--view compare]   # prints the <ds-canvas> tag to paste into a reply
+domios canvas show cv_7f3a [--view compare]   # prints the <ds-canvas src> tag to paste into a reply
 domios canvas export cv_7f3a --format json|png|html
 ```
 
@@ -221,7 +224,7 @@ Up to 4 frames the parent page never stalls longer than 100 ms. From 6 frames on
 | Phase | Scope | New surface | Size (*estimate*) | Gate to continue |
 |---|---|---|---|---|
 | 0 | Iris's `CanvasHeader` and `CanvasToolbar appearance="inline"` (already specified for Elgar), plus `useCanvasStage` adopted by the five surfaces and one zoom step | None | 1–2 Worker tasks, net −250 lines | Wiring test and visual review of the five canvases |
-| 1 | `<ds-canvas>` with an inline JSON body: `image`, `html`, `page`, `document` and `note` items, grid-flow default, named views, Iris's static inline preview, and the full viewer on `ZoomCanvas`. Frontend only, in `@codeterm/chat-ui` and `chat-core` | One block grammar plus a CHAT-BLOCKS section | ~600–900 lines plus tests | Agents use it unprompted in reports for 2–3 weeks |
+| 1 | `<ds-canvas src>` reads a file containing `image`, `html`, `page`, `document` and `note` items, grid-flow default, named views, Iris's static preview, and the full viewer on `ZoomCanvas`. Frontend only, in `@codeterm/chat-ui` and `chat-core` | One block grammar plus a CHAT-BLOCKS section | ~600–900 lines plus tests | Agents use it unprompted in reports for 2–3 weeks |
 | 2 | `tab` and `graph` items (read-only embeds of plan, Blueprint and Mermaid) | Two item kinds | ~300–500 | A board use case asks for them |
 | 3 | Stored canvases: the daemon store, the `domios canvas` verbs, the `focus`/`filter` move to `plan canvas`, asset copy, scopes, events and mesh transfer | A CLI group, an API group and a store | ~1,500–2,500 Rust+TS, one CLI contract regeneration | Persistent boards are actually requested |
 | 4 | `export png` with a sandboxed HTML rasteriser | One verb | Unknown; needs its own spike | Explicit owner ask |

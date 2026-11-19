@@ -1,7 +1,8 @@
-import { attachmentPreviewKind, isDsCanvasFilePath, parseAttachmentMarkers, parseDomiosMessage, parseDsBlocks, rawEnvelopeExclusions, type LocalArtifactKind, type MessageSegment } from "@codeterm/chat-core";
+import { attachmentMarkerSegments, attachmentPreviewKind, isDsCanvasFilePath, parseDomiosMessage, parseDsBlocks, presentedAttachmentSegments, rawEnvelopeExclusions, type LocalArtifactKind, type MessageSegment } from "@codeterm/chat-core";
 
-export interface ChatDocument { path: string; kind: LocalArtifactKind; name: string; shownAt: string | number | null; }
-export interface TranscriptMessage { id?: string; sourceSessionId?: string; content: string; timestamp?: string | number | null; type?: string; inboundKind?: string; segments?: readonly MessageSegment[] | null }
+export interface ChatDocument { path: string; kind: LocalArtifactKind; name: string; shownAt: string | number | null; previewPath?: string }
+export interface TranscriptMessage { id?: string; sourceSessionId?: string; content: string; timestamp?: string | number | null; type?: string; inboundKind?: string; segments?: readonly MessageSegment[] | null; attachmentNames?: Readonly<Record<string, string>> }
+type DocumentSource = Omit<ChatDocument, "shownAt" | "name"> & { name?: string };
 
 function untrustedSegments(segments: readonly MessageSegment[]): boolean {
   return segments.some((part) => part.type === "partial_frame" || part.type === "unknown_frame" || part.type === "paste"
@@ -14,7 +15,7 @@ function displayedFrameBody(body: string): string {
   return trimmed.slice(first < 0 ? trimmed.length : trimmed.lastIndexOf("\n", first) + 1);
 }
 
-function directivesOf(message: TranscriptMessage): { kind: LocalArtifactKind; path: string }[] {
+function directivesOf(message: TranscriptMessage): DocumentSource[] {
   const routed = parseDomiosMessage(message.content);
   const frame = message.segments?.[0];
   const tailMatches = message.segments?.every((part, index) => index === 0 || (part.type === "text" && !part.text.trim()));
@@ -39,21 +40,24 @@ function directivesOf(message: TranscriptMessage): { kind: LocalArtifactKind; pa
   });
 }
 
-function attachmentsOf(content: string): { kind: LocalArtifactKind; path: string }[] {
-  return parseAttachmentMarkers(content).attachments.flatMap((attachment) => {
+function attachmentsOf({ content, attachmentNames }: TranscriptMessage): DocumentSource[] {
+  return presentedAttachmentSegments(attachmentMarkerSegments(content), attachmentNames).flatMap((segment) => {
+    if (!("attachment" in segment)) return [];
+    const { attachment } = segment;
+    if (attachment.previewPath) return [{ kind: "image", path: attachment.path, previewPath: attachment.previewPath, name: attachment.label }];
     const kind = attachmentPreviewKind(attachment);
-    return kind ? [{ kind, path: attachment.path }] : [];
+    return kind ? [{ kind, path: attachment.path, name: kind === "image" ? attachment.label : undefined }] : [];
   });
 }
 
 export function documentsFromTranscript(messages: readonly TranscriptMessage[]): ChatDocument[] {
   const documents = new Map<string, ChatDocument>();
   for (const message of messages) {
-    const found = message.type === "user" ? [...directivesOf(message), ...attachmentsOf(message.content)] : directivesOf(message);
+    const found = message.type === "user" ? [...directivesOf(message), ...attachmentsOf(message)] : directivesOf(message);
     for (const item of found) {
       const key = item.path.replace(/\\/g, "/");
       documents.delete(key);
-      documents.set(key, { ...item, name: key.split("/").pop() ?? key, shownAt: message.timestamp ?? null });
+      documents.set(key, { ...item, name: item.name ?? key.split("/").pop() ?? key, shownAt: message.timestamp ?? null });
     }
   }
   return [...documents.values()].reverse();
@@ -63,14 +67,17 @@ export function createDocumentInventory(extract = documentsFromTranscript) {
   let cache = new Map<string | TranscriptMessage, { message: TranscriptMessage; documents: ChatDocument[] }>();
   let previous: ChatDocument[][] = [];
   let inventory: ChatDocument[] = [];
-  return (messages: readonly TranscriptMessage[]): ChatDocument[] => {
+  return (messages: readonly TranscriptMessage[], attachmentNames?: ReadonlyMap<string, TranscriptMessage["attachmentNames"]>): ChatDocument[] => {
     const nextCache = new Map<string | TranscriptMessage, { message: TranscriptMessage; documents: ChatDocument[] }>();
-    const rows = messages.map((message) => {
+    const rows = messages.map((source) => {
+      const names = source.id === undefined ? undefined : attachmentNames?.get(source.id);
+      const message = names ? { ...source, attachmentNames: names } : source;
       const key = message.id === undefined ? message : `${message.sourceSessionId ?? ""}:${message.id}`;
       const cached = cache.get(key);
       const prior = cached?.message;
       const found = cached && (prior === message || (prior && prior.content === message.content && prior.timestamp === message.timestamp
-        && prior.type === message.type && prior.inboundKind === message.inboundKind && prior.segments === message.segments))
+        && prior.type === message.type && prior.inboundKind === message.inboundKind && prior.segments === message.segments
+        && prior.attachmentNames === message.attachmentNames))
         ? cached.documents : extract([message]).reverse();
       nextCache.set(key, { message, documents: found });
       return found;

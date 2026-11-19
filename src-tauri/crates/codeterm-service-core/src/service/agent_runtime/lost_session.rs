@@ -85,6 +85,11 @@ pub(crate) fn wake_failure(svc: &ServiceContext, tab: &str, failure: &RuntimeFai
     )
 }
 
+fn restart_claimed(svc: &ServiceContext, tab: &str) -> bool {
+    svc.try_ext::<crate::service::agent_lifecycle::RestartTracker>()
+        .is_some_and(|tracker| tracker.lock().in_progress.contains(tab))
+}
+
 /// Runs after the ensure gate is released, because the fresh restart takes it.
 pub(super) fn schedule(svc: &ServiceContext, session: &Arc<Session>, reason: &RuntimeFailure) {
     if !matches!(reason, RuntimeFailure::SessionLoadRefused(_)) {
@@ -94,7 +99,7 @@ pub(super) fn schedule(svc: &ServiceContext, session: &Arc<Session>, reason: &Ru
     let Some(thread) = context.thread_id.filter(|thread| !thread.is_empty()) else {
         return;
     };
-    if !claim(&context.tab_id, &thread) {
+    if restart_claimed(svc, &context.tab_id) || !claim(&context.tab_id, &thread) {
         return;
     }
     let svc = svc.clone();
@@ -109,7 +114,8 @@ pub(super) fn schedule(svc: &ServiceContext, session: &Arc<Session>, reason: &Ru
 }
 
 fn launch(svc: &ServiceContext, session: &Session, tab: &str, thread: &str) {
-    if !super::engine::session_load_refused(svc, session)
+    if restart_claimed(svc, tab)
+        || !super::engine::session_load_refused(svc, session)
         || session.context.lock().thread_id.as_deref() != Some(thread)
     {
         return;

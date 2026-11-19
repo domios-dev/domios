@@ -50,6 +50,8 @@ Runtime tabs with no provider store keep an append-only session log, written off
 
 Sleeping tabs read their own persisted transcript without waking or starting a runtime. A runtime tab awaiting its first session returns `200` with `pending: true` and `state: "waking"`; opening or addressing the tab owns waking it. A newly created, authenticated runtime thread with no turns returns an empty history even before its rollout is materialized. Stored runtime history errors use HTTP 404 with code `chat_history_missing`, HTTP 422 with `chat_history_corrupt`, or HTTP 503 with `chat_history_unavailable`; their states are `missing`, `corrupt`, and `unavailable`. Snapshot failures return JSON `{code, state, error}` with the original reason in `error`; unknown failures use HTTP 500, code `chat_snapshot_failed` and state `failed`. Request refusals preserve their HTTP status with code `chat_snapshot_refused` and state `refused`.
 
+A snapshot that encounters an unsettled runtime binding waits for that tab's runtime state to settle, for up to 60 seconds. Each read revalidates transcript ownership. If the binding is still unsettled when the wait ends, the response is HTTP 503 with code `chat_binding_changed` and state `restoring`.
+
 #### Delayed Chat messages
 
 | Method | Path | Body | Description |
@@ -103,4 +105,4 @@ Chat requests use the target tab's owned session. Bridge thread changes require 
 | POST | `/api/tabs/{id}/chat-raw/resume` | Resume raw chat streaming. |
 | POST | `/api/tabs/{id}/chat-send/admissions` | Read admission results for submitted chat sends. |
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

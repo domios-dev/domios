@@ -28,6 +28,63 @@ fn request(svc: &ServiceState, credential: &str, method: &str, params: Value) ->
 }
 
 #[test]
+fn concierge_socket_preserves_system_notices_and_typed_owner_refusals() {
+    let (mut mux, source) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&source).unwrap();
+    let target = mux.create_tab(&workspace).unwrap();
+    mux.get_tab_mut(&target).unwrap().neighbor_authority = Some(
+        codeterm_service_core::multiplexer::types::NeighborAuthority {
+            uid: "friend".into(),
+            friendship_id: "friendship".into(),
+            root_tab_id: None,
+        },
+    );
+    let fixture = ServiceFixture::new(mux);
+    let writes = fixture.bind_recorded_agent_recipient(&target, "own-session", "own-nonce");
+    let svc = Arc::new(fixture.service.clone());
+    svc.ext::<codeterm_service_core::config::ConfigState>()
+        .lock()
+        .api
+        .token = Some("owner-fixture".into());
+    let tab_token = svc
+        .frontend_pty_env(Some(&source))
+        .unwrap()
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    for credential in ["owner-fixture", tab_token.as_str()] {
+        let response = request(
+            &svc,
+            credential,
+            "tab.send_text",
+            json!({"tab_id":target,"text":"opaque owner input"}),
+        );
+        assert!(response.error.is_none(), "{:?}", response.error);
+        let receipt = response.result.unwrap();
+        assert_eq!(receipt["ok"], false);
+        assert_eq!(receipt["error"]["code"], "concierge_read_only");
+        assert_eq!(receipt["error"]["bytes_written"], false);
+        assert!(receipt["error"]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("in Neighbors"));
+    }
+    let notice = json!({"tab_id":target,"text":"opaque build result","system_context":"build"});
+    assert_eq!(
+        request(&svc, &tab_token, "tab.send_text", notice.clone())
+            .error
+            .unwrap()
+            .code,
+        -32003
+    );
+    assert!(writes.texts.lock().is_empty());
+    let response = request(&svc, "owner-fixture", "tab.send_text", notice);
+    assert!(response.error.is_none(), "{:?}", response.error);
+    assert_eq!(response.result.unwrap()["ok"], true);
+    assert_eq!(writes.texts.lock().as_slice(), ["opaque build result"]);
+    assert!(!fixture.has_pending_agent_delivery(&target));
+}
+
+#[test]
 fn memory_diagnostics_requires_local_owner_and_exposes_sizes_without_payloads() {
     let (mux, tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);

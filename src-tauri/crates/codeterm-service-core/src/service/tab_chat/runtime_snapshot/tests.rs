@@ -341,6 +341,28 @@ fn runtime_snapshot_rejects_foreign_scope_nonce_and_backing_without_searching() 
 }
 
 #[test]
+fn runtime_snapshot_withholds_restored_rows_until_own_launch_binding_is_confirmed() {
+    let (fixture, _, _, tab_id) = fixture(false);
+    let _runtime = attach(&fixture, &tab_id, "own reply");
+    let confirm = |nonce: Option<&str>| {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.restored_from_snapshot = true;
+        tab.reported_session_binding_nonce = nonce.map(str::to_owned);
+    };
+    confirm(None);
+    let error = for_tab(&fixture.service, &tab_id).unwrap_err();
+    assert_eq!(
+        StoredHistoryFailure::from_error(&error),
+        Some(StoredHistoryFailure::BindingChanged)
+    );
+    confirm(Some("own-nonce"));
+    let rows = for_tab(&fixture.service, &tab_id).unwrap().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].content, "own reply");
+}
+
+#[test]
 fn runtime_session_snapshot_ignores_foreign_siblings_and_refuses_ambiguous_owners() {
     let (fixture, cwd, provider, tab_id) = fixture(false);
     let _own = attach(&fixture, &tab_id, "own reply");

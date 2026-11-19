@@ -1,7 +1,7 @@
 import {act} from "react";
 import {createRoot} from "react-dom/client";
 import {expect,it,vi} from "vitest";
-import {RuntimeDeclaredControls} from "./RuntimeDeclaredControls";
+import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 import {RuntimeLoginActions} from "./RuntimeLoginActions";
 import {runtimeStateFromSnapshot} from "../../lib/agentRuntimeState";
 import type {AgentRuntimeState} from "../../lib/agentRuntimeState";
@@ -10,6 +10,20 @@ vi.mock("../../lib/bridge",()=>({invoke:bridge.invoke}));
 vi.mock("../../lib/nativeBridge",()=>({nativeBridge:{openUrl:bridge.openUrl}}));
 vi.mock("../../store/multiplexer/hooks",()=>({useMuxSelector:(select:(state:unknown)=>unknown)=>select({tabs:{owned:{session_binding_nonce:"own-nonce",agent_session_id:"own-session"}}})}));
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
+
+it.each([
+  { state: "loaded", epoch: 1, auth: "signedIn", loginMethods: ["browser"] },
+  { state: "loaded", epoch: 1, authentication: { state: "authenticated", methods: [] } },
+] satisfies AgentRuntimeState[])("renders no sign-in heading or controls for authenticated runtime state", async state => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<RuntimeLoginActions tabId="owned" state={state} />));
+    expect(host.querySelector('h3, button, [role="group"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
 
 it("starts browser login once, opens the native browser, and renders the device result",async()=>{
   const host=document.createElement("div");const root=createRoot(host);
@@ -39,7 +53,7 @@ it("requests one phone notification for a remote tab without opening a local bro
     await act(async()=>root.render(<RuntimeLoginActions tabId="mesh:opaque-peer/owned" state={{state:"loginPending",epoch:1,login:{status:"pending",loginId:"opaque-id",url:"https://example.invalid/opaque-path",userCode:"opaque-token"}}}/>));
     const button=Array.from(host.querySelectorAll("button")).find(button=>button.textContent === "Send to my phone")!;
     await act(async()=>{button.click();button.click();});
-    expect(bridge.invoke).toHaveBeenCalledExactlyOnceWith("agent_runtime_login",{tabId:"mesh:opaque-peer/owned",request:{action:"notify"}});
+    expect(bridge.invoke).toHaveBeenCalledExactlyOnceWith("agent_runtime_login",{tabId:"mesh:opaque-peer/owned",request:{action:"notify",loginId:"opaque-id"}});
     expect(button.disabled).toBe(true);
     expect(bridge.openUrl).not.toHaveBeenCalled();
   } finally {await act(async()=>root.unmount());}
@@ -64,7 +78,7 @@ it("submits a provider sign-in code through the masked card and clears it immedi
     await act(async () => host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     expect(input.value).toBe("");
     expect(bridge.invoke).toHaveBeenCalledExactlyOnceWith("agent_runtime_login", {
-      tabId: "own", request: { action: "code", code: "opaque-code", providerId: "fixture" },
+      tabId: "own", request: { action: "code", code: "opaque-code", providerId: "fixture", loginId: "own" },
     });
   } finally { await act(async () => root.unmount()); }
 });
@@ -75,7 +89,7 @@ it("renders declared authentication methods and submits only an available method
   const host=document.createElement("div");const root=createRoot(host);
   const state:AgentRuntimeState={state:"loaded",epoch:4,authentication:{state:"unknown",methods:[
     {id:"opaque-agent",name:"Agent sign-in",available:true},
-    {id:"opaque-terminal",name:"Terminal sign-in",available:false},
+    {id:"opaque-terminal",name:"Terminal sign-in",available:false,unavailableReason:"Unsupported extra challenge"},
   ]}};
   try {
     await act(async()=>root.render(<RuntimeLoginActions tabId="owned" state={state}/>));
@@ -86,6 +100,7 @@ it("renders declared authentication methods and submits only an available method
     const buttons=Array.from(group!.querySelectorAll("button"));
     const terminal=buttons.find(button=>button.textContent === "Terminal sign-in")!;
     expect(terminal.disabled).toBe(true);
+    expect(terminal.getAttribute("aria-description")).toBe("Unsupported extra challenge");
     await act(async()=>terminal.click());
     expect(bridge.invoke).not.toHaveBeenCalled();
     const agent=buttons.find(button=>button.textContent === "Agent sign-in")!;
@@ -98,8 +113,8 @@ it("renders declared authentication methods and submits only an available method
 it("asks for a key before a key-taking declared method and sends both together", async () => {
   bridge.invoke.mockReset();bridge.invoke.mockResolvedValue({});
   const host=document.createElement("div");const root=createRoot(host);
-  const state:AgentRuntimeState={state:"loginPending",epoch:2,apiKeyMethods:["opaque-key"],authentication:{state:"needs_auth",methods:[
-    {id:"opaque-key",name:"Key sign-in",available:true},
+  const state:AgentRuntimeState={state:"loginPending",epoch:2,loginBinding:{nonce:"own-nonce",epoch:2},authentication:{state:"needs_auth",methods:[
+    {id:"opaque-key",name:"Key sign-in",available:true,input:"apiKey"},
   ]}};
   try {
     await act(async()=>root.render(<RuntimeLoginActions tabId="owned" state={state}/>));
@@ -113,24 +128,123 @@ it("asks for a key before a key-taking declared method and sends both together",
       input.dispatchEvent(new Event("input",{bubbles:true}));
     });
     await act(async()=>host.querySelector('form[aria-label="API key sign-in"]')!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true})));
-    expect(bridge.invoke).toHaveBeenCalledExactlyOnceWith("agent_runtime_login",{tabId:"owned",request:{methodId:"opaque-key",apiKey:"opaque-secret"}});
+    expect(bridge.invoke).toHaveBeenCalledExactlyOnceWith("agent_runtime_login",{tabId:"owned",request:{methodId:"opaque-key",apiKey:"opaque-secret",binding:{nonce:"own-nonce",epoch:2}}});
     expect(host.querySelector('input[aria-label="API key"]')).toBeNull();
   } finally {await act(async()=>root.unmount());}
 });
 
-it("dismisses the agent notice above the composer", async () => {
+it("keeps a non-actionable runtime diagnostic out of chat", async () => {
   const host=document.createElement("div");document.body.append(host);const root=createRoot(host);
   const state:AgentRuntimeState={state:"loaded",epoch:4,notice:"Agent notice"};
   try {
-    await act(async()=>root.render(<RuntimeDeclaredControls tabId="owned" state={state}/>));
-    expect(host.querySelector('[role="status"]')?.textContent).toContain("Agent notice");
-    await act(async()=>Array.from(host.querySelectorAll("button")).find(button=>button.textContent === "Dismiss notice")!.click());
+    await act(async()=>root.render(<AgentRuntimeBanner tabId="owned" state={state} onRetry={() => {}} />));
     expect(host.querySelector('[role="status"]')).toBeNull();
+    expect(host.textContent).toBe("");
   } finally {await act(async()=>root.unmount());host.remove();}
+});
+
+it("drops old sign-in results and secret input when the runtime binding changes", async () => {
+  bridge.invoke.mockReset();bridge.openUrl.mockReset();
+  let finish!:(value:unknown)=>void;
+  bridge.invoke.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;})).mockResolvedValue({});
+  const host=document.createElement("div");const root=createRoot(host);
+  const state:AgentRuntimeState={state:"loginPending",epoch:1,loginBinding:{nonce:"old-nonce",epoch:1},authentication:{state:"needs_auth",methods:[
+    {id:"opaque-oauth",name:"Browser method",available:true,input:"none"},
+    {id:"opaque-key",name:"Key method",available:true,input:"apiKey"},
+  ]}};
+  try {
+    await act(async()=>root.render(<RuntimeLoginActions tabId="owned" state={state}/>));
+    await act(async()=>Array.from(host.querySelectorAll("button")).find(button=>button.textContent==="Browser method")!.click());
+    const fresh={...state,epoch:2,loginBinding:{nonce:"new-nonce",epoch:2}};
+    await act(async()=>root.render(<RuntimeLoginActions tabId="owned" state={fresh}/>));
+    await act(async()=>finish({login:{status:"pending",url:"https://example.test/old-account"}}));
+    expect(bridge.openUrl).not.toHaveBeenCalled();
+    const key=Array.from(host.querySelectorAll("button")).find(button=>button.textContent==="Key method")!;
+    expect(key.disabled).toBe(false);
+    await act(async()=>key.click());
+    const input=host.querySelector<HTMLInputElement>('input[aria-label="API key"]')!;
+    await act(async()=>{
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")!.set!.call(input,"ephemeral-key");
+      input.dispatchEvent(new Event("input",{bubbles:true}));
+    });
+    await act(async()=>root.render(<RuntimeLoginActions tabId="different" state={fresh}/>));
+    expect(host.querySelector('input[aria-label="API key"]')).toBeNull();
+    expect(host.textContent).not.toContain("ephemeral-key");
+    expect(bridge.invoke).toHaveBeenCalledTimes(1);
+    expect(bridge.invoke).toHaveBeenCalledWith("agent_runtime_login",{tabId:"owned",request:{methodId:"opaque-oauth",binding:{nonce:"old-nonce",epoch:1}}});
+  } finally {await act(async()=>root.unmount());}
+});
+
+it("submits a challenge code once and allows cancellation while its callback is pending", async () => {
+  bridge.invoke.mockReset();bridge.openUrl.mockReset();
+  let fail!:(reason:unknown)=>void;
+  bridge.invoke.mockImplementationOnce(()=>new Promise((_resolve,reject)=>{fail=reject;})).mockResolvedValue({});
+  const host=document.createElement("div");const root=createRoot(host);
+  const state:AgentRuntimeState={state:"loginPending",epoch:3,loginBinding:{nonce:"own-nonce",epoch:3},
+    login:{status:"pending",loginId:"host-login",url:"https://example.test/login",codeInput:true,instructions:"Challenge instructions"}};
+  try {
+    await act(async()=>root.render(<RuntimeLoginActions tabId="owned" state={state}/>));
+    expect(host.textContent).toContain("Challenge instructions");
+    const input=host.querySelector<HTMLInputElement>('input[aria-label="Sign-in code"]')!;
+    expect(input.type).toBe("password");
+    await act(async()=>{
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")!.set!.call(input,"one-time-secret");
+      input.dispatchEvent(new Event("input",{bubbles:true}));
+    });
+    const form=host.querySelector('form[aria-label="Sign-in code"]')!;
+    await act(async()=>{form.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}));form.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}));});
+    expect(input.value).toBe("");
+    expect(bridge.invoke).toHaveBeenCalledTimes(1);
+    await act(async()=>Array.from(host.querySelectorAll("button")).find(button=>button.textContent==="Cancel")!.click());
+    expect(bridge.invoke).toHaveBeenNthCalledWith(1,"agent_runtime_login",{tabId:"owned",request:{action:"code",code:"one-time-secret",loginId:"host-login",binding:{nonce:"own-nonce",epoch:3}}});
+    expect(bridge.invoke).toHaveBeenNthCalledWith(2,"agent_runtime_login",{tabId:"owned",request:{action:"cancel",loginId:"host-login",binding:{nonce:"own-nonce",epoch:3}}});
+    await act(async()=>root.render(<RuntimeLoginActions tabId="owned" state={{...state,login:{status:"canceled",loginId:"host-login"}}}/>));
+    await act(async()=>fail("stale one-time-secret failure"));
+    expect(host.textContent).not.toContain("stale");
+    expect(host.textContent).not.toContain("one-time-secret");
+    expect(bridge.openUrl).not.toHaveBeenCalled();
+  } finally {await act(async()=>root.unmount());}
+});
+
+it("keeps a remote key method disabled with an accessible explanation", async () => {
+  bridge.invoke.mockReset();bridge.invoke.mockResolvedValue({});
+  const host=document.createElement("div");const root=createRoot(host);
+  try {
+    await act(async()=>root.render(<RuntimeLoginActions tabId="mesh:peer/owned" state={{state:"loginPending",epoch:1,authentication:{state:"needs_auth",methods:[
+      {id:"opaque-key",name:"Key method",available:true,input:"apiKey"},
+    ]}}}/>));
+    const button=Array.from(host.querySelectorAll("button")).find(button=>button.textContent==="Key method")!;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute("aria-description")).toBeTruthy();
+    await act(async()=>button.click());
+    expect(bridge.invoke).not.toHaveBeenCalled();
+  } finally {await act(async()=>root.unmount());}
 });
 
 it("keeps a live notice across same-epoch snapshots and clears it for a new runtime", () => {
   const state:AgentRuntimeState={state:"loaded",epoch:4,notice:"Transient"};
   expect(runtimeStateFromSnapshot(state,{state:"loaded",epoch:4})?.notice).toBe("Transient");
   expect(runtimeStateFromSnapshot(state,{state:"loaded",epoch:5})?.notice).toBeUndefined();
+});
+
+it("restarts the remembered browser choice once after an explicit different-account retry",async()=>{
+  bridge.invoke.mockReset().mockResolvedValue({});bridge.openUrl.mockReset();
+  const host=document.createElement("div");const root=createRoot(host);
+  const state:AgentRuntimeState={state:"loginPending",epoch:3,auth:"signedOut",loginMethods:["browser"],loginChoices:[{id:"work-browser",label:"Browser"}],preferredLoginMethod:{method:"browser",choice:"work-browser",apiKey:false}};
+  try {
+    await act(async()=>root.render(<RuntimeLoginActions tabId="private-retry" state={state}/>));
+    await act(async()=>root.render(<RuntimeLoginActions tabId="private-retry" state={{...state}}/>));
+    expect(bridge.invoke).toHaveBeenCalledExactlyOnceWith("agent_runtime_login",{tabId:"private-retry",request:{method:"browser",account:"work-browser"}});
+  }finally{await act(async()=>root.unmount());}
+});
+it("remembers only the API-key method and asks for a fresh masked key on retry",async()=>{
+  bridge.invoke.mockReset();
+  const host=document.createElement("div");const root=createRoot(host);
+  const state:AgentRuntimeState={state:"loginPending",epoch:3,auth:"signedOut",loginMethods:["apiKey"],preferredLoginMethod:{method:"apiKey",apiKey:true}};
+  try {
+    await act(async()=>root.render(<RuntimeLoginActions tabId="private-retry-key" state={state}/>));
+    const input=host.querySelector<HTMLInputElement>('input[aria-label="API key"]');
+    expect(input?.type).toBe("password");expect(input?.value).toBe("");
+    expect(bridge.invoke).not.toHaveBeenCalled();
+  }finally{await act(async()=>root.unmount());}
 });

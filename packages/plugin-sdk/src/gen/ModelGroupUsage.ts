@@ -11,7 +11,7 @@
  * pair is only present when the provider can read a live quota. A group whose
  * live limit is unreadable leaves the limit fields `None` rather than guessing.
  */
-export type ModelGroupUsage = { 
+export type ModelGroupUsage = {
 /**
  * Matches `ModelGroup::id`.
  */

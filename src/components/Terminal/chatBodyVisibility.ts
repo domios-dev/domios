@@ -6,6 +6,7 @@ import { placeOutboundReports, type OutboundReportPlacement } from "./outboundRe
 export type ChatBodyView =
   | { kind: "none" }
   | { kind: "starting"; label: string }
+  | { kind: "terminal_prompt" }
   | { kind: "launch_failed"; reason: string | null }
   | { kind: "attach_failed"; reason: string }
   | { kind: "locked" }
@@ -28,7 +29,7 @@ export interface ChatBodyInput {
 export function chatBodyView(input: ChatBodyInput): ChatBodyView {
   if (input.locked) return { kind: "locked" };
   if (input.restoreLoadRefused) return { kind: "none" };
-  if (input.bootView.kind === "launch_failed") return input.bootView;
+  if (input.bootView.kind === "launch_failed" || input.bootView.kind === "terminal_prompt") return input.bootView;
   if (input.attachmentError) return { kind: "attach_failed", reason: input.attachmentError };
   if ((input.firstTurnReady || input.hasUndeliveredSends) && !input.unavailable) return { kind: "none" };
   if (input.hasHeldWindow) return { kind: "none" };
@@ -101,5 +102,5 @@ export function railRowCount(placement: OutboundReportPlacement): number {
 }
 
 export function composerVisible(view: ChatBodyView): boolean {
-  return view.kind !== "launch_failed";
+  return view.kind !== "launch_failed" && view.kind !== "terminal_prompt";
 }

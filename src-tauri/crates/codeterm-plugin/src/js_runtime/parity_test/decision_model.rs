@@ -118,7 +118,10 @@ fn parity_decision_model_opencode_run_shared_fixtures() {
         host.io.fs.fileExists = function*() { return false; };
         host.io.fs.readFile = function*() { return null; };
     "#;
-    let vm = Arc::new(PluginVm::from_source("run-fixture", format!("{setup}\n{bundle}")).unwrap());
+    let vm = Arc::new(super::super::provider_observation::with_fixture_version(
+        Some("1.19.0"),
+        || PluginVm::from_source("run-fixture", format!("{setup}\n{bundle}")).unwrap(),
+    ));
     let javascript = JsDecisionModel::new(vm, "run-fixture", TokenMode::None);
     assert!(javascript.select_model("fixture/model"));
     assert!(!javascript.supports_question_batch());

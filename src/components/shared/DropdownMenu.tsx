@@ -1,5 +1,6 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useId, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import type { ComponentProps } from "react";
 import { AnchoredPopover, type AnchoredPopoverProps } from "./AnchoredPopover";
 import { groupOptionsByLabel } from "../../lib/optionGroups";
 import { useBackDismissal } from "../../lib/backDismissal";
@@ -20,6 +21,7 @@ export interface DropdownMenuItem {
   submenu?: {
     label: string;
     description?: string;
+    showDescription?: boolean;
     items: DropdownMenuEntry[];
   };
   danger?: boolean;
@@ -32,6 +34,7 @@ export interface DropdownMenuItem {
   title?: string;
   /** Secondary line, exposed through `aria-describedby`. */
   description?: string;
+  truncateDescription?: boolean;
   shortcut?: string;
   /** Keeps the menu open after activation so a toggle shows its new state. */
   keepOpen?: boolean;
@@ -69,6 +72,30 @@ function isGroup(entry: DropdownMenuEntry): entry is DropdownMenuGroup {
 
 function groupKeyOf(group: DropdownMenuGroup): string {
   return group.groupKey ?? group.label;
+}
+
+export function DropdownGroupLabel({ expanded, children, onClick, onKeyDown, ...props }: Omit<ComponentProps<"button">, "aria-expanded"> & { expanded: boolean }) {
+  return (
+    <button
+      {...props}
+      type="button"
+      aria-expanded={expanded}
+      className="ct-menu-group-label"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick?.(event);
+      }}
+      onKeyDown={(event) => {
+        onKeyDown?.(event);
+        if (event.defaultPrevented || (event.key !== "Enter" && event.key !== " ")) return;
+        event.preventDefault();
+        if (!event.repeat) event.currentTarget.click();
+      }}
+    >
+      {expanded ? <ChevronDown aria-hidden size={12} /> : <ChevronRight aria-hidden size={12} />}
+      <span className="truncate">{children}</span>
+    </button>
+  );
 }
 
 function itemKey(item: DropdownMenuItem): string {
@@ -396,7 +423,8 @@ export function DropdownMenu({
               event.preventDefault();
               moveFocus(event.key);
             }}
-            aria-description={activeSubmenu?.description}
+            aria-description={activeSubmenu?.showDescription ? undefined : activeSubmenu?.description}
+            aria-describedby={activeSubmenu?.showDescription && activeSubmenu.description ? `${descriptionIdBase}-submenu` : undefined}
             className={`ct-menu w-max${triggerRef.current?.closest('[aria-modal="true"]') ? " ct-menu--modal" : ""}`}
             style={{ width: maxWidth ?? (inSubmenu && pageWidth ? pageWidth : undefined), maxHeight, maxWidth }}
           >
@@ -416,6 +444,8 @@ export function DropdownMenu({
                   <span className="ct-menu-row__icon"><ChevronLeft aria-hidden size={14} /></span>
                   <span className="min-w-0 flex-1 truncate">{activeSubmenu.label}</span>
                 </button>
+                {activeSubmenu.showDescription && activeSubmenu.description && <p id={`${descriptionIdBase}-submenu`}
+                  className="ct-menu-row__description min-w-0 max-w-full whitespace-normal px-3 pb-2 [overflow-wrap:anywhere]">{activeSubmenu.description}</p>}
               </div>
             ) : header}
             {visibleEntries.map((entry, i) => isSeparator(entry) ? (
@@ -423,22 +453,14 @@ export function DropdownMenu({
             ) : isGroup(entry) ? (
               <div key={`group:${groupKeyOf(entry)}`} role="group" aria-label={entry.label || undefined}>
                 {entry.label && (
-                  <button
-                    type="button"
+                  <DropdownGroupLabel
                     role="menuitem"
-                    aria-expanded={!collapsedGroups.has(groupKeyOf(entry))}
+                    expanded={!collapsedGroups.has(groupKeyOf(entry))}
                     data-testid={entry["data-testid"]}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleGroup(groupKeyOf(entry));
-                    }}
-                    className="ct-menu-group-label"
+                    onClick={() => toggleGroup(groupKeyOf(entry))}
                   >
-                    {collapsedGroups.has(groupKeyOf(entry))
-                      ? <ChevronRight aria-hidden size={12} />
-                      : <ChevronDown aria-hidden size={12} />}
-                    <span className="truncate">{entry.label}</span>
-                  </button>
+                    {entry.label}
+                  </DropdownGroupLabel>
                 )}
                 {!collapsedGroups.has(groupKeyOf(entry)) && entry.items.map((item, j) => (
                   <DropdownMenuRow
@@ -477,7 +499,7 @@ function DropdownMenuRow({
     <button
       type="button"
       role={menuItemRole(item)}
-      aria-label={item.labelContent === undefined ? undefined : item.label}
+      aria-label={item.labelContent === undefined && !item.truncateDescription ? undefined : item.label}
       aria-checked={item.checked ?? item.selected}
       aria-haspopup={item.submenu ? "menu" : undefined}
       aria-expanded={item.submenu ? false : undefined}
@@ -514,7 +536,7 @@ function DropdownMenuRow({
           )}
         </span>
         {item.description && (
-          <span id={descriptionId} className="ct-menu-row__description">
+          <span id={descriptionId} className={`ct-menu-row__description${item.truncateDescription ? " !whitespace-nowrap truncate" : ""}`}>
             {item.description}
           </span>
         )}
@@ -529,6 +551,7 @@ function DropdownMenuRow({
 export interface DropdownSelectOption {
   value: string;
   label: string;
+  description?: string;
   disabled?: boolean;
   /** Native-title suffix appended to the label (e.g. " (not installed)"). */
   suffix?: string;
@@ -541,7 +564,10 @@ export interface DropdownSelectOption {
   content?: ReactNode;
 }
 
+export const TOUCH_SELECT_HEIGHT = "min-h-9 pointer-coarse:min-h-11";
+
 /** The closed look of every value picker: a pill that names the current choice, with a trailing chevron. */
+
 export const SELECT_TRIGGER = "flex items-center gap-2 w-full min-w-0 px-3 py-1.5 rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40";
 
 /**
@@ -558,6 +584,7 @@ export function DropdownSelect({
   disabled,
   placeholder,
   leading,
+  iconOnly = false,
   prefix,
   "aria-label": ariaLabel,
   "aria-describedby": ariaDescribedBy,
@@ -573,6 +600,7 @@ export function DropdownSelect({
   placeholder?: string;
   /** Leading adornment inside the trigger (e.g. a provider AgentIcon). */
   leading?: ReactNode;
+  iconOnly?: boolean;
   /** Static label shown before the value so the control names itself, e.g.
    *  "Effort" → "Effort Medium". */
   prefix?: string;
@@ -586,10 +614,12 @@ export function DropdownSelect({
 }) {
   const selected = options.find((o) => o.value === value);
   const label = selected?.label ?? placeholder ?? "";
+  const accessibleLabel = ariaLabel ? `${ariaLabel}: ${label}` : prefix ? `${prefix}: ${label}` : undefined;
   const badge = selected?.badge;
   const toItem = (o: DropdownSelectOption): DropdownMenuItem => ({
     label: o.suffix ? `${o.label}${o.suffix}` : o.label,
     labelContent: o.content,
+    description: o.description,
     badge: o.badge,
     disabled: o.disabled,
     icon: o.value === value ? <Check size={14} /> : <span className="w-3.5 h-3.5" />,
@@ -612,27 +642,30 @@ export function DropdownSelect({
       data-testid={testId}
       data-value={value}
       disabled={disabled}
-      aria-label={ariaLabel ? `${ariaLabel}: ${label}` : prefix ? `${prefix}: ${label}` : undefined}
+      aria-label={accessibleLabel}
       aria-describedby={ariaDescribedBy}
+      title={iconOnly ? accessibleLabel : undefined}
       className={`${SELECT_TRIGGER} ${className ?? ""}`}
     >
       {leading}
-      {prefix && (
-        <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-[var(--ct-muted-fg)]">
-          {prefix}
-        </span>
-      )}
-      <span className="flex-1 min-w-0 truncate text-left">{label}</span>
-      {badge && (
-        <span
-          data-testid={testId ? `${testId}-badge` : undefined}
-          className="shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide text-[var(--ct-accent)]"
-          style={{ background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)" }}
-        >
-          {badge}
-        </span>
-      )}
-      <ChevronDown size={12} className="shrink-0 text-[var(--ct-muted-fg)]" />
+      {!iconOnly && <>
+        {prefix && (
+          <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-[var(--ct-muted-fg)]">
+            {prefix}
+          </span>
+        )}
+        <span className="flex-1 min-w-0 truncate text-left">{label}</span>
+        {badge && (
+          <span
+            data-testid={testId ? `${testId}-badge` : undefined}
+            className="shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide text-[var(--ct-accent)]"
+            style={{ background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)" }}
+          >
+            {badge}
+          </span>
+        )}
+        <ChevronDown size={12} className="shrink-0 text-[var(--ct-muted-fg)]" />
+      </>}
     </button>
   );
 
@@ -640,7 +673,10 @@ export function DropdownSelect({
     <DropdownMenu
       items={items}
       trigger={trigger}
-      className="w-full min-w-0"
+      className={iconOnly ? undefined : "w-full min-w-0"}
+      maxWidth={iconOnly ? 280 : undefined}
+      placement={iconOnly ? "bottom-end" : undefined}
+      menuLabel={iconOnly ? ariaLabel : undefined}
       maxHeight={menuMaxHeight}
       disabled={disabled}
       focusOnPointerOpen={focusOnPointerOpen}

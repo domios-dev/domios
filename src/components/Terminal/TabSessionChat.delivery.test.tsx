@@ -297,23 +297,25 @@ for (const touch of [false, true]) {
       const tabId = `runtime-${state}-${touch}`;
       const { host, root, calls, dispatch } = await renderChat(tabId, { state, epoch: 2, reason: "opaque-overflow" });
       try {
-        const badge = host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]');
-        assert(badge, "runtime status badge is mounted");
-        await act(async () => badge.click());
-        const retry = document.querySelector<HTMLButtonElement>('button[aria-label="Retry"]');
-        assert(retry, "runtime recovery action is mounted");
+        const card = host.querySelector('[role="log"] [data-testid="runtime-chat-notice"]');
         assert(host.querySelector('textarea'), "composer remains available during runtime recovery");
-        assert(retry.disabled === (state === "loading"), "only pending recovery disables Retry");
-        if (state !== "loading") {
-          await act(async () => { retry.click(); });
-          assert(calls.filter(command => command === "agent_runtime_retry").length === 1, "Retry reaches the runtime once");
-        } else {
+        if (state === "loading") {
+          assert(!card, "transient loading has no recovery card");
           await act(async () => dispatch("agent-runtime-state", {
             tab_id: tabId, session_binding_nonce: "nonce-1", state: { state: "loaded", epoch: 3 },
           }));
+        } else {
+          const label = state === "degraded" ? "Restart the agent" : "Try again";
+          const recover = [...(card?.querySelectorAll("button") ?? [])].find(button => button.textContent === label);
+          assert(recover && !recover.disabled, "runtime recovery action is available in the transcript");
+          await act(async () => recover.click());
+          const command = state === "degraded" ? "restart_agent_tab" : "agent_runtime_retry";
+          assert(calls.filter(call => call === command).length === 1, "the offered action reaches its recovery route once");
+          if (state === "degraded") await act(async () => dispatch("agent-runtime-state", {
+            tab_id: tabId, session_binding_nonce: "nonce-1", state: { state: "loaded", epoch: 3 },
+          }));
         }
-        assert(!host.querySelector('button[aria-haspopup="dialog"]'), "loaded runtime removes recovery badge");
-        assert(!document.querySelector('[role="dialog"]'), "loaded runtime removes open popover");
+        assert(!host.querySelector('[data-testid="runtime-chat-notice"]'), "loaded runtime clears the recovery card");
         assert(host.querySelector('textarea'), "loaded runtime restores the shared composer");
       } finally {
         await act(async () => root.unmount()); host.remove();
@@ -346,7 +348,7 @@ test("mobile held and written sends retain one bubble beside runtime recovery", 
       assert(bubble()[0]?.querySelector('[role="status"]'), "shared delivery model reaches the bubble");
       assert(![...(bubble()[0]?.querySelectorAll("button") ?? [])].some(button => button.textContent === "Retry"
         || button.textContent === "Edit and resend"), "held and written sends never offer replay");
-      assert(host.querySelector('button[aria-haspopup="dialog"]'), "runtime recovery remains available");
+      assert(host.querySelector('[role="log"] [data-testid="runtime-chat-notice"]'), "runtime recovery remains available in the log");
     }
   } finally {
     await act(async () => root.unmount()); host.remove();
@@ -871,7 +873,8 @@ for (const reducedMotion of [false, true]) {
           id: "voice", correlationId: "voice", content: "opaque-placeholder", sentAtMs: Date.now(),
         });
         setChatSendDraft(tabId, "voice", {
-          text: "", attachments: ["/voice.wav"], recordedVoiceAttachments: ["/voice.wav"], capsules: {}, reply: null,
+          text: "", attachments: ["/voice.wav"], recordedVoiceAttachments: ["/voice.wav"],
+          voiceTranscribing: true, capsules: {}, reply: null,
         });
       });
       const bubble = host.querySelector('[data-testid="chat-message"][data-message-id="voice"]')!;
@@ -883,11 +886,15 @@ for (const reducedMotion of [false, true]) {
           .then(() => { throw new Error("transcription should fail"); }, () => {});
       });
       assert(!bubble.querySelector('[aria-busy="true"]'), "failure removes progress from the same bubble");
-      const status = bubble.querySelector('[role="status"]');
-      const buttons = [...(status?.querySelectorAll("button") ?? [])];
-      assert(buttons.length === 1 && buttons[0].textContent === "Set up transcriber", "transcription failure offers only setup");
-      assert(status?.textContent?.includes("transcriber is unavailable"), "transcription reason remains visible");
-      await act(async () => buttons[0].click());
+      const statuses = [...bubble.querySelectorAll('[role="status"]')];
+      const buttons = [...bubble.querySelectorAll("button")];
+      assert(buttons.some(button => button.textContent === "Set up transcriber"), "transcription failure retains setup action");
+      assert(statuses.some(status => status.textContent?.includes("transcriber is unavailable")), "transcription reason remains visible");
+      await openDeliveryActions(bubble);
+      assert([...document.querySelectorAll('[role="dialog"] button')].some(button => button.textContent === "Retry"),
+        "transcription failure retains a retry action");
+      await act(async () => statuses[0]?.querySelector("button")?.click());
+      await act(async () => buttons.find(button => button.textContent === "Set up transcriber")!.click());
       assert(sends.length === 1 && sends[0].tabId === "general" && sends[0].text.includes("transcriber"), "setup sends one request to General");
       assert((focused as { tabId: string; workspaceId: string })?.tabId === "general"
         && (focused as { workspaceId: string })?.workspaceId === "general-workspace", "setup brings General forward");

@@ -3,7 +3,7 @@
 /**
  * An interactive prompt option (e.g. permission request).
  */
-export type PromptOption = { label: string, 
+export type PromptOption = { label: string,
 /**
  * Value to send to PTY (e.g. "1", "y", "n")
  */

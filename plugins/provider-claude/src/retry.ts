@@ -5,6 +5,17 @@ import {outputLimit} from "../../provider-shared/outputLimit";
 const networkCodes = ["ENOTFOUND", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN", "EPIPE", "UND_ERR_CONNECT_TIMEOUT", "api_connection_error", "connection_error"];
 
 export function retryError(record: Record<string, unknown>): {retry_error?: RuntimeErrorSignal} {
+  const result = retrySignal(record);
+  const error = record.error && typeof record.error === "object" ? record.error as Record<string, unknown> : {};
+  const explicitQuota = record.apiErrorCode === "usage_limit" || error.code === "usage_limit" || error.type === "usage_limit";
+  if (result.retry_error && !result.retry_error.retryable && result.retry_error.retryableKind !== "output_limit" && explicitQuota && classifyAccessError(record.error, record) === "usage_limit") {
+    const reset = record.apiErrorResetAtMs ?? error.retryAtMs;
+    result.retry_error.accountLimit = { ...(typeof reset === "number" && Number.isSafeInteger(reset) && reset >= 0 ? {resetsAtMs: reset} : {}) };
+  }
+  return result;
+}
+
+function retrySignal(record: Record<string, unknown>): {retry_error?: RuntimeErrorSignal} {
   if (record.type !== "assistant" || record.isSidechain === true) return {};
   if (outputLimit(record.message) || (record.isApiErrorMessage === true && outputLimit(record.error))) return {retry_error:{retryable:false, retryableKind:"output_limit"}};
   if (record.isApiErrorMessage !== true) return {};

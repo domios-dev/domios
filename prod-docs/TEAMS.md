@@ -1,6 +1,6 @@
 # Team templates
 
-Every Team starts from a template: the builtin default unless one is named. A template is an ATP package (`domios docs TEAM-FORMAT`): one `roles` map whose every role has a `kind` (manager or worker) and its own instructions, plus what travels with them (files, memory, skills, Blueprints). A Team has exactly the roles its package lists. Only the `with_team` managers start with the Team; every other role is registered and started on demand through ordinary `--role`.
+Every Team starts from a template: the builtin default unless one is named. A template is an ATP package (`domios docs TEAM-FORMAT`): one `roles` map whose every role has a `kind` (manager or worker) and its own instructions, plus what travels with them (files, memory, skills, Blueprints). Team registrations recommend specialists; builtin Workers remain available even when the package omits them. Only the `with_team` managers start with the Team; every other role is registered and started on demand through ordinary `--role`.
 
 ## Choose a template
 
@@ -64,7 +64,7 @@ Good to know:
 - `refused` can also be `schedule_unsupported_role` or `host_owned_role` (`watcher` and `general_agent` are Domios names, never package roles).
 - `domios team check <path>` validates a package; TEAM-FORMAT (linked above) defines its format.
 
-`domios role list --team <team-id>` shows exactly the roles a Team has, each with its kind, its Domios authority (a built-in manager's, or none) and the package it comes from; `domios role show <name> --team <team-id>` renders one. A Team with no registrations is the builtin default package as a whole. A Team keeps the template version it started from: saving or importing a newer version never changes an active Team.
+`domios role list --team <team-id>` shows the Team's registered recommendations, each with its kind, its Domios authority (a built-in manager's, or none) and the package it comes from; `domios role show <name> --team <team-id>` renders one. A Team with no registrations is the builtin default package as a whole. A Team keeps the template version it started from: saving or importing a newer version never changes an active Team.
 
 ## Roles at run time
 
@@ -80,7 +80,7 @@ Preview shows the diff, SHA-256 hashes (base64url), source package and effective
 Sync changes only instructions, atomically saves them and then refreshes the cache. Model, reasoning, schedule, files, skills and other roles stay pinned. The next fresh launch, including the next Curator round, receives the new instructions; running sessions retain their current prompt. The Team keeps a bounded per-manager approval record with source identity and hashes; approval alone does not claim a successful write. Updates remain explicit, with no automatic sync.
 
 - **Managers** are started by the Orchestrator with `domios agent spawn --role <name>`: built-in or custom, one live instance per name per Team (a second is refused with `team_role_already_live`). A manager is a Team member parented to the Orchestrator and never takes a task binding.
-- **Workers** are dispatched with `domios plan task dispatch <plan> <task> --role <name>`. Only workers the Team lists are accepted; a manager name or an unlisted name, built-in or not, is refused with the Team's worker names. Without `--role` dispatch uses `worker` only when the Team lists it.
+- **Workers** are dispatched with `domios plan task dispatch <plan> <task> --role <name>`. Team-registered Workers and builtin worker, qa, reviewer and release_manager are accepted. Manager and unknown names refuse before spawning. Without `--role` dispatch uses `worker` only when the Team lists it.
 - **Authority** follows the built-in manager names only: `orchestrator`, `planner`, `cartographer` and `curator` of kind manager keep their Domios duties. A custom manager has none: it cannot spawn, approve or edit plans, accept or release tasks, or staff the Team. It advises, does what the Orchestrator asks, and asks the Orchestrator for anything else. Package text never grants authority.
 
 ## Peer Mains
@@ -132,4 +132,4 @@ The bake writes the `roles` map with `kind` first in each role and keeps each ro
 
 Operations a build does not provide yet answer `template_unavailable` and change nothing.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

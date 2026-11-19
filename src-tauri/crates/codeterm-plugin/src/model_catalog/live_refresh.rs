@@ -29,9 +29,11 @@ impl std::fmt::Display for RefreshFailure {
     }
 }
 
-fn failures() -> &'static RwLock<HashMap<String, RefreshFailure>> {
-    static FAILURES: OnceLock<RwLock<HashMap<String, RefreshFailure>>> = OnceLock::new();
-    FAILURES.get_or_init(RwLock::default)
+fn failures(
+) -> &'static crate::provider_account::cache::ScopedCache<HashMap<String, RefreshFailure>> {
+    static CACHE: crate::provider_account::cache::ScopedCache<HashMap<String, RefreshFailure>> =
+        crate::provider_account::cache::ScopedCache::new();
+    &CACHE
 }
 
 /// The reason the provider's most recent live probe published nothing; cleared
@@ -61,10 +63,14 @@ pub async fn refresh_live(
     timeout_duration: Duration,
 ) -> Option<Vec<ModelInfo>> {
     let provider_id = provider.id().to_string();
-    let default = provider.default_model();
+    let seed_default = (!provider
+        .model_catalogue_capability()
+        .live_discovery_required)
+        .then(|| provider.default_model())
+        .flatten();
     let publish_id = provider_id.clone();
     // blocking pool. Use an independent executor, not `Handle::block_on` (deadlocks nested in spawn_blocking).
-    let task = tokio::task::spawn_blocking(move || {
+    let task = crate::js_runtime::spawn_blocking(move || {
         // A refresh must observe current filesystem and PATH state before live discovery.
         crate::js_runtime::forget_resolved_bins();
         let inputs = discovery_stamp(provider.as_ref());
@@ -76,7 +82,7 @@ pub async fn refresh_live(
         if !was_empty && models.is_empty() {
             return Err(RefreshFailure::OnlyNonChatModels);
         }
-        let default = resolve_live_default(&models, default);
+        let default = resolve_live_default(&models, seed_default);
         let binary = provider.cli_binary().and_then(fingerprint_bin);
         let credentials = credential_fingerprints(provider.as_ref());
         inputs::publish_current(provider.as_ref(), &inputs, || {

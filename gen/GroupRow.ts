@@ -2,7 +2,7 @@
 import type { GroupKey } from "./GroupKey";
 import type { Totals } from "./Totals";
 
-export type GroupRow = { key: GroupKey, 
+export type GroupRow = { key: GroupKey,
 /**
  * The name the host holds for this id; `None` when it holds none.
  */

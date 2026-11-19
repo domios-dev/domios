@@ -1,6 +1,8 @@
 use super::authority::SendAuthority;
 use super::*;
 
+mod admission;
+
 pub trait NeighborsExt {
     fn send_neighbor(
         &self,
@@ -62,6 +64,7 @@ impl NeighborsExt for ServiceContext {
         self.require_neighbors_enabled()?;
         let generation = self.neighbor_history_generation();
         let Outgoing {
+            message_id,
             authority,
             friendship,
             kind,
@@ -72,6 +75,10 @@ impl NeighborsExt for ServiceContext {
         if !hex_id(&friendship, 64) {
             return Err(Error::InvalidEnvelope);
         }
+        let message_id = message_id.unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string());
+        if !hex_id(&message_id, 32) {
+            return Err(Error::InvalidEnvelope);
+        }
         let permission = metadata
             .settings()
             .await?
@@ -79,6 +86,10 @@ impl NeighborsExt for ServiceContext {
             .get(&friendship)
             .cloned()
             .unwrap_or_default();
+        let pad = match &body {
+            OutboundBody::Files { pad, .. } => pad.clone(),
+            _ => None,
+        };
         let (body, paths) = prepare_outgoing_body(
             metadata,
             &friendship,
@@ -89,6 +100,7 @@ impl NeighborsExt for ServiceContext {
             in_reply_to.as_deref(),
         )
         .await?;
+        admission::reserve(self, metadata, &message_id, generation).await?;
         let keys = lifecycle.load().await?.ok_or(Error::Revoked)?;
         if !lifecycle
             .registry
@@ -104,7 +116,7 @@ impl NeighborsExt for ServiceContext {
         let mut envelope = Envelope {
             schema: SCHEMA.into(),
             friendship_id: friendship.clone(),
-            message_id: uuid::Uuid::new_v4().simple().to_string(),
+            message_id,
             sender_uid: transport.uid.clone(),
             recipient_uid: peers.peer_uid.clone(),
             kind,
@@ -121,7 +133,7 @@ impl NeighborsExt for ServiceContext {
             issued_at: now().seconds,
         };
         let (body, visible_body, attachments) = self
-            .prepare_neighbor_files(transport, metadata, &envelope, body, paths)
+            .prepare_neighbor_files(transport, metadata, &envelope, body, paths, pad)
             .await?;
         keys.encrypt(
             &mut envelope,
@@ -243,7 +255,7 @@ async fn prepare_outgoing_body(
 ) -> codeterm_neighbors::Result<(Zeroizing<String>, Vec<String>)> {
     match &body {
         OutboundBody::Granted(text) => codeterm_neighbors::wire::validate_nonempty_text(text)?,
-        OutboundBody::Files { text, paths } if paths.is_empty() => {
+        OutboundBody::Files { text, paths, .. } if paths.is_empty() => {
             codeterm_neighbors::wire::validate_nonempty_text(text)?;
         }
         _ => {}
@@ -292,7 +304,7 @@ async fn prepare_outgoing_body(
     authority.require(permission, kind)?;
     match body {
         OutboundBody::Granted(body) => Ok((body, vec![])),
-        OutboundBody::Files { text, paths } => Ok((text, paths)),
+        OutboundBody::Files { text, paths, .. } => Ok((text, paths)),
         OutboundBody::Refusal => Err(Error::InvalidRequest),
     }
 }

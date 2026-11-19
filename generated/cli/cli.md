@@ -134,8 +134,12 @@ Read a Neighbor's local permission policy
 
 General Agent: receive one named friend's messages here; confirm an existing receiver move with the owner
 
+- `--adopt-scope-from-pad` — Reconciled sharing scope for adoption, read from this tab's pad
+- `--expected-grant-digest`
 - `--expected-receiver-revision`
 - `<friendship_id>`
+- `--grant-choice` — Owner-confirmed grant decision after reviewing --preview
+- `--preview` — Read both local and previous receiver grants without moving receiving
 - `--takeover-confirmed` — Pass only after the owner explicitly agrees to move receiving from the named machine
 
 #### `domios account neighbors revoke`
@@ -150,6 +154,7 @@ Rotate this installation's keys and revoke the previous pair
 
 Encrypt and send one authored message; prints only its ID and status
 
+- `--attach` — Attach a file from this tab's AgentPad; repeat for up to four files
 - `<friendship_id>`
 - `--from-pad`
 - `--in-reply-to`
@@ -409,6 +414,7 @@ Promote your own live roleless, team-less agent to Orchestrator (can spawn worke
 
 Spawn a new agent; roleless unless --role is provided.
 
+- `--account` — Harness account ID from Settings > Agents > Harness > Accounts. Defaults to workspace choice, then first available
 - `<agent>` — Optional agent provider id. Without one, a uniquely advertised model id selects its provider; otherwise the configured default is used
 - `--args` — Extra provider args. Put this after all Domios spawn options
 - `--authorized-gate` — Gate token this Worker may claim as executed; repeatable. Carried into its brief. For a task-bound Worker declare gates on the dispatch instead (`plan task dispatch --authorized-gate`)
@@ -434,7 +440,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--reason` — Why this Worker needs an unplanned task
 - `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
-- `--role` — Role name the Team registers, or the host-only watcher. The Orchestrator starts a Team manager (built-in or custom) with it, one live instance per name; a name the Team does not list is refused. reviewer is read-only by default
+- `--role` — Team-registered role, builtin Worker role, or host-only watcher. Managers have one live instance per name; unknown names refuse. reviewer is read-only by default
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
 - `--speed` — Provider-declared service tier for this launch
 - `--system` — Override the shell system prompt of a chatBackend shell; refused for PTY agents
@@ -880,15 +886,17 @@ Disable a cron job
 Edit a cron job
 
 - `--agent` — Agent provider override (e.g. "claude", "codex")
+- `--clear-tab` — Clear the report target, keeping runs private to the cron
 - `--cwd`
 - `--description`
-- `<id>` — Cron job ID
+- `<id>` — Cron job name or ID
 - `--jitter-max-ms` — Max jitter in milliseconds added to each scheduled fire. Set 0 to disable jitter. Omit to leave unchanged
 - `--model` — Model within the agent provider. Pass empty string to clear
 - `--name`
 - `--reasoning-effort` — Reasoning-effort level advertised by the agent provider. Pass empty string to clear
 - `--schedule`
 - `--skill` — Mem skill slug to resolve and inject into the task brief at fire time. Pass an empty string to clear
+- `--tab` — Tab to receive reports. Omit to leave unchanged
 - `--task`
 - `--timeout-secs` — Per-cron run timeout (seconds). 0 clears the override (back to global default)
 - `--tz` — IANA timezone (e.g. "Europe/Riga"). Pass empty string to clear back to UTC
@@ -1557,7 +1565,7 @@ Merge a near-duplicate into a keeper, reversibly: the lesser is archived (never 
 
 #### `domios mem neighbor-save`
 
-Save a fact or note through this friendship's live memory write grant
+Save a fact, note or (with Full access) skill through this friendship's live grant
 
 - `--area`
 - `--from-pad` — Body from your AgentPad; use - for UTF-8 stdin
@@ -3068,7 +3076,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--profile` — ACP launch profile declared by the provider
 - `--provider-reserve-pct` — Advisory provider allowance reserve for mutating work: below it, or when exhausted, the receipt carries a provider_allowance_low warning; never blocks (0 = warn only when exhausted)
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
-- `--role` — Worker the Team registers to launch; a manager or unlisted name is refused with the Team's workers. Omitted uses `worker` only when the Team lists it. The task's executor_role is unchanged
+- `--role` — Team-registered or builtin Worker role; managers and unknown names refuse. Omitted uses the Team's worker default. The task's executor_role is unchanged
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
 - `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
@@ -3156,6 +3164,7 @@ Respawn a worker from one prior attempt, inheriting its recorded execution inten
 - `--profile` — ACP launch profile; inherits the source attempt when omitted and the provider stays the same
 - `--provider`
 - `--reasoning-effort`
+- `--role` — Worker role override; inherits the source attempt when omitted
 - `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
 - `--title`

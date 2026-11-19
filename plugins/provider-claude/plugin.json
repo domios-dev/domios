@@ -1,8 +1,49 @@
 {
   "id": "claude",
-  "version": "1.14.32",
-  "minCodeterm": "1.20.1",
+  "version": "1.14.37",
+  "minCodeterm": "1.20.2",
   "hostApi": 2,
+  "accounts": {
+    "credentialFiles": [
+      ".credentials.json"
+    ],
+    "onboardingFlag": {
+      "file": ".claude.json",
+      "key": "hasCompletedOnboarding"
+    },
+    "homeEnvironment": "CLAUDE_CONFIG_DIR",
+    "defaultHome": "~/.claude",
+    "secretEnvironment": [
+      "ANTHROPIC_API_KEY",
+      "CLAUDE_API_KEY",
+      "ANTHROPIC_AUTH_TOKEN",
+      "CLAUDE_CODE_OAUTH_TOKEN"
+    ],
+    "excludedEnvironment": [
+      "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+      "CODETERM_CLAUDE_PROCESS_REGISTRY_DIR"
+    ],
+    "isolatedPaths": [
+      ".credentials.json",
+      "settings.json",
+      ".claude.json"
+    ],
+    "processRegistryDirectory": "sessions",
+    "sharedPaths": [
+      {
+        "path": "projects",
+        "kind": "directory"
+      },
+      {
+        "path": "history.jsonl",
+        "kind": "file"
+      }
+    ],
+    "sharedIndexPaths": [
+      "projects/*/sessions-index.json"
+    ],
+    "continuation": "unverified"
+  },
   "generalAgentOfferWhenAbsent": true,
   "displayName": "Claude Code",
   "binaryName": "claude",
@@ -270,7 +311,7 @@
         "command": "/model",
         "confirmation": "(?i)^Set model to `?(?:{model}|{display_name})(?: [^`\\r\\n]+)?`? for this session only(?:$|[^a-z0-9_-])",
         "picker": {
-          "screenRegex": "(?m)^\\s*Select model\\s*$[\\s\\S]*^\\s*Enter to set as default · s to use this session only · Esc to cancel[^\\S\\r\\n]*\\r?$",
+          "screenRegex": "(?m)^\\s*Select model\\s*$[\\s\\S]*^\\s*(?:Enter to set as default · s to use this session only|←/→ to adjust · s to use this session only · Enter to save) · Esc to cancel[^\\S\\r\\n]*\\r?$",
           "selectedRegex": "(?m)^\\s*❯\\s*(?P<position>\\d+)\\.\\s+[^\\r\\n]+\\r?$",
           "targetRegex": "(?im)^\\s*(?:❯\\s*)?(?P<position>\\d+)\\.\\s+(?P<label>{display_name}|{model})(?:\\s*[✓✔])?(?:\\s+[^\\r\\n]+)?\\r?$",
           "position": "number",
@@ -280,7 +321,7 @@
           "cancelKey": "\u001b"
         },
         "prompt": {
-          "screenRegex": "(?im)^\\s*[^\\r\\n?]+\\?\\s*$[\\s\\S]*?^\\s*❯\\s*1\\.\\s+[^\\r\\n]*(?:{model}|{display_name})[^\\r\\n]*\\r?\\n\\s*2\\.\\s+[^\\r\\n]+\\s*^\\s*[─━-]{3,}[^\\r\\n]*\\r?$",
+          "screenRegex": "(?im)^\\s*[^\\r\\n?]+\\?\\s*$[\\s\\S]*?^\\s*❯\\s*1\\.\\s+[^\\r\\n]*(?:{model}|{display_name})[^\\r\\n]*\\r?\\n\\s*2\\.\\s+[^\\r\\n]+\\s*^\\s*[─━-]{3,}[^\\r\\n]*\\r?$|^\\s*Switch model\\?\\s*^\\s*Your next response will be slower and use more tokens\\s*^\\s*This conversation is cached for the current model\\.[^\\r\\n]*(?:\\r?\\n[ \\t]+[^\\r\\n]+){0,4}\\s*^\\s*❯\\s*1\\.\\s+Yes, switch to (?:{display_name}|{model})[^\\S\\r\\n]*\\r?\\n[ \\t]*2\\.\\s+No, go back[^\\S\\r\\n]*\\r?\\n\\s*Enter to confirm · Esc to cancel[^\\S\\r\\n]*\\r?$",
           "responseKeys": [
             "\r"
           ],

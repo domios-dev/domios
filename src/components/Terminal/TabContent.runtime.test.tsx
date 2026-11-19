@@ -32,11 +32,67 @@ vi.mock("./TerminalTab", async () => {
 });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-it("docks a degraded session's notice in its own row above the transcript and names the real state", async () => {
+it("shows sign-in inside General while the bound runtime is signed out and clears it on sign-in", async () => {
+  const tab: Tab = {
+    id: "general-auth", title: "Main", tab_type: "Terminal", cwd: null, pty_id: null, agent_type: "fixture",
+    role_profile: "general_agent", protected: true, agent_session_id: "general-session", session_binding_nonce: "general-binding",
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "general-session" },
+    agent_runtime_state: { state: "loginPending", epoch: 1, auth: "signedOut", loginProviderName: "Fixture", loginMethods: ["browser"] },
+  };
+  const state: ExtendedState = { workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [] };
+  let publish!: (event: { payload: AgentRuntimeStateEvent }) => void;
+  __setListenForTest(async (name, handler) => {
+    if (name === "agent-runtime-state") publish = handler as typeof publish;
+    return () => {};
+  });
+  __setInvokeForTest(<T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "chat_start") return Promise.resolve({
+      text: "", offset: 0, start_offset: 0, pending: false, messages: [], source_session_id: "general-session",
+      session_binding_nonce: "general-binding", subscription_id: args?.subscriptionId,
+    } as T);
+    const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] } : {};
+    return Promise.resolve(value as T);
+  });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(<MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        <TabContent tab={tab} isFocused isVisible onFocusTab={() => {}} onPtySpawned={() => {}}
+          theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>));
+    const chat = host.querySelector('[role="region"][aria-label="Tab chat: Main"]')!;
+    const signInCard = () => chat.querySelector('[role="group"][aria-label="Sign in to Fixture"]');
+    expect([...signInCard()!.querySelectorAll("button")].some(button => button.textContent === "Continue in browser")).toBe(true);
+    await act(async () => publish({ payload: {
+      tab_id: tab.id, session_binding_nonce: "general-binding",
+      state: { state: "loaded", epoch: 1, auth: "signedIn", loginProviderName: "Fixture", loginMethods: ["browser"] },
+    } }));
+    expect(signInCard()).toBeNull();
+    await act(async () => publish({ payload: {
+      tab_id: tab.id, session_binding_nonce: "general-binding",
+      state: { ...tab.agent_runtime_state!, authentication: { state: "authenticated", methods: [] } },
+    } }));
+    expect(signInCard()).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});
+
+it("places recovery after the cached transcript with the diagnostic behind Details", async () => {
   const reason = "opaque: Interrupt completion deadline exceeded; runtime recovery required";
   const loaded: Tab = {
     id: "docked-notice", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null, agent_type: "fixture",
     agent_session_id: "docked-session", session_binding_nonce: "docked-binding", boot_stage: "agent_ready",
+    agent_session_model: "deepseek/deepseek-flash", agent_provider_resolved_model: "other/earlier-model",
     backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "docked-session" },
     agent_runtime_state: { state: "loaded", epoch: 1 },
   };
@@ -44,12 +100,19 @@ it("docks a degraded session's notice in its own row above the transcript and na
   let state: ExtendedState = { workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
     notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [] };
   const store = createMuxStateStore(() => state);
+  setAgentDescriptors([{
+    schema_version: 1, id: "fixture", display_name: "Fixture", transport: "chat_backend", system_prompt_delivery: "external",
+    available_models: [], notifications_schema: [], supports_lazy_skills: false, has_hooks: false,
+    settings_schema: [{ kind: "toggle", key: "usage_tracking_enabled", label: "Usage tracking", default: true }],
+    agent_runtime: { usage: true }, model_groups: [{ id: "deepseek", label: "DeepSeek" }],
+  }], false);
   __setListenForTest(async () => () => {});
   __setInvokeForTest(<T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
     if (command === "chat_start") return Promise.resolve({ text: "", offset: 1, start_offset: 0, pending: false,
       source_session_id: "docked-session", session_binding_nonce: "docked-binding", subscription_id: String(args?.subscriptionId),
       messages: [{ id: "docked-row", type: "assistant", content: "opaque retained reply" }] } as T);
-    const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
+    const value = command === "provider_model_usage" ? [{ group: "deepseek", spend_remaining_cents: 917 }]
+      : command === "delayed_send_list" || command === "list_agent_providers" ? []
       : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] } : {};
     return Promise.resolve(value as T);
   });
@@ -64,26 +127,30 @@ it("docks a degraded session's notice in its own row above the transcript and na
   ));
   try {
     await render();
+    const balance = 'button[aria-label="DeepSeek balance, $9.17 left"]';
+    expect(host.querySelector(`[data-testid="tab-top-bar"] ${balance}`)?.textContent).toBe("$9.17");
+    const composerStatus = host.querySelector('[data-testid="agent-state"]');
+    expect(composerStatus).not.toBeNull();
+    expect(composerStatus?.textContent).not.toContain("$9.17");
+    expect(host.querySelectorAll(balance)).toHaveLength(1);
     tab = { ...loaded, agent_runtime_state: { state: "degraded", epoch: 2, failureCode: "provider_refused", reason } };
     state = { ...state, tabs: { [tab.id]: tab } };
     await act(async () => store.notify());
     await render();
-    const dock = host.querySelector('section[aria-label="Session status"]');
-    const log = host.querySelector('[role="log"]');
-    expect(dock).not.toBeNull();
-    expect(log).not.toBeNull();
-    const notice = dock!.querySelector('[role="status"]');
-    expect(notice?.getAttribute("aria-label")).toBe("Runtime needs recovery");
-    expect(notice?.textContent).toContain(reason);
-    expect(host.textContent).not.toContain("taking longer than usual");
-    expect(log!.contains(dock)).toBe(false);
-    expect(dock!.contains(log)).toBe(false);
-    const row = dock!.closest('[data-testid="session-status-row"]');
-    expect(row).not.toBeNull();
-    expect(row!.nextElementSibling?.contains(log)).toBe(true);
-    expect(host.querySelector('[data-testid="chat-message"]')).not.toBeNull();
+    const log = host.querySelector('[role="log"]')!;
+    const notice = log.querySelector('[data-testid="runtime-chat-notice"]')!;
+    expect(notice.querySelector('[role="status"]')?.textContent).toBe("The agent runtime stopped responding.");
+    expect(log.textContent).not.toContain(reason);
+    const details = [...notice.querySelectorAll("button")].find(button => button.textContent === "Details")!;
+    expect(details.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => details.click());
+    expect(notice.textContent).toContain(reason);
+    const message = log.querySelector('[data-testid="chat-message"]')!;
+    expect(message.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(host.querySelector('[data-testid="session-status-row"] [role="status"]')).toBeNull();
   } finally {
     await act(async () => root.unmount()); host.remove();
+    setAgentDescriptors([], false);
     __setInvokeForTest(null); __setListenForTest(null);
   }
 });
@@ -91,7 +158,7 @@ it("docks a degraded session's notice in its own row above the transcript and na
 it.each([
   ["a kept conversation", [{ id: "kept-row", type: "assistant", content: "opaque retained reply" }]],
   ["an empty conversation", []],
-])("keeps a launched session readable with a docked Restart after its relaunch failed, with %s", async (_name, messages) => {
+])("keeps a launched session readable with a transcript Restart after its relaunch failed, with %s", async (_name, messages) => {
   const reason = "opaque: Interrupt completion deadline exceeded; runtime recovery required";
   const tab: Tab = {
     id: `relaunch-failed-${messages.length}`, title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null, agent_type: "fixture",
@@ -127,11 +194,10 @@ it.each([
     expect(log!.closest("[inert]")).toBeNull();
     expect(host.querySelectorAll('[data-testid="chat-message"]').length).toBe(messages.length);
     expect(host.querySelector('textarea[aria-label="Message composer"]')).not.toBeNull();
-    const dock = host.querySelector('[data-testid="session-status-row"] section[aria-label="Session status"]');
-    expect(dock?.querySelector('[role="status"]')?.getAttribute("aria-label")).toBe("Runtime needs recovery");
-    const restart = host.querySelectorAll<HTMLButtonElement>('button[aria-label="Restart the agent"]');
+    const notice = log!.querySelector('[data-testid="runtime-chat-notice"]')!;
+    const restart = Array.from(host.querySelectorAll("button")).filter(button => button.textContent === "Restart the agent");
     expect(restart.length).toBe(1);
-    expect(dock!.contains(restart[0])).toBe(true);
+    expect(notice.contains(restart[0])).toBe(true);
     await act(async () => restart[0].click());
     expect(restarts).toEqual([{ tabId: tab.id }]);
   } finally {
@@ -432,8 +498,7 @@ it("keeps the composer draft and attachment through runtime status changes", asy
     const attachment = host.querySelector('[data-testid="composer-capsule-mirror"]')?.textContent;
     expect(attachment).toContain("preserved.md");
     await emit({ state: "degraded", epoch: 1, reason: "fixture runtime fault" });
-    const badge = host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"][aria-label="Agent runtime unavailable"]');
-    expect(badge).not.toBeNull();
+    expect(host.querySelector('[role="log"] [data-testid="runtime-chat-notice"]')).not.toBeNull();
     expect(host.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(draft);
     for (const runtimeState of ["loading", "unloaded"] as const) {
       await emit({ state: runtimeState, epoch: 2, reason: runtimeState === "unloaded" ? "pipe ended" : undefined });
@@ -762,13 +827,13 @@ it("refreshes only its chat attachment while retaining draft, authority, transcr
     await render();
     const restoring = ownSurface().querySelector('[role="status"][aria-label="Restoring…"]');
     expect(restoring === null || restoring.closest('[aria-hidden="true"]') !== null).toBe(true);
-    expect(ownSurface().querySelector('[aria-label="Agent runtime is taking longer than usual"]')).not.toBeNull();
+    expect(ownSurface().querySelector('[data-testid="runtime-chat-notice"]')).toBeNull();
     expect(ownSurface().querySelector("textarea")).toBe(composer);
     tab = { ...tab, agent_runtime_state: { state: "degraded", epoch: 3, reason: "ProcessExited: opaque" } };
     state = { ...state, tabs: { ...state.tabs, [tab.id]: tab } };
     await act(async () => store.notify());
     await render();
-    expect(ownSurface().querySelector('[aria-label="Agent runtime unavailable"]')).not.toBeNull();
+    expect(ownSurface().querySelector('[role="log"] [data-testid="runtime-chat-notice"]')).not.toBeNull();
   } finally {
     await act(async () => root.unmount()); host.remove();
     __setInvokeForTest(null); __setListenForTest(null);

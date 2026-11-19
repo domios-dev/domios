@@ -5,25 +5,25 @@ import type { SerdeReasoningEffortInfo } from "./SerdeReasoningEffortInfo";
 /**
  * CamelCase-friendly mirror of `ModelInfo` for plugin.json authors.
  */
-export type SerdeModelInfo = { id: string, displayName: string, description: string | null, 
+export type SerdeModelInfo = { id: string, displayName: string, description: string | null,
 /**
  * See `ModelInfo::available`. Lets a manifest seed ship an alias as
  * disabled (`false`) until live discovery confirms it for the account.
  */
-available: boolean | null, 
+available: boolean | null,
 /**
  * See `ModelInfo::availability`. A probe that could not run reports
  * `unknown` here rather than collapsing into `available: false`.
  */
-availability: ModelAvailability | null, primary: boolean | null, 
+availability: ModelAvailability | null, primary: boolean | null,
 /**
  * See `ModelInfo::featured`. Marks a model to lead the picker list.
  */
-featured: boolean | null, 
+featured: boolean | null,
 /**
  * See `ModelInfo::badge`. Short chip rendered beside the picker label.
  */
-badge: string | null, 
+badge: string | null,
 /**
  * See `ModelInfo::group`. Provider-declared picker section label.
  */

@@ -1,6 +1,59 @@
 use super::*;
 
 #[test]
+fn account_environment_wins_in_direct_and_shell_launch_without_serializing_foreign_keys() {
+    let invocation = codeterm_plugin::provider_account::InvocationContext::new(
+        "fixture".into(),
+        "account-b".into(),
+        std::collections::BTreeMap::from([
+            ("ACCOUNT_TEST_HOME".into(), Some("selected-home".into())),
+            ("ACCOUNT_TEST_TOKEN".into(), None),
+        ]),
+        vec![],
+        vec![],
+    )
+    .unwrap();
+    let policy = codeterm_types::plan::ExecutionSandboxPolicy {
+        intent: codeterm_types::plan::ExecutionIntent::Mutating,
+        cwd: "fixture".into(),
+        launch_args: vec![],
+        runtime_mode: None,
+        writable_roots: vec![],
+        environment: std::collections::BTreeMap::from([
+            ("ACCOUNT_TEST_HOME".into(), "foreign-home".into()),
+            ("ACCOUNT_TEST_TOKEN".into(), "opaque-foreign-token".into()),
+        ]),
+    };
+    let prepared = codeterm_plugin::provider_account::with_context(Some(invocation), || {
+        PreparedAgentCommand::from_spec(codeterm_types::agent::LaunchSpec {
+            program: "fixture-provider".into(),
+            env_set: std::collections::HashMap::from([(
+                "ACCOUNT_TEST_TOKEN".into(),
+                "opaque-provider-token".into(),
+            )]),
+            ..Default::default()
+        })
+        .with_execution_environment(Some(&policy))
+    });
+    let direct = prepared.direct.unwrap();
+    assert_eq!(direct.env_set["ACCOUNT_TEST_HOME"], "selected-home");
+    assert!(!direct.env_set.contains_key("ACCOUNT_TEST_TOKEN"));
+    assert!(direct
+        .env_unset
+        .iter()
+        .any(|key| key == "ACCOUNT_TEST_TOKEN"));
+    for foreign in [
+        "foreign-home",
+        "opaque-foreign-token",
+        "opaque-provider-token",
+    ] {
+        assert!(!prepared.shell_command.contains(foreign));
+    }
+    assert!(prepared.shell_command.contains("selected-home"));
+    assert!(prepared.shell_command.contains("ACCOUNT_TEST_TOKEN"));
+}
+
+#[test]
 fn execution_environment_overrides_provider_values_and_removals() {
     let policy = codeterm_types::plan::ExecutionSandboxPolicy {
         intent: codeterm_types::plan::ExecutionIntent::Mutating,

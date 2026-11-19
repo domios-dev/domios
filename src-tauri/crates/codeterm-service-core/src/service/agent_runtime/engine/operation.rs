@@ -136,12 +136,18 @@ async fn run_tracked(
     operation: RuntimeOperation,
     handed_off: &AtomicBool,
 ) -> Result<RuntimeResult, RuntimeFailure> {
-    tokio::time::timeout(
-        std::time::Duration::from_secs(60),
-        run_inner(svc, session, process, operation, handed_off),
-    )
-    .await
-    .map_err(|_| RuntimeFailure::Deadline)?
+    let invocation = session.invocation.lock().clone();
+    let result = codeterm_plugin::provider_account::scope(invocation, async {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            run_inner(svc, session, process, operation, handed_off),
+        )
+        .await
+        .map_err(|_| RuntimeFailure::Deadline)?
+    })
+    .await;
+    crate::service::provider_accounts::runtime_boundary(svc, session);
+    result
 }
 
 async fn run_inner(
@@ -161,6 +167,9 @@ async fn run_inner(
     )
     .map_err(RuntimeFailure::Refused)?;
     super::model::validate_operation_thread(&context, &operation)?;
+    if matches!(operation, RuntimeOperation::SubmitTurn { .. }) {
+        crate::service::provider_accounts::invalidate_boundary(svc, &context.tab_id);
+    }
     if matches!(operation, RuntimeOperation::SubmitTurn { .. })
         && session.compaction.lock().held(context.epoch)
     {
@@ -254,11 +263,15 @@ async fn run_inner(
                 };
                 let captured_read = matches!(operation, RuntimeOperation::ReadHistory { .. })
                     .then(|| operation.clone());
+                let captured_login = super::super::login::declared_operation_witness(&operation);
                 let guard: rpc::PrewriteGuard = Arc::new(move || {
                     if runtime.context.lock().epoch != epoch {
                         return Err(RuntimeFailure::Superseded);
                     }
                     validate_binding(&owner, &runtime)?;
+                    if let Some(witness) = &captured_login {
+                        super::super::login::validate_declared_witness(&runtime, witness)?;
+                    }
                     let cli_context = runtime.context.lock().clone();
                     super::super::cli_exception::validate_binding(&owner, &cli_context)
                         .map_err(RuntimeFailure::Refused)?;
@@ -337,6 +350,10 @@ async fn run_inner(
                 handed_off.store(true, Ordering::Release);
                 if let Err(reason) = process.client.reply(request_id, reply).await {
                     super::super::client_bridge::approvals::revoke(&context, approval);
+                    if matches!(&reason, RuntimeFailure::ReplyRefused { .. }) {
+                        session.prompts.lock().remove(request_id);
+                        super::super::prompt_answers::resolve(svc, session, request_id);
+                    }
                     return Err(reason);
                 }
                 session.prompts.lock().remove(request_id);

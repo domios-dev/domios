@@ -138,10 +138,10 @@ function isUnavailable(model: ModelInfo): boolean {
   return model.availability === "unavailable" || (model.availability == null && model.available === false);
 }
 
-function matchesQuery(model: ModelInfo, query: string): boolean {
+function matchesQuery(descriptor: ProviderDescriptor, model: ModelInfo, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
-  return [model.id, model.display_name, model.group ?? ""].some((text) => text.toLowerCase().includes(needle));
+  return [model.id, model.display_name, model.group ?? prefixGroupLabel(descriptor, model)].some((text) => text.toLowerCase().includes(needle));
 }
 
 function prefixGroupLabel(descriptor: ProviderDescriptor, model: ModelInfo): string {
@@ -158,7 +158,7 @@ export function pickerModelGroups(
 ): PickerModelGroup[] {
   const curated = pickerHasPrimaryModels(descriptor) && !showAll && !query.trim();
   const models = withSessionModel(descriptor.available_models, sessionModel).filter((model) =>
-    (!curated || model.primary === true) && matchesQuery(model, query));
+    (!curated || model.primary === true) && matchesQuery(descriptor, model, query));
   const toRow = (model: ModelInfo): PickerModelRow => ({
     id: model.id,
     label: model.display_name || model.id,

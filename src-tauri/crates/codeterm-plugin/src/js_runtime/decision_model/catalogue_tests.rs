@@ -42,7 +42,17 @@ fn cold_catalogue_shares_one_discovery_without_blocking_cheap_vm_calls() {
         let source = prefix
             + &source
             + "; module.exports.default.discoveryCount = function () { return starts; };";
-        let vm = Arc::new(PluginVm::from_source_with(&manifest.id, source, Some(raw)).unwrap());
+        let load = || PluginVm::from_source_with(&manifest.id, source, Some(raw)).unwrap();
+        let uses_http_runtime = manifest
+            .capabilities
+            .agent_runtime
+            .as_ref()
+            .is_some_and(|runtime| runtime.http_sse.is_some());
+        let vm = Arc::new(if uses_http_runtime {
+            crate::js_runtime::provider_observation::with_fixture_version(Some("2.3.0"), load)
+        } else {
+            load()
+        });
         let model = Arc::new(JsDecisionModel::new(
             vm.clone(),
             manifest.id,

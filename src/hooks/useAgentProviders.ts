@@ -51,22 +51,33 @@ export function syncAgentDescriptorCache(
 export function attachModelCatalogueChangedRefresh(
   refetch: () => void,
   listenImpl: typeof listen = listen,
+  scope?: { providerId: string; accountId?: string | null; contextKey?: string },
 ): () => void {
   let active = true;
-  const observed = new Map<string, ProviderCatalogueRevision>(listAgentDescriptors().map((provider) => [
+  const observed = new Map<string, number>(scope ? [] : listAgentDescriptors().map((provider) => [
     provider.id,
-    { revision: provider.catalogue_version ?? 0 },
+    provider.catalogue_version ?? 0,
   ]));
   let unlisten: UnlistenFn | undefined;
   const reset = () => observed.clear();
-  if (typeof window !== "undefined") window.addEventListener("codeterm-peer-switch-reset", reset);
+  if (typeof window !== "undefined") {
+    window.addEventListener("codeterm-peer-switch-reset", reset);
+    window.addEventListener(WEB_BOOT_CHANGED_EVENT, reset);
+  }
 
   void listenImpl<ModelCatalogueChanged>("model-catalogue-changed", (event) => {
     if (!active) return;
-    const next: ProviderCatalogueRevision = { revision: event.payload.version };
-    if (!shouldRefetch(observed.get(event.payload.provider), next)) return;
-    observed.set(event.payload.provider, next);
-    if (acceptModelCatalogueChange(event.payload)) refetch();
+    const change = event.payload;
+    const account = change.account_id ?? "default";
+    if (scope) {
+      if (change.provider !== scope.providerId || account !== (scope.accountId ?? "default")) return;
+      if (scope.contextKey && change.context_key !== scope.contextKey) return;
+    } else if (change.account_id != null || change.context_key != null) return;
+    const key = scope ? JSON.stringify([change.provider, account, change.context_key]) : change.provider;
+    if (change.version <= (observed.get(key) ?? 0)) return;
+    observed.set(key, change.version);
+    if (!scope) acceptModelCatalogueChange(change);
+    refetch();
   }).then((fn) => {
     if (active) {
       unlisten = fn;
@@ -79,7 +90,10 @@ export function attachModelCatalogueChangedRefresh(
 
   return () => {
     active = false;
-    if (typeof window !== "undefined") window.removeEventListener("codeterm-peer-switch-reset", reset);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("codeterm-peer-switch-reset", reset);
+      window.removeEventListener(WEB_BOOT_CHANGED_EVENT, reset);
+    }
     unlisten?.();
   };
 }

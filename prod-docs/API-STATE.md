@@ -182,12 +182,20 @@ the change instead — `domios notify send --offer <surface> --offer-accept <lab
 | GET | `/api/update/channel` | — | Active diagnostic channel: normally `{"channel":"stable"}`. |
 | POST | `/api/update/channel` | `{channel}` | Disabled; `409 update channel switching is disabled`. |
 | GET | `/api/update/status` | — | Updater progress plus durable `native_update` operation ID, sequence and outcome when readable. Unreadable handoffs are logged and omitted. |
+| GET | `/api/update/wait` | `?after_phase=applying` | Wait for a phase change, bounded to five minutes. Disconnection and timeout do not confirm installation. |
+| POST | `/api/update/holders` | Array of `{pid, created}` | Local-only Windows PTY ownership lookup for install holders; bounded to 256 identities. Returns owning tabs, workspaces, command and busy state. |
+| POST | `/api/update/reserve` | `{tabs, initiating_tab}` | Native owner credential only. Revalidates the holder snapshot and freezes new work admission and PTY writes before shutdown; activity or identity changes refuse without teardown. |
+| POST | `/api/update/release` | Reservation ID as a JSON string | Native owner credential only. Releases that exact reservation after a stop refusal before dispatch. |
 
 Native auto-install uses stable, requires an attached application-host updater, returns `{"status":"updating"}` immediately and reports progress through status:
 1. Discover the release with a no-cache GitHub request and pin its immutable manifest. `manifest_url` overrides it; HTTPS is required.
 2. Download the platform artifact and verify its Ed25519 signature before installation. A wrong-key signature aborts before replacing binaries.
 3. The native client durably records the verified target, stops the exact attached server, installs and relaunches the pair.
 4. The replacement records `verified` only after enrollment with the expected instance, target version and matching client/server build. Interrupted operations never replay automatically.
+
+Windows refusals name blocking tabs, their workspaces and running work. The Updates panel offers **Stop and retry** for each tab, with confirmation before closing it. The CLI prints the same list with explicit `domios tab close --tab ID` actions; a task-holding Worker may additionally require `--force`. Busy or unknown work is never stopped automatically. Observed idle holders close with the server.
+
+`success` requires a verified replacement running the target version. The CLI exits 2 if its connection ends before verification; run `domios update status` after restart. The instance data directory retains `native-update-handoff.json` and `native-update-installer.json`. Logs print the installer evidence path and, on Windows, the expected `%TEMP%\Domios-installer.log` path; the latter records installer preflight and completion with the actual installer path. A relaunched old version reports the expected/running versions and last installer stage.
 
 After restart, valid recorded provider sessions resume; stale or missing sessions launch fresh. `continue_tab` must match the authenticated local caller and uses its continuation owner. A plain shell caller has no agent session to continue and needs no `--no-continue`; agents still require their own resumable session. Full-access peers (or Custom Admin) may install remotely without a local caller continuation, subject to the same updater capability and installation method. `after_update` persists the requester's message and identity for the General Agent continuation; failure to persist refuses installation.
 
@@ -204,10 +212,12 @@ The browser mirror uses `POST /api/tabs/{id}/preview/read` with `{ "path": "/abs
 
 A file must be referenced by that tab's own transcript: a complete canonical `<ds-image src="…" />`, `<ds-document src="…" />` or `<ds-page src="…" />` tag, an attachment, a recorded edit/diff path, or an image result path. Client-supplied paths do not grant access. Prose mentions, incomplete/malformed tags, legacy aliases, code, quoted/list/context/handoff examples and another tab's references grant nothing. A gallery uses a JSON `sources` attribute with at most 32 paths. Unavailable and refused reads return the same `404` JSON error; batch checks omit refused paths without exposing their existence.
 
-Read returns `{ "data": "...", "media_type": "..." }`; images use a base64 data URL. Batch returns `{ "paths": [...], "home": "..." }`. Allowed extensions and byte limits are shared with desktop: HTML pages 200,000 bytes, UTF-8 documents 1,000,000 bytes, images 10 MiB. A tab may preview referenced files nested inside its own agent pad, with canonical containment checked against that tab's pad. Other tabs' pads and other CodeTerm data-directory files remain private. Symlinks/junctions, hardlinks, traversal, UNC/device paths and alternate streams are refused. SSH/cloud credential directories and credential/token filenames remain denied inside pads too. Additional absolute file or directory roots can be denied with `api.preview_secret_paths = ["/absolute/private"]`; invalid roots fail closed. Desktop and browser previews share this policy.
+Read returns `{ "data": "...", "media_type": "..." }`. Images use a base64 data URL. Batch returns `{ "paths": [...], "home": "..." }`. Desktop and browser share the same limits. HTML pages allow up to 200,000 bytes, UTF-8 documents up to 1,000,000 bytes, and GIF, WebP and SVG images up to 10 MiB. PNG and JPEG previews use host thumbnails with bounded source size and dimensions.
+
+A tab may preview referenced files nested inside its own canonical agent pad. An image read can also preview a referenced PNG, JPG, JPEG, GIF, WebP or SVG file in any agent pad. Other reads and writes in foreign pads remain private, as do other instance data files. Symlinks, junctions, hardlinks, traversal, UNC and device paths, and alternate streams are refused. SSH and cloud credential directories and credential and token filenames remain denied inside pads. Use `api.preview_secret_paths = ["/absolute/private"]` to deny additional absolute file or directory roots. Invalid roots fail closed.
 
 Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, and a restrictive sandbox CSP. HTML is returned inside JSON and rendered in the existing sandboxed preview. Requests are capped at 120 per minute across these routes, four concurrent operations, 64 KiB request bodies and 128 paths per batch. Excess traffic returns `429`; oversized batches return `413`. Reveal in the OS and Open in the OS remain desktop-only.
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 46 -->
+<!-- revision: 49 -->

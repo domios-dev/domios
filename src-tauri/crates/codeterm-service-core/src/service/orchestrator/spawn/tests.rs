@@ -592,14 +592,36 @@ fn ordinary_pty_tab_creation_carries_description_and_audience_from_params() {
     let mut state = crate::multiplexer::state::MultiplexerState::empty();
     let ws_id = state.create_workspace("ws".to_string(), None).id;
     let tab_id = state.create_tab(&ws_id).expect("tab created");
+    let ownership = codeterm_types::pty::RemoteOwnership {
+        peer_id: "origin-peer".into(),
+        peer_name: "Origin".into(),
+        controller_tab_id: Some("origin-controller".into()),
+        controller_title: "Controller".into(),
+        team: None,
+    };
     let params = SpawnAgentParams {
         agent: Some("claude".into()),
         audience: TabAudience::Automation,
         description: Some("Reviews plans and records task progress".into()),
+        ownership: Some(ownership.clone()),
+        report_target_mesh_peer: Some("origin-peer".into()),
         ..Default::default()
     };
 
     initialize_ordinary_pty_agent_tab(state.get_tab_mut(&tab_id).expect("tab"), &params);
+
+    assert_eq!(
+        state.get_tab(&tab_id).unwrap().ownership.as_ref(),
+        Some(&ownership)
+    );
+    assert_eq!(
+        state
+            .get_tab(&tab_id)
+            .unwrap()
+            .report_target_mesh_peer
+            .as_deref(),
+        Some("origin-peer")
+    );
 
     assert_eq!(
         state.get_tab(&tab_id).expect("tab").audience,

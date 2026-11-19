@@ -99,20 +99,25 @@ function fakeChoiceHost() {
 
   test("a_double_tap_sends_once_and_the_reply_marks_the_choice", async () => {
     const { host, sent, finish } = fakeChoiceHost();
-    await withRender(TEXT, { choice: host }, "m1", async (element) => {
+    const interactions: unknown[] = [];
+    await withRender(TEXT, { choice: host, interacted: (kind, action) => interactions.push([kind, action]) }, "m1", async (element) => {
+      assert(interactions.length === 0, "render emitted an interaction");
       await act(async () => {
         option(element, "Hold").click();
         option(element, "Hold").click();
         option(element, "Ship it").click();
       });
       assert(sent.length === 1 && sent[0] === "Hold", `sent ${JSON.stringify(sent)}`);
+      assert(interactions.length === 0, "admission emitted before completion");
       assert(option(element, "Ship it").disabled && option(element, "Ask me later").disabled, "other options stay enabled while sending");
       await act(async () => finish());
+      assert(JSON.stringify(interactions) === '[["choice","submit"]]', "accepted submission emits once with closed fields");
       assert(status(element) === "Sent", "status did not follow the transcript");
       assert(option(element, "Hold").getAttribute("aria-pressed") === "true", "chosen option not marked");
       assert(option(element, "Ship it").getAttribute("aria-pressed") === "false" && option(element, "Ship it").disabled, "others not disabled after the choice");
       await act(async () => option(element, "Ship it").click());
       assert(sent.length === 1, "a second choice was sent");
+      assert(interactions.length === 1, "a duplicate choice emitted again");
     });
   });
 

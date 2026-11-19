@@ -53,7 +53,7 @@ impl JsProvider {
         let Some((root, dot_ext)) = self.manifest_session_store() else {
             return Vec::new();
         };
-        let Ok(entries) = std::fs::read_dir(&root) else {
+        let Ok(entries) = crate::provider_account::read_directory(&root) else {
             return Vec::new();
         };
         let mut out = Vec::new();
@@ -61,7 +61,7 @@ impl JsProvider {
             if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
                 continue;
             }
-            let Ok(files) = std::fs::read_dir(entry.path()) else {
+            let Ok(files) = crate::provider_account::read_directory(entry.path()) else {
                 continue;
             };
             for f in files.flatten() {
@@ -151,7 +151,7 @@ impl JsProvider {
         }
         let (root, dot_ext) = self.manifest_session_store()?;
         let file_name = format!("{session_id}{dot_ext}");
-        std::fs::read_dir(&root)
+        crate::provider_account::read_directory(&root)
             .ok()?
             .flatten()
             .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
@@ -167,18 +167,49 @@ impl JsProvider {
     }
 
     fn manifest_read_session_root(&self) -> Option<PathBuf> {
+        let root = self.manifest_session_root()?;
+        self.check_session_root_read(root)
+    }
+
+    fn manifest_session_root(&self) -> Option<PathBuf> {
         let cfg = self.manifest.sessions.as_ref()?;
         let overridden = match &cfg.root_environment {
             Some(environment) => {
                 if !self.vm.can_read_environment(&environment.variable) {
+                    log::debug!(
+                        "[session-store] provider={} root selector denied: {}",
+                        self.manifest.id,
+                        environment.variable
+                    );
                     return None;
                 }
-                environment.resolve(std::env::var_os(&environment.variable))
+                environment.resolve(crate::provider_account::environment(&environment.variable))
             }
             None => None,
         };
-        let root = overridden.or_else(|| PluginManifest::expand_home(&cfg.root_dir))?;
-        self.vm.can_read_path(&root).then_some(root)
+        if cfg.root_environment.as_ref().is_some_and(|environment| {
+            crate::provider_account::environment_is_selected(&environment.variable)
+        }) && overridden.is_none()
+        {
+            log::debug!(
+                "[session-store] provider={} selected root selector is unresolved",
+                self.manifest.id
+            );
+            return None;
+        }
+        overridden.or_else(|| PluginManifest::expand_home(&cfg.root_dir))
+    }
+
+    fn check_session_root_read(&self, root: PathBuf) -> Option<PathBuf> {
+        if !self.vm.can_read_path(&root) {
+            log::debug!(
+                "[session-store] provider={} root read denied: {}",
+                self.manifest.id,
+                root.display()
+            );
+            return None;
+        }
+        Some(root)
     }
 
     fn manifest_session_metadata(&self, stem: &str, file_path: &Path) -> SessionMetadata {
@@ -231,7 +262,7 @@ impl JsProvider {
 const MAX_SESSION_SEARCH_DIRECTORY_DEPTH: usize = 8;
 
 fn collect_session_files(root: &Path, directory_depth: usize, files: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(root) else {
+    let Ok(entries) = crate::provider_account::read_directory(root) else {
         return;
     };
     for entry in entries.flatten() {
@@ -252,13 +283,38 @@ impl JsProvider {
     pub(super) fn sessions_dir(&self, cwd: &str) -> Option<PathBuf> {
         let cfg = self.manifest.sessions.as_ref()?;
         let root = self.manifest_read_session_root()?;
-        let leaf = match cfg.cwd_encoding {
+        Some(Self::manifest_project_dir(&root, cwd, cfg.cwd_encoding))
+    }
+
+    fn manifest_project_dir(
+        root: &Path,
+        cwd: &str,
+        encoding: super::super::CwdEncoding,
+    ) -> PathBuf {
+        let leaf = match encoding {
             super::super::CwdEncoding::DashEncoded => {
                 encode_cwd_dashed(&codeterm_paths::canonical_cwd(cwd))
             }
             super::super::CwdEncoding::None => cwd.to_string(),
         };
-        Some(root.join(leaf))
+        root.join(leaf)
+    }
+
+    pub(super) fn manifest_session_exists(&self, cwd: &str, session_id: &str) -> Option<bool> {
+        let cfg = self.manifest.sessions.as_ref()?;
+        let root = self.manifest_session_root()?;
+        let root = crate::provider_account::exact_session_read_root(&self.manifest.id, &root)?;
+        let root = self.check_session_root_read(root)?;
+        let filename = format!("{session_id}.{}", cfg.file_extension);
+        let exists =
+            |path: &Path| crate::session_evidence::exact_transcript_exists(&root, path, &filename);
+        Some(
+            crate::session_evidence::stored_transcript_path(session_id)
+                .is_some_and(|path| exists(&path))
+                || exists(
+                    &Self::manifest_project_dir(&root, cwd, cfg.cwd_encoding).join(&filename),
+                ),
+        )
     }
 
     pub(super) fn owned_session_model_identity_path(

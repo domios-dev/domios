@@ -605,7 +605,7 @@ fn transfer_requires_source_team_manager_before_atomic_owner_change() {
     let before = store.get(&plan.id).unwrap();
     let destination = OrchestratorRef::from_tab(&destination_owner);
 
-    for caller in [worker, foreign] {
+    for caller in [worker, foreign, source_planner.clone()] {
         let error = transfer_team_plan_core(
             &mut mux,
             &store,

@@ -1,5 +1,6 @@
 pub mod bounds;
 mod load;
+pub mod product_observer;
 pub mod schema;
 
 use std::collections::{BTreeSet, HashMap};
@@ -405,7 +406,7 @@ fn commit_config(
     owner_expected_folders: Option<&std::collections::BTreeMap<String, Vec<String>>>,
     persist: impl FnOnce(&AppConfig) -> Result<(), String>,
 ) -> Result<AppConfig, ConfigCommitError> {
-    let _writer = CONFIG_WRITER.lock();
+    let writer = CONFIG_WRITER.lock();
     {
         let current = state.lock();
         if let Some(expected) = owner_expected_folders {
@@ -416,11 +417,67 @@ fn commit_config(
             config.browser_upload_folders = current.browser_upload_folders.clone();
         }
         config.api.token = current.api.token.clone();
+        // Account actions own this policy; an unrelated stale settings snapshot cannot restore it.
+        for (provider, incoming) in &mut config.agents {
+            incoming.accounts = current
+                .agents
+                .get(provider)
+                .and_then(|entry| entry.accounts.clone());
+        }
+        for (provider, stored) in &current.agents {
+            if stored.accounts.is_some() {
+                config.agents.entry(provider.clone()).or_default().accounts =
+                    stored.accounts.clone();
+            }
+        }
     }
-    persist(&config).map_err(ConfigCommitError::Save)?;
-    let applied = config.clone();
-    *state.lock() = applied;
+    let (config, changes) =
+        persist_and_apply(state, config, persist).map_err(ConfigCommitError::Save)?;
+    drop(writer);
+    product_observer::publish(state, changes);
     Ok(config)
+}
+
+fn persist_and_apply(
+    state: &Mutex<AppConfig>,
+    config: AppConfig,
+    persist: impl FnOnce(&AppConfig) -> Result<(), String>,
+) -> Result<(AppConfig, Vec<bool>), String> {
+    persist(&config)?;
+    let changes = product_observer::enabled_changes(&state.lock(), &config);
+    *state.lock() = config.clone();
+    Ok((config, changes))
+}
+
+fn update_config_and_apply_with(
+    state: &Mutex<AppConfig>,
+    update: impl FnOnce(&mut AppConfig) -> Result<(), String>,
+    persist: impl FnOnce(&AppConfig) -> Result<(), String>,
+) -> Result<AppConfig, String> {
+    let writer = CONFIG_WRITER.lock();
+    let mut current = state.lock().clone();
+    update(&mut current)?;
+    let (config, changes) = persist_and_apply(state, current, persist)?;
+    drop(writer);
+    product_observer::publish(state, changes);
+    Ok(config)
+}
+
+/// Applies a bounded mutation to the latest configuration inside the existing writer boundary.
+pub fn update_config_and_apply(
+    state: &Mutex<AppConfig>,
+    update: impl FnOnce(&mut AppConfig) -> Result<(), String>,
+) -> Result<AppConfig, String> {
+    let path = config_path()?;
+    update_config_and_apply_at(&path, state, update)
+}
+
+pub fn update_config_and_apply_at(
+    path: &std::path::Path,
+    state: &Mutex<AppConfig>,
+    update: impl FnOnce(&mut AppConfig) -> Result<(), String>,
+) -> Result<AppConfig, String> {
+    update_config_and_apply_with(state, update, |config| save_config_at(path, config))
 }
 
 fn save_config_and_apply_at(

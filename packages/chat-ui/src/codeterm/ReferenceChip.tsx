@@ -1,6 +1,7 @@
 import React from "react";
 import { FloatingTooltip } from "../FloatingTooltip";
 import { ClipboardList, FileText, ListChecks, Terminal, Workflow } from "lucide-react";
+import { ParticipantMentionChip, type ParticipantMentionProps } from "./ParticipantMentionChip";
 
 export const TASK_CHIP_TITLE_CHARS = 30;
 
@@ -15,7 +16,7 @@ export function truncateChipTitle(title: string, max = TASK_CHIP_TITLE_CHARS): s
   return title.length <= max ? title : `${title.slice(0, max - 1).trimEnd()}…`;
 }
 
-export function ReferenceChip({ kind, label, fullRef, status, disabled, onOpen, planId, targetId, state }: {
+export function ReferenceChip({ kind, label, fullRef, status, disabled, onOpen, planId, targetId, state, presentation, participant }: {
   kind: "tab" | "blueprint" | "plan" | "task" | "section";
   label: string;
   fullRef: string;
@@ -25,7 +26,11 @@ export function ReferenceChip({ kind, label, fullRef, status, disabled, onOpen, 
   planId?: string;
   targetId?: string;
   state?: string;
+  presentation?: "reference" | "mention";
+  participant?: ParticipantMentionProps["participant"];
 }): React.ReactElement {
+  if (presentation === "mention" && kind === "tab") return <ParticipantMentionChip label={label} fullRef={fullRef}
+    state={state} disabled={disabled} onOpen={onOpen} participant={participant} />;
   const Icon = kind === "tab" ? Terminal : kind === "blueprint" ? Workflow : kind === "task" ? ListChecks : kind === "section" ? FileText : ClipboardList;
   const task = kind === "task" ? splitTaskLabel(label) : null;
   const full = task ? [task.key, task.title].filter(Boolean).join(" ") : label;

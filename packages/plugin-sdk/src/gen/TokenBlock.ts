@@ -3,7 +3,7 @@ import type { GroupRow } from "./GroupRow";
 import type { TokenBucket } from "./TokenBucket";
 import type { Totals } from "./Totals";
 
-export type TokenBlock = { 
+export type TokenBlock = {
 /**
  * `None` when no bucket in range was recorded; a missing figure is never zero.
  */

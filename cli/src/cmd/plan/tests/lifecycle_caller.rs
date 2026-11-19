@@ -55,6 +55,57 @@ impl RpcClient for Recorder {
 }
 
 #[test]
+fn remote_worker_lifecycle_sends_only_the_bound_attempt_without_owner_lookup() {
+    let _lock = crate::test_env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let _env = CallerEnv::set(Some("remote-worker"), None, Some("worker-nonce"));
+    for (method, action) in [
+        (
+            "plan.task.remote_ack",
+            PlanTaskAction::RemoteAck {
+                plan_id: "pl_origin".into(),
+                task_id: "task_origin".into(),
+                attempt_id: "attempt_origin".into(),
+            },
+        ),
+        (
+            "plan.task.remote_report",
+            PlanTaskAction::RemoteReport {
+                plan_id: "pl_origin".into(),
+                task_id: "task_origin".into(),
+                attempt_id: "attempt_origin".into(),
+                message: Some("Verified remote result".into()),
+                message_file: None,
+                sha: Some("candidate-sha".into()),
+                changed_files: vec!["owned.rs".into()],
+                test_cmd: None,
+                test_result: None,
+                skipped: None,
+            },
+        ),
+    ] {
+        let mut recorder = Recorder::default();
+        run_plan(&mut recorder, true, PlanAction::Task { action }).unwrap();
+        assert_eq!(recorder.calls.len(), 1);
+        let (actual_method, params) = &recorder.calls[0];
+        assert_eq!(actual_method, method);
+        assert_eq!(params["plan_id"], "pl_origin");
+        assert_eq!(params["task_id"], "task_origin");
+        assert_eq!(params["attempt_id"], "attempt_origin");
+        assert_eq!(params["worker_tab_id"], "remote-worker");
+        assert_eq!(params["session_binding_nonce"], "worker-nonce");
+        assert!(params.get("owner_epoch").is_none());
+        assert!(params.get("caller_tab_id").is_none());
+        if method == "plan.task.remote_report" {
+            assert_eq!(params["report"]["reporter_tab_id"], "remote-worker");
+            assert_eq!(params["report"]["status"], "in_review");
+            assert_eq!(params["report"]["sha"], "candidate-sha");
+        }
+    }
+}
+
+#[test]
 fn plan_create_omits_blank_caller_claims_and_retains_real_tab_claims() {
     let _lock = crate::test_env_lock()
         .lock()

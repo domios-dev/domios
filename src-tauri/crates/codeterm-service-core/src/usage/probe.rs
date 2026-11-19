@@ -47,7 +47,7 @@ impl UsageProbe {
     pub async fn run(
         &self,
         provider: &str,
-        _account_id: Option<&str>,
+        account_id: Option<&str>,
     ) -> Result<UsageProbeOutcome, ProbeError> {
         let started = Instant::now();
         let provider_owned = provider.to_string();
@@ -63,14 +63,26 @@ impl UsageProbe {
 
         let svc_for_fetch = svc.clone();
         let provider_for_fetch = provider_owned.clone();
-        let fetched = tokio::task::spawn_blocking(move || {
-            svc_for_fetch
-                .agent_registry
-                .with_provider(&provider_for_fetch, |p| p.fetch_usage())
-                .flatten()
+        let account_id = account_id.map(str::to_owned);
+        let fetched = codeterm_plugin::js_runtime::spawn_blocking(move || {
+            let invocation = crate::service::provider_accounts::invocation(
+                &svc_for_fetch,
+                &provider_for_fetch,
+                account_id.as_deref(),
+            )
+            .map_err(ProbeError::Internal)?;
+            Ok::<_, ProbeError>(codeterm_plugin::provider_account::with_context(
+                invocation,
+                || {
+                    svc_for_fetch
+                        .agent_registry
+                        .with_provider(&provider_for_fetch, |p| p.fetch_usage())
+                        .flatten()
+                },
+            ))
         })
         .await
-        .map_err(|e| ProbeError::Internal(format!("fetch join: {}", e)))?;
+        .map_err(|e| ProbeError::Internal(format!("fetch join: {}", e)))??;
 
         quota_free_outcome(
             fetched,

@@ -28,10 +28,7 @@ fn preferred_model(registration: &RoleRegistration) -> Option<String> {
     }
 }
 
-/// Resolves the worker a dispatch launches against exactly the Team's roles: `--role` names a
-/// registered worker; without it, a task executor role the Team registers as a worker, else
-/// `worker` when the Team lists it. A manager or unlisted name is refused with the Team's
-/// workers.
+/// Resolves a registered or builtin Worker without changing task executor framing.
 pub(super) fn resolve(
     svc: &ServiceState,
     params: Option<&Value>,

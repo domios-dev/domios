@@ -181,6 +181,9 @@
   color: var(--ct-fg);
   letter-spacing: -0.01em;
 }
+.ct-usage-spend .amount.balance {
+  font: 600 20px var(--u-font-mono);
+}
 .ct-usage-spend .caption {
   font-size: 11px;
   color: var(--ct-muted-fg, #8b949e);

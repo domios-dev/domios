@@ -63,6 +63,7 @@ fn prepared_task_attempt_is_committed_once_before_runtime_and_finalized_on_exact
             None,
             None,
             None,
+            None,
             "attempt-prepared",
             None,
             Vec::new(),

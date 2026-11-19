@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { channelPlugins } from "./plugin-release-metadata.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -32,6 +33,7 @@ try {
   const config = path.join(temp, "tsconfig.json");
   fs.writeFileSync(config, JSON.stringify({
     extends: path.join(root, "tsconfig.json"),
+    compilerOptions: { typeRoots: [path.join(root, "node_modules/@types")] },
     // Globs need forward slashes on Windows; plugin UIs import host modules that rely on its ambient declarations.
     include: [path.join(root, "src/**/*.d.ts"), path.join(plugin.directory, "src/plugin.ts"), path.join(plugin.directory, "ui/src/**/*.tsx"), path.join(plugin.directory, "ui/src/**/*.ts")]
       .map((pattern) => pattern.replaceAll("\\", "/")),
@@ -48,6 +50,7 @@ const vitestFiles = JSON.parse(fs.readFileSync(path.join(root, "scripts/vitest-o
   .filter((file) => file.startsWith(`plugins/${plugin.path}/`));
 const vitestPaths = new Set(vitestFiles.map((file) => path.resolve(root, file)));
 const standaloneTests = ownedTests.filter((file) => !vitestPaths.has(file));
-for (const file of standaloneTests) node("node_modules/tsx/dist/cli.mjs", file);
+const assetHook = pathToFileURL(path.join(root, "scripts/ts-test-asset-hook.mjs")).href;
+for (const file of standaloneTests) node("--import", "tsx", "--import", assetHook, file);
 if (vitestFiles.length) node("node_modules/vitest/vitest.mjs", "run", ...vitestFiles);
 console.log(`${plugin.id} ${plugin.version}: metadata, bundle, types and ${standaloneTests.length + vitestFiles.length} test files passed`);

@@ -9,6 +9,7 @@ fn fresh_spawn_response_uses_the_published_generation_and_includes_the_new_tab()
         &mut fixture.service.mux.write(),
         &request.workspace_id,
         true,
+        &SpawnAgentParams::default(),
     )
     .unwrap();
     let result = published_spawn_result(&fixture.service, tab_id.clone(), request.workspace_id);
@@ -55,6 +56,7 @@ fn fixture() -> (
         model: None,
         reasoning_effort: None,
         preset: None,
+        account_id: None,
     };
     (mux, config, request)
 }
@@ -72,7 +74,13 @@ fn fresh_general_selection_preserves_main_aliases_binding_and_focus() {
     let selection = mux.snapshot();
 
     validate_request(&mux, &config, &request).unwrap();
-    let fresh = create_fresh_tab(&mut mux, &request.workspace_id, true).unwrap();
+    let fresh = create_fresh_tab(
+        &mut mux,
+        &request.workspace_id,
+        true,
+        &SpawnAgentParams::default(),
+    )
+    .unwrap();
     assert_ne!(fresh, main_id);
     let tab = mux.get_tab(&fresh).unwrap();
     assert!(crate::service::general_agent::is_general_agent(tab));
@@ -104,7 +112,13 @@ fn fresh_general_selection_preserves_main_aliases_binding_and_focus() {
 #[test]
 fn sanctioned_general_session_survives_durable_snapshot_restore() {
     let (mut mux, _, request) = fixture();
-    let fresh = create_fresh_tab(&mut mux, &request.workspace_id, false).unwrap();
+    let fresh = create_fresh_tab(
+        &mut mux,
+        &request.workspace_id,
+        false,
+        &SpawnAgentParams::default(),
+    )
+    .unwrap();
     mux.get_tab_mut(&fresh).unwrap().cwd = Some("changed-working-directory".into());
     let mut restored = MultiplexerState::from_session_snapshot(&mux.to_session_snapshot());
     ensure_general_workspace(&mut restored, false);
@@ -159,4 +173,135 @@ fn fresh_general_request_deserializes_chosen_launch_settings() {
     assert_eq!(request.model.as_deref(), Some("chosen-model"));
     assert_eq!(request.reasoning_effort.as_deref(), Some("high"));
     assert_eq!(request.preset.as_deref(), Some("owned-preset"));
+}
+
+#[test]
+fn fresh_general_binds_the_requested_account_and_credential_home() {
+    use crate::service::{provider_accounts, test_fixture::ServiceFixture};
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    use codeterm_types::config::provider_accounts::{
+        AccountRemovalConfig, ProviderAccountConfig, IMPLICIT_ACCOUNT,
+    };
+    use serde_json::json;
+    use std::sync::Arc;
+
+    let (mux, config, base) = fixture();
+    let fixture = ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    let root = fixture.temp.path().join("accounts");
+    provider_accounts::test_support::configure(
+        svc,
+        root.clone(),
+        fixture.temp.path().join("account-config.toml"),
+    )
+    .unwrap();
+    let provider = "general-account-fixture";
+    let manifest = PluginManifest::from_json_str(
+        &json!({
+            "id": provider,
+            "version": "1.0.0",
+            "displayName": "Account fixture",
+            "capabilities": { "agentProvider": true },
+            "accounts": {
+                "homeEnvironment": "FIXTURE_GENERAL_HOME",
+                "defaultHome": fixture.temp.path().join("usual-home"),
+                "secretEnvironment": [],
+                "isolatedPaths": ["auth.json"],
+                "sharedPaths": [],
+                "continuation": "unverified"
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let vm = PluginVm::from_source(provider, "module.exports = {};".into()).unwrap();
+    svc.agent_registry
+        .register_provider(Box::new(JsProvider::new(manifest, Arc::new(vm))));
+    {
+        let mut config = svc.ext::<crate::config::ConfigState>().lock();
+        let policy = config
+            .agents
+            .entry(provider.into())
+            .or_default()
+            .accounts
+            .get_or_insert_with(Default::default);
+        policy.order.push("work".into());
+        policy.profiles.insert(
+            "work".into(),
+            ProviderAccountConfig {
+                credential_namespace: Some("work-home".into()),
+                ..Default::default()
+            },
+        );
+    }
+    let request: FreshGeneralSessionRequest = serde_json::from_value(json!({
+        "workspaceId": base.workspace_id,
+        "providerId": provider,
+        "cwd": base.cwd,
+        "role": "general_agent",
+        "intent": "fresh_general",
+        "accountId": "work"
+    }))
+    .unwrap();
+    validate_request(&svc.mux.read(), &config, &request).unwrap();
+    let (account, invocation, _reservation) =
+        provider_accounts::spawn_params(svc, request.account_launch_params()).unwrap();
+    let home = root
+        .join("provider-accounts")
+        .join(provider)
+        .join("work-home");
+    assert_eq!(
+        invocation
+            .unwrap()
+            .environment_entries()
+            .find(|(key, _)| *key == "FIXTURE_GENERAL_HOME")
+            .unwrap()
+            .1,
+        home.to_str()
+    );
+    let (mux, fresh, main_id) = {
+        let mut mux = svc.mux.write();
+        let main_id = mux.resolve_tab_id(MAIN_ALIAS).unwrap();
+        let tab = create_fresh_tab(&mut mux, &request.workspace_id, false, &account).unwrap();
+        (
+            MultiplexerState::from_session_snapshot(&mux.to_session_snapshot()),
+            tab,
+            main_id,
+        )
+    };
+    let tab = mux.get_tab(&fresh).unwrap();
+    assert!(crate::service::general_agent::is_general_agent(tab));
+    assert_eq!(provider_accounts::selected_account(tab), "work");
+    assert_eq!(
+        tab.restorable_launch.account_namespace.as_deref(),
+        Some("work-home")
+    );
+    let main = mux.get_tab(&main_id).unwrap();
+    assert_eq!(provider_accounts::selected_account(main), IMPLICIT_ACCOUNT);
+
+    let mut config = svc.ext::<crate::config::ConfigState>().lock();
+    config
+        .agents
+        .get_mut(provider)
+        .unwrap()
+        .accounts
+        .as_mut()
+        .unwrap()
+        .profiles
+        .get_mut("work")
+        .unwrap()
+        .removal = Some(AccountRemovalConfig {
+        id: "removing-work".into(),
+        failure: "pending".into(),
+    });
+    drop(config);
+    assert_eq!(
+        provider_accounts::starting_account(
+            svc,
+            provider,
+            Some(&request.workspace_id),
+            Some("work")
+        ),
+        Err("The selected harness account is unavailable".into())
+    );
 }

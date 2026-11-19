@@ -12,6 +12,7 @@ use super::{PlanError, PlanStore};
 #[derive(Debug, Clone)]
 pub(super) struct DispatchedAttemptMetadata {
     launch_profile: Option<String>,
+    role_profile: Option<String>,
     model: Option<String>,
     requested_model: Option<String>,
     provider_resolved_model: Option<String>,
@@ -435,6 +436,7 @@ impl PlanStore {
         provider_resolved_model: Option<String>,
         reasoning_effort: Option<String>,
         launch_profile: Option<String>,
+        role_profile: Option<String>,
         observed_startup_owner: Option<DispatchStartupOwner>,
         observed_startup_owner_is_live: bool,
         startup_owner_observation_made: bool,
@@ -457,6 +459,7 @@ impl PlanStore {
             startup_owner_observation_made,
             Some(DispatchedAttemptMetadata {
                 launch_profile,
+                role_profile,
                 model,
                 requested_model,
                 provider_resolved_model,
@@ -603,6 +606,7 @@ impl PlanStore {
                 attempt.agent_type = provider.map(str::to_string);
                 if let Some(metadata) = dispatched_metadata.as_ref() {
                     attempt.launch_profile = metadata.launch_profile.clone();
+                    attempt.role_profile = metadata.role_profile.clone();
                     attempt.model = metadata.model.clone();
                     attempt.requested_model = metadata.requested_model.clone();
                     attempt.provider_resolved_model = metadata.provider_resolved_model.clone();

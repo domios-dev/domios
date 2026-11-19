@@ -1,12 +1,9 @@
-use std::process::Command;
-
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::batch::{BatchOp, BatchRequest};
 use super::{heartbeat, PlanError, PlanStore};
 use crate::plan::AgentRef;
-use codeterm_util::process_util;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct HandoffCreateRequest {
@@ -102,8 +99,7 @@ fn default_reseed_mode() -> String {
 }
 
 fn git_value(project_path: &str, args: &[&str]) -> Option<String> {
-    let mut cmd = Command::new("git");
-    process_util::no_window_std(&mut cmd);
+    let mut cmd = codeterm_util::process_util::git_command();
     let output = cmd.arg("-C").arg(project_path).args(args).output().ok()?;
     output
         .status

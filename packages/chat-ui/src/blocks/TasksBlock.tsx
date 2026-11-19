@@ -2,7 +2,7 @@ import { useFullscreenViewer } from "../FullscreenOverlay";
 import { useState } from "react";
 import { ListTodo } from "lucide-react";
 import { ChatBlockFrame } from "./ChatBlockFrame";
-import { useChatBlockHost, type TasksBlockHost } from "./ChatBlockHost";
+import { useChatBlockHost, observeBlockInteraction, type TasksBlockHost } from "./ChatBlockHost";
 import { useLiveBinding } from "./liveBinding";
 import { BlockNotice } from "./BlockNotice";
 import {
@@ -33,7 +33,8 @@ export function TasksBlock({ spec, source }: { spec: TasksBlockSpec; source: str
 }
 
 function TasksCard({ state, spec, host, source }: { state: Extract<TasksBlockState, { kind: "ready" }>; spec: TasksBlockSpec; host: TasksBlockHost; source: string }) {
-  const openTask = (taskId: string) => host.openTask(spec.planId, taskId);
+  const blockHost = useChatBlockHost();
+  const openTask = (taskId: string) => { host.openTask(spec.planId, taskId); observeBlockInteraction(blockHost, "tasks", "open"); };
   return (
     <ChatBlockFrame
       name="tasks"

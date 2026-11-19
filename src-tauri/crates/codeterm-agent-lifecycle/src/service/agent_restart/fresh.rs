@@ -74,7 +74,8 @@ impl FreshRestartExt for ServiceContext {
             .as_ref()
             .filter(|restore| restore.exact_session)
             .and_then(|restore| restore.session_cwd.as_deref())
-            .or(tab.cwd.as_deref());
+            .or(tab.cwd.as_deref())
+            .or(tab.provisioned_cwd.as_deref());
         session_id.zip(cwd).and_then(|(session, cwd)| {
             self.agent_registry
                 .with_provider(provider, |p| p.session_exists(cwd, session) == Some(true))

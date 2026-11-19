@@ -263,13 +263,21 @@ it("rejects malformed server referral status and requires explicit invite permis
   expect(() => parseNeighbors({ schema_version: 1, access: "paid", can_invite: "yes", friends: [], incoming: [], outgoing: [] })).toThrow();
 });
 
-it("changes the concierge with the shared agent row instead of bespoke dropdowns", async () => {
-  await render("paid");
-  await act(async () => button("Ada, connected").click());
-  await act(async () => button("Set up concierge").click());
-  expect(document.querySelector('[data-testid="orchestration-role-agent"]')).not.toBeNull();
-  expect(document.querySelector('[role="dialog"] select')).toBeNull();
-  expect(document.body.textContent).toContain("Change Ada's concierge");
+it("setup selects an eligible live provider and exposes its models without an existing concierge", async () => {
+  catalogue.providers = [{ schema_version: 1, id: "fixture-harness", display_name: "Harness Display", transport: "pty",
+    system_prompt_delivery: "external", available_models: [{ id: "model-wire", display_name: "Model Display" }],
+    settings_schema: [], notifications_schema: [], supports_lazy_skills: false, has_hooks: false,
+    neighbor_concierge: { supported: true, machine_access: ["read_only"], enforced_machine_access: ["read_only"] } }];
+  try {
+    await render("paid");
+    await act(async () => button("Ada, connected").click());
+    await act(async () => button("Set up concierge").click());
+    expect(hasButton("Agent provider: Harness Display")).toBe(true);
+    expect(hasButton("Agent model: Model Display")).toBe(true);
+    expect(button("Change agent").disabled).toBe(false);
+  } finally {
+    catalogue.providers = [];
+  }
 });
 
 it("saves permissions directly and refuses an allowed grant without a scope", async () => {
@@ -344,7 +352,7 @@ it("tells the old machine that receiving moved, and warns before taking it over"
   expect(document.querySelector('[aria-label="Receive Ada on this machine"]')?.textContent)
     .toContain("Ada is received on Studio. Move here?");
   await act(async () => button("Receive this friend here").click());
-  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 4);
+  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 4, "set", { choice: "keep", expected_digest: "fixture" });
 });
 
 it.each([
@@ -395,11 +403,12 @@ it("requires a fresh confirmation if receiving moves while the active takeover p
   await render("paid", { runtimeClient });
   await act(async () => button("Ada, connected").click());
   await act(async () => button("Receive this friend here").click());
+  vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ enrolled: true, bindings: {}, friend_receivers: { pair: { receiving_here: false, is_me: false, receiving_enabled: true, receiver_machine_label: "Laptop", revision: 5 } } }));
   await act(async () => changed?.({ receiving_here: false, is_me: false, receiving_enabled: true, receiver_machine_label: "Laptop", revision: 5, friendship_id: "pair", friend_receivers_version: 1 }));
   await act(async () => button("Receive this friend here").click());
   expect(runtimeClient.receiveFriend).not.toHaveBeenCalled();
   await act(async () => button("Receive this friend here").click());
-  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 5);
+  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 5, "set", { choice: "keep", expected_digest: "fixture" });
 });
 
 it("draws the last known graph at once and says it is updating instead of loading", async () => {
@@ -460,6 +469,9 @@ it("sets machine access: the folder with its honest note, and a warning for full
   expect(document.body.textContent).toContain("Writes are advisory with this agent; reads are not confined.");
   await act(async () => button("Full access").click());
   expect(document.body.textContent).toContain("Their requests can change anything your agents on this machine can reach.");
+  expect(button("Memory write areas: All current areas")).toBeDefined();
+  expect(document.body.textContent).toContain("Full access includes saving facts, notes and skills in all current memory areas, attributed to this friend.");
+  expect(document.body.textContent).toContain("Content is scanned; secrets are never allowed.");
   await act(async () => button("Apply").click());
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ machine_access: "full" }));
 });
@@ -748,6 +760,10 @@ it("defaults write areas to empty and saves only selected known memory areas", a
   expect(button("Memory write areas: 2 areas")).toBeDefined();
   await act(async () => options.find(option => option.textContent === "family")!.click());
   expect(button("Memory write areas: work")).toBeDefined();
+  await act(async () => button("Full access").click());
+  expect(button("Memory write areas: work")).toBeDefined();
+  expect(document.body.textContent).toContain("Full access includes saving facts, notes and skills in the selected memory areas, attributed to this friend.");
+  await act(async () => button("Read only").click());
   await act(async () => button("Apply").click());
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ memory_write_areas: ["work"] }));
 });

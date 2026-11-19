@@ -18,8 +18,9 @@ export interface ProviderModelUsageState {
 export function useProviderModelUsageState(
   providerId: string | null,
   enabled = true,
+  accountId: string | null = null,
 ): ProviderModelUsageState {
-  const [usage, setUsage] = useState<ModelGroupUsage[]>(EMPTY_USAGE);
+  const [reading, setReading] = useState<{ provider: string; account: string | null; usage: ModelGroupUsage[] } | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
@@ -27,32 +28,27 @@ export function useProviderModelUsageState(
     let active = true;
     let stop: (() => void) | undefined;
     void listen<UsageSnapshotEvent>("usage-snapshot-updated", ({payload}) => {
-      if (active && payload.provider === providerId) setRefreshToken(value => value + 1);
+      if (active && payload.provider === providerId && (payload.account_id ?? null) === accountId) setRefreshToken(value => value + 1);
     }).then(unlisten => { if (active) stop = unlisten; else unlisten(); });
     return () => { active = false; stop?.(); };
-  }, [providerId, enabled]);
+  }, [providerId, enabled, accountId]);
 
   useEffect(() => {
     let active = true;
-    if (!providerId || !enabled) {
-      setUsage(EMPTY_USAGE);
-      return;
-    }
-    void invoke<unknown>("provider_model_usage", { providerId })
-      .then((result) => {
-        if (active) setUsage(modelGroupUsageFromResponse(result));
-      })
-      .catch(() => {
-        // Web mirror or a provider without a usage source: show none, never a guess.
-        if (active) setUsage(EMPTY_USAGE);
-      });
+    if (!providerId || !enabled) return;
+    const publish = (usage: ModelGroupUsage[]) => {
+      if (active) setReading({ provider: providerId, account: accountId, usage });
+    };
+    void invoke<unknown>("provider_model_usage", { providerId, accountId: accountId ?? undefined })
+      .then(result => publish(modelGroupUsageFromResponse(result)), () => publish(EMPTY_USAGE));
     return () => {
       active = false;
     };
-  }, [providerId, enabled, refreshToken]);
+  }, [providerId, enabled, accountId, refreshToken]);
 
   const refresh = useCallback(() => setRefreshToken((v) => v + 1), []);
 
+  const usage = enabled && reading?.provider === providerId && reading.account === accountId ? reading.usage : EMPTY_USAGE;
   return { usage, refresh };
 }
 

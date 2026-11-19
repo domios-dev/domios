@@ -88,6 +88,19 @@ impl super::ServiceContext {
         self.require_managed_delivery_allowed(target, source)
     }
 
+    pub fn require_system_notice_send_allowed(
+        &self,
+        target: &str,
+        source: Option<&str>,
+        context: &str,
+    ) -> Result<(), String> {
+        self.require_enveloped_input_allowed(
+            target,
+            &super::messenger::MessageEnvelope::codeterm_reminder(context),
+        )?;
+        self.require_managed_delivery_allowed(target, source)
+    }
+
     pub(crate) fn require_managed_delivery_allowed(
         &self,
         target: &str,

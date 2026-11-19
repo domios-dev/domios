@@ -12,7 +12,7 @@ Usage: bash evals/core-journeys/run.sh MODE [--out DIR] [driver flags]
   verify    J4 (+ J3 after restart) against the state in --out; run after an operator restart
   cleanup   remove the fixtures recorded in --out
 Driver flags: --model PROVIDER=ADVERTISED_ID (repeat for every installed provider; profile-backed: acp=PROFILE[/MODEL])  --providers a,b  --history-kb N  --deadline-secs N  --all-tabs  --keep
-Selection flags (default: the full suite J1-J4):
+Selection flags (default: the full suite J1-J5):
   --selection FILE         run what `node evals/core-journeys/select.mjs BASE HEAD --out FILE` selected
   --journeys J1,J4         run these journeys; with --selection, dropping a selected one needs --waiver
   --exclude-provider ID    drop a provider from the roster (repeatable); needs --waiver
@@ -21,6 +21,7 @@ Selection flags (default: the full suite J1-J4):
 Needs a named instance and its own API port; ports 7685 and 7686 are refused.
 Check a finished run: node evals/core-journeys/lib/evidence-contract.mjs OUT
 Spends real provider tokens. See evals/core-journeys/README.md.
+J5 needs --neighbors-config FILE; see NEIGHBORS.md for the two-peer QA contract.
 EOF
 }
 
@@ -29,6 +30,12 @@ if [ "${1:-}" = --dc ]; then
   source "$ROOT/evals/_lib/lib.sh"
   source "$HERE/lib/instance-identity.sh"
   if dc "$@"; then exit 0; else exit "$?"; fi
+fi
+if [ "${1:-}" = --connection ]; then
+  source "$ROOT/evals/_lib/lib.sh"
+  source "$HERE/lib/instance-identity.sh"
+  dev_run node "$HERE/lib/neighbor-peer.mjs" --emit-connection
+  exit "$?"
 fi
 case "${1:-}" in
   all|setup|verify|cleanup) MODE="$1"; shift ;;
@@ -77,7 +84,7 @@ esac
 [ -n "$EVAL_LIB_RESOLVED_INSTANCE" ] || { echo "FAIL resolved target has no instance name" >&2; exit 7; }
 
 if [ "$MODE" != cleanup ]; then
-  dev_run node "$HERE/prerequisites.mjs" || exit 7
+  dev_run node "$HERE/prerequisites.mjs" ${PASS[@]+"${PASS[@]}"} || exit 7
 fi
 
 mkdir -p "$OUT" && OUT="$(cd "$OUT" && pwd)"

@@ -63,3 +63,57 @@ async fn retired_account_and_update_generation_report_local_fences_without_key_r
         })
     );
 }
+
+struct TransientActivationPorts(AtomicUsize);
+
+#[async_trait::async_trait]
+impl SessionPorts for TransientActivationPorts {
+    async fn listen_state(&self) -> Result<Box<dyn StateListener>> {
+        panic!("Snapshots are injected directly")
+    }
+
+    async fn listen_signals(
+        &self,
+    ) -> Result<Box<dyn codeterm_neighbors::registry::RegistryListener>> {
+        panic!("Registry events are not needed")
+    }
+
+    async fn activate(&self, session: &Session, _: &Value) -> Result<()> {
+        let generation = session
+            .service
+            .neighbor_cell()
+            .generation
+            .load(Ordering::Acquire);
+        let failure = (self.0.fetch_add(1, Ordering::SeqCst) == 0).then(|| Error::Transport.into());
+        session
+            .service
+            .record_neighbor_activation(generation, failure);
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn transient_activation_waits_for_the_next_snapshot_without_completing_or_scheduling_retry() {
+    let (f, mut session, _, _, mut deadlines) = fixture(Mode::Controlled).await;
+    let ports = Arc::new(TransientActivationPorts(AtomicUsize::new(0)));
+    session.ports = ports.clone();
+    let mut seen = notifications::Seen::default();
+    session.project(snapshot(1, None), &mut seen).await.unwrap();
+    assert!(f.service.neighbor_activation_stale());
+    assert!(!f.service.neighbor_projection_activated(
+        &session.transport.uid,
+        session.expected.login_generation,
+        1
+    ));
+    assert_eq!(ports.0.load(Ordering::SeqCst), 1);
+    assert!(deadlines.try_recv().is_err());
+    session.project(snapshot(1, None), &mut seen).await.unwrap();
+    assert!(!f.service.neighbor_activation_stale());
+    assert!(f.service.neighbor_projection_activated(
+        &session.transport.uid,
+        session.expected.login_generation,
+        1
+    ));
+    assert_eq!(ports.0.load(Ordering::SeqCst), 2);
+    assert!(deadlines.try_recv().is_err());
+}

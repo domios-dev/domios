@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { SelectionAsk } from "../../../../src/components/shared/SelectionAsk";
-import { clampFloatingPosition } from "../../../../src/components/shared/floatingPosition";
+import { anchoredPopoverPosition, pointAnchor } from "../../../../src/components/shared/floatingPosition";
 import { forcePseudo, waitFor } from "../stageTools";
 import { defineSpecimen } from "../types";
 
@@ -31,7 +31,12 @@ function SelectionStage({ mode }: { mode: Mode }) {
       const popover = element.classList.contains("ct-sel-ask__pop");
       const width = popover ? POPOVER_WIDTH : element.offsetWidth;
       const left = anchor.right - box.left - (popover ? POPOVER_WIDTH / 2 : TRIGGER_OFFSET);
-      const pos = clampFloatingPosition(left, anchor.bottom - box.top + 6, width, element.offsetHeight, box.width, box.height);
+      const pos = anchoredPopoverPosition(
+        pointAnchor(left, anchor.bottom - box.top + 6),
+        { width, height: element.offsetHeight },
+        { width: box.width, height: box.height },
+        "bottom-start", { gap: 0 },
+      );
       element.style.setProperty("position", "absolute", "important");
       element.style.setProperty("top", `${pos.top}px`, "important");
       element.style.setProperty("left", `${pos.left}px`, "important");

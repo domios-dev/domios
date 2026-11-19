@@ -1,7 +1,7 @@
 import { FIXTURE_BOARD_READ_FIELDS } from "../cards/fixtures.testdata";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import { MissionControlBoard } from "./MissionControlBoard";
 import { UNASSIGNED_MODEL_LABEL } from "./missionControlBoardModel";
@@ -30,6 +30,15 @@ class WidthObserver {
 }
 
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver = WidthObserver;
+
+vi.mock("../../../lib/useAgentDescriptor", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../lib/useAgentDescriptor")>();
+  const catalogue = [
+    { id: "claude", available_models: [{ id: "claude-haiku-4-5", display_name: "Haiku 4.5" }] },
+    { id: "codex", available_models: [{ id: "gpt-5.6-luna", display_name: "GPT-5.6 Luna" }] },
+  ];
+  return { ...actual, useAgentDescriptors: () => catalogue };
+});
 
 beforeEach(() => {
   observers.length = 0;
@@ -165,7 +174,7 @@ describe("mission control board visual system", () => {
     const { models, unmount } = await renderAt(OWNER_WIDTH);
 
     const rows = modelRows(models);
-    expect(rows.map((row) => row.querySelector("th")?.textContent)).toEqual([UNASSIGNED_MODEL_LABEL, "haiku", "5.6-luna"]);
+    expect(rows.map((row) => row.querySelector("th")?.textContent)).toEqual([UNASSIGNED_MODEL_LABEL, "Haiku 4.5", "GPT-5.6 Luna"]);
     expect(rows.map((row) => row.getAttribute("data-unassigned"))).toEqual(["true", "false", "false"]);
     expect(rows.map((row) => row.children[2]?.textContent)).toEqual(["62%", "36%", "1.7%"]);
     for (const row of rows) {

@@ -9,10 +9,11 @@ import { useViewerNavigation } from "./useViewerNavigation";
 export type SettingsRoute =
   | { kind: "root" }
   | { kind: "section"; id: SectionId; helpSection?: HelpSectionId; card?: SettingsCardAnchorId }
-  | { kind: "agent-provider"; providerId: string };
+  | { kind: "agent-provider"; providerId: string;card?:"provider-accounts" };
 
 function initialStack(link: SettingsLinkId | undefined, guide: GuideRequest | undefined): SettingsRoute[] {
   const route = resolveSettingsLink(link);
+  if(route?.providerId)return [{kind:"root"},{kind:"section",id:"agents"},{kind:"agent-provider",providerId:route.providerId,card:"provider-accounts"}];
   return route ? [{ kind: "root" }, { kind: "section", id: route.section, card: route.card, helpSection: route.section === "guide" ? guide?.section : undefined }] : [{ kind: "root" }];
 }
 
@@ -25,7 +26,7 @@ export function settingsStack(value: unknown): SettingsRoute[] | undefined {
       const card = route.card === "supporter-agent" || route.card === "telegram-bridge" || route.card === "subscription-plans" ? route.card : undefined;
       const helpSection = GUIDE_SECTIONS.find((section) => section.id === route.helpSection)?.id;
       stack.push({ kind: "section", id: route.id as SectionId, card, helpSection });
-    } else if (route?.kind === "agent-provider" && navigationId(route.providerId)) stack.push({ kind: "agent-provider", providerId: route.providerId });
+    } else if (route?.kind === "agent-provider" && navigationId(route.providerId)) stack.push({ kind: "agent-provider", providerId: route.providerId,...(route.card==="provider-accounts"?{card:route.card}:{}) });
     else break;
   }
   return stack;

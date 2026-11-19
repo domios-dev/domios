@@ -11,8 +11,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         let git = |args: &[&str]| -> Result<String, PlanError> {
-            let mut command = std::process::Command::new("git");
-            codeterm_util::process_util::no_window_std(&mut command);
+            let mut command = codeterm_util::process_util::git_command();
             let output = command
                 .arg("-C")
                 .arg(&checkout_path)

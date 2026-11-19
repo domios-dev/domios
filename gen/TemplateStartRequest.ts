@@ -5,19 +5,19 @@ import type { TemplateRef } from "./TemplateRef";
 /**
  * The `template` carried by an orchestration pair request.
  */
-export type TemplateStartRequest = { template: TemplateRef, 
+export type TemplateStartRequest = { template: TemplateRef,
 /**
  * An existing Team to re-run the start on; missing managers and registrations are added.
  */
-team_id?: string | null, inputs?: { [key in string]: string }, 
+team_id?: string | null, inputs?: { [key in string]: string },
 /**
  * Payload item ids the owner opted out of.
  */
-opt_out?: Array<string>, decision_id?: string | null, 
+opt_out?: Array<string>, decision_id?: string | null,
 /**
  * Secret name to the local vault entry that supplies it; values never travel.
  */
-secret_bindings?: { [key in string]: string }, 
+secret_bindings?: { [key in string]: string },
 /**
  * Choices for with_team managers by role name, beyond the pair's own Orchestrator and Planner fields.
  */

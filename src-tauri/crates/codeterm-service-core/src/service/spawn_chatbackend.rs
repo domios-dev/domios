@@ -40,10 +40,10 @@ fn stamp_chatbackend_launch_identity(
     tab: &mut crate::multiplexer::types::Tab,
     metadata: &super::spawn::ChatBackendLaunchMetadata,
 ) {
-    if tab.neighbor_authority.is_none() {
-        tab.neighbor_authority = metadata.params.neighbor_authority.clone();
-    }
+    super::spawn::stamp_launch_authority(tab, &metadata.params);
     let agent = &metadata.agent;
+    tab.restorable_launch.account_id = agent.account_id.clone();
+    tab.restorable_launch.account_namespace = agent.account_namespace.clone();
     tab.worker_id = agent.worker_id.clone();
     tab.provisioned_cwd = agent.provisioned_cwd.clone();
     tab.report_target_tab_id = agent.report_target_tab_id.clone();
@@ -260,7 +260,8 @@ impl ServiceContext {
         };
 
         let cloud = self.remote_execution(&plugin_id, &config)?;
-        if !cloud && super::agent_runtime::engine::requested(self, &plugin_id) {
+        let local_runtime = !cloud && super::agent_runtime::engine::requested(self, &plugin_id);
+        if local_runtime {
             if let Some(metadata) = spec.chatbackend_launch.as_ref() {
                 super::spawn_capability::validate_runtime_launch_arguments(
                     &plugin_id,
@@ -283,6 +284,11 @@ impl ServiceContext {
             if config.is_null() {
                 config = serde_json::json!({});
             }
+            let resume = spec
+                .chatbackend_launch
+                .as_ref()
+                .and_then(|launch| launch.agent.resume_session_id.as_deref());
+            launch_options::apply_model(self, &plugin_id, &mut config, resume)?;
             config
                 .as_object_mut()
                 .ok_or("Runtime spawn config must be an object")?
@@ -320,11 +326,17 @@ impl ServiceContext {
             let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
             (id, cwd)
         };
-        let resolved_cwd = spec
-            .cwd
-            .clone()
-            .or(ws_cwd)
-            .map(|cwd| Self::normalize_resolved_agent_cwd(&cwd));
+        let (resolved_cwd, warning) = if local_runtime {
+            Self::resolve_agent_cwd(&spec.cwd, &ws_cwd)
+        } else {
+            (
+                spec.cwd
+                    .clone()
+                    .or(ws_cwd)
+                    .map(|cwd| Self::normalize_resolved_agent_cwd(&cwd)),
+                None,
+            )
+        };
         let team_attachment = crate::service::team_membership::resolve_spawn_attachment(
             &self.mux.read(),
             spec.team_id.as_deref(),
@@ -441,7 +453,7 @@ impl ServiceContext {
                 return Err(error);
             }
         }
-        if !cloud && super::agent_runtime::engine::requested(self, &plugin_id) {
+        if local_runtime {
             if let Some(launch) = launch {
                 if let Err(error) = self.prepare_chatbackend_runtime_launch(&tab_id, launch) {
                     self.rollback_provisional_tab(&ws_id, &tab_id);
@@ -458,7 +470,7 @@ impl ServiceContext {
             workspace_id: ws_id.clone(),
             description: spec.description,
             worker_id: launch.and_then(|launch| launch.agent.worker_id.clone()),
-            warning: None,
+            warning,
             model_fallback: None,
             budget_notice,
         };

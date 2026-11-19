@@ -8,6 +8,27 @@ use crate::usage::probe::ProbeError;
 use crate::usage::store::{UsageFailureKind, UsageSnapshotRow};
 
 #[test]
+fn probe_accounts_follow_each_tabs_persisted_selection_without_duplicates() {
+    let (mut mux, implicit) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&implicit).unwrap();
+    let named = mux.create_tab(&workspace).unwrap();
+    let same = mux.create_tab(&workspace).unwrap();
+    for id in [&named, &same] {
+        mux.get_tab_mut(id).unwrap().restorable_launch.account_id = Some("account-b".into());
+    }
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    assert_eq!(
+        super::accounts_for_tabs(&fixture.service, &[named.clone(), same, implicit]),
+        vec![None, Some("account-b".into())]
+    );
+    assert_eq!(
+        super::accounts_for_tabs(&fixture.service, &[named]),
+        vec![Some("account-b".into())]
+    );
+    assert!(super::accounts_for_tabs(&fixture.service, &["closed-tab".into()]).is_empty());
+}
+
+#[test]
 fn probe_admission_bounds_refresh_bursts_and_failed_reset_retries() {
     let now = std::time::Instant::now();
     let mut state = super::AccountState::default();

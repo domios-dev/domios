@@ -1,6 +1,7 @@
 export { DsText } from "./blocks/DsText";
 export { formatAgentWorkingLine, AGENT_WORKING_LINE_SEP } from "./formatAgentWorkingLine";
 export { MessageBubble } from "./MessageBubble";
+export { ChatNoticeCard } from "./ChatNoticeCard";
 export { CodeBlock } from "./CodeBlock";
 export {
   ChatSessionIntentLine,

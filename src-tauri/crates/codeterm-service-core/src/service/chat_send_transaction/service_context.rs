@@ -36,6 +36,7 @@ impl crate::service::ServiceContext {
         capture: Option<super::super::local_recording::chat::CapturedChat>,
     ) -> Result<ChatSendStatus, String> {
         self.require_tab_input_allowed(tab_id, None)?;
+        let _update_input = self.admit_update_input(tab_id)?;
         super::super::agent_runtime::capacity_retry::cancel(self, tab_id)?;
         if !super::super::agent_runtime::requested_for_tab(self, tab_id) || capture.is_some() {
             self.wake_frozen_tab(tab_id)?;
@@ -178,6 +179,7 @@ impl crate::service::ServiceContext {
                 );
         }
         // This short reservation is the service ordering point, before asynchronous preparation.
+        let _input = self.admit_update_input(tab_id)?;
         self.pending_delivery_payloads
             .user_sends
             .reserve_with_replay_only(authority, client_token, replay_only, || {

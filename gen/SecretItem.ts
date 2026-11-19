@@ -4,7 +4,7 @@ import type { SecretOwner } from "./SecretOwner";
 /**
  * One entry of the vault listing: metadata only, never a value, and whose it is.
  */
-export type SecretItem = { item_id: string, name: string, folder: string | null, organization: string | null, collection: string | null, 
+export type SecretItem = { item_id: string, name: string, folder: string | null, organization: string | null, collection: string | null,
 /**
  * Unix milliseconds.
  */

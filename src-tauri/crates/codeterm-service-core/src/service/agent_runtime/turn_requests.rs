@@ -385,6 +385,7 @@ pub(super) async fn run(
             &owner, &runtime, &process, &pending, &operation, &plan, guard,
         )
         .await;
+        let await_completion = result.is_ok() && completes_with_events(&runtime);
         if let Err(reason) = &result {
             if !*pending.cancelled.borrow() {
                 let _ = settle_failure(
@@ -400,8 +401,22 @@ pub(super) async fn run(
         if pending.outcome.borrow().is_none() {
             pending.outcome.send_replace(Some(result));
         }
+        runtime.control_changes.send_replace(());
+        if await_completion {
+            if let Err(reason) = wait_for_completion(&owner, &runtime, &process, &pending).await {
+                let _ = settle_failure(
+                    &owner,
+                    &runtime,
+                    &pending,
+                    reply_failure_detail(&reason),
+                    format!("Turn completion stream failed: {reason}"),
+                )
+                .await;
+            }
+        }
         runtime.turn_requests.lock().remove(&send);
         runtime.control_changes.send_replace(());
+        crate::service::provider_accounts::runtime_boundary(&owner, &runtime);
         owner.wake_user_owner_on_state_change(&pending.context.tab_id);
     });
     loop {
@@ -524,11 +539,46 @@ async fn await_reply(
             }
         }
     }
-    if pending.settled.swap(true, Ordering::AcqRel) {
+    if !completes_with_events(session) && pending.settled.swap(true, Ordering::AcqRel) {
         return Ok(result);
     }
     subscriber::publish_events(svc, session, pending.context.epoch, events, now()).await?;
     Ok(result)
+}
+
+async fn wait_for_completion(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    process: &Process,
+    pending: &PendingTurn,
+) -> Result<(), RuntimeFailure> {
+    let mut changes = session.control_changes.subscribe();
+    let mut ended = process.ended.clone();
+    let mut cancelled = pending.cancelled.subscribe();
+    loop {
+        validate(svc, session, &pending.context)?;
+        if pending.settled.load(Ordering::Acquire)
+            || pending
+                .context
+                .thread_id
+                .as_deref()
+                .is_some_and(|thread| session.completions.lock().contains(thread, &pending.turn))
+        {
+            pending.settled.store(true, Ordering::Release);
+            return Ok(());
+        }
+        if *cancelled.borrow_and_update() {
+            return Err(RuntimeFailure::Superseded);
+        }
+        if let Some(reason) = ended.borrow().clone() {
+            return Err(reason);
+        }
+        tokio::select! {
+            _=changes.changed()=>{},
+            _=ended.changed()=>{},
+            _=cancelled.changed()=>{},
+        }
+    }
 }
 
 async fn wait_for_updates(
@@ -741,9 +791,19 @@ pub(super) fn open_turns(session: &Session, context: &RuntimeContext) -> Vec<Str
         .collect()
 }
 
-/// With no request awaiting a reply the provider has no turn to cancel, whatever the host recorded.
+/// Response-completed providers have no turn to cancel once their request has settled.
 pub(super) fn no_provider_turn(session: &Session, epoch: u64) -> bool {
-    submit_owns_turn(session) && !waiting(session, epoch)
+    submit_owns_turn(session) && !completes_with_events(session) && !waiting(session, epoch)
+}
+
+fn completes_with_events(session: &Session) -> bool {
+    session
+        .adapter
+        .lock()
+        .clone()
+        .and_then(|adapter| adapter.agent_runtime())
+        .and_then(|capability| capability.http_sse)
+        .is_some_and(|http| http.completion_events)
 }
 
 pub(super) async fn cancel_timed_out(

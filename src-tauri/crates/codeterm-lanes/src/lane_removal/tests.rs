@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 
 use super::*;
@@ -21,8 +20,7 @@ fn repo_watch() -> codeterm_repowatch::RepoWatchRegistryHandle {
 }
 
 fn git(dir: &Path, args: &[&str]) {
-    let mut command = Command::new("git");
-    process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     let output = command.current_dir(dir).args(args).output().unwrap();
     assert!(
         output.status.success(),
@@ -49,8 +47,7 @@ fn fixture_project(root: &Path) -> std::path::PathBuf {
 }
 
 fn branch_exists(project: &Path, branch: &str) -> bool {
-    let mut command = Command::new("git");
-    process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     command
         .current_dir(project)
         .args(["rev-parse", "--verify", "--quiet", branch])
@@ -65,8 +62,9 @@ fn link_dir(link: &Path, target: &Path) {
     std::os::unix::fs::symlink(target, link).expect("create directory symlink");
     #[cfg(windows)]
     {
-        let mut command = Command::new("cmd");
-        process_util::no_window_std(&mut command);
+        let mut command = std::process::Command::new("cmd");
+        codeterm_util::process_util::no_window_std(&mut command);
+
         let output = command
             .args(["/C", "mklink", "/J"])
             .arg(link)
@@ -522,7 +520,7 @@ fn lane_checkpoint_refs_are_deleted_when_lane_is_removed() {
     )
     .unwrap();
 
-    let refs = Command::new("git")
+    let refs = codeterm_util::process_util::git_command()
         .current_dir(&project)
         .args([
             "for-each-ref",
@@ -808,8 +806,7 @@ mod consumer_loads {
 }
 
 fn refs(repository: &Path) -> String {
-    let mut command = Command::new("git");
-    process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     let output = command
         .current_dir(repository)
         .args(["for-each-ref", "--format=%(objectname) %(refname)"])

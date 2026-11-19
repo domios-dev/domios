@@ -147,6 +147,8 @@ pub use super::updater::UpdaterConfig;
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProviderConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accounts: Option<super::provider_accounts::ProviderAccountsConfig>,
     /// Resume previous sessions on Domios restart (per provider).
     pub resume_sessions: Option<bool>,
     /// Default model id used for fresh sessions.

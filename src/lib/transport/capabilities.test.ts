@@ -80,7 +80,11 @@ describe("capabilities HTTP transport", () => {
     const groups = [{ group: "fast", messages: 3, input_tokens: 4, output_tokens: 5, cost_micros: 6 }];
     const { transport, calls } = fixture(groups);
     expect(await transport.provider_model_usage({ providerId: "drop/in" })).toEqual(groups);
-    expect(calls).toEqual([["GET", "/api/agents/providers/drop%2Fin/model-usage", undefined]]);
+    expect(await transport.provider_model_usage({ providerId: "drop/in", accountId: "work account" })).toEqual(groups);
+    expect(calls).toEqual([
+      ["GET", "/api/agents/providers/drop%2Fin/model-usage", undefined],
+      ["GET", "/api/agents/providers/drop%2Fin/model-usage?account_id=work%20account", undefined],
+    ]);
   });
 
   it("requires explicit integration consent and preserves provider identity", async () => {

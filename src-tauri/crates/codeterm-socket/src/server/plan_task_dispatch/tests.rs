@@ -48,6 +48,7 @@ mod lane_safety;
 mod late_attempt_failure;
 mod qa_pass;
 mod recovery_race;
+mod remote_skill_preflight;
 mod resolved_effort;
 mod runtime_dispatch;
 pub(super) mod startup_tasks;
@@ -138,6 +139,7 @@ fn dispatched_attempt_records_routed_model_and_effort() {
             routing.model.clone(),
             routing.model,
             Some("xhigh".into()),
+            None,
             None,
             None,
             false,

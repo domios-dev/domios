@@ -24,6 +24,7 @@ impl RestartOptionsExt for ServiceContext {
         let RestartOptions {
             force,
             grace_secs,
+            account_restart,
             target_provider,
             handoff_history,
             fresh,
@@ -39,6 +40,45 @@ impl RestartOptionsExt for ServiceContext {
                 .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {resolved} not found")))?;
             (resolved, tab.agent_type.clone(), tab.backing.clone())
         };
+        if let Some(account) = account_restart.as_ref() {
+            if fresh || handoff_history || target_provider.is_some() {
+                return Err(AgentRestartError::BadRequest(
+                    "Account restart cannot start fresh or change provider/history".into(),
+                )
+                .into());
+            }
+            account
+                .validate_target()
+                .map_err(AgentRestartError::BadRequest)?;
+            if current_provider.as_deref() != Some(account.expected.provider.as_str()) {
+                return Err(AgentRestartError::BadRequest(
+                    "Account restart provider changed".into(),
+                )
+                .into());
+            }
+            if super::runtime::restart_route(
+                crate::service::agent_runtime::engine::requested(self, &account.expected.provider),
+                &backing,
+            ) == super::runtime::RestartRoute::Runtime
+            {
+                return self.restart_runtime_agent_with_account(
+                    &resolved,
+                    force,
+                    false,
+                    false,
+                    Some(account),
+                );
+            }
+            let snap = self.snapshot_tab_for_restart(&resolved)?;
+            return self.restart_live_agent_with_account(
+                snap,
+                force,
+                grace_secs,
+                None,
+                RestartMode::Standard,
+                Some(account),
+            );
+        }
         if let Some(source) = current_provider.as_deref() {
             if let Some(target) = target_provider
                 .as_deref()

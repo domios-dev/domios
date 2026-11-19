@@ -350,6 +350,9 @@ async fn respond_inner(
                 remove(svc, &captured, Some(&entry.request));
             }
             if let Err(error) = result {
+                if matches!(&error, RuntimeFailure::ReplyRefused { .. }) {
+                    return Err(error.to_string());
+                }
                 session.state.lock().degrade(captured.epoch, &error);
                 clear(svc, &captured);
                 engine::publish(svc, tab, &session);
@@ -409,9 +412,13 @@ pub(super) async fn cancel_pending(
             request_id: request_id.clone(),
             answer: PromptAnswer::Cancel,
         };
-        let plan = tokio::time::timeout(
-            codeterm_plugin::agent_runtime::RUNTIME_HOOK_DEADLINE,
-            adapter.runtime_plan(&context, &operation),
+        let invocation = session.invocation.lock().clone();
+        let plan = codeterm_plugin::provider_account::scope(
+            invocation,
+            tokio::time::timeout(
+                codeterm_plugin::agent_runtime::RUNTIME_HOOK_DEADLINE,
+                adapter.runtime_plan(&context, &operation),
+            ),
         )
         .await;
         let result = match plan {

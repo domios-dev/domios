@@ -1,6 +1,9 @@
 use super::*;
 use codeterm_plugin::agent_runtime::RuntimeSettings;
 
+#[derive(Debug)]
+pub struct Executable(pub PathBuf);
+
 pub fn fixture() -> (
     tempfile::TempDir,
     RuntimeContext,
@@ -35,6 +38,68 @@ pub fn fixture() -> (
         environment: Default::default(),
     };
     (directory, context, sandbox, executable)
+}
+
+#[test]
+fn read_only_pad_policy_provisions_only_the_pinned_cli_exception() {
+    let (directory, mut context, mut sandbox, executable) = fixture();
+    let pad = directory.path().join("own-pad");
+    fs::create_dir(&pad).unwrap();
+    sandbox.intent = ExecutionIntent::ReadOnly;
+    sandbox.runtime_mode = Some("read-only-with-writable-roots".into());
+    sandbox.writable_roots = vec![plain_path(&pad.canonicalize().unwrap()).unwrap()];
+    context.settings.mode = sandbox.runtime_mode.clone();
+    context.settings.additional_directories = sandbox.writable_roots.clone();
+    let before = sandbox.clone();
+    let policy = provision(&context, &sandbox, &executable, ".runtime-policy").unwrap();
+    verify_files(&policy).unwrap();
+    assert_eq!(sandbox, before);
+    assert_eq!(
+        fs::read(paths(&policy).2).unwrap(),
+        format!(
+            "prefix_rule(pattern={}, decision=\"allow\")\n",
+            serde_json::to_string(&[&policy.executable]).unwrap()
+        )
+        .as_bytes()
+    );
+    assert!(fs::read_dir(pad).unwrap().next().is_none());
+    remove_owned(&policy);
+}
+
+#[test]
+fn only_the_root_read_only_concierge_is_eligible_for_split_windows_roots() {
+    use crate::multiplexer::{state::MultiplexerState, types::NeighborAuthority};
+    use crate::service::test_fixture::ServiceFixture;
+
+    let (mux, tab_id) = MultiplexerState::new();
+    let service = ServiceFixture::new(mux);
+    let (directory, mut context, mut policy, _) = fixture();
+    let pad = directory.path().join("own-pad");
+    fs::create_dir(&pad).unwrap();
+    policy.intent = ExecutionIntent::ReadOnly;
+    policy.runtime_mode = Some("read-only-with-writable-roots".into());
+    policy.writable_roots = vec![plain_path(&pad.canonicalize().unwrap()).unwrap()];
+    context.tab_id = tab_id.clone();
+    context.settings.mode = policy.runtime_mode.clone();
+    context.settings.additional_directories = policy.writable_roots.clone();
+
+    for (root_tab_id, eligible) in [(None, Some(true)), (Some("root".into()), None)] {
+        {
+            let mut mux = service.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.neighbor_authority = Some(NeighborAuthority {
+                uid: "owner".into(),
+                friendship_id: "a".repeat(64),
+                root_tab_id,
+            });
+            tab.session_binding_nonce = Some(context.binding_nonce.clone());
+            tab.restorable_launch.execution_sandbox = Some(policy.clone());
+        }
+        assert_eq!(
+            sandbox_with_preference(&service.service, &context).unwrap(),
+            Some((policy.clone(), eligible))
+        );
+    }
 }
 
 #[test]
@@ -120,10 +185,52 @@ fn foreign_metadata_writable_executable_and_changed_cwd_refuse_without_overwrite
 }
 
 #[test]
-fn foreign_ancestor_project_metadata_refuses_trust() {
-    let (directory, context, _, _) = fixture();
-    fs::create_dir(directory.path().join(".runtime-policy")).unwrap();
-    assert!(require_fresh_project(Path::new(&context.cwd), ".runtime-policy").is_err());
+fn restored_session_under_provider_home_and_git_project_gets_fresh_scoped_policy() {
+    let (directory, mut context, mut sandbox, executable) = fixture();
+    for marker in [".runtime-policy", ".git"] {
+        fs::create_dir(directory.path().join(marker)).unwrap();
+    }
+    let foreign = directory.path().join(".runtime-policy/config.toml");
+    fs::write(&foreign, b"foreign-ancestor-config").unwrap();
+    let pad = directory.path().join("own-pad");
+    fs::create_dir(&pad).unwrap();
+    context.thread_id = Some("existing-session".into());
+    context.settings.mode = Some("read-only-with-writable-roots".into());
+    context.settings.additional_directories = vec![plain_path(&pad).unwrap()];
+    sandbox.intent = ExecutionIntent::ReadOnly;
+    sandbox.runtime_mode = context.settings.mode.clone();
+    sandbox.writable_roots = context.settings.additional_directories.clone();
+    for intent in [ExecutionIntent::ReadOnly, ExecutionIntent::Mutating] {
+        if intent == ExecutionIntent::Mutating {
+            context.settings.mode = Some("workspace-write".into());
+            sandbox.runtime_mode = context.settings.mode.clone();
+            sandbox.intent = intent;
+            sandbox.writable_roots.push(context.cwd.clone());
+            context.settings.additional_directories = sandbox.writable_roots.clone();
+        }
+        let before = context.clone();
+        let before_sandbox = sandbox.clone();
+        let policy = provision(&context, &sandbox, &executable, ".runtime-policy").unwrap();
+        verify_files(&policy).unwrap();
+        assert_eq!(context, before);
+        assert_eq!(sandbox, before_sandbox);
+        assert_eq!(fs::read(&foreign).unwrap(), b"foreign-ancestor-config");
+        remove_owned(&policy);
+        assert!(Path::new(&context.cwd).is_dir());
+    }
+}
+
+#[test]
+fn own_project_markers_refuse_without_changing_foreign_configuration() {
+    for marker in [".runtime-policy", ".git"] {
+        let (_directory, context, sandbox, executable) = fixture();
+        let foreign = Path::new(&context.cwd).join(marker);
+        fs::create_dir(&foreign).unwrap();
+        let config = foreign.join("config.toml");
+        fs::write(&config, b"foreign-project-config").unwrap();
+        assert!(provision(&context, &sandbox, &executable, ".runtime-policy").is_err());
+        assert_eq!(fs::read(config).unwrap(), b"foreign-project-config");
+    }
 }
 
 #[test]

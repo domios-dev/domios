@@ -291,7 +291,22 @@ pub(super) async fn handle_mesh_rpc(
     };
 
     entry.complete(response.clone());
+    state
+        .svc
+        .record_product_event(completed_event(&request.method, &response));
     response
+}
+
+fn completed_event(method: &str, response: &MeshRpcResponse) -> codeterm_analytics::Event {
+    use codeterm_analytics::{Event, MeshOperation, RequestOutcome};
+    let operation = MeshOperation::from_catalog(method.split('.').next().unwrap_or_default())
+        .unwrap_or(MeshOperation::Other);
+    let outcome = match response.error.as_ref().map(|error| error.code) {
+        None => RequestOutcome::Success,
+        Some(-32601 | -32602 | -32003) => RequestOutcome::Refused,
+        Some(_) => RequestOutcome::Failure,
+    };
+    Event::MeshRequestCompleted { operation, outcome }
 }
 
 fn sanitize_remote_context(params: &mut Option<serde_json::Value>) {

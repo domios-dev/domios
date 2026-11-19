@@ -1,6 +1,7 @@
 import { ioTestExport } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import { discoverCodexModels as ioSource_discoverCodexModels } from "../src/models";
+import { codexStateDbPath } from "../src/sessions";
 import { sessionExists as ioSource_sessionExists } from "../src/sessions";
 const discoverCodexModels = ioTestExport(ioSource_discoverCodexModels);
 const sessionExists = ioTestExport(ioSource_sessionExists);
@@ -24,3 +25,18 @@ assert.ok(reads.includes("/account/models_cache.json"));
 assert.ok(reads.includes("/account/session_index.jsonl"));
 assert.ok(reads.every((path) => path.startsWith("/account")));
 console.log("account-home: passed");
+
+const statePath = ioTestExport(codexStateDbPath);
+for (const account of ["a", "b", "a"]) {
+  const selectedReads: string[] = [];
+  (globalThis as unknown as {host: unknown}).host = {
+    envGet: (name: string) => name === "CODEX_HOME" ? `/accounts/${account}` : name === "CODEX_SQLITE_HOME" ? "/shared" : null,
+    homeDir: () => "/usual", platform: () => "linux",
+    fs: {readDir: (root: string) => {
+      selectedReads.push(root);
+      return [{name:"state_4.sqlite",isFile:true},{name:"state_900.sqlite",isFile:true},{name:"state_999.sqlite-wal",isFile:true}];
+    }},
+  };
+  assert.equal(statePath(), "/shared/state_900.sqlite");
+  assert.deepEqual(selectedReads, ["/shared"]);
+}

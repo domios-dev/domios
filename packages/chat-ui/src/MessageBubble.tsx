@@ -350,6 +350,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
     const userAttachments = message.segments ? { text: userContent, images: attachments ?? [], files: [], inline: null, reply: null } : userMessageAttachments(userContent, attachments);
     const renderUserText = (content: string) => {
       if (effectiveOrigin?.kind === "neighbor") return <RichMarkdown text={content} sourceIdentity={sourceIdentity} streaming={streaming} interactivePreviews={false} localArtifacts={false} fontScale={fontScale} />;
+      if (effectiveOrigin?.kind === "mesh" || effectiveOrigin?.kind === "telegram") return <RichMarkdown text={content} sourceIdentity={sourceIdentity} streaming={streaming} interactivePreviews={false} fontScale={fontScale} />;
       if (effectiveOrigin?.kind === "command") return <CommandBody commands={effectiveOrigin.commands} body={message.content} />;
       const renderText = (text: string) => hasPlanRefs(text) || hasCanonicalMentions(text)
         ? <LinkedText text={text} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : text;
@@ -367,6 +368,13 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
         {text}
       </>;
     };
+    const renderInlineUserText = (content: string) => {
+      if (effectiveOrigin?.kind === "neighbor" || effectiveOrigin?.kind === "mesh" || effectiveOrigin?.kind === "telegram") {
+        return <RichMarkdown text={content} inlineParagraphs sourceIdentity={sourceIdentity} streaming={streaming} interactivePreviews={false} localArtifacts={effectiveOrigin.kind !== "neighbor"} fontScale={fontScale} />;
+      }
+      if (effectiveOrigin?.kind === "command") return renderUserText(content);
+      return <LinkedText text={content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />;
+    };
 
     const reply = userAttachments.reply;
     const quotedId = reply?.reply;
@@ -380,8 +388,8 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           />
         )}
         {userProgress ?? (message.segments
-        ? <EnvelopeContent segments={message.segments} attachments={attachments} renderText={renderUserText} renderInlineText={renderUserText} onJumpToMessage={onJumpToMessage} attachmentNames={message.attachmentNames} />
-          : <OrderedAttachmentContent content={userContent} attachments={attachments} renderText={renderUserText} renderInlineText={renderUserText} attachmentNames={message.attachmentNames} />)}
+        ? <EnvelopeContent segments={message.segments} attachments={attachments} renderText={renderUserText} renderInlineText={renderInlineUserText} onJumpToMessage={onJumpToMessage} attachmentNames={message.attachmentNames} />
+          : <OrderedAttachmentContent content={userContent} attachments={attachments} renderText={renderUserText} renderInlineText={renderInlineUserText} attachmentNames={message.attachmentNames} />)}
       </>
     );
 
@@ -666,6 +674,16 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
   return null;
 });
 
+function RoutingDetails({ routing, onFocusTab }: { routing: NonNullable<ChatMessage["routing"]>; onFocusTab?: (tab: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const tab = routing.tab;
+  return <div className="mb-2 text-xs text-ct-muted-fg" aria-label="Routing details">
+    <span>{[routing.kind, routing.label, routing.model].filter(Boolean).join(" · ")}</span>
+    {tab && onFocusTab && <button type="button" className="ml-2" onClick={() => onFocusTab(tab)}>Open sender tab</button>}
+    {routing.tip && <details onToggle={event => setOpen(event.currentTarget.open)}><summary>Reply details</summary>{open && <div className="whitespace-pre-wrap">{routing.tip}</div>}</details>}
+  </div>;
+}
+
 export const MessageBubble = React.memo(function MessageBubble(props: MessageBubbleProps) {
   const time = messageRowTime(props.message, props.item, props.origin);
   const content = <MessageBubbleContent {...props} />;
@@ -674,6 +692,7 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
   return (
     <MessageTimeFrame timestamp={props.showTimestamp === false || !time ? undefined : String(time.timestamp)} side="left">
       {content}
+      {props.message.type === "user" && props.message.routing && <RoutingDetails routing={props.message.routing} onFocusTab={props.onFocusTab} />}
     </MessageTimeFrame>
   );
 });

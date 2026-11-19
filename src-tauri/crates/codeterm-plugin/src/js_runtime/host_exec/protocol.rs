@@ -19,6 +19,9 @@ pub(super) struct ExecResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub truncated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub output_too_large: Option<ExecOutputTooLarge>,
 }
 
 #[derive(serde::Serialize, ts_rs::TS)]
@@ -39,3 +42,10 @@ pub(super) fn export(config: &ts_rs::Config) -> Result<(), Box<dyn std::error::E
 
 #[cfg(test)]
 mod tests;
+#[derive(Clone, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ExecOutputTooLarge {
+    pub stream: String,
+    pub limit_bytes: usize,
+    pub actual_bytes: usize,
+}

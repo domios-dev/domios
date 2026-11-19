@@ -16,9 +16,12 @@ impl MeshRegistry for FakeRegistry {
         request: &ChallengeRequest,
     ) -> RegistryResult<String> {
         self.admit(session, "challenge");
-        let refusal = {
+        let (refusal, issuer_ahead) = {
             let mut script = self.script.lock().unwrap();
-            script.challenge_once.take().or(script.challenge)
+            (
+                script.challenge_once.take().or(script.challenge),
+                script.challenge_issuer_ahead,
+            )
         };
         if let Some(refusal) = refusal {
             return Err(refusal);
@@ -30,7 +33,7 @@ impl MeshRegistry for FakeRegistry {
             .challenged
             .lock()
             .unwrap()
-            .issue(request.body.clone(), self.clock.now()))
+            .issue(request.body.clone(), self.clock.now() + issuer_ahead))
     }
 
     async fn enroll_key(

@@ -4,11 +4,11 @@
  * Config for the daemon runaway-test-binary sweeper.
  * Section `[runaway]` in config.toml.
  */
-export type RunawayConfig = { 
+export type RunawayConfig = {
 /**
  * Enable the background sweeper. Default true.
  */
-enabled: boolean, 
+enabled: boolean,
 /**
  * Kill test binaries under target dependencies that have been alive longer than this.
  */

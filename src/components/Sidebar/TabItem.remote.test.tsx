@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { Tab } from "../../lib/types";
 import { TabItem } from "./TabItem";
 import { managedByLabel, remoteIdentity } from "./remoteOwnership";
+import { resetRemoteChatStatus, updateRemoteChatPeers } from "../../lib/remoteChatStatus";
 
 const remote = (role?: Tab["role"], roleProfile?: string): Tab => ({
   id: "mesh:peer/one",
@@ -40,6 +41,17 @@ describe("remote tab metadata", () => {
       expect(html.includes(badge)).toBe(Boolean(remotePeer));
       expect(html).toContain(managedByLabel(tab)!);
     }
+  });
+
+  it("gives an unusable remote row and its activation the machine and state", () => {
+    updateRemoteChatPeers({ paired: [], local_instance_name: "Local" });
+    try {
+      const html = renderToStaticMarkup(<TabItem tab={{ ...remote("Manager", "orchestrator"), title: "Halley" }}
+        index={0} isActive={false} onClick={() => {}} onClose={() => {}} canClose workspaceId="workspace" />);
+      expect(html).toContain('aria-label="Halley, Orchestrator on ROG, not paired"');
+      expect(html).toContain('aria-label="on ROG"');
+      expect(html).not.toContain('data-testid="tab-working-activity"');
+    } finally { resetRemoteChatStatus(); }
   });
 
   it("removes managed-by after ownership is released", () => {

@@ -103,7 +103,7 @@ test("a structured matched row reconciles without content or timestamp matching"
 
   const result = projectTranscript(state, [request]);
 
-  assert.deepEqual(result.rows.map((message) => message.id), ["history", "native-item"]);
+  assert.deepEqual(result.rows.map((message) => message.id), ["native-item", "history"]);
   assert.equal(result.pending.length, 0);
   assert.equal(result.echoes.size, 1);
 });

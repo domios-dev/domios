@@ -1,5 +1,6 @@
 pub mod local;
 pub mod receive;
+mod sealing;
 pub mod storage;
 #[cfg(test)]
 pub mod tests;
@@ -76,6 +77,7 @@ pub trait NeighborsExt {
         envelope: &Envelope,
         text: Zeroizing<String>,
         paths: Vec<String>,
+        pad: Option<crate::service::agent_pad::AgentPad>,
     ) -> impl std::future::Future<
         Output = codeterm_neighbors::Result<(Zeroizing<String>, String, Vec<String>)>,
     > + Send;
@@ -156,8 +158,9 @@ impl NeighborsExt for ServiceContext {
                     let lifecycle = InstallationKeys { store: &self.neighbor_key_store()?, registry: registry.as_ref(), scope, uid: &transport.uid };
                     let author = self.neighbor_author(caller)?;
                     let mut receipt = self.send_neighbor(transport.as_ref(), &lifecycle, &metadata, Outgoing {
+                        message_id: None,
                         authority: authority::SendAuthority::Unrestricted,
-                        friendship: friendship.clone(), kind, body: OutboundBody::Files { text: Zeroizing::new(body), paths }, in_reply_to, author,
+                        friendship: friendship.clone(), kind, body: OutboundBody::Files { text: Zeroizing::new(body), paths, pad: None }, in_reply_to, author,
                     }).await?;
                     let entries = metadata.file_entries(&friendship).await?;
                     receipt["attachments"] = json!(entries.into_iter().filter(|entry| receipt["message_id"] == entry.message_id && entry.direction == "out").collect::<Vec<_>>());
@@ -188,6 +191,7 @@ impl NeighborsExt for ServiceContext {
         envelope: &Envelope,
         text: Zeroizing<String>,
         paths: Vec<String>,
+        pad: Option<crate::service::agent_pad::AgentPad>,
     ) -> codeterm_neighbors::Result<(Zeroizing<String>, String, Vec<String>)> {
         if paths.is_empty() {
             let projected = AttachmentBody::parse(&text, &binding(envelope))?;
@@ -201,52 +205,10 @@ impl NeighborsExt for ServiceContext {
         }
         let generation = self.neighbor_history_generation();
         let envelope_copy = envelope.clone();
-        let sealed = tokio::task::spawn_blocking(move || {
-            use std::io::Read;
-            let mut sealed = vec![];
-            for path in paths {
-                if !std::path::Path::new(&path).is_absolute() {
-                    return Err(Error::InvalidRequest);
-                }
-                if !std::fs::metadata(&path)
-                    .map_err(|_| Error::InvalidRequest)?
-                    .is_file()
-                {
-                    return Err(Error::InvalidRequest);
-                }
-                let mut file = std::fs::File::open(&path).map_err(|_| Error::InvalidRequest)?;
-                if !file
-                    .metadata()
-                    .map_err(|_| Error::InvalidRequest)?
-                    .is_file()
-                {
-                    return Err(Error::InvalidRequest);
-                }
-                let mut bytes = Zeroizing::new(Vec::new());
-                file.by_ref()
-                    .take((files::MAX_FILE_BYTES - files::FILE_OVERHEAD + 1) as u64)
-                    .read_to_end(&mut bytes)
-                    .map_err(|_| Error::InvalidRequest)?;
-                if bytes.len() > files::MAX_FILE_BYTES - files::FILE_OVERHEAD {
-                    return Err(Error::File(files::refusal::Failure::too_large()));
-                }
-                let name = std::path::Path::new(&path)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("attachment");
-                sealed.push(files::seal(
-                    &binding(&envelope_copy),
-                    &uuid::Uuid::new_v4().simple().to_string(),
-                    name,
-                    "application/octet-stream",
-                    &bytes,
-                    &mut rand::rngs::OsRng,
-                )?);
-            }
-            Ok::<_, Error>(sealed)
-        })
-        .await
-        .map_err(|_| Error::Gateway)??;
+        let sealed =
+            tokio::task::spawn_blocking(move || sealing::seal_files(&envelope_copy, paths, pad))
+                .await
+                .map_err(|_| Error::Gateway)??;
         let manifests: Vec<_> = sealed
             .iter()
             .map(|(manifest, _)| manifest.clone())

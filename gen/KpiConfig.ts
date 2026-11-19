@@ -5,7 +5,7 @@
  * and the `aggregate_by_plan` query surface it waited for both ship, and the ledger
  * stores only local ids, counts and timestamps. Opt out with [`KPI_ENABLED_KEY`].
  */
-export type KpiConfig = { enabled: boolean, 
+export type KpiConfig = { enabled: boolean,
 /**
  * False only in configs saved before KPI defaulted on; load applies the default once.
  */

@@ -2,7 +2,7 @@
 import type { MissionControlProviderAllowance } from "./MissionControlProviderAllowance";
 import type { ModelSpend } from "./ModelSpend";
 
-export type ProviderSpend = { provider: string, label: string, 
+export type ProviderSpend = { provider: string, label: string,
 /**
  * `None` when this provider reports no usage snapshot at all; a provider that
  * reports one window only keeps the other window null rather than zero.

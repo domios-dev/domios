@@ -20,6 +20,8 @@ pub mod first_turn;
 pub(in crate::service::agent_restart) use first_turn::SessionlessTeardownError;
 pub mod live_command;
 pub mod next_turn;
+mod queued;
+mod runtime;
 pub mod staging;
 
 /// Deadline for the relaunched session to report its model before returning pending.
@@ -393,14 +395,23 @@ impl ModelSwitchExt for ServiceContext {
         force: bool,
         restart_fallback: bool,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
-        self.execute_model_switch(
+        let nonce = {
+            let mux = self.mux.read();
+            mux.resolve_tab_id(tab_id).and_then(|id| {
+                mux.get_tab(&id)
+                    .and_then(|tab| tab.session_binding_nonce.clone())
+            })
+        };
+        let result = queued::request(
+            self,
             tab_id,
             requested,
             requested_effort,
             force,
             restart_fallback,
-            None,
-        )
+        );
+        self.record_product_model_switch(&result, nonce.as_deref());
+        result
     }
 
     fn execute_model_switch(
@@ -413,6 +424,9 @@ impl ModelSwitchExt for ServiceContext {
         staged: Option<&staging::SwitchRequest>,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
         if let Some(tab) = crate::service::agent_runtime::controls::routed_tab(self, tab_id) {
+            if crate::service::agent_runtime::controls::restart_resume_tab(self, &tab) {
+                return runtime::switch(self, &tab, requested, requested_effort, force);
+            }
             return crate::service::agent_runtime::controls::switch(
                 self,
                 &tab,
@@ -505,7 +519,7 @@ impl ModelSwitchExt for ServiceContext {
                 request.require_snapshot(&snap)?;
                 request.require_current(self)?;
             } else {
-                self.cancel_staged_model_switch(&snap.tab_id);
+                self.clear_model_turn_staging(&snap.tab_id);
             }
             return self.switch_model_before_first_turn(
                 snap,
@@ -547,7 +561,7 @@ impl ModelSwitchExt for ServiceContext {
                 },
             );
         } else {
-            self.cancel_staged_model_switch(&snap.tab_id);
+            self.clear_model_turn_staging(&snap.tab_id);
         }
         if declared_mode == ModelSwitchMode::LiveCommand {
             return self
@@ -858,10 +872,11 @@ impl ModelSwitchExt for ServiceContext {
                     });
                     return true;
                 }
-                false
-            } else {
-                false
             }
+            self.ext::<super::RestartTracker>()
+                .lock()
+                .queued_model_switches
+                .contains_key(tab_id)
         });
         observed.or(mismatched_report)
     }
@@ -895,3 +910,6 @@ fn model_switch_confirmation(
 mod runtime_route_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod analytics_tests;

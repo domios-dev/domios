@@ -4,15 +4,15 @@
  * The answer slot of one notification. `asked_from_tab` is captured when the
  * question is sent; nothing here is resolved when an answer is tapped.
  */
-export type AnswerSlot = { daemon_request?: string, 
+export type AnswerSlot = { daemon_request?: string,
 /**
  * The asking tab, recorded at send time. Cleared when that tab closes.
  */
-asked_from_tab: string | null, 
+asked_from_tab: string | null,
 /**
  * The one chosen label. Set once and never overwritten.
  */
-answered: string | null, answered_via: string | null, answered_by?: string, 
+answered: string | null, answered_via: string | null, answered_by?: string,
 /**
  * Whether the standing answer reached the asking tab. Recording an answer
  * and carrying it back are separate facts, so a refused send cannot render

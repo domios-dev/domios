@@ -39,9 +39,9 @@ each failed run. An untested proposal must not become an established recipe.
 ## Public repository policy
 
 Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions.
-Only owner release/X.Y.Z pushes qualify and package. Application publication has exactly one path:
+Only owner pushes to `release/next` qualify and package. Application publication has exactly one path:
 the master merge push of the owner release PR, approved in the `release` environment (branch policies
-`release/*` and `master`). Dispatches never publish an application: `release.yml` dispatches are
+`release/next` and `master`). Dispatches never publish an application: `release.yml` dispatches are
 dry runs of the dispatching release head and `release-publish.yml` only rehearses. Every PR uses
 hosted, secret-free checks. The trusted organization runner group must restrict every acquiring
 workflow to explicit reviewed release branch refs; unrestricted repository runners are forbidden.
@@ -50,7 +50,7 @@ workflow to explicit reviewed release branch refs; unrestricted repository runne
 
 The `release` environment requires the owner's review. Two kinds of approval exist:
 
-- **Build approvals** cover the build, signing and dry-run packaging stages of an owner `release/X.Y.Z` push run.
+- **Build approvals** cover the build, signing and dry-run packaging stages of an owner `release/next` push run.
   The release Orchestrator holds the owner's standing permission to approve these as `rollacode`, without asking each
   time. Before each approval, verify the run's event (`push`), branch and exact head SHA against the intended candidate,
   then read back the approval:
@@ -79,11 +79,26 @@ change updates `API_VERSION`, the bundled API range and `frontend-release-contra
 For frontend-only releases, change the frontend contract version; do not change Rust or app version
 files, which select an application release. Frontend discovery is separate from app `latest`.
 
-For a plugin release, run `node scripts/release-plugin.mjs bump <id> <version>`, with explicit
-`--min-codeterm` only when a new host capability is required. Verify `release-plugin.mjs check`
-and `check-plugin.mjs <id>`, merge the checked PR, then with publication GO tag the verified master
-commit `plugin-<id>-v<version>`. Verify the installed version through `domios plugin update-system`.
-Dispatch `plugin-release.yml` from a reviewed release branch with `tag=plugin-<id>-v<version>`; tag pushes do not publish. The dispatch's `publish_core_channel` job runs `scripts/publish-core-channel.mjs`, which uploads the whole
+For a plugin release, start the owner-only branch `release/plugin-<id>` at current
+master. Real-merge the reviewed plugin lane there and run
+`node scripts/release-plugin.mjs bump <id> <version>`. Set `--min-codeterm` only
+when the plugin needs a new host capability. Open the owner PR directly into
+master. The required **Release qualification** job checks the exact master diff
+and whitespace, then runs `release-plugin.mjs check <tag>` and
+`check-plugin.mjs <id>` on hosted Ubuntu. The diff may contain only that
+plugin's directory, its one entry in `plugins/channel.json` and shared fixtures
+explicitly assigned to the plugin. Other changes require the full
+`release/next` path. **PR result** verifies that the full PR jobs were skipped
+for the plugin branch; both contexts are required by the existing master ruleset.
+
+Merge the checked PR into master using a merge commit. Real-merge that master
+commit into develop and verify ancestry on the remote before publishing. With
+publication GO, tag that exact master commit `plugin-<id>-v<version>` and dispatch
+`plugin-release.yml` on master with `tag=plugin-<id>-v<version>`. The workflow
+requires the owner actor, the tag at the dispatched master SHA, develop ancestry
+and approvals in the `release` environment. Verify the public release and channel
+before confirming the installed version through `domios plugin update-system`.
+Tag pushes do not publish. The dispatch's `publish_core_channel` job runs `scripts/publish-core-channel.mjs`, which uploads the whole
 `plugins/` tree as `codeterm-core.tar.gz` (+ `.sha256`, `.source-commit`) to the public
 `domios-dev/domios` release `codeterm-core-latest` with `GITHUB_TOKEN`, skips an older master
 commit, and verifies the anonymous download. Every install refreshes `codeterm-core` from there.
@@ -102,7 +117,7 @@ archive checksum, source-commit receipt and client `domios update check --force`
 | Branch | Purpose |
 |---|---|
 | `develop` | Integration through reviewed real merges. |
-| `release/X.Y.Z` | One version; its push owns full CI and retained signed dry-run packaging. |
+| `release/next` | Reusable owner-created branch. Its push owns full CI and retained signed dry-run packaging for the version in package.json. |
 | `master` | Admin merges the green release PR here to publish its retained artifacts. |
 | `ci/*` | Reviewed non-publishing candidate refs for diagnostics. |
 
@@ -121,17 +136,30 @@ then sync them here. Never hand-edit the bundled snapshot.
    [upgrade restore](../../../evals/upgrade-restore/README.md), with isolated named instances,
    their documented commands, passing evidence contracts and real startup/restore results.
    Source fixtures or capture/import alone do not replace these gates.
+   When the diff selects **J5 Neighbors**, release clearance additionally requires the
+   [J5 two-peer journey](../../../evals/core-journeys/NEIGHBORS.md) on both Windows
+   (BLACKSTAR named QA peers) and macOS (qualified named QA peers on air/eight).
+   Each platform must prove `read_only`, `folder` and `full`: a fresh question,
+   using the incident's Codex runtime provider/model (a Claude control cannot
+   replace its sandbox coverage),
+   a host-created concierge's trusted linked answer, the friend's received answer,
+   delivered receipts and the friend page returning to idle. Retain the Browser
+   evidence alongside the API run and check its evidence contract. Missing, failed,
+   unrun or API-only platform rows do not clear J5. Preserve the pre-fix Windows
+   `read_only` failure separately from the post-fix pass; never replay its payload.
 3. With version-bump GO, create the release branch from reviewed develop. Edit package.json's
    version, run `npm run sync:versions`, refresh the workspace lockfile offline, then run
    `npm run check:versions` and `node scripts/check-release-locks.mjs`. Commit the complete bump;
-   plugin versions remain independent. Run `build.sh release-preflight` per the gates skill on
-   that committed head and `git diff --check`.
+   plugin versions remain independent. Run `build.sh release-preflight` as a seconds-long local
+   sanity check on that committed head and `git diff --check`. The exact release SHA's CI
+   qualification is the one broad release gate; do not repeat its suites locally.
    Keep the release branch separate from moving `develop`. Commit release fixes on that line,
    then real-merge the release into `develop`; never pull unrelated dev work into the release.
-   Before pushing, complete the OWNER runner-policy step below. Push release/X.Y.Z and wait for
+   The owner creates `release/next` at the reviewed, versioned candidate. Verify the runner policy
+   before requesting builds. Push subsequent candidate fixes to `release/next` and wait for
    its exact-SHA tests.yml push run to finish green, including full CI, qualification and the
    reusable release.yml dry run (`dry_run=true`, `mirror=false`). A newer push cancels the previous
-   run through per-branch concurrency. Only then open or refresh the PR into master.
+   run through the release-push concurrency group. Only then open or refresh the PR into master.
    Every PR uses hosted light checks (**PR result**); the master PR also requires **Release
    qualification**, a read-only `release-pr.yml` job that verifies the current head's owner push run
    and its unexpired receipts. Only a PR whose base is master emits that context, so a develop PR or
@@ -158,22 +186,25 @@ then sync them here. Never hand-edit the bundled snapshot.
    gh login: it skips private-runner discovery for hosted images and requires one online runner
    matching every label in each self-hosted array. It does not prove hosted capacity or signing;
    completed Actions jobs do. Confirm the intended version is unpublished.
-   **OWNER, once per application release, before the first push:** retarget every entry in
-   [.github/admin/runner-group-policy.json](../../../.github/admin/runner-group-policy.json) to
-   `refs/heads/release/X.Y.Z`, review the acquiring workflow list, PATCH `domios-trusted`, then
-   read back its policy, selected repository grant, fleet and absence of repository runners using
+   **Initial setup or workflow-list change:** after the owner creates `release/next`, the release
+   Orchestrator uses standing owner permission to apply the reviewed
+   [runner-group payload](../../../.github/admin/runner-group-policy.json) to `domios-trusted`.
+   GitHub requires the exact ref to exist when applying the PATCH. Before each release, read back
+   the exact refs, selected repository grant, fleet and absence of repository runners using
    [the runner policy procedure](../../../docs/release/public-repo.md#runner-isolation-is-a-publicization-prerequisite).
-   Require `restricted_to_workflows=true` and exact reviewed refs, with no wildcard or PR refs.
-   The list must hold every workflow that can select a `vars.*` runner (an unlisted one queues
-   until timeout); default-branch and PR workflows name hosted runners literally and stay out.
-   This is an explicit owner operation; agents prepare the payload and never apply it as a
-   release-preparation side effect. Record the readback before requesting runners.
+   Keep `restricted_to_workflows=true` and cover all workflows that can select a `vars.*` runner.
+   The reviewed PATCH omits `visibility` to preserve the repository grant. Recreating the branch
+   for a new version uses the same policy. Confirm runner assignment on the new push.
    Do not manually create `vX.Y.Z`; release.yml owns tag creation and promotion.
 5. The final manifest job requires all builds and test gates, publishes and verifies served
    bytes after the admin merge starts promotion. The master ruleset reports the PR as BLOCKED, so
    the admin merges with `gh pr merge <n> --merge --admin` (never squash or rebase). Merge within
    three days of the green run: its qualification artifact expires after that. Synchronize develop
-   through an admin merge PR. A later correction takes a new version.
+   through an admin merge PR. After verified publication and synchronization, confirm the remote
+   release tip is the merged source and no release jobs are active. The owner deletes
+   `release/next` and recreates it for the next reviewed, versioned candidate. Clean up merged lane
+   branches only after checking their ancestry and worktrees using the lane-cleanup skill.
+   A later correction takes a new package version.
 
 ## Owner waiver for defective tests
 
@@ -230,7 +261,7 @@ runners after merge. Release PRs into master use the same hosted light checks pl
 Release qualification job in release-pr.yml. Other master PRs fail admission. tests.yml owns only
 release pushes (CI result) and owner diagnostics (CI diagnostic result); neither name is a merge
 gate, and no PR calls privileged reusable jobs. The Docker archive smoke is an owner dispatch from
-release/X.Y.Z, never a PR job.
+release/next, never a PR job.
 See [CI admission](../../../docs/release/ci.md).
 
 ## Dry runs and narrow diagnostics
@@ -239,11 +270,11 @@ Inspect the actual workflow inputs and publication conditions at the pinned work
 any dispatch. `mirror=false` alone is not a dry run. For the full graph use:
 
 ```bash
-gh workflow run release.yml --repo domios-dev/domios --ref release/X.Y.Z \
+gh workflow run release.yml --repo domios-dev/domios --ref release/next \
   -f tag=vX.Y.Z -f dry_run=true -f mirror=false
 ```
 
-A `release.yml` dispatch refuses unless `dry_run=true` and the ref is an exact release/X.Y.Z
+A `release.yml` dispatch refuses unless `dry_run=true` and the ref is exactly release/next
 branch; it always builds that branch head, whatever `tag` says, and can never publish.
 
 The release branch push always packages with dry_run=true regardless of the publication switch.
@@ -292,12 +323,12 @@ repaired by rerunning the failed jobs of that same master push run, and a furthe
 version. `release-publish.yml` remains as a rehearsal only and refuses `rehearsal=false`:
 
 ```bash
-gh workflow run release-publish.yml --repo domios-dev/domios --ref release/X.Y.Z \
+gh workflow run release-publish.yml --repo domios-dev/domios --ref release/next \
   -f run_id=<dry-run run id> -f tag=vX.Y.Z -f rehearsal=true
 ```
 
 `scripts/release-publish.sh` refuses unless the run is a completed, successful tests.yml release push run
-on `release/X.Y.Z` whose platform, test and manifest jobs all succeeded. The rehearsal checks both
+on `release/next` whose platform, test and manifest jobs all succeeded. The rehearsal checks both
 tokens' write access, downloads and re-validates every retained byte and signature, and changes
 nothing. The owner dispatches it and approves the release environment.
 
@@ -314,7 +345,7 @@ that refuses a request, and any digest or signature mismatch, still fail.
 For one platform, direct-dispatch `release-linux.yml`, `release-windows.yml`, `release-windows-arm64.yml` or
 `release-macos-build.yml` with explicit `source_ref`, tag, selected architecture, `dry_run=true`
 and `mirror=false`, using that workflow's declared inputs. A `tests.yml` dispatch runs the fast tier only;
-dispatch it from release/X.Y.Z with a full 40-hex `source_ref` already reachable from master, develop
+dispatch it from release/next with a full 40-hex `source_ref` already reachable from master, develop
 or that release branch. Admission refuses anything else, so a contributor's PR head never reaches the farm.
 Direct platform dispatch cannot mutate release assets. Its guard distinguishes the direct workflow
 name from a manually dispatched release.yml caller: reusable workflows inherit the caller's event.
@@ -706,4 +737,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 32 -->
+<!-- revision: 34 -->

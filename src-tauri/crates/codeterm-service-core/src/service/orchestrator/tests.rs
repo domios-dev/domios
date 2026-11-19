@@ -278,6 +278,8 @@ fn explicit_orchestrator_task_still_starts_an_execution_turn() {
 
 fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {
+        account_namespace: None,
+        account_id: None,
         execution_mode: None,
         launch_profile: None,
         context_files: None,
@@ -379,8 +381,14 @@ fn test_build_claude_no_task() {
         assert!(cmd.contains("[System.Text.Encoding]::UTF8"));
         assert!(cmd.contains(" claude --dangerously-skip-permissions --settings "));
     } else {
-        assert!(cmd
-            .starts_with("unset CLAUDECODE && claude --dangerously-skip-permissions --settings "));
+        let locale = if cfg!(target_os = "macos") {
+            "LC_ALL=C TZ=UTC0 "
+        } else {
+            ""
+        };
+        assert!(cmd.starts_with(&format!(
+            "unset CLAUDECODE && {locale}claude --dangerously-skip-permissions --settings "
+        )));
     }
 }
 

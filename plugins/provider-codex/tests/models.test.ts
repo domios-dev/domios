@@ -43,7 +43,7 @@ const bundledManifest = JSON.parse(fs.readFileSync(
 )) as { models?: Array<{ id: string; description?: string }>; defaultModel?: string };
 
 eq(bundledManifest.models?.[0]?.id, "gpt-6.1-sol", "new Codex model leads the seed catalogue");
-eq(bundledManifest.defaultModel, "gpt-6.1-sol", "new priority-one workhorse is the default");
+eq(bundledManifest.defaultModel, "gpt-6.1-sol", "the seed declares its own default");
 eq(
   bundledManifest.models?.find((model) => model.id === "gpt-6-sol")?.description,
   "Previous generation workhorse model.",
@@ -100,6 +100,26 @@ console.log("\n--- discoverModels ---\n");
     [{ id: "gpt-live", displayName: "GPT Live", description: "from cache" }],
     "discoverModels surfaces the stubbed Codex cache probe",
   );
+}
+
+{
+  const cache = { models: [{ slug: "gpt-6.1-sol", visibility: "list", priority: 1 }] };
+  const p = loadCodexWithHost(baseHost({
+    fs: {
+      fileExists: (file: string) => file.endsWith("/.codex/models_cache.json"),
+      readJson: () => cache,
+    },
+  }));
+  eq(p.discoverModels().map((model: { id: string }) => model.id), ["gpt-6.1-sol"], "initial discovery sees the old default");
+  cache.models = [
+    { slug: "gpt-6.1-sol", visibility: "list", priority: 4 },
+    { slug: "gpt-6.2-astra", visibility: "list", priority: 2 },
+    { slug: "gpt-6.2-sol", visibility: "list", priority: 1 },
+    { slug: "fixture-unlisted", visibility: "none", priority: 0 },
+  ];
+  eq(p.discoverModels().map((model: { id: string }) => model.id),
+    ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-sol", "fixture-unlisted"],
+    "rediscovery follows picker visibility and provider priority while retaining the previous default");
 }
 
 {

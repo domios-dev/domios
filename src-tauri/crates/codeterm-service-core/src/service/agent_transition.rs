@@ -10,6 +10,8 @@ use crate::service::plan::mutations::agent_lifecycle::{
 };
 use crate::service::ServiceContext;
 
+mod plan_members;
+use plan_members::relink_plan_members;
 mod prepared;
 mod worker_transfer;
 pub use prepared::plan_owner_request;
@@ -944,35 +946,6 @@ fn rebind_owner_tab(
         .filter(|rebind| rebind.plan_id == plan_id)
         .and_then(|rebind| rebind.owner.tab_id.clone())
         .ok_or_else(|| format!("Plan {plan_id} has no lifecycle rebind destination"))
-}
-
-fn relink_plan_members(
-    mux: &mut MultiplexerState,
-    plan_store: &crate::service::plan::PlanStore,
-    rebind: Option<&AgentLifecyclePlanRebind>,
-) -> Result<(), String> {
-    let Some(rebind) = rebind else {
-        return Ok(());
-    };
-    let owner_tab_id = rebind
-        .owner
-        .tab_id
-        .as_deref()
-        .ok_or_else(|| "plan rebind requires a destination Orchestrator tab".to_string())?;
-    let targets = plan_store
-        .relink_targets_projection(&rebind.plan_id, false)
-        .map_err(|error| match error {
-            crate::service::plan::PlanError::NotFound => {
-                format!("Plan {} not found", rebind.plan_id)
-            }
-            error => error.to_string(),
-        })?;
-    crate::service::plan::relink_selected_to_owner(
-        &mut crate::service::plan::lane_port_impl::LaneStatePort(mux),
-        &targets,
-        owner_tab_id,
-    );
-    Ok(())
 }
 
 fn planner_binding(

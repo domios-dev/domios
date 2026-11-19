@@ -7,7 +7,7 @@
 use super::ServiceContext;
 use crate::agent::provider::InputAttachSignal;
 use crate::multiplexer::types::TabBacking;
-use crate::service::boot_stage::BootStage;
+use crate::service::boot_stage::{binding_disproves_latched_failure, BootStage};
 use crate::service::integration_silence::{IntegrationFacts, IntegrationState};
 use crate::service::launch_readiness::LaunchAttempt;
 use std::collections::{HashMap, HashSet};
@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 #[path = "launch_input_attach/tests.rs"]
 mod tests;
 
-static WATCHING: LazyLock<parking_lot::Mutex<HashSet<(String, String)>>> =
+static WATCHING: LazyLock<parking_lot::Mutex<HashSet<LaunchAttempt>>> =
     LazyLock::new(Default::default);
 
 /// What a launch has shown about its provider's own session start.
@@ -26,6 +26,8 @@ static WATCHING: LazyLock<parking_lot::Mutex<HashSet<(String, String)>>> =
 pub(crate) enum SessionStart {
     /// The launch's own session-start hook reported its binding nonce.
     Reported,
+    /// The exact provider process published the session in its launch registry.
+    ObservedByRegistry,
     /// The provider's hooks were not in place at launch, so no report can arrive.
     HooksUnavailable,
     Awaited,
@@ -35,7 +37,8 @@ pub(crate) enum SessionStart {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct TabSessionStart {
     reported_nonce: Option<String>,
-    hookless_nonce: Option<String>,
+    registry_binding: Option<(String, String)>,
+    availability: Option<(String, bool)>,
 }
 
 #[derive(Default)]
@@ -43,13 +46,23 @@ pub(crate) struct SessionStartHooks {
     tabs: parking_lot::Mutex<HashMap<String, TabSessionStart>>,
 }
 
-pub(crate) fn session_start(record: Option<&TabSessionStart>, launch_nonce: &str) -> SessionStart {
+fn session_start(record: Option<&TabSessionStart>, attempt: &LaunchAttempt) -> SessionStart {
     let Some(record) = record else {
         return SessionStart::Awaited;
     };
-    if record.reported_nonce.as_deref() == Some(launch_nonce) {
+    if record.reported_nonce.as_deref() == Some(attempt.binding_nonce.as_str()) {
         SessionStart::Reported
-    } else if record.hookless_nonce.as_deref() == Some(launch_nonce) {
+    } else if record
+        .registry_binding
+        .as_ref()
+        .is_some_and(|(pty, nonce)| pty == &attempt.pty_id && nonce == &attempt.binding_nonce)
+    {
+        SessionStart::ObservedByRegistry
+    } else if record
+        .availability
+        .as_ref()
+        .is_some_and(|(nonce, available)| nonce == &attempt.binding_nonce && !available)
+    {
         SessionStart::HooksUnavailable
     } else {
         SessionStart::Awaited
@@ -88,6 +101,7 @@ pub(crate) fn input_not_attached_reason(tab_id: &str) -> String {
 enum AttachOutcome {
     Attached,
     Superseded,
+    ScreenClosed,
 }
 
 /// Waits on the PTY's own output events. The deadline records an honest
@@ -116,7 +130,7 @@ fn await_attach(
             continue;
         }
         if !wait(remaining.filter(|_| bounded)) && (!bounded || Instant::now() < deadline) {
-            return AttachOutcome::Superseded;
+            return AttachOutcome::ScreenClosed;
         }
     }
 }
@@ -156,12 +170,32 @@ impl ServiceContext {
         let Some((attempt, _)) = self.input_attach_candidate(tab_id) else {
             return;
         };
-        let held = WATCHING
-            .lock()
-            .contains(&(attempt.tab_id.clone(), attempt.pty_id.clone()));
+        let held = WATCHING.lock().contains(&attempt);
         if attempt.binding_nonce == binding_nonce && held && self.attempt_awaits_ready(&attempt) {
             self.emit_boot_stage(tab_id, BootStage::AgentReady, None);
         }
+    }
+
+    pub(crate) fn observe_registry_session_start(&self, attempt: &LaunchAttempt, session_id: &str) {
+        {
+            let mux = self.mux.read();
+            if !mux.get_tab(&attempt.tab_id).is_some_and(|tab| {
+                super::launch_readiness::attempt_owns_tab(tab, attempt)
+                    && tab.agent_session_id.as_deref() == Some(session_id)
+                    && tab.launch_session_authenticated()
+            }) {
+                return;
+            }
+            self.session_start_hooks()
+                .tabs
+                .lock()
+                .entry(attempt.tab_id.clone())
+                .or_default()
+                .registry_binding = Some((attempt.pty_id.clone(), attempt.binding_nonce.clone()));
+        }
+        self.screen_state
+            .arm_screen_change_signal(&attempt.pty_id)
+            .mark_changed();
     }
 
     /// Whether this tab's provider declares an input attach, so only `AgentReady`
@@ -188,8 +222,14 @@ impl ServiceContext {
     fn launch_input_ready(&self, attempt: &LaunchAttempt, signal: InputAttachSignal) -> bool {
         let started = session_start(
             self.session_start_hooks().tabs.lock().get(&attempt.tab_id),
-            &attempt.binding_nonce,
+            attempt,
         );
+        if started == SessionStart::HooksUnavailable
+            && signal == InputAttachSignal::SessionStartAndBracketedPaste
+            && self.supports_exact_launch_detection(&attempt.tab_id)
+        {
+            return false;
+        }
         input_ready(
             signal,
             self.screen_state.bracketed_paste_mode(&attempt.pty_id),
@@ -197,29 +237,64 @@ impl ServiceContext {
         )
     }
 
-    /// Reads the provider's install report once for this launch; without hooks in
-    /// place no session-start report can come, so readiness follows the input attach.
-    fn settle_hookless_launch(&self, attempt: &LaunchAttempt, agent: &str) {
-        let available = crate::service::integration_silence::read_provider_facts(
-            &self.agent_registry,
-            agent,
-            false,
-        )
-        .is_some_and(|(facts, _)| session_start_hooks_available(&facts));
-        if available {
+    pub(crate) fn prepare_launch_session_hook(
+        &self,
+        tab_id: &str,
+        nonce: &str,
+        invocation: &codeterm_plugin::provider_account::InvocationContext,
+    ) {
+        if let Some(available) =
+            super::provider_accounts::prepare_named_session_hook(self, invocation)
+        {
+            self.record_launch_session_hook(tab_id, nonce, available);
+        }
+    }
+
+    pub(crate) fn hookless_launch_has_input(&self, attempt: &LaunchAttempt) -> bool {
+        session_start(
+            self.session_start_hooks().tabs.lock().get(&attempt.tab_id),
+            attempt,
+        ) == SessionStart::HooksUnavailable
+            && self.screen_state.bracketed_paste_mode(&attempt.pty_id) == Some(true)
+    }
+
+    pub(crate) fn record_launch_session_hook(&self, tab_id: &str, nonce: &str, available: bool) {
+        let mux = self.mux.read();
+        if !mux
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.session_binding_nonce.as_deref() == Some(nonce))
+        {
             return;
         }
-        log::info!(
-            "[launch-input-attach] tab={} pty={} session-start hooks unavailable at launch; readiness follows the input attach",
-            attempt.tab_id,
-            attempt.pty_id
-        );
         self.session_start_hooks()
             .tabs
             .lock()
-            .entry(attempt.tab_id.clone())
+            .entry(tab_id.to_string())
             .or_default()
-            .hookless_nonce = Some(attempt.binding_nonce.clone());
+            .availability = Some((nonce.to_string(), available));
+    }
+
+    fn settle_hookless_launch(&self, attempt: &LaunchAttempt, agent: &str) {
+        let recorded = self
+            .session_start_hooks()
+            .tabs
+            .lock()
+            .get(&attempt.tab_id)
+            .and_then(|record| record.availability.as_ref())
+            .is_some_and(|(nonce, _)| nonce == &attempt.binding_nonce);
+        if recorded {
+            return;
+        }
+        let named = self.mux.read().get_tab(&attempt.tab_id).is_some_and(|tab| {
+            super::provider_accounts::selected_account(tab)
+                != codeterm_types::config::provider_accounts::IMPLICIT_ACCOUNT
+        });
+        let available = !named
+            && super::integration_silence::read_provider_facts(&self.agent_registry, agent, false)
+                .is_some_and(|(facts, _)| session_start_hooks_available(&facts));
+        if !available {
+            self.record_launch_session_hook(&attempt.tab_id, &attempt.binding_nonce, false);
+        }
     }
 
     fn input_attach_candidate(&self, tab_id: &str) -> Option<(LaunchAttempt, String)> {
@@ -245,7 +320,7 @@ impl ServiceContext {
         signal: InputAttachSignal,
         timeout: Duration,
     ) {
-        let key = (attempt.tab_id.clone(), attempt.pty_id.clone());
+        let key = attempt.clone();
         if !WATCHING.lock().insert(key.clone()) {
             return;
         }
@@ -269,8 +344,10 @@ impl ServiceContext {
                     attempt.tab_id,
                     attempt.pty_id
                 );
-                if outcome == AttachOutcome::Attached && service.attempt_awaits_ready(&attempt) {
-                    service.emit_boot_stage(&attempt.tab_id, BootStage::AgentReady, None);
+                // A registry binding can revive a failed launch as its watcher exits.
+                if outcome != AttachOutcome::ScreenClosed && service.attempt_awaits_ready(&attempt)
+                {
+                    service.complete_launch_input_attach(&attempt);
                 }
             });
         if let Err(error) = spawned {
@@ -290,6 +367,11 @@ impl ServiceContext {
         await_attach(
             || {
                 generation.set(change.generation());
+                if signal == InputAttachSignal::SessionStartAndBracketedPaste
+                    && self.hookless_launch_has_input(attempt)
+                {
+                    self.detect_exact_launch_attempt(attempt);
+                }
                 self.launch_input_ready(attempt, signal)
             },
             || {
@@ -316,10 +398,9 @@ impl ServiceContext {
         let mux = self.mux.read();
         mux.get_tab(&attempt.tab_id).is_some_and(|tab| {
             crate::service::launch_readiness::attempt_owns_tab(tab, attempt)
-                && !matches!(
-                    tab.boot_stage,
-                    Some(BootStage::AgentReady | BootStage::SpawnFailed)
-                )
+                && tab.boot_stage != Some(BootStage::AgentReady)
+                && (tab.boot_stage != Some(BootStage::SpawnFailed)
+                    || binding_disproves_latched_failure(tab))
         })
     }
 }

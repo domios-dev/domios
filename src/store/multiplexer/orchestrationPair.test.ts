@@ -21,12 +21,12 @@ describe("orchestration pair params", () => {
       calls.push({ command, args });
       return { orchestrator_tab_id: "lead", planner_tab_id: "planner" } as T;
     }, {
-      orchestratorAgent: "runtime", orchestratorLaunchProfile: "alpha", orchestratorModel: "large", orchestratorReasoningEffort: "high",
-      plannerAgent: "runtime", plannerLaunchProfile: "beta", plannerModel: "small", plannerReasoningEffort: "low", workspaceId: "workspace",
+      orchestratorAgent: "runtime", orchestratorAccountId: "work", orchestratorLaunchProfile: "alpha", orchestratorModel: "large", orchestratorReasoningEffort: "high",
+      plannerAgent: "runtime", plannerAccountId: "home", plannerLaunchProfile: "beta", plannerModel: "small", plannerReasoningEffort: "low", workspaceId: "workspace",
     });
     expect(calls).toEqual([{ command: "mux_create_orchestration_pair", args: { params: {
-      orchestrator_agent: "runtime", orchestrator_launch_profile: "alpha", orchestrator_model: "large", orchestrator_reasoning_effort: "high",
-      planner_agent: "runtime", planner_launch_profile: "beta", planner_model: "small", planner_reasoning_effort: "low", workspace_id: "workspace",
+      orchestrator_agent: "runtime", orchestrator_account_id: "work", orchestrator_launch_profile: "alpha", orchestrator_model: "large", orchestrator_reasoning_effort: "high",
+      planner_agent: "runtime", planner_account_id: "home", planner_launch_profile: "beta", planner_model: "small", planner_reasoning_effort: "low", workspace_id: "workspace",
     } } }]);
   });
 });

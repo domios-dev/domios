@@ -1,11 +1,12 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { listen } from "../../lib/bridge";
 import { SharedRead } from "../../lib/sharedRead";
-import { receiverState, type ChannelStatus, type NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { receiverState, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { receiverLocation, receiverLocationFields } from "./neighborReceiverLocationModel";
+import { observeNeighborStatus, type ObservedNeighborStatus } from "./neighborStatusObservations";
 
 /** The runtime status every Neighbors surface shares: one read, then events keep it current. */
-export type NeighborStatusSnapshot = Omit<ChannelStatus, "concierges"> & { concierges?: Record<string, unknown> };
+export type NeighborStatusSnapshot = ObservedNeighborStatus;
 
 let stores = new WeakMap<NeighborRuntimeClient, StatusStore>();
 const activeStores = new Set<StatusStore>();
@@ -50,9 +51,16 @@ class StatusStore extends SharedRead<NeighborStatusSnapshot> {
   private live = true;
   private readonly stops: Array<() => void> = [];
 
+  override write(value: NeighborStatusSnapshot) {
+    super.write(observeNeighborStatus(value, this.value));
+  }
+
   constructor(client: NeighborRuntimeClient) {
     super(undefined, Infinity);
-    const load = () => (client.status() as Promise<NeighborStatusSnapshot>).then(fresh => keepNewerReceiver(fresh, this.value));
+    const load = () => (client.status() as Promise<NeighborStatusSnapshot>).then(fresh => keepNewerReceiver(fresh, this.value)).catch((error: unknown) => {
+      if (this.live && this.value) this.write({ ...this.value, status_stale: true });
+      throw error;
+    });
     const keep = (stop: () => void) => { if (this.live) this.stops.push(stop); else stop(); };
     const reread = () => { if (this.live) void this.read(load, true).catch(() => {}); };
     void client.subscribe(event => {
@@ -82,6 +90,14 @@ class StatusStore extends SharedRead<NeighborStatusSnapshot> {
       this.write({ ...this.value, concierges: { ...(this.value.concierges ?? {}), [payload.friendship_id]: payload } });
     }).then(keep);
     void listen("neighbor-agent-changed", reread).then(keep);
+    void listen("neighbor-activation-status", reread).then(keep);
+    const runtimeChanged = (event: { payload: unknown }) => {
+      const payload = event.payload as { tab_id?: unknown } | null;
+      if (!payload || typeof payload.tab_id !== "string") return;
+      if (!this.value || Object.values(this.value.bindings).includes(payload.tab_id)) reread();
+    };
+    void listen("agent-runtime-state", runtimeChanged).then(keep);
+    void listen("tab-boot-stage", runtimeChanged).then(keep);
     // Membership expiry and renewal change which machine may be shown receiving.
     void listen("account-mesh-changed", reread).then(keep);
     void listen("mesh-state-changed", reread).then(keep);

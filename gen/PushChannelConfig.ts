@@ -7,7 +7,7 @@
  * naming an audience. Empty means nobody, never everyone admitted. Whether a
  * level reaches this channel at all is that channel's column of the grid.
  */
-export type PushChannelConfig = { recipients: Array<string>, 
+export type PushChannelConfig = { recipients: Array<string>,
 /**
  * Lifetime push ceiling per originating tab. A count, never a rate.
  */

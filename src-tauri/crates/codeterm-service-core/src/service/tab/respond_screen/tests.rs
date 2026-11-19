@@ -174,7 +174,7 @@ fn captured_directory_trust_admits_option_two_once() {
     for expected in [None, Some(&identity)] {
         assert_eq!(
             respond(&registry, CAPTURED_TRUST_SCREEN, expected),
-            Ok(vec![b"j".to_vec(), b"\r".to_vec()])
+            Ok(vec![b"\x1b[B".to_vec(), b"\r".to_vec()])
         );
     }
 }

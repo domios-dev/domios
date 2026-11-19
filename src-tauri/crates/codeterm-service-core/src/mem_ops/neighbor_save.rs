@@ -1,7 +1,7 @@
 use crate::mem::store::{MemAuthor, MemKind, MemScope, NewMemItem};
 use crate::multiplexer::types::NeighborAuthority;
 use crate::service::{tab_credentials::TabCaller, ServiceContext};
-use codeterm_neighbors::permissions::Permission;
+use codeterm_neighbors::permissions::{MachineAccess, Permission};
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -50,15 +50,17 @@ pub fn validate(
     permission: &Permission,
     body: NeighborSaveBody,
 ) -> Result<NewMemItem, Refusal> {
-    if authority.is_none() || !permission.allowed || permission.memory_write_areas.is_empty() {
+    if authority.is_none() || !permission.allows_memory_writes() {
         return Err(Refusal::WriteNotAllowed);
     }
-    if !permission.memory_write_areas.contains(&body.area) {
+    if !permission.writes_all_memory_areas() && !permission.memory_write_areas.contains(&body.area)
+    {
         return Err(Refusal::AreaNotGranted);
     }
     let kind = match body.kind.as_str() {
         "fact" => MemKind::Fact,
         "note" => MemKind::Note,
+        "skill" if permission.machine_access == MachineAccess::Full => MemKind::Skill,
         _ => return Err(Refusal::KindNotAllowed),
     };
     let mut fields = std::iter::once(body.title.as_str())
@@ -73,7 +75,9 @@ pub fn validate(
     if body.title.len() > 200 || body.body.len() > 16_384 || total > 32_752 {
         return Err(Refusal::TooLarge);
     }
-    if fields.any(codeterm_blueprint_types::blueprint_memory::contains_credentials) {
+    if fields.any(codeterm_blueprint_types::blueprint_memory::contains_credentials)
+        || codeterm_blueprint_types::blueprint_memory::contains_credentials(&body.area)
+    {
         return Err(Refusal::ContainsCredentials);
     }
     Ok(NewMemItem {
@@ -117,10 +121,21 @@ impl ServiceContext {
             validate(Some(&authority), &permission, body).map_err(|error| error.to_string())?;
         let service = self.clone();
         tokio::task::spawn_blocking(move || {
+            let allow_skills = permission.machine_access == MachineAccess::Full;
+            let write_areas = if permission.writes_all_memory_areas() {
+                service
+                    .mem
+                    .get_taxonomy(None)?
+                    .into_keys()
+                    .filter(|area| !area.is_empty() && area != "(none)")
+                    .collect()
+            } else {
+                permission.memory_write_areas
+            };
             let mut context = crate::mem::backend::WriteContext::new(author, "neighbor");
-            context.replace_guard = Some(crate::mem::store::ReplaceGuard::new(
-                permission.memory_write_areas,
-            ));
+            context.replace_guard = Some(
+                crate::mem::store::ReplaceGuard::new(write_areas).with_skill_saves(allow_skills),
+            );
             service
                 .mem
                 .save_with_context(item, false, context)

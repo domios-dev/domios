@@ -5,6 +5,8 @@ use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+mod http_completion;
+
 pub(in crate::service::agent_runtime) const SOURCE: &str = r#"
 module.exports = {
   runtimePlan(ctx, op) {

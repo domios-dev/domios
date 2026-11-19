@@ -356,7 +356,13 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
             Ok(())
         })
         .unwrap();
-    let _claim = fixture.service.claim_restart(&tab_id, false).unwrap();
+    let _claim = fixture
+        .service
+        .claim_restart(
+            &tab_id,
+            crate::service::agent_restart::RestartAdmission::Standard,
+        )
+        .unwrap();
     fixture
         .service
         .stage_runtime_restart_binding(&tab_id, Some(authority));

@@ -4,11 +4,11 @@ import type { MediaKind } from "./MediaKind";
 /**
  * What a conversion consumes and where its result may land.
  */
-export type ConvertRequest = { inputPath: string, from: MediaKind, to: MediaKind, 
+export type ConvertRequest = { inputPath: string, from: MediaKind, to: MediaKind,
 /**
  * Directory the produced file must stay inside.
  */
-outputDir: string, language: string | null, 
+outputDir: string, language: string | null,
 /**
  * Point after which the conversion must give up.
  */

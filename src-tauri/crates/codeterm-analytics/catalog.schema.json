@@ -92,6 +92,72 @@
       "guide",
       "about",
       "agent_provider"
+    ],
+    "ProviderChangeOutcome": [
+      "applied",
+      "pending"
+    ],
+    "ModelChangeMode": [
+      "live",
+      "restart",
+      "next_turn"
+    ],
+    "ModelChangeOutcome": [
+      "observed",
+      "pending"
+    ],
+    "MeshOperation": [
+      "plan",
+      "spec",
+      "effort",
+      "task",
+      "team",
+      "other"
+    ],
+    "RequestOutcome": [
+      "success",
+      "refused",
+      "failure"
+    ],
+    "CanvasOperation": [
+      "create",
+      "update",
+      "delete"
+    ],
+    "CanvasKind": [
+      "note",
+      "mermaid",
+      "image",
+      "html",
+      "page",
+      "document",
+      "canvas",
+      "other"
+    ],
+    "DsBlockKind": [
+      "html",
+      "page",
+      "image",
+      "document",
+      "canvas",
+      "guide",
+      "plugin",
+      "connect",
+      "setting",
+      "agent",
+      "job",
+      "checklist",
+      "choice",
+      "tasks"
+    ],
+    "DsBlockAction": [
+      "open",
+      "submit"
+    ],
+    "BlueprintOutcome": [
+      "success",
+      "failure",
+      "cancelled"
     ]
   },
   "events": {
@@ -169,6 +235,40 @@
     "chat_message_submitted": {},
     "memory_searched": {},
     "canvas_opened": {},
-    "onboarding_completed": {}
+    "onboarding_completed": {},
+    "agent_provider_changed": {
+      "provider_id": "ProviderId",
+      "outcome": "ProviderChangeOutcome"
+    },
+    "agent_model_changed": {
+      "mode": "ModelChangeMode",
+      "outcome": "ModelChangeOutcome"
+    },
+    "agent_tab_selected": {},
+    "mesh_request_completed": {
+      "operation": "MeshOperation",
+      "outcome": "RequestOutcome"
+    },
+    "canvas_element_saved": {
+      "operation": "CanvasOperation",
+      "kind": "CanvasKind"
+    },
+    "ds_block_interacted": {
+      "kind": "DsBlockKind",
+      "action": "DsBlockAction"
+    },
+    "blueprint_run_completed": {
+      "outcome": "BlueprintOutcome"
+    },
+    "plugin_enabled_changed": {
+      "enabled": "bool"
+    },
+    "update_checked": {
+      "offers": "u32"
+    },
+    "account_created": {
+      "auth_provider": "AuthProvider"
+    },
+    "neighbor_invite_created": {}
   }
 }

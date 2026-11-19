@@ -31,7 +31,6 @@ interface AgentProviderPickerProps {
   navigation?: PickerNavigation;
   /** The tab hosting this picker, where a successful install returns the user. */
   home?: TabRef;
-  signingInProviderId?: string;
 }
 
 export function AgentProviderPicker({
@@ -49,7 +48,6 @@ export function AgentProviderPicker({
   belowConfirm,
   navigation,
   home,
-  signingInProviderId,
 }: AgentProviderPickerProps) {
   const headlineId = useId();
   const { observed, state, refresh, silentRefresh } = useProviderAvailability(providers);
@@ -154,7 +152,6 @@ export function AgentProviderPicker({
               provider={provider}
               selected={selectedId === provider.id}
               onSelect={() => { if (!busy && !installBusy) setSelectedId(provider.id); }}
-              signInNeeded={signingInProviderId === provider.id}
             />
           ))}
         </div>

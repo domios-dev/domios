@@ -8,11 +8,11 @@ import type { RuntimeBackgroundProcess } from "./RuntimeBackgroundProcess";
 import type { RuntimeHistoryQuestion } from "./RuntimeHistoryQuestion";
 import type { RuntimeSettings } from "./RuntimeSettings";
 
-export type RuntimeResult = { "kind": "goal", threadId: string, intent: ChatSessionIntent | null, } | { "kind": "backgroundProcesses", threadId: string, processes: Array<RuntimeBackgroundProcess>, nextCursor: string | null, } | { "kind": "backgroundProcessTermination", threadId: string, processId: string, acknowledged: boolean, } | { "kind": "initialized", binaryVersion?: string, agentName?: string, 
+export type RuntimeResult = { "kind": "goal", threadId: string, intent: ChatSessionIntent | null, } | { "kind": "backgroundProcesses", threadId: string, processes: Array<RuntimeBackgroundProcess>, nextCursor: string | null, } | { "kind": "backgroundProcessTermination", threadId: string, processId: string, acknowledged: boolean, } | { "kind": "initialized", binaryVersion?: string, agentName?: string,
 /**
  * This agent takes input into a running turn, as it declared for this process.
  */
-midTurnInput?: boolean, } | { "kind": "threadLoaded", threadId: string, settings: RuntimeSettings, } | { "kind": "threadForked", sourceThreadId: string, threadId: string, turnId: string, } | { "kind": "historyPage", threadId: string, items: Array<ChatMsg>, nextCursor?: string, openItems: Array<OpenItem>, questions?: Array<RuntimeHistoryQuestion>, 
+midTurnInput?: boolean, } | { "kind": "threadLoaded", threadId: string, settings: RuntimeSettings, } | { "kind": "threadForked", sourceThreadId: string, threadId: string, turnId: string, } | { "kind": "historyPage", threadId: string, items: Array<ChatMsg>, nextCursor?: string, openItems: Array<OpenItem>, questions?: Array<RuntimeHistoryQuestion>,
 /**
  * Echo of the requested order; absent means ascending.
  */

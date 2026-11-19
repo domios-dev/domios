@@ -1,6 +1,8 @@
 import type { Tab, Workspace } from "../../lib/types";
 import { isReadOnlyTab } from "../../lib/tabInputPolicy";
 import { tabFailureDescription, type TabFailure } from "../../lib/tabFailure";
+import { describeError } from "../../lib/describeError";
+import { RuntimeTranscriptNotice } from "./TranscriptNotice";
 import { useMuxSelector } from "../../store/multiplexer/selectorStore";
 import { ErrorNotice, InlineErrorNotice, type ErrorNoticeAction } from "../shared/ErrorNotice";
 import { paneStateModel } from "../shared/paneStateModel";
@@ -9,21 +11,25 @@ import { useFolderRecovery } from "../shared/useFolderRecovery";
 import { relocateTabFolder } from "./TabLaunchFailure";
 import { useTabRecovery } from "./useTabRecovery";
 
-/** A launched session's failure in the Session status row: its truthful name and its recovery, beside the transcript. */
+/** A launched session's recovery at the end of its transcript. */
 export function TabFailureNotice({ tab, failure, detail, workspaceId }: {
   tab: Tab;
   failure: TabFailure;
   detail: string | null;
   workspaceId: string | null;
 }) {
-  const { actions, error } = useTabRecovery(tab.id, isReadOnlyTab(tab) ? null : failure.recovery);
+  const { actions, error, restart } = useTabRecovery(tab.id, isReadOnlyTab(tab) ? null : failure.recovery);
   const workspace = useMuxSelector(state => state.workspaces.find(candidate => candidate.id === workspaceId));
+  const description = tabFailureDescription(failure, detail);
   const missingFolder = !isReadOnlyTab(tab) && paneStateModel(detail).actions.includes("choose-folder");
   return <div className="w-full">
     {missingFolder && workspace
       ? <FolderRecoveryNotice tab={tab} workspace={workspace} detail={detail} failure={failure} actions={actions} />
-      : <ErrorNotice error={detail} description={tabFailureDescription(failure, detail) ?? undefined} actions={actions} operation="resuming this session" />}
-    {error && <InlineErrorNotice error={error} operation="recovering this session" />}
+      : <RuntimeTranscriptNotice
+        sentence={description?.cause.split(". ")[0].concat(".") ?? describeError(detail, { operation: "resuming this session" }).title}
+        details={[detail, error].filter(Boolean).join("\n")}
+        action={actions.length ? { label: "Restart the agent", loading: restart.restarting, run: () => { void restart.restart(); } } : undefined}
+      />}
   </div>;
 }
 

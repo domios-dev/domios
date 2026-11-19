@@ -28,11 +28,10 @@ if [ "${#tests[@]}" -eq 0 ]; then
 fi
 
 fails=0
-tsx_cli="node_modules/tsx/dist/cli.mjs"
 for t in "${tests[@]}"; do
   echo
   echo "════ $t ════"
-  if ! "$node_bin" "$tsx_cli" "$t"; then
+  if ! "$node_bin" --import tsx --import ./scripts/ts-test-asset-hook.mjs "$t"; then
     fails=$((fails + 1))
     echo "  ✗ FAILED: $t"
   fi

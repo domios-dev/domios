@@ -2,7 +2,7 @@
 import type { ModelCatalogueAuthority } from "./ModelCatalogueAuthority";
 import type { ReadRootEnvironment } from "./ReadRootEnvironment";
 
-export type ModelCatalogueCapability = { authority: ModelCatalogueAuthority, liveDiscoveryRequired: boolean, 
+export type ModelCatalogueCapability = { authority: ModelCatalogueAuthority, liveDiscoveryRequired: boolean,
 /**
  * Config files whose change voids a cached model snapshot (e.g. the
  * provider's own model registry). Fingerprint-only, never a sandboxed read.

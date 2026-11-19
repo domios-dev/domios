@@ -13,10 +13,10 @@ export interface ConciergeStatus {
   receiving_here: boolean;
   receiver_machine_label: string | null;
   /** "paused": you paused this friend while this machine receives for them. */
-  state: "ready" | "concierge_starting" | "concierge_missing" | "concierge_auth_needed" | "concierge_access_needed" | "concierge_provider_refused" | "concierge_invalid" | "concierge_crashed" | "concierge_closed" | "receiving_elsewhere" | "not_receiving" | "paused";
+  state: "ready" | "concierge_starting" | "concierge_missing" | "concierge_auth_needed" | "concierge_access_needed" | "concierge_provider_refused" | "concierge_start_failed" | "concierge_invalid" | "concierge_crashed" | "concierge_closed" | "receiving_elsewhere" | "not_receiving" | "paused";
 }
 
-const STATES: readonly ConciergeStatus["state"][] = ["ready", "concierge_starting", "concierge_missing", "concierge_auth_needed", "concierge_access_needed", "concierge_provider_refused", "concierge_invalid", "concierge_crashed", "concierge_closed", "receiving_elsewhere", "not_receiving", "paused"];
+const STATES: readonly ConciergeStatus["state"][] = ["ready", "concierge_starting", "concierge_missing", "concierge_auth_needed", "concierge_access_needed", "concierge_provider_refused", "concierge_start_failed", "concierge_invalid", "concierge_crashed", "concierge_closed", "receiving_elsewhere", "not_receiving", "paused"];
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 export function parseConciergeStatus(value: unknown): ConciergeStatus | null {
@@ -57,7 +57,7 @@ export function missingConciergeLine(status: ConciergeStatus): string {
 }
 
 export function conciergeNeedsAttention(status: ConciergeStatus | null | undefined): boolean {
-  return status !== null && status !== undefined && ["concierge_missing", "concierge_auth_needed", "concierge_access_needed", "concierge_provider_refused", "concierge_invalid", "concierge_crashed", "concierge_closed"].includes(status.state);
+  return status !== null && status !== undefined && ["concierge_missing", "concierge_auth_needed", "concierge_access_needed", "concierge_provider_refused", "concierge_start_failed", "concierge_invalid", "concierge_crashed", "concierge_closed"].includes(status.state);
 }
 
 export function conciergeStatusLine(status: ConciergeStatus | null | undefined): string {
@@ -67,6 +67,7 @@ export function conciergeStatusLine(status: ConciergeStatus | null | undefined):
     case "concierge_auth_needed": return "concierge needs sign-in";
     case "concierge_access_needed": return "concierge needs access review";
     case "concierge_provider_refused": return "concierge provider unavailable";
+    case "concierge_start_failed": return "concierge could not start";
     case "concierge_invalid": return "concierge needs setup";
     case "concierge_crashed": return "concierge stopped";
     case "concierge_closed": return "concierge closed";

@@ -109,6 +109,20 @@ async fn runtime_receipt_and_exact_turn_edges_persist_delivered_working_and_no_r
         "own-session",
         "turn-a",
         Some(&id),
+        State::DeliveredToConcierge,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        state(&metadata, &friend, 1).await,
+        State::DeliveredToConcierge
+    );
+    svc.neighbor_runtime_handling_event(
+        &tab,
+        "own-nonce",
+        "own-session",
+        "turn-a",
+        None,
         State::Working,
     )
     .await

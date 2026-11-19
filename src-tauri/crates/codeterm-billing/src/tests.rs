@@ -409,7 +409,7 @@ fn producer_vectors() -> Vec<ProducerVector> {
     .unwrap()
     .vectors
 }
-fn activation(epoch: &'static str) -> codeterm_entitlements::Activation {
+pub(super) fn activation(epoch: &'static str) -> codeterm_entitlements::Activation {
     use codeterm_entitlements::*;
     static KEYS: &[CompiledKey] = &[CompiledKey {
         key_id: "e5-rfc8032-test-only",
@@ -428,7 +428,7 @@ fn activation(epoch: &'static str) -> codeterm_entitlements::Activation {
     }
 }
 #[derive(Default)]
-struct MemoryGrants(
+pub(super) struct MemoryGrants(
     parking_lot::Mutex<Option<serde_json::Value>>,
     std::sync::atomic::AtomicUsize,
     std::sync::atomic::AtomicUsize,
@@ -515,12 +515,16 @@ impl BillingProvider for GrantReplies {
         Err("unused".into())
     }
 }
-fn paid_grant() -> Reading {
-    let vector = producer_vectors()
+pub(super) fn paid_grant_response() -> Box<serde_json::value::RawValue> {
+    producer_vectors()
         .into_iter()
         .find(|v| v.id == "valid-paid")
-        .unwrap();
-    Reading::from(serde_json::from_str::<ApplicationEnvelope>(vector.response.get()).unwrap())
+        .unwrap()
+        .response
+}
+
+fn paid_grant() -> Reading {
+    Reading::from(serde_json::from_str::<ApplicationEnvelope>(paid_grant_response().get()).unwrap())
 }
 fn clock(
     value: u64,

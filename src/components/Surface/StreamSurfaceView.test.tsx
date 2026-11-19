@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Surface/StreamSurfaceView.test.tsx
 
-import "./surfaceDomGlobals.testdata";
+import { FakeResizeObserver } from "./surfaceDomGlobals.testdata";
 import { resetCaptureOwnershipForTest } from "../Terminal/voice/localRecordingCaptureModel";
 import assert from "node:assert/strict";
 import { connectNoticeToasts, type ToastInput } from "../../lib/notices";
@@ -79,7 +79,7 @@ function watchControl(fake: FakeStreamTransport) {
   };
 }
 
-suite.test("connects with the first measured viewport and only its owner resizes", async () => {
+suite.test("connects with the first measured viewport and keeps it fixed through layout and reconnect", async () => {
   const { fake, unmount } = await mount();
   assert.equal(fake.connections.length, 0, "no stream before the stage has a size");
   await resizeStages(640, 480);
@@ -87,11 +87,10 @@ suite.test("connects with the first measured viewport and only its owner resizes
   await act(async () => fake.emitState({ ...state, viewportOwner: fake.viewer() }));
   await act(async () => fake.emitOpen());
   await resizeStages(800, 600);
-  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map(({ args: { viewer, ...args } }) => { assert.equal(viewer, fake.viewer()); return args; }), [
-    resizeArgs({ w: 640, h: 480, dpr: window.devicePixelRatio }),
-    resizeArgs({ w: 800, h: 600, dpr: window.devicePixelRatio }),
-  ]);
-  assert.equal(fake.connections.length, 1, "a resize never reconnects");
+  await act(async () => fake.emitOpen());
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize), []);
+  assert.deepEqual(fake.callsTo("viewport.claim"), []);
+  assert.equal(fake.connections.length, 1, "a layout change never reconnects");
   await unmount();
   assert.equal(fake.disconnects(), 1, "unmount disconnects the stream");
 });
@@ -543,7 +542,7 @@ suite.test("focus and document visibility flaps preserve the connection and view
   assert.equal(fake.disconnects(), 0);
   assert.equal(fake.connections.length, 1);
   await resizeStages(800, 600);
-  assert.equal(fake.callsTo(SURFACE_METHOD.resize).length, resizes + 1, "the same owner can still resize");
+  assert.equal(fake.callsTo(SURFACE_METHOD.resize).length, resizes, "layout changes only scale the stream");
   await unmount();
 });
 
@@ -573,38 +572,68 @@ suite.test("a secondary viewer letterboxes frames and never sends resize request
   await unmount();
 });
 
-suite.test("resize acknowledgements drain only the latest measured viewport", async () => {
-  const { fake, unmount } = await mount();
-  const acknowledgements: Array<() => void> = [];
-  fake.respond(SURFACE_METHOD.resize, () => new Promise<void>((resolve) => acknowledgements.push(resolve)));
+suite.test("two differently sized viewers send no automatic resize or ownership claims", async () => {
+  const desktop = await mount();
+  const desktopObserver = [...FakeResizeObserver.instances][0];
+  assert.ok(desktopObserver);
+  await act(async () => desktopObserver.emit(1200, 800));
+  const phone = await mount();
+  const phoneObserver = [...FakeResizeObserver.instances].find(observer => observer !== desktopObserver);
+  assert.ok(phoneObserver);
+  await act(async () => phoneObserver.emit(390, 844));
+  for (const view of [desktop, phone]) {
+    await act(async () => view.fake.emitState({ ...state, viewportOwner: desktop.fake.viewer() }));
+  }
+  for (let cycle = 0; cycle < 10; cycle += 1) {
+    await act(async () => {
+      desktopObserver.emit(1200 - cycle, 800);
+      phoneObserver.emit(390, 844 - cycle);
+      for (const view of [desktop, phone]) {
+        view.fake.emitOpen();
+        view.host.querySelector("section")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+        view.host.querySelector("section")!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "a" }));
+      }
+    });
+  }
+  assert.deepEqual(desktop.fake.calls, [], "desktop scales locally");
+  assert.deepEqual(phone.fake.calls, [], "phone scales locally");
+  await act(async () => getByRole(phone.host, "button", "Take control").click());
+  assert.deepEqual(phone.fake.callsTo("viewport.claim").map(call => call.args), [
+    { viewer: phone.fake.viewer(), width: 390, height: 835, dpr: window.devicePixelRatio },
+  ]);
+  await desktop.unmount();
+  await phone.unmount();
+});
+
+suite.test("only Take control claims size, including when the viewer already owns it", async () => {
+  const { host, fake, unmount } = await mount();
   await resizeStages(640, 480);
   await act(async () => fake.emitState({ ...state, viewportOwner: fake.viewer() }));
-  await resizeStages(800, 600);
-  await resizeStages(900, 650);
-  await resizeStages(1000, 700);
-  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map(({ args: { viewer, ...args } }) => { assert.equal(viewer, fake.viewer()); return args; }), [resizeArgs({ w: 800, h: 600, dpr: window.devicePixelRatio })]);
-  acknowledgements.shift()!();
-  await flushAsync();
-  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map(({ args: { viewer, ...args } }) => { assert.equal(viewer, fake.viewer()); return args; }), [
-    resizeArgs({ w: 800, h: 600, dpr: window.devicePixelRatio }),
-    resizeArgs({ w: 1000, h: 700, dpr: window.devicePixelRatio }),
+  await act(async () => {
+    host.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    host.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "a" }));
+  });
+  assert.deepEqual(fake.callsTo("viewport.claim"), [], "ordinary interaction cannot claim size");
+  await resizeStages(390, 844);
+  await act(async () => getByRole(host, "button", "Take control").click());
+  assert.deepEqual(fake.callsTo("viewport.claim").map(call => call.args), [
+    { ...resizeArgs({ w: 390, h: 844, dpr: window.devicePixelRatio }), viewer: fake.viewer() },
   ]);
-  acknowledgements.shift()!();
-  await flushAsync();
+  await resizeStages(900, 650);
+  await act(async () => fake.emitOpen());
+  assert.equal(fake.callsTo("viewport.claim").length, 1);
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize), []);
   await unmount();
 });
 
-suite.test("a failed automatic viewport resize stays quiet", async () => {
-  const { host, fake, unmount } = await mount();
+suite.test("remounting an interactive viewer does not claim size", async () => {
+  surfaceControlStore.set(SURFACE_TAB, true);
+  const { fake, unmount } = await mount({ surfaceTabId: SURFACE_TAB });
   await resizeStages(640, 480);
-  await act(async () => fake.emitFrame(frameAt(640, 480)));
-  fake.respond(SURFACE_METHOD.resize, () => Promise.reject(new Error("resize temporarily unavailable")));
-  await act(async () => fake.emitState({ ...state, viewportOwner: fake.viewer() }));
-  await resizeStages(800, 600);
-  await flushAsync();
-  assert.equal(queryByRole(host, "alert"), null, "automatic resize failure does not render an alert");
-  assert.ok(queryByRole(host, "img"), "the last rendered surface remains available");
+  await act(async () => fake.emitOpen());
+  assert.deepEqual(fake.callsTo("viewport.claim"), []);
   await unmount();
+  surfaceControlStore.set(SURFACE_TAB, false);
 });
 
 async function withDocument(overrides: { visibilityState?: DocumentVisibilityState; focused?: boolean }, run: () => Promise<void>) {
@@ -634,7 +663,7 @@ for (const [name, overrides] of [
       assert.equal(fake.callsTo(SURFACE_METHOD.resize).length, 0);
       await resizeStages(800, 600);
     });
-    assert.equal(fake.callsTo(SURFACE_METHOD.resize).length, 1, "ownership survives document focus and visibility changes");
+    assert.equal(fake.callsTo(SURFACE_METHOD.resize).length, 0, "focus and visibility cannot resize the fixed browser");
     assert.equal(fake.callsTo("viewport.claim").length, 0);
     assert.equal(fake.connections.length, 1);
     await flushAsync();

@@ -34,11 +34,7 @@ impl Capability {
         let reason = match self {
             Self::MemoryRead if permission.allowed && permission.allow_memory => return Ok(()),
             Self::MemoryRead => "neighbor_memory_not_allowed",
-            Self::MemoryWrite
-                if permission.allowed && !permission.memory_write_areas.is_empty() =>
-            {
-                return Ok(())
-            }
+            Self::MemoryWrite if permission.allows_memory_writes() => return Ok(()),
             Self::MemoryWrite => "neighbor_memory_write_not_allowed",
             Self::Spawn
                 if permission.allowed

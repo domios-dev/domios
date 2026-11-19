@@ -13,6 +13,7 @@ async fn restricted_cli_context_is_typed_bound_and_transferred_without_provider_
     ctx.settings.mode = Some("workspace-write".into());
     ctx.settings.network_access = Some(false);
     ctx.restricted_cli = Some(RestrictedCliPolicy {
+        split_windows_roots: None,
         tab_id: ctx.tab_id.clone(),
         binding_nonce: ctx.binding_nonce.clone(),
         epoch: ctx.epoch,

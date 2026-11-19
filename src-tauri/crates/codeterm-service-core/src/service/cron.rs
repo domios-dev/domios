@@ -246,12 +246,10 @@ impl ServiceContext {
     }
 
     fn validate_cron_ownership(&self, params: &CronCreateParams) -> Result<(), String> {
-        let mux = self.mux.read();
         if let Some(target_tab_id) = params.report_target_tab_id.as_deref() {
-            mux.get_tab(target_tab_id).ok_or_else(|| {
-                format!("report_target_tab_id: Cron Tab {target_tab_id} not found")
-            })?;
+            self.validate_cron_report_target(target_tab_id)?;
         }
+        let mux = self.mux.read();
         match (params.team_id.as_deref(), params.creator_tab_id.as_deref()) {
             (None, _) => Ok(()),
             (Some(team_id), Some(creator_tab_id)) => {
@@ -278,6 +276,14 @@ impl ServiceContext {
                 "creator_tab_id: Team cron {team_id} requires a live Team member Tab"
             )),
         }
+    }
+
+    fn validate_cron_report_target(&self, target_tab_id: &str) -> Result<(), String> {
+        self.mux
+            .read()
+            .get_tab(target_tab_id)
+            .ok_or_else(|| format!("report_target_tab_id: Cron Tab {target_tab_id} not found"))?;
+        Ok(())
     }
 
     fn validate_cron_spawn_fields(
@@ -352,6 +358,17 @@ impl ServiceContext {
         id: &str,
         mut patch: CronUpdateParams,
     ) -> Result<CronJob, String> {
+        let id = {
+            let store = cron.lock();
+            resolve_cron_id_or_name(&store, id)?.to_string()
+        };
+        if let Some(target) = patch
+            .report_target_tab_id
+            .as_deref()
+            .filter(|target| !target.trim().is_empty())
+        {
+            self.validate_cron_report_target(target)?;
+        }
         if patch
             .agent
             .as_deref()
@@ -362,7 +379,7 @@ impl ServiceContext {
         let (provider, model, cwd, effort) = {
             let store = cron.lock();
             let job = store
-                .get(id)
+                .get(&id)
                 .ok_or_else(|| format!("Cron job not found: {}", id))?;
             let provider = patch
                 .agent
@@ -388,7 +405,7 @@ impl ServiceContext {
             model.as_deref().filter(|model| !model.trim().is_empty()),
             effort.as_deref(),
         )?;
-        let job = commit(cron, |store| store.prepare_update(id, patch.clone()))?.value;
+        let job = commit(cron, |store| store.prepare_update(&id, patch.clone()))?.value;
         wake.notify_all();
         self.emit_cron_changed();
         Ok(job)

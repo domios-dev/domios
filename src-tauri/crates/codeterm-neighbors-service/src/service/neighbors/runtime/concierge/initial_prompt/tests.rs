@@ -324,3 +324,37 @@ fn write_commands_follow_exact_grants_and_change_the_prompt_digest() {
         json!([])
     );
 }
+
+#[test]
+fn full_access_exposes_skill_saves_without_explicit_write_areas() {
+    let mut permission = Permission {
+        allowed: true,
+        scope: "opaque".into(),
+        machine_access: codeterm_neighbors::permissions::MachineAccess::Full,
+        ..Default::default()
+    };
+    let grant = grants::capability_grants(&"a".repeat(64), &permission);
+    assert_eq!(grant["memory_write_all_current_areas"], true);
+    assert_eq!(
+        grant["memory_write_kinds"],
+        json!(["fact", "note", "skill"])
+    );
+    assert_eq!(
+        grant["commands"]["memory_neighbor_save"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    permission.memory_write_areas = vec!["opaque-area".into()];
+    let narrowed = grants::capability_grants(&"a".repeat(64), &permission);
+    assert_eq!(narrowed["memory_write_all_current_areas"], false);
+    assert_eq!(
+        narrowed["commands"]["memory_neighbor_save"][0][10],
+        "opaque-area"
+    );
+    permission.allowed = false;
+    let denied = grants::capability_grants(&"a".repeat(64), &permission);
+    assert_eq!(denied["memory_write_kinds"], json!([]));
+    assert_eq!(denied["commands"]["memory_neighbor_save"], json!([]));
+}

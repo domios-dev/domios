@@ -43,9 +43,9 @@ async fn sidebar_projection_keeps_known_receiver_rows_after_concierge_unbinding(
     assert_eq!(unbound_concierge["receiving_here"], false);
     assert_eq!(
         projection,
-        json!({(friendship.clone()): {"tab_id":tab, "friend_display_name":"Opaque Friend", "friend_photo_url":"https://example.test/avatar.png", "paused":false, "access":"paid",
+        json!({(friendship.clone()): {"tab_id":tab, "friend_display_name":"Opaque Friend", "friend_photo_url":"https://example.test/avatar.png", "paused":false, "access":"paid", "status_stale":false,
             "receiver":{"receiving_here":true,"receiver_machine_label":"Fixture","receiver_installation_id":"fixture-here","receiver_online":true,"receiving_enabled":true,"revision":1,"is_me":true}},
-            ("b".repeat(64)): {"tab_id":null,"friend_display_name":"Unbound Friend","friend_photo_url":null,"paused":false,"access":"paid","receiver":null}})
+            ("b".repeat(64)): {"tab_id":null,"friend_display_name":"Unbound Friend","friend_photo_url":null,"paused":false,"access":"paid","receiver":null,"status_stale":false}})
     );
     let session = fixture
         .service

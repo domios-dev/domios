@@ -1,5 +1,3 @@
-use std::time::{Duration, Instant};
-
 use crate::{build_local_api, read_api_config, UpdateAction};
 
 const DEFAULT_LOCAL_INSTALL_CONTINUE_PROMPT: &str =
@@ -198,6 +196,7 @@ fn install_with_withdrawal(
 }
 
 fn update_failure_message(raw: &str) -> String {
+    let raw = raw.split("\n[update-blocking-tabs]").next().unwrap_or(raw);
     codeterm_types::native_update::apply::NativeUpdateAdmissionRefusal::from_error(raw)
         .map(|reason| reason.message())
         .unwrap_or(raw)
@@ -205,21 +204,15 @@ fn update_failure_message(raw: &str) -> String {
 }
 
 fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
-    let status_url = format!("{}/api/update/status", base_url);
-    let started = Instant::now();
-    let timeout = Duration::from_secs(300);
     let mut last_phase = String::new();
-    let mut last_err = String::new();
-    let mut connect_failures: u32 = 0;
     loop {
-        if started.elapsed() > timeout {
-            eprintln!("Timed out after {}s waiting for update to complete. Check ~/.domios/logs/domios.log for details.", timeout.as_secs());
-            std::process::exit(2);
-        }
-        std::thread::sleep(Duration::from_millis(500));
+        let status_url = format!(
+            "{}/api/update/wait?after_phase={}",
+            base_url,
+            urlencoding::encode(&last_phase)
+        );
         match http.get(&status_url).send() {
             Ok(resp) if resp.status().is_success() => {
-                connect_failures = 0;
                 let body: serde_json::Value = resp.json().unwrap_or_default();
                 let phase = body["phase"].as_str().unwrap_or("idle").to_string();
                 let err = update_failure_message(body["last_error"].as_str().unwrap_or(""));
@@ -227,45 +220,38 @@ fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
                     println!("phase: {}", phase);
                     last_phase = phase.clone();
                 }
-                if !err.is_empty() && err != last_err {
-                    eprintln!("update error: {}", err);
-                    last_err = err.clone();
-                }
                 match phase.as_str() {
                     "success" => {
-                        println!("Update applied. Daemon is restarting.");
-                        return;
+                        if verified_update_version(&body).is_some() {
+                            println!("Update verified. Version {} is running.", body["current_version"].as_str().unwrap_or("unknown"));
+                            return;
+                        }
+                        crate::cmd::print::fail(2, "Update completion is unverified: the daemon has no matching replacement-version receipt. Run domios update status after restart.");
                     }
                     "error" => {
-                        eprintln!(
-                            "Update failed: {}",
-                            if last_err.is_empty() {
-                                "(no detail)"
-                            } else {
-                                &last_err
-                            }
-                        );
-                        std::process::exit(1);
+                        crate::cmd::print::fail(1, format!("Update failed: {}", if err.is_empty() { "(no detail)" } else { &err }));
                     }
-                    "idle" if started.elapsed() > Duration::from_secs(2) => {
-                        println!("No update available.");
-                        return;
+                    "idle" => {
+                        if body["native_update"]["phase"]["phase"] == "no_update" {
+                            println!("No update available.");
+                            return;
+                        }
+                        crate::cmd::print::fail(2, "Update completion is unverified: the updater became idle without a completion receipt. Run domios update status.");
                     }
                     _ => continue,
                 }
             }
-            Ok(_) | Err(_) => {
-                connect_failures += 1;
-                if connect_failures >= 6 && last_phase == "applying" {
-                    println!(
-                        "Daemon stopped responding while applying — assumed restart in progress."
-                    );
-                    return;
-                }
-                continue;
-            }
+            Ok(resp) => crate::cmd::print::fail(2, format!("Update completion is unverified: {}. Run domios update status after restart; inspect native-update-handoff.json and native-update-installer.json in the instance data directory.", resp.text().unwrap_or_default())),
+            Err(error) => crate::cmd::print::fail(2, format!("Update connection ended before the new version was verified: {error}. Run domios update status after restart; inspect native-update-handoff.json and native-update-installer.json in the instance data directory.")),
         }
     }
+}
+
+fn verified_update_version(body: &serde_json::Value) -> Option<&str> {
+    let phase = &body["native_update"]["phase"];
+    let version = phase["payload"]["version"].as_str()?;
+    (phase["phase"] == "verified" && body["current_version"].as_str() == Some(version))
+        .then_some(version)
 }
 
 #[cfg(test)]

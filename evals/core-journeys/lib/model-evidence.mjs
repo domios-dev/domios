@@ -8,6 +8,7 @@ import { excludedProviders, runs } from "./selection.mjs";
 export function modelEvidenceErrors(state, { verify = true, builds = {}, selection = null } = {}) {
   const errors = [];
   const ran = (id) => !selection || runs(selection, id);
+  if (!["J1", "J2", "J3", "J4"].some(ran)) return errors;
   const excluded = excludedProviders(selection);
   const coverage = ran("J1") ? "J1" : ran("J4") ? "J4" : null;
   const require = (condition, reason) => { if (!condition) throw new Error(reason); };

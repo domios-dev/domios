@@ -342,6 +342,8 @@ pub struct CronUpdateParams {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
+    pub report_target_tab_id: Option<String>,
+    #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
     pub schedule: Option<String>,

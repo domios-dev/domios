@@ -4,6 +4,8 @@ Memory keeps facts, notes, preferences and skills available to agents across con
 
 Persistent memory lives in Domios, never in provider side stores. It is English and its bodies carry no dates. Skills are registered through memory, never written directly into provider skill directories. Conversations are searched as sessions; durable facts are searched as memory.
 
+A Neighbor concierge with Full machine access may save requested facts, notes and skills, attributed to the verified friend, scanned and unpinned. Full grants all current non-secret taxonomy areas unless a nonempty write-area list narrows it. Read-only and folder access require explicit write areas for facts and notes; skills require Full. Read grants remain independent. Revocation and pause stop the next save; title conflicts cannot replace pinned or out-of-grant knowledge. Secrets remain forbidden.
+
 Installed plugins contribute descriptions, declared verbs and normalized login state to the same memory index used by per-turn recall. Relevant message requests can recall a plugin with its help or sign-in command. Install, upgrade, removal and observed login-state changes refresh that index; removed plugins disappear, and account details and sign-in codes never enter it. Authentication refusals offer chat-first sign-in with the declared login command and tell the agent to show the returned code or QR to the user.
 
 ## Embedding transitions

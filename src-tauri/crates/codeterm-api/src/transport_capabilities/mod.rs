@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
@@ -30,19 +30,37 @@ fn require_owner(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> 
     }
 }
 
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AccountSelection {
+    account_id: Option<String>,
+}
+
 async fn model_usage(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
+    Query(selection): Query<AccountSelection>,
 ) -> Result<Json<Vec<codeterm_service_core::agent::provider::ModelGroupUsage>>, ApiError> {
     require_owner(&state, &headers)?;
     let Some(provider) = state.svc.agent_registry.provider_arc(&id) else {
         return Ok(Json(Vec::new()));
     };
-    tokio::task::spawn_blocking(move || provider.model_group_usage())
-        .await
-        .map(Json)
-        .map_err(internal_error)
+    tokio::task::spawn_blocking(move || {
+        let context = codeterm_service_core::service::provider_accounts::invocation(
+            &state.svc,
+            &id,
+            selection.account_id.as_deref(),
+        )?;
+        Ok::<_, String>(codeterm_plugin::provider_account::with_context(
+            context,
+            || provider.model_group_usage(),
+        ))
+    })
+    .await
+    .map_err(internal_error)?
+    .map(Json)
+    .map_err(|error| (StatusCode::BAD_REQUEST, error))
 }
 
 async fn default_cwd(

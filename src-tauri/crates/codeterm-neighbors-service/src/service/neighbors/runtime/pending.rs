@@ -155,6 +155,9 @@ impl NeighborsExt for ServiceContext {
         if tab.boot_stage == Some(BootStage::SpawnFailed) {
             return "concierge_provider_refused";
         }
+        if phase == Some("degraded") && code == Some("runtime_start_unbound") {
+            return "concierge_start_failed";
+        }
         if matches!(phase, Some("degraded" | "unloaded")) {
             return if code == Some("provider_refused") {
                 "concierge_provider_refused"

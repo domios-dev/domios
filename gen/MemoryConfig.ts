@@ -3,42 +3,42 @@ import type { DreamHygieneConfig } from "./DreamHygieneConfig";
 import type { EmbedderConfig } from "./EmbedderConfig";
 import type { MemoryBackend } from "./MemoryBackend";
 
-export type MemoryConfig = { backend: MemoryBackend, 
+export type MemoryConfig = { backend: MemoryBackend,
 /**
  * Agent provider for extraction workers (default: same as general_agent)
  */
-extraction_agent: string, 
+extraction_agent: string,
 /**
  * Model for extraction workers. "haiku" for claude, "o3-mini" for codex.
  * Empty string = fall back to `worker_model`.
  */
-extraction_model: string, 
+extraction_model: string,
 /**
  * Enable auto-extraction workers on save
  */
-auto_extract: boolean, 
+auto_extract: boolean,
 /**
  * Agent provider for dreaming cron (default: same as general_agent)
  */
-dreaming_agent: string, 
+dreaming_agent: string,
 /**
  * Model for dreaming agent. Defaults to "sonnet" — dreaming needs careful
  * reasoning over hub topology, haiku tends to give up. Empty string falls
  * back to `worker_model` (haiku).
  */
-dreaming_model: string, 
+dreaming_model: string,
 /**
  * Global default model for any mem worker (extraction + dreaming). Used
  * when the more specific `extraction_model` / `dreaming_model` is empty.
  * Defaults to "haiku" (resolves to current concrete id at runtime via
  * agent::models::resolve_model_id).
  */
-worker_model: string, 
+worker_model: string,
 /**
  * Max concurrent workers per agent provider. Further spawns queue
  * FIFO until a slot frees up.
  */
-workers_per_provider: number, 
+workers_per_provider: number,
 /**
  * Hard timeout for non-dreaming hidden agent runs (extraction workers,
  * generic cron). The auto-complete watcher marks the run Failed if the
@@ -46,13 +46,13 @@ workers_per_provider: number,
  * Defaults to 300 (5 min). Dreaming uses `dreaming_timeout_seconds`
  * instead — dreaming needs longer to reason over hub decompositions.
  */
-worker_timeout_seconds: number, 
+worker_timeout_seconds: number,
 /**
  * Hard timeout for the Dreamer (REM phase) specifically. Default 1800
  * (30 min) because hub decomposition + diary + classification all in one
  * session needs room to think. Set lower if your dreaming model is fast.
  */
-dreaming_timeout_seconds: number, dedup_threshold: number, file_sync_enabled: boolean, file_sync_interval_minutes: number, librarian_enabled: boolean, l1_budget_tokens: number, 
+dreaming_timeout_seconds: number, dedup_threshold: number, file_sync_enabled: boolean, file_sync_interval_minutes: number, librarian_enabled: boolean, l1_budget_tokens: number,
 /**
  * Whether the nightly dreamer pushes its one-line "🧠 Dreamer brief"
  * insight to the Telegram bridge after writing the diary. Default
