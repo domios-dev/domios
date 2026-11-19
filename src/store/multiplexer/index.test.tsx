@@ -588,6 +588,25 @@ test("late A and B workspace replies cannot change the current A inventory or th
   }
 });
 
+test("notification activation opens the exact discovered General without a gateway lookup", async () => {
+  const a = { ...onlinePeer, instance_id: "activation-a", relay_protocol_version: RELAY_PROTOCOL_VERSION };
+  const b = { ...a, instance_id: "activation-b" };
+  const viewerA = "mesh:activation-a/main";
+  const viewerB = "mesh:activation-b/main";
+  const harness = await mountProvider({ roster: () => [a, b], peerMux: async id => peerSnapshot(id, id) });
+  try {
+    const localReads = harness.muxGetStateCalls;
+    await harness.act(async () => harness.actions.selectTabByTab("ws-renewal", viewerB));
+    assert(harness.focusedTabId === viewerB && !harness.tabIds.includes(viewerA), "the selected notification opens B's exact viewer");
+    await harness.act(async () => harness.actions.selectTabByTab("foreign-workspace", viewerB));
+    await harness.act(async () => harness.actions.selectTabByTab("ws-renewal", "mesh:unpaired/main"));
+    assert(harness.focusCalls.join(",") === `${viewerB},${viewerB}`, "an unknown installation does not receive a selection");
+    assert(harness.muxGetStateCalls === localReads, "a composite viewer never looks up a raw tab on the gateway");
+  } finally {
+    await harness.unmount();
+  }
+});
+
 async function resyncCase(name: string, fire: () => Promise<void> | void) {
   test(`resync: ${name} triggers exactly one mux_get_state call`, async () => {
     const harness = await mountProvider();

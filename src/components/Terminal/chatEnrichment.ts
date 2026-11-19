@@ -135,6 +135,7 @@ export function enrichTimelineItems(visible: TimelineItem[], cache: EnrichmentCa
   };
   for (const item of visible) {
     const m = item.kind === "message" ? item.message : item.event.message;
+    if (m.type === "system" && m.systemSubtype === "provider_handoff") continue;
     if (m.type !== "user") {
       append({ msg: m, item, origin: undefined });
       continue;

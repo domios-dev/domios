@@ -48,6 +48,53 @@ it("relays a child authority snapshot read to the owning peer", async()=>{
   expect(calls[0]).toMatchObject({method:"POST",path:"/api/mesh/relay-to",body:{target_instance_id:"peer",method:"GET",path:"/api/mux/state",body:null}});
 });
 
+it("lists notification history from the exact paired installation", async () => {
+  const rows = [{ id: "same-source-id" }];
+  const { transport, calls } = fixture([{ ok: true, data: rows, peer: { instance_id: "install-a", instance_name: "Same name" } }]);
+  expect(await transport.mesh_peer_notifications_list({ peerId: "install-a" })).toEqual(rows);
+  expect(calls[0]).toMatchObject({
+    method: "POST",
+    path: "/api/mesh/relay-to",
+    body: { target_instance_id: "install-a", method: "GET", path: "/api/notifications", body: null },
+  });
+});
+
+it.each([
+  ["read", "POST", "/api/notifications/source%2Fid/read", null],
+  ["delete", "DELETE", "/api/notifications/source%2Fid", null],
+  ["resolve", "POST", "/api/notifications/source%2Fid/resolve", null],
+  ["answer", "POST", "/api/notifications/source%2Fid/answer", { label: "Approve" }],
+] as const)("routes remote notification %s by exact peer and source ids", async (notificationAction, method, path, body) => {
+  const { transport, calls } = fixture([{ ok: true, data: { ok: true }, peer: { instance_id: "install-b", instance_name: "Same name" } }]);
+  await transport.mesh_peer_notification_action({
+    peerId: "install-b",
+    sourceId: "source/id",
+    notificationAction,
+    ...(notificationAction === "answer" ? { label: "Approve" } : {}),
+  });
+  expect(calls[0]).toMatchObject({
+    method: "POST",
+    path: "/api/mesh/relay-to",
+    body: { target_instance_id: "install-b", method, path, body },
+  });
+});
+
+it("refuses an empty or mismatched remote notification installation before accepting another origin", async () => {
+  const { transport, calls } = fixture([{ ok: true, data: { ok: true }, peer: { instance_id: "install-a", instance_name: "Same name" } }]);
+  expect(() => transport.mesh_peer_notification_action({
+    peerId: "",
+    sourceId: "same-source-id",
+    notificationAction: "read",
+  })).toThrow("exact peer installation");
+  await expect(transport.mesh_peer_notification_action({
+    peerId: "install-b",
+    sourceId: "same-source-id",
+    notificationAction: "read",
+  })).rejects.toThrow("different installation");
+  expect(calls).toHaveLength(1);
+  expect(calls[0].body).toMatchObject({ target_instance_id: "install-b" });
+});
+
 it("starts or reuses a remote tab's PTY on its own peer without a prior PTY lookup", async()=>{
   const {transport,calls}=fixture([{ok:true,data:{pty_id:"peer-pty"}}]);
   await transport.mesh_remote_tab_action({ordinaryTabId:"mesh:peer/shell",peerId:"peer",method:"POST",suffix:"/pty/spawn",body:{cols:80,rows:24}});

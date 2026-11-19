@@ -623,6 +623,7 @@ function parsePatch(path, patch) {
     hunk = void 0;
   };
   for (const line of patch.replace(/\r\n/g, "\n").split("\n")) {
+    if (line === "\\ No newline at end of file") continue;
     const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
     if (line.startsWith("diff --git ")) {
       finish();
@@ -1212,7 +1213,11 @@ function toolFileDiffs(part) {
     const patch = typeof input.patch === "string" ? input.patch : typeof input.input === "string" ? input.input : "";
     if (patch) metadata = { ...metadata, patch };
   }
-  const creation = part.tool === "write" && metadata.exists === false && typeof input.content === "string" ? [{ path, old: "", new: input.content }] : [];
+  const content = Array.isArray(state.content) ? state.content[0] : void 0;
+  const contentText = content && typeof content === "object" && !Array.isArray(content) ? content.text : void 0;
+  const result = typeof state.output === "string" ? state.output : typeof contentText === "string" ? contentText : "";
+  const creationConfirmed = metadata.exists === false || metadata.exists === void 0 && /^Created file successfully(?::|$)/i.test(result.trim());
+  const creation = part.tool === "write" && creationConfirmed && typeof input.content === "string" ? [{ path, old: "", new: input.content }] : [];
   const diffs = opencodeFileDiffs(path, [...edits, ...creation], metadata);
   if (creation.length) {
     if (!diffs.length && path) diffs.push(fileDiffFromEdit(creation[0]));
@@ -2366,6 +2371,7 @@ function v2Content(message, raw, ordinal, seq, ts) {
   const partForDiffs = { type: "tool", tool: name, state: { ...state, input, metadata, status: String(state.status) } };
   const diffs = toolFileDiffs(partForDiffs);
   const result = state.error ? errorText(state.error) : toolContent(state.content);
+  const duration = typeof time.ran === "number" && Number.isSafeInteger(time.ran) && typeof time.completed === "number" && Number.isSafeInteger(time.completed) && time.completed >= time.ran ? time.completed - time.ran : void 0;
   return {
     id: toolId(message, id),
     seq,
@@ -2382,6 +2388,7 @@ function v2Content(message, raw, ordinal, seq, ts) {
     toolStatus: status,
     ...result ? { toolResult: result } : {},
     ...aborted ? { toolInterrupted: true } : failed ? { toolError: true } : state.status === "completed" ? { toolError: false } : {},
+    ...duration !== void 0 ? { toolDurationMs: duration } : {},
     ...typeof time.ran === "number" ? { toolStartedAtMs: time.ran } : {},
     ...typeof time.completed === "number" ? { toolCompletedAtMs: time.completed } : {},
     ...timestamp2

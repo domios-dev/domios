@@ -5,7 +5,7 @@ import type { Tab, TabStatus } from "../../lib/types";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { resolvePlanPeerPair } from "../shared/PairAffordance";
 import { SortableRow, TAB_PREFIX, type SortableGroupData } from "./sortable";
-import { TabItem, tabItemPropsEqual, type AttachmentToggle, type TabItemState, type TabStartedBy } from "./TabItem";
+import { TabItem, tabItemPropsEqual, type AttachmentToggle, type TabItemState, type TabMachineLine, type TabStartedBy } from "./TabItem";
 import type { ChecklistToggle } from "./AgentChecklist";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import type { TabAttention } from "./tabAttention";
@@ -59,6 +59,9 @@ export interface SidebarTabItemRowProps {
   attachmentToggle?: AttachmentToggle | null;
   checklistToggle?: ChecklistToggle | null;
   startedBy?: TabStartedBy | null;
+  machineLine?: TabMachineLine | null;
+  hideRemoteMachineLine?: boolean;
+  readOnly?: boolean;
   onActivateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onRenameTab: (tabId: string, title: string) => void;
@@ -92,6 +95,9 @@ function tabItemState({
   attachmentToggle,
   checklistToggle,
   startedBy,
+  machineLine,
+  hideRemoteMachineLine,
+  readOnly,
 }: SidebarTabItemRowProps): TabItemState {
   return {
     tab,
@@ -120,6 +126,9 @@ function tabItemState({
     attachmentToggle,
     checklistToggle,
     startedBy,
+    machineLine,
+    hideRemoteMachineLine,
+    readOnly,
   };
 }
 

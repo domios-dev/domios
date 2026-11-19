@@ -8,8 +8,8 @@ import { useAgentDescriptors } from "../../lib/useAgentDescriptor";
 import { useTabActivity } from "../../lib/useTabActivity";
 import { isProviderSelectable } from "../../lib/providerAvailability";
 import { describeError } from "../../lib/describeError";
-import { reasoningEffortsForModel, resolveEffort, resolveProviderModel } from "../../lib/newSessionChoice";
-import type { Tab } from "../../lib/types";
+import { resolveEffort, resolveProviderModel } from "../../lib/newSessionChoice";
+import type { ProviderDescriptor, Tab } from "../../lib/types";
 import { getTabProviderApi } from "./tabProviderApi";
 import { supportsProviderHandoff, switchTabProvider, type ProviderSwitchResult, type ProviderSwitchStatus } from "./tabProviderMenu";
 import { preferProviderSwitchStatus, type ProviderSwitchStatusPhase } from "./providerSwitchStatusModel";
@@ -20,6 +20,7 @@ function providerSwitchStatusEvent(tabId: string): string {
 
 type DialogPhase = "choosing" | "waiting" | "switching" | "complete";
 type StatusRegistration = () => Promise<void>;
+type SwitchTarget = { provider: ProviderDescriptor; model?: string; effort?: string };
 const MAX_EARLY_STATUS_OPERATIONS = 128;
 
 export function useProviderSwitch(tab: Tab, initialProviderId: string) {
@@ -30,15 +31,13 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   const model = resolveProviderModel(provider, selectedModel) ?? selectedModel;
   const [selectedEffort, setEffort] = useState<string>();
   const effort = resolveEffort(provider, model, selectedEffort);
-  const efforts = reasoningEffortsForModel(provider, model);
   const activity = useTabActivity(tab.id, tab);
   const [phase, setPhase] = useState<DialogPhase>("choosing");
   const [error, setError] = useState<string | null>(null);
   const [statusUncertainty, setStatusUncertainty] = useState<string | null>(null);
   const [retryAfterSeconds, setRetryAfterSeconds] = useState<number | null>(null);
   const [switchStatus, setSwitchStatus] = useState<ProviderSwitchStatusPhase | null>(null);
-  const [result, setResult] = useState<ProviderSwitchResult | null>(null);
-  const [history, setHistory] = useState<Array<{ kind: string; content: string }> | null>(null);
+  const [submittedTarget, setSubmittedTarget] = useState<SwitchTarget | null>(null);
   const submitting = useRef(false);
   const activeOperationId = useRef<string | null>(null);
   const acceptedStatus = useRef<ProviderSwitchStatus | null>(null);
@@ -69,7 +68,7 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
     clearAttempt();
     setError(detail);
     setStatusUncertainty(null);
-    setRetryAfterSeconds(describeError(detail, { operation: "switching the harness" }).retryAfterSeconds ?? null);
+    setRetryAfterSeconds(describeError(detail, { operation: "switching providers" }).retryAfterSeconds ?? null);
     setSwitchStatus({ phase: "failed", error: detail });
     setPhase("choosing");
   }
@@ -93,7 +92,6 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
       }
       clearAttempt();
       setSwitchStatus({ phase: "completed", error: null });
-      setResult(outcome);
       setError(null);
       setRetryAfterSeconds(null);
       setPhase("complete");
@@ -214,6 +212,7 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
     clearAttempt();
     setSwitchStatus(null);
     setStatusUncertainty(null);
+    setSubmittedTarget({ provider, model, effort });
     setPhase("switching");
     setError(null);
     let accepted: ProviderSwitchStatus | ProviderSwitchResult | void;
@@ -243,7 +242,6 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
       return;
     }
     setSwitchStatus({ phase: "completed", error: null });
-    setResult(accepted);
     setPhase("complete");
   }
 
@@ -262,15 +260,6 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
     if (phase === "waiting" && ready) void submitRef.current();
   }, [phase, ready]);
 
-  async function showHistory() {
-    if (!result) return;
-    try {
-      const rows: unknown = await invoke("read_provider_history", { tabId: tab.id, file: result.previous_history_path });
-      if (!Array.isArray(rows)) throw new Error("The previous transcript is unavailable.");
-      setHistory(rows.filter((row): row is { type: string; content: string } => row !== null && typeof row === "object" && typeof row.type === "string" && typeof row.content === "string").map((row) => ({ kind: row.type, content: row.content })));
-    } catch (failure) { setError(String(failure)); }
-  }
-
-  return { providers, providerId, setProviderId, provider, selectedModel, setModel, model, setEffort, effort, efforts,
-    phase, setPhase, error, statusUncertainty, retryAfterSeconds, switchStatus, result, history, ready, activity, submit, showHistory, stopObserving };
+  return { providers, providerId, setProviderId, provider, selectedModel, setModel, model, setEffort, effort,
+    phase, setPhase, error, statusUncertainty, retryAfterSeconds, switchStatus, submittedTarget, ready, activity, submit, stopObserving };
 }

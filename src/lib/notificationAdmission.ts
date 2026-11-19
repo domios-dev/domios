@@ -3,6 +3,10 @@ import type { Notification } from "./notificationTypes";
 export type NoticeSource = "agent_notification" | "local_notice" | "plugin_progress" | "diagnostic";
 export type NoticeDestination = "bell" | "toast" | "activity" | "log";
 
+export function isRemoteNotification(row: Pick<Notification, "id" | "remote_origin">): boolean {
+  return Boolean(row.remote_origin) || row.id.startsWith("remote-notification/");
+}
+
 export function notificationDestination(source: NoticeSource): NoticeDestination {
   switch (source) {
     case "agent_notification": return "bell";
@@ -20,7 +24,8 @@ export function admitBellNotification(
   if (notificationDestination(source) !== "bell") return records;
   const sameId = records.findIndex((record) => record.id === incoming.id);
   if (sameId !== -1) return records.map((record, index) => index === sameId ? incoming : record);
-  const duplicate = records.some((record) => !record.resolved && !record.answer?.answered
+  if (isRemoteNotification(incoming)) return [...records, incoming];
+  const duplicate = records.some((record) => !isRemoteNotification(record) && !record.resolved && !record.answer?.answered
     && record.tab_id === incoming.tab_id
     && record.workspace_id === incoming.workspace_id
     && record.title === incoming.title

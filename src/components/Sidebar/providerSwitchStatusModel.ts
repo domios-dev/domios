@@ -33,12 +33,14 @@ export function preferProviderSwitchStatus(
 export function providerSwitchStatusView(
   status: ProviderSwitchStatusPhase | null,
   targetName: string,
+  tabName: string,
+  modelName?: string,
 ): ProviderSwitchStatusView | null {
   if (!status) return null;
   switch (status.phase) {
     case "pending": return { kind: "busy", label: `Starting ${targetName}…` };
     case "running": return { kind: "busy", label: `Switching to ${targetName}…` };
-    case "completed": return { kind: "complete", label: "Bound — continuing" };
+    case "completed": return { kind: "complete", label: `${tabName} now continues on ${[targetName, modelName].filter(Boolean).join(" · ")}.` };
     case "failed": return { kind: "failed", reason: status.error ?? "The provider switch failed." };
     default: return { kind: "busy", label: `Switching to ${targetName}…` };
   }

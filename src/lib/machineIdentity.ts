@@ -17,6 +17,7 @@ export interface MachineIdentity {
   color: MachineColor;
 }
 export type MeshIdentityProjection = {
+  local_instance_name?: string;
   local_machine_identity?: MachineIdentity;
   machine_identities?: Record<string, MachineIdentity>;
 };

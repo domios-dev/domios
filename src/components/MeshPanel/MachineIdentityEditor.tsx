@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { type MachineIdentity } from "../../lib/machineIdentity";
 import { readMachineIdentity, saveMachineIdentity, type MachineIdentityView } from "../../lib/machineIdentityClient";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
@@ -65,6 +65,10 @@ export function MachineIdentityPopover({ name, peerId, initial, onClose, anchor 
   const [failure, setFailure] = useState<string>();
   const pending = useRef(Promise.resolve());
   const sequence = useRef(0);
+  const editor = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    editor.current?.querySelector<HTMLButtonElement>('[role="radio"][aria-checked="true"]')?.focus({ preventScroll: true });
+  }, []);
   useEffect(() => {
     let live = true;
     void readMachineIdentity(peerId).then(result => {
@@ -87,7 +91,7 @@ export function MachineIdentityPopover({ name, peerId, initial, onClose, anchor 
   }
 
   return <AnchoredPopover open anchor={anchor} placement="bottom-end" onClose={onClose}>
-    <div className="ct-menu w-[min(340px,calc(100vw-24px))]">
+    <div ref={editor} className="ct-menu w-[min(340px,calc(100vw-24px))]">
       <MachineIdentityEditor name={name} value={value} setValue={update} error={failure} retry={() => update(value)} />
     </div>
   </AnchoredPopover>;

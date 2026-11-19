@@ -183,7 +183,13 @@ fn host_handoff_carries_identity_and_archive_reference_as_data() {
     let tab = fixture.service.mux.read().get_tab(&id).cloned().unwrap();
     let input = fixture
         .service
-        .provider_switch_input(&tab, &[], std::path::Path::new("archive-token"))
+        .provider_switch_input(
+            &tab,
+            &[],
+            std::path::Path::new("archive-token"),
+            "target",
+            None,
+        )
         .unwrap();
     assert_eq!(prepare_handoff(&input).unwrap().text(), input);
     assert!(prepare_handoff("opaque invalid frame")

@@ -2,6 +2,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import type { Tab, Team, Workspace } from "../../lib/types";
+import type { PairedGeneral } from "../../store/multiplexer/pairedWorkspaceProjection";
+import { PairedWorkspaceInventoryContext } from "../../store/multiplexer/context";
 import { SidebarGeneralSection } from "./SidebarGeneralSection";
 import type { SidebarWorkspaceDetailActions, SidebarWorkspaceDetailData } from "./SidebarWorkspaceDetail";
 import { SidebarDnd } from "./sortable";
@@ -39,7 +41,7 @@ const actions: SidebarWorkspaceDetailActions = {
   closeWorkspace: noop, newTerminal: noop, newSession: noop, newAgent: noop, openRemoteTab: noop,
 };
 
-async function mount(attention: Record<string, TabAttention> = {}) {
+async function mount(attention: Record<string, TabAttention> = {}, pairedGenerals: PairedGeneral[] = [], onActivate: (workspaceId: string, tabId: string) => void = noop) {
   const tabs = Object.fromEntries([main, manager, agent, ...shells, surface].map((tab) => [tab.id, tab]));
   const data: SidebarWorkspaceDetailData = {
     tabs, tabStatuses: {}, attention, teams: [team], planIndex: [], plans: [], providers: [], providersLoading: false,
@@ -52,7 +54,10 @@ async function mount(attention: Record<string, TabAttention> = {}) {
   const root = createRoot(host);
   const render = async (expanded: boolean) => act(async () => root.render(
     <SidebarDnd handlers={{ reorderTabs: noop, reorderDisplay: noop, reorderWorkspaces: noop }}>
-      <SidebarGeneralSection workspace={workspace} expanded={expanded} onToggle={noop} data={data} actions={actions} workspaces={[workspace]} />
+      <PairedWorkspaceInventoryContext.Provider value={{ generals: pairedGenerals, browse: null }}>
+        <SidebarGeneralSection workspace={workspace} expanded={expanded} onToggle={noop} data={data}
+          actions={{ ...actions, activateTab: onActivate }} workspaces={[workspace]} />
+      </PairedWorkspaceInventoryContext.Provider>
     </SidebarDnd>,
   ));
   await render(true);
@@ -115,6 +120,7 @@ it("places Main, General teams and standalone agents inside General before New s
   try {
     const general = view.host.querySelector('[role="region"][aria-label="General workspace contents"]')!;
     const mainButton = general.querySelector('button[aria-label="General Agent"]')!;
+    expect(mainButton.closest('[data-testid="tab-item"]')?.querySelector('.sidebar-tab-body__sub--machine')).toBeNull();
     const teamRegion = general.querySelector('section[aria-label="Quartz team"]')!;
     const solo = general.querySelector('button[aria-label="Open tab Solo"]')!;
     const newSession = Array.from(general.querySelectorAll("button")).find((button) => button.textContent?.trim() === "New session")!;
@@ -127,6 +133,38 @@ it("places Main, General teams and standalone agents inside General before New s
     await view.render(false);
     expect(view.host.querySelector('section[aria-label="Quartz team"]')).toBeNull();
     expect(shellButtons(view.host)).toHaveLength(0);
+  } finally { await view.close(); }
+});
+
+it("lists paired General rows alphabetically and selects their composite viewer ids", async () => {
+  const activate = vi.fn();
+  const pairedGenerals: PairedGeneral[] = [
+    { peerId: "peer-z", name: "Zulu", availability: "offline", sessions: [{
+      viewerId: "mesh:peer-z/main", tab: { ...main, id: "main", title: "Zulu Main" }, status: "Working",
+    }] },
+    { peerId: "peer-a", name: "Alpha", availability: "online", sessions: [{
+      viewerId: "mesh:peer-a/main", tab: { ...main, id: "main", title: "Alpha Main" }, status: "Idle",
+    }] },
+    { peerId: "peer-old", name: "Offline card", availability: "offline", sessions: [] },
+  ];
+  const view = await mount({}, pairedGenerals, activate);
+  try {
+    const groups = Array.from(view.host.querySelectorAll<HTMLElement>('[data-testid="paired-general-group"]'));
+    expect(groups.map(group => group.getAttribute("aria-label"))).toEqual([
+      "Alpha General sessions", "Offline card General sessions", "Zulu General sessions",
+    ]);
+    const localMain = view.host.querySelector('[data-testid="tab-item"][data-tab-id="main"]');
+    expect(localMain?.textContent).toContain("This machine");
+    expect(localMain?.textContent).toContain("idle");
+    const unavailable = view.host.querySelector('[data-testid="tab-item"][data-tab-id="mesh:peer-z/main"]');
+    expect(unavailable?.textContent).toContain("offline");
+    expect(unavailable?.textContent).not.toContain("working");
+    expect(unavailable?.querySelector('[data-testid="tab-working-activity"]')).toBeNull();
+    expect(groups[1].textContent).toContain("offline");
+    const remoteRow = view.host.querySelector<HTMLElement>('[data-testid="tab-item"][data-tab-id="mesh:peer-a/main"]');
+    expect(remoteRow).not.toBeNull();
+    await act(async () => remoteRow?.querySelector("button")?.click());
+    expect(activate).toHaveBeenCalledWith("general", "mesh:peer-a/main");
   } finally { await view.close(); }
 });
 

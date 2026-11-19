@@ -14,7 +14,9 @@ import { DIFF_HIGHLIGHT_MAX_LINES } from "../MarkdownBody";
 import { SYNTAX_HIGHLIGHT_ROOT_CLASS, themeAwarePrismStyle } from "../syntaxTheme";
 import { ToolOutputContent } from "../ToolOutputContent";
 import { toolKindVisual } from "./toolKindVisual";
+import { toolOutcomeVisual } from "./toolVisualModel";
 import { rawToolPayload } from "./toolParsing";
+import { toolDurationLabel } from "./toolDuration";
 
 type LineTone = "add" | "del" | "context";
 
@@ -107,7 +109,7 @@ export function DiffHunkLines({ hunk, path }: { hunk: FileDiffHunk; path: string
 
 type HunkActions = (diff: FileDiff, hunk: FileDiffHunk) => ReactNode;
 
-function FilePathLabel({ path }: { path: string }) {
+export function FilePathLabel({ path }: { path: string }) {
   const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
   return <>
     {parts.length > 1 && <span style={{ color: "var(--ct-muted-fg)" }}>{parts[parts.length - 2]}/</span>}
@@ -123,9 +125,13 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
   const visual = toolKindVisual.edit;
   const Glyph = visual.glyph;
   const name = diff.movePath ? `${diff.path} → ${diff.movePath}` : diff.path;
-  const heading = `${name} +${diff.additions} −${diff.deletions}`;
+  const basename = (diff.movePath ?? diff.path).replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? diff.path;
+  const heading = diff.kind === "add" ? `Created ${basename} +${diff.additions}` : `${name} +${diff.additions} −${diff.deletions}`;
+  const cardLabel = diff.kind === "add" ? heading : `${visual.label} ${heading}`;
   const language = knownLanguageFromPath(diff.movePath ?? diff.path);
   const failed = event.status === "error";
+  const outcome = toolOutcomeVisual[event.status];
+  const OutcomeGlyph = outcome.glyph;
   const path = diff.movePath ?? diff.path;
   const menu: ChatCardMenuItem[] = [
     { label: "Copy path", icon: <Copy size={14} aria-hidden />, onSelect: () => copyPlainText(path) },
@@ -142,7 +148,7 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
     <section
       data-testid="file-diff-card"
       data-tool-status={event.status}
-      aria-label={`${visual.label} ${heading}`}
+      aria-label={cardLabel}
       className="ct-card min-w-0 overflow-hidden rounded-md"
       style={{
         background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)",
@@ -162,15 +168,16 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
         <span data-testid="file-diff-label" className="sr-only">{visual.label}</span>
         <span data-testid="file-diff-header" className="flex min-w-0 flex-1 items-baseline gap-2">
           <FloatingTooltip content={name} focusable={false} className="min-w-0 truncate" tooltipStyle={{ maxWidth: "min(28rem, calc(100vw - 24px))" }}>
-            <span className="truncate" style={{ color: "var(--ct-fg)" }}><FilePathLabel path={diff.path} />{diff.movePath && <> → <FilePathLabel path={diff.movePath} /></>}</span>
-          </FloatingTooltip>{" "}
-          <span className="shrink-0" style={{ color: "var(--ct-green)" }}>+{diff.additions}</span>{" "}
-          <span className="shrink-0" style={{ color: "var(--ct-red)" }}>−{diff.deletions}</span>
+            <span className="truncate" style={{ color: "var(--ct-fg)" }}>{diff.kind === "add" && <span style={{ color: "var(--ct-muted-fg)" }}>Created </span>}<FilePathLabel path={diff.path} />{diff.movePath && <> → <FilePathLabel path={diff.movePath} /></>}</span>
+          </FloatingTooltip>{" "}<span className="shrink-0" style={{ color: "var(--ct-green)" }}>+{diff.additions}</span>
+          {diff.kind !== "add" && <><span> </span><span className="shrink-0" style={{ color: "var(--ct-red)" }}>−{diff.deletions}</span></>}
         </span>
       </button>
       {opener}
+      <span data-testid="file-diff-status" role="status" aria-label={outcome.label} className="flex size-4 shrink-0 items-center justify-center" style={{ color: outcome.color }}><OutcomeGlyph aria-hidden size={14} /></span>
       <span className="ct-tool-status-slot"><ChatCardMenu label={`Actions for ${name}`} items={[...readerItems, ...menu]} joinRow /></span>
       <CardChevron expanded={expanded} label={`${expanded ? "Collapse" : "Expand"} diff for ${name}`} onToggle={() => setExpanded(!expanded)} />
+      {event.durationMs !== undefined && <span data-testid="file-diff-duration" aria-label={`Duration ${event.durationMs} milliseconds`} title={`${event.durationMs}ms`} className="shrink-0 pr-2 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>{toolDurationLabel(event.durationMs)}</span>}
       </div>
       <div id={regionId} role="region" aria-label={`Diff for ${name}`} hidden={!expanded && !fullscreen} className="overflow-x-auto pb-1.5">
         {(expanded || fullscreen) && diff.hunks.length === 0 && (

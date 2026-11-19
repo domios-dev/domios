@@ -160,6 +160,16 @@ export function openChimeContext(): ChimeContext | null {
 }
 
 let established: ChimeContext | null = null;
+const remoteArrivalListeners = new Set<(level: string | null | undefined) => void>();
+
+export function publishRemoteNotificationArrival(level: string | null | undefined): void {
+  for (const listener of remoteArrivalListeners) listener(level);
+}
+
+export function subscribeRemoteNotificationArrival(listener: (level: string | null | undefined) => void): () => void {
+  remoteArrivalListeners.add(listener);
+  return () => remoteArrivalListeners.delete(listener);
+}
 
 /**
  * Establish the chime's audio context. Call this from inside the gesture that

@@ -104,8 +104,10 @@ test("agent sender fixture renders its model and message-specific controls", asy
     await act(async () => root.render(<MessageBubble message={entry.msg} origin={entry.origin} onOriginClick={() => {}} />));
     expect(host.querySelector('[role="group"][aria-label="Received from AGENT"]')?.textContent).toContain("gpt-6.1-sol");
     expect(host.querySelector('button[aria-label="Show tab AGENT"]')).not.toBeNull();
-    expect(host.querySelector('button[aria-label="Collapse message"]')).not.toBeNull();
-    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Collapse message"]')?.click());
+    const collapseControls = [...host.querySelectorAll<HTMLButtonElement>('button[aria-label="Collapse message"]')];
+    expect(collapseControls).toHaveLength(2);
+    expect(collapseControls.filter((button) => button.tabIndex >= 0)).toHaveLength(1);
+    await act(async () => collapseControls.find((button) => button.tabIndex >= 0)?.click());
     expect(host.querySelector('button[aria-label="Expand message"]')).not.toBeNull();
   } finally {
     await act(async () => root.unmount());

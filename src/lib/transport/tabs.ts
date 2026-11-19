@@ -19,6 +19,11 @@ type Args = Record<string, unknown> & {
 };
 const enc = encodeURIComponent;
 const s = (args: Args, key: string, alias?: string): string => String(args[key] ?? (alias ? args[alias] : undefined) ?? "");
+function exactPeerId(args: Args): string {
+    const peerId = s(args, "peerId", "peer_id");
+    if (!peerId.trim()) throw new Error("An exact peer installation id is required");
+    return peerId;
+}
 export interface PtyCursors { offsets: Map<string, number>; truncations: Map<string, number> }
 /** One relayed request on a paired peer; the peer's own refusal travels back as the error. */
 async function relayToPeer(client: TabsTransportClient, peer: string, method: string, path: string, body: unknown): Promise<unknown> {
@@ -184,6 +189,23 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         mesh_peer_workspaces_list: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "GET", "/api/workspaces", null),
         // The peer's published multiplexer state: the only read that names both its workspaces and Teams.
         mesh_peer_mux_state: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "GET", "/api/mux/state", null),
+        mesh_peer_notifications_list: (a: Args) => relayToPeer(clientFor(a), exactPeerId(a), "GET", "/api/notifications", null),
+        mesh_peer_notification_action: (a: Args) => {
+            const peerId = exactPeerId(a);
+            const sourceId = s(a, "sourceId", "source_id");
+            if (!sourceId.trim()) throw new Error("A source notification id is required");
+            const id = enc(sourceId);
+            const label = s(a, "label");
+            switch (s(a, "notificationAction", "notification_action")) {
+                case "read": return relayToPeer(clientFor(a), peerId, "POST", "/api/notifications/" + id + "/read", null);
+                case "delete": return relayToPeer(clientFor(a), peerId, "DELETE", "/api/notifications/" + id, null);
+                case "resolve": return relayToPeer(clientFor(a), peerId, "POST", "/api/notifications/" + id + "/resolve", null);
+                case "answer":
+                    if (!label.trim()) throw new Error("A notification answer label is required");
+                    return relayToPeer(clientFor(a), peerId, "POST", "/api/notifications/" + id + "/answer", { label });
+                default: throw new Error("Unsupported remote notification action");
+            }
+        },
         // A provisioned folder on the peer; its owner's active workspace stays where it is.
         mesh_peer_workspace_create: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "POST", "/api/workspaces", {
             name: s(a, "name"), provision: true, activate: false,

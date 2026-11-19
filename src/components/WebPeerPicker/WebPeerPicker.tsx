@@ -195,7 +195,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
           })}
           {peers.length === 0 && (
             <div className="px-2 py-1.5 text-[10.5px] text-[var(--ct-muted)]">
-              no paired peers
+              No other machines yet.
             </div>
           )}
         </div>

@@ -42,6 +42,24 @@ describe("remote tab metadata", () => {
     }
   });
 
+  it("keeps a redundant same-host Worker line out of the row while retaining accessible provenance", () => {
+    const html = renderToStaticMarkup(<TabItem tab={remote("Worker")} index={0} isActive={false}
+      onClick={() => {}} onClose={() => {}} canClose={false} workspaceId="workspace" hideRemoteMachineLine />);
+    expect(html).not.toContain("sidebar-tab-body__sub--machine");
+    expect(html).toContain("on ROG, machine");
+  });
+
+  it("renders a grouped machine status without activity markers", () => {
+    const html = renderToStaticMarkup(<TabItem
+      tab={{ ...remote("Manager"), id: "mesh:peer/main", protected: true, remote_peer_id: undefined }}
+      index={0} isActive={false} onClick={() => {}} onClose={() => {}} canClose={false} workspaceId="workspace"
+      machineLine={{ peerId: "peer", name: "ROG", status: "offline", suppressActivity: true }} readOnly />);
+    expect(html).toContain("· offline");
+    expect(html).toContain("ROG, machine, offline");
+    expect(html).not.toContain("data-testid=\"tab-working-activity\"");
+    expect(html).not.toContain("tab-attention-mark");
+  });
+
   it("gives an unusable remote row and its activation the machine and state", () => {
     updateRemoteChatPeers({ paired: [], local_instance_name: "Local" });
     try {

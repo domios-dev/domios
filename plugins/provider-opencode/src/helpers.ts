@@ -61,7 +61,7 @@ export interface OpencodePart {
   text?: string;
   tool?: string;
   callID?: string;
-  state?: { input?: unknown; output?: unknown; metadata?: unknown; status?: string };
+  state?: { input?: unknown; output?: unknown; content?: unknown; metadata?: unknown; status?: string };
 }
 
 export interface ModelUsageRow {
@@ -650,7 +650,13 @@ export function toolFileDiffs(part: OpencodePart): FileDiff[] {
     const patch = typeof input.patch === "string" ? input.patch : typeof input.input === "string" ? input.input : "";
     if (patch) metadata = { ...metadata, patch };
   }
-  const creation = part.tool === "write" && metadata.exists === false && typeof input.content === "string"
+  const content = Array.isArray(state.content) ? state.content[0] : undefined;
+  const contentText = content && typeof content === "object" && !Array.isArray(content)
+    ? (content as Record<string, unknown>).text : undefined;
+  const result = typeof state.output === "string" ? state.output : typeof contentText === "string" ? contentText : "";
+  const creationConfirmed = metadata.exists === false
+    || (metadata.exists === undefined && /^Created file successfully(?::|$)/i.test(result.trim()));
+  const creation = part.tool === "write" && creationConfirmed && typeof input.content === "string"
     ? [{ path, old: "", new: input.content }] : [];
   const diffs = opencodeFileDiffs(path, [...edits, ...creation], metadata);
   if (creation.length) {

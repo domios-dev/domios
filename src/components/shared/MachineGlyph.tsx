@@ -13,14 +13,15 @@ const ICONS = {
   other: CircleDashed,
 } satisfies Record<MachineKind, typeof Laptop>;
 
-export function MachineGlyph({ kind, color, size = "mark-12", label }: {
+export function MachineGlyph({ kind, color, size = "mark-12", label, muted = false }: {
   kind?: string | null;
   color?: string | null;
   size?: "mark-12" | "mark-15" | "tile" | "rail";
   label?: string;
+  muted?: boolean;
 }) {
   const Icon = ICONS[machineKind(kind)];
-  const tone = `var(--ct-machine-${machineColor(color)})`;
+  const tone = muted ? "var(--ct-muted-fg)" : `var(--ct-machine-${machineColor(color)})`;
   const tile = size === "tile" || size === "rail";
 
   return (
