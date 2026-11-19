@@ -14,13 +14,22 @@ use windows as native;
 mod unix;
 #[cfg(unix)]
 use unix as native;
+#[cfg(windows)]
+mod background;
 #[cfg(any(windows, test))]
 mod orphans;
+#[cfg(any(windows, test))]
+mod selective;
 
 /// The runtime process tree retained before a Stop, so tools it orphans can still be ended.
 pub(super) struct ToolTree {
     #[cfg(windows)]
     nodes: Vec<native::Descendant>,
+}
+
+#[cfg(windows)]
+pub(super) struct BackgroundTree {
+    tree: ToolTree,
 }
 
 pub(super) struct Member {
@@ -95,29 +104,9 @@ impl Boundary {
 
     pub(super) fn observe(&self) -> Result<Vec<Member>, RuntimeFailure> {
         let mut members = self.snapshot()?;
-        let pids: Vec<_> = members
-            .iter()
-            .map(|member| sysinfo::Pid::from_u32(member.pid))
-            .collect();
-        let mut system = sysinfo::System::new();
-        system.refresh_processes_specifics(
-            sysinfo::ProcessesToUpdate::Some(&pids),
-            true,
-            sysinfo::ProcessRefreshKind::nothing()
-                .without_tasks()
-                .with_cmd(sysinfo::UpdateKind::Always)
-                .with_cwd(sysinfo::UpdateKind::Always),
-        );
+        let system = process_commands(members.iter().map(|member| member.pid));
         for member in &mut members {
-            if let Some(process) = system.process(sysinfo::Pid::from_u32(member.pid)) {
-                member.argv = process
-                    .cmd()
-                    .iter()
-                    .map(|arg| arg.to_str().map(str::to_owned))
-                    .collect::<Option<Vec<_>>>()
-                    .unwrap_or_default();
-                member.cwd = process.cwd().map(std::path::Path::to_path_buf);
-            }
+            (member.argv, member.cwd) = process_command(&system, member.pid).unwrap_or_default();
             member.native.validate_identity(self).map_err(failure)?;
         }
         Ok(members)
@@ -164,26 +153,16 @@ impl Boundary {
                 .collect::<Result<Vec<_>, String>>()
                 .map_err(failure)?;
             let orphaned = orphans::orphaned(&nodes);
-            let mut late = Vec::new();
-            for &position in &orphaned {
-                let node = &tree.nodes[position];
-                late.extend(native::descendants_of(node.pid, &node.member).map_err(failure)?);
-            }
+            let selected = orphaned.iter().map(|&position| &tree.nodes[position]);
+            let late = native::descendants_of(selected.clone()).map_err(failure)?;
             let reaped: std::collections::BTreeMap<u32, &native::Member> = orphaned
                 .iter()
                 .map(|&position| &tree.nodes[position])
                 .chain(&late)
                 .map(|node| (node.pid, &node.member))
                 .collect();
-            for member in reaped.values() {
-                member.terminate_retained().map_err(failure)?;
-            }
             let deadline = Instant::now() + Duration::from_secs(5);
-            let survivors: Vec<u32> = reaped
-                .iter()
-                .filter(|(_, member)| member.wait(deadline).is_err())
-                .map(|(pid, _)| *pid)
-                .collect();
+            let survivors = terminate_retained(&reaped, deadline)?;
             orphans::confirm_reaped(&survivors).map_err(failure)?;
             Ok(reaped.into_keys().collect())
         }
@@ -321,6 +300,52 @@ impl Boundary {
     }
 }
 
+fn process_commands(pids: impl Iterator<Item = u32>) -> sysinfo::System {
+    let pids: Vec<_> = pids.map(sysinfo::Pid::from_u32).collect();
+    let mut system = sysinfo::System::new();
+    system.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::Some(&pids),
+        true,
+        sysinfo::ProcessRefreshKind::nothing()
+            .without_tasks()
+            .with_cmd(sysinfo::UpdateKind::Always)
+            .with_cwd(sysinfo::UpdateKind::Always),
+    );
+    system
+}
+
+fn process_command(system: &sysinfo::System, pid: u32) -> Option<(Vec<String>, Option<PathBuf>)> {
+    let process = system.process(sysinfo::Pid::from_u32(pid))?;
+    let argv = process
+        .cmd()
+        .iter()
+        .map(|arg| arg.to_str().map(str::to_owned))
+        .collect::<Option<Vec<_>>>()
+        .unwrap_or_default();
+    Some((argv, process.cwd().map(std::path::Path::to_path_buf)))
+}
+
+#[cfg(windows)]
+fn terminate_retained(
+    processes: &std::collections::BTreeMap<u32, &native::Member>,
+    deadline: Instant,
+) -> Result<Vec<u32>, RuntimeFailure> {
+    let errors: Vec<_> = processes
+        .values()
+        .filter_map(|member| member.terminate_retained().err())
+        .collect();
+    let survivors = processes
+        .iter()
+        .filter(|(_, member)| member.wait(deadline).is_err())
+        .map(|(pid, _)| *pid)
+        .collect();
+    if errors.is_empty() {
+        Ok(survivors)
+    } else {
+        Err(failure(errors.join(", ")))
+    }
+}
+
 fn retirement_confirmed(termination_requested: bool, all_observed_exited: bool) -> bool {
     termination_requested && all_observed_exited
 }
@@ -388,7 +413,11 @@ fn command_matches(
         executable(&expected[0]) == executable(&argv[0])
     };
     let direct = program && expected[1..] == argv[1..];
-    let shell_name = executable(&argv[0]);
+    direct || shell_command(argv).is_some_and(|command| command == raw)
+}
+
+fn shell_command(argv: &[String]) -> Option<&str> {
+    let shell_name = executable(argv.first()?);
     let switch = argv
         .get(argv.len().saturating_sub(2))
         .map(|value| value.to_ascii_lowercase());
@@ -405,8 +434,7 @@ fn command_matches(
         "cmd" => switch.as_deref() == Some("/c"),
         _ => false,
     };
-    let shell = command_switch && argv.last().map(String::as_str) == Some(raw);
-    direct || shell
+    command_switch.then_some(argv.last()?.as_str())
 }
 
 #[cfg(test)]

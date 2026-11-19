@@ -5,7 +5,7 @@ import { AgentInspectionProvider } from "@codeterm/chat-ui";
 import { configureOrchestrationTransport } from "../../lib/transport/orchestrationRuntime";
 import { orchestrationTestClient } from "../../lib/transport/orchestration.testdata";
 import { setAgentDescriptors } from "../../lib/agentDescriptorCache";
-import type { BackgroundProcessSnapshot } from "../../lib/backgroundProcesses";
+import type { BackgroundProcessSnapshot, BackgroundStopResult } from "../../lib/backgroundProcesses";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { ProviderDescriptor } from "../../lib/types";
 import type { AutomationGraphAdapter } from "../Automation/types";
@@ -95,7 +95,7 @@ it("labels a provider background shell by command kind and opens its command det
   }
 });
 
-it("opens the shared background panel and stops a terminal once", async () => {
+it.each(["stopped", "degraded"] as const)("stops a terminal once and renders the %s outcome", async (status) => {
   const process = { threadId: "root", processId: "process-1", itemId: "terminal-item", command: "node build.mjs", cwd: "C:/work", osPid: 42 };
   const terminalMessage: NormalizedChatMessage = {
     id: "terminal-item", type: "tool_call", toolKind:"command", toolStatus:"running", toolInput:{command:process.command}, content: "build output", timestamp: new Date().toISOString(), sourceSessionId: authority.rootThreadId,
@@ -111,7 +111,10 @@ it("opens the shared background panel and stops a terminal once", async () => {
   __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
     if (command === "agent_runtime_stop_background_process") {
       stopCalls.push(args);
-      return snapshot([]) as T;
+      const result: BackgroundStopResult = status === "stopped"
+        ? { status, snapshot: snapshot([]) }
+        : { status, reason: "attributionUnavailable" };
+      return result as T;
     }
     throw new Error(`unexpected invoke: ${command}`);
   });
@@ -151,6 +154,14 @@ it("opens the shared background panel and stops a terminal once", async () => {
     expect(stopCalls[0]).toMatchObject({ tabId: "tab-a", request: { ...authority, threadId: "root", processId: "process-1" } });
     await act(async () => view.setProcesses([]));
     expect(view.host.querySelector('button[aria-label="1 background work"]')).toBeNull();
+    const result = view.host.querySelector('[role="alert"][aria-label="Background stop unconfirmed"]');
+    if (status === "degraded") {
+      expect(result?.textContent).toContain("Could not identify the OS processes for build.mjs.");
+      await act(async () => result?.querySelector("button")?.click());
+      expect(view.host.querySelector('[role="alert"][aria-label="Background stop unconfirmed"]')).toBeNull();
+    } else {
+      expect(result).toBeNull();
+    }
   } finally {
     await act(async () => view.root.unmount());
     view.host.remove();
