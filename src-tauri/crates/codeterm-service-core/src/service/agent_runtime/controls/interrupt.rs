@@ -308,10 +308,7 @@ fn interrupt_pressed(
         } else {
             Vec::new()
         };
-        let tools = process.capture_tools().await.unwrap_or_else(|reason| {
-            log::debug!("[agent-runtime] interrupt tool tree capture failed: {reason}");
-            None
-        });
+        let tools = process.capture_tools().await;
         let interrupted = async {
             if target.turns.is_empty() && background {
                 return Ok(());
@@ -365,7 +362,7 @@ fn interrupt_pressed(
             .await
             .map_err(degrade)?;
         }
-        if let Some(tools) = tools.filter(|_| !process.terminated()) {
+        if let Some(tools) = tool_settlement(tools, process.terminated()).map_err(degrade)? {
             let reaped = process.reap_orphans(tools).await.map_err(degrade)?;
             if !reaped.is_empty() {
                 log::info!("[tab-stop] reaped orphaned tool processes tab={tab} pids={reaped:?}");
@@ -451,6 +448,21 @@ async fn wait(
             Err(reason)
         }
     }
+}
+
+/// The tool tree to reap after a Stop; without a captured tree a live runtime has no orphan proof.
+fn tool_settlement<T>(
+    capture: Result<Option<T>, RuntimeFailure>,
+    runtime_terminated: bool,
+) -> Result<Option<T>, RuntimeFailure> {
+    if runtime_terminated {
+        return Ok(None);
+    }
+    capture.map_err(|reason| {
+        RuntimeFailure::Refused(format!(
+            "Interrupted turn tool processes were not captured: {reason}"
+        ))
+    })
 }
 
 #[cfg(test)]
