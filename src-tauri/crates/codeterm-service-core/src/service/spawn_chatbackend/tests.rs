@@ -403,6 +403,70 @@ fn runtime_brief_rides_instructions_when_manifest_declares_system_prompt() {
 }
 
 #[test]
+fn remote_chatbackend_worker_spawn_preserves_origin_parent_binding() {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::{AgentRole, TabBacking};
+    use crate::service::spawn::SpawnTabSpec;
+    use crate::service::spawn_capability::test_backend::SpawnableTestBackend;
+
+    const PROVIDER: &str = "opaque-backend";
+    const PARENT: &str = "origin-orchestrator";
+    const PEER: &str = "origin-peer";
+    let mut mux = MultiplexerState::empty();
+    let workspace_id = mux.create_workspace("Remote Worker".into(), None).id;
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let service = &fixture.service;
+    service.chatbackend_registry.register(
+        PROVIDER,
+        std::sync::Arc::new(SpawnableTestBackend { id: PROVIDER }),
+    );
+    let spec = SpawnTabSpec::from_agent_params_with_chatbackends(
+        &service.chatbackend_registry,
+        crate::service::SpawnAgentParams {
+            agent: Some(PROVIDER.into()),
+            workspace_id: Some(workspace_id),
+            role: Some("Worker".into()),
+            role_profile: Some("reviewer".into()),
+            can_spawn: Some(false),
+            report_target_tab_id: Some(PARENT.into()),
+            report_target_mesh_peer: Some(PEER.into()),
+            ownership: Some(codeterm_types::pty::RemoteOwnership {
+                controller_title: "Orchestrator".into(),
+                controller_tab_id: Some(PARENT.into()),
+                peer_id: PEER.into(),
+                peer_name: "Origin".into(),
+                team: None,
+            }),
+            ..Default::default()
+        },
+    );
+
+    let handle = service
+        .spawn_chatbackend_impl_with_state_change(spec, true)
+        .unwrap();
+    {
+        let mux = service.mux.read();
+        let tab = mux.get_tab(&handle.tab_id).unwrap();
+        assert!(matches!(
+            &tab.backing,
+            TabBacking::ChatBackend { plugin_id, session_id }
+                if plugin_id == PROVIDER && session_id == "session"
+        ));
+        assert_eq!(tab.role.as_ref(), Some(&AgentRole::Worker));
+        assert_eq!(tab.role_profile.as_deref(), Some("reviewer"));
+        assert!(!tab.can_spawn);
+        assert!(tab.parent_tab_id.is_none());
+        assert!(tab.team_id.is_none());
+        assert_eq!(tab.report_target_tab_id.as_deref(), Some(PARENT));
+        assert_eq!(tab.report_target_mesh_peer.as_deref(), Some(PEER));
+        let ownership = tab.ownership.as_ref().unwrap();
+        assert_eq!(ownership.controller_tab_id.as_deref(), Some(PARENT));
+        assert_eq!(ownership.peer_id, PEER);
+    }
+    service.close_tab(&handle.tab_id).unwrap();
+}
+
+#[test]
 fn manager_launch_config_uses_committed_team_after_placement() {
     use crate::service::orchestrator::compose_runtime_system_prompt;
     use crate::service::spawn::SpawnTabSpec;
@@ -806,7 +870,7 @@ fn chatbackend_manager_placement_preserves_named_profile() {
     mux.set_orchestrator_role(&root).unwrap();
     let workspace = mux.find_workspace_for_tab(&root).unwrap();
     let planner = mux.create_tab(&workspace).unwrap();
-    super::place_chatbackend_role_kind(
+    super::role::place_chatbackend_role_kind(
         &mut mux,
         &planner,
         "Manager",
@@ -820,7 +884,7 @@ fn chatbackend_manager_placement_preserves_named_profile() {
         Some("planner")
     );
     let anchor = mux.create_tab(&workspace).unwrap();
-    super::place_chatbackend_role_kind(
+    super::role::place_chatbackend_role_kind(
         &mut mux,
         &anchor,
         "Manager",
