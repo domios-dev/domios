@@ -16,7 +16,10 @@ fn shell_update_caller_needs_no_continuation() {
         .unwrap()
         .turn_resume
         .is_none());
-    assert_eq!(register_update_continuation(&fixture.service, None), Ok(false));
+    assert_eq!(
+        register_update_continuation(&fixture.service, None),
+        Ok(false)
+    );
 }
 
 #[test]
@@ -28,7 +31,10 @@ fn agent_update_caller_still_requires_its_own_session() {
         register_update_continuation(&fixture.service, Some(&tab_id)),
         Ok(false)
     );
-    assert_eq!(register_update_continuation(&fixture.service, Some("missing-tab")), Ok(false));
+    assert_eq!(
+        register_update_continuation(&fixture.service, Some("missing-tab")),
+        Ok(false)
+    );
     assert!(fixture
         .service
         .mux

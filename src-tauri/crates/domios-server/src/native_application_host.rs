@@ -120,9 +120,11 @@ fn register_update_continuation(
     let Some(tab_id) = tab_id else {
         return Ok(false);
     };
-    let bound_agent = service.mux.read().get_tab(tab_id).is_some_and(|tab| {
-        tab.agent_type.is_some() && tab.agent_session_id.is_some()
-    });
+    let bound_agent = service
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .is_some_and(|tab| tab.agent_type.is_some() && tab.agent_session_id.is_some());
     if !bound_agent {
         return Ok(false);
     }
