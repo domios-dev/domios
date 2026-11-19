@@ -440,14 +440,14 @@ function runPromptSteps(getHost, options = {}) {
   return {
     blueprintSubmit(request2) {
       const params = request2.params;
-      const failed = () => update2(request2.context.operation, { state: "failed" });
-      if (typeof params.prompt !== "string" || !params.prompt.trim() || params.prompt.length > 32768 || typeof params.cwd !== "string" || params.cwd.length > 1024 || !/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(params.cwd) || params.model !== void 0 && (typeof params.model !== "string" || !params.model.trim() || params.model.length > 128)) return failed();
+      const failed2 = () => update2(request2.context.operation, { state: "failed" });
+      if (typeof params.prompt !== "string" || !params.prompt.trim() || params.prompt.length > 32768 || typeof params.cwd !== "string" || params.cwd.length > 1024 || !/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(params.cwd) || params.model !== void 0 && (typeof params.model !== "string" || !params.model.trim() || params.model.length > 128)) return failed2();
       const timeout = params.timeout_ms ?? 6e5;
-      if (!Number.isInteger(timeout) || timeout < 1 || timeout > 36e5) return failed();
+      if (!Number.isInteger(timeout) || timeout < 1 || timeout > 36e5) return failed2();
       const context = request2.inputs.context?.[0];
       let prompt = params.prompt;
       if (context) {
-        if (context.kind !== "text") return failed();
+        if (context.kind !== "text") return failed2();
         const fence = "`".repeat(Math.max(3, ...Array.from(context.text.matchAll(/`+/g), (match) => match[0].length + 1)));
         prompt += `
 
@@ -456,10 +456,10 @@ ${fence}text
 ${context.text}
 ${fence}`;
       }
-      if (bytes(prompt) > 48 * 1024) return failed();
+      if (bytes(prompt) > 48 * 1024) return failed2();
       return getHost().start({ prompt, cwd: params.cwd, model: params.model, timeoutMs: timeout, ...options }, (reply) => {
         if (reply.error === "launch_unconfirmed" || reply.error === "transport_unconfirmed") return update2(request2.context.operation, { state: "unknown" });
-        return typeof reply.run === "string" ? { job: reply.run, state: "running", outcome: null, outputs: {} } : failed();
+        return typeof reply.run === "string" ? { job: reply.run, state: "running", outcome: null, outputs: {} } : failed2();
       });
     },
     blueprintReconcile(request2) {
@@ -930,15 +930,15 @@ function cloudTaskSnapshot(value, binding) {
   ).filter(Boolean).join("\n");
   const diffs = [...rows(row(details.current_diff_task_turn).output_items), ...output];
   const diff = diffs.map((item) => text(row(item.output_diff).diff) ?? text(item.diff)).find(Boolean) ?? null;
-  const failed = Object.keys(error).length > 0 || ["failed", "cancelled", "error"].includes(status ?? "");
+  const failed2 = Object.keys(error).length > 0 || ["failed", "cancelled", "error"].includes(status ?? "");
   return {
     taskId,
     attempt: text(assistant.id),
-    status: failed ? "error" : ["completed", "ready", "applied"].includes(status ?? "") ? "ready" : status === "in_progress" ? "running" : "pending",
+    status: failed2 ? "error" : ["completed", "ready", "applied"].includes(status ?? "") ? "ready" : status === "in_progress" ? "running" : "pending",
     result,
     diff,
     cursor: null,
-    error: failed ? "Remote task failed" : null
+    error: failed2 ? "Remote task failed" : null
   };
 }
 function cloudTaskBackend(capability, transport) {
@@ -1209,6 +1209,154 @@ function cloudExports(hostRef) {
       return yield* get().viewCall(method, args, context);
     }
   };
+}
+
+// plugins/provider-codex/src/agentTask.ts
+var runs = /* @__PURE__ */ new Map();
+function failed(error) {
+  return { status: "failed", output: null, error };
+}
+function stopped(run) {
+  if (run.cancelled) return { status: "cancelled", output: null };
+  if (host.unixNowMs() >= run.deadline) return { status: "deadline_exceeded", output: null };
+}
+function isCount(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+function readUsage(value) {
+  if (isCount(value?.input_tokens) && isCount(value?.output_tokens)) {
+    return {
+      input_tokens: value.input_tokens,
+      cached_input_tokens: isCount(value.cached_input_tokens) ? value.cached_input_tokens : 0,
+      output_tokens: value.output_tokens
+    };
+  }
+}
+function taskOutput(text7, threadId, usage3) {
+  try {
+    const parsed = JSON.parse(text7);
+    if (parsed !== null && typeof parsed === "object") return parsed;
+  } catch {
+  }
+  return { text: text7, threadId, ...usage3 && { usage: usage3 } };
+}
+function readResult(result, maxTokens) {
+  if (/^codex timed out after \d+ms$/.test(result.error ?? "")) {
+    return { status: "deadline_exceeded", output: null };
+  }
+  if (result.truncated || result.outputTooLarge) return failed("Codex task transcript exceeded the capture limit");
+  if (result.done !== true || result.code !== 0 || result.error) {
+    return failed(result.error?.slice(0, 512) ?? "Codex task process failed");
+  }
+  let threadId;
+  let text7;
+  let completed = false;
+  let usage3;
+  for (const line of (result.stdout ?? "").split("\n")) {
+    if (!line.trim()) continue;
+    const event = JSON.parse(line);
+    switch (event.type) {
+      case "thread.started":
+        if (threadId || !event.thread_id) return failed("Unexpected Codex task thread");
+        threadId = event.thread_id;
+        break;
+      case "turn.completed":
+        if (completed) return failed("Unexpected extra Codex task turn");
+        completed = true;
+        usage3 = readUsage(event.usage);
+        break;
+      case "turn.failed":
+        return failed("Codex task turn failed");
+      case "item.completed":
+        if (event.item?.type === "agent_message" && typeof event.item.text === "string") {
+          text7 = event.item.text;
+        }
+        break;
+    }
+  }
+  if (!threadId || !completed || !text7?.trim()) return failed("Codex task completed without a final answer");
+  if (usage3 && usage3.input_tokens + usage3.output_tokens > maxTokens) return failed("Codex task token budget exceeded");
+  const output = taskOutput(text7, threadId, usage3);
+  if (JSON.stringify(output).length * 3 > 65e3) return failed("Codex task result exceeds the output limit");
+  return { status: "done", output };
+}
+function* runAgentTask(input) {
+  const now = host.unixNowMs();
+  for (const [id, run2] of runs) {
+    if (run2.deadline <= now) runs.delete(id);
+  }
+  if (runs.has(input.runId)) return failed("Codex task is already running");
+  const cwd = host.homeDir();
+  if (!cwd) return failed("Codex task working directory unavailable");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(input.profile)) return failed("Invalid Codex task model");
+  const run = { deadline: now + input.timeoutMs, cancelled: false };
+  runs.set(input.runId, run);
+  try {
+    const { jobId, error } = yield* ioValue({
+      op: "execStart",
+      options: {
+        bin: "codex",
+        args: [
+          "exec",
+          "--ephemeral",
+          "--json",
+          "--ignore-user-config",
+          "--skip-git-repo-check",
+          "--cd",
+          cwd,
+          "--sandbox",
+          "read-only",
+          "--model",
+          input.profile,
+          "--disable",
+          "hooks",
+          "--disable",
+          "plugins",
+          "--disable",
+          "shell_tool",
+          "--disable",
+          "unified_exec",
+          "--disable",
+          "multi_agent",
+          "--disable",
+          "multi_agent_v2",
+          "-c",
+          'approval_policy="never"',
+          "-c",
+          'web_search="disabled"',
+          "-c",
+          "project_doc_max_bytes=0",
+          "-"
+        ],
+        stdin: input.input ? `${input.task}
+
+${input.input}` : input.task,
+        timeoutMs: input.timeoutMs
+      }
+    });
+    if (jobId) run.job = jobId;
+    const interrupted = stopped(run);
+    if (interrupted) {
+      if (run.job) yield* ioValue({ op: "execClose", job: run.job });
+      return interrupted;
+    }
+    if (!jobId) return failed(error?.slice(0, 512) ?? "Codex task could not start");
+    const result = yield* ioValue({ op: "awaitJob", job: jobId });
+    return stopped(run) ?? readResult(result, input.maxTokens);
+  } catch {
+    return stopped(run) ?? failed("Codex task execution or transcript parsing failed");
+  } finally {
+    if (runs.get(input.runId) === run) runs.delete(input.runId);
+  }
+}
+function* abortAgentTask(runId) {
+  const run = runs.get(runId);
+  if (run) {
+    run.cancelled = true;
+    runs.delete(runId);
+    if (run.job) yield* ioValue({ op: "execClose", job: run.job });
+  }
+  return null;
 }
 
 // plugins/provider-codex/src/runtimeHistoryBounds.ts
@@ -1992,7 +2140,7 @@ function webFields(source) {
   if (Array.isArray(source.results)) rich.resultCount = source.results.length;
   return rich;
 }
-function resultMessage(uuid, id, name, rich, summary, detail, failed, turnId, ts, timestamp2) {
+function resultMessage(uuid, id, name, rich, summary, detail, failed2, turnId, ts, timestamp2) {
   return {
     role: "assistant",
     uuid,
@@ -2007,7 +2155,7 @@ function resultMessage(uuid, id, name, rich, summary, detail, failed, turnId, ts
       ...detail ? { tool_detail: detail } : {},
       tool_rich_result: rich,
       ...text5(turnId) ? { tool_flow_id: text5(turnId) } : {},
-      tool_status: failed ? "error" : "success"
+      tool_status: failed2 ? "error" : "success"
     } }]
   };
 }
@@ -2100,7 +2248,7 @@ function completedActivity(value, ts, timestamp2, turnId) {
     const command = commandText(item.command);
     if (!command || item.status !== "completed" && item.status !== "failed") return null;
     const exitCode = exactOutcomeNumber(item.exit_code, false);
-    const failed = item.status === "failed" || exitCode !== void 0 && exitCode !== 0;
+    const failed2 = item.status === "failed" || exitCode !== void 0 && exitCode !== 0;
     const output = text6(item.aggregated_output) || [text6(item.stdout), text6(item.stderr)].filter(Boolean).join("\n");
     const fields2 = { tool_kind: "command", tool_summary: command, tool_detail: command };
     const outcome2 = commandOutcome(item);
@@ -2114,16 +2262,16 @@ function completedActivity(value, ts, timestamp2, turnId) {
         tool_title: parsedReadTitle(item.parsed_cmd) || actionTitle(fields2),
         ...outcome2,
         ...flow,
-        tool_status: failed ? "error" : "success"
+        tool_status: failed2 ? "error" : "success"
       } },
-      { kind: "tool_result", data: { tool_use_id: id, content: output, is_error: failed, ...outcome2 } }
+      { kind: "tool_result", data: { tool_use_id: id, content: output, is_error: failed2, ...outcome2 } }
     ];
     return message;
   }
   if (item.type === "FileChange") {
     const paths = changedPaths(item.changes);
     if (paths.length === 0 || item.status !== "completed" && item.status !== "failed") return null;
-    const failed = item.status === "failed";
+    const failed2 = item.status === "failed";
     const diffs = codexFileDiffs(item.changes);
     const fields2 = {
       tool_kind: "edit",
@@ -2140,9 +2288,9 @@ function completedActivity(value, ts, timestamp2, turnId) {
         tool_title: actionTitle({ ...fields2, tool_edits: paths.map((path) => ({ path })) }),
         ...flow,
         ...diffs.length > 0 ? { file_diffs: diffs } : {},
-        tool_status: failed ? "error" : "success"
+        tool_status: failed2 ? "error" : "success"
       } },
-      { kind: "tool_result", data: { tool_use_id: id, content: [text6(item.stdout), text6(item.stderr)].filter(Boolean).join("\n"), is_error: failed } }
+      { kind: "tool_result", data: { tool_use_id: id, content: [text6(item.stdout), text6(item.stderr)].filter(Boolean).join("\n"), is_error: failed2 } }
     ];
     return message;
   }
@@ -6893,6 +7041,8 @@ var plugin = {
   parseUsageRecord,
   ...runPromptSteps(() => host.agentRun, { sandbox: "read-only" }),
   ...cloudExports(() => host),
+  runAgentTask,
+  abortAgentTask,
   sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
   runtimeStoredRecords,
@@ -7206,15 +7356,15 @@ function clearTurnPairings(state, turnId) {
 function commandPairingResult(call) {
   if (call.commandResults.length === 0) return {};
   const results = [...call.commandResults].sort((left, right) => Number(left.command_index) - Number(right.command_index));
-  const failed = results.find((result) => result.tool_status === "error");
+  const failed2 = results.find((result) => result.tool_status === "error");
   const complete = results.length === call.commandCount;
   const durations = results.map((result) => result.tool_duration_ms);
   const completeDurations = complete && durations.every((duration) => typeof duration === "number");
-  const failureCode = failed && typeof failed.tool_exit_code === "number" && failed.tool_exit_code !== 0 ? failed.tool_exit_code : void 0;
+  const failureCode = failed2 && typeof failed2.tool_exit_code === "number" && failed2.tool_exit_code !== 0 ? failed2.tool_exit_code : void 0;
   return {
     tool_wrapper_detail: results.map((result) => result.wrapper_detail).join("\n\n"),
     tool_command_results: results,
-    ...failed ? { tool_status: "error", is_error: true } : complete ? { tool_status: "success", is_error: false } : {},
+    ...failed2 ? { tool_status: "error", is_error: true } : complete ? { tool_status: "success", is_error: false } : {},
     ...failureCode !== void 0 ? { tool_exit_code: failureCode } : complete ? { tool_exit_code: 0 } : {},
     ...completeDurations ? { tool_duration_ms: durations.reduce((sum, duration) => sum + Number(duration), 0) } : {}
   };
