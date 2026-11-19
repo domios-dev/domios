@@ -131,7 +131,7 @@ fn authorized(state: &AppState, caller: Option<&CallerIdentity>, scope: PeerScop
 }
 
 fn topic_scope(event: &SystemEvent) -> Option<PeerScope<'_>> {
-    use PeerOperation::{ReadMux, ReadOutput, ReadTabs};
+    use PeerOperation::{ReadMux, ReadOutput, ReadPlan, ReadTabs};
     if let Some(tab) = chat_send_status_tab(event) {
         return Some(PeerScope::new(ReadOutput, PeerResource::Tab(tab)));
     }
@@ -139,6 +139,11 @@ fn topic_scope(event: &SystemEvent) -> Option<PeerScope<'_>> {
         SystemEvent::MuxStateChanged => Some(PeerScope::new(ReadMux, PeerResource::Host)),
         SystemEvent::Generic { event_type, .. } if event_type == "mux-state-changed" => {
             Some(PeerScope::new(ReadMux, PeerResource::Host))
+        }
+        SystemEvent::Generic { event_type, .. }
+            if matches!(event_type.as_str(), "plan-changed" | "plans-loaded") =>
+        {
+            Some(PeerScope::new(ReadPlan, PeerResource::Host))
         }
         SystemEvent::Generic { event_type, data } if event_type == "tab-status-changed" => {
             let id = data

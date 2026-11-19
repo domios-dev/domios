@@ -356,7 +356,7 @@ export function PlanBoardView({
   const pagedMode = planIndex !== undefined;
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
-  const taskActions = useMemo<BoardTaskActions>(() => (api
+  const taskActions = useMemo<BoardTaskActions>(() => (api && !api.peerId
     ? {
         onDeleteTask: (selectedPlanId, taskId) => deleteTask(api, selectedPlanId, taskId),
       }

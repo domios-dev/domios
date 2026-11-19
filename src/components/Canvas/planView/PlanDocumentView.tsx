@@ -1,7 +1,8 @@
 import type { PlanSectionView as Section } from "../planProjection";
 import type { PlanView as Plan } from "../planProjection";
 import { RichMarkdown } from "@codeterm/chat-ui/MarkdownBody";
-import type { ReactNode } from "react";
+import { DsRenderContext } from "@codeterm/chat-ui";
+import { useContext, type ReactNode } from "react";
 import type { Tab } from "../../../lib/types";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
 import type { SpecLink } from "../types";
@@ -80,12 +81,13 @@ function SectionIndex({ kind, entries }: { kind: DocumentKind; entries: SectionE
 }
 
 function SectionBody({ sectionId, body }: { sectionId: string; body: string }) {
+  const { proseOnly } = useContext(DsRenderContext);
   if (!body.trim()) {
     return <p className="plan-document-section-empty">No section text yet.</p>;
   }
   return (
     <div className="plan-document-section-body" data-plan-ask-body="" data-section-id={sectionId}>
-      <RichMarkdown text={body} sourcePositions />
+      <RichMarkdown text={body} sourcePositions localArtifacts={!proseOnly} />
     </div>
   );
 }

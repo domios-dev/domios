@@ -17,6 +17,7 @@ pub enum PeerOperation {
     ReadCron,
     ReadCronRun,
     ReadService,
+    ReadPlan,
     ReadHost,
     SendInput,
     WriteTab,
@@ -68,6 +69,7 @@ impl<'a> PeerScope<'a> {
                     | ReadCron
                     | ReadCronRun
                     | ReadService
+                    | ReadPlan
                     | ReadHost
             ),
             AccessLevel::AgentIsolated => match self.operation {
@@ -105,7 +107,7 @@ impl<'a> PeerScope<'a> {
                             perms.contains(&Permission::ManageWorkspaces)
                                 || perms.contains(&Permission::SpawnAgents)
                         }
-                        Announce | Sync | ReadService | ReadHost | FullAccess => false,
+                        Announce | Sync | ReadService | ReadPlan | ReadHost | FullAccess => false,
                     }
             }
         }
@@ -183,6 +185,7 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
         (&Method::GET, "/api/crons") => PeerScope::new(ReadCron, Host),
         (&Method::POST, "/api/crons") => PeerScope::new(ManageCron, Host),
         (&Method::GET, "/api/services") => PeerScope::new(ReadService, Host),
+        (&Method::GET, "/api/plans") => PeerScope::new(ReadPlan, Host),
         (&Method::POST, "/api/workspaces" | "/api/workspaces/reorder") => {
             PeerScope::new(ManageWorkspace, Host)
         }
@@ -201,7 +204,6 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
             | "/api/network"
             | "/api/notifications"
             | "/api/notifications/channels"
-            | "/api/plans"
             | "/api/agents/done"
             | "/api/activity"
             | "/api/usage/latest"
@@ -294,6 +296,8 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
                     _ => return None,
                 };
                 PeerScope::new(operation, Cron(id))
+            } else if *method == Method::GET && is_plan_view_read(path) {
+                PeerScope::new(ReadPlan, Host)
             } else if let Some((id, "")) = scoped_path(path, "/api/services/") {
                 let operation = match *method {
                     Method::GET => ReadService,
@@ -328,6 +332,18 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
         }
     };
     Some(scope)
+}
+
+fn is_plan_view_read(path: &str) -> bool {
+    if let Some((_, action)) = scoped_path(path, "/api/plans/") {
+        if matches!(action, "projection" | "board-state" | "tasks") {
+            return true;
+        }
+        return scoped_path(action, "tasks/")
+            .is_some_and(|(_, detail)| matches!(detail, "" | "history"));
+    }
+    scoped_path(path, "/api/teams/").is_some_and(|(_, action)| action == "mission-control/state")
+        || scoped_path(path, "/api/specs/").is_some_and(|(_, action)| action.is_empty())
 }
 
 pub fn peer_access_allowed(

@@ -369,7 +369,7 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
   }, [remoteControllers, requestRemoteRefresh]);
 
   usePeerStatusRail(pairedRoster, useCallback((peerId: string, event: PeerEvent) => {
-    if (event.type === "chat-send-status") return;
+    if (event.type === "chat-send-status" || event.type === "plan-changed" || event.type === "plans-loaded") return;
     if (event.type === "invalidate") {
       invalidatePeerInventory(peerId);
       markRemoteChannelsReconnecting(peerId);

@@ -120,6 +120,7 @@
   "packages/chat-ui/src/codeterm/pluginNames.test.tsx",
   "packages/chat-core/src/shellComposition.test.ts",
   "src/components/Canvas/PlanViewShell.mission-control.test.tsx",
+  "src/components/Canvas/remoteTeamPlan.test.tsx",
   "src/components/Canvas/planPresenceMotion.test.tsx",
   "src/components/Canvas/planSidePanelContext.test.tsx",
   "src/components/shared/Loader.test.tsx",

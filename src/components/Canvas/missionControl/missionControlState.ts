@@ -56,7 +56,9 @@ export type MissionControlPlanView = Plan | TeamPlanSummary;
 
 export type TeamPlanSummary = import("../../../../gen/TeamPlanSummary").TeamPlanSummary;
 
-export type TeamMissionControlState = import("../../../../gen/TeamMissionControlState").TeamMissionControlState;
+export type TeamMissionControlState = import("../../../../gen/TeamMissionControlState").TeamMissionControlState & {
+  remote_plan_actions?: { protocol_version: number | null; unavailable_reason: string | null };
+};
 
 export type TeamMissionControlQuery = Partial<{ [K in keyof import("../../../../gen/TeamMissionControlQuery").TeamMissionControlQuery]: NonNullable<import("../../../../gen/TeamMissionControlQuery").TeamMissionControlQuery[K]> }>;
 
@@ -94,6 +96,6 @@ export async function fetchTeamMissionControlState(
     `/api/teams/${encodeURIComponent(teamId)}/mission-control/state${suffix ? `?${suffix}` : ""}`,
     { headers: authHeaders(api), signal },
   );
-  if (!res.ok) throw new Error(`team mission control state failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) throw new PlanReadError(res.status, `team mission control state failed: ${res.status} ${await res.text()}`);
   return (await res.json()) as TeamMissionControlState;
 }
