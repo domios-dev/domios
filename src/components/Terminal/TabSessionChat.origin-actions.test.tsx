@@ -57,24 +57,27 @@ function muxStateFor(tabs: Record<string, Tab>): ExtendedState {
   ], tabs, teams: [], active_workspace_id: "chat-workspace", focused_tab_id: Object.keys(tabs)[0] ?? null, notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [] } as ExtendedState;
 }
 function originReport(id: string, shortId: string, seq: number) {
-  return { id, type: "user", content: `<domios from="tab" label="Worker" tab="${shortId}">report body ${seq}</domios>`, timestamp: String(1_700_000_000_000 + seq * 1000), seq, provider: "test",
-    segments: [{ type: "frame", kind: "tab", from: "tab", attrs: { from: "tab", label: "Worker", tab: shortId }, body: `report body ${seq}`, tip: null }],
+  return { id, type: "user", content: `<domios from="tab" label="Worker" tab="${shortId}" model="haiku">report body ${seq}</domios>`, timestamp: String(1_700_000_000_000 + seq * 1000), seq, provider: "test",
+    segments: [{ type: "frame", kind: "tab", from: "tab", attrs: { from: "tab", label: "Worker", tab: shortId, model: "haiku" }, body: `report body ${seq}`, tip: null }],
   };
 }
 
 async function main() {
   const testWindow = setupDom();
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  const { setAgentDescriptors } = await import("../../lib/agentDescriptorCache");
   const { TabSessionChat } = await import("./TabSessionChat");
 
   const tabId = "chat-tab";
   const originShort = "wrkr0001";
   const originFull = "wrkr0001-full-tab-id";
   const initial = [originReport("m0", originShort, 0)];
+  setAgentDescriptors([{ id: "claude", available_models: [{ id: "haiku", display_name: "Claude Haiku 5.5" }] } as never]);
 
   __setInvokeForTest((async (cmd: string) => {
     if (cmd === "chat_start") return { text: "", offset: 0, messages: initial, pending: false, source_session_id: null, session_binding_nonce: null };
-    if (cmd === "delayed_send_list" || cmd === "list_agent_providers") return [];
+    if (cmd === "delayed_send_list") return [];
+    if (cmd === "list_agent_providers") return [{ id: "claude", display_name: "Claude", available_models: [{ id: "haiku", display_name: "Claude Haiku 5.5" }] }];
     return {};
   }) as never);
   __setListenForTest((async (event: string, cb: Handler) => {
@@ -104,6 +107,8 @@ async function main() {
     await act(async () => { await Promise.resolve(); });
     const button = host.querySelector<HTMLButtonElement>('button[data-testid="inbound-show-tab"]');
     assert(button, "origin 'Show Tab' action button present");
+    assert(host.textContent?.includes("Claude Haiku 5.5"), "routed sender model uses the catalogue display name");
+    assert(!host.textContent?.includes("haiku"), "routed sender model id is not shown when catalogued");
     await act(async () => { button.click(); });
     assert(calls[0] === `sender-workspace:${originFull}`, `click selects the sender workspace and tab (got ${JSON.stringify(calls)})`);
 
@@ -127,6 +132,7 @@ async function main() {
   if (failed > 0) throw new Error(`${failed} test(s) failed`);
   __setInvokeForTest(null);
   __setListenForTest(null);
+  setAgentDescriptors([]);
   listeners.clear();
   await testWindow.happyDOM.abort();
   testWindow.close();
