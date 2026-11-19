@@ -570,8 +570,7 @@ enum UnrenderedRoot {
     Unavailable,
 }
 
-/// Only a shell-prepared URL carries the generation an acknowledgement must match, so a
-/// document the page loaded itself (reload, update swap) can never be acknowledged.
+/// Recovery only applies after the shell has prepared an acknowledgeable document.
 fn unrendered_root_action(url: &Url, fallback: &Url, prepared: bool) -> UnrenderedRoot {
     if !prepared {
         UnrenderedRoot::KeepDocument
@@ -720,6 +719,19 @@ fn navigate_frontend(
     Ok(())
 }
 
+fn prepared_root_generation(
+    latch: &ClientRootRenderLatch,
+    url: &Url,
+    view: u64,
+) -> Option<ClientViewGeneration> {
+    let origin = url.origin().ascii_serialization();
+    root_generation_from_url(url).filter(|generation| {
+        generation.view == view
+            && latch.is_armed(*generation, &origin)
+            && latch.acknowledged_generation(&origin) != Some(*generation)
+    })
+}
+
 fn observe_navigation(
     window: WebviewWindow,
     url: Url,
@@ -755,20 +767,13 @@ fn observe_navigation(
         log::debug!("[frontend-shell] root observer skipped recovery or unpermitted document");
         return;
     }
-    let origin = url.origin().ascii_serialization();
-    let prepared = root_generation_from_url(&url).filter(|generation| {
-        generation.view == view_generation && root_render.is_armed(*generation, &origin)
-    });
+    let prepared = prepared_root_generation(&root_render, &url, view_generation);
     let unrendered = unrendered_root_action(&url, fallback, prepared.is_some());
-    let generation = prepared.or_else(|| {
-        next_generation(&supervisor.navigation).map(|navigation| ClientViewGeneration {
-            view: view_generation,
-            navigation,
-        })
-    });
-    let Some(generation) = generation else {
-        root_render.retire();
-        log::error!("[frontend-shell] navigation generation space is exhausted");
+    let Some(generation) = prepared else {
+        // A reload needs a fresh document generation before it can acknowledge this view.
+        if let Err(error) = navigate_frontend(app, &window, url) {
+            log::debug!("[frontend-shell] reload preparation failed: {error}");
+        }
         return;
     };
     if let Some(client) = app.try_state::<crate::host_ports::native_client::NativeHostClientSlot>()
@@ -787,16 +792,6 @@ fn observe_navigation(
     let server_identity = attachment.identity().clone();
     let server_epoch = attachment.epoch().to_owned();
     drop(attachment);
-    if !root_render.is_armed(generation, &origin) {
-        root_render.arm(generation, origin.clone());
-        let document_generation = format!(
-            "globalThis.__CODETERM_CLIENT_VIEW_GENERATION__ = Object.freeze({{viewGeneration:{view_generation},navigationGeneration:{}}});",
-            generation.navigation
-        );
-        if let Err(error) = window.eval(&document_generation) {
-            log::debug!("[frontend-shell] root generation injection failed: {error}");
-        }
-    }
     let current_navigation = generation.navigation;
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     log::debug!("[frontend-shell] root observer armed: view={view_generation}, navigation={current_navigation}, server_epoch={server_epoch}, unrendered={unrendered:?}");

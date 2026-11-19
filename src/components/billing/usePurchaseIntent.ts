@@ -9,7 +9,7 @@ import { AlreadySubscribedError } from "./freeLimitGate";
 import { IDLE_INTENT, purchaseIntent, type PurchaseAccount, type PurchaseEvent, type PurchaseIntent } from "./purchaseIntent";
 
 export interface PurchaseIntentPorts {
-  account: { model: AccountModel; signIn: (hint?: LoginHint) => Promise<SignInFailure | null> };
+  account: { model: AccountModel; signingIn?: boolean; signIn: (hint?: LoginHint) => Promise<SignInFailure | null> };
   billing: { plan: PlanModel | null; planLoad: PlanLoad; upgrade: (planKey: string) => Promise<unknown | null> };
   catalog: PlanCatalog;
   subscriptionPlan?: string | null;
@@ -81,7 +81,7 @@ export function usePurchaseIntent(ports: PurchaseIntentPorts) {
       latest.current.notify(planUnknownToast(() => choose(planKey)));
       return;
     }
-    const next = dispatch({ type: "choose", planKey, account: purchaseAccount(account.model), plan: billing.plan, catalog, subscriptionPlan: latest.current.subscriptionPlan });
+    const next = dispatch({ type: "choose", planKey, account: account.signingIn && account.model.kind !== "signed_in" ? "pending" : purchaseAccount(account.model), plan: billing.plan, catalog, subscriptionPlan: latest.current.subscriptionPlan });
     if (next === before) {
       if (signedIn && !billing.plan && before.kind === "idle") latest.current.notify(planUnknownToast(() => choose(planKey)));
       return;
@@ -92,7 +92,7 @@ export function usePurchaseIntent(ports: PurchaseIntentPorts) {
   }
 
   function cancel() {
-    if (current.current.kind === "signing_in" && latest.current.account.model.kind === "pending") abandonedSignIn.current = true;
+    if (current.current.kind === "signing_in" && (latest.current.account.signingIn || latest.current.account.model.kind === "pending")) abandonedSignIn.current = true;
     dispatch({ type: "cancel" });
   }
 
@@ -101,11 +101,11 @@ export function usePurchaseIntent(ports: PurchaseIntentPorts) {
     return () => { mounted.current = false; };
   }, []);
 
-  const { model } = ports.account;
+  const { model, signingIn } = ports.account;
   const { plan, planLoad } = ports.billing;
   useEffect(() => {
     const waiting = current.current;
-    if (waiting.kind !== "signing_in" || model.kind === "pending") return;
+    if (waiting.kind !== "signing_in" || signingIn || model.kind === "pending") return;
     const { catalog, notify } = latest.current;
     const retry = () => choose(waiting.planKey);
     if (model.kind === "signed_in") {
@@ -121,12 +121,12 @@ export function usePurchaseIntent(ports: PurchaseIntentPorts) {
       shownFailure.current = failureKey(model.failure);
       notify(signInFailureToast(model.failure, retry));
     }
-  }, [intent, model, plan, planLoad, ports.ready, ports.failed, ports.subscriptionPlan]);
+  }, [intent, model, signingIn, plan, planLoad, ports.ready, ports.failed, ports.subscriptionPlan]);
 
   useEffect(() => {
     if (model.kind !== "error" || !model.failure) {
       shownFailure.current = null;
-      if (model.kind !== "pending") abandonedSignIn.current = false;
+      if (model.kind !== "pending" && !signingIn) abandonedSignIn.current = false;
       return;
     }
     const key = failureKey(model.failure);
@@ -138,7 +138,7 @@ export function usePurchaseIntent(ports: PurchaseIntentPorts) {
     }
     const { notify, retrySignIn } = latest.current;
     if (retrySignIn) notify(signInFailureToast(model.failure, retrySignIn));
-  }, [model]);
+  }, [model, signingIn]);
 
   return { intent, busy: intent.kind === "signing_in" || intent.kind === "opening", choose, cancel };
 }

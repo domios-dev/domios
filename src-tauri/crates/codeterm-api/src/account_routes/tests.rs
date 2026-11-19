@@ -1,6 +1,7 @@
 use super::*;
 
 mod backend;
+mod browser_login;
 mod concurrency;
 mod neighbor_authority;
 mod neighbor_files;
@@ -265,6 +266,15 @@ async fn account_routes_local_journey_persists_and_deletes_credential() {
     state.config.lock().account = serde_json::json!({"provider":"local"});
     let router = crate::routes::create_router(state);
     let store = fixture.service.secrets.read().await.clone();
+    let request = |method, path| {
+        Request::builder()
+            .method(method)
+            .uri(path)
+            .header("authorization", "Bearer fixture-token")
+            .body(Body::empty())
+            .unwrap()
+    };
+    let mut events = fixture.service.events.subscribe();
     for (method, path, signed_in) in [
         ("GET", "/api/account/status", false),
         (
@@ -272,22 +282,38 @@ async fn account_routes_local_journey_persists_and_deletes_credential() {
             "/api/account/login?provider=email&mode=signup",
             true,
         ),
-        ("GET", "/api/account/status", true),
         ("POST", "/api/account/logout", false),
         ("GET", "/api/account/status", false),
     ] {
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method(method)
-                    .uri(path)
-                    .header("authorization", "Bearer fixture-token")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+        let response = router.clone().oneshot(request(method, path)).await.unwrap();
+        let response = if path.starts_with("/api/account/login") {
+            assert_eq!(response.status(), StatusCode::ACCEPTED);
+            let body = to_bytes(response.into_body(), 4096).await.unwrap();
+            let attempt: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert!(attempt["attempt_id"].is_string());
+            tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                loop {
+                    let event = events.recv().await.unwrap();
+                    if let codeterm_events::SystemEvent::Generic { event_type, data } = event.event
+                    {
+                        if event_type == "account-sign-in" && data["settled"] == true {
+                            assert_eq!(data["attempt_id"], attempt["attempt_id"]);
+                            assert!(data["failure"].is_null());
+                            break;
+                        }
+                    }
+                }
+            })
             .await
-            .unwrap();
+            .expect("local account login must settle");
+            router
+                .clone()
+                .oneshot(request("GET", "/api/account/status"))
+                .await
+                .unwrap()
+        } else {
+            response
+        };
         let status = response.status();
         let body = to_bytes(response.into_body(), 4096).await.unwrap();
         assert_eq!(
@@ -359,6 +385,7 @@ async fn account_plan_routes_local_journey() {
     for (method, path, expected_plan, stale) in [
         ("GET", "/api/account/plan", "free", false),
         ("POST", "/api/account/login", "", false),
+        ("POST", "/api/account/login/1/cancel", "", false),
         ("GET", "/api/account/plan", "pro", false),
         ("POST", "/api/account/logout", "", false),
         ("GET", "/api/account/plan", "free", false),

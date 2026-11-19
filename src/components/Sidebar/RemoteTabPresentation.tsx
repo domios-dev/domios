@@ -8,7 +8,7 @@ import { useMeshMachineIdentity, useMeshPeerName } from "../../lib/useMeshMachin
 import type { Tab } from "../../lib/types";
 import type { GeneralAvailability } from "../../store/multiplexer/pairedWorkspaceProjection";
 import { CursorTooltip } from "../shared/CursorTooltip";
-import { MachineGlyph } from "../shared/MachineGlyph";
+import { MachineGlyph, MachineIconBadge } from "../shared/MachineGlyph";
 import { MachineProvenance } from "../shared/MachineProvenance";
 import { namedManagerRole, useRemoteTabTeamName } from "./remoteOwnership";
 import { remoteTabKindLabel } from "./remoteTabKindLabel";
@@ -63,7 +63,7 @@ export function RemoteMachineSummary({ machine, stacked = false }: { machine: Re
 export function RemoteTabIcon({ machine, children }: { machine: RemotePresentation; children: ReactNode }) {
   return <CursorTooltip as="span" active className="sidebar-remote-tab-icon" content={<RemoteMachineSummary machine={machine} stacked />}>
     {children}
-    <span className="sidebar-remote-tab-icon__badge [&_svg]:size-2.5"><MachineGlyph {...machine.identity} /></span>
+    <MachineIconBadge identity={machine.identity} />
   </CursorTooltip>;
 }
 

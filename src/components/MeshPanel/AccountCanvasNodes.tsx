@@ -3,6 +3,7 @@ import { Laptop, RefreshCw, UserRound } from "lucide-react";
 import { formatAge } from "../../lib/timeLabels";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
+import { Button } from "../shared/Button";
 import { BusyState } from "../shared/BusyState";
 import { SettingsPill } from "../Settings/shared";
 import { LockBadge } from "../billing/LockBadge";
@@ -35,12 +36,11 @@ const COMPACT_GHOST = `${UI_BUTTON.ghost} ${UI_BUTTON.compact}`;
 const COMPACT_ACCENT = `${UI_BUTTON.accent} ${UI_BUTTON.compact}`;
 const NODE_FRAME = "ct-card flex flex-col gap-2 px-3.5 py-3 text-left";
 
-export function MachineReauthentication({ signingIn, onSignIn }: { signingIn: boolean; onSignIn: () => void }) {
+export function MachineReauthentication({ signingIn, onSignIn, onCancel }: { signingIn: boolean; onSignIn: () => void; onCancel?: () => void }) {
   return <div role="group" aria-label="Add this machine to your mesh" className="flex flex-col gap-2 px-3.5 py-2.5" onClick={(event) => event.stopPropagation()}>
     <p role="status" className="m-0 text-[12px] text-[var(--ct-muted-fg)]">{REAUTH_REQUIRED_COPY}</p>
-    <button type="button" onClick={onSignIn} disabled={signingIn} aria-busy={signingIn} className={`${UI_BUTTON.primary} ${UI_BUTTON.compact}`}>
-      {signingIn ? "Signing in…" : "Rejoin mesh"}
-    </button>
+    <Button size="compact" variant="primary" onClick={onSignIn} loading={signingIn}>{signingIn ? "Signing in…" : "Rejoin mesh"}</Button>
+    {onCancel && <Button size="compact" onClick={onCancel}>Cancel</Button>}
   </div>;
 }
 
@@ -143,16 +143,17 @@ export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions, h
 }
 
 /** Stands in for the machines when there are none to draw: signed out, empty account, loading or unavailable. */
-export function AccountStateCard({ card, signingIn, onSignIn, onRetry }: {
+export function AccountStateCard({ card, signingIn, onSignIn, onCancel, onRetry }: {
   card: AccountCanvasCard;
   signingIn: boolean;
   onSignIn: () => void;
+  onCancel?: () => void;
   onRetry: () => void;
 }) {
   const frame = `${NODE_FRAME} ct-card--static`;
   if (card.kind === "loading") {
     return <section aria-label="My machines" aria-busy="true" className={frame} style={{ width: MACHINE_CARD_WIDTH }}>
-      <BusyState inline label="Loading your machines" phase="work" className="text-[12px] text-[var(--ct-muted-fg)]" />
+      <BusyState inline label="Checking machine status" phase="work" className="text-[12px] text-[var(--ct-muted-fg)]" />
     </section>;
   }
   if (card.kind === "unavailable") {
@@ -168,7 +169,7 @@ export function AccountStateCard({ card, signingIn, onSignIn, onRetry }: {
         <span className="text-[14px] font-medium text-[var(--ct-fg)]">{card.blocked ? "Mesh is paused" : "Connect your machines"}</span>
       </div>
       <p role="status" className="m-0 text-[12px] text-[var(--ct-muted-fg)]">{card.headline}</p>
-      <MachineJoinAction signingIn={signingIn} onSignIn={onSignIn} />
+      <MachineJoinAction signingIn={signingIn} onSignIn={onSignIn} onCancel={onCancel} />
     </section>;
   }
   return <section aria-label="My machines" className={frame} style={{ width: MACHINE_CARD_WIDTH }}>

@@ -619,6 +619,10 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/account/status", get(super::account_routes::status))
         .route("/api/account/backend", get(super::account_routes::backend))
         .route("/api/account/login", post(super::account_routes::login))
+        .route(
+            "/api/account/login/{id}/cancel",
+            post(super::account_routes::cancel_login),
+        )
         .merge(super::account_routes::debug_login_router())
         .route(
             "/api/account/callback",

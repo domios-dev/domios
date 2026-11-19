@@ -191,9 +191,11 @@ describe("Mesh canvas wiring", () => {
   it("offers Sign in from the canvas when signed out", async () => {
     presence.current = "signed_out";
     await mount(new FakeAccountMeshClient(snapshot({ binding: "none", self: null, registry: null })));
-    const card = node("Sign in to use Mesh");
-    expect(card).not.toBeNull();
-    await click([...card!.querySelectorAll("button")].find((element) => element.textContent === "Sign in") ?? null);
+    const card = node("Mesh inventory");
+    expect(card?.textContent).toContain("Sign in to connect your machines");
+    const signIn = [...card!.querySelectorAll("button")].find((element) => element.textContent === "Sign in") ?? null;
+    expect(document.activeElement).toBe(signIn);
+    await click(signIn);
     expect(presence.signIns).toBe(1);
   });
 
