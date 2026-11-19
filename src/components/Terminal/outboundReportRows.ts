@@ -9,9 +9,9 @@ export interface LiveOutboundReport extends OutboundReportEntry {
 }
 
 export interface OutboundReportRows {
-  /** Report cards owned by a rendered row, drawn right after it. */
+  /** Untimed report cards anchored to their source row. */
   byRow: ReadonlyMap<number, readonly OutboundReportEntry[]>;
-  /** Live receipts no loaded transcript row names yet; they keep the time-placed rail. */
+  /** Timestamped report cards and live receipts, placed by their authoritative time. */
   rail: readonly LiveOutboundReport[];
   /** Entry objects by report id, reused while their content is unchanged. */
   stable: Map<string, OutboundReportEntry>;
@@ -42,13 +42,16 @@ function sameOutcome(left: OutboundReportDescriptor["taskOutcome"], right: Outbo
 function sameEntry(left: OutboundReportEntry, right: OutboundReportEntry): boolean {
   const a = left.descriptor;
   const b = right.descriptor;
-  return left.targetTabId === right.targetTabId && left.at === right.at && a.reportId === b.reportId && a.recipient === b.recipient
+  const leftPosition = left.position ?? null;
+  const rightPosition = right.position ?? null;
+  return left.targetTabId === right.targetTabId && left.at === right.at
+    && leftPosition?.source_session_id === rightPosition?.source_session_id && leftPosition?.message_id === rightPosition?.message_id
+    && a.reportId === b.reportId && a.recipient === b.recipient
     && a.task === b.task && a.status === b.status && a.sha === b.sha && a.message === b.message && sameOutcome(a.taskOutcome, b.taskOutcome);
 }
 
-/** Outbound report cards as a projection of the sender's own transcript: each card follows the
- *  tool call that sent it, survives reload without the live store, and a live receipt only
- *  enriches the row whose printed report id it carries, so it can never render twice. */
+/** Outbound report cards from transcript receipts and live host events. The live receipt
+ *  enriches a matching printed report id, so the same card never renders twice. */
 export function outboundReportRows(args: {
   rows: readonly EnrichedChatEntry[];
   transcript: readonly NormalizedChatMessage[];
@@ -59,6 +62,13 @@ export function outboundReportRows(args: {
   const liveById = new Map(args.live.map((report) => [report.descriptor.reportId, report]));
   const stable = new Map<string, OutboundReportEntry>();
   const byRow = new Map<number, OutboundReportEntry[]>();
+  const rail: LiveOutboundReport[] = [];
+  const namedTimes = new Map<string, number>();
+  for (const message of args.transcript) {
+    const at = timestampMs(message.timestamp);
+    if (at == null) continue;
+    for (const reportId of namedReportIds(message)) namedTimes.set(reportId, at);
+  }
   const keep = (next: OutboundReportEntry) => {
     const previous = args.stable?.get(next.descriptor.reportId);
     const entry = previous && sameEntry(previous, next) ? previous : next;
@@ -70,16 +80,31 @@ export function outboundReportRows(args: {
     for (const call of outboundReportCalls(item.event)) {
       if (stable.has(call.reportId)) continue;
       const live = liveById.get(call.reportId);
+      const source = item.event.message;
+      const position = live?.position ?? {
+        source_session_id: source.sourceSessionId ?? "",
+        message_id: source.sourceMessageId ?? source.id,
+      };
       const entry = keep(live
-        ? { targetTabId: live.targetTabId, at: live.at, descriptor: live.descriptor }
-        : { targetTabId: call.targetTabId ?? "", at: timestampMs(item.event.message.timestamp),
+        ? { targetTabId: live.targetTabId, at: live.at ?? namedTimes.get(call.reportId) ?? timestampMs(source.timestamp), descriptor: live.descriptor, position }
+        : { targetTabId: call.targetTabId ?? "", at: namedTimes.get(call.reportId) ?? timestampMs(source.timestamp), position,
           descriptor: callDescriptor(call, args.recipient(call.targetTabId)) });
-      const bucket = byRow.get(index);
-      if (bucket) bucket.push(entry);
-      else byRow.set(index, [entry]);
+      if (entry.at != null) rail.push({ ...entry, position });
+      else {
+        const bucket = byRow.get(index);
+        if (bucket) bucket.push(entry);
+        else byRow.set(index, [entry]);
+      }
     }
   });
-  const named = new Set(args.transcript.flatMap(namedReportIds));
-  const rail = args.live.filter((report) => !named.has(report.descriptor.reportId) && !stable.has(report.descriptor.reportId));
+  for (const report of args.live) {
+    if (!stable.has(report.descriptor.reportId)) rail.push({ ...keep(report), position: report.position });
+  }
+  rail.sort((left, right) => {
+    if (left.at != null && right.at != null && left.at !== right.at) return left.at - right.at;
+    if (left.at != null && right.at == null) return -1;
+    if (left.at == null && right.at != null) return 1;
+    return left.descriptor.reportId < right.descriptor.reportId ? -1 : left.descriptor.reportId > right.descriptor.reportId ? 1 : 0;
+  });
   return { byRow, rail, stable };
 }

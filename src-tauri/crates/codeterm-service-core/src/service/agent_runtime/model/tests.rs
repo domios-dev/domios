@@ -463,8 +463,15 @@ fn live_tool_elapsed_boundaries_follow_events_and_survive_updates() {
     };
     let start = cache.reconcile_live(row("running"), 1_000);
     assert_eq!(start.tool_started_at_ms, Some(1_000));
+    assert_eq!(
+        chrono::DateTime::parse_from_rfc3339(start.timestamp.as_deref().unwrap())
+            .unwrap()
+            .timestamp_millis(),
+        1_000
+    );
     let progress = cache.reconcile_live(row("running"), 601_000);
     assert_eq!(progress.tool_started_at_ms, Some(1_000));
+    assert_eq!(progress.timestamp, start.timestamp);
     assert_eq!(progress.tool_completed_at_ms, None);
     let abandoned = cache.reconcile_live(row("abandoned"), 602_000);
     assert_eq!(abandoned.tool_started_at_ms, Some(1_000));
