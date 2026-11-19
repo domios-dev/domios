@@ -624,9 +624,15 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       const notifications = state.notifications.filter(row => row.remote_origin?.peerId !== action.peerId);
       const peerRows = action.notifications.filter(row => remoteNotificationRoute(row)?.peerId === action.peerId);
       if (notifications.length === state.notifications.length && peerRows.length === 0) return state;
+      const pendingAnswers = new Set(state.notifications.filter(
+        row => row.remote_origin?.peerId === action.peerId && row.answer_pending,
+      ).map(row => row.id));
       return {
         ...state,
-        notifications: peerRows.reduce((records, row) => admitBellNotification(records, row, "agent_notification"), notifications),
+        notifications: peerRows.reduce((records, row) => {
+          const pending = pendingAnswers.has(row.id) && row.answer && !row.answer.delivered && !row.resolved;
+          return admitBellNotification(records, pending ? { ...row, answer_pending: true } : row, "agent_notification");
+        }, notifications),
       };
     }
 

@@ -26,7 +26,7 @@ export function createMuxNotificationActions({ notifications, roster, dispatch, 
     return publicKey ? captureRoute(peerId, publicKey) : undefined;
   };
 
-  const changeRemote = (row: Notification | undefined, action: ConfirmedRemoteNotificationAction) => {
+  const changeRemote = (row: Notification | undefined, action: Exclude<ConfirmedRemoteNotificationAction, { type: "UPDATE_NOTIFICATION_ANSWER" }>) => {
     const origin = row && remoteNotificationRoute(row);
     if (!row || !origin) return;
     const route = routeFor(origin.peerId);
@@ -91,7 +91,11 @@ export function createMuxNotificationActions({ notifications, roster, dispatch, 
         ? answerRemoteNotification(row, answerLabel)
         : invoke<AnswerResult>("answer_notification", { id: answerId, label: answerLabel }),
       (answerId, update) => {
-        if (!route || route.isCurrent()) dispatch({ type: "UPDATE_NOTIFICATION_ANSWER", id: answerId, update });
+        if (!route || "pending" in update) {
+          if (!route || route.isCurrent()) dispatch({ type: "UPDATE_NOTIFICATION_ANSWER", id: answerId, update });
+        } else {
+          route.confirm({ type: "UPDATE_NOTIFICATION_ANSWER", id: answerId, update });
+        }
       },
     );
   };

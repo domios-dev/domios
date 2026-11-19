@@ -10,7 +10,8 @@ export const MAX_BUFFERED_REMOTE_NOTIFICATION_ACTIONS = 512;
 
 export type ConfirmedRemoteNotificationAction =
   | { type: "MARK_READ"; id: string }
-  | { type: "DELETE_NOTIFICATION"; id: string };
+  | { type: "DELETE_NOTIFICATION"; id: string }
+  | { type: "UPDATE_NOTIFICATION_ANSWER"; id: string; update: Exclude<AnswerUpdate, { pending: true }> };
 
 export interface RemoteNotificationRouteLease {
   isCurrent(): boolean;
@@ -22,7 +23,6 @@ export type RemoteNotificationSourceAction =
   | { type: "REPLACE_REMOTE_NOTIFICATION_HISTORY"; peerId: string; notifications: Notification[] }
   | { type: "ADD_NOTIFICATION"; notification: Notification }
   | { type: "UPDATE_NOTIFICATION_SUMMARY"; id: string; title: string; body: string }
-  | { type: "UPDATE_NOTIFICATION_ANSWER"; id: string; update: AnswerUpdate }
   | { type: "RESOLVE_NOTIFICATION"; id: string }
   | { type: "DISMISS_TOAST"; id: string };
 

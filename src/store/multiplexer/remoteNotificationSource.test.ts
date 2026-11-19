@@ -128,6 +128,67 @@ describe("remote notification source", () => {
     source.dispose();
   });
 
+  it.each(["answer first", "history first"])("retains a remote answer with stale history and no answer event (%s)", async (order) => {
+    const paired = roster([peer("install-a", "key-a")]);
+    let state: ExtendedState = {
+      workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
+      notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+    };
+    const dispatch = (action: Action) => { state = reducer(state, action); };
+    const loads: Array<(rows: Notification[]) => void> = [];
+    let ready!: () => void;
+    const source = createRemoteNotificationSource(dispatch, {
+      load() { return new Promise(resolve => loads.push(resolve)); },
+      subscribe(_peerId, _cursor, handlers) { ready = handlers.ready; return () => undefined; },
+    });
+    const actions = createMuxNotificationActions({
+      notifications: () => state.notifications,
+      roster: () => paired,
+      dispatch,
+      captureRoute: source.captureRoute,
+    });
+    const original: Notification = {
+      ...notification("Waiting"),
+      answer: { asked_from_tab: "main", answered: null, answered_via: null, delivered: false },
+    };
+    const calls: Array<[string, Record<string, unknown> | undefined]> = [];
+    let completeAnswer!: (result: { answered: string; delivered: boolean }) => void;
+    const response = new Promise<{ answered: string; delivered: boolean }>(resolve => { completeAnswer = resolve; });
+    __setInvokeForTest(async <T>(command: string, args?: Record<string, unknown>) => {
+      calls.push([command, args]);
+      return await response as T;
+    });
+
+    source.sync(paired);
+    ready();
+    loads[0]([original]);
+    await flushMicrotasks();
+    const id = state.notifications[0].id;
+    const row = () => state.notifications.find(item => item.id === id);
+
+    ready();
+    const answer = actions.answerNotification(id, "Approve");
+    expect(row()?.answer_pending).toBe(true);
+    if (order === "history first") {
+      loads[1]([original]);
+      await flushMicrotasks();
+      expect(row()?.answer_pending).toBe(true);
+      await actions.answerNotification(id, "Approve");
+    }
+    completeAnswer({ answered: "Approve", delivered: true });
+    await answer;
+    if (order === "answer first") {
+      loads[1]([original]);
+      await flushMicrotasks();
+    }
+
+    expect(calls).toEqual([["mesh_peer_notification_action", {
+      peerId: "install-a", sourceId: "same-source-id", notificationAction: "answer", label: "Approve",
+    }]]);
+    expect(row()).toMatchObject({ read: true, answer_pending: false, answer: { answered: "Approve", delivered: true } });
+    source.dispose();
+  });
+
   it("qualifies colliding peer items, applies buffered events after history, resumes from cursor, and clears revoked routes", async () => {
     const actions: RemoteNotificationSourceAction[] = [];
     const subscriptions = new Map<string, RemoteNotificationEventHandlers[]>();
