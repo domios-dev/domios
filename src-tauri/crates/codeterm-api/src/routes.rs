@@ -2,7 +2,7 @@ use crate::blocking_json::handler as blocking_json;
 use axum::{
     http::{HeaderMap, StatusCode},
     middleware,
-    routing::{delete, get, post},
+    routing::{get, post},
     Router,
 };
 use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer};

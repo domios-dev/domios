@@ -190,6 +190,7 @@ fn storage_cron_run_identity_survives_rehydration() {
         .get_history(&job.id)
         .into_iter()
         .find(|saved| saved.run_id == "identity-run")
+        .cloned()
         .expect("rehydrated run");
     assert_eq!(saved.provider.as_deref(), Some("fixture-provider"));
     assert_eq!(saved.owner_instance_id.as_deref(), Some("machine-b"));

@@ -217,6 +217,7 @@ fn cron_service_mutations_and_run_lifecycle_survive_storage_reopen() {
         .get_history(&job.id)
         .into_iter()
         .find(|run| run.run_id == run_id)
+        .cloned()
         .expect("recorded cron run");
     assert_eq!(started.provider.as_deref(), Some(job.agent.as_str()));
     assert!(started
