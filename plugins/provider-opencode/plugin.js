@@ -2308,16 +2308,17 @@ function v2Content(message, raw, ordinal, seq, ts) {
     ...timestamp2
   };
 }
-function v2History(raw) {
+function v2History(raw, order = "desc") {
   const entries = list(raw), rows = [];
-  for (let index = entries.length - 1; index >= 0; index--) {
-    const message = object2(entries[index]), id = text(message.id), created = object2(message.time).created;
+  const chronological = order === "desc" ? [...entries].reverse() : entries;
+  for (const entry of chronological) {
+    const message = object2(entry), id = text(message.id), created = object2(message.time).created;
     if (!id) fail("invalid_schema", "OpenCode history message is missing its identity");
     const ts = typeof created === "number" ? created : void 0;
     if (message.type === "user") {
-      rows.push({ id, seq: rows.length + 1, type: "user", content: String(message.text ?? ""), ...ts !== void 0 ? { timestamp: new Date(ts).toISOString() } : {}, attachments: list(message.files).map((raw2, index2) => {
+      rows.push({ id, seq: rows.length + 1, type: "user", content: String(message.text ?? ""), ...ts !== void 0 ? { timestamp: new Date(ts).toISOString() } : {}, attachments: list(message.files).map((raw2, index) => {
         const file = object2(raw2);
-        return { id: `${id}:file:${index2}`, mimeType: String(file.mime ?? "application/octet-stream"), url: String(file.uri) };
+        return { id: `${id}:file:${index}`, mimeType: String(file.mime ?? "application/octet-stream"), url: String(file.uri) };
       }) });
     } else if (message.type === "assistant") {
       const content = list(message.content);
@@ -2358,8 +2359,8 @@ function v2Plan(ctx, op) {
       return request("v2.session.get", { path: { sessionID: own(ctx, op.threadId) } });
     case "readHistory": {
       own(ctx, op.threadId);
-      if (op.order !== "desc" || op.cursor && op.cursor.length > 4096) fail("invalid_schema", "Invalid OpenCode history page");
-      return request("v2.session.messages", { path: { sessionID: op.threadId }, query: { limit: "40", ...op.cursor ? { cursor: op.cursor } : { order: "desc" } } });
+      if (op.cursor && op.cursor.length > 4096) fail("invalid_schema", "Invalid OpenCode history page");
+      return request("v2.session.messages", { path: { sessionID: op.threadId }, query: { limit: "40", ...op.cursor ? { cursor: op.cursor } : { order: op.order ?? "desc" } } });
     }
     case "submitTurn": {
       own(ctx, state.sessionId);
@@ -2368,13 +2369,6 @@ function v2Plan(ctx, op) {
       const id = messageIdentity(op.sendId, Date.now(), ++state.counter);
       claimed(ctx, { sendId: op.sendId, messageId: id, turnId: id });
       return prompt(op, id);
-    }
-    case "interrupt": {
-      const threadId = own(ctx, op.threadId);
-      const turnId = op.activeTurnId ?? ctx.activeTurns.find((turn) => turn.threadId === threadId)?.turnId;
-      const plan = request("v2.session.abort", { path: { sessionID: threadId }, query: { resume: "false" }, body: {} });
-      if (plan.action.kind === "request") plan.action.call.target = { threadId, ...turnId ? { turnId } : {} };
-      return plan;
     }
     case "answer":
       return v2Answer(ctx, op);
@@ -2440,11 +2434,9 @@ function v2Response(ctx, op, state, reply) {
       if (!Array.isArray(value.data) || value.data.length > 40) return refused("Invalid bounded OpenCode history response");
       const cursor = text(object2(value.cursor).next);
       if (cursor && (cursor.length > 4096 || cursor === op.cursor)) return refused("OpenCode history cursor did not advance");
-      return { kind: "complete", result: { kind: "historyPage", threadId: op.threadId, items: v2History(value.data), openItems: [], order: "desc", ...cursor ? { nextCursor: cursor } : {} } };
+      const order = op.order ?? "desc";
+      return { kind: "complete", result: { kind: "historyPage", threadId: op.threadId, items: v2History(value.data, order), openItems: [], order, ...cursor ? { nextCursor: cursor } : {} } };
     }
-    case "interrupt":
-      if (typeof value.interrupted !== "boolean") return refused("OpenCode did not acknowledge the interrupt");
-      return done();
     case "answer":
       return reply.value === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
     case "control":
@@ -2465,7 +2457,7 @@ function v2Response(ctx, op, state, reply) {
 // plugins/provider-opencode/src/runtimeV2Reduce.ts
 function current(ctx, raw) {
   const old = object2(raw);
-  if (old.epoch !== ctx.epoch || old.nonce !== ctx.bindingNonce || old.thread !== ctx.threadId) return { epoch: ctx.epoch, nonce: ctx.bindingNonce, thread: ctx.threadId, seq: ctx.restoredRowOrdinal ?? 0, seen: [], evidenced: [], completed: [], pendingPrompts: [], parts: /* @__PURE__ */ Object.create(null) };
+  if (old.protocol !== "v2" || old.epoch !== ctx.epoch || old.nonce !== ctx.bindingNonce || old.thread !== ctx.threadId) return { protocol: "v2", epoch: ctx.epoch, nonce: ctx.bindingNonce, thread: ctx.threadId, seq: ctx.restoredRowOrdinal ?? 0, seen: [], evidenced: [], completed: [], pendingPrompts: [], parts: /* @__PURE__ */ Object.create(null) };
   const state = old;
   return { ...state, seen: [...state.seen], evidenced: [...state.evidenced], completed: [...state.completed], pendingPrompts: [...state.pendingPrompts ?? []], parts: Object.fromEntries(Object.entries(state.parts).map(([id, part]) => [id, { ...part, part: { ...part.part } }])) };
 }
@@ -2571,7 +2563,7 @@ function v2Reduce(ctx, raw, frames) {
         const row = v2Content(message, { type: kind, text: content }, Number(data.ordinal), seq);
         if (row) {
           emit(row);
-          state.parts[rowId] = { seq, bytes: utf8Length(content), turn, finished, part: {} };
+          state.parts[rowId] = { seq, bytes: utf8Length(content), ...turn ? { turn } : {}, finished, part: {} };
         }
       }
       continue;
@@ -2580,21 +2572,23 @@ function v2Reduce(ctx, raw, frames) {
       const rowId = toolId(message, String(data.id)), known = state.parts[rowId];
       if (known?.finished || !known && type !== "session.tool.input.started") continue;
       const seq = known?.seq ?? ++state.seq, previous = known?.part ?? {}, previousState = object2(previous.state);
-      const part = { ...previous, type: "tool", id: data.id, name: data.name ?? previous.name, time: { ...object2(previous.time) } };
+      const name = text(data.name) ?? text(previous.name);
+      if (!name) continue;
+      const part = { type: "tool", id: data.id, name, time: { ...object2(previous.time) } };
       const finished = type === "session.tool.success" || type === "session.tool.failed";
       if (type === "session.tool.input.started" && !known) part.state = { status: "pending", input: {} };
       else if (type === "session.tool.called") {
         part.state = { status: "running", input: object2(data.input) };
-        object2(part.time).ran = event.created;
+        if (typeof event.created === "number") object2(part.time).ran = event.created;
       } else if (finished) {
         part.state = { ...previousState, status: type.endsWith("success") ? "completed" : "error", ...data.content ? { content: data.content } : {}, ...data.error ? { error: data.error } : {} };
-        object2(part.time).completed = event.created;
-      } else if (type === "session.tool.progress") part.state = { ...previousState, metadata: data.metadata };
+        if (typeof event.created === "number") object2(part.time).completed = event.created;
+      } else if (type === "session.tool.progress" && known) part.state = previousState;
       else continue;
       const row = v2Content(message, part, 0, seq);
       if (row) {
         emit(row);
-        state.parts[rowId] = { seq, bytes: 0, finished, part };
+        state.parts[rowId] = { seq, bytes: 0, finished, part: finished ? {} : part };
       }
     }
   }
@@ -2602,7 +2596,15 @@ function v2Reduce(ctx, raw, frames) {
   state.completed = state.completed.slice(-256);
   const keys = Object.keys(state.parts);
   for (const key of keys.slice(0, Math.max(0, keys.length - 256))) delete state.parts[key];
-  if (utf8Length(JSON.stringify(state)) > 240 * 1024) fail("size_limit", "OpenCode reducer state exceeds its bounded budget");
+  let bytes2 = utf8Length(JSON.stringify(state));
+  for (const entry of Object.values(state.parts)) {
+    if (bytes2 <= 240 * 1024) break;
+    const partState = object2(entry.part.state);
+    if (partState.input === void 0) continue;
+    bytes2 -= utf8Length(JSON.stringify(partState.input)) - 2;
+    entry.part.state = { ...partState, input: {} };
+  }
+  if (bytes2 > 240 * 1024) fail("size_limit", "OpenCode reducer state exceeds its bounded budget");
   return { state: json(state), events };
 }
 
@@ -2649,8 +2651,8 @@ function evidence(ctx, state, part, sequence, events) {
 }
 function runtimeReduce(ctx, raw, frames) {
   const protocol = binding(ctx).protocol;
+  if (protocol === "v2" || !protocol && object2(raw).protocol === "v2") return v2Reduce(ctx, raw, frames);
   if (!protocol) return { state: raw, events: [] };
-  if (protocol === "v2") return v2Reduce(ctx, raw, frames);
   if (!ctx.threadId) return { state: raw, events: [] };
   const state = stateFor(ctx, raw), events = [];
   for (let index = 0; index < frames.length; index++) {
@@ -2754,7 +2756,15 @@ function historyPlan(ctx, op) {
 function runtimePlan(ctx, op) {
   if (!ctx.tabId || !ctx.bindingNonce || !Number.isSafeInteger(ctx.epoch) || ctx.epoch <= 0) fail("binding_mismatch", "Runtime launch identity missing");
   if ("threadId" in op && op.threadId) own(ctx, op.threadId);
+  if (op.kind === "interrupt") {
+    const threadId = own(ctx, op.threadId);
+    const turnId = op.activeTurnId ?? ctx.activeTurns?.find((turn) => turn.threadId === threadId)?.turnId;
+    const plan = request("session.abort", { path: { sessionID: threadId } });
+    if (plan.action.kind === "request") plan.action.call.target = { threadId, ...turnId ? { turnId } : {} };
+    return plan;
+  }
   const state = binding(ctx);
+  if (!state.protocol && op.kind === "resumeThread") return request("health", {}, { stage: "recoverProtocol" });
   if (state.protocol === "v2" && op.kind !== "initialize") return v2Plan(ctx, op);
   switch (op.kind) {
     case "initialize":
@@ -2783,11 +2793,6 @@ function runtimePlan(ctx, op) {
       if (plan.action.kind === "request") plan.action.call.target = { threadId: op.threadId, turnId: messageId };
       return plan;
     }
-    case "interrupt": {
-      const plan = request("session.abort", { path: { sessionID: op.threadId } });
-      if (plan.action.kind === "request") plan.action.call.target = { threadId: op.threadId, ...op.activeTurnId ? { turnId: op.activeTurnId } : {} };
-      return plan;
-    }
     case "answer":
       return answerPlan(ctx, op);
     case "control": {
@@ -2801,6 +2806,20 @@ function runtimePlan(ctx, op) {
 }
 function runtimeResponse(ctx, op, raw, reply) {
   const state = object2(raw);
+  if (op.kind === "interrupt" && reply.kind === "success") {
+    const body2 = object2(reply.value).body;
+    const protocol = binding(ctx).protocol;
+    if (protocol !== "v1" && typeof object2(body2).interrupted === "boolean") return done();
+    if (protocol === "v2" || body2 !== true) return refused("OpenCode did not confirm the interrupt");
+    const events = op.activeTurnId ? [{ kind: "turnState", threadId: op.threadId, turnId: op.activeTurnId, state: "idle", detail: "interrupted" }] : [];
+    return done(events);
+  }
+  if (op.kind === "resumeThread" && state.stage === "recoverProtocol" && reply.kind === "success") {
+    const protocol = healthProtocol(object2(object2(reply.value).body));
+    if (!protocol) return refused("OpenCode did not confirm authenticated server health");
+    binding(ctx).protocol = protocol;
+    return { kind: "continue", plan: runtimePlan(ctx, op) };
+  }
   if (binding(ctx).protocol === "v2") return v2Response(ctx, op, state, reply);
   if (reply.kind === "error") {
     if (op.kind === "control" && op.action === "login" && text(object2(op.value).loginId)) return done([{ kind: "authLogin", login: { status: "failed", loginId: String(object2(op.value).loginId), error: `Sign-in request was refused (${reply.error.code})` } }]);
@@ -2812,13 +2831,11 @@ function runtimeResponse(ctx, op, raw, reply) {
     case "initialize": {
       if (state.stage === "health") {
         const health = object2(body);
-        if (text(health.version) && Number.isSafeInteger(health.pid) && Array.isArray(health.urls) && text(object2(health.paths).tmp)) {
-          binding(ctx).protocol = "v2";
-          return v2Response(ctx, op, state, reply);
-        }
-        if (object2(body).healthy !== true || !text(object2(body).version)) return refused("OpenCode did not confirm authenticated server health");
-        binding(ctx).protocol = "v1";
-        return next("provider.list", {}, { stage: "initializeProviders", version: object2(body).version });
+        const protocol = healthProtocol(health);
+        if (!protocol) return refused("OpenCode did not confirm authenticated server health");
+        binding(ctx).protocol = protocol;
+        if (protocol === "v2") return v2Response(ctx, op, state, reply);
+        return next("provider.list", {}, { stage: "initializeProviders", version: health.version });
       }
       if (state.stage === "initializeProviders") return next("provider.auth", {}, { stage: "initializeMethods", version: state.version, providers: providerSummary(body) });
       if (state.stage !== "initializeMethods") return refused("Unexpected initialization response");
@@ -2844,11 +2861,6 @@ function runtimeResponse(ctx, op, raw, reply) {
       if (cursor && (cursor.length > 4096 || cursor === op.cursor)) return refused("OpenCode history cursor did not advance");
       return { kind: "complete", result: { kind: "historyPage", threadId: op.threadId, items: rows, openItems: [], order: "desc", ...cursor ? { nextCursor: cursor } : {} } };
     }
-    case "interrupt": {
-      if (body !== true) return refused("OpenCode did not confirm the interrupt");
-      const events = op.activeTurnId ? [{ kind: "turnState", threadId: op.threadId, turnId: op.activeTurnId, state: "idle", detail: "interrupted" }] : [];
-      return done(events);
-    }
     case "answer":
       return done();
     case "control": {
@@ -2864,6 +2876,12 @@ function runtimeResponse(ctx, op, raw, reply) {
     default:
       return refused("Unsupported OpenCode runtime response");
   }
+}
+function healthProtocol(health) {
+  if (!text(health.version)) return void 0;
+  if (Number.isSafeInteger(health.pid) && Array.isArray(health.urls) && text(object2(health.paths).tmp)) return "v2";
+  if (health.healthy === true) return "v1";
+  return void 0;
 }
 
 // plugins/provider-opencode/src/sessionContent.ts

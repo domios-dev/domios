@@ -1515,7 +1515,7 @@
               "method": "PUT",
               "path": "/api/experimental/session/{sessionID}/instructions/entries/{key}"
             },
-            "v2.session.abort": {
+              "session.abort": {
               "method": "POST",
               "path": "/api/session/{sessionID}/interrupt"
             },
@@ -1591,6 +1591,7 @@
         "v2.session.instructions"
       ],
       "resumeThread": [
+        "health",
         "session.get",
         "v2.session.get",
         "v2.session.instructions",
@@ -1605,8 +1606,7 @@
         "v2.session.prompt"
       ],
       "interrupt": [
-        "session.abort",
-        "v2.session.abort"
+        "session.abort"
       ],
       "answer": [
         "permission.reply",
