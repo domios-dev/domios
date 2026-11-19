@@ -1,4 +1,4 @@
-// The origin cache must invalidate when `setFocusedTab` changes, or a stale closure routes Show Tab to the wrong handler.
+// Origin actions must use the current workspace navigation handler.
 
 import { act } from "react";
 import { Window } from "happy-dom";
@@ -110,9 +110,9 @@ async function main() {
     calls.length = 0;
     await act(async () => {
       button.focus();
-      button.dispatchEvent(new testWindow.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      button.dispatchEvent(new testWindow.KeyboardEvent("keydown", { key: "Enter", bubbles: true }) as unknown as Event);
       button.click();
-      button.dispatchEvent(new testWindow.KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
+      button.dispatchEvent(new testWindow.KeyboardEvent("keyup", { key: "Enter", bubbles: true }) as unknown as Event);
     });
     assert(calls[0] === `sender-workspace:${originFull}`, `Enter selects the sender workspace and tab (got ${JSON.stringify(calls)})`);
     assert(calls.length === 1, `activation selects once (got ${JSON.stringify(calls)})`);
