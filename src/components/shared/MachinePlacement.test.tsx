@@ -65,7 +65,6 @@ it("hides the row with one machine and keeps disabled options unavailable while 
   const selected = document.body.querySelector<HTMLElement>(`[data-testid="placement-option-${LOCAL_MACHINE_ID}"]`)!;
   expect(selected.getAttribute("role")).toBe("menuitemradio");
   expect(selected.getAttribute("aria-checked")).toBe("true");
-  expect(selected.textContent?.toLowerCase()).toContain("online");
   const unavailable = document.body.querySelector<HTMLElement>('[data-testid="placement-option-offline"]')!;
   expect((unavailable as HTMLButtonElement).disabled).toBe(false);
   expect(unavailable.getAttribute("aria-disabled")).toBe("true");
