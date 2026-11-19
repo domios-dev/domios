@@ -60,7 +60,7 @@ import {
   transcriptWindowKey,
   useTranscriptWindow,
 } from "./transcriptStore";
-import { reconcileTrackedChatMessages, type ChatSendStatus } from "./chatSendStatus";
+import { reconcileTrackedChatMessages, useChatSendStatusSubscription, type ChatSendStatus } from "./chatSendStatus";
 import { observeDeliveryStatus } from "./chatSendStore";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { adoptChatStartTiming, beginChatStartTiming, chatStartTimingEdge } from "./chatStartTiming";
@@ -400,22 +400,7 @@ export function useChatSession({
     void reconcileSendStatuses();
   }, [reconcileSendStatuses, tabId]);
 
-  useEffect(() => {
-    let cancelled = false;
-    let unlisten: UnlistenFn | undefined;
-    void listen<ChatSendStatus>("chat-send-status", ({ payload }) => {
-      if (!cancelled && payload.tab_id === tabId) observeChatSendStatus(payload);
-    }).then((release) => {
-      if (cancelled) release();
-      else {
-        unlisten = release;
-        void reconcileSendStatuses();
-      }
-    }).catch((error: unknown) => {
-      console.warn("[chat-send] status subscription failed", error);
-    });
-    return () => { cancelled = true; unlisten?.(); };
-  }, [tabId, observeChatSendStatus, reconcileSendStatuses]);
+  useChatSendStatusSubscription(tabId, observeChatSendStatus, reconcileSendStatuses);
 
   const loadOlderPage = useCallback(async (beforeOffset: number, maxBytes: number) => {
     if (agentSessionIdRef.current !== agentSessionId || sessionBindingNonceRef.current !== sessionBindingNonce) return null;
@@ -895,6 +880,7 @@ export function useChatSession({
     transcriptUnavailable,
     retry,
     setError,
+    committedRows,
     allMessages: view.allMessages,
     documentAttachmentNames: view.documentAttachmentNames,
     enrichedMessages: view.enrichedMessages,

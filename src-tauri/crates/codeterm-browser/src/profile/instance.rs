@@ -70,7 +70,7 @@ impl ProfileLayout {
     }
 }
 
-pub(super) async fn is_ephemeral(dir: &Path) -> bool {
+pub(crate) async fn is_ephemeral(dir: &Path) -> bool {
     let Ok(bytes) = tokio::fs::read(dir.join(BINDING)).await else {
         return false;
     };

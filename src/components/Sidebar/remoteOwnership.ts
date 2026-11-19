@@ -6,7 +6,6 @@ export interface RemoteTeamIdentity {
   title: string;
   peerName: string;
 }
-
 export function managedByLabel(tab: Tab): string | null {
   const controller = tab.ownership?.controller_title?.trim();
   return controller ? `managed by ${controller}` : null;
@@ -22,7 +21,7 @@ export function namedManagerRole(tab: Tab): string | null {
 export function remoteIdentity(tab: Tab): { role: string | null; peer: string } | null {
   if (!tab.remote_peer_id) return null;
   const peer = tab.remote_peer_name?.trim() || tab.remote_peer_id;
-  return { role: namedManagerRole(tab), peer: `@${peer}` };
+  return { role: namedManagerRole(tab), peer };
 }
 
 export function remoteTeamIdentity(tab: Tab): RemoteTeamIdentity | null {
@@ -34,9 +33,4 @@ export function remoteTeamIdentity(tab: Tab): RemoteTeamIdentity | null {
     title: owner.team.title?.trim() || owner.team.id,
     peerName: owner.peer_name,
   };
-}
-
-export function meshBadgeLabel(tab: Tab): string | null {
-  const identity = remoteIdentity(tab);
-  return identity ? `on ${identity.peer}` : null;
 }

@@ -2578,7 +2578,7 @@ function current(ctx, raw) {
 function witness(ctx, sequence, sendId) {
   return ctx.streamWindow?.turnRequests?.find((value) => (!sendId || value.sendId === sendId) && value.written && value.afterSequence !== void 0 && sequence !== void 0 && sequence > value.afterSequence);
 }
-function echoed(ctx, state, data, sequence, events) {
+function echoed(ctx, state, data, sequence, created, events) {
   const id = text(data.inboxID), item = object2(data.item), payload = object2(item.payload);
   const planned = binding(ctx).sends.find((send) => send.messageId === id);
   if (!planned || item.type !== "user" || state.evidenced.includes(planned.sendId)) return;
@@ -2588,12 +2588,12 @@ function echoed(ctx, state, data, sequence, events) {
   if (files.length !== claim.input.attachments.length || files.some((file, index) => file.uri !== attachmentUrl(claim.input.attachments[index]))) return;
   state.evidenced.push(planned.sendId);
   events.push(
-    { kind: "chatItem", threadId: ctx.threadId, item: { id: planned.messageId, seq: ++state.seq, type: "user", content: claim.input.text, attachments: claim.input.attachments.map((attachment) => ({ id: attachment.id, mimeType: attachment.mimeType, url: attachmentUrl(attachment) })) } },
+    { kind: "chatItem", threadId: ctx.threadId, item: { id: planned.messageId, seq: ++state.seq, type: "user", content: claim.input.text, ...created !== void 0 ? { timestamp: new Date(created).toISOString() } : {}, attachments: claim.input.attachments.map((attachment) => ({ id: attachment.id, mimeType: attachment.mimeType, url: attachmentUrl(attachment) })) } },
     { kind: "sendEvidence", threadId: ctx.threadId, sendId: planned.sendId, turnId: proof.turnId, itemId: planned.messageId }
   );
 }
-function toolRow(message, part, seq, finished) {
-  const row = v2Content(message, part, 0, seq);
+function toolRow(message, part, seq, finished, timestamp2) {
+  const row = v2Content(message, part, 0, seq, timestamp2);
   const deadline = object2(part.time).deadline;
   if (row && !finished && typeof deadline === "number") {
     row.toolKind = "command";
@@ -2617,7 +2617,7 @@ function v2Reduce(ctx, raw, frames) {
       const time = object2(known.part.time), deadline = time.deadline;
       if (typeof deadline === "number" && deadline <= exitedAt) continue;
       known.part.time = { ...time, deadline: exitedAt };
-      const row = toolRow(known.shell.message, known.part, known.seq, false);
+      const row = toolRow(known.shell.message, known.part, known.seq, false, known.timestamp);
       if (row) emit(row);
       continue;
     }
@@ -2636,7 +2636,7 @@ function v2Reduce(ctx, raw, frames) {
       continue;
     }
     if (type === "session.inbox.enqueued") {
-      echoed(ctx, state, data, sequence, events);
+      echoed(ctx, state, data, sequence, typeof event.created === "number" ? event.created : void 0, events);
       continue;
     }
     if (type === "session.execution.started") {
@@ -2695,10 +2695,11 @@ function v2Reduce(ctx, raw, frames) {
         }
       } else if (type.endsWith(".ended") || type.endsWith(".started") && !known) {
         const finished = type.endsWith(".ended"), seq = known?.seq ?? ++state.seq, content = finished ? String(data.text ?? "") : "";
-        const row = v2Content(message, { type: kind, text: content }, Number(data.ordinal), seq);
+        const timestamp2 = known?.timestamp ?? (typeof event.created === "number" ? event.created : void 0);
+        const row = v2Content(message, { type: kind, text: content }, Number(data.ordinal), seq, timestamp2);
         if (row) {
           emit(row);
-          state.parts[rowId] = { seq, bytes: utf8Length(content), ...turn ? { turn } : {}, finished, part: {} };
+          state.parts[rowId] = { seq, bytes: utf8Length(content), ...turn ? { turn } : {}, ...timestamp2 !== void 0 ? { timestamp: timestamp2 } : {}, finished, part: {} };
         }
       }
       continue;
@@ -2729,14 +2730,15 @@ function v2Reduce(ctx, raw, frames) {
           if (typeof event.created === "number" && typeof timeout === "number" && Number.isSafeInteger(timeout) && timeout > 0 && Number.isSafeInteger(event.created + timeout)) timing.deadline = event.created + timeout;
         }
       } else continue;
-      const row = toolRow(message, part, seq, finished);
+      const timestamp2 = known?.timestamp ?? (typeof event.created === "number" ? event.created : void 0);
+      const row = toolRow(message, part, seq, finished, timestamp2);
       if (row) {
         if (!name) {
           delete row.toolName;
           delete row.toolInput;
         }
         emit(row);
-        state.parts[rowId] = { seq, bytes: 0, finished, part: finished ? {} : part, ...!finished && shell ? { shell } : {} };
+        state.parts[rowId] = { seq, bytes: 0, ...timestamp2 !== void 0 ? { timestamp: timestamp2 } : {}, finished, part: finished ? {} : part, ...!finished && shell ? { shell } : {} };
       }
     }
   }

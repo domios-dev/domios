@@ -26,6 +26,8 @@ import type { SettingsCardAnchorId } from "./sections";
 import { useMultiplexer } from "../../store/multiplexer/hooks";
 import { billingFailureToast } from "./accountFailureToast";
 import { SESSION_REVOKED_MESSAGE, accountInitials, type LoginHint } from "./accountModel";
+import { MachineJoinPreview, MachineIdentitySaveError } from "../MeshPanel/MachineIdentityControls";
+import { useMachineJoin } from "../MeshPanel/MachineIdentityEditor";
 
 const MUTED = "m-0 text-xs text-[var(--ct-muted-fg)]";
 
@@ -47,6 +49,7 @@ export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusC
   const [refusedAsSubscribed, setRefusedAsSubscribed] = useState(false);
   const retryHint = useRef<LoginHint | undefined>(undefined);
   const signedIn = model.kind === "signed_in";
+  const join = useMachineJoin(model.kind === "signed_out");
   const identity = signedIn ? model.identity.uid : null;
   const enrollmentFailure = useAccountEnrollmentFailure(identity);
   useEffect(() => setRefusedAsSubscribed(false), [identity]);
@@ -73,9 +76,9 @@ export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusC
   };
   const staff = billing.plan?.fullAccess === true;
   const unverified = unverifiedPlanNotice(billing.plan?.unverified);
-  const startSignIn = (hint: LoginHint) => {
+  const startSignIn = async (hint: LoginHint) => {
     retryHint.current = hint;
-    void signIn(hint);
+    if (await join.beforeJoin()) await signIn(hint);
   };
   return <SettingsPage title="Account">
     <SettingsCard icon={<UserRound size={16} />} title="Domios account">
@@ -103,6 +106,8 @@ export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusC
           ? <p role="status" className={MUTED}>Finish signing in in your browser.</p>
           : <p className={MUTED}>Sign in to keep your plan and settings with your account.</p>}
         {model.kind === "error" && !model.failure && <InlineErrorNotice error={model.message} operation="updating your account" blocking />}
+        {join.view && join.value && <MachineJoinPreview name={join.view.name} value={join.value} onChange={join.setDraft} />}
+        {join.error && retryHint.current && <MachineIdentitySaveError error={join.error} retry={() => { if (retryHint.current) void startSignIn(retryHint.current); }} />}
         <div className="flex flex-wrap items-center gap-2">
           {ACCOUNT_ENTRY_OPTIONS.map((option, index) =>
             <Button key={option.label} size="sm" variant={index === 0 ? "primary" : "ghost"} disabled={model.kind === "pending"}

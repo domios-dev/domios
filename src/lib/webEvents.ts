@@ -22,7 +22,7 @@ import { RECONNECT_FIRST_MS, shouldResetReconnectBackoff, transitionWebReconnect
 import { eventReconnectDelay, isLocalEventStream, LOCAL_EVENT_RETRY_MS, nextEventReconnectBackoff } from "./webEventRecovery";
 import { DEV_BUILD } from "./devBuild";
 import { TERMINAL_VIEWER_DISCONNECTED_EVENT, TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
-import { signalEventStreamReady } from "./eventStreamReady";
+import { signalEventStreamLost, signalEventStreamReady } from "./eventStreamReady";
 import { WEB_BOOT_CHANGED_EVENT, WEB_EVENTS_READY_EVENT, type BootChangedDetail } from "./buildDriftReload";
 
 let eventClient: TransportClient | undefined;
@@ -176,6 +176,7 @@ const RECEIVE_TIMEOUT_MS = 30_000;
 // refetches regardless); mux state uses its own seam below, rest need per-hook wiring.
 export const RESYNC_EVENTS = [
   "mesh-state-changed",
+  "mesh-identity-changed",
   "delayed-send-changed",
   "service-health-changed",
 ];
@@ -366,6 +367,7 @@ async function runStream(): Promise<void> {
     if (generation !== streamGeneration) return;
     if (shouldResetReconnectBackoff(connected, Date.now() - attemptStartedAt)) backoffMs = firstBackoff;
     diagnose("lost", end);
+    signalEventStreamLost();
     abort.abort();
     if (receiveDeadline) { clearTimeout(receiveDeadline); receiveDeadline = null; }
     if (wakeRequested) {

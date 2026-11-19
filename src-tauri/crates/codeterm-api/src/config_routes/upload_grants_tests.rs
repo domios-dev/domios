@@ -19,6 +19,59 @@ async fn authenticated_origin(
 }
 
 #[tokio::test]
+async fn agent_cannot_grant_blueprints_a_named_profile_through_any_config_patch_shape() {
+    let (mux, tab) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    let agent = state
+        .svc
+        .frontend_pty_env(Some(&tab))
+        .unwrap()
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    let app = Router::new()
+        .route("/api/config", patch(super::patch_config_api))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::auth_middleware,
+        ))
+        .with_state(state.clone());
+    let plugins = json!({"browser":{"blueprint_profiles":["work"]}});
+    let mut full = serde_json::to_value(state.config.lock().clone()).unwrap();
+    full["plugins"] = plugins.clone();
+    for body in [
+        json!({"key":"plugins.browser.blueprint_profiles", "value":["work"]}),
+        json!({"key":"plugins.browser.blueprint_origins", "value":{"work":["https://example.com"]}}),
+        json!({"key":"plugins.browser", "value":plugins["browser"]}),
+        json!({"plugins":plugins}),
+        full,
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/config")
+                    .header("authorization", format!("Bearer {agent}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{body}");
+        assert!(
+            codeterm_service_core::config::browser_blueprint_profiles(&state.config.lock())
+                .is_none()
+        );
+        assert!(
+            codeterm_service_core::config::browser_blueprint_origins(&state.config.lock())
+                .is_none()
+        );
+    }
+}
+
+#[tokio::test]
 async fn browser_upload_grants_require_owner_credential_for_key_partial_and_full_config() {
     let (mux, tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);

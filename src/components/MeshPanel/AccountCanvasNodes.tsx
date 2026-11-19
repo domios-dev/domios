@@ -18,6 +18,10 @@ import { MachineSessionControls } from "./MachineSessionControls";
 import { MachineName } from "./MachineName";
 import { MachineFooter, ACCESS_LABELS } from "./MachineFooter";
 import type { PeerStatus } from "./useMeshData";
+import { MachineGlyph } from "../shared/MachineGlyph";
+import { machineLabel } from "../../lib/machineIdentity";
+import { useMeshMachineIdentity } from "../../lib/useMeshMachineIdentities";
+import { MachineJoinAction } from "./AddPeerPanel";
 
 const PILL_TONE: Record<MachineTone, "green" | "accent" | "muted" | "amber" | "red"> = {
   ok: "green",
@@ -72,13 +76,14 @@ export function AccountMachineCard({ node, busy, now, actions, hint }: { node: A
   const lock = meshMachineLockedView(node.row);
   const action = node.action;
   const seen = node.online || node.lastSeenAt === null ? null : formatAge(node.lastSeenAt * 1000, now);
+  const identity = useMeshMachineIdentity(node.row.pairInstanceId, Boolean(node.row.pairInstanceId));
   return (
-    <section aria-label={node.name} data-status={node.row.status}
+    <section aria-label={machineLabel(node.name, identity, node.online ? "online" : node.status)} data-status={node.row.status}
       className={NODE_FRAME}
       style={{ width: MACHINE_CARD_WIDTH }}>
       {node.callout && <Callout callout={node.callout} onDismiss={() => actions.onDismiss(node.key)} />}
       <div className="flex items-center gap-2 min-w-0">
-        <Laptop size={15} className="shrink-0 text-[var(--ct-muted-fg)]" aria-hidden="true" />
+        <MachineGlyph {...identity} size="tile" />
         <span className={`min-w-0 flex flex-1 text-[14px] font-medium text-[var(--ct-fg)] ${lockedDimClass(lock)}`}>
           <MachineName name={node.name} onRename={actions.onRename ? (name) => actions.onRename!(node.row, name) : undefined}
             disabledReason={!node.row.target || !node.row.pairInstanceId || !node.row.online ? "Connect to rename it, or rename it on that machine" : undefined} />
@@ -122,6 +127,7 @@ export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions, h
   const target = row.controls.revoke;
   return <div onClick={(event) => event.stopPropagation()}>
     <MachineSessionControls name={name} busy={busy}
+      identityPeer={actions.onRename && row.online && row.target ? row.pairInstanceId ?? undefined : undefined}
       onSignOut={row.canSignOut && actions.onSignOut ? () => actions.onSignOut!(row) : undefined}
       onRemove={target && actions.onRemove ? (alsoSignOut) => actions.onRemove!(row, target, alsoSignOut) : undefined}
       renderRow={(menu) => <MachineFooter label={label} secondary={secondary} tone={footer.tone} connecting={row.connecting}
@@ -162,11 +168,7 @@ export function AccountStateCard({ card, signingIn, onSignIn, onRetry }: {
         <span className="text-[14px] font-medium text-[var(--ct-fg)]">{card.blocked ? "Mesh is paused" : "Connect your machines"}</span>
       </div>
       <p role="status" className="m-0 text-[12px] text-[var(--ct-muted-fg)]">{card.headline}</p>
-      <div className="pt-0.5">
-        <button type="button" onClick={onSignIn} disabled={signingIn} aria-busy={signingIn} className={`${UI_BUTTON.primary} ${UI_BUTTON.compact}`}>
-          {signingIn ? "Signing in…" : "Sign in"}
-        </button>
-      </div>
+      <MachineJoinAction signingIn={signingIn} onSignIn={onSignIn} />
     </section>;
   }
   return <section aria-label="My machines" className={frame} style={{ width: MACHINE_CARD_WIDTH }}>

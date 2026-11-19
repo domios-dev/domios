@@ -5,6 +5,7 @@ pub struct LeaseModel<H> {
     leases: HashSet<u64>,
     next_id: u64,
     generation: u64,
+    exclusive: bool,
 }
 
 impl<H> Default for LeaseModel<H> {
@@ -14,6 +15,7 @@ impl<H> Default for LeaseModel<H> {
             leases: HashSet::new(),
             next_id: 0,
             generation: 0,
+            exclusive: false,
         }
     }
 }
@@ -39,10 +41,19 @@ impl<H: Clone> LeaseModel<H> {
         self.generation += 1;
         self.handle = Some(handle);
         self.leases.clear();
+        self.exclusive = false;
     }
 
-    pub fn acquire(&mut self) -> Option<(u64, H)> {
+    pub fn can_acquire(&self, exclusive: bool) -> bool {
+        self.leases.is_empty() || (!exclusive && !self.exclusive)
+    }
+
+    pub fn acquire(&mut self, exclusive: bool) -> Option<(u64, H)> {
+        if !self.can_acquire(exclusive) {
+            return None;
+        }
         let handle = self.handle()?;
+        self.exclusive = exclusive;
         self.next_id += 1;
         self.leases.insert(self.next_id);
         Some((self.next_id, handle))

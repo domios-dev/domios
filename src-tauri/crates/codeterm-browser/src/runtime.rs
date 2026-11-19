@@ -61,6 +61,7 @@ pub(super) async fn launch(
     configured_binary: Option<PathBuf>,
     layout: &ProfileLayout,
     profile: ProfileKind,
+    exclusive: bool,
     viewport: Viewport,
     frames: Arc<FrameHub>,
 ) -> Result<Runtime, String> {
@@ -69,8 +70,15 @@ pub(super) async fn launch(
         let dir = layout.dir_for(&profile);
         let launch_profile = profile.clone();
         let launch_dir = dir.clone();
-        let lease = ProfileLease::acquire_with(dir, move || async move {
-            launch_shared(configured_binary, launch_dir, launch_profile, viewport).await
+        let lease = ProfileLease::acquire_with(dir, exclusive, move || async move {
+            launch_shared(
+                configured_binary,
+                launch_dir,
+                launch_profile,
+                exclusive,
+                viewport,
+            )
+            .await
         })
         .await?;
         from_lease(lease, viewport, frames).await
@@ -83,6 +91,7 @@ async fn launch_shared(
     configured_binary: Option<PathBuf>,
     profile_dir: PathBuf,
     profile: ProfileKind,
+    exclusive: bool,
     viewport: Viewport,
 ) -> Result<SharedBrowser, String> {
     let located = tokio::task::spawn_blocking(move || locate(configured_binary.as_deref()))
@@ -99,6 +108,9 @@ async fn launch_shared(
                 .map_err(|_| format!("profile {name} does not exist; ask the user to create it"))?;
             if !metadata.is_dir() || metadata.file_type().is_symlink() {
                 return Err(format!("profile {name} must be a real profile directory"));
+            }
+            if exclusive && super::profile::instance::is_ephemeral(&profile_dir).await {
+                return Err("Blueprints require a persistent named browser profile".into());
             }
         }
     }

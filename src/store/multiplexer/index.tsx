@@ -44,7 +44,6 @@ import type {
   OrchestrationPairInput,
   OrchestrationPairResult,
   TabBootStageEvent,
-  MeshPeersResponse,
 } from "../../lib/types";
 import { reducer } from "./reducer";
 import { acceptsPageFocus, initialPageSelection } from "./pageSelection";
@@ -72,7 +71,8 @@ import {
   type RemotePeerTabs,
 } from "../../lib/remoteTabPortal";
 import { onRemoteTransportState } from "../../lib/remoteTabTransportState";
-import { remoteChatPeer, resetRemoteChatStatus, updateRemoteChatPeers } from "../../lib/remoteChatStatus";
+import { remoteChatPeer, resetRemoteChatStatus } from "../../lib/remoteChatStatus";
+import { useMeshPeerProjection } from "./useMeshPeerProjection";
 import { useRemoteAttachments } from "./useRemoteAttachments";
 import { resumeRemoteOutputStreams } from "../../lib/outputStream";
 import { resumeRemoteTabEvents, subscribeRemoteTabEvent } from "../../lib/remoteTabEvents";
@@ -338,52 +338,15 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     void restoreFromBackend();
   }, [state.muxResyncRequired, restoreFromBackend]);
 
-  useEffect(() => {
-    remoteProjectionActiveRef.current = true;
-    let active = true;
-    let peerReadGeneration = 0;
-    let meshUnlisten: (() => void) | undefined;
-    let muxUnlisten: (() => void) | undefined;
-    const refreshPeers = async () => {
-      const generation = ++peerReadGeneration;
-      hasPairedPeersRef.current = null;
-      try {
-        const peers = await invoke<MeshPeersResponse>("mesh_list_peers");
-        if (active && generation === peerReadGeneration && Array.isArray(peers?.paired)) {
-          hasPairedPeersRef.current = peers.paired.length > 0;
-          updateRemoteChatPeers(peers);
-        }
-      } catch {}
-      if (active && generation === peerReadGeneration) void requestRemoteRefresh();
-    };
-    const onMeshStateChanged = () => {
-      for (const tab of Object.values(stateRef.current.tabs)) {
-        if (!tab.remote_peer_id) continue;
-        for (const channel of ["control", "output", "chat"] as const) {
-          dispatch({ type: "UPDATE_REMOTE_CHANNEL", tabId: tab.id, channel, availability: "reconnecting" });
-        }
+  const markRemoteChannelsReconnecting = useCallback(() => {
+    for (const tab of Object.values(stateRef.current.tabs)) {
+      if (!tab.remote_peer_id) continue;
+      for (const channel of ["control", "output", "chat"] as const) {
+        dispatch({ type: "UPDATE_REMOTE_CHANNEL", tabId: tab.id, channel, availability: "reconnecting" });
       }
-      void refreshPeers();
-    };
-    void listen("mesh-state-changed", onMeshStateChanged).then((fn) => {
-      if (active) {
-        meshUnlisten = fn;
-        void refreshPeers();
-      } else fn();
-    });
-    void listen("remote-workers-changed", () => {
-      void requestRemoteRefresh();
-    }).then((fn) => {
-      if (active) muxUnlisten = fn;
-      else fn();
-    });
-    return () => {
-      active = false;
-      remoteProjectionActiveRef.current = false;
-      meshUnlisten?.();
-      muxUnlisten?.();
-    };
-  }, [requestRemoteRefresh]);
+    }
+  }, []);
+  useMeshPeerProjection(remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh);
 
   // Live telemetry leaves the controller signature unchanged, so a streaming snapshot never re-reads remote tabs.
   const remoteControllers = useMemo(() => remoteControllerSignature(state.tabs), [state.tabs]);

@@ -1,4 +1,5 @@
 import { useId, useMemo, useState } from "react";
+import { LoaderCircle } from "lucide-react";
 import type { Tab } from "../../lib/types";
 import { isProviderSelectable } from "../../lib/providerAvailability";
 import { launchProviderInstaller } from "../../lib/providerInstall";
@@ -8,14 +9,16 @@ import { usePickerNavigation } from "../AgentPicker/pickerNavigation";
 import { Button } from "../shared/Button";
 import { SELECT_TRIGGER } from "../shared/DropdownMenu";
 import { FormDialog } from "../shared/FormDialog";
+import { BusySpinner } from "../shared/BusyState";
 import { describeError } from "../../lib/describeError";
+import { providerSwitchStatusView } from "./providerSwitchStatusModel";
 
 export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab: Tab; initialProviderId: string; onClose(): void }) {
   const titleId = useId();
   const descriptionId = useId();
   const errorId = useId();
   const { providers, providerId, setProviderId, provider, selectedModel, setModel, model, setEffort, effort,
-    phase, setPhase, error, retryAfterSeconds, result, history, ready, activity, submit, showHistory } = useProviderSwitch(tab, initialProviderId);
+    phase, setPhase, error, statusUncertainty, retryAfterSeconds, switchStatus, result, history, ready, activity, submit, showHistory, stopObserving } = useProviderSwitch(tab, initialProviderId);
   const navigation = usePickerNavigation();
   const [installError, setInstallError] = useState<string | null>(null);
   const locked = phase !== "choosing";
@@ -26,19 +29,28 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
     ? <input aria-label="Agent model" placeholder="Model (optional)" className={SELECT_TRIGGER} value={selectedModel ?? ""} disabled={locked}
       onChange={(event) => setModel(event.target.value || undefined)} />
     : undefined;
+  function closeDialog() {
+    stopObserving();
+    onClose();
+  }
   async function install(id: string) {
     setInstallError(null);
     try {
       const launch = await launchProviderInstaller(id);
-      onClose();
+      closeDialog();
       const workspaceId = launch.workspace_id ?? tab.workspace_id;
       if (workspaceId) await navigation.show({ workspaceId, tabId: launch.tab_id });
     } catch (failure) { setInstallError(failure instanceof Error ? failure.message : String(failure)); }
   }
-  const failure = error ?? installError;
-  return <FormDialog titleId={titleId} descriptionId={descriptionId} onCancel={() => { if (phase !== "switching") onClose(); }} onSubmit={(event) => { event.preventDefault(); if (ready) void submit(); }} className="max-w-lg">
+  const statusView = providerSwitchStatusView(switchStatus, provider?.display_name ?? "the new provider");
+  const failure = statusView?.kind === "failed" ? statusView.reason : error ?? installError;
+  const closeLabel = phase === "switching" || phase === "complete" ? "Close" : "Cancel";
+  return <FormDialog titleId={titleId} descriptionId={descriptionId} onCancel={closeDialog} onSubmit={(event) => { event.preventDefault(); if (ready) void submit(); }} className="max-w-lg">
     <h2 id={titleId} className="font-semibold">Switch harness</h2>
-    <p id={descriptionId} className="text-sm text-[var(--ct-muted-fg)]">{tab.title || "This tab"} continues on another harness using recent messages and task context. The full history stays here.</p>
+    <p id={descriptionId} className="text-sm text-[var(--ct-muted-fg)]">
+      {tab.title || "This tab"} continues on another harness using recent messages and task context. The full history stays here.
+      {statusView?.kind === "busy" && " You can close this dialog while the switch continues."}
+    </p>
     {phase !== "complete" && <OrchestrationRoleRow
       label="Agent"
       providers={ordered}
@@ -54,14 +66,21 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
       onEffortChange={setEffort}
       onInstallProvider={(id) => void install(id)}
     />}
-    {failure && <SwitchFailure error={failure} id={errorId} harnessName={provider?.display_name} operation={error ? "switching the harness" : "starting the installer"} />}
-    {phase === "switching" && <p role="status">Switching harness…</p>}
+    {failure && <SwitchFailure error={failure} id={errorId} harnessName={provider?.display_name} operation={error || statusView?.kind === "failed" ? "switching the harness" : "starting the installer"} />}
+    {statusView?.kind === "busy" && <div role="status" aria-live="polite" className="flex items-center gap-3 rounded-md border border-[var(--ct-border)] p-3 text-sm">
+      <span aria-hidden="true"><BusySpinner icon={LoaderCircle} size={16} /></span>
+      <span>{statusView.label}</span>
+    </div>}
+    {statusView?.kind === "complete" && <div role="status" aria-live="polite" className="text-sm">{statusView.label}</div>}
+    {statusUncertainty && <div role="alert" aria-live="assertive" className="text-sm">
+      <p>The switch may have completed, but Domios could not confirm its status. Check this tab before trying again.</p>
+      <p className="mt-1 text-[var(--ct-muted-fg)]">{statusUncertainty}</p>
+    </div>}
     {phase === "waiting" && <p role="status">Waiting for this tab to become idle. Cancel to keep the current harness.</p>}
-    {result && <div role="status" className="text-sm">Continued on {result.provider}.</div>}
     {result && <Button size="sm" onClick={() => void showHistory()}>Previous harness: {result.previous_provider}</Button>}
     {history && <section aria-label="Previous harness transcript" className="max-h-72 overflow-auto text-sm">{history.map((row, index) => <article key={index}><strong>{row.kind}</strong><pre className="whitespace-pre-wrap">{row.content}</pre></article>)}</section>}
     <div className="flex justify-end gap-2">
-      <Button size="sm" disabled={phase === "switching"} onClick={onClose}>{phase === "complete" ? "Close" : "Cancel"}</Button>
+      <Button size="sm" onClick={closeDialog}>{closeLabel}</Button>
       {phase === "choosing" && !ready && <>
         <Button size="sm" onClick={() => setPhase("waiting")} disabled={!provider || retryAfterSeconds !== null}>Wait for idle</Button>
         <Button size="sm" variant="danger" onClick={() => void submit(true)} disabled={!provider || activity.launching || retryAfterSeconds !== null}>Stop and switch</Button>

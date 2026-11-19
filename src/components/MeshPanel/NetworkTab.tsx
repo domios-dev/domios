@@ -8,7 +8,7 @@ import { useMultiplexer } from "../../store/multiplexer/context";
 import { useMeshAccount } from "./useMeshAccount";
 
 interface Props {
-  triggerRefresh: () => void;
+  triggerRefresh?: () => void;
 }
 
 export function NetworkTab({ triggerRefresh }: Props) {

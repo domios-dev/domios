@@ -92,7 +92,7 @@ export type MultiplexerState = Omit<import("../../gen/MultiplexerSnapshot").Mult
 
 
 
-export type Team = Omit<import("../../gen/Team").Team, "name"> & { name?: import("../../gen/Team").Team["name"] | null; remote_peer_name?: string | null };
+export type Team = Omit<import("../../gen/Team").Team, "name"> & { name?: import("../../gen/Team").Team["name"] | null; remote_peer_name?: string | null; remote_peer_id?: string };
 
 export type AtomicSpawn = import("../../gen/AtomicSpawn").AtomicSpawn<MultiplexerState>;
 

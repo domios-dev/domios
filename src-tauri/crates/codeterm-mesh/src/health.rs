@@ -122,6 +122,8 @@ where
         status
     };
     if let Ok(payload) = result {
+        mesh.lock()
+            .apply_machine_identity_sync(peer_id, &payload.peers);
         crate::endpoint_gossip::receive_endpoint_records(mesh, payload.endpoints).await;
     }
     Some((200..=299).contains(&status))

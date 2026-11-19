@@ -10,7 +10,7 @@ export type Feature = "dreaming_run" | "cron_created" | "blueprint_created" | "t
 export type Resource = "workspaces" | "teams" | "agent_tabs" | "mesh_machines" | "memory_items" | "neighbors";
 export type UpgradeSource = "limit_dialog" | "account_settings";
 export type CheckoutOutcome = "opened" | "returned" | "failed";
-export type SettingsSection = "root" | "account" | "privacy" | "general" | "notifications" | "agents" | "secrets" | "jobs" | "logs" | "guide" | "about" | "agent_provider";
+export type SettingsSection = "root" | "account" | "privacy" | "general" | "mesh" | "notifications" | "agents" | "secrets" | "jobs" | "logs" | "guide" | "about" | "agent_provider";
 export type ProviderChangeOutcome = "applied" | "pending";
 export type ModelChangeMode = "live" | "restart" | "next_turn";
 export type ModelChangeOutcome = "observed" | "pending";
@@ -248,6 +248,7 @@ export const PRODUCT_EVENT_ENUMS = {
     "account",
     "privacy",
     "general",
+    "mesh",
     "notifications",
     "agents",
     "secrets",

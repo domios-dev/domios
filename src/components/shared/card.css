@@ -413,9 +413,9 @@ button.ct-card__head {
   column-gap: 8px;
 }
 
-.ct-card__header:has(:focus-visible) {
+.ct-card:has(:focus-visible) {
   outline: 1px solid color-mix(in srgb, var(--ct-accent) 60%, transparent);
-  outline-offset: -1px;
+  outline-offset: 1px;
   border-radius: inherit;
 }
 

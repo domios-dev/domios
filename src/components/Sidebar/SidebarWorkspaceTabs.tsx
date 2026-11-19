@@ -195,6 +195,7 @@ export function SidebarWorkspaceTabs({
           created_at: 0,
           workspace_id: ws.id,
           remote_peer_name: identity.peerName,
+          remote_peer_id: tab.ownership?.peer_id,
         });
       }
     }
