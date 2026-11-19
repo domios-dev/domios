@@ -4,6 +4,7 @@ import {binding} from "./runtimeState";
 import {contentId, toolId, v2Content} from "./runtimeV2Projection";
 import {v2Prompt} from "./runtimeV2Requests";
 import {v2LoginEvents} from "./runtimeV2Auth";
+import {isQuotaError} from "./turnErrors";
 
 interface Part {seq:number;bytes:number;turn?:string;finished:boolean;part:Record<string,unknown>}
 interface State {protocol:"v2";epoch:number;nonce:string;thread:string;seq:number;seen:string[];evidenced:string[];completed:string[];pendingPrompts:string[];turn?:string;parts:Record<string,Part>}
@@ -54,12 +55,17 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
       if (turn && !state.completed.includes(turn)) {state.turn=turn;events.push({kind:"turnState",threadId:ctx.threadId,turnId:turn,state:"working"});}
       continue;
     }
-    if (["session.execution.succeeded","session.execution.failed","session.execution.interrupted"].includes(type)) {
+    const quotaSessionError=type === "session.error" && isQuotaError(data.error);
+    if (quotaSessionError || ["session.execution.succeeded","session.execution.failed","session.execution.interrupted"].includes(type)) {
       if (turn && !state.completed.includes(turn)) {
         state.completed.push(turn);
         state.pendingPrompts=[];
-        const detail=type === "session.execution.failed" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : undefined;
-        if (detail === "failed") events.push({kind:"notice",threadId:ctx.threadId,message:String(object(data.error).message ?? "OpenCode execution failed").slice(0,4096)});
+        const detail=type === "session.execution.failed" || quotaSessionError ? "failed" : type === "session.execution.interrupted" ? "interrupted" : undefined;
+        if (detail === "failed") {
+          const message=isQuotaError(data.error) ? "DeepSeek balance is empty — top up or switch model"
+            : String(object(data.error).message ?? "OpenCode execution failed").slice(0,4096);
+          events.push({kind:"notice",threadId:ctx.threadId,message});
+        }
         events.push({kind:"turnState",threadId:ctx.threadId,turnId:turn,state:"idle",...(detail ? {detail} : {})});delete state.turn;
       }
       continue;
