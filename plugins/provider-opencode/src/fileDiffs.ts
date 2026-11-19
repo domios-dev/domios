@@ -53,17 +53,46 @@ function parsePatch(path: string, patch: string): FileDiff[] {
   return files;
 }
 
+function fileChangeKind(value: unknown): FileDiff["kind"] | undefined {
+  switch (String(value ?? "").toLowerCase()) {
+    case "add":
+    case "added":
+    case "create":
+    case "created":
+      return "add";
+    case "delete":
+    case "deleted":
+      return "delete";
+    case "modify":
+    case "modified":
+      return "modify";
+    case "rename":
+    case "renamed":
+      return "rename";
+    default:
+      return undefined;
+  }
+}
+
 export function opencodeFileDiffs(path: string, edits: ToolEdit[], metadata: unknown): FileDiff[] {
   const value = record(metadata);
-  if (Array.isArray(value.files)) {
-    return value.files.flatMap((entry) => {
-      const item = record(entry);
-      const filePath = typeof item.filePath === "string" ? item.filePath : "";
-      return opencodeFileDiffs(filePath, [], { diff: item.diff }).map((diff) => ({ ...diff,
-        ...(item.type === "add" || item.type === "delete" ? { kind: item.type } : {}),
+  const listedFiles = Array.isArray(value.files) ? value.files.map(record).filter((item) => Object.keys(item).length > 0) : [];
+  const singleFile = record(value.filediff);
+  const files = listedFiles.length ? listedFiles : Object.keys(singleFile).length ? [singleFile] : [];
+  if (files.length) {
+    const nestedDiffs = files.flatMap((item) => {
+      const filePath = typeof item.filePath === "string" ? item.filePath
+        : typeof item.file === "string" ? item.file
+        : typeof item.path === "string" ? item.path
+        : "";
+      const patch = typeof item.diff === "string" ? item.diff : typeof item.patch === "string" ? item.patch : "";
+      const kind = fileChangeKind(item.type ?? item.status);
+      return opencodeFileDiffs(filePath, [], { diff: patch }).map((diff) => ({ ...diff,
+        ...(kind ? { kind } : {}),
         ...(typeof item.movePath === "string" ? { movePath: item.movePath, kind: "rename" as const } : {}),
       }));
     });
+    if (nestedDiffs.length) return nestedDiffs;
   }
   const patch = typeof value.diff === "string" ? value.diff : typeof value.patch === "string" ? value.patch : "";
   const diffs = patch ? parsePatch(path, patch) : [];
