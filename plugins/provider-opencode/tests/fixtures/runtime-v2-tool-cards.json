@@ -1,0 +1,171 @@
+{
+  "source": "OpenCode CLI 2.3.0 read-only session_message rows; command, path, result, and patch values redacted",
+  "parts": [
+    {
+      "id": "call-shell",
+      "type": "tool",
+      "name": "shell",
+      "state": {
+        "status": "completed",
+        "input": { "command": "Get-ChildItem src" },
+        "content": [{ "type": "text", "text": "example output" }],
+        "metadata": { "output": "example output", "exit": 0, "truncated": false }
+      },
+      "time": { "created": 1795000000000, "ran": 1795000000010, "completed": 1795000000020 }
+    },
+    {
+      "id": "call-read",
+      "type": "tool",
+      "name": "read",
+      "state": {
+        "status": "completed",
+        "input": { "path": "src/example.ts", "offset": 0, "limit": 20 },
+        "content": [{ "type": "text", "text": "example file content" }],
+        "metadata": { "truncated": false }
+      },
+      "time": { "created": 1795000000100, "ran": 1795000000110, "completed": 1795000000120 }
+    },
+    {
+      "id": "call-edit",
+      "type": "tool",
+      "name": "edit",
+      "state": {
+        "status": "completed",
+        "input": { "path": "src/example.ts", "oldString": "old value", "newString": "new value" },
+        "content": [{ "type": "text", "text": "file updated" }],
+        "metadata": {
+          "files": [{
+            "additions": 1,
+            "deletions": 1,
+            "file": "src/example.ts",
+            "patch": "--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old value\n+new value",
+            "status": "modified"
+          }],
+          "truncated": false
+        }
+      },
+      "time": { "created": 1795000000200, "ran": 1795000000210, "completed": 1795000000220 }
+    },
+    {
+      "id": "call-edit-single-diff",
+      "type": "tool",
+      "name": "edit",
+      "state": {
+        "status": "completed",
+        "input": { "filePath": "src/other.ts", "oldString": "before", "newString": "after" },
+        "content": [{ "type": "text", "text": "file updated" }],
+        "metadata": {
+          "diff": "--- a/src/other.ts\n+++ b/src/other.ts\n@@ -1 +1 @@\n-before\n+after",
+          "filediff": { "additions": 1, "deletions": 1, "file": "src/other.ts", "patch": "--- a/src/other.ts\n+++ b/src/other.ts\n@@ -1 +1 @@\n-before\n+after" }
+        }
+      },
+      "time": { "created": 1795000000250, "ran": 1795000000260, "completed": 1795000000270 }
+    },
+    {
+      "id": "call-write",
+      "type": "tool",
+      "name": "write",
+      "state": {
+        "status": "completed",
+        "input": { "path": "src/new.ts", "content": "created file content" },
+        "content": [{ "type": "text", "text": "file created" }],
+        "metadata": { "diagnostics": [], "filepath": "src/new.ts", "exists": false, "truncated": false }
+      },
+      "time": { "created": 1795000000300, "ran": 1795000000310, "completed": 1795000000320 }
+    },
+    {
+      "id": "call-grep",
+      "type": "tool",
+      "name": "grep",
+      "state": {
+        "status": "completed",
+        "input": { "path": "src", "pattern": "needle", "include": "*.ts" },
+        "content": [{ "type": "text", "text": "example.ts:1:needle" }],
+        "metadata": { "matches": [], "truncated": false }
+      },
+      "time": { "created": 1795000000400, "ran": 1795000000410, "completed": 1795000000420 }
+    },
+    {
+      "id": "call-glob",
+      "type": "tool",
+      "name": "glob",
+      "state": {
+        "status": "completed",
+        "input": { "pattern": "src/**/*.ts" },
+        "content": [{ "type": "text", "text": "src/example.ts" }],
+        "metadata": { "count": 1, "truncated": false }
+      },
+      "time": { "created": 1795000000500, "ran": 1795000000510, "completed": 1795000000520 }
+    },
+    {
+      "id": "call-webfetch",
+      "type": "tool",
+      "name": "webfetch",
+      "state": {
+        "status": "completed",
+        "input": { "url": "https://example.invalid", "format": "text" },
+        "content": [{ "type": "text", "text": "example fetched content" }],
+        "metadata": { "truncated": false }
+      },
+      "time": { "created": 1795000000600, "ran": 1795000000610, "completed": 1795000000620 }
+    },
+    {
+      "id": "call-todowrite",
+      "type": "tool",
+      "name": "todowrite",
+      "state": {
+        "status": "completed",
+        "input": { "todos": [] },
+        "content": [{ "type": "text", "text": "tasks updated" }],
+        "metadata": { "todos": [], "truncated": false }
+      },
+      "time": { "created": 1795000000700, "ran": 1795000000710, "completed": 1795000000720 }
+    },
+    {
+      "id": "call-skill",
+      "type": "tool",
+      "name": "skill",
+      "state": {
+        "status": "completed",
+        "input": { "name": "example-skill" },
+        "content": [{ "type": "text", "text": "example skill instructions" }],
+        "metadata": { "name": "example-skill", "dir": "C:/workspace/skills/example-skill", "truncated": false }
+      },
+      "time": { "created": 1795000000800, "ran": 1795000000810, "completed": 1795000000820 }
+    },
+    {
+      "id": "call-question",
+      "type": "tool",
+      "name": "question",
+      "state": {
+        "status": "completed",
+        "input": { "questions": [] },
+        "content": [{ "type": "text", "text": "question answered" }],
+        "metadata": { "answers": [], "truncated": false }
+      },
+      "time": { "created": 1795000000900, "ran": 1795000000910, "completed": 1795000000920 }
+    },
+    {
+      "id": "call-aborted-search",
+      "type": "tool",
+      "name": "grep",
+      "state": {
+        "status": "error",
+        "input": { "path": "src", "pattern": "needle" },
+        "error": { "type": "aborted", "message": "search interrupted" }
+      },
+      "time": { "created": 1795000001000, "ran": 1795000001010, "completed": 1795000001020 }
+    },
+    {
+      "id": "call-failed-shell",
+      "type": "tool",
+      "name": "shell",
+      "state": {
+        "status": "error",
+        "input": { "command": "example-command" },
+        "error": { "type": "tool.execution", "message": "command failed" }
+      },
+      "time": { "created": 1795000001100, "ran": 1795000001110, "completed": 1795000001120 }
+    }
+  ]
+}
