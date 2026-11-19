@@ -34,6 +34,9 @@ jobs:
       run: ${{ steps.route.outputs.run }}
       release_head: ${{ steps.route.outputs.release_head }}
       source_sha: ${{ steps.route.outputs.source_sha }}
+      plugin_id: ${{ steps.plugin.outputs.id }}
+      plugin_tag: ${{ steps.plugin.outputs.tag }}
+      plugin_base: ${{ steps.plugin.outputs.base }}
     steps:
       - id: route
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
@@ -65,7 +68,50 @@ jobs:
             core.setOutput('source_sha', source);
             core.setOutput('release_head', String(release));
             core.setOutput('run', 'true');
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        if: steps.route.outputs.release_head == 'true'
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        if: steps.route.outputs.release_head == 'true'
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Identify a single-plugin release against master
+        id: plugin
+        if: steps.route.outputs.release_head == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/plugin-release-scope.mjs refs/heads/master "$GITHUB_SHA"
+  plugin-qualification:
+    name: Plugin qualification - ${{ needs.admission.outputs.plugin_tag }} from ${{ needs.admission.outputs.plugin_base }}
+    needs: admission
+    if: needs.admission.outputs.plugin_id != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
+        with:
+          version: 10.32.1
+          run_install: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22.22.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check plugin metadata, bundles, types and tests
+        env:
+          PLUGIN_ID: ${{ needs.admission.outputs.plugin_id }}
+          PLUGIN_TAG: ${{ needs.admission.outputs.plugin_tag }}
+        run: |
+          node scripts/release-plugin.mjs check "$PLUGIN_TAG"
+          node scripts/check-plugin.mjs "$PLUGIN_ID"
   policy:
+    if: needs.admission.outputs.plugin_id == ''
     name: Repository guards
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 8
@@ -160,14 +206,14 @@ jobs:
       actions: write
       pull-requests: write
     secrets: inherit
-    if: ${{ needs.admission.outputs.run == 'true' }}
+    if: ${{ needs.admission.outputs.run == 'true' && needs.admission.outputs.plugin_id == '' }}
     # Starts beside the repository guards; CI result still requires them.
     needs: [admission]
   rust:
     name: Rust tests
     # Starts with the push, beside the guards and the fast tier.
     needs: [admission]
-    if: ${{ !cancelled() && inputs.scope != 'fast' && github.event_name == 'push' && needs.admission.outputs.run == 'true' }}
+    if: ${{ !cancelled() && inputs.scope != 'fast' && github.event_name == 'push' && needs.admission.outputs.run == 'true' && needs.admission.outputs.plugin_id == '' }}
     uses: ./.github/workflows/tests-rust.yml
     with:
       source_ref: ${{ needs.admission.outputs.source_sha }}
@@ -273,7 +319,7 @@ jobs:
     name: Release packaging
     # Packaging starts with the push, beside every check; publication still requires this run's green qualification.
     needs: [admission]
-    if: ${{ !cancelled() && needs.admission.outputs.release_head == 'true' }}
+    if: ${{ !cancelled() && needs.admission.outputs.release_head == 'true' && needs.admission.outputs.plugin_id == '' }}
     uses: ./.github/workflows/release.yml
     permissions:
       contents: write
@@ -291,6 +337,7 @@ jobs:
     if: ${{ !cancelled() && !github.event.deleted }}
     needs:
       - admission
+      - plugin-qualification
       - policy
       - fast
       - rust
@@ -325,6 +372,7 @@ jobs:
           CI_EVENT: ${{ github.event_name }}
           CI_NEEDS: ${{ toJSON(needs) }}
           CI_SCOPE: ${{ inputs.scope }}
+          CI_PLUGIN_ID: ${{ needs.admission.outputs.plugin_id }}
           CI_RELEASE_HEAD: ${{ needs.admission.outputs.release_head }}
           CI_SKIP_HEAVY: ${{ needs.admission.outputs.run == 'false' }}
         run: node scripts/ci-result.mjs

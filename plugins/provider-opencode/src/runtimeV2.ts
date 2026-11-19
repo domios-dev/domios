@@ -26,8 +26,8 @@ export function v2Plan(ctx:RuntimeContext, op:Operation):RuntimePlan {
     case "resumeThread": return request("v2.session.get",{path:{sessionID:own(ctx,op.threadId)}});
     case "readHistory": {
       own(ctx,op.threadId);
-      if (op.order !== "desc" || op.cursor && op.cursor.length > 4096) fail("invalid_schema","Invalid OpenCode history page");
-      return request("v2.session.messages",{path:{sessionID:op.threadId},query:{limit:"40",...(op.cursor ? {cursor:op.cursor} : {order:"desc"})}});
+      if (op.cursor && op.cursor.length > 4096) fail("invalid_schema","Invalid OpenCode history page");
+      return request("v2.session.messages",{path:{sessionID:op.threadId},query:{limit:"40",...(op.cursor ? {cursor:op.cursor} : {order:op.order ?? "desc"})}});
     }
     case "submitTurn": {
       own(ctx,state.sessionId);
@@ -36,13 +36,6 @@ export function v2Plan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       const id=messageIdentity(op.sendId,Date.now(),++state.counter);
       claimed(ctx,{sendId:op.sendId,messageId:id,turnId:id});
       return prompt(op,id);
-    }
-    case "interrupt": {
-      const threadId=own(ctx,op.threadId);
-      const turnId=op.activeTurnId ?? ctx.activeTurns.find(turn=>turn.threadId === threadId)?.turnId;
-      const plan=request("v2.session.abort",{path:{sessionID:threadId},query:{resume:"false"},body:{}});
-      if (plan.action.kind === "request") plan.action.call.target={threadId,...(turnId ? {turnId} : {})};
-      return plan;
     }
     case "answer": return v2Answer(ctx,op);
     case "control":
@@ -100,11 +93,9 @@ export function v2Response(ctx:RuntimeContext, op:Operation, state:Record<string
       if (!Array.isArray(value.data) || value.data.length > 40) return refused("Invalid bounded OpenCode history response");
       const cursor=text(object(value.cursor).next);
       if (cursor && (cursor.length > 4096 || cursor === op.cursor)) return refused("OpenCode history cursor did not advance");
-      return {kind:"complete",result:{kind:"historyPage",threadId:op.threadId,items:v2History(value.data),openItems:[],order:"desc",...(cursor ? {nextCursor:cursor} : {})}};
+      const order=op.order ?? "desc";
+      return {kind:"complete",result:{kind:"historyPage",threadId:op.threadId,items:v2History(value.data,order),openItems:[],order,...(cursor ? {nextCursor:cursor} : {})}};
     }
-    case "interrupt":
-      if (typeof value.interrupted !== "boolean") return refused("OpenCode did not acknowledge the interrupt");
-      return done();
     case "answer": return reply.value === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
     case "control":
       if (op.action === "auth") {

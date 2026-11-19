@@ -14,11 +14,12 @@ export function v2Content(message:string, raw:unknown, ordinal:number, seq:numbe
     ...(state.content ? {toolResult:toolContent(state.content)} : {}),...(state.error ? {toolResult:String(object(state.error).message ?? "Tool failed"),toolError:true} : {}),
     ...(typeof time.ran === "number" ? {toolStartedAtMs:time.ran} : {}),...(typeof time.completed === "number" ? {toolCompletedAtMs:time.completed} : {}),...timestamp};
 }
-export function v2History(raw:unknown):ChatMsg[] {
+export function v2History(raw:unknown, order:"asc"|"desc"="desc"):ChatMsg[] {
   const entries=list(raw), rows:ChatMsg[]=[];
-  // Pages arrive newest first, but the host prepends each page in transcript order.
-  for (let index=entries.length-1;index>=0;index--) {
-    const message=object(entries[index]), id=text(message.id), created=object(message.time).created;
+  // Every page is projected in transcript order, including newest-first reads.
+  const chronological=order === "desc" ? [...entries].reverse() : entries;
+  for (const entry of chronological) {
+    const message=object(entry), id=text(message.id), created=object(message.time).created;
     if (!id) fail("invalid_schema","OpenCode history message is missing its identity");
     const ts=typeof created === "number" ? created : undefined;
     if (message.type === "user") {

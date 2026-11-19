@@ -62,6 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
+          fetch-depth: 2
           persist-credentials: false
       - id: source
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
@@ -95,6 +96,16 @@ jobs:
             if (await tree(context.sha) !== await tree(sha)) throw new Error('Release requires master to carry exactly the qualified head tree');
             const {pathToFileURL} = require('node:url');
             const load = name => import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/' + name).href);
+            const {pluginReleaseBetween} = await load('plugin-release-scope.mjs');
+            const {execFileSync} = require('node:child_process');
+            const base = execFileSync('git', ['rev-parse', 'HEAD^1'], {encoding: 'utf8'}).trim();
+            if (base === context.payload.before) {
+              const plugin = pluginReleaseBetween(base, context.sha);
+              if (plugin) {
+                core.notice('Plugin-only merge. Publish ' + plugin.tag + ' through plugin-release.yml.');
+                return;
+              }
+            }
             const {parseTestWaiver} = await load('release-test-waiver.mjs');
             const {selectReleasePushRun} = await load('ci-qualification.mjs');
             const {requireQualificationWithGithub} = await load('ci-workflow-api.mjs');
