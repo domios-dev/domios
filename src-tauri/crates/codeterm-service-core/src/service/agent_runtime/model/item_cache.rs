@@ -196,6 +196,11 @@ impl ItemCache {
         if self.backfill != HistoryBackfill::Complete {
             self.live_during_backfill.insert(item.id.clone());
         }
+        if item.timestamp.is_none() {
+            item.timestamp = self
+                .index(&item.id)
+                .and_then(|index| self.items[index].timestamp.clone());
+        }
         if let Some(status) = item.tool_status.as_deref() {
             let previous = self.index(&item.id).map(|index| &self.items[index]);
             if let Some(previous) = previous

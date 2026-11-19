@@ -7,6 +7,19 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 mod http_completion;
 
+#[test]
+fn host_prompt_timestamp_uses_the_durable_send_creation_clock() {
+    let at = 1_770_000_000_123;
+    let timestamp = host_prompt_timestamp(at).unwrap();
+    assert_eq!(
+        chrono::DateTime::parse_from_rfc3339(&timestamp)
+            .unwrap()
+            .timestamp_millis(),
+        at as i64
+    );
+    assert!(host_prompt_timestamp(u64::MAX).is_none());
+}
+
 pub(in crate::service::agent_runtime) const SOURCE: &str = r#"
 module.exports = {
   runtimePlan(ctx, op) {

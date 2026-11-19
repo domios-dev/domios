@@ -22,6 +22,14 @@ test("a delta's local ordinals cannot move new rows before committed history", (
   assert.equal(repeated[repeated.length - 1]?.content, "latest");
 });
 
+test("a row update without a timestamp keeps the identity's known creation time", () => {
+  const original = { ...row("answer", 2), timestamp: "2026-11-19T08:00:00.000Z" };
+  const update = { ...row("answer", 0, "completed") };
+  const merged = mergeById([original], [update]);
+  assert.equal(merged[0]?.content, "completed");
+  assert.equal(merged[0]?.timestamp, original.timestamp);
+});
+
 test("an amendment keeps its committed slot despite a changed ordinal", () => {
   const history = [row("before", 0), row("amended", 1), row("after", 2)];
   const amended = mergeById(history, [row("amended", 20, "complete")]);

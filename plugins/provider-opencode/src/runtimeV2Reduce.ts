@@ -5,7 +5,7 @@ import {contentId, toolId, v2Content} from "./runtimeV2Projection";
 import {v2Prompt} from "./runtimeV2Requests";
 import {v2LoginEvents} from "./runtimeV2Auth";
 
-interface Part {seq:number;bytes:number;turn?:string;finished:boolean;part:Record<string,unknown>;shell?:{id:string;message:string}}
+interface Part {seq:number;bytes:number;turn?:string;timestamp?:number;finished:boolean;part:Record<string,unknown>;shell?:{id:string;message:string}}
 interface State {protocol:"v2";epoch:number;nonce:string;thread:string;seq:number;seen:string[];evidenced:string[];completed:string[];pendingPrompts:string[];turn?:string;parts:Record<string,Part>}
 function current(ctx:RuntimeContext, raw:JsonValue):State {
   const old=object(raw);
@@ -16,7 +16,7 @@ function current(ctx:RuntimeContext, raw:JsonValue):State {
 function witness(ctx:RuntimeContext, sequence:number|undefined, sendId?:string) {
   return ctx.streamWindow?.turnRequests?.find(value=>(!sendId || value.sendId === sendId) && value.written && value.afterSequence !== undefined && sequence !== undefined && sequence > value.afterSequence);
 }
-function echoed(ctx:RuntimeContext, state:State, data:Record<string,unknown>, sequence:number|undefined, events:AgentEvent[]):void {
+function echoed(ctx:RuntimeContext, state:State, data:Record<string,unknown>, sequence:number|undefined, created:number|undefined, events:AgentEvent[]):void {
   const id=text(data.inboxID), item=object(data.item), payload=object(item.payload);
   const planned=binding(ctx).sends.find(send=>send.messageId === id);
   if (!planned || item.type !== "user" || state.evidenced.includes(planned.sendId)) return;
@@ -25,11 +25,11 @@ function echoed(ctx:RuntimeContext, state:State, data:Record<string,unknown>, se
   const files=list(payload.files).map(object);
   if (files.length !== claim.input.attachments.length || files.some((file,index)=>file.uri !== attachmentUrl(claim.input.attachments[index]))) return;
   state.evidenced.push(planned.sendId);
-  events.push({kind:"chatItem",threadId:ctx.threadId!,item:{id:planned.messageId,seq:++state.seq,type:"user",content:claim.input.text,attachments:claim.input.attachments.map(attachment=>({id:attachment.id,mimeType:attachment.mimeType,url:attachmentUrl(attachment)}))}},
+  events.push({kind:"chatItem",threadId:ctx.threadId!,item:{id:planned.messageId,seq:++state.seq,type:"user",content:claim.input.text,...(created !== undefined ? {timestamp:new Date(created).toISOString()} : {}),attachments:claim.input.attachments.map(attachment=>({id:attachment.id,mimeType:attachment.mimeType,url:attachmentUrl(attachment)}))}},
     {kind:"sendEvidence",threadId:ctx.threadId!,sendId:planned.sendId,turnId:proof.turnId,itemId:planned.messageId});
 }
-function toolRow(message:string, part:Record<string,unknown>, seq:number, finished:boolean):ChatMsg|undefined {
-  const row=v2Content(message,part,0,seq);
+function toolRow(message:string, part:Record<string,unknown>, seq:number, finished:boolean, timestamp?:number):ChatMsg|undefined {
+  const row=v2Content(message,part,0,seq,timestamp);
   const deadline=object(part.time).deadline;
   if (row && !finished && typeof deadline === "number") {
     row.toolKind="command";
@@ -53,7 +53,7 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
       const time=object(known.part.time), deadline=time.deadline;
       if (typeof deadline === "number" && deadline <= exitedAt) continue;
       known.part.time={...time,deadline:exitedAt};
-      const row=toolRow(known.shell.message,known.part,known.seq,false);
+      const row=toolRow(known.shell.message,known.part,known.seq,false,known.timestamp);
       if (row) emit(row);
       continue;
     }
@@ -70,7 +70,7 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
       }
       continue;
     }
-    if (type === "session.inbox.enqueued") {echoed(ctx,state,data,sequence,events);continue;}
+    if (type === "session.inbox.enqueued") {echoed(ctx,state,data,sequence,typeof event.created === "number" ? event.created : undefined,events);continue;}
     if (type === "session.execution.started") {
       if (turn && !state.completed.includes(turn)) {state.turn=turn;events.push({kind:"turnState",threadId:ctx.threadId,turnId:turn,state:"working"});}
       continue;
@@ -123,8 +123,9 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
         }
       } else if (type.endsWith(".ended") || type.endsWith(".started") && !known) {
         const finished=type.endsWith(".ended"), seq=known?.seq ?? ++state.seq, content=finished ? String(data.text ?? "") : "";
-        const row=v2Content(message,{type:kind,text:content},Number(data.ordinal),seq);
-        if (row) {emit(row);state.parts[rowId]={seq,bytes:utf8Length(content),...(turn ? {turn} : {}),finished,part:{}};}
+        const timestamp=known?.timestamp ?? (typeof event.created === "number" ? event.created : undefined);
+        const row=v2Content(message,{type:kind,text:content},Number(data.ordinal),seq,timestamp);
+        if (row) {emit(row);state.parts[rowId]={seq,bytes:utf8Length(content),...(turn ? {turn} : {}),...(timestamp !== undefined ? {timestamp} : {}),finished,part:{}};}
       }
       continue;
     }
@@ -157,11 +158,12 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
         }
       }
       else continue;
-      const row=toolRow(message,part,seq,finished);
+      const timestamp=known?.timestamp ?? (typeof event.created === "number" ? event.created : undefined);
+      const row=toolRow(message,part,seq,finished,timestamp);
       if (row) {
         if (!name) {delete row.toolName;delete row.toolInput;}
         emit(row);
-        state.parts[rowId]={seq,bytes:0,finished,part:finished ? {} : part,...(!finished && shell ? {shell} : {})};
+        state.parts[rowId]={seq,bytes:0,...(timestamp !== undefined ? {timestamp} : {}),finished,part:finished ? {} : part,...(!finished && shell ? {shell} : {})};
       }
     }
   }

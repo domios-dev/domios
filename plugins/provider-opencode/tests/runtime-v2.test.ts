@@ -263,6 +263,34 @@ check("bookkeeping serializes untracked text and bounds retained tool payloads",
   assert.ok(!strictJson(reduced.state).includes(large));
   assert.deepEqual(runtimeReduce(ctx,reduced.state,[success]).events,[]);
 });
+check("live v2 rows retain the provider event time that first created them",()=>{
+  const {ctx,frames}=prepared("v2-live-provider-time");
+  const frame=(type:string)=>copy(frames.find(frame=>(frame.params as Record<string,JsonValue>).type === type)!);
+  const stamp=(source:RuntimeFrame,created:number,id:string)=>{
+    const params=source.params as Record<string,JsonValue>;
+    params.created=created;
+    params.id=id;
+    return source;
+  };
+  const textStarted=stamp(frame("session.text.started"),10_000,"time-text-started");
+  const textEnded=stamp(frame("session.text.ended"),11_000,"time-text-ended");
+  const started=runtimeReduce(ctx,null,[textStarted]);
+  const firstText=started.events.find(event=>event.kind === "chatItem")!;
+  assert.equal(firstText.kind === "chatItem" ? firstText.item.timestamp : undefined,new Date(10_000).toISOString());
+  const ended=runtimeReduce(ctx,started.state,[textEnded]);
+  const finalText=ended.events.find(event=>event.kind === "chatItem")!;
+  assert.equal(finalText.kind === "chatItem" ? finalText.item.timestamp : undefined,new Date(10_000).toISOString());
+
+  const inputStarted=stamp(frame("session.tool.input.started"),20_000,"time-tool-started");
+  const called=stamp(frame("session.tool.called"),21_000,"time-tool-called");
+  const success=stamp(frame("session.tool.success"),22_000,"time-tool-success");
+  const running=runtimeReduce(ctx,ended.state,[inputStarted,called]);
+  const firstTool=running.events.filter(event=>event.kind === "chatItem").at(-1)!;
+  assert.equal(firstTool.kind === "chatItem" ? firstTool.item.timestamp : undefined,new Date(20_000).toISOString());
+  const completed=runtimeReduce(ctx,running.state,[success]);
+  const finalTool=completed.events.find(event=>event.kind === "chatItem")!;
+  assert.equal(finalTool.kind === "chatItem" ? finalTool.item.timestamp : undefined,new Date(20_000).toISOString());
+});
 check("recorded resumed turn keeps reasoning and text with the same ordinal in separate rows",()=>{
   const ctx=loaded("v2-resumed-fragments"), capture=fixture.sameMessageFragments;
   ctx.activeTurnId="resumed-turn";
