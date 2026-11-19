@@ -62,6 +62,7 @@
 - UI checks cover accessible controls, handlers, and behavior, not CSS classes, copy, layout internals, or component implementation.
 - Test prompt delivery/substitution mechanisms with opaque fragments, never baked-in wording or shared phrases.
 - No sleeps, live agents, or real network in unit tests. Playwright is opt-in when it is the right oracle; report flakiness honestly.
+- QA DEV peers on any machine: agents sign in to QA accounts themselves, never waiting for the owner. Follow `.agents/skills/qa-peers/SKILL.md` (Automated QA sign-in); a machine missing the local QA secrets re-provisions them with the `qa-account-reprovision` mem skill.
 
 ## Bench safety: NEVER call raw `codeterm` against dev — use the lib
 
