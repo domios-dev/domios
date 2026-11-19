@@ -3,10 +3,10 @@ use super::*;
 async fn serve_replies(listener: &tokio::net::TcpListener) {
     let catalogue = json!({
         "all":[{
-            "id":"fixture-provider", "name":"Fixture provider",
+            "id":"upstream-a", "name":"Fixture provider",
             "models":{"beam-free":{"name":"x".repeat(MAX_RUNTIME_VALUE_BYTES)}}
         }],
-        "connected":["fixture-provider"], "default":{"fixture-provider":"beam-free"}
+        "connected":["upstream-a"], "default":{"upstream-a":"beam-free"}
     })
     .to_string();
     let bodies = [
@@ -104,7 +104,7 @@ async fn finite_reply_limits_are_request_local_and_keep_projected_catalogues() {
             match index {
                 0 => assert_eq!(
                     reply.unwrap(),
-                    json!({"body":{"all":[{"id":"fixture-provider","name":"Fixture provider"}],"connected":["fixture-provider"]},"headers":{}})
+                    json!({"body":{"all":[{"id":"upstream-a","name":"Fixture provider"}],"connected":["upstream-a"]},"headers":{}})
                 ),
                 4 => assert_eq!(reply.unwrap()["body"], json!({"ready":true})),
                 _ => {
