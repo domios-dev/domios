@@ -85,7 +85,7 @@ function detailData(tabs: readonly Tab[], teams: Team[], plans: PlanView[]): Sid
 const detailActions = {
   activateWorkspace: () => undefined, activateTab: () => undefined, closeTab: () => undefined, renameTab: () => undefined,
   renameWorkspace: () => undefined, closeWorkspace: () => undefined, newTerminal: () => undefined, newSession: () => undefined,
-  newAgent: () => undefined, openRemoteTab: () => undefined, openAutomation: () => undefined, closeTeam: () => undefined,
+  newAgent: () => undefined, openAutomation: () => undefined, closeTeam: () => undefined,
 } satisfies SidebarWorkspaceDetailActions;
 const row = (host: Element, tabId: string) => host.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`);
 

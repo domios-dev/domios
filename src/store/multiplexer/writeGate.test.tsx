@@ -272,6 +272,89 @@ test("async cache hydration presents retained status while live state is pending
   }
 });
 
+test("paired General cache restores rows before reconciliation without enabling activation", async () => {
+  const { act, createRoot, React } = await setupHappyDom();
+  const { setFrontendCacheStorageForTests } = await import("../../lib/frontendCacheRecords");
+  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  const { MultiplexerProvider, useMultiplexer, useMuxState, usePairedWorkspaceInventory } = await import("./index");
+  const { pairedGeneralCacheScope, readPairedGeneralCache, writePairedGeneralCache } = await import("./pairedGeneralCache");
+  const { RELAY_PROTOCOL_VERSION } = await import("../../lib/types");
+  const { FIRST_RUN_GA_TAB_MARKER } = await import("../../components/AgentPicker/constants");
+  type Tab = import("../../lib/types").Tab;
+  type MultiplexerState = import("../../lib/types").MultiplexerState;
+  setFrontendCacheStorageForTests(cacheStorage);
+  configureDaemonTransport({ origin: "http://localhost:7686", token: "paired-general-test" });
+  const account = "cache-owner";
+  const scope = pairedGeneralCacheScope(account)!;
+  const peerId = "peer-cache";
+  const viewerId = `mesh:${peerId}/main`;
+  const saved: Tab = { id: "main", title: "Saved General", tab_type: "Terminal", cwd: "/private", pty_id: "private",
+    protected: true, role: "Manager", role_profile: "general_agent", agent_session_id: "private-session" };
+  await writePairedGeneralCache(scope, new Map([[peerId, {
+    publicKey: "authorized-key", sessions: [{ viewerId, tab: saved, status: "Waiting" }],
+  }]]));
+  const stored = (await readPairedGeneralCache(scope)).get(peerId)?.sessions[0];
+  assert(stored?.tab.pty_id === null && !stored.tab.agent_session_id && stored.tab.cwd === null, "disk cache contains only presentation");
+  assert((await readPairedGeneralCache(pairedGeneralCacheScope("other-account")!)).size === 0, "another account does not inherit the inventory");
+
+  const mainWorkspace = { id: "local-general", name: "General", protected: true, tabs: [], active_tab_id: null, cwd: null };
+  const actualMain = { ...saved, title: "Live General", workspace_id: "peer-general" };
+  const firstRun = { ...actualMain, id: "not-started", description: FIRST_RUN_GA_TAB_MARKER };
+  let publishLive!: (state: MultiplexerState) => void;
+  const livePeer = new Promise<MultiplexerState>(resolve => { publishLive = resolve; });
+  const focusCalls: string[] = [];
+  __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "mesh_list_peers") return { local_instance_name: "Local", paired: [
+      { instance_id: peerId, instance_name: "Peer", public_key: "authorized-key", online: true, relay_protocol_version: RELAY_PROTOCOL_VERSION },
+    ] } as T;
+    if (command === "mesh_peer_mux_state") return await livePeer as T;
+    if (command === "mesh_peer_tabs_list") return { peer_id: peerId, peer_name: "Peer", tabs: [actualMain] } as T;
+    if (command === "mux_get_state") return { ...sampleCachedState(mainWorkspace.id), workspaces: [mainWorkspace] } as T;
+    if (command === "mux_set_focused_tab") focusCalls.push(String(args?.tabId));
+    return [] as T;
+  });
+  __setListenForTest(async () => () => {});
+  let firstVisible: ReturnType<typeof usePairedWorkspaceInventory> | undefined;
+  let actions!: ReturnType<typeof useMultiplexer>;
+  let inventory!: ReturnType<typeof usePairedWorkspaceInventory>;
+  let state!: ExtendedState;
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  function Probe() {
+    actions = useMultiplexer();
+    inventory = usePairedWorkspaceInventory();
+    state = useMuxState();
+    if (inventory.ready) firstVisible ??= inventory;
+    return null;
+  }
+  try {
+    await act(async () => root.render(React.createElement(MultiplexerProvider, { pairedCacheAccount: account, children: React.createElement(Probe) })));
+    const cachedPeer = firstVisible?.generals[0];
+    assert(cachedPeer?.cached && cachedPeer.sessions[0]?.viewerId === viewerId, "the first ready inventory includes the cached viewer");
+    assert(cachedPeer.sessions[0].status === "Waiting", "cached presentation keeps its previous status");
+    await act(async () => actions.setActiveTab(mainWorkspace.id, viewerId));
+    assert(!Object.prototype.hasOwnProperty.call(state.tabs, viewerId) && focusCalls.length === 0, "cached presentation grants no viewer activation");
+
+    await act(async () => publishLive({
+      ...sampleCachedState("peer-general"),
+      workspaces: [{ ...mainWorkspace, id: "peer-general", tabs: ["main", "not-started"], active_tab_id: "main" }],
+      tabs: { main: actualMain, "not-started": firstRun },
+      tab_statuses: { main: "Idle" },
+    }));
+    const live = inventory.generals[0];
+    assert(live?.sessions.length === 1 && live.sessions[0].viewerId === viewerId, "reconciliation preserves the viewer and omits uninitialized General");
+    assert(!live.cached && live.sessions[0].status === "Idle", "live status replaces the retained status");
+    await act(async () => actions.setActiveTab(mainWorkspace.id, viewerId));
+    assert(state.tabs[viewerId]?.id === viewerId && focusCalls.includes(viewerId), "the authoritative inventory enables activation");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});
+
 test("mux status-only updates persist one status row and identical status writes nothing", async () => {
   const { frontendCacheScope, setFrontendCacheStorageForTests } = await import("../../lib/frontendCacheRecords");
   setFrontendCacheStorageForTests(cacheStorage);

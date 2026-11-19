@@ -94,7 +94,7 @@ export function webBootHasSyncCache(): boolean {
   return IS_WEB && loadCachedStateSync() !== null;
 }
 
-export function MultiplexerProvider({ children }: { children: ReactNode }) {
+export function MultiplexerProvider({ children, pairedCacheAccount }: { children: ReactNode; pairedCacheAccount?: string | false | null }) {
   const [state, dispatch] = useReducer(reducer, null, buildInitialState);
   useContextCompactionObserver(state.tabs, state.tabStatuses, state.generation > HYDRATED_GENERATION);
   const upsertToast = useCallback(
@@ -347,9 +347,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }
   }, []);
   const [pairedRoster, setPairedRoster] = useState<PairedRoster | null>(null);
-  useMeshPeerProjection(remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh, setPairedRoster);
-  const { generals, browse, refreshGeneral, refreshBrowse } = usePairedWorkspaces(pairedRoster);
-  const pairedInventory = useMemo(() => ({ generals, browse }), [generals, browse]);
+  const [rosterSettled, setRosterSettled] = useState(false);
+  const settleInitialRoster = useCallback(() => setRosterSettled(true), []);
+  useMeshPeerProjection(remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh, setPairedRoster, settleInitialRoster);
+  const { generals, browse, refreshGeneral, refreshBrowse, ready } = usePairedWorkspaces(pairedRoster, rosterSettled, pairedCacheAccount ?? null);
+  const pairedInventory = useMemo(() => ({ generals, browse, ready }), [generals, browse, ready]);
   const pairedInventoryRef = useRef(pairedInventory);
   pairedInventoryRef.current = pairedInventory;
 
@@ -364,7 +366,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const remotePeerSubscriptions = JSON.stringify(generals.flatMap(peer => {
     if (peer.availability !== "online" && peer.availability !== "reconnecting" && peer.availability !== "unreachable") return [];
-    const candidate = peer.sessions[0]?.viewerId
+    const candidate = (peer.cached ? undefined : peer.sessions[0]?.viewerId)
       ?? Object.values(state.tabs).find(tab => tab.remote_peer_id === peer.peerId && parseCompositeTabId(tab.id)?.peerId === peer.peerId)?.id
       ?? (browse?.target.id === peer.peerId ? browse.workspaces.find(workspace => workspace.tabs.length)?.tabs[0]?.viewerId : undefined);
     return candidate ? [[peer.peerId, candidate]] : [];
@@ -984,7 +986,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         if (remote.remote_peer_id !== route.peerId || remote.remote_tab_id !== route.remoteTabId || !remote.workspace_id) return;
         workspaceId = remote.workspace_id;
       } else {
-        const session = general?.sessions.find(item => item.viewerId === tabId)
+        const session = (general?.cached ? undefined : general?.sessions.find(item => item.viewerId === tabId))
           ?? (browse?.target === workspaceBrowseTarget() && browse?.target.id === route.peerId
             ? browse.workspaces.flatMap(workspace => workspace.tabs).find(item => item.viewerId === tabId)
             : undefined);

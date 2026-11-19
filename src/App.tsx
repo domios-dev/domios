@@ -90,6 +90,7 @@ import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 import { DEV_BUILD } from "./lib/devBuild";
 import { FreeLimitPlansModal } from "./components/billing/FreeLimitPlansModal";
 import { useSessionRevocationScreen } from "./components/Settings/useSessionRevocationScreen";
+import { useAccount } from "./components/Settings/useAccount";
 import { useAccountMeshLimitNotice } from "./components/MeshPanel/accountMeshLimitNotice";
 import { precheckFreeLimit } from "./components/billing/freeLimitGate";
 import { neighborsEnabled } from "./components/Neighbors/neighborsSwitch";
@@ -1087,8 +1088,11 @@ function AppInner() {
 }
 
 export function App() {
+  const { model } = useAccount();
+  const pairedCacheAccount = model.kind === "signed_in" ? model.identity.uid
+    : model.kind === "pending" ? false : null;
   return (
-    <MultiplexerProvider>
+    <MultiplexerProvider pairedCacheAccount={pairedCacheAccount}>
       <PageDataProvider>
       <UpdateProvider>
         <UpdatePanelProvider><AppInner /></UpdatePanelProvider>

@@ -1,9 +1,14 @@
 import type { Tab } from "./types";
 
-export function asleepLabel(tab: Pick<Tab, "slept_at_ms">, nowMs: number): string {
-  if (tab.slept_at_ms == null || !Number.isFinite(tab.slept_at_ms)) return "Asleep";
+export function asleepDuration(tab: Pick<Tab, "slept_at_ms">, nowMs: number): string | null {
+  if (tab.slept_at_ms == null || !Number.isFinite(tab.slept_at_ms)) return null;
   const hours = Math.floor(Math.max(0, nowMs - tab.slept_at_ms) / 3_600_000);
-  return `Asleep, idle ${hours}h`;
+  return `${hours}h`;
+}
+
+export function asleepLabel(tab: Pick<Tab, "slept_at_ms">, nowMs: number): string {
+  const duration = asleepDuration(tab, nowMs);
+  return duration ? `Asleep, idle ${duration}` : "Asleep";
 }
 
 export function hasSleepingTranscript(tab: Partial<Tab>): boolean {

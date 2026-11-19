@@ -9,6 +9,7 @@ import type { SidebarWorkspaceDetailActions, SidebarWorkspaceDetailData } from "
 import { SidebarDnd } from "./sortable";
 import { publishNeighborGateways } from "../Neighbors/neighborGateways";
 import { tabAttention, type TabAttention } from "./tabAttention";
+import { setSidebarMachineFilter } from "./sidebarMachineFilter";
 import { projectAttachedRemoteTab } from "../../lib/remoteTabPortal";
 
 vi.mock("../../lib/bridge", async actual => ({ ...await actual<object>(), invoke: vi.fn().mockResolvedValue([]), listen: vi.fn().mockResolvedValue(() => {}) }));
@@ -20,7 +21,7 @@ vi.mock("../MeshPanel/useMeshData", () => ({ useMeshData: () => ({
 vi.mock("./SpinalCord", () => ({ SpinalCordButton: () => null }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-afterEach(() => { localStorage.clear(); publishNeighborGateways({}); });
+afterEach(() => { localStorage.clear(); publishNeighborGateways({}); setSidebarMachineFilter("all"); });
 
 const main: Tab = { id: "main", title: "Main", protected: true, role: "Manager", role_profile: "general_agent", agent_type: "fixture", pty_id: "main-pty", tab_type: "Terminal", cwd: "/general", sort_order: 10 };
 const manager: Tab = { id: "quartz", title: "Quartz", role: "Manager", role_profile: "orchestrator", agent_type: "fixture", team_id: "team", pty_id: "quartz-pty", tab_type: "Terminal", cwd: "/general", sort_order: 2 };
@@ -39,7 +40,7 @@ const workspace: Workspace = { id: "general", name: "General", protected: true, 
 const noop = () => {};
 const actions: SidebarWorkspaceDetailActions = {
   activateWorkspace: noop, activateTab: noop, closeTab: noop, renameTab: noop, renameWorkspace: noop,
-  closeWorkspace: noop, newTerminal: noop, newSession: noop, newAgent: noop, openRemoteTab: noop,
+  closeWorkspace: noop, newTerminal: noop, newSession: noop, newAgent: noop,
 };
 
 async function mount(
@@ -51,7 +52,7 @@ async function mount(
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  const render = async (expanded: boolean, attachedTabs: Tab[] = [], activeTabId: string = main.id) => {
+  const render = async (expanded: boolean, attachedTabs: Tab[] = [], activeTabId: string = main.id, peers = pairedGenerals) => {
     const renderWorkspace = {
       ...workspace,
       tabs: [...workspace.tabs, ...independentGeneralTabs.map((tab) => tab.id), ...attachedTabs.map((tab) => tab.id)],
@@ -66,7 +67,7 @@ async function mount(
     };
     await act(async () => root.render(
       <SidebarDnd handlers={{ reorderTabs: noop, reorderDisplay: noop, reorderWorkspaces: noop }}>
-        <PairedWorkspaceInventoryContext.Provider value={{ generals: pairedGenerals, browse: null }}>
+        <PairedWorkspaceInventoryContext.Provider value={{ generals: peers, browse: null }}>
           <SidebarGeneralSection workspace={renderWorkspace} expanded={expanded} onToggle={noop} data={data}
             actions={{ ...actions, activateTab: onActivate }} workspaces={[renderWorkspace]} />
         </PairedWorkspaceInventoryContext.Provider>
@@ -162,18 +163,15 @@ it("lists paired General rows alphabetically and selects their composite viewer 
   ];
   const view = await mount({}, pairedGenerals, activate);
   try {
-    const groups = Array.from(view.host.querySelectorAll<HTMLElement>('[data-testid="paired-general-group"]'));
-    expect(groups.map(group => group.getAttribute("aria-label"))).toEqual([
-      "Alpha General sessions", "Offline card General sessions", "Zulu General sessions",
-    ]);
+    const remoteIds = [...view.host.querySelectorAll<HTMLElement>('[data-tab-id^="mesh:"]')].map(row => row.dataset.tabId);
+    expect(remoteIds).toEqual(["mesh:peer-a/main", "mesh:peer-z/main"]);
     const localMain = view.host.querySelector('[data-testid="tab-item"][data-tab-id="main"]');
-    expect(localMain?.textContent).toContain("This machine");
-    expect(localMain?.textContent).toContain("idle");
+    expect(localMain?.getAttribute("aria-label")).toBe("General Agent");
     const unavailable = view.host.querySelector('[data-testid="tab-item"][data-tab-id="mesh:peer-z/main"]');
-    expect(unavailable?.textContent).toContain("offline");
+    expect(unavailable?.getAttribute("aria-label")).toContain("offline");
     expect(unavailable?.textContent).not.toContain("working");
     expect(unavailable?.querySelector('[data-testid="tab-working-activity"]')).toBeNull();
-    expect(groups[1].textContent).toContain("offline");
+    expect(view.host.textContent).not.toContain("Offline card");
     const remoteRow = view.host.querySelector<HTMLElement>('[data-testid="tab-item"][data-tab-id="mesh:peer-a/main"]');
     expect(remoteRow).not.toBeNull();
     await act(async () => remoteRow?.querySelector("button")?.click());
@@ -181,7 +179,7 @@ it("lists paired General rows alphabetically and selects their composite viewer 
   } finally { await view.close(); }
 });
 
-it("renders an observed General viewer once in its machine group before and after attachment", async () => {
+it("retains one observed General viewer and the same row after attachment", async () => {
   const viewerId = "mesh:peer-a/main";
   const attachedViewer = {
     ...projectAttachedRemoteTab(main, { peer_id: "peer-a", peer_name: "Alpha" }, workspace.id),
@@ -200,13 +198,13 @@ it("renders an observed General viewer once in its machine group before and afte
   try {
     const rowBeforeAttachment = view.host.querySelector<HTMLElement>(`[data-testid="tab-item"][data-tab-id="${viewerId}"]`);
     expect(view.host.querySelectorAll(`[data-testid="tab-item"][data-tab-id="${viewerId}"]`)).toHaveLength(1);
-    expect(rowBeforeAttachment?.closest('[data-testid="paired-general-group"]')).not.toBeNull();
+    expect(rowBeforeAttachment).not.toBeNull();
 
     await view.render(true, [attachedViewer]);
     const rowsAfterAttachment = view.host.querySelectorAll<HTMLElement>(`[data-testid="tab-item"][data-tab-id="${viewerId}"]`);
     expect(rowsAfterAttachment).toHaveLength(1);
     const rowAfterAttachment = rowsAfterAttachment[0];
-    expect(rowAfterAttachment.closest('[data-testid="paired-general-group"]')).not.toBeNull();
+    expect(rowAfterAttachment).toBe(rowBeforeAttachment);
     expect(rowAfterAttachment.querySelector('[data-kind="requested"]')).not.toBeNull();
     expect(view.host.querySelector('[data-testid="tab-item"][data-tab-id="independent-general"]')).not.toBeNull();
 
@@ -245,11 +243,84 @@ it("keeps equal raw tab ids distinct across different peers", async () => {
     const rowA = view.host.querySelector<HTMLElement>(`[data-testid="tab-item"][data-tab-id="${viewerA}"]`)!;
     const rowB = view.host.querySelector<HTMLElement>(`[data-testid="tab-item"][data-tab-id="${viewerB}"]`)!;
     expect(view.host.querySelectorAll('[data-testid="tab-item"][data-tab-id="mesh:peer-a/shared"], [data-testid="tab-item"][data-tab-id="mesh:peer-b/shared"]')).toHaveLength(2);
-    expect(rowA.closest('[data-testid="paired-general-group"]')?.getAttribute("aria-label")).toBe("Alpha General sessions");
-    expect(rowB.closest('[data-testid="paired-general-group"]')?.getAttribute("aria-label")).toBe("Beta General sessions");
+    expect(rowA.getAttribute("aria-label")).toContain("Alpha");
+    expect(rowB.getAttribute("aria-label")).toContain("Beta");
     await act(async () => rowA.querySelector("button")?.click());
     await act(async () => rowB.querySelector("button")?.click());
     expect(activate.mock.calls).toEqual([[workspace.id, viewerA], [workspace.id, viewerB]]);
+  } finally { await view.close(); }
+});
+
+it("shows the same machine and state on the harness tooltip and the row menu", async () => {
+  const peer: PairedGeneral = { peerId: "peer", name: "Desk [dev-a]", availability: "online",
+    sessions: [{ viewerId: "mesh:peer/main", tab: { ...main, frozen: true }, status: "Idle" }] };
+  const view = await mount({}, [peer]);
+  try {
+    const row = view.host.querySelector<HTMLElement>('[data-tab-id="mesh:peer/main"]')!;
+    const harness = row.querySelector('[data-testid="tab-tab-icon"]')!.firstElementChild!;
+    await act(async () => harness.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" })));
+    const tip = document.querySelector('[role="tooltip"]')!;
+    expect(tip.textContent).toContain("Desk");
+    expect(tip.textContent).toContain("online");
+    expect(tip.textContent).toContain("asleep");
+    await act(async () => harness.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse" })));
+    const actions = row.querySelector<HTMLButtonElement>('button[aria-label="Tab actions"]')!;
+    await act(async () => actions.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(actions.getAttribute("aria-expanded")).toBe("true");
+    const menu = document.getElementById(actions.getAttribute("aria-controls")!);
+    expect(menu?.textContent).toContain("asleep");
+    expect(menu?.textContent).toContain("Desk");
+  } finally { await view.close(); }
+});
+
+it("filters General in place and preserves its selected row", async () => {
+  const peer: PairedGeneral = { peerId: "peer", name: "Desk", availability: "online",
+    sessions: [{ viewerId: "mesh:peer/main", tab: main, status: "Idle" }] };
+  const view = await mount({}, [peer]);
+  try {
+    const local = view.host.querySelector<HTMLElement>('[data-tab-id="main"]')!;
+    const remote = view.host.querySelector<HTMLElement>('[data-tab-id="mesh:peer/main"]')!;
+    const selected = local.querySelector('button[aria-current="page"]');
+    expect(selected).not.toBeNull();
+    await act(async () => setSidebarMachineFilter({ id: "peer", name: "Desk" }));
+    expect(local.hidden).toBe(true);
+    expect(remote.hidden).toBe(false);
+    expect(local.querySelector('button[aria-current="page"]')).toBe(selected);
+    await act(async () => setSidebarMachineFilter("local"));
+    expect(local.hidden).toBe(false);
+    expect(remote.hidden).toBe(true);
+    await act(async () => setSidebarMachineFilter("all"));
+    expect(remote.hidden).toBe(false);
+    expect(view.host.querySelector('[data-tab-id="main"]')).toBe(local);
+  } finally { await view.close(); }
+});
+
+it("keeps a restored concierge out of General before the Neighbor roster loads", async () => {
+  const concierge: Tab = { ...agent, id: "restored-concierge", title: "Bound agent",
+    neighbor_authority: { uid: "owner", friendship_id: "friend", root_tab_id: null } };
+  const view = await mount({}, [], noop, [concierge]);
+  try {
+    expect(view.host.querySelector(`[data-tab-id="${concierge.id}"]`)).toBeNull();
+    expect(view.host.querySelector(`[data-tab-id="${agent.id}"]`)).not.toBeNull();
+    await act(async () => publishNeighborGateways({ friend: concierge.id }));
+    expect(view.host.querySelector(`[data-tab-id="${concierge.id}"]`)).toBeNull();
+  } finally { await view.close(); }
+});
+
+it("reconciles a cached General session in the same sidebar row", async () => {
+  const peer: PairedGeneral = { peerId: "peer", name: "Desk", availability: "reconnecting", cached: true,
+    sessions: [{ viewerId: "mesh:peer/main", tab: main, status: "Idle" }] };
+  const view = await mount({}, [peer]);
+  try {
+    const first = view.host.querySelector('[data-tab-id="mesh:peer/main"]')!;
+    expect(first.getAttribute("aria-label")).toContain("reconnecting");
+    await view.render(true, [], main.id, [{
+      ...peer, cached: false, availability: "online",
+      sessions: [{ ...peer.sessions[0], tab: { ...main, boot_stage: "agent_ready" } }],
+    }]);
+    const ready = view.host.querySelector('[data-tab-id="mesh:peer/main"]')!;
+    expect(ready).toBe(first);
+    expect(ready.getAttribute("aria-label")).toContain("idle");
   } finally { await view.close(); }
 });
 

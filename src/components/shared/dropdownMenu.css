@@ -112,13 +112,16 @@
 }
 
 .ct-menu-row[aria-checked="true"],
-.ct-menu-row[aria-selected="true"] {
+.ct-menu-row[aria-selected="true"],
+.ct-machine-menu-row[aria-current="true"] {
   background: color-mix(in srgb, var(--ct-accent) 13%, transparent);
 }
 
 .ct-menu-row[aria-checked="true"]:hover,
 .ct-menu-row[aria-checked="true"]:focus-visible,
-.ct-menu-row[aria-selected="true"]:hover {
+.ct-menu-row[aria-selected="true"]:hover,
+.ct-machine-menu-row[aria-current="true"]:hover,
+.ct-machine-menu-row[aria-current="true"]:focus-visible {
   background: color-mix(in srgb, var(--ct-accent) 18%, transparent);
 }
 

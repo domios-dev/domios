@@ -83,7 +83,7 @@ export interface MultiplexerActionsContextType {
 
 export const MultiplexerActionsContext = createContext<MultiplexerActionsContextType | null>(null);
 export const MuxStateStoreContext = createContext<MuxStateStore | null>(null);
-type PairedWorkspaceInventory = Pick<ReturnType<typeof usePairedWorkspaces>, "generals" | "browse">;
+type PairedWorkspaceInventory = Pick<ReturnType<typeof usePairedWorkspaces>, "generals" | "browse"> & { ready?: boolean };
 export const PairedWorkspaceInventoryContext = createContext<PairedWorkspaceInventory>({ generals: [], browse: null });
 
 export function usePairedWorkspaceInventory(): PairedWorkspaceInventory {

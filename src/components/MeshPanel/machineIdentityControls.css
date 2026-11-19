@@ -3,6 +3,10 @@
   gap: 8px;
 }
 
+.ct-machine-switcher[data-filtered] {
+  box-shadow: inset 0 0 0 1px var(--ct-accent);
+}
+
 .ct-machine-menu-row:disabled {
   opacity: 1;
 }

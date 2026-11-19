@@ -1,3 +1,4 @@
+import { isConciergeTab } from "../../lib/tabInputPolicy";
 import { createNoticePublisher } from "../../lib/notices";
 import { firstRunLocked, firstRunSelection, firstRunSidebarTabs } from "../../lib/firstRunGate";
 import { FirstRunControls } from "../AgentPicker/FirstRunControls";
@@ -45,6 +46,7 @@ import type { JobsTarget } from "../Jobs/JobsView";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
 import { WorkspaceBrowseSection } from "./WorkspaceBrowseSection";
+import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
 import { useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 import { SidebarCompactRail, type CompactRailGroup } from "./SidebarCompactRail";
 import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
@@ -55,7 +57,7 @@ import { WorkspaceCloseConfirmDialog } from "./WorkspaceCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 import { openNewSessionPicker } from "../../lib/newSessionChoice";
-import { RemoteTabPicker } from "./RemoteTabPicker";
+import { observedGeneralViewers } from "../../store/multiplexer/pairedWorkspaceProjection";
 import { tabAttentionByTab } from "./tabAttention";
 import { teamCloseResourcesForId, teamCloseResourcesForWorkspace, type TeamCloseResource } from "./teamCloseResources";
 import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
@@ -118,7 +120,7 @@ export const Sidebar = memo(function Sidebar({
   teamActions,
   onCollapsedChange,
   expandRequest = 0,
-  restoring = false,
+  restoring: restoringWorkspace = false,
   firstRunActive = firstRunLocked(config?.general_agent),
 }: SidebarProps) {
   const {
@@ -130,13 +132,14 @@ export const Sidebar = memo(function Sidebar({
     reorderDisplay,
     reorderWorkspaces,
     createTab,
-    attachRemoteTab,
     closeTab,
     setActiveTab,
     renameTab,
     spawnAgentTab,
     upsertToast,
   } = useMultiplexer();
+  const { generals, browse, ready: pairedInventoryReady = true } = usePairedWorkspaceInventory();
+  const restoring = restoringWorkspace || !pairedInventoryReady;
   const backendState = useMuxSelector(selectSidebarState, sidebarStateEqual);
   const workspaceBrowseTarget = useWorkspaceBrowseTarget();
   const selectedState = firstRunSelection(firstRunActive, { ...backendState, focused_tab_id: null });
@@ -161,7 +164,6 @@ export const Sidebar = memo(function Sidebar({
     blueprints: string[];
     teams: TeamCloseResource[];
   } | null>(null);
-  const [remotePickerWorkspaceId, setRemotePickerWorkspaceId] = useState<string | null>(null);
   const { providers, loading: providersLoading } = useAgentProviders();
   const { index: planIndex, refetch: refetchPlanIndex } = usePlanIndexOptional();
   const fullPlans = useSidebarPlansOptional();
@@ -641,7 +643,6 @@ export const Sidebar = memo(function Sidebar({
     },
     newSession: handleNewSession,
     newAgent: handleAgentSpawn,
-    openRemoteTab: setRemotePickerWorkspaceId,
     openMap: onOpenWorkspaceMap,
     openAutomation: onOpenWorkspaceAutomation,
     renamePlan: handleRenamePlan,
@@ -657,19 +658,44 @@ export const Sidebar = memo(function Sidebar({
   );
   const compactGroups = useMemo<CompactRailGroup[]>(() => {
     if (!isCompact) return [];
-    const railGroup = (workspaceId: string, label: string, tabIds: readonly string[], keep: (tab: Tab) => boolean, isGeneral = false): CompactRailGroup => {
+    const railGroup = (workspaceId: string, label: string, tabIds: readonly string[], keep: (tab: Tab) => boolean): CompactRailGroup => {
       const workspaceActive = workspaceId === state.active_workspace_id && isWorkspaceMode;
-      const tabs = tabsInWorkspace(tabIds, state.tabs).filter((tab) => isSidebarTabVisible(tab) && !tab.parent_tab_id && keep(tab));
+      const tabs = tabsInWorkspace(tabIds, state.tabs).filter((tab) => isSidebarTabVisible(tab) && !isConciergeTab(tab) && !tab.parent_tab_id && keep(tab));
       const active = tabs.find((tab) => isWorkspaceTabActive(workspaceActive, workspaceCanvasActive, tab.id, state.activeTabIds[workspaceId]));
       const activeTabId = workspaceActive && !workspaceCanvasActive ? state.activeTabIds[workspaceId] ?? active?.id ?? null : active?.id ?? null;
-      return { workspaceId, label, tabs, activeTabId, isGeneral };
+      return { workspaceId, label, tabs, activeTabId };
     };
     const groups: CompactRailGroup[] = [];
-    if (generalWorkspace) groups.push(railGroup(generalWorkspace.id, generalWorkspace.name, generalWorkspace.tabs, isGeneralSectionTab, true));
+    if (generalWorkspace) {
+      const group = railGroup(generalWorkspace.id, generalWorkspace.name, generalWorkspace.tabs, tab => !tab.remote_peer_id && isGeneralSectionTab(tab));
+      const peers = [...generals].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }) || a.peerId.localeCompare(b.peerId));
+      const viewers = observedGeneralViewers(peers, state.tabs, generalWorkspace.id);
+      group.tabs.push(...viewers.map(({ session, attached }) => attached ?? { ...session.tab, id: session.viewerId }));
+      group.observed = new Map(viewers.map(({ peer, session, attached }) => [session.viewerId, {
+        machine: { peerId: peer.peerId, name: peer.name, availability: peer.availability, cached: peer.cached && !attached },
+        status: session.status,
+      }]));
+      groups.push(group);
+    }
     const selected = ordinaryWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId);
-    if (selected) groups.push(railGroup(selected.id, selected.name, selected.tabs, (tab) => anchorsTeam(tab)));
+    if (selected) groups.push(railGroup(selected.id, selected.name, selected.tabs, (tab) => anchorsTeam(tab) || Boolean(tab.remote_peer_id)));
+    if (browse?.availability === "online") {
+      for (const { workspace, peerId, tabs } of browse.workspaces) {
+        const alreadyVisible = new Set(groups.flatMap(group => group.tabs.map(tab => tab.id)));
+        const visible = tabs.filter(({ viewerId }) => !alreadyVisible.has(viewerId));
+        groups.push({
+          workspaceId: JSON.stringify([peerId, workspace.id]),
+          label: workspace.name,
+          tabs: visible.map(({ viewerId, tab }) => state.tabs[viewerId] ?? { ...tab, id: viewerId }),
+          activeTabId: state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null,
+          observed: new Map(visible.map(({ viewerId, status }) => [viewerId, {
+            machine: { peerId, name: browse.target.name, availability: "online" }, status,
+          }])),
+        });
+      }
+    }
     return groups;
-  }, [generalWorkspace, isCompact, isWorkspaceMode, ordinaryWorkspaces, selectedWorkspaceId, state.activeTabIds, state.active_workspace_id, state.tabs, workspaceCanvasActive]);
+  }, [generalWorkspace, generals, browse, isCompact, isWorkspaceMode, ordinaryWorkspaces, selectedWorkspaceId, state.activeTabIds, state.active_workspace_id, state.tabs, workspaceCanvasActive]);
 
   return (
     <FirstRunControls locked={firstRunActive}>
@@ -727,16 +753,20 @@ export const Sidebar = memo(function Sidebar({
               {!isCompact && !restoring && <SidebarStructuralSection label="WORKSPACES" testId="workspaces-section-toggle"
                 firstRunMuted={firstRunActive}
                 expanded={workspacesSectionExpanded} onToggle={toggleWorkspacesSection}>
-                {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (workspaceBrowseTarget ? (
-                  <WorkspaceBrowseSection
+                {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && <>
+                  {workspaceBrowseTarget && <WorkspaceBrowseSection
+                    attachedTabs={state.tabs}
+                    touchMode={touchMode}
+                    onRenameViewer={(tab, title) => {
+                      if (tab.workspace_id) renameTab(tab.workspace_id, tab.id, title);
+                    }}
                     selectedViewerId={state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null}
                     onSelectViewer={tabId => {
                       setActiveTab(generalWorkspace?.id ?? "", tabId);
                       onNavigateToTab?.();
                     }}
-                  />
-                ) : (
-                  <>
+                  />}
+                  <div hidden={Boolean(workspaceBrowseTarget)}>
                     <WorkspaceCardGrid
                       workspaces={ordinaryWorkspaces}
                       selectedWorkspaceId={selectedWorkspaceId}
@@ -759,20 +789,11 @@ export const Sidebar = memo(function Sidebar({
                         actions={workspaceDetailActions}
                       />
                     )}
-                  </>
-                ))}
+                  </div>
+                </>}
               </SidebarStructuralSection>}
               </SidebarDnd>
             </div>
-            {remotePickerWorkspaceId && (
-              <RemoteTabPicker
-                onClose={() => setRemotePickerWorkspaceId(null)}
-                onAttach={(peer, tab) => {
-                  const destination = ordinaryWorkspaces.find(workspace => workspace.id === remotePickerWorkspaceId);
-                  if (destination) attachRemoteTab?.(destination.id, peer, tab);
-                }}
-              />
-            )}
             {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} enabled={neighborsSwitch.enabled} activeChat={activeNeighborChat}
               activeTabId={isWorkspaceMode && !workspaceCanvasActive && state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null} />}
             <div

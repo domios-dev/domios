@@ -11,9 +11,6 @@ export interface RemoteTeamIdentity {
   peerName?: string;
 }
 
-export function sharesObservedMachine(teamHostId?: string | null, workerHostId?: string | null): boolean {
-  return Boolean(teamHostId && workerHostId && teamHostId === workerHostId);
-}
 export function managedByLabel(tab: Tab): string | null {
   const controller = tab.ownership?.controller_title?.trim();
   return controller ? `managed by ${controller}` : null;
@@ -24,12 +21,6 @@ export function namedManagerRole(tab: Tab): string | null {
   // A profile is a key: built-in kinds read as their host name, others in sentence case.
   if (profile) return roleDisplayLabel(profile);
   return hasTeamAuthority(tab) ? roleKindLabel(tab) : null;
-}
-
-export function remoteIdentity(tab: Tab): { role: string | null; peer: string } | null {
-  if (!tab.remote_peer_id) return null;
-  const peer = cleanMachineName(tab.remote_peer_name, tab.remote_peer_id) ?? "Machine";
-  return { role: namedManagerRole(tab), peer };
 }
 
 export function remoteTeamName(teamId: string | null | undefined, ...names: Array<string | null | undefined>): string | undefined {

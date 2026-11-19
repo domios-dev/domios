@@ -1,3 +1,4 @@
+import { isConciergeTab } from "../../lib/tabInputPolicy";
 import type { PlanView as Plan } from "../Canvas/planProjection";
 import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
 import { countWorkingTabs } from "./tabStatuses";
@@ -19,7 +20,7 @@ import { buildSidebarDragModel, localWorkspaceTabIds, unitsInOrder, withSiblingO
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { CursorTooltip } from "../shared/CursorTooltip";
 import { TabItem } from "./TabItem";
-import { remoteTeamIdentity, sharesObservedMachine } from "./remoteOwnership";
+import { remoteTeamIdentity } from "./remoteOwnership";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
@@ -30,7 +31,7 @@ import { curatorTabAttention, groupAttention, tabAttention } from "./tabAttentio
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import { SidebarCronRow } from "./SidebarResourceRow";
 import { SidebarShellRow, SidebarOwnerTabRow, SidebarSortableBlock } from "./SidebarShellRow";
-import type { TabMachineLine } from "./TabItem";
+import { matchesSidebarMachine, useSidebarMachineFilter } from "./sidebarMachineFilter";
 import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
 import { AgentChecklistDisclosure, type ChecklistToggle } from "./AgentChecklist";
 import { showsChecklist } from "./agentChecklistModel";
@@ -132,7 +133,7 @@ export interface SidebarWorkspaceTabsProps {
   onCloseTeam?: (teamId: string) => void;
   closingTeamIds?: ReadonlySet<string>;
   onOpenSentinelJob?: (target: JobsTarget) => void;
-  machineLine?: TabMachineLine | null;
+  observedRows?: ReactNode;
 }
 
 export function SidebarWorkspaceTabs({
@@ -169,13 +170,14 @@ export function SidebarWorkspaceTabs({
   onCloseTeam,
   closingTeamIds,
   onOpenSentinelJob,
-  machineLine,
+  observedRows,
 }: SidebarWorkspaceTabsProps) {
+  const filter = useSidebarMachineFilter();
   const { jobs: workspaceCrons, refresh: refreshCrons } = useWorkspaceCrons(ws.id);
   const conciergeIds = useNeighborGatewayIds();
   // A tab bound to a Neighbor lives under that Neighbor, wherever it was created.
   const sortedTabs = useMemo(
-    () => visibleWorkspaceTabs(allSortedTabs, tabs).filter((tab) => !conciergeIds.has(tab.id)),
+    () => visibleWorkspaceTabs(allSortedTabs, tabs).filter((tab) => !isConciergeTab(tab) && !conciergeIds.has(tab.id)),
     [allSortedTabs, tabs, conciergeIds],
   );
   const membersByTeam = useMemo(() => groupWorkspaceTeamMembers(sortedTabs), [sortedTabs]);
@@ -186,6 +188,19 @@ export function SidebarWorkspaceTabs({
     [sortedTabs, attachmentsByOwner],
   );
   const { attachedIds, looseTabs, looseChildIds } = dragModel;
+  const visibleTree = useMemo(() => {
+    if (filter === "all") return null;
+    const visible = new Set<string>();
+    for (const member of sortedTabs) {
+      if (!matchesSidebarMachine(filter, member.remote_peer_id)) continue;
+      let tab: Tab | undefined = member;
+      while (tab && !visible.has(tab.id)) {
+        visible.add(tab.id);
+        tab = tab.parent_tab_id ? tabs[tab.parent_tab_id] : undefined;
+      }
+    }
+    return visible;
+  }, [filter, sortedTabs, tabs]);
 
   const { generals } = usePairedWorkspaceInventory();
   const remoteTeams = useMemo(() => {
@@ -232,7 +247,6 @@ export function SidebarWorkspaceTabs({
     workspaceCanvasActive,
     tabStatuses,
     tabAttentionByTab: displayedAttention,
-    machineLine,
     orchestrators,
     touchMode,
     uiFontScale,
@@ -251,14 +265,9 @@ export function SidebarWorkspaceTabs({
     section: TeamSection,
     shell: boolean,
     checklist?: { toggle: ChecklistToggle; detail: ReactNode },
-  ): ReactNode => {
-    const teamHostId = (teamById.get(section.teamId) ?? remoteTeams.get(section.teamId))?.remote_peer_id;
-    const hideRemoteMachineLine = member.tab.role === "Worker"
-      && sharesObservedMachine(teamHostId, member.tab.remote_peer_id);
-    return (
+  ): ReactNode => (
     <SidebarShellRow key={member.tab.id}
       tab={member.tab} index={member.index} showStartedBy={shell}
-      hideRemoteMachineLine={hideRemoteMachineLine}
       checklistToggle={checklist?.toggle} detail={checklist?.detail}
       attachments={attachmentsByOwner.get(member.tab.id) ?? []}
       tabs={tabs} planIndex={planIndex}
@@ -266,8 +275,7 @@ export function SidebarWorkspaceTabs({
       compact={compact} group="team" groupKey={`${section.teamId}:${section.index}`}
       pinnedIds={[]} toWorkspaceOrder={reorderSiblings} {...sharedRow}
     />
-    );
-  };
+  );
 
   // One element shape whether or not a checklist exists, so its first todo never remounts the row.
   const renderMemberRow = (member: TeamTabMember, section: TeamSection, shell = false): ReactNode => (
@@ -318,7 +326,7 @@ export function SidebarWorkspaceTabs({
       />
     );
     return (
-      <SidebarSortableBlock key={tab.id} tab={tab} group={group} groupKey={groupKey} pinnedIds={pinnedIds}
+      <SidebarSortableBlock key={tab.id} hidden={visibleTree !== null && !visibleTree.has(tab.id)} tab={tab} group={group} groupKey={groupKey} pinnedIds={pinnedIds}
         toWorkspaceOrder={toWorkspaceOrder} className="sidebar-tab-tree-row">
         <AgentChecklistDisclosure plans={plans} tabId={tab.id} title={tab.title}>
           {(toggle, detail) => <>{renderOwner(showsChecklist(tab) ? toggle : undefined)}{showsChecklist(tab) && detail}</>}
@@ -366,6 +374,7 @@ export function SidebarWorkspaceTabs({
 
     rows.push(
       <SortableRow
+        hidden={!members.some(({ tab }) => matchesSidebarMachine(filter, tab.remote_peer_id))}
         key={teamId}
         id={`${TEAM_PREFIX}${teamId}`}
         data={{ group: "tab", groupKey: ws.id, pinnedIds: pinnedLooseItems, toWorkspaceOrder: reorderUnits }}
@@ -442,8 +451,9 @@ export function SidebarWorkspaceTabs({
     <>
       <SortableContext items={unitItems} strategy={verticalListSortingStrategy}>
         {rows}
+        {observedRows}
       </SortableContext>
-      <div className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
+      <div hidden={typeof filter === "object"} className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
         {onNewSession && !ws.cwd_missing && <CursorTooltip
           active={newSessionDisabled}
           content="Finish Get started first"
@@ -469,7 +479,7 @@ export function SidebarWorkspaceTabs({
           </button>
         </CursorTooltip>}
         {onOpenRemoteTab && (
-          <button type="button" onClick={onOpenRemoteTab} aria-label="Open remote Tab" title="Open remote Tab" className={`flex shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)] ${touchMode ? "h-11 w-11" : "h-6 w-6"}`}>
+          <button type="button" onClick={onOpenRemoteTab} aria-label="New session on another machine" title="New session on another machine" className={`flex shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)] ${touchMode ? "h-11 w-11" : "h-6 w-6"}`}>
             <MonitorUp size={12} strokeWidth={1.5} />
           </button>
         )}

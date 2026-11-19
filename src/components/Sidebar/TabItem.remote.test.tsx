@@ -2,7 +2,7 @@ import { describe, expect, finish, it } from "../../test/standaloneTest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Tab } from "../../lib/types";
 import { TabItem } from "./TabItem";
-import { managedByLabel, remoteIdentity } from "./remoteOwnership";
+import { managedByLabel } from "./remoteOwnership";
 import { resetRemoteChatStatus, updateRemoteChatPeers } from "../../lib/remoteChatStatus";
 
 const remote = (role?: Tab["role"], roleProfile?: string): Tab => ({
@@ -21,18 +21,6 @@ const remote = (role?: Tab["role"], roleProfile?: string): Tab => ({
 });
 
 describe("remote tab metadata", () => {
-  it("keeps peer identity and controller attribution on separate lines", () => {
-    expect(remoteIdentity(remote("Worker"))).toEqual({ role: null, peer: "ROG" });
-    expect(remoteIdentity(remote("Manager", "planner"))).toEqual({ role: "Planner", peer: "ROG" });
-    expect(remoteIdentity(remote("Manager", "orchestrator"))).toEqual({ role: "Orchestrator", peer: "ROG" });
-    expect(managedByLabel(remote("Worker"))).toBe("managed by Hubble");
-  });
-
-  it("does not mix stream availability into identity", () => {
-    expect(remoteIdentity({ ...remote("Worker"), remote_channels: { control: "unavailable", output: "unavailable", chat: "unavailable" } }))
-      .toEqual({ role: null, peer: "ROG" });
-  });
-
   it("includes the machine and kind only for physical remotes", () => {
     for (const remotePeer of ["peer", undefined]) {
       const tab = { ...remote("Worker"), remote_peer_id: remotePeer };
@@ -55,22 +43,19 @@ describe("remote tab metadata", () => {
     expect(rowLabel).not.toContain("[dev-peer]");
   });
 
-  it("keeps a redundant same-host Worker line out of the row while retaining accessible provenance", () => {
+  it("keeps machine information in the remote row accessible name", () => {
     const html = renderToStaticMarkup(<TabItem tab={remote("Worker")} index={0} isActive={false}
-      onClick={() => {}} onClose={() => {}} canClose={false} workspaceId="workspace" hideRemoteMachineLine />);
-    expect(html).not.toContain("sidebar-tab-body__sub--machine");
+      onClick={() => {}} onClose={() => {}} canClose={false} workspaceId="workspace" />);
     expect(html).toContain("on ROG, machine");
   });
 
-  it("renders a grouped machine status without activity markers", () => {
+  it("names an offline remote row and suppresses work indicators", () => {
     const html = renderToStaticMarkup(<TabItem
       tab={{ ...remote("Manager"), id: "mesh:peer/main", protected: true, remote_peer_id: undefined }}
       index={0} isActive={false} onClick={() => {}} onClose={() => {}} canClose={false} workspaceId="workspace"
-      machineLine={{ peerId: "peer", name: "ROG", status: "offline", suppressActivity: true }} readOnly />);
-    expect(html).toContain("· offline");
+      observedMachine={{ peerId: "peer", name: "ROG", availability: "offline" }} readOnly />);
     expect(html).toContain("ROG, machine, offline");
     expect(html).not.toContain("data-testid=\"tab-working-activity\"");
-    expect(html).not.toContain("tab-attention-mark");
   });
 
   it("gives an unusable remote row and its activation the machine and state", () => {
