@@ -910,7 +910,7 @@ fn a_send_is_never_abandoned_before_the_delivery_route_can_answer() {
 
 #[test]
 fn an_abandoned_forward_is_unknown_and_an_unreachable_one_wrote_nothing() {
-    let abandoned = forward_failure_response(true, "deadline".into());
+    let abandoned = forward_failure_response(false, true, "deadline".into());
     let error = abandoned
         .data
         .as_ref()
@@ -930,7 +930,16 @@ fn an_abandoned_forward_is_unknown_and_an_unreachable_one_wrote_nothing() {
         "an in-doubt outcome stays deduped so a retry cannot double-deliver"
     );
 
-    let unreachable = forward_failure_response(false, "connection refused".into());
+    let reset = forward_failure_response(false, false, "reset after connecting".into());
+    let error = &reset.data.as_ref().expect("error payload")["error"];
+    assert_eq!(
+        error["code"],
+        codeterm_mesh::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED
+    );
+    assert!(error.get("bytes_written").is_none());
+    assert!(outcome_holds_dedupe(&reset));
+
+    let unreachable = forward_failure_response(true, false, "connection refused".into());
     let error = unreachable
         .data
         .as_ref()

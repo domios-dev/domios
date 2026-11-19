@@ -3,6 +3,7 @@ import { invoke, listen } from "../../lib/bridge";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { readWhenMuxCapacityAvailable } from "../../lib/streamMuxRequestModel";
 import { orchestrationTransport } from "../../lib/transport/orchestrationRuntime";
+import { relayTarget } from "../../lib/webApi";
 import type { CronJob } from "../../lib/types";
 import type { MeshInventoryView } from "../MeshPanel/servicesView";
 import { CRON_ID_PREFIX, type Service } from "../MeshPanel/types";
@@ -13,13 +14,15 @@ export function selectCronService(inventory: MeshInventoryView, cronId: string):
 
 interface CronDetails {
   cronId: string;
+  peerId?: string;
   job: CronJob | null;
   service: Service | null;
   error: unknown;
 }
 
 export function useCronDetails(cronId: string) {
-  const [state, setState] = useState<CronDetails>({ cronId, job: null, service: null, error: null });
+  const peerId = relayTarget()?.id;
+  const [state, setState] = useState<CronDetails>({ cronId, peerId, job: null, service: null, error: null });
   const refreshRef = useRef<(() => Promise<void>) | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -37,11 +40,14 @@ export function useCronDetails(cronId: string) {
               readWhenMuxCapacityAvailable(() => orchestrationTransport().cron_get({ id: cronId }), controller.signal),
               readWhenMuxCapacityAvailable(() => invoke<MeshInventoryView>("mesh_inventory_list"), controller.signal),
             ]);
-            if (!controller.signal.aborted) setState({ cronId, job, service: selectCronService(inventory, cronId), error: null });
+            if (!controller.signal.aborted) {
+              const service = selectCronService(inventory, cronId);
+              setState({ cronId, peerId, job, service: service && peerId ? { ...service, source_peer_id: peerId } : service, error: null });
+            }
           } catch (error) {
             if (controller.signal.aborted) return;
             if (DEV_BUILD) console.debug("Background Cron details refresh failed", error);
-            setState((current) => current.cronId === cronId && current.job ? current : { cronId, job: null, service: null, error });
+            setState((current) => current.cronId === cronId && current.peerId === peerId && current.job ? current : { cronId, peerId, job: null, service: null, error });
           }
         } while (dirty && !controller.signal.aborted);
       } finally { reading = false; }
@@ -53,8 +59,8 @@ export function useCronDetails(cronId: string) {
       else off = stop;
     });
     return () => { controller.abort(); off?.(); if (refreshRef.current === refresh) refreshRef.current = null; };
-  }, [cronId]);
+  }, [cronId, peerId]);
   const refresh = useCallback(() => refreshRef.current?.() ?? Promise.resolve(), []);
-  const current = state.cronId === cronId ? state : { cronId, job: null, service: null, error: null };
+  const current = state.cronId === cronId && state.peerId === peerId ? state : { cronId, peerId, job: null, service: null, error: null };
   return { ...current, refresh };
 }

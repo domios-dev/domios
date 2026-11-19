@@ -21,6 +21,7 @@ import {
   capabilitySummary,
   createMeshResourceActionAdapter,
   mutationFailure,
+  isUnconfirmedMutation,
   resourceTarget,
   unavailableFailure,
   type MeshResourceActionAdapter,
@@ -377,6 +378,7 @@ function SvcDrawer({
       const message = mutationFailure(label, target, e);
       setAnnouncement(message);
       onAnnouncement?.(message);
+      if (isUnconfirmedMutation(e)) onActionDone();
     } finally {
       setBusy(false);
     }

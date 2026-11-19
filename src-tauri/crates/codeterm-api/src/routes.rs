@@ -395,29 +395,7 @@ pub(super) fn create_router_with_preview_admission(
             post(web_routes::tab_close),
         )
         .route("/api/tabs/{id}/chat-view", post(web_routes::tab_chat_view))
-        .route(
-            "/api/mesh/peers/{id}/services",
-            get(blocking_json(web_routes::peer_services)),
-        )
         .route("/api/mesh/inventory", get(mesh_inventory::inventory))
-        .route(
-            "/api/mesh/peers/{id}/services/{service_id}",
-            delete(web_routes::peer_service_delete),
-        )
-        .route(
-            "/api/mesh/peers/{id}/crons/{cron_id}",
-            get(blocking_json(web_routes::peer_cron_get))
-                .put(web_routes::peer_cron_update)
-                .delete(web_routes::peer_cron_delete),
-        )
-        .route(
-            "/api/mesh/peers/{id}/crons/{cron_id}/{action}",
-            post(web_routes::peer_cron_action),
-        )
-        .route(
-            "/api/mesh/peers/{id}/crons/{cron_id}/history",
-            get(blocking_json(web_routes::peer_cron_history)),
-        )
         .merge(super::runtime_login::router())
         .merge(super::tab_todo_routes::router())
         .merge(super::client_selection_routes::router())

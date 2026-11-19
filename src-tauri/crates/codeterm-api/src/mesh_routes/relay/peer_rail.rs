@@ -205,14 +205,6 @@ async fn drive_rail(
         _ = grant.changed(&mesh) => Ok(()),
         result = upstream => result,
     };
-    if matches!(
-        &ended,
-        Err((StatusCode::FORBIDDEN | StatusCode::UNAUTHORIZED, _))
-    ) {
-        mesh.lock().peer_services.prune(&peer_id);
-    } else {
-        mesh.lock().peer_services.invalidate(&peer_id);
-    }
     status.send_replace(Status::Closed(ended.err()));
 }
 
