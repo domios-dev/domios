@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Network } from "lucide-react";
 import { listen } from "../../lib/bridge";
 import { rankPeersByLastActive } from "../../lib/peerRanking";
 import {
@@ -105,11 +105,13 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     [closeMenu, menuItems],
   );
 
+  const showAll = filter === "all";
+  const allMachinesLabel = "All machines";
   const selectedPeer = peers.find(peer => peer.instance_id === target?.id);
   const label = target ? accountNames.peers.get(target.id) ?? cleanMachineName(selectedPeer?.instance_name ?? target.name, target.id) ?? "Machine" : accountNames.local ?? localName;
   const identity = target ? identities.machine_identities?.[target.id] : identities.local_machine_identity;
   const localMachine = { name: accountNames.local ?? localName, identity: identities.local_machine_identity, status: "online", local: true };
-  const pillLabel = filter === "local" ? machineRowLabel(localMachine) : machineLabel(label, identity);
+  const pillLabel = showAll ? allMachinesLabel : filter === "local" ? machineRowLabel(localMachine) : machineLabel(label, identity);
 
   const switchTo = useCallback(
     (selection: PairedPeer | "all" | "local") => {
@@ -128,16 +130,16 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         ref={triggerRef}
         type="button"
         data-testid="peer-picker-button"
-        aria-label={`Filter sidebar by machine, ${filter === "all" ? "All machines, " : ""}${pillLabel}`}
+        aria-label={`Filter sidebar by machine, ${pillLabel}`}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => (open ? closeMenu() : setOpen(true))}
-        data-filtered={filter !== "all" || undefined}
+        data-filtered={!showAll || undefined}
         className={`ct-bar-pill ct-machine-switcher ${compact ? "min-w-0 max-w-[min(10rem,40vw)] sm:max-w-none" : ""}`}
         title="Filter sidebar by machine"
       >
-        <MachineGlyph {...identity} />
-        <span className="min-w-0 truncate">{label}</span>
+        {showAll ? <Network size={12} className="shrink-0" aria-hidden="true" /> : <MachineGlyph {...identity} />}
+        <span className="min-w-0 truncate">{showAll ? allMachinesLabel : label}</span>
         {filter === "local" && <MachineThisBadge className="hidden min-[400px]:inline-flex" />}
         <ChevronDown size={12} className="shrink-0 opacity-60" aria-hidden="true" />
       </button>
@@ -151,8 +153,13 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
           className="ct-menu ct-menu--opaque ct-peer-menu w-max max-w-[min(24rem,calc(100vw-2rem))]"
         >
           <button type="button" role="menuitem" data-testid="peer-picker-all"
-            aria-current={filter === "all" ? "true" : undefined}
-            onClick={() => switchTo("all")} className="ct-menu-row ct-machine-menu-row">All machines</button>
+            aria-current={showAll ? "true" : undefined}
+            onClick={() => switchTo("all")} className="ct-menu-row ct-machine-menu-row">
+            <span className="flex min-w-0 items-center gap-2">
+              <Network size={15} className="shrink-0" aria-hidden="true" />
+              <span className="truncate">{allMachinesLabel}</span>
+            </span>
+          </button>
           <button type="button" role="menuitem" data-testid="peer-picker-self"
             aria-current={filter === "local" ? "true" : undefined}
             aria-label={machineRowLabel(localMachine)} onClick={() => switchTo("local")}
