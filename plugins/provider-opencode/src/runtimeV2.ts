@@ -1,4 +1,4 @@
-import type {AgentEvent, Operation, RpcReply, RuntimeContext, RuntimePlan, RuntimeResult, RuntimeSettings, RuntimeStep} from "@codeterm/plugin-sdk";
+import type {AgentEvent, Operation, OperationResult, RpcReply, RuntimeContext, RuntimePlan, RuntimeSettings, RuntimeStep} from "@codeterm/plugin-sdk";
 import {attachmentUrl, done, fail, list, messageIdentity, modelParts, next, object, own, refused, request, text} from "./runtimeProtocol";
 import {binding, claimed, loaded} from "./runtimeState";
 import {v2AuthEvents, v2LoginPlan, v2LoginResponse, v2Providers} from "./runtimeV2Auth";
@@ -103,7 +103,7 @@ export function v2Response(ctx:RuntimeContext, op:Operation, state:Record<string
           return finishHistory(op,state);
         }
         const events:AgentEvent[]=[];
-        if (!Object.hasOwn(sessions,op.threadId)) {
+        if (!Object.prototype.hasOwnProperty.call(sessions,op.threadId)) {
           const detail=state.detail === "interrupted" ? "interrupted" : state.detail === "failed" ? "failed" : undefined;
           events.push({kind:"turnState",threadId:op.threadId,state:"idle",...(detail ? {detail} : {})});
         }
@@ -113,9 +113,9 @@ export function v2Response(ctx:RuntimeContext, op:Operation, state:Record<string
       const cursor=text(object(value.cursor).next);
       if (cursor && (cursor.length > 4096 || cursor === op.cursor)) return refused("OpenCode history cursor did not advance");
       const order=op.order ?? "desc";
-      const history:RuntimeResult={kind:"historyPage",threadId:op.threadId,items:v2History(value.data,order),openItems:[],order};
+      const history:Extract<OperationResult,{kind:"historyPage"}>={kind:"historyPage",threadId:op.threadId,items:v2History(value.data,order),openItems:[],order};
       if (order === "desc" ? !op.cursor : !cursor) {
-        const latest=object(order === "desc" ? value.data[0] : value.data.at(-1));
+        const latest=object(order === "desc" ? value.data[0] : value.data[value.data.length-1]);
         const detail=latest.type === "assistant" && latest.finish === "error"
           ? (object(latest.error).type === "aborted" ? "interrupted" : "failed") : undefined;
         return {kind:"continue",history,beforeAcceptance:false,

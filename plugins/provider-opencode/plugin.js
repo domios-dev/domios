@@ -2528,7 +2528,7 @@ function v2Response(ctx, op, state, reply) {
           return finishHistory(op, state);
         }
         const events = [];
-        if (!Object.hasOwn(sessions, op.threadId)) {
+        if (!Object.prototype.hasOwnProperty.call(sessions, op.threadId)) {
           const detail = state.detail === "interrupted" ? "interrupted" : state.detail === "failed" ? "failed" : void 0;
           events.push({ kind: "turnState", threadId: op.threadId, state: "idle", ...detail ? { detail } : {} });
         }
@@ -2540,7 +2540,7 @@ function v2Response(ctx, op, state, reply) {
       const order = op.order ?? "desc";
       const history = { kind: "historyPage", threadId: op.threadId, items: v2History(value.data, order), openItems: [], order };
       if (order === "desc" ? !op.cursor : !cursor) {
-        const latest = object2(order === "desc" ? value.data[0] : value.data.at(-1));
+        const latest = object2(order === "desc" ? value.data[0] : value.data[value.data.length - 1]);
         const detail = latest.type === "assistant" && latest.finish === "error" ? object2(latest.error).type === "aborted" ? "interrupted" : "failed" : void 0;
         return {
           kind: "continue",
