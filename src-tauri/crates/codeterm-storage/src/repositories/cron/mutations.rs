@@ -202,8 +202,8 @@ fn insert_run_row(
     let (started_at, finished_at) = run_values(run)?;
     cx.write(
         "INSERT INTO cron_runs (job_id, run_id, ordinal, started_at, finished_at, status, \
-         tab_id, session_id, cwd, summary, report_delivery, cancel_reason) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+         tab_id, session_id, cwd, summary, report_delivery, cancel_reason, provider, owner_instance_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             job_id.0,
             run.run_id.0,
@@ -216,7 +216,9 @@ fn insert_run_row(
             run.cwd,
             run.summary,
             run.report_delivery,
-            run.cancel_reason.map(|reason| reason.as_sql())
+            run.cancel_reason.map(|reason| reason.as_sql()),
+            run.provider,
+            run.owner_instance_id
         ],
     )?;
     Ok(())
@@ -230,7 +232,8 @@ fn update_run_row(
     let (started_at, finished_at) = run_values(run)?;
     let changed = cx.write(
         "UPDATE cron_runs SET started_at = ?3, finished_at = ?4, status = ?5, tab_id = ?6, \
-         session_id = ?7, cwd = ?8, summary = ?9, report_delivery = ?10, cancel_reason = ?11 \
+         session_id = ?7, cwd = ?8, summary = ?9, report_delivery = ?10, cancel_reason = ?11, \
+         provider = ?12, owner_instance_id = ?13 \
          WHERE job_id = ?1 AND run_id = ?2",
         params![
             job_id.0,
@@ -243,7 +246,9 @@ fn update_run_row(
             run.cwd,
             run.summary,
             run.report_delivery,
-            run.cancel_reason.map(|reason| reason.as_sql())
+            run.cancel_reason.map(|reason| reason.as_sql()),
+            run.provider,
+            run.owner_instance_id
         ],
     )?;
     if changed != 1 {
@@ -436,7 +441,7 @@ fn evolve_mirror(
             cx.write(
                 "UPDATE cron_last_run_mirrors SET started_at = ?2, finished_at = ?3, \
                  status = ?4, tab_id = ?5, session_id = ?6, cwd = ?7, summary = ?8, \
-                 report_delivery = ?9, cancel_reason = ?10 WHERE job_id = ?1",
+                 report_delivery = ?9, cancel_reason = ?10, provider = ?11, owner_instance_id = ?12 WHERE job_id = ?1",
                 params![
                     job_id.0,
                     started_at,
@@ -447,7 +452,9 @@ fn evolve_mirror(
                     copy.cwd,
                     copy.summary,
                     copy.report_delivery,
-                    copy.cancel_reason.map(|reason| reason.as_sql())
+                    copy.cancel_reason.map(|reason| reason.as_sql()),
+                    copy.provider,
+                    copy.owner_instance_id
                 ],
             )?;
             Ok(())
@@ -469,6 +476,8 @@ fn drop_converged_mirror(cx: &mut WriteCx<'_>, job_id: &CronJobId) -> Result<(),
          AND r.cwd IS cron_last_run_mirrors.cwd \
          AND r.summary IS cron_last_run_mirrors.summary \
          AND r.report_delivery IS cron_last_run_mirrors.report_delivery \
+         AND r.provider IS cron_last_run_mirrors.provider \
+         AND r.owner_instance_id IS cron_last_run_mirrors.owner_instance_id \
          AND r.cancel_reason IS cron_last_run_mirrors.cancel_reason)",
         [job_id.as_str()],
     )?;
@@ -615,8 +624,8 @@ pub(crate) fn write_import(cx: &mut WriteCx<'_>, import: &CronImport) -> Result<
         cx.write(
             "INSERT INTO cron_last_run_mirrors (job_id, run_id, started_at, finished_at, \
              status, tab_id, session_id, cwd, summary, report_delivery, cancel_reason, origin, \
-             imported_revision, imported_differing) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'legacy_import', ?12, ?13)",
+             provider, owner_instance_id, imported_revision, imported_differing) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'legacy_import', ?12, ?13, ?14, ?15)",
             params![
                 job.record.id.0,
                 copy.run_id.0,
@@ -629,6 +638,8 @@ pub(crate) fn write_import(cx: &mut WriteCx<'_>, import: &CronImport) -> Result<
                 copy.summary,
                 copy.report_delivery,
                 copy.cancel_reason.map(|reason| reason.as_sql()),
+                copy.provider,
+                copy.owner_instance_id,
                 revision,
                 differing
             ],

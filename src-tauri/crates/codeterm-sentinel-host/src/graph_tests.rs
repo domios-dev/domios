@@ -423,6 +423,8 @@ fn sentinel_graph_actual_cron_history_joins_exact_hidden_worker_and_missing_tab(
         .record_run(
             &cron.id,
             codeterm_service_core::cron::store::CronRunInfo {
+                provider: None,
+                owner_instance_id: None,
                 cancel_reason: None,
                 run_id: "exact-run".into(),
                 started_at: 1234,

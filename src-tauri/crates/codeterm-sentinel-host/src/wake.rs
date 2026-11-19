@@ -241,6 +241,8 @@ mod tests {
         cron.record_run(
             &cron_id,
             CronRunInfo {
+                provider: None,
+                owner_instance_id: None,
                 cancel_reason: None,
                 run_id: "own-run".into(),
                 started_at: 1_000,

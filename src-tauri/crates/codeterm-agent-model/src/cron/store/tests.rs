@@ -1,5 +1,27 @@
 use super::*;
 
+#[test]
+fn run_identity_round_trips_and_legacy_records_default_it() {
+    let mut run = run("identity-run", 1, CronRunStatus::Success);
+    run.provider = Some("claude".into());
+    run.owner_instance_id = Some("machine-b".into());
+    let encoded = serde_json::to_value(&run).unwrap();
+    assert_eq!(encoded["provider"], "claude");
+    assert_eq!(encoded["owner_instance_id"], "machine-b");
+    assert_eq!(serde_json::from_value::<CronRunInfo>(encoded).unwrap(), run);
+
+    let legacy = serde_json::json!({
+        "run_id": "legacy-run",
+        "started_at": 1,
+        "finished_at": null,
+        "status": "Success",
+        "tab_id": null
+    });
+    let decoded = serde_json::from_value::<CronRunInfo>(legacy).unwrap();
+    assert_eq!(decoded.provider, None);
+    assert_eq!(decoded.owner_instance_id, None);
+}
+
 fn temp_store() -> CronStore {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("crons.json");
@@ -53,6 +75,8 @@ fn set_run_session_persists_on_history_and_last_run() {
         .create(make_params("test-run-schedule", "ws", "0 * * * *"))
         .unwrap();
     let run = CronRunInfo {
+        provider: None,
+        owner_instance_id: None,
         cancel_reason: None,
         run_id: "r1".into(),
         started_at: 1,
@@ -250,6 +274,8 @@ fn record_failure_increments_counter_and_backs_off() {
         .record_run(
             &job.id,
             CronRunInfo {
+                provider: None,
+                owner_instance_id: None,
                 cancel_reason: None,
                 run_id: "r1".into(),
                 started_at: 0,
@@ -280,6 +306,8 @@ fn record_5_failures_auto_disables_job() {
             .record_run(
                 &job.id,
                 CronRunInfo {
+                    provider: None,
+                    owner_instance_id: None,
                     cancel_reason: None,
                     run_id: format!("r{}", i),
                     started_at: 0,
@@ -314,6 +342,8 @@ fn success_resets_failure_counter() {
             .record_run(
                 &job.id,
                 CronRunInfo {
+                    provider: None,
+                    owner_instance_id: None,
                     cancel_reason: None,
                     run_id: format!("f{}", i),
                     started_at: 0,
@@ -332,6 +362,8 @@ fn success_resets_failure_counter() {
         .record_run(
             &job.id,
             CronRunInfo {
+                provider: None,
+                owner_instance_id: None,
                 cancel_reason: None,
                 run_id: "ok".into(),
                 started_at: 0,
@@ -448,6 +480,8 @@ fn test_record_run_history() {
             .record_run(
                 &job.id,
                 CronRunInfo {
+                    provider: None,
+                    owner_instance_id: None,
                     cancel_reason: None,
                     run_id: format!("run-{}", i),
                     started_at: 1000 + i,
@@ -510,6 +544,8 @@ fn test_oneshot_create_and_record_run() {
         .record_run(
             &job.id,
             CronRunInfo {
+                provider: None,
+                owner_instance_id: None,
                 cancel_reason: None,
                 run_id: "run-1".into(),
                 started_at: 1000,
@@ -752,6 +788,8 @@ fn mock_store(start_ms: u64) -> (CronStore, std::sync::Arc<MockClock>) {
 
 fn run(run_id: &str, started_at: u64, status: CronRunStatus) -> CronRunInfo {
     CronRunInfo {
+        provider: None,
+        owner_instance_id: None,
         cancel_reason: None,
         run_id: run_id.into(),
         started_at,
@@ -946,6 +984,8 @@ fn curator_failures_defer_with_injected_clock_and_public_toggles_are_absent() {
             .record_run(
                 &job.id,
                 CronRunInfo {
+                    provider: None,
+                    owner_instance_id: None,
                     run_id: format!("run-{number}"),
                     started_at: NOW,
                     finished_at: None,

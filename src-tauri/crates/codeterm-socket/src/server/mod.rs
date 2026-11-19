@@ -794,6 +794,8 @@ mod tests {
             .record_run(
                 &job_id,
                 CronRunInfo {
+                    provider: None,
+                    owner_instance_id: None,
                     cancel_reason: None,
                     run_id: "rpc-complete-run".into(),
                     started_at: 1,

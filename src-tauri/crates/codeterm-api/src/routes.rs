@@ -493,6 +493,10 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/crons/{id}/cancel", post(cron_routes::cron_cancel))
         .route("/api/crons/{id}/history", get(cron_routes::cron_history))
         .route(
+            "/api/crons/{id}/history/{run_id}",
+            get(cron_routes::cron_run_transcript),
+        )
+        .route(
             "/api/services",
             get(services_routes::list_services).post(services_routes::create_service),
         )

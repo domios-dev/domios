@@ -8,7 +8,16 @@ import type { ChatMsgEvent } from "../Terminal/chatSessionAuthority";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
 const tabState = vi.hoisted(() => ({ tab: { agent_session_id: "session-1", session_binding_nonce: "nonce" } as { agent_session_id: string; session_binding_nonce: string } | undefined }));
+const transcriptRelay = vi.hoisted(() => ({ calls: [] as Array<{ peerId?: string; method: string; path: string }> }));
 vi.mock("../../store/multiplexer/hooks", () => ({ useMuxSelector: () => tabState.tab }));
+vi.mock("../../lib/daemonBootstrap", () => ({
+  daemonTransportForPeer: (peerId?: string) => ({
+    json: async (method: string, path: string) => {
+      transcriptRelay.calls.push({ peerId, method, path });
+      return { messages: [] };
+    },
+  }),
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -19,6 +28,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
   tabState.tab = { agent_session_id: "session-1", session_binding_nonce: "nonce" };
+  transcriptRelay.calls = [];
 });
 
 it("reads a completed run by its retained session without requiring its closed tab", async () => {
@@ -37,6 +47,30 @@ it("reads a completed run by its retained session without requiring its closed t
   } finally {
     await act(async () => root.unmount());
     host.remove();
+  }
+});
+
+it("loads a cron transcript from the run owner using cron and run identity", async () => {
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(<RunChatPopup
+      title="Remote cron run"
+      status="Success"
+      provider="codex"
+      cwd="/old"
+      sessionId="session-owned-on-peer"
+      cronId="cron-1"
+      runId="run-1"
+      ownerInstanceId="machine-air"
+      onClose={() => undefined}
+    />));
+    expect(transcriptRelay.calls).toEqual([{
+      peerId: "machine-air",
+      method: "GET",
+      path: "/api/crons/cron-1/history/run-1",
+    }]);
+  } finally {
+    await act(async () => root.unmount());
   }
 });
 
