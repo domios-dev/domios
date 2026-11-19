@@ -88,7 +88,7 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
     const sends = useChatSends("picker");
     return <DraftStorageFixture><MuxStateStoreContext.Provider value={store}><LocalArtifactScope tabId="picker">
       {bubble && <div role="region" aria-label="Sent message"><MessageBubble message={{ id: "sent", type: "user", content: bubble }} userFooter={<><ChatDeliveryState state="sending" /><DroppedUploadNotice tabId="picker" id="sent" names={sends.find(send => send.id === "sent")?.droppedUploads} /></>} /></div>}
-      <ComposerIssuesProvider><AgentRuntimeBanner state={null} onRetry={() => {}} /><ChatComposer tabId="picker" tabProvider={null} currentPtyId={null} pendingPrompt={null}
+      <ComposerIssuesProvider><AgentRuntimeBanner state={null} onRetry={() => {}} /><ChatComposer tabId="picker" tabProvider={null} pendingPrompt={null}
         attachments={attachments} addAttachments={(paths) => setAttachments((current) => [...current, ...paths])}
         removeAttachment={(path) => setAttachments((current) => current.filter((item) => item !== path))}
         clearAttachments={() => setAttachments([])} handlePasteEvent={() => {}} onWillSendMessage={() => {}}

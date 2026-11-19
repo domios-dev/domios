@@ -67,7 +67,13 @@ export type TabBootStageEvent = Pick<import("../../gen/TabBootStageEvent").TabBo
 type TabClearableFields = "agent_runtime_config" | "agent_runtime_state" | "pending_model_selection" | "pending_model_switch_observation" | "close_restore" | "shell_profile" | "icon" | "workspace_id" | "pty_id" | "description" | "cwd" | "agent_type" | "agent_session_id" | "session_binding_nonce" | "reported_session_binding_nonce" | "agent_session_name" | "agent_session_model" | "agent_requested_model" | "structured_runtime_mode" | "agent_provider_resolved_model" | "agent_label" | "role" | "role_profile" | "team_id" | "spawned_by_tab_id" | "managed" | "parent_tab_id" | "pending_prompt" | "pending_prompt_kind" | "agent_state" | "worker_id" | "slept_at_ms" | "last_active_at_ms" | "boot_stage" | "lifecycle_epoch" | "lifecycle_operation_id" | "boot_failure_reason" | "provisional_launch" | "watcher";
 type LocalTabNullability<T> = { [K in keyof T]: K extends TabClearableFields ? T[K] | null : T[K] };
 type WireSnapshotTab = import("../../gen/MultiplexerSnapshot").MultiplexerSnapshot["tabs"][string];
+export interface ExpectedChatRecipient {
+  provider_id: string;
+  binding_nonce: string | null;
+  session_id: string | null;
+}
 export type Tab = Pick<WireSnapshotTab, "id" | "pty_id" | "tab_type" | "title" | "cwd"> & Partial<Omit<LocalTabNullability<WireSnapshotTab>, "agent_runtime_config" | "agent_runtime_questions" | "agent_runtime_state" | "title_pending_local" | "remote_peer_id" | "remote_peer_name" | "remote_tab_id" | "remote_channels" | "provider_signals" | "pending_model_selection" | "pending_model_switch_observation" | "context_epoch_archives" | "watcher" | "agent_state">> & {
+  exited_chat_recipient?: { provider_id: string; nonce: string; session_id: string };
   workspace_id?: import("../../gen/Workspace").Workspace["id"] | null;
   session_bound?: import("../../gen/TabBootStageEvent").TabBootStageEvent["session_bound"];
   watcher?: WatcherSpec | null;

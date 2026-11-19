@@ -5,6 +5,7 @@ import type { TabActivity } from "../../lib/tabActivity";
 import type { CapsuleRegistry } from "./composerCapsules";
 import type { ComposerReply } from "./composerReply";
 import type { RemoteChatFailure, RemoteChatState } from "../../lib/remoteChatState";
+import type { ExpectedChatRecipient } from "../../lib/types";
 
 export type DeliveryState = "sending" | "written" | "queued" | "uncertain" | "delivered" | "failed";
 export interface DeliveryDraft {
@@ -15,7 +16,10 @@ export interface DeliveryDraft {
   capsules: CapsuleRegistry;
   reply: ComposerReply | null;
 }
-export type DeliverySend = ChatSend & { localAttempt?: { ptyId: string; bindingNonce: string }; droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestError?: string; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft;
+export interface ChatSendTarget {
+  expectedRecipient?: ExpectedChatRecipient;
+}
+export type DeliverySend = ChatSend & { target?: ChatSendTarget; localAttempt?: { ptyId: string; bindingNonce: string }; droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestError?: string; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft;
   wasHeld?: boolean; remoteFailure?: RemoteChatFailure & { state: RemoteChatState } };
 
 export function chatSendFailureReason(reason?: unknown): string {

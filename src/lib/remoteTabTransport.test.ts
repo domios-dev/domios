@@ -119,9 +119,10 @@ describe("remote tab transport adapter", () => {
       clientToken: "optimistic-1",
     });
     expect(send?.body).toEqual({ text: "hello", client_token: "optimistic-1" });
+    const recipient = { provider_id: "fixture", binding_nonce: "own-launch", session_id: "own-session" };
     expect(remoteTransportCall("chat_send_text", {
-      tabId: "mesh:peer/shared", text: "opaque", clientToken: "once", startupOverrideNonce: "own-launch",
-    })?.body).toEqual({ text: "opaque", client_token: "once", startup_override_nonce: "own-launch" });
+      tabId: "mesh:peer/shared", text: "/help", clientToken: "once", expectedRecipient: recipient,
+    })?.body).toEqual({ text: "/help", client_token: "once", expected_recipient: recipient });
   });
 
   it("treats a vanished remote prompt as a quiet no-op", () => {

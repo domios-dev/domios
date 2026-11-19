@@ -46,7 +46,7 @@ async function mount(chat: boolean, protectedTab = false, sessionId: string | nu
     if (command === "plugin_manager_snapshot") return { plugins: [], channels: [], diff: [], marketplace: [] } as T;
     if (command === "plugin_tab_menu") return { items: [], receiverTargets: {} } as T;
     if (command === "chat_send_text") return { send_id: args?.clientToken, correlationId: args?.clientToken,
-      tab_id: tabId, state: "written", error: null, ledger_id: "fixture", sequence: 1, retained_from: 0 } as T;
+      tab_id: tabId, state: tab.agent_type ? "written" : "held", error: null, ledger_id: "fixture", sequence: 1, retained_from: 0 } as T;
     return {} as T;
   });
   __setListenForTest(async () => () => {});
@@ -143,7 +143,7 @@ it.each([
 ] as const)("reveals the real first-turn composer for General=%s session=%s without fabricating a snapshot", async (general, session) => {
   const fixture = await mount(true, general, session);
   try {
-    expect(enabledComposer(fixture.host)).toBeUndefined();
+    expect(enabledComposer(fixture.host)).toBeDefined();
     await fixture.patch({ frozen: false, pty_id: "own-pty", boot_stage: "provider_ready", provisional_launch: readyLaunch });
     const editor = enabledComposer(fixture.host);
     expect(editor).toBeDefined();
@@ -167,16 +167,58 @@ it.each([
   } finally { await fixture.dispose(); }
 });
 
-it("keeps stale first-turn readiness, locked tabs and launch errors from revealing an active composer", async () => {
+it("keeps the composer available during launch and failure while honoring the tab lock", async () => {
   const fixture = await mount(true);
   try {
     await fixture.patch({ frozen: false, pty_id: "own-pty", boot_stage: "provider_ready",
       provisional_launch: { ...readyLaunch, binding_nonce: "foreign-nonce" } });
-    expect(enabledComposer(fixture.host)).toBeUndefined();
+    expect(enabledComposer(fixture.host)).toBeDefined();
     await fixture.patch({ locked: true, provisional_launch: readyLaunch });
     expect(enabledComposer(fixture.host)).toBeUndefined();
     await fixture.patch({ locked: false, boot_stage: "spawn_failed", boot_failure_reason: "opaque launch error" });
+    expect(enabledComposer(fixture.host)).toBeDefined();
+  } finally { await fixture.dispose(); }
+});
+
+it("keeps one held bubble and offers Restart after the provider returns to its shell", async () => {
+  const fixture = await mount(true, false, "own-session");
+  try {
+    await fixture.patch({ frozen: false, pty_id: "own-pty", boot_stage: "shell_ready",
+      agent_type: null, agent_session_id: null, session_binding_nonce: "shell-nonce",
+      exited_chat_recipient: { provider_id: "body-ready-fixture", nonce: "own-nonce", session_id: "own-session" },
+      prior_session_binding_nonces: [{ nonce: "own-nonce", session_id: "own-session" }] });
+    const exited = fixture.host.querySelector('[role="status"][aria-label="Agent exited"]')!;
+    expect(exited).not.toBeNull();
+    expect(fixture.host.querySelector('[role="progressbar"]')).toBeNull();
+    const editor = enabledComposer(fixture.host)!;
+    const text = "opaque held across exit";
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, text);
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const send = fixture.host.querySelector<HTMLButtonElement>('[data-testid="composer-send-button"]')!;
+    expect(send.disabled).toBe(false);
+    await act(async () => send.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, pointerType: "mouse" })));
+    expect(editor.value).toBe("");
+    expect(readChatSends(fixture.tabId).filter(message => message.content === text).map(message => message.status?.state)).toEqual(["held"]);
+    expect([...fixture.host.querySelectorAll("[data-chat-window-row]")].filter(row => row.textContent?.includes(text))).toHaveLength(1);
+    await act(async () => exited.querySelector("button")!.click());
+    await fixture.patch({ boot_stage: "pty_starting", agent_booting: true, session_binding_nonce: "new-nonce", agent_type: "body-ready-fixture" });
+    expect(fixture.commands.filter(command => command === "restart_agent_tab")).toHaveLength(1);
+    expect(fixture.commands.filter(command => command === "chat_send_text")).toHaveLength(1);
+    expect(enabledComposer(fixture.host)).toBeDefined();
+  } finally { await fixture.dispose(); }
+});
+
+it("leaves a deliberately stopped tab with historical lineage in Terminal", async () => {
+  const fixture = await mount(true, false, "own-session");
+  try {
+    await fixture.patch({ frozen: false, pty_id: null, boot_stage: "shell_ready",
+      agent_type: null, agent_session_id: null, session_binding_nonce: null,
+      prior_session_binding_nonces: [{ nonce: "own-nonce", session_id: "own-session" }] });
+    expect(fixture.host.querySelector('[aria-label="Agent exited"]')).toBeNull();
     expect(enabledComposer(fixture.host)).toBeUndefined();
+    expect(fixture.commands.filter(command => command === "wake_tab")).toHaveLength(1);
   } finally { await fixture.dispose(); }
 });
 

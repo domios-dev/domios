@@ -745,8 +745,8 @@ test("fresh unbound PTY launch failure exposes recovery", async () => {
   assert(chat?.getAttribute("aria-busy") === "false", "fresh unbound PTY authority is not announced as recovering");
   assert(!host.querySelector('[data-testid="chat-recovering-state"]'), "fresh chat has no recovery placeholder");
   assert(!host.querySelector('[data-testid="chat-empty-state"]'), "fresh chat has no empty-history placeholder");
-  assert(!composer, "failed launch hides the named composer");
-  assert(!host.querySelector('textarea, [role="textbox"]'), "failed launch has no composer textbox");
+  assert(composer && !composer.closest("[inert]"), "failed launch keeps the named composer usable");
+  assert(composer.querySelector('textarea, [role="textbox"]'), "failed launch keeps its composer textbox");
   assert(!host.querySelector('[data-testid="chat-setup-state"]'), "an observed failure ends loading");
   assert(host.querySelector('[role="alert"]'), "the shared failure is announced");
   await act(async () => root.unmount());
@@ -877,14 +877,14 @@ test("T7 awaiting-store keeps the ready composer identity, draft, and focus", as
     );
     const composer = host.querySelector('[data-testid="chat-composer"]') as HTMLTextAreaElement | null;
     assert(composer, "empty chat keeps its composer available");
-    assert(composer.closest("[inert]"), "startup keeps the pre-ready composer inert");
+    assert(!composer.closest("[inert]"), "startup keeps the pre-ready composer usable");
     composer.focus();
-    assert(document.activeElement !== composer, "pre-ready composer cannot take focus");
+    assert(document.activeElement === composer, "pre-ready composer takes focus");
     await act(async () => updateTab({
       provisional_launch: { pty_id: "own-pty", binding_nonce: "own-nonce", reason: "opaque",
         awaiting_binding_ack: true, first_turn_input_ready: true, first_turn_payload_written: false },
     }));
-    assert(!composer.closest("[inert]"), "own launch readiness releases the composer before the snapshot");
+    assert(!composer.closest("[inert]"), "composer remains usable while the snapshot loads");
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
       setter?.call(composer, "typing without reset");

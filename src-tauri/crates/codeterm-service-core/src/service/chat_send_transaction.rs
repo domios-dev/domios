@@ -971,5 +971,7 @@ pub(crate) fn run_chat_send(
 
 pub(crate) use source_claims::delivered_turn_confirmations;
 
+mod recipient;
 #[cfg(test)]
 mod tests;
+pub use recipient::ExpectedChatRecipient;

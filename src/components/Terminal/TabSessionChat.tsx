@@ -107,7 +107,7 @@ import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, chatRowsPartial,
 import { lazyFirstTurnComposerIsLive } from "../../lib/tabActivity";
 import { firstTurnLocalSends, isLocalSendRow, sendsOfCurrentAttempt } from "./firstTurnLocalRows";
 import { TabRecoveryAction } from "./TabRecoveryAction";
-import { dockedTabFailure } from "../../lib/restoreStageView";
+import { dockedTabFailure, type RestoreStageView } from "../../lib/restoreStageView";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
@@ -132,6 +132,7 @@ import { useRemoteViewerConnection, type RemoteViewerConnection } from "./useRem
 
 interface Props {
   inputStatus?: ReactNode;
+  frozenRestore?: RestoreStageView;
   tabId: string;
   api?: ApiConfig;
   onError?: (msg: string) => void;
@@ -183,6 +184,7 @@ function RemoteTabSessionChat(props: Props) {
 
 function TabSessionChatBody({
   inputStatus,
+  frozenRestore,
   tabId,
   api,
   onError,
@@ -324,7 +326,7 @@ function TabSessionChatBody({
       return;
     }
     try {
-      observeChatSendStatus(await sendTrackedChatMessage(tabId, send.correlationId ?? send.id, content));
+      observeChatSendStatus(await sendTrackedChatMessage(tabId, send.correlationId ?? send.id, content, send.target));
     } catch {
       void invoke<import("./chatSendStatus").ChatSendStatus[]>("chat_send_status", { tabId })
         .then((statuses) => statuses.forEach(observeChatSendStatus)).catch(() => {});
@@ -864,6 +866,7 @@ function TabSessionChatBody({
 
   const setupState = (<ChatSetupState
           visible={isActive}
+          frozenRestore={frozenRestore}
           waitingMessages={heldMessagesForLaunch(deliverySends)}
           workspace={planNav.workspaces.find(workspace => workspace.id === workspaceId)}
           tab={tab}
@@ -906,7 +909,8 @@ function TabSessionChatBody({
       data-chat-ready={!showRemoteState && !tabLock.locked && (snapshotReady || firstTurnReady) && !chatChannelLoading && setupView.kind === "none"}
       role="region"
       aria-label={`Tab chat: ${tab?.title ?? tabId}`}
-      aria-busy={!showRemoteState && setupView.kind !== "failed" && setupView.kind !== "launch_failed" && ((!snapshotReady && !firstTurnReady) || chatChannelLoading)}
+      aria-busy={!showRemoteState && setupView.kind !== "failed" && setupView.kind !== "launch_failed" && setupView.kind !== "exited"
+        && ((!snapshotReady && !firstTurnReady) || chatChannelLoading)}
       style={{
         ...chatLayoutTokens().variables,
         background: "var(--ct-bg, #0d1117)",
@@ -1150,8 +1154,6 @@ function TabSessionChatBody({
           idlePlaceholder={signInState ? "Sign in to start" : undefined}
           tabId={tabId}
           tabProvider={tabProvider}
-          currentPtyId={currentPtyId}
-          chatBackend={effectiveChatBackend}
           isActive={isActive}
           pendingPrompt={pendingPrompt}
           attachments={attachments}
@@ -1168,7 +1170,6 @@ function TabSessionChatBody({
           updateOptimistic={updateOptimistic}
           observeChatSendStatus={observeChatSendStatus}
           showComposerError={showComposerError}
-          onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
           sendUnavailableReason={remoteChat.sendUnavailableReason}
         />}
       </>

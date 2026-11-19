@@ -314,6 +314,7 @@ fn launch_parameters() -> RestorableLaunchParameters {
         execution_mode: None,
         execution_sandbox: None,
         failed_provider: None,
+        exited_chat_binding: None,
         context_files: None,
         context_skills: None,
         worker_restart: None,

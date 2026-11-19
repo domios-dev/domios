@@ -1,25 +1,10 @@
-import { useEffect, useRef, useState } from "react";
 import { useMuxSelector } from "../../store/multiplexer/hooks";
-import { chatSetupView } from "./chatSetupModel";
-import { createStartupSendGate } from "./startupSendGate";
+import { composerSendPolicy } from "./chatSetupModel";
 
-export function useStartupSend(tabId: string, chatBackend: boolean) {
-  const bound = useMuxSelector(state => typeof tabId === "string" && tabId.trim().length > 0 && !!state.tabs[tabId]);
-  const nonce = useMuxSelector(state => state.tabs[tabId]?.session_binding_nonce ?? null);
-  const starting = useMuxSelector(state => !chatBackend && !!state.tabs[tabId]
-    && chatSetupView(state.tabs[tabId]).kind === "starting");
-  const gate = useRef(createStartupSendGate(Date.now)).current;
-  const [, refresh] = useState(0);
-  gate.observe(`${tabId}:${nonce ?? ""}`, starting);
-  const remaining = gate.remainingMs();
-  useEffect(() => {
-    if (remaining === 0) return;
-    const timer = window.setTimeout(() => refresh(value => value + 1), remaining);
-    return () => window.clearTimeout(timer);
-  }, [tabId, nonce, starting, remaining]);
-  return {
-    allowed: bound && remaining === 0,
-    bound,
-    overrideNonce: starting && remaining === 0 ? nonce : null,
-  };
+export function useStartupSend(tabId: string) {
+  return useMuxSelector(state => composerSendPolicy(state.tabs[tabId]),
+    (a, b) => a.allowed === b.allowed
+      && a.recipient?.provider_id === b.recipient?.provider_id
+      && a.recipient?.binding_nonce === b.recipient?.binding_nonce
+      && a.recipient?.session_id === b.recipient?.session_id);
 }

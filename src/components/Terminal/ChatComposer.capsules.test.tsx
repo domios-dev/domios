@@ -66,7 +66,7 @@ async function renderComposer(tabId: string) {
   host = document.createElement("div"); document.body.append(host);
   root = createRoot(host);
   await act(async () => root?.render(<MuxStateStoreContext.Provider value={createMuxStateStore(() => muxState(tabId))}>
-    <ChatComposer tabId={tabId} tabProvider={null} currentPtyId={null} pendingPrompt={null} attachments={[]} addAttachments={() => {}}
+    <ChatComposer tabId={tabId} tabProvider={null} pendingPrompt={null} attachments={[]} addAttachments={() => {}}
       removeAttachment={() => {}} clearAttachments={() => {}} handlePasteEvent={handlePasteEvent} onWillSendMessage={() => {}}
       addOptimistic={() => "optimistic"} updateOptimistic={() => {}} observeChatSendStatus={() => {}} showComposerError={() => {}}
       inlineAttachmentSink={sink} />

@@ -309,6 +309,7 @@ mod spawn_pty_restore_tests {
             execution_mode: None,
             execution_sandbox: None,
             failed_provider: None,
+            exited_chat_binding: None,
             structured_runtime_mode: None,
             context_files: None,
             context_skills: None,

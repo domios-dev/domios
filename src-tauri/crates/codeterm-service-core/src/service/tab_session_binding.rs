@@ -44,6 +44,18 @@ impl ServiceContext {
         if let Some(tab) = mux.get_tab_mut(tab_id) {
             changed = tab.agent_session_id != session_id;
             if changed {
+                if tab
+                    .restorable_launch
+                    .exited_chat_binding
+                    .as_ref()
+                    .is_some_and(|exit| {
+                        session_id
+                            .as_ref()
+                            .is_some_and(|session| session != &exit.session_id)
+                    })
+                {
+                    tab.restorable_launch.exited_chat_binding = None;
+                }
                 self.tab_credential_session_changed(tab_id, session_id.as_deref());
             }
             if changed && session_id.is_none() && tab.agent_session_id.is_some() {
@@ -147,6 +159,17 @@ impl ServiceContext {
             tab.reported_session_binding_nonce = None;
             tab.provider_signals = Default::default();
             if launch_starting {
+                if tab
+                    .restorable_launch
+                    .exited_chat_binding
+                    .as_ref()
+                    .is_some_and(|exit| {
+                        resume_target != Some(exit.session_id.as_str())
+                            || tab.agent_type.as_ref() != Some(&exit.provider_id)
+                    })
+                {
+                    tab.restorable_launch.exited_chat_binding = None;
+                }
                 tab.restored_from_snapshot = false;
                 tab.agent_booting = true;
                 crate::service::boot_stage::apply_boot_stage(

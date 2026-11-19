@@ -1,7 +1,8 @@
 import { composerVisible } from "./chatBodyVisibility";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chatSetupView, heldMessagesForLaunch } from "./chatSetupModel";
+import { chatSetupView, composerSendPolicy, heldMessagesForLaunch } from "./chatSetupModel";
+import type { Tab } from "../../lib/types";
 
 test("an observed spawn failure replaces loading even after a transcript attached", () => {
   const failed = { boot_stage: "spawn_failed" as const, boot_failure_reason: "opaque-refusal" };
@@ -43,11 +44,32 @@ test("only undismissed backend-held messages are shown as waiting for launch", (
     { status: { state: "held" }, dismissed: true }, {}, { status: { state: "held" } }]), 2);
 });
 
-test("composer follows the launch-failure body state and returns on relaunch", () => {
-  for (const attached of [false, true]) {
-    assert.equal(composerVisible(chatSetupView({ boot_stage: "spawn_failed" }, attached)), false);
-    assert.equal(composerVisible(chatSetupView({ boot_stage: "pty_starting" }, attached)), true);
-    assert.equal(composerVisible(chatSetupView({ boot_stage: "agent_ready" }, attached)), true);
+test("the exact tab accepts composer sends throughout its lifecycle", () => {
+  const retired = [{ nonce: "retired", session_id: "own-session" }];
+  const exit = { provider_id: "fixture", nonce: "retired", session_id: "own-session" };
+  const states = {
+    launching: { agent_type: "fixture", boot_stage: "agent_launching" },
+    restoring: { agent_type: "fixture", frozen: true, boot_stage: "pty_starting" },
+    exited: { backing: { kind: "pty" }, boot_stage: "shell_ready", prior_session_binding_nonces: retired,
+      exited_chat_recipient: exit, session_binding_nonce: "restored-shell" },
+    restarting: { backing: { kind: "pty" }, boot_stage: "pty_starting", agent_booting: true,
+      prior_session_binding_nonces: retired, exited_chat_recipient: exit },
+    ready: { agent_type: "fixture", boot_stage: "agent_ready", agent_session_id: "own-session",
+      session_binding_nonce: "own-nonce", reported_session_binding_nonce: "own-nonce" },
+    failed: { agent_type: "fixture", boot_stage: "spawn_failed" },
+  } satisfies Record<string, Partial<Tab>>;
+  for (const [state, tab] of Object.entries(states)) {
+    assert.equal(composerSendPolicy(tab).allowed, true, state);
+    assert.equal(composerVisible(chatSetupView(tab)), true, state);
   }
-  assert.equal(composerVisible({ kind: "failed", reason: "no_transcript_source" }), true);
+  assert.equal(composerSendPolicy(undefined).allowed, false);
+  assert.equal(composerVisible({ kind: "locked" }), false);
+  assert.deepEqual(chatSetupView(states.exited, true), { kind: "exited" });
+  assert.deepEqual(chatSetupView({ ...states.exited, boot_stage: "pty_reattached" }), { kind: "exited" });
+  assert.deepEqual(chatSetupView({ ...states.exited, boot_stage: "pty_starting" }), { kind: "exited" });
+  const stopped = { ...states.exited, exited_chat_recipient: undefined };
+  assert.notEqual(chatSetupView(stopped).kind, "exited");
+  assert.equal(composerSendPolicy(stopped).allowed, false);
+  assert.equal(chatSetupView(states.restarting).kind, "starting");
+  assert.notEqual(chatSetupView({ backing: { kind: "pty" }, boot_stage: "shell_ready" }).kind, "exited");
 });

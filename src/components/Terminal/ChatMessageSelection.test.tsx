@@ -113,7 +113,7 @@ async function render(tabId: string, rows = ROWS) {
   root = createRoot(host);
   await act(async () => root?.render(<MuxStateStoreContext.Provider value={createMuxStateStore(() => muxState(tabId))}>
     <Harness tabId={tabId} rows={rows} />
-    <ChatComposer tabId={tabId} tabProvider={null} currentPtyId={null} pendingPrompt={null} attachments={[]} addAttachments={() => {}}
+    <ChatComposer tabId={tabId} tabProvider={null} pendingPrompt={null} attachments={[]} addAttachments={() => {}}
       removeAttachment={() => {}} clearAttachments={() => {}} handlePasteEvent={() => {}} onWillSendMessage={() => {}}
       addOptimistic={() => "optimistic"} updateOptimistic={() => {}} observeChatSendStatus={() => {}} showComposerError={() => {}} />
   </MuxStateStoreContext.Provider>));

@@ -11,7 +11,7 @@ const state = { tabs: {}, workspaces: [], teams: [], generation: 1 } as unknown 
 let current = state;
 const store = createMuxStateStore(() => current);
 let allowed = true;
-function Probe() { allowed = useStartupSend("target", false).allowed; return null; }
+function Probe() { allowed = useStartupSend("target").allowed; return null; }
 const root = createRoot(document.createElement("div"));
 await act(async () => root.render(createElement(MuxStateStoreContext.Provider, { value: store }, createElement(Probe))));
 assert.equal(allowed, false);

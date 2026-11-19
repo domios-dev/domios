@@ -49,7 +49,6 @@ async function withComposer(
       <ChatComposer
             tabId="presentation-only"
             tabProvider={null}
-            currentPtyId={null}
             pendingPrompt={manualPendingPrompt(lifecycle.tab)}
             attachments={attachments}
             addAttachments={reject}
