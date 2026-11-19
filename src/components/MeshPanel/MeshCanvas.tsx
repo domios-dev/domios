@@ -20,6 +20,9 @@ import { webGatewayGraph } from "./meshProjection";
 import { TailscaleFooter, TailscaleMachineHint, type CanvasTailscale } from "./TailscaleNodes";
 import { differentNetwork } from "./networkTransport";
 import { offersTailscaleSetup, suggestsRemoteTailscale } from "./tailscaleSetup";
+import { Button } from "../shared/Button";
+import { MeshOverview } from "./MeshOverview";
+import { meshOverviewState } from "./meshOverviewModel";
 import { MachineLimitPaywall } from "./MachineLimitPaywall";
 import type { MyMachines } from "./useMyMachines";
 import { inventoryView, listCardScale, offersInventoryList, type InventoryView } from "./meshViewportModel";
@@ -53,6 +56,7 @@ export interface CanvasAccount {
   canvas: AccountCanvas;
   busy: string | null;
   signingIn: boolean;
+  cancelSignIn?: () => void;
   reauthRequired?: boolean;
   removed?: boolean;
   onRejoin?: () => void;
@@ -121,6 +125,7 @@ export const MeshCanvas = memo(function MeshCanvas({
   webUiToken = null,
   touch = false,
 }: Props) {
+  const [showInventory, setShowInventory] = useState(false);
   const [chosenView, setChosenView] = useState<InventoryView | null>(null);
   const listOffered = offersInventoryList(width, touch);
   const shown = inventoryView(width, touch, chosenView);
@@ -263,7 +268,7 @@ export const MeshCanvas = memo(function MeshCanvas({
         p.account.kind === "node"
           ? <AccountMachineCard node={p.account.node} busy={account.busy === p.account.node.key} now={account.now} actions={account.actions}
             hint={offersTailscaleSetup(p.account.node.row.status) && p.account.node.row.target ? tailscaleHint(p.account.node.name, p.account.node.online === true, p.account.node.row.transport) : undefined} />
-          : <AccountStateCard card={p.account.card} signingIn={account.signingIn} onSignIn={account.onSignIn} onRetry={account.onRetry} />
+          : <AccountStateCard card={p.account.card} signingIn={account.signingIn} onSignIn={account.onSignIn} onCancel={account.cancelSignIn} onRetry={account.onRetry} />
       ) : (
         <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
         <PeerTerminal
@@ -275,9 +280,10 @@ export const MeshCanvas = memo(function MeshCanvas({
             {account?.limitMachines && <MachineLimitPaywall machines={account.limitMachines} />}
             {account?.removed && <div role="group" aria-label="Rejoin your mesh" onClick={(event) => event.stopPropagation()} className="px-3.5 py-2.5">
               <p role="status">{REMOVED_COPY}</p>
-              <button type="button" disabled={!!account.busy || account.signingIn} onClick={account.onRejoin}>Sign in and rejoin</button>
+              <Button size="compact" loading={account.signingIn} disabled={!!account.busy} onClick={account.onRejoin}>{account.signingIn ? "Signing in…" : "Sign in and rejoin"}</Button>
+              {account.cancelSignIn && <Button size="compact" onClick={account.cancelSignIn}>Cancel</Button>}
             </div>}
-            {account?.reauthRequired && !account.removed && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} />}
+            {account?.reauthRequired && !account.removed && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} onCancel={account.cancelSignIn} />}
             <LocalMachineFooter state={tailscale?.state} />
             {tailscale && tailscale.state.kind !== "connected" && <TailscaleFooter tailscale={tailscale} />}
           </> : peerFooter(p.id)}
@@ -311,12 +317,31 @@ export const MeshCanvas = memo(function MeshCanvas({
       onClick={account.onRetry} className="ct-btn ct-btn-compact absolute bottom-3 left-3 z-10">Load more machines</button>}
   </>;
 
+  const overview = account && meshOverviewState(account.canvas, peers, tailscale?.state, account.moreMachines);
+  const overviewAvailable = overview && overview.kind !== "inventory";
+  if (account && overview && overview.kind !== "inventory" && !showInventory) {
+    return <section aria-label="Mesh inventory" className="mesh-overview relative flex h-full w-full overflow-auto">
+      <div className="absolute right-3 top-3">
+        <CanvasToolbar floating={false} label="Mesh inventory controls" onRefresh={onRefresh}
+          view={<button type="button" className="ct-bar-pill" aria-label="Show inventory" onClick={() => setShowInventory(true)}>
+            <Network size={13} aria-hidden="true" />
+          </button>} />
+      </div>
+      <MeshOverview state={overview} account={account} name={account.selfName ?? thisMachine.name} tailscale={tailscale} />
+      <AccountNotes notes={account.canvas.notes} />
+      {accountActions}
+    </section>;
+  }
+  const inventoryToggle = overviewAvailable
+    ? <>{viewToggle}<button type="button" className="ct-bar-pill" onClick={() => setShowInventory(false)}>Overview</button></>
+    : viewToggle;
+
   if (shown === "list") {
     const scale = listCardScale(width);
     return (
       <div className="relative flex h-full w-full flex-col overflow-hidden" style={{ minHeight: height, background: "var(--ct-bg)" }}>
         <div className="shrink-0 px-3 pb-2 pt-3">
-          <CanvasToolbar floating={false} label="Mesh inventory controls" view={viewToggle} onRefresh={onRefresh} />
+          <CanvasToolbar floating={false} label="Mesh inventory controls" view={inventoryToggle} onRefresh={onRefresh} />
         </div>
         <div role="list" aria-label="Machines" data-testid="mesh-inventory-list"
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-16" style={{ touchAction: "pan-y" }}>
@@ -356,7 +381,7 @@ export const MeshCanvas = memo(function MeshCanvas({
     >
       {account && <AccountNotes notes={account.canvas.notes} />}
       {accountActions}
-      <CanvasToolbar label="Mesh graph controls" view={viewToggle} onRefresh={onRefresh} onFit={() => { stage.takeControl(); reset(); }} onZoomOut={() => zoomBy(-zoomStep)} onZoomIn={() => zoomBy(zoomStep)} />
+      <CanvasToolbar label="Mesh graph controls" view={inventoryToggle} onRefresh={onRefresh} onFit={() => { stage.takeControl(); reset(); }} onZoomOut={() => zoomBy(-zoomStep)} onZoomIn={() => zoomBy(zoomStep)} />
       <div
         ref={(element) => { layerRef.current = element; machineLayerRef.current = element; }}
         style={{

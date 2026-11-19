@@ -15,7 +15,7 @@ pub mod protected_credentials;
 pub mod remote_config;
 pub use installation::{FileInstallationStore, InstallationId, InstallationStore};
 
-pub use account::{Account, Status};
+pub use account::{Account, LoginCompletion, Status};
 use async_trait::async_trait;
 pub use flow::{
     Callback, LoginFlow, LoginHint, LoginMode, LoginProvider, PasteCallbackError, Redemption,

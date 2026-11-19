@@ -55,10 +55,21 @@ pub struct SignInFailure {
 #[derive(Default)]
 pub(crate) struct SignInAttempt {
     stage: SignInStage,
+    progress: Option<Box<dyn Fn(SignInStage) + Send + Sync>>,
 }
 impl SignInAttempt {
+    pub fn with_progress(progress: impl Fn(SignInStage) + Send + Sync + 'static) -> Self {
+        Self {
+            progress: Some(Box::new(progress)),
+            ..Self::default()
+        }
+    }
+
     pub fn enter(&mut self, stage: SignInStage) {
         self.stage = stage;
+        if let Some(progress) = &self.progress {
+            progress(stage);
+        }
         log::info!(target: "codeterm_account::sign_in", "sign_in stage_transition stage={} error_kind=none", stage.name());
     }
     pub async fn run<T>(

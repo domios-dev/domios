@@ -27,21 +27,24 @@ fn account() -> Arc<Account> {
     ))
 }
 
-fn start(
+async fn start(
     account: &Arc<Account>,
     outcome: Option<Result<()>>,
 ) -> (
-    tokio::task::JoinHandle<Result<Status>>,
+    String,
+    tokio::task::JoinHandle<LoginCompletion>,
     mpsc::UnboundedReceiver<url::Url>,
 ) {
     let (opened, receiver) = mpsc::unbounded_channel();
-    let account = account.clone();
-    let login = tokio::spawn(async move {
-        account
-            .login(Arc::new(BrowserProbe { opened, outcome }))
-            .await
-    });
-    (login, receiver)
+    let (id, task) = account
+        .start_login(
+            Arc::new(BrowserProbe { opened, outcome }),
+            LoginHint::default(),
+            |_, _| {},
+        )
+        .await
+        .unwrap();
+    (id, task, receiver)
 }
 
 fn parameter(url: &url::Url, name: &str) -> String {
@@ -69,10 +72,10 @@ fn assert_port_free(url: &url::Url) {
 async fn callback_listener_timeout_releases_port() {
     let _ports = PORTS.lock().await;
     let account = account();
-    let (login, mut opened) = start(&account, Some(Ok(())));
+    let (_, login, mut opened) = start(&account, Some(Ok(()))).await;
     let url = opened.recv().await.unwrap();
     tokio::time::advance(Duration::from_secs(180)).await;
-    assert_eq!(login.await.unwrap().unwrap_err(), Error::Timeout);
+    assert_eq!(login.await.unwrap().0.unwrap_err(), Error::Timeout);
     assert_port_free(&url);
     assert!(!account.status().await.pending);
 }
@@ -82,61 +85,43 @@ async fn callback_listener_logout_cancels_pending_browser_and_releases_port() {
     let _ports = PORTS.lock().await;
     for browser_outcome in [None, Some(Ok(()))] {
         let account = account();
-        let (login, mut opened) = start(&account, browser_outcome);
+        let (_, login, mut opened) = start(&account, browser_outcome).await;
         let url = opened.recv().await.unwrap();
         account.logout().await.unwrap();
-        assert_eq!(login.await.unwrap().unwrap_err(), Error::Cancelled);
+        assert_eq!(login.await.unwrap().0.unwrap_err(), Error::Cancelled);
         assert_port_free(&url);
     }
 }
 
 #[tokio::test]
-async fn callback_listener_supersede_closes_old_port_before_opening_replacement() {
+async fn callback_listener_cancel_matches_only_the_attempt_and_preserves_identity() {
     let _ports = PORTS.lock().await;
     let account = account();
-    let (old, mut opened) = start(&account, None);
-    let old_url = opened.recv().await.unwrap();
-    let (replacement, mut opened) = start(&account, Some(Ok(())));
-    let new_url = opened.recv().await.unwrap();
-    assert_eq!(old.await.unwrap().unwrap_err(), Error::Cancelled);
-    assert_port_free(&old_url);
-    assert!(account.status().await.pending);
-    account
-        .complete(Callback {
-            code: "c".repeat(43),
-            state: parameter(&new_url, "state"),
-        })
-        .await
-        .unwrap();
-    assert!(replacement.await.unwrap().unwrap().identity.is_some());
-    assert_port_free(&new_url);
-}
-
-#[tokio::test]
-async fn callback_listener_browser_failure_releases_port() {
-    let _ports = PORTS.lock().await;
-    let account = account();
-    let (login, mut opened) = start(&account, Some(Err(Error::Transport)));
+    let (prior_id, first, mut opened) = start(&account, Some(Ok(()))).await;
     let url = opened.recv().await.unwrap();
-    assert_eq!(login.await.unwrap().unwrap_err(), Error::Transport);
-    assert_port_free(&url);
-}
-
-#[tokio::test]
-async fn callback_listener_caller_abort_survives_until_callback() {
-    let _ports = PORTS.lock().await;
-    let account = account();
-    let (login, mut opened) = start(&account, Some(Ok(())));
-    let url = opened.recv().await.unwrap();
-    login.abort();
-    assert!(login.await.unwrap_err().is_cancelled());
-    assert!(account.status().await.pending);
     complete_http(&url).await;
-    let _finished = account.operation.lock().await;
+    let prior = first.await.unwrap().0.unwrap().identity.unwrap();
+
+    let (id, replacement, mut opened) = start(&account, Some(Ok(()))).await;
+    let url = opened.recv().await.unwrap();
+    assert!(!account.cancel_login(&prior_id).await);
+    assert!(account.status().await.pending);
+    assert!(
+        account.operation.try_lock().is_ok(),
+        "callback must not own the account operation lock"
+    );
+    assert!(account.cancel_login(&id).await);
+    assert!(!account.cancel_login(&id).await);
+    assert_eq!(replacement.await.unwrap().0.unwrap_err(), Error::Cancelled);
+    assert_port_free(&url);
     let status = account.status().await;
     assert!(!status.pending);
-    assert_eq!(status.identity.unwrap().uid, "fake-user");
-    assert!(status.last_sign_in_failure.is_none());
+    assert_eq!(status.identity, Some(prior));
+
+    let (next, next_task, mut opened) = start(&account, Some(Ok(()))).await;
+    let next_url = opened.recv().await.unwrap();
+    assert_ne!(id, next);
+    assert!(!account.cancel_login(&id).await);
     assert_eq!(
         account
             .complete(Callback {
@@ -144,80 +129,44 @@ async fn callback_listener_caller_abort_survives_until_callback() {
                 state: parameter(&url, "state")
             })
             .await,
-        Err(Error::Consumed)
+        Err(Error::WrongState),
     );
+    complete_http(&next_url).await;
+    assert!(next_task.await.unwrap().0.unwrap().identity.is_some());
+}
+
+#[tokio::test]
+async fn callback_listener_browser_failure_releases_port() {
+    let _ports = PORTS.lock().await;
+    let account = account();
+    let (_, login, mut opened) = start(&account, Some(Err(Error::Transport))).await;
+    let url = opened.recv().await.unwrap();
+    assert_eq!(login.await.unwrap().0.unwrap_err(), Error::Transport);
     assert_port_free(&url);
 }
 
-#[tokio::test(start_paused = true)]
-async fn callback_listener_caller_abort_still_times_out() {
-    let _ports = PORTS.lock().await;
-    for outcome in [None, Some(Ok(()))] {
-        let account = account();
-        let (login, mut opened) = start(&account, outcome);
-        let url = opened.recv().await.unwrap();
-        login.abort();
-        assert!(login.await.unwrap_err().is_cancelled());
-        tokio::time::advance(Duration::from_secs(180)).await;
-        let _finished = account.operation.lock().await;
-        let status = account.status().await;
-        assert!(!status.pending);
-        assert!(status.identity.is_none());
-        assert_eq!(status.last_sign_in_failure.unwrap().error, Error::Timeout);
-        assert_port_free(&url);
-        assert_eq!(
-            account
-                .complete(Callback {
-                    code: "c".repeat(43),
-                    state: parameter(&url, "state")
-                })
-                .await,
-            Err(Error::Consumed)
-        );
-    }
-}
-
 #[tokio::test]
-async fn callback_listener_caller_abort_releases_port() {
-    let _ports = PORTS.lock().await;
-    for outcome in [None, Some(Ok(()))] {
-        let account = account();
-        let (login, mut opened) = start(&account, outcome);
-        let url = opened.recv().await.unwrap();
-        login.abort();
-        assert!(login.await.unwrap_err().is_cancelled());
-        account.logout().await.unwrap();
-        let _finished = account.operation.lock().await;
-        assert_port_free(&url);
-        let status = account.status().await;
-        assert!(!status.pending);
-        assert!(status.identity.is_none());
-    }
-}
-
-#[tokio::test]
-async fn callback_listener_caller_abort_can_be_superseded() {
+async fn callback_listener_refuses_second_start_while_first_is_pending() {
     let _ports = PORTS.lock().await;
     let account = account();
-    let (old, mut opened) = start(&account, None);
-    let old_url = opened.recv().await.unwrap();
-    old.abort();
-    assert!(old.await.unwrap_err().is_cancelled());
-    let (replacement, mut opened) = start(&account, Some(Ok(())));
-    let new_url = opened.recv().await.unwrap();
-    assert_port_free(&old_url);
-    assert_eq!(
-        account
-            .complete(Callback {
-                code: "c".repeat(43),
-                state: parameter(&old_url, "state")
-            })
-            .await,
-        Err(Error::WrongState)
-    );
-    complete_http(&new_url).await;
-    assert!(replacement.await.unwrap().unwrap().identity.is_some());
-    assert_port_free(&new_url);
+    let (id, login, mut opened) = start(&account, Some(Ok(()))).await;
+    let url = opened.recv().await.unwrap();
+    let (sender, _) = mpsc::unbounded_channel();
+    let duplicate = account
+        .start_login(
+            Arc::new(BrowserProbe {
+                opened: sender,
+                outcome: None,
+            }),
+            LoginHint::default(),
+            |_, _| {},
+        )
+        .await;
+    assert!(matches!(duplicate, Err(Error::Pending)));
+    assert_eq!(account.status_with_login().await.1, Some(id));
+    complete_http(&url).await;
+    assert!(login.await.unwrap().0.unwrap().identity.is_some());
+    assert_port_free(&url);
 }
 
 async fn complete_http(url: &url::Url) {
@@ -239,9 +188,9 @@ async fn complete_http(url: &url::Url) {
 async fn callback_listener_http_success_releases_port() {
     let _ports = PORTS.lock().await;
     let account = account();
-    let (login, mut opened) = start(&account, Some(Ok(())));
+    let (_, login, mut opened) = start(&account, Some(Ok(()))).await;
     let url = opened.recv().await.unwrap();
     complete_http(&url).await;
-    assert!(login.await.unwrap().unwrap().identity.is_some());
+    assert!(login.await.unwrap().0.unwrap().identity.is_some());
     assert_port_free(&url);
 }

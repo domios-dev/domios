@@ -8,7 +8,7 @@ import { useMyMachines } from "./useMyMachines";
 /** My machines projected onto the Mesh canvas, live with the account and the paired peers. */
 export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => void, registryRefreshKey = 0): CanvasAccount {
   const account = useMeshAccount();
-  const machines = useMyMachines({ account: account.presence, onSignIn: account.signIn, onChanged });
+  const machines = useMyMachines({ account: account.presence, onSignIn: account.signIn, signingIn: account.signingIn, cancelSignIn: account.cancelSignIn, onChanged });
   const { view, snapshot, loadFailed, listFailure, failures, busy, signingIn, openPlans, dismissFailure, signIn, load, rename, renameSelf, revoke, revokeSession, retryEnrollment } = machines;
   const lastRefreshKey = useRef(registryRefreshKey);
   useEffect(() => {
@@ -32,12 +32,12 @@ export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => 
   const self = view.kind === "account" ? view.self : null;
   return useMemo(() => ({
     moreMachines: !!snapshot?.registry?.cursor,
-    canvas, busy, signingIn, now, actions, selfName: self?.displayName ?? undefined, onRenameSelf: self && !self.readOnly ? renameSelf : undefined, removed: view.kind === "account" && view.removed, onRejoin: () => { void signIn(); }, reauthRequired: view.kind === "account" && view.reauthRequired,
+    canvas, busy, signingIn, cancelSignIn: account.cancelSignIn, now, actions, selfName: self?.displayName ?? undefined, onRenameSelf: self && !self.readOnly ? renameSelf : undefined, removed: view.kind === "account" && view.removed, onRejoin: () => { void signIn(); }, reauthRequired: view.kind === "account" && view.reauthRequired,
     limitMachines: view.kind === "account" && view.machineLimit ? machines : undefined,
     onSignIn: () => { void signIn(); },
     onRetry: () => { void load(); },
     onRetryEnrollment: account.presence === "signed_in" && snapshot?.enrollment === "refused" && snapshot.retry_at == null
       && ["unavailable", "offline", "authority-unavailable", "enrollment_budget"].includes(snapshot.last_refusal?.reason ?? "")
       ? () => { void retryEnrollment(); } : undefined,
-  }), [canvas, busy, signingIn, now, actions, self, renameSelf, view, signIn, load, snapshot, machines, account.presence, retryEnrollment]);
+  }), [canvas, busy, signingIn, now, actions, self, renameSelf, view, signIn, load, snapshot, machines, account.presence, account.cancelSignIn, retryEnrollment]);
 }

@@ -144,11 +144,7 @@ pub trait NeighborsExt {
     fn account_login(
         &self,
         hint: codeterm_account::LoginHint,
-    ) -> impl std::future::Future<Output = Result<codeterm_account::Status, String>> + Send;
-    fn finish_account_login(
-        &self,
-        hint: codeterm_account::LoginHint,
-    ) -> impl std::future::Future<Output = Result<codeterm_account::Status, String>> + Send;
+    ) -> impl std::future::Future<Output = Result<String, String>> + Send;
     fn finish_account_login_with_browser(
         &self,
         hint: codeterm_account::LoginHint,
@@ -313,21 +309,45 @@ impl NeighborsExt for ServiceContext {
         status.server_stop_unconfirmed = result.is_err();
         Ok((status, result))
     }
-    async fn account_login(
-        &self,
-        hint: codeterm_account::LoginHint,
-    ) -> Result<codeterm_account::Status, String> {
+    async fn account_login(&self, hint: codeterm_account::LoginHint) -> Result<String, String> {
+        let account = self.account().await?;
+        let progress = self.clone();
+        let (id, task) = account
+            .start_login(Arc::new(SystemBrowser), hint, move |id, stage| {
+                progress.ui.emit(
+                    "account-sign-in",
+                    serde_json::json!({"attempt_id": id, "stage": stage}),
+                );
+            })
+            .await
+            .map_err(|error| error.to_string())?;
         let service = self.clone();
-        tokio::spawn(async move { service.finish_account_login(hint).await })
-            .await
-            .map_err(|_| Error::Cancelled.to_string())?
-    }
-    async fn finish_account_login(
-        &self,
-        hint: codeterm_account::LoginHint,
-    ) -> Result<codeterm_account::Status, String> {
-        self.finish_account_login_with_browser(hint, Arc::new(SystemBrowser))
-            .await
+        let attempt = id.clone();
+        tokio::spawn(async move {
+            let (result, failure) = task.await.unwrap_or_else(|_| {
+                (
+                    Err(Error::Cancelled),
+                    Some(codeterm_account::SignInFailure {
+                        stage: codeterm_account::SignInStage::Publication,
+                        error: Error::Cancelled,
+                    }),
+                )
+            });
+            service.ui.emit(
+                "account-sign-in",
+                serde_json::json!({
+                    "attempt_id": attempt, "settled": true,
+                    "failure": failure,
+                }),
+            );
+            if result.is_ok() {
+                let (status, owner) = account.status_with_login().await;
+                if status.identity.is_some() && owner.as_deref() == Some(attempt.as_str()) {
+                    account_login_succeeded(&service).await;
+                }
+            }
+        });
+        Ok(id)
     }
     async fn finish_account_login_with_browser(
         &self,
@@ -342,13 +362,17 @@ impl NeighborsExt for ServiceContext {
             .map_err(|e| e.to_string());
         self.ui.emit("account-changed", serde_json::Value::Null);
         let status = status?;
-        if let Ok(mesh) = self.account_mesh().await {
-            mesh.mesh.enrollment_signed_in();
-        }
-        self.spawn_account_mesh_refresh(codeterm_account::account_mesh::EnrollTrigger::Automatic);
-        let _ = self
-            .refresh_billing(codeterm_billing::RefreshEvent::SignIn)
-            .await;
+        account_login_succeeded(self).await;
         Ok(status)
     }
+}
+
+async fn account_login_succeeded(service: &ServiceContext) {
+    if let Ok(mesh) = service.account_mesh().await {
+        mesh.mesh.enrollment_signed_in();
+    }
+    service.spawn_account_mesh_refresh(codeterm_account::account_mesh::EnrollTrigger::Automatic);
+    let _ = service
+        .refresh_billing(codeterm_billing::RefreshEvent::SignIn)
+        .await;
 }

@@ -45,14 +45,15 @@ export interface MyMachinesInput {
 }
 
 export function myMachinesView({ account, snapshot, listFailure = null, now }: MyMachinesInput): MyMachinesView {
-  if (account === "pending" || !snapshot) return { kind: "loading" };
+  if (account === "pending") return { kind: "loading" };
   const notes: string[] = [];
-  if (snapshot.cleanup === "pending") notes.push("Address cleanup is pending: endpoint withdrawal is unconfirmed.");
-  if (snapshot.registry?.cursor) notes.push("Showing part of your account's machines. Refresh to load more.");
+  if (snapshot?.cleanup === "pending") notes.push("Address cleanup is pending: endpoint withdrawal is unconfirmed.");
+  if (snapshot?.registry?.cursor) notes.push("Showing part of your account's machines. Refresh to load more.");
   if (account === "signed_out") {
-    const blocked = snapshot.traffic === "blocked_signed_out";
+    const blocked = snapshot?.traffic === "blocked_signed_out";
     return { kind: "sign_in", headline: blocked ? SIGNED_OUT_COPY : SIGN_IN_COPY, blocked, saved: [], notes };
   }
+  if (!snapshot) return { kind: "loading" };
   const locked = snapshot.traffic === "plan_limit_locked";
   const refusal = snapshot.last_refusal;
   const machineLimit = locked && refusal?.reason === "mesh.machines" ? { limit: refusal.limit, activeCount: refusal.active_count } : undefined;

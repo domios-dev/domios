@@ -20,6 +20,8 @@ export interface MachineFailure {
 export interface MyMachinesOptions {
   account: AccountPresence;
   onSignIn: () => void | Promise<void>;
+  signingIn?: boolean;
+  cancelSignIn?: () => void;
   /** Also reported per machine through `failures`. */
   onFailure?: (operation: string, failure: AccountMeshFailure) => void;
   onChanged?: () => void;
@@ -33,6 +35,7 @@ export interface MyMachines {
   loadFailed: boolean;
   refreshing: boolean;
   signingIn: boolean;
+  cancelSignIn?: () => void;
   busy: string | null;
   failures: ReadonlyMap<string, MachineFailure>;
   load: () => Promise<void>;
@@ -57,7 +60,7 @@ async function settle(run: () => Promise<AccountMeshOutcome>): Promise<AccountMe
 }
 
 /** Account machines with their live snapshot and the actions that change them, shared by the canvas and the list. */
-export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = epochSeconds }: MyMachinesOptions): MyMachines {
+export function useMyMachines({ account, onSignIn, signingIn: pendingLogin, cancelSignIn, onFailure, onChanged, now = epochSeconds }: MyMachinesOptions): MyMachines {
   const client = useAccountMeshClient();
   const [snapshot, setSnapshot] = useState<AccountMeshSnapshot | null>(null);
   const [listFailure, setListFailure] = useState<AccountMeshFailure | null>(null);
@@ -221,7 +224,7 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
   const openPlans = useCallback((key: string) => openLockedMachinePlans(snapshot, key), [snapshot]);
 
   return {
-    view, snapshot, listFailure, loadFailed, refreshing, signingIn, busy, failures,
+    view, snapshot, listFailure, loadFailed, refreshing, signingIn: signingIn || !!pendingLogin, cancelSignIn, busy, failures,
     load, signIn, revoke, revokeSession, renameSelf, rename, retryEnrollment, openPlans, dismissFailure,
   };
 }
