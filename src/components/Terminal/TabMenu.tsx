@@ -242,6 +242,7 @@ function PlainTabMenu({ entries, onAction, identity, provenance, tab: _tab, acco
       {...menu}
       items={items}
       menuLabel={TAB_MENU_LABELS.menu}
+      opaque={Boolean(provenance)}
       header={<>{provenance && <div className="ct-menu-head px-2 py-1.5 text-[length:var(--ct-font-size-meta)] text-[var(--ct-muted-fg)]">{provenance}</div>}<TabMenuHead identity={identity} session={header} onAction={onAction} />
         {accountError && <InlineErrorNotice error={accountError} operation="switching accounts" />}</>}
     />

@@ -542,6 +542,11 @@ button {
   animation: ct-cursor-tip-in var(--ct-duration-liquid-press, 180ms) var(--ct-ease-hover-swell) both;
 }
 
+.ct-cursor-tip--opaque {
+  background: var(--ct-surface);
+  animation: none;
+}
+
 /* Opacity only: the element's transform is written per frame to follow the
    pointer, and an animated transform would win the cascade and park it. */
 @keyframes ct-cursor-tip-in {

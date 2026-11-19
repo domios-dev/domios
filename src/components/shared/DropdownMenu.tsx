@@ -132,6 +132,7 @@ interface DropdownMenuProps {
   header?: ReactNode;
   contextMenuTargetRef?: RefObject<HTMLElement | null>;
   menuLabel?: string;
+  opaque?: boolean;
   menuTestId?: string;
   disabled?: boolean;
   /** Pixel cap on the open menu; content beyond it scrolls internally. */
@@ -155,6 +156,7 @@ export function DropdownMenu({
   header,
   contextMenuTargetRef,
   menuLabel = "Actions",
+  opaque = false,
   menuTestId,
   disabled,
   maxHeight,
@@ -426,7 +428,7 @@ export function DropdownMenu({
             }}
             aria-description={activeSubmenu?.showDescription ? undefined : activeSubmenu?.description}
             aria-describedby={activeSubmenu?.showDescription && activeSubmenu.description ? `${descriptionIdBase}-submenu` : undefined}
-            className={`ct-menu w-max${triggerRef.current?.closest('[aria-modal="true"]') ? " ct-menu--modal" : ""}`}
+            className={`ct-menu w-max${opaque || triggerRef.current?.closest('[aria-modal="true"]') ? " ct-menu--opaque" : ""}`}
             style={{ width: maxWidth ?? (inSubmenu && pageWidth ? pageWidth : undefined), maxHeight, maxWidth }}
           >
             <div key={submenuKey ?? "root"} className="ct-menu-page" data-direction={pageDirection ?? undefined}>

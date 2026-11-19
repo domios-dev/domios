@@ -13,7 +13,7 @@ import {
   type SidebarWorkspaceDetailActions,
   type SidebarWorkspaceDetailData,
 } from "./SidebarWorkspaceDetail";
-import { isGeneralSectionTab, tabsInWorkspace } from "./workspaceTabs";
+import { isGeneralSectionTab, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
 import { useAppearingTabs } from "./useAppearingTabs";
 import { projectUtilityShells } from "../General/generalOverviewModel";
 import { isSurfaceTab, surfaceOwnerId } from "../../lib/surfaceTab";
@@ -71,6 +71,9 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
     orchestrators: data.orchestrators,
     uiFontScale: data.uiFontScale,
   }), [data, appearingTabIds]);
+
+  if (typeof machineFilter === "object" && !viewers.some(({ peer }) => peer.peerId === machineFilter.peerId)
+    && !sessionTabs.some(tab => tab.remote_peer_id === machineFilter.peerId && isSidebarTabVisible(tab))) return null;
 
   return (
     <section data-testid="general-section" className="sidebar-general-section" role="region" aria-label={`${workspace.name} workspace contents`}>

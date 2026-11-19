@@ -295,5 +295,16 @@ it("keeps one workspace switcher and falls back to one visible workspace when fi
   expect(detail()[0].querySelector('[data-testid="team-name"]')?.textContent).toBe("Peer plan title");
   expect(row(host, "mesh:blackstar/peer-lead")?.closest("[hidden]")).toBeNull();
   expect(row(host, "mesh:air/other-worker")?.closest("[hidden]")).toBeNull();
+  const actions = row(host, "mesh:air/other-worker")!.querySelector<HTMLButtonElement>('button[aria-label="Tab actions"]')!;
+  await act(async () => actions.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  const menu = document.getElementById(actions.getAttribute("aria-controls")!)!;
+  const rename = menu.querySelector<HTMLButtonElement>('[data-testid="tab-menu-rename"]')!;
+  const close = menu.querySelector<HTMLButtonElement>('[data-testid="tab-menu-close"]')!;
+  expect(rename.getAttribute("aria-disabled")).toBe("true");
+  expect(close.getAttribute("aria-disabled")).toBe("true");
+  expect(document.getElementById(rename.getAttribute("aria-describedby")!)?.textContent).toBeTruthy();
+  await act(async () => rename.click());
+  expect(actions.getAttribute("aria-expanded")).toBe("true");
+
   expect(row(host, "local-worker")).toBeNull();
 });

@@ -62,7 +62,7 @@ export function RemoteMachineSummary({ machine, stacked = false }: { machine: Re
 }
 
 export function RemoteTabIcon({ machine, children }: { machine: RemotePresentation; children: ReactNode }) {
-  return <CursorTooltip as="span" active className="sidebar-remote-tab-icon" content={<RemoteMachineSummary machine={machine} stacked />}>
+  return <CursorTooltip as="span" active opaque className="sidebar-remote-tab-icon" content={<RemoteMachineSummary machine={machine} stacked />}>
     {children}
     <MachineIconBadge identity={machine.identity} />
   </CursorTooltip>;
