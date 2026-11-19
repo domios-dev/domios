@@ -18,15 +18,17 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
   const descriptionId = useId();
   const errorId = useId();
   const { providers, providerId, setProviderId, provider, selectedModel, setModel, model, setEffort, effort,
-    phase, setPhase, error, statusUncertainty, retryAfterSeconds, switchStatus, result, history, ready, activity, submit, showHistory, stopObserving } = useProviderSwitch(tab, initialProviderId);
+    phase, setPhase, error, statusUncertainty, retryAfterSeconds, switchStatus, submittedTarget, ready, activity, submit, stopObserving } = useProviderSwitch(tab, initialProviderId);
   const navigation = usePickerNavigation();
   const [installError, setInstallError] = useState<string | null>(null);
   const locked = phase !== "choosing";
-  // Same order as Start a session: launch-profile harnesses follow the direct ones.
+  // Same order as Start a session: launch-profile providers follow the direct ones.
   const ordered = [...providers.filter((candidate) => !candidate.agent_runtime?.launchProfiles), ...providers.filter((candidate) => candidate.agent_runtime?.launchProfiles)];
   const unavailableIds = useMemo(() => new Set(providers.filter((candidate) => !isProviderSelectable(candidate)).map((candidate) => candidate.id)), [providers]);
-  const freeModel = provider && provider.available_models.length === 0
-    ? <input aria-label="Agent model" placeholder="Model (optional)" className={SELECT_TRIGGER} value={selectedModel ?? ""} disabled={locked}
+  const switchingTarget = phase === "switching" ? submittedTarget : null;
+  const visibleProvider = switchingTarget?.provider ?? provider;
+  const freeModel = visibleProvider && visibleProvider.available_models.length === 0
+    ? <input aria-label="Agent model" placeholder="Model (optional)" className={SELECT_TRIGGER} value={(switchingTarget ? switchingTarget.model : selectedModel) ?? ""} disabled={locked}
       onChange={(event) => setModel(event.target.value || undefined)} />
     : undefined;
   function closeDialog() {
@@ -42,23 +44,28 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
       if (workspaceId) await navigation.show({ workspaceId, tabId: launch.tab_id });
     } catch (failure) { setInstallError(failure instanceof Error ? failure.message : String(failure)); }
   }
-  const statusView = providerSwitchStatusView(switchStatus, provider?.display_name ?? "the new provider");
-  const failure = statusView?.kind === "failed" ? statusView.reason : error ?? installError;
+  const tabName = tab.title || "This tab";
+  const target = phase === "choosing" || phase === "waiting" ? null : submittedTarget;
+  const targetName = target?.provider.display_name ?? visibleProvider?.display_name ?? "the new provider";
+  const modelName = target?.provider.available_models.find((entry) => entry.id === target.model)?.display_name;
+  const statusView = providerSwitchStatusView(switchStatus, targetName, tabName, modelName);
+  const failure = phase === "complete" ? null : statusView?.kind === "failed" ? statusView.reason : error ?? installError;
   const closeLabel = phase === "switching" || phase === "complete" ? "Close" : "Cancel";
-  return <FormDialog titleId={titleId} descriptionId={descriptionId} onCancel={closeDialog} onSubmit={(event) => { event.preventDefault(); if (ready) void submit(); }} className="max-w-lg">
-    <h2 id={titleId} className="font-semibold">Switch harness</h2>
-    <p id={descriptionId} className="text-sm text-[var(--ct-muted-fg)]">
-      {tab.title || "This tab"} continues on another harness using recent messages and task context. The full history stays here.
+  return <FormDialog titleId={titleId} descriptionId={descriptionId} onCancel={closeDialog} onSubmit={(event) => { event.preventDefault(); if (phase === "choosing" && ready) void submit(); }} className="max-w-lg">
+    <h2 id={titleId} className={phase === "complete" ? "sr-only" : "font-semibold"}>Switch provider</h2>
+    {phase !== "complete" && <p id={descriptionId} className="text-sm text-[var(--ct-muted-fg)]">
+      {tabName} continues with another provider, using recent messages and task context. The full history stays here.
       {statusView?.kind === "busy" && " You can close this dialog while the switch continues."}
-    </p>
+    </p>}
     {phase !== "complete" && <OrchestrationRoleRow
       label="Agent"
-      providers={ordered}
+      providers={switchingTarget ? [switchingTarget.provider] : ordered}
       providerId={providerId}
-      modelId={model ?? ""}
-      effortId={effort}
-      disabledProviderIds={unavailableIds}
+      modelId={(switchingTarget ? switchingTarget.model : model) ?? ""}
+      effortId={switchingTarget ? switchingTarget.effort : effort}
+      disabledProviderIds={switchingTarget ? undefined : unavailableIds}
       disabled={locked}
+      showEffortLabel
       providerDescribedBy={failure ? errorId : undefined}
       modelSlot={freeModel}
       onProviderChange={(id) => { setInstallError(null); setProviderId(id); setModel(undefined); setEffort(undefined); }}
@@ -66,32 +73,30 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
       onEffortChange={setEffort}
       onInstallProvider={(id) => void install(id)}
     />}
-    {failure && <SwitchFailure error={failure} id={errorId} harnessName={provider?.display_name} operation={error || statusView?.kind === "failed" ? "switching the harness" : "starting the installer"} />}
-    {statusView?.kind === "busy" && <div role="status" aria-live="polite" className="flex items-center gap-3 rounded-md border border-[var(--ct-border)] p-3 text-sm">
+    {failure && <SwitchFailure error={failure} id={errorId} providerName={provider?.display_name ?? submittedTarget?.provider.display_name} operation={error || statusView?.kind === "failed" ? "switching providers" : "starting the installer"} />}
+    {statusView?.kind === "busy" && <div role="status" aria-live="polite" className="flex items-center gap-2 text-sm text-[var(--ct-muted-fg)]">
       <span aria-hidden="true"><BusySpinner icon={LoaderCircle} size={16} /></span>
       <span>{statusView.label}</span>
     </div>}
-    {statusView?.kind === "complete" && <div role="status" aria-live="polite" className="text-sm">{statusView.label}</div>}
+    {statusView?.kind === "complete" && <p id={descriptionId} role="status" className="text-sm">{statusView.label}</p>}
     {statusUncertainty && <div role="alert" aria-live="assertive" className="text-sm">
       <p>The switch may have completed, but Domios could not confirm its status. Check this tab before trying again.</p>
       <p className="mt-1 text-[var(--ct-muted-fg)]">{statusUncertainty}</p>
     </div>}
-    {phase === "waiting" && <p role="status">Waiting for this tab to become idle. Cancel to keep the current harness.</p>}
-    {result && <Button size="sm" onClick={() => void showHistory()}>Previous harness: {result.previous_provider}</Button>}
-    {history && <section aria-label="Previous harness transcript" className="max-h-72 overflow-auto text-sm">{history.map((row, index) => <article key={index}><strong>{row.kind}</strong><pre className="whitespace-pre-wrap">{row.content}</pre></article>)}</section>}
+    {phase === "waiting" && <p role="status">Waiting for this tab to become idle. Cancel to keep the current provider.</p>}
     <div className="flex justify-end gap-2">
       <Button size="sm" onClick={closeDialog}>{closeLabel}</Button>
       {phase === "choosing" && !ready && <>
         <Button size="sm" onClick={() => setPhase("waiting")} disabled={!provider || retryAfterSeconds !== null}>Wait for idle</Button>
         <Button size="sm" variant="danger" onClick={() => void submit(true)} disabled={!provider || activity.launching || retryAfterSeconds !== null}>Stop and switch</Button>
       </>}
-      {phase === "choosing" && ready && <Button size="sm" variant="primary" type="submit" disabled={!provider || retryAfterSeconds !== null}>{retryAfterSeconds !== null ? `Switch in ${retryAfterSeconds} s` : "Switch harness"}</Button>}
+      {phase === "choosing" && ready && <Button size="sm" variant="primary" type="submit" disabled={!provider || retryAfterSeconds !== null}>{retryAfterSeconds !== null ? `Switch in ${retryAfterSeconds} s` : "Switch"}</Button>}
     </div>
   </FormDialog>;
 }
 
-function SwitchFailure({ error, id, harnessName, operation }: { error: string; id: string; harnessName?: string; operation: string }) {
-  const view = describeError(error, { operation, harnessName });
+function SwitchFailure({ error, id, providerName, operation }: { error: string; id: string; providerName?: string; operation: string }) {
+  const view = describeError(error, { operation, providerName });
   const [expanded, setExpanded] = useState(false);
   const [copyState, setCopyState] = useState("");
   const detailsId = useId();

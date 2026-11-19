@@ -8,22 +8,33 @@ fn full_handoff_round_trips_as_one_system_message() {
         history: "history-token",
     };
     let payload = assemble(fragments).unwrap();
-    let message = system_message(&payload).unwrap();
+    let provider = Some("Destination & \"Co\"");
+    let model = Some("Fixture Model");
+    let message = system_message(&payload, provider, model).unwrap();
     let parsed = codeterm_wire::message_markers::parse_host_injected(&message).unwrap();
     assert_eq!(parsed.kind, "system");
     assert_eq!(
         parsed.attrs.get("context").map(String::as_str),
         Some(HANDOFF_CONTEXT)
     );
+    assert_eq!(parsed.attrs.get("label").map(String::as_str), provider);
+    assert_eq!(parsed.attrs.get("model").map(String::as_str), model);
     assert_eq!(parsed.payload, payload);
-    assert_eq!(message.len(), payload.len() + system_message_overhead());
+    assert_eq!(
+        message.len(),
+        payload.len() + system_message_overhead(provider, model)
+    );
 }
 
 #[test]
 fn handoff_size_bound_includes_the_system_frame() {
-    let exact = "x".repeat(MAX_INPUT_BYTES - system_message_overhead());
-    assert_eq!(system_message(&exact).unwrap().len(), MAX_INPUT_BYTES);
-    assert!(system_message(&(exact + "x")).is_err());
+    let provider = Some("Destination");
+    let exact = "x".repeat(MAX_INPUT_BYTES - system_message_overhead(provider, None));
+    assert_eq!(
+        system_message(&exact, provider, None).unwrap().len(),
+        MAX_INPUT_BYTES
+    );
+    assert!(system_message(&(exact + "x"), provider, None).is_err());
 }
 
 #[test]
