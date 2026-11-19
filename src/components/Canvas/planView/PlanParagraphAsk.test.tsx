@@ -239,7 +239,7 @@ async function advanceDelivery(state: ChatSendState, { call = 0, tabId }: { call
   await emitBridgeEvent("chat-send-status", next);
 }
 
-async function appendTranscript(messages: Array<Omit<NormalizedChatMessage, "timestamp">>) {
+async function appendTranscript(messages: Array<Omit<NormalizedChatMessage, "timestamp" | "seq">>) {
   const startOffset = transcriptOffset;
   transcriptOffset += messages.length;
   await emitBridgeEvent("tab-chat-msg-orch-1", {
@@ -247,7 +247,11 @@ async function appendTranscript(messages: Array<Omit<NormalizedChatMessage, "tim
     tab_id: "orch-1",
     start_offset: startOffset,
     offset: transcriptOffset,
-    messages: messages.map((message) => ({ ...message, timestamp: new Date().toISOString() })),
+    messages: messages.map((message, index) => ({
+      ...message,
+      timestamp: "2026-11-19T08:00:00Z",
+      seq: startOffset + index,
+    })),
   });
 }
 
