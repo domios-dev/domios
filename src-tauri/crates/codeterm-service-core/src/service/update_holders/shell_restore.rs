@@ -1,4 +1,4 @@
-use crate::multiplexer::types::ShellActivity;
+use crate::multiplexer::types::{ShellActivity, Tab};
 use crate::service::ServiceContext;
 
 impl ServiceContext {
@@ -7,15 +7,9 @@ impl ServiceContext {
         let interrupted: Vec<_> = mux
             .all_tabs()
             .filter(|tab| Some(tab.id.as_str()) != initiating_tab)
-            .filter(|tab| {
-                tab.is_utility_shell()
-                    && !tab.agent_booting
-                    && tab.shell_command_state.activity == ShellActivity::Running
-            })
             .filter_map(|tab| {
-                let command = self.running_command_on_pty(&tab.id, tab.pty_id.as_deref()?)?;
-                codeterm_wire::shell_command::validate(&command).ok()?;
-                Some((tab.id.clone(), command))
+                self.shutdown_shell_command(tab)
+                    .map(|command| (tab.id.clone(), command))
             })
             .collect();
         for (tab_id, command) in interrupted {
@@ -25,6 +19,18 @@ impl ServiceContext {
                 restore.stopped = true;
             }
         }
+    }
+
+    pub(super) fn shutdown_shell_command(&self, tab: &Tab) -> Option<String> {
+        if !tab.is_utility_shell()
+            || tab.agent_booting
+            || tab.shell_command_state.activity != ShellActivity::Running
+        {
+            return None;
+        }
+        let command = self.running_command_on_pty(&tab.id, tab.pty_id.as_deref()?)?;
+        codeterm_wire::shell_command::validate(&command).ok()?;
+        Some(command)
     }
 }
 

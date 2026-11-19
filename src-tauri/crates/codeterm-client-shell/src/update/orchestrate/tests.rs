@@ -1,5 +1,5 @@
 use super::*;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 #[derive(Default)]
 struct SpySink(Arc<Mutex<Vec<UpdateAbort>>>);
@@ -16,7 +16,7 @@ async fn viability_precedes_shutdown_and_install() {
     let sink = SpySink::default();
 
     install_after_shutdown(
-        vec![1, 2, 3],
+        vec![1, 2, 3].into(),
         move || async move {
             v.lock().unwrap().push("viability");
             Ok(vec![42, 73])
@@ -27,7 +27,7 @@ async fn viability_precedes_shutdown_and_install() {
             Ok(vec!["w-1".to_string()])
         },
         move |bytes| async move {
-            assert_eq!(bytes, [1, 2, 3]);
+            assert_eq!(bytes.as_slice(), [1, 2, 3]);
             i.lock().unwrap().push("install");
             Ok(())
         },
@@ -51,7 +51,7 @@ async fn failed_viability_never_tears_down_panes() {
     let sink = SpySink::default();
 
     let err = install_after_shutdown(
-        vec![1],
+        vec![1].into(),
         || async { Err("viability: install target not writable".to_string()) },
         move |(): ()| {
             let s = s.clone();
@@ -86,7 +86,7 @@ async fn install_failure_after_teardown_raises_signal_with_torn_down_tabs() {
     let sink = SpySink::default();
 
     let err = install_after_shutdown(
-        vec![1],
+        vec![1].into(),
         || async { Ok(()) },
         |_| async { Ok(vec!["w-1".to_string(), "w-2".to_string()]) },
         |_| async { Err("installer launch failed: exit 1".to_string()) },
@@ -109,7 +109,7 @@ async fn shutdown_failure_raises_signal() {
     let sink = SpySink::default();
 
     let err = install_after_shutdown(
-        vec![1],
+        vec![1].into(),
         || async { Ok(()) },
         |_| async { Err("PTY reap failed".to_string()) },
         move |_| async move {
