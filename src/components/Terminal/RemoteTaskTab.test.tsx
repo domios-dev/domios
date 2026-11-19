@@ -1,7 +1,7 @@
 import {act} from "react";
 import {createRoot} from "react-dom/client";
 import {expect, it, vi} from "vitest";
-import {RemoteTaskTab} from "./RemoteTaskTab";
+import {RemoteTaskTab, RemoteTaskUnavailable} from "./RemoteTaskTab";
 import type {RemoteTaskBinding, RemoteTaskCapability} from "../../../packages/plugin-sdk/src/remoteTasks";
 import type {RemoteTaskCall} from "./useRemoteTask";
 
@@ -75,4 +75,18 @@ it("announces a failed explicit remote-task refresh once", async () => {
     });
     expect(host.querySelectorAll('section[role="status"][aria-label]')).toHaveLength(1);
   } finally {await act(async () => root.unmount());}
+});
+
+it("keeps remote task actions visible and described without invoking an owner-only call", async () => {
+  const host = document.createElement("div"); const root = createRoot(host);
+  try {
+    await act(async () => root.render(<RemoteTaskUnavailable />));
+    for (const label of ["Run remote task", "Refresh remote task"]) {
+      const button = Array.from(host.querySelectorAll("button")).find(item => item.textContent === label);
+      expect(button?.getAttribute("aria-disabled")).toBe("true");
+      expect(button?.getAttribute("aria-description")).toBe("This action is only available on the owning machine.");
+      expect(button?.disabled).toBe(false);
+    }
+    expect(host.textContent).not.toContain("unavailable through this mesh tab");
+  } finally { await act(async () => root.unmount()); }
 });

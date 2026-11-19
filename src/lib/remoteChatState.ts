@@ -24,13 +24,13 @@ export function remoteChatState(presence?: RemoteChatPresence, failure?: RemoteC
 }
 
 export const REMOTE_CHAT_COPY = {
-  "not-paired": { label: "not paired", sentence: (name: string) => `${name} isn't paired with this computer anymore.`, action: "mesh" },
-  offline: { label: "offline", sentence: (name: string) => `${name} is offline. Its chat appears here when it's back.`, action: null },
-  unreachable: { label: "unreachable", sentence: (name: string) => `${name} isn't reachable right now.`, action: "retry" },
-  "signed-out": { label: "signed out", sentence: (name: string) => `${name} is signed out. Sign in on ${name} to continue.`, action: null },
-  refused: { label: "refused", sentence: (name: string) => `${name} didn't allow this chat.`, action: "mesh" },
-  "too-old": { label: "update required", sentence: (name: string) => `${name} needs an update to open this chat.`, action: null },
-  generic: { label: "unavailable", sentence: () => "Couldn't open this chat.", action: "retry" },
+  "not-paired": { label: "not paired", sentence: (name: string) => `${name} isn't paired with this computer anymore.`, sendReason: (name: string) => `${name} isn't paired`, action: "mesh" },
+  offline: { label: "offline", sentence: (name: string) => `${name} is offline. Its chat appears here when it's back.`, sendReason: (name: string) => `${name} is offline`, action: null },
+  unreachable: { label: "unreachable", sentence: (name: string) => `${name} isn't reachable right now.`, sendReason: (name: string) => `${name} isn't reachable`, action: "retry" },
+  "signed-out": { label: "signed out", sentence: (name: string) => `${name} is signed out. Sign in on ${name} to continue.`, sendReason: (name: string) => `${name} is signed out`, action: null },
+  refused: { label: "refused", sentence: (name: string) => `${name} didn't allow this chat.`, sendReason: (name: string) => `${name} didn't allow this chat`, action: "mesh" },
+  "too-old": { label: "update required", sentence: (name: string) => `${name} needs an update to open this chat.`, sendReason: (name: string) => `${name} needs an update`, action: null },
+  generic: { label: "unavailable", sentence: () => "Couldn't open this chat.", sendReason: () => "Couldn't open this chat", action: "retry" },
 } as const;
 
 export class PeerTabRelayError extends Error {

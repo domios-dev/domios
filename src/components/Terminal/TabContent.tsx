@@ -31,7 +31,7 @@ import { usageTrackingEnabled, tabUsageSource } from "./usageTracking";
 import { configureRemoteTabTransport } from "../../lib/remoteTabTransport";
 import { useHeaderTabMenu } from "./useHeaderTabMenu";
 import { SurfaceTabHost } from "./SurfaceTabHost";
-import { RemoteTaskTab } from "./RemoteTaskTab";
+import { RemoteTaskTab, RemoteTaskUnavailable } from "./RemoteTaskTab";
 import { surfaceBacking } from "../../lib/surfaceTab";
 import { hasSleepingTranscript } from "../../lib/tabSleep";
 import { usePanelInputBoundary } from "./usePanelInputBoundary";
@@ -153,7 +153,7 @@ export function TabContent({
   const cwd = tab.cwd ?? workspaceCwd ?? null;
 
   const body = tab.frozen && !chatOwnsStartup && !sleepingTranscript && !bodyPainted && (tab.agent_type || isChatBackend) ? null : tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : chatBacking && descriptor?.remote_task && isRemoteTaskTab(tab, descriptor.remote_task) ? (
-    tab.remote_peer_id ? <div role="status">Remote task controls are unavailable through this mesh tab.</div> :
+    tab.remote_peer_id ? <RemoteTaskUnavailable /> :
     <RemoteTaskTab key={chatBacking.session_id} tabId={tab.id} pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} capability={descriptor.remote_task} />
   ) : isChatBackend ? (
     <TabSessionChat tabId={tab.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
