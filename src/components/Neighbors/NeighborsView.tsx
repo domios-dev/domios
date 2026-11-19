@@ -138,7 +138,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
       </button>}
     </div>
     <div className="neighbors-body" data-panel={panelOpen || undefined}>
-      <div className="neighbors-canvas">
+      <div className="neighbors-canvas ct-canvas-background">
         {(neighbors.error || agentError) && <div className="neighbors-notices">
           {neighbors.error && <InlineErrorNotice error={neighbors.error} operation="managing your Neighbors" role="alert" />}
           {agentError && <InlineErrorNotice error={agentError} operation="asking your General Agent" role="alert" />}
