@@ -326,6 +326,7 @@ async fn reply_unhandled(
     id: &RpcId,
     code: i64,
 ) -> Result<(), RuntimeFailure> {
+    log::debug!("[runtime-prompt] request={id:?} code={code} caller=unhandled_request");
     client.reply(id, Err(request_error(code))).await
 }
 
