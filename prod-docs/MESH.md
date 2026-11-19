@@ -12,6 +12,15 @@ Each side verifies current signed membership and possession of both the installa
 
 `domios mesh status` returns identity, transport, publication, refusal and account machine summaries to authenticated local agents. Account mutations and credential-bearing account details remain local-owner only.
 
+A machine's kind icon and colour are suggested when it joins. Change them from **My machines** or the machine card menu. Peers learn the choice from the installation's signed Mesh announcement and keep its colour when it goes offline. To change a local or paired machine from a terminal, use:
+
+```text
+domios mesh identity set --kind laptop --color teal
+domios mesh identity set --kind server --color graphite --peer ubunta
+```
+
+An agent's command sends an approval choice to the target machine's owner. The icon and colour change when the owner chooses **Apply**.
+
 ## Web access and endpoints
 
 When Tailscale is connected and both the API and Mesh are enabled, the local web UI/API listens on assigned Tailscale IPv4 and IPv6 addresses, including while the account is signed out. Native address changes update the listener set. The Mesh UI card offers QR, Open and Copy only for health-proven listeners; Open carries the instance API token in a URL fragment. Browser API access requires that token. Account mesh peer requests and handshakes remain blocked while signed out or revoked, and disabling Mesh blocks peer traffic, withdraws the tailnet web listeners and stops their health proofs. Signed-in machines send health-proven endpoints peer-to-peer as installation-signed records. Each record is checked against the publisher's signed membership and current registry key, generation and slot. Higher sequences win; signed withdrawals remove endpoints. Sequence fences survive restart. A separate server publish happens only for cold start when no peer is reachable. Daily enrollment and renewal include the current endpoint in their existing request.
@@ -160,4 +169,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 |---|---|---|---|
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 79 -->
+<!-- revision: 80 -->

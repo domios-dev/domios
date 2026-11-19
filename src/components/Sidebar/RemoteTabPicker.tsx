@@ -1,12 +1,14 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, Laptop, LoaderCircle, X } from "lucide-react";
+import { ArrowLeft, LoaderCircle, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { BusySpinner } from "../shared/BusyState";
 import type { MeshPeersResponse, PairedPeer, Tab } from "../../lib/types";
 import type { RemotePeerTabs } from "../../lib/remoteTabPortal";
 import { groupRemoteTabs, peerTopologyOf, type PeerTopology } from "./remoteTabPickerModel";
+import { MachineGlyph } from "../shared/MachineGlyph";
+import { machineLabel, type MachineIdentity, type MeshIdentityProjection } from "../../lib/machineIdentity";
 
 interface RemoteTabPickerProps {
   onAttach: (peer: RemotePeerTabs, tab: Tab) => void;
@@ -15,6 +17,7 @@ interface RemoteTabPickerProps {
 
 export function RemoteTabPicker({ onAttach, onClose }: RemoteTabPickerProps) {
   const [peers, setPeers] = useState<PairedPeer[]>([]);
+  const [identities, setIdentities] = useState<Record<string, MachineIdentity>>({});
   const [selectedPeer, setSelectedPeer] = useState<PairedPeer | null>(null);
   const [remote, setRemote] = useState<RemotePeerTabs | null>(null);
   const [topology, setTopology] = useState<PeerTopology | null>(null);
@@ -26,8 +29,8 @@ export function RemoteTabPicker({ onAttach, onClose }: RemoteTabPickerProps) {
       if (event.code === "Escape") onClose();
     };
     document.addEventListener("keydown", onKeyDown);
-    void invoke<MeshPeersResponse>("mesh_list_peers")
-      .then((value) => setPeers(value.paired.filter((peer) => peer.online)))
+    void invoke<MeshPeersResponse & MeshIdentityProjection>("mesh_list_peers")
+      .then((value) => { setPeers(value.paired.filter(peer => peer.online)); setIdentities(value.machine_identities ?? {}); })
       .catch((cause) => setError(String(cause)))
       .finally(() => setLoading(false));
     return () => document.removeEventListener("keydown", onKeyDown);
@@ -67,6 +70,7 @@ export function RemoteTabPicker({ onAttach, onClose }: RemoteTabPickerProps) {
               <ArrowLeft size={14} />
             </button>
           )}
+          {selectedPeer && <MachineGlyph {...identities[selectedPeer.instance_id]} size="mark-15" />}
           <h2 id="remote-tab-picker-title" className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--ct-fg)]">
             {selectedPeer ? selectedPeer.instance_name : "Open remote Tab"}
           </h2>
@@ -78,9 +82,10 @@ export function RemoteTabPicker({ onAttach, onClose }: RemoteTabPickerProps) {
           {loading && <div role="status" aria-label="Loading" className="flex h-32 items-center justify-center text-[var(--ct-muted-fg)]"><BusySpinner size={17} icon={LoaderCircle} /></div>}
           {!loading && error && <InlineErrorNotice error={error} operation="loading remote tabs" blocking />}
           {!loading && !error && !selectedPeer && peers.map((peer) => (
-            <button key={peer.instance_id} type="button" onClick={() => choosePeer(peer)} className="flex w-full items-center gap-3 rounded px-3 py-2 text-left hover:bg-[var(--ct-hover)]">
-              <Laptop size={15} className="text-[var(--ct-muted-fg)]" />
-              <span className="truncate text-[13px] text-[var(--ct-fg)]">{peer.instance_name}</span>
+            <button key={peer.instance_id} type="button" onClick={() => choosePeer(peer)} className="ct-menu-row ct-machine-menu-row" aria-label={machineLabel(peer.instance_name, identities[peer.instance_id], "online")}>
+              <span className="ct-menu-row__icon"><MachineGlyph {...identities[peer.instance_id]} size="mark-15" /></span>
+              <span className="min-w-0 flex-1 truncate">{peer.instance_name}</span>
+              <span className="shrink-0 text-[length:var(--ct-font-size-meta)] text-[var(--ct-muted-fg)]">online</span>
             </button>
           ))}
           {!loading && !error && !selectedPeer && peers.length === 0 && <div className="px-3 py-8 text-center text-[12px] text-[var(--ct-muted-fg)]">No online machines</div>}

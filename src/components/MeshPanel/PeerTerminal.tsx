@@ -2,6 +2,10 @@ import { PeerCapsuleSections } from "./PeerCapsuleSections";
 import type { PeerInventory } from "./peerInventoryModel";
 import { memo, type ReactNode } from "react";
 import { MachineName } from "./MachineName";
+import { MachineGlyph } from "../shared/MachineGlyph";
+import { machineLabel } from "../../lib/machineIdentity";
+import { useMeshMachineIdentity } from "../../lib/useMeshMachineIdentities";
+import { MachineSessionControls } from "./MachineSessionControls";
 
 interface Props {
   inventory?: PeerInventory;
@@ -15,6 +19,7 @@ interface Props {
   footer?: ReactNode;
   onRename?: (name: string) => Promise<boolean>;
   renameDisabledReason?: string;
+  peerId?: string;
 }
 
 function PeerTerminalComponent({
@@ -29,25 +34,26 @@ function PeerTerminalComponent({
   footer,
   onRename,
   renameDisabledReason,
+  peerId,
 }: Props) {
+  const identity = useMeshMachineIdentity(peerId, true, isThisMachine ? undefined : name);
   const hasResources = inventory && (inventory.services.length > 0 || inventory.crons.length > 0);
   const dim = offline ? "opacity-55 grayscale" : "";
   return (
     <div
       role="group"
-      aria-label={name}
+      aria-label={machineLabel(name, identity, offline ? "offline" : "online")}
       onClick={disabled ? undefined : onClick}
       className="ct-card relative cursor-pointer"
       style={{ width: 360 }}
     >
-      <div className={`ct-card__head ${dim}`}>
-        <span role="button" tabIndex={disabled ? -1 : 0} aria-disabled={disabled} aria-label={`Open ${name}`}
+      <div className="ct-card__head">
+        <span role="button" tabIndex={disabled ? -1 : 0} aria-disabled={disabled} aria-label={`Open ${machineLabel(name, identity, offline ? "offline" : "online")}`}
           onKeyDown={(event) => { if (event.code === "Enter" || event.code === "Space") { event.preventDefault(); if (!disabled) onClick?.(); } }}
           className="flex items-center gap-2 rounded focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]">
-          <span className="w-3 h-3 shrink-0 rounded-full bg-[var(--ct-window-close)]" />
-          <span className="w-3 h-3 shrink-0 rounded-full bg-[var(--ct-window-minimize)]" />
-          <span className="w-3 h-3 shrink-0 rounded-full bg-[var(--ct-window-maximize)]" />
+          <MachineGlyph {...identity} size="tile" />
         </span>
+        {isThisMachine && <span onClick={(event) => event.stopPropagation()}><MachineSessionControls name={name} busy={false} identityPeer={null} /></span>}
         <span className="ml-2 min-w-0 flex-1 text-[14px] text-[var(--ct-fg)] font-medium truncate">
           <MachineName name={name} onRename={onRename} disabledReason={renameDisabledReason} />
         </span>

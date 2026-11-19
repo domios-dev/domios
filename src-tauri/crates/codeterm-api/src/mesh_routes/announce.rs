@@ -108,10 +108,23 @@ pub async fn mesh_announce_inbound(
     match mesh.apply_announce(&sender_id, &ann) {
         Ok(change) if change.changed() || membership_changed => {
             drop(mesh);
-            state
-                .svc
-                .ui
-                .emit("mesh-state-changed", serde_json::Value::Null);
+            if change.identity_changed {
+                state
+                    .svc
+                    .ui
+                    .emit("mesh-identity-changed", serde_json::Value::Null);
+            }
+            if membership_changed
+                || change.metadata_changed
+                || change.addresses_changed
+                || change.online_changed
+                || change.web_ui_changed
+            {
+                state
+                    .svc
+                    .ui
+                    .emit("mesh-state-changed", serde_json::Value::Null);
+            }
             Ok(Json(serde_json::json!({ "ok": true, "changed": true })))
         }
         Ok(_) => Ok(Json(serde_json::json!({ "ok": true, "changed": false }))),

@@ -56,7 +56,7 @@ test("machine cards expose real service and cron summaries", async () => {
   const { host, root } = await render({ ...base, inventory });
   assert(host.querySelector('section[aria-label="Services"] ul')?.textContent?.includes(daemon.name), "map Services wires the daemon name");
   assert(host.querySelector('section[aria-label="Crons"] ul')?.textContent?.includes(schedule.name), "map Crons wires the schedule name");
-  assert(host.querySelector('[role="button"]')?.getAttribute("aria-label") === `Open ${base.name}`, "peer is keyboard accessible");
+  assert(host.querySelector('[role="button"]')?.getAttribute("aria-label") === `Open ${base.name}, machine, online`, "peer exposes machine kind and state");
   await act(async () => root.unmount());
 });
 
@@ -67,7 +67,7 @@ test("stale map capsules expose names and state without error announcements", as
   assert(host.querySelector(`[role="img"][aria-label="${daemon.name}: ${inventory.services[0].stateLabel}"]`), "daemon capsule exposes name and state");
   assert(host.querySelector(`[role="img"][aria-label="${schedule.name}: ${inventory.crons[0].stateLabel}"]`), "cron capsule exposes name and state");
   assert(!host.querySelector('[role="status"], [role="alert"]'), "map inventory has no error announcement");
-  await act(async () => (host.querySelector('[role="button"][aria-label="Open rollacode-bot"]') as HTMLElement).click());
+  await act(async () => (host.querySelector('[role="button"][aria-label="Open rollacode-bot, machine, offline"]') as HTMLElement).click());
   assert(selected === 1, "open action fires once");
   await act(async () => root.unmount());
 });

@@ -115,6 +115,8 @@ Adopt an unbound remote Worker into a local Team with `domios team adopt-agent <
 
 Account mesh: machines signed in to the same account connect automatically. Flow: `mesh peers` → `tab list --mesh PEER` → act on remote ids. Each registry installation appears once; use its identity when names collide. To add a machine, sign in there with the same account. Remove from mesh revokes its account slot. Sign-out blocks traffic; the card names the machine needing sign-in. `mesh status` gives local agents a read-only account summary. A peer's General Agent is `--tab main --mesh PEER`; say "report back" when requesting a reply. Visibility: `mesh offline` / `mesh online` (hot-reload, Tailscale untouched). Mesh spawn requires peer `--cwd`; task-file contents are read locally and sent.
 
+`domios mesh identity set --kind laptop --color teal` asks the machine's owner to approve that exact icon and colour. Use `--peer PEER` for a paired target.
+
 ## Memory (mem)
 
 The Domios memory protocol is in your provider rules. Commands: `domios mem --help`; depth: `domios docs MEMORY`. Past conversations are not mem: `domios sessions search`.

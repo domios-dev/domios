@@ -1,3 +1,4 @@
+import { MachineProvenance } from "../shared/MachineProvenance";
 import { ACCESS_LABELS, MachineFooter } from "./MachineFooter";
 import { appVersion, buildHash } from "../../lib/buildStamp";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
@@ -206,7 +207,9 @@ function PeerDrawer({
       <div className={PANEL_BASE} style={{ width: "min(400px, 100vw)" }} role="dialog" aria-modal="true" aria-labelledby="mesh-peer-drawer-heading" data-testid="mesh-peer-drawer">
         <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="mesh-peer-announcement">{announcement}</div>
         <div className="flex items-center justify-between">
-          <strong ref={headingRef} id="mesh-peer-drawer-heading" tabIndex={-1} className="text-[var(--ct-fg)] truncate focus:outline-none">{peer.name}</strong>
+          <strong ref={headingRef} id="mesh-peer-drawer-heading" tabIndex={-1} className="text-[var(--ct-fg)] truncate focus:outline-none">
+            <MachineProvenance peerId={isSelf ? undefined : peer.instance_id} name={peer.name} status={peer.online ? "online" : "offline"} />
+          </strong>
           <button
             onClick={onClose}
             className={CLOSE_BUTTON_CLASS}

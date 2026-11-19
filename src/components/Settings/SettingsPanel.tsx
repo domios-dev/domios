@@ -30,6 +30,7 @@ import { NotificationsOverview } from "./NotificationsTab";
 import { MessengersCard } from "./MessengersCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import { AccountTab } from "./AccountTab";
+import { NetworkTab as MeshSettings } from "../MeshPanel/NetworkTab";
 import { AnalyticsToggle } from "./AnalyticsToggle";
 import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
@@ -225,6 +226,7 @@ export function SettingsPanel({
             )}
 
             {top.kind === "section" && top.id === "account" && <AccountTab focusCard={top.card} />}
+            {top.kind === "section" && top.id === "mesh" && <MeshSettings />}
 
             {top.kind === "section" && top.id === "general" && (
               <SettingsPage title="General">
