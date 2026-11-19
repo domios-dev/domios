@@ -19,8 +19,9 @@ export function startupMutationKey(path: string, init: RequestInit, peerId?: str
   const relayed = path === "/api/mesh/relay-to";
   if (relayed) {
     const relay = record(parsedBody(init.body));
-    if (!relay || typeof relay.target_peer_id !== "string" || typeof relay.path !== "string" || typeof relay.method !== "string") return null;
-    destination = `peer:${relay.target_peer_id}`;
+    const target = relay?.target_instance_id ?? relay?.target_peer_id;
+    if (!relay || typeof target !== "string" || typeof relay.path !== "string" || typeof relay.method !== "string") return null;
+    destination = `peer:${target}`;
     path = relay.path;
     method = relay.method.toUpperCase();
     body = relay.body;

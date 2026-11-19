@@ -2,7 +2,7 @@
 // codeterm#336 part B: mux_get_state call counts against an injected fake, gated on observed signals only.
 
 import type { RemotePeerTabs } from "../../lib/remoteTabPortal";
-import type { MeshPeersResponse, Tab } from "../../lib/types";
+import { RELAY_PROTOCOL_VERSION, type MeshPeersResponse, type MultiplexerState, type Tab } from "../../lib/types";
 
 process.env.VITE_CODETERM_TEST = "1";
 
@@ -138,6 +138,8 @@ async function mountProvider(options: {
   refuseInitialOrdinary?: boolean;
   storageUnavailableInitialMux?: boolean;
   pairedPeerCount?: number;
+  roster?: () => MeshPeersResponse["paired"];
+  peerMux?: (peerId: string) => Promise<MultiplexerState>;
   selectedLeaf?: boolean;
   ordinaryTabs?: () => Tab[];
 } = {}) {
@@ -146,15 +148,18 @@ async function mountProvider(options: {
 
   const { act, createRoot, React, window } = await setupHappyDom();
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
-  const { MultiplexerProvider, STORAGE_UNAVAILABLE_MESSAGE, useMuxState, useMultiplexer } = await import("./index");
+  const { MultiplexerProvider, STORAGE_UNAVAILABLE_MESSAGE, useMuxState, useMultiplexer, usePairedWorkspaceInventory } = await import("./index");
 
   let actions!: ReturnType<typeof useMultiplexer>;
   const pairCalls: Record<string, unknown>[] = [];
   let latestState!: ReturnType<typeof useMuxState>;
+  let inventory!: ReturnType<typeof usePairedWorkspaceInventory>;
+  const focusCalls: string[] = [];
   function StorageStatusProbe() {
     actions = useMultiplexer();
     const state = useMuxState();
     latestState = state;
+    inventory = usePairedWorkspaceInventory();
     return React.createElement(
       "div",
       { "data-testid": "storage-unavailable-probe" },
@@ -174,17 +179,22 @@ async function mountProvider(options: {
       if (args?.callerTabId) throw new Error("leaf caller refused");
       return { orchestrator_tab_id: "new-lead", planner_tab_id: "new-planner" } as T;
     }
-    if (cmd === "mesh_list_peers" && options.pairedPeerCount !== undefined) {
+    if (cmd === "mesh_list_peers" && (options.roster || options.pairedPeerCount !== undefined)) {
       const response: MeshPeersResponse = {
-        paired: Array.from({ length: options.pairedPeerCount }, () => onlinePeer),
+        paired: options.roster?.() ?? Array.from({ length: options.pairedPeerCount ?? 0 }, () => onlinePeer),
         local_instance_name: "Local",
       };
       return response as T;
     }
+    if (cmd === "mesh_peer_mux_state" && options.peerMux) return await options.peerMux(String(args?.peerId)) as T;
+    if (cmd === "mux_set_focused_tab") focusCalls.push(String(args?.tabId));
     if (cmd === "mesh_peer_tabs_list") {
       const peerId = args?.peerId;
-      if (peerId !== onlinePeer.instance_id) throw new Error(`Unexpected peer tab read: ${peerId}`);
-      const response: RemotePeerTabs = { peer_id: peerId, peer_name: onlinePeer.instance_name, tabs: [] };
+      if (typeof peerId !== "string" || (!options.roster && peerId !== onlinePeer.instance_id)) throw new Error(`Unexpected peer tab read: ${peerId}`);
+      const response: RemotePeerTabs = {
+        peer_id: peerId, peer_name: onlinePeer.instance_name,
+        tabs: options.roster ? [peerMain(peerId)] : [],
+      };
       return response as T;
     }
     if (cmd === "mux_get_state") {
@@ -244,6 +254,7 @@ async function mountProvider(options: {
     await act(async () => {
       for (const d of pending) {
         const snapshot = sampleState("ws-renewal");
+        if (options.roster) snapshot.workspaces[0] = Object.assign(snapshot.workspaces[0], { protected: true });
         d.resolve(options.selectedLeaf ? { ...snapshot, focused_tab_id: "manager",
           tabs: { manager: { id: "manager", workspace_id: "ws-renewal", role: "Manager", agent_type: "provider", session_binding_nonce: "manager-nonce" } },
           workspaces: [{ ...snapshot.workspaces[0], tabs: ["manager"], active_tab_id: "manager" }],
@@ -265,6 +276,9 @@ async function mountProvider(options: {
     window,
     host,
     pairCalls,
+    focusCalls,
+    get inventory() { return inventory; },
+    get focusedTabId() { return latestState.focused_tab_id; },
     get actions() { return actions; },
     get muxGetStateCalls() {
       return muxGetStateCalls;
@@ -488,6 +502,92 @@ test("a remote peer tab appears on remote-workers-changed and leaves on mesh-sta
   }
 });
 
+function peerMain(peerId: string): Tab {
+  return {
+    id: "main", tab_type: "Terminal", title: `General on ${peerId}`, cwd: null, pty_id: null,
+    role: "Manager", role_profile: "general_agent", protected: true, workspace_id: "peer-general",
+  };
+}
+
+function peerSnapshot(peerId: string, project: string): MultiplexerState {
+  return {
+    ...sampleState("peer-general"),
+    workspaces: [
+      { id: "peer-general", name: "General", protected: true, tabs: ["main"], active_tab_id: "main", cwd: null },
+      { id: "same-workspace", name: project, tabs: [], active_tab_id: null, cwd: null },
+    ],
+    tabs: { main: peerMain(peerId) },
+  };
+}
+
+test("paired General opens the verified host tab and reuses attachments with colliding host tab ids", async () => {
+  const a = { ...onlinePeer, instance_id: "a", instance_name: "Desk", relay_protocol_version: RELAY_PROTOCOL_VERSION };
+  const b = { ...a, instance_id: "b" };
+  const old = { ...a, instance_id: "old", relay_protocol_version: RELAY_PROTOCOL_VERSION - 1 };
+  let roster = [a, b, old];
+  const harness = await mountProvider({ roster: () => roster, peerMux: async id => peerSnapshot(id, id) });
+  try {
+    const ids = () => harness.inventory.generals.flatMap(item => item.sessions.map(tab => tab.viewerId));
+    assert(ids().join(",") === "mesh:a/main,mesh:b/main", "the same raw Main resolves once per installation");
+    assert(harness.inventory.generals[2].availability === "update-required", "an old peer has a card and no session route");
+    await harness.act(async () => {
+      harness.actions.attachRemoteTab?.("ws-renewal", { peer_id: "a", peer_name: "Desk", tabs: [] }, peerMain("a"));
+    });
+    await harness.act(async () => harness.actions.setActiveTab("ws-renewal", "mesh:a/main"));
+    assert(harness.tabIds.filter(id => id === "mesh:a/main").length === 1, "opening the General reuses the attachment");
+    await harness.act(async () => harness.actions.setActiveTab("ws-renewal", "mesh:b/main"));
+    assert(harness.focusCalls.join(",") === "mesh:a/main,mesh:b/main", "selection addresses each exact host tab");
+    roster = [a, { ...b, online: false }, old];
+    await harness.act(async () => harness.emit("mesh-state-changed"));
+    assert(ids().includes("mesh:b/main"), "a confirmed offline session stays in place");
+    assert(harness.inventory.generals[1].availability === "offline", "the cached card shows offline");
+    roster = [a, old];
+    await harness.act(async () => harness.emit("mesh-state-changed"));
+    assert(!ids().includes("mesh:b/main"), "unpair removes discovery");
+    assert(harness.tabIds.includes("mesh:b/main") && harness.focusedTabId === "mesh:b/main", "the open viewer remains selected");
+    await harness.act(async () => harness.actions.setActiveTab("ws-renewal", "mesh:b/main"));
+    assert(harness.focusCalls.length === 2, "the retained viewer cannot send selection to the unpaired host");
+  } finally {
+    await harness.unmount();
+  }
+});
+
+test("late A and B workspace replies cannot change the current A inventory or the selected viewer", async () => {
+  const a = { ...onlinePeer, instance_id: "a", relay_protocol_version: RELAY_PROTOCOL_VERSION };
+  const b = { ...a, instance_id: "b" };
+  const initialA = deferred<MultiplexerState>();
+  const initialB = deferred<MultiplexerState>();
+  const finalA = deferred<MultiplexerState>();
+  const browseReads = [initialA, initialB, finalA];
+  let browsing = false;
+  const harness = await mountProvider({
+    roster: () => [a, b],
+    peerMux: id => browsing ? browseReads.shift()!.promise : Promise.resolve(peerSnapshot(id, id)),
+  });
+  const { setWorkspaceBrowseTarget } = await import("../../lib/workspaceBrowseTarget");
+  try {
+    await harness.act(async () => harness.actions.setActiveTab("ws-renewal", "mesh:b/main"));
+    const selected = harness.focusedTabId;
+    assert(selected === "mesh:b/main", "the remote viewer is selected before workspace browsing");
+    browsing = true;
+    await harness.act(async () => setWorkspaceBrowseTarget({ id: "a", name: "A" }));
+    await harness.act(async () => setWorkspaceBrowseTarget({ id: "b", name: "B" }));
+    await harness.act(async () => setWorkspaceBrowseTarget({ id: "a", name: "A" }));
+    assert(browseReads.length === 0, "all three target requests started");
+    await harness.act(async () => finalA.resolve(peerSnapshot("a", "Current A workspace")));
+    await harness.act(async () => {
+      initialA.resolve(peerSnapshot("a", "Stale A workspace"));
+      initialB.resolve(peerSnapshot("b", "Stale B workspace"));
+    });
+    assert(harness.inventory.browse?.workspaces[0].workspace.name === "Current A workspace", "only the latest target response contributes workspace inventory");
+    assert(harness.focusedTabId === selected && harness.tabIds.includes(selected), "browsing kept the same viewer identity and selection");
+    assert(harness.inventory.generals.length === 2, "browsing kept both paired Generals");
+  } finally {
+    await harness.act(async () => setWorkspaceBrowseTarget(null));
+    await harness.unmount();
+  }
+});
+
 async function resyncCase(name: string, fire: () => Promise<void> | void) {
   test(`resync: ${name} triggers exactly one mux_get_state call`, async () => {
     const harness = await mountProvider();
@@ -526,8 +626,8 @@ void resyncCase("boot-namespace change", () => {
   window.dispatchEvent(new CustomEvent("codeterm-web-boot-changed", { detail: { boot: "boot-2" } }));
 });
 
-// Case 4 — peer switch: WebPeerPicker's reset+rebind flow.
-void resyncCase("peer switch", () => {
+// Case 4 — a whole-daemon context rebind has its own reset lifecycle.
+void resyncCase("daemon context rebind", () => {
   const switchId = 7;
   window.dispatchEvent(new CustomEvent("codeterm-peer-switch-reset", { detail: { switchId } }));
   window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind", { detail: { switchId } }));
