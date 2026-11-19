@@ -32,6 +32,10 @@ vi.mock("../../lib/useAgentDescriptor", () => ({ useAgentDescriptor: () => undef
     { id: "model-token", display_name: "Sonnet 5.5", reasoning_efforts: [{ id: "effort-token", display_name: "Effort" }] },
     { id: "haiku-token", display_name: "Haiku 5.5" },
   ] },
+  { id: "grouped", display_name: "Grouped Target", transport: "pty", default_model: "model-token", available_models: [
+    { id: "model-token", display_name: "Shared Model", group: "Published models" },
+    { id: "other-token", display_name: "Other Model", group: "Published models" },
+  ] },
   { id: "other", display_name: "Other", transport: "pty", available_models: [] },
 ] }));
 
@@ -124,6 +128,26 @@ it("confirmation sends one target selection and shows its result", async () => {
     await act(async () => finish(result));
     expectCompletion();
   } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("keeps the default selected without marking it current on a different provider", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    const runningTab = { ...tab, agent_session_model: "model-token" };
+    await act(async () => root.render(<ProviderSwitchDialog tab={runningTab} initialProviderId="grouped" onClose={() => {}} />));
+    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label="Agent model: Shared Model"]');
+    expect(trigger).not.toBeNull();
+    await act(async () => trigger?.click());
+
+    const options = Array.from(document.querySelectorAll('[role="option"]'));
+    expect(options.map((option) => option.getAttribute("aria-label"))).toEqual(["Shared Model", "Other Model"]);
+    expect(options.find((option) => option.getAttribute("aria-selected") === "true")?.getAttribute("aria-label")).toBe("Shared Model");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
 });
 
 it("exposes the selected value and menu state, and changes selection by keyboard", async () => {
