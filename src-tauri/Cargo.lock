@@ -1525,6 +1525,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "rustls",
+ "serde",
  "serde_json",
  "tauri",
  "tauri-plugin-single-instance",
