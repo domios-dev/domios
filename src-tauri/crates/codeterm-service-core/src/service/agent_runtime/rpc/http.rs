@@ -310,6 +310,10 @@ async fn execute(
         }
     };
     let status = response.status();
+    if reply {
+        finish_reply(write, status);
+        return Ok(());
+    }
     let mut headers = serde_json::Map::new();
     for name in &declaration.response_headers {
         if let Some(value) = response
@@ -332,7 +336,7 @@ async fn execute(
     let mut value = body?;
     redact_value(&mut value, password);
     write.finish(Ok(()));
-    if !reply && frame.get("id").is_some() {
+    if frame.get("id").is_some() {
         let id: RpcId = serde_json::from_value(frame["id"].clone())
             .map_err(|_| failure("HTTP request id invalid"))?;
         let result = if status.is_success() {
@@ -346,9 +350,19 @@ async fn execute(
         };
         client.ingest(WireFrame::Response { id, result });
     } else if !status.is_success() {
-        return Err(failure("HTTP reply outcome uncertain"));
+        return Err(failure("HTTP notification outcome uncertain"));
     }
     Ok(())
+}
+
+fn finish_reply(write: Write, status: reqwest::StatusCode) {
+    write.finish(if status.is_success() {
+        Ok(())
+    } else {
+        Err(RuntimeFailure::ReplyRefused {
+            status: status.as_u16(),
+        })
+    });
 }
 
 async fn bounded_body(mut response: reqwest::Response) -> Result<Value, RuntimeFailure> {

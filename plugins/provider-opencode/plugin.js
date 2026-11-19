@@ -2226,7 +2226,7 @@ function v2Prompt(ctx, frame) {
       threadId: ctx.threadId,
       requestId: frame.requestId,
       prompt: { question: `${action}: ${list(params.resources).filter((value) => typeof value === "string").join(", ")}`, options: [{ label: "Allow once", value: "once" }, { label: "Always allow", value: "always" }, { label: "Reject", value: "reject" }] },
-      permission: { action: action === "shell" ? "command" : ["edit", "write"].includes(action) ? "write" : ["read", "glob", "grep"].includes(action) ? "read" : "other", options: [{ value: "once", decision: "allow_once" }, { value: "always", decision: "allow_always" }, { value: "reject", decision: "reject_once" }] }
+      permission: { action: action === "shell" ? "command" : ["edit", "write"].includes(action) ? "write" : ["read", "glob", "grep"].includes(action) ? "read" : "other", options: [{ value: "once", decision: "allow_once" }, { value: "reject", decision: "reject_once" }] }
     };
   }
   const form = object2(params.form);
@@ -2446,7 +2446,7 @@ function v2Response(ctx, op, state, reply) {
       if (typeof value.interrupted !== "boolean") return refused("OpenCode did not acknowledge the interrupt");
       return done();
     case "answer":
-      return body === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
+      return reply.value === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
     case "control":
       if (op.action === "auth") {
         if (state.stage === "authProviders") {
@@ -2465,9 +2465,9 @@ function v2Response(ctx, op, state, reply) {
 // plugins/provider-opencode/src/runtimeV2Reduce.ts
 function current(ctx, raw) {
   const old = object2(raw);
-  if (old.epoch !== ctx.epoch || old.nonce !== ctx.bindingNonce || old.thread !== ctx.threadId) return { epoch: ctx.epoch, nonce: ctx.bindingNonce, thread: ctx.threadId, seq: ctx.restoredRowOrdinal ?? 0, seen: [], evidenced: [], completed: [], parts: /* @__PURE__ */ Object.create(null) };
+  if (old.epoch !== ctx.epoch || old.nonce !== ctx.bindingNonce || old.thread !== ctx.threadId) return { epoch: ctx.epoch, nonce: ctx.bindingNonce, thread: ctx.threadId, seq: ctx.restoredRowOrdinal ?? 0, seen: [], evidenced: [], completed: [], pendingPrompts: [], parts: /* @__PURE__ */ Object.create(null) };
   const state = old;
-  return { ...state, seen: [...state.seen], evidenced: [...state.evidenced], completed: [...state.completed], parts: Object.fromEntries(Object.entries(state.parts).map(([id, part]) => [id, { ...part, part: { ...part.part } }])) };
+  return { ...state, seen: [...state.seen], evidenced: [...state.evidenced], completed: [...state.completed], pendingPrompts: [...state.pendingPrompts ?? []], parts: Object.fromEntries(Object.entries(state.parts).map(([id, part]) => [id, { ...part, part: { ...part.part } }])) };
 }
 function witness(ctx, sequence, sendId) {
   return ctx.streamWindow?.turnRequests?.find((value) => (!sendId || value.sendId === sendId) && value.written && value.afterSequence !== void 0 && sequence !== void 0 && sequence > value.afterSequence);
@@ -2502,7 +2502,10 @@ function v2Reduce(ctx, raw, frames) {
     const turn = state.turn ?? ctx.activeTurnId ?? witness(ctx, sequence)?.turnId;
     if (frame.kind === "request") {
       const prompt2 = v2Prompt(ctx, frame);
-      if (prompt2) events.push(prompt2, { kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "needs_input", detail: frame.method === "permission.asked" ? "awaitingApproval" : "awaitingInput" });
+      if (prompt2) {
+        state.pendingPrompts.push(String(frame.requestId));
+        events.push(prompt2, { kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "needs_input", detail: frame.method === "permission.asked" ? "awaitingApproval" : "awaitingInput" });
+      }
       continue;
     }
     if (type === "session.inbox.enqueued") {
@@ -2519,6 +2522,7 @@ function v2Reduce(ctx, raw, frames) {
     if (["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"].includes(type)) {
       if (turn && !state.completed.includes(turn)) {
         state.completed.push(turn);
+        state.pendingPrompts = [];
         const detail = type === "session.execution.failed" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : void 0;
         if (detail === "failed") events.push({ kind: "notice", threadId: ctx.threadId, message: String(object2(data.error).message ?? "OpenCode execution failed").slice(0, 4096) });
         events.push({ kind: "turnState", threadId: ctx.threadId, turnId: turn, state: "idle", ...detail ? { detail } : {} });
@@ -2528,7 +2532,16 @@ function v2Reduce(ctx, raw, frames) {
     }
     if (["permission.replied", "form.replied", "form.cancelled"].includes(type)) {
       const request2 = text(data.requestID) ?? text(data.formID) ?? text(data.id);
-      if (request2) events.push({ kind: "promptResolved", threadId: ctx.threadId, requestId: request2 });
+      if (request2) {
+        events.push({ kind: "promptResolved", threadId: ctx.threadId, requestId: request2 });
+        const pending = state.pendingPrompts.indexOf(request2);
+        if (pending >= 0) {
+          state.pendingPrompts.splice(pending, 1);
+          if (!state.pendingPrompts.length && turn && !state.completed.includes(turn)) {
+            events.push({ kind: "turnState", threadId: ctx.threadId, turnId: turn, state: "working" });
+          }
+        }
+      }
       continue;
     }
     const message = text(data.assistantMessageID);
@@ -2735,7 +2748,7 @@ function session(ctx, raw, expected) {
 function historyPlan(ctx, op) {
   own(ctx, op.threadId);
   if (op.order !== "desc") fail("unsupported", "OpenCode runtime history requires descending pages");
-  if (op.cursor && (op.cursor.length > 4096 || !op.cursor.startsWith("msg_"))) fail("invalid_schema", "Invalid OpenCode history cursor");
+  if (op.cursor && op.cursor.length > 4096) fail("invalid_schema", "Invalid OpenCode history cursor");
   return request("session.messages", { path: { sessionID: op.threadId }, query: { limit: "40", ...op.cursor ? { before: op.cursor } : {} } });
 }
 function runtimePlan(ctx, op) {
@@ -2828,7 +2841,7 @@ function runtimeResponse(ctx, op, raw, reply) {
       own(ctx, op.threadId);
       const rows = historyRows(op.threadId, body);
       const cursor = text(object2(envelope.headers)["x-next-cursor"]);
-      if (cursor && (cursor.length > 4096 || cursor === op.cursor || !cursor.startsWith("msg_"))) return refused("OpenCode history cursor did not advance");
+      if (cursor && (cursor.length > 4096 || cursor === op.cursor)) return refused("OpenCode history cursor did not advance");
       return { kind: "complete", result: { kind: "historyPage", threadId: op.threadId, items: rows, openItems: [], order: "desc", ...cursor ? { nextCursor: cursor } : {} } };
     }
     case "interrupt": {

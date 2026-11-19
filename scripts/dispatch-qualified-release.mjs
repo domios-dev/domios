@@ -1,3 +1,4 @@
+import { RELEASE_BRANCH } from './release-version.mjs';
 import { sourceRepository } from './source-repository.mjs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
@@ -10,8 +11,8 @@ export function dispatchQualifiedRelease(sha, branch, {
   repository = sourceRepository(),
   qualify = requireQualification, run = gh,
 } = {}) {
-  if (!/^[a-f0-9]{40}$/.test(sha) || !/^release\/\d+\.\d+\.\d+$/.test(branch)) {
-    throw new Error('Usage: dispatch-qualified-release.mjs SHA release/X.Y.Z');
+  if (!/^[a-f0-9]{40}$/.test(sha) || branch !== RELEASE_BRANCH) {
+    throw new Error('Usage: dispatch-qualified-release.mjs SHA release/next');
   }
   if (run(['api', 'user', '--jq', '.login']) !== 'rollacode') throw new Error('Owner dispatch requires rollacode');
   const head = () => run(['api', 'repos/' + repository + '/git/ref/heads/' + branch, '--jq', '.object.sha']);
@@ -19,7 +20,7 @@ export function dispatchQualifiedRelease(sha, branch, {
   qualify(sha, { repository });
   if (head() !== sha) throw new Error('Release branch moved during qualification readback');
   run(['workflow', 'run', 'release.yml', '--repo', repository, '--ref', branch,
-    '-f', 'tag=' + sha, '-f', 'dry_run=true', '-f', 'mirror=false']);
+    '-f', 'dry_run=true', '-f', 'mirror=false']);
   return sha;
 }
 

@@ -33,6 +33,7 @@ try {
   const config = path.join(temp, "tsconfig.json");
   fs.writeFileSync(config, JSON.stringify({
     extends: path.join(root, "tsconfig.json"),
+    compilerOptions: { typeRoots: [path.join(root, "node_modules/@types")] },
     // Globs need forward slashes on Windows; plugin UIs import host modules that rely on its ambient declarations.
     include: [path.join(root, "src/**/*.d.ts"), path.join(plugin.directory, "src/plugin.ts"), path.join(plugin.directory, "ui/src/**/*.tsx"), path.join(plugin.directory, "ui/src/**/*.ts")]
       .map((pattern) => pattern.replaceAll("\\", "/")),

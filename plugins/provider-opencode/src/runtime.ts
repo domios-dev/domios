@@ -16,7 +16,7 @@ function session(ctx:RuntimeContext, raw:unknown, expected?:string):string {
 function historyPlan(ctx:RuntimeContext, op:Extract<Operation,{kind:"readHistory"}>):RuntimePlan {
   own(ctx,op.threadId);
   if (op.order !== "desc") fail("unsupported","OpenCode runtime history requires descending pages");
-  if (op.cursor && (op.cursor.length > 4096 || !op.cursor.startsWith("msg_"))) fail("invalid_schema","Invalid OpenCode history cursor");
+  if (op.cursor && op.cursor.length > 4096) fail("invalid_schema","Invalid OpenCode history cursor");
   return request("session.messages",{path:{sessionID:op.threadId},query:{limit:"40",...(op.cursor ? {before:op.cursor} : {})}});
 }
 export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
@@ -99,7 +99,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       own(ctx,op.threadId);
       const rows=historyRows(op.threadId,body);
       const cursor=text(object(envelope.headers)["x-next-cursor"]);
-      if (cursor && (cursor.length > 4096 || cursor === op.cursor || !cursor.startsWith("msg_"))) return refused("OpenCode history cursor did not advance");
+      if (cursor && (cursor.length > 4096 || cursor === op.cursor)) return refused("OpenCode history cursor did not advance");
       return {kind:"complete",result:{kind:"historyPage",threadId:op.threadId,items:rows,openItems:[],order:"desc",...(cursor ? {nextCursor:cursor} : {})}};
     }
     case "interrupt": {

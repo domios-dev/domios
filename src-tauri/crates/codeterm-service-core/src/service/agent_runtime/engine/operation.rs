@@ -350,6 +350,10 @@ async fn run_inner(
                 handed_off.store(true, Ordering::Release);
                 if let Err(reason) = process.client.reply(request_id, reply).await {
                     super::super::client_bridge::approvals::revoke(&context, approval);
+                    if matches!(&reason, RuntimeFailure::ReplyRefused { .. }) {
+                        session.prompts.lock().remove(request_id);
+                        super::super::prompt_answers::resolve(svc, session, request_id);
+                    }
                     return Err(reason);
                 }
                 session.prompts.lock().remove(request_id);

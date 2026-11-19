@@ -34,7 +34,8 @@ const PROMPT: &str = "opaque supplied identity";
 const SOURCE: &str = r#"
 module.exports = {
   runtimePlan(ctx, op) {
-    return {action:{kind:'request',call:{method:op.kind,params:op}},state:null};
+    const method = op.kind === 'control' && op.action === 'restoreContext' ? 'thread/inject_items' : op.kind;
+    return {action:{kind:'request',call:{method,params:op}},state:null};
   },
   runtimeResponse(ctx, op, state, reply) {
     if ((op.kind === 'resumeThread' && op.instructions.includes('opaque refused identity')) ||
@@ -124,20 +125,36 @@ fn register_duplex_process(
     })
 }
 
+fn fixture_request_methods() -> serde_json::Map<String, Value> {
+    [
+        "initialize",
+        "openThread",
+        "resumeThread",
+        "readHistory",
+        "submitTurn",
+        "control",
+    ]
+    .into_iter()
+    .map(|kind| (kind.to_string(), json!([kind])))
+    .collect::<serde_json::Map<String, Value>>()
+}
+
 impl RuntimeFixture {
     fn new() -> Self {
         Self::with_source(SOURCE)
     }
     fn with_source(source: &str) -> Self {
-        let fixture = Self::prepared(source, true);
+        Self::prepared(source, true).launch()
+    }
+    fn launch(self) -> Self {
         agent_runtime::transport::launch(
-            &fixture.service,
+            &self.service,
             PROVIDER,
-            &fixture.tab,
+            &self.tab,
             json!({"systemPrompt":PROMPT,"model":"supplied-model"}),
         )
         .unwrap();
-        fixture
+        self
     }
     fn prepared(source: &str, storage: bool) -> Self {
         Self::prepared_with_profile(source, storage, false)
@@ -197,17 +214,7 @@ impl RuntimeFixture {
         let exits = Arc::new(parking_lot::Mutex::new(Vec::new()));
         let process_ports =
             register_duplex_process(&tab, requests.clone(), request_changed, exits.clone());
-        let methods = [
-            "initialize",
-            "openThread",
-            "resumeThread",
-            "readHistory",
-            "submitTurn",
-            "control",
-        ]
-        .into_iter()
-        .map(|kind| (kind.to_string(), json!([kind])))
-        .collect::<serde_json::Map<String, Value>>();
+        let methods = fixture_request_methods();
         let mut raw_manifest = json!({
             "id":PROVIDER,"version":"1.0.0","displayName":"Fixture","binaryName":"node",
             "commands":{"modelSwitch":"restart_resume"},
