@@ -204,7 +204,21 @@ fn report(authority: TaskMutationAuthority) -> BoundWorkerReport {
     }
 }
 
-fn assigned_review(store: &PlanStore, plan: &str, task: &str, authorized: bool) -> String {
+fn worker_edits_declared_file(project: &std::path::Path, revision: &str) {
+    std::fs::write(
+        project.join("src/lifecycle.rs"),
+        format!("worker revision {revision}\n"),
+    )
+    .unwrap();
+}
+
+fn assigned_review(
+    store: &PlanStore,
+    plan: &str,
+    task: &str,
+    project: &std::path::Path,
+    authorized: bool,
+) -> String {
     let owner = TaskMutationAuthority {
         tab_id: "owner".into(),
         session_id: "owner-session".into(),
@@ -232,6 +246,7 @@ fn assigned_review(store: &PlanStore, plan: &str, task: &str, authorized: bool) 
     store
         .acknowledge_task_attempt(plan, task, "worker", &attempt_id, 4)
         .unwrap();
+    worker_edits_declared_file(project, "assigned-review");
     assert!(
         store
             .ingest_bound_worker_report(
@@ -252,8 +267,8 @@ fn assigned_review(store: &PlanStore, plan: &str, task: &str, authorized: bool) 
 }
 
 fn roundtrip(authorized: bool) {
-    let (_dir, store, plan, task) = fixture();
-    let attempt = assigned_review(&store, &plan, &task, authorized);
+    let (dir, store, plan, task) = fixture();
+    let attempt = assigned_review(&store, &plan, &task, dir.path(), authorized);
     let result = store
         .bounce_review(
             &plan,
@@ -322,8 +337,8 @@ fn lifecycle_reassignment_authorized_assign_ack_report_bounce() {
 
 #[test]
 fn lifecycle_reassignment_review_respawn_ack_preserves_history_and_fences_retired() {
-    let (_dir, store, plan, task) = fixture();
-    let previous_id = assigned_review(&store, &plan, &task, true);
+    let (dir, store, plan, task) = fixture();
+    let previous_id = assigned_review(&store, &plan, &task, dir.path(), true);
     store
         .hold_review(
             &plan,
@@ -396,6 +411,7 @@ fn lifecycle_reassignment_review_respawn_ack_preserves_history_and_fences_retire
     assert!(store
         .acknowledge_task_attempt(&plan, &task, "worker", &previous_id, 8)
         .is_err());
+    worker_edits_declared_file(dir.path(), "retired-report");
     assert!(
         !store
             .ingest_bound_worker_report(
@@ -412,6 +428,7 @@ fn lifecycle_reassignment_review_respawn_ack_preserves_history_and_fences_retire
         .acknowledge_task_attempt(&plan, &task, "replacement", &replacement.attempt.id, 9)
         .unwrap();
     assert_eq!(ack.attempt.acknowledged_at, Some(9));
+    worker_edits_declared_file(dir.path(), "respawn-report");
     assert!(
         store
             .ingest_bound_worker_report(
@@ -428,7 +445,7 @@ fn lifecycle_reassignment_review_respawn_ack_preserves_history_and_fences_retire
 
 #[test]
 fn lifecycle_reassignment_replacement_retires_same_tab_epoch() {
-    let (_dir, store, plan, task) = fixture();
+    let (dir, store, plan, task) = fixture();
     store
         .assign_task_with_runtime_binding(
             &plan,
@@ -472,6 +489,7 @@ fn lifecycle_reassignment_replacement_retires_same_tab_epoch() {
     assert!(store
         .acknowledge_task_attempt(&plan, &task, "worker", &old_id, 7)
         .is_err());
+    worker_edits_declared_file(dir.path(), "superseded-report");
     assert!(store
         .ingest_bound_worker_report(
             &plan,
@@ -522,7 +540,7 @@ fn lifecycle_reassignment_invalid_binding_and_remote_binding_do_not_mutate() {
 
 #[test]
 fn lifecycle_reassignment_assignment_cannot_clear_review_or_active_state() {
-    let (_dir, store, plan, task) = fixture();
+    let (dir, store, plan, task) = fixture();
     store
         .assign_task_with_runtime_binding(
             &plan,
@@ -541,6 +559,7 @@ fn lifecycle_reassignment_assignment_cannot_clear_review_or_active_state() {
         .unwrap();
     for in_review in [false, true] {
         if in_review {
+            worker_edits_declared_file(dir.path(), "active-review");
             store
                 .ingest_bound_worker_report(
                     &plan,
