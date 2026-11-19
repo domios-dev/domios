@@ -86,6 +86,11 @@ export function lazyFirstTurnComposerIsLive(tab: TabActivityInput | null | undef
     && launch.binding_nonce === tab.session_binding_nonce;
 }
 
+export function hasRetiredPtySession(tab: TabActivityInput | null | undefined): boolean {
+  return tab?.backing?.kind === "pty" && !tab.agent_type && !tab.session_binding_nonce
+    && Boolean(tab.prior_session_binding_nonces?.at(-1)?.session_id);
+}
+
 function boundSessionRetiresShellStartup(tab: TabActivityInput | null | undefined): boolean {
   return tab?.agent_booting === false
     && Boolean(tab.agent_session_id?.trim())

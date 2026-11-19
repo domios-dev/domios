@@ -1,11 +1,20 @@
-import { tabActivity } from "../../lib/tabActivity";
+import { hasRetiredPtySession, tabActivity } from "../../lib/tabActivity";
 import { tabLaunched } from "../../lib/tabFailure";
 import { runtimeResponseDeadlinePending } from "../../lib/agentRuntimeState";
 import type { Tab } from "../../lib/types";
 import type { ChatBodyView } from "./chatBodyVisibility";
 import { describeError, type ErrorDescription } from "../../lib/describeError";
 
+export function composerSendPolicy(tab: Partial<Tab> | null | undefined) {
+  return {
+    allowed: Boolean(tab),
+    terminalFallback: Boolean(tab?.agent_type) && (tab?.boot_stage === "agent_ready" || tab?.boot_stage === "pty_reattached"),
+  };
+}
+
 export function chatSetupView(tab: Partial<Tab> | null | undefined, chatSessionAttached = false): ChatBodyView {
+  if (hasRetiredPtySession(tab) && !tab?.agent_booting
+    && (tab?.boot_stage == null || tab.boot_stage === "shell_ready" || tab.boot_stage === "pty_reattached")) return { kind: "exited" };
   const launched = tabLaunched(tab);
   if (tab?.boot_stage === "spawn_failed" && !launched) return { kind: "launch_failed", reason: tab.boot_failure_reason ?? null };
   const currentLaunchBound = Boolean(tab?.agent_session_id?.trim() && tab.session_binding_nonce

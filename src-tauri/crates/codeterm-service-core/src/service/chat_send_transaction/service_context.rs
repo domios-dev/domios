@@ -159,7 +159,7 @@ impl crate::service::ServiceContext {
         self.prepare_user_send_target(tab_id)?;
         self.chat_send_ledger
             .restore_before_user_admission(tab_id, || self.restore_durable_user_statuses(tab_id))?;
-        let authority = self.user_send_authority(tab_id)?;
+        let authority = self.chat_user_send_authority(tab_id)?;
         self.bind_user_send_owner();
         if let Some(weak) = self.try_ext::<std::sync::Weak<super::super::ServiceContext>>() {
             let weak = weak.clone();

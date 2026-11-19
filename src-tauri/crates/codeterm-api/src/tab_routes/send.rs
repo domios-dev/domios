@@ -104,7 +104,7 @@ pub async fn chat_send_text(
                 tab: tab_id.clone(),
                 detail,
             })?;
-        let has_agent_identity = state.svc.tab_has_agent_identity(&tab_id);
+        let has_agent_identity = state.svc.tab_has_chat_send_target(&tab_id);
         if let Some(error) = chat_send_target_refusal(
             &tab_id,
             has_agent_identity,

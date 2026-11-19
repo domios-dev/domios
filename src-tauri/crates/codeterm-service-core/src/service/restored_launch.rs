@@ -104,6 +104,10 @@ pub(crate) fn capture_tab_launch_parameters(
             .get_tab(tab_id)
             .and_then(|tab| tab.restorable_launch.execution_sandbox.clone()),
         failed_provider: None,
+        exited_chat_binding: mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.restorable_launch.exited_chat_binding.clone()),
         structured_runtime_mode: None,
         context_files: None,
         context_skills: None,

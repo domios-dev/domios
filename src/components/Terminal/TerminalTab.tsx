@@ -7,6 +7,8 @@ import { openLockedPlans } from "../billing/freeLimitGate";
 import { useTabLock } from "../billing/useTabLock";
 import { attachFrontendTerminalViewport } from "../../lib/frontendUpdate/terminal";
 import { useTabActivity } from "../../lib/useTabActivity";
+import { hasRetiredPtySession } from "../../lib/tabActivity";
+import type { RestoreStageView } from "../../lib/restoreStageView";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { SquareTerminal, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
@@ -62,6 +64,7 @@ import { terminalContentTopInset, terminalFrameVisible, terminalLayoutRequired }
 
 interface TerminalTabProps {
   wakingTranscript?: boolean;
+  frozenRestore?: RestoreStageView;
   tabId: string;
   ptyId?: string | null;
   isFocused?: boolean;
@@ -80,6 +83,7 @@ export const TerminalTab = memo(function TerminalTab({
   tabId,
   ptyId,
   wakingTranscript = false,
+  frozenRestore,
   isFocused = false,
   isVisible = true,
   hasSplits = false,
@@ -120,7 +124,7 @@ export const TerminalTab = memo(function TerminalTab({
     tab?.backing?.kind === "chat_backend"
       ? true
       : !agentType
-        ? false
+        ? hasRetiredPtySession(tab)
         : agentDescriptor
           ? agentDescriptor.supports_chat_ui === true
           : true;
@@ -647,6 +651,7 @@ export const TerminalTab = memo(function TerminalTab({
             isVisible={isVisible && uiMode === "chat"}
             sessionActive={isVisible}
             inputStatus={inputFailureLine}
+            frozenRestore={frozenRestore}
             onOpenTerminalFallback={openTerminalFallback}
           />
         </div>

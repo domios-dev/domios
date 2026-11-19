@@ -72,6 +72,9 @@ pub struct RestorableLaunchParameters {
     #[ts(optional)]
     pub failed_provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub exited_chat_binding: Option<ExitedChatBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub structured_runtime_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -150,6 +153,7 @@ impl RestorableLaunchParameters {
             && self.execution_mode.is_none()
             && self.execution_sandbox.is_none()
             && self.failed_provider.is_none()
+            && self.exited_chat_binding.is_none()
             && self.structured_runtime_mode.is_none()
             && self.context_files.is_none()
             && self.context_skills.is_none()
@@ -167,6 +171,12 @@ impl RestorableLaunchParameters {
             && self.host_approval_choice.is_none()
             && self.selected_session_mode.is_none()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExitedChatBinding {
+    pub provider_id: String,
+    pub nonce: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

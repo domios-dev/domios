@@ -86,6 +86,22 @@ fn clear_agent_identity_with_prompt(
     }
 }
 
+fn clear_exited_agent_identity(tab: &mut crate::multiplexer::types::Tab) -> ClearedAgentIdentity {
+    if tab.launch_session_authenticated() {
+        tab.restorable_launch.exited_chat_binding = tab
+            .agent_type
+            .clone()
+            .zip(tab.session_binding_nonce.clone())
+            .map(
+                |(provider_id, nonce)| crate::multiplexer::types::ExitedChatBinding {
+                    provider_id,
+                    nonce,
+                },
+            );
+    }
+    clear_agent_identity_with_prompt(tab)
+}
+
 impl ServiceContext {
     pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit_with_cause(
         &self,
@@ -151,7 +167,7 @@ impl ServiceContext {
         let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
-                .map(clear_agent_identity_with_prompt)
+                .map(clear_exited_agent_identity)
                 .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
@@ -168,7 +184,10 @@ impl ServiceContext {
         let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
-                .map(clear_agent_identity_with_prompt)
+                .map(|tab| {
+                    tab.restorable_launch.exited_chat_binding = None;
+                    clear_agent_identity_with_prompt(tab)
+                })
                 .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
@@ -259,7 +278,7 @@ impl ServiceContext {
         let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
-                .map(clear_agent_identity_with_prompt)
+                .map(clear_exited_agent_identity)
                 .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
@@ -342,7 +361,7 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
                 .filter(|tab| crate::service::launch_readiness::attempt_owns_tab(tab, attempt))
-                .map(clear_agent_identity_with_prompt)
+                .map(clear_exited_agent_identity)
                 .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);

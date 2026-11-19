@@ -34,7 +34,7 @@ async function main() {
     const choose = [...host.querySelectorAll("button")].find(button => button.textContent === "Choose folder");
     assert(choose, "primary recovery action has its accessible name");
     assert.equal(document.activeElement, choose, "primary recovery action receives initial focus");
-    assert.equal(host.querySelector('textarea, [role="textbox"]'), null);
+    assert(host.querySelector('textarea[aria-label="Message"]'));
     assert.equal(host.querySelector("details")?.open, false);
     const close = [...host.querySelectorAll("button")].find(button => button.textContent === "Close tab");
     assert(close);
@@ -46,6 +46,6 @@ async function main() {
     await act(async () => { root.unmount(); });
     host.remove();
   }
-  console.log("✓ launch failure wiring: recovery focus, close action, disclosure, composer hidden and restored");
+  console.log("✓ launch failure wiring: recovery focus, close action, disclosure, composer available throughout");
 }
 void main();

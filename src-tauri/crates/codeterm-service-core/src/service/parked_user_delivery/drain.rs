@@ -69,6 +69,23 @@ impl super::super::ServiceContext {
                 return Ok(UserDrain::Idle);
             }
             self.chat_send_ledger.restore_user_record(&head);
+            if head.state == UserSendState::Queued
+                && head.handoff_session.is_none()
+                && !self
+                    .chat_send_ledger
+                    .user_payload_may_have_been_written(&head.send_id)
+                && !self.local_recordings.has_write_ticket(&head.send_id)
+            {
+                let waiting = self
+                    .mux
+                    .read()
+                    .get_tab(tab_id)
+                    .and_then(|tab| exited_user_send_wait(tab, &head.authority));
+                if let Some(reason) = waiting {
+                    self.pending_user_send(&head, reason);
+                    return Ok(UserDrain::Idle);
+                }
+            }
             if let Some(carried) = self.carry_held_user_send(&head)? {
                 head = carried;
             }
@@ -296,4 +313,31 @@ impl super::super::ServiceContext {
         }
         Ok(UserDrain::Idle)
     }
+}
+
+fn exited_user_send_wait(
+    tab: &crate::multiplexer::types::Tab,
+    authority: &UserSendAuthority,
+) -> Option<&'static str> {
+    let exit = tab.restorable_launch.exited_chat_binding.as_ref()?;
+    if exit.nonce != authority.binding_nonce || exit.provider_id != authority.provider_id {
+        return None;
+    }
+    if exited_chat_authority(tab)
+        .is_some_and(|exited| exited.observed_session_id == authority.observed_session_id)
+    {
+        return Some("awaiting_agent_restart");
+    }
+    let session = authority.observed_session_id.as_deref()?;
+    let resume = tab.prior_session_binding_nonces.last()?;
+    (tab.agent_type.as_deref() == Some(exit.provider_id.as_str())
+        && tab.session_binding_nonce.as_ref() == Some(&resume.nonce)
+        && resume.resume_target_session_id.as_deref() == Some(session)
+        && tab
+            .agent_session_id
+            .as_deref()
+            .is_none_or(|current| current == session)
+        && !tab.launch_session_authenticated()
+        && tab.boot_stage != Some(codeterm_types::pty::BootStage::SpawnFailed))
+    .then_some("awaiting_agent_ready")
 }

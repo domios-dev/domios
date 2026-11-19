@@ -242,7 +242,7 @@ function ChatComposerImpl({
   contextSlot?: HTMLElement | null;
 }) {
   recordComposerRender(tabId);
-  const startupSend = useStartupSend(tabId, chatBackend);
+  const sendPolicy = useStartupSend(tabId);
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
 
@@ -425,8 +425,7 @@ function ChatComposerImpl({
   }
 
   async function send(extraAttachments: string[] = []) {
-    if (!startupSend.allowed || sendUnavailableReason) return;
-    const startupOverrideNonce = startupSend.overrideNonce;
+    if (!sendPolicy.allowed || sendUnavailableReason) return;
     const draft = buildDraft(extraAttachments);
     if (!draft) return;
     const { text, allAttachments, recordedVoiceAttachments, quoted } = draft;
@@ -490,14 +489,14 @@ function ChatComposerImpl({
     try {
       const remote = parseCompositeTabId(tabId);
       const remoteUnavailable = remote && readRemoteChatStatus(tabId, remote.peerId).state;
-      const fallbackCommand = !startupOverrideNonce && !chatBackend && !remoteUnavailable && allAttachments.length === 0
+      const fallbackCommand = sendPolicy.terminalFallback && !chatBackend && !remoteUnavailable && allAttachments.length === 0
         ? cliFallbackCommandPayload(composed) : null;
       if (fallbackCommand) {
         if (!currentPtyId) throw new Error("Tab has no PTY");
         onOpenTerminalFallback?.();
         await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
       } else {
-        observeChatSendStatus(await sendTrackedChatMessage(tabId, optimisticId, composed, startupOverrideNonce));
+        observeChatSendStatus(await sendTrackedChatMessage(tabId, optimisticId, composed));
       }
       recall.remember(portable);
     } catch (e) {
@@ -599,7 +598,7 @@ function ChatComposerImpl({
       onSchedule={() => { setExpandedEditor(false); openScheduleModal(); }}
       onSendWithAttachments={(paths) => void send(paths)}
       onError={flagComposerError}
-      sendDisabled={!startupSend.allowed || (!input.trim() && attachments.length === 0 && !reply.reply)}
+      sendDisabled={!sendPolicy.allowed || (!input.trim() && attachments.length === 0 && !reply.reply)}
       sendUnavailableReason={sendUnavailableReason}
       hasText={input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
       cardHeader={(reply.reply || attachments.length > 0) && <>
@@ -618,7 +617,7 @@ function ChatComposerImpl({
       <ComposerMentions ref={mentionPicker} tabId={tabId} input={displayInput} setInput={mentionTokens.change} onInsert={mentionTokens.insert} tokens={mentionTokens.draft.tokens}
         onPicked={refocusComposer} textareaRef={textareaRef} anchorRef={shellRef} />
       {plansSink}
-      {!startupSend.bound && <span role="status">Connecting to chat — sending is unavailable</span>}
+      {!sendPolicy.allowed && <span role="status">Connecting to chat — sending is unavailable</span>}
       <ComposerCapsuleField
         tabId={tabId}
         value={displayInput}

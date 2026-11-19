@@ -1099,6 +1099,7 @@ fn restorable_launch_parameters_round_trip_in_snapshot() {
             environment: Default::default(),
         }),
         failed_provider: Some("failed-provider-fixture".into()),
+        exited_chat_binding: None,
         context_files: None,
         context_skills: None,
         worker_restart: None,

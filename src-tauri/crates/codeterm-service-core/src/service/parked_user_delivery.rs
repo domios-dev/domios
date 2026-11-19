@@ -154,6 +154,27 @@ pub enum UserWake {
 }
 
 impl super::ServiceContext {
+    pub fn tab_has_chat_send_target(&self, tab_id: &str) -> bool {
+        self.mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.agent_type.is_some() || exited_chat_authority(tab).is_some())
+    }
+
+    pub(super) fn chat_user_send_authority(
+        &self,
+        tab_id: &str,
+    ) -> Result<UserSendAuthority, String> {
+        let result = self.user_send_authority(tab_id);
+        result.or_else(|error| {
+            self.mux
+                .read()
+                .get_tab(tab_id)
+                .and_then(exited_chat_authority)
+                .ok_or(error)
+        })
+    }
+
     pub fn user_send_authority(&self, tab_id: &str) -> Result<UserSendAuthority, String> {
         let runtime = super::agent_runtime::requested_for_tab(self, tab_id);
         let (pty_id, binding_nonce, provider_id, session_id, observed_session_id, prelaunch) = {
@@ -1094,6 +1115,36 @@ impl super::ServiceContext {
             );
         }
     }
+}
+
+pub(super) fn exited_chat_authority(
+    tab: &crate::multiplexer::types::Tab,
+) -> Option<UserSendAuthority> {
+    let exit = tab.restorable_launch.exited_chat_binding.as_ref()?;
+    if !matches!(tab.backing, crate::multiplexer::types::TabBacking::Pty)
+        || tab.session_binding_nonce.is_some()
+        || tab
+            .agent_type
+            .as_ref()
+            .is_some_and(|provider| provider != &exit.provider_id)
+    {
+        return None;
+    }
+    let binding = tab.prior_session_binding_nonces.last()?;
+    let session_id = binding
+        .session_id
+        .as_ref()
+        .filter(|_| binding.nonce == exit.nonce)?;
+    Some(UserSendAuthority {
+        tab_id: tab.id.clone(),
+        pty_id: None,
+        binding_nonce: binding.nonce.clone(),
+        pty_session_generation: None,
+        provider_id: exit.provider_id.clone(),
+        session_id: None,
+        observed_session_id: Some(session_id.clone()),
+        prelaunch: false,
+    })
 }
 
 mod bootstrap;

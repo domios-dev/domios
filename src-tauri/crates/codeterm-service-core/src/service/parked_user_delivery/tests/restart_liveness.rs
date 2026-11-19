@@ -15,6 +15,102 @@ fn admit_without_dispatch(fixture: &ServiceFixture, tab: &str, payload: &str) ->
 }
 
 #[test]
+fn exited_composer_admission_waits_for_its_authenticated_resume_and_writes_once() {
+    use crate::multiplexer::types::ExitedChatBinding;
+    use codeterm_types::pty::BootStage;
+
+    let (fixture, tab_id) = queue_fixture(true, None);
+    let service = &fixture.service;
+    attach_fixture_pty(&fixture, &tab_id);
+    {
+        let mut mux = service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.remember_superseded_binding_nonce();
+        tab.restorable_launch.exited_chat_binding = Some(ExitedChatBinding {
+            provider_id: tab.agent_type.take().unwrap(),
+            nonce: tab.session_binding_nonce.take().unwrap(),
+        });
+        tab.agent_session_id = None;
+        tab.reported_session_binding_nonce = None;
+        tab.boot_stage = Some(BootStage::ShellReady);
+    }
+    assert!(service.tab_has_chat_send_target(&tab_id));
+    let reservation = service
+        .reserve_user_send(&tab_id, Some("own-token".into()))
+        .unwrap();
+    assert!(reservation.authority.pty_id.is_none());
+    let status = service
+        .prepare_and_admit_user_send(
+            reservation,
+            crate::service::messenger::HumanInput::composer("opaque-exit-payload"),
+            false,
+        )
+        .unwrap()
+        .status;
+    assert_eq!(status.state, ChatSendState::Pending);
+    await_owner_idle(&fixture, &tab_id);
+    let send_id = status.send_id;
+    assert_eq!(
+        service
+            .chat_send_ledger
+            .status(&send_id)
+            .unwrap()
+            .pending_reason
+            .as_deref(),
+        Some("awaiting_agent_restart")
+    );
+
+    {
+        let mut mux = service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("opaque-provider".into());
+        tab.session_binding_nonce = Some("resume-nonce".into());
+        tab.remember_resume_binding_nonce("opaque-session");
+        tab.boot_stage = Some(BootStage::LaunchWritten);
+    }
+    service
+        .drain_user_owner_with(&tab_id, |_, _, _, _| panic!("resume is not authenticated"))
+        .unwrap();
+    assert_eq!(
+        service
+            .chat_send_ledger
+            .status(&send_id)
+            .unwrap()
+            .pending_reason
+            .as_deref(),
+        Some("awaiting_agent_ready")
+    );
+    service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .agent_session_id = Some("opaque-session".into());
+    mark_ready(&fixture, &tab_id);
+
+    let mut written = Vec::new();
+    for _ in 0..2 {
+        service
+            .drain_user_owner_with(&tab_id, |record, text, _, _| {
+                assert_eq!(record.authority.binding_nonce, "resume-nonce");
+                assert_eq!(
+                    record.authority.session_id.as_deref(),
+                    Some("opaque-session")
+                );
+                assert_eq!(text, "opaque-exit-payload");
+                service
+                    .chat_send_ledger
+                    .mark_user_written(&record.send_id)
+                    .unwrap();
+                written.push(record.send_id.clone());
+                Ok(UserWrite::Finished)
+            })
+            .unwrap();
+    }
+    assert_eq!(written, [send_id]);
+}
+
+#[test]
 fn ease_retained_status_reads_wake_only_held_input_without_readmitting_or_replaying() {
     use std::collections::BTreeSet;
 
