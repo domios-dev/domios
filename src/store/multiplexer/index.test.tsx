@@ -2,6 +2,7 @@
 // codeterm#336 part B: mux_get_state call counts against an injected fake, gated on observed signals only.
 
 import type { RemotePeerTabs } from "../../lib/remoteTabPortal";
+import type { PeerEvent } from "../../lib/peerEventRail";
 import { RELAY_PROTOCOL_VERSION, type MeshPeersResponse, type MultiplexerState, type Tab } from "../../lib/types";
 
 process.env.VITE_CODETERM_TEST = "1";
@@ -140,6 +141,7 @@ async function mountProvider(options: {
   pairedPeerCount?: number;
   roster?: () => MeshPeersResponse["paired"];
   peerMux?: (peerId: string) => Promise<MultiplexerState>;
+  peerTabs?: (peerId: string) => RemotePeerTabs;
   selectedLeaf?: boolean;
   ordinaryTabs?: () => Tab[];
 } = {}) {
@@ -148,7 +150,14 @@ async function mountProvider(options: {
 
   const { act, createRoot, React, window } = await setupHappyDom();
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  const { peerEventRail } = await import("../../lib/peerEventRail");
   const { MultiplexerProvider, STORAGE_UNAVAILABLE_MESSAGE, useMuxState, useMultiplexer, usePairedWorkspaceInventory } = await import("./index");
+  const originalSubscribe = peerEventRail.subscribe;
+  const peerListeners = new Map<string, (event: PeerEvent) => void>();
+  peerEventRail.subscribe = (peerId, _link, receive) => {
+    peerListeners.set(peerId, receive);
+    return () => { peerListeners.delete(peerId); };
+  };
 
   let actions!: ReturnType<typeof useMultiplexer>;
   const pairCalls: Record<string, unknown>[] = [];
@@ -191,7 +200,7 @@ async function mountProvider(options: {
     if (cmd === "mesh_peer_tabs_list") {
       const peerId = args?.peerId;
       if (typeof peerId !== "string" || (!options.roster && peerId !== onlinePeer.instance_id)) throw new Error(`Unexpected peer tab read: ${peerId}`);
-      const response: RemotePeerTabs = {
+      const response: RemotePeerTabs = options.peerTabs?.(peerId) ?? {
         peer_id: peerId, peer_name: onlinePeer.instance_name,
         tabs: options.roster ? [peerMain(peerId)] : [],
       };
@@ -279,6 +288,8 @@ async function mountProvider(options: {
     focusCalls,
     get inventory() { return inventory; },
     get focusedTabId() { return latestState.focused_tab_id; },
+    get tabStatuses() { return latestState.tabStatuses; },
+    peerListeners,
     get actions() { return actions; },
     get muxGetStateCalls() {
       return muxGetStateCalls;
@@ -303,6 +314,7 @@ async function mountProvider(options: {
       await act(async () => root.unmount());
       __setInvokeForTest(null);
       __setListenForTest(null);
+      peerEventRail.subscribe = originalSubscribe;
     },
   };
 }
@@ -558,11 +570,11 @@ test("late A and B workspace replies cannot change the current A inventory or th
   const initialA = deferred<MultiplexerState>();
   const initialB = deferred<MultiplexerState>();
   const finalA = deferred<MultiplexerState>();
-  const browseReads = [initialA, initialB, finalA];
+  const browseReads = { a: [initialA, finalA], b: [initialB] };
   let browsing = false;
   const harness = await mountProvider({
     roster: () => [a, b],
-    peerMux: id => browsing ? browseReads.shift()!.promise : Promise.resolve(peerSnapshot(id, id)),
+    peerMux: id => browsing ? browseReads[id as keyof typeof browseReads].shift()!.promise : Promise.resolve(peerSnapshot(id, id)),
   });
   const { setWorkspaceBrowseTarget } = await import("../../lib/workspaceBrowseTarget");
   try {
@@ -573,15 +585,58 @@ test("late A and B workspace replies cannot change the current A inventory or th
     await harness.act(async () => setWorkspaceBrowseTarget({ id: "a", name: "A" }));
     await harness.act(async () => setWorkspaceBrowseTarget({ id: "b", name: "B" }));
     await harness.act(async () => setWorkspaceBrowseTarget({ id: "a", name: "A" }));
-    assert(browseReads.length === 0, "all three target requests started");
-    await harness.act(async () => finalA.resolve(peerSnapshot("a", "Current A workspace")));
     await harness.act(async () => {
       initialA.resolve(peerSnapshot("a", "Stale A workspace"));
       initialB.resolve(peerSnapshot("b", "Stale B workspace"));
     });
+    assert(browseReads.a.length === 0 && browseReads.b.length === 0, "the second A read starts after its first read settles");
+    await harness.act(async () => finalA.resolve(peerSnapshot("a", "Current A workspace")));
     assert(harness.inventory.browse?.workspaces[0].workspace.name === "Current A workspace", "only the latest target response contributes workspace inventory");
     assert(harness.focusedTabId === selected && harness.tabIds.includes(selected), "browsing kept the same viewer identity and selection");
     assert(harness.inventory.generals.length === 2, "browsing kept both paired Generals");
+  } finally {
+    await harness.act(async () => setWorkspaceBrowseTarget(null));
+    await harness.unmount();
+  }
+});
+
+test("the peer rail opens without viewers and wakes browse and attached status for another tab", async () => {
+  const peer = { ...onlinePeer, instance_id: "status-peer", relay_protocol_version: RELAY_PROTOCOL_VERSION };
+  const workingTab: Tab = {
+    id: "second", workspace_id: "same-workspace", title: "Second", tab_type: "Terminal",
+    pty_id: null, cwd: null, agent_type: "opaque-agent", agent_session_id: "thread",
+  };
+  let present = false;
+  let status: "Idle" | "Working" = "Idle";
+  const harness = await mountProvider({
+    roster: () => [peer],
+    peerMux: async id => {
+      const snapshot = peerSnapshot(id, "Project");
+      snapshot.workspaces[0].tabs = [];
+      snapshot.tabs = present ? { second: workingTab } : {};
+      snapshot.workspaces[1].tabs = present ? ["second"] : [];
+      snapshot.tab_statuses = { second: status };
+      return snapshot;
+    },
+    peerTabs: id => ({ peer_id: id, peer_name: "Peer", tabs: present ? [workingTab] : [], tab_statuses: { second: status } }),
+  });
+  const { setWorkspaceBrowseTarget } = await import("../../lib/workspaceBrowseTarget");
+  try {
+    await harness.act(async () => setWorkspaceBrowseTarget({ id: peer.instance_id, name: "Peer" }));
+    assert(!harness.inventory.generals[0].sessions.length, "the peer starts without a General viewer");
+    const events = harness.peerListeners.get(peer.instance_id);
+    assert(events, "the peer rail starts without a remote tab");
+    present = true;
+    await harness.act(async () => events({ type: "mux-state-changed", data: {} }));
+    const discovered = harness.inventory.browse?.workspaces[0].tabs[0];
+    assert(discovered?.tab.id === workingTab.id, "topology updates from the peer rail");
+    await harness.act(async () => harness.actions.attachRemoteTab?.(
+      "ws-renewal", { peer_id: peer.instance_id, peer_name: "Peer", tabs: [] }, workingTab, discovered.status,
+    ));
+    status = "Working";
+    await harness.act(async () => events({ type: "tab-status-changed", data: { tab_id: "second", status } }));
+    assert(harness.inventory.browse?.workspaces[0].tabs[0]?.status === "Working", "browse shows the peer tab's status");
+    assert(harness.tabStatuses[discovered.viewerId] === "Working", "the attached view uses the same wake");
   } finally {
     await harness.act(async () => setWorkspaceBrowseTarget(null));
     await harness.unmount();

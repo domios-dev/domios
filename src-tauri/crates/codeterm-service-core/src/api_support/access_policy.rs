@@ -98,7 +98,7 @@ pub fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
         AccessLevel::Full => true,
         AccessLevel::ReadOnly => *method == Method::GET,
         AccessLevel::AgentIsolated => {
-            if *method == Method::GET && path == "/api/tabs" {
+            if *method == Method::GET && matches!(path, "/api/tabs" | "/api/events/stream") {
                 return true;
             }
             if path == "/api/agents/spawn" && *method == Method::POST {

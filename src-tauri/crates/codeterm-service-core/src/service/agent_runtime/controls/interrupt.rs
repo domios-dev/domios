@@ -114,7 +114,12 @@ impl InterruptTarget {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum InterruptOutcome {
-    Stopped,
+    Stopped {
+        session_binding_nonce: String,
+        session_id: String,
+        epoch: u64,
+        turn_started_at_ms: Option<u64>,
+    },
     NoTurn,
     /// An earlier stop or runtime operation still owns the outcome; this request sent nothing.
     Pending,
@@ -242,6 +247,7 @@ fn interrupt_pressed(
         if no_provider_turn {
             target.turns.clear();
         }
+        let turn_started_at_ms = session.state.lock().active_turn_started_at_ms;
         let before_first = before_first_turn(svc, &session, &context);
         let had_turn = !target.turns.is_empty() || before_first;
         let process = session
@@ -362,7 +368,12 @@ fn interrupt_pressed(
         }
         drop(permit);
         let outcome = if had_turn {
-            InterruptOutcome::Stopped
+            InterruptOutcome::Stopped {
+                session_binding_nonce: target.nonce,
+                session_id: target.thread,
+                epoch: target.epoch,
+                turn_started_at_ms,
+            }
         } else {
             InterruptOutcome::NoTurn
         };
