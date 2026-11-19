@@ -1006,6 +1006,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   // Select + focus a just-spawned tab by resolving its owning tab; a fresh
   // tab may lag local state, so fall back to an authoritative snapshot.
   const selectTabByTab = useCallback(async (workspaceId: string, requestedTabId: string) => {
+    if (requestedTabId.startsWith("mesh:")) {
+      if (stateRef.current.tabs[requestedTabId] || pairedInventoryRef.current.generals.some(peer =>
+        peer.sessions.some(session => session.viewerId === requestedTabId))) setActiveTab(workspaceId, requestedTabId);
+      return;
+    }
     const findTab = (s: MultiplexerState) =>
       s.workspaces.find((w) => w.id === workspaceId)?.tabs.find((id) => id === requestedTabId) ?? null;
     let tabId = findTab(stateRef.current);
@@ -1026,7 +1031,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId, tabId });
     guardedInvoke("mux_set_focused_tab", { tabId }).catch(() => {});
     dispatch({ type: "SET_FOCUSED_TAB", tabId });
-  }, [guardedInvoke, applyBackendState]);
+  }, [guardedInvoke, applyBackendState, setActiveTab]);
 
   const setFocusedTab = useCallback((tabId: string) => {
     dispatch({ type: "SET_FOCUSED_TAB", tabId });
