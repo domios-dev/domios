@@ -14,6 +14,7 @@ function subscribe(listener: () => void) {
 
 export function rememberMachineIdentities(peers: MeshPeersResponse & MeshIdentityProjection) {
   snapshot = {
+    local_instance_name: peers.local_instance_name?.trim() || undefined,
     local_machine_identity: peers.local_machine_identity,
     machine_identities: peers.machine_identities,
     peers: peers.paired,

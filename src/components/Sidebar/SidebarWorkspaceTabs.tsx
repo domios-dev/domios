@@ -18,7 +18,7 @@ import { buildSidebarDragModel, localWorkspaceTabIds, unitsInOrder, withSiblingO
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { CursorTooltip } from "../shared/CursorTooltip";
 import { TabItem } from "./TabItem";
-import { remoteTeamIdentity } from "./remoteOwnership";
+import { remoteTeamIdentity, sharesObservedMachine } from "./remoteOwnership";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
@@ -29,6 +29,7 @@ import { curatorTabAttention, groupAttention, tabAttention } from "./tabAttentio
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import { SidebarCronRow } from "./SidebarResourceRow";
 import { SidebarShellRow, SidebarOwnerTabRow, SidebarSortableBlock } from "./SidebarShellRow";
+import type { TabMachineLine } from "./TabItem";
 import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
 import { AgentChecklistDisclosure, type ChecklistToggle } from "./AgentChecklist";
 import { showsChecklist } from "./agentChecklistModel";
@@ -130,6 +131,7 @@ export interface SidebarWorkspaceTabsProps {
   onCloseTeam?: (teamId: string) => void;
   closingTeamIds?: ReadonlySet<string>;
   onOpenSentinelJob?: (target: JobsTarget) => void;
+  machineLine?: TabMachineLine | null;
 }
 
 export function SidebarWorkspaceTabs({
@@ -166,6 +168,7 @@ export function SidebarWorkspaceTabs({
   onCloseTeam,
   closingTeamIds,
   onOpenSentinelJob,
+  machineLine,
 }: SidebarWorkspaceTabsProps) {
   const { jobs: workspaceCrons, refresh: refreshCrons } = useWorkspaceCrons(ws.id);
   const conciergeIds = useNeighborGatewayIds();
@@ -227,6 +230,7 @@ export function SidebarWorkspaceTabs({
     workspaceCanvasActive,
     tabStatuses,
     tabAttentionByTab: displayedAttention,
+    machineLine,
     orchestrators,
     touchMode,
     uiFontScale,
@@ -245,9 +249,14 @@ export function SidebarWorkspaceTabs({
     section: TeamSection,
     shell: boolean,
     checklist?: { toggle: ChecklistToggle; detail: ReactNode },
-  ): ReactNode => (
+  ): ReactNode => {
+    const teamHostId = (teamById.get(section.teamId) ?? remoteTeams.get(section.teamId))?.remote_peer_id;
+    const hideRemoteMachineLine = member.tab.role === "Worker"
+      && sharesObservedMachine(teamHostId, member.tab.remote_peer_id);
+    return (
     <SidebarShellRow key={member.tab.id}
       tab={member.tab} index={member.index} showStartedBy={shell}
+      hideRemoteMachineLine={hideRemoteMachineLine}
       checklistToggle={checklist?.toggle} detail={checklist?.detail}
       attachments={attachmentsByOwner.get(member.tab.id) ?? []}
       tabs={tabs} planIndex={planIndex}
@@ -255,7 +264,8 @@ export function SidebarWorkspaceTabs({
       compact={compact} group="team" groupKey={`${section.teamId}:${section.index}`}
       pinnedIds={[]} toWorkspaceOrder={reorderSiblings} {...sharedRow}
     />
-  );
+    );
+  };
 
   // One element shape whether or not a checklist exists, so its first todo never remounts the row.
   const renderMemberRow = (member: TeamTabMember, section: TeamSection, shell = false): ReactNode => (
