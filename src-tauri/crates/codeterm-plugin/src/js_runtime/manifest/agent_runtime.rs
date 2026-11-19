@@ -35,7 +35,7 @@ impl PluginManifest {
             return Err(RuntimeManifestError::CapabilityRequired);
         }
         let chat = &self.capabilities.chat_backend;
-        if !(chat.enabled && chat.spawnable && chat.session_config && chat.agent_tasks) {
+        if !(chat.enabled && chat.spawnable && chat.session_config) {
             return Err(RuntimeManifestError::ChatContractRequired);
         }
         runtime.validate_declaration()?;

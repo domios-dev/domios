@@ -11,6 +11,8 @@ import { publishNeighborGateways } from "../Neighbors/neighborGateways";
 import { tabAttention, type TabAttention } from "./tabAttention";
 import { setSidebarMachineFilter } from "./sidebarMachineFilter";
 import { projectAttachedRemoteTab } from "../../lib/remoteTabPortal";
+import { rememberAccountMachineNames } from "../../lib/useMeshMachineIdentities";
+import { machine, pair, snapshot } from "../MeshPanel/accountMachines.testdata";
 
 vi.mock("../../lib/bridge", async actual => ({ ...await actual<object>(), invoke: vi.fn().mockResolvedValue([]), listen: vi.fn().mockResolvedValue(() => {}) }));
 vi.mock("../../hooks/useWorkspaceCrons", () => ({ useWorkspaceCrons: () => ({ jobs: [], refresh: () => {} }) }));
@@ -183,6 +185,33 @@ it("lists paired General rows alphabetically and selects their composite viewer 
   } finally { await view.close(); }
 });
 
+it("adds the shared machine label to local and peer General subtitles only", async () => {
+  const peerId = "peer-general";
+  rememberAccountMachineNames(snapshot({
+    local_installation_id: "local-installation",
+    registry_names: [
+      machine("local-installation", "Desk [dev-main]", { admitted_at: 10 }),
+      machine("peer-installation", "Desk [dev-peer]", { admitted_at: 20 }),
+    ],
+    pairs: [pair(peerId, "Desk", { installation_id: "peer-installation" })],
+  }));
+  const viewerId = `mesh:${peerId}/main`;
+  const view = await mount({}, [{
+    peerId, name: "Desk [dev-peer]", availability: "online",
+    sessions: [{ viewerId, tab: main }],
+  }]);
+  try {
+    const subtitle = (id: string) => view.host.querySelector(`[data-tab-id="${id}"] [data-testid="tab-subline"]`)?.textContent;
+    expect(subtitle(main.id)).toBe("General Agent · Desk #1");
+    expect(subtitle(viewerId)).toBe("General Agent · Desk #2");
+    expect(subtitle(manager.id)).not.toContain("Desk");
+    expect(view.host.querySelector(`[data-tab-id="${agent.id}"]`)?.textContent).not.toContain("Desk");
+  } finally {
+    await view.close();
+    rememberAccountMachineNames(null);
+  }
+});
+
 it("retains one observed General viewer and the same row after attachment", async () => {
   const viewerId = "mesh:peer-a/main";
   const attachedViewer = {
@@ -296,6 +325,17 @@ it("filters General in place and preserves its selected row", async () => {
     await act(async () => setSidebarMachineFilter("all"));
     expect(remote.hidden).toBe(false);
     expect(view.host.querySelector('[data-tab-id="main"]')).toBe(local);
+  } finally { await view.close(); }
+});
+
+it("hides General when the selected peer has no sessions and shows it when the filter clears", async () => {
+  const peer: PairedGeneral = { peerId: "empty-peer", name: "Desk", availability: "online", sessions: [] };
+  const view = await mount({}, [peer]);
+  try {
+    await act(async () => setSidebarMachineFilter({ id: peer.peerId, name: peer.name }));
+    expect(view.host.querySelector('[data-testid="general-section"]')).toBeNull();
+    await act(async () => setSidebarMachineFilter("all"));
+    expect(view.host.querySelector('[data-testid="general-section"]')).not.toBeNull();
   } finally { await view.close(); }
 });
 

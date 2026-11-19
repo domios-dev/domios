@@ -1,3 +1,4 @@
+import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import type { MeshPeersResponse } from "../../lib/types";
@@ -29,6 +30,7 @@ function loadPeerNames(): Promise<Map<string, string>> {
 }
 
 export function useMeshPeerNameResolver(active: boolean): (peerRef: string) => string | undefined {
+  const accountNames = useAccountMachineNames();
   const [names, setNames] = useState(cachedNames ?? EMPTY_NAMES);
 
   useEffect(() => {
@@ -43,7 +45,7 @@ export function useMeshPeerNameResolver(active: boolean): (peerRef: string) => s
   }, [active]);
 
   return useCallback(
-    (peerRef: string) => names.get(peerRef) ?? names.get(peerRef.toLowerCase()),
-    [names],
+    (peerRef: string) => accountNames.peers.get(peerRef) ?? names.get(peerRef) ?? names.get(peerRef.toLowerCase()),
+    [accountNames, names],
   );
 }

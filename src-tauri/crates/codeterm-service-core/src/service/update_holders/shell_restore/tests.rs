@@ -40,7 +40,7 @@ fn update_snapshot_offers_the_busy_shell_command_once_and_excludes_the_caller() 
         initiating_tab: Some(caller.clone()),
     })
     .unwrap();
-    svc.capture_reserved_update_shells();
+    svc.capture_shutdown_shells();
     let mut restored =
         MultiplexerState::from_session_snapshot(&svc.mux.read().to_session_snapshot());
 
@@ -61,4 +61,36 @@ fn update_snapshot_offers_the_busy_shell_command_once_and_excludes_the_caller() 
         Some("server command")
     );
     assert!(command.claim_rerun().is_err());
+}
+
+#[test]
+fn ordinary_shutdown_snapshot_preserves_running_shell_command_for_manual_rerun() {
+    let (mut mux, caller) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&caller).unwrap();
+    let shell = mux.create_tab(&workspace).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    {
+        let mut mux = fixture.service.mux.write();
+        mux.link_pty(&shell, "ordinary-pty".into());
+        mux.get_tab_mut(&shell)
+            .unwrap()
+            .shell_command_state
+            .activity = ShellActivity::Running;
+    }
+    fixture
+        .service
+        .utility_command_started(&shell, "ordinary-pty", Some("python -m http.server"));
+
+    fixture.service.capture_shutdown_shells();
+    let restored =
+        MultiplexerState::from_session_snapshot(&fixture.service.mux.read().to_session_snapshot());
+    let restore = restored
+        .get_tab(&shell)
+        .unwrap()
+        .close_restore
+        .as_ref()
+        .unwrap();
+
+    assert!(restore.stopped);
+    assert_eq!(restore.command.as_deref(), Some("python -m http.server"));
 }

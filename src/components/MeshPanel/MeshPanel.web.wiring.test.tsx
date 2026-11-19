@@ -19,6 +19,7 @@ const inventory: MeshDataResult = {
   loading: false, error: "inventory request failed", loaded: true, refresh: () => {},
 };
 let meshData = inventory;
+let signedIn = true;
 const refreshKeys: number[] = [];
 const registryRefreshKeys: number[] = [];
 const bridgeCommands: string[] = [];
@@ -41,6 +42,7 @@ vi.mock("./useCanvasAccount", () => ({ useCanvasAccount: (peers: readonly PeerSt
     onSignIn: () => {}, onRetry: () => {},
   };
 } }));
+vi.mock("./useMeshAccount", () => ({ useMeshAccount: () => ({ presence: signedIn ? "signed_in" : "signed_out", signIn: async () => {}, signingIn: false }) }));
 vi.mock("./useCanvasTailscale", () => ({ useCanvasTailscale: () => undefined }));
 vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),
@@ -99,7 +101,7 @@ it("shows the inventory as unavailable instead of an empty graph when the first 
     expect(view?.textContent).toContain("Mesh data is unavailable.");
     expect(host.querySelector('[role="status"]')?.textContent).toBe("Mesh data is unavailable.");
     expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).toBeNull();
-    expect(host.textContent).not.toContain("0 peers");
+    expect(host.textContent).not.toContain("0 machines");
     expect(host.textContent).not.toContain("127.0.0.1");
 
     const before = refreshKeys[refreshKeys.length - 1];
@@ -111,7 +113,7 @@ it("shows the inventory as unavailable instead of an empty graph when the first 
     await act(async () => retry!.click());
     expect(host.querySelector('section[aria-label="Mesh inventory"]')).toBeNull();
     expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).not.toBeNull();
-    expect(host.textContent).toContain("1 peer");
+    expect(host.textContent).toContain("2 machines");
   } finally {
     meshData = inventory;
     await act(async () => root.unmount());
@@ -162,7 +164,7 @@ it("shows a disabled mesh as off with a turn-on action instead of a retryable fa
   }
 });
 
-it("renders a loading header and inventory until cached or live data arrives, never 0 peers", async () => {
+it("renders a loading header and inventory until cached or live data arrives, without a placeholder machine total", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const host = document.createElement("div");
   document.body.append(host);
@@ -175,7 +177,7 @@ it("renders a loading header and inventory until cached or live data arrives, ne
   };
   try {
     await act(async () => root.render(panel()));
-    expect(host.textContent).not.toContain("0 peers");
+    expect(host.textContent).not.toContain("0 machines");
     expect(host.querySelector('[aria-busy="true"]')?.textContent).toBe("Loading peers");
     expect(host.querySelector('section[aria-label="Mesh inventory"][aria-busy="true"]')).not.toBeNull();
     expect(host.textContent).not.toContain("127.0.0.1");
@@ -183,7 +185,7 @@ it("renders a loading header and inventory until cached or live data arrives, ne
     const second = { ...inventory.peers[0], instance_id: "second", name: "Second machine" };
     meshData = { ...inventory, peers: [...inventory.peers, second], error: null, loading: true };
     await act(async () => root.render(panel()));
-    expect(host.textContent).toContain("2 peers");
+    expect(host.textContent).toContain("3 machines");
     expect(host.querySelector('section[aria-label="Mesh inventory"]')).toBeNull();
     expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).not.toBeNull();
   } finally {
@@ -193,7 +195,7 @@ it("renders a loading header and inventory until cached or live data arrives, ne
   }
 });
 
-it("dismisses the peer drawer before closing Mesh on the next Escape", async () => {
+it("opens the intended peer with a duplicate name and dismisses its drawer before closing Mesh on the next Escape", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const host = document.createElement("div");
   document.body.append(host);
@@ -203,11 +205,12 @@ it("dismisses the peer drawer before closing Mesh on the next Escape", async () 
     const [open, setOpen] = useState(true);
     return open ? <MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => setOpen(false)} /> : null;
   }
+  meshData = { ...inventory, thisMachine: { ...inventory.thisMachine, name: inventory.peers[0].name } };
   try {
     await act(async () => root.render(<Harness />));
-    await act(async () => host.querySelector<HTMLElement>('[role="button"][aria-label="Open Remote machine"]')!.click());
+    await act(async () => host.querySelector<HTMLElement>('[role="button"][aria-label^="Open Remote machine,"][aria-label$="offline"]')!.click());
     const drawer = host.querySelector('[role="dialog"]');
-    expect(drawer).not.toBeNull();
+    expect(drawer?.textContent).toContain(inventory.peers[0].ip);
     expect(drawer!.contains(document.activeElement)).toBe(true);
     await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true, cancelable: true })));
     expect(host.querySelector('[role="dialog"]')).toBeNull();
@@ -217,6 +220,7 @@ it("dismisses the peer drawer before closing Mesh on the next Escape", async () 
   } finally {
     await act(async () => root.unmount());
     host.remove();
+    meshData = inventory;
   }
 });
 
@@ -260,7 +264,7 @@ it("renders authoritative daemon and schedule data in the map and peer sections"
     await act(async () => root.render(<>
       <section aria-label="Mesh resource source">
         <MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} />
-        <ServiceDrawer state={{ kind: "peer", id: "Remote machine" }} services={inventory.services} peers={inventory.peers} thisMachineName="Local" onClose={() => {}} onActionDone={() => {}} />
+        <ServiceDrawer state={{ kind: "peer", id: inventory.peers[0].instance_id }} services={inventory.services} peers={inventory.peers} thisMachineName="Local" onClose={() => {}} onActionDone={() => {}} />
       </section>
       <GeneralInventorySections generalWorkspaceId={workspaces[0].id} workspaces={workspaces} teams={teams} tabs={tabs} inventory={inventory} jobs={[]} onCloseTab={() => {}} onRenameTab={() => {}} onNavigate={(workspaceId, tabId) => navigated.push([workspaceId, tabId])} />
     </>));
@@ -283,5 +287,23 @@ it("renders authoritative daemon and schedule data in the map and peer sections"
   } finally {
     await act(async () => root.unmount());
     host.remove();
+  }
+});
+
+it("shows just Mesh in the signed-out header even when the transport has a roster", async () => {
+  signedIn = false;
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const config = { api: { port: 7686, token: "private-token" }, mesh: { enabled: true } } as AppConfig;
+  try {
+    await act(async () => root.render(<MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} />));
+    expect(host.textContent).toContain("Mesh");
+    expect(host.textContent).not.toMatch(/\b\d+ (?:peer|machine)s?\b/);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    signedIn = true;
   }
 });

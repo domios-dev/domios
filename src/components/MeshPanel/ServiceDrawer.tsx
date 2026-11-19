@@ -1,3 +1,5 @@
+import { useMeshPeerName } from "../../lib/useMeshMachineIdentities";
+import { LOCAL_MACHINE_ID } from "../../lib/machinePlacement";
 import { MachineProvenance } from "../shared/MachineProvenance";
 import { ACCESS_LABELS, MachineFooter } from "./MachineFooter";
 import { appVersion, buildHash } from "../../lib/buildStamp";
@@ -19,6 +21,7 @@ import {
   capabilitySummary,
   createMeshResourceActionAdapter,
   mutationFailure,
+  isUnconfirmedMutation,
   resourceTarget,
   unavailableFailure,
   type MeshResourceActionAdapter,
@@ -101,10 +104,10 @@ export function ServiceDrawer({
   if (!state) return null;
 
   if (state.kind === "peer") {
-    const isSelf = state.id === thisMachineName;
-    const peer = peers.find((p) => p.name === state.id) ?? (isSelf
+    const isSelf = state.id === LOCAL_MACHINE_ID;
+    const peer = isSelf
       ? { instance_id: "self", name: thisMachineName, ip: thisMachineIp ?? "", api_port: 0, online: true, access_level: "full", last_seen: null, relay_protocol_version: RELAY_PROTOCOL_VERSION } satisfies PeerStatus
-      : null);
+      : peers.find((p) => p.instance_id === state.id);
     if (!peer) return null;
 
     if (selectedResource) return <SvcDrawer service={selectedResource} machineName={thisMachineName} onClose={() => setSelectedResource(null)} onActionDone={onActionDone} actionAdapter={actionAdapter} onAnnouncement={onAnnouncement} />;
@@ -160,6 +163,7 @@ function PeerDrawer({
   onActionDone: () => void;
   onAnnouncement?: (message: string) => void;
 }) {
+  const displayName = useMeshPeerName(isSelf ? undefined : peer.instance_id) ?? peer.name;
   const [busy, setBusy] = useState(false);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [accessLevel, setAccessLevel] = useState(peer.access_level);
@@ -187,13 +191,13 @@ function PeerDrawer({
         accessLevel: level,
       });
       setAccessLevel(level);
-      const message = `${peer.name} now has ${ACCESS_LABELS[level]} here.`;
+      const message = `${displayName} now has ${ACCESS_LABELS[level]} here.`;
       setAnnouncement(message);
       onAnnouncement?.(message);
       onActionDone();
     } catch (e) {
       setAccessError(String(e));
-      const message = `Couldn't change ${peer.name}'s access. Try again.`;
+      const message = `Couldn't change ${displayName}'s access. Try again.`;
       setAnnouncement(message);
       onAnnouncement?.(message);
     } finally {
@@ -208,7 +212,7 @@ function PeerDrawer({
         <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="mesh-peer-announcement">{announcement}</div>
         <div className="flex items-center justify-between">
           <strong ref={headingRef} id="mesh-peer-drawer-heading" tabIndex={-1} className="text-[var(--ct-fg)] truncate focus:outline-none">
-            <MachineProvenance peerId={isSelf ? undefined : peer.instance_id} name={peer.name} status={peer.online ? "online" : "offline"} />
+            <MachineProvenance peerId={isSelf ? undefined : peer.instance_id} name={displayName} status={peer.online ? "online" : "offline"} />
           </strong>
           <button
             onClick={onClose}
@@ -238,7 +242,7 @@ function PeerDrawer({
         {!isSelf && (
           <Section label="Access level">
             <select
-              aria-label={`Access for ${peer.name} here`}
+              aria-label={`Access for ${displayName} here`}
               value={accessLevel}
               disabled={busy}
               onChange={(e) =>
@@ -253,7 +257,7 @@ function PeerDrawer({
           </Section>
         )}
 
-        {accessError ? <InlineErrorNotice description={{ title: `Couldn't change ${peer.name}'s access. Try again.`, cause: "", raw: accessError, actions: [] }} /> : announcement && <p className={sectionTextClass}>{announcement}</p>}
+        {accessError ? <InlineErrorNotice description={{ title: `Couldn't change ${displayName}'s access. Try again.`, cause: "", raw: accessError, actions: [] }} /> : announcement && <p className={sectionTextClass}>{announcement}</p>}
 
         <PeerInventorySections inventory={inventory} onSelect={onSelect} />
 
@@ -374,6 +378,7 @@ function SvcDrawer({
       const message = mutationFailure(label, target, e);
       setAnnouncement(message);
       onAnnouncement?.(message);
+      if (isUnconfirmedMutation(e)) onActionDone();
     } finally {
       setBusy(false);
     }

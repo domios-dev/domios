@@ -2,7 +2,7 @@ import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
-import { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { MultiplexerActionsContext, MuxStateStoreContext } from "../../store/multiplexer/context";
 import { createPortal } from "react-dom";
 import { ConfirmDialog } from "../Extensions/ConfirmDialog";
@@ -17,7 +17,7 @@ import { useTabAccounts } from "../../hooks/useAccountSelectors";
 import { AccountAvatar } from "../shared/AccountAvatar";
 import { accountIdentity, tabAccountIndicator } from "../shared/accountChoices";
 import { TabMenu } from "../Terminal/TabMenu";
-import { buildTabMenu, type TabMenuAction } from "../Terminal/tabMenuModel";
+import { buildTabMenu, unavailableTabMenu, type TabMenuAction } from "../Terminal/tabMenuModel";
 import { performTabMenuAction } from "../Terminal/tabMenuActions";
 import { useProviderSwitchDialog } from "./ProviderSwitchDialog";
 import { useTelegramThreadMenu } from "../Terminal/useTelegramThreadMenu";
@@ -190,16 +190,17 @@ function TabWorkingActivity({ activity, label }: { activity: TabActivity; label?
   );
 }
 
-function TabSubline({ parts, role, generalAgent }: { parts: string[]; role: string | null; generalAgent: boolean }) {
-  if (!parts.length) return null;
+export const GeneralListMachineContext = createContext<string | null>(null);
+
+function TabSubline({ role, generalAgent, machine }: { role: string | null; generalAgent: boolean; machine?: string | null }) {
+  if (!role) return null;
   return (
     <span data-testid="tab-subline" className="flex min-w-0 items-center gap-1 truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">
-      {parts.map((part, index) => (
-        <span key={index}>
-          {index > 0 && " · "}
-          {part === role ? (generalAgent ? <span data-testid="general-agent-subtitle">{part}</span> : <RoleBadge label={part} />) : part}
-        </span>
-      ))}
+      {generalAgent ? <span className="shrink-0" data-testid="general-agent-subtitle">{role}</span> : <span><RoleBadge label={role} /></span>}
+      {machine && <>
+        <span className="shrink-0" aria-hidden="true"> · </span>
+        <span className="min-w-0 truncate" title={machine}>{machine}</span>
+      </>}
     </span>
   );
 }
@@ -253,6 +254,7 @@ function TabItemInner({
   const tab = useLiveRowTab(rowTab);
   const machineFilter = useSidebarMachineFilter();
   const wholeTeam = useContext(SidebarWholeTeam);
+  const localGeneralMachine = useContext(GeneralListMachineContext);
   const lock = useTabLock(tab);
   const activate = () => {
     if (!observedMachine?.cached && !openLockedPlans(lock)) onClick();
@@ -316,6 +318,7 @@ function TabItemInner({
   const remote = useRemoteTabPresentation(tab, tabState, observedMachine);
   const remoteStateLabel = remote?.unavailable;
   const machine = remote?.name;
+  const generalMachine = localGeneralMachine && isGeneralAgent && !wholeTeam ? machine ?? localGeneralMachine : null;
   const remoteLabel = remote ? `${displayTitle}, ${remote.label}` : null;
   const accessibleRowLabel = remoteLabel ?? accessibleTitle;
   const showActivityMarkers = !remoteStateLabel;
@@ -323,7 +326,7 @@ function TabItemInner({
   // A Team worker reads as name and role label; its description stays in the row's tooltip.
   const labelledWorker = tab.role === "Worker" && Boolean(tab.role_label?.trim());
   const activityDescription = hasAgent && tabState.phase === "compacting" ? tabState.label : labelledWorker ? null : description;
-  const rowText = tabRowText({ title: displayTitle, description: activityDescription, typeLabel: roleShield });
+  const rowText = tabRowText({ title: displayTitle, description: activityDescription, typeLabel: generalMachine ? accessibleTitle : roleShield });
   const isSubTab =
     !anchorsTeam(tab) && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
@@ -345,12 +348,16 @@ function TabItemInner({
 
   const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(tab);
   const pluginTabMenu = usePluginTabMenu();
-  const telegramThread = useTelegramThreadMenu(tab.id, !tab.remote_peer_id);
+  const telegramThread = useTelegramThreadMenu(tab.id, !readOnly && !tab.remote_peer_id);
   const muxActions = useContext(MultiplexerActionsContext);
   const muxState = useContext(MuxStateStoreContext);
   const [removeTabs, setRemoveTabs] = useState<readonly string[] | null>(null);
+  const observedPeerId = observedMachine?.peerId;
+  const observedName = remote?.name;
   const standardMenu = useMemo(() => buildTabMenu({
-    tab,
+    tab: readOnly && observedPeerId && !tab.remote_peer_id
+      ? { ...tab, remote_peer_id: observedPeerId, remote_peer_name: observedName }
+      : tab,
     surface: "sidebar",
     lock,
     status: tabState.status,
@@ -358,13 +365,13 @@ function TabItemInner({
     descriptors: listAgentDescriptors(),
     activity: activity ?? null,
     orchestrators,
-    canRename: !readOnly,
-    canClose,
+    canRename: true,
+    canClose: canClose || readOnly,
     pluginTabMenu,
     telegramThread: telegramThread.state,
-  }), [activity, canClose, descriptor, lock, orchestrators, pluginTabMenu, readOnly, tabState.status, tab, telegramThread.state]);
+  }), [activity, canClose, descriptor, lock, observedName, observedPeerId, orchestrators, pluginTabMenu, readOnly, tabState.status, tab, telegramThread.state]);
 
-  const menuEntries = readOnly ? [] : remoteStateLabel && muxActions?.removeRemoteMachineTabs
+  const menuEntries = readOnly ? unavailableTabMenu(standardMenu, remoteStateLabel ?? "Open this tab to use its actions.") : remoteStateLabel && muxActions?.removeRemoteMachineTabs
     ? [...standardMenu, { kind: "item" as const, id: "remove-machine-tabs", label: `Remove ${machine}'s tabs`,
         icon: "detach" as const, action: { type: "removeMachineTabs" as const } }]
     : standardMenu;
@@ -391,7 +398,7 @@ function TabItemInner({
       entries={menuEntries}
       onAction={runMenuAction}
       onOpenChange={(open) => {
-        if (open) telegramThread.refresh();
+        if (open && !readOnly) telegramThread.refresh();
       }}
       contextMenuTargetRef={remote && touchMode ? undefined : tabRef}
       className={touchMode ? remote ? "shrink-0" : "sr-only" : "sidebar-tab-kebab"}
@@ -554,7 +561,7 @@ function TabItemInner({
           </span>
         ) : attachment ? null : (
           <span className="sidebar-tab-body__sub">
-            <TabSubline parts={rowText.typeLabel ? [rowText.typeLabel] : []} role={rowText.typeLabel} generalAgent={isGeneralAgent} />
+            <TabSubline role={rowText.typeLabel} generalAgent={isGeneralAgent} machine={generalMachine} />
             <TabDescriptionSubtitle description={rowText.description} />
           </span>
         )}

@@ -24,6 +24,7 @@ async fn process_split_contract_internal_cron_is_excluded_from_sse_replay_and_li
             super::EventsStreamQuery {
                 since: Some(format!("{}:0", events.boot_id())),
                 tab_id: tab_id.map(str::to_owned),
+                scope: None,
             },
             &census,
         );
@@ -64,6 +65,7 @@ async fn public_predecessor_and_resume_skip_private_ids_without_replaying_public
             super::EventsStreamQuery {
                 since: Some(format!("{}:{cursor}", events.boot_id())),
                 tab_id: None,
+                scope: None,
             },
             &census,
         );
@@ -94,6 +96,7 @@ async fn eviction_with_a_private_tail_keeps_the_overflow_cursor_as_predecessor()
         super::EventsStreamQuery {
             since: Some(format!("{}:0", events.boot_id())),
             tab_id: None,
+            scope: None,
         },
         &census,
     );
@@ -134,6 +137,7 @@ async fn encoded_replay_pins_existing_sse_wire_bytes() {
         super::EventsStreamQuery {
             since: Some(format!("{}:0", events.boot_id())),
             tab_id: Some("tab".into()),
+            scope: None,
         },
         &census,
     );

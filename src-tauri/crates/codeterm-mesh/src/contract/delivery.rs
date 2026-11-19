@@ -36,10 +36,3 @@ pub const MESH_TRANSPORT_NOTHING_SENT: &str = "mesh_transport_nothing_sent";
 /// mid-request. The payload may already have been written and be in flight —
 /// never treat this as nothing-landed.
 pub const MESH_TRANSPORT_SUBMIT_UNCONFIRMED: &str = "mesh_transport_submit_unconfirmed";
-/// The peer answered the relay POST itself with a non-success status (e.g. its
-/// own auth check rejected before dispatch). The transport hop landed; whether
-/// the relayed command ran is a separate, peer-side question.
-pub const MESH_TRANSPORT_PEER_REJECTED: &str = "mesh_transport_peer_rejected";
-/// The peer answered with a success status but the response body could not be
-/// parsed as a relay response.
-pub const MESH_TRANSPORT_BAD_RESPONSE: &str = "mesh_transport_bad_response";

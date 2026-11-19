@@ -21,22 +21,32 @@ pub(crate) fn admit(caller: Option<&Extension<CallerIdentity>>) -> Result<(), Er
 pub(crate) fn unavailable(message: String) -> Error {
     (StatusCode::SERVICE_UNAVAILABLE, message)
 }
+#[derive(serde::Serialize)]
+pub struct AccountStatusView {
+    #[serde(flatten)]
+    status: Status,
+    login_attempt_id: Option<String>,
+}
+
 pub async fn status(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,
-) -> Result<Json<Status>, Error> {
+) -> Result<Json<AccountStatusView>, Error> {
     admit(caller.as_ref())?;
-    let status = state
+    let (status, attempt) = state
         .svc
         .account()
         .await
         .map_err(unavailable)?
-        .status()
+        .status_with_login()
         .await;
     let cached = state
         .svc
         .try_ext::<codeterm_neighbors_service::service::account::startup::StartupAccount>();
-    Ok(Json(project_status(status, cached)))
+    Ok(Json(AccountStatusView {
+        status: project_status(status, cached),
+        login_attempt_id: attempt,
+    }))
 }
 
 fn project_status(
@@ -50,9 +60,9 @@ fn project_status(
         status.target_mismatch = Some(mismatch.with_saved(cached.saved_target()));
         return status;
     }
-    if status.identity.is_none() && !status.pending && !status.session_revoked {
+    if status.identity.is_none() && !status.session_revoked {
         if let Some(projected) = cached.projected_status() {
-            return projected;
+            status.identity = projected.identity;
         }
     }
     status
@@ -130,11 +140,36 @@ pub async fn login(
     State(state): State<AppState>,
     Query(hint): Query<codeterm_account::LoginHint>,
     caller: Option<Extension<CallerIdentity>>,
-) -> Result<Json<Status>, Error> {
+) -> Result<(StatusCode, Json<serde_json::Value>), Error> {
     admit(caller.as_ref())?;
-    Ok(Json(
-        state.svc.account_login(hint).await.map_err(unavailable)?,
+    let id = state.svc.account_login(hint).await.map_err(unavailable)?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({"attempt_id": id})),
     ))
+}
+
+pub async fn cancel_login(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    caller: Option<Extension<CallerIdentity>>,
+) -> Result<StatusCode, Error> {
+    admit(caller.as_ref())?;
+    if state
+        .svc
+        .account()
+        .await
+        .map_err(unavailable)?
+        .cancel_login(&id)
+        .await
+    {
+        Ok(StatusCode::ACCEPTED)
+    } else {
+        Err((
+            StatusCode::CONFLICT,
+            "Sign-in can no longer be cancelled".into(),
+        ))
+    }
 }
 
 pub(crate) const MAX_CALLBACK_REQUEST_BYTES: usize = 8 * 1024;

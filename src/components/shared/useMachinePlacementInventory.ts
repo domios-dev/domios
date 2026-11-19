@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke, listen } from "../../lib/bridge";
 import type { MeshPeersResponse } from "../../lib/types";
 import type { MeshIdentityProjection } from "../../lib/machineIdentity";
 import { machinePlacementChoices, type MachinePlacementChoice } from "../../lib/machinePlacement";
-import { rememberMachineIdentities } from "../../lib/useMeshMachineIdentities";
+import { rememberMachineIdentities, useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
 
 export function useMachinePlacementInventory(enabled = true) {
   const [choices, setChoices] = useState<MachinePlacementChoice[] | null>(null);
@@ -38,5 +38,9 @@ export function useMachinePlacementInventory(enabled = true) {
     };
   }, [enabled]);
 
-  return { choices, failed };
+  const accountNames = useAccountMachineNames();
+  const namedChoices = useMemo(() => choices?.map(choice => ({
+    ...choice, name: (choice.local ? accountNames.local : accountNames.peers.get(choice.id)) ?? choice.name,
+  })) ?? null, [choices, accountNames]);
+  return { choices: namedChoices, failed };
 }

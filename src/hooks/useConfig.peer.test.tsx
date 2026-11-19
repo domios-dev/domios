@@ -105,9 +105,9 @@ async function fixture(local = false) {
       return new Response(body);
     }
     const envelope = url.pathname === "/api/mesh/relay-to"
-      ? JSON.parse(String(init?.body)) as { target_peer_id: string; method: string; path: string; body: AppConfig | null }
+      ? JSON.parse(String(init?.body)) as { target_instance_id: string; method: string; path: string; body: AppConfig | null }
       : null;
-    const destination = envelope?.target_peer_id ?? A;
+    const destination = envelope?.target_instance_id ?? A;
     const method = envelope?.method ?? init?.method ?? "GET";
     const path = envelope?.path ?? url.pathname;
     assert.equal(new Headers(init?.headers).get("Authorization"), "Bearer gateway-auth-sentinel");

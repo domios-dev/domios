@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import { invoke, listen } from "../../lib/bridge";
+import type { RegistryMachineName } from "../../lib/registryMachineNames";
 import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 
 /** Exact registry slot identity the server checks before revoke or link. */
@@ -22,7 +23,7 @@ export type AccountMeshOutcome = (Omit<Extract<import("../../../gen/AccountMeshO
 /** A genuine free machine-slot refusal from automatic enrollment, held until acknowledged. */
 export type AccountMeshLimitNotice = Omit<import("../../../gen/AccountMeshLimitNotice").AccountMeshLimitNotice, "refusal"> & {refusal: unknown};
 
-export type AccountMeshSnapshot = Omit<import("../../../gen/AccountMeshView").AccountMeshView, "registry" | "registry_failure" | "last_refusal" | "limit_notice" | "publication" | "publication_failure" | "retry_at" | "membership_expires_at"> & Partial<Pick<import("../../../gen/AccountMeshView").AccountMeshView, "publication" | "retry_at" | "membership_expires_at">> & {local_installation_id: string; registry: (Omit<NonNullable<import("../../../gen/AccountMeshView").AccountMeshView["registry"]>, "rows" | "cursor" | "registry_revision"> & Partial<Pick<NonNullable<import("../../../gen/AccountMeshView").AccountMeshView["registry"]>, "cursor" | "registry_revision">> & {rows: AccountMachineRow[]}) | null; registry_failure: AccountMeshFailure | null; last_refusal: AccountMeshFailure | null; publication_failure?: AccountMeshFailure | null; limit_notice?: AccountMeshLimitNotice | null; pairs: LocalPairFact[]; connections?: import("./connectionPhase").PeerConnection[]};
+export type AccountMeshSnapshot = Omit<import("../../../gen/AccountMeshView").AccountMeshView, "registry" | "registry_failure" | "last_refusal" | "limit_notice" | "publication" | "publication_failure" | "retry_at" | "membership_expires_at"> & Partial<Pick<import("../../../gen/AccountMeshView").AccountMeshView, "publication" | "retry_at" | "membership_expires_at">> & {local_installation_id: string; registry_names: RegistryMachineName[]; registry: (Omit<NonNullable<import("../../../gen/AccountMeshView").AccountMeshView["registry"]>, "rows" | "cursor" | "registry_revision"> & Partial<Pick<NonNullable<import("../../../gen/AccountMeshView").AccountMeshView["registry"]>, "cursor" | "registry_revision">> & {rows: AccountMachineRow[]}) | null; registry_failure: AccountMeshFailure | null; last_refusal: AccountMeshFailure | null; publication_failure?: AccountMeshFailure | null; limit_notice?: AccountMeshLimitNotice | null; pairs: LocalPairFact[]; connections?: import("./connectionPhase").PeerConnection[]};
 
 export interface AccountMeshClient {
   snapshot(): Promise<AccountMeshSnapshot>;

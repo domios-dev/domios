@@ -42,9 +42,9 @@ async function main() {
   globalThis.fetch = muxMockFetch(async (input, init) => {
     const url = new URL(String(input));
     const envelope = url.pathname === "/api/mesh/relay-to"
-      ? JSON.parse(String(init?.body)) as { target_peer_id: string; path: string }
+      ? JSON.parse(String(init?.body)) as { target_instance_id: string; path: string }
       : null;
-    const machine = envelope?.target_peer_id ?? "self";
+    const machine = envelope?.target_instance_id ?? "self";
     const path = envelope?.path ?? `${url.pathname}${url.search}`;
     reads.push(`${machine}:${path}`);
     const plan = { ...FIXTURE_PLAN, id: `pl_${machine}`, title: `${machine}-${revision}`, revision: String(revision + 1) };

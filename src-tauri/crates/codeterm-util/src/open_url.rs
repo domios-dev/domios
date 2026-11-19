@@ -4,8 +4,7 @@ pub fn open_url(url: String) -> Result<(), String> {
     cmd.args(args);
     #[cfg(target_os = "windows")]
     crate::process_util::no_window_std(&mut cmd);
-    let _ = cmd.spawn();
-    Ok(())
+    cmd.spawn().map(|_| ()).map_err(|error| error.to_string())
 }
 
 /// `cmd /C start` splits a URL at `&`, dropping every query parameter after the first.

@@ -42,12 +42,14 @@ impl FrontendReadySignal {
 
     fn mark_ready(&self, generation: u64) -> bool {
         let mut state = self.state.lock();
-        if state.generation == generation && state.ready_generation != Some(generation) {
+        if state.generation != generation {
+            return false;
+        }
+        if state.ready_generation != Some(generation) {
             state.ready_generation = Some(generation);
             self.changed.notify_all();
-            return true;
         }
-        false
+        true
     }
 
     fn wait_until(&self, generation: u64, deadline: Instant) -> bool {
@@ -116,6 +118,17 @@ mod tests {
         assert_eq!(signal.observe_boot(), replacement);
         assert!(signal.mark_ready(replacement));
         assert!(signal.wait_until(replacement, Instant::now()));
+    }
+
+    #[test]
+    fn frontend_shell_contract_duplicate_ready_for_current_generation_is_accepted() {
+        let signal = FrontendReadySignal::default();
+        let generation = signal.arm();
+        assert!(signal.mark_ready(generation));
+        assert!(signal.mark_ready(generation));
+        assert!(signal.wait_until(generation, Instant::now()));
+        assert_ne!(signal.observe_boot(), generation);
+        assert!(!signal.mark_ready(generation));
     }
 
     #[test]

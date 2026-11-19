@@ -41,6 +41,8 @@ fn cron_settle_service_rpc_closes_completed_tab() {
         .record_run(
             &job_id,
             CronRunInfo {
+                provider: None,
+                owner_instance_id: None,
                 cancel_reason: None,
                 run_id: "service-rpc-complete-run".into(),
                 started_at: 1,

@@ -1,13 +1,22 @@
 use axum::http::{HeaderMap, StatusCode};
 
-use crate::{auth::AuthenticatedOrigin, routes::AppState};
+use crate::{
+    auth::{AuthenticatedOrigin, CallerIdentity},
+    routes::AppState,
+};
 
 pub(super) fn peer_client(
     state: &AppState,
     headers: &HeaderMap,
     client: codeterm_service_core::mesh::transport::PeerClient,
 ) -> Result<codeterm_service_core::mesh::transport::PeerClient, (StatusCode, String)> {
-    let origin = crate::auth::authenticated_origin(state, headers)?;
+    let (caller, origin) = crate::auth::authenticated_request(state, headers)?;
+    if !matches!(caller, CallerIdentity::Local | CallerIdentity::Tab(_)) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Outbound mesh signing requires a local caller".into(),
+        ));
+    }
     let agent = crate::auth::authenticated_agent(state, headers)?;
     Ok(client.with_signed_token(sign(state, origin, agent.as_ref())?))
 }
@@ -19,6 +28,26 @@ pub(super) fn loopback_request(
     body: &serde_json::Value,
     agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
 ) -> Result<reqwest::Request, (StatusCode, String)> {
+    let token = sign(state, origin, agent)?;
+    loopback_request_with_auth(
+        state,
+        cmd,
+        body,
+        format!("Bearer {token}").parse().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Invalid signed authorization".into(),
+            )
+        })?,
+    )
+}
+
+pub(super) fn loopback_request_with_auth(
+    state: &AppState,
+    cmd: &codeterm_service_core::mesh::types::RelayCommand,
+    body: &serde_json::Value,
+    authorization: axum::http::HeaderValue,
+) -> Result<reqwest::Request, (StatusCode, String)> {
     let method = cmd.method.to_ascii_uppercase();
     if !matches!(method.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE") {
         return Err((
@@ -29,7 +58,7 @@ pub(super) fn loopback_request(
     let method = reqwest::Method::from_bytes(method.as_bytes())
         .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
     let url = format!("http://127.0.0.1:{}{}", state.api_port, cmd.path);
-    let mut request = super::local_forward_http_client().request(method.clone(), url);
+    let mut request = super::local_forward_http_client()?.request(method.clone(), url);
     if matches!(
         method,
         reqwest::Method::POST | reqwest::Method::PUT | reqwest::Method::PATCH
@@ -37,7 +66,7 @@ pub(super) fn loopback_request(
         request = request.json(body);
     }
     request
-        .bearer_auth(sign(state, origin, agent)?)
+        .header(axum::http::header::AUTHORIZATION, authorization)
         .timeout(super::local_forward_deadline(&cmd.method, &cmd.path))
         .build()
         .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))

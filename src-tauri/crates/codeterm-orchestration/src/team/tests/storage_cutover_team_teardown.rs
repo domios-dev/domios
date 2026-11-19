@@ -58,6 +58,8 @@ fn team_storage_fixture() -> TeamStorageFixture {
         .start_run(
             protected,
             CronRunRecord {
+                provider: None,
+                owner_instance_id: None,
                 cancel_reason: None,
                 run_id,
                 started_at: 10,

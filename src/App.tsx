@@ -289,18 +289,12 @@ function AppInner() {
     if (!interfaceReady) return;
     if (IS_WEB || !("__TAURI_INTERNALS__" in window)) return;
     releaseBootCover();
-    const injectedView = (window as Window & {
-      __CODETERM_CLIENT_VIEW_GENERATION__?: {
-        viewGeneration: number;
-        navigationGeneration: number;
-      };
-    }).__CODETERM_CLIENT_VIEW_GENERATION__;
     const clientUrl = new URL(window.location.href);
     const [viewText, navigationText] =
       clientUrl.searchParams.get("__codeterm_client_view")?.split(":") ?? [];
-    const clientView = injectedView ?? (viewText && navigationText
+    const clientView = viewText && navigationText
       ? { viewGeneration: Number(viewText), navigationGeneration: Number(navigationText) }
-      : undefined);
+      : undefined;
     if (
       clientView &&
       Number.isSafeInteger(clientView.viewGeneration) &&

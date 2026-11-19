@@ -2,7 +2,8 @@ import { useEffect, type RefObject } from "react";
 import { invoke, listen } from "../../lib/bridge";
 import { updateRemoteChatPeers } from "../../lib/remoteChatStatus";
 import type { MeshPeersResponse } from "../../lib/types";
-import { rememberMachineIdentities } from "../../lib/useMeshMachineIdentities";
+import type { AccountMeshSnapshot } from "../../components/MeshPanel/accountMeshClient";
+import { rememberAccountMachineNames, rememberMachineIdentities } from "../../lib/useMeshMachineIdentities";
 
 export interface PairedRoster {
   peers: MeshPeersResponse;
@@ -24,6 +25,25 @@ export function useMeshPeerProjection(
     let identityReadGeneration = 0;
     let meshUnlisten: (() => void) | undefined;
     let identityUnlisten: (() => void) | undefined;
+    const accountUnlisteners: Array<() => void> = [];
+    let accountReadGeneration = 0;
+    const refreshAccountNames = async () => {
+      const generation = ++accountReadGeneration;
+      try {
+        const account = await invoke<AccountMeshSnapshot>("account_mesh_state");
+        if (active && account && generation === accountReadGeneration) rememberAccountMachineNames(account);
+      } catch {}
+    };
+    for (const event of ["account-changed", "account-mesh-changed", "mesh-state-changed"]) {
+      void listen(event, refreshAccountNames).then(stop => {
+        if (active) {
+          accountUnlisteners.push(stop);
+          if (event === "account-mesh-changed") void refreshAccountNames();
+        } else stop();
+      }).catch(() => {
+        if (active && event === "account-mesh-changed") void refreshAccountNames();
+      });
+    }
     let muxUnlisten: (() => void) | undefined;
     const refreshPeers = async (identityOnly = false) => {
       const identityGeneration = ++identityReadGeneration;
@@ -71,6 +91,7 @@ export function useMeshPeerProjection(
       meshUnlisten?.();
       identityUnlisten?.();
       muxUnlisten?.();
+      accountUnlisteners.forEach(stop => stop());
     };
   }, [remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh, acceptPairedPeers, settleInitialRoster]);
 }

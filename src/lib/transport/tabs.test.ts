@@ -1,5 +1,6 @@
 import type { HttpMethod, TransportClient } from "../transportClient";
 import { describe, expect, it } from "vitest";
+import { remoteTransportCall } from "../remoteTabTransport";
 import { createTabsTransport, type TabsTransportClient } from "./tabs";
 
 it("sends checklist review snapshot and amendment through the authenticated tab transport", async () => {
@@ -417,6 +418,35 @@ describe("tab command HTTP contract", () => {
     const { transport, calls } = fixture([{ ok: false, status: 409, data: prompt }]);
     expect(await transport.mesh_remote_tab_action({ peerId: "peer", ordinaryTabId: "mesh:peer/tab", method: "POST", suffix: "/prompt/respond", body: {} })).toEqual(prompt);
     expect(calls).toHaveLength(1);
+  });
+
+  it("preserves B's recovery results and projects a Chat send receipt once", async () => {
+    const tabId = "mesh:peer/tab";
+    const resume = { kind: "resumed", deltas: [{
+      cursor: "B-next", source_session_id: "B-session", session_binding_nonce: "B-nonce",
+      start_offset: 7, offset: 9, messages: [],
+    }], caught_up: true };
+    const admissions = [{ correlationId: "original-token", evidence: "present" }];
+    const status = { tab_id: "tab", send_id: "same-B-send", correlationId: "original-token",
+      ledger_id: "B-ledger", sequence: 3, state: "written" };
+    const { transport, calls } = fixture([
+      ...[resume, admissions, [status]].map(data => ({ ok: true, status: 200, data })),
+      { ok: false, status: 503, error: "proof unavailable", data: { error: { code: "admission_proof_unavailable" } } },
+    ]);
+    const dispatch = (command: string, args = {}) =>
+      transport.mesh_remote_tab_action({ ...remoteTransportCall(command, { tabId, ...args })! });
+    expect(await dispatch("chat_resume", { cursor: "B-current" })).toEqual(resume);
+    expect(await dispatch("chat_send_admissions", { clientTokens: ["original-token"] })).toEqual(admissions);
+    expect(await dispatch("chat_send_status")).toEqual([{ ...status, tab_id: tabId }]);
+    await expect(dispatch("chat_send_admissions", { clientTokens: ["original-token"] })).rejects.toMatchObject({
+      status: 503, code: "admission_proof_unavailable", message: "proof unavailable",
+    });
+    expect(calls.map(call => call.body)).toEqual([
+      { target_instance_id: "peer", method: "POST", path: "/api/tabs/tab/chat-raw/resume", body: { cursor: "B-current" } },
+      { target_instance_id: "peer", method: "POST", path: "/api/tabs/tab/chat-send/admissions", body: { clientTokens: ["original-token"] } },
+      { target_instance_id: "peer", method: "GET", path: "/api/tabs/tab/chat-send", body: null },
+      { target_instance_id: "peer", method: "POST", path: "/api/tabs/tab/chat-send/admissions", body: { clientTokens: ["original-token"] } },
+    ]);
   });
 });
 

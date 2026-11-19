@@ -2,4 +2,4 @@
 import type { CronCancelReason } from "./CronCancelReason";
 import type { CronRunStatus } from "./CronRunStatus";
 
-export type CronRunInfo = { cancel_reason?: CronCancelReason, run_id: string, started_at: number, finished_at: number | null, status: CronRunStatus, tab_id: string | null, session_id?: string, cwd?: string, summary?: string, report_delivery?: string, };
+export type CronRunInfo = { provider?: string, owner_instance_id?: string, cancel_reason?: CronCancelReason, run_id: string, started_at: number, finished_at: number | null, status: CronRunStatus, tab_id: string | null, session_id?: string, cwd?: string, summary?: string, report_delivery?: string, };

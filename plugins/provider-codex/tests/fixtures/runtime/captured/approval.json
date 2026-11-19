@@ -1968,6 +1968,10 @@
         "kind": "prompt",
         "threadId": "01a143fd-36a2-70b2-b91f-0dd30538bc89",
         "requestId": 0,
+        "permission": {
+          "action": "other",
+          "options": []
+        },
         "prompt": {
           "question": "\"C:\\\\Users\\\\User\\\\AppData\\\\Local\\\\Microsoft\\\\WindowsApps\\\\Microsoft.PowerShell_8wekyb3d8bbwe\\\\pwsh.exe\" -Command 'Set-Content -LiteralPath capture-proof.txt -Value capture'",
           "options": [

@@ -3,7 +3,7 @@ use std::time::Instant;
 use windows_sys::Win32::{Foundation::*, System::Threading::*};
 
 mod descendants;
-pub(super) use descendants::capture as descendants;
+pub(super) use descendants::{capture as descendants, of as descendants_of, tree, Descendant};
 
 pub(super) fn ids(boundary: &Boundary) -> Result<Vec<u32>, String> {
     boundary

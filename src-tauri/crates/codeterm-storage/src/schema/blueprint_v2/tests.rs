@@ -28,7 +28,7 @@ fn startup_accepts_only_the_1_17_schema_without_upgrading() {
 }
 
 #[test]
-fn schema_v1_store_is_refused_without_changing_its_records() {
+fn newer_store_is_refused_without_changing_its_records() {
     let root = tempfile::tempdir().unwrap();
     let database = crate::assets::Layout::of_root(root.path()).database;
     std::fs::create_dir_all(database.parent().unwrap()).unwrap();
@@ -36,7 +36,8 @@ fn schema_v1_store_is_refused_without_changing_its_records() {
     conn.execute_batch(crate::schema::MIGRATIONS[0]).unwrap();
     conn.pragma_update(None, "application_id", APPLICATION_ID)
         .unwrap();
-    conn.pragma_update(None, "user_version", 1).unwrap();
+    conn.pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+        .unwrap();
     conn.execute_batch(
         "INSERT INTO workspaces(id, ordinal, name, protected, task_key_next, revision)
          VALUES ('retained-workspace', 0, 'Retained', 0, 7, 73);",
@@ -47,18 +48,21 @@ fn schema_v1_store_is_refused_without_changing_its_records() {
 
     let error = crate::Storage::open(root.path(), crate::StorageConfig::default())
         .err()
-        .expect("schema v1 is unsupported");
+        .expect("newer schema is unsupported");
     assert!(matches!(
         error,
         StorageError::Incompatible {
             application_id: APPLICATION_ID,
-            schema_version: 1,
+            schema_version,
             supported: SCHEMA_VERSION,
-        }
+        } if schema_version == SCHEMA_VERSION + 1
     ));
     assert_eq!(
         error.to_string(),
-        format!("incompatible database {APPLICATION_ID:#x} schema 1/{SCHEMA_VERSION}")
+        format!(
+            "incompatible database {APPLICATION_ID:#x} schema {}/{SCHEMA_VERSION}",
+            SCHEMA_VERSION + 1
+        )
     );
     assert_eq!(std::fs::read(&database).unwrap(), before);
     let conn =

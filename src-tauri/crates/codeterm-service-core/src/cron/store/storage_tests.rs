@@ -158,6 +158,8 @@ fn rename(name: &str) -> CronUpdateParams {
 
 fn running(run_id: &str) -> CronRunInfo {
     CronRunInfo {
+        provider: None,
+        owner_instance_id: None,
         cancel_reason: None,
         run_id: run_id.to_string(),
         started_at: START_MS,
@@ -169,6 +171,29 @@ fn running(run_id: &str) -> CronRunInfo {
         summary: None,
         report_delivery: None,
     }
+}
+
+#[test]
+fn storage_cron_run_identity_survives_rehydration() {
+    let f = fixture();
+    let job = f.create(params("identity round trip"));
+    let mut run = running("identity-run");
+    run.provider = Some("fixture-provider".into());
+    run.owner_instance_id = Some("machine-b".into());
+    commit(&f.cron, |store| {
+        store.prepare_record_run(&job.id, run.clone())
+    })
+    .expect("record identity run");
+
+    let saved = f
+        .rehydrated()
+        .get_history(&job.id)
+        .into_iter()
+        .find(|saved| saved.run_id == "identity-run")
+        .cloned()
+        .expect("rehydrated run");
+    assert_eq!(saved.provider.as_deref(), Some("fixture-provider"));
+    assert_eq!(saved.owner_instance_id.as_deref(), Some("machine-b"));
 }
 
 fn held(storage: &Storage) -> Hold {
@@ -682,6 +707,8 @@ fn storage_cron_unknown_identity_is_refused_and_historical_targets_stay_verbatim
     let f = fixture();
     let before = f.snapshot();
     let ghost_run = CronRunRecord {
+        provider: None,
+        owner_instance_id: None,
         cancel_reason: None,
         run_id: CronRunId::new("ghost-run").unwrap(),
         started_at: 1,
@@ -821,11 +848,15 @@ fn storage_cron_legacy_and_storage_backends_never_cross() {
 }
 
 #[test]
-fn storage_cron_previous_schema_is_refused_without_upgrade() {
+fn storage_cron_previous_schema_upgrades_in_place() {
     let temp = tempfile::tempdir().expect("temp root");
     std::fs::create_dir_all(instance(&temp)).unwrap();
     Storage::seed_before_cron_schema(&instance(&temp)).expect("seed");
-    assert!(Storage::open(instance(&temp), StorageConfig::default()).is_err());
+    let storage = Storage::open(instance(&temp), StorageConfig::default()).expect("upgrade seed");
+    storage
+        .shutdown()
+        .wait(DEADLINE)
+        .expect("close upgraded storage");
 }
 
 #[test]

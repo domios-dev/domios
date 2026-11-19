@@ -6,7 +6,8 @@ mod origins;
 
 pub use brand_fallback::{brand_fallback_page, BrandFallback};
 pub use development::{
-    development_browser_arguments, development_runtime_frontend, DevelopmentFrontend,
+    development_browser_arguments, development_runtime_frontend, is_development_identifier,
+    DevelopmentFrontend,
 };
 pub use origins::{
     declared_frontend_origins, development_frontend, fallback_origin, loopback_origin,

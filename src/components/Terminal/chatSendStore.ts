@@ -467,7 +467,7 @@ export function recordRemoteChatSendFailure(tabId: string, correlationId: string
   const current = readChatSends(tabId);
   const next = current.map(send => send.correlationId === correlationId && !send.status && deliveryState(send) !== "delivered"
     ? { ...send, remoteFailure: failure, requestFailed: failure.neverWritten === true, requestUncertain: failure.neverWritten !== true,
-        requestError: undefined, admissionSettled: true }
+        requestError: undefined, admissionSettled: failure.neverWritten === true }
     : send);
   if (next.some((send, index) => send !== current[index])) publish(tabId, next);
 }

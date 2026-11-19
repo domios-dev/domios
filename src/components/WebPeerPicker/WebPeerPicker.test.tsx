@@ -106,7 +106,8 @@ it("names a paired machine using its announced kind and offline state", async ()
   await act(async () => chip.host.querySelector<HTMLButtonElement>('[data-testid="peer-picker-button"]')!.click());
   expect(document.querySelector('[data-peer-id="rog"]')?.getAttribute("aria-current")).toBe("true");
   await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="peer-picker-all"]')!.click());
-  expect(chip.label()).toContain("All machines");
+  expect(chip.label()).toBe("Filter sidebar by machine, All machines");
+  expect(chip.host.querySelector('[data-testid="peer-picker-button"]')?.textContent).toBe("All machines");
   await chip.unmount();
 });
 

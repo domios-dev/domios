@@ -13,11 +13,12 @@ mod blueprint_v2;
 mod desk;
 mod sentinel;
 mod tab_todo;
+mod upgrade;
 
 /// `PRAGMA application_id` of every Storage database ("CTST").
 pub(crate) const APPLICATION_ID: i32 = 0x4354_5354;
 
-// Slot count retains the persisted 1.17 schema identity; only fresh databases execute these statements.
+// Index n upgrades schema n to n + 1; domain changes append here.
 const MIGRATIONS: &[&str] = &[
     SCHEMA_V1,
     cron::SCHEMA,
@@ -56,6 +57,7 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE blueprint_runtime ADD COLUMN admission_json TEXT CHECK (admission_json IS NULL OR length(admission_json) <= 4194304);",
     blueprint_evidence::SCHEMA,
     cron::CANCEL_REASON_SCHEMA,
+    cron::RUN_IDENTITY_SCHEMA,
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 
@@ -141,7 +143,8 @@ pub(crate) fn open_writer(
         ensure_fresh(layout, root)?;
         initialize(layout)?;
     }
-    let conn = open_existing(&layout.database, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    let mut conn = open_existing(&layout.database, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    upgrade::older_owned_database(&mut conn, layout)?;
     validate_identity(&conn)?;
     check_integrity(&conn)?;
     let settings = configure(&conn, true, busy_timeout)?;
@@ -230,7 +233,7 @@ fn suffixed(path: &Path, suffix: &str) -> std::path::PathBuf {
     text.into()
 }
 
-/// Accepts only this application and the schema shipped in 1.17.
+/// Readers and backup restoration require the current application schema.
 pub(crate) fn validate_identity(conn: &Connection) -> Result<i32, StorageError> {
     let application_id: i32 = pragma_value(conn, "application_id")?;
     let version: i32 = pragma_value(conn, "user_version")?;
@@ -255,19 +258,23 @@ pub(crate) fn check_integrity(conn: &Connection) -> Result<(), StorageError> {
 }
 
 fn initialize_schema(conn: &mut Connection) -> Result<(), StorageError> {
+    apply_schema(conn, 0)
+}
+
+fn apply_schema(conn: &mut Connection, from: i32) -> Result<(), StorageError> {
     conn.pragma_update(None, "foreign_keys", "OFF")
         .map_err(|e| sqlite_error("suspend initialization foreign keys", e))?;
-    let result = initialize_schema_transaction(conn);
+    let result = apply_schema_transaction(conn, from);
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(|e| sqlite_error("restore initialization foreign keys", e))?;
     result
 }
 
-fn initialize_schema_transaction(conn: &mut Connection) -> Result<(), StorageError> {
+fn apply_schema_transaction(conn: &mut Connection, from: i32) -> Result<(), StorageError> {
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|e| sqlite_error("begin schema initialization", e))?;
-    for step in MIGRATIONS {
+    for step in &MIGRATIONS[from as usize..] {
         tx.execute_batch(step)
             .map_err(|e| sqlite_error("initialize schema", e))?;
     }

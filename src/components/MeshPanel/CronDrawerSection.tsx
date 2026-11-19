@@ -10,6 +10,7 @@ import {
   capabilityFor,
   capabilityReason,
   createMeshResourceActionAdapter,
+  isUnconfirmedMutation,
   mutationFailure,
   resourceTarget,
   unavailableFailure,
@@ -97,6 +98,7 @@ export function CronDrawerSection({ service, machineName, onUpdate, actionAdapte
       const message = mutationFailure(label, target, error);
       setAnnouncement(message);
       onAnnouncement?.(message);
+      if (isUnconfirmedMutation(error)) onUpdate();
       return false;
     } finally {
       setBusy(false);
@@ -157,7 +159,7 @@ export function CronDrawerSection({ service, machineName, onUpdate, actionAdapte
       />
       {job && <CronPurposeCard job={job} />}
       <CronRunHistory runs={runs} allowed={can("history")} reason={reason("history")} onOpen={setOpenRun} runLabel={job?.role === "curator" ? "Curator round" : undefined} />
-      {openRun && openRun.session_id && <RunChatPopup tabId={openRun.tab_id} title={`cron:${service.name}`} subtitle={formatTime(openRun.started_at)} status={openRun.status} provider={job?.role === "curator" ? "" : job?.agent ?? ""} cwd={openRun.cwd ?? ""} sessionId={openRun.session_id} live={openRun.status === "Running" || openRun.status === "AwaitingOwnerPrompt"} onClose={() => setOpenRun(null)} />}
+      {openRun && openRun.session_id && <RunChatPopup cronId={service.id} runId={openRun.run_id} ownerInstanceId={openRun.owner_instance_id ?? service.source_peer_id} tabId={openRun.tab_id} title={`cron:${service.name}`} subtitle={formatTime(openRun.started_at)} status={openRun.status} provider={openRun.provider ?? ""} cwd={openRun.cwd ?? ""} sessionId={openRun.session_id} live={openRun.status === "Running" || openRun.status === "AwaitingOwnerPrompt"} onClose={() => setOpenRun(null)} />}
     </div>
   );
 }

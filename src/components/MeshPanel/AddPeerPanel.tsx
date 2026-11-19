@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
-import { Loader } from "../shared/Loader";
+import { BusyState } from "../shared/BusyState";
+import { Button } from "../shared/Button";
 import { SettingsPill } from "../Settings/shared";
 import { LockBadge } from "../billing/LockBadge";
 import { meshMachineLockedView } from "../billing/lockSurfaces";
@@ -26,10 +27,10 @@ export function MachineManagement({ machines }: { machines: MachinesController }
   const { view } = machines;
   if (view.kind === "loading") return machines.loadFailed
     ? <p role="status">Your machines could not be loaded.</p>
-    : <Loader variant="compact" label="Loading your machines" />;
+    : <BusyState inline label="Checking machine status" phase="work" />;
   if (view.kind === "sign_in") return <section aria-label="My machines">
     <p role="status">{view.headline}</p>
-    <MachineJoinAction signingIn={machines.signingIn} onSignIn={machines.signIn} />
+    <MachineJoinAction signingIn={machines.signingIn} onSignIn={machines.signIn} onCancel={machines.cancelSignIn} />
   </section>;
   return <section aria-label="My machines" className="flex flex-col gap-3">
     <button type="button" disabled={machines.refreshing} className={ACTION_BTN} onClick={() => void machines.load()}>Refresh</button>
@@ -45,7 +46,8 @@ export function MachineManagement({ machines }: { machines: MachinesController }
           {(row.canSignOut || row.controls.revoke) && <MachineSessionControls name={row.name} busy={machines.busy === row.key}
             onSignOut={row.canSignOut ? () => machines.revokeSession(row) : undefined}
             onRemove={row.controls.revoke ? alsoSignOut => machines.revoke(row, row.controls.revoke!, alsoSignOut) : undefined}
-            identityPeer={row.online && row.target ? row.pairInstanceId ?? undefined : undefined} />}
+            identityPeer={row.online && row.target ? row.pairInstanceId ?? undefined : undefined}
+            rename={row.online && row.target ? { displayName: row.displayName, save: name => machines.rename(row, name) } : undefined} />}
           {failure && <InlineErrorNotice role="alert" description={{ title: `Could not ${failure.operation}`, cause: failureMessage(failure.failure), raw: JSON.stringify(failure.failure), actions: [] }} />}
         </PeerMachineListRow>;
       })}
@@ -55,7 +57,12 @@ export function MachineManagement({ machines }: { machines: MachinesController }
   </section>;
 }
 
-export function MachineJoinAction({ signingIn, onSignIn }: { signingIn: boolean; onSignIn: () => void | Promise<void> }) {
+export function MachineJoinAction({ signingIn, onSignIn, onCancel, compact = false }: {
+  signingIn: boolean;
+  onSignIn: () => void | Promise<void>;
+  onCancel?: () => void;
+  compact?: boolean;
+}) {
   const join = useMachineJoin(true);
   const [joining, setJoining] = useState(false);
   async function proceed() {
@@ -64,10 +71,13 @@ export function MachineJoinAction({ signingIn, onSignIn }: { signingIn: boolean;
     finally { setJoining(false); }
   }
   return <div className="grid gap-2">
-    {join.view && join.value && <MachineJoinPreview name={join.view.name} value={join.value} onChange={join.setDraft} />}
+    {!compact && join.view && join.value && <MachineJoinPreview name={join.view.name} value={join.value} onChange={join.setDraft} />}
     {join.error && <MachineIdentitySaveError error={join.error} retry={() => void proceed()} />}
-    <div><button type="button" disabled={joining || signingIn} aria-busy={joining || signingIn}
-      className={PRIMARY_BTN} onClick={() => void proceed()}>{signingIn ? "Signing in…" : join.view ? "Join" : "Sign in"}</button></div>
+    <div className={compact ? "relative" : "flex items-center gap-2"}>
+      <Button size="sm" variant="primary" autoFocus={compact && !signingIn} loading={joining || signingIn}
+        onClick={() => void proceed()}>{signingIn ? "Signing in…" : !compact && join.view ? "Join" : "Sign in"}</Button>
+      {onCancel && <Button size="sm" className={compact ? "absolute left-full top-0 ml-1" : undefined} onClick={onCancel}>Cancel</Button>}
+    </div>
   </div>;
 }
 
@@ -141,7 +151,7 @@ function SelfRow({ self, onRename, onPlans }: {
             Rename this machine
           </button>
         )}
-        <MachineSessionControls name={self.name} busy={saving} identityPeer={null} />
+        <MachineSessionControls name={self.name} busy={saving} identityPeer={null} rename={self.readOnly ? undefined : { displayName: self.displayName, save: onRename }} />
       </div>
       {self.planLimited && <div className="flex items-center justify-between gap-2">
         <span className={UI_TEXT.metaMuted}>This machine is outside your plan's machine limit.</span>

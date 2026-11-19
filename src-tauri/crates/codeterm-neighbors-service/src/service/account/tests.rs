@@ -33,7 +33,7 @@ impl codeterm_account::CredentialStore for GatedCredentials {
 }
 
 #[tokio::test]
-async fn account_login_disconnect_still_publishes_settled_status() {
+async fn account_login_start_returns_before_credential_save_and_publishes_settled_status() {
     for fail in [false, true] {
         let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
         let fixture = crate::test_support::fixture(mux);
@@ -61,21 +61,32 @@ async fn account_login_disconnect_still_publishes_settled_status() {
         );
         assert!(service.ext::<AccountCell>().0.set(account.clone()).is_ok());
         let mut events = service.events.subscribe();
-        let caller = service.clone();
-        let login = tokio::spawn(async move { caller.account_login(Default::default()).await });
+        let id = tokio::time::timeout(
+            Duration::from_secs(1),
+            service.account_login(Default::default()),
+        )
+        .await
+        .expect("start must return before credential storage is released")
+        .unwrap();
         started.recv().await.unwrap();
-        login.abort();
-        assert!(login.await.unwrap_err().is_cancelled());
+        let (status, attempt) = account.status_with_login().await;
+        assert!(status.pending);
+        assert_eq!(attempt.as_deref(), Some(id.as_str()));
         release.send(()).unwrap();
-        tokio::time::timeout(Duration::from_secs(1), async {
-        let mut changed = 0;
-        while changed < if fail { 1 } else { 2 } {
-            let event = events.recv().await.unwrap();
-            if matches!(event.event, codeterm_events::SystemEvent::Generic { event_type, .. } if event_type == "account-changed") {
-                changed += 1;
+        let failure = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let event = events.recv().await.unwrap();
+                if let codeterm_events::SystemEvent::Generic { event_type, data } = event.event {
+                    if event_type == "account-sign-in" && data["settled"] == true {
+                        assert_eq!(data["attempt_id"], id);
+                        break data["failure"].clone();
+                    }
+                }
             }
-        }
-    }).await.expect("identity and settled login status reach reconnected clients");
+        })
+        .await
+        .expect("settled login must reach reconnected clients");
+        assert_eq!(failure.is_object(), fail);
         let status = account.status().await;
         assert!(!status.pending);
         if fail {

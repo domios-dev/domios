@@ -5,13 +5,20 @@ import { signInFailureToast } from "../Settings/accountFailureToast";
 import { useMultiplexer } from "../../store/multiplexer/context";
 import { accountPresence, type AccountPresence } from "./accountMachines";
 
+export interface MeshAccount {
+  presence: AccountPresence;
+  signIn: () => Promise<void>;
+  signingIn: boolean;
+  cancelSignIn?: () => void;
+}
+
 /** The signed-in state Mesh shows and the Sign in action, with its failure toast. */
-export function useMeshAccount(): { presence: AccountPresence; signIn: () => Promise<void> } {
+export function useMeshAccount(): MeshAccount {
   const account = useAccount();
   const { upsertToast } = useMultiplexer();
   const signIn = useCallback(async () => {
     const failure = await account.signIn();
     if (failure) createNoticePublisher({ upsertToast })(signInFailureToast(failure, () => { void account.signIn(); }));
   }, [account, upsertToast]);
-  return { presence: accountPresence(account.model.kind), signIn };
+  return { presence: accountPresence(account.model.kind), signIn, signingIn: account.signingIn, cancelSignIn: account.cancelSignIn };
 }

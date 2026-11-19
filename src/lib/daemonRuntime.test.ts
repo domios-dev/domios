@@ -59,7 +59,7 @@ describe("shared daemon runtime", () => {
     expect(await selectedDaemonTransport.json("GET", "/api/config")).toEqual({ result: "peer" });
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe("http://127.0.0.1:7697/api/mesh/relay-to");
-    expect(JSON.parse(init.body)).toEqual({ target_peer_id: "peer", method: "GET", path: "/api/config", body: null });
+    expect(JSON.parse(init.body)).toEqual({ target_instance_id: "peer", method: "GET", path: "/api/config", body: null });
     expect(bindings.events).toHaveBeenCalledWith(base);
   });
 });

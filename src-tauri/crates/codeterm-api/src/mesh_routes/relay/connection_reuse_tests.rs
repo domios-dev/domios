@@ -55,6 +55,7 @@ async fn repeated_mesh_client_construction_reuses_one_keep_alive_connection() {
         let response = tokio::time::timeout(
             REQUEST_DEADLINE,
             local_forward_http_client()
+                .expect("local forward HTTP client")
                 .get(format!("http://{address}/connection-port"))
                 .timeout(REQUEST_DEADLINE)
                 .send(),

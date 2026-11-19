@@ -93,6 +93,8 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
         .record_run(
             &job.id,
             CronRunInfo {
+                provider: None,
+                owner_instance_id: None,
                 cancel_reason: None,
                 run_id: "pending-run".into(),
                 started_at: 1,

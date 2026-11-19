@@ -1,0 +1,134 @@
+.mesh-overview {
+  background: radial-gradient(color-mix(in srgb, var(--ct-fg) 12%, transparent) 1px, transparent 1.6px) 0 0 / 18px 18px, var(--ct-bg);
+  container-type: inline-size;
+}
+
+.mesh-overview__content {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  margin: auto;
+  max-width: 360px;
+  padding: 12px 16px;
+  text-align: center;
+}
+
+.mesh-overview__ring.neighbor-me__ring {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 4px;
+  place-items: center;
+  background: var(--ct-surface);
+  box-shadow: 0 0 0 1px var(--ct-border), var(--ct-shadow-capsule);
+}
+
+.mesh-overview__ring > .ct-card__icon {
+  width: 44px;
+  height: 44px;
+}
+
+.mesh-overview__ring svg {
+  width: 24px;
+  height: 24px;
+}
+
+.mesh-overview__node {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.mesh-overview__local {
+  position: relative;
+}
+
+.mesh-overview__identity {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  opacity: 0;
+}
+
+.mesh-overview__local:hover .mesh-overview__identity,
+.mesh-overview__identity:focus-within {
+  opacity: 1;
+}
+
+.mesh-overview__status {
+  color: var(--ct-muted-fg);
+  font-size: var(--ct-font-size-meta);
+}
+
+.mesh-overview__status[data-tone]::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-inline-end: 5px;
+  border-radius: 50%;
+  background: var(--ct-muted-fg);
+  vertical-align: 0.06em;
+}
+
+.mesh-overview__status[data-tone="online"]::before {
+  background: var(--ct-green);
+}
+
+.mesh-overview__status[data-tone="warning"]::before {
+  background: var(--ct-yellow);
+}
+
+.mesh-overview__copy.neighbor-me__signin {
+  width: min(19rem, 100%);
+  margin-top: 0;
+}
+
+.mesh-overview .ct-btn-sm {
+  font-size: var(--ct-font-size-sm);
+}
+
+.mesh-overview__guide {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--ct-accent);
+  font-size: var(--ct-font-size-meta);
+}
+
+.mesh-overview__guide:hover {
+  text-decoration: underline;
+}
+
+.mesh-overview__nodes {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 20px;
+}
+
+.mesh-overview__edge {
+  width: clamp(24px, 15cqi, 64px);
+  margin-top: 32px;
+  border-top: 1px dashed var(--ct-muted-fg);
+}
+
+.mesh-overview__callout {
+  width: min(330px, 100%);
+  padding: 14px;
+}
+
+@media (max-width: 640px), (pointer: coarse) {
+  .mesh-overview__content button,
+  .mesh-overview__guide {
+    min-height: 44px;
+  }
+
+  .mesh-overview__identity {
+    opacity: 1;
+  }
+}

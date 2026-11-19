@@ -14,6 +14,13 @@ fn runtime_port(value: &str) -> Result<u16, String> {
         .ok_or_else(|| "Invalid development runtime port".into())
 }
 
+pub fn is_development_identifier(identifier: &str) -> bool {
+    (identifier == "com.domios.dev" || identifier.starts_with("com.domios.dev."))
+        && identifier
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b".-".contains(&byte))
+}
+
 pub fn development_runtime_frontend(
     debug: bool,
     development: bool,
@@ -24,11 +31,7 @@ pub fn development_runtime_frontend(
         return Ok(None);
     }
     let port = runtime_port(port)?;
-    if !(identifier == "com.domios.dev" || identifier.starts_with("com.domios.dev."))
-        || !identifier
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b".-".contains(&byte))
-    {
+    if !is_development_identifier(identifier) {
         return Err("Invalid development frontend identifier".into());
     }
     Ok(Some(DevelopmentFrontend {

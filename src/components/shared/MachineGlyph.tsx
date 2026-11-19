@@ -1,6 +1,6 @@
 import { CircleDashed, Cloud, Command, Cpu, Laptop, Monitor, Server, TabletSmartphone } from "lucide-react";
 import type { CSSProperties } from "react";
-import { machineColor, machineKind, type MachineKind } from "../../lib/machineIdentity";
+import { machineColor, machineKind, type MachineIdentity, type MachineKind } from "../../lib/machineIdentity";
 
 const ICONS = {
   laptop: Laptop,
@@ -35,4 +35,8 @@ export function MachineGlyph({ kind, color, size = "mark-12", label, muted = fal
       <Icon aria-hidden="true" size={size === "mark-12" ? 12 : 15} strokeWidth={size === "mark-12" ? 2.25 : 2} />
     </span>
   );
+}
+
+export function MachineIconBadge({ identity }: { identity?: MachineIdentity | null }) {
+  return <span className="sidebar-remote-tab-icon__badge [&_svg]:size-2.5"><MachineGlyph {...identity} /></span>;
 }

@@ -18,7 +18,7 @@ const { request, rawBody, state } = vi.hoisted(() => ({
   request: vi.fn(), rawBody: vi.fn(() => "opaque-sensitive-response"), state: {
     identity:null as null | {uid:string;display_name:string;email:null;provider:string},
     failure:null as null | {stage:"redemption";error:"provider"},
-    revoked:false, serverStopUnconfirmed:false, failLogin:false, failLogout:false, failStatus:false, failPlan:false, failBillingAction:false, loginHeldElsewhere:false,
+    revoked:false, serverStopUnconfirmed:false, failLogin:false, failLogout:false, failStatus:false, failPlan:false, failBillingAction:false, loginHeldElsewhere:false, holdLogin:false, attempt:null as string | null,
   },
 }));
 vi.mock("../../lib/webApi", async (importOriginal) => ({
@@ -31,15 +31,20 @@ vi.mock("../../lib/webApi", async (importOriginal) => ({
   if (url.endsWith("/billing")) return { ok: true, json: async () => ({ current_tier: "pro", paid_subscription: { tier: "pro", status: "active", period_end: 1700604800 }, period_end: 1700604800, pending_change: null }) };
   if (url.endsWith("/portal") && state.failBillingAction) return {ok:false,text:rawBody};
   if (url.split("?")[0].endsWith("/login") && state.loginHeldElsewhere) return {ok:false,text:rawBody};
-  if (url.endsWith("/status") && state.loginHeldElsewhere) return {ok:true,json:async () => ({identity:null,pending:true,last_sign_in_failure:null})};
-  if (url.split("?")[0].endsWith("/login") && state.failLogin) {
-    state.failure = {stage:"redemption",error:"provider"};
-    return {ok:false,text:rawBody};
+  if (url.endsWith("/status") && state.loginHeldElsewhere) return {ok:true,json:async () => ({identity:null,pending:true,login_attempt_id:"elsewhere",last_sign_in_failure:null})};
+  if (url.endsWith("/login/fixture/cancel")) {
+    state.holdLogin = false;
+    return {ok:true};
   }
   if (url.endsWith("/plan")) return {ok:true,json:async () => ({entitlements:{plan:"free",status:"active",current_period_end:0,cancel_at_period_end:false},stale:false})};
-  if (url.split("?")[0].endsWith("/login")) state.identity = {uid:"user",display_name:"Ada",email:null,provider:"fake"};
+  if (url.split("?")[0].endsWith("/login")) {
+    state.attempt = "fixture";
+    if (state.failLogin) state.failure = {stage:"redemption",error:"provider"};
+    else if (!state.holdLogin) state.identity = {uid:"user",display_name:"Ada",email:null,provider:"fake"};
+    return {ok:true,json:async () => ({attempt_id:state.attempt})};
+  }
   if (url.endsWith("/logout")) state.identity = null;
-  return {ok:true,json:async () => ({identity:state.identity,pending:false,last_sign_in_failure:state.failure,session_revoked:state.revoked,server_stop_unconfirmed:state.serverStopUnconfirmed})};
+  return {ok:true,json:async () => ({identity:state.identity,pending:state.holdLogin && state.attempt !== null,login_attempt_id:state.attempt,last_sign_in_failure:state.failure,session_revoked:state.revoked,server_stop_unconfirmed:state.serverStopUnconfirmed})};
   },
 }));
 import { signInFailureToastMessage, useAccount } from "./useAccount";
@@ -61,10 +66,11 @@ it.each([
 });
 
 function Surface({name,onSignOutFailure}:{name:string;onSignOutFailure?:(message:string)=>void}) {
-  const {model,signIn,signOut} = useAccount(onSignOutFailure);
+  const {model,signIn,signOut,signingIn,cancelSignIn} = useAccount(onSignOutFailure);
   return <section aria-label={name}><output>{model.kind === "signed_in" ? model.identity.uid : model.kind}</output>
-    <button type="button" onClick={() => {void signIn({provider:"email",mode:"signup"});}}>Login</button>
+    <button type="button" disabled={signingIn} onClick={() => {void signIn({provider:"email",mode:"signup"});}}>Login</button>
     <button type="button" onClick={() => {void signOut();}}>Logout</button>
+    {cancelSignIn && <button type="button" onClick={() => {void cancelSignIn();}}>Cancel</button>}
   </section>;
 }
 
@@ -234,7 +240,7 @@ it("attaches to a sign-in another surface holds instead of reporting a failure",
     state.loginHeldElsewhere = true;
     const signIn = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Sign in");
     await act(async () => signIn!.click());
-    expect(host.querySelector('[role="status"]')).not.toBeNull();
+    expect(host.textContent).toContain("Signing in…");
     expect(host.querySelector('[data-testid="notification-toast"]')).toBeNull();
     state.loginHeldElsewhere = false;
     state.identity = {uid:"user",display_name:"Ada",email:null,provider:"fake"};
@@ -267,5 +273,38 @@ it("opens sign-in once on session revocation and shows the machine sign-out expl
     expect(showSignIn).toHaveBeenCalledTimes(1);
   } finally {
     await act(async () => root.unmount()); host.remove(); state.revoked = false;
+  }
+});
+
+it("rehydrates a pending attempt without replacing the signed-in identity and cancels only that attempt", async () => {
+  state.identity = {uid:"prior-account",display_name:"Ada",email:null,provider:"fake"};
+  state.failure = null;
+  state.attempt = null;
+  state.holdLogin = true;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const render = (key: string) => act(async () => root.render(<Surface key={key} name="Mesh" />));
+  const buttons = () => Array.from(host.querySelectorAll("button"));
+  try {
+    await render("first");
+    expect(host.querySelector("output")?.textContent).toBe("prior-account");
+    await act(async () => buttons()[0].click());
+    expect(host.querySelector("output")?.textContent).toBe("prior-account");
+    expect(buttons()[0].disabled).toBe(true);
+    expect(buttons()[1].disabled).toBe(false);
+    await render("reload");
+    expect(host.querySelector("output")?.textContent).toBe("prior-account");
+    expect(buttons()[0].disabled).toBe(true);
+    await act(async () => buttons().find(button => button.textContent === "Cancel")!.click());
+    expect(request).toHaveBeenCalledWith("/api/account/login/fixture/cancel");
+    expect(host.querySelector("output")?.textContent).toBe("prior-account");
+    expect(buttons()[0].disabled).toBe(false);
+    expect(buttons().some(button => button.textContent === "Cancel")).toBe(false);
+  } finally {
+    state.holdLogin = false;
+    state.identity = null;
+    state.attempt = null;
+    await act(async () => root.unmount());
+    host.remove();
   }
 });

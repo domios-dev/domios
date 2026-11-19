@@ -1,13 +1,14 @@
 import type { PairedPeer } from "../../lib/types";
 import { DropdownSelect } from "../shared/DropdownMenu";
 import { jobsMachineOptions, THIS_MACHINE } from "./jobsMachineModel";
-import { useMeshMachineIdentities } from "../../lib/useMeshMachineIdentities";
+import { useAccountMachineNames, useMeshMachineIdentities } from "../../lib/useMeshMachineIdentities";
 import { MachineGlyph } from "../shared/MachineGlyph";
 import { MachinePickerRow, MachineThisBadge, machineRowLabel } from "../shared/MachineRow";
 
 export function JobsMachineFilter({ value, peers, onChange }: { value: string; peers: readonly PairedPeer[]; onChange: (value: string) => void }) {
+  const names = useAccountMachineNames();
   const identities = useMeshMachineIdentities();
-  const options = jobsMachineOptions(peers, identities.local_instance_name);
+  const options = jobsMachineOptions(peers, identities.local_instance_name).map(option => ({ ...option, name: (option.id === THIS_MACHINE ? names.local : names.peers.get(option.id)) ?? option.name }));
   const identityOf = (id: string) => id === THIS_MACHINE ? identities.local_machine_identity : identities.machine_identities?.[id];
   // Content-width beside its label, so the chevron stays with the machine's name instead of the row's far edge.
   return <div className="w-fit min-w-0 max-w-full shrink-0">

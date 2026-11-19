@@ -96,9 +96,16 @@ pub async fn stop_agent_turn(
                         InterruptOutcome::Dropped(InterruptDropped::TurnChanged) => Ok(
                             serde_json::json!({"ok": true, "stopped": false, "reason": "turn_changed", "route": "runtime"}),
                         ),
-                        InterruptOutcome::Stopped => Ok(
-                            serde_json::json!({"ok": true, "stopped": true, "reason": "stopped", "route": "runtime"}),
-                        ),
+                        InterruptOutcome::Stopped {
+                            session_binding_nonce,
+                            session_id,
+                            epoch,
+                            turn_started_at_ms,
+                        } => Ok(serde_json::json!({
+                            "ok": true, "stopped": true, "reason": "stopped", "route": "runtime",
+                            "interrupted_turn": { "session_binding_nonce": session_binding_nonce,
+                                "session_id": session_id, "epoch": epoch, "started_at_ms": turn_started_at_ms },
+                        })),
                         InterruptOutcome::NoTurn => Ok(
                             serde_json::json!({"ok": true, "stopped": false, "reason": "not_working", "status": crate::agent::status::TabStatus::Idle.label(), "route": "runtime"}),
                         ),

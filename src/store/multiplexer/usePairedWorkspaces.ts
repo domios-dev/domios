@@ -3,9 +3,10 @@ import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import type { PlanIndexEntry } from "../../components/Canvas/plansApi";
 import { remoteTeamName } from "../../components/Sidebar/remoteOwnership";
 import { cleanMachineName } from "../../lib/machineIdentity";
+import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
 import { invoke } from "../../lib/bridge";
 import type { MeshPeersResponse, MultiplexerState } from "../../lib/types";
-import { setWorkspaceBrowseTarget, useWorkspaceBrowseTarget, workspaceBrowseRevision, workspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
+import { setWorkspaceBrowseTarget, useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 import { pairedGeneralCacheScope, readPairedGeneralCache, writePairedGeneralCache, type CachedPeerGeneral } from "./pairedGeneralCache";
 import type { PairedRoster } from "./useMeshPeerProjection";
 import {
@@ -33,13 +34,14 @@ interface PeerRead {
 interface WorkspaceBrowse {
   account?: CacheAccount;
   publicKey?: string;
-  target: NonNullable<ReturnType<typeof workspaceBrowseTarget>>;
+  target: NonNullable<ReturnType<typeof useWorkspaceBrowseTarget>>;
   availability: GeneralAvailability;
   workspaces: BrowsedWorkspace[];
 }
 
 export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: boolean, cacheAccount: CacheAccount) {
   const peers = roster?.peers ?? null;
+  const accountNames = useAccountMachineNames();
   const rosterRevision = roster?.revision;
   const peerRoster = useRef<MeshPeersResponse | null>(peers);
   peerRoster.current = peers;
@@ -77,7 +79,23 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
     void writePairedGeneralCache(cacheScope, next);
   }, [cacheAccount, cacheScope, cachedPeers, general, peers]);
 
-  const refreshGeneral = useCallback((peerId: string) => {
+  const invalidatePeerInventory = useCallback((peerId: string) => {
+    const running = reads.current.get(peerId);
+    reads.current.delete(peerId);
+    running?.controller.abort();
+    const peer = peerRoster.current?.paired.find(item => item.instance_id === peerId);
+    if (!peer) return;
+    const account = accountRef.current;
+    setGeneral(previous => new Map(previous).set(peerId, {
+      account,
+      publicKey: peer.public_key,
+      sessions: [],
+      workspaces: [],
+      availability: "unreachable",
+    }));
+  }, []);
+
+  const refreshPeerInventory = useCallback((peerId: string) => {
     const roster = peerRoster.current;
     const peer = roster?.paired.find(item => item.instance_id === peerId);
     if (!peer || pairedAvailability(peer, roster?.installations) !== "reconnecting") return;
@@ -129,7 +147,7 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
       .finally(() => {
         if (reads.current.get(peerId) !== read) return;
         reads.current.delete(peerId);
-        if (read.again) refreshGeneral(peerId);
+        if (read.again) refreshPeerInventory(peerId);
       });
   }, []);
 
@@ -158,69 +176,33 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
       for (const id of missing) next.delete(id);
       return next;
     });
-    for (const id of paired) refreshGeneral(id);
-  }, [rosterRevision, refreshGeneral, cacheAccount]);
+    for (const id of paired) refreshPeerInventory(id);
+  }, [rosterRevision, refreshPeerInventory, cacheAccount]);
 
   const target = useWorkspaceBrowseTarget();
-  const browseRevision = workspaceBrowseRevision();
-  const selected = peers?.paired.find(peer => peer.instance_id === target?.id);
-  const availability = selected ? pairedAvailability(selected, peers?.installations) : "reconnecting";
-  const [response, setResponse] = useState<WorkspaceBrowse | null>(null);
-  const requestBrowse = useRef<(() => void) | null>(null);
+  const targetId = target?.id;
+  const selected = peers?.paired.find(peer => peer.instance_id === targetId);
   const rosterReady = peers !== null;
   const selectedKey = selected?.public_key;
-  const refreshBrowse = useCallback((peerId: string) => {
-    if (workspaceBrowseTarget()?.id === peerId) requestBrowse.current?.();
-  }, []);
 
   useEffect(() => {
-    const target = workspaceBrowseTarget();
-    if (!target || !rosterReady) return;
+    if (!targetId || !rosterReady) return;
     if (selectedKey === undefined) {
       setWorkspaceBrowseTarget(null);
       return;
     }
-    if (availability !== "reconnecting") return;
-    const controller = new AbortController();
-    const { signal } = controller;
-    const current = () => !signal.aborted && accountRef.current === cacheAccount && workspaceBrowseRevision() === browseRevision;
-    let running = false;
-    let again = false;
-    const read = async () => {
-      if (!current()) return;
-      if (running) {
-        again = true;
-        return;
-      }
-      running = true;
-      try {
-        do {
-          again = false;
-          try {
-            const snapshot = await invoke<MultiplexerState>("mesh_peer_mux_state", { peerId: target.id, signal });
-            if (current()) setResponse({ target, account: cacheAccount, publicKey: selectedKey, availability: "online", workspaces: projectBrowsedWorkspaces(target.id, snapshot) });
-          } catch {
-            if (current()) setResponse({ target, account: cacheAccount, publicKey: selectedKey, availability: "unreachable", workspaces: [] });
-          }
-        } while (again && current());
-      } finally {
-        running = false;
-      }
-    };
-    requestBrowse.current = () => { void read(); };
-    void read();
-    return () => {
-      controller.abort();
-      requestBrowse.current = null;
-    };
-  }, [browseRevision, rosterReady, selectedKey, availability, cacheAccount]);
+    refreshPeerInventory(targetId);
+  }, [targetId, rosterReady, selectedKey, refreshPeerInventory]);
 
   const browse = useMemo<WorkspaceBrowse | null>(() => {
     if (!target) return null;
-    if (selected && availability === "reconnecting" && response?.target === target
-      && response.account === cacheAccount && response.publicKey === selected?.public_key) return response;
+    const availability = selected ? pairedAvailability(selected, peers?.installations) : "reconnecting";
+    const snapshot = general.get(target.id);
+    if (availability === "reconnecting" && selected && snapshot?.account === cacheAccount && snapshot.publicKey === selected.public_key) {
+      return { target, availability: snapshot.availability, workspaces: snapshot.workspaces ?? [] };
+    }
     return { target, availability, workspaces: [] };
-  }, [target, selected, response, availability, cacheAccount]);
+  }, [target, selected, peers?.installations, general, cacheAccount]);
 
   const generals = useMemo<PairedGeneral[]>(() => (peers?.paired ?? []).map(peer => {
     const live = general.get(peer.instance_id);
@@ -229,13 +211,13 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
     const observed = pairedAvailability(peer, peers?.installations);
     return {
       peerId: peer.instance_id,
-      name: cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine",
+      name: accountNames.peers.get(peer.instance_id) ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine",
       teamNames: known?.teamNames,
       availability: observed === "reconnecting" ? known?.availability ?? observed : observed,
       sessions: known?.sessions ?? (saved?.publicKey === peer.public_key ? saved.sessions : []),
       cached: !known?.sessions && saved !== undefined && saved.publicKey === peer.public_key,
     };
-  }), [general, peers, cachedPeers, cacheAccount]);
+  }), [general, peers, cachedPeers, cacheAccount, accountNames]);
   const peerWorkspaces = useMemo(() => generals.flatMap(peer => {
     const paired = peers?.paired.find(item => item.instance_id === peer.peerId);
     const known = general.get(peer.peerId);
@@ -246,7 +228,7 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
     }
     return known.workspaces ?? [];
   }), [generals, peers, general, cacheAccount, browse]);
-  return { generals, browse, peerWorkspaces, refreshGeneral, refreshBrowse, ready };
+  return { generals, browse, peerWorkspaces, refreshPeerInventory, invalidatePeerInventory, ready };
 }
 
 async function readTeamPlanTitles(peerId: string, signal: AbortSignal) {

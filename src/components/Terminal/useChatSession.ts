@@ -69,6 +69,7 @@ import { useChatActivationReconcile } from "./useChatActivationReconcile";
 import { remoteChatPeer, setRemoteChatFailure } from "../../lib/remoteChatStatus";
 import { remoteChatFailure } from "../../lib/remoteChatState";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { onRemoteTabEventSignal } from "../../lib/remoteTabEvents";
 
 export {
   TEST_CHAT_REPLY_EVENT,
@@ -239,9 +240,11 @@ export function useChatSession({
     try {
       do {
         sendStatusQueuedRef.current = false;
+        const authority = bindingKey(agentSessionIdRef.current, sessionBindingNonceRef.current);
+        const key = windowKeyRef.current;
         const statuses = await reconcileTrackedChatMessages(tabId);
-        for (const status of statuses) {
-          stampConfirmedTranscriptRow(windowKeyRef.current, status);
+        if (key === windowKeyRef.current && authority === bindingKey(agentSessionIdRef.current, sessionBindingNonceRef.current)) {
+          for (const status of statuses) stampConfirmedTranscriptRow(key, status);
         }
       } while (sendStatusQueuedRef.current);
     } catch {
@@ -490,12 +493,16 @@ export function useChatSession({
     let cancelled = false;
     let unlisten: UnlistenFn | null = null;
     let unlistenTest: (() => void) | null = null;
+    const eventName = `tab-chat-msg-${tabId}`;
+    const stopRemoteSignals = parseCompositeTabId(tabId) ? onRemoteTabEventSignal(eventName, signal => {
+      if (signal === "resync") requestRecoveryAttach(false, "stream_reconnected");
+    }) : undefined;
     const listenerStartedAt = performance.now();
     setLoading(true);
     (async () => {
       try {
         unlisten = await listen<ChatMsgEvent>(
-          `tab-chat-msg-${tabId}`,
+          eventName,
           (ev) => {
             if (cancelled) return;
             const traceAuthority = { tab: ev.payload.tab_id, session: ev.payload.source_session_id, nonce: ev.payload.session_binding_nonce,
@@ -586,6 +593,7 @@ export function useChatSession({
     })();
     return () => {
       cancelled = true;
+      stopRemoteSignals?.();
       unlisten?.();
       if (unlisten) emitDiagnostic({ edge: "listener_released", tabId });
       unlistenTest?.();

@@ -477,12 +477,30 @@ rust_test_package() {
 
 run_nextest_scope() {
   local CARGO_TARGET_DIR="${CARGO_TARGET_DIR-}"
-  [ "$#" -le 2 ] || {
-    echo "usage: ./build.sh nextest <scope> [filterset]" >&2
-    return 2
-  }
   local scope="${1:?nextest requires a scope}"
-  local filterset="${2:-}"
+  shift
+  local filterset="" requested_run_ignored=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --run-ignored)
+        if [ -n "$requested_run_ignored" ] || [ "$#" -lt 2 ] ||
+          { [ "$2" != only ] && [ "$2" != all ]; }; then
+          echo "usage: ./build.sh nextest <scope> [filterset] [--run-ignored only|all]" >&2
+          return 2
+        fi
+        requested_run_ignored="$2"
+        shift 2
+        ;;
+      *)
+        if [[ "$1" == --* ]] || [ -n "$filterset" ]; then
+          echo "usage: ./build.sh nextest <scope> [filterset] [--run-ignored only|all]" >&2
+          return 2
+        fi
+        filterset="$1"
+        shift
+        ;;
+    esac
+  done
   local manifest="src-tauri/Cargo.toml"
   local package=""
   local targets=(--no-default-features)
@@ -588,6 +606,10 @@ run_nextest_scope() {
       return 2
       ;;
   esac
+
+  if [ -n "$requested_run_ignored" ]; then
+    run_ignored_args=(--run-ignored "$requested_run_ignored")
+  fi
 
   if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ] || [ "$scope" = "service-core" ] || [ "$scope" = "codeterm-service-core" ] || [ "$scope" = "shell" ]; then
     prepare_exceptional_worktree_target
@@ -2696,7 +2718,7 @@ Domios build commands
   test-one <input-macos|input-windows|billing|account|analytics|app|shell|root|api|socket|commands|sentinel-host|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mem-store|paths|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage|codeterm-*> NAME
                               Run one focused Rust test
   process-probe --case server-only|arbitration|pair-journey --instance split-oracle  Build and prove isolated process ownership
-  nextest <scope> [filterset]  Compile then run Rust tests through nextest
+  nextest <scope> [filterset] [--run-ignored only|all]  Compile then run Rust tests through nextest
   test-related <file>...     Print and run Rust module/crate and TS related selections
   nextest-archive [sha] [--measure selector...] Build/reuse one archive and optionally time selectors
   release-rust [runner-id...]  Run every release-tier Rust runner of tests/catalogue.json (or the named ones)

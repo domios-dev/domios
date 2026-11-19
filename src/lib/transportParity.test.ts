@@ -7,9 +7,15 @@ import fixtures from "./transportCommandContracts.json";
 
 const result = { ok: true, status: 200, data: [], peer: { instance_id: "peer", instance_name: "Peer" }, paired: [], plans: [], themes: [], path: "path", text: "text", output: "output", line: "line", offset: 4, pty_id: "pty", generation: 1,
   tabs: {tab:{agent_session_id:"root",session_binding_nonce:"nonce",agent_runtime_state:{state:"loaded",epoch:4}}} };
+function reply(path: string, body?: unknown) {
+  if (path === "/api/mesh/relay-to" && (body as { path?: string } | undefined)?.path === "/api/mux/state") {
+    return { ...result, data: { tabs: {} } };
+  }
+  return structuredClone(result);
+}
 function fixture() {
   const calls: string[][] = [];
-  const json = async <T>(method: string, path: string): Promise<T> => { calls.push([method, path]); return structuredClone(result) as T; };
+  const json = async <T>(method: string, path: string, body?: unknown): Promise<T> => { calls.push([method, path]); return reply(path, body) as T; };
   const client: TransportClient = { json, localJson: json, upload: async () => { throw new Error("Unexpected upload"); }, subscribe: () => () => {}, currentToken: () => "token", origin: () => "http://127.0.0.1:7686" };
   return { client, calls };
 }
@@ -19,10 +25,12 @@ describe("audited command registry", () => {
     const { client, calls } = fixture();
     const commands = createCommandRegistry(client);
     expect(Object.keys(commands).filter(name => !CLIENT_LOCAL_COMMANDS.includes(name as typeof CLIENT_LOCAL_COMMANDS[number])).sort()).toEqual(Object.keys(fixtures.commands).filter(name => name !== "kill_pty").sort());
+    const { peerId, ...localArgs } = fixtures.args;
+    const localSpawns = new Set(["spawn_general_agent_session", "mux_spawn_tab"]);
     for (const [command, expected] of Object.entries(fixtures.commands)) {
       calls.length = 0;
-      await dispatchCommand(commands, command, fixtures.args);
-      expect(calls, command).toEqual(expected);
+      await dispatchCommand(commands, command, localSpawns.has(command) ? localArgs : { ...localArgs, peerId });
+      expect.soft(calls, command).toEqual(expected);
     }
     console.info("[transportParity mode=enforce] zero pending HTTP contracts");
   });
@@ -30,9 +38,9 @@ describe("audited command registry", () => {
     const { client } = fixture();
     const localCalls: string[] = [];
     client.json = async () => { throw new Error("Unexpected selected-peer request"); };
-    client.localJson = async <T>(_method: string, path: string) => {
+    client.localJson = async <T>(_method: string, path: string, body?: unknown) => {
       localCalls.push(path);
-      return { ok: true, data: [], peer: result.peer } as T;
+      return reply(path, body) as T;
     };
     const registry = createCommandRegistry(client);
     await dispatchCommand(registry, "mesh_peer_tabs_list", { peerId: "peer" });
