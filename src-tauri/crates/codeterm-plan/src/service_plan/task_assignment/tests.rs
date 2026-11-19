@@ -6,6 +6,8 @@ use codeterm_types::agent::ReportStatus;
 
 fn fixture() -> (tempfile::TempDir, PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("src")).unwrap();
+    std::fs::write(dir.path().join("src/lifecycle.rs"), "fixture\n").unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut plan = Plan::new(
         "reassignment".into(),
@@ -20,6 +22,10 @@ fn fixture() -> (tempfile::TempDir, PlanStore, String, String) {
             NewTask {
                 name: "lifecycle".into(),
                 kind: "implement".into(),
+                files: crate::plan::TaskFiles {
+                    edit: vec!["src/lifecycle.rs".into()],
+                    ..Default::default()
+                },
                 model: Some("codex:test-model".into()),
                 acceptance_criteria: vec!["binding survives review".into()],
                 test_plan: Some("focused lifecycle oracle".into()),
@@ -97,8 +103,10 @@ fn git_repository_assignment_records_shared_start_commit() {
             .unwrap();
         assert!(output.status.success());
     }
-    std::fs::write(project.join("README.md"), "fixture\n").unwrap();
-    for args in [&["add", "README.md"][..], &["commit", "-m", "initial"][..]] {
+    for args in [
+        &["add", "src/lifecycle.rs"][..],
+        &["commit", "-m", "initial"][..],
+    ] {
         let output = codeterm_util::process_util::git_command()
             .args(args)
             .current_dir(project)
