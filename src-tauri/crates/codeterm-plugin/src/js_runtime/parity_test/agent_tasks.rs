@@ -101,12 +101,34 @@ fn bundled_agent_tasks_match_capability_declarations() {
         let directory = root.join(format!("provider-{id}"));
         let manifest_json = std::fs::read_to_string(directory.join("plugin.json")).unwrap();
         let source = std::fs::read_to_string(directory.join("plugin.js")).unwrap();
-        let manifest = serde_json::from_str(&manifest_json).unwrap();
+        let manifest =
+            super::super::manifest::PluginManifest::from_json_str(&manifest_json).unwrap();
         let vm = super::super::PluginVm::from_source_with(id, source, Some(manifest_json)).unwrap();
         let backend = super::super::JsChatBackend::from_manifest(Arc::new(vm), &manifest);
         assert_eq!(backend.supports_agent_tasks(), expected, "{id}");
         if expected {
             assert!(backend.abort_agent_task("unknown-run").is_ok());
+        } else {
+            let request = AgentTaskRequest {
+                input: AgentTaskInput {
+                    run_id: "unsupported-run".into(),
+                    tab_id: "fixture-tab".into(),
+                    workspace_id: "fixture-workspace".into(),
+                    profile: "fixture-profile".into(),
+                    task: "opaque task".into(),
+                    input: "opaque input".into(),
+                    timeout_ms: 1000,
+                    max_tokens: 1000,
+                    max_turns: 1,
+                },
+                deadline: Instant::now() + Duration::from_secs(2),
+                cancellation: ConversionCancellation::default(),
+            };
+            assert_eq!(
+                backend.run_agent_task(&request).unwrap_err(),
+                "provider does not support bounded agent tasks"
+            );
+            assert!(backend.abort_agent_task("unsupported-run").is_err());
         }
     }
 }
