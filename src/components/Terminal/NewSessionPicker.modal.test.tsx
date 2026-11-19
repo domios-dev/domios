@@ -1,7 +1,7 @@
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Workspace } from "../../lib/types";
+import { RELAY_PROTOCOL_VERSION, type Workspace } from "../../lib/types";
 import type { ProviderAccountsSnapshot } from "../../hooks/providerAccountsTypes";
 
 const fixture = vi.hoisted(() => {
@@ -147,12 +147,49 @@ async function choose(control: string, option: string) {
     button!.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true }));
   });
   const item = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]'))
-    .find((element) => element.textContent?.trim() === option);
+    .find((element) => {
+      const label = element.getAttribute("aria-label") ?? "";
+      return label === option || label.startsWith(`${option},`) || element.textContent?.trim() === option;
+    });
   expect(item).toBeDefined();
   await act(async () => item!.click());
 }
 
 describe("NewSessionPicker modal", () => {
+  it("routes a single agent to the selected machine and names the destination before start", async () => {
+    vi.mocked(invoke).mockImplementation(async (command) => command === "mesh_list_peers" ? {
+      local_instance_name: "LOCAL",
+      paired: [
+        { instance_id: "machine-x", instance_name: "BLACKSTAR", online: true, access_level: "full", relay_protocol_version: RELAY_PROTOCOL_VERSION },
+        { instance_id: "machine-offline", instance_name: "OFFLINE", online: false, access_level: "full", relay_protocol_version: RELAY_PROTOCOL_VERSION },
+      ],
+    } as never : undefined as never);
+    await renderPicker();
+    await choose("Where it runs", "BLACKSTAR");
+    const confirm = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!;
+    expect(confirm.textContent).toMatch(/agent/i);
+    expect(confirm.textContent).toContain("BLACKSTAR");
+    await act(async () => confirm.click());
+    const spawn = fixture.actions.spawnAgentTab.mock.calls[0] as unknown as unknown[];
+    expect(spawn[2]).toBeUndefined();
+    expect(spawn[10]).toBe("machine-x");
+  });
+
+  it("keeps the General New session form local while the machine menu owns remote creation", async () => {
+    vi.mocked(invoke).mockImplementation(async (command) => command === "mesh_list_peers" ? {
+      local_instance_name: "LOCAL",
+      paired: [{ instance_id: "machine-x", instance_name: "BLACKSTAR", online: true, access_level: "full", relay_protocol_version: RELAY_PROTOCOL_VERSION }],
+    } as never : undefined as never);
+    await renderPicker({ section: "general" });
+    expect(buttonNamed("Where it runs")).toBeNull();
+    const confirm = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!;
+    expect(confirm.textContent).toBe("Start session");
+    await act(async () => confirm.click());
+    const spawn = fixture.actions.spawnAgentTab.mock.calls[0] as unknown as unknown[];
+    expect(spawn[6]).toBe("fresh_general");
+    expect(spawn[10]).toBeUndefined();
+  });
+
   it("keeps role controls labelled without a workspace control or explanatory rows", async () => {
     fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode",
       available_models: [{ id: "model", display_name: "Model value" }], default_model: "model",

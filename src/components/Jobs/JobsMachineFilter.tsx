@@ -11,7 +11,7 @@ export function JobsMachineFilter({ value, peers, onChange }: { value: string; p
   const identityOf = (id: string) => id === THIS_MACHINE ? identities.local_machine_identity : identities.machine_identities?.[id];
   // Content-width beside its label, so the chevron stays with the machine's name instead of the row's far edge.
   return <div className="w-fit min-w-0 max-w-full shrink-0">
-    <DropdownSelect showCheckmark={false} aria-label="Machine" prefix="Machine" data-testid="jobs-machine" className="min-w-0 max-w-full" value={value} onChange={onChange} leading={<MachineGlyph {...identityOf(value)} />}
+    <DropdownSelect selectionIndicator="highlight" aria-label="Machine" prefix="Machine" data-testid="jobs-machine" className="min-w-0 max-w-full" value={value} onChange={onChange} leading={<MachineGlyph {...identityOf(value)} />}
       options={[
         ...(options.some((option) => option.id === value) ? [] : [{ value, label: "Unavailable machine" }]),
         ...options.map((option) => ({

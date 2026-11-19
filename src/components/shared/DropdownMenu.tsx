@@ -13,6 +13,7 @@ const TRIGGER_FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabin
 
 export interface DropdownMenuItem {
   label: string;
+  "aria-label"?: string;
   labelContent?: ReactNode;
   icon?: ReactNode;
   /** Short chip rendered beside the label (e.g. a model's catalog badge). */
@@ -499,7 +500,7 @@ function DropdownMenuRow({
     <button
       type="button"
       role={menuItemRole(item)}
-      aria-label={item.labelContent === undefined && !item.truncateDescription ? undefined : item.label}
+      aria-label={item["aria-label"] ?? (item.labelContent === undefined && !item.truncateDescription ? undefined : item.label)}
       aria-checked={item.checked ?? item.selected}
       aria-haspopup={item.submenu ? "menu" : undefined}
       aria-expanded={item.submenu ? false : undefined}
@@ -551,8 +552,10 @@ function DropdownMenuRow({
 export interface DropdownSelectOption {
   value: string;
   label: string;
+  ariaLabel?: string;
   description?: string;
   disabled?: boolean;
+  unavailable?: boolean;
   /** Native-title suffix appended to the label (e.g. " (not installed)"). */
   suffix?: string;
   /** Short chip rendered beside the option label. */
@@ -575,7 +578,7 @@ export const SELECT_TRIGGER = "flex items-center gap-2 w-full min-w-0 px-3 py-1.
  * (escapes transform/overflow-hidden ancestors and layers cleanly above the
  * WebGL xterm canvas), so it replaces native `<select>` without the native
  * popup's compositor flicker over the canvas. The trigger shows the current
- * selection; each option sets its value on click and exposes its checked state.
+ * selection; each option sets its value on click and exposes its selected state.
  */
 export function DropdownSelect({
   options,
@@ -592,7 +595,7 @@ export function DropdownSelect({
   className,
   "data-testid": testId,
   focusOnPointerOpen,
-  showCheckmark = true,
+  selectionIndicator = "check",
 }: {
   options: DropdownSelectOption[];
   value: string;
@@ -612,7 +615,8 @@ export function DropdownSelect({
   className?: string;
   "data-testid"?: string;
   focusOnPointerOpen?: boolean;
-  showCheckmark?: boolean;
+  /** Use the selected-row background without a check icon for machine choices. */
+  selectionIndicator?: "check" | "highlight";
 }) {
   const selected = options.find((o) => o.value === value);
   const label = selected?.label ?? placeholder ?? "";
@@ -620,11 +624,15 @@ export function DropdownSelect({
   const badge = selected?.badge;
   const toItem = (o: DropdownSelectOption): DropdownMenuItem => ({
     label: o.suffix ? `${o.label}${o.suffix}` : o.label,
+    "aria-label": o.ariaLabel,
     labelContent: o.content,
     description: o.description,
+    unavailable: o.unavailable,
     badge: o.badge,
     disabled: o.disabled,
-    icon: showCheckmark ? o.value === value ? <Check size={14} /> : <span className="w-3.5 h-3.5" /> : undefined,
+    icon: selectionIndicator === "check"
+      ? o.value === value ? <Check size={14} /> : <span className="w-3.5 h-3.5" />
+      : undefined,
     selected: o.value === value,
     onClick: () => onChange(o.value),
     "data-testid": testId ? `${testId}-option-${o.value}` : undefined,

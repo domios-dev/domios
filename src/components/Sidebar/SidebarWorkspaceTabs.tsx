@@ -120,6 +120,7 @@ export interface SidebarWorkspaceTabsProps {
   onRenameTab: (tabId: string, title: string) => void;
   onNewSession?: () => void;
   onOpenRemoteTab?: () => void;
+  newGeneralSessionMenu?: ReactNode;
   newSessionDisabled?: boolean;
   onRenameTeam?: (teamId: string, name: string, managerTabId: string | null) => void | Promise<void>;
   onRenamePlan?: (planId: string, title: string) => Promise<void>;
@@ -163,6 +164,7 @@ export function SidebarWorkspaceTabs({
   onRenameTab,
   onNewSession,
   onOpenRemoteTab,
+  newGeneralSessionMenu,
   newSessionDisabled = false,
   onRenameTeam,
   onRenamePlan,
@@ -478,11 +480,11 @@ export function SidebarWorkspaceTabs({
             <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
           </button>
         </CursorTooltip>}
-        {onOpenRemoteTab && (
+        {newGeneralSessionMenu ?? (onOpenRemoteTab && (
           <button type="button" onClick={onOpenRemoteTab} aria-label="New session on another machine" title="New session on another machine" className={`flex shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)] ${touchMode ? "h-11 w-11" : "h-6 w-6"}`}>
             <MonitorUp size={12} strokeWidth={1.5} />
           </button>
-        )}
+        ))}
       </div>
     </>
   );

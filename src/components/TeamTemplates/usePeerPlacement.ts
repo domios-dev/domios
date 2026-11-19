@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "../../lib/bridge";
 import {
-  createPeerWorkspace, hostListingFailure, listHostPeers, listPeerWorkspaces,
+  createPeerWorkspace, hostListingFailure, listHostPeers, listPeerWorkspaces, placementMachinesFromHostPeers,
   type HostPeer, type HostPeerListing, type PeerWorkspace,
 } from "../../lib/teamTemplates/hostPeers";
 
@@ -43,11 +43,6 @@ export function usePeerPlacement({ wanted, listPeers = listHostPeers, listWorksp
     return () => { live = false; stop?.(); };
   }, [wanted, listPeers]);
 
-  // A machine that went offline or lost Full access leaves the choice.
-  useEffect(() => {
-    if (peer && listing && !listing.peers.some((candidate) => candidate.id === peer.id)) setPeerState(null);
-  }, [peer, listing]);
-
   useEffect(() => {
     setWorkspaces(null);
     setWorkspacesReason(null);
@@ -80,6 +75,7 @@ export function usePeerPlacement({ wanted, listPeers = listHostPeers, listWorksp
   return {
     peers: listing?.peers ?? null,
     peersReason: listing?.reason ?? null,
+    machines: listing ? listing.machines ?? placementMachinesFromHostPeers(listing.peers) : null,
     peer, setPeer,
     workspaces, workspacesReason,
     workspace, setWorkspace,

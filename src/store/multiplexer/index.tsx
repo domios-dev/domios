@@ -864,12 +864,14 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
     accountId?: string,
     machineId?: string,
     remoteWorkspaceId?: string,
+    beforeRemoteTabSelect?: () => void,
   ): Promise<SpawnedTab | null> => {
     if (machineId === undefined && precheckFreeLimit(["agent.tabs"])) return null;
-    const attachPeerSpawn = async (peerId: string, remoteTabId: string): Promise<SpawnedTab> => {
+    const attachPeerSpawn = async (peerId: string, remoteTabId: string, beforeSelect?: () => void): Promise<SpawnedTab> => {
       const peer = await guardedInvoke<RemotePeerTabs>("mesh_peer_tabs_list", { peerId });
       const tab = peer.tabs.find((candidate) => candidate.id === remoteTabId);
       if (!tab) throw new Error(`${peer.peer_name} did not publish the created agent tab`);
+      beforeSelect?.();
       attachRemoteTab(workspaceId, peer, tab);
       return { workspaceId, tabId: `mesh:${peerId}/${remoteTabId}` };
     };
@@ -880,7 +882,7 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
       try {
         const result = await spawnFreshGeneralSession(workspaceId, agentId, cwd, guardedInvoke,
           machineId !== undefined ? {} : { model, reasoningEffort, preset, accountId }, machineId);
-        if (machineId !== undefined) return await attachPeerSpawn(machineId, result.tab_id);
+        if (machineId !== undefined) return await attachPeerSpawn(machineId, result.tab_id, beforeRemoteTabSelect);
         applyBackendState(result.snapshot);
         return { workspaceId: result.workspace_id, tabId: result.tab_id };
       } catch (error) {
@@ -900,7 +902,7 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
         params: { agentId, workspaceId, cwd, model, reasoningEffort, ...(launchProfile ? { launchProfile } : {}), ...(accountId ? { accountId } : {}),
           ...(remoteWorkspaceId ? { remoteWorkspaceId } : {}), ...atomicSpawnPreset(getAgentDescriptor(agentId), preset, executionMode) },
       });
-      if (machineId !== undefined) return await attachPeerSpawn(machineId, res.tab_id);
+      if (machineId !== undefined) return await attachPeerSpawn(machineId, res.tab_id, beforeRemoteTabSelect);
       applyBackendState(res.snapshot);
       if (res.launch_command) {
         if (cwd) setPendingCwd(res.tab_id, cwd);
