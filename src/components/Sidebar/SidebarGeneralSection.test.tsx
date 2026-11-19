@@ -328,6 +328,17 @@ it("filters General in place and preserves its selected row", async () => {
   } finally { await view.close(); }
 });
 
+it("hides General when the selected peer has no sessions and shows it when the filter clears", async () => {
+  const peer: PairedGeneral = { peerId: "empty-peer", name: "Desk", availability: "online", sessions: [] };
+  const view = await mount({}, [peer]);
+  try {
+    await act(async () => setSidebarMachineFilter({ id: peer.peerId, name: peer.name }));
+    expect(view.host.querySelector('[data-testid="general-section"]')).toBeNull();
+    await act(async () => setSidebarMachineFilter("all"));
+    expect(view.host.querySelector('[data-testid="general-section"]')).not.toBeNull();
+  } finally { await view.close(); }
+});
+
 it("keeps a restored concierge out of General before the Neighbor roster loads", async () => {
   const concierge: Tab = { ...agent, id: "restored-concierge", title: "Bound agent",
     neighbor_authority: { uid: "owner", friendship_id: "friend", root_tab_id: null } };

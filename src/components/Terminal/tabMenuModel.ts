@@ -384,6 +384,16 @@ function pluginsSubmenu({ tab, pluginTabMenu, telegramThread }: TabMenuInput): T
   };
 }
 
+export function unavailableTabMenu(entries: readonly TabMenuEntry[], reason: string): TabMenuEntry[] {
+  return entries.map(entry => {
+    if (entry.kind === "header" || entry.kind === "separator") return entry;
+    return {
+      kind: "item", id: entry.id, testId: entry.testId, label: entry.label, icon: entry.icon,
+      unavailable: true, hint: reason, action: null,
+    };
+  });
+}
+
 export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
   const { tab, activity } = input;
   if (isReadOnlyTab(tab)) return input.canClose ? [{

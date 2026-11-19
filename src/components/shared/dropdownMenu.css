@@ -33,6 +33,8 @@
 /* Keep text from the underlying surface out of menus over busy content. */
 .ct-menu:is(.ct-menu--modal, .ct-menu--opaque) {
   background: var(--ct-glass-sheen), var(--ct-surface);
+  backdrop-filter: none;
+  animation-name: ct-opaque-menu-in;
 }
 
 .ct-menu-sheet {
@@ -400,6 +402,15 @@
 .ct-menu-session__copy:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+@keyframes ct-opaque-menu-in {
+  from {
+    transform: translateY(var(--ct-menu-shift, -6px)) scale(0.94);
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
 }
 
 @keyframes ct-menu-in {

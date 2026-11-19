@@ -17,7 +17,7 @@ import { useTabAccounts } from "../../hooks/useAccountSelectors";
 import { AccountAvatar } from "../shared/AccountAvatar";
 import { accountIdentity, tabAccountIndicator } from "../shared/accountChoices";
 import { TabMenu } from "../Terminal/TabMenu";
-import { buildTabMenu, type TabMenuAction } from "../Terminal/tabMenuModel";
+import { buildTabMenu, unavailableTabMenu, type TabMenuAction } from "../Terminal/tabMenuModel";
 import { performTabMenuAction } from "../Terminal/tabMenuActions";
 import { useProviderSwitchDialog } from "./ProviderSwitchDialog";
 import { useTelegramThreadMenu } from "../Terminal/useTelegramThreadMenu";
@@ -348,12 +348,16 @@ function TabItemInner({
 
   const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(tab);
   const pluginTabMenu = usePluginTabMenu();
-  const telegramThread = useTelegramThreadMenu(tab.id, !tab.remote_peer_id);
+  const telegramThread = useTelegramThreadMenu(tab.id, !readOnly && !tab.remote_peer_id);
   const muxActions = useContext(MultiplexerActionsContext);
   const muxState = useContext(MuxStateStoreContext);
   const [removeTabs, setRemoveTabs] = useState<readonly string[] | null>(null);
+  const observedPeerId = observedMachine?.peerId;
+  const observedName = remote?.name;
   const standardMenu = useMemo(() => buildTabMenu({
-    tab,
+    tab: readOnly && observedPeerId && !tab.remote_peer_id
+      ? { ...tab, remote_peer_id: observedPeerId, remote_peer_name: observedName }
+      : tab,
     surface: "sidebar",
     lock,
     status: tabState.status,
@@ -361,13 +365,13 @@ function TabItemInner({
     descriptors: listAgentDescriptors(),
     activity: activity ?? null,
     orchestrators,
-    canRename: !readOnly,
-    canClose,
+    canRename: true,
+    canClose: canClose || readOnly,
     pluginTabMenu,
     telegramThread: telegramThread.state,
-  }), [activity, canClose, descriptor, lock, orchestrators, pluginTabMenu, readOnly, tabState.status, tab, telegramThread.state]);
+  }), [activity, canClose, descriptor, lock, observedName, observedPeerId, orchestrators, pluginTabMenu, readOnly, tabState.status, tab, telegramThread.state]);
 
-  const menuEntries = readOnly ? [] : remoteStateLabel && muxActions?.removeRemoteMachineTabs
+  const menuEntries = readOnly ? unavailableTabMenu(standardMenu, remoteStateLabel ?? "Open this tab to use its actions.") : remoteStateLabel && muxActions?.removeRemoteMachineTabs
     ? [...standardMenu, { kind: "item" as const, id: "remove-machine-tabs", label: `Remove ${machine}'s tabs`,
         icon: "detach" as const, action: { type: "removeMachineTabs" as const } }]
     : standardMenu;
@@ -394,7 +398,7 @@ function TabItemInner({
       entries={menuEntries}
       onAction={runMenuAction}
       onOpenChange={(open) => {
-        if (open) telegramThread.refresh();
+        if (open && !readOnly) telegramThread.refresh();
       }}
       contextMenuTargetRef={remote && touchMode ? undefined : tabRef}
       className={touchMode ? remote ? "shrink-0" : "sr-only" : "sidebar-tab-kebab"}
