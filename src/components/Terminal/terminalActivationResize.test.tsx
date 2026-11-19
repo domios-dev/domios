@@ -115,21 +115,21 @@ function createTerminal(): FakeTerminal {
   return value;
 }
 
-function Harness({ active, isRemote = false }: { active: boolean; isRemote?: boolean }) {
+function Harness({ active, isRemote = false, tabId = "tab", ptyId = "pty" }: { active: boolean; isRemote?: boolean; tabId?: string; ptyId?: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef(terminal as unknown as Terminal | null);
   const fitAddonRef = useRef({
     fit: () => terminal.setSize(targetSize.cols, targetSize.rows),
     proposeDimensions: () => ({ ...targetSize }),
   } as unknown as FitAddon | null);
-  const connectedPtyRef = useRef<string | null>("pty");
+  const connectedPtyRef = useRef<string | null>(ptyId);
   const resize = useTerminalResize({
     containerRef,
     termRef,
     fitAddonRef,
     connectedPtyRef,
-    tabId: "tab",
-    ptyId: "pty",
+    tabId,
+    ptyId,
     termReady: true,
     isFocused: active,
     resizeEnabled: active,
@@ -146,8 +146,8 @@ function Harness({ active, isRemote = false }: { active: boolean; isRemote?: boo
     viewerLocalGeometry: isRemote,
     isFocused: active,
     termReady: true,
-    tabId: "tab",
-    ptyId: "pty",
+    tabId,
+    ptyId,
     resizeClientId,
     containerRef,
     termRef,
@@ -184,11 +184,11 @@ async function flushFrames() {
   });
 }
 
-async function mount(active: boolean, isRemote = false) {
+async function mount(active: boolean, isRemote = false, tabId = "tab", ptyId = "pty") {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  await act(async () => root!.render(createElement(Harness, { active, isRemote })));
+  await act(async () => root!.render(createElement(Harness, { active, isRemote, tabId, ptyId })));
   await flushFrames();
 }
 
@@ -287,21 +287,22 @@ afterEach(cleanup);
 
 describe("terminal viewer activation resize", () => {
   it("fits a remote xterm locally without resizing its shared PTY", async () => {
-    const remoteOwnShellTab = { id: "d51b72ef" } as const;
+    const remoteOwnShellTab = { id: "mesh:meshqa-peer/d51b72ef" } as const;
     const relayPeerId = "meshqa-peer";
-    const viewerLocalGeometry = terminalViewerLocalGeometry(remoteOwnShellTab, relayPeerId);
-    assert.deepEqual(tabOutputRoute(remoteOwnShellTab.id, relayPeerId), {
+    const viewerLocalGeometry = terminalViewerLocalGeometry(remoteOwnShellTab, null);
+    assert.deepEqual(tabOutputRoute(remoteOwnShellTab.id, null), {
       peerId: relayPeerId,
-      tabId: remoteOwnShellTab.id,
+      tabId: "d51b72ef",
     });
     assert.equal(viewerLocalGeometry, true);
     targetSize = { cols: 45, rows: 38 };
-    await mount(true, viewerLocalGeometry);
+    await mount(true, viewerLocalGeometry, remoteOwnShellTab.id, remoteOwnShellTab.id);
     assert.deepEqual(terminalSize(), targetSize);
     assert.equal(claims.length, 0);
     assert.equal(resizes.length, 0);
     targetSize = { cols: 60, rows: 30 };
     await act(async () => window.dispatchEvent(new Event("codeterm-tab-resize")));
+    await flushFrames();
     assert.deepEqual(terminalSize(), targetSize);
     await act(async () => window.dispatchEvent(new Event("focus")));
     await flushFrames();

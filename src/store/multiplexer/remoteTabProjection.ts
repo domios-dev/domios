@@ -1,4 +1,4 @@
-import type { Tab } from "../../lib/types";
+import type { Tab, TabStatus } from "../../lib/types";
 import { projectAttachedRemoteTab, remoteViewerIdentity, type RemotePeerTabs } from "../../lib/remoteTabPortal";
 
 export function shouldRefreshRemoteTabs(
@@ -60,18 +60,30 @@ export function withoutVanishedAttachments(
   return tabs;
 }
 
+export interface RemoteTabProjection {
+  tabs: Record<string, Tab>;
+  statuses: Record<string, TabStatus | null>;
+}
+
 export async function refreshAttachedRemoteAgentStates(
   projected: Record<string, Tab>,
   ordinary: Record<string, Tab>,
   readPeer: (peerId: string) => Promise<RemotePeerTabs>,
-): Promise<Record<string, Tab>> {
+): Promise<RemoteTabProjection> {
   const attachments = Object.values(projected).filter((tab) => !ordinary[tab.id] && tab.remote_peer_id);
   const peerIds = [...new Set(attachments.map((tab) => tab.remote_peer_id!))];
   const peers = await Promise.allSettled(peerIds.map(readPeer));
   let tabs = projected;
+  const statuses: Record<string, TabStatus | null> = {};
   for (const [index, peer] of peers.entries()) {
     if (peer.status !== "fulfilled" || peer.value.peer_id !== peerIds[index]) continue;
+    for (const source of peer.value.tabs) {
+      const id = `mesh:${peer.value.peer_id}/${source.id}`;
+      const attachment = tabs[id];
+      if (attachment?.remote_peer_id !== peer.value.peer_id || attachment.remote_tab_id !== source.id) continue;
+      statuses[id] = peer.value.tab_statuses?.[source.id] ?? null;
+    }
     tabs = withoutVanishedAttachments(applyRemotePeerAgentStates(tabs, peer.value), attachments, peer.value);
   }
-  return tabs;
+  return { tabs, statuses };
 }
