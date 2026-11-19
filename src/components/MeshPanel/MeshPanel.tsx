@@ -239,7 +239,7 @@ export function MeshPanel({ config, onClose, inventoryRequest }: Props) {
               : header.kind === "loading"
                 ? <DeferredLoader state="present" aria-busy="true"><BusyState inline label="Loading peers" phase="work" /></DeferredLoader>
                 : inventoryShown && account.presence === "signed_in" && canvasAccount.canvas.card?.kind !== "loading"
-                  ? <>· {machineCounts.total} machine{machineCounts.total === 1 ? "" : "s"} <span className="text-[var(--ct-muted)]">· {machineCounts.connected} connected</span></>
+                  ? <>{machineCounts.total} machine{machineCounts.total === 1 ? "" : "s"} <span className="text-[var(--ct-muted)]">· {machineCounts.connected} connected</span></>
                   : null}
             {connecting > 0 && <span role="status" className="ml-2"><BusyState inline label={`${connecting} peer${connecting === 1 ? "" : "s"} connecting`} phase="work" /></span>}
           </div>

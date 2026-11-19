@@ -280,8 +280,7 @@ export const MeshCanvas = memo(function MeshCanvas({
           sameNameOthers={p.isThisMachine ? account?.selfSameNameOthers : undefined}
           displayName={p.isThisMachine ? account?.selfDisplayName : row?.displayName}
           onRename={p.isThisMachine ? account?.onRenameSelf : row?.target && onRename ? (name) => onRename(row, name) : undefined}
-          renameDisabledReason={row && (row.status === "signed_out" || !peers.find((peer) => peer.instance_id === p.id)?.online)
-            ? "Connect to rename it, or rename it on that machine" : undefined}
+          renameUnavailable={row && (!row.target || !row.online || !peers.find((peer) => peer.instance_id === p.id)?.online)}
           footer={p.isThisMachine ? <>
             {account?.limitMachines && <MachineLimitPaywall machines={account.limitMachines} />}
             {account?.removed && <div role="group" aria-label="Rejoin your mesh" onClick={(event) => event.stopPropagation()} className="px-3.5 py-2.5">
