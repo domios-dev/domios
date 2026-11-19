@@ -25,6 +25,35 @@ fn bounded_snapshots_redact_sensitive_subtrees_and_token_inputs() {
 }
 
 #[test]
+fn structured_snapshot_exposes_resolved_links_and_public_values() {
+    let mut nodes: Vec<AxNode> = serde_json::from_value(json!([
+        {"nodeId":"root","childIds":["link","secret","count"]},
+        {"nodeId":"link","parentId":"root","role":{"value":"link"},"name":{"value":"Post"},"backendDOMNodeId":2},
+        {"nodeId":"secret","parentId":"root","role":{"value":"link"},"name":{"value":"Private"},"backendDOMNodeId":3},
+        {"nodeId":"count","parentId":"root","role":{"value":"spinbutton"},"name":{"value":"Count"},"value":{"value":7},"backendDOMNodeId":4}
+    ])).unwrap();
+    redact(
+        &mut nodes,
+        &json!({"root":{
+            "baseURL":"https://example.com/feed/",
+            "children":[
+                {"backendNodeId":2,"attributes":["href","../posts/7"]},
+                {"backendNodeId":3,"attributes":["href","/secret","data-sensitive",""]}
+            ]
+        }}),
+    )
+    .unwrap();
+    let snapshot = super::super::build_snapshot(&nodes, 3);
+    assert_eq!(
+        snapshot.items[0].href.as_deref(),
+        Some("https://example.com/posts/7")
+    );
+    assert_eq!(snapshot.items[1].href, None);
+    assert_eq!(snapshot.items[1].name, "REDACTED");
+    assert_eq!(snapshot.items[2].value.as_deref(), Some("7"));
+}
+
+#[test]
 fn document_redaction_preserves_sensitive_shadow_and_frame_containment() {
     for attributes in [
         json!(["TyPe", "PaSsWoRd"]),

@@ -19,6 +19,44 @@ pub type ConfigState = Arc<Mutex<AppConfig>>;
 
 static CONFIG_WRITER: Mutex<()> = Mutex::new(());
 
+pub const BROWSER_BLUEPRINT_PROFILES_SETTING: &str = "plugins.browser.blueprint_profiles";
+pub const BROWSER_BLUEPRINT_ORIGINS_SETTING: &str = "plugins.browser.blueprint_origins";
+const BLUEPRINT_PROFILES_KEY: &str = "blueprint_profiles";
+const BLUEPRINT_ORIGINS_KEY: &str = "blueprint_origins";
+
+pub fn browser_blueprint_profiles(config: &AppConfig) -> Option<&serde_json::Value> {
+    config.plugins.get("browser")?.get(BLUEPRINT_PROFILES_KEY)
+}
+
+pub fn browser_blueprint_origins(config: &AppConfig) -> Option<&serde_json::Value> {
+    config.plugins.get("browser")?.get(BLUEPRINT_ORIGINS_KEY)
+}
+
+pub fn valid_browser_blueprint_origin(raw: &str) -> bool {
+    url::Url::parse(raw).is_ok_and(|url| {
+        matches!(url.scheme(), "http" | "https") && url.origin().ascii_serialization() == raw
+    })
+}
+
+fn preserve_browser_blueprint_grants(config: &mut AppConfig, current: &AppConfig) {
+    let current = current.plugins.get("browser");
+    for key in [BLUEPRINT_PROFILES_KEY, BLUEPRINT_ORIGINS_KEY] {
+        if let Some(grant) = current.and_then(|browser| browser.get(key)) {
+            let browser = config.plugins.entry("browser".into()).or_default();
+            if !browser.is_object() {
+                *browser = serde_json::json!({});
+            }
+            browser[key] = grant.clone();
+        } else if let Some(fields) = config
+            .plugins
+            .get_mut("browser")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            fields.remove(key);
+        }
+    }
+}
+
 fn config_path() -> Result<PathBuf, String> {
     codeterm_paths::config_path()
 }
@@ -378,6 +416,7 @@ fn save_config_at(path: &std::path::Path, config: &AppConfig) -> Result<(), Stri
 #[derive(Debug)]
 pub enum ConfigCommitError {
     StaleUploadFolders,
+    StaleBlueprintProfiles,
     Save(String),
 }
 
@@ -387,6 +426,8 @@ impl std::fmt::Display for ConfigCommitError {
             Self::StaleUploadFolders => {
                 formatter.write_str("Browser upload folders changed; reload settings before saving")
             }
+            Self::StaleBlueprintProfiles => formatter
+                .write_str("Browser Blueprint profiles changed; reload settings before saving"),
             Self::Save(message) => formatter.write_str(message),
         }
     }
@@ -403,18 +444,24 @@ pub fn save_config_and_apply_with(
 fn commit_config(
     state: &Mutex<AppConfig>,
     mut config: AppConfig,
-    owner_expected_folders: Option<&std::collections::BTreeMap<String, Vec<String>>>,
+    owner_expected: Option<&AppConfig>,
     persist: impl FnOnce(&AppConfig) -> Result<(), String>,
 ) -> Result<AppConfig, ConfigCommitError> {
     let writer = CONFIG_WRITER.lock();
     {
         let current = state.lock();
-        if let Some(expected) = owner_expected_folders {
-            if &current.browser_upload_folders != expected {
+        if let Some(expected) = owner_expected {
+            if current.browser_upload_folders != expected.browser_upload_folders {
                 return Err(ConfigCommitError::StaleUploadFolders);
+            }
+            if browser_blueprint_profiles(&current) != browser_blueprint_profiles(expected)
+                || browser_blueprint_origins(&current) != browser_blueprint_origins(expected)
+            {
+                return Err(ConfigCommitError::StaleBlueprintProfiles);
             }
         } else {
             config.browser_upload_folders = current.browser_upload_folders.clone();
+            preserve_browser_blueprint_grants(&mut config, &current);
         }
         config.api.token = current.api.token.clone();
         // Account actions own this policy; an unrelated stale settings snapshot cannot restore it.
@@ -498,10 +545,10 @@ pub fn save_config_and_apply(
 pub fn save_owner_config_and_apply(
     state: &ConfigState,
     config: AppConfig,
-    expected_folders: &std::collections::BTreeMap<String, Vec<String>>,
+    expected: &AppConfig,
 ) -> Result<AppConfig, ConfigCommitError> {
     let path = config_path().map_err(ConfigCommitError::Save)?;
-    commit_config(state, config, Some(expected_folders), |config| {
+    commit_config(state, config, Some(expected), |config| {
         save_config_at(&path, config)
     })
 }

@@ -1,6 +1,7 @@
 use super::{AxNode, AxValue};
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use url::Url;
 
 fn marked(node: &Value) -> bool {
     node.get("attributes")
@@ -31,21 +32,60 @@ pub fn redact(nodes: &mut [AxNode], document: &Value) -> Result<(), String> {
         .get("root")
         .ok_or("redaction_failed: DOM document missing")?;
     let mut sensitive = HashSet::new();
-    let mut stack = vec![(root, false)];
-    while let Some((node, inherited)) = stack.pop() {
+    let mut hrefs = HashMap::new();
+    let mut stack = vec![(root, false, None)];
+    while let Some((node, inherited, inherited_base)) = stack.pop() {
         let marked = inherited || marked(node);
+        let base = node["baseURL"].as_str().or(inherited_base);
         if marked {
             if let Some(id) = node.get("backendNodeId").and_then(Value::as_i64) {
                 sensitive.insert(id);
             }
         }
+        if let Some(id) = node["backendNodeId"].as_i64() {
+            let href = node["attributes"].as_array().and_then(|attrs| {
+                attrs
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .find(|pair| pair[0] == "href")?[1]
+                    .as_str()
+            });
+            if let Some(url) = href
+                .and_then(|href| {
+                    Url::parse(href)
+                        .ok()
+                        .or_else(|| Url::parse(base?).ok()?.join(href).ok())
+                })
+                .filter(|url| {
+                    matches!(url.scheme(), "http" | "https")
+                        && url.username().is_empty()
+                        && url.password().is_none()
+                        && url.as_str().len() <= 2048
+                })
+            {
+                hrefs.insert(id, url.to_string());
+            }
+        }
         for key in ["children", "shadowRoots"] {
             if let Some(children) = node.get(key).and_then(Value::as_array) {
-                stack.extend(children.iter().map(|child| (child, marked)));
+                stack.extend(children.iter().map(|child| (child, marked, base)));
             }
         }
         if let Some(child) = node.get("contentDocument") {
-            stack.push((child, marked));
+            stack.push((child, marked, base));
+        }
+    }
+    for node in nodes.iter_mut() {
+        if node
+            .role
+            .as_ref()
+            .is_some_and(|role| role.as_str() == "link")
+        {
+            node.href = node
+                .backend_dom_node_id
+                .and_then(|id| hrefs.get(&id))
+                .cloned();
         }
     }
     redact_ids(nodes, &sensitive);
@@ -90,6 +130,7 @@ fn redact_ids(nodes: &mut [AxNode], sensitive: &HashSet<i64>) {
 
 fn redact_node(node: &mut AxNode) {
     node.value = None;
+    node.href = None;
     node.name = Some(AxValue {
         value: Some(Value::String("REDACTED".into())),
     });
