@@ -1,6 +1,5 @@
 import type { PlanView as Plan, PlanSectionView as Section } from "../planProjection";
 import { useMuxSelector } from "../../../store/multiplexer/hooks";
-import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import {
   useCallback,
   useEffect,
@@ -15,7 +14,8 @@ import {
 import { ExternalLink, MessageCircle, X } from "lucide-react";
 import type { Tab } from "../../../lib/types";
 import { useReducedMotion } from "../missionControl/useReducedMotion";
-import { sendTrackedChatMessage } from "../../Terminal/chatSendStatus";
+import { isProvenAdmissionRefusal, sendTrackedChatMessage } from "../../Terminal/chatSendStatus";
+import type { ChatSendState } from "../../../../gen/ChatSendState";
 import { PlanAskExchange } from "./PlanAskExchange";
 import {
   PLAN_ASK_BLOCK_SELECTOR,
@@ -23,7 +23,6 @@ import {
   paragraphTarget,
   selectionTarget,
   type PlanAskContext,
-  type PlanAskReference,
   type PlanAskSource,
   type PlanAskTarget,
   type PlanDocumentKind,
@@ -34,6 +33,7 @@ import {
   createPlanAskId,
   createPlanReviewId,
   resolvePlanAskOwner,
+  resolvePlanReviewOwner,
   type PlanReviewAction,
   type PlanAskOwner,
   type PlanAskReadyOwner,
@@ -79,6 +79,17 @@ function intentLabel(intent: "ask" | PlanReviewAction): string {
   return intent === "comment" ? "Comment" : "Request change";
 }
 
+function planReviewDeliveryText(action: PlanReviewAction, ownerName: string, state: ChatSendState): string {
+  const label = action === "request_change" ? "Change request" : "Comment";
+  switch (state) {
+    case "delivered": return `${label} sent to ${ownerName}.`;
+    case "held": return `${label} is queued for ${ownerName}.`;
+    case "written": return `${label} was written; delivery to ${ownerName} is awaiting confirmation.`;
+    case "submit_unconfirmed": return `${label} delivery is unconfirmed; it may have reached ${ownerName}.`;
+    case "failed": return `${label} was not sent to ${ownerName}.`;
+  }
+}
+
 function focusBlock(block: HTMLElement | null) {
   if (!block?.isConnected) return;
   if (!block.hasAttribute("tabindex")) block.tabIndex = -1;
@@ -97,6 +108,7 @@ export function PlanParagraphAsk({ kind, plan, sections, tabs, onOpenTab, childr
   const active = open ?? selection ?? hover;
   const statuses = useMuxSelector(state => state.tabStatuses);
   const owner = useMemo(() => resolvePlanAskOwner(plan, tabs, statuses), [plan, tabs, statuses]);
+  const reviewOwner = useMemo(() => resolvePlanReviewOwner(plan, tabs, statuses), [plan, tabs, statuses]);
   const sectionIndex = useMemo(() => indexSections(sections), [sections]);
   const context = useMemo<PlanAskContext>(
     () => ({
@@ -246,6 +258,7 @@ export function PlanParagraphAsk({ kind, plan, sections, tabs, onOpenTab, childr
           key={open.key}
           anchor={open}
           owner={owner}
+          reviewOwner={reviewOwner}
           motion={motion}
           onClose={closeAsk}
           onOpenTab={onOpenTab}
@@ -258,36 +271,42 @@ export function PlanParagraphAsk({ kind, plan, sections, tabs, onOpenTab, childr
 interface PlanAskPopoverProps {
   anchor: AskAnchor;
   owner: PlanAskOwner;
+  reviewOwner: PlanAskOwner;
   motion: Motion;
   onClose: () => void;
   onOpenTab?: (tabId: string) => void;
 }
 
-function PlanAskPopover({ anchor, owner, motion, onClose, onOpenTab }: PlanAskPopoverProps) {
+type PlanAskAttempt =
+  | { kind: "ask"; id: string; message: string; question: string; owner: PlanAskReadyOwner }
+  | { kind: "review"; id: string; message: string; action: PlanReviewAction; owner: PlanAskReadyOwner };
+
+type PlanAskDelivery = PlanAskAttempt & { state: ChatSendState };
+
+function PlanAskPopover({ anchor, owner, reviewOwner, motion, onClose, onOpenTab }: PlanAskPopoverProps) {
   const inputId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mountedRef = useRef(true);
   const sendingRef = useRef(false);
+  const attemptRef = useRef<PlanAskAttempt | null>(null);
   const [question, setQuestion] = useState("");
   const [intent, setIntent] = useState<"ask" | PlanReviewAction>("ask");
-  const [phase, setPhase] = useState<"compose" | "sending" | "error">("compose");
-  const [sent, setSent] = useState<
-    | { kind: "ask"; askId: string; question: string; owner: PlanAskReadyOwner }
-    | { kind: "review"; reviewId: string; action: PlanReviewAction; owner: PlanAskReadyOwner }
-    | null
-  >(null);
+  const [phase, setPhase] = useState<"compose" | "sending">("compose");
+  const [delivery, setDelivery] = useState<PlanAskDelivery | null>(null);
   const { target } = anchor;
+  const recipient = intent === "ask" ? owner : reviewOwner;
   const label = intent === "ask"
     ? askLabel(target)
     : intent === "comment"
       ? "Comment on selected text"
       : "Requested change";
-  const ready = owner.status === "ready" ? owner : null;
+  const ready = recipient.status === "ready" ? recipient : null;
   const reference = target.status === "mapped" ? target.reference : null;
+  const reviewReference = reference?.mode === "selection" ? reference : null;
   const quote = reference ? reference.quote : target.status === "unmapped" ? target.quote : "";
-  const exchangeOwner = sent?.kind === "ask"
-    ? ready?.tabId === sent.owner.tabId ? ready : sent.owner
+  const exchangeOwner = delivery?.kind === "ask" && delivery.state !== "failed"
+    ? ready?.tabId === delivery.owner.tabId ? ready : delivery.owner
     : null;
 
   useEffect(() => {
@@ -299,33 +318,46 @@ function PlanAskPopover({ anchor, owner, motion, onClose, onOpenTab }: PlanAskPo
   }, []);
 
   const send = async () => {
-    const text = question.trim();
-    if (!ready || !reference || !text || sent || sendingRef.current) return;
-    if (intent !== "ask" && reference.mode !== "selection") return;
-    const messageId = intent === "ask" ? createPlanAskId() : createPlanReviewId();
-    let message: string;
-    if (intent === "ask") {
-      message = composePlanAskMessage(reference, text, messageId);
-    } else if (reference.mode === "selection") {
-      message = composePlanReviewMessage(reference, intent, text, messageId);
+    if (sendingRef.current) return;
+    let attempt = attemptRef.current;
+    if (delivery?.state === "failed") {
+      if (!attempt) return;
     } else {
-      return;
+      const text = question.trim();
+      if (!ready || !reference || !text || delivery) return;
+      if (intent === "ask") {
+        const id = createPlanAskId();
+        attempt = { kind: "ask", id, message: composePlanAskMessage(reference, text, id), question: text, owner: ready };
+      } else {
+        if (!reviewReference) return;
+        const id = createPlanReviewId();
+        attempt = { kind: "review", id, message: composePlanReviewMessage(reviewReference, intent, text, id), action: intent, owner: ready };
+      }
+      attemptRef.current = attempt;
     }
+    if (!attempt) return;
     sendingRef.current = true;
     setPhase("sending");
     try {
-      await sendTrackedChatMessage(ready.tabId, messageId, message);
-      if (mountedRef.current) {
-        setSent(intent === "ask"
-          ? { kind: "ask", askId: messageId, question: text, owner: ready }
-          : { kind: "review", reviewId: messageId, action: intent, owner: ready });
-      }
-    } catch {
-      if (mountedRef.current) setPhase("error");
+      const result = await sendTrackedChatMessage(attempt.owner.tabId, attempt.id, attempt.message);
+      if (mountedRef.current) setDelivery({ ...attempt, state: result.state });
+    } catch (error) {
+      if (mountedRef.current) setDelivery({ ...attempt, state: isProvenAdmissionRefusal(error) ? "failed" : "submit_unconfirmed" });
     } finally {
       sendingRef.current = false;
+      if (mountedRef.current) setPhase("compose");
     }
   };
+
+  const statusText = delivery?.kind === "review"
+    ? planReviewDeliveryText(delivery.action, delivery.owner.name, delivery.state)
+    : delivery?.kind === "ask" && delivery.state === "failed"
+      ? "Question was not sent. Retry is available."
+      : delivery?.kind === "ask" && delivery.state === "submit_unconfirmed"
+        ? "Question delivery is unconfirmed; it may have reached the agent."
+        : null;
+  const canRetry = delivery?.state === "failed";
+  const dismissLabel = phase === "sending" || delivery ? "Dismiss" : "Cancel";
 
   return (
     <div
@@ -346,7 +378,7 @@ function PlanAskPopover({ anchor, owner, motion, onClose, onOpenTab }: PlanAskPo
       }}
     >
       <header className="plan-ask-header">
-        <span className="plan-ask-title">{intent === "ask" ? "Ask" : "Review"} {owner.status === "missing" ? "plan owner" : owner.name}</span>
+        <span className="plan-ask-title">{intent === "ask" ? "Ask" : "Review"} {recipient.status === "missing" ? "plan owner" : recipient.name}</span>
         {ready && onOpenTab && (
           <button
             type="button"
@@ -363,7 +395,7 @@ function PlanAskPopover({ anchor, owner, motion, onClose, onOpenTab }: PlanAskPo
           type="button"
           data-testid="plan-ask-close"
           className="plan-ask-icon-button"
-          aria-label="Close"
+          aria-label={phase === "sending" || delivery ? "Dismiss" : "Close"}
           title="Close"
           onClick={onClose}
         >
@@ -371,14 +403,14 @@ function PlanAskPopover({ anchor, owner, motion, onClose, onOpenTab }: PlanAskPo
         </button>
       </header>
       <blockquote data-testid="plan-ask-quote" className="plan-ask-quote">{quote}</blockquote>
-      {owner.status === "missing" && (
+      {recipient.status === "missing" && (
         <p role="status" data-testid="plan-ask-owner-missing" className="plan-ask-note">
           No plan owner is recorded. Nothing was sent.
         </p>
       )}
-      {owner.status === "offline" && (
-        <p role="status" data-testid="plan-ask-owner-missing" data-owner-tab-id={owner.tabId} className="plan-ask-note">
-          {owner.name} isn't running. Nothing was sent.
+      {recipient.status === "offline" && (
+        <p role="status" data-testid="plan-ask-owner-missing" data-owner-tab-id={recipient.tabId} className="plan-ask-note">
+          {recipient.name} isn't running. Nothing was sent.
         </p>
       )}
       {!reference && (
@@ -386,30 +418,30 @@ function PlanAskPopover({ anchor, owner, motion, onClose, onOpenTab }: PlanAskPo
           This text can't be traced to its source. Select text inside one section.
         </p>
       )}
-      {intent === "ask" && ready?.busy && !sent && (
+      {intent === "ask" && ready?.busy && !delivery && (
         <p role="status" data-testid="plan-ask-busy" className="plan-ask-note">
           {ready.name} is busy. The reply appears here.
         </p>
       )}
-      {ready && reference && !sent && (
+      {reference && target.mode === "selection" && !delivery && (
+        <div className="plan-ask-actions" role="group" aria-label="Message type" data-testid="plan-ask-type-selector">
+          {(["ask", "comment", "request_change"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              data-testid={`plan-ask-type-${value}`}
+              className={`plan-ask-button${intent === value ? " plan-ask-button-primary" : ""}`}
+              aria-pressed={intent === value}
+              disabled={phase === "sending"}
+              onClick={() => setIntent(value)}
+            >
+              {intentLabel(value)}
+            </button>
+          ))}
+        </div>
+      )}
+      {ready && reference && (!delivery || canRetry) && (
         <div className="plan-ask-compose">
-          {target.mode === "selection" && (
-            <div className="plan-ask-actions" role="group" aria-label="Message type" data-testid="plan-ask-type-selector">
-              {(["ask", "comment", "request_change"] as const).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  data-testid={`plan-ask-type-${value}`}
-                  className={`plan-ask-button${intent === value ? " plan-ask-button-primary" : ""}`}
-                  aria-pressed={intent === value}
-                  disabled={phase === "sending"}
-                  onClick={() => setIntent(value)}
-                >
-                  {intentLabel(value)}
-                </button>
-              ))}
-            </div>
-          )}
           <label htmlFor={inputId} className="plan-ask-label">{label}</label>
           <textarea
             id={inputId}
@@ -418,7 +450,7 @@ function PlanAskPopover({ anchor, owner, motion, onClose, onOpenTab }: PlanAskPo
             className="plan-ask-input"
             rows={2}
             value={question}
-            disabled={phase === "sending"}
+            disabled={phase === "sending" || Boolean(delivery)}
             onChange={(event) => setQuestion(event.target.value)}
             onKeyDown={(event) => {
               if (!isEnter(event) || !(event.metaKey || event.ctrlKey)) return;
@@ -426,35 +458,35 @@ function PlanAskPopover({ anchor, owner, motion, onClose, onOpenTab }: PlanAskPo
               void send();
             }}
           />
-          {phase === "error" && (
-            <div data-testid="plan-ask-error"><InlineErrorNotice error="" operation={`reaching ${ready.name}`} blocking /></div>
-          )}
           <div className="plan-ask-actions">
-            <button type="button" data-testid="plan-ask-cancel" className="plan-ask-button" onClick={onClose}>
-              Cancel
+            <button type="button" data-testid="plan-ask-cancel" className="plan-ask-button" aria-label={dismissLabel} onClick={onClose}>
+              {dismissLabel}
             </button>
             <button
               type="button"
               data-testid="plan-ask-send"
               className="plan-ask-button plan-ask-button-primary"
-              disabled={!question.trim() || phase === "sending"}
+              disabled={phase === "sending" || (!canRetry && !question.trim())}
               onClick={() => void send()}
             >
-              {phase === "sending" ? "Sending…" : intentLabel(intent)}
+              {phase === "sending" ? "Sending…" : canRetry ? "Retry" : intentLabel(intent)}
             </button>
           </div>
         </div>
       )}
-      {sent?.kind === "review" && (
-        <p role="status" data-testid="plan-review-sent" className="plan-ask-note">
-          {intentLabel(sent.action)} sent to {sent.owner.name}.
+      {statusText && (
+        <p role="status" data-testid={delivery?.kind === "review" ? "plan-review-sent" : "plan-ask-delivery"} data-send-state={delivery?.state} className="plan-ask-note">
+          {statusText}
         </p>
       )}
-      {sent?.kind === "ask" && exchangeOwner && (
+      {delivery?.kind === "ask" && delivery.state !== "failed" && exchangeOwner && (
         <>
-          <p data-testid="plan-ask-question" className="plan-ask-question">{sent.question}</p>
-          <PlanAskExchange owner={exchangeOwner} busy={ready?.tabId === exchangeOwner.tabId && ready.busy} askId={sent.askId} />
+          <p data-testid="plan-ask-question" className="plan-ask-question">{delivery.question}</p>
+          <PlanAskExchange owner={exchangeOwner} busy={ready?.tabId === exchangeOwner.tabId && ready.busy} askId={delivery.id} />
         </>
+      )}
+      {delivery && !canRetry && (
+        <button type="button" data-testid="plan-ask-dismiss" className="plan-ask-button" onClick={onClose}>Dismiss</button>
       )}
     </div>
   );

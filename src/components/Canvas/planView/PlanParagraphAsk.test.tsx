@@ -11,11 +11,12 @@ import { PlanPlanView, PlanSpecView } from "./PlanDocumentView";
 import { PlanParagraphAsk } from "./PlanParagraphAsk";
 
 const sendTrackedChatMessage = vi.hoisted(() => vi.fn());
+const isProvenAdmissionRefusal = vi.hoisted(() => vi.fn(() => false));
 const mux = vi.hoisted(() => ({ tabStatuses: {} as Record<string, "Working" | "Idle"> }));
 vi.mock("../../../store/multiplexer/hooks", () => ({ useMuxSelector: (selector: (state: typeof mux) => unknown) => selector(mux) }));
 const transcript = vi.hoisted(() => ({ messages: [] as Array<Record<string, unknown>> }));
 
-vi.mock("../../Terminal/chatSendStatus", () => ({ sendTrackedChatMessage }));
+vi.mock("../../Terminal/chatSendStatus", () => ({ sendTrackedChatMessage, isProvenAdmissionRefusal }));
 vi.mock("../../Terminal/useChatSession", () => ({
   useChatSession: () => ({ allMessages: transcript.messages, loading: false }),
 }));
@@ -58,6 +59,19 @@ function ownerTab(state: "idle" | "working" = "idle"): Record<string, Tab> {
       agent_type: "fixture-agent",
       agent_session_id: "sess-1",
       agent_state: { state },
+    } as unknown as Tab,
+  };
+}
+
+function reviewTabs(): Record<string, Tab> {
+  return {
+    ...ownerTab(),
+    "planner-1": {
+      id: "planner-1",
+      title: "Planning",
+      agent_type: "fixture-agent",
+      agent_session_id: "planner-session",
+      agent_state: { state: "idle" },
     } as unknown as Tab,
   };
 }
@@ -154,6 +168,7 @@ async function click(element: Element | null) {
   expect(element).not.toBeNull();
   await act(async () => {
     (element as HTMLElement).click();
+    await Promise.resolve();
   });
   await act(async () => {});
 }
@@ -195,9 +210,9 @@ function specSource(sectionId: string): string {
   return PERF_SPEC_SECTIONS.find((section) => section.id === sectionId)!.body;
 }
 
-async function renderRepeatedSpecAsk(plan = ASK_PLAN) {
+async function renderRepeatedSpecAsk(plan = ASK_PLAN, tabs = ownerTab()) {
   return render(
-    <PlanParagraphAsk kind="spec" plan={plan} sections={[REVIEW_SPEC_SECTION]} tabs={ownerTab()}>
+    <PlanParagraphAsk kind="spec" plan={plan} sections={[REVIEW_SPEC_SECTION]} tabs={tabs}>
       <div data-plan-ask-body="" data-section-id={REVIEW_SPEC_SECTION.id}>
         <RichMarkdown text={REVIEW_SPEC_BODY} sourcePositions />
       </div>
@@ -218,7 +233,9 @@ beforeEach(() => {
   setReducedMotion(false);
   transcript.messages = [];
   sendTrackedChatMessage.mockReset();
-  sendTrackedChatMessage.mockResolvedValue({ state: "accepted" });
+  isProvenAdmissionRefusal.mockReset();
+  isProvenAdmissionRefusal.mockReturnValue(false);
+  sendTrackedChatMessage.mockResolvedValue({ state: "delivered" });
 });
 
 afterEach(async () => {
@@ -549,7 +566,7 @@ describe("Spec reader paragraph Ask", () => {
     const [tabId, reviewId, text] = sendTrackedChatMessage.mock.calls[0] as [string, string, string];
     expect(tabId).toBe("orch-1");
     expect(text).toContain(`One-item plan review: ${label}`);
-    expect(q(host, "plan-review-sent")?.textContent).toContain(label);
+    expect(q(host, "plan-review-sent")?.textContent).toContain(action === "request_change" ? "Change request sent" : "Comment sent");
     expect(sentReference()).toEqual({
       review_id: reviewId,
       kind: "plan_review",
@@ -573,6 +590,141 @@ describe("Spec reader paragraph Ask", () => {
     });
   });
 
+  it("keeps Ask with the Orchestrator and routes reviews to a live Planner", async () => {
+    const planWithPlanner: Plan = {
+      ...ASK_PLAN,
+      planner: { kind: "tab", tab_id: "planner-1", session_id: "planner-session", title: "Planning" },
+    };
+
+    const ask = await renderRepeatedSpecAsk(planWithPlanner, reviewTabs());
+    await selectRepeatedSpecPhrase(ask.host);
+    await typeQuestion(ask.host, "Ask the Orchestrator.");
+    await click(q(ask.host, "plan-ask-send"));
+    expect(sendTrackedChatMessage.mock.calls[0][0]).toBe("orch-1");
+
+    sendTrackedChatMessage.mockClear();
+    const review = await renderRepeatedSpecAsk(planWithPlanner, reviewTabs());
+    await selectRepeatedSpecPhrase(review.host);
+    await click(q(review.host, "plan-ask-type-comment"));
+    await typeQuestion(review.host, "Send the review to the Planner.");
+    await click(q(review.host, "plan-ask-send"));
+    expect(sendTrackedChatMessage.mock.calls[0][0]).toBe("planner-1");
+  });
+
+  it.each([
+    ["no Planner", null],
+    ["a waived Planner", { kind: "waived", note: "solo planning" }],
+  ] as const)("falls back to the Orchestrator when there is %s", async (_name, planner) => {
+    const plan = { ...ASK_PLAN, planner } as Plan;
+    const { host } = await renderRepeatedSpecAsk(plan, ownerTab());
+    await selectRepeatedSpecPhrase(host);
+    await click(q(host, "plan-ask-type-request_change"));
+    await typeQuestion(host, "Use the recorded Orchestrator.");
+    await click(q(host, "plan-ask-send"));
+    expect(sendTrackedChatMessage.mock.calls[0][0]).toBe("orch-1");
+  });
+
+  it("keeps review submission unavailable when neither recipient is recorded", async () => {
+    const unowned: Plan = {
+      ...ASK_PLAN,
+      owner: { tab_id: null, session_id: null, title: null },
+      planner: null,
+    };
+    const { host } = await renderRepeatedSpecAsk(unowned);
+    await selectRepeatedSpecPhrase(host);
+    await click(q(host, "plan-ask-type-comment"));
+
+    expect(q(host, "plan-ask-owner-missing")).not.toBeNull();
+    expect(q(host, "plan-ask-input")).toBeNull();
+    expect(q(host, "plan-ask-send")).toBeNull();
+    expect(sendTrackedChatMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps one review id and only offers retry after a proven non-delivery", async () => {
+    sendTrackedChatMessage
+      .mockResolvedValueOnce({ state: "failed" })
+      .mockResolvedValueOnce({ state: "delivered" });
+    const { host } = await renderRepeatedSpecAsk();
+    await selectRepeatedSpecPhrase(host);
+    await click(q(host, "plan-ask-type-request_change"));
+    await typeQuestion(host, "Clarify the selected passage.");
+    await click(q(host, "plan-ask-send"));
+
+    const originalId = sendTrackedChatMessage.mock.calls[0][1];
+    expect(q(host, "plan-review-sent")?.getAttribute("data-send-state")).toBe("failed");
+    expect(q(host, "plan-ask-send")?.textContent).toBe("Retry");
+    expect(q(host, "plan-review-sent")?.textContent).toContain("Change request was not sent");
+
+    await click(q(host, "plan-ask-send"));
+    expect(sendTrackedChatMessage).toHaveBeenCalledTimes(2);
+    expect(sendTrackedChatMessage.mock.calls[1][1]).toBe(originalId);
+    expect(sentReference(1)).toMatchObject({ review_id: originalId, item_count: 1 });
+    expect(q(host, "plan-review-sent")?.textContent).toContain("Change request sent");
+  });
+
+  it.each(["held", "written", "submit_unconfirmed"] as const)("does not retry a review with %s delivery", async (state) => {
+    sendTrackedChatMessage.mockResolvedValue({ state });
+    const { host } = await renderRepeatedSpecAsk();
+    await selectRepeatedSpecPhrase(host);
+    await click(q(host, "plan-ask-type-comment"));
+    await typeQuestion(host, "Keep this to one delivery attempt.");
+    await click(q(host, "plan-ask-send"));
+
+    expect(q(host, "plan-review-sent")?.getAttribute("data-send-state")).toBe(state);
+    expect(q(host, "plan-ask-send")).toBeNull();
+    expect(q(host, "plan-ask-dismiss")).not.toBeNull();
+    expect(sendTrackedChatMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats an ambiguous send rejection as unconfirmed and lets the user dismiss it", async () => {
+    sendTrackedChatMessage.mockRejectedValue(new Error("connection lost"));
+    const { host } = await renderRepeatedSpecAsk();
+    await selectRepeatedSpecPhrase(host);
+    await click(q(host, "plan-ask-type-comment"));
+    await typeQuestion(host, "Do not replay an uncertain review.");
+    await click(q(host, "plan-ask-send"));
+
+    expect(q(host, "plan-review-sent")?.getAttribute("data-send-state")).toBe("submit_unconfirmed");
+    expect(q(host, "plan-ask-send")).toBeNull();
+    expect(q(host, "plan-ask-dismiss")).not.toBeNull();
+    expect(sendTrackedChatMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a proven admission refusal with the same tracked review id", async () => {
+    sendTrackedChatMessage.mockRejectedValueOnce(new Error("known admission refusal"))
+      .mockResolvedValueOnce({ state: "delivered" });
+    isProvenAdmissionRefusal.mockReturnValueOnce(true);
+    const { host } = await renderRepeatedSpecAsk();
+    await selectRepeatedSpecPhrase(host);
+    await click(q(host, "plan-ask-type-comment"));
+    await typeQuestion(host, "Retry only this proven refusal.");
+    await click(q(host, "plan-ask-send"));
+
+    expect(q(host, "plan-review-sent")?.getAttribute("data-send-state")).toBe("failed");
+    const id = sendTrackedChatMessage.mock.calls[0][1];
+    await click(q(host, "plan-ask-send"));
+    expect(sendTrackedChatMessage.mock.calls[1][1]).toBe(id);
+  });
+
+  it("switches Cancel to Dismiss while a tracked review is still sending", async () => {
+    let resolveSend: ((value: { state: "delivered" }) => void) | undefined;
+    sendTrackedChatMessage.mockImplementation(() => new Promise((resolve) => { resolveSend = resolve; }));
+    const { host } = await renderRepeatedSpecAsk();
+    await selectRepeatedSpecPhrase(host);
+    await click(q(host, "plan-ask-type-comment"));
+    await typeQuestion(host, "Dismiss without cancelling the in-flight send.");
+    await click(q(host, "plan-ask-send"));
+
+    expect(q(host, "plan-ask-cancel")?.textContent).toBe("Dismiss");
+    expect(q(host, "plan-ask-cancel")?.getAttribute("aria-label")).toBe("Dismiss");
+    expect(q(host, "plan-ask-close")?.getAttribute("aria-label")).toBe("Dismiss");
+    await click(q(host, "plan-ask-cancel"));
+    expect(q(host, "plan-ask-popover")).toBeNull();
+    expect(sendTrackedChatMessage).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolveSend?.({ state: "delivered" }));
+  });
+
   it("cancels a selected passage comment without sending or changing the Spec", async () => {
     const { host } = await renderRepeatedSpecAsk();
     const before = host.querySelector("[data-plan-ask-body]")?.textContent;
@@ -592,8 +744,69 @@ describe("Spec reader paragraph Ask", () => {
     await selectRepeatedSpecPhrase(host);
 
     expect(q(host, "plan-ask-owner-missing")).not.toBeNull();
-    expect(q(host, "plan-ask-type-selector")).toBeNull();
+    expect(q(host, "plan-ask-type-selector")).not.toBeNull();
     expect(q(host, "plan-ask-input")).toBeNull();
     expect(sendTrackedChatMessage).not.toHaveBeenCalled();
+  });
+
+  it("uses the full Spec document for review references and keeps reviews selection-only", async () => {
+    const { host } = await render(<PlanSpecView mode="focus" planId={ASK_PLAN.id} plans={[ASK_PLAN]} tabs={ownerTab()} />);
+    const paragraph = specBody(host, "sp_readable").querySelector("p")!;
+    await hover(paragraph);
+    await click(q(host, "plan-ask-trigger"));
+    expect(q(host, "plan-ask-type-selector")).toBeNull();
+    await click(q(host, "plan-ask-cancel"));
+
+    const node = textNode(specBody(host, "sp_readable"), "document — the reasoning");
+    const phrase = "document — the reasoning";
+    const start = node.data.indexOf(phrase);
+    await select(node, start, node, start + phrase.length);
+    await click(q(host, "plan-ask-trigger"));
+    await click(q(host, "plan-ask-type-request_change"));
+    await typeQuestion(host, "Make the Spec rationale explicit.");
+    await click(q(host, "plan-ask-send"));
+
+    const source = specSource("sp_readable");
+    expect(sendTrackedChatMessage.mock.calls[0][0]).toBe("orch-1");
+    expect(sentReference()).toMatchObject({
+      kind: "plan_review",
+      plan_id: ASK_PLAN.id,
+      document: "spec",
+      spec_id: PERF_SPEC_ID,
+      item_count: 1,
+      items: [{
+        action: "request_change",
+        section_id: "sp_readable",
+        section_title: "Plans read like documents",
+        source_start: source.indexOf(phrase),
+        source_end: source.indexOf(phrase) + phrase.length,
+        quote: phrase,
+      }],
+    });
+  });
+
+  it("sends a Plan document reference with its section and selected source offsets", async () => {
+    const { host } = await render(<PlanPlanView mode="focus" planId={ASK_PLAN.id} plans={[ASK_PLAN]} tabs={ownerTab()} />);
+    const node = textNode(planBody(host), "Rotate the signing key");
+    const phrase = "signing key";
+    const start = node.data.indexOf(phrase);
+    await select(node, start, node, start + phrase.length);
+    await click(q(host, "plan-ask-trigger"));
+    await click(q(host, "plan-ask-type-comment"));
+    await typeQuestion(host, "Keep the signing key rotation explicit.");
+    await click(q(host, "plan-ask-send"));
+
+    expect(sentReference()).toMatchObject({
+      document: "plan",
+      spec_id: null,
+      items: [{
+        action: "comment",
+        section_id: "sec_ask",
+        section_title: "Rollout",
+        quote: phrase,
+        source_start: PLAN_BODY.indexOf(phrase),
+        source_end: PLAN_BODY.indexOf(phrase) + phrase.length,
+      }],
+    });
   });
 });

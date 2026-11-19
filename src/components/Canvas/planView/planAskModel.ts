@@ -2,6 +2,7 @@ import type { PlanView as Plan } from "../planProjection";
 import { tabActivity } from "../../../lib/tabActivity";
 import type { Tab, TabStatus } from "../../../lib/types";
 import { ownerName, ownerTabId } from "../owner";
+import { resolveCompanionTab } from "./companionResolver";
 
 import type { PlanAskReference } from "./planAskMapping";
 
@@ -28,8 +29,38 @@ const FALLBACK_OWNER_NAME = "Orchestrator";
 export function resolvePlanAskOwner(plan: Pick<Plan, "owner">, tabs: Record<string, Tab> | undefined, statuses?: Record<string, TabStatus>): PlanAskOwner {
   const tabId = ownerTabId(plan.owner);
   if (!tabId) return { status: "missing" };
+  return resolvePlanAskRecipient(tabId, ownerName(plan.owner) || FALLBACK_OWNER_NAME, tabs, statuses);
+}
+
+export function resolvePlanReviewOwner(
+  plan: Pick<Plan, "owner" | "planner">,
+  tabs: Record<string, Tab> | undefined,
+  statuses?: Record<string, TabStatus>,
+): PlanAskOwner {
+  const recipient = resolveCompanionTab(plan, (tabId) => {
+    const tab = tabs?.[tabId];
+    return Boolean(tab && !tab.hidden && (tab.agent_type || tab.backing?.kind === "chat_backend"));
+  });
+  if (recipient?.kind === "planner") {
+    const name = plan.planner?.kind === "tab" ? plan.planner.title?.trim() || "Planner" : "Planner";
+    return resolvePlanAskRecipient(recipient.tabId, name, tabs, statuses);
+  }
+  if (recipient?.kind === "orchestrator") return resolvePlanAskOwner(plan, tabs, statuses);
+
+  if (plan.planner?.kind === "tab") {
+    return resolvePlanAskRecipient(plan.planner.tab_id, plan.planner.title?.trim() || "Planner", tabs, statuses);
+  }
+  return resolvePlanAskOwner(plan, tabs, statuses);
+}
+
+function resolvePlanAskRecipient(
+  tabId: string,
+  fallbackName: string,
+  tabs: Record<string, Tab> | undefined,
+  statuses?: Record<string, TabStatus>,
+): PlanAskOwner {
   const tab = tabs?.[tabId];
-  const name = tab?.title?.trim() || ownerName(plan.owner) || FALLBACK_OWNER_NAME;
+  const name = tab?.title?.trim() || fallbackName;
   const chatBackend = tab?.backing?.kind === "chat_backend";
   if (!tab || (!tab.agent_type && !chatBackend)) return { status: "offline", tabId, name };
   return {
