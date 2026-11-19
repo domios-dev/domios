@@ -8,7 +8,7 @@ import { sameIds, sameTabItemRow, SidebarSingleTabRow, type SidebarSingleTabRowP
 import { SurfaceOwnerBlock } from "./SurfaceAttachments";
 import { attachmentInset, ownerRowInset, type OwnerRowContext } from "./surfaceAttachmentModel";
 import { SortableContext, SortableRow, TAB_PREFIX, verticalListSortingStrategy } from "./sortable";
-import { matchesSidebarMachine, SidebarWholeTeam, useSidebarMachineFilter } from "./sidebarMachineFilter";
+import { matchesSidebarMachine, SidebarWholeTeam, SidebarWholeWorkspace, useSidebarMachineFilter } from "./sidebarMachineFilter";
 import { terminalOrigin } from "./teamRowLabels";
 
 export interface SidebarOwnerTabRowProps extends Omit<SidebarSingleTabRowProps, "activity" | "isClosing" | "isAppearing"> {
@@ -106,7 +106,8 @@ function sameShellRow(prev: SidebarShellRowProps, next: SidebarShellRowProps): b
 export const SidebarShellRow = memo(function SidebarShellRow({ showStartedBy = true, detail = null, ...props }: SidebarShellRowProps) {
   const filter = useSidebarMachineFilter();
   const wholeTeam = useContext(SidebarWholeTeam);
-  const hidden = !wholeTeam && !matchesSidebarMachine(filter, props.tab.remote_peer_id);
+  const wholeWorkspace = useContext(SidebarWholeWorkspace);
+  const hidden = !wholeWorkspace && !wholeTeam && !matchesSidebarMachine(filter, props.tab.remote_peer_id);
   const creatorId = props.tab.spawned_by_tab_id ?? null;
   const creator = creatorId ? props.tabs[creatorId] : null;
   const origin = terminalOrigin(creatorId, creator?.title, Boolean(creator));

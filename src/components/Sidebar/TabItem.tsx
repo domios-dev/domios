@@ -35,7 +35,7 @@ import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
 import { managedByLabel } from "./remoteOwnership";
 import { RemoteMachineSummary, RemoteTabIcon, useRemoteTabPresentation, type ObservedTabMachine } from "./RemoteTabPresentation";
-import { matchesSidebarMachine, SidebarWholeTeam, useSidebarMachineFilter } from "./sidebarMachineFilter";
+import { matchesSidebarMachine, SidebarWholeTeam, SidebarWholeWorkspace, useSidebarMachineFilter } from "./sidebarMachineFilter";
 import { managedTabPresentation } from "../../lib/managedTab";
 import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
@@ -254,6 +254,7 @@ function TabItemInner({
   const tab = useLiveRowTab(rowTab);
   const machineFilter = useSidebarMachineFilter();
   const wholeTeam = useContext(SidebarWholeTeam);
+  const wholeWorkspace = useContext(SidebarWholeWorkspace);
   const localGeneralMachine = useContext(GeneralListMachineContext);
   const lock = useTabLock(tab);
   const activate = () => {
@@ -439,7 +440,7 @@ function TabItemInner({
   return (
     <div
       ref={tabRef}
-      hidden={!wholeTeam && !matchesSidebarMachine(machineFilter, remote?.peerId)}
+      hidden={!wholeWorkspace && !wholeTeam && !matchesSidebarMachine(machineFilter, remote?.peerId)}
       role="group"
       aria-label={accessibleRowLabel}
       data-testid="tab-item"

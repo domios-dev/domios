@@ -4,6 +4,7 @@ import { setWorkspaceBrowseTarget, useWorkspaceBrowseTarget, type WorkspaceBrows
 export type SidebarMachineFilter = "all" | "local" | { peerId: string };
 
 export const SidebarWholeTeam = createContext(false);
+export const SidebarWholeWorkspace = createContext(false);
 
 let localOnly = true;
 const listeners = new Set<() => void>();
@@ -40,16 +41,20 @@ export function wholeSidebarTeam<T>(filter: SidebarMachineFilter, members: reado
   return members.some(member => matchesSidebarMachine(filter, peerOf(member))) ? members : [];
 }
 
-export function selectSidebarWorkspaceView<T extends { id: string }>(
+export function sidebarWorkspaceKey(peerId: string | null, workspaceId: string): string {
+  return JSON.stringify([peerId, workspaceId]);
+}
+
+export function selectSidebarWorkspaceView<T extends { key: string; peerId: string | null; selected?: boolean }>(
   workspaces: readonly T[],
-  selectedId: string | null,
+  selectedKey: string | null,
   filter: SidebarMachineFilter,
-  memberPeers: (workspace: T) => readonly (string | null | undefined)[],
 ) {
-  const visible = filter === "all" ? [...workspaces] : workspaces.filter(workspace =>
-    memberPeers(workspace).some(peerId => matchesSidebarMachine(filter, peerId)));
+  const visible = workspaces.filter(workspace => matchesSidebarMachine(filter, workspace.peerId));
   return {
     visible,
-    selected: visible.find(workspace => workspace.id === selectedId) ?? visible[0] ?? null,
+    selected: visible.find(workspace => workspace.key === selectedKey)
+      ?? visible.find(workspace => workspace.selected)
+      ?? visible[0] ?? null,
   };
 }

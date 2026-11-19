@@ -18,6 +18,7 @@ export interface CompactRailGroup {
   label: string;
   tabs: Tab[];
   activeTabId: string | null;
+  wholeWorkspace?: boolean;
   observed?: ReadonlyMap<string, { machine: ObservedTabMachine; status?: TabStatus }>;
 }
 
@@ -99,7 +100,7 @@ export function SidebarCompactRail({ groups, tabStatuses, onActivate, attentionB
   return (
     <nav className="ct-compact-rail" aria-label="Main agents" data-testid="sidebar-compact-rail">
       {groups.filter(group => group.tabs.length).map(group => {
-        const matches = (tab: Tab) => matchesSidebarMachine(filter, group.observed?.get(tab.id)?.machine.peerId ?? tab.remote_peer_id);
+        const matches = (tab: Tab) => group.wholeWorkspace || matchesSidebarMachine(filter, group.observed?.get(tab.id)?.machine.peerId ?? tab.remote_peer_id);
         const visibleTeams = new Set(group.tabs.filter(matches).map(effectiveTeamId).filter(Boolean));
         return <div key={group.workspaceId} className="ct-compact-rail__group" role="group" aria-label={group.label}
           hidden={!group.tabs.some(matches)}>
