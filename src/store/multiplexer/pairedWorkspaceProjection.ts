@@ -11,6 +11,7 @@ export interface ObservedPeerTab {
   viewerId: string;
   tab: Tab;
   status?: TabStatus;
+  peerId?: string;
 }
 
 export interface PairedGeneral {
@@ -27,6 +28,7 @@ export interface BrowsedWorkspace {
   workspace: Workspace;
   teams: Team[];
   tabs: ObservedPeerTab[];
+  planTitles?: ReadonlyMap<string, string>;
 }
 
 export function observedGeneralViewers(
@@ -83,6 +85,12 @@ export function projectBrowsedWorkspaces(peerId: string, snapshot: MultiplexerSt
     workspace,
     teams: (snapshot.teams ?? []).filter(team => team.workspace_id === workspace.id)
       .map(team => ({ ...team, remote_peer_id: peerId })),
-    tabs: localSessions(peerId, snapshot, workspace),
+    tabs: [...localSessions(peerId, snapshot, workspace), ...workspace.tabs.flatMap(id => {
+      const tab = snapshot.tabs[id];
+      const route = parseCompositeTabId(id);
+      if (!route || !tab || tab.id !== id || tab.workspace_id !== workspace.id || tab.hidden
+        || tab.show_in_tabbar === false || tab.remote_peer_id !== route.peerId || tab.remote_tab_id !== route.remoteTabId) return [];
+      return [{ viewerId: id, tab, peerId: route.peerId, status: snapshot.tab_statuses?.[id] }];
+    })],
   }));
 }

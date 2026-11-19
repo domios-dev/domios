@@ -37,6 +37,7 @@ interface WorkspaceItemProps {
   newSessionDisabled?: boolean;
   onNewAgent: (agentId: string) => void;
   canClose: boolean;
+  readOnly?: boolean;
   status: TabStatus | null;
   showDisclosure?: boolean;
   detailHeader?: boolean;
@@ -60,6 +61,7 @@ function WorkspaceItemInner({
   newSessionDisabled = false,
   onNewAgent,
   canClose: _canClose,
+  readOnly = false,
   status: _status,
   showDisclosure = true,
   detailHeader = false,
@@ -243,7 +245,7 @@ function WorkspaceItemInner({
           >
             <span
               className={`${touchMode ? workspaceTouchText : workspaceText} font-medium truncate`}
-              onDoubleClick={handleDoubleClick}
+              onDoubleClick={readOnly ? undefined : handleDoubleClick}
               title={workspace.cwd || undefined}
               role="heading"
               aria-level={3}
@@ -277,7 +279,7 @@ function WorkspaceItemInner({
         </span>
       </div>
       {/* 3-dot menu — visible on hover */}
-      <div className="flex shrink-0 items-center gap-0.5">
+      {!readOnly && <div className="flex shrink-0 items-center gap-0.5">
         <DropdownMenu
           items={menuItems}
           header={accounts.error ? <InlineErrorNotice error={accounts.error} operation="choosing a workspace account" /> : undefined}
@@ -288,7 +290,7 @@ function WorkspaceItemInner({
           }
           trigger={<RowMenuButton label={`Actions for ${workspace.name}`} title="Workspace actions" touchMode={touchMode} />}
         />
-      </div>
+      </div>}
     </div>
     {detailHeader && (onOpenMap || onOpenAutomation) && (countActiveJobs && onOpenAutomation
       ? <LiveWorkspaceNavigationActions scope={{ workspaceId: workspace.id, teamId: null }} workspaceId={workspace.id} workspaceName={workspace.name} onOpenMap={onOpenMap ? () => onOpenMap() : undefined} onOpenJobs={onOpenAutomation ? () => onOpenAutomation() : undefined} touchMode={touchMode} />
@@ -302,6 +304,7 @@ function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps)
     prev.isExpanded === next.isExpanded &&
     prev.status === next.status &&
     prev.canClose === next.canClose &&
+    prev.readOnly === next.readOnly &&
     prev.showDisclosure === next.showDisclosure &&
     prev.detailHeader === next.detailHeader &&
     prev.onOpenMap === next.onOpenMap &&

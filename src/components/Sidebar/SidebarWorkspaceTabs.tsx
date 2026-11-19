@@ -31,7 +31,7 @@ import { curatorTabAttention, groupAttention, tabAttention } from "./tabAttentio
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import { SidebarCronRow } from "./SidebarResourceRow";
 import { SidebarShellRow, SidebarOwnerTabRow, SidebarSortableBlock } from "./SidebarShellRow";
-import { matchesSidebarMachine, useSidebarMachineFilter } from "./sidebarMachineFilter";
+import { matchesSidebarMachine, SidebarWholeTeam, useSidebarMachineFilter, wholeSidebarTeam } from "./sidebarMachineFilter";
 import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
 import { AgentChecklistDisclosure, type ChecklistToggle } from "./AgentChecklist";
 import { showsChecklist } from "./agentChecklistModel";
@@ -212,7 +212,7 @@ export function SidebarWorkspaceTabs({
       if (identity && !map.has(identity.id)) {
         map.set(identity.id, {
           id: identity.id,
-          name: identity.title,
+          name: identity.title ?? null,
           lifecycle: "active",
           created_at: 0,
           workspace_id: ws.id,
@@ -376,15 +376,17 @@ export function SidebarWorkspaceTabs({
 
     rows.push(
       <SortableRow
-        hidden={!members.some(({ tab }) => matchesSidebarMachine(filter, tab.remote_peer_id))}
+        hidden={!wholeSidebarTeam(filter, membersByTeam.get(teamId) ?? members, ({ tab }) => tab.remote_peer_id).length}
         key={teamId}
         id={`${TEAM_PREFIX}${teamId}`}
         data={{ group: "tab", groupKey: ws.id, pinnedIds: pinnedLooseItems, toWorkspaceOrder: reorderUnits }}
       >
+      <SidebarWholeTeam.Provider value>
       <TeamJobsUnit
         sentinelScope={onOpenSentinelJob && teamById.has(teamId) ? { workspace_id: ws.id, team_id: teamId } : undefined}
         onOpenSentinel={onOpenSentinelJob ? (scenarioId) => onOpenSentinelJob({ teamId, scenarioId }) : undefined}
         team={team}
+        workspaceName={ws.name}
         plan={plan}
         tabs={tabs}
         workingManagerCount={countWorkingTabs(managers.map((member) => member.tab), tabStatuses)}
@@ -445,6 +447,7 @@ export function SidebarWorkspaceTabs({
           utilities: sectionAttention(terminals),
         }}
       />
+      </SidebarWholeTeam.Provider>
       </SortableRow>,
     );
   }

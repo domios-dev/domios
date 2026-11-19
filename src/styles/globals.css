@@ -2130,6 +2130,7 @@ button {
 .ct-sidebar-content {
   padding-bottom: 4px;
   overscroll-behavior: none;
+  scrollbar-gutter: stable both-edges;
 }
 
 /* The dragged block is opaque and slightly lifted, so rows it passes never show through it. */
@@ -2147,7 +2148,7 @@ button {
   --ct-bg-selected: color-mix(in srgb, var(--team-surface) 96%, var(--ct-fg));
   position: relative;
   min-width: 0;
-  margin: 4px 0;
+  margin: 4px calc(var(--spacing) * 2);
   padding: 3px 0 0;
   overflow: visible;
   isolation: isolate;
@@ -2522,7 +2523,7 @@ button {
 
 .sidebar-workspace-card-scroll {
   max-width: 100%;
-  padding: 4px 8px 7px;
+  padding: 4px calc(var(--spacing) * 2) 7px;
 }
 
 .sidebar-workspace-card-grid {

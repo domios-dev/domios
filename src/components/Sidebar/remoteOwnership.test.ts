@@ -1,6 +1,6 @@
 import { describe, expect, finish, it } from "../../test/standaloneTest";
 import type { Tab } from "../../lib/types";
-import { managedByLabel, namedManagerRole, remoteTeamIdentity } from "./remoteOwnership";
+import { managedByLabel, namedManagerRole, remoteTeamIdentity, remoteTeamName } from "./remoteOwnership";
 
 function targetOwned(overrides: Partial<Tab> = {}): Tab {
   return {
@@ -48,7 +48,13 @@ describe("canonical remote ownership presentation", () => {
     const peer = { peerId: "peer-123", name: "Air", availability: "online" as const, sessions: [],
       teamNames: new Map([["team_7d63c175", "Remote Operations"]]) };
     expect(remoteTeamIdentity(tab, [peer])).toMatchObject({ title: "Remote Operations", peerName: undefined });
-    expect(remoteTeamIdentity(tab)?.title).toBe("Team");
+    expect(remoteTeamIdentity(tab)?.title).toBe(undefined);
+  });
+
+  it("uses the plan then the workspace name for an unnamed peer Team", () => {
+    const id = "team_7d63c175";
+    expect(remoteTeamName(id, id, "Fixture plan", "Workspace name")).toBe("Fixture plan");
+    expect(remoteTeamName(id, id, undefined, "Workspace name")).toBe("Workspace name");
   });
 
   it("does not synthesize a remote Team for a transport-remote origin projection", () => {

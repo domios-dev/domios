@@ -1,5 +1,5 @@
 import type { PlanView as Plan } from "../Canvas/planProjection";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import type { ProviderDescriptor, Tab, TabStatus, Team, Workspace } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { JobsTarget } from "../Jobs/JobsView";
@@ -73,12 +73,14 @@ export function useWorkspaceTabActions(workspaceId: string, cwd: string | null, 
 }
 
 /** The selected workspace's header and tab tree. */
-export function SidebarWorkspaceDetail({ workspace, status, data, actions }: {
+export function SidebarWorkspaceDetail({ workspace, status, data, actions, observedContent }: {
   workspace: Workspace;
   status: TabStatus | null;
   data: SidebarWorkspaceDetailData;
   actions: SidebarWorkspaceDetailActions;
+  observedContent?: ReactNode;
 }) {
+  const readOnly = observedContent !== undefined;
   const workspaceId = workspace.id;
   const cwd = workspace.cwd ?? null;
   const isActiveVisual = workspaceId === data.activeWorkspaceId && data.isWorkspaceMode;
@@ -96,17 +98,18 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions }: {
         workspace={workspace}
         isActive={isActiveVisual}
         isExpanded
-        onClick={activate}
+        onClick={readOnly ? () => undefined : activate}
         onToggleExpand={() => {}}
         onClose={() => actions.closeWorkspace(workspaceId)}
         onRename={(name) => actions.renameWorkspace(workspaceId, name)}
         onNewTerminal={(shell) => actions.newTerminal(workspaceId, shell)}
         onNewSession={newSession}
-        onOpenMap={openWorkspaceMap}
-        onOpenAutomation={openWorkspaceAutomation}
+        onOpenMap={readOnly ? undefined : openWorkspaceMap}
+        onOpenAutomation={readOnly ? undefined : openWorkspaceAutomation}
         newSessionDisabled={data.newSessionDisabled}
         onNewAgent={(agentId) => actions.newAgent(agentId, workspaceId, cwd)}
-        canClose={true}
+        canClose={!readOnly}
+        readOnly={readOnly}
         status={status}
         showDisclosure={false}
         detailHeader
@@ -114,7 +117,7 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions }: {
         countActiveJobs
         uiFontScale={data.uiFontScale}
       />
-      <SidebarWorkspaceTabs
+      {readOnly ? observedContent : <SidebarWorkspaceTabs
         workspace={workspace}
         activeTabId={data.activeTabIds[workspaceId] ?? null}
         sortedTabs={sortedTabs}
@@ -147,7 +150,7 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions }: {
         closingTeamIds={data.closingTeamIds}
         onCloseTeam={closeTeam}
         onOpenSentinelJob={openSentinelJob}
-      />
+      />}
     </div>
   );
 }
