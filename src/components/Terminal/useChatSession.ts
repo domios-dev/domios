@@ -258,7 +258,7 @@ export function useChatSession({
     if (!canRetryChatStart(attachmentStateRef.current, cause)) return;
     if (cause !== "read_interrupted") interruptedStartRecoveryRef.current = false;
     const requested = requestedAuthorityRef.current;
-    if (attachmentStateRef.current === "attaching"
+    if (cause !== "history_settled" && attachmentStateRef.current === "attaching"
       && requested?.source_session_id === agentSessionIdRef.current
       && requested.session_binding_nonce === (sessionBindingNonceRef.current ?? null)) return;
     frontendBootDiagnostic("chat-scroll", { chat: { scope: tabId, edge: "cold_attach", at: performance.now(),
@@ -405,15 +405,20 @@ export function useChatSession({
 
   useChatSendStatusSubscription(tabId, observeChatSendStatus, reconcileSendStatuses);
 
-  const loadOlderPage = useCallback(async (beforeOffset: number, maxBytes: number) => {
-    if (agentSessionIdRef.current !== agentSessionId || sessionBindingNonceRef.current !== sessionBindingNonce) return null;
+  const isCurrentOlderRead = useCallback((generationAtRequest: number, signal: AbortSignal) =>
+    !signal.aborted && activeRef.current && attachmentStateRef.current === "attached"
+    && windowKeyRef.current === windowKey && sessionBindingNonceRef.current === sessionBindingNonce
+    && attachmentRef.current.isCurrent(generationAtRequest), [sessionBindingNonce, windowKey]);
+
+  const loadOlderPage = useCallback(async (beforeOffset: number, maxBytes: number, signal: AbortSignal) => {
     const generationAtRequest = attachmentRef.current.generation;
+    if (!isCurrentOlderRead(generationAtRequest, signal)) return null;
     const requestedAt = performance.now();
     try {
       const offsetKind = transcriptOffsetKind(readTranscriptWindow(windowKeyRef.current).transcript);
-      const res = await invoke<ChatBackfillResult>("chat_backfill", { tabId, beforeOffset, offsetKind, maxBytes });
+      const res = await invoke<ChatBackfillResult>("chat_backfill", { tabId, beforeOffset, offsetKind, maxBytes, signal });
       if (
-        !attachmentRef.current.isCurrent(generationAtRequest)
+        !isCurrentOlderRead(generationAtRequest, signal)
         || !canAdoptTranscriptAuthority(
           res,
           agentSessionIdRef.current,
@@ -446,21 +451,37 @@ export function useChatSession({
         messages: transcriptRows(readTranscriptWindow(windowKeyRef.current).transcript),
       } : null;
     } catch (e) {
-      onErrorRef.current?.(e instanceof Error ? e.message : String(e));
+      if (isCurrentOlderRead(generationAtRequest, signal)) onErrorRef.current?.(e instanceof Error ? e.message : String(e));
       return null;
     }
-  }, [agentSessionId, commitBatch, sessionBindingNonce, tabId]);
+  }, [commitBatch, isCurrentOlderRead, tabId]);
 
-  const loadHistoryPage = useCallback(async (message: ChatMessage) => {
+  const loadHistoryPage = useCallback(async (message: ChatMessage, signal: AbortSignal) => {
     const marker = message.timelineMarker;
     if (marker?.kind !== "history_gap") return null;
     const generationAtRequest = attachmentRef.current.generation;
-    const res = await invoke<{ messages?: ChatMessage[] }>("chat_history_page", {
-      tabId, source: marker.source, sessionId: marker.session_id, beforeOffset: marker.before_offset,
-    });
-    if (!attachmentRef.current.isCurrent(generationAtRequest)) return null;
-    return res.messages ?? [];
-  }, [tabId]);
+    if (!isCurrentOlderRead(generationAtRequest, signal)) return null;
+    try {
+      const res = await invoke<{ messages?: ChatMessage[] }>("chat_history_page", {
+        tabId, source: marker.source, sessionId: marker.session_id, beforeOffset: marker.before_offset, signal,
+      });
+      return isCurrentOlderRead(generationAtRequest, signal) ? res.messages ?? [] : null;
+    } catch (e) {
+      if (!isCurrentOlderRead(generationAtRequest, signal)) return null;
+      throw e;
+    }
+  }, [isCurrentOlderRead, tabId]);
+
+  const historyRef = useRef(history);
+  const historySettled = runtimeHistorySettled(historyRef.current, history);
+  const historyLoading = history === "loading";
+  const snapshotReady = snapshotBinding === `${windowKey}|${sessionBindingNonce ?? ""}`;
+  useLayoutEffect(() => {
+    historyRef.current = history;
+    if (!attachmentActive || !historySettled) return;
+    forgetTranscriptWindowCursor(windowKey);
+    requestAttach("history_settled");
+  }, [attachmentActive, history, historySettled, requestAttach, windowKey]);
 
   const view = useChatWindowView({
     hostRows,
@@ -470,8 +491,10 @@ export function useChatSession({
     agentSessionId,
     windowKey,
     transcript,
-    attachedAuthority: snapshotBinding === `${windowKey}|${sessionBindingNonce ?? ""}`
+    attachedAuthority: snapshotReady
       ? { sourceSessionId: agentSessionId, sessionBindingNonce: sessionBindingNonce ?? null } : null,
+    attachmentGeneration: generation,
+    historyReady: attachmentActive && snapshotReady && attachmentState === "attached" && !historyLoading && !historySettled,
     anchorKey,
     followTailRef,
     loadOlderPage,
@@ -834,14 +857,6 @@ export function useChatSession({
   }, [listenerReady, requestRecoveryAttach]);
   useChatActivationReconcile(active, reconcileActivation);
 
-  const historyRef = useRef(history);
-  useEffect(() => {
-    const previous = historyRef.current;
-    historyRef.current = history;
-    if (attachmentActive && runtimeHistorySettled(previous, history)) requestRecoveryAttach(true, "history_settled");
-  }, [attachmentActive, history, requestRecoveryAttach]);
-  const historyLoading = history === "loading";
-
   useEffect(() => {
     if (!attachmentActive) return;
     return onResync(reason => {
@@ -882,7 +897,7 @@ export function useChatSession({
     ...attachmentActivity(attachmentState, loading, hadBoundSessionRef.current, agentSessionId != null),
     error: error ?? view.compactionFailure ?? null,
     attachmentState,
-    snapshotReady: snapshotBinding === `${windowKey}|${sessionBindingNonce ?? ""}`,
+    snapshotReady,
     /** Set = the wait is over and it failed; the view reports it rather than
      *  spinning. Cleared by a fresh attach or an observed delta, never by time. */
     transcriptUnavailable,

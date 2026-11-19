@@ -12,6 +12,7 @@ import { isPromptNotOnScreenResponse } from "../webApi";
 import { RemotePtyIdCache, writeRemotePty, type RemotePtyWriteResponse } from "../remotePtyIdCache";
 import type { AtomicSpawn, MultiplexerState, ShellProfile } from "../types";
 import type { TransportClient } from "../transportClient";
+import { REST_READ_TIMEOUT_MS } from "../restTimeoutPolicy";
 export type TabsTransportClient = Pick<TransportClient, "json">;
 type Args = Record<string, unknown> & {
     signal?: AbortSignal;
@@ -152,12 +153,12 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         chat_backfill: (a: Args) => clientFor(a).json<ChatBackfillResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/backfill`, {
             before_offset: a.beforeOffset,
             offset_kind: a.offsetKind,
-        }),
+        }, { timeoutMs: REST_READ_TIMEOUT_MS }),
         chat_history_page: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/history`, {
             source: s(a, "source"),
             session_id: s(a, "sessionId"),
             before_offset: a.beforeOffset,
-        }),
+        }, { timeoutMs: REST_READ_TIMEOUT_MS }),
         chat_resume: (a: Args) => clientFor(a).json<ChatResumeResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/resume`, {
             cursor: s(a, "cursor"),
         }),
@@ -286,7 +287,8 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                 method: s(a, "method"),
                 path,
                 body: a.body ?? null,
-            });
+            }, suffix === "/chat-raw/backfill" || suffix === "/chat-raw/history"
+                ? { timeoutMs: REST_READ_TIMEOUT_MS } : undefined);
             const relay = response as {
                 ok?: boolean;
                 status?: number;

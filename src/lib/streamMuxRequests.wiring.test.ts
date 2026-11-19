@@ -238,6 +238,101 @@ it("classifies chat_start acknowledgement loss as a retryable read, including a 
   await expect(f.client.localJson("POST", "/api/tabs/t/chat-raw/start", {})).rejects.toBeInstanceOf(RetryableMuxError);
   await expect(f.client.localJson("POST", "/api/mesh/relay-to", { method: "POST", path: "/api/tabs/t/chat-raw/start", body: {} })).rejects.toBeInstanceOf(RetryableMuxError);
 });
+
+it("admits one initial older read after a cold remote attach settles and cancels it on supersession", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const f = fixture(undefined, window.location.origin);
+  vi.stubGlobal("fetch", f.fetch);
+  configureDaemonTransport({ origin: window.location.origin, token: "cold-chat-fixture" });
+  __setListenForTest(async () => () => {});
+  clearTranscriptWindows();
+
+  const authority = { source_session_id: "own", session_binding_nonce: "nonce", offset_kind: "items" };
+  const tabId = "mesh:peer/cold";
+  const pathOf = (post: Posted): string => post.path === "/api/mesh/relay-to"
+    ? JSON.parse(String(post.init.body)).path : post.path ?? "";
+  const olderPosts = () => f.posted.filter(post => pathOf(post).endsWith("/chat-raw/backfill"));
+  const nextPath = async (suffix: string) => {
+    while (true) {
+      const post = await f.next();
+      if (pathOf(post).endsWith(suffix)) return post;
+    }
+  };
+  const finish = (post: Posted, data: unknown) => {
+    f.head(post);
+    f.text(post, JSON.stringify(post.path === "/api/mesh/relay-to" ? { ok: true, status: 200, data } : data));
+    f.end(post);
+  };
+  f.reply(async post => {
+    if (post.path && !/chat-raw\/(start|backfill)$/.test(pathOf(post))) finish(post, []);
+    return Response.json({ accepted: true }, { status: 202 });
+  });
+
+  const message = (content: string, seq: number) => ({ id: content, content, type: "assistant", seq });
+  const tail = Array.from({ length: 20 }, (_, index) => message(`tail-${index}`, index + 1));
+  const snapshot = (post: Posted) => finish(post, {
+    ...authority, subscription_id: JSON.parse(String(post.init.body)).body.subscriptionId,
+    kind: "snapshot", pending: false, start_offset: 1, offset: 21, messages: tail,
+  });
+  const backfill = (post: Posted, content: string) => finish(post, {
+    ...authority, start_offset: 0, end_offset: 1, messages: [message(content, 0)],
+  });
+
+  const host = document.createElement("main");
+  document.body.append(host);
+  const root = createRoot(host);
+  function Probe({ history }: { history: "loading" | "complete" }) {
+    const chat = useChatSession({ tabId, agentSessionId: "own", sessionBindingNonce: "nonce", history });
+    return createElement("section", null,
+      createElement("button", { disabled: chat.backfillLoading || !chat.canBackfillOlder,
+        onClick: () => void chat.loadOlder() }, "Load previous"),
+      createElement("output", null, chat.canBackfillOlder ? "more" : "end"),
+      ...chat.allMessages.map(row => createElement("p", { key: row.id }, row.content)));
+  }
+  const render = (history: "loading" | "complete") => act(async () => root.render(createElement(Probe, { history })));
+  const rendered = () => [...host.querySelectorAll("p")].map(row => row.textContent);
+  const button = () => host.querySelector("button")!;
+
+  try {
+    await render("loading");
+    const cold = await nextPath("/chat-raw/start");
+    await act(async () => snapshot(cold));
+    expect(rendered()).toEqual(tail.map(row => row.content));
+    expect(button().disabled).toBe(true);
+    expect(olderPosts()).toHaveLength(0);
+
+    await render("complete");
+    const settled = await nextPath("/chat-raw/start");
+    expect(olderPosts()).toHaveLength(0);
+    await act(async () => snapshot(settled));
+    const superseded = await nextPath("/chat-raw/backfill");
+    expect(olderPosts()).toHaveLength(1);
+    expect(new Headers(superseded.init.headers).get("X-Domios-Mux-Cancellable")).toBe("1");
+    expect(button().disabled).toBe(true);
+
+    await act(async () => fireResync("overflow"));
+    const replacement = await nextPath("/chat-raw/start");
+    expect(await f.cancelled()).toBe(superseded.id);
+    expect(button().disabled).toBe(false);
+    await act(async () => snapshot(replacement));
+    const active = await nextPath("/chat-raw/backfill");
+    expect(olderPosts()).toHaveLength(2);
+
+    await act(async () => backfill(superseded, "stale"));
+    expect(rendered()).toEqual(tail.map(row => row.content));
+    expect(button().disabled).toBe(true);
+    await act(async () => backfill(active, "older"));
+    expect(rendered()).toEqual(["older", ...tail.map(row => row.content)]);
+    expect(host.querySelector("output")?.textContent).toBe("end");
+    expect(olderPosts()).toHaveLength(2);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setListenForTest(null);
+    clearTranscriptWindows();
+  }
+});
+
 it("reports the overflowing request's bytes and limit instead of the aggregate session total", async () => {
   const f = fixture();
   const other = f.client.request!("/api/paused"); const paused = await f.next();
