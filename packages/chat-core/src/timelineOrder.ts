@@ -9,17 +9,41 @@ export interface TimelineOrderItem {
   seq?: number;
 }
 
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
+interface IndexedItem<T extends TimelineOrderItem> {
+  item: T;
+  index: number;
+  at: number | null;
 }
 
-function compareSource(left: TimelineOrderItem, right: TimelineOrderItem): number {
-  const session = compareText(left.sourceSessionId ?? "", right.sourceSessionId ?? "");
-  if (session) return session;
-  if (left.seq != null && right.seq != null && left.seq !== right.seq) return left.seq - right.seq;
-  const leftId = left.sourceMessageId ?? left.id;
-  const rightId = right.sourceMessageId ?? right.id;
-  return compareText(leftId, rightId);
+function orderTimestampRun<T extends TimelineOrderItem>(items: IndexedItem<T>[]): IndexedItem<T>[] {
+  const ordered = items.sort((left, right) => left.at! - right.at! || left.index - right.index);
+  let timeStart = 0;
+  while (timeStart < ordered.length) {
+    let timeEnd = timeStart + 1;
+    while (timeEnd < ordered.length && ordered[timeEnd].at === ordered[timeStart].at) timeEnd++;
+
+    let sequenceStart = timeStart;
+    while (sequenceStart < timeEnd) {
+      const first = ordered[sequenceStart];
+      if (first.item.sourceSessionId == null || first.item.seq == null) {
+        sequenceStart++;
+        continue;
+      }
+      let sequenceEnd = sequenceStart + 1;
+      while (sequenceEnd < timeEnd) {
+        const next = ordered[sequenceEnd];
+        if (next.item.sourceSessionId !== first.item.sourceSessionId || next.item.seq == null) break;
+        sequenceEnd++;
+      }
+      const sequenceRun = ordered.slice(sequenceStart, sequenceEnd).sort((left, right) =>
+        left.item.seq! - right.item.seq! || left.index - right.index,
+      );
+      sequenceRun.forEach((item, offset) => { ordered[sequenceStart + offset] = item; });
+      sequenceStart = sequenceEnd;
+    }
+    timeStart = timeEnd;
+  }
+  return ordered;
 }
 
 /** Sort timestamped runs independently so untimed rows keep their source boundary. */
@@ -34,11 +58,7 @@ export function orderTimelineItems<T extends TimelineOrderItem>(items: readonly 
     }
     let end = start + 1;
     while (end < ordered.length && ordered[end].at != null) end++;
-    const run = ordered.slice(start, end).sort((left, right) => {
-      if (left.at !== right.at) return left.at! - right.at!;
-      const source = compareSource(left.item, right.item);
-      return source || left.index - right.index;
-    });
+    const run = orderTimestampRun(ordered.slice(start, end));
     run.forEach(({ item }, offset) => { result[start + offset] = item; });
     start = end;
   }

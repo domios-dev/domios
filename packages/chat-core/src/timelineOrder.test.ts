@@ -11,7 +11,7 @@ test("orders shuffled history pages and host rows by authoritative time", () => 
   assert.deepEqual(orderTimelineItems(rows).map(row => row.id), ["history", "host-prompt", "resume"]);
 });
 
-test("keeps untimed source boundaries while sorting timestamped runs", () => {
+test("keeps untimed source boundaries and source order for equal sequence rows", () => {
   const rows = [
     { id: "untimed-leading", sourceSessionId: "provider", seq: 10 },
     { id: "same-z", timestamp: "1770000001000", sourceSessionId: "provider", seq: 4 },
@@ -20,8 +20,43 @@ test("keeps untimed source boundaries while sorting timestamped runs", () => {
     { id: "untimed-middle", sourceSessionId: "provider", seq: 0 },
     { id: "untimed-tail", sourceSessionId: "provider", seq: 1 },
   ];
-  const expected = ["untimed-leading", "timed", "same-a", "same-z", "untimed-middle", "untimed-tail"];
+  const expected = ["untimed-leading", "timed", "same-z", "same-a", "untimed-middle", "untimed-tail"];
   assert.deepEqual(orderTimelineItems(rows).map(row => row.id), expected);
+});
+
+test("keeps source order for twelve same-time PTY blocks sharing one sequence", () => {
+  const rows = Array.from({ length: 12 }, (_, index) => ({
+    id: `record-${index}`,
+    timestamp: "1770000001000",
+    sourceSessionId: "pty-session",
+    seq: 7,
+  }));
+  assert.deepEqual(orderTimelineItems(rows).map(row => row.id), rows.map(row => row.id));
+});
+
+test("keeps source order for equal-time rows with absent sequence values", () => {
+  const rows = [
+    { id: "record-11", timestamp: 100, sourceSessionId: "provider" },
+    { id: "record-2", timestamp: 100, sourceSessionId: "provider" },
+    { id: "record-0", timestamp: 100, sourceSessionId: "provider" },
+  ];
+  assert.deepEqual(orderTimelineItems(rows).map(row => row.id), rows.map(row => row.id));
+});
+
+test("keeps source order for equal-time rows from different VM epochs", () => {
+  const rows = [
+    { id: "new-epoch", timestamp: 100, sourceSessionId: "vm-new", seq: 0 },
+    { id: "old-epoch", timestamp: 100, sourceSessionId: "vm-old", seq: 99 },
+  ];
+  assert.deepEqual(orderTimelineItems(rows).map(row => row.id), rows.map(row => row.id));
+});
+
+test("orders a QuoteB Ask question and reply by distinct record sequences", () => {
+  const rows = [
+    { id: "ask-reply", timestamp: 100, sourceSessionId: "ask-session", seq: 18 },
+    { id: "ask-question", timestamp: 100, sourceSessionId: "ask-session", seq: 17 },
+  ];
+  assert.deepEqual(orderTimelineItems(rows).map(row => row.id), ["ask-question", "ask-reply"]);
 });
 
 test("an untimed launch prompt retains its source slot before timestamped replies", () => {
