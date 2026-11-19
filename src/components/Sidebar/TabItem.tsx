@@ -35,7 +35,7 @@ import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
 import { managedByLabel } from "./remoteOwnership";
 import { RemoteMachineSummary, RemoteTabIcon, useRemoteTabPresentation, type ObservedTabMachine } from "./RemoteTabPresentation";
-import { matchesSidebarMachine, useSidebarMachineFilter } from "./sidebarMachineFilter";
+import { matchesSidebarMachine, SidebarWholeTeam, useSidebarMachineFilter } from "./sidebarMachineFilter";
 import { managedTabPresentation } from "../../lib/managedTab";
 import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
@@ -252,6 +252,7 @@ function TabItemInner({
 }: TabItemProps & { trailingSlot?: ReactNode; accounts?: ReturnType<typeof useTabAccounts> }) {
   const tab = useLiveRowTab(rowTab);
   const machineFilter = useSidebarMachineFilter();
+  const wholeTeam = useContext(SidebarWholeTeam);
   const lock = useTabLock(tab);
   const activate = () => {
     if (!observedMachine?.cached && !openLockedPlans(lock)) onClick();
@@ -431,7 +432,7 @@ function TabItemInner({
   return (
     <div
       ref={tabRef}
-      hidden={!matchesSidebarMachine(machineFilter, remote?.peerId)}
+      hidden={!wholeTeam && !matchesSidebarMachine(machineFilter, remote?.peerId)}
       role="group"
       aria-label={accessibleRowLabel}
       data-testid="tab-item"
@@ -629,6 +630,7 @@ export function tabItemPropsEqual(prev: TabItemState, next: TabItemState): boole
     prev.observedMachine?.name !== next.observedMachine?.name ||
     prev.observedMachine?.availability !== next.observedMachine?.availability ||
     prev.observedMachine?.cached !== next.observedMachine?.cached ||
+    prev.observedMachine?.teamName !== next.observedMachine?.teamName ||
     prev.readOnly !== next.readOnly ||
     prev.variant !== next.variant ||
     prev.insetPx !== next.insetPx ||

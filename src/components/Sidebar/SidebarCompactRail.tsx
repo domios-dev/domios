@@ -11,6 +11,7 @@ import { TabItem } from "./TabItem";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { RemoteTabIcon, useRemoteTabPresentation, type ObservedTabMachine } from "./RemoteTabPresentation";
 import { matchesSidebarMachine, useSidebarMachineFilter } from "./sidebarMachineFilter";
+import { effectiveTeamId } from "./workspaceTeamModel";
 
 export interface CompactRailGroup {
   workspaceId: string;
@@ -44,9 +45,9 @@ function monogram(label: string): string {
   return label.trim().slice(0, 2).toUpperCase();
 }
 
-function RailTab({ tab, observed, status, attention, active, touchMode, onActivate, onPeek, onLeave }: {
+function RailTab({ tab, observed, status, attention, active, touchMode, hidden, onActivate, onPeek, onLeave }: {
   tab: Tab; observed?: ObservedTabMachine; status: TabStatus | null; attention?: TabAttention; active: boolean; touchMode: boolean;
-  onActivate: () => void; onPeek: (event: MouseEvent<HTMLButtonElement>) => void; onLeave: () => void;
+  hidden: boolean; onActivate: () => void; onPeek: (event: MouseEvent<HTMLButtonElement>) => void; onLeave: () => void;
 }) {
   const title = displayTitleForTab(tab);
   const activity = tabActivity(tab, status);
@@ -54,11 +55,10 @@ function RailTab({ tab, observed, status, attention, active, touchMode, onActiva
   const firstRun = isFirstRunGeneralTab(tab);
   const icon = tab.agent_type ? <AgentIcon tab={tab} providerId={tab.agent_type} title={machine ? "" : undefined} className="text-[15px]" /> : <TerminalIcon size={14} />;
   const mark = <TabAttentionMark title={title} attention={attention ?? tabAttention(tab, status, [], active)} active={active} placement="compact" remote={Boolean(machine)} />;
-  const filter = useSidebarMachineFilter();
   const activityKind = machine?.unavailable ? "idle" : activity.kind;
   return <button
     type="button"
-    hidden={!matchesSidebarMachine(filter, machine?.peerId)}
+    hidden={hidden}
     data-first-run-allowed={firstRun || undefined}
     data-first-run-home={firstRun || undefined}
     aria-disabled={observed?.cached || (firstRun ? false : undefined)}
@@ -98,14 +98,17 @@ export function SidebarCompactRail({ groups, tabStatuses, onActivate, attentionB
 
   return (
     <nav className="ct-compact-rail" aria-label="Main agents" data-testid="sidebar-compact-rail">
-      {groups.filter(group => group.tabs.length).map(group => (
-        <div key={group.workspaceId} className="ct-compact-rail__group" role="group" aria-label={group.label}
-          hidden={!group.tabs.some(tab => matchesSidebarMachine(filter, group.observed?.get(tab.id)?.machine.peerId ?? tab.remote_peer_id))}>
+      {groups.filter(group => group.tabs.length).map(group => {
+        const matches = (tab: Tab) => matchesSidebarMachine(filter, group.observed?.get(tab.id)?.machine.peerId ?? tab.remote_peer_id);
+        const visibleTeams = new Set(group.tabs.filter(matches).map(effectiveTeamId).filter(Boolean));
+        return <div key={group.workspaceId} className="ct-compact-rail__group" role="group" aria-label={group.label}
+          hidden={!group.tabs.some(matches)}>
           <span className="ct-compact-rail__label" title={group.label} aria-hidden="true">{monogram(group.label)}</span>
           {group.tabs.map(tab => {
             const observed = group.observed?.get(tab.id);
             const active = tab.id === group.activeTabId;
             return <RailTab key={tab.id} tab={tab} active={active} observed={observed?.machine} touchMode={touchMode}
+              hidden={!matches(tab) && !visibleTeams.has(effectiveTeamId(tab))}
               status={tabStatuses[tab.id] ?? observed?.status ?? null} attention={attentionByTab[tab.id]}
               onActivate={() => activate(group.workspaceId, tab.id)}
               onPeek={event => {
@@ -114,8 +117,8 @@ export function SidebarCompactRail({ groups, tabStatuses, onActivate, attentionB
                 setPeek({ tab, workspaceId: group.workspaceId, active, x: rect.right + 10, y: rect.top - 4 });
               }} onLeave={release} />;
           })}
-        </div>
-      ))}
+        </div>;
+      })}
       {peek && matchesSidebarMachine(filter) && (
         <AnchoredPopover open anchor={{ x: peek.x, y: peek.y }} gap={0}>
           <div key={peek.tab.id} className="ct-compact-peek" data-testid="sidebar-compact-peek" onMouseEnter={hold} onMouseLeave={release}>

@@ -80,7 +80,6 @@ import { resumeRemoteTabEvents, subscribeRemoteTabEvent } from "../../lib/remote
 import { spawnFreshGeneralSession, type SessionLaunchIntent } from "../../lib/generalSession";
 import { usePairedWorkspaces } from "./usePairedWorkspaces";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
-import { workspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 
 import { isSnapshotRefusal, isStorageUnavailableError, muxStateEventAction, tabBootStageEventAction } from "./stateEvents";
 export { STORAGE_UNAVAILABLE_MESSAGE, isStorageUnavailableError, isSnapshotRefusal, muxStateEventAction, tabBootStageEventAction } from "./stateEvents";
@@ -350,8 +349,8 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
   const [rosterSettled, setRosterSettled] = useState(false);
   const settleInitialRoster = useCallback(() => setRosterSettled(true), []);
   useMeshPeerProjection(remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh, setPairedRoster, settleInitialRoster);
-  const { generals, browse, refreshGeneral, refreshBrowse, ready } = usePairedWorkspaces(pairedRoster, rosterSettled, pairedCacheAccount ?? null);
-  const pairedInventory = useMemo(() => ({ generals, browse, ready }), [generals, browse, ready]);
+  const { generals, browse, peerWorkspaces, refreshGeneral, refreshBrowse, ready } = usePairedWorkspaces(pairedRoster, rosterSettled, pairedCacheAccount ?? null);
+  const pairedInventory = useMemo(() => ({ generals, browse, peerWorkspaces, ready }), [generals, browse, peerWorkspaces, ready]);
   const pairedInventoryRef = useRef(pairedInventory);
   pairedInventoryRef.current = pairedInventory;
 
@@ -368,7 +367,8 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
     if (peer.availability !== "online" && peer.availability !== "reconnecting" && peer.availability !== "unreachable") return [];
     const candidate = (peer.cached ? undefined : peer.sessions[0]?.viewerId)
       ?? Object.values(state.tabs).find(tab => tab.remote_peer_id === peer.peerId && parseCompositeTabId(tab.id)?.peerId === peer.peerId)?.id
-      ?? (browse?.target.id === peer.peerId ? browse.workspaces.find(workspace => workspace.tabs.length)?.tabs[0]?.viewerId : undefined);
+      ?? peerWorkspaces.find(workspace => workspace.peerId === peer.peerId && workspace.tabs.some(tab => !tab.peerId))
+        ?.tabs.find(tab => !tab.peerId)?.viewerId;
     return candidate ? [[peer.peerId, candidate]] : [];
   }).sort(([a], [b]) => a.localeCompare(b)));
   useEffect(() => {
@@ -982,16 +982,15 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
     const remote = stateRef.current.tabs[tabId];
     const route = parseCompositeTabId(tabId);
     if (route) {
-      const { generals, browse } = pairedInventoryRef.current;
+      const { generals, peerWorkspaces } = pairedInventoryRef.current;
       const general = generals.find(peer => peer.peerId === route.peerId);
       if (remote) {
         if (remote.remote_peer_id !== route.peerId || remote.remote_tab_id !== route.remoteTabId || !remote.workspace_id) return;
         workspaceId = remote.workspace_id;
       } else {
         const session = (general?.cached ? undefined : general?.sessions.find(item => item.viewerId === tabId))
-          ?? (browse?.target === workspaceBrowseTarget() && browse?.target.id === route.peerId
-            ? browse.workspaces.flatMap(workspace => workspace.tabs).find(item => item.viewerId === tabId)
-            : undefined);
+          ?? (general?.availability === "online" ? peerWorkspaces?.filter(workspace => workspace.peerId === route.peerId)
+            .flatMap(workspace => workspace.tabs).find(item => !item.peerId && item.viewerId === tabId) : undefined);
         const viewerWorkspace = stateRef.current.workspaces.find(workspace => workspace.protected);
         if (!general || !session || !viewerWorkspace) return;
         attachRemoteTab(viewerWorkspace.id, { peer_id: route.peerId, peer_name: general.name, tabs: [] }, session.tab, session.status);

@@ -9,7 +9,7 @@ import type { Tab } from "../../lib/types";
 import type { GeneralAvailability } from "../../store/multiplexer/pairedWorkspaceProjection";
 import { CursorTooltip } from "../shared/CursorTooltip";
 import { MachineGlyph, MachineIconBadge } from "../shared/MachineGlyph";
-import { MachineProvenance } from "../shared/MachineProvenance";
+import { MachineStatus } from "../shared/MachineRow";
 import { namedManagerRole, useRemoteTabTeamName } from "./remoteOwnership";
 import { remoteTabKindLabel } from "./remoteTabKindLabel";
 
@@ -18,6 +18,7 @@ export interface ObservedTabMachine {
   name: string;
   availability: GeneralAvailability;
   cached?: boolean;
+  teamName?: string;
 }
 
 export function useRemoteTabPresentation(tab: Tab, activity: TabActivity, observed?: ObservedTabMachine | null) {
@@ -25,7 +26,8 @@ export function useRemoteTabPresentation(tab: Tab, activity: TabActivity, observ
   const remote = useRemoteChatStatus(tab.id, peerId);
   const peerName = useMeshPeerName(peerId);
   const identity = useMeshMachineIdentity(peerId, Boolean(peerId));
-  const team = useRemoteTabTeamName(tab, peerId) ?? "No Team";
+  const teamName = useRemoteTabTeamName(tab, peerId);
+  const team = observed?.teamName ?? teamName ?? "No Team";
   if (!peerId) return null;
   const name = remoteMachineName(peerId, peerName, remote.peer?.name, observed?.name, tab.remote_peer_name);
   const availability = observed?.availability ?? remote.peer?.presence;
@@ -42,7 +44,7 @@ export function useRemoteTabPresentation(tab: Tab, activity: TabActivity, observ
     ? duration ? `asleep for ${duration}` : "asleep"
     : activity.launching ? "starting" : activity.status.toLowerCase();
   const label = `${role}, ${team}, on ${machineLabel(name, identity, [connection, unavailable === connection ? null : unavailable, state].filter(Boolean).join(", "))}`;
-  return { peerId, name, identity, connection, online, state, unavailable, label };
+  return { peerId, name, identity, connection, state, unavailable, label };
 }
 
 type RemotePresentation = NonNullable<ReturnType<typeof useRemoteTabPresentation>>;
@@ -53,8 +55,7 @@ export function RemoteMachineSummary({ machine, stacked = false }: { machine: Re
       <MachineGlyph {...machine.identity} />
       <span className="min-w-0 truncate">{machine.name}</span>
       <span aria-hidden="true">·</span>
-      <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${machine.online ? "bg-[var(--ct-green)]" : "bg-[var(--ct-muted)]"}`} />
-      <span className="shrink-0 whitespace-nowrap">{machine.connection}</span>
+      <MachineStatus status={machine.connection} />
     </span>
     <span className="shrink-0 whitespace-nowrap">{stacked ? "" : "· "}{machine.state}</span>
   </span>;
@@ -69,9 +70,10 @@ export function RemoteTabIcon({ machine, children }: { machine: RemotePresentati
 
 export function TeamRunMachine({ peerId, fallbackName }: { peerId?: string; fallbackName?: string | null }) {
   const resolved = useMeshPeerName(peerId);
+  const identity = useMeshMachineIdentity(peerId, Boolean(peerId));
   const name = peerId ? resolved ?? cleanMachineName(fallbackName, peerId) : undefined;
-  return name ? <div className="flex min-w-0 items-baseline gap-1 px-2 pb-1 text-[length:var(--ct-font-size-meta)] text-[var(--ct-muted-fg)]">
-    <span className="shrink-0">Runs on:</span>
-    <MachineProvenance peerId={peerId} name={name} />
+  return name ? <div className="col-span-full flex min-w-0 items-center gap-1 text-[length:var(--ct-font-size-meta)] text-[var(--ct-muted-fg)]">
+    <MachineGlyph {...identity} />
+    <span className="min-w-0 truncate" title={name}>Runs on {name}</span>
   </div> : null;
 }

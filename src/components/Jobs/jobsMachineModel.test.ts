@@ -7,6 +7,7 @@ const peer = (id: string, name: string, online: boolean): PairedPeer => ({ insta
 const peers = [peer("b", "Zulu", true), peer("a", "Alpha", false)];
 assert.deepEqual(jobsMachineOptions(peers).map((option) => option.id), [THIS_MACHINE, "a", "b"]);
 assert.equal(jobsMachineOptions(peers)[1].online, false);
+assert.equal(jobsMachineOptions(peers, "Local [dev-qa]")[0].name, "Local");
 assert.equal(peers[0].instance_id, "b");
 assert.equal(jobsMachineAvailability(THIS_MACHINE, peers), "local");
 assert.equal(jobsMachineAvailability("b", peers), "online");
@@ -24,4 +25,4 @@ assert.equal(peerJobsState(null, true, 0), "unavailable");
 assert.equal(peerJobsState({ partial: true }, false, 0), "partial");
 assert.equal(peerJobsState({ partial: false }, false, 0), "empty");
 assert.equal(peerJobsState({ partial: false }, false, 1), "ready");
-console.log("17 machine default, availability and scope assertions passed");
+console.log("18 machine default, availability and scope assertions passed");

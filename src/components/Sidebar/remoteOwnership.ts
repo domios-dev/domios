@@ -7,7 +7,7 @@ import { roleDisplayLabel, roleKindLabel, hasTeamAuthority } from "../../lib/rol
 
 export interface RemoteTeamIdentity {
   id: string;
-  title: string;
+  title?: string;
   peerName?: string;
 }
 
@@ -24,7 +24,7 @@ export function namedManagerRole(tab: Tab): string | null {
 }
 
 export function remoteTeamName(teamId: string | null | undefined, ...names: Array<string | null | undefined>): string | undefined {
-  return names.map(name => name?.trim()).find(name => name && name !== teamId
+  return names.map(name => name?.trim()).find(name => name && name !== teamId && name.toLowerCase() !== "team"
     && !/^team_[\da-f]+$/i.test(name) && cleanMachineName(name));
 }
 
@@ -35,7 +35,7 @@ export function remoteTeamIdentity(tab: Tab, peers: readonly PairedGeneral[] = [
   const peer = peers.find(candidate => candidate.peerId === owner.peer_id);
   return {
     id: `mesh:${owner.peer_id}/${owner.team.id}`,
-    title: remoteTeamName(owner.team.id, peer?.teamNames?.get(owner.team.id), owner.team.title) ?? "Team",
+    title: remoteTeamName(owner.team.id, peer?.teamNames?.get(owner.team.id), owner.team.title),
     peerName: cleanMachineName(owner.peer_name, owner.peer_id),
   };
 }

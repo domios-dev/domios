@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
+import type { PlanIndexEntry } from "../../components/Canvas/plansApi";
+import { remoteTeamName } from "../../components/Sidebar/remoteOwnership";
 import { cleanMachineName } from "../../lib/machineIdentity";
 import { invoke } from "../../lib/bridge";
 import type { MeshPeersResponse, MultiplexerState } from "../../lib/types";
@@ -17,6 +20,7 @@ interface GeneralSnapshot {
   publicKey: string;
   sessions?: PairedGeneral["sessions"];
   teamNames?: PairedGeneral["teamNames"];
+  workspaces?: BrowsedWorkspace[];
   availability: "online" | "unreachable";
 }
 
@@ -27,6 +31,8 @@ interface PeerRead {
 }
 
 interface WorkspaceBrowse {
+  account?: CacheAccount;
+  publicKey?: string;
   target: NonNullable<ReturnType<typeof workspaceBrowseTarget>>;
   availability: GeneralAvailability;
   workspaces: BrowsedWorkspace[];
@@ -84,14 +90,15 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
     const read: PeerRead = { account, controller: new AbortController(), again: false };
     const { signal } = read.controller;
     reads.current.set(peerId, read);
-    const publish = (next: (previous: GeneralSnapshot | undefined) => GeneralSnapshot) => {
+    const publish = (next: (previous: GeneralSnapshot | undefined) => GeneralSnapshot | undefined) => {
       const currentRoster = peerRoster.current;
       const current = currentRoster?.paired.find(item => item.instance_id === peerId);
       if (!signal.aborted && accountRef.current === account && current && current.public_key === peer.public_key
         && pairedAvailability(current, currentRoster?.installations) === "reconnecting") {
         setGeneral(previous => {
           const known = previous.get(peerId);
-          return new Map(previous).set(peerId, next(known?.account === account && known.publicKey === peer.public_key ? known : undefined));
+          const value = next(known?.account === account && known.publicKey === peer.public_key ? known : undefined);
+          return value ? new Map(previous).set(peerId, value) : previous;
         });
       }
     };
@@ -103,10 +110,22 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
             const name = team.name?.trim();
             return name && name !== team.id ? [[team.id, name] as const] : [];
           }));
-          publish(() => ({ account, publicKey: peer.public_key, sessions, teamNames, availability: "online" }));
+          const workspaces = projectBrowsedWorkspaces(peerId, snapshot);
+          publish(() => ({ account, publicKey: peer.public_key, sessions, teamNames, workspaces, availability: "online" }));
+          const needsPlanTitle = workspaces.some(workspace => {
+            const namedTeams = new Set(workspace.teams.filter(team => remoteTeamName(team.id, team.name)).map(team => team.id));
+            return workspace.tabs.some(({ tab }) => tab.team_id && !namedTeams.has(tab.team_id));
+          });
+          if (!needsPlanTitle) return;
+          void readTeamPlanTitles(peerId, signal).then(planTitles => {
+            if (planTitles) publish(previous => previous?.sessions !== sessions ? undefined : ({
+              ...previous,
+              workspaces: workspaces.map(workspace => ({ ...workspace, planTitles })),
+            }));
+          });
         }
       })
-      .catch(() => publish(previous => ({ account, publicKey: peer.public_key, sessions: previous?.sessions, teamNames: previous?.teamNames, availability: "unreachable" })))
+      .catch(() => publish(previous => ({ account, publicKey: peer.public_key, sessions: previous?.sessions, teamNames: previous?.teamNames, workspaces: previous?.workspaces, availability: "unreachable" })))
       .finally(() => {
         if (reads.current.get(peerId) !== read) return;
         reads.current.delete(peerId);
@@ -164,7 +183,7 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
     if (availability !== "reconnecting") return;
     const controller = new AbortController();
     const { signal } = controller;
-    const current = () => !signal.aborted && workspaceBrowseRevision() === browseRevision;
+    const current = () => !signal.aborted && accountRef.current === cacheAccount && workspaceBrowseRevision() === browseRevision;
     let running = false;
     let again = false;
     const read = async () => {
@@ -179,9 +198,9 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
           again = false;
           try {
             const snapshot = await invoke<MultiplexerState>("mesh_peer_mux_state", { peerId: target.id, signal });
-            if (current()) setResponse({ target, availability: "online", workspaces: projectBrowsedWorkspaces(target.id, snapshot) });
+            if (current()) setResponse({ target, account: cacheAccount, publicKey: selectedKey, availability: "online", workspaces: projectBrowsedWorkspaces(target.id, snapshot) });
           } catch {
-            if (current()) setResponse({ target, availability: "unreachable", workspaces: [] });
+            if (current()) setResponse({ target, account: cacheAccount, publicKey: selectedKey, availability: "unreachable", workspaces: [] });
           }
         } while (again && current());
       } finally {
@@ -194,13 +213,14 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
       controller.abort();
       requestBrowse.current = null;
     };
-  }, [browseRevision, rosterReady, selectedKey, availability]);
+  }, [browseRevision, rosterReady, selectedKey, availability, cacheAccount]);
 
   const browse = useMemo<WorkspaceBrowse | null>(() => {
     if (!target) return null;
-    if (selected && availability === "reconnecting" && response?.target === target) return response;
+    if (selected && availability === "reconnecting" && response?.target === target
+      && response.account === cacheAccount && response.publicKey === selected?.public_key) return response;
     return { target, availability, workspaces: [] };
-  }, [target, selected, response, availability]);
+  }, [target, selected, response, availability, cacheAccount]);
 
   const generals = useMemo<PairedGeneral[]>(() => (peers?.paired ?? []).map(peer => {
     const live = general.get(peer.instance_id);
@@ -216,5 +236,32 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
       cached: !known?.sessions && saved !== undefined && saved.publicKey === peer.public_key,
     };
   }), [general, peers, cachedPeers, cacheAccount]);
-  return { generals, browse, refreshGeneral, refreshBrowse, ready };
+  const peerWorkspaces = useMemo(() => generals.flatMap(peer => {
+    const paired = peers?.paired.find(item => item.instance_id === peer.peerId);
+    const known = general.get(peer.peerId);
+    if (!known || known.account !== cacheAccount || known.publicKey !== paired?.public_key) return [];
+    if (browse?.target.id === peer.peerId && browse.availability === "online") {
+      const planTitles = known.workspaces?.[0]?.planTitles;
+      return browse.workspaces.map(workspace => ({ ...workspace, planTitles }));
+    }
+    return known.workspaces ?? [];
+  }), [generals, peers, general, cacheAccount, browse]);
+  return { generals, browse, peerWorkspaces, refreshGeneral, refreshBrowse, ready };
+}
+
+async function readTeamPlanTitles(peerId: string, signal: AbortSignal) {
+  try {
+    const { plans } = await daemonTransportForPeer(peerId).json<{ plans: PlanIndexEntry[] }>(
+      "GET", "/api/plans", undefined, { signal },
+    );
+    const latest = new Map<string, PlanIndexEntry>();
+    for (const plan of plans) {
+      if (plan.team_id && plan.title && (latest.get(plan.team_id)?.updated_at ?? -Infinity) < plan.updated_at) {
+        latest.set(plan.team_id, plan);
+      }
+    }
+    return new Map([...latest].map(([teamId, plan]) => [teamId, plan.title]));
+  } catch {
+    return undefined;
+  }
 }

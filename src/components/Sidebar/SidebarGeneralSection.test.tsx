@@ -19,6 +19,10 @@ vi.mock("../MeshPanel/useMeshData", () => ({ useMeshData: () => ({
   services: [], peers: [], thisMachine: { name: "Local", ip: "" }, loading: false, error: null, loaded: true, refresh: () => {},
 }) }));
 vi.mock("./SpinalCord", () => ({ SpinalCordButton: () => null }));
+vi.mock("../../store/multiplexer/hooks", async actual => ({
+  ...await actual<object>(),
+  useMultiplexer: () => ({ spawnAgentTab: vi.fn(), selectTabByTab: vi.fn(), upsertToast: vi.fn() }),
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => { localStorage.clear(); publishNeighborGateways({}); setSidebarMachineFilter("all"); });

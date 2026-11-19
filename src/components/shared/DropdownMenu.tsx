@@ -587,6 +587,7 @@ export function DropdownSelect({
   disabled,
   placeholder,
   leading,
+  trailing,
   iconOnly = false,
   prefix,
   "aria-label": ariaLabel,
@@ -604,6 +605,7 @@ export function DropdownSelect({
   placeholder?: string;
   /** Leading adornment inside the trigger (e.g. a provider AgentIcon). */
   leading?: ReactNode;
+  trailing?: ReactNode;
   iconOnly?: boolean;
   /** Static label shown before the value so the control names itself, e.g.
    *  "Effort" → "Effort Medium". */
@@ -674,6 +676,7 @@ export function DropdownSelect({
             {badge}
           </span>
         )}
+        {trailing}
         <ChevronDown size={12} className="shrink-0 text-[var(--ct-muted-fg)]" />
       </>}
     </button>
