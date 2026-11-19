@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { CronJob, CronRunInfo } from "../../lib/types";
 import type { InventoryOperation, Service } from "./types";
+import { serviceIdToCronId } from "./types";
 import { formatTime } from "../../lib/formatters";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
 import { CronPurposeCard } from "./CronDrawerSection/CronPurposeCard";
@@ -157,7 +158,7 @@ export function CronDrawerSection({ service, machineName, onUpdate, actionAdapte
       />
       {job && <CronPurposeCard job={job} />}
       <CronRunHistory runs={runs} allowed={can("history")} reason={reason("history")} onOpen={setOpenRun} runLabel={job?.role === "curator" ? "Curator round" : undefined} />
-      {openRun && openRun.session_id && <RunChatPopup cronId={service.id} runId={openRun.run_id} ownerInstanceId={openRun.owner_instance_id ?? service.source_peer_id} tabId={openRun.tab_id} title={`cron:${service.name}`} subtitle={formatTime(openRun.started_at)} status={openRun.status} provider={openRun.provider ?? ""} cwd={openRun.cwd ?? ""} sessionId={openRun.session_id} live={openRun.status === "Running" || openRun.status === "AwaitingOwnerPrompt"} onClose={() => setOpenRun(null)} />}
+      {openRun && openRun.session_id && <RunChatPopup cronId={serviceIdToCronId(service.id)} runId={openRun.run_id} ownerInstanceId={service.source_peer_id ? openRun.owner_instance_id ?? service.source_peer_id : undefined} tabId={openRun.tab_id} title={`cron:${service.name}`} subtitle={formatTime(openRun.started_at)} status={openRun.status} provider={openRun.provider ?? ""} cwd={openRun.cwd ?? ""} sessionId={openRun.session_id} live={openRun.status === "Running" || openRun.status === "AwaitingOwnerPrompt"} onClose={() => setOpenRun(null)} />}
     </div>
   );
 }
