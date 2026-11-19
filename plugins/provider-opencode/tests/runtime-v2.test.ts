@@ -156,7 +156,7 @@ check("settles an owned quota error once with a balance recovery notice",()=>{
   params.data={sessionID:ctx.threadId!,error};
   const failed=runtimeReduce(ctx,foreign.state,[quota]);
   assert.deepEqual(failed.events,[
-    {kind:"notice",threadId:ctx.threadId,message:"DeepSeek balance is empty — top up or switch model"},
+    {kind:"notice",threadId:ctx.threadId,message:"Provider balance or quota is exhausted — top up or switch model"},
     {kind:"turnState",threadId:ctx.threadId,turnId:"quota-turn",state:"idle",detail:"failed"},
   ]);
   params.id="execution-failed-after-quota";

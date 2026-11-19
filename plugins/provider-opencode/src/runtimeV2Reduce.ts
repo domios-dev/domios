@@ -62,7 +62,7 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
         state.pendingPrompts=[];
         const detail=type === "session.execution.failed" || quotaSessionError ? "failed" : type === "session.execution.interrupted" ? "interrupted" : undefined;
         if (detail === "failed") {
-          const message=isQuotaError(data.error) ? "DeepSeek balance is empty — top up or switch model"
+          const message=isQuotaError(data.error) ? "Provider balance or quota is exhausted — top up or switch model"
             : String(object(data.error).message ?? "OpenCode execution failed").slice(0,4096);
           events.push({kind:"notice",threadId:ctx.threadId,message});
         }

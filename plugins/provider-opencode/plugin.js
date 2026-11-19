@@ -2602,7 +2602,7 @@ function v2Reduce(ctx, raw, frames) {
         state.pendingPrompts = [];
         const detail = type === "session.execution.failed" || quotaSessionError ? "failed" : type === "session.execution.interrupted" ? "interrupted" : void 0;
         if (detail === "failed") {
-          const message2 = isQuotaError(data.error) ? "DeepSeek balance is empty \u2014 top up or switch model" : String(object2(data.error).message ?? "OpenCode execution failed").slice(0, 4096);
+          const message2 = isQuotaError(data.error) ? "Provider balance or quota is exhausted \u2014 top up or switch model" : String(object2(data.error).message ?? "OpenCode execution failed").slice(0, 4096);
           events.push({ kind: "notice", threadId: ctx.threadId, message: message2 });
         }
         events.push({ kind: "turnState", threadId: ctx.threadId, turnId: turn, state: "idle", ...detail ? { detail } : {} });
