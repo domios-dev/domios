@@ -132,7 +132,7 @@ async fn retirement_captures_external_conpty_descendants() {
 #[tokio::test]
 #[ignore = "requires the Microsoft Store pwsh app-execution alias; run with --ignored on a Windows host that has it"]
 async fn stop_reaps_commands_orphaned_outside_every_job() {
-    let mut tree = external_tree().await;
+    let tree = external_tree().await;
     let boundary = tree.boundary.clone();
     let tools = tokio::task::spawn_blocking(move || boundary.capture_tools())
         .await
@@ -148,35 +148,27 @@ async fn stop_reaps_commands_orphaned_outside_every_job() {
         reap(tools.clone()).await.unwrap().unwrap().is_empty(),
         "commands under a live shell are not orphans"
     );
-    for witness in &tree.witnesses {
-        assert!(!witness.exited().unwrap());
-    }
-    // The fixture ends its shell Job on input, as a provider ends an interrupted tool.
-    use tokio::io::AsyncWriteExt;
-    let mut input = tree.root.stdin.take().unwrap();
-    input
-        .write_all(
-            b"stop
-",
-        )
-        .await
-        .unwrap();
-    input.flush().await.unwrap();
+    // Only the shell ends, as a provider ends an interrupted tool; the fixture's ConPTY stays open,
+    // since closing it would end the console-attached commands by itself.
+    tree.shell.terminate_retained().unwrap();
     tree.shell
         .wait(std::time::Instant::now() + Duration::from_secs(10))
         .unwrap();
-    for witness in &tree.witnesses {
-        assert!(
-            !witness.exited().unwrap(),
-            "Job-only teardown leaves commands alive"
-        );
-    }
+    let orphans: Vec<&Member> = tree
+        .witnesses
+        .iter()
+        .filter(|witness| outside(&tree.boundary.job, witness) && !witness.exited().unwrap())
+        .collect();
+    assert!(
+        !orphans.is_empty(),
+        "shell teardown must leave an out-of-Job command alive to prove reaping"
+    );
     let reaped = reap(tools).await.unwrap().unwrap();
-    for witness in &tree.witnesses {
-        assert!(witness.exited().unwrap(), "orphaned command survived Stop");
+    for orphan in orphans {
+        let pid = unsafe { GetProcessId(orphan.handle as HANDLE) };
+        assert!(reaped.contains(&pid), "orphan {pid} was not reaped");
+        assert!(orphan.exited().unwrap(), "orphan {pid} survived Stop");
     }
-    assert!(reaped.len() >= tree.witnesses.len());
-    tree.root.wait().await.unwrap();
 }
 
 #[test]
