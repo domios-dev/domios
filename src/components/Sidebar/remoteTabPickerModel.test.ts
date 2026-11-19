@@ -39,6 +39,18 @@ describe("remote Tab picker model", () => {
     ]);
   });
 
+  it("pairs each tab with its reported status and excludes forwarded viewers", () => {
+    const topology = peerTopologyOf({ workspaces: [], tab_statuses: { busy: "Working" } });
+    const [group] = groupRemoteTabs([
+      tab("busy", { agent_type: "codex", agent_session_id: "busy-session" }),
+      tab("sleeping", { frozen: true }),
+      tab("mesh:peer/forwarded", { remote_peer_id: "peer" }),
+    ], topology);
+    expect(group.teams[0].rows.map(row => [row.tab.id, row.statusLabel])).toEqual([
+      ["busy", "Working"], ["sleeping", "Sleeping"],
+    ]);
+  });
+
   it("still groups when the peer's names are unavailable", () => {
     expect(peerTopologyOf("refused")).toBeNull();
     const groups = groupRemoteTabs([tab("x", { workspace_id: "ws-z", team_id: "team-z" })], null);

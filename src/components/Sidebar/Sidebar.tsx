@@ -767,7 +767,10 @@ export const Sidebar = memo(function Sidebar({
             {remotePickerWorkspaceId && (
               <RemoteTabPicker
                 onClose={() => setRemotePickerWorkspaceId(null)}
-                onAttach={(peer, tab) => attachRemoteTab?.(remotePickerWorkspaceId, peer, tab)}
+                onAttach={(peer, tab) => {
+                  const destination = ordinaryWorkspaces.find(workspace => workspace.id === remotePickerWorkspaceId);
+                  if (destination) attachRemoteTab?.(destination.id, peer, tab);
+                }}
               />
             )}
             {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} enabled={neighborsSwitch.enabled} activeChat={activeNeighborChat}

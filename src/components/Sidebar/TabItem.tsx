@@ -36,9 +36,10 @@ import { plainModelId } from "../../lib/agentModelName";
 import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
-import { managedByLabel, remoteIdentity as tabRemoteIdentity } from "./remoteOwnership";
+import { managedByLabel, remoteIdentity as tabRemoteIdentity, useRemoteTabTeamName } from "./remoteOwnership";
 import { MachineProvenance } from "../shared/MachineProvenance";
-import { useMeshMachineIdentity } from "../../lib/useMeshMachineIdentities";
+import { useMeshMachineIdentity, useMeshPeerName } from "../../lib/useMeshMachineIdentities";
+import { remoteTabKindLabel } from "./remoteTabPickerModel";
 import { machineLabel } from "../../lib/machineIdentity";
 import { managedTabPresentation } from "../../lib/managedTab";
 import { roleShieldLabel } from "./orchestrationSections";
@@ -330,21 +331,26 @@ function TabItemInner({
   const managedBy = managedTabPresentation(tab.managed).label ?? managedByLabel(tab);
   const remote = useRemoteChatStatus(tab.id, tab.remote_peer_id);
   const remoteStateLabel = remote.state && REMOTE_CHAT_COPY[remote.state].label;
-  const machine = remoteMachineName(tab.remote_peer_id ?? "", remote.peer?.name, tab.remote_peer_name);
-  const remoteIdentity = useMeshMachineIdentity(tab.remote_peer_id, Boolean(tab.remote_peer_id));
-  const remoteRole = tabRemoteIdentity(tab)?.role ?? roleShield;
+  const peerId = tab.remote_peer_id ?? visibleMachineLine?.peerId;
+  const knownPeerName = useMeshPeerName(peerId);
+  const machine = remoteMachineName(peerId ?? "", knownPeerName, remote.peer?.name, visibleMachineLine?.name, tab.remote_peer_name);
+  const remoteIdentity = useMeshMachineIdentity(peerId, Boolean(peerId));
+  const remoteRole = tabRemoteIdentity(tab)?.role ?? roleShield ?? remoteTabKindLabel(tab);
+  const remoteTeam = useRemoteTabTeamName(tab, peerId);
   const remoteStatus = remoteStateLabel || (remote.peer?.presence === "online" ? "online" : undefined);
-  const remoteLabel = tab.remote_peer_id
-    ? `${displayTitle}, ${remoteRole ? `${remoteRole} on` : "on"} ${machineLabel(machine, remoteIdentity, remoteStatus)}`
+  const remoteLabel = peerId
+    ? `${displayTitle}, ${remoteRole}, ${remoteTeam ?? "No Team"}, on ${machineLabel(
+      machine,
+      remoteIdentity,
+      (visibleMachineLine?.status || remoteStateLabel)
+        || [remoteStatus, (tab.frozen ? "Sleeping" : tabState.launching ? "Starting" : tabState.status).toLowerCase()].filter(Boolean).join(", "),
+    )}`
     : null;
-  const machineLineIdentity = useMeshMachineIdentity(visibleMachineLine?.peerId, Boolean(visibleMachineLine));
   const machineLineStatus = visibleMachineLine?.status ?? tabState.status.toLowerCase();
   const machineLineLabel = visibleMachineLine
-    ? machineLabel(visibleMachineLine.name, machineLineIdentity, machineLineStatus)
+    ? machineLabel(visibleMachineLine.name, remoteIdentity, machineLineStatus)
     : null;
-  const accessibleRowLabel = machineLineLabel
-    ? `${displayTitle}, ${isGeneralAgent ? "General Agent, " : ""}on ${machineLineLabel}`
-    : remoteLabel ?? accessibleTitle;
+  const accessibleRowLabel = remoteLabel ?? accessibleTitle;
   const showActivityMarkers = !visibleMachineLine?.suppressActivity;
   const showAttentionMarkers = showActivityMarkers && !visibleMachineLine?.suppressAttention;
   // A Team worker reads as name and role label; its description stays in the row's tooltip.

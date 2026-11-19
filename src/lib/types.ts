@@ -86,6 +86,7 @@ export type Tab = Pick<WireSnapshotTab, "id" | "pty_id" | "tab_type" | "title" |
   remote_peer_id?: string;
   remote_peer_name?: string;
   remote_tab_id?: string;
+  remote_team_id?: string;
   /** The peer's own PTY for a remote tab; `pty_id` stays the composite id this machine routes by. */
   remote_pty_id?: string | null;
   remote_channels?: RemoteChannelAvailabilityMap;

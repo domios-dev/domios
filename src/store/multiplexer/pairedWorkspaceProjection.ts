@@ -1,4 +1,5 @@
 import { isGeneralAgent } from "../../lib/roleKind";
+import { remoteViewerIdentity } from "../../lib/remoteTabPortal";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { relayPeerUsable } from "../../lib/webApi";
 import type { MeshPeersResponse, MultiplexerState, PairedPeer, Tab, TabStatus, Team, Workspace } from "../../lib/types";
@@ -16,6 +17,7 @@ export interface PairedGeneral {
   name: string;
   availability: GeneralAvailability;
   sessions: ObservedPeerTab[];
+  teamNames?: ReadonlyMap<string, string>;
 }
 
 export interface BrowsedWorkspace {
@@ -23,6 +25,23 @@ export interface BrowsedWorkspace {
   workspace: Workspace;
   teams: Team[];
   tabs: ObservedPeerTab[];
+}
+
+export function observedGeneralViewers(
+  peers: readonly PairedGeneral[],
+  tabs: Readonly<Record<string, Tab>>,
+  generalWorkspaceId: string,
+): Array<{ peer: PairedGeneral; session: ObservedPeerTab; attached: Tab | null }> {
+  const seen = new Set<string>();
+  return peers.flatMap(peer => peer.sessions.flatMap(session => {
+    if (seen.has(session.viewerId)) return [];
+    seen.add(session.viewerId);
+    const candidate = tabs[session.viewerId];
+    const identity = candidate && remoteViewerIdentity(candidate);
+    const attached = identity?.peerId === peer.peerId && identity?.remoteTabId === session.tab.id ? candidate : null;
+    if (attached?.workspace_id && attached.workspace_id !== generalWorkspaceId) return [];
+    return [{ peer, session, attached }];
+  }));
 }
 
 export function pairedAvailability(peer: PairedPeer, installations: MeshPeersResponse["installations"]): GeneralAvailability {

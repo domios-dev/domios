@@ -1,3 +1,4 @@
+import { cleanMachineName } from "./machineIdentity";
 import { invoke } from "./bridge";
 import type { Notification } from "./types";
 import type { AnswerResult } from "./notificationAnswerSend";
@@ -30,6 +31,7 @@ export function projectRemoteNotification(peerId: string, peerName: string, sour
   requireRoutePart(peerId, "installation");
   const sourceId = requireRoutePart(source.id, "notification");
   const answer = adoptAnswer(source.answer);
+  const machine = cleanMachineName(peerName, peerId) ?? "Machine";
   return {
     id: remoteNotificationId(peerId, sourceId),
     tab_id: compositeTabId(peerId, source.tab_id),
@@ -46,8 +48,8 @@ export function projectRemoteNotification(peerId: string, peerName: string, sour
     ...(answer ? { answer } : {}),
     ...(typeof source.resolved === "boolean" ? { resolved: source.resolved } : {}),
     ...(typeof source.sticky === "boolean" ? { sticky: source.sticky } : {}),
-    peer_name: peerName,
-    remote_origin: { peerId, sourceId, peerName },
+    peer_name: machine,
+    remote_origin: { peerId, sourceId, peerName: machine },
   };
 }
 

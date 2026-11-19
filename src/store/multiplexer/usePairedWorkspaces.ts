@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { cleanMachineName } from "../../lib/machineIdentity";
 import { invoke } from "../../lib/bridge";
 import type { MeshPeersResponse, MultiplexerState } from "../../lib/types";
 import { setWorkspaceBrowseTarget, useWorkspaceBrowseTarget, workspaceBrowseRevision, workspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
@@ -10,6 +11,7 @@ import {
 
 interface GeneralSnapshot {
   sessions: PairedGeneral["sessions"];
+  teamNames?: PairedGeneral["teamNames"];
   availability: "online" | "unreachable";
 }
 
@@ -56,10 +58,14 @@ export function usePairedWorkspaces(roster: PairedRoster | null) {
       .then(snapshot => {
         if (!signal.aborted) {
           const sessions = projectPairedGeneral(peerId, snapshot);
-          publish(() => ({ sessions, availability: "online" }));
+          const teamNames = new Map((snapshot.teams ?? []).flatMap(team => {
+            const name = team.name?.trim();
+            return name && name !== team.id ? [[team.id, name] as const] : [];
+          }));
+          publish(() => ({ sessions, teamNames, availability: "online" }));
         }
       })
-      .catch(() => publish(previous => ({ sessions: previous?.sessions ?? [], availability: "unreachable" })))
+      .catch(() => publish(previous => ({ sessions: previous?.sessions ?? [], teamNames: previous?.teamNames, availability: "unreachable" })))
       .finally(() => {
         if (reads.current.get(peerId) !== read) return;
         reads.current.delete(peerId);
@@ -160,7 +166,8 @@ export function usePairedWorkspaces(roster: PairedRoster | null) {
     const observed = pairedAvailability(peer, peers?.installations);
     return {
       peerId: peer.instance_id,
-      name: peer.instance_name,
+      name: cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine",
+      teamNames: known?.teamNames,
       availability: observed === "reconnecting" ? known?.availability ?? observed : observed,
       sessions: known?.sessions ?? [],
     };

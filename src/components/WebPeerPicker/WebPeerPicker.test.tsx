@@ -45,7 +45,7 @@ it("shows the machine name from health when the first mesh peers load fails", as
   peersResponse.mockImplementation(failing);
   healthResponse.mockImplementation(healthy);
   const chip = await mount();
-  expect(chip.label()).toBe("Switch Domios host, current host BLACKSTAR [dev], machine");
+  expect(chip.label()).toBe("Switch Domios host, current host BLACKSTAR, machine");
   await chip.unmount();
 });
 
@@ -58,19 +58,19 @@ it("paints the persisted machine name on a reloaded page while every source fail
   peersResponse.mockImplementation(failing);
   healthResponse.mockImplementation(failing);
   const reloaded = await mount();
-  expect(reloaded.label()).toBe("Switch Domios host, current host BLACKSTAR [dev], machine");
+  expect(reloaded.label()).toBe("Switch Domios host, current host BLACKSTAR, machine");
   await reloaded.unmount();
 });
 
 it("keeps the instance name when a remounted chip cannot reach the peers endpoint", async () => {
   peersResponse.mockImplementation(serving);
   const first = await mount();
-  expect(first.label()).toBe("Switch Domios host, current host BLACKSTAR [dev], machine");
+  expect(first.label()).toBe("Switch Domios host, current host BLACKSTAR, machine");
   await first.unmount();
 
   peersResponse.mockImplementation(failing);
   const remounted = await mount();
-  expect(remounted.label()).toBe("Switch Domios host, current host BLACKSTAR [dev], machine");
+  expect(remounted.label()).toBe("Switch Domios host, current host BLACKSTAR, machine");
   await remounted.unmount();
 });
 
@@ -82,7 +82,7 @@ it("picks up the instance name once mesh peers load after a failed first fetch",
 
   peersResponse.mockImplementation(serving);
   await act(async () => { notifyMeshPeersLoaded(); });
-  expect(chip.label()).toBe("Switch Domios host, current host BLACKSTAR [dev], machine");
+  expect(chip.label()).toBe("Switch Domios host, current host BLACKSTAR, machine");
   await chip.unmount();
 });
 
@@ -91,7 +91,7 @@ it("names a paired machine using its announced kind and offline state", async ()
     local_instance_name: "BLACKSTAR",
     local_machine_identity: { kind: "laptop", color: "blue" },
     machine_identities: { rog: { kind: "desktop", color: "teal" } },
-    paired: [{ instance_id: "rog", instance_name: "ROG", addresses: [], api_port: 7685, online: false }],
+    paired: [{ instance_id: "rog", instance_name: "ROG [dev-qa]", addresses: [], api_port: 7685, online: false }],
   });
   const chip = await mount();
   expect(chip.label()).toBe("Switch Domios host, current host BLACKSTAR, laptop");
