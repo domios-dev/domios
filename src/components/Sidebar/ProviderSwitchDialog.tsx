@@ -65,6 +65,7 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
       effortId={switchingTarget ? switchingTarget.effort : effort}
       disabledProviderIds={switchingTarget ? undefined : unavailableIds}
       disabled={locked}
+      showCurrentModel={false}
       showEffortLabel
       providerDescribedBy={failure ? errorId : undefined}
       modelSlot={freeModel}

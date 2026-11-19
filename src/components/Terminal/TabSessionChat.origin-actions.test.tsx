@@ -69,12 +69,23 @@ async function main() {
   const { TabSessionChat } = await import("./TabSessionChat");
 
   const tabId = "chat-tab";
+  const switchedTabId = "switched-chat";
   const originShort = "wrkr0001";
   const originFull = "wrkr0001-full-tab-id";
   const initial = [originReport("m0", originShort, 0)];
   setAgentDescriptors([{ id: "claude", available_models: [{ id: "haiku", display_name: "Claude Haiku 5.5" }] } as never]);
 
-  __setInvokeForTest((async (cmd: string) => {
+  const firstHandoff = { id: "provider-session:codex-session:first-handoff", type: "user", content: "First opaque payload", seq: 1,
+    inboundKind: "system", fromContext: "provider-handoff", fromLabel: "Codex", fromModel: "GPT-6.2-Sol" };
+  const secondHandoff = { id: "second-handoff", type: "user", content: "Second opaque payload", seq: 4,
+    inboundKind: "system", fromContext: "provider-handoff", fromLabel: "Claude", fromModel: "Haiku 5.5" };
+  const boundary = (seq: number) => ({ id: `boundary-${seq}`, type: "system", content: "Archived conversation boundary", systemSubtype: "provider_handoff", seq });
+  const copiedWire = '<domios from="system" context="provider-handoff" label="Copied provider">Copied user text</domios>';
+  const archive = [boundary(0), firstHandoff, { id: "copied-user-text", type: "user", content: copiedWire, seq: 2 }, boundary(3)];
+  __setInvokeForTest((async (cmd: string, args?: { tabId?: string }) => {
+    if (cmd === "chat_start" && args?.tabId === switchedTabId) {
+      return { text: "", offset: 0, messages: [secondHandoff], archived_messages: archive, pending: false, source_session_id: null, session_binding_nonce: null };
+    }
     if (cmd === "chat_start") return { text: "", offset: 0, messages: initial, pending: false, source_session_id: null, session_binding_nonce: null };
     if (cmd === "delayed_send_list") return [];
     if (cmd === "list_agent_providers") return [{ id: "claude", display_name: "Claude", available_models: [{ id: "haiku", display_name: "Claude Haiku 5.5" }] }];
@@ -122,6 +133,39 @@ async function main() {
     assert(calls[0] === `sender-workspace:${originFull}`, `Enter selects the sender workspace and tab (got ${JSON.stringify(calls)})`);
     assert(calls.length === 1, `activation selects once (got ${JSON.stringify(calls)})`);
     await act(async () => root.unmount());
+  });
+
+  test("Chat reload after two provider switches renders both recorded handoff dividers", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const store = createMuxStateStore(() => muxStateFor({ [switchedTabId]: tabBase(switchedTabId) }));
+    const element = testWindow.HTMLElement.prototype;
+    const clientHeight = Object.getOwnPropertyDescriptor(element, "clientHeight");
+    Object.defineProperty(element, "clientHeight", {
+      configurable: true,
+      get(this: HTMLElement) { return this.getAttribute("role") === "log" ? 600 : clientHeight?.get?.call(this) ?? 0; },
+    });
+    try {
+      await act(async () => root.render(
+        <MuxStateStoreContext.Provider value={store}>
+          <MultiplexerActionsContext.Provider value={actionsWith(() => {})}>
+            <TabSessionChat tabId={switchedTabId} chatBackend isVisible />
+          </MultiplexerActionsContext.Provider>
+        </MuxStateStoreContext.Provider>,
+      ));
+      const dividers = Array.from(host.querySelectorAll('[role="separator"]'), (node) => node.getAttribute("aria-label"));
+      assert(dividers.join("|") === "Continued on Codex · GPT-6.2-Sol|Continued on Claude · Haiku 5.5",
+        `both handoff dividers render in transcript order (got ${dividers.join("|")})`);
+      const payloads = Array.from(host.querySelectorAll("details > pre"), (node) => node.textContent);
+      assert(payloads.includes(firstHandoff.content) && payloads.includes(secondHandoff.content), "both handoff payloads have Details");
+      assert(host.textContent?.includes("Copied user text"), "copied markup remains user content");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      if (clientHeight) Object.defineProperty(element, "clientHeight", clientHeight);
+      else Reflect.deleteProperty(element, "clientHeight");
+    }
   });
 
   let failed = 0;

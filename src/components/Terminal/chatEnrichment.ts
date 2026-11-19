@@ -45,6 +45,9 @@ function splitAgentSetup(raw: ChatMessage): { notice: EnrichedChatEntry; rest: C
 }
 
 function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedChatEntry[] {
+  if (raw.inboundKind === "system" && raw.fromContext === "provider-handoff") {
+    return [{ msg: raw, item: rawItem, origin: undefined }];
+  }
   const setup = splitAgentSetup(raw);
   if (setup) {
     if (!setup.rest) return [setup.notice];
