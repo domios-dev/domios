@@ -2154,7 +2154,7 @@ button {
   --ct-bg-selected: color-mix(in srgb, var(--team-surface) 96%, var(--ct-fg));
   position: relative;
   min-width: 0;
-  margin: 4px calc(var(--spacing) * 1);
+  margin: 4px 0;
   padding: 3px 0 0;
   overflow: visible;
   isolation: isolate;
