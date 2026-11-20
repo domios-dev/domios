@@ -1001,7 +1001,8 @@ function TabSessionChatBody({
         )}
         {backfillNotice === "stalled_cursor"
           ? <InlineErrorNotice error="Older history could not be read." operation="loading older messages" />
-          : backfillNotice && <p role="status" className="text-center text-xs text-[var(--ct-muted-fg)]">
+          : railsVisible && snapshotReady && attachmentState === "attached" && !backfillLoading
+            && hiddenMessageCount === 0 && !canBackfillOlder && <p role="status" className="text-center text-xs text-[var(--ct-muted-fg)]">
             No earlier messages.
           </p>}
         {isActive && (reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}

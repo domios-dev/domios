@@ -697,6 +697,8 @@ it("releases a restored PTY Chat on its own agent_ready lifecycle without PTY ou
     expect(state.tabs[tab.id].session_binding_nonce).toBe("restored-binding");
     expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).toBeNull();
     expect(host.querySelector('[aria-label="Tab chat: Grok"]')?.getAttribute("data-chat-ready")).toBe("true");
+    expect([...host.querySelectorAll('[role="status"]')].some(status => status.textContent === "No earlier messages.")).toBe(true);
+    expect(host.querySelector('[data-testid="chat-load-older"]')).toBeNull();
     expect(host.querySelector('textarea[aria-label="Message composer"]')).toBe(composer);
     expect(composer?.disabled).toBe(false);
     expect(composer?.closest("[inert]")).toBeNull();
