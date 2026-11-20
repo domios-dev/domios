@@ -3,6 +3,7 @@ import { configureRemoteTabTransport } from "./remoteTabTransport";
 import { afterEach, describe, expect, finish, it, vi } from "../test/standaloneTest";
 import {
   onRemoteTabEventSignal, remoteTabEventSubscriptionSnapshot, resumeRemoteTabEvents, subscribeRemoteTabEvent,
+  waitForRemoteTabEventGenerationSettlement,
 } from "./remoteTabEvents";
 import { onRemoteTransportState } from "./remoteTabTransportState";
 
@@ -93,15 +94,18 @@ describe("remote chat event subscription ownership", () => {
     vi.unstubAllGlobals();
   });
 
-  it("tracks validated cursor, publishes available, and replacement ownership is isolated", async () => {
+  it("keeps live streams open on resume and restores parked streams from their cursor", async () => {
     vi.stubGlobal("window", new EventTarget());
     const bytes = new TextEncoder().encode(
       'data: {"boot":"boot-a","seq":9,"event_type":"tab-chat-msg-tab","data":{"delta":"x"}}\n\n',
     );
     const requests: string[] = [];
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
     const fetchMock: typeof fetch = async (input) => {
       requests.push(String(input));
-      return new Response(new ReadableStream({ start(controller) { controller.enqueue(bytes); } }));
+      return new Response(new ReadableStream({
+        start(controller) { stream = controller; controller.enqueue(bytes); },
+      }));
     };
     vi.stubGlobal("fetch", fetchMock);
     const available: string[] = [];
@@ -113,6 +117,11 @@ describe("remote chat event subscription ownership", () => {
     await delivery;
     expect(remoteTabEventSubscriptionSnapshot(event)?.cursor).toBe("boot-a:9");
     expect(available).toContain("available");
+    resumeRemoteTabEvents();
+    expect(requests.length).toBe(1);
+    const ended = waitForRemoteTabEventGenerationSettlement(event, 1);
+    stream.error(new Error("peer stream lost"));
+    await ended;
     resumeRemoteTabEvents();
     expect(requests[1]).toContain("since=boot-a%3A9");
     const second = subscribeRemoteTabEvent(event, () => undefined)!;

@@ -175,6 +175,12 @@ describe("runtime status presentation", () => {
     });
     expect(runtimeHistorySettled(loading?.history, done?.history)).toBe(true);
   });
+
+  it("allows new history replay in the next runtime epoch", () => {
+    const complete: AgentRuntimeState = { state: "loaded", epoch: 2, history: "complete", historyPages: 4 };
+    const next: AgentRuntimeState = { state: "loaded", epoch: 3, history: "loading", historyPages: 1 };
+    expect(runtimeStateFromSnapshot(complete, next)).toEqual(next);
+  });
 });
 
 

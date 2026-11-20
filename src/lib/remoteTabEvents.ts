@@ -224,8 +224,7 @@ export function subscribeRemoteTabEvent<T>(event: string, handler: (value: {
 onRemoteTransportCredentials(() => resumeRemoteTabEvents());
 export function resumeRemoteTabEvents(): void {
     for (const record of subscriptions.values()) {
-        // Never supersede a connection still awaiting its first frame (the generation- churn race that blanked remote panes).
-        if (record.recovery.currentCursor() == null && !record.recovery.isAwaitingSignal())
+        if (!record.recovery.isAwaitingSignal())
             continue;
         record.recovery.signal();
         connect(record);

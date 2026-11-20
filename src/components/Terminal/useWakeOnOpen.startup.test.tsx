@@ -4,6 +4,7 @@ import { expect, it, vi } from "vitest";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { createTransportClient } from "../../lib/transportClient";
 import { restoreStageView } from "../../lib/restoreStageView";
+import { PeerTabRelayError } from "../../lib/remoteChatState";
 import type { Tab, ThemeConfig } from "../../lib/types";
 import { MuxStateStoreContext, MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
@@ -89,6 +90,25 @@ it("recognizes the initial sleeping loader even before wake adds progress steps"
   } finally {
     await act(async () => root.unmount());
     host.remove();
+  }
+});
+
+it("shows the owner's wake refusal while the remote tab is still sleeping", async () => {
+  const tab = { id: "mesh:peer/refused-wake", frozen: true, agent_type: "fixture" } as Tab;
+  const refusal = new PeerTabRelayError(403, "/api/mesh/relay-to", "Fixture wake refusal");
+  __setInvokeForTest(async () => { throw refusal; });
+  function Probe() {
+    const wake = useWakeOnOpen(tab, true);
+    return <RestoreStatePanel view={restoreStageView(tab, wake)} />;
+  }
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<Probe />));
+    expect(host.querySelector('[role="alert"] h2')?.textContent).toBe("Could not restore");
+  } finally {
+    await act(async () => root.unmount());
+    __setInvokeForTest(null);
   }
 });
 
