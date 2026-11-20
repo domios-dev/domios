@@ -22,7 +22,7 @@ codeterm-pty = { path = "../codeterm-pty" }
 codeterm-types = { path = "../codeterm-types" }
 codeterm-wire = { path = "../codeterm-wire" }
 log = { version = "0.4", features = ["release_max_level_info"] }
-notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
+notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
 parking_lot = "0.12"
 regex = "1"
 serde_json = { version = "1", features = ["raw_value"] }

@@ -16,7 +16,7 @@ codeterm-types = { path = "../codeterm-types" }
 codeterm-util = { path = "../codeterm-util" }
 dirs = "6"
 log = "0.4"
-notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
+notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
 parking_lot = "0.12"
 semver = "1"
 serde = { version = "1", features = ["derive"] }
