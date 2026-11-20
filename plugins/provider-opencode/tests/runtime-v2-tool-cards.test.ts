@@ -77,15 +77,17 @@ assert.deepEqual(open131EditDiff?.hunks[0]?.lines,["-PUBLIC_OPEN131_CREATED","+P
 assert.equal(open131Edit.toolDurationMs,10);
 assert.notEqual(open131Write.id,open131Edit.id,"distinct native calls retain distinct row identities");
 
-const applyPatch=v2Content("patch-message",{
-  id:"call-apply-patch",
-  type:"tool",
-  name:"apply_patch",
-  state:{status:"completed",input:{input:"--- a/src/patched.ts\n+++ b/src/patched.ts\n@@ -1 +1 @@\n-old\n+new"},content:[{type:"text",text:"patch applied"}],metadata:{files:[]}},
-},0,1);
-assert.equal(applyPatch?.toolKind,"edit");
-assert.equal(applyPatch?.toolSummary,"src/patched.ts");
-assert.equal(applyPatch && firstDiff(applyPatch)?.path,"src/patched.ts");
+for (const metadata of [{files:[]}, {files:[{}, null],filediff:{}}]) {
+  const applyPatch=assertRow({
+    id:"call-apply-patch",
+    type:"tool",
+    name:"apply_patch",
+    state:{status:"completed",input:{input:"--- a/src/patched.ts\n+++ b/src/patched.ts\n@@ -1 +1 @@\n-old\n+new"},content:[{type:"text",text:"patch applied"}],metadata},
+  });
+  assert.equal(applyPatch.toolKind,"edit");
+  assert.equal(applyPatch.toolSummary,"src/patched.ts");
+  assert.equal(firstDiff(applyPatch)?.path,"src/patched.ts");
+}
 
 for(const [id,status,error] of [
   ["call-aborted-search","interrupted",undefined],
@@ -97,7 +99,8 @@ for(const [id,status,error] of [
 }
 assert.equal(assertRow(byId("call-aborted-search")).toolInterrupted,true);
 
-const timedOut={...byId("call-shell"),state:{...byId("call-shell").state as object,metadata:{timeout:true}}};
+const shell=byId("call-shell"), shellState=shell.state as Record<string,unknown>;
+const timedOut={...shell,state:{...shellState,metadata:{timeout:true}}};
 const timeoutRow=assertRow(timedOut);
 assert.equal(timeoutRow.toolStatus,"failed");
 assert.equal(timeoutRow.toolError,true);
@@ -106,12 +109,11 @@ assert.equal(timeoutRow.toolResult,"example output");
 for(const id of ["call-shell","call-edit"]) {
   const part=byId(id), state=part.state as Record<string,unknown>;
   const v1=partToChatMsg({type:"tool",tool:part.name,callID:part.id,state} as OpencodePart,"assistant",String(part.id),1795000000000) as Record<string,unknown>;
-  const v2=assertRow(part);
-  const fields=v2 as unknown as Record<string,unknown>;
-  for(const field of ["toolKind","toolSummary","toolDetail","toolEdits","fileDiffs","toolError"]) assert.deepEqual(fields[field],v1[field],`${id} ${field} v1/v2 parity`);
+  const v2=assertRow(part) as unknown as Record<string,unknown>;
+  for(const field of ["toolKind","toolSummary","toolDetail","toolEdits","fileDiffs","toolError"]) assert.deepEqual(v2[field],v1[field],`${id} ${field} v1/v2 parity`);
 }
 
-const streaming={...byId("call-shell"),state:{status:"streaming",input:'{"command":"pnpm check"}'}};
+const streaming={...shell,state:{status:"streaming",input:'{"command":"pnpm check"}'}};
 const streamingRow=assertRow(streaming);
 assert.equal(streamingRow.toolStatus,"running");
 assert.equal((streamingRow.toolInput as Record<string,unknown> | undefined)?.command,"pnpm check");

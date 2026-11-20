@@ -221,6 +221,10 @@ function utf8Length(value) {
 }
 
 // plugins/provider-opencode/src/turnErrors.ts
+function isQuotaError(value) {
+  const error = object2(value);
+  return error.type === "provider.quota" || object2(object2(error.body).error).type === "insufficient_balance_error";
+}
 function runtimeErrorMessage(error, fallback) {
   return text(object2(error.data).message) ?? text(error.message) ?? fallback;
 }
@@ -244,7 +248,7 @@ function turnError(value) {
   if (!value || typeof value !== "object") return null;
   const message = value;
   const error = message.error;
-  return message.role === "assistant" && error && (error.name === "APIError" || error.type === "provider.quota") ? error : null;
+  return message.role === "assistant" && error && (error.name === "APIError" || isQuotaError(error)) ? error : null;
 }
 function sessionObservations(value) {
   const error = turnError(value);
@@ -253,11 +257,9 @@ function sessionObservations(value) {
     return message2?.role === "assistant" && !message2.error && typeof message2.time?.completed === "number" ? { api_error: null, permission_mode: null, clears_api_error: true } : null;
   }
   const status = error.status ?? error.statusCode ?? error.data?.statusCode;
-  const bodyError = error.body?.error;
   const message = value;
   const id = message.modelID?.includes("/") ? message.modelID : message.providerID && message.modelID ? `${message.providerID}/${message.modelID}` : null;
-  const quota = error.type === "provider.quota" || bodyError?.type === "insufficient_balance_error";
-  return { ...id && unavailableModelError(value) ? { unavailable_model: id } : {}, api_error: quota ? "usage_limit" : status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other", permission_mode: null, clears_api_error: false };
+  return { ...id && unavailableModelError(value) ? { unavailable_model: id } : {}, api_error: isQuotaError(error) ? "usage_limit" : status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other", permission_mode: null, clears_api_error: false };
 }
 function unavailableModelError(value) {
   const error = turnError(value);
@@ -1284,8 +1286,8 @@ function toolFileDiffs(part) {
   const path = String(input.filePath ?? input.file_path ?? input.path ?? "");
   const edits = extractCanonicalEdits(input);
   let metadata = state.metadata && typeof state.metadata === "object" ? state.metadata : {};
-  const hasFiles = Array.isArray(metadata.files) && metadata.files.length > 0;
-  const hasFileDiff = metadata.filediff !== null && typeof metadata.filediff === "object";
+  const hasFiles = Array.isArray(metadata.files) && metadata.files.some((file) => file && typeof file === "object" && Object.keys(file).length > 0);
+  const hasFileDiff = metadata.filediff !== null && typeof metadata.filediff === "object" && Object.keys(metadata.filediff).length > 0;
   if (part.tool?.toLowerCase() === "apply_patch" && typeof metadata.diff !== "string" && typeof metadata.patch !== "string" && !hasFiles && !hasFileDiff) {
     const patch = typeof input.patch === "string" ? input.patch : typeof input.input === "string" ? input.input : "";
     if (patch) metadata = { ...metadata, patch };
@@ -2684,11 +2686,10 @@ function v2Reduce(ctx, raw, frames) {
       if (!turn || !state.completed.includes(turn)) {
         if (turn) state.completed.push(turn);
         state.pendingPrompts = [];
-        const error = object2(data.error), bodyError = object2(object2(error.body).error);
-        const quota = error.type === "provider.quota" || bodyError.type === "insufficient_balance_error";
         const detail = type === "session.execution.failed" || type === "session.error" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : void 0;
         if (detail === "failed") {
-          const message2 = quota ? "Provider balance or quota is exhausted \u2014 top up or switch model" : runtimeErrorMessage(error, "OpenCode execution failed");
+          const error = object2(data.error);
+          const message2 = isQuotaError(error) ? "Provider balance or quota is exhausted \u2014 top up or switch model" : runtimeErrorMessage(error, "OpenCode execution failed");
           events.push(...runtimeTurnErrorEvents(ctx.threadId, turn, turn ? ++state.seq : state.seq, message2));
         }
         events.push({ kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "idle", ...detail ? { detail } : {} });

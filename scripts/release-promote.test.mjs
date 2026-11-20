@@ -89,6 +89,8 @@ import { QUALIFICATION_JOBS, verifyQualification, selectQualificationArtifact, s
 import { isReleasePushRun, checkQualifiedRun, REQUIRED_JOBS } from './release-promote.mjs';
 import { requireQualificationWithGithub, requireReleasePrQualification } from './ci-workflow-api.mjs';
 import { ciFailures } from './ci-result.mjs';
+import { classifyPluginDiff, directPluginId } from './plugin-release-scope.mjs';
+import { docsAssetLinks } from './release-docs-scope.mjs';
 
 const repository = 'domios-dev/domios';
 const sha = 'a'.repeat(40);
@@ -405,4 +407,46 @@ test('publication retries require an already recorded identical waiver; PR admis
     assert.throws(() => verifyTestWaiver({ ...input, publicationRecovery: true, admission: { ...admission, ...change } }), /hidden draft/);
   }
   assert.throws(() => verifyTestWaiver({ ...input, publicationRecovery: true }), /hidden draft/);
+});
+
+test('only one versioned plugin and its owned files qualify for lightweight CI', () => {
+  const before = { plugins: [
+    { id: 'opencode', path: 'provider-opencode', version: '1.14.28', minCodeterm: '1.20.2' },
+    { id: 'codex', path: 'provider-codex', version: '1.14.80', minCodeterm: '1.20.2' },
+  ] };
+  const after = structuredClone(before);
+  after.plugins[0].version = '1.14.29';
+  const paths = ['plugins/channel.json', 'plugins/provider-opencode/plugin.json', 'tests/fixtures/runtime-http-sse.json'];
+  assert.deepEqual(classifyPluginDiff(paths, before, after), { id: 'opencode', tag: 'plugin-opencode-v1.14.29' });
+  for (const extra of ['package.json', 'tests/fixtures/foreign.json', 'plugins/provider-codex/plugin.json',
+    'plugins/provider-opencode-other/plugin.json', '.github/workflows/tests.yml']) {
+    assert.equal(classifyPluginDiff([...paths, extra], before, after), null);
+  }
+  assert.equal(classifyPluginDiff(paths, before, before), null);
+  after.plugins[1].version = '1.14.81';
+  assert.equal(classifyPluginDiff(paths, before, after), null);
+});
+
+test('direct plugin PR naming identifies the one expected plugin', () => {
+  assert.equal(directPluginId('release/plugin-opencode'), 'opencode');
+  assert.equal(directPluginId('release/plugin-chat-preprocessor'), 'chat-preprocessor');
+  for (const ref of ['release/next', 'release/plugin-', 'release/plugin-opencode/topic', 'feature/plugin-opencode']) {
+    assert.equal(directPluginId(ref), null);
+  }
+});
+
+test('README asset check reads both picture variants and Markdown local image targets', () => {
+  const markdown = [
+    '<source srcset="docs/readme/dark.png 1x, ./docs/readme/dark-2x.png 2x">',
+    "<img src='docs/readme/light.png?cache=1'>",
+    '<img src=docs/readme/plain.jpg>',
+    '![local](./docs/readme/figure.webp)',
+    '[download]: docs/readme/dark.png',
+    '![external](https://example.com/image.png)',
+    '[film](https://youtu.be/kMZJDku4xcE)',
+  ].join('\n');
+  assert.deepEqual(docsAssetLinks(markdown), [
+    'docs/readme/dark.png', 'docs/readme/dark-2x.png', 'docs/readme/light.png',
+    'docs/readme/plain.jpg', 'docs/readme/figure.webp',
+  ]);
 });
