@@ -193,7 +193,7 @@ Native auto-install uses stable, requires an attached application-host updater, 
 3. The native client durably records the verified target, stops the exact attached server, installs and relaunches the pair.
 4. The replacement records `verified` only after enrollment with the expected instance, target version and matching client/server build. Interrupted operations never replay automatically.
 
-Automatic app updates save the desk before stopping its processes. Interrupted agents continue once when their own sessions are ready. Restored shell tabs with a recorded running command offer **Rerun command**. The shell that called the updater opens without a saved command. With `updater.require_idle_for_app_update = true`, a refusal names the busy tabs and their workspaces. The authenticated calling tab is exempt from the idle requirement.
+Automatic app updates save the desk before stopping its processes. Interrupted agents continue once when their own sessions are ready. A running shell with a recorded command can update even with `updater.require_idle_for_app_update = true`. The same tab restores stopped and offers **Rerun command**. Refusals name the affected tabs, their workspaces, and the reason. The authenticated calling tab is exempt from the idle requirement and its updater command is omitted from restore.
 
 `success` requires a verified replacement running the target version. The CLI exits 2 if its connection ends before verification; run `domios update status` after restart. The instance data directory retains `native-update-handoff.json` and `native-update-installer.json`. Logs print the installer evidence path and, on Windows, the expected `%TEMP%\Domios-installer.log` path; the latter records installer preflight and completion with the actual installer path. A relaunched old version reports the expected/running versions and last installer stage.
 
@@ -220,4 +220,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 50 -->
+<!-- revision: 51 -->

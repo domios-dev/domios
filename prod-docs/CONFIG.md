@@ -203,7 +203,7 @@ Numeric and enum settings are checked on CLI, REST, Tauri, and config-file load.
 
 Other numeric limits and accepted enum values are reported by `domios config set <key> <value>` when a value is refused.
 
-Set `updater.require_idle_for_app_update = true` in `config.toml` to require idle tabs before an automatic app update. The default allows the app update to stop and restore busy tabs. The tab that starts the update is exempt.
+Set `updater.require_idle_for_app_update = true` in `config.toml` to require idle agents and verified shell activity before an automatic app update. Running shells with a recorded command can update in either mode and restore with **Rerun command**. The tab that starts the update is exempt.
 
 ## When config.toml fails to load
 
@@ -237,4 +237,4 @@ Domios account sign-in and product analytics settings: `domios docs ACCOUNT`.
 
 **Docker server:** See the distribution's packaging/docker/README.md for setup and recovery.
 Docs vectors build only on the first enabled hybrid-doc search. With docs hybrid search disabled, startup does not load a model for docs; BM25 remains available while an enabled vector build warms. Actual mem vector search still loads its model on demand.
-<!-- revision: 136 -->
+<!-- revision: 137 -->

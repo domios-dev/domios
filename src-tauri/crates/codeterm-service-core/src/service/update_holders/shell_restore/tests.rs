@@ -4,17 +4,19 @@ use crate::service::test_fixture::ServiceFixture;
 use codeterm_update::holders::ReserveHolders;
 
 #[test]
-fn update_snapshot_offers_the_busy_shell_command_once_and_excludes_the_caller() {
+fn idle_only_update_admits_and_restores_busy_shell_stopped_with_one_rerun() {
     let (mut mux, caller) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&caller).unwrap();
     let dev = mux.create_tab(&workspace).unwrap();
-    let stale = mux.create_tab(&workspace).unwrap();
     let fixture = ServiceFixture::new(mux);
     let svc = &fixture.service;
+    svc.ext::<crate::config::ConfigState>()
+        .lock()
+        .updater
+        .require_idle_for_app_update = true;
     for (tab_id, pty_id, command) in [
         (&caller, "caller-pty", "update command"),
         (&dev, "dev-pty", "server command"),
-        (&stale, "old-pty", "old command"),
     ] {
         {
             let mut mux = svc.mux.write();
@@ -28,7 +30,6 @@ fn update_snapshot_offers_the_busy_shell_command_once_and_excludes_the_caller() 
     }
     {
         let mut mux = svc.mux.write();
-        mux.link_pty(&stale, "new-pty".into());
         mux.get_tab_mut(&dev).unwrap().close_restore = Some(CloseRestoreTabState {
             utility_owner_tab_id: Some(caller.clone()),
             ..Default::default()
@@ -45,13 +46,10 @@ fn update_snapshot_offers_the_busy_shell_command_once_and_excludes_the_caller() 
         MultiplexerState::from_session_snapshot(&svc.mux.read().to_session_snapshot());
 
     assert!(restored.get_tab(&caller).unwrap().close_restore.is_none());
-    assert!(restored.get_tab(&stale).unwrap().close_restore.is_none());
-    let command = restored
-        .get_tab_mut(&dev)
-        .unwrap()
-        .close_restore
-        .as_mut()
-        .unwrap();
+    let tab = restored.get_tab_mut(&dev).unwrap();
+    assert!(tab.pty_id.is_none());
+    let command = tab.close_restore.as_mut().unwrap();
+    assert!(command.stopped);
     assert_eq!(
         command.utility_owner_tab_id.as_deref(),
         Some(caller.as_str())

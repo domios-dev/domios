@@ -170,9 +170,7 @@ impl super::super::ServiceContext {
                 )
             },
             || {
-                if policy.require_idle {
-                    self.require_idle_update(policy.initiating_tab)?;
-                }
+                self.require_update_ready(policy.initiating_tab, policy.require_idle)?;
                 let mut actual = Vec::new();
                 for expected in &request.tabs {
                     actual.extend(
