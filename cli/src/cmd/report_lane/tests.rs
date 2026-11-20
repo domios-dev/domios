@@ -140,6 +140,42 @@ fn shared_assignment_scope_is_reportable_and_nonrepository_scope_skips_checkout(
 }
 
 #[test]
+fn plain_assignment_snapshot_reports_only_without_git_metadata() {
+    let project = tempfile::tempdir().unwrap();
+    let task = json!({
+        "files": {"edit": [], "read": []},
+        "execution_intent": "repository_mutation",
+        "execution_attempts": [{
+            "executor_tab_id": "tab-a",
+            "execution_intent": "mutating",
+            "checkout_path": project.path(),
+            "shared_start_files": {}
+        }]
+    });
+    let scope = task_readiness_scope_from_task(&task, "tab-a");
+    assert!(scope.recorded_checkout);
+    assert!(!scope.shared);
+    let report = |sha| {
+        enrich_ready_report(
+            Some(&scope),
+            Some(ReportStatusArg::InReview),
+            None,
+            sha,
+            ReportBase::default(),
+            None,
+            false,
+        )
+    };
+
+    assert_eq!(report(None).unwrap(), (None, None, None));
+    assert!(report(Some("unverified".into())).is_err());
+    run(project.path(), &["init", "--initial-branch", "main"]);
+    assert_eq!(report(None).unwrap(), (None, None, None));
+    project.close().unwrap();
+    assert!(report(None).is_err());
+}
+
+#[test]
 fn open_attempt_worktree_and_base_win_as_one_scope() {
     let task = json!({
         "id": "task_a",

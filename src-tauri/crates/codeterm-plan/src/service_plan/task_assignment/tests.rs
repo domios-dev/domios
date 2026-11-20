@@ -5,6 +5,10 @@ use crate::service_plan::NewTask;
 use codeterm_types::agent::ReportStatus;
 
 fn fixture() -> (tempfile::TempDir, PlanStore, String, String) {
+    fixture_with_edit_files(vec!["src/lifecycle.rs".into()])
+}
+
+fn fixture_with_edit_files(edit: Vec<String>) -> (tempfile::TempDir, PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("src")).unwrap();
     std::fs::write(dir.path().join("src/lifecycle.rs"), "fixture\n").unwrap();
@@ -23,7 +27,7 @@ fn fixture() -> (tempfile::TempDir, PlanStore, String, String) {
                 name: "lifecycle".into(),
                 kind: "implement".into(),
                 files: crate::plan::TaskFiles {
-                    edit: vec!["src/lifecycle.rs".into()],
+                    edit,
                     ..Default::default()
                 },
                 model: Some("codex:test-model".into()),
@@ -89,8 +93,17 @@ fn assignment_attempt_retains_planned_provider_and_model() {
 
 #[test]
 fn git_repository_assignment_records_shared_start_commit() {
-    let (_dir, store, plan, task) = fixture();
-    let project = _dir.path();
+    assert_git_assignment_start(vec!["src/lifecycle.rs".into()], WorkerPlacement::Shared);
+}
+
+#[test]
+fn git_assignment_without_edit_files_records_start_commit_only() {
+    assert_git_assignment_start(Vec::new(), WorkerPlacement::default());
+}
+
+fn assert_git_assignment_start(edit: Vec<String>, placement: WorkerPlacement) {
+    let (dir, store, plan, task) = fixture_with_edit_files(edit);
+    let project = dir.path();
     for args in [
         &["init", "--initial-branch=main"][..],
         &["config", "user.email", "test@example.invalid"][..],
@@ -141,13 +154,58 @@ fn git_repository_assignment_records_shared_start_commit() {
 
     let assigned = store.inspect_task_for_test(&task).unwrap().task;
     let attempt = assigned.execution_attempts.last().unwrap();
-    assert_eq!(attempt.placement, crate::plan::WorkerPlacement::Shared);
+    assert_eq!(attempt.placement, placement);
     assert_eq!(
         attempt.shared_start_sha.as_deref(),
         Some(expected_head.as_str())
     );
     assert!(attempt.checkout_path.is_some());
     assert!(attempt.shared_start_files.is_none());
+}
+
+#[test]
+fn plain_assignment_without_edit_files_can_report_readiness() {
+    let (dir, store, plan, task) = fixture_with_edit_files(Vec::new());
+    store
+        .assign_task_with_runtime_binding(
+            &plan,
+            &task,
+            "worker",
+            None,
+            None,
+            Some(&binding("worker-session")),
+            None,
+            3,
+        )
+        .unwrap();
+    let assigned = store.inspect_task_for_test(&task).unwrap().task;
+    let attempt = assigned.execution_attempts.last().unwrap();
+    assert_eq!(attempt.placement, WorkerPlacement::default());
+    assert!(codeterm_paths::paths_equal(
+        attempt.checkout_path.as_deref().unwrap(),
+        &dir.path().to_string_lossy()
+    ));
+    assert!(attempt.shared_start_sha.is_none());
+    assert_eq!(attempt.shared_start_files, Some(Default::default()));
+    store
+        .acknowledge_task_attempt(&plan, &task, "worker", &attempt.id, 4)
+        .unwrap();
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                &plan,
+                &task,
+                &AgentRef::from_tab("worker"),
+                report(authority(&assigned, "worker")),
+                5,
+            )
+            .unwrap()
+            .committed_review
+    );
+    assert_eq!(
+        store.inspect_task_for_test(&task).unwrap().task.status,
+        TaskStatus::InReview
+    );
 }
 
 #[test]
