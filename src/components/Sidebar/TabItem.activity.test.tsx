@@ -3,14 +3,56 @@ import { createRoot } from "react-dom/client";
 import { expect, it } from "vitest";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { AgentStateIndicator } from "../Terminal/AgentStateIndicator";
+import { RestoredShell } from "../Terminal/RestoredShell";
 import { TabRecoveryAction } from "../Terminal/TabRecoveryAction";
 import { StatusLineModelPicker } from "../Terminal/StatusLineModelPicker";
 import { runtimeStatusLineIdentity } from "../Terminal/statusLinePickerModel";
+import { useWakeOnOpen } from "../Terminal/useWakeOnOpen";
+import { ShellStatus } from "../shared/ShellStatus";
 import { tabActivity } from "../../lib/tabActivity";
 import type { ProviderDescriptor, Tab } from "../../lib/types";
 import { TabItem } from "./TabItem";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+it("opens a stopped restored shell with Rerun available and no launch failure status", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const calls: string[] = [];
+  __setInvokeForTest(async <T,>(command: string) => { calls.push(command); return {} as T; });
+  const tab: Tab = {
+    id: "stopped-restore", title: "Build", tab_type: "Terminal", pty_id: null, cwd: null,
+    backing: { kind: "pty" }, frozen: true,
+    close_restore: { command: "saved command", stopped: true, record_id: null, exact_session: false },
+  };
+  function OpenedShell() {
+    useWakeOnOpen(tab, true);
+    return <>
+      <TabItem tab={tab} hasAgent={false} status="Idle" index={0} isActive
+        onClick={() => undefined} onClose={() => undefined} canClose workspaceId="fixture" />
+      <ShellStatus tab={tab} />
+      <RestoredShell tab={tab} />
+    </>;
+  }
+  try {
+    await act(async () => root.render(<OpenedShell />));
+    expect(calls).not.toContain("wake_tab");
+    expect(host.querySelector('button[aria-label="Open tab shell, Build"]')).not.toBeNull();
+    expect(host.querySelector('[role="status"][aria-label^="shell, Build:"]')).not.toBeNull();
+    expect(host.querySelector('[title="Launch failed"], [aria-label*="launch failed" i]')).toBeNull();
+    expect(host.textContent).not.toContain("Launch failed");
+    const stopped = host.querySelector('[aria-label="Restored shell"]');
+    expect(stopped?.textContent).toContain("saved command");
+    const rerun = stopped?.querySelector<HTMLButtonElement>("button");
+    expect(rerun?.textContent).toBe("Rerun command");
+    expect(rerun?.disabled).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+  }
+});
 
 it.each(["Polish the sidebar", undefined])("temporarily shows compaction in the description slot (description: %s)", async normalDescription => {
   const host = document.createElement("div");
