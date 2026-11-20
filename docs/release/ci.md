@@ -9,10 +9,12 @@ workflow does not update live required-check settings.
 
 | Event | Checks |
 | --- | --- |
-| Owner push to exact release/next | Full fast/Rust/warnings graph, qualification and reusable dry-run packaging in the same run, with release-push concurrency |
-| Owner release/next PR into master | Hosted light graph plus read-only same-SHA Release qualification reader |
+| Owner push to exact release/next | Full CI and reusable dry-run packaging in the same run |
+| Owner release/next PR into master | Hosted PR checks and read-only same-SHA qualification |
+| Owner `release/plugin-<id>` PR into master | Exact single-plugin scope and whitespace, plugin release metadata, bundles, types and tests on hosted Ubuntu. No release push or Rust jobs |
+| Owner `release/docs` PR into master | Exact README and docs/readme image scope, whitespace, privacy and local image links. No release push or Rust jobs |
 | Any PR into develop | Hosted repository guards, fmt-check, TS static checks/unit/Vitest, plugin bundle checks/tests, one workspace cargo check --all-targets, then PR result |
-| Other PR into master | Existing repository refusal: master accepts only the owner's release/next |
+| Other PR into master | Existing repository refusal: master accepts only the owner's release/next, valid single-plugin PR or scoped README PR |
 | Owner CI dispatch | tests.yml diagnostic scope from release/next, for a full 40-hex source_ref reachable from master, develop or that branch |
 
 Every PR job uses literal ubuntu-24.04, independent of runner
@@ -21,8 +23,9 @@ no release environment, no reusable release graph, no qualification and no Rust
 test execution. Rust checking includes the CLI workspace member and all target
 kinds on Linux; it uses the GitHub Actions sccache backend and Cargo dependency
 cache without private-store credentials or endpoints. Fork/Dependabot PRs need
-no store access. Every light check runs for every PR, regardless of
-changed-file scope. The aggregate rejects failed, cancelled or skipped checks.
+no store access. All normal PRs run every light check. For an owner direct plugin or README PR the aggregate
+requires the normal jobs to be skipped, and master separately requires a green
+Release qualification job with the scoped checks.
 
 After merge, verify the first Dependabot PR into develop by its commit SHA:
 expect Repository guards, fmt-check, ts static checks, ts unit, ts vitest,
@@ -33,7 +36,7 @@ and trigger review do not prove a live hosted run.
 The source guards finish successfully before either test branch can acquire compilers.
 Shared guards cover sizes, provider boundary, crate layering, Tauri reach,
 changed-file comments, API/prompt/eval documentation, secret scanning, issue
-metadata and master accepting only owner release/next PRs. Each runner checks
+metadata and owner-only master PR admission. Each runner checks
 its tools through ci-runner-paths before dependency work or compilation.
 Hosted jobs use pinned Node/Python/pnpm setup before preflight and script use.
 Self-hosted jobs use the pinned github-script action's bundled Node runtime,
@@ -139,6 +142,15 @@ origin for local scripts; DOMIOS_SOURCE_REPOSITORY is the explicit local overrid
 Historical issue declarations use one reviewed alias list in
 scripts/source-repository-aliases.json and normalize to the runtime repository.
 New declarations and API routes always use that runtime name.
+
+For a plugin release, use `release/plugin-<id>` from current master and open the
+owner PR directly into master. Scope is evaluated against the exact current
+master commit and includes deletions and both sides of renames. Only the named
+plugin's directory, its sole versioned channel entry and explicitly assigned
+shared fixtures can qualify. Mixed changes require a full `release/next` push
+and PR. After the plugin PR merges, real-merge master into develop, then tag
+the master merge and dispatch `plugin-release.yml` on master with the exact tag.
+Both publication jobs still require the `release` environment.
 
 ## macOS x64 compilation split: 1.15.4 design
 

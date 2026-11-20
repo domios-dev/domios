@@ -14,7 +14,21 @@ The script contains the exact `gh api` requests. It disables Actions first and l
 
 Master requires a release PR and two status contexts, both pinned to the GitHub Actions app: **Release qualification** and **PR result**. Only `release-pr.yml` emits Release qualification, and only for a PR whose base is master, so a develop PR or a diagnostic dispatch on the same head SHA can never satisfy it. A base retarget arrives as `edited` and reruns the reader. The three aggregates carry distinct names: `PR result` (tests-side.yml), `CI result` (tests.yml release push) and `CI diagnostic result` (tests.yml dispatch); none of them alone admits a master merge. The reader and `scripts/ci-workflow-api.mjs` come from the PR head, so this gate guards against owner mistakes; the boundary against a hostile PR is that only the owner can merge.
 
+These contexts apply to all master PRs because required checks cannot vary by
+diff. For an owner `release/plugin-<id>` PR, **Release qualification** runs strict
+single-plugin classification, whitespace and plugin checks. **PR result**
+requires the ordinary PR jobs to be skipped. A mixed diff fails this plugin
+route and requires the full `release/next` route. Keep the Actions app pins and
+owner-only merge policy. After the plugin PR merges, real-merge master into
+develop and dispatch the protected publication from the tagged master SHA.
+
 Release branches carry no required status check: their checks exist only after the push, so such a rule rejects every direct release push. The script deletes a previously applied `release-required-checks` ruleset. Release heads stay owner-only through `owner-only-trusted-branches`; qualification gates the master PR and publication.
+
+Owner PRs from `release/docs` use the same required contexts. A hosted release
+check admits only `README.md` and regular raster image assets in `docs/readme/`,
+checks the exact master diff and whitespace, verifies local README images,
+and runs the public privacy guard. The docs route publishes no packages.
+Use `release/next` for everything outside these scoped PR routes.
 
 Inspect existing rulesets and environment branch policies first. The named rulesets are updated in place. The script reconciles the `release` environment's deployment branch policies to exactly two branch entries and deletes every other branch or tag policy: `release/next` (release push dry run and owner dispatches) and `master` (publication). Verify that the final list contains only those two and that the only reviewer is `rollacode`. Self-review must remain enabled so the sole owner can approve their own run. Disable environment administrator bypass in the environment settings if available.
 
@@ -182,7 +196,7 @@ gh workflow run release.yml --repo domios-dev/domios --ref release/next -f tag=v
 gh workflow run release-publish.yml --repo domios-dev/domios --ref release/next -f run_id=REVIEWED_RUN_ID -f tag=vX.Y.Z -f rehearsal=true
 gh workflow run tests.yml --repo domios-dev/domios --ref release/next -f source_ref=FULL_40_HEX_SHA -f scope=fast
 gh workflow run docker-smoke.yml --repo domios-dev/domios --ref release/next
-gh workflow run plugin-release.yml --repo domios-dev/domios --ref release/next -f tag=plugin-ID-vVERSION
+gh workflow run plugin-release.yml --repo domios-dev/domios --ref master -f tag=plugin-ID-vVERSION
 gh workflow run publish-plugin-sdk.yml --repo domios-dev/domios --ref release/next
 ```
 

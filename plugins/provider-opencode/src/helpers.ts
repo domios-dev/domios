@@ -644,8 +644,8 @@ export function toolFileDiffs(part: OpencodePart): FileDiff[] {
   const path = String(input.filePath ?? input.file_path ?? input.path ?? "");
   const edits = extractCanonicalEdits(input);
   let metadata = state.metadata && typeof state.metadata === "object" ? state.metadata as Record<string, unknown> : {};
-  const hasFiles = Array.isArray(metadata.files) && metadata.files.length > 0;
-  const hasFileDiff = metadata.filediff !== null && typeof metadata.filediff === "object";
+  const hasFiles = Array.isArray(metadata.files) && metadata.files.some((file) => file && typeof file === "object" && Object.keys(file).length > 0);
+  const hasFileDiff = metadata.filediff !== null && typeof metadata.filediff === "object" && Object.keys(metadata.filediff).length > 0;
   if (part.tool?.toLowerCase() === "apply_patch" && typeof metadata.diff !== "string" && typeof metadata.patch !== "string" && !hasFiles && !hasFileDiff) {
     const patch = typeof input.patch === "string" ? input.patch : typeof input.input === "string" ? input.input : "";
     if (patch) metadata = { ...metadata, patch };

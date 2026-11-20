@@ -162,21 +162,28 @@ check("resolves the exact recorded permission request even without a turn id",()
   assert.deepEqual(settled.events,[{kind:"promptResolved",threadId:ctx.threadId,requestId:asked.requestId}]);
   assert.deepEqual(runtimeReduce(ctx,settled.state,[replied]).events,[]);
 });
-check("settles a provider quota session error with a visible balance recovery notice",()=>{
+check("settles an owned quota error once with a balance notice and API error row",()=>{
   const {ctx,frames}=prepared("v2-provider-quota");
   ctx.activeTurnId="quota-turn";
   const started=copy(frames.find(frame=>(frame.params as Record<string,JsonValue>).type === "session.execution.started")!);
-  const error=copy(started), params=error.params as Record<string,JsonValue>;
+  const quota=copy(started), params=quota.params as Record<string,JsonValue>;
   params.id="quota-error";
   params.type="session.error";
-  params.data={sessionID:ctx.threadId!,error:{type:"provider.quota",status:402,body:{error:{type:"insufficient_balance_error",message:"Insufficient Balance"}}}};
+  const error={type:"provider.quota",status:402,body:{error:{type:"insufficient_balance_error",message:"Insufficient Balance"}}};
   const working=runtimeReduce(ctx,null,[started]);
-  const failed=runtimeReduce(ctx,working.state,[error]);
+  params.data={sessionID:"foreign-session",error};
+  const foreign=runtimeReduce(ctx,working.state,[quota]);
+  assert.deepEqual(foreign.events,[]);
+  params.data={sessionID:ctx.threadId!,error};
+  const failed=runtimeReduce(ctx,foreign.state,[quota]);
   assert.deepEqual(failed.events,[
     {kind:"notice",threadId:ctx.threadId,message:"Provider balance or quota is exhausted — top up or switch model"},
     {kind:"chatItem",threadId:ctx.threadId,item:{id:"quota-turn:error",seq:(ctx.restoredRowOrdinal ?? 0)+1,type:"system",systemSubtype:"api_error",toolFlowId:"quota-turn",content:"Provider balance or quota is exhausted — top up or switch model"}},
     {kind:"turnState",threadId:ctx.threadId,turnId:"quota-turn",state:"idle",detail:"failed"},
   ]);
+  params.id="execution-failed-after-quota";
+  params.type="session.execution.failed";
+  assert.deepEqual(runtimeReduce(ctx,failed.state,[quota]).events,[]);
 });
 check("recorded thinking, shell and text stay reconcilable across an active interrupt",()=>{
   const ctx=loaded("v2-stream-and-stop"), {frames,interrupt}=fixture.streamAndInterrupt;
