@@ -86,7 +86,7 @@ function SectionBody({ sectionId, body }: { sectionId: string; body: string }) {
     return <p className="plan-document-section-empty">No section text yet.</p>;
   }
   return (
-    <div className="plan-document-section-body" data-plan-ask-body="" data-section-id={sectionId}>
+    <div className="plan-document-section-body ct-canvas-text" data-plan-ask-body="" data-section-id={sectionId}>
       <RichMarkdown text={body} sourcePositions localArtifacts={!proseOnly} />
     </div>
   );
