@@ -22,7 +22,7 @@ jobs:
     steps:
       - name: Verify owner PR and select qualification
         id: route
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
           script: |-
             const pr = context.payload.pull_request;
@@ -66,7 +66,7 @@ jobs:
           node scripts/check-plugin.mjs "$PLUGIN_ID"
       - name: Verify the exact release push and its retained qualification
         if: steps.route.outputs.plugin == 'false'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
           script: |-
             const {pathToFileURL} = require('node:url');
