@@ -99,20 +99,44 @@ impl PlanStore {
         task_id: &str,
         now_ms: u64,
     ) -> Result<SharedDispatchInspection, PlanError> {
+        self.inspect_checkout_start(plan_id, task_id, now_ms, true)
+    }
+
+    pub(crate) fn inspect_assignment_checkout(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        now_ms: u64,
+    ) -> Result<SharedDispatchInspection, PlanError> {
+        self.inspect_checkout_start(plan_id, task_id, now_ms, false)
+    }
+
+    fn inspect_checkout_start(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        now_ms: u64,
+        require_shared_paths: bool,
+    ) -> Result<SharedDispatchInspection, PlanError> {
         let read = self.database.shared_dispatch_projection(plan_id, task_id)?;
-        read.files
-            .shared_edit_paths()
-            .map_err(PlanError::InvalidPlanText)?;
-        super::validate_edit_links_at(&super::canonical_path(&read.checkout), &read.files)
-            .map_err(PlanError::InvalidPlanText)?;
+        let has_edit_files = !read.files.edit.is_empty();
+        if require_shared_paths || has_edit_files {
+            super::validate_edit_links_at(&super::canonical_path(&read.checkout), &read.files)
+                .map_err(PlanError::InvalidPlanText)?;
+        }
         let checkout = read.checkout;
         let start = match super::project_history(&checkout).map_err(PlanError::InvalidPlanText)? {
+            super::ProjectHistory::NoGit if !has_edit_files => {
+                SharedStart::Files(Default::default())
+            }
             super::ProjectHistory::NoGit => SharedStart::Files(
                 super::plain_folder::hash_declared_files(&checkout, &read.files)
                     .map_err(PlanError::InvalidPlanText)?,
             ),
             super::ProjectHistory::Git => {
-                self.observe_shared_history(&checkout, now_ms);
+                if has_edit_files {
+                    self.observe_shared_history(&checkout, now_ms);
+                }
                 SharedStart::Commit(
                     self.shared_git(&checkout, &["rev-parse", "--verify", "HEAD^{commit}"])
                         .map_err(|error| PlanError::InvalidPlanText(error.to_string()))?

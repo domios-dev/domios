@@ -59,8 +59,8 @@ impl PlanStore {
             .task_dispatch_preflight_projection(plan_id, task_id)?
             .execution_intent
             .requires_repository();
-        let shared_inspection = if peer.is_none() && requires_repository {
-            Some(self.inspect_shared_dispatch(plan_id, task_id, now_ms)?)
+        let checkout_inspection = if peer.is_none() && requires_repository {
+            Some(self.inspect_assignment_checkout(plan_id, task_id, now_ms)?)
         } else {
             None
         };
@@ -78,8 +78,6 @@ impl PlanStore {
             task.peer = peer.map(str::to_string);
             task.updated_at = now_ms;
             let mut attempt = new_assignment_attempt(task, tab, peer, role, now_ms);
-            // Manual assignment records the same readiness identity as
-            // dispatch, including shared checkout evidence where applicable.
             match task.execution_intent {
                 TaskExecutionIntent::NonRepository => {
                     attempt.placement = WorkerPlacement::NonRepository;
@@ -87,11 +85,13 @@ impl PlanStore {
                 TaskExecutionIntent::RepositoryMutation => {
                     attempt.execution_intent = Some(ExecutionIntent::Mutating);
                     if peer.is_none() {
-                        attempt.placement = WorkerPlacement::Shared;
-                        let inspected = shared_inspection.as_ref().ok_or_else(|| {
-                            PlanError::InvalidPlanText("shared assignment checkout was not inspected".into())
+                        let inspected = checkout_inspection.as_ref().ok_or_else(|| {
+                            PlanError::InvalidPlanText("assignment checkout was not inspected".into())
                         })?;
-                        inspected.recheck(&inspected.checkout, &task.files)?;
+                        inspected.recheck(&edit.canonical_checkout, &task.files)?;
+                        if !task.files.edit.is_empty() {
+                            attempt.placement = WorkerPlacement::Shared;
+                        }
                         attempt.checkout_path = Some(inspected.checkout.clone());
                         match &inspected.start {
                             super::shared_checkout::SharedStart::Commit(head) => {
