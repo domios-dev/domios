@@ -9,6 +9,9 @@ import type { SurfaceDeclLookup } from "../components/Surface/surfaceRenderPlan"
 import { configureDaemonTransport } from "./daemonBootstrap";
 import { __setInvokeForTest, __setListenForTest } from "./bridge";
 import { useChatSession } from "../components/Terminal/useChatSession";
+import { useAgentRuntimeState } from "../components/Terminal/useAgentRuntimeState";
+import { useWakeOnOpen } from "../components/Terminal/useWakeOnOpen";
+import { RestoreStatePanel } from "../components/Terminal/RestoreStatePanel";
 import { chatBodyView } from "../components/Terminal/chatBodyVisibility";
 import { ChatSetupState } from "../components/Terminal/ChatSetupState";
 import { clearTranscriptWindows } from "../components/Terminal/transcriptStore";
@@ -16,6 +19,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { __resetStreamMuxesForTest, MuxDeadlineError, OutcomeUnknown, RetryableMuxError, streamMuxDiagnostics, withStreamMux } from "./streamMux";
 import { MUX_CAPACITY_WAIT, MUX_REQUEST_TIMEOUT, type MuxRequestInit } from "./streamMuxRequestModel";
 import type { TransportOptions } from "./transportClient";
+import { restoreStageView } from "./restoreStageView";
+import { resumeRemoteTabEvents } from "./remoteTabEvents";
+import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
+import type { AgentRuntimeState } from "./agentRuntimeState";
+import type { Tab } from "./types";
 
 interface Posted { id: string; session: string; path: string; method: string; init: RequestInit }
 
@@ -45,7 +53,9 @@ function fixture(onGatewayState?: (available: boolean) => void, origin = "http:/
       return Response.json({ accepted: true });
     }
     const headers = new Headers(init.headers);
-    const post = { id: parts[5], session: parts[3], path: headers.get("X-Domios-Mux-Path")!, method: headers.get("X-Domios-Mux-Method")!, init };
+    const channel = parts[4] === "channels" ? JSON.parse(String(init.body)) as { channel: string; path: string } : null;
+    const post = { id: channel?.channel ?? parts[5], session: parts[3], path: channel?.path ?? headers.get("X-Domios-Mux-Path")!,
+      method: channel ? "GET" : headers.get("X-Domios-Mux-Method")!, init };
     posted.push(post); waiting.shift()?.(post);
     return reply(post);
   };
@@ -239,7 +249,7 @@ it("classifies chat_start acknowledgement loss as a retryable read, including a 
   await expect(f.client.localJson("POST", "/api/mesh/relay-to", { method: "POST", path: "/api/tabs/t/chat-raw/start", body: {} })).rejects.toBeInstanceOf(RetryableMuxError);
 });
 
-it("admits one initial older read after a cold remote attach settles and cancels it on supersession", async () => {
+it("keeps a cold remote wake restoring and admits one older read per settled attachment across reconnects", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const f = fixture(undefined, window.location.origin);
   vi.stubGlobal("fetch", f.fetch);
@@ -249,24 +259,45 @@ it("admits one initial older read after a cold remote attach settles and cancels
 
   const authority = { source_session_id: "own", session_binding_nonce: "nonce", offset_kind: "items" };
   const tabId = "mesh:peer/cold";
+  const loading: AgentRuntimeState = { state: "loaded", epoch: 2, history: "loading", historyPages: 1 };
+  const complete: AgentRuntimeState = { ...loading, history: "complete", historyPages: 2 };
+  const tab: Tab = { id: tabId, title: "Fixture", tab_type: "Terminal", pty_id: null, cwd: null,
+    frozen: true, agent_type: "fixture", session_bound: true, agent_session_id: "own", session_binding_nonce: "nonce" };
   const pathOf = (post: Posted): string => post.path === "/api/mesh/relay-to"
     ? JSON.parse(String(post.init.body)).path : post.path ?? "";
   const olderPosts = () => f.posted.filter(post => pathOf(post).endsWith("/chat-raw/backfill"));
-  const nextPath = async (suffix: string) => {
-    while (true) {
-      const post = await f.next();
-      if (pathOf(post).endsWith(suffix)) return post;
+  const isEventStream = (post: Posted) => post.path?.startsWith("/api/mesh/relay-stream?");
+  const nextPost = async (label: string, matches: (post: Posted) => boolean) => {
+    const deadline = AbortSignal.timeout(5_000);
+    let rejectDeadline!: () => void;
+    const expired = new Promise<never>((_, reject) => {
+      rejectDeadline = () => reject(new Error(`Missing ${label}. Posted: ${f.posted.map(pathOf).join(", ")}`));
+      deadline.addEventListener("abort", rejectDeadline, { once: true });
+    });
+    try {
+      while (true) {
+        const post = await Promise.race([f.next(), expired]);
+        if (matches(post)) return post;
+      }
+    } finally {
+      deadline.removeEventListener("abort", rejectDeadline);
     }
   };
+  const nextPath = (suffix: string) => nextPost(suffix, post => pathOf(post).endsWith(suffix));
   const finish = (post: Posted, data: unknown) => {
     f.head(post);
     f.text(post, JSON.stringify(post.path === "/api/mesh/relay-to" ? { ok: true, status: 200, data } : data));
     f.end(post);
   };
   f.reply(async post => {
-    if (post.path && !/chat-raw\/(start|backfill)$/.test(pathOf(post))) finish(post, []);
+    if (pathOf(post).endsWith("/wake")) throw new TypeError("wake acknowledgement lost");
+    if (post.path && !isEventStream(post) && !/chat-raw\/(start|backfill)$/.test(pathOf(post))) finish(post, []);
     return Response.json({ accepted: true }, { status: 202 });
   });
+  const runtimeEvent = (post: Posted, seq: number, state: AgentRuntimeState) => {
+    f.text(post, `data: ${JSON.stringify({ event_type: "agent-runtime-state", boot: "peer-boot", seq,
+      data: { tab_id: "cold", session_binding_nonce: "nonce", state } })}\n\n`);
+  };
 
   const message = (content: string, seq: number) => ({ id: content, content, type: "assistant", seq });
   const tail = Array.from({ length: 20 }, (_, index) => message(`tail-${index}`, index + 1));
@@ -281,34 +312,59 @@ it("admits one initial older read after a cold remote attach settles and cancels
   const host = document.createElement("main");
   document.body.append(host);
   const root = createRoot(host);
-  function Probe({ history }: { history: "loading" | "complete" }) {
-    const chat = useChatSession({ tabId, agentSessionId: "own", sessionBindingNonce: "nonce", history });
+  function Probe({ current, projected }: { current: Tab; projected: AgentRuntimeState }) {
+    const wake = useWakeOnOpen(current, true);
+    const runtime = useAgentRuntimeState(tabId, "nonce", projected);
+    const chat = useChatSession({ tabId, agentSessionId: "own", sessionBindingNonce: "nonce",
+      active: !current.frozen, history: runtime.state?.history });
     return createElement("section", null,
+      current.frozen ? createElement(RestoreStatePanel, { view: restoreStageView(current, wake) }) : null,
       createElement("button", { disabled: chat.backfillLoading || !chat.canBackfillOlder,
         onClick: () => void chat.loadOlder() }, "Load previous"),
       createElement("output", null, chat.canBackfillOlder ? "more" : "end"),
       ...chat.allMessages.map(row => createElement("p", { key: row.id }, row.content)));
   }
-  const render = (history: "loading" | "complete") => act(async () => root.render(createElement(Probe, { history })));
+  const render = (current: Tab, projected: AgentRuntimeState) => act(async () => root.render(createElement(Probe, { current, projected })));
   const rendered = () => [...host.querySelectorAll("p")].map(row => row.textContent);
   const button = () => host.querySelector("button")!;
 
   try {
-    await render("loading");
+    await render(tab, loading);
+    const wakes = f.posted.filter(post => pathOf(post).endsWith("/wake"));
+    expect(wakes).toHaveLength(1);
+    expect(await f.cancelled()).toBe(wakes[0].id);
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector('[role="progressbar"]')).not.toBeNull();
+    const runtimeStream = await nextPost("remote runtime stream", isEventStream);
+    await act(async () => f.head(runtimeStream, 200, [["content-type", "text/event-stream"]]));
+
+    const awake: Tab = { ...tab, frozen: false, boot_stage: "agent_ready" };
+    await render(awake, loading);
     const cold = await nextPath("/chat-raw/start");
     await act(async () => snapshot(cold));
     expect(rendered()).toEqual(tail.map(row => row.content));
     expect(button().disabled).toBe(true);
     expect(olderPosts()).toHaveLength(0);
 
-    await render("complete");
+    await act(async () => runtimeEvent(runtimeStream, 1, complete));
     const settled = await nextPath("/chat-raw/start");
+    for (let seq = 2; seq <= 3; seq++) {
+      await act(async () => {
+        runtimeEvent(runtimeStream, seq, loading);
+        window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
+      });
+    }
+    await render(awake, { ...loading, historyPages: 0 });
     expect(olderPosts()).toHaveLength(0);
     await act(async () => snapshot(settled));
     const superseded = await nextPath("/chat-raw/backfill");
     expect(olderPosts()).toHaveLength(1);
     expect(new Headers(superseded.init.headers).get("X-Domios-Mux-Cancellable")).toBe("1");
     expect(button().disabled).toBe(true);
+
+    await act(async () => { resumeRemoteTabEvents(); resumeRemoteTabEvents(); });
+    expect(f.posted.filter(post => pathOf(post).endsWith("/chat-raw/start"))).toHaveLength(2);
+    expect(f.deleted).not.toContain(superseded.id);
 
     await act(async () => fireResync("overflow"));
     const replacement = await nextPath("/chat-raw/start");

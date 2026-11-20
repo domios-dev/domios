@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { invoke } from "../../lib/bridge";
 import { shouldWakeOnOpen } from "../../lib/wakeOnOpen";
 import { restoreStageView, type WakeRequestView } from "../../lib/restoreStageView";
+import { OutcomeUnknown, RetryableMuxError } from "../../lib/streamMux";
 import type { Tab } from "../../lib/types";
 
 const idle: WakeRequestView = { requested: false, pending: false, error: null };
@@ -20,7 +21,13 @@ function requestWake(id: string, retry = false) {
   update(id, { requested: true, pending: true, error: null });
   void invoke("wake_tab", { tabId: id }).then(
     () => update(id, { requested: true, pending: false, error: null }),
-    (error: unknown) => update(id, { requested: true, pending: false, error: error instanceof Error ? error.message : String(error) }),
+    (error: unknown) => {
+      const interrupted = error instanceof OutcomeUnknown
+        || error instanceof RetryableMuxError && error.dispatched !== false
+        || error instanceof DOMException && error.name === "AbortError";
+      update(id, { requested: true, pending: false,
+        error: interrupted ? null : error instanceof Error ? error.message : String(error) });
+    },
   );
 }
 

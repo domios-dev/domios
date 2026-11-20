@@ -82,9 +82,14 @@ export function runtimeStateFromSnapshot(
   current: AgentRuntimeState | null,
   next: AgentRuntimeState | null | undefined,
 ): AgentRuntimeState | null {
-  if (!next) return null;
+  if (!next) return current?.history === "complete" ? current : null;
   if (current && next.epoch < current.epoch) return current;
-  if (current?.epoch === next.epoch && current.notice && next.notice === undefined) next = {...next,notice:current.notice};
+  if (current?.epoch === next.epoch) {
+    if (current.notice && next.notice === undefined) next = { ...next, notice: current.notice };
+    if (current.history === "complete" && next.history !== "complete") {
+      next = { ...next, history: current.history, historyPages: current.historyPages, historyError: undefined };
+    }
+  }
   if (next.state === "loaded" || next.state === "loginPending") {
     const loaded = { ...next };
     delete loaded.reason;
