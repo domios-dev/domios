@@ -111,9 +111,10 @@ export function usePurchaseIntent(ports: PurchaseIntentPorts) {
     if (model.kind === "signed_in") {
       if (planLoad === "loading") return;
       if (latest.current.ready === false && !latest.current.failed) return;
-      const next = dispatch({ type: "signedIn", plan: latest.current.failed ? null : plan, catalog, subscriptionPlan: latest.current.subscriptionPlan });
+      const verifiedPlan = latest.current.failed ? null : plan;
+      const next = dispatch({ type: "signedIn", plan: verifiedPlan, catalog, subscriptionPlan: latest.current.subscriptionPlan });
       if (next.kind === "opening") void openCheckout(next.planKey);
-      else if (next.kind === "idle") notify(planUnknownToast(retry));
+      else if (!verifiedPlan) notify(planUnknownToast(retry));
       return;
     }
     dispatch({ type: "signInFailed" });
