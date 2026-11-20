@@ -13,10 +13,12 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     sync::{broadcast, mpsc, oneshot, watch},
 };
+mod frame;
 pub(super) mod http;
+use frame::{read_frame, Inbound, INBOUND_FRAME_LIMIT};
 
 pub type Reply = Result<Value, RpcFailure>;
 type Pending = oneshot::Sender<Result<TurnReply, RuntimeFailure>>;
@@ -219,18 +221,30 @@ impl Client {
         crate::async_runtime::spawn(async move {
             let mut reader = BufReader::new(reader);
             loop {
-                let text = tokio::select! { _ = ended.changed() => break, text = read_frame(&mut reader) => text };
-                let frame = match text
-                    .and_then(|text| text.ok_or(RuntimeFailure::PipeEof))
-                    .and_then(|text| decode_redacted(&text, &credential))
-                {
-                    Ok(frame) => frame,
+                let inbound = tokio::select! { _ = ended.changed() => break, frame = read_frame(&mut reader) => frame };
+                let frame = match inbound.and_then(|frame| frame.ok_or(RuntimeFailure::PipeEof)) {
+                    Ok(Inbound::Text(text)) => decode_redacted(&text, &credential),
+                    Ok(Inbound::Oversized(Some(id))) => Ok(WireFrame::Response {
+                        id,
+                        result: Err(response_too_large(
+                            "stdio_frame",
+                            INBOUND_FRAME_LIMIT,
+                            "Runtime response exceeded the stdio frame limit. Request a smaller page when supported. If one history item is too large, use the provider's saved history to inspect it.",
+                        )),
+                    }),
+                    Ok(Inbound::Oversized(None)) => {
+                        receiver.note_stream_gap();
+                        continue;
+                    }
+                    Err(error) => Err(error),
+                };
+                match frame {
+                    Ok(frame) => receiver.ingest(frame),
                     Err(error) => {
                         receiver.close(error);
                         break;
                     }
-                };
-                receiver.ingest(frame);
+                }
             }
         });
         client
@@ -422,7 +436,7 @@ impl Client {
             frame["jsonrpc"] = json!("2.0");
         }
         let text = frame.to_string();
-        if text.len() > FRAME_LIMIT {
+        if text.len() > OUTBOUND_FRAME_LIMIT {
             return Err(RuntimeFailure::InvalidFrame("Frame size limit".into()));
         }
         let (written, receipt) = oneshot::channel();
@@ -463,40 +477,14 @@ impl Drop for PendingRequest {
 }
 
 const EVENT_BUFFER: usize = 8192;
-const FRAME_LIMIT: usize = 16 * 1024 * 1024;
-async fn read_frame<R: tokio::io::AsyncBufRead + Unpin>(
-    reader: &mut R,
-) -> Result<Option<String>, RuntimeFailure> {
-    let mut frame = Vec::new();
-    loop {
-        let bytes = reader
-            .fill_buf()
-            .await
-            .map_err(|error| RuntimeFailure::PipeFailure {
-                stream: "stdout".into(),
-                reason: error.to_string(),
-            })?;
-        if bytes.is_empty() {
-            return if frame.is_empty() {
-                Ok(None)
-            } else {
-                String::from_utf8(frame)
-                    .map(Some)
-                    .map_err(|error| RuntimeFailure::InvalidFrame(error.to_string()))
-            };
-        }
-        let newline = bytes.iter().position(|byte| *byte == b'\n');
-        let count = newline.map_or(bytes.len(), |end| end + 1);
-        if frame.len() + count > FRAME_LIMIT {
-            return Err(RuntimeFailure::InvalidFrame("Frame size limit".into()));
-        }
-        frame.extend_from_slice(&bytes[..count]);
-        reader.consume(count);
-        if newline.is_some() {
-            return String::from_utf8(frame)
-                .map(Some)
-                .map_err(|error| RuntimeFailure::InvalidFrame(error.to_string()));
-        }
+const OUTBOUND_FRAME_LIMIT: usize = 16 * 1024 * 1024;
+const RESPONSE_TOO_LARGE: i64 = -32010;
+
+fn response_too_large(boundary: &str, limit: usize, message: &str) -> RpcFailure {
+    RpcFailure {
+        code: RESPONSE_TOO_LARGE,
+        message: message.into(),
+        data: Some(json!({"kind":"response_too_large","boundary":boundary,"limitBytes":limit})),
     }
 }
 

@@ -44,8 +44,12 @@ pub fn prepare_history_reply(
     if state["stage"].as_str() == Some("items")
         && limit > 1
         && state["offset"].as_u64().unwrap_or(0) == 0
-        && validate_runtime_reply(&reply).is_err()
-        && matches!(&reply, RpcReply::Success { .. })
+        && match &reply {
+            RpcReply::Success { .. } => validate_runtime_reply(&reply).is_err(),
+            RpcReply::Error { error } => error.data.as_ref().is_some_and(|data| {
+                data["kind"] == "response_too_large" && data["boundary"] == "stdio_frame"
+            }),
+        }
     {
         log::debug!(
             "[history-input] stage={} oversized page limit={limit} retry_limit={}",

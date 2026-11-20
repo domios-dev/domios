@@ -12,7 +12,6 @@ mod sse;
 
 const RESPONSE_BODY_LIMIT: usize = 16 * 1024 * 1024;
 const REQUEST_LIMIT: usize = 8;
-const RESPONSE_TOO_LARGE: i64 = -32010;
 
 type ResponseFields = BTreeMap<String, Vec<String>>;
 
@@ -506,11 +505,7 @@ fn prepare_response(
 
 fn response_too_large(boundary: &str, limit: usize) -> RpcReply {
     RpcReply::Error {
-        error: RpcFailure {
-            code: RESPONSE_TOO_LARGE,
-            message: "HTTP response exceeded its byte limit".into(),
-            data: Some(json!({"kind":"response_too_large","boundary":boundary,"limitBytes":limit})),
-        },
+        error: super::response_too_large(boundary, limit, "HTTP response exceeded its byte limit"),
     }
 }
 
