@@ -249,12 +249,53 @@ async fn gift_redemption_route_requires_auth_and_redacts_malformed_payloads() {
     }
 }
 
+fn local_account_request(method: &str, path: &str) -> axum::http::Request<axum::body::Body> {
+    axum::http::Request::builder()
+        .method(method)
+        .uri(path)
+        .header("authorization", "Bearer fixture-token")
+        .body(axum::body::Body::empty())
+        .unwrap()
+}
+
+async fn complete_local_login(
+    router: &axum::Router,
+    service: &codeterm_service_core::service::ServiceContext,
+    path: &str,
+) -> String {
+    use tower::ServiceExt;
+    let mut events = service.events.subscribe();
+    let response = router
+        .clone()
+        .oneshot(local_account_request("POST", path))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let attempt: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let id = attempt["attempt_id"].as_str().unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if let codeterm_events::SystemEvent::Generic { event_type, data } = event.event {
+                if event_type == "account-sign-in" && data["settled"] == true {
+                    assert_eq!(data["attempt_id"], id);
+                    assert!(data["failure"].is_null(), "{data}");
+                    break;
+                }
+            }
+        }
+    })
+    .await
+    .expect("local account login must settle");
+    id.to_owned()
+}
+
 #[tokio::test]
 async fn account_routes_local_journey_persists_and_deletes_credential() {
-    use axum::{
-        body::{to_bytes, Body},
-        http::Request,
-    };
+    use axum::body::to_bytes;
     use tower::ServiceExt;
     let fixture = codeterm_neighbors_service::test_support::fixture(
         codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
@@ -266,54 +307,25 @@ async fn account_routes_local_journey_persists_and_deletes_credential() {
     state.config.lock().account = serde_json::json!({"provider":"local"});
     let router = crate::routes::create_router(state);
     let store = fixture.service.secrets.read().await.clone();
-    let request = |method, path| {
-        Request::builder()
-            .method(method)
-            .uri(path)
-            .header("authorization", "Bearer fixture-token")
-            .body(Body::empty())
-            .unwrap()
-    };
-    let mut events = fixture.service.events.subscribe();
-    for (method, path, signed_in) in [
+    for (method, path, login_first) in [
         ("GET", "/api/account/status", false),
-        (
-            "POST",
-            "/api/account/login?provider=email&mode=signup",
-            true,
-        ),
+        ("GET", "/api/account/status", true),
         ("POST", "/api/account/logout", false),
         ("GET", "/api/account/status", false),
     ] {
-        let response = router.clone().oneshot(request(method, path)).await.unwrap();
-        let response = if path.starts_with("/api/account/login") {
-            assert_eq!(response.status(), StatusCode::ACCEPTED);
-            let body = to_bytes(response.into_body(), 4096).await.unwrap();
-            let attempt: serde_json::Value = serde_json::from_slice(&body).unwrap();
-            assert!(attempt["attempt_id"].is_string());
-            tokio::time::timeout(std::time::Duration::from_secs(2), async {
-                loop {
-                    let event = events.recv().await.unwrap();
-                    if let codeterm_events::SystemEvent::Generic { event_type, data } = event.event
-                    {
-                        if event_type == "account-sign-in" && data["settled"] == true {
-                            assert_eq!(data["attempt_id"], attempt["attempt_id"]);
-                            assert!(data["failure"].is_null());
-                            break;
-                        }
-                    }
-                }
-            })
+        if login_first {
+            complete_local_login(
+                &router,
+                &fixture.service,
+                "/api/account/login?provider=email&mode=signup",
+            )
+            .await;
+        }
+        let response = router
+            .clone()
+            .oneshot(local_account_request(method, path))
             .await
-            .expect("local account login must settle");
-            router
-                .clone()
-                .oneshot(request("GET", "/api/account/status"))
-                .await
-                .unwrap()
-        } else {
-            response
-        };
+            .unwrap();
         let status = response.status();
         let body = to_bytes(response.into_body(), 4096).await.unwrap();
         assert_eq!(
@@ -323,8 +335,8 @@ async fn account_routes_local_journey_persists_and_deletes_credential() {
             String::from_utf8_lossy(&body)
         );
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(value["identity"].is_object(), signed_in);
-        if signed_in {
+        assert_eq!(value["identity"].is_object(), login_first);
+        if login_first {
             assert_eq!(value["identity"]["uid"], "local-dev-user");
         }
         assert_eq!(
@@ -332,7 +344,7 @@ async fn account_routes_local_journey_persists_and_deletes_credential() {
                 .load("domios-account-local-refresh")
                 .unwrap()
                 .is_some(),
-            signed_in
+            login_first
         );
         assert!(!store.has("domios-account-local-refresh").await.unwrap());
         assert!(value.get("id_token").is_none());
@@ -355,10 +367,7 @@ fn account_plan_routes_payload_and_local_admission() {
 
 #[tokio::test]
 async fn account_plan_routes_local_journey() {
-    use axum::{
-        body::{to_bytes, Body},
-        http::Request,
-    };
+    use axum::body::to_bytes;
     use std::sync::Arc;
     use tower::ServiceExt;
     let fixture = codeterm_neighbors_service::test_support::fixture(
@@ -382,24 +391,28 @@ async fn account_plan_routes_local_journey() {
     state.config.lock().api.token = Some("fixture-token".into());
     state.config.lock().account = serde_json::json!({"provider":"local"});
     let router = crate::routes::create_router(state);
-    for (method, path, expected_plan, stale) in [
-        ("GET", "/api/account/plan", "free", false),
-        ("POST", "/api/account/login", "", false),
-        ("POST", "/api/account/login/1/cancel", "", false),
-        ("GET", "/api/account/plan", "pro", false),
-        ("POST", "/api/account/logout", "", false),
-        ("GET", "/api/account/plan", "free", false),
-    ] {
+    for (expected_plan, signed_in) in [("free", false), ("pro", true), ("free", false)] {
+        if signed_in {
+            let id = complete_local_login(&router, &fixture.service, "/api/account/login").await;
+            let cancelled = router
+                .clone()
+                .oneshot(local_account_request(
+                    "POST",
+                    &format!("/api/account/login/{id}/cancel"),
+                ))
+                .await
+                .unwrap();
+            assert_eq!(cancelled.status(), StatusCode::CONFLICT);
+            let refresh = router
+                .clone()
+                .oneshot(local_account_request("POST", "/api/account/plan/refresh"))
+                .await
+                .unwrap();
+            assert_eq!(refresh.status(), StatusCode::OK);
+        }
         let response = router
             .clone()
-            .oneshot(
-                Request::builder()
-                    .method(method)
-                    .uri(path)
-                    .header("authorization", "Bearer fixture-token")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(local_account_request("GET", "/api/account/plan"))
             .await
             .unwrap();
         let status = response.status();
@@ -407,25 +420,30 @@ async fn account_plan_routes_local_journey() {
         assert_eq!(
             status,
             StatusCode::OK,
-            "{method} {path}: {}",
+            "GET /api/account/plan: {}",
             String::from_utf8_lossy(&body)
         );
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        if !expected_plan.is_empty() {
-            assert_eq!(value["entitlements"]["plan"], expected_plan);
-            assert_eq!(value["stale"], stale);
-            let unconfirmed = expected_plan == "pro";
-            assert_eq!(value["checking"], false);
-            assert_eq!(
-                value["verification"],
-                if unconfirmed {
-                    serde_json::json!("unconfirmed")
-                } else {
-                    serde_json::Value::Null
-                }
-            );
-            assert_eq!(value["limits"]["enforcing"], !unconfirmed);
-            assert_eq!(value["limits"]["agent.tabs"], 35);
+        assert_eq!(value["entitlements"]["plan"], expected_plan);
+        assert_eq!(value["stale"], false);
+        assert_eq!(value["checking"], false);
+        assert_eq!(
+            value["verification"],
+            if signed_in {
+                serde_json::json!("unconfirmed")
+            } else {
+                serde_json::Value::Null
+            }
+        );
+        assert_eq!(value["limits"]["enforcing"], !signed_in);
+        assert_eq!(value["limits"]["agent.tabs"], 35);
+        if signed_in {
+            let logout = router
+                .clone()
+                .oneshot(local_account_request("POST", "/api/account/logout"))
+                .await
+                .unwrap();
+            assert_eq!(logout.status(), StatusCode::OK);
         }
     }
     assert!(!fixture
@@ -651,8 +669,7 @@ fn account_upgrade_opens_the_plain_checkout_for_an_unknown_theme() {
 }
 
 #[tokio::test]
-async fn explicit_plan_refresh_fetches_each_time_while_passive_focus_is_throttled() {
-    use axum::{body::Body, http::Request};
+async fn explicit_plan_refresh_and_passive_focus_share_the_bounded_cache() {
     use std::sync::Arc;
     use tower::ServiceExt;
     let fixture = codeterm_neighbors_service::test_support::fixture(
@@ -671,40 +688,20 @@ async fn explicit_plan_refresh_fetches_each_time_while_passive_focus_is_throttle
     state.config.lock().api.token = Some("fixture-token".into());
     state.config.lock().account = serde_json::json!({"provider":"local"});
     let router = crate::routes::create_router(state);
-    for (path, calls) in [
-        ("/api/account/login", 1),
-        ("/api/account/plan/refresh", 1),
-        ("/api/account/plan/refresh", 1),
+    complete_local_login(&router, &fixture.service, "/api/account/login").await;
+    for path in [
+        "/api/account/plan/refresh",
+        "/api/account/plan/refresh",
+        "/api/account/plan/refresh?focus=true",
     ] {
         let response = router
             .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri(path)
-                    .header("authorization", "Bearer fixture-token")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(local_account_request("POST", path))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(*provider.calls.lock(), calls);
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(*provider.calls.lock(), 1, "{path}");
     }
-    let before = *provider.calls.lock();
-    let response = router
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/account/plan/refresh?focus=true")
-                .header("authorization", "Bearer fixture-token")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(*provider.calls.lock(), before);
 }
 
 #[tokio::test]

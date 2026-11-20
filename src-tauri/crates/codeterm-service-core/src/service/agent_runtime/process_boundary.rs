@@ -351,14 +351,15 @@ fn retirement_confirmed(termination_requested: bool, all_observed_exited: bool) 
 }
 
 fn executable(value: &str) -> String {
-    let name = value.rsplit(['/', '\\']).next().unwrap_or(value);
     #[cfg(windows)]
     {
-        name.trim_end_matches(".exe").to_lowercase()
+        let name = value.rsplit(['/', '\\']).next().unwrap_or(value);
+        let name = name.to_lowercase();
+        name.strip_suffix(".exe").unwrap_or(&name).to_owned()
     }
     #[cfg(not(windows))]
     {
-        name.to_string()
+        value.rsplit('/').next().unwrap_or(value).to_owned()
     }
 }
 
@@ -381,15 +382,27 @@ fn matches_command(member: &Member, process: &RuntimeBackgroundProcess) -> bool 
     )
 }
 
-fn normalized_path(path: &std::path::Path) -> String {
-    let Some(path) = path.to_str() else {
-        return String::new();
-    };
+#[cfg(windows)]
+fn normalized_windows_path(path: &str) -> String {
     let path = path.replace('\\', "/");
     path.strip_prefix("//?/")
         .unwrap_or(&path)
         .trim_end_matches('/')
         .to_string()
+}
+
+fn same_cwd(actual: &std::path::Path, expected: &std::path::Path) -> bool {
+    let (Some(actual), Some(expected)) = (actual.to_str(), expected.to_str()) else {
+        return false;
+    };
+    #[cfg(windows)]
+    {
+        normalized_windows_path(actual) == normalized_windows_path(expected)
+    }
+    #[cfg(not(windows))]
+    {
+        std::path::Path::new(actual) == std::path::Path::new(expected)
+    }
 }
 
 fn command_matches(
@@ -399,15 +412,10 @@ fn command_matches(
     expected_cwd: &std::path::Path,
     raw: &str,
 ) -> bool {
-    if cwd.to_str().is_none()
-        || expected_cwd.to_str().is_none()
-        || normalized_path(cwd) != normalized_path(expected_cwd)
-        || argv.is_empty()
-        || expected.is_empty()
-    {
+    if !same_cwd(cwd, expected_cwd) || argv.is_empty() || expected.is_empty() {
         return false;
     }
-    let program = if expected[0].contains(['/', '\\']) {
+    let program = if expected[0].contains('/') || (cfg!(windows) && expected[0].contains('\\')) {
         expected[0] == argv[0]
     } else {
         executable(&expected[0]) == executable(&argv[0])
@@ -418,20 +426,16 @@ fn command_matches(
 
 fn shell_command(argv: &[String]) -> Option<&str> {
     let shell_name = executable(argv.first()?);
-    let switch = argv
-        .get(argv.len().saturating_sub(2))
-        .map(|value| value.to_ascii_lowercase());
+    let switch = argv.get(argv.len().saturating_sub(2)).map(String::as_str);
     let command_switch = match shell_name.as_str() {
         "sh" | "bash" | "zsh" | "dash" => {
-            argv.len() == 3
-                && switch
-                    .as_deref()
-                    .is_some_and(|value| ["-c", "-lc", "-cl"].contains(&value))
+            argv.len() == 3 && switch.is_some_and(|value| ["-c", "-lc", "-cl"].contains(&value))
         }
-        "pwsh" | "powershell" => switch
-            .as_deref()
-            .is_some_and(|value| ["-command", "-c"].contains(&value)),
-        "cmd" => switch.as_deref() == Some("/c"),
+        "pwsh" | "powershell" => switch.is_some_and(|value| {
+            value.eq_ignore_ascii_case("-command") || value.eq_ignore_ascii_case("-c")
+        }),
+        #[cfg(windows)]
+        "cmd" => switch.is_some_and(|value| value.eq_ignore_ascii_case("/c")),
         _ => false,
     };
     command_switch.then_some(argv.last()?.as_str())

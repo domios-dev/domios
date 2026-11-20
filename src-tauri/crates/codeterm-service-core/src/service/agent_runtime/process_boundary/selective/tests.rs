@@ -2,13 +2,24 @@ use super::*;
 
 #[test]
 fn background_stop_requires_exact_shell_command_and_cwd() {
-    let cwd = Path::new("C:/work");
-    let argv = [
-        "C:/WindowsApps/pwsh.exe".into(),
-        "-Command".into(),
-        "try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\nnode target.cjs"
-            .into(),
-    ];
+    #[cfg(windows)]
+    let (cwd, other, program, switch, script) = (
+        "C:/work",
+        "C:/other",
+        "C:/WindowsApps/pwsh.exe",
+        "-Command",
+        "try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\nnode target.cjs",
+    );
+    #[cfg(unix)]
+    let (cwd, other, program, switch, script) = (
+        "/work/project",
+        "/work\\project",
+        "/bin/bash",
+        "-lc",
+        "node target.cjs",
+    );
+    let cwd = Path::new(cwd);
+    let argv = [program.into(), switch.into(), script.into()];
     assert!(shell_matches(&argv, cwd, "node target.cjs", cwd));
     assert!(!shell_matches(&argv, cwd, "node keeper.cjs", cwd));
     assert!(!shell_matches(&argv, cwd, "target.cjs", cwd));
@@ -16,12 +27,12 @@ fn background_stop_requires_exact_shell_command_and_cwd() {
         &argv,
         cwd,
         "node target.cjs",
-        Path::new("C:/other")
+        Path::new(other)
     ));
     let arbitrary_wrapper = [
-        "pwsh".into(),
-        "-c".into(),
-        "Write-Output setup\nnode target.cjs".into(),
+        program.into(),
+        switch.into(),
+        "echo setup\nnode target.cjs".into(),
     ];
     assert!(!shell_matches(
         &arbitrary_wrapper,

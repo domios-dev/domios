@@ -276,6 +276,20 @@ fn apply_schema_transaction(conn: &mut Connection, from: i32) -> Result<(), Stor
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|e| sqlite_error("begin schema initialization", e))?;
     for step in &MIGRATIONS[from as usize..] {
+        if *step == sentinel::GRAPH_SCHEMA {
+            let has_stages: bool = tx
+                .query_row("SELECT EXISTS(SELECT 1 FROM sentinels)", [], |row| {
+                    row.get(0)
+                })
+                .map_err(|e| sqlite_error("check for stored Sentinel stages", e))?;
+            if has_stages {
+                return Err(StorageError::Incompatible {
+                    application_id: APPLICATION_ID,
+                    schema_version: from,
+                    supported: SCHEMA_VERSION,
+                });
+            }
+        }
         tx.execute_batch(step)
             .map_err(|e| sqlite_error("initialize schema", e))?;
     }

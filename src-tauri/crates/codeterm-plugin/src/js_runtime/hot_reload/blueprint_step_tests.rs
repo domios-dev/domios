@@ -159,9 +159,12 @@ fn browser_manifest_declares_read_page_step() {
             .iter()
             .map(|step| step.descriptor.id.as_str())
             .collect::<Vec<_>>(),
-        ["browser.read_page"]
+        ["browser.read_page", "browser.snapshot_page"]
     );
-    let step = &steps[0];
+    let step = steps
+        .iter()
+        .find(|step| step.descriptor.id == "browser.read_page")
+        .unwrap();
     assert_eq!(step.plugin, "browser");
     assert_eq!(
         step.descriptor.outcomes,
