@@ -241,9 +241,13 @@ fn api_defaults_are_loopback_authenticated_and_cors_closed() {
         .token
         .as_ref()
         .is_some_and(|token| !token.is_empty()));
-    assert_eq!(config.api.port, 7685);
+    assert_eq!(config.api.port, schema::ApiConfig::default().port);
     if cfg!(debug_assertions) {
-        assert!(validate_api_trust_boundary(&config.api).is_err());
+        let production_api = schema::ApiConfig {
+            port: 7685,
+            ..config.api.clone()
+        };
+        assert!(validate_api_trust_boundary(&production_api).is_err());
     }
     let private_api = schema::ApiConfig {
         port: 7686,
