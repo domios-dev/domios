@@ -58,7 +58,7 @@ notify-181b0d20215bb231 = { package = "notify", version = "8" }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 once_cell = { version = "1" }
 percent-encoding = { version = "2" }
-phf_shared = { version = "0.11", default-features = false, features = ["std"] }
+phf_shared = { version = "0.13", default-features = false, features = ["std"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = { version = "1" }
 rand = { version = "0.8", features = ["small_rng"] }
@@ -123,7 +123,7 @@ indexmap = { version = "2", features = ["serde"] }
 log = { version = "0.4", default-features = false, features = ["release_max_level_info", "std"] }
 memchr = { version = "2" }
 percent-encoding = { version = "2" }
-phf_shared = { version = "0.11", default-features = false, features = ["std"] }
+phf_shared = { version = "0.13", default-features = false, features = ["std"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = { version = "1" }
 rand = { version = "0.8", features = ["small_rng"] }
