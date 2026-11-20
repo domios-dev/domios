@@ -607,7 +607,7 @@ mod activity_tests {
         let (mut mux, id) = MultiplexerState::new();
         mux.get_tab_mut(&id).unwrap().last_active_at_ms = Some(98765);
         mux.get_tab_mut(&id).unwrap().last_opened_at_ms = Some(12345);
-        let saved = to_desk_snapshot(&mux.to_session_snapshot(), vec![]).unwrap();
+        let saved = project_snapshot(&mux.to_session_snapshot(), vec![]).unwrap();
         let restored = from_desk_snapshot(saved).unwrap();
         let mux = MultiplexerState::from_session_snapshot(&restored);
         assert_eq!(mux.get_tab(&id).unwrap().last_active_at_ms, Some(98765));
