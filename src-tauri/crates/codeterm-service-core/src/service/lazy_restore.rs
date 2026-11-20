@@ -40,6 +40,14 @@ fn provider_lost_session(tab: &Tab) -> bool {
 }
 
 pub(crate) fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
+    if tab
+        .close_restore
+        .as_ref()
+        .is_some_and(|closed| closed.stopped)
+    {
+        return false;
+    }
+
     tab.frozen
         || explicit
             && !tab.protected
@@ -47,12 +55,7 @@ pub(crate) fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
             && (tab.boot_stage == Some(BootStage::SpawnFailed)
                 || tab.restored_from_snapshot
                     && matches!(tab.backing, TabBacking::ChatBackend { .. })
-                || matches!(tab.backing, TabBacking::Pty)
-                    && tab.pty_id.is_none()
-                    && !tab
-                        .close_restore
-                        .as_ref()
-                        .is_some_and(|closed| closed.stopped))
+                || matches!(tab.backing, TabBacking::Pty) && tab.pty_id.is_none())
 }
 
 pub(crate) fn wake_on_open_eligible(tab: &Tab) -> bool {
