@@ -3,9 +3,17 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::service::test_fixture::ServiceFixture;
 use codeterm_types::pty::TabVerdict;
 
+fn utility_shell() -> (MultiplexerState, String) {
+    let (mut mux, root) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&root).unwrap();
+    let shell = mux.create_tab(&workspace).unwrap();
+    assert!(mux.get_tab(&shell).unwrap().is_utility_shell());
+    (mux, shell)
+}
+
 #[test]
 fn running_shell_without_a_command_from_its_current_pty_refuses_update() {
-    let (mut mux, shell) = MultiplexerState::new();
+    let (mut mux, shell) = utility_shell();
     mux.link_pty(&shell, "old-pty".into());
     let fixture = ServiceFixture::new(mux);
     let svc = &fixture.service;
@@ -18,6 +26,10 @@ fn running_shell_without_a_command_from_its_current_pty_refuses_update() {
             .shell_command_state
             .activity = ShellActivity::Running;
     }
+    assert_eq!(
+        svc.running_utility_command(&shell).as_deref(),
+        Some("old command")
+    );
 
     let refusal = svc
         .reserve_update_shutdown(codeterm_update::holders::ReserveHolders {
@@ -39,7 +51,7 @@ fn running_shell_without_a_command_from_its_current_pty_refuses_update() {
 
 #[test]
 fn idle_only_policy_still_requires_verified_shell_activity() {
-    let (mut mux, shell) = MultiplexerState::new();
+    let (mut mux, shell) = utility_shell();
     mux.link_pty(&shell, "current-pty".into());
     let fixture = ServiceFixture::new(mux);
     let svc = &fixture.service;
