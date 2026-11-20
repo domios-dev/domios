@@ -521,6 +521,7 @@ fn launch_with_fork(
         target.chat_view = true;
     }
     super::authority::record_spawn(svc, tab, provider, &nonce)?;
+    let run_owner = svc.run_watcher.runtime_start_owner(tab, &nonce);
     let result = crate::async_runtime::block_on(async {
         match fork {
             Some((source_thread_id, turn_id)) => {
@@ -534,7 +535,12 @@ fn launch_with_fork(
         Some(_) => Err(error),
     })
     .map(|_| ())
-    .map_err(|error| format!("Runtime tab {tab} degraded: {error}"));
+    .map_err(|error| {
+        if let Some(kind) = run_owner.as_ref() {
+            let _ = svc.run_watcher.runtime_start_result(svc, tab, &nonce, kind, &error);
+        }
+        format!("Runtime tab {tab} degraded: {error}")
+    });
     if fork.is_none() {
         svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     }

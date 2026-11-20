@@ -151,6 +151,7 @@ impl ServiceContext {
         }
         let svc = self.clone();
         let tab_id = handle.tab_id.clone();
+        let cron_owned = launch.cron_owned;
         std::thread::spawn(move || {
             let recipient = svc.spawn_failure_recipient(&tab_id);
             let readiness = launch.run();
@@ -159,11 +160,12 @@ impl ServiceContext {
                 Some(ready_tx) => {
                     let _ = ready_tx.send(readiness);
                 }
-                None => {
+                None if !cron_owned => {
                     if let Err(error) = readiness {
                         svc.report_spawn_runtime_failure(recipient, &tab_id, &error);
                     }
                 }
+                None => {}
             }
         });
         Ok(handle)
@@ -439,6 +441,7 @@ impl ServiceContext {
         if local_runtime {
             if let Some(launch) = launch {
                 if let Err(error) = self.prepare_chatbackend_runtime_launch(&tab_id, launch) {
+                    self.fail_prepared_runtime_cron(&tab_id, launch, &error);
                     self.rollback_provisional_tab(&ws_id, &tab_id);
                     let _ = self.revoke_agent_pad(&tab_id);
                     return Err(error);
@@ -468,6 +471,7 @@ impl ServiceContext {
                 history_meta,
                 runtime_fork,
                 emit_state_change,
+                cron_owned: local_runtime && launch.is_some_and(|metadata| matches!(metadata.owner_linkage, Some(super::spawn::RuntimeOwnerLinkage::CronRun { .. }))),
             },
         ))
     }

@@ -140,6 +140,7 @@ impl RunWatcherRegistry {
     }
 
     pub fn mark_tab_completed_externally(&self, tab_id: &str) {
+        self.retire_runtime(tab_id);
         self.runs.lock().retain(|_, state| {
             if state.tab_id != tab_id {
                 return true;
@@ -964,7 +965,7 @@ fn finish_run_as(svc: &ServiceContext, state: &RunState, run_end: RunEnd, summar
             ) {
                 crate::service::launch_readiness::retire_attempt(&attempt);
             }
-            cron_end::finish(
+            let _ = cron_end::finish(
                 svc,
                 cron_end::EndedCronRun {
                     tab_id: &state.tab_id,
@@ -975,6 +976,7 @@ fn finish_run_as(svc: &ServiceContext, state: &RunState, run_end: RunEnd, summar
                     raw_output: &clean,
                     session_id: session_id.as_deref(),
                     cwd: run_cwd.as_deref(),
+                    binding_nonce: None,
                 },
             );
         }

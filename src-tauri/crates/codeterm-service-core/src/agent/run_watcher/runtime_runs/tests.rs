@@ -9,6 +9,8 @@ use serde_json::json;
 use std::sync::{mpsc, Arc};
 
 const PROVIDER: &str = "run-end-fixture";
+#[path = "terminal_tests.rs"]
+mod terminal;
 const SOURCE: &str = r#"
 module.exports = {
   runtimePlan(ctx, op) { return {action:{kind:'request',call:{method:op.kind,params:op}},state:null}; },

@@ -106,6 +106,7 @@ fn end_run(run: &OneshotRun, success: bool, summary: &str, deliveries: &Deliveri
             raw_output: "",
             session_id: None,
             cwd: None,
+            binding_nonce: None,
         },
         move |tab_id, envelope, text| {
             recorded.lock().push((
@@ -171,6 +172,10 @@ fn cron_failed_oneshot_keeps_history() {
     end_run(&run, false, summary, &deliveries);
 
     assert_retired_with_report(&run, &deliveries, CronRunStatus::Failed, summary);
+    let original = run.cron.lock().get_history(&run.job_id)[0].clone();
+    end_run(&run, true, "late success", &deliveries);
+    assert_eq!(run.cron.lock().get_history(&run.job_id), vec![&original]);
+    assert_eq!(deliveries.lock().len(), 1);
 }
 
 #[test]
@@ -182,6 +187,20 @@ fn oneshot_stop_hook_end_keeps_history_and_reports() {
     end_run(&run, true, summary, &deliveries);
 
     assert_retired_with_report(&run, &deliveries, CronRunStatus::Success, summary);
+}
+
+#[test]
+fn cancelled_run_rejects_stale_timeout_without_report_or_oneshot_retirement() {
+    let run = oneshot_run(Some(REPORT_TAB));
+    commit(&run.cron, |store| store.prepare_cancel_running(&run.job_id, 123, crate::cron::store::CronCancelReason::UserCancel)).unwrap();
+    let original = run.cron.lock().get_history(&run.job_id)[0].clone();
+    let definition = run.cron.lock().get(&run.job_id).unwrap().clone();
+    let deliveries = Deliveries::default();
+    end_run(&run, false, "hard timeout after 1200s", &deliveries);
+    assert!(deliveries.lock().is_empty());
+    assert_eq!(run.cron.lock().get_history(&run.job_id), vec![&original]);
+    assert_eq!(run.cron.lock().get(&run.job_id), Some(&definition));
+    assert!(run.cron.lock().read_log(&run.job_id, &run.run_id).is_none());
 }
 
 #[test]
@@ -275,6 +294,7 @@ fn cron_settle_async_runtime_progresses_while_cron_writer_is_held() {
                         raw_output: "",
                         session_id: None,
                         cwd: None,
+                        binding_nonce: None,
                     },
                     |_, _, _| Ok(()),
                 )

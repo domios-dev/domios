@@ -21,7 +21,43 @@ struct RuntimeCompletion {
     barrier: super::cron_completion::CompletionBarrier,
 }
 
+struct RuntimeRunKey<'a> {
+    nonce: &'a str,
+    kind: Option<&'a AgentRunKind>,
+}
+
 impl RunWatcherRegistry {
+    pub(crate) fn runtime_start_owner(&self, tab: &str, nonce: &str) -> Option<AgentRunKind> {
+        self.runtime_runs.lock().get(tab).filter(|run| run.nonce == nonce).map(|run| run.kind.clone())
+    }
+
+    pub(crate) fn runtime_start_result(
+        &self,
+        svc: &ServiceContext,
+        tab: &str,
+        nonce: &str,
+        kind: &AgentRunKind,
+        error: &crate::service::agent_runtime::model::RuntimeFailure,
+    ) -> Option<cron_end::CronEndHandle> {
+        use crate::service::agent_runtime::model::RuntimeFailure;
+        if matches!(error, RuntimeFailure::Deadline | RuntimeFailure::Superseded | RuntimeFailure::SignInRequired | RuntimeFailure::WrittenAwaitingEvidence) {
+            return None;
+        }
+        let current = svc.mux.read().get_tab(tab).is_some_and(|target| {
+            target.session_binding_nonce.as_deref() == Some(nonce)
+        });
+        if !current {
+            return None;
+        }
+        self.finish_runtime_owned(svc, tab, RuntimeRunKey { nonce, kind: Some(kind) }, false, false, format!("Runtime startup failed: {error}"))
+    }
+
+    pub(super) fn retire_runtime(&self, tab: &str) {
+        if let Some(run) = self.runtime_runs.lock().remove(tab) {
+            let _ = run.cancelled.send(true);
+        }
+    }
+
     pub(crate) fn has_runtime_run(&self, tab: &str) -> bool {
         self.runtime_runs.lock().contains_key(tab)
     }
@@ -50,6 +86,18 @@ impl RunWatcherRegistry {
         };
         let (cancelled, mut completion) = tokio::sync::watch::channel(false);
         {
+            let cron = svc.try_ext::<crate::CronState>().map(|cron| cron.lock());
+            if let AgentRunKind::Cron { job_id, run_id } = &kind {
+                let active = cron.as_ref().is_some_and(|store| {
+                    store.find_run_by_id(run_id).is_some_and(|(job, run)| {
+                        job == job_id && matches!(run.status, crate::cron::store::CronRunStatus::Running | crate::cron::store::CronRunStatus::AwaitingOwnerPrompt)
+                            && run.tab_id.as_deref() == Some(tab)
+                    })
+                });
+                if !active {
+                    return Err("Runtime cron run is no longer active".into());
+                }
+            }
             let mut runs = self.runtime_runs.lock();
             if let Some(existing) = runs.get(tab) {
                 return if existing.nonce == nonce && existing.kind == kind {
@@ -80,16 +128,13 @@ impl RunWatcherRegistry {
             let owner = svc.clone();
             let tab = tab.to_string();
             crate::async_runtime::spawn(async move {
-                if tokio::time::timeout(Duration::from_secs(timeout_secs), completion.changed())
-                    .await
-                    .is_err()
-                {
+                if runtime_deadline(&mut completion, tokio::time::sleep(Duration::from_secs(timeout_secs))).await {
                     let watcher = owner.run_watcher.clone();
                     let _ = tokio::task::spawn_blocking(move || {
-                        watcher.finish_runtime(
+                        let _ = watcher.finish_runtime_owned(
                             &owner,
                             &tab,
-                            &nonce,
+                            RuntimeRunKey { nonce: &nonce, kind: Some(&kind) },
                             false,
                             true,
                             format!("hard timeout after {timeout_secs}s"),
@@ -201,7 +246,7 @@ impl RunWatcherRegistry {
                 None => "(agent returned to idle)".into(),
             }
         };
-        self.finish_runtime(
+        let _ = self.finish_runtime(
             svc,
             &context.tab_id,
             &context.binding_nonce,
@@ -218,7 +263,7 @@ impl RunWatcherRegistry {
         reason: String,
     ) {
         if current_runtime_binding(svc, context) {
-            self.finish_runtime(
+            let _ = self.finish_runtime(
                 svc,
                 &context.tab_id,
                 &context.binding_nonce,
@@ -237,17 +282,30 @@ impl RunWatcherRegistry {
         success: bool,
         timed_out: bool,
         summary: String,
-    ) {
+    ) -> Option<cron_end::CronEndHandle> {
+        self.finish_runtime_owned(svc, tab, RuntimeRunKey { nonce, kind: None }, success, timed_out, summary)
+    }
+
+    fn finish_runtime_owned(
+        &self,
+        svc: &ServiceContext,
+        tab: &str,
+        key: RuntimeRunKey<'_>,
+        success: bool,
+        timed_out: bool,
+        summary: String,
+    ) -> Option<cron_end::CronEndHandle> {
+        let nonce = key.nonce;
         let run = {
             let mut runs = self.runtime_runs.lock();
             if !runs
                 .get(tab)
-                .is_some_and(|run| run.nonce == nonce && !(timed_out && run.reported))
+                .is_some_and(|run| run.nonce == nonce && key.kind.is_none_or(|kind| kind == &run.kind) && !(timed_out && run.reported))
             {
-                return;
+                return None;
             }
             let Some(run) = runs.remove(tab) else {
-                return;
+                return None;
             };
             run
         };
@@ -262,7 +320,7 @@ impl RunWatcherRegistry {
             )
         };
         if !current {
-            return;
+            return None;
         }
         let output = serde_json::to_string(&runtime_messages(tab)).unwrap_or_default();
         log::debug!("[run-watcher.runtime] end tab={tab} success={success} timed_out={timed_out} reported={}", run.reported);
@@ -274,7 +332,7 @@ impl RunWatcherRegistry {
                 summary,
                 Ok(runtime_messages(tab)),
             ),
-            AgentRunKind::Cron { job_id, run_id } => cron_end::finish(
+            AgentRunKind::Cron { job_id, run_id } => return cron_end::finish(
                 svc,
                 cron_end::EndedCronRun {
                     tab_id: tab,
@@ -285,6 +343,7 @@ impl RunWatcherRegistry {
                     raw_output: &output,
                     session_id: session.as_deref(),
                     cwd: cwd.as_deref(),
+                    binding_nonce: Some(nonce),
                 },
             ),
             AgentRunKind::MemWorker { worker_id } => {
@@ -327,6 +386,21 @@ impl RunWatcherRegistry {
                 }
             }
         }
+        None
+    }
+}
+
+async fn runtime_deadline(
+    completion: &mut tokio::sync::watch::Receiver<bool>,
+    deadline: impl std::future::Future<Output = ()>,
+) -> bool {
+    if *completion.borrow() {
+        return false;
+    }
+    tokio::select! {
+        biased;
+        _ = completion.changed() => false,
+        _ = deadline => true,
     }
 }
 
@@ -351,6 +425,28 @@ fn current_runtime_binding(svc: &ServiceContext, context: &RuntimeContext) -> bo
 }
 
 impl ServiceContext {
+    pub(crate) fn fail_prepared_runtime_cron(
+        &self,
+        tab: &str,
+        metadata: &crate::service::spawn::ChatBackendLaunchMetadata,
+        reason: &str,
+    ) {
+        let Some(crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id, run_id }) = &metadata.owner_linkage else {
+            return;
+        };
+        let nonce = self.ensure_session_binding_nonce(tab);
+        if !self.run_watcher.has_runtime_run(tab) {
+            if self.prepare_runtime_cron_owner(tab, job_id, run_id).is_err()
+                || self.prepare_runtime_run_watcher(tab, metadata).is_err() {
+                return;
+            }
+        }
+        let kind = AgentRunKind::Cron { job_id: job_id.clone(), run_id: run_id.clone() };
+        if let Some(settlement) = self.run_watcher.finish_runtime_owned(self, tab, RuntimeRunKey { nonce: &nonce, kind: Some(&kind) }, false, false, reason.into()) {
+            settlement.wait_for_terminal();
+        }
+    }
+
     pub(crate) fn prepare_runtime_run_watcher(
         &self,
         tab: &str,

@@ -586,11 +586,8 @@ impl ServiceContext {
         id: &str,
         reason: crate::cron::store::CronCancelReason,
     ) -> Result<usize, String> {
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        match commit(cron, |store| {
+        let now_ms = cron.lock().now_ms();
+        let cancelled = match commit(cron, |store| {
             store.prepare_cancel_running(id, now_ms, reason)
         }) {
             Ok(done) => {
@@ -603,15 +600,19 @@ impl ServiceContext {
                         elapsed_ms
                     );
                 }
+                done.value.into_iter().map(|(run, _)| run).collect::<Vec<_>>()
             }
             Err(error) if error.applied() => {
                 log::error!("Failed to persist cron cancellation: job={id}: {error}");
+                cron.lock().get_history(id).into_iter().filter(|run| run.status == CronRunStatus::Cancelled && run.finished_at == Some(now_ms) && run.cancel_reason == Some(reason)).map(|run| run.run_id.clone()).collect()
             }
             Err(error) => return Err(error.to_string()),
-        }
+        };
         let to_close = {
             let mut store = cron.lock();
-            let tabs = store.tab_owners_for_job(id);
+            let tabs: Vec<_> = store.tab_owners_for_job(id).into_iter().filter(|tab| {
+                store.get_tab_owner(tab).is_some_and(|(_, run)| cancelled.contains(run))
+            }).collect();
             for tab_id in &tabs {
                 store.unregister_tab(tab_id);
             }
@@ -620,6 +621,7 @@ impl ServiceContext {
 
         let count = to_close.len();
         for tab_id in &to_close {
+            self.run_watcher.mark_tab_completed_externally(tab_id);
             let _ = self.close_tab_with_reason(tab_id, TabCloseReason::Cancelled);
         }
         self.emit_cron_changed();
@@ -913,18 +915,20 @@ impl ServiceContext {
                 summary_text, raw_clean
             );
 
-            let log_file = cron.lock().log_file(&job_id, run_id);
-            if let Err(e) =
-                log_file.and_then(|path| CronStore::create_log(&path, &log_text).map(|_| ()))
-            {
-                log::error!("Failed to save cron log: {}", e);
-            }
-
             let session = session_id.as_deref().map(|session_id| RunSession {
                 session_id,
                 cwd: run_cwd.as_deref(),
             });
-            let _ = finish_run(cron, &job_id, run_id, CronRunStatus::Success, session);
+            let fresh = commit(cron, |store| {
+                store.prepare_finish_run_with_summary(&job_id, run_id, CronRunStatus::Success, session, Some(&summary_text), None)
+            })?.value.fresh;
+            if !fresh {
+                return Ok(None);
+            }
+            let log_file = cron.lock().log_file(&job_id, run_id);
+            if let Err(error) = log_file.and_then(|path| CronStore::create_log(&path, &log_text).map(|_| ())) {
+                log::error!("Failed to save cron log: {error}");
+            }
             let is_oneshot = {
                 let mut store = cron.lock();
                 store.unregister_tab(&tab_id);

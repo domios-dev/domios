@@ -11,6 +11,7 @@ pub(crate) struct ChatBackendRuntimeLaunch {
     pub(super) history_meta: serde_json::Value,
     pub(super) runtime_fork: Option<crate::service::spawn::RuntimeForkLaunch>,
     pub(super) emit_state_change: bool,
+    pub(super) cron_owned: bool,
 }
 
 impl ChatBackendRuntimeLaunch {

@@ -161,7 +161,7 @@ fn storage_cron_divergent_last_run_evolves_like_the_legacy_file() {
         .unwrap(),
     );
     assert_same_as(&legacy, &f);
-    assert_eq!(bound, 3, "history row, divergent copy and identity");
+    assert_eq!(bound, 0, "a terminal history row conserves both copies");
 
     for store in [&mut legacy, &mut *f.cron.lock()] {
         store.register_tab("tab-r1", STALE, "r1");
