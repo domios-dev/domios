@@ -232,6 +232,7 @@ async fn relayed_agent_cannot_change_mesh_administration_state() {
         .unwrap();
     });
     let app = routes::create_router_with_frontend(source.clone(), None);
+    relay(app.clone(), &agent, "GET", "/api/mesh/status", Value::Null).await;
     for (path, body) in [
         (
             "/api/mesh/peers/victim/access",
@@ -270,20 +271,41 @@ async fn relayed_agent_cannot_change_mesh_administration_state() {
         );
         assert_eq!(std::fs::read(&config_path).ok(), persisted_config);
     }
-    // The same receiver and writer admit an owner relay, proving refusal isn't transport failure.
+    let access_path = "/api/mesh/peers/victim/access";
+    let access_body = json!({"access_level":"full"});
     let (status, response) = request(
-        app.clone(),
+        app,
         "owner-secret",
         "POST",
         "/api/mesh/relay-to",
         json!({
-            "target_peer_id":"target", "method":"POST", "path":"/api/mesh/peers/victim/access",
-            "body":{"access_level":"full"},
+            "target_peer_id":"target", "method":"POST", "path":access_path, "body":access_body,
         }),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{response}");
-    assert_eq!(response["status"], 200, "{response}");
+    assert_eq!(response["status"], 403, "{response}");
+    assert_eq!(
+        response["data"]["error"]["code"],
+        codeterm_mesh::contract::delivery::PEER_RELAY_NOT_AUTHORIZED
+    );
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(
+        target.mesh.lock().paired_peers["victim"].access_level,
+        AccessLevel::ReadOnly
+    );
+    assert_eq!(std::fs::read(&config_path).ok(), persisted_config);
+    let target_app = routes::create_router_with_frontend(target.clone(), None);
+    let (status, response) = request(
+        target_app.clone(),
+        "owner-secret",
+        "POST",
+        access_path,
+        access_body,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response}");
+    assert_eq!(response["ok"], true, "{response}");
     assert_eq!(
         target.mesh.lock().paired_peers["victim"].access_level,
         AccessLevel::Full
@@ -298,7 +320,6 @@ async fn relayed_agent_cannot_change_mesh_administration_state() {
         )
         .unwrap()
     };
-    let target_app = routes::create_router_with_frontend(target.clone(), None);
     let (status, _) = request(
         target_app,
         &service,

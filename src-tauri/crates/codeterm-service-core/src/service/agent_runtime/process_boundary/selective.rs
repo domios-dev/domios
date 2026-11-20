@@ -7,10 +7,7 @@ pub(super) fn shell_matches(
     command: &str,
     expected_cwd: &Path,
 ) -> bool {
-    if cwd.to_str().is_none()
-        || expected_cwd.to_str().is_none()
-        || super::normalized_path(cwd) != super::normalized_path(expected_cwd)
-    {
+    if !super::same_cwd(cwd, expected_cwd) {
         return false;
     }
 

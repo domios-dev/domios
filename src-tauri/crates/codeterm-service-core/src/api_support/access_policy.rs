@@ -272,7 +272,8 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
                         | "resize"
                         | "timeout"
                         | "children/reorder"
-                        | "agent/runtime/retry",
+                        | "agent/runtime/retry"
+                        | "agent/runtime/goal",
                     ) => WriteTab,
                     _ => return None,
                 };
