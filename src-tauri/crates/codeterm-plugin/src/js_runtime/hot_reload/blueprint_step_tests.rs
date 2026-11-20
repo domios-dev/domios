@@ -180,7 +180,7 @@ fn browser_manifest_declares_read_page_step() {
     assert_eq!(step.descriptor.inputs.keys().collect::<Vec<_>>(), ["url"]);
     assert_eq!(
         step.descriptor.outputs.keys().collect::<Vec<_>>(),
-        ["final_url", "text"]
+        ["capture_id", "captured_at", "final_url", "profile", "text"]
     );
     assert!(!step.descriptor.lifecycle.reconcile && !step.descriptor.lifecycle.cancel);
     // The fake host answers status as a live browser, so the real bundle stops at browser_busy.

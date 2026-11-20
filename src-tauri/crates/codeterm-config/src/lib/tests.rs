@@ -241,9 +241,18 @@ fn api_defaults_are_loopback_authenticated_and_cors_closed() {
         .token
         .as_ref()
         .is_some_and(|token| !token.is_empty()));
-    assert!(validate_api_trust_boundary(&config.api).is_ok());
+    assert_eq!(config.api.port, 7685);
+    if cfg!(debug_assertions) {
+        assert!(validate_api_trust_boundary(&config.api).is_err());
+    }
+    let private_api = schema::ApiConfig {
+        port: 7686,
+        ..config.api
+    };
+    assert!(validate_api_trust_boundary(&private_api).is_ok());
 
     let mut unsafe_remote = schema::ApiConfig::default();
+    unsafe_remote.port = 7686;
     unsafe_remote.host = "0.0.0.0".into();
     unsafe_remote.token = None;
     assert!(validate_api_trust_boundary(&unsafe_remote).is_err());
@@ -252,6 +261,7 @@ fn api_defaults_are_loopback_authenticated_and_cors_closed() {
     assert!(validate_api_trust_boundary(&unsafe_remote).is_ok());
 
     let mut permissive_cors = schema::ApiConfig {
+        port: 7686,
         cors: true,
         ..schema::ApiConfig::default()
     };
