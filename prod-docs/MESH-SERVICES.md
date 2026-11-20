@@ -23,17 +23,16 @@ Service listings include the latest health; activity is bounded to 10,000 rows /
 
 ### Discovery (peer services)
 
-Peer services are **not gossiped** across the mesh. Expanding a peer card fetches that peer's target-authoritative `GET /api/mesh/inventory` contract. Each resource carries its machine identity, kind, provenance, and per-operation capability map. Results are cached only as last-known peer rows; cached rows remain visible but cannot mutate. The web mirror exposes the same projection through `/api/mesh/peers/{id}/services`.
+Peer services are **not gossiped** across the mesh. Expanding a peer card fetches that peer's target-authoritative `GET /api/mesh/inventory` contract. Each resource carries its machine identity, kind, provenance, and per-operation capability map. Results are cached only as last-known peer rows; cached rows remain visible but cannot mutate. The web mirror reads the target inventory through the authenticated peer relay.
 
 The capability map uses stable operation keys (`get`, `history`,
 `update_schedule`, `delete`, `enable`, `disable`, `trigger`, `cancel`) and
 unavailable reasons (`not_authorized`, `stale`, `offline`,
 `partial_peer_failure`, `unsupported_resource_kind`, `target_unavailable`).
-Cron schedule updates use `PUT /api/mesh/peers/{id}/crons/{cron_id}` and cron
-removal uses `DELETE` on the same path; both forward the target response. The
-target authorizes them through `/api/crons/{id}` and the caller's access
-policy. Existing cron get/history/enable/disable/trigger/cancel routes remain
-unchanged, as does daemon registry deletion through `/api/services/{id}`.
+Cron reads, history, schedule updates, and actions use the target's
+`/api/crons` routes through the authenticated peer relay. The target applies
+the caller's access policy and returns its own response. Daemon deletion uses
+the target's `/api/services/{id}` route through the same relay.
 
 The Mesh tab shows peers, services and crons; cached/offline resources remain inspectable but cannot mutate.
 
@@ -78,4 +77,4 @@ The add-service wizard handles manual daemon registration. Smart-Add inspects ru
 
 All four respond `503` when `mesh.enabled=false` (see top of doc).
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

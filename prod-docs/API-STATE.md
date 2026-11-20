@@ -60,7 +60,6 @@ The daemon root serves the static web mirror through its fallback when the front
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/select` | — | Record one client's own selection silently; no other client follows it. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
 | POST | `/api/tabs/{id}/chat-view` | `{enabled}` | Toggle a tab's chat view flag. |
-| GET | `/api/mesh/peers/{id}/services` | — | Peer services view (same cache+failover as the Mesh tab). |
 | GET | `/api/events/stream` | `?since=<boot>:<seq>` | SSE of system events (`data: {seq, boot, event_type, data}`) - mux/mesh/tab-status changes; the web bundle's `listen()`. `since` replays the retained ring then goes live; absent, it starts live. Loss is signalled by one `{event_type:"overflow"}` frame carrying `{reason: boot-changed|ring-evicted|lagged, boot, next_seq, oldest?}`, never by a silent gap. `?tab_id=` filters to one tab (the web mirror does not use it). |
 | GET | `/api/output/stream` | `?since=<b64url cursor>` | Multiplexed SSE: ONE connection carries every Tab's PTY output as tab-tagged frames (`{tab_id, output, offset}`, plus per-tab `{truncated, from}` on ring eviction, `{ended}` on genuine PTY death, and a one-shot `{boot_changed, boot}` on daemon restart), replacing the per-tab long-poll below. `since` is a b64url `{boot, tabs:{id:offset}}` cursor. Killswitch: browser localStorage `codeterm-web-output-stream=off` falls back to `/api/pty/{id}/read`. With a mesh relay target set, the browser streams `/api/mesh/relay-stream?path=/api/output/stream` (same frames, same cursor); browsers carry both as `/api/stream-mux` channels. |
 | GET | `/api/pty/{id}/read` | — | Long-poll one chunk of PTY output (JSON byte array) — the browser terminal's read loop; fallback when the output-stream killswitch is off. |
@@ -220,4 +219,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 51 -->
+<!-- revision: 52 -->
