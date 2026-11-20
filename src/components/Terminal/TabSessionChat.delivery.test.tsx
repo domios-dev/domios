@@ -820,7 +820,7 @@ test("one bubble follows event state and Retry reuses it", async () => {
     await act(async () => addChatSend(tabId, { id: "bubble-one", correlationId: "bubble-one", content: "opaque-message", sentAtMs: Date.now() }));
     const bubble = () => host.querySelectorAll('[data-testid="chat-message"][data-message-role="user"]');
     assert(bubble().length === 1, "one optimistic row");
-    assert(host.querySelector('[role="status"]')?.getAttribute("aria-live") === "polite", "subtle accessible status");
+    assert(bubble()[0]?.querySelector('[role="status"]')?.getAttribute("aria-live") === "polite", "subtle accessible status");
     for (const [state, sequence] of [["held", 2], ["failed", 4]] as const) {
       latest = status(state, sequence);
       await act(async () => { dispatch("chat-send-status", latest); });
