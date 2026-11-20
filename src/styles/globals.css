@@ -2154,7 +2154,7 @@ button {
   --ct-bg-selected: color-mix(in srgb, var(--team-surface) 96%, var(--ct-fg));
   position: relative;
   min-width: 0;
-  margin: 4px calc(var(--spacing) * -1);
+  margin: 4px calc(var(--spacing) * 1);
   padding: 3px 0 0;
   overflow: visible;
   isolation: isolate;
@@ -2273,7 +2273,7 @@ button {
   align-items: start;
   gap: var(--team-controls-gap);
   margin: 0 0 9px;
-  padding: 7px 3px 0 16px;
+  padding: 7px 3px 0 14px;
   border-radius: 7px;
   color: var(--ct-fg);
 }
