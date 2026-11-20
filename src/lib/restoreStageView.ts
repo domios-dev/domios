@@ -2,11 +2,12 @@ import type { BootStage, Tab } from "./types";
 import { runtimeResponseDeadlinePending } from "./agentRuntimeState";
 import { lazyFirstTurnComposerIsLive, tabActivity } from "./tabActivity";
 import { tabLaunched, type TabFailure } from "./tabFailure";
+import { tabWakeRequiresRetry } from "./wakeOnOpen";
 
 export interface WakeRequestView {
   requested: boolean;
   pending: boolean;
-  error: string | null;
+  refusal: string | null;
 }
 
 export interface RestoreStageView {
@@ -43,7 +44,7 @@ export function restoreActivityVisible(tab: Partial<Tab>, wake: Partial<WakeRequ
   const responseDelay = runtimeResponseDeadlinePending(tab.agent_runtime_state, tab.boot_failure_reason);
   const startupStage = tab.boot_stage && tab.boot_stage !== "agent_ready" && tab.boot_stage !== "pty_reattached";
   return !(view.phase === "restoring" && responseDelay && bodyPainted && !startupStage
-    && !tab.agent_booting && !tab.frozen && !wake.pending && !wake.error);
+    && !tab.agent_booting && !tab.frozen && !wake.pending);
 }
 
 export function transcriptLoadingStageView(tab: Partial<Tab>): RestoreStageView {
@@ -65,9 +66,10 @@ export function restoreStageView(tab: Partial<Tab>, wake?: Partial<WakeRequestVi
   ] : [{ id: "backend", label: "Starting terminal" }, { id: "ready", label: "Ready" }];
   const stage = tab.boot_stage;
   const runtime = tab.agent_runtime_state;
+  const wakeRequiresRetry = tabWakeRequiresRetry(tab);
   const deadlinePending = stage !== "spawn_failed" && runtimeResponseDeadlinePending(runtime, tab.boot_failure_reason);
   const activeStage = Boolean(stage && (backendStages.has(stage) || sessionStages.has(stage) || connectingStages.has(stage)));
-  const ready = !tab.frozen && stage !== "spawn_failed" && runtime?.state !== "degraded" && runtime?.state !== "loginPending" && !deadlinePending
+  const ready = !tab.frozen && !wakeRequiresRetry && runtime?.state !== "degraded" && runtime?.state !== "loginPending" && !deadlinePending
     && (stage === "agent_ready" || lazyFirstTurnComposerIsLive(tab) || (!agent && (stage === "shell_ready" || stage === "pty_reattached"))
       || (!activeStage && !tab.agent_booting && runtime?.state === "loaded"));
   let phase: RestoreStageView["phase"] = "restoring";
@@ -76,12 +78,12 @@ export function restoreStageView(tab: Partial<Tab>, wake?: Partial<WakeRequestVi
   if (ready) {
     phase = "ready";
     current = definitions.length - 1;
-  } else if (wake?.error) {
-    phase = "failed";
-    detail = wake.error;
-  } else if (stage === "spawn_failed") {
+  } else if (wakeRequiresRetry) {
     phase = "failed";
     detail = tab.boot_failure_reason || runtime?.reason || "The session could not be restored.";
+  } else if (wake?.refusal) {
+    phase = "failed";
+    detail = wake.refusal;
   } else if (tab.frozen) {
     phase = wake?.requested ? "restoring" : "sleeping";
     current = -1;
