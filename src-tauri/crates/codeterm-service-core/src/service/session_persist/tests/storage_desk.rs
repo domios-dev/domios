@@ -6,8 +6,10 @@ fn oversized_leaf_does_not_block_desk_completion() {
     use codeterm_storage::{DeskLayoutNode, DeskLeafFields, MAX_DESK_LEAF_BYTES};
 
     let root = tempfile::tempdir().unwrap();
-    let storage = Storage::open(root.path(), StorageConfig::default()).unwrap();
+    let authority = crate::startup::open_instance_storage_at(root.path());
+    let storage = authority.require_ready().expect("startup seeds the desk");
     let adapter = || crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
+    assert!(adapter().state().unwrap().snapshot.workspaces.is_empty());
     let worker = pending_worker();
     worker
         .configure(WorkerMessage::InstallStorage(adapter()))
@@ -68,10 +70,11 @@ fn oversized_leaf_does_not_block_desk_completion() {
         })
     );
 
-    assert!(matches!(
-        worker.submit_snapshot(snapshot.clone(), SaveIntent::PreserveDesk, true),
-        Ok(Some(SaveOutcome::Saved))
-    ));
+    let first_save = worker.submit_snapshot(snapshot.clone(), SaveIntent::PreserveDesk, true);
+    assert!(
+        matches!(first_save, Ok(Some(SaveOutcome::Saved))),
+        "first desk completion: {first_save:?}"
+    );
     let initial = adapter().state().unwrap();
     let mut newly_oversized = fixture_snapshot("new").workspaces.remove(0).tabs.remove(0);
     let workspace = &mut snapshot.workspaces[0];
@@ -92,10 +95,11 @@ fn oversized_leaf_does_not_block_desk_completion() {
     }
     workspace.tabs.push(newly_oversized);
     workspace.active_tab_id = Some("new".into());
-    assert!(matches!(
-        worker.submit_snapshot(snapshot.clone(), SaveIntent::PreserveDesk, true),
-        Ok(Some(SaveOutcome::Saved))
-    ));
+    let preserving_save = worker.submit_snapshot(snapshot.clone(), SaveIntent::PreserveDesk, true);
+    assert!(
+        matches!(preserving_save, Ok(Some(SaveOutcome::Saved))),
+        "desk completion with oversized tabs: {preserving_save:?}"
+    );
     let preserved = adapter().state().unwrap();
     assert_eq!(
         preserved.snapshot.workspaces[0].tabs,
@@ -105,10 +109,11 @@ fn oversized_leaf_does_not_block_desk_completion() {
     let workspace = &mut snapshot.workspaces[0];
     workspace.tabs.retain(|tab| tab.id != "closing");
     workspace.name = "Committed with omissions".into();
-    assert!(matches!(
-        worker.submit_snapshot(snapshot, SaveIntent::AuthorizedReduction, true),
-        Ok(Some(SaveOutcome::Saved))
-    ));
+    let closing_save = worker.submit_snapshot(snapshot, SaveIntent::AuthorizedReduction, true);
+    assert!(
+        matches!(closing_save, Ok(Some(SaveOutcome::Saved))),
+        "desk completion after closing a tab: {closing_save:?}"
+    );
     stop_test_worker(&worker);
 
     let persisted = adapter().state().unwrap();
@@ -133,6 +138,7 @@ fn oversized_leaf_does_not_block_desk_completion() {
     );
     assert_eq!(fields.values["agent_session_id"], "session-main");
     assert!(persisted.snapshot.validate().is_ok());
+    storage.shutdown().wait(PERSISTENCE_DEADLINE).unwrap();
 }
 
 #[test]
