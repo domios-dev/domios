@@ -6,7 +6,12 @@ fn archived_handoff_restores_recorded_origin_only_for_the_exact_runtime_item() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("handoff.json");
     let body = "opaque handoff payload";
-    let wire = system_message(body, Some("Destination provider"), Some("destination-model")).unwrap();
+    let wire = system_message(
+        body,
+        Some("Destination provider"),
+        Some("destination-model"),
+    )
+    .unwrap();
     let frame = Messenger::restore_framed_delivery(&wire).unwrap();
     let mut delivered = frame.chat_message("host-send".into()).unwrap();
     assert!(HandoffOrigin::recorded(&delivered).is_none());
