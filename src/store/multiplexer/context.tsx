@@ -8,6 +8,7 @@ import type {
 import type { RemotePeerTabs } from "../../lib/remoteTabPortal";
 import type { MuxStateStore } from "./selectorStore";
 import type { SessionLaunchIntent } from "../../lib/generalSession";
+import type { usePairedWorkspaces } from "./usePairedWorkspaces";
 
 /** Ids returned by a successful spawn — enough to resolve + select the tab. */
 export interface SpawnedTab {
@@ -31,7 +32,7 @@ export interface MultiplexerActionsContextType {
   /** Reorder the workspace list to the given order. */
   reorderWorkspaces: (orderedWorkspaceIds: string[]) => void;
   createTab: (workspaceId: string, cwd?: string, shell?: string) => Promise<{ id: string } | void>;
-  attachRemoteTab?: (workspaceId: string, peer: RemotePeerTabs, tab: RemotePeerTabs["tabs"][number]) => void;
+  attachRemoteTab?: (workspaceId: string, peer: RemotePeerTabs, tab: RemotePeerTabs["tabs"][number], status?: TabStatus) => void;
   /** Removes this machine's attachment of a remote tab; the tab keeps running on its peer. */
   detachRemoteTab?: (tabId: string) => void;
   removeRemoteMachineTabs?: (peerId: string, tabIds: readonly string[]) => void;
@@ -72,6 +73,9 @@ export interface MultiplexerActionsContextType {
     executionMode?: string,
     launchProfile?: string,
     accountId?: string,
+    machineId?: string,
+    remoteWorkspaceId?: string,
+    beforeRemoteTabSelect?: () => void,
   ) => Promise<SpawnedTab | null>;
   /** Paired creation (task_7e5f9354): create a plan plus an Orchestrator +
    *  Planner tab bound to it, in one call. */
@@ -80,6 +84,12 @@ export interface MultiplexerActionsContextType {
 
 export const MultiplexerActionsContext = createContext<MultiplexerActionsContextType | null>(null);
 export const MuxStateStoreContext = createContext<MuxStateStore | null>(null);
+type PairedWorkspaceInventory = Pick<ReturnType<typeof usePairedWorkspaces>, "generals" | "browse"> & { ready?: boolean; peerWorkspaces?: ReturnType<typeof usePairedWorkspaces>["peerWorkspaces"] };
+export const PairedWorkspaceInventoryContext = createContext<PairedWorkspaceInventory>({ generals: [], browse: null });
+
+export function usePairedWorkspaceInventory(): PairedWorkspaceInventory {
+  return useContext(PairedWorkspaceInventoryContext);
+}
 
 /** Stable action callbacks — identity does not change when mux state updates. */
 export function useMultiplexer(): MultiplexerActionsContextType {

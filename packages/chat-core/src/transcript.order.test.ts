@@ -3,6 +3,7 @@ import {
   createTranscriptState, projectTranscript, reduceTranscript, transcriptRows,
   type TranscriptBatch, type TranscriptState,
 } from "./transcript";
+import { orderTimelineItems } from "./timelineOrder";
 import type { NormalizedChatMessage } from "./types";
 
 const authority = { sourceSessionId: "ordered-session", sessionBindingNonce: "binding" };
@@ -51,7 +52,7 @@ const reconnect = reduceTranscript(state, batch("snapshot", 4000, 4473), 5000).s
 assertOrder(reconnect, sends);
 const reload = reduceTranscript(createTranscriptState(), batch("snapshot", 0, 4473), 5000).state;
 assertOrder(reload, sends);
-assert.deepEqual(projectTranscript(reload, sends).rows.map((row) => row.content), rows(0, 4473).map((row) => row.content));
+assert.deepEqual(projectTranscript(reload, sends).rows.map((row) => row.content), orderTimelineItems(rows(0, 4473)).map((row) => row.content));
 
 const unranged = reduceTranscript(createTranscriptState(), {
   kind: "snapshot", authority, range: null,
@@ -60,7 +61,7 @@ const unranged = reduceTranscript(createTranscriptState(), {
     { id: "early", type: "assistant", content: "1", seq: 1, timestamp: "2" },
   ],
 }).state;
-assert.deepEqual(projectTranscript(unranged).rows.map((row) => row.content), ["1", "2"]);
+assert.deepEqual(projectTranscript(unranged).rows.map((row) => row.content), ["2", "1"]);
 const streamed = reduceTranscript(unranged, {
   kind: "delta", authority, range: null,
   rows: [

@@ -62,12 +62,31 @@ pub enum MeshAction {
         #[command(subcommand)]
         action: MeshPeerAction,
     },
+    /// Manage the kind icon and colour of an installation.
+    Identity {
+        #[command(subcommand)]
+        action: MeshIdentityAction,
+    },
     /// Go offline: stop pinging peers, stop announcing, stop refreshing
     /// local addresses (which keeps Tailscale alive). The daemon stays up;
     /// peers will time out our presence on their side. Local-only command.
     Offline,
     /// Come back online — resume mesh activity. Local-only.
     Online,
+}
+
+#[derive(Subcommand)]
+pub enum MeshIdentityAction {
+    /// Set the machine's kind and colour. Requires owner authority.
+    Set {
+        #[arg(long, value_parser = ["laptop", "desktop", "server", "mac", "phone", "vm", "small", "other"])]
+        kind: String,
+        #[arg(long, value_parser = ["blue", "teal", "green", "yellow", "pink", "violet", "graphite"])]
+        color: String,
+        /// Set the identity on this paired machine by name or ID.
+        #[arg(long)]
+        peer: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

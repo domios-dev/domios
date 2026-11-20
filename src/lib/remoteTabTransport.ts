@@ -101,6 +101,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "mux_close_tab": return call("POST", "/close");
     case "mux_rename_tab": return call("POST", "/rename", { title: args.title ?? args.name });
     case "mux_set_focused_tab": return call("POST", "/select");
+    case "mux_rerun_restored_shell": return call("POST", "/rerun-restored-shell");
     case "get_tab_history_raw":
     case "get_tab_output": return call("GET", "/output", null, (value) => (value as { text?: string; output?: string })?.text ?? (value as { output?: string })?.output ?? "");
     case "get_tab_text": return call("GET", `/text?formatted=${args.formatted === true}`, null, (value) => (value as { text?: string })?.text ?? "");
@@ -133,16 +134,18 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "chat_start": return call("POST", "/chat-raw/start", { subscriptionId: args.subscriptionId,
       ...(args.knownWindow != null ? { knownWindow: args.knownWindow } : {}) });
     case "chat_stop": return call("POST", "/chat-raw/stop", { subscriptionId: args.subscriptionId });
+    case "chat_resume": return call("POST", "/chat-raw/resume", { cursor: args.cursor });
     case "chat_backfill": return call("POST", "/chat-raw/backfill", { before_offset: args.beforeOffset, max_bytes: args.maxBytes, offset_kind: args.offsetKind });
     case "chat_history_page": return call("POST", "/chat-raw/history", { source: args.source, session_id: args.sessionId, before_offset: args.beforeOffset });
     case "chat_send_text": return call("POST", "/chat-send", {
       text: args.text,
       client_token: args.clientToken,
-      ...(args.startupOverrideNonce ? { startup_override_nonce: args.startupOverrideNonce } : {}),
+      ...(args.expectedRecipient ? { expected_recipient: args.expectedRecipient } : {}),
     });
     case "chat_send_dismissals": return call("GET", "/chat-send/dismissals");
     case "chat_send_delete": return call("POST", "/chat-send/dismissals", args.dismissal);
     case "chat_send_status": return call("GET", "/chat-send");
+    case "chat_send_admissions": return call("POST", "/chat-send/admissions", { clientTokens: args.clientTokens });
     case "shell_command_snapshot": return call("GET", "/shell-commands");
     case "delayed_send_list": return call("GET", "/delayed-messages");
     case "system_heartbeat_list": return call("GET", "/system-heartbeats");

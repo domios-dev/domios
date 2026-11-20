@@ -26,8 +26,10 @@ export function owns(plan: PlanModel, planKey: string, catalog: PlanCatalog, sub
   return plan.status === "active" && offerIdForPlan(catalog, plan.plan) === offerIdForPlan(catalog, planKey);
 }
 
-function decide(planKey: string, plan: PlanModel | null, catalog: PlanCatalog, subscriptionPlan?: string | null): PurchaseIntent {
-  return plan && owns(plan, planKey, catalog, subscriptionPlan) ? { kind: "owned", planKey, staff: plan.fullAccess } : { kind: "opening", planKey };
+function decide(planKey: string, plan: PlanModel, catalog: PlanCatalog, subscriptionPlan?: string | null): PurchaseIntent {
+  if (owns(plan, planKey, catalog, subscriptionPlan)) return { kind: "owned", planKey, staff: plan.fullAccess };
+  if (subscriptionPlan) return IDLE_INTENT;
+  return { kind: "opening", planKey };
 }
 
 export function purchaseIntent(state: PurchaseIntent, event: PurchaseEvent): PurchaseIntent {

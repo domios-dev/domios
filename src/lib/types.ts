@@ -35,7 +35,7 @@ export type { MemoryConfig } from "../../gen/MemoryConfig";
 export type { UiConfig } from "./configWireFallbacks";
 export type { ReplacedModelDefault } from "../../gen/ReplacedModelDefault";
 export type { ModelDefaultsConfig } from "../../gen/ModelDefaultsConfig";
-export type ApiConfig = import("../../gen/ApiConfig").ApiConfig & { token: string | null };
+export type ApiConfig = import("../../gen/ApiConfig").ApiConfig & { token: string | null; peerId?: string };
 export type AppConfig = Omit<import("../../gen/AppConfig").AppConfig, "api" | "notifications"> & { api: ApiConfig; notifications: NotificationConfig };
 import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../packages/plugin-sdk/src/agentRuntime";
 import type { RemoteChannelAvailabilityMap } from "./remoteTabTransportState";
@@ -67,7 +67,13 @@ export type TabBootStageEvent = Pick<import("../../gen/TabBootStageEvent").TabBo
 type TabClearableFields = "agent_runtime_config" | "agent_runtime_state" | "pending_model_selection" | "pending_model_switch_observation" | "close_restore" | "shell_profile" | "icon" | "workspace_id" | "pty_id" | "description" | "cwd" | "agent_type" | "agent_session_id" | "session_binding_nonce" | "reported_session_binding_nonce" | "agent_session_name" | "agent_session_model" | "agent_requested_model" | "structured_runtime_mode" | "agent_provider_resolved_model" | "agent_label" | "role" | "role_profile" | "team_id" | "spawned_by_tab_id" | "managed" | "parent_tab_id" | "pending_prompt" | "pending_prompt_kind" | "agent_state" | "worker_id" | "slept_at_ms" | "last_active_at_ms" | "boot_stage" | "lifecycle_epoch" | "lifecycle_operation_id" | "boot_failure_reason" | "provisional_launch" | "watcher";
 type LocalTabNullability<T> = { [K in keyof T]: K extends TabClearableFields ? T[K] | null : T[K] };
 type WireSnapshotTab = import("../../gen/MultiplexerSnapshot").MultiplexerSnapshot["tabs"][string];
+export interface ExpectedChatRecipient {
+  provider_id: string;
+  binding_nonce: string | null;
+  session_id: string | null;
+}
 export type Tab = Pick<WireSnapshotTab, "id" | "pty_id" | "tab_type" | "title" | "cwd"> & Partial<Omit<LocalTabNullability<WireSnapshotTab>, "agent_runtime_config" | "agent_runtime_questions" | "agent_runtime_state" | "title_pending_local" | "remote_peer_id" | "remote_peer_name" | "remote_tab_id" | "remote_channels" | "provider_signals" | "pending_model_selection" | "pending_model_switch_observation" | "context_epoch_archives" | "watcher" | "agent_state">> & {
+  exited_chat_recipient?: { provider_id: string; nonce: string; session_id: string };
   workspace_id?: import("../../gen/Workspace").Workspace["id"] | null;
   session_bound?: import("../../gen/TabBootStageEvent").TabBootStageEvent["session_bound"];
   watcher?: WatcherSpec | null;
@@ -80,6 +86,7 @@ export type Tab = Pick<WireSnapshotTab, "id" | "pty_id" | "tab_type" | "title" |
   remote_peer_id?: string;
   remote_peer_name?: string;
   remote_tab_id?: string;
+  remote_team_id?: string;
   /** The peer's own PTY for a remote tab; `pty_id` stays the composite id this machine routes by. */
   remote_pty_id?: string | null;
   remote_channels?: RemoteChannelAvailabilityMap;
@@ -92,7 +99,7 @@ export type MultiplexerState = Omit<import("../../gen/MultiplexerSnapshot").Mult
 
 
 
-export type Team = Omit<import("../../gen/Team").Team, "name"> & { name?: import("../../gen/Team").Team["name"] | null; remote_peer_name?: string | null };
+export type Team = Omit<import("../../gen/Team").Team, "name"> & { name?: import("../../gen/Team").Team["name"] | null; remote_peer_name?: string | null; remote_peer_id?: string };
 
 export type AtomicSpawn = import("../../gen/AtomicSpawn").AtomicSpawn<MultiplexerState>;
 

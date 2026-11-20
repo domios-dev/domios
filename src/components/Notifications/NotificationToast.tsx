@@ -1,6 +1,7 @@
 import { useState, useCallback, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { NotificationBody } from "./NotificationBody";
+import { NotificationOrigin } from "./NotificationOrigin";
 import { runNotificationAction } from "../../lib/notificationActions";
 import type { Notification } from "../../lib/types";
 import { X } from "lucide-react";
@@ -78,6 +79,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
         <button ref={detailsOpener} type="button" aria-label={`Show notification: ${notification.title}`} className="block min-w-0 max-w-full truncate text-left font-medium text-[var(--ct-fg)]" onClick={(event) => { event.stopPropagation(); handleClick(); }}>
           {notification.title}
         </button>
+        {(notification.remote_origin || notification.peer_name) && <NotificationOrigin notification={notification} />}
         {notification.body && (
           <div className="min-w-0 flex-1 truncate text-[var(--ct-muted-fg)] [&_*]:whitespace-nowrap [&_p]:m-0 [&_p]:inline">
             <NotificationBody text={notification.body} tabId={notification.tab_id} failure={notification.level === "failure" || notification.severity === "Error"} operation={notification.title} preview />
@@ -153,6 +155,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
             <LevelIcon className="mt-0.5 shrink-0" style={{ color: tone }} />
             <div className="min-w-0 flex-1">
               <div className="font-medium text-[var(--ct-fg)]">{notification.title}</div>
+              {(notification.remote_origin || notification.peer_name) && <NotificationOrigin notification={notification} />}
               {notification.body && (
                 <div className="mt-2 max-h-[min(420px,60vh)] overflow-y-auto break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
                   <NotificationBody text={notification.body} tabId={notification.tab_id} failure={notification.level === "failure" || notification.severity === "Error"} operation={notification.title} />

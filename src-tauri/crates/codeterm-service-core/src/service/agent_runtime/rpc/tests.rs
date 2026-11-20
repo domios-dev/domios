@@ -1,4 +1,5 @@
 use super::*;
+use tokio::io::AsyncBufReadExt;
 #[test]
 fn generic_framing_rejects_ambiguous_responses_and_distinguishes_server_ids() {
     for text in [
@@ -67,14 +68,18 @@ async fn pipe_eof_fails_pending_without_replaying_payload() {
 #[tokio::test]
 async fn partial_frame_is_a_typed_failure_not_a_successful_reply() {
     let mut reader = BufReader::new(&b"{\"id\":1"[..]);
-    let incomplete = read_frame(&mut reader).await.unwrap().unwrap();
+    let Some(Inbound::Text(incomplete)) = read_frame(&mut reader).await.unwrap() else {
+        panic!("expected an incomplete text frame");
+    };
     assert!(decode(&incomplete).is_err());
 }
 
 #[tokio::test]
 async fn a_complete_final_frame_without_newline_is_processed_before_eof() {
     let mut reader = BufReader::new(&b"{\"id\":1,\"result\":{}}"[..]);
-    let last = read_frame(&mut reader).await.unwrap().unwrap();
+    let Some(Inbound::Text(last)) = read_frame(&mut reader).await.unwrap() else {
+        panic!("expected a text frame");
+    };
     assert!(matches!(
         decode(&last),
         Ok(WireFrame::Response {
@@ -104,7 +109,7 @@ async fn process_start_notification_is_retained_before_subscriber_attachment() {
     .unwrap();
     let mut events = client.subscribe();
     assert!(
-        matches!(events.try_recv().unwrap().frame, RuntimeFrame::Notification { method, .. } if method == "fixture/started")
+        matches!(events.try_recv().unwrap().frame, Some(RuntimeFrame::Notification { method, .. }) if method == "fixture/started")
     );
 }
 
@@ -191,13 +196,96 @@ async fn multi_mib_history_frames_fit_but_transport_remains_bounded() {
         "x".repeat(12 * 1024 * 1024)
     );
     let mut reader = tokio::io::BufReader::new(history.as_bytes());
-    assert_eq!(read_frame(&mut reader).await.unwrap().unwrap(), history);
-    let oversized = vec![b'x'; FRAME_LIMIT + 1];
-    let mut reader = tokio::io::BufReader::new(oversized.as_slice());
-    assert!(matches!(
-        read_frame(&mut reader).await,
-        Err(RuntimeFailure::InvalidFrame(_))
-    ));
+    assert_eq!(
+        read_frame(&mut reader).await.unwrap(),
+        Some(Inbound::Text(history))
+    );
+}
+
+#[tokio::test]
+async fn oversized_response_fails_only_its_request_and_keeps_stdio_usable() {
+    let (host, peer) = tokio::io::duplex(64 * 1024);
+    let (read, write) = tokio::io::split(host);
+    let client = Client::attach(read, write);
+    let ended = client.ended();
+    let server = async {
+        let mut peer = BufReader::new(peer);
+        let mut requests = HashMap::new();
+        for _ in 0..2 {
+            let mut line = String::new();
+            peer.read_line(&mut line).await.unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            requests.insert(
+                request["method"].as_str().unwrap().to_owned(),
+                request["id"].clone(),
+            );
+        }
+        let image_chunk = [b'A'; 64 * 1024];
+        for (header, trailer) in [
+            (
+                r#"{"params":{"data":"data:image/png;base64,"#,
+                format!(
+                    r#""}},"id":{},"method":"fixture/prompt"}}"#,
+                    requests["fixture/other"]
+                ),
+            ),
+            (
+                r#"{"result":{"data":"data:image/png;base64,"#,
+                format!(
+                    r#""}},"\u0069d":{},"jsonrpc":"2.0"}}"#,
+                    requests["fixture/history"]
+                ),
+            ),
+        ] {
+            peer.write_all(header.as_bytes()).await.unwrap();
+            for _ in 0..INBOUND_FRAME_LIMIT / image_chunk.len() {
+                peer.write_all(&image_chunk).await.unwrap();
+            }
+            peer.write_all(trailer.as_bytes()).await.unwrap();
+            peer.write_all(b"\n").await.unwrap();
+        }
+        let response = json!({"id":requests["fixture/other"],"result":"other"});
+        peer.write_all(format!("{response}\n").as_bytes())
+            .await
+            .unwrap();
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        let next: Value = serde_json::from_str(&line).unwrap();
+        let response = json!({"id":next["id"],"result":"next"});
+        peer.write_all(format!("{response}\n").as_bytes())
+            .await
+            .unwrap();
+        peer
+    };
+    let request = |method: &str| RpcCall {
+        method: method.into(),
+        params: Value::Null,
+        target: None,
+    };
+    let requests = async {
+        let history = request("fixture/history");
+        let other = request("fixture/other");
+        let (oversized, unaffected) = tokio::join!(
+            client.request_guarded(&history, None),
+            client.request_guarded(&other, None),
+        );
+        let error = oversized.unwrap().unwrap_err();
+        assert_eq!(error.code, -32010);
+        assert_eq!(
+            error.data.unwrap(),
+            json!({"kind":"response_too_large","boundary":"stdio_frame","limitBytes":INBOUND_FRAME_LIMIT})
+        );
+        assert_eq!(unaffected.unwrap().unwrap(), "other");
+        let next = client.request_guarded(&request("fixture/next"), None).await;
+        assert_eq!(next.unwrap().unwrap(), "next");
+    };
+    let ((), _peer) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(requests, server)
+    })
+    .await
+    .unwrap();
+    assert!(ended.borrow().is_none());
+    assert!(client.0.state.lock().pending.is_empty());
 }
 
 #[tokio::test]
@@ -227,7 +315,7 @@ async fn parallel_tool_output_burst_stays_inside_the_event_queue() {
     .unwrap();
     let mut seen = 0;
     while let Ok(frame) = events.try_recv() {
-        let RuntimeFrame::Notification { params, .. } = frame.frame else {
+        let Some(RuntimeFrame::Notification { params, .. }) = frame.frame else {
             panic!("unexpected frame")
         };
         assert_eq!(params["seq"], seen);
@@ -255,7 +343,7 @@ async fn responsiveness_disabled_observer_keeps_ingress_order_and_payload() {
             .await
             .unwrap()
             .unwrap();
-        let RuntimeFrame::Notification { method, params } = event.frame else {
+        let Some(RuntimeFrame::Notification { method, params }) = event.frame else {
             panic!("unexpected request");
         };
         assert_eq!(method, frame["method"].as_str().unwrap());
@@ -485,7 +573,7 @@ async fn first_ingress_during_write_keeps_the_prewrite_sequence_boundary() {
         assert_eq!(witness.after_sequence(), Some(0));
         assert!(!witness.written());
         assert!(
-            matches!(first.frame,RuntimeFrame::Notification{params,..} if params["text"]=="first chunk")
+            matches!(first.frame,Some(RuntimeFrame::Notification{params,..}) if params["text"]=="first chunk")
         );
         release.send(()).unwrap();
         witness.wait().await.unwrap();

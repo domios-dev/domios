@@ -1,3 +1,5 @@
+import { registryMachineNames } from "../../lib/registryMachineNames";
+import { cleanMachineName } from "../../lib/machineIdentity";
 import { connectionPresentation, type ConnectionPhase } from "./connectionPhase";
 import type { Notification } from "../../lib/notificationTypes";
 import { DEV_BUILD } from "../../lib/devBuild";
@@ -17,6 +19,8 @@ export interface MachineRowView {
   transport?: import("./networkTransport").NetworkIdentity;
   key: string;
   name: string;
+  displayName?: string | null;
+  sameNameOthers?: number;
   status: MachineStatus;
   detail: string;
   online: boolean | null;
@@ -32,11 +36,12 @@ export interface SelfRowView {
   installationId: string;
   metadataRevision: number;
   displayName: string | null;
+  sameNameOthers?: number;
 }
 export type MyMachinesView =
   | { kind: "loading" }
   | { kind: "sign_in"; headline: string; blocked: boolean; saved: MachineRowView[]; notes: string[] }
-  | { kind: "account"; machineLimit?: { limit: number; activeCount: number }; reauthRequired: boolean; removed?: boolean; self: SelfRowView | null; machines: MachineRowView[]; saved: MachineRowView[]; notes: string[] };
+  | { kind: "account"; machineLimit?: { limit: number; activeCount: number }; reauthRequired: boolean; removed?: boolean; self: SelfRowView | null; registrySelfName?: string; machines: MachineRowView[]; selfSameNameOthers?: number; saved: MachineRowView[]; notes: string[] };
 export interface MyMachinesInput {
   account: AccountPresence;
   snapshot: AccountMeshSnapshot | null;
@@ -45,24 +50,33 @@ export interface MyMachinesInput {
 }
 
 export function myMachinesView({ account, snapshot, listFailure = null, now }: MyMachinesInput): MyMachinesView {
-  if (account === "pending" || !snapshot) return { kind: "loading" };
+  if (account === "pending") return { kind: "loading" };
   const notes: string[] = [];
-  if (snapshot.cleanup === "pending") notes.push("Address cleanup is pending: endpoint withdrawal is unconfirmed.");
-  if (snapshot.registry?.cursor) notes.push("Showing part of your account's machines. Refresh to load more.");
+  if (snapshot?.cleanup === "pending") notes.push("Address cleanup is pending: endpoint withdrawal is unconfirmed.");
+  if (snapshot?.registry?.cursor) notes.push("Showing part of your account's machines. Refresh to load more.");
   if (account === "signed_out") {
-    const blocked = snapshot.traffic === "blocked_signed_out";
+    const blocked = snapshot?.traffic === "blocked_signed_out";
     return { kind: "sign_in", headline: blocked ? SIGNED_OUT_COPY : SIGN_IN_COPY, blocked, saved: [], notes };
   }
+  if (!snapshot) return { kind: "loading" };
   const locked = snapshot.traffic === "plan_limit_locked";
   const refusal = snapshot.last_refusal;
   const machineLimit = locked && refusal?.reason === "mesh.machines" ? { limit: refusal.limit, activeCount: refusal.active_count } : undefined;
-  const usable = snapshot.traffic !== "blocked_signed_out" && snapshot.binding !== "other" && refusal?.reason !== "enrollment_budget";
+  const registryControlsAllowed = snapshot.traffic !== "blocked_signed_out" && refusal?.reason !== "enrollment_budget";
+  const usable = registryControlsAllowed && snapshot.binding !== "other";
   const selfId = snapshot.local_installation_id;
   const unique = new Map((snapshot.registry?.rows ?? []).map(row => [row.installation_id, row]));
+  const { labels, duplicates } = registryMachineNames(snapshot.registry_names ?? []);
+  const sameNames = new Map(duplicates.flatMap(group =>
+    group.installations.map(id => [id, group.installations.length - 1] as const)));
+  const selfSameNameOthers = sameNames.get(selfId);
   const machines = [...unique.values()].filter(row => row.installation_id !== selfId).map(row => {
     const pair = snapshot.pairs.find(pair => pair.installation_id === row.installation_id) ?? null;
     const phase = snapshot.connections?.find(connection => connection.installation_id === row.installation_id)?.phase;
-    const result = machineRow(row, pair, now, usable, phase);
+    const result = {
+      ...machineRow(row, pair, now, usable, phase, labels.get(row.installation_id)),
+      sameNameOthers: sameNames.get(row.installation_id),
+    };
     return machineLimit ? { ...result, controls: { ...result.controls, plans: true } } : result;
   });
   if (refusal && !snapshot.publication_failure) notes.push(enrollmentRetryMessage(snapshot, now) ?? failureMessage(refusal, DEV_BUILD, snapshot.retry_at ?? undefined, true));
@@ -71,20 +85,23 @@ export function myMachinesView({ account, snapshot, listFailure = null, now }: M
   if (failure) notes.push(`${snapshot.registry ? "Showing the last account list. " : ""}${failureMessage(failure)}`);
   const own = snapshot.self;
   const ownRow = unique.get(selfId);
+  // The first-owner binding gates remote controls. Local rename targets this installation in the verified account.
+  const verifiedSelf = ownRow?.active && ownRow.eligibility === "eligible" && ownRow.presence === "present"
+    && snapshot.registry_names?.some(row => row.installation_id === selfId && row.active);
   return {
-    kind: "account", machineLimit,
+    kind: "account", machineLimit, selfSameNameOthers, registrySelfName: labels.get(selfId),
     removed: ownRow?.active === false,
     reauthRequired: snapshot.enrollment === "refused" && ["reauth_required", "generation_mismatch", "key_conflict", "revoked"].includes(refusal?.reason ?? ""),
-    self: own ? { readOnly: !usable, planLimited: locked, name: ownRow?.display_name ?? own.display_name ?? "This machine", installationId: own.installation_id,
-      metadataRevision: ownRow?.metadata_revision ?? own.metadata_revision, displayName: ownRow?.display_name ?? own.display_name } : null,
+    self: own ? { readOnly: !registryControlsAllowed || (snapshot.binding === "other" && !verifiedSelf), planLimited: locked, name: labels.get(selfId) ?? cleanMachineName(ownRow?.display_name ?? own.display_name) ?? "This machine", installationId: own.installation_id,
+      metadataRevision: ownRow?.metadata_revision ?? own.metadata_revision, displayName: ownRow?.display_name ?? own.display_name, sameNameOthers: selfSameNameOthers } : null,
     machines, saved: [], notes,
   };
 }
 
-function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, now: number, usable: boolean, phase?: ConnectionPhase): MachineRowView {
-  const name = row.display_name ?? "Unnamed machine";
+function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, now: number, usable: boolean, phase?: ConnectionPhase, label?: string): MachineRowView {
+  const name = label ?? cleanMachineName(row.display_name) ?? "Unnamed machine";
   const target: MeshTarget = { installation_id: row.installation_id, key_id: row.key_id, key_generation: row.key_generation, slot_revision: row.slot_revision };
-  const base = { key: row.installation_id, name, transport: row.endpoint?.transport, online: pair?.online ?? null,
+  const base = { key: row.installation_id, name, displayName: row.display_name, transport: row.endpoint?.transport, online: pair?.online ?? null,
     target: usable ? target : null, pairInstanceId: pair?.instance_id ?? null, lastSeenAt: row.authenticated_at,
     canSignOut: usable && row.presence !== "signed_out", controls: { revoke: usable && row.active ? target : null } };
   if (!row.active || row.eligibility === "revoked") return { ...base, status: "revoked", detail: "Removed from your mesh", online: false };

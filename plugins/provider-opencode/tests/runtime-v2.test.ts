@@ -17,6 +17,14 @@ const copy=<T>(value:T):T=>JSON.parse(JSON.stringify(value));
 const call=(plan:RuntimePlan)=>{assert.equal(plan.action.kind,"request");if(plan.action.kind !== "request") throw new Error("request required");return plan.action.call;};
 const response=(ctx:RuntimeContext,op:Operation,plan:RuntimePlan,body:unknown)=>runtimeResponse(ctx,op,plan.state,{kind:"success",value:{body,headers:{}} as JsonValue});
 const continued=(step:RuntimeStep)=>{assert.equal(step.kind,"continue");if(step.kind !== "continue") throw new Error("continuation required");return step.plan;};
+function historyResponse(ctx:RuntimeContext, op:Operation, plan:RuntimePlan, body:unknown, active:unknown={data:{}}) {
+  const read=response(ctx,op,plan,body);
+  if (read.kind !== "continue" || read.history?.kind !== "historyPage") throw new Error("history chunk required");
+  assert.equal(call(read.plan).method,"v2.session.active");
+  const checked=response(ctx,op,read.plan,active);
+  if (checked.kind !== "complete" || checked.result.kind !== "historyPage") throw new Error("history status required");
+  return {result:{...checked.result,items:read.history.items},events:checked.events};
+}
 function initialized(tab:string, model="fixture/fixture") {
   const ctx={...copy(fixture.context),tabId:tab,settings:{model}}, op:Operation={kind:"initialize"};
   let plan=runtimePlan(ctx,op);
@@ -93,8 +101,7 @@ check("events before and during restarted initialization preserve the v2 mapper"
     const page:Operation={kind:"readHistory",threadId:resume.threadId,order:"desc"};
     plan=runtimePlan(ctx,page);
     assert.equal(call(plan).method,"v2.session.messages");
-    const firstPage=response(ctx,page,plan,{data:fixture.history.data,cursor:{next:"opaque:next/+="}});
-    if (firstPage.kind !== "complete" || firstPage.result.kind !== "historyPage") throw new Error("history page required");
+    const firstPage=historyResponse(ctx,page,plan,{data:fixture.history.data,cursor:{next:"opaque:next/+="}});
     assert.ok(firstPage.result.items.length);
     const older={...page,cursor:firstPage.result.nextCursor}, olderPlan=runtimePlan(ctx,older);
     assert.deepEqual(call(olderPlan).params,{path:{sessionID:resume.threadId},query:{limit:"40",cursor:"opaque:next/+="}});
@@ -141,15 +148,29 @@ check("returns to working only when the active turn's final prompt settles",()=>
   const ended=runtimeReduce(ctx,asked.state,[frame("session.execution.succeeded"),frame("permission.replied"),frame("form.replied")]);
   assert.deepEqual(ended.events.filter(event=>event.kind === "turnState").map(event=>event.state),["idle"]);
 });
-check("settles an owned quota error once with a balance recovery notice",()=>{
+check("resolves the exact recorded permission request even without a turn id",()=>{
+  const {ctx,frames}=prepared("v2-permission-reply");
+  delete ctx.streamWindow;
+  const asked=frames.find(frame=>frame.kind === "request" && frame.method === "permission.asked");
+  const replied=frames.find(frame=>(frame.params as Record<string,JsonValue>).type === "permission.replied");
+  assert.ok(asked?.kind === "request" && replied);
+  const pending=runtimeReduce(ctx,null,[asked]);
+  const [prompt]=pending.events;
+  assert.ok(prompt.kind === "prompt" && prompt.permission);
+  assert.equal(prompt.requestId,asked.requestId);
+  const settled=runtimeReduce(ctx,pending.state,[replied]);
+  assert.deepEqual(settled.events,[{kind:"promptResolved",threadId:ctx.threadId,requestId:asked.requestId}]);
+  assert.deepEqual(runtimeReduce(ctx,settled.state,[replied]).events,[]);
+});
+check("settles an owned quota error once with a balance notice and API error row",()=>{
   const {ctx,frames}=prepared("v2-provider-quota");
   ctx.activeTurnId="quota-turn";
   const started=copy(frames.find(frame=>(frame.params as Record<string,JsonValue>).type === "session.execution.started")!);
-  const working=runtimeReduce(ctx,null,[started]);
   const quota=copy(started), params=quota.params as Record<string,JsonValue>;
   params.id="quota-error";
   params.type="session.error";
   const error={type:"provider.quota",status:402,body:{error:{type:"insufficient_balance_error",message:"Insufficient Balance"}}};
+  const working=runtimeReduce(ctx,null,[started]);
   params.data={sessionID:"foreign-session",error};
   const foreign=runtimeReduce(ctx,working.state,[quota]);
   assert.deepEqual(foreign.events,[]);
@@ -157,6 +178,7 @@ check("settles an owned quota error once with a balance recovery notice",()=>{
   const failed=runtimeReduce(ctx,foreign.state,[quota]);
   assert.deepEqual(failed.events,[
     {kind:"notice",threadId:ctx.threadId,message:"Provider balance or quota is exhausted — top up or switch model"},
+    {kind:"chatItem",threadId:ctx.threadId,item:{id:"quota-turn:error",seq:(ctx.restoredRowOrdinal ?? 0)+1,type:"system",systemSubtype:"api_error",toolFlowId:"quota-turn",content:"Provider balance or quota is exhausted — top up or switch model"}},
     {kind:"turnState",threadId:ctx.threadId,turnId:"quota-turn",state:"idle",detail:"failed"},
   ]);
   params.id="execution-failed-after-quota";
@@ -241,7 +263,7 @@ check("bookkeeping can reestablish a lost mapper and page history in ascending o
   const following={...read,cursor:page.result.nextCursor};
   const second=runtimePlan(ctx,following);
   assert.deepEqual(call(second).params,{path:{sessionID:threadId},query:{limit:"40",cursor:"opaque-next"}});
-  assert.equal(response(ctx,following,second,{data:[],cursor:{}}).kind,"complete");
+  assert.equal(historyResponse(ctx,following,second,{data:[],cursor:{}}).result.kind,"historyPage");
 });
 check("bookkeeping serializes untracked text and bounds retained tool payloads",()=>{
   const ctx=loaded("v2-bookkeeping-state");
@@ -277,6 +299,34 @@ check("bookkeeping serializes untracked text and bounds retained tool payloads",
   assert.ok(Buffer.byteLength(strictJson(reduced.state)) <= 240*1024);
   assert.ok(!strictJson(reduced.state).includes(large));
   assert.deepEqual(runtimeReduce(ctx,reduced.state,[success]).events,[]);
+});
+check("live v2 rows retain the provider event time that first created them",()=>{
+  const {ctx,frames}=prepared("v2-live-provider-time");
+  const frame=(type:string)=>copy(frames.find(frame=>(frame.params as Record<string,JsonValue>).type === type)!);
+  const stamp=(source:RuntimeFrame,created:number,id:string)=>{
+    const params=source.params as Record<string,JsonValue>;
+    params.created=created;
+    params.id=id;
+    return source;
+  };
+  const textStarted=stamp(frame("session.text.started"),10_000,"time-text-started");
+  const textEnded=stamp(frame("session.text.ended"),11_000,"time-text-ended");
+  const started=runtimeReduce(ctx,null,[textStarted]);
+  const firstText=started.events.find(event=>event.kind === "chatItem")!;
+  assert.equal(firstText.kind === "chatItem" ? firstText.item.timestamp : undefined,new Date(10_000).toISOString());
+  const ended=runtimeReduce(ctx,started.state,[textEnded]);
+  const finalText=ended.events.find(event=>event.kind === "chatItem")!;
+  assert.equal(finalText.kind === "chatItem" ? finalText.item.timestamp : undefined,new Date(10_000).toISOString());
+
+  const inputStarted=stamp(frame("session.tool.input.started"),20_000,"time-tool-started");
+  const called=stamp(frame("session.tool.called"),21_000,"time-tool-called");
+  const success=stamp(frame("session.tool.success"),22_000,"time-tool-success");
+  const running=runtimeReduce(ctx,ended.state,[inputStarted,called]);
+  const firstTool=running.events.filter(event=>event.kind === "chatItem").at(-1)!;
+  assert.equal(firstTool.kind === "chatItem" ? firstTool.item.timestamp : undefined,new Date(20_000).toISOString());
+  const completed=runtimeReduce(ctx,running.state,[success]);
+  const finalTool=completed.events.find(event=>event.kind === "chatItem")!;
+  assert.equal(finalTool.kind === "chatItem" ? finalTool.item.timestamp : undefined,new Date(20_000).toISOString());
 });
 check("recorded resumed turn keeps reasoning and text with the same ordinal in separate rows",()=>{
   const ctx=loaded("v2-resumed-fragments"), capture=fixture.sameMessageFragments;
@@ -429,11 +479,10 @@ check("five routed turns keep their stream identities and chronological order in
   const read:Operation={kind:"readHistory",threadId,order:"desc"};
   plan=runtimePlan(restarted,read);
   assert.equal(call(plan).method,"v2.session.messages");
-  const step=response(restarted,read,plan,{data:history.reverse()});
-  if (step.kind !== "complete" || step.result.kind !== "historyPage") throw new Error("history page required");
+  const step=historyResponse(restarted,read,plan,{data:history.reverse()});
   assert.equal(step.result.threadId,threadId);
   assert.equal(step.result.order,"desc");
-  assert.deepEqual(step.events ?? [],[]);
+  assert.deepEqual(step.events,[{kind:"turnState",threadId,state:"idle"}]);
   assert.equal(visible.length,10);
   assert.deepEqual(step.result.items.map(({id,type,content})=>({id,type,content})),visible);
 });
@@ -443,8 +492,49 @@ check("opaque history cursors and idle interrupt acknowledgements stay honest",(
   const step=response(ctx,op,plan,{...fixture.history,cursor:{next:"opaque-next"}});assert.equal(step.kind,"complete");
   if(step.kind === "complete" && step.result.kind === "historyPage") assert.equal(step.result.nextCursor,"opaque-next");
   const stop:Operation={kind:"interrupt",threadId:ctx.threadId!,activeTurnId:"turn"};
-  assert.equal((response(ctx,stop,runtimePlan(ctx,stop),fixture.interrupt) as Extract<RuntimeStep,{kind:"complete"}>).events?.length,0);
+  assert.deepEqual((response(ctx,stop,runtimePlan(ctx,stop),fixture.interrupt) as Extract<RuntimeStep,{kind:"complete"}>).events,
+    [{kind:"turnState",threadId:ctx.threadId,state:"idle",detail:"interrupted"}]);
   assert.throws(()=>runtimePlan(ctx,{kind:"submitTurn",threadId:ctx.threadId!,sendId:"different-model",input:ctx.claimedSends[0].input,settings:{model:"another/model"}}));
+});
+check("an aborted shell settles after an epoch change, even if execution ends off stream",()=>{
+  const capture=JSON.parse(fs.readFileSync(new URL("../../../tests/fixtures/opencode-v2-abort.json",import.meta.url),"utf8"));
+  const ctx=loaded("v2-abort-recovery");
+  const read:Operation={kind:"readHistory",threadId:ctx.threadId!,order:"desc"};
+  const recovered=runtimeReduce(ctx,null,capture.frames);
+  const terminal=recovered.events.find(event=>event.kind === "chatItem")?.item;
+  assert.equal(terminal?.id,"msg_restore:tool:call_restore");
+  assert.equal(terminal?.toolCompletedAtMs,1795071728671);
+  assert.deepEqual(recovered.events.filter(event=>event.kind === "turnState"),
+    [{kind:"turnState",threadId:ctx.threadId,state:"idle",detail:"interrupted"}]);
+  const oldEpoch=historyResponse(ctx,read,runtimePlan(ctx,read),capture.history,{data:{"ses_foreign":{type:"running"}}});
+  assert.equal(oldEpoch.result.items.at(-1)?.id,terminal?.id);
+  assert.equal(oldEpoch.result.items.at(-1)?.toolResult,terminal?.toolResult);
+  assert.deepEqual(oldEpoch.events,[{kind:"turnState",threadId:ctx.threadId,state:"idle",detail:"interrupted"}]);
+  const active=historyResponse(ctx,read,runtimePlan(ctx,read),capture.history,{data:{[ctx.threadId!]:{type:"running"}}});
+  assert.deepEqual(active.events,[]);
+  const unknown=historyResponse(ctx,read,runtimePlan(ctx,read),capture.history,{data:[]});
+  assert.equal(unknown.result.items.at(-1)?.id,terminal?.id);
+  assert.deepEqual(unknown.events,[]);
+});
+check("a shell deadline starts when the provider identifies the running process",()=>{
+  const ctx=loaded("v2-shell-deadline"), threadId=ctx.threadId!;
+  const notification=(type:string,created:number,data:Record<string,JsonValue>):RuntimeFrame=>({
+    kind:"notification",method:"http/event",
+    params:{id:`event-${created}`,type:`session.tool.${type}`,created,data:{sessionID:threadId,assistantMessageID:"msg",id:"call",...data}},
+  });
+  const start=runtimeReduce(ctx,null,[
+    notification("input.started",1,{name:"shell"}),
+    notification("called",100,{input:{command:"node --version",timeout:2000}}),
+  ]);
+  const input=(events:typeof start.events)=>events.findLast(event=>event.kind === "chatItem")?.item.toolInput as Record<string,JsonValue>|undefined;
+  assert.equal(input(start.events)?.deadlineAtMs,undefined);
+  const progress=runtimeReduce(ctx,start.state,[notification("progress",1000,{metadata:{shellID:"sh_fixture"}})]);
+  assert.equal(input(progress.events)?.deadlineAtMs,3000);
+  const exited=(id:string):RuntimeFrame=>({kind:"notification",method:"http/event",params:{
+    id:"exit-event",type:"shell.exited",created:2000,location:{directory:ctx.cwd},data:{id,status:"exited",exit:0},
+  }});
+  assert.deepEqual(runtimeReduce(ctx,progress.state,[exited("sh_foreign")]).events,[]);
+  assert.equal(input(runtimeReduce(ctx,progress.state,[exited("sh_fixture")]).events)?.deadlineAtMs,2000);
 });
 check("recorded OAuth methods preserve hidden defaults and exact host challenge",()=>{
   const ctx=initialized("v2-oauth","opencode/example"), op:Operation={kind:"control",threadId:ctx.threadId,action:"login",value:{action:"start",methodId:"v2:opencode:device",loginId:"host-login"}};

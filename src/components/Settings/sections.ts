@@ -8,6 +8,7 @@ import {
   Info,
   BookOpen,
   Workflow,
+  Network,
   type LucideIcon,
 } from "lucide-react";
 import type { HelpSettingsTarget } from "../../help/types";
@@ -15,6 +16,7 @@ import type { HelpSettingsTarget } from "../../help/types";
 export type SectionId =
   | "account"
   | "general"
+  | "mesh"
   | "notifications"
   | "agents"
   | "secrets"
@@ -34,6 +36,7 @@ export interface SettingsSection {
 export const SECTION_ICONS: Record<SectionId, LucideIcon> = {
   account: UserRound,
   general: Sliders,
+  mesh: Network,
   notifications: Bell,
   agents: Bot,
   secrets: KeyRound,
@@ -47,6 +50,7 @@ export const SECTION_ICONS: Record<SectionId, LucideIcon> = {
 export const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "account", label: "Account", desc: "Sign in and manage your identity", icon: SECTION_ICONS.account },
   { id: "general", label: "General", desc: "Theme, fonts, messengers, keybindings", icon: SECTION_ICONS.general },
+  { id: "mesh", label: "Mesh", desc: "Manage your machines", icon: SECTION_ICONS.mesh },
   { id: "notifications", label: "Notifications", desc: "The bell, desktop alerts, sound, and where each level may go", icon: SECTION_ICONS.notifications },
   { id: "agents", label: "Agents", desc: "General Agent, agent access, and per-harness config", icon: SECTION_ICONS.agents },
   { id: "jobs", label: "Jobs", desc: "Crons and Blueprints on this machine", icon: SECTION_ICONS.jobs },

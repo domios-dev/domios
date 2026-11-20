@@ -8167,6 +8167,69 @@
           "subcommands": []
         },
         {
+          "name": "identity",
+          "about": "Manage the kind icon and colour of an installation",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "set",
+              "about": "Set the machine's kind and colour. Requires owner authority",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "color",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "COLOR",
+                  "possible_values": [
+                    "blue",
+                    "teal",
+                    "green",
+                    "yellow",
+                    "pink",
+                    "violet",
+                    "graphite"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "KIND",
+                  "possible_values": [
+                    "laptop",
+                    "desktop",
+                    "server",
+                    "mac",
+                    "phone",
+                    "vm",
+                    "small",
+                    "other"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "peer",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PEER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Set the identity on this paired machine by name or ID",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "offline",
           "about": "Go offline: stop pinging peers, stop announcing, stop refreshing local addresses (which keeps Tailscale alive). The daemon stays up; peers will time out our presence on their side. Local-only command",
           "aliases": [],

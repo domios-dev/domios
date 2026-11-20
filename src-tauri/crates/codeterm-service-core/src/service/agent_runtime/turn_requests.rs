@@ -179,6 +179,13 @@ pub(super) fn started_at(
         .map(|pending| pending.started_at)
 }
 
+fn host_prompt_timestamp(at: u64) -> Option<String> {
+    i64::try_from(at)
+        .ok()
+        .and_then(chrono::DateTime::<chrono::Utc>::from_timestamp_millis)
+        .map(|timestamp| timestamp.to_rfc3339())
+}
+
 pub(super) async fn publish_written_inputs(
     svc: &ServiceContext,
     session: &Arc<Session>,
@@ -225,6 +232,9 @@ pub(super) async fn publish_written_inputs(
                 item.id = super::events::RuntimeMaps::written_input_id(thread, &pending.send_id);
                 item.attachments =
                     (!claim.input.attachments.is_empty()).then(|| claim.input.attachments.clone());
+                if item.timestamp.is_none() {
+                    item.timestamp = host_prompt_timestamp(pending.started_at);
+                }
                 super::model::omit_user_image_data(&mut item);
                 let item = session
                     .cache

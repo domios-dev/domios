@@ -1,7 +1,43 @@
 use super::super::MultiplexerState;
-use crate::multiplexer::types::{PriorBindingNonce, RestorableLaunchParameters};
+use crate::multiplexer::types::{ExitedChatBinding, PriorBindingNonce, RestorableLaunchParameters};
 use crate::session::store::SessionSnapshot;
 use serde_json::json;
+
+#[test]
+fn exited_chat_recipient_round_trips_independently_of_the_shell_nonce() {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.prior_session_binding_nonces.push(PriorBindingNonce {
+        nonce: "retired-provider".into(),
+        session_id: Some("own-session".into()),
+        resume_target_session_id: None,
+    });
+    tab.restorable_launch.exited_chat_binding = Some(ExitedChatBinding {
+        provider_id: "fixture".into(),
+        nonce: "retired-provider".into(),
+        session_id: "own-session".into(),
+    });
+    let mut restored = MultiplexerState::from_session_snapshot(&mux.to_session_snapshot());
+    restored.get_tab_mut(&id).unwrap().session_binding_nonce = Some("new-shell".into());
+    let wire = serde_json::to_value(restored.snapshot()).unwrap();
+    assert_eq!(
+        wire["tabs"][&id]["exited_chat_recipient"],
+        json!({
+            "provider_id":"fixture", "nonce":"retired-provider", "session_id":"own-session"
+        })
+    );
+    restored
+        .get_tab_mut(&id)
+        .unwrap()
+        .restorable_launch
+        .exited_chat_binding = None;
+    let stopped = serde_json::to_value(restored.snapshot()).unwrap();
+    assert!(stopped["tabs"][&id].get("exited_chat_recipient").is_none());
+    assert_eq!(
+        stopped["tabs"][&id]["prior_session_binding_nonces"][0]["session_id"],
+        "own-session"
+    );
+}
 
 #[test]
 fn wire_account_projection_tracks_authoritative_launch_and_restore() {

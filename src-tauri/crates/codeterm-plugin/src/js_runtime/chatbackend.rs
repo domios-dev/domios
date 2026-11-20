@@ -73,8 +73,7 @@ impl JsChatBackend {
             watcher_capable: manifest.capabilities.chat_backend_watcher_capable(),
             session_config: manifest.capabilities.chat_backend.session_config(),
             context_owner: manifest.capabilities.chat_backend.context_owner(),
-            agent_tasks: manifest.capabilities.chat_backend.agent_tasks
-                && manifest.capabilities.remote_task.is_none(),
+            agent_tasks: manifest.capabilities.chat_backend.agent_tasks,
             general_agent_offer_when_absent: manifest.general_agent_offer_when_absent,
             remote_task: manifest.capabilities.remote_task.clone(),
             agent_runtime: manifest.capabilities.agent_runtime.clone(),
@@ -256,8 +255,7 @@ impl ChatBackendProvider for JsChatBackend {
             return Err("agent task cancelled or expired".into());
         }
         let context = serde_json::to_value(&request.input).map_err(|e| e.to_string())?;
-        let _scope =
-            super::host_exec::host_env_scope(chatbackend_host_exec_env(&self.vm, &context)?);
+        let _scope = super::host_exec::host_env_scope(HashMap::new());
         let output = super::vm::call_json_interruptible(
             &self.vm,
             "runAgentTask",

@@ -538,6 +538,7 @@ fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
     {
         errors.push(error);
     }
+    running.service.capture_shutdown_shells();
     match session_persist::write_session_snapshot(&running.service, &running.service.mux) {
         Ok(codeterm_service_core::session::store::SaveOutcome::Saved) => {}
         Ok(outcome) => errors.push(format!("Shutdown snapshot refused: {outcome:?}")),

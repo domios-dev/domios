@@ -37,6 +37,7 @@ interface ToolCardFrameProps {
   variant?: "smart" | "codeterm";
   visualOverride?: ToolKindVisual;
   disclosureLabel?: string;
+  disclosureToggleLabel?: { expanded: string; collapsed: string };
   /** Overflow items in place of the tool defaults (copy command, copy output, ask). */
   menu?: readonly ChatCardMenuItem[];
 }
@@ -76,7 +77,7 @@ export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[
   );
 }
 
-export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, subtitle, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel, expandable = true }: ToolCardFrameProps) {
+export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, subtitle, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, disclosureToggleLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel, expandable = true }: ToolCardFrameProps) {
   const host = useChatBlockHost();
   const compact = useCompactToolRow();
   const [technicalOpen, setTechnicalOpen] = useState(false);
@@ -99,6 +100,9 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const label = title === undefined ? visual.label : title;
   const detailsId = `chat-details-${useId().replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const labelText = typeof label === "string" && label ? label : visual.label;
+  const cardDisclosureLabel = communication && disclosureToggleLabel
+    ? open ? disclosureToggleLabel.expanded : disclosureToggleLabel.collapsed
+    : open ? "Collapse card" : "Expand card";
   const baseMenu = menu ?? toolMenuItems(event, labelText, host);
   const menuItems: readonly ChatCardMenuItem[] = showTechnicalDetails ? [...baseMenu, {
     label: "Details",
@@ -125,7 +129,8 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         } : undefined}>
         <button
           type="button"
-          aria-label={disclosureLabel ? `${expanded ? "Hide" : "Show"} ${disclosureLabel}` : expanded ? "Collapse tool details" : "Expand tool details"}
+          tabIndex={communication ? -1 : undefined}
+          aria-label={disclosureToggleLabel ? expanded ? disclosureToggleLabel.expanded : disclosureToggleLabel.collapsed : disclosureLabel ? `${expanded ? "Hide" : "Show"} ${disclosureLabel}` : expanded ? "Collapse tool details" : "Expand tool details"}
           aria-expanded={canExpand ? open : undefined}
           aria-controls={canExpand ? detailsId : undefined}
           disabled={!canExpand}
@@ -136,7 +141,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
             <Glyph aria-hidden="true" size={14} strokeWidth={2} style={{ color: iconColor }} />
           </span>
           <span className={subtitle ? "ct-tool-labels flex min-w-0 flex-1 flex-col items-start gap-0 font-mono text-[12.5px] leading-[18px]" : "ct-tool-labels flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]"}>
-            {label && <span className={inlineCommand ? "sr-only" : `max-w-[60%] shrink-0 truncate ${quietOperation ? "font-medium" : "font-semibold"}`} style={{ color: communication || quietOperation ? "var(--ct-fg)" : visual.color }}>{label}</span>}
+            {label && <span className={inlineCommand ? "sr-only" : `${communication ? "min-w-0 max-w-full flex-[1_1_auto]" : "max-w-[60%] shrink-0"} truncate ${quietOperation ? "font-medium" : "font-semibold"}`} style={{ color: communication || quietOperation ? "var(--ct-fg)" : visual.color }}>{label}</span>}
             {subtitle && <span className="max-w-full truncate text-[10.5px] font-normal leading-[14px]" style={{ color: "color-mix(in srgb, var(--ct-muted-fg) 72%, transparent)" }}>{subtitle}</span>}
             <span className={summary === "" ? "hidden" : "ct-tool-subject min-w-0 truncate"} data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{summary === "" ? null : (summary ?? event.description ?? event.summary) || "Tool activity"}</span>
             {metric ?? chips}
@@ -154,7 +159,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         {!compact && statusIcon}
         <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={[...readerItems, ...menuItems]} joinRow />
         </span>
-        {canExpand && <CardChevron expanded={open} label={open ? "Collapse card" : "Expand card"} onToggle={onToggle} />}
+        {canExpand && <CardChevron expanded={open} label={cardDisclosureLabel} onToggle={onToggle} />}
       </div>
       {primaryContent && <div className="px-3 pb-2">{primaryContent}</div>}
       <BoundedMessageContent collapsedHeight={communication ? "160px" : "600px"}
@@ -179,17 +184,18 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   );
 }
 
-export function ToolCardActionButton({ label, onClick, testId, primary = false }: { label: string; onClick: () => void; testId?: string; primary?: boolean }) {
+export function ToolCardActionButton({ label, onClick, testId, primary = false, ariaLabel, compactIcon = false }: { label: string; onClick: () => void; testId?: string; primary?: boolean; ariaLabel?: string; compactIcon?: boolean }) {
   return (
     <button
       type="button"
       data-testid={testId}
       title={label}
+      aria-label={ariaLabel}
       onClick={onClick}
       className={primary ? "ct-bar-pill ct-bar-pill--primary w-fit" : "ct-tool-action"}
       style={primary ? { height: 22 } : undefined}
     >
-      {label}
+      <span className={compactIcon ? "@max-[560px]:hidden" : undefined}>{label}</span>
       {!primary && <ArrowUpRight aria-hidden="true" size={12} />}
     </button>
   );

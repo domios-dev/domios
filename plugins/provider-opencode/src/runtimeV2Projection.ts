@@ -5,17 +5,20 @@ import {fail, list, object, text} from "./runtimeProtocol";
 export function contentId(message:string, kind:"text"|"reasoning", ordinal:number):string {return `${message}:${kind}:${ordinal}`;}
 export function toolId(message:string, id:string):string {return `${message}:tool:${id}`;}
 export function toolContent(raw:unknown):string {return list(raw).map(object).filter(part=>part.type === "text" && typeof part.text === "string").map(part=>String(part.text)).join("\n");}
+
 function toolInput(raw:unknown):Record<string,unknown> {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string,unknown>;
   if (typeof raw !== "string") return {};
   try { return object(JSON.parse(raw)); }
   catch (_) { return {}; }
 }
+
 function errorText(raw:unknown):string {
   if (typeof raw === "string") return raw;
   const error=object(raw), data=object(error.data);
   return text(error.message) || text(data.message) || text(error.type) || "Tool failed";
 }
+
 export function v2Content(message:string, raw:unknown, ordinal:number, seq:number, ts?:number):ChatMsg|undefined {
   const part=object(raw), type=part.type;
   const timestamp=ts !== undefined ? {timestamp:new Date(ts).toISOString()} : {};
@@ -31,10 +34,14 @@ export function v2Content(message:string, raw:unknown, ordinal:number, seq:numbe
   const partForDiffs:OpencodePart={type:"tool",tool:name,state:{...state,input,metadata,status:String(state.status)}};
   const diffs=toolFileDiffs(partForDiffs);
   const result=state.error ? errorText(state.error) : toolContent(state.content);
+  const duration=typeof time.ran === "number" && Number.isSafeInteger(time.ran)
+    && typeof time.completed === "number" && Number.isSafeInteger(time.completed) && time.completed >= time.ran
+    ? time.completed-time.ran : undefined;
   return {id:toolId(message,id),seq,type:"tool_call",content:"",toolName:name,toolId:id,toolKind:canonical.kind,toolSummary:canonical.summary,
     toolDetail:canonical.detail,toolEdits:canonical.edits,fileDiffs:diffs,toolInput:input,toolStatus:status,
     ...(result ? {toolResult:result} : {}),...(aborted ? {toolInterrupted:true} : failed ? {toolError:true} : state.status === "completed" ? {toolError:false} : {}),
-    ...(typeof time.ran === "number" ? {toolStartedAtMs:time.ran} : {}),...(typeof time.completed === "number" ? {toolCompletedAtMs:time.completed} : {}),...timestamp};
+    ...(duration !== undefined ? {toolDurationMs:duration} : {}),...(typeof time.ran === "number" ? {toolStartedAtMs:time.ran} : {}),
+    ...(typeof time.completed === "number" ? {toolCompletedAtMs:time.completed} : {}),...timestamp};
 }
 export function v2History(raw:unknown, order:"asc"|"desc"="desc"):ChatMsg[] {
   const entries=list(raw), rows:ChatMsg[]=[];

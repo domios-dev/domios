@@ -29,7 +29,13 @@ fn completed_worker_switch_preserves_history_without_task_authority_and_delivers
         .unwrap();
     let live_input = fixture
         .service
-        .provider_switch_input(&live_source, &[], std::path::Path::new("archive-token"))
+        .provider_switch_input(
+            &live_source,
+            &[],
+            std::path::Path::new("archive-token"),
+            "target",
+            None,
+        )
         .unwrap();
     let live_frame = codeterm_wire::message_markers::parse_host_injected(&live_input).unwrap();
     complete_switch_task(&fixture, &task_id);
@@ -140,7 +146,13 @@ fn completed_worker_switch_preserves_history_without_task_authority_and_delivers
     assert!(payload.contains(&attempt_id));
     let input = fixture
         .service
-        .provider_switch_input(&source, &[], std::path::Path::new("archive-token"))
+        .provider_switch_input(
+            &source,
+            &[],
+            std::path::Path::new("archive-token"),
+            "target",
+            None,
+        )
         .unwrap();
     let frame = codeterm_wire::message_markers::parse_host_injected(&input).unwrap();
     assert_ne!(

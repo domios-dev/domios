@@ -40,6 +40,7 @@ vi.mock("../../lib/webEvents", () => ({ bindWebEventsTransport: vi.fn(), resetWe
 import { Titlebar } from "./Titlebar";
 import { Sidebar } from "../Sidebar/Sidebar";
 import { clearRelayTarget, relayTarget, selfHost, setRelayTarget, webJson } from "../../lib/webApi";
+import { setWorkspaceBrowseTarget, workspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -82,6 +83,7 @@ afterEach(async () => {
   root = null;
   host.remove();
   clearRelayTarget();
+  setWorkspaceBrowseTarget(null);
   vi.unstubAllGlobals();
 });
 
@@ -176,10 +178,12 @@ describe("web host picker recovery", () => {
   it.each(["error", "timeout", "pending"] as const)("lists gateway peers and switches while current-peer state is %s", async (failure) => {
     setRelayTarget("broken", "Broken");
     const fetchPeers = fetchMock.getMockImplementation()!;
+    let finishRequest: (() => void) | undefined;
     fetchMock.mockImplementation((url, init) => {
       if (String(url).endsWith("/api/mesh/relay-to")) {
         if (failure === "pending") {
-          return new Promise<Response>((_resolve, reject) => {
+          return new Promise<Response>((resolve, reject) => {
+            finishRequest = () => resolve(Response.json({ ok: true, status: 200, data: {} }));
             init?.signal?.addEventListener("abort", () => reject(new DOMException("Cancelled", "AbortError")), { once: true });
           });
         }
@@ -191,17 +195,25 @@ describe("web host picker recovery", () => {
     if (failure !== "pending") await stateLoad;
     await renderShell(false);
     const menu = await openHosts();
-    expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(3);
+    expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(4);
     expect(fetchMock.mock.calls.some(([url]) => String(url) === `${selfHost()}/api/mesh/peers`)).toBe(true);
     const healthy = menu.querySelector<HTMLButtonElement>('[data-peer-name="Healthy"]')!;
     expect(healthy.disabled).toBe(false);
     await act(async () => healthy.click());
-    expect(relayTarget()?.id).toBe("healthy");
+    expect(workspaceBrowseTarget()?.id).toBe("healthy");
+    expect(relayTarget()?.id).toBe("broken");
     expect(pickerButton().disabled).toBe(false);
     expect(document.activeElement).toBe(pickerButton());
     const gatewayMenu = await openHosts();
     await act(async () => gatewayMenu.querySelector<HTMLButtonElement>('[data-testid="peer-picker-self"]')!.click());
-    expect(relayTarget()).toBeNull();
+    expect(workspaceBrowseTarget()).toBeNull();
+    expect(relayTarget()?.id).toBe("broken");
+    if (failure === "pending") {
+      // The original request still owns its peer, even after workspace browsing changes.
+      expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith("/api/mesh/relay-to") && !init?.signal?.aborted)).toBe(true);
+      finishRequest?.();
+      await stateLoad;
+    }
   });
 
   it("moves menu focus with arrows and returns focus to the named trigger on Escape", async () => {

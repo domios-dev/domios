@@ -149,6 +149,7 @@ impl ProviderSwitchOperationsExt for ServiceContext {
             }
             operations.push((status.operation_id.clone(), operation.clone()));
         }
+        emit_status(self, &status);
         let (response_complete, response_sent) = tokio::sync::oneshot::channel();
         let svc = self.clone();
         self.rt.spawn(async move {
@@ -156,7 +157,7 @@ impl ProviderSwitchOperationsExt for ServiceContext {
             let failed = operation.clone();
             let events = svc.clone();
             let result = tokio::task::spawn_blocking(move || {
-                operation.state.lock().phase = "running".into();
+                publish_phase(&svc, &operation, "running");
                 let current = svc.mux.read().get_tab(&tab).cloned();
                 let result = match current {
                     Some(current)
@@ -253,7 +254,7 @@ fn complete(
     operation: &Operation,
     result: Result<ProviderSwitchOutcome, String>,
 ) {
-    let (payload, observation) = {
+    let (status, observation) = {
         let mut state = operation.state.lock();
         let observation = if matches!(state.phase.as_str(), "pending" | "running") {
             result.as_ref().ok().cloned()
@@ -270,17 +271,30 @@ fn complete(
                 state.error = Some(error);
             }
         }
-        (
-            serde_json::to_value(&*state).unwrap_or_default(),
-            observation,
-        )
+        (state.clone(), observation)
     };
     if let Some(outcome) = observation {
         svc.record_product_provider_switch(&outcome);
     }
     operation.changed.notify_all();
-    svc.ui.emit("provider-switch-status", payload);
+    emit_status(svc, &status);
     svc.emit_state_changed(crate::service::MuxEmitCause::AgentRestart);
+}
+
+fn publish_phase(svc: &ServiceContext, operation: &Operation, phase: &str) {
+    let status = {
+        let mut state = operation.state.lock();
+        state.phase = phase.into();
+        state.clone()
+    };
+    emit_status(svc, &status);
+}
+
+fn emit_status(svc: &ServiceContext, status: &ProviderSwitchStatus) {
+    svc.ui.emit(
+        "provider-switch-status",
+        serde_json::to_value(status).unwrap_or_default(),
+    );
 }
 
 #[cfg(test)]

@@ -2,6 +2,7 @@ import type { PlanView as Plan } from "../planProjection";
 import { tabActivity } from "../../../lib/tabActivity";
 import type { Tab, TabStatus } from "../../../lib/types";
 import { ownerName, ownerTabId } from "../owner";
+import { resolveCompanionTab } from "./companionResolver";
 
 import type { PlanAskReference } from "./planAskMapping";
 
@@ -15,6 +16,8 @@ export interface PlanAskReadyOwner {
   sessionBindingNonce: string | null;
 }
 
+export type PlanReviewAction = "comment" | "request_change";
+
 export type PlanAskOwner =
   | PlanAskReadyOwner
   | { status: "missing" }
@@ -26,8 +29,55 @@ const FALLBACK_OWNER_NAME = "Orchestrator";
 export function resolvePlanAskOwner(plan: Pick<Plan, "owner">, tabs: Record<string, Tab> | undefined, statuses?: Record<string, TabStatus>): PlanAskOwner {
   const tabId = ownerTabId(plan.owner);
   if (!tabId) return { status: "missing" };
+  return resolvePlanAskRecipient(tabId, ownerName(plan.owner) || FALLBACK_OWNER_NAME, tabs, statuses);
+}
+
+export function resolvePlanReviewOwner(
+  plan: Pick<Plan, "owner" | "planner">,
+  tabs: Record<string, Tab> | undefined,
+  statuses?: Record<string, TabStatus>,
+): PlanAskOwner {
+  const recipient = resolveCompanionTab(plan, (tabId) => {
+    const tab = tabs?.[tabId];
+    return Boolean(tab && !tab.hidden && (tab.agent_type || tab.backing?.kind === "chat_backend"));
+  });
+  if (recipient?.kind === "planner") {
+    const name = plan.planner?.kind === "tab" ? plan.planner.title?.trim() || "Planner" : "Planner";
+    return resolvePlanReviewRecipient(recipient.tabId, name, tabs, statuses);
+  }
+  if (recipient?.kind === "orchestrator") {
+    return resolvePlanReviewRecipient(recipient.tabId, ownerName(plan.owner) || FALLBACK_OWNER_NAME, tabs, statuses);
+  }
+
+  if (plan.planner?.kind === "tab") {
+    return resolvePlanReviewRecipient(plan.planner.tab_id, plan.planner.title?.trim() || "Planner", tabs, statuses);
+  }
+  const ownerTab = ownerTabId(plan.owner);
+  return ownerTab
+    ? resolvePlanReviewRecipient(ownerTab, ownerName(plan.owner) || FALLBACK_OWNER_NAME, tabs, statuses)
+    : { status: "missing" };
+}
+
+function resolvePlanReviewRecipient(
+  tabId: string,
+  fallbackName: string,
+  tabs: Record<string, Tab> | undefined,
+  statuses?: Record<string, TabStatus>,
+): PlanAskOwner {
   const tab = tabs?.[tabId];
-  const name = tab?.title?.trim() || ownerName(plan.owner) || FALLBACK_OWNER_NAME;
+  const name = tab?.title?.trim() || fallbackName;
+  if (tab?.hidden) return { status: "offline", tabId, name };
+  return resolvePlanAskRecipient(tabId, fallbackName, tabs, statuses);
+}
+
+export function resolvePlanAskRecipient(
+  tabId: string,
+  fallbackName: string,
+  tabs: Record<string, Tab> | undefined,
+  statuses?: Record<string, TabStatus>,
+): PlanAskOwner {
+  const tab = tabs?.[tabId];
+  const name = tab?.title?.trim() || fallbackName;
   const chatBackend = tab?.backing?.kind === "chat_backend";
   if (!tab || (!tab.agent_type && !chatBackend)) return { status: "offline", tabId, name };
   return {
@@ -41,9 +91,21 @@ export function resolvePlanAskOwner(plan: Pick<Plan, "owner">, tabs: Record<stri
   };
 }
 
-export function createPlanAskId(): string {
+function createPlanMessageId(kind: "ask" | "review" | "send"): string {
   const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
-  return `plan-ask-${random}`;
+  return `plan-${kind}-${random}`;
+}
+
+export function createPlanAskId(): string {
+  return createPlanMessageId("ask");
+}
+
+export function createPlanReviewId(): string {
+  return createPlanMessageId("review");
+}
+
+export function createPlanSendToken(): string {
+  return createPlanMessageId("send");
 }
 
 export const PLAN_ASK_OFFSET_UNIT = "utf16_code_unit";
@@ -75,6 +137,45 @@ export function composePlanAskMessage(reference: PlanAskReference, question: str
   ].join("\n");
 }
 
+export function composePlanReviewMessage(
+  reference: PlanAskReference & { mode: "selection" },
+  action: PlanReviewAction,
+  body: string,
+  reviewId: string,
+): string {
+  const label = action === "comment" ? "Comment" : "Request change";
+  const payload = {
+    review_id: reviewId,
+    kind: "plan_review",
+    plan_id: reference.planId,
+    document: reference.document,
+    spec_id: reference.specId,
+    item_count: 1,
+    items: [{
+      action,
+      body: body.trim(),
+      mode: reference.mode,
+      section_id: reference.sectionId,
+      section_title: reference.sectionTitle,
+      source_start: reference.source.start,
+      source_end: reference.source.end,
+      rendered_start: reference.rendered.start,
+      rendered_end: reference.rendered.end,
+      offset_unit: PLAN_ASK_OFFSET_UNIT,
+      quote: reference.quote,
+    }],
+  };
+  const document = reference.document === "spec" ? "Spec" : "Plan";
+  return [
+    `One-item plan review: ${label}`,
+    `${document} section ${reference.sectionTitle} (${reference.sectionId}) in plan ${reference.planId}:`,
+    body.trim(),
+    "",
+    "Review reference:",
+    JSON.stringify(payload),
+  ].join("\n");
+}
+
 interface ExchangeMessage {
   type: string;
   content: string;
@@ -86,9 +187,11 @@ interface ExchangeMessage {
 export function planAskReplies<T extends ExchangeMessage>(
   messages: readonly T[],
   askId: string,
+  clientToken: string,
 ): { asked: boolean; replies: T[] } {
+  const envelopeId = `"ask_id":${JSON.stringify(askId)}`;
   const start = messages.findIndex(
-    (message) => message.type === "user" && (message.correlationId === askId || message.content.includes(askId)),
+    (message) => message.type === "user" && (message.correlationId === clientToken || message.content.includes(envelopeId)),
   );
   if (start < 0) return { asked: false, replies: [] };
   const replies: T[] = [];

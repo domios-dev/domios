@@ -352,7 +352,13 @@ pub(super) fn answer(
                 context.tab_id
             );
             if session.prompts.lock().contains_key(&request) {
-                super::prompt_answers::publish(&owner, &session, request, prompt);
+                super::prompt_answers::publish(
+                    &owner,
+                    &session,
+                    request,
+                    prompt,
+                    codeterm_types::pty::PromptKind::Permission,
+                );
             }
         }
     });
@@ -384,6 +390,7 @@ async fn reply(
             values: vec![value],
         },
     };
+    log::debug!("[runtime-prompt] epoch={epoch} request={request:?} caller=permission_policy");
     engine::run(svc, &session.provider, session, &process, operation).await?;
     // A prompt already shown to the owner leaves the screen once the new setting answered it.
     if !session.prompts.lock().contains_key(request) {

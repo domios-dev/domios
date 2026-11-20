@@ -66,6 +66,14 @@ pub enum UserSendState {
     BodyLease,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum UserSendEligibility {
+    Eligible,
+    Preparing,
+    OwnerUnavailable,
+    Ineligible,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UserSendRecord {
     pub send_id: String,
@@ -584,21 +592,27 @@ impl UserSendStore {
     }
 
     pub(crate) fn eligible(&self, record: &UserSendRecord) -> bool {
-        let tab = self.tab(&record.authority.tab_id);
-        record.owner_epoch == self.epoch
-            && record.state == UserSendState::Queued
-            && !tab.revoked.load(Ordering::Acquire)
-            && !tab.failed.load(Ordering::Acquire)
-            && !self.waiting_for_preparation(record)
+        self.eligibility(record) == UserSendEligibility::Eligible
     }
 
-    pub(crate) fn waiting_for_preparation(&self, record: &UserSendRecord) -> bool {
-        self.tab(&record.authority.tab_id)
+    pub(crate) fn eligibility(&self, record: &UserSendRecord) -> UserSendEligibility {
+        let tab = self.tab(&record.authority.tab_id);
+        if tab.revoked.load(Ordering::Acquire) || tab.failed.load(Ordering::Acquire) {
+            return UserSendEligibility::OwnerUnavailable;
+        }
+        if tab
             .admissions
             .lock()
             .pending
             .iter()
             .any(|ordinal| *ordinal <= record.reservation)
+        {
+            return UserSendEligibility::Preparing;
+        }
+        if record.owner_epoch != self.epoch || record.state != UserSendState::Queued {
+            return UserSendEligibility::Ineligible;
+        }
+        UserSendEligibility::Eligible
     }
 
     pub fn claim<'a>(

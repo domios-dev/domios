@@ -44,7 +44,7 @@ it("web update channel reads and writes use the browser gateway and selected rel
     ] as const) {
       assert.equal(request.url.pathname, "/api/mesh/relay-to");
       assert.deepEqual(JSON.parse(String(request.init.body)), {
-        target_peer_id: peerId, method, path: "/api/update/channel", body,
+        target_instance_id: peerId, method, path: "/api/update/channel", body,
       });
     }
   } finally {

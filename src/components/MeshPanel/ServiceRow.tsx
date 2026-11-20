@@ -1,3 +1,4 @@
+import { MachineProvenance } from "../shared/MachineProvenance";
 import type { Service } from "./types";
 
 const STATUS_COLOR: Record<string, string> = {
@@ -49,7 +50,7 @@ export function ServiceRow({ service, host, onClick }: Props) {
         )}
       </span>
       <span className="text-[var(--ct-muted)] text-[11px] truncate" title={host}>
-        {host}
+        <MachineProvenance name={host} peerId={service.source_peer_id} remote={!!service.source_peer} />
       </span>
       <span className="text-[10px] uppercase" style={{ color }}>
         {service.health.status}

@@ -6,6 +6,7 @@ import {binding} from "./runtimeState";
 import {parseUsageRecord} from "./usageRecord";
 import {count} from "../../provider-shared/usageRecord";
 import {v2Reduce} from "./runtimeV2Reduce";
+import {runtimeErrorMessage, runtimeTurnErrorEvents} from "./turnErrors";
 
 interface Part {seq:number;bytes:number}
 interface Echo {text:boolean;files:number[];itemId?:string}
@@ -29,6 +30,14 @@ function ownSession(event:Record<string,unknown>):string|undefined {
   const params=object(event.properties);
   return text(params.sessionID) ?? text(object(params.part).sessionID) ?? text(object(params.info).sessionID)
     ?? (String(event.type).startsWith("session.") ? text(object(params.info).id) : undefined);
+}
+function currentTurn(ctx:RuntimeContext, state:State, index:number):string|undefined {
+  const sequence=ctx.streamWindow?.frameSequences?.[index];
+  return state.turn ?? ctx.activeTurnId ?? ctx.streamWindow?.turnRequests?.find(request=>request.written && request.afterSequence !== undefined && sequence !== undefined && sequence > request.afterSequence)?.turnId;
+}
+function completeTurn(state:State, turn:string):void {
+  state.completed.push(turn);state.completed=state.completed.slice(-256);
+  delete state.turn;
 }
 function evidence(ctx:RuntimeContext, state:State, part:Record<string,unknown>, sequence:number|undefined, events:AgentEvent[]):void {
   const messageId=text(part.messageID), planned=binding(ctx).sends.find(send=>send.messageId === messageId);
@@ -110,21 +119,26 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
     }
     if (type === "session.status" || type === "session.idle") {
       const status=type === "session.idle" ? "idle" : object(params.status).type;
-      const sequence=ctx.streamWindow?.frameSequences?.[index];
-      const turn=state.turn ?? ctx.activeTurnId ?? ctx.streamWindow?.turnRequests?.find(request=>request.written && request.afterSequence !== undefined && sequence !== undefined && sequence > request.afterSequence)?.turnId;
+      const turn=currentTurn(ctx,state,index);
       if (status === "busy" || status === "retry") {
         if (!turn || state.completed.includes(turn)) continue;
         state.turn=turn;events.push({kind:"turnState",threadId:ctx.threadId,turnId:turn,state:"working"});
       } else if (status === "idle" && turn && !state.completed.includes(turn)) {
-        state.completed.push(turn);state.completed=state.completed.slice(-256);
-        events.push({kind:"turnState",threadId:ctx.threadId,turnId:turn,state:"idle"});delete state.turn;
+        completeTurn(state,turn);
+        events.push({kind:"turnState",threadId:ctx.threadId,turnId:turn,state:"idle"});
       }
       continue;
     }
     if (type === "session.error") {
-      const error=object(params.error), message=text(object(error.data).message) ?? "OpenCode reported a session error";
-      const turn=state.turn ?? ctx.activeTurnId;
-      events.push({kind:"notice",threadId:ctx.threadId,message:message.slice(0,4096)}, {kind:"turnState",threadId:ctx.threadId,...(turn ? {turnId:turn} : {}),state:"idle",detail:"failed"});
+      const error=object(params.error), turn=currentTurn(ctx,state,index);
+      if (turn && state.completed.includes(turn)) continue;
+      const interrupted=error.name === "MessageAbortedError";
+      if (!interrupted) {
+        const message=runtimeErrorMessage(error,"OpenCode reported a session error");
+        events.push(...runtimeTurnErrorEvents(ctx.threadId,turn,turn ? ++state.seq : state.seq,message));
+      }
+      if (turn) completeTurn(state,turn);
+      events.push({kind:"turnState",threadId:ctx.threadId,...(turn ? {turnId:turn} : {}),state:"idle",detail:interrupted ? "interrupted" : "failed"});
       if (error.name === "ProviderAuthError") events.push({kind:"auth",state:"signedOut"},{kind:"authentication",authentication:{state:"needs_auth",methods:binding(ctx).methods}});
     }
   }

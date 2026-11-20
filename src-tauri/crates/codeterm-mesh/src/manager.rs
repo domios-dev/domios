@@ -2,14 +2,16 @@ mod account_admission;
 mod account_gate;
 mod connection_lifecycle;
 mod connection_observer;
+mod machine_identity;
 pub use connection_lifecycle::{ConnectionPhase, PeerConnection};
+pub use machine_identity::set_machine_identity;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::account_mesh::{self, ledger::LinkLedger};
 use super::ports::{default_last_activity, LastActivityProvider};
 use super::types::{self, MeshPeersResponse, MeshStatus, PairedPeer};
-use super::{crown, identity, peer_services, peers, transport};
+use super::{crown, identity, peers, transport};
 
 mod announce;
 pub use account_admission::{AdmissionContext, LinkConfirmation, PendingLink};
@@ -20,6 +22,9 @@ pub use announce::PeerAnnounceChange;
 /// Single Mutex — no lock ordering concerns.
 pub struct MeshManager {
     pub ident: identity::IdentityManager,
+    machine_identity: crate::machine_identity::Revision,
+    peer_machine_identities: HashMap<String, crate::machine_identity::Revision>,
+    machine_identity_writer: Arc<parking_lot::Mutex<()>>,
     pub paired_peers: HashMap<String, PairedPeer>,
     pub account_installations: Vec<types::AccountInstallation>,
     pub(crate) announce_slots: Arc<tokio::sync::Semaphore>,
@@ -39,7 +44,6 @@ pub struct MeshManager {
     /// Paired peers whose latest announce was never acknowledged; flushed when they reconnect.
     unacked_announce: std::collections::HashSet<String>,
     last_gossip_claim_ids: Vec<String>,
-    pub peer_services: peer_services::PeerServicesCache,
     pub protocol_refusals: crate::protocol_refusals::ProtocolRefusals,
     pub last_activity: Arc<dyn LastActivityProvider>,
     connection_observer: Option<connection_observer::ConnectionObserver>,
@@ -57,6 +61,7 @@ pub struct MeshManager {
     pending_links: HashMap<String, account_admission::PendingLink>,
     account_ready: bool,
     remote_access_epoch: u64,
+    peer_grant_epochs: HashMap<String, u64>,
 }
 
 impl MeshManager {
@@ -90,14 +95,27 @@ impl MeshManager {
             );
         }
         let mut manager = Self::in_memory(identity, instance_name, api_port);
+        manager.load_machine_identity();
         manager.disk_persist = true;
         manager
     }
 
     pub fn in_memory(identity: types::MeshIdentity, instance_name: String, api_port: u16) -> Self {
         let ident = identity::IdentityManager::new(identity, instance_name);
+        let machine_identity = crate::machine_identity::Revision {
+            identity: crate::machine_identity::MachineIdentity::inferred(
+                &ident.identity.instance_id,
+                std::env::consts::OS,
+                std::env::var_os("DISPLAY").is_none()
+                    && std::env::var_os("WAYLAND_DISPLAY").is_none(),
+            ),
+            number: 0,
+        };
         Self {
             ident,
+            machine_identity,
+            peer_machine_identities: HashMap::new(),
+            machine_identity_writer: Default::default(),
             paired_peers: HashMap::new(),
             account_installations: Vec::new(),
             announce_slots: Arc::new(tokio::sync::Semaphore::new(8)),
@@ -116,7 +134,6 @@ impl MeshManager {
             local_gossip_generation: 0,
             unacked_announce: std::collections::HashSet::new(),
             last_gossip_claim_ids: Vec::new(),
-            peer_services: peer_services::PeerServicesCache::default(),
             protocol_refusals: Default::default(),
             last_activity: default_last_activity(),
             connection_observer: None,
@@ -134,6 +151,7 @@ impl MeshManager {
             pending_links: HashMap::new(),
             account_ready: true,
             remote_access_epoch: 0,
+            peer_grant_epochs: HashMap::new(),
         }
     }
 
@@ -276,6 +294,14 @@ impl MeshManager {
             }
         }
         MeshPeersResponse {
+            local_machine_identity: self.machine_identity(),
+            machine_identities: paired
+                .iter()
+                .filter_map(|peer| {
+                    self.peer_machine_identity(&peer.instance_id)
+                        .map(|identity| (peer.instance_id.clone(), identity))
+                })
+                .collect(),
             installations: installations.into_values().collect(),
             paired,
             local_instance_name: self.ident.instance_name.clone(),
@@ -295,9 +321,10 @@ impl MeshManager {
 
     pub fn remove_account_peer(&mut self, instance_id: &str) {
         self.paired_peers.remove(instance_id);
+        self.peer_machine_identities.remove(instance_id);
         self.peer_request_retry.remove(instance_id);
         self.links.remove(instance_id);
-        self.peer_services.prune(instance_id);
+        self.peer_grant_epochs.remove(instance_id);
         self.protocol_refusals.forget(instance_id);
         self.bump_gate();
     }
@@ -317,6 +344,7 @@ impl MeshManager {
             .paired_peers
             .values()
             .map(|p| types::GossipPeerInfo {
+                machine_identity: None,
                 instance_id: p.instance_id.clone(),
                 instance_name: p.instance_name.clone(),
                 addresses: p.addresses.clone(),
@@ -326,6 +354,7 @@ impl MeshManager {
             })
             .collect();
         peers.push(types::GossipPeerInfo {
+            machine_identity: self.sign_machine_identity(),
             instance_id: self.ident.identity.instance_id.clone(),
             instance_name: self.ident.instance_name.clone(),
             addresses: self.local_announce_addresses(),
@@ -381,15 +410,22 @@ impl MeshManager {
                 ));
             }
         }
-        let addr = peer
-            .addresses
+        let mut addresses = types::sanitize_addresses(&peer.addresses);
+        addresses.sort_by_key(types::address_tier);
+        let mut endpoints = addresses
             .iter()
-            .min_by_key(|a| types::address_tier(a))?;
-        Some(transport::PeerClient::new_signed(
-            &addr.ip,
-            peer.api_port,
-            &token,
-        ))
+            .map(|address| transport::peer_http_origin(&address.ip, peer.api_port));
+        let primary = endpoints.next()?;
+        let mut alternatives = Vec::new();
+        for endpoint in endpoints {
+            if endpoint != primary && !alternatives.contains(&endpoint) {
+                alternatives.push(endpoint);
+            }
+        }
+        Some(
+            transport::PeerClient::new_signed_url(primary, &token)
+                .with_relay_alternatives(alternatives),
+        )
     }
 }
 

@@ -4,9 +4,9 @@ import {binding} from "./runtimeState";
 import {contentId, toolId, v2Content} from "./runtimeV2Projection";
 import {v2Prompt} from "./runtimeV2Requests";
 import {v2LoginEvents} from "./runtimeV2Auth";
-import {isQuotaError} from "./turnErrors";
+import {isQuotaError, runtimeErrorMessage, runtimeTurnErrorEvents} from "./turnErrors";
 
-interface Part {seq:number;bytes:number;turn?:string;finished:boolean;part:Record<string,unknown>}
+interface Part {seq:number;bytes:number;turn?:string;timestamp?:number;finished:boolean;part:Record<string,unknown>;shell?:{id:string;message:string}}
 interface State {protocol:"v2";epoch:number;nonce:string;thread:string;seq:number;seen:string[];evidenced:string[];completed:string[];pendingPrompts:string[];turn?:string;parts:Record<string,Part>}
 function current(ctx:RuntimeContext, raw:JsonValue):State {
   const old=object(raw);
@@ -17,7 +17,7 @@ function current(ctx:RuntimeContext, raw:JsonValue):State {
 function witness(ctx:RuntimeContext, sequence:number|undefined, sendId?:string) {
   return ctx.streamWindow?.turnRequests?.find(value=>(!sendId || value.sendId === sendId) && value.written && value.afterSequence !== undefined && sequence !== undefined && sequence > value.afterSequence);
 }
-function echoed(ctx:RuntimeContext, state:State, data:Record<string,unknown>, sequence:number|undefined, events:AgentEvent[]):void {
+function echoed(ctx:RuntimeContext, state:State, data:Record<string,unknown>, sequence:number|undefined, created:number|undefined, events:AgentEvent[]):void {
   const id=text(data.inboxID), item=object(data.item), payload=object(item.payload);
   const planned=binding(ctx).sends.find(send=>send.messageId === id);
   if (!planned || item.type !== "user" || state.evidenced.includes(planned.sendId)) return;
@@ -26,8 +26,17 @@ function echoed(ctx:RuntimeContext, state:State, data:Record<string,unknown>, se
   const files=list(payload.files).map(object);
   if (files.length !== claim.input.attachments.length || files.some((file,index)=>file.uri !== attachmentUrl(claim.input.attachments[index]))) return;
   state.evidenced.push(planned.sendId);
-  events.push({kind:"chatItem",threadId:ctx.threadId!,item:{id:planned.messageId,seq:++state.seq,type:"user",content:claim.input.text,attachments:claim.input.attachments.map(attachment=>({id:attachment.id,mimeType:attachment.mimeType,url:attachmentUrl(attachment)}))}},
+  events.push({kind:"chatItem",threadId:ctx.threadId!,item:{id:planned.messageId,seq:++state.seq,type:"user",content:claim.input.text,...(created !== undefined ? {timestamp:new Date(created).toISOString()} : {}),attachments:claim.input.attachments.map(attachment=>({id:attachment.id,mimeType:attachment.mimeType,url:attachmentUrl(attachment)}))}},
     {kind:"sendEvidence",threadId:ctx.threadId!,sendId:planned.sendId,turnId:proof.turnId,itemId:planned.messageId});
+}
+function toolRow(message:string, part:Record<string,unknown>, seq:number, finished:boolean, timestamp?:number):ChatMsg|undefined {
+  const row=v2Content(message,part,0,seq,timestamp);
+  const deadline=object(part.time).deadline;
+  if (row && !finished && typeof deadline === "number") {
+    row.toolKind="command";
+    row.toolInput={...object(row.toolInput),deadlineAtMs:deadline};
+  }
+  return row;
 }
 export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[]):RuntimeReduction {
   const loginEvents=v2LoginEvents(ctx,frames);
@@ -36,8 +45,20 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
   const emit=(row:ChatMsg)=>events.push({kind:"chatItem",threadId:ctx.threadId!,item:row});
   for (let index=0;index<frames.length;index++) {
     const frame=frames[index], event=object(frame.params), data=object(event.data), type=String(event.type), id=text(event.id);
-    if ((text(data.sessionID) ?? text(object(data.form).sessionID)) !== ctx.threadId) continue;
     if (event.location && text(object(event.location).directory)?.replace(/\\/g,"/").replace(/\/$/,"") !== ctx.cwd.replace(/\\/g,"/").replace(/\/$/,"")) continue;
+    if (type === "shell.exited") {
+      const shellId=text(data.id), exitedAt=event.created;
+      if (!event.location || !shellId || typeof exitedAt !== "number" || !Number.isSafeInteger(exitedAt)) continue;
+      const known=Object.values(state.parts).find(entry=>entry.shell?.id === shellId);
+      if (!known?.shell) continue;
+      const time=object(known.part.time), deadline=time.deadline;
+      if (typeof deadline === "number" && deadline <= exitedAt) continue;
+      known.part.time={...time,deadline:exitedAt};
+      const row=toolRow(known.shell.message,known.part,known.seq,false,known.timestamp);
+      if (row) emit(row);
+      continue;
+    }
+    if ((text(data.sessionID) ?? text(object(data.form).sessionID)) !== ctx.threadId) continue;
     if (!id || state.seen.includes(id)) continue;
     state.seen.push(id);state.seen=state.seen.slice(-512);
     const sequence=ctx.streamWindow?.frameSequences?.[index];
@@ -50,23 +71,22 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
       }
       continue;
     }
-    if (type === "session.inbox.enqueued") {echoed(ctx,state,data,sequence,events);continue;}
+    if (type === "session.inbox.enqueued") {echoed(ctx,state,data,sequence,typeof event.created === "number" ? event.created : undefined,events);continue;}
     if (type === "session.execution.started") {
       if (turn && !state.completed.includes(turn)) {state.turn=turn;events.push({kind:"turnState",threadId:ctx.threadId,turnId:turn,state:"working"});}
       continue;
     }
-    const quotaSessionError=type === "session.error" && isQuotaError(data.error);
-    if (quotaSessionError || ["session.execution.succeeded","session.execution.failed","session.execution.interrupted"].includes(type)) {
-      if (turn && !state.completed.includes(turn)) {
-        state.completed.push(turn);
+    if (["session.execution.succeeded","session.execution.failed","session.execution.interrupted","session.error"].includes(type)) {
+      if (!turn || !state.completed.includes(turn)) {
+        if (turn) state.completed.push(turn);
         state.pendingPrompts=[];
-        const detail=type === "session.execution.failed" || quotaSessionError ? "failed" : type === "session.execution.interrupted" ? "interrupted" : undefined;
+        const detail=type === "session.execution.failed" || type === "session.error" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : undefined;
         if (detail === "failed") {
-          const message=isQuotaError(data.error) ? "Provider balance or quota is exhausted — top up or switch model"
-            : String(object(data.error).message ?? "OpenCode execution failed").slice(0,4096);
-          events.push({kind:"notice",threadId:ctx.threadId,message});
+          const error=object(data.error);
+          const message=isQuotaError(error) ? "Provider balance or quota is exhausted — top up or switch model" : runtimeErrorMessage(error,"OpenCode execution failed");
+          events.push(...runtimeTurnErrorEvents(ctx.threadId,turn,turn ? ++state.seq : state.seq,message));
         }
-        events.push({kind:"turnState",threadId:ctx.threadId,turnId:turn,state:"idle",...(detail ? {detail} : {})});delete state.turn;
+        events.push({kind:"turnState",threadId:ctx.threadId,...(turn ? {turnId:turn} : {}),state:"idle",...(detail ? {detail} : {})});delete state.turn;
       }
       continue;
     }
@@ -108,31 +128,48 @@ export function v2Reduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly Runt
         }
       } else if (type.endsWith(".ended") || type.endsWith(".started") && !known) {
         const finished=type.endsWith(".ended"), seq=known?.seq ?? ++state.seq, content=finished ? String(data.text ?? "") : "";
-        const row=v2Content(message,{type:kind,text:content},Number(data.ordinal),seq);
-        if (row) {emit(row);state.parts[rowId]={seq,bytes:utf8Length(content),...(turn ? {turn} : {}),finished,part:{}};}
+        const timestamp=known?.timestamp ?? (typeof event.created === "number" ? event.created : undefined);
+        const row=v2Content(message,{type:kind,text:content},Number(data.ordinal),seq,timestamp);
+        if (row) {emit(row);state.parts[rowId]={seq,bytes:utf8Length(content),...(turn ? {turn} : {}),...(timestamp !== undefined ? {timestamp} : {}),finished,part:{}};}
       }
       continue;
     }
     if (type.startsWith("session.tool.") && text(data.id)) {
       const rowId=toolId(message,String(data.id)), known=state.parts[rowId];
-      if (known?.finished || !known && type !== "session.tool.input.started") continue;
+      const finished=type === "session.tool.success" || type === "session.tool.failed";
+      if (known?.finished || !known && !finished && type !== "session.tool.input.started") continue;
       const seq=known?.seq ?? ++state.seq, previous=known?.part ?? {}, previousState=object(previous.state);
       const name=text(data.name) ?? text(previous.name);
-      if (!name) continue;
-      const part:Record<string,unknown>={type:"tool",id:data.id,name,time:{...object(previous.time)}};
-      const finished=type === "session.tool.success" || type === "session.tool.failed";
+      if (!name && !finished) continue;
+      const part:Record<string,unknown>={type:"tool",id:data.id,name:name ?? "tool",time:{...object(previous.time)}};
+      let shell=known?.shell;
       if (type === "session.tool.input.started" && !known) part.state={status:"pending",input:{}};
       else if (type === "session.tool.called") {
         part.state={status:"running",input:object(data.input)};
         if (typeof event.created === "number") object(part.time).ran=event.created;
       }
       else if (finished) {
-        part.state={...previousState,status:type.endsWith("success") ? "completed" : "error",...(data.content ? {content:data.content} : {}),...(data.error ? {error:data.error} : {})};
+        part.state={...previousState,status:type.endsWith("success") ? "completed" : "error",...(data.content ? {content:data.content} : {}),...(data.error ? {error:data.error} : {}),...(data.metadata ? {metadata:data.metadata} : {})};
         if (typeof event.created === "number") object(part.time).completed=event.created;
-      } else if (type === "session.tool.progress" && known) part.state=previousState;
+      } else if (type === "session.tool.progress" && known) {
+        part.state=previousState;
+        const input=object(previousState.input), timeout=input.timeout;
+        const timing=object(part.time);
+        const shellId=text(object(data.metadata).shellID);
+        if (name === "shell" && shellId && !shell) {
+          shell={id:shellId,message};
+          if (typeof event.created === "number" && typeof timeout === "number" && Number.isSafeInteger(timeout) &&
+            timeout > 0 && Number.isSafeInteger(event.created+timeout)) timing.deadline=event.created+timeout;
+        }
+      }
       else continue;
-      const row=v2Content(message,part,0,seq);
-      if (row) {emit(row);state.parts[rowId]={seq,bytes:0,finished,part:finished ? {} : part};}
+      const timestamp=known?.timestamp ?? (typeof event.created === "number" ? event.created : undefined);
+      const row=toolRow(message,part,seq,finished,timestamp);
+      if (row) {
+        if (!name) {delete row.toolName;delete row.toolInput;}
+        emit(row);
+        state.parts[rowId]={seq,bytes:0,...(timestamp !== undefined ? {timestamp} : {}),finished,part:finished ? {} : part,...(!finished && shell ? {shell} : {})};
+      }
     }
   }
   state.evidenced=state.evidenced.slice(-256);state.completed=state.completed.slice(-256);

@@ -5,24 +5,67 @@ use windows_sys::Win32::{
     System::{Diagnostics::ToolHelp::*, Threading::*},
 };
 
+pub(in crate::service::agent_runtime::process_boundary) struct Descendant {
+    pub(in crate::service::agent_runtime::process_boundary) pid: u32,
+    pub(in crate::service::agent_runtime::process_boundary) parent: u32,
+    pub(in crate::service::agent_runtime::process_boundary) member: Member,
+}
+
 pub(in crate::service::agent_runtime::process_boundary) fn capture(
     boundary: &Boundary,
 ) -> Result<Vec<Member>, String> {
+    Ok(tree(boundary)?
+        .into_iter()
+        .map(|descendant| descendant.member)
+        .collect())
+}
+
+/// Every live runtime descendant with its parent, in or outside the owned Job.
+pub(in crate::service::agent_runtime::process_boundary) fn tree(
+    boundary: &Boundary,
+) -> Result<Vec<Descendant>, String> {
     let root = boundary
         .infrastructure
         .get(&boundary.pid)
         .ok_or("Runtime owner witness unavailable")?;
+    below(boundary.pid, root, &parents()?)
+}
+
+pub(in crate::service::agent_runtime::process_boundary) fn of<'a>(
+    roots: impl Iterator<Item = &'a Descendant>,
+) -> Result<Vec<Descendant>, String> {
+    let mut roots = roots.peekable();
+    if roots.peek().is_none() {
+        return Ok(Vec::new());
+    }
     let parents = parents()?;
-    let mut pending = vec![boundary.pid];
-    let mut retained = HashMap::new();
-    let mut visited = HashSet::from([boundary.pid]);
+    let mut descendants = HashMap::new();
+    for root in roots {
+        for child in below(root.pid, &root.member, &parents)? {
+            descendants.entry(child.pid).or_insert(child);
+        }
+        if descendants.len() > 256 {
+            return Err("Runtime descendant snapshot exceeds 256 members".into());
+        }
+    }
+    Ok(descendants.into_values().collect())
+}
+
+fn below(
+    root_pid: u32,
+    root: &Member,
+    parents: &HashMap<u32, u32>,
+) -> Result<Vec<Descendant>, String> {
+    let mut pending = vec![root_pid];
+    let mut retained: HashMap<u32, Descendant> = HashMap::new();
+    let mut visited = HashSet::from([root_pid]);
     while !pending.is_empty() {
         let mut next = Vec::new();
         for parent_pid in pending {
-            let parent = if parent_pid == boundary.pid {
+            let parent = if parent_pid == root_pid {
                 root
             } else {
-                &retained[&parent_pid]
+                &retained[&parent_pid].member
             };
             for (&pid, _) in parents.iter().filter(|(_, owner)| **owner == parent_pid) {
                 if !visited.insert(pid) {
@@ -38,15 +81,21 @@ pub(in crate::service::agent_runtime::process_boundary) fn capture(
                 if retained.len() + next.len() >= 256 {
                     return Err("Runtime descendant snapshot exceeds 256 members".into());
                 }
-                next.push((pid, child));
+                next.push(Descendant {
+                    pid,
+                    parent: parent_pid,
+                    member: child,
+                });
             }
         }
-        pending = next.iter().map(|(pid, _)| *pid).collect();
-        retained.extend(next);
+        pending = next.iter().map(|descendant| descendant.pid).collect();
+        retained.extend(
+            next.into_iter()
+                .map(|descendant| (descendant.pid, descendant)),
+        );
     }
     Ok(retained.into_values().collect())
 }
-
 fn parents() -> Result<HashMap<u32, u32>, String> {
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     if snapshot == INVALID_HANDLE_VALUE {

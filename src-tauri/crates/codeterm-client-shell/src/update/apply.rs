@@ -7,6 +7,11 @@ use codeterm_update::{manifest, InstallMethod, UpdatePhase, UpdateStateHandle};
 use crate::app_runtime::AppHandle;
 use crate::application_host::{ServerStop, ServerStopError};
 
+mod staged_payload;
+use staged_payload::{PayloadIdentity, StagedPayload};
+
+static STAGED_PAYLOAD: StagedPayload = StagedPayload::new();
+
 pub(crate) async fn check_and_apply(
     app: &AppHandle,
     opts: ApplyOptions,
@@ -28,7 +33,13 @@ pub(crate) async fn check_and_apply(
             server_stop
                 .prepare_detached_update(&package.version)
                 .await?;
-            codeterm_update::debian::handoff::launch(package, target, resources).await?;
+            codeterm_update::debian::handoff::launch(
+                package,
+                target,
+                resources,
+                opts.initiating_tab_id,
+            )
+            .await?;
             update_state.lock().set_phase(UpdatePhase::Applying);
             return Ok(ApplyResult::Restarting);
         }
@@ -116,6 +127,7 @@ async fn check_and_apply_plugin(
             u
         }
         None => {
+            STAGED_PAYLOAD.clear();
             log::warn!(
                 "[updater] plugin reported no applicable update (local={} os={} arch={})",
                 local_version,
@@ -127,50 +139,16 @@ async fn check_and_apply_plugin(
         }
     };
 
-    update_state.lock().set_phase(UpdatePhase::Downloading);
-    log::info!("[updater] downloading and verifying v{}", update.version);
-    log::info!(target: "native_updater", "download_started target_version={}", update.version);
-    let direct_url = update.download_url.to_string();
-    let bytes = match download_update(&update, &update_state).await {
-        Ok(bytes) => Ok(bytes),
-        Err(failure) if failure.outage => {
-            // Only the address changes: the same Update verifies the same signature on these bytes.
-            match codeterm_update::release_transport::official_asset_url(
-                &direct_url,
-                &failure.message,
-                std::time::Duration::from_secs(60),
-            )
-            .await
-            .and_then(|url| Url::parse(&url).map_err(|e| e.to_string()))
-            {
-                Ok(api_url) => {
-                    log::warn!(
-                        "[updater] downloading v{} through the GitHub Releases API",
-                        update.version
-                    );
-                    update.download_url = api_url;
-                    update_state.lock().set_phase(UpdatePhase::Downloading);
-                    download_update(&update, &update_state)
-                        .await
-                        .map_err(|api| {
-                            codeterm_update::release_transport::both_failed(
-                                &failure.message,
-                                &api.message,
-                            )
-                        })
-                }
-                Err(both) => Err(both),
-            }
-        }
-        Err(failure) => Err(failure.message),
-    }
-    .map_err(|cause| {
-        let msg = format!("GET {direct_url} download/verify failed: {cause}");
-        log::error!("[updater] {msg}");
-        msg
-    })?;
-
-    log::info!(target: "native_updater", "download_verified bytes={}", bytes.len());
+    let identity = PayloadIdentity {
+        version: update.version.clone(),
+        signature: update.signature.clone(),
+    };
+    let bytes = STAGED_PAYLOAD
+        .get_or_download(
+            identity,
+            download_verified_update(&mut update, &update_state),
+        )
+        .await?;
     let verified_len = bytes.len();
     let sink = super::failure_report::AppFailureSink {
         update_state: update_state.clone(),
@@ -226,6 +204,7 @@ async fn check_and_apply_plugin(
             Ok(Vec::new())
         },
         |verified_bytes| async {
+            STAGED_PAYLOAD.clear();
             log::info!("[updater] starting verified installer after the server stopped");
             let evidence = evidence.clone();
             let install_app = app.clone();
@@ -247,7 +226,7 @@ async fn check_and_apply_plugin(
                 codeterm_update::receipt::stage_app(&update.version);
                 evidence.record("installer_call_started", None)?;
                 let outcome = update
-                    .install(verified_bytes)
+                    .install(verified_bytes.as_slice())
                     .map_err(|e| format!("installer launch failed: {}", e));
                 evidence.record(
                     if outcome.is_ok() {
@@ -294,12 +273,7 @@ async fn stop_pair_server(
 ) -> Result<(), String> {
     log::info!("[updater] stopping the attached server before installing the pair");
     let request = holders.shutdown_reservation_request();
-    let reservation = async move {
-        match request {
-            Some(request) => stop.reserve_install_shutdown(request).await.map(Some),
-            None => Ok(None),
-        }
-    };
+    let reservation = stop.reserve_install_shutdown(request);
     let result = stop_reserved_server(stop, reservation).await;
     if server_stop_owes_relaunch(&result) {
         stopped.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -316,7 +290,7 @@ async fn stop_pair_server(
 
 async fn stop_reserved_server(
     stop: &dyn ServerStop,
-    reservation: impl std::future::Future<Output = Result<Option<String>, String>> + Send,
+    reservation: impl std::future::Future<Output = Result<String, String>> + Send,
 ) -> Result<(), ServerStopError> {
     let reservation = reservation.await.map_err(|reason| ServerStopError {
         dispatched: false,
@@ -324,14 +298,12 @@ async fn stop_reserved_server(
     })?;
     let result = stop.stop_server().await;
     if result.as_ref().is_err_and(|error| !error.dispatched) {
-        if let Some(id) = reservation {
-            stop.release_install_shutdown(&id)
-                .await
-                .map_err(|reason| ServerStopError {
-                    dispatched: false,
-                    reason,
-                })?;
-        }
+        stop.release_install_shutdown(&reservation)
+            .await
+            .map_err(|reason| ServerStopError {
+                dispatched: false,
+                reason,
+            })?;
     }
     result
 }
@@ -351,6 +323,55 @@ async fn restart_after_plugin_install(app: &AppHandle) -> Result<ApplyResult, St
 struct DownloadFailure {
     message: String,
     outage: bool,
+}
+
+async fn download_verified_update(
+    update: &mut tauri_plugin_updater::Update,
+    update_state: &UpdateStateHandle,
+) -> Result<Vec<u8>, String> {
+    update_state.lock().set_phase(UpdatePhase::Downloading);
+    log::info!("[updater] downloading and verifying v{}", update.version);
+    log::info!(target: "native_updater", "download_started target_version={}", update.version);
+    let direct_url = update.download_url.to_string();
+    let bytes = match download_update(update, update_state).await {
+        Ok(bytes) => Ok(bytes),
+        Err(failure) if failure.outage => {
+            // Only the address changes: the same Update verifies the same signature on these bytes.
+            match codeterm_update::release_transport::official_asset_url(
+                &direct_url,
+                &failure.message,
+                std::time::Duration::from_secs(60),
+            )
+            .await
+            .and_then(|url| Url::parse(&url).map_err(|e| e.to_string()))
+            {
+                Ok(api_url) => {
+                    log::warn!(
+                        "[updater] downloading v{} through the GitHub Releases API",
+                        update.version
+                    );
+                    update.download_url = api_url;
+                    update_state.lock().set_phase(UpdatePhase::Downloading);
+                    download_update(update, update_state).await.map_err(|api| {
+                        codeterm_update::release_transport::both_failed(
+                            &failure.message,
+                            &api.message,
+                        )
+                    })
+                }
+                Err(both) => Err(both),
+            }
+        }
+        Err(failure) => Err(failure.message),
+    }
+    .map_err(|cause| {
+        let msg = format!("GET {direct_url} download/verify failed: {cause}");
+        log::error!("[updater] {msg}");
+        msg
+    })?;
+
+    log::info!(target: "native_updater", "download_verified bytes={}", bytes.len());
+    Ok(bytes)
 }
 
 fn download_is_outage(error: &tauri_plugin_updater::Error) -> bool {

@@ -27,6 +27,45 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
         }
     };
     match action {
+        MeshAction::Identity {
+            action: mesh_cli::MeshIdentityAction::Set { kind, color, peer },
+        } => {
+            let identity = serde_json::json!({ "kind": kind, "color": color });
+            let path = "/api/account/mesh/identity";
+            let result = if let Some(peer) = peer {
+                mesh_cli::mesh_relay_fetch_json(
+                    &peer,
+                    "POST",
+                    "/api/mesh/identity",
+                    Some(&identity.to_string()),
+                )
+            } else {
+                let response = http
+                    .post(format!("{base}{path}"))
+                    .header(
+                        "Authorization",
+                        format!("Bearer {}", token.as_deref().unwrap_or("")),
+                    )
+                    .json(&identity)
+                    .send()
+                    .map_err(|error| error.to_string())
+                    .and_then(handle_resp);
+                match response {
+                    Ok(result) => result,
+                    Err(error) => crate::cmd::print::fail(1, error),
+                }
+            };
+            if json {
+                crate::cmd::print::print_json(&result);
+            } else if result["state"] == "awaiting_owner" {
+                println!(
+                    "Awaiting owner approval ({}).",
+                    result["notification_id"].as_str().unwrap_or("notification")
+                );
+            } else {
+                println!("Machine identity saved.");
+            }
+        }
         MeshAction::Status => match client.call("mesh.status", None) {
             Ok(mut val) => {
                 let account = http

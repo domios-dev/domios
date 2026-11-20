@@ -297,6 +297,7 @@ impl NativeHostClient {
                         manifest_url: options.manifest_url,
                         install_method: method,
                         initiating_tab_id: options.initiating_tab_id,
+                        continue_tab_id: None,
                     },
                 )
                 .await

@@ -3,6 +3,7 @@ import { runtimeResponseDeadlinePending } from "./agentRuntimeState";
 import { providerErrorReason } from "./providerSignals";
 import { shellStateLabel } from "./shellCommandState";
 import { tabFailure, tabLaunched, tabSessionBound, type TabFailure } from "./tabFailure";
+import { liveRuntimePrompt } from "./promptAnswers";
 
 export interface AgentState extends Omit<TabAgentState, "state"> {
   state: TabAgentState["state"] | "quiet";
@@ -59,10 +60,9 @@ function promptStatus(tab: TabActivityInput | null | undefined, subtype: TabAgen
   const prompt = tab?.pending_prompt;
   const text = prompt?.question?.trim();
   if (!prompt || !text) return null;
-  // Agent-runtime prompts with choices are tool approvals; the card below carries the details.
   const permission = subtype === "permission"
-    || tab?.pending_prompt_kind === "permission" || tab?.pending_prompt_kind === "automatic_permission"
-    || (tab?.backing?.kind === "chat_backend" && (prompt.options?.length ?? 0) > 0);
+    || (tab?.backing?.kind !== "chat_backend"
+      && (tab?.pending_prompt_kind === "permission" || tab?.pending_prompt_kind === "automatic_permission"));
   if (permission) return "Waiting for your permission";
   if (readableActivityLine(text) !== text) return null;
   return !text.includes("\n") && text.length <= SHORT_QUESTION_CHARS ? text : "Waiting for your answer";
@@ -86,6 +86,10 @@ export function lazyFirstTurnComposerIsLive(tab: TabActivityInput | null | undef
     && launch.binding_nonce === tab.session_binding_nonce;
 }
 
+export function hasExitedChatRecipient(tab: TabActivityInput | null | undefined): boolean {
+  return Boolean(tab?.exited_chat_recipient) && !tab?.agent_type;
+}
+
 function boundSessionRetiresShellStartup(tab: TabActivityInput | null | undefined): boolean {
   return tab?.agent_booting === false
     && Boolean(tab.agent_session_id?.trim())
@@ -101,7 +105,10 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
     kind: "idle", label: "Sleeping", status: "Idle", state: "idle", backgroundTasks: 0,
     active: false, canStop: false, quiet: false, launching: false, phase: "work", shellSucceeded: null,
   };
-  const live = tab?.agent_state;
+  const chatBacked = tab?.backing?.kind === "chat_backend";
+  const runtimePermission = chatBacked && tab.pending_prompt_kind === "permission" && liveRuntimePrompt(tab) !== null;
+  const orphanedPermission = chatBacked && tab.agent_state?.subtype === "permission" && !runtimePermission;
+  const live = orphanedPermission ? undefined : tab?.agent_state;
   const shell = tab?.shell_command_state;
   const declaresAgent = Boolean(tab?.agent_type) || tab?.backing?.kind === "chat_backend";
   const sessionBound = tabSessionBound(tab);
@@ -121,7 +128,9 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
     && (tab.agent_runtime_state?.state === "degraded"
       || (tab.agent_runtime_state?.state === "unloaded" && Boolean(tab.agent_runtime_state.reason)))
     && !runtimeResponseDeadlinePending(tab.agent_runtime_state, tab.boot_failure_reason);
-  const authoritativeStatus = status ?? "Idle";
+  const authoritativeStatus = orphanedPermission && status === "Waiting"
+    ? tab?.agent_runtime_state?.active_turn_started_at_ms != null ? "Working" : "Idle"
+    : status ?? "Idle";
   let kind: TabActivity["kind"];
   if (runtimeFailed || status === "Dead" || status === "Error" || tab?.boot_stage === "spawn_failed") kind = "failed";
   else if (tab?.pending_prompt || tab?.boot_stage === "awaiting_owner_prompt") kind = "waiting-on-user";
@@ -136,7 +145,9 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   const quiet = kind === "idle" && live?.state === "quiet";
   const state = quiet ? "quiet" : kind === "working" ? "working" : kind === "waiting-on-user" ? "question" : "idle";
   const matchingLive = kind !== "starting" && kind !== "failed" && live?.state === state;
-  const subtype = state === "question" && matchingLive ? live?.subtype : undefined;
+  const subtype = state === "question"
+    ? runtimePermission ? "permission" : matchingLive ? live?.subtype : undefined
+    : undefined;
   const phase = kind === "working" && matchingLive && (live?.phase === "thinking" || live?.phase === "streaming" || live?.phase === "compacting") ? live.phase : "work";
   const question = kind === "waiting-on-user" ? promptStatus(tab, subtype) : null;
   const providerReason = kind !== "working" && kind !== "starting" && kind !== "failed"

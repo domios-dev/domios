@@ -26,8 +26,10 @@ interface Props {
   expanded: boolean;
   onToggle: () => void;
   onFocusTab?: () => void;
+  focusTabName?: string;
   children: ReactNode;
   disclosureLabel?: string;
+  disclosureToggleLabel?: { expanded: string; collapsed: string };
 }
 
 export function inboundActivityEvent(message: ChatMessage, summary: string, status: ToolEvent["status"]): ToolEvent {
@@ -41,7 +43,7 @@ export function inboundActivityEvent(message: ChatMessage, summary: string, stat
   };
 }
 
-export function InboundActivityCard({ message, testId, title, summary, subtitle, presentationSummary, chips = [], status = "success", visual, expanded, onToggle, onFocusTab, children, disclosureLabel, technicalCommand, showTechnicalDetails = true, focusTabTestId = "inbound-show-tab", headerTestId, statusTestId, statusLabel }: Props) {
+export function InboundActivityCard({ message, testId, title, summary, subtitle, presentationSummary, chips = [], status = "success", visual, expanded, onToggle, onFocusTab, focusTabName, children, disclosureLabel, disclosureToggleLabel, technicalCommand, showTechnicalDetails = true, focusTabTestId = "inbound-show-tab", headerTestId, statusTestId, statusLabel }: Props) {
   const host = useChatBlockHost();
   const event = { ...inboundActivityEvent(message, summary, status), detail: technicalCommand };
   const text = decodeCliMessageText(message.content).trim();
@@ -70,9 +72,10 @@ export function InboundActivityCard({ message, testId, title, summary, subtitle,
       variant="codeterm"
       visualOverride={visual}
       disclosureLabel={disclosureLabel}
+      disclosureToggleLabel={disclosureToggleLabel}
       metric={chips.length ? <ToolCardChips chips={chips} /> : undefined}
       menu={menu}
-      action={onFocusTab ? <ToolCardActionButton label="Show Tab" onClick={onFocusTab} testId={focusTabTestId} /> : undefined}
+      action={onFocusTab ? <ToolCardActionButton label="Show Tab" ariaLabel={focusTabName ? `Show tab ${focusTabName}` : undefined} compactIcon={Boolean(focusTabName)} onClick={onFocusTab} testId={focusTabTestId} /> : undefined}
     >
       {children}
     </ToolCardFrame>

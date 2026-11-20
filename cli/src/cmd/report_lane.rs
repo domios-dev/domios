@@ -8,6 +8,7 @@ use crate::client::RpcClient;
 pub struct TaskReadinessScope {
     pub worktree_path: Option<PathBuf>,
     pub recorded_checkout: bool,
+    pub recorded_plain_checkout: bool,
     pub canonical_writer: bool,
     pub shared: bool,
     pub canonical_checkout_path: Option<PathBuf>,
@@ -92,11 +93,25 @@ fn task_readiness_scope_from_task_with_canonical_path(
     canonical_project_path: Option<&str>,
 ) -> TaskReadinessScope {
     let attempt = open_attempt(task, tab_id);
-    let canonical_writer = attempt
-        .and_then(|attempt| attempt.get("placement"))
-        .and_then(Value::as_str)
-        == Some("canonical_writer");
+    let placement = attempt.and_then(|attempt| attempt.get("placement"));
+    let canonical_writer = placement.and_then(Value::as_str) == Some("canonical_writer");
     let checkout = attempt.and_then(|attempt| nonempty(attempt.get("checkout_path")));
+    let start_sha = attempt.and_then(|attempt| nonempty(attempt.get("shared_start_sha")));
+    let files: Option<codeterm_types::plan::TaskFiles> = task
+        .get("files")
+        .cloned()
+        .and_then(|files| serde_json::from_value(files).ok());
+    let recorded_plain_checkout = checkout.is_some()
+        && placement.is_none_or(|value| value.as_str() == Some("isolated_lane"))
+        && attempt.is_some_and(|attempt| {
+            attempt.get("execution_intent").and_then(Value::as_str) == Some("mutating")
+                && attempt.get("shared_start_sha").is_none_or(Value::is_null)
+                && attempt
+                    .get("shared_start_files")
+                    .and_then(Value::as_object)
+                    .is_some_and(|hashes| hashes.is_empty())
+        })
+        && files.as_ref().is_some_and(|files| files.edit.is_empty());
     let lane = task.get("lane");
     // Use one attempt record for worktree and base so a live attempt cannot borrow a stale base from the lane.
     let record = match attempt {
@@ -123,11 +138,9 @@ fn task_readiness_scope_from_task_with_canonical_path(
             .or_else(|| record.and_then(|record| nonempty(record.get("worktree_path"))))
             .map(|path| PathBuf::from(codeterm_paths::strip_verbatim_prefix(&path))),
         recorded_checkout: checkout.is_some(),
+        recorded_plain_checkout,
         canonical_writer,
-        shared: attempt
-            .and_then(|attempt| attempt.get("placement"))
-            .and_then(Value::as_str)
-            == Some("shared"),
+        shared: placement.and_then(Value::as_str) == Some("shared"),
         canonical_checkout_path,
         canonical_continuation_path: (!canonical_writer
             && attempt.is_none_or(|attempt| attempt.get("mesh_peer").is_none_or(Value::is_null)))
@@ -136,16 +149,9 @@ fn task_readiness_scope_from_task_with_canonical_path(
                 .map(|path| PathBuf::from(codeterm_paths::strip_verbatim_prefix(path)))
         })
         .flatten(),
-        files: task
-            .get("files")
-            .cloned()
-            .and_then(|files| serde_json::from_value(files).ok())
-            .unwrap_or_default(),
+        files: files.unwrap_or_default(),
         base: record.and_then(|record| nonempty(record.get("base"))),
-        start_sha: checkout
-            .as_ref()
-            .and(attempt)
-            .and_then(|attempt| nonempty(attempt.get("shared_start_sha"))),
+        start_sha: checkout.and(start_sha),
         requires_repository: task.get("execution_intent").and_then(Value::as_str)
             != Some("non_repository")
             && attempt
@@ -160,6 +166,7 @@ impl Default for TaskReadinessScope {
         Self {
             worktree_path: None,
             recorded_checkout: false,
+            recorded_plain_checkout: false,
             canonical_writer: false,
             shared: false,
             canonical_checkout_path: None,

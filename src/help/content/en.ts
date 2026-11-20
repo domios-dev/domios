@@ -398,6 +398,7 @@ export const enHelpContent: HelpLocaleContent = {
             "Send a message or a full task to any tab on any peer — replies route back automatically.",
             "Plans can span machines: a remote worker's reports flow home to the plan that owns the task.",
             "The Mesh tab shows peers, health probes, and an activity log of what crossed the wire.",
+            "For machines that aren't showing up, open Tailscale on each machine and confirm it is running, allowed by the OS, and signed in to the same Tailscale account.",
           ],
         },
         {

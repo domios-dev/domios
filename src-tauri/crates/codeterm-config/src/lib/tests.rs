@@ -241,9 +241,22 @@ fn api_defaults_are_loopback_authenticated_and_cors_closed() {
         .token
         .as_ref()
         .is_some_and(|token| !token.is_empty()));
-    assert!(validate_api_trust_boundary(&config.api).is_ok());
+    assert_eq!(config.api.port, schema::ApiConfig::default().port);
+    if cfg!(debug_assertions) {
+        let production_api = schema::ApiConfig {
+            port: 7685,
+            ..config.api.clone()
+        };
+        assert!(validate_api_trust_boundary(&production_api).is_err());
+    }
+    let private_api = schema::ApiConfig {
+        port: 7686,
+        ..config.api
+    };
+    assert!(validate_api_trust_boundary(&private_api).is_ok());
 
     let mut unsafe_remote = schema::ApiConfig::default();
+    unsafe_remote.port = 7686;
     unsafe_remote.host = "0.0.0.0".into();
     unsafe_remote.token = None;
     assert!(validate_api_trust_boundary(&unsafe_remote).is_err());
@@ -252,6 +265,7 @@ fn api_defaults_are_loopback_authenticated_and_cors_closed() {
     assert!(validate_api_trust_boundary(&unsafe_remote).is_ok());
 
     let mut permissive_cors = schema::ApiConfig {
+        port: 7686,
         cors: true,
         ..schema::ApiConfig::default()
     };
@@ -630,7 +644,7 @@ fn browser_upload_revocation_survives_a_stale_non_owner_commit_in_memory_and_on_
         .insert("work".into(), vec!["/media".into()]);
     let state = Arc::new(Mutex::new(config));
     save_config_at(&path, &state.lock()).unwrap();
-    let expected = state.lock().browser_upload_folders.clone();
+    let expected = state.lock().clone();
     let (captured, snapshot_ready) = std::sync::mpsc::sync_channel(0);
     let (resume, revoked) = std::sync::mpsc::sync_channel(0);
     std::thread::scope(|scope| {
@@ -670,7 +684,7 @@ fn browser_upload_revocation_survives_a_stale_non_owner_commit_in_memory_and_on_
     assert!(disk.browser_upload_folders.is_empty());
     assert_eq!(disk.font.size, 18);
     let mut stale_owner = state.lock().clone();
-    stale_owner.browser_upload_folders = expected.clone();
+    stale_owner.browser_upload_folders = expected.browser_upload_folders.clone();
     assert!(
         commit_config(&state, stale_owner, Some(&expected), |_| panic!(
             "stale owner must not persist"
@@ -705,6 +719,30 @@ fn browser_upload_grants_are_preserved_for_all_snapshot_commits_and_failed_saves
     assert!(save_config_and_apply_with(&state, next, |_| Err("disk full".into())).is_err());
     assert_ne!(state.lock().font.size, 20);
     assert!(state.lock().browser_upload_folders.contains_key("work"));
+}
+
+#[test]
+fn non_owner_and_stale_owner_snapshots_cannot_restore_revoked_blueprint_profiles() {
+    let mut old = AppConfig::default();
+    old.plugins.insert(
+        "browser".into(),
+        serde_json::json!({"blueprint_profiles":["work"]}),
+    );
+    let state = Mutex::new(old.clone());
+    let mut revoked = old.clone();
+    revoked.plugins.get_mut("browser").unwrap()["blueprint_profiles"] = serde_json::json!([]);
+    commit_config(&state, revoked, Some(&old), |_| Ok(())).unwrap();
+    let written = save_config_and_apply_with(&state, old.clone(), |_| Ok(())).unwrap();
+    assert_eq!(
+        browser_blueprint_profiles(&written),
+        Some(&serde_json::json!([]))
+    );
+    assert!(matches!(
+        commit_config(&state, old.clone(), Some(&old), |_| panic!(
+            "stale owner write"
+        )),
+        Err(ConfigCommitError::StaleBlueprintProfiles)
+    ));
 }
 
 #[test]

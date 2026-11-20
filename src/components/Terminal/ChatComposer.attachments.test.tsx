@@ -80,7 +80,7 @@ it("sends the image selected in Attach file on a runtime tab", async () => {
   const root = createRoot(host);
   try {
     await act(async () => root.render(<MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}><ComposerIssuesProvider>
-      <ChatComposer tabId="picked-tab" tabProvider="opaque" currentPtyId={null} chatBackend pendingPrompt={null}
+      <ChatComposer tabId="picked-tab" tabProvider="opaque" pendingPrompt={null}
         attachments={[]} addAttachments={() => {}} removeAttachment={() => {}} clearAttachments={() => {}}
         handlePasteEvent={() => {}} onWillSendMessage={() => {}} addOptimistic={() => "picked"}
         updateOptimistic={() => {}} observeChatSendStatus={() => {}} showComposerError={(error) => { throw new Error(error); }} />
@@ -133,7 +133,7 @@ it.each([
   const root = createRoot(host);
   try {
     await act(async () => root.render(<MuxStateStoreContext.Provider value={store}><ComposerIssuesProvider>
-      <ChatComposer tabId="capability" tabProvider="opaque" currentPtyId={null} chatBackend pendingPrompt={null}
+      <ChatComposer tabId="capability" tabProvider="opaque" pendingPrompt={null}
         attachments={[path]} addAttachments={() => {}} removeAttachment={() => {}} clearAttachments={clear}
         handlePasteEvent={() => {}} onWillSendMessage={() => {}} addOptimistic={optimistic}
         updateOptimistic={updateOptimistic} observeChatSendStatus={() => {}} showComposerError={error} />

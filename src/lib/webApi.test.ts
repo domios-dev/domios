@@ -137,7 +137,7 @@ describe("peer provider catalog relay", () => {
     vi.stubGlobal("fetch", muxMockFetch(async (url: string, init: RequestInit) => {
       expect(url).toBe("http://gateway:7686/api/mesh/relay-to");
       expect(JSON.parse(String(init.body))).toEqual({
-        target_peer_id: "owning-peer", method: "GET", path: "/api/agents/providers", body: null,
+        target_instance_id: "owning-peer", method: "GET", path: "/api/agents/providers", body: null,
       });
       return Response.json({ ok: true, status: 200, data: [descriptor], error: null });
     }));

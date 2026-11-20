@@ -24,6 +24,7 @@ describe("OpenCode assistant errors", () => {
     const quota = { role: "assistant", error: { type: "provider.quota", status: 402 } };
     expect(turnError(quota)).toEqual(quota.error);
     expect(sessionObservations(quota)?.api_error).toBe("usage_limit");
+    expect(sessionObservations({ ...quota, error: { ...quota.error, body } })?.api_error).toBe("usage_limit");
     expect(sessionObservations({ ...quota, error: { body } })?.api_error).toBe("usage_limit");
     expect(sessionObservations({ ...quota, role: "user" })).toBeNull();
   });

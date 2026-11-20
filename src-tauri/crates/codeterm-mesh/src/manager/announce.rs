@@ -8,6 +8,7 @@ pub struct PeerAnnounceChange {
     pub online_changed: bool,
     pub web_ui_changed: bool,
     pub metadata_changed: bool,
+    pub identity_changed: bool,
 }
 
 impl PeerAnnounceChange {
@@ -16,6 +17,7 @@ impl PeerAnnounceChange {
             || self.online_changed
             || self.web_ui_changed
             || self.metadata_changed
+            || self.identity_changed
     }
 }
 
@@ -50,6 +52,7 @@ impl MeshManager {
         let addresses = self.local_announce_addresses();
         let online = self.local_http_healthy && !addresses.is_empty();
         types::PeerAnnounce {
+            machine_identity: self.sign_machine_identity(),
             domios_version: Some(crate::version::local_version().into()),
             domios_build: (!self.build_hash.is_empty()).then(|| self.build_hash.clone()),
             instance_id: self.ident.identity.instance_id.clone(),
@@ -100,7 +103,7 @@ impl MeshManager {
         } else {
             None
         };
-        let change = {
+        let mut change = {
             let peer = self
                 .paired_peers
                 .get_mut(&ann.instance_id)
@@ -127,6 +130,7 @@ impl MeshManager {
                 }) || peer.api_port != api_port
                     || peer.relay_protocol_version != ann.relay_protocol_version
                     || (!ann.instance_name.is_empty() && peer.instance_name != ann.instance_name),
+                identity_changed: false,
                 previous_addresses,
             };
             if let Some(version) = ann
@@ -149,7 +153,15 @@ impl MeshManager {
             }
             change
         };
-        if change.changed() {
+        change.identity_changed = ann
+            .machine_identity
+            .as_ref()
+            .is_some_and(|identity| self.accept_machine_identity(sender_id, identity));
+        if change.addresses_changed
+            || change.online_changed
+            || change.web_ui_changed
+            || change.metadata_changed
+        {
             let _ = self.save();
         }
         Ok(change)

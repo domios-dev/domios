@@ -162,7 +162,7 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
       { id: "0-0", type: "assistant", content: "earlier reply", seq: 0, timestamp: "1699999999000" },
     ]),
   ).state;
-  const sends = [send("opt-1", "run the build", 1_700_000_000_000)];
+  const sends = [send("opt-1", "run the build", 1_700_000_000_000, { flowAtMs: 1_700_000_000_000 })];
   const turn = reduceTranscript(
     attached,
     batch("delta", 400, 700, [
@@ -172,8 +172,8 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
   const pending = projectTranscript(turn, sends);
   eq(
     pending.rows.map((row) => row.content),
-    ["earlier reply", "Bash build.sh", "run the build"],
-    "a pending send follows the committed transcript",
+    ["earlier reply", "run the build", "Bash build.sh"],
+    "a send with an inline slot stays before later committed output",
   );
   const echoed = reduceTranscript(
     turn,
@@ -335,15 +335,15 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
   const consumed = reduceTranscript(working, batch("delta", 300, 600, committedTurn)).state;
   const expected = [
     "earlier reply",
+    "also check the logs",
     "running the build",
     "Bash build.sh",
     "build ok",
-    "also check the logs",
     "logs are clean",
   ];
   const live = projectTranscript(consumed, sends);
   eq(live.pending.length, 0, "the consumed echo reconciles the mid-turn send");
-  eq(live.rows.map((row) => row.content), expected, "the committed mid-turn user row takes its transcript position");
+  eq(live.rows.map((row) => row.content), expected, "the committed mid-turn user row takes its timestamp position");
   eq(
     live.rows.filter((row) => row.type === "user").map((row) => row.id),
     ["c-1"],
@@ -377,7 +377,7 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
   eq(
     projectTranscript(fresh()).rows.map((row) => row.content),
     expected,
-    "without the send, transcript sequence gives the same order",
+    "without the send, committed timestamps give the same order",
   );
 }
 

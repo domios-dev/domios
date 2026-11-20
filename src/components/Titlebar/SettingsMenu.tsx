@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from "react";
 import { UpdateTray } from "./UpdateTray";
 import { GearIcon } from "../Icons";
-import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
+import { DropdownMenu, type DropdownMenuEntry } from "../shared/DropdownMenu";
 import { UI_TRAY_BTN } from "../shared/design";
 import { SETTINGS_SECTIONS, type SectionId } from "../Settings/sections";
+import { usePwaInstallOffer } from "../../lib/pwaInstallOffer";
 
 interface SettingsMenuProps {
   onOpenSection: (section?: SectionId) => void;
@@ -17,7 +18,8 @@ interface SettingsMenuProps {
  */
 export function SettingsMenu({ onOpenSection, afterGear }: SettingsMenuProps) {
   const [open, setOpen] = useState(false);
-  const items: DropdownMenuItem[] = SETTINGS_SECTIONS.map((s) => {
+  const installOffer = usePwaInstallOffer();
+  const items: DropdownMenuEntry[] = SETTINGS_SECTIONS.map((s) => {
     const Icon = s.icon;
     return {
       label: s.label,
@@ -27,6 +29,13 @@ export function SettingsMenu({ onOpenSection, afterGear }: SettingsMenuProps) {
       "data-testid": `settings-menu-${s.id}`,
     };
   });
+  if (installOffer) {
+    items.push({ separator: true, key: "pwa-install" });
+    items.push(installOffer.kind === "prompt"
+      ? { label: "Install Domios", description: installOffer.description, onClick: () => void installOffer.install?.(), "data-testid": "settings-menu-install-domios" }
+      : { label: "Add to Home Screen", description: installOffer.description, unavailable: true, "data-testid": "settings-menu-install-domios" });
+    items.push({ label: "Do not show again", onClick: installOffer.dismiss, "data-testid": "settings-menu-dismiss-install" });
+  }
 
   const gear = (className: string) => (
     <DropdownMenu

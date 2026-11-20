@@ -1,9 +1,9 @@
-import { act, StrictMode } from "react";
+import { act, StrictMode, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import type { AgentRuntimeStateEvent } from "../../lib/agentRuntimeState";
-import type { ApiConfig, ProviderDescriptor, Tab, ThemeConfig } from "../../lib/types";
+import type { ProviderDescriptor, Tab, ThemeConfig } from "../../lib/types";
 import {setAgentDescriptors} from "../../lib/agentDescriptorCache";
 import { MuxStateStoreContext, MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
@@ -26,8 +26,8 @@ vi.mock("./TerminalTab", async () => {
   const { createElement } = await import("react");
   const { TabSessionChat } = await import("./TabSessionChat");
   return {
-    TerminalTab: ({ tabId, api, isVisible }: { tabId: string; api?: ApiConfig; isVisible?: boolean }) =>
-      createElement(TabSessionChat, { tabId, api, isVisible }),
+    TerminalTab: ({ tabId, api, isVisible, frozenRestore }: Pick<ComponentProps<typeof TabSessionChat>, "tabId" | "api" | "isVisible" | "frozenRestore">) =>
+      createElement(TabSessionChat, { tabId, api, isVisible, frozenRestore }),
   };
 });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -652,11 +652,15 @@ it("releases a restored PTY Chat on its own agent_ready lifecycle without PTY ou
   const root = createRoot(host);
   const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
   __setListenForTest(async () => () => {});
-  __setInvokeForTest(async <T,>(command: string) => {
+  __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>) => {
+    if (command === "chat_start") {
+      const pending = state.tabs[tab.id].frozen;
+      return { messages: [], pending, text: "", start_offset: 0, offset: 0,
+        source_session_id: "own-session", session_binding_nonce: pending ? "old-binding" : "restored-binding",
+        subscription_id: args?.subscriptionId } as T;
+    }
     const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
       : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] }
-      : command === "chat_start" ? { messages: [], pending: false, text: "", start_offset: 0, offset: 0,
-        source_session_id: "own-session", session_binding_nonce: state.tabs[tab.id].session_binding_nonce }
       : command === "wake_tab" ? { accepted: true }
       : {};
     return value as T;
@@ -673,7 +677,10 @@ it("releases a restored PTY Chat on its own agent_ready lifecycle without PTY ou
   try {
     await render();
     expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).not.toBeNull();
-    expect(host.querySelector('[aria-label="Message composer"]')).toBeNull();
+    const composer = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message composer"]');
+    expect(composer?.disabled).toBe(false);
+    expect(composer?.closest("[inert]")).toBeNull();
+    expect(host.querySelector('[aria-label="Tab chat: Grok"]')?.getAttribute("data-chat-ready")).toBe("false");
 
     state = reducer(state, tabBootStageEventAction({
       tab_id: tab.id,
@@ -689,8 +696,10 @@ it("releases a restored PTY Chat on its own agent_ready lifecycle without PTY ou
     expect(state.tabs[tab.id].pty_id).toBe("pty-restored");
     expect(state.tabs[tab.id].session_binding_nonce).toBe("restored-binding");
     expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).toBeNull();
-    const composer = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message composer"]');
-    expect(composer).not.toBeNull();
+    expect(host.querySelector('[aria-label="Tab chat: Grok"]')?.getAttribute("data-chat-ready")).toBe("true");
+    expect([...host.querySelectorAll('[role="status"]')].some(status => status.textContent === "No earlier messages.")).toBe(true);
+    expect(host.querySelector('[data-testid="chat-load-older"]')).toBeNull();
+    expect(host.querySelector('textarea[aria-label="Message composer"]')).toBe(composer);
     expect(composer?.disabled).toBe(false);
     expect(composer?.closest("[inert]")).toBeNull();
   } finally {

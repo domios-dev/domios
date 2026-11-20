@@ -6,7 +6,6 @@
    Layers portaled out of the Board carry the same scale. */
 .mc-board,
 .mc-board-layer {
-  --mc-text-meta: 11px;
   --mc-text-body: 13px;
   --mc-text-figure: 20px;
   --mc-space-1: 4px;
@@ -288,7 +287,7 @@
 .mc-board-panel-meta {
   margin-left: auto;
   min-width: 0;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   font-weight: 400;
   line-height: 1.4;
   text-align: right;
@@ -310,7 +309,7 @@
 
 .mc-board-sub-label {
   margin: 0;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   font-weight: 600;
   line-height: 1.4;
   color: var(--ct-muted-fg);
@@ -322,7 +321,7 @@
   border: 0;
   background: none;
   font: inherit;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   line-height: 1.4;
   color: var(--ct-accent);
   cursor: pointer;
@@ -352,7 +351,7 @@
 
 .mc-board-log-pager-gap {
   padding: 0 var(--mc-space-1);
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   color: var(--ct-muted-fg);
 }
 
@@ -497,7 +496,7 @@ button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: v
 }
 
 .mc-board-plan-list-date {
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   color: var(--ct-muted-fg);
   white-space: nowrap;
 }
@@ -615,7 +614,7 @@ button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: v
 }
 
 .mc-board-progress-stats dt {
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   line-height: 1.4;
   color: var(--ct-muted-fg);
 }
@@ -646,7 +645,7 @@ button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: v
   display: block;
   margin-top: 2px;
   overflow: hidden;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   line-height: 1.4;
   color: var(--ct-muted-fg);
   text-overflow: ellipsis;
@@ -720,7 +719,7 @@ button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: v
 }
 
 .mc-board-pair dt {
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   line-height: 1.4;
   color: var(--ct-muted-fg);
 }
@@ -741,7 +740,7 @@ button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: v
 
 .mc-board-caption {
   margin: 0;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   font-weight: 400;
   line-height: 1.35;
   color: var(--ct-muted-fg);
@@ -754,7 +753,7 @@ button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: v
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   line-height: 1.5;
   color: var(--ct-muted-fg);
 }
@@ -806,7 +805,7 @@ button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: v
   border: 0;
   background: none;
   font: inherit;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   line-height: 1.6;
   color: var(--ct-muted-fg);
   white-space: nowrap;
@@ -844,7 +843,7 @@ button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: v
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   line-height: 1.4;
   color: var(--ct-muted-fg);
 }
@@ -865,7 +864,7 @@ button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: v
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   line-height: 1.4;
   color: var(--ct-fg);
 }
@@ -942,7 +941,7 @@ button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: v
   border-radius: 999px;
   background: none;
   font: inherit;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   line-height: 1.6;
   color: var(--ct-muted-fg);
   white-space: nowrap;
@@ -1015,7 +1014,7 @@ button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: v
 .mc-board-chart-label {
   min-width: 0;
   overflow: hidden;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   line-height: 1.4;
   text-align: center;
   color: var(--ct-muted-fg);
@@ -1085,7 +1084,7 @@ button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: v
 .mc-board-models-table thead th {
   padding-top: 0;
   border-bottom: 1px solid var(--ct-border);
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   color: var(--ct-muted-fg);
 }
 

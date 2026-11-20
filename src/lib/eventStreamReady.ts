@@ -1,6 +1,7 @@
 import { DEV_BUILD } from "./devBuild";
 
 export const EVENT_STREAM_READY = "codeterm-event-stream-ready";
+export const EVENT_STREAM_LOST = "codeterm-event-stream-lost";
 let version = 0;
 let firstConnectedAt: number | undefined;
 let firstCatalogueAt: number | undefined;
@@ -11,6 +12,10 @@ export function signalEventStreamReady(): void {
   firstConnectedAt ??= performance.now();
   version++;
   window.dispatchEvent(new Event(EVENT_STREAM_READY));
+}
+
+export function signalEventStreamLost(): void {
+  window.dispatchEvent(new Event(EVENT_STREAM_LOST));
 }
 
 export function recordProviderCatalogueResponse(providerCount: number): void {

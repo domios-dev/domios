@@ -43,6 +43,10 @@ export function UpdateTray() {
   const [open, setOpen] = useState(false);
   const toastedError = useRef<string | null>(null);
   const toastedFrontend = useRef<string | null>(null);
+  const nativeFailure = app.phase === "error" ? app.error : null;
+  useEffect(() => {
+    if (nativeFailure) setOpen(true);
+  }, [nativeFailure]);
   useEffect(() => {
     const release = update.frontendRelease;
     if (!release || toastedFrontend.current === release.releaseId) return;
@@ -96,7 +100,7 @@ export function UpdateTray() {
   return <>
     <button ref={trigger} type="button" data-testid="settings-update-action" aria-label="Update" aria-description={activityDescription}
       aria-haspopup="dialog" aria-expanded={open} aria-busy={active} data-activity-state={activityState}
-      onClick={() => setOpen(!open)} title={offers ? "Updates available" : "Update history"}
+      disabled={app.blocking} onClick={() => setOpen(!open)} title={offers ? "Updates available" : "Update history"}
       className={`inline-flex h-6 w-6 items-center justify-center rounded-full ${triggerTone} hover:brightness-110`}>
       {downloadPercent !== null ? <DownloadProgress value={downloadPercent} />
         : failed ? <CircleAlert size={15} aria-hidden="true" />
@@ -104,7 +108,7 @@ export function UpdateTray() {
             : activityState === "completed" ? <CheckCircle2 size={15} aria-hidden="true" />
               : <ArrowDownToLine size={15} aria-hidden="true" />}
     </button>
-    <AnchoredPopover open={open} anchor={trigger} placement="bottom-end" onClose={close}>
+    <AnchoredPopover open={open} anchor={trigger} placement="bottom-end" onClose={app.blocking ? undefined : close}>
       <div id="update-tray-dialog" ref={panel} role="dialog" aria-label="Updates" className="w-[400px] max-w-[calc(100vw-24px)] max-h-[min(640px,80vh)] overflow-y-auto">
         <UpdatePanel />
       </div>

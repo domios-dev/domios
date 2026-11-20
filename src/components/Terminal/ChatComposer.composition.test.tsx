@@ -9,8 +9,8 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ChatComposer } from "./ChatComposer";
 import { DraftStorageFixture } from "../../test/draftStorage.testdata";
 import type { ChatSendStatus } from "./chatSendStatus";
-import { test, vi } from "vitest";
-import type { Tab } from "../../lib/types";
+import { test } from "vitest";
+import type { ExpectedChatRecipient, Tab } from "../../lib/types";
 import { formatAttachmentMarker } from "@codeterm/chat-core";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -40,7 +40,7 @@ function emptyMuxState(): ExtendedState {
   };
 }
 
-type SendCall = { tabId: string; text: string; clientToken: string; startupOverrideNonce?: string };
+type SendCall = { tabId: string; text: string; clientToken: string; expectedRecipient?: ExpectedChatRecipient };
 type BridgeListener = (event: { payload: unknown }) => void;
 
 interface Harness {
@@ -55,12 +55,14 @@ interface Harness {
   optimisticCount: () => number;
   statuses: ChatSendStatus[];
   errors: string[];
+  patchTab: (patch: Partial<Tab>) => void;
 }
 
 interface HarnessOptions {
   tab?: Tab;
   attachments?: string[];
   send?: (call: SendCall) => Promise<ChatSendStatus>;
+  transfer?: () => Promise<{ path: string }>;
 }
 
 async function renderComposer(tabId: string, options: HarnessOptions = {}): Promise<Harness> {
@@ -96,6 +98,8 @@ async function renderComposer(tabId: string, options: HarnessOptions = {}): Prom
       };
     }
     if (command === "delayed_send_list") return delayedMessages;
+    if (command === "mesh_transfer_attachment") return options.transfer?.();
+    assert(command !== "write_pty_string", "the composer must use its guarded send route");
     if (command === "list_agent_providers" || command === "system_heartbeat_list") return [];
     return {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -125,7 +129,6 @@ async function renderComposer(tabId: string, options: HarnessOptions = {}): Prom
       <ChatComposer
         tabId={tabId}
         tabProvider={null}
-        currentPtyId={null}
         pendingPrompt={null}
         attachments={attachments}
         addAttachments={(paths) => setAttachments((current) => [...current, ...paths])}
@@ -155,6 +158,7 @@ async function renderComposer(tabId: string, options: HarnessOptions = {}): Prom
     el, root, host, sendCalls, listeners, renders, statuses, errors, optimisticCount: () => optimisticCount,
     attachments: () => attachmentState.current,
     replaceAttachments: (paths) => attachmentState.replace(paths),
+    patchTab: (patch) => { state.tabs[tabId] = { ...state.tabs[tabId], ...patch }; store.notify(); },
   };
 }
 
@@ -165,41 +169,73 @@ async function teardown(h: Harness): Promise<void> {
   __setListenForTest(null);
 }
 
-test("starting composer preserves its draft before five seconds and explicitly overrides on Send afterwards", async () => {
-  let now = 1_000;
-  const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
-  const due: Array<() => void> = [];
-  const schedule = window.setTimeout.bind(window);
-  const timer = vi.spyOn(window, "setTimeout").mockImplementation((callback, delay, ...args): ReturnType<typeof setTimeout> => {
-    if (delay === 5_000 && typeof callback === "function") {
-      due.push(() => callback(...args));
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    }
-    return schedule(callback, delay, ...args) as unknown as ReturnType<typeof setTimeout>;
-  });
-  const h = await renderComposer("starting-override", { tab: {
-    id: "starting-override", agent_type: "opaque-provider", agent_booting: true,
+test("starting composer submits immediately through durable admission", async () => {
+  const h = await renderComposer("starting-hold", { tab: {
+    id: "starting-hold", agent_type: "opaque-provider", agent_booting: true,
     boot_stage: "launch_written", pty_id: "opaque-pty", session_binding_nonce: "own-launch",
   } as Tab });
   try {
     setDomValue(h.el, "opaque-payload");
     await fire(h.el, inputEvent({ isComposing: false }));
     await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13 }));
-    assert(h.sendCalls.length === 0 && h.el.value === "opaque-payload", "early input remains editable and unwritten");
-    now += 5_000;
-    assert(due.length > 0, "startup schedules one control-enablement deadline");
-    await act(async () => { due.splice(0).forEach(callback => callback()); });
-    assert(h.sendCalls.length === 0, "elapsed time alone never sends");
-    await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13 }));
     await flush();
-    assert((h.sendCalls.length as number) === 1, "one explicit Enter creates one admission");
-    assert(h.sendCalls[0].startupOverrideNonce === "own-launch", "send authorizes only the observed launch");
-    assert((h.el.value as string) === "", "accepted draft clears immediately");
+    assert(h.sendCalls.length === 1, "one explicit Enter creates one admission");
+    assert(h.sendCalls[0].expectedRecipient?.binding_nonce === "own-launch", "startup pins the observed launch");
+    assert(h.statuses[0]?.state === "held", "the server's held receipt reaches the chat");
+    assert(h.el.value === "", "accepted draft clears immediately");
   } finally {
     await teardown(h);
-    timer.mockRestore();
-    clock.mockRestore();
   }
+});
+
+test("an exited draft keeps its original recipient while an attachment is transferring", async () => {
+  const transfer = deferred<{ path: string }>();
+  const tabId = "mesh:composer-peer/exited";
+  let transferring = false;
+  const h = await renderComposer(tabId, {
+    tab: { id: tabId, pty_id: "shell", tab_type: "Terminal", title: "Fixture", cwd: null, backing: { kind: "pty" },
+      exited_chat_recipient: { provider_id: "fixture", nonce: "retired", session_id: "session-a" } },
+    attachments: ["C:/fixture/source.txt"],
+    transfer: () => { transferring = true; return transfer.promise; },
+  });
+  try {
+    setDomValue(h.el, "opaque with attachment");
+    await fire(h.el, inputEvent({ isComposing: false }));
+    await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13 }));
+    await flush();
+    assert(transferring && h.sendCalls.length === 0 && h.el.value === "", "preparation owns the cleared draft");
+    await act(async () => h.patchTab({ exited_chat_recipient: undefined, agent_type: "fixture",
+      agent_session_id: "session-b", session_binding_nonce: "second" }));
+    await act(async () => transfer.resolve({ path: "/target/copied.txt" }));
+    await flush();
+    const call = h.sendCalls[0];
+    assert(call?.expectedRecipient?.session_id === "session-a", "the RPC carries the originally selected session");
+    assert(call.text.includes("/target/copied.txt"), "the transfer finished before admission");
+    assert(h.optimisticCount() === 1, "preparation preserves the original bubble");
+  } finally { await teardown(h); }
+});
+
+test.each([true, false])("slash text uses tracked admission during ready and reattached states (%s)", async (ready) => {
+  const tabId = ready ? "slash-ready" : "slash-reattached-shell";
+  const h = await renderComposer(tabId, { tab: {
+    id: tabId, pty_id: "own-pty", tab_type: "Terminal", title: "Fixture", cwd: null, backing: { kind: "pty" },
+    agent_type: "fixture", agent_session_id: "own-session", session_binding_nonce: "own-nonce",
+    reported_session_binding_nonce: ready ? "own-nonce" : null,
+    boot_stage: ready ? "agent_ready" : "pty_reattached",
+  } });
+  try {
+    setDomValue(h.el, "/help");
+    await fire(h.el, inputEvent({ isComposing: false }));
+    const send = h.host.querySelector<HTMLButtonElement>('[data-testid="composer-send-button"]');
+    assert(send && !send.disabled, "Send is available for the slash draft");
+    await act(async () => send.dispatchEvent(new window.PointerEvent("pointerup", {
+      bubbles: true, button: 0, pointerType: "mouse",
+    })));
+    await flush();
+    assert(h.sendCalls.length === 1, "slash submission creates one classified send");
+    assert(h.sendCalls[0].text === "/help", "the slash text enters the same Chat route as other text");
+    assert(h.sendCalls[0].expectedRecipient?.binding_nonce === "own-nonce", "the send pins the recipient");
+  } finally { await teardown(h); }
 });
 
 function setDomValue(el: HTMLTextAreaElement, value: string): void {

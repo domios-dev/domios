@@ -34,7 +34,9 @@ fn blueprint_v2_call_portable_python_main_returns_eight_through_claimed_effect()
         node.run = None;
         node.code = Some(
             serde_json::from_value(json!({
-                "lang":"python", "src":"def main(value): return {'n': value['n'] + 1}"
+                "lang": "python",
+                "src": "def main(value): return {'n': value['n'] + 1}",
+                "limits": {"wall_ms": 30_000}
             }))
             .unwrap(),
         );

@@ -83,7 +83,7 @@ export function usePresence<T, E extends HTMLElement = HTMLElement>(
       element.removeEventListener("animationend", onAnimationSettled);
       element.removeEventListener("animationcancel", onAnimationSettled);
     };
-  }, [mounted, motion.enter, motion.exit, settle]);
+  });
 
   const phase = shown?.state ?? null;
   useLayoutEffect(() => {

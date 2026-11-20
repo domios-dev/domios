@@ -60,7 +60,7 @@ export function CronFlowView({ job, service, target, actionAdapter = defaultAdap
         status={job.report_target_tab_id ? "Delivered to that tab" : "Kept with the run"} tone="var(--ct-muted-fg)" /></li>
     </ol>
     <div className="mt-5"><CronRunHistory runs={runs} allowed onOpen={setOpenRun} runLabel={curator ? "Curator round" : undefined} /></div>
-    {openRun && openRun.session_id && <RunChatPopup tabId={openRun.tab_id} title={`cron:${job.name}`} subtitle={formatTime(openRun.started_at)} status={openRun.status} provider={curator ? "" : job.agent}
+    {openRun && openRun.session_id && <RunChatPopup cronId={job.id} runId={openRun.run_id} ownerInstanceId={service.source_peer_id ? openRun.owner_instance_id ?? service.source_peer_id : undefined} tabId={openRun.tab_id} title={`cron:${job.name}`} subtitle={formatTime(openRun.started_at)} status={openRun.status} provider={openRun.provider ?? ""}
       cwd={openRun.cwd ?? ""} sessionId={openRun.session_id} live={openRun.status === "Running" || openRun.status === "AwaitingOwnerPrompt"} onClose={() => setOpenRun(null)} />}
   </section>;
 }

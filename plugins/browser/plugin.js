@@ -64,16 +64,18 @@ function redactCredentials(text) {
 // plugins/browser/src/readPage.ts
 var DEFAULT_LINES = 200;
 var MAX_LINES = 2e3;
+var MAX_SNAPSHOT_ITEMS = 256;
 var TEXT_CHARS = 48e3;
-var TEXT_BYTES = 48e3;
+var TEXT_BYTES = 23e3;
 var TRUNCATED = "\n[truncated]";
 var VERB_MARGIN_MS = 16e3;
 var NO_BROWSER = /^no browser open\b/;
+var CAPTURE_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 function* ask(call, verb, args, surface) {
   try {
     const reply = JSON.parse(yield* ioResolve(call(verb, JSON.stringify(surface ? { args, surface } : args))));
     if (typeof reply?.error === "string") return { error: reply.error };
-    if (typeof reply?.result === "string") return { result: reply.result, surface: reply.surface };
+    if (typeof reply?.result === "string") return { result: reply.result, surface: reply.surface, captured_at: reply.captured_at };
   } catch {
   }
   return { error: `the browser runtime returned no answer for ${verb}` };
@@ -99,6 +101,19 @@ function boundText(text, lines, budget = TEXT_BYTES) {
   }
   return truncated ? out + TRUNCATED : out;
 }
+function boundSnapshot(text, limit) {
+  const snapshot = JSON.parse(text);
+  if (!Array.isArray(snapshot.items)) throw new Error("the browser returned an invalid accessibility snapshot");
+  const items = [];
+  let bytes = 64;
+  for (const { role, name, depth, href, value } of snapshot.items) {
+    const item = { role, name, depth, href, value };
+    bytes += utf8Bytes(JSON.stringify(item)) + 1;
+    if (items.length >= limit || bytes > TEXT_BYTES) break;
+    items.push(item);
+  }
+  return { items, truncated: snapshot.truncated === true || items.length < snapshot.items.length };
+}
 function statusField(status, name) {
   const line = status.split("\n").find((entry) => entry.startsWith(`${name}: `));
   return line?.slice(name.length + 2).trim();
@@ -112,20 +127,52 @@ function lineLimit(raw) {
   return Number.isInteger(raw) && raw >= 1 ? Math.min(raw, MAX_LINES) : DEFAULT_LINES;
 }
 function* readPage(request, call, now = Date.now) {
+  const snapshot = request.nodeType === "browser.snapshot_page";
+  const limit = Math.min(lineLimit(request.params?.limit), snapshot ? MAX_SNAPSHOT_ITEMS : MAX_LINES);
   const deadline = now() + Math.max(0, Number(request.deadlineMs) || 0);
-  const finish = (outcome, text, finalUrl = "") => ({
-    job: request.context.operation,
-    state: "succeeded",
-    outcome,
-    outputs: {
-      text: [{ kind: "text", text: boundText(redactCredentials(text), MAX_LINES) }],
-      final_url: [{ kind: "text", text: boundText(redactCredentials(finalUrl), 1, 8e3) }]
+  const finish = (outcome, text, finalUrl = "", profile = "", capturedAt = "") => {
+    if (outcome === "read" && (typeof capturedAt !== "string" || !CAPTURE_TIMESTAMP.test(capturedAt))) {
+      outcome = "navigation_failed";
+      text = "the browser returned no valid capture timestamp";
     }
-  });
+    const safe = redactCredentials(text);
+    let content = { kind: "text", text: boundText(safe, outcome === "read" ? limit : MAX_LINES) };
+    if (snapshot) {
+      try {
+        const value = outcome === "read" ? boundSnapshot(safe, limit) : { items: [], truncated: false, error: boundText(safe, MAX_LINES) };
+        content = { kind: "json", value: { ...value } };
+      } catch {
+        outcome = "navigation_failed";
+        content = { kind: "json", value: { items: [], truncated: false, error: "the browser returned an invalid accessibility snapshot" } };
+      }
+    }
+    return {
+      job: request.context.operation,
+      state: "succeeded",
+      outcome,
+      outputs: {
+        [snapshot ? "snapshot" : "text"]: [content],
+        final_url: [{ kind: "text", text: boundText(redactCredentials(finalUrl), 1, 8e3) }],
+        profile: [{ kind: "text", text: profile }],
+        capture_id: [{ kind: "text", text: outcome === "read" ? request.context.operation : "" }],
+        captured_at: [{ kind: "text", text: outcome === "read" ? capturedAt : "" }]
+      }
+    };
+  };
   const url = requestedUrl(request);
   if (!call) return finish("navigation_failed", "host.surface is unavailable in this Domios build");
   if (!url || url.length > 2048 || /\s/.test(url) || !/^https?:\/\//i.test(url)) {
     return finish("navigation_failed", "read_page needs one http(s) URL from the url input or the url param");
+  }
+  if (request.params?.profile !== void 0) {
+    const reply = yield* ask(call, "read_named_page", []);
+    if ("error" in reply) return finish("navigation_failed", reply.error);
+    try {
+      const captured = JSON.parse(reply.result);
+      return finish(captured.outcome, captured.text, captured.final_url, captured.profile, captured.captured_at);
+    } catch {
+      return finish("navigation_failed", "the browser runtime returned an invalid named-profile read");
+    }
   }
   const probe = yield* ask(call, "status", []);
   if ("error" in probe) return finish("navigation_failed", probe.error);
@@ -153,9 +200,14 @@ function* readPage(request, call, now = Date.now) {
     const finalUrl = separator >= 0 ? page.slice(separator + 3).trim() : url;
     const needs = statusField(status.result, "needs human");
     if (needs && needs !== "none") return finish("needs_human", `the page needs a human: ${needs}`, finalUrl);
-    const read = yield* ask(call, "text", [String(TEXT_CHARS)], surface);
+    const read = yield* ask(
+      call,
+      snapshot ? "snapshot" : "text",
+      snapshot ? [String(limit), "--with-text", "--json"] : [String(TEXT_CHARS)],
+      surface
+    );
     if ("error" in read) return finish("navigation_failed", read.error, finalUrl);
-    return finish("read", boundText(read.result, lineLimit(request.params?.limit)), finalUrl);
+    return finish("read", read.result, finalUrl, statusField(status.result, "profile") ?? "", read.captured_at);
   } finally {
     if (surface) yield* ask(call, "close", [], surface);
   }
@@ -201,7 +253,7 @@ function* runBatch(ctx, execute) {
 }
 
 // plugins/browser/plugin.json
-var version = "1.15.4";
+var version = "1.16.0";
 
 // plugins/browser/src/plugin.ts
 function hostSurfaceCall() {

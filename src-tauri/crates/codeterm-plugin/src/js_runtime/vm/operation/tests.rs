@@ -57,3 +57,22 @@ fn expired_or_cancelled_calls_never_take_admission() {
     ));
     assert!(admission.state.lock().active.is_empty());
 }
+
+#[test]
+fn agent_tasks_close_exec_jobs_even_when_the_start_receipt_arrives_after_revocation() {
+    use crate::js_runtime::host_exec;
+
+    let plugin = "agent-task-exec-scope";
+    let admission = Arc::new(Admission::default());
+    let call = admission.enter(None).unwrap();
+    call.context.contain_exec_jobs();
+    let waiting = host_exec::start_json_job(plugin, || "{}".into()).unwrap();
+    call.context.attach_exec_job(plugin, &waiting);
+    assert!(host_exec::await_ticket_owned(plugin, &waiting));
+
+    call.context.revoke();
+    assert!(!host_exec::await_ticket_owned(plugin, &waiting));
+    let late = host_exec::start_json_job(plugin, || "{}".into()).unwrap();
+    call.context.attach_exec_job(plugin, &late);
+    assert!(!host_exec::await_ticket_owned(plugin, &late));
+}

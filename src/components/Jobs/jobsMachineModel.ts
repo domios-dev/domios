@@ -1,3 +1,5 @@
+import { localInstanceLabel } from "../../lib/localInstanceName";
+import { cleanMachineName } from "../../lib/machineIdentity";
 import type { PairedPeer } from "../../lib/types";
 import { jobsEntryFilter, type JobsEntry } from "./jobsLayout";
 import { jobWorkspace, matchesJobsFilter, type JobsFilter, type MergedJob } from "./jobsModel";
@@ -8,11 +10,12 @@ export function jobsEntryState(entry: JobsEntry) {
   return { machineId: THIS_MACHINE, filter: jobsEntryFilter(entry) };
 }
 
-export function jobsMachineOptions(peers: readonly PairedPeer[]) {
+export function jobsMachineOptions(peers: readonly PairedPeer[], localName?: string) {
   return [
-    { id: THIS_MACHINE, name: "This machine", online: true },
-    ...[...peers].sort((a, b) => a.instance_name.localeCompare(b.instance_name) || a.instance_id.localeCompare(b.instance_id))
-      .map((peer) => ({ id: peer.instance_id, name: peer.instance_name, online: peer.online })),
+    { id: THIS_MACHINE, name: cleanMachineName(localName) ?? localInstanceLabel(), online: true },
+    ...peers.map(peer => ({
+      id: peer.instance_id, name: cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine", online: peer.online,
+    })).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
   ];
 }
 

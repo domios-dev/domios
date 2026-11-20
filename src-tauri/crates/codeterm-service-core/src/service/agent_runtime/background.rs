@@ -5,8 +5,11 @@ use super::{
     process_boundary::Member,
 };
 use crate::service::ServiceContext;
+
+mod roster;
 use codeterm_plugin::agent_runtime::*;
-use serde::Deserialize;
+pub(super) use roster::{changed_by, preserve_projection, watch};
+use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -28,7 +31,6 @@ trait CleanupIo {
     fn ended(&self) -> bool {
         false
     }
-    fn roster(&mut self, _thread: &str, _processes: &[RuntimeBackgroundProcess]) {}
 }
 
 pub(super) fn supported(session: &Session) -> bool {
@@ -50,31 +52,14 @@ struct RuntimeIo<'a> {
 #[async_trait::async_trait]
 impl CleanupIo for RuntimeIo<'_> {
     async fn run(&mut self, operation: RuntimeOperation) -> Result<RuntimeResult, RuntimeFailure> {
-        let cleaned = match &operation {
-            RuntimeOperation::BackgroundProcesses {
-                thread_id,
-                action: RuntimeBackgroundProcessAction::Clean,
-            } => Some(thread_id.clone()),
-            _ => None,
-        };
-        let result = engine::run(
+        engine::run(
             self.svc,
             &self.session.provider,
             self.session,
             self.process,
             operation,
         )
-        .await?;
-        if let Some(thread) = cleaned {
-            if matches!(result, RuntimeResult::Done) {
-                self.session
-                    .maps
-                    .lock()
-                    .background_processes
-                    .remove(&thread);
-            }
-        }
-        Ok(result)
+        .await
     }
     async fn verify(
         &mut self,
@@ -97,18 +82,10 @@ impl CleanupIo for RuntimeIo<'_> {
         } else {
             self.process.finish().await?;
         }
-        self.session.maps.lock().background_processes.clear();
         Ok(())
     }
     fn ended(&self) -> bool {
         self.process.terminated()
-    }
-    fn roster(&mut self, thread: &str, processes: &[RuntimeBackgroundProcess]) {
-        self.session
-            .maps
-            .lock()
-            .background_processes
-            .insert(thread.into(), processes.into());
     }
 }
 
@@ -129,7 +106,11 @@ pub(super) async fn cleanup(
         captured,
         failure_cleanup: mode == Mode::Failure,
     };
-    coordinate(&mut io, &context, mode, enabled).await
+    let result = coordinate(&mut io, &context, mode, enabled).await;
+    if enabled && mode == Mode::Interrupt {
+        process.background_changed.notify_one();
+    }
+    result
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -163,6 +144,20 @@ impl StopBackgroundProcessRequest {
 pub use codeterm_plugin::api_contracts::BackgroundProcessEntry;
 
 pub use codeterm_plugin::api_contracts::BackgroundProcessSnapshot;
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum BackgroundStopResult {
+    Stopped { snapshot: BackgroundProcessSnapshot },
+    Degraded { reason: BackgroundStopDegradation },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BackgroundStopDegradation {
+    AttributionUnavailable,
+    ExitUnconfirmed,
+}
 
 fn session_for_authority(
     svc: &ServiceContext,
@@ -271,25 +266,35 @@ async fn list_for_tab_inner(
     authority: BackgroundProcessAuthority,
 ) -> Result<BackgroundProcessSnapshot, RuntimeFailure> {
     let (session, context, process) = session_for_authority(svc, tab, &authority)?;
+    roster::refresh(svc, &session, &process, &context, &authority).await
+}
+
+async fn read_owned(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    process: &Arc<Process>,
+    context: &RuntimeContext,
+) -> Result<Vec<BackgroundProcessEntry>, RuntimeFailure> {
     let mut io = RuntimeIo {
         svc,
-        session: &session,
-        process: &process,
+        session,
+        process,
         captured: Vec::new(),
         failure_cleanup: false,
     };
-    let processes = list_owned(&mut io, &context).await?;
-    validate_current_session(svc, tab, &authority, &session)?;
-    Ok(snapshot(&authority, processes))
+    list_owned(&mut io, context).await
 }
 
 pub async fn stop_for_tab(
     svc: &ServiceContext,
     tab: &str,
     request: StopBackgroundProcessRequest,
-) -> Result<BackgroundProcessSnapshot, String> {
-    stop_for_tab_inner(svc, tab, request)
+) -> Result<BackgroundStopResult, String> {
+    let svc = svc.clone();
+    let tab = tab.to_owned();
+    tokio::spawn(async move { stop_for_tab_inner(&svc, &tab, request).await })
         .await
+        .map_err(|reason| reason.to_string())?
         .map_err(|reason| reason.to_string())
 }
 
@@ -297,7 +302,7 @@ async fn stop_for_tab_inner(
     svc: &ServiceContext,
     tab: &str,
     request: StopBackgroundProcessRequest,
-) -> Result<BackgroundProcessSnapshot, RuntimeFailure> {
+) -> Result<BackgroundStopResult, RuntimeFailure> {
     if request.process_id.is_empty()
         || request.process_id.len() > 4096
         || request.process_id.contains('\0')
@@ -306,6 +311,8 @@ async fn stop_for_tab_inner(
     }
     let authority = request.authority();
     let (session, context, process) = session_for_authority(svc, tab, &authority)?;
+    let _operation = process.background_operation.lock().await;
+    validate_current_session(svc, tab, &authority, &session)?;
     if !owns_runtime_thread(&context, &request.thread_id) {
         return Err(RuntimeFailure::Superseded);
     }
@@ -316,12 +323,29 @@ async fn stop_for_tab_inner(
         captured: Vec::new(),
         failure_cleanup: false,
     };
-    let before = list(&mut io, &request.thread_id).await?;
+    let before = list_owned(&mut io, &context).await?;
     validate_current_session(svc, tab, &authority, &session)?;
-    if before
-        .iter()
-        .any(|entry| entry.process_id == request.process_id)
-    {
+    let target_position = before.iter().position(|entry| {
+        entry.thread_id == request.thread_id && entry.process.process_id == request.process_id
+    });
+    #[cfg(windows)]
+    let tree = match target_position {
+        Some(position) => {
+            let mut before = before;
+            let target = before.swap_remove(position).process;
+            let others = before.into_iter().map(|entry| entry.process).collect();
+            match process.capture_background(target, others).await {
+                Ok(tree) => tree,
+                Err(reason) => {
+                    log::debug!("[background-work] tab={tab} capture: {reason}");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+    validate_current_session(svc, tab, &authority, &session)?;
+    if target_position.is_some() {
         let result = io
             .run(RuntimeOperation::BackgroundProcesses {
                 thread_id: request.thread_id.clone(),
@@ -346,9 +370,24 @@ async fn stop_for_tab_inner(
     {
         return Err(refused("Background process remains after termination"));
     }
+    #[cfg(windows)]
+    let cleanup = match tree {
+        Some(tree) => process.reap_background(tree).await.map_err(|reason| {
+            log::debug!("[background-work] tab={tab} reap: {reason}");
+            BackgroundStopDegradation::ExitUnconfirmed
+        }),
+        None => Err(BackgroundStopDegradation::AttributionUnavailable),
+    };
+    #[cfg(not(windows))]
+    let cleanup = Err(BackgroundStopDegradation::AttributionUnavailable);
     let processes = list_owned(&mut io, &context).await?;
     validate_current_session(svc, tab, &authority, &session)?;
-    Ok(snapshot(&authority, processes))
+    let snapshot = snapshot(&authority, processes);
+    roster::publish(svc, &context, Some(&snapshot));
+    Ok(match cleanup {
+        Ok(()) => BackgroundStopResult::Stopped { snapshot },
+        Err(reason) => BackgroundStopResult::Degraded { reason },
+    })
 }
 
 async fn coordinate(
@@ -477,7 +516,6 @@ async fn drain(
     );
     for thread in threads {
         let processes = list(io, &thread).await?;
-        io.roster(&thread, &processes);
         if roster.len() + processes.len() > MAX_BACKGROUND_PROCESSES {
             return Err(refused(
                 "Owned background process roster exceeded its total bound",

@@ -165,6 +165,7 @@ async fn relayed_writes_into_a_foreign_tab_are_refused_for_agent_isolated() {
                     &relay_command("POST", path),
                     crate::auth::AuthenticatedOrigin::Mesh,
                     None,
+                    None,
                 )
                 .await
                 .expect("refusal is a relay response");
@@ -182,6 +183,7 @@ async fn relayed_writes_into_a_foreign_tab_are_refused_for_agent_isolated() {
             ISOLATED_PEER,
             &relay_command("GET", text),
             crate::auth::AuthenticatedOrigin::Mesh,
+            None,
             None,
         )
         .await
@@ -252,6 +254,7 @@ async fn dot_segments_cannot_retarget_an_authorized_relay() {
             ISOLATED_PEER,
             &relay_command("POST", path),
             crate::auth::AuthenticatedOrigin::Mesh,
+            None,
             None,
         )
         .await;

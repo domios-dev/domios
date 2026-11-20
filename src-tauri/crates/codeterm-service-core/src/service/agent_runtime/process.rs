@@ -8,6 +8,8 @@ pub struct Process {
     pub ended: watch::Receiver<Option<RuntimeFailure>>,
     stop: watch::Sender<Option<bool>>,
     turn_members: parking_lot::Mutex<Vec<super::process_boundary::Member>>,
+    pub(super) background_changed: tokio::sync::Notify,
+    pub(super) background_operation: tokio::sync::Mutex<()>,
     boundary: Option<Arc<super::process_boundary::Boundary>>,
 }
 impl Process {
@@ -32,6 +34,8 @@ impl Process {
             ended: exit,
             stop,
             boundary: None,
+            background_changed: Default::default(),
+            background_operation: Default::default(),
             turn_members: parking_lot::Mutex::new(Vec::new()),
         }
     }
@@ -63,6 +67,54 @@ impl Process {
         };
         let baseline = std::mem::take(&mut *self.turn_members.lock());
         tokio::task::spawn_blocking(move || boundary.verify_interrupt(captured, &baseline, &roster))
+            .await
+            .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+    }
+
+    pub(super) async fn capture_tools(
+        &self,
+    ) -> Result<Option<super::process_boundary::ToolTree>, RuntimeFailure> {
+        let Some(boundary) = self.boundary.clone() else {
+            return Ok(None);
+        };
+        tokio::task::spawn_blocking(move || boundary.capture_tools().map(Some))
+            .await
+            .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+    }
+
+    pub(super) async fn reap_orphans(
+        &self,
+        tree: super::process_boundary::ToolTree,
+    ) -> Result<Vec<u32>, RuntimeFailure> {
+        let Some(boundary) = self.boundary.clone() else {
+            return Ok(Vec::new());
+        };
+        tokio::task::spawn_blocking(move || boundary.reap_orphans(&tree))
+            .await
+            .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+    }
+
+    #[cfg(windows)]
+    pub(super) async fn capture_background(
+        &self,
+        target: codeterm_plugin::agent_runtime::RuntimeBackgroundProcess,
+        others: Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>,
+    ) -> Result<Option<super::process_boundary::BackgroundTree>, RuntimeFailure> {
+        let Some(boundary) = self.boundary.clone() else {
+            return Ok(None);
+        };
+        tokio::task::spawn_blocking(move || boundary.capture_background(&target, &others))
+            .await
+            .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+    }
+
+    #[cfg(windows)]
+    pub(super) async fn reap_background(
+        &self,
+        tree: super::process_boundary::BackgroundTree,
+    ) -> Result<(), RuntimeFailure> {
+        let boundary = self.boundary.clone().ok_or(RuntimeFailure::Superseded)?;
+        tokio::task::spawn_blocking(move || boundary.reap_background(tree))
             .await
             .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
     }
@@ -284,6 +336,11 @@ pub(super) fn spawn(
             _ = transport_ended.changed(), if http_transport => matches!(&*transport_ended.borrow(), Some(RuntimeFailure::Superseded)),
             _ = stopping.changed() => stopping.borrow().unwrap_or(false),
         };
+        if let Some(reason @ RuntimeFailure::PipeFailure { .. }) = &*transport_ended.borrow() {
+            log::debug!(
+                "[runtime-http] pid={pid} transport ended before runtime retirement: {reason}"
+            );
+        }
         // Cleanup may request termination after pipe EOF; it cannot rewrite the observed cause.
         let retirement = {
             let owned = retiring.clone();
@@ -343,6 +400,8 @@ pub(super) fn spawn(
         ended: exit,
         stop,
         boundary: Some(boundary),
+        background_changed: Default::default(),
+        background_operation: Default::default(),
         turn_members: parking_lot::Mutex::new(Vec::new()),
     })
 }

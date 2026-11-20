@@ -53,7 +53,6 @@ mod handoff;
 mod liveness;
 use handoff::{PayloadEnqueued, UserWrite};
 mod owner_wake;
-mod startup_override;
 use owner_wake::OwnerWakeBoundary;
 
 fn is_prelaunch_stage(stage: Option<codeterm_types::pty::BootStage>) -> bool {
@@ -154,11 +153,43 @@ pub enum UserWake {
 }
 
 impl super::ServiceContext {
+    pub(crate) fn note_user_launch_dispatched(&self, authority: &UserSendAuthority) -> bool {
+        self.user_authority_matches_launch_current(authority)
+            && self
+                .pending_delivery_payloads
+                .user_sends
+                .mark_launch_dispatched(authority)
+    }
+
+    pub fn tab_has_chat_send_target(&self, tab_id: &str) -> bool {
+        self.mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.agent_type.is_some() || exited_chat_authority(tab).is_some())
+    }
+
     pub fn user_send_authority(&self, tab_id: &str) -> Result<UserSendAuthority, String> {
+        self.resolve_user_send_authority(tab_id, false, None)
+    }
+
+    pub(super) fn resolve_user_send_authority(
+        &self,
+        tab_id: &str,
+        allow_exited: bool,
+        expected: Option<&super::chat_send_transaction::ExpectedChatRecipient>,
+    ) -> Result<UserSendAuthority, String> {
         let runtime = super::agent_runtime::requested_for_tab(self, tab_id);
         let (pty_id, binding_nonce, provider_id, session_id, observed_session_id, prelaunch) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id).ok_or("user send tab is absent")?;
+            if expected.is_some_and(|recipient| !recipient.matches(tab)) {
+                return Err("The message recipient changed while preparing the message.".into());
+            }
+            if allow_exited {
+                if let Some(authority) = exited_chat_authority(tab) {
+                    return Ok(authority);
+                }
+            }
             if !runtime && !matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty) {
                 return Err("user send owner requires PTY backing".into());
             }
@@ -437,13 +468,19 @@ impl super::ServiceContext {
             && tab.pty_id.as_deref() == authority.pty_id.as_deref()
             && tab.session_binding_nonce.as_deref() == Some(authority.binding_nonce.as_str())
             && tab.agent_type.as_deref() == Some(authority.provider_id.as_str())
+            && tab.agent_session_id.as_ref().is_none_or(|session| {
+                authority
+                    .observed_session_id
+                    .as_ref()
+                    .is_none_or(|expected| expected == session)
+            })
     }
 
-    fn user_authority_is_from_ended_launch(&self, authority: &UserSendAuthority) -> bool {
-        let mux = self.mux.read();
-        let Some(tab) = mux.get_tab(&authority.tab_id) else {
-            return false;
-        };
+    fn user_authority_is_from_ended_launch(
+        &self,
+        tab: &crate::multiplexer::types::Tab,
+        authority: &UserSendAuthority,
+    ) -> bool {
         let same_pty = tab.pty_id.as_deref() == authority.pty_id.as_deref();
         let same_provider = tab.agent_type.as_deref() == Some(authority.provider_id.as_str());
         let in_flight_prelaunch = prelaunch_authority_matches_current_launch(tab, authority);
@@ -1094,6 +1131,24 @@ impl super::ServiceContext {
             );
         }
     }
+}
+
+pub(super) fn exited_chat_authority(
+    tab: &crate::multiplexer::types::Tab,
+) -> Option<UserSendAuthority> {
+    let exit = tab
+        .exited_chat_recipient()
+        .or_else(|| tab.resuming_exited_chat_recipient())?;
+    Some(UserSendAuthority {
+        tab_id: tab.id.clone(),
+        pty_id: None,
+        binding_nonce: exit.nonce.clone(),
+        pty_session_generation: None,
+        provider_id: exit.provider_id.clone(),
+        session_id: Some(exit.session_id.clone()),
+        observed_session_id: Some(exit.session_id.clone()),
+        prelaunch: false,
+    })
 }
 
 mod bootstrap;

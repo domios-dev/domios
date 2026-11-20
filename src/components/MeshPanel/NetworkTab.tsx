@@ -8,7 +8,7 @@ import { useMultiplexer } from "../../store/multiplexer/context";
 import { useMeshAccount } from "./useMeshAccount";
 
 interface Props {
-  triggerRefresh: () => void;
+  triggerRefresh?: () => void;
 }
 
 export function NetworkTab({ triggerRefresh }: Props) {
@@ -31,6 +31,8 @@ export function NetworkTab({ triggerRefresh }: Props) {
             <MyMachines
               account={account.presence}
               onSignIn={account.signIn}
+              signingIn={account.signingIn}
+              cancelSignIn={account.cancelSignIn}
               onFailure={onFailure}
               onChanged={triggerRefresh}
             />

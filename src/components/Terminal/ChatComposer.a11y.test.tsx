@@ -70,7 +70,6 @@ async function renderComposer(tabId: string): Promise<Harness> {
         <ChatComposer
           tabId={tabId}
           tabProvider={null}
-          currentPtyId={null}
           pendingPrompt={null}
           attachments={[]}
           addAttachments={() => {}}

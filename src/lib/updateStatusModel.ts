@@ -101,6 +101,8 @@ export function classifyUpdateFailure(detail: unknown): UpdateFailure {
   } catch {}
   const channel = raw.indexOf(CHANNEL_UNAVAILABLE_PREFIX);
   if (channel >= 0) return { message: raw.slice(channel), details: raw, channelUnavailable: true };
+  const httpStatus = raw.match(/\bHTTP (?:status )?(\d{3})\b/i)?.[1];
+  if (httpStatus) return { message: `Update request failed (HTTP ${httpStatus}).`, details: raw, channelUnavailable: false };
   return {
     message: "Couldn't update. Try again later.",
     details: raw,

@@ -65,11 +65,18 @@ fn only_confirmed_far_end_goal_results_succeed() {
 #[test]
 fn goal_route_retains_runtime_control_authority() {
     use crate::api_support::access_policy::peer_access_allowed;
-    use crate::mesh::types::AccessLevel;
+    use crate::mesh::types::{AccessLevel, Permission};
     use axum::http::Method;
     let path = "/api/tabs/owned/agent/runtime/goal";
     assert!(peer_access_allowed(
         &AccessLevel::Full,
+        "peer-a",
+        &Method::POST,
+        path,
+        |_| None
+    ));
+    assert!(peer_access_allowed(
+        &AccessLevel::Custom(vec![Permission::WriteTabs]),
         "peer-a",
         &Method::POST,
         path,
@@ -88,5 +95,12 @@ fn goal_route_retains_runtime_control_authority() {
         &Method::POST,
         path,
         |_| Some("peer-b".into())
+    ));
+    assert!(!peer_access_allowed(
+        &AccessLevel::AgentIsolated,
+        "peer-a",
+        &Method::POST,
+        path,
+        |_| Some("peer-a".into())
     ));
 }

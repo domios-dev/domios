@@ -109,16 +109,33 @@ pub(super) fn validate(service: &ServiceContext, spec: &BlueprintSpec) -> Vec<Va
                     }
                     let source = &spec.steps[source_index];
                     let StepKind::Plugin { node_type, .. } = &source.kind else {
-                        let output = source.execution.as_ref()?.output.as_ref()?;
-                        let actual = match output.media.as_deref() {
-                            Some("text") => PortKind::Text,
-                            Some("json") | None => PortKind::Json,
-                            _ => return None,
+                        let execution = source.execution.as_ref()?;
+                        let output = execution.output.as_ref()?;
+                        let mut output =
+                            codeterm_blueprint_types::blueprint_document::checker::ports::resolve(
+                                output,
+                                &execution.types,
+                            )
+                            .ok()?;
+                        for field in binding
+                            .selection
+                            .split('.')
+                            .filter(|field| !field.is_empty())
+                        {
+                            output = output.properties.remove(field)?;
+                        }
+                        let compatible = match wanted.kind {
+                            PortKind::Text => match output.media.as_deref() {
+                                Some("text") => matches!(output.kind.as_str(), "" | "string"),
+                                None | Some("json") => output.kind == "string",
+                                _ => false,
+                            },
+                            PortKind::Json => {
+                                matches!(output.media.as_deref(), None | Some("json"))
+                            }
+                            _ => false,
                         };
-                        return (binding.selection.is_empty()
-                            && actual == wanted.kind
-                            && wanted.min_items <= 1
-                            && wanted.max_items >= 1)
+                        return (compatible && wanted.min_items <= 1 && wanted.max_items >= 1)
                             .then_some(());
                     };
                     let source = registry.step(node_type)?;

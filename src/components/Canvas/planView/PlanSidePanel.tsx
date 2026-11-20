@@ -3,7 +3,7 @@ import type { PlanView as Plan } from "../planProjection";
 import { TaskHistoryControls, type TaskHistoryController } from "./TaskHistoryControls";
 import { SidePanelFrame } from "./SidePanelFrame";
 import { taskDetailMatchesReference } from "../usePlanTaskDetail";
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useState, type ReactNode, type RefObject } from "react";
 import { Maximize2 } from "lucide-react";
 import type { ApiConfig, Tab } from "../../../lib/types";
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
@@ -25,6 +25,7 @@ export interface PlanSidePanelProps {
   plan: Plan | null;
   taskDetail?: PlanTaskDetail | null;
   historyController?: TaskHistoryController;
+  footer?: ReactNode;
   taskLoading?: boolean;
   taskError?: string | null;
   onRetryTask?: () => Promise<void>;
@@ -55,6 +56,7 @@ export function PlanSidePanel({
   plan,
   taskDetail = null,
   historyController,
+  footer,
   taskLoading = false,
   taskError = null,
   onRetryTask,
@@ -175,6 +177,7 @@ export function PlanSidePanel({
             {missing}
           </p>
         )}
+        {footer}
     </SidePanelFrame>
   );
 }

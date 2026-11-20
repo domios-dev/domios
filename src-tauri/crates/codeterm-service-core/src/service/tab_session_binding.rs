@@ -44,6 +44,18 @@ impl ServiceContext {
         if let Some(tab) = mux.get_tab_mut(tab_id) {
             changed = tab.agent_session_id != session_id;
             if changed {
+                if tab
+                    .restorable_launch
+                    .exited_chat_binding
+                    .as_ref()
+                    .is_some_and(|exit| {
+                        session_id
+                            .as_ref()
+                            .is_some_and(|session| session != &exit.session_id)
+                    })
+                {
+                    tab.restorable_launch.exited_chat_binding = None;
+                }
                 self.tab_credential_session_changed(tab_id, session_id.as_deref());
             }
             if changed && session_id.is_none() && tab.agent_session_id.is_some() {
@@ -141,12 +153,34 @@ impl ServiceContext {
         self.invalidate_guarded_agent_input(tab_id);
         self.open_lifecycle_epoch(tab_id);
         let nonce = uuid::Uuid::new_v4().to_string();
+        let mut retired_prompt = None;
         if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+            if tab.is_chat_backend()
+                && tab
+                    .pending_prompt
+                    .as_ref()
+                    .is_some_and(|prompt| prompt.request_id.is_some())
+            {
+                retired_prompt = tab.prompt_identity();
+                tab.pending_prompt = None;
+                tab.pending_prompt_kind = None;
+            }
             tab.remember_superseded_binding_nonce();
             tab.session_binding_nonce = Some(nonce.clone());
             tab.reported_session_binding_nonce = None;
             tab.provider_signals = Default::default();
             if launch_starting {
+                if tab
+                    .restorable_launch
+                    .exited_chat_binding
+                    .as_ref()
+                    .is_some_and(|exit| {
+                        resume_target != Some(exit.session_id.as_str())
+                            || tab.agent_type.as_ref() != Some(&exit.provider_id)
+                    })
+                {
+                    tab.restorable_launch.exited_chat_binding = None;
+                }
                 tab.restored_from_snapshot = false;
                 tab.agent_booting = true;
                 crate::service::boot_stage::apply_boot_stage(
@@ -158,6 +192,10 @@ impl ServiceContext {
             if let Some(session_id) = resume_target {
                 tab.remember_resume_binding_nonce(session_id);
             }
+        }
+        if let Some(identity) = retired_prompt {
+            self.resolve_prompt_notifications(tab_id, &identity);
+            self.emit_structured_prompt(tab_id, None, identity.kind);
         }
         if let Some(session_id) = resume_target {
             self.record_lifecycle(

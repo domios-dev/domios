@@ -2,6 +2,7 @@ import { stressRows, stressRange, stressAuthority, stressReplyIds, stressStart, 
 import { expect, test } from "vitest";
 import { plain, recordInput } from "../../../plugins/provider-shared/tests/recordHookFixture";
 import { parser, raw, lines, authority, noticeId, ownerId, flatten, parsed, rows, end, owner } from "../../../tests/fixtures/chat/airTranscript";
+import { orderTimelineItems } from "./timelineOrder";
 import { captureSendEchoBoundary, type ChatSend } from "./sendOrder";
 import { createTranscriptState, expandTranscriptGap, projectTranscript, reduceTranscript, transcriptRows, type TranscriptState } from "./transcript";
 import type { NormalizedChatMessage } from "./types";
@@ -69,7 +70,7 @@ test("air history pages and expanded gaps never duplicate a queued notice", () =
   const cut = Math.floor(rows.length / 2);
   let state = batch(createTranscriptState(), "snapshot", rows.slice(cut), 100, end);
   state = batch(state, "backfill", rows.slice(0, cut), 0, 100);
-  expect(transcriptRows(state).map(row => row.id)).toEqual(rows.map(row => row.id));
+  expect(transcriptRows(state).map(row => row.id)).toEqual(orderTimelineItems(rows).map(row => row.id));
   const gap: NormalizedChatMessage = { id: "air-gap", type: "system", content: "", timelineMarker: {
     kind: "history_gap", source: "provider_session", session_id: authority.sourceSessionId, before_offset: 100,
   } };
@@ -80,6 +81,26 @@ test("air history pages and expanded gaps never duplicate a queued notice", () =
   expect(transcriptRows(gapped).filter(row => row.id === noticeId)).toHaveLength(1);
 });
 
+test("mixed timed windows keep an untimed history gap at its leading source boundary", () => {
+  const gap: NormalizedChatMessage = { id: "mixed-history-gap", type: "system", content: "", timelineMarker: {
+    kind: "history_gap", source: "provider_session", session_id: authority.sourceSessionId, before_offset: 100,
+  } };
+  const timedWindow: NormalizedChatMessage[] = [
+    { id: "window-new", type: "assistant", content: "newer", timestamp: "300" },
+    { id: "window-old", type: "assistant", content: "older", timestamp: "200" },
+  ];
+  const initial = batch(createTranscriptState(), "snapshot", [gap, ...timedWindow], 100, 200);
+  expect(transcriptRows(initial).map(row => row.id)).toEqual([gap.id, "window-old", "window-new"]);
+
+  const expanded = expandTranscriptGap(initial, gap.id, [
+    { id: "backfill-old", type: "assistant", content: "oldest", timestamp: "100" },
+    { id: "backfill-new", type: "assistant", content: "less old", timestamp: "150" },
+  ]).state;
+  expect(transcriptRows(expanded).map(row => row.id)).toEqual([
+    "backfill-old", "backfill-new", "window-old", "window-new",
+  ]);
+});
+
 test("air overlapping live window updates a known notice in place while recovering missing assistant rows", () => {
   const notice = rows.find(row => row.id === noticeId)!;
   const earlier = rows.find(row => row.type === "tool_result")!;
@@ -87,7 +108,7 @@ test("air overlapping live window updates a known notice in place while recoveri
   const after = rows.find(row => row.id === ownerId)!;
   const initial = batch(createTranscriptState(), "snapshot", [earlier, notice, after], 0, 100);
   const replay = batch(initial, "delta", [notice, assistant], 50, 200);
-  expect(transcriptRows(replay).map(row => row.id)).toEqual([earlier.id, notice.id, after.id, assistant.id]);
+  expect(transcriptRows(replay).map(row => row.id)).toEqual([earlier.id, notice.id, assistant.id, after.id]);
   expect(projectTranscript(replay).rows.filter(row => row.id === noticeId)).toHaveLength(1);
 });
 

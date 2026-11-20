@@ -99,6 +99,8 @@ pub struct AxNode {
     pub child_ids: Vec<String>,
     #[serde(default, rename = "backendDOMNodeId")]
     pub backend_dom_node_id: Option<i64>,
+    #[serde(skip)]
+    pub href: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -129,6 +131,10 @@ pub struct SnapshotItem {
     pub depth: usize,
     pub text: String,
     pub reference: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
 }
 
 /// `result` is the `Accessibility.getFullAXTree` response body.
@@ -289,6 +295,16 @@ pub fn build_snapshot_with_text(
                 depth,
                 text: line.trim_start().to_string(),
                 reference: item_ref,
+                href: node.href.clone(),
+                value: node
+                    .value
+                    .as_ref()
+                    .and_then(|value| match value.value.as_ref()? {
+                        value @ (Value::String(_) | Value::Bool(_) | Value::Number(_)) => {
+                            Some(truncate_chars(&display_value(value), VALUE_LIMIT))
+                        }
+                        _ => None,
+                    }),
             });
             lines.push(line);
             next_depth = depth + 1;

@@ -64,7 +64,7 @@ async function mount(tabId: string, requestFailure?: "admission" | "network" | "
       {sends.map(send => <MessageBubble key={send.id} message={{ id: send.id, type: "user", content: send.content }}
         userFooter={<><ChatDeliveryState state={deliveryState(send)} error={deliveryError(send)} />
           <DroppedUploadNotice tabId={tabId} id={send.id} names={send.droppedUploads} /></>} />)}
-      <ChatComposer tabId={tabId} tabProvider={null} currentPtyId={null} chatBackend pendingPrompt={null}
+      <ChatComposer tabId={tabId} tabProvider={null} pendingPrompt={null}
         attachments={[]} addAttachments={() => {}} removeAttachment={() => {}} clearAttachments={() => {}}
         handlePasteEvent={() => {}} onWillSendMessage={() => {}}
         addOptimistic={content => { const id = ++bubbles === 1 ? "bubble" : `bubble-${bubbles}`; addChatSend(tabId, { id, correlationId: id, content, sentAtMs: bubbles }); return id; }}

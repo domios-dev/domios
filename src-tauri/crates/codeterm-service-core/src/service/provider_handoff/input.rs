@@ -1,25 +1,44 @@
 use crate::agent::chat_types::ChatMsg;
+use codeterm_wire::domios::{build_opening_tag, DomiosFrame, DOMIOS_CLOSE_TAG};
 
 pub const MAX_INPUT_BYTES: usize = 48_000;
 pub const MAX_RECENT_MESSAGES: usize = 12;
 pub const HANDOFF_CONTEXT: &str = "provider-handoff";
 
-pub fn system_message_overhead() -> usize {
-    handoff_messenger().wrap("").len()
+pub fn system_message_overhead(provider: Option<&str>, model: Option<&str>) -> usize {
+    handoff_opening_tag(provider, model).len() + DOMIOS_CLOSE_TAG.len()
 }
 
-pub fn system_message(payload: &str) -> Result<String, String> {
-    let message = handoff_messenger().wrap(payload);
+pub fn system_message(
+    payload: &str,
+    provider: Option<&str>,
+    model: Option<&str>,
+) -> Result<String, String> {
+    let message = DomiosFrame {
+        opening_tag: handoff_opening_tag(provider, model),
+        body: payload.into(),
+        suffix: String::new(),
+    }
+    .to_message();
     if message.len() > MAX_INPUT_BYTES {
         return Err("provider handoff exceeds the input size bound".into());
     }
     Ok(message)
 }
 
-fn handoff_messenger() -> crate::service::messenger::Messenger {
-    crate::service::messenger::Messenger::from(
-        crate::service::messenger::MessageEnvelope::codeterm_reminder(HANDOFF_CONTEXT),
-    )
+fn handoff_opening_tag(provider: Option<&str>, model: Option<&str>) -> String {
+    let mut attrs = vec![("from", "system"), ("context", HANDOFF_CONTEXT)];
+    attrs.extend(
+        provider
+            .filter(|label| !label.is_empty())
+            .map(|label| ("label", label)),
+    );
+    attrs.extend(
+        model
+            .filter(|label| !label.is_empty())
+            .map(|label| ("model", label)),
+    );
+    build_opening_tag(&attrs)
 }
 
 pub fn select_history_literal(messages: &[ChatMsg], budget_bytes: usize) -> String {

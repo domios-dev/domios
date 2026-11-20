@@ -1,6 +1,8 @@
+import { isConciergeTab } from "../../lib/tabInputPolicy";
 import type { PlanView as Plan } from "../Canvas/planProjection";
+import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
 import { countWorkingTabs } from "./tabStatuses";
-import { useMemo, type ReactNode } from "react";
+import { useContext, useMemo, type ReactNode } from "react";
 import { MonitorUp, Plus } from "lucide-react";
 import type {
   Tab,
@@ -29,6 +31,7 @@ import { curatorTabAttention, groupAttention, tabAttention } from "./tabAttentio
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import { SidebarCronRow } from "./SidebarResourceRow";
 import { SidebarShellRow, SidebarOwnerTabRow, SidebarSortableBlock } from "./SidebarShellRow";
+import { matchesSidebarMachine, SidebarWholeTeam, SidebarWholeWorkspace, useSidebarMachineFilter, wholeSidebarTeam } from "./sidebarMachineFilter";
 import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
 import { AgentChecklistDisclosure, type ChecklistToggle } from "./AgentChecklist";
 import { showsChecklist } from "./agentChecklistModel";
@@ -117,6 +120,7 @@ export interface SidebarWorkspaceTabsProps {
   onRenameTab: (tabId: string, title: string) => void;
   onNewSession?: () => void;
   onOpenRemoteTab?: () => void;
+  newGeneralSessionMenu?: ReactNode;
   newSessionDisabled?: boolean;
   onRenameTeam?: (teamId: string, name: string, managerTabId: string | null) => void | Promise<void>;
   onRenamePlan?: (planId: string, title: string) => Promise<void>;
@@ -130,6 +134,7 @@ export interface SidebarWorkspaceTabsProps {
   onCloseTeam?: (teamId: string) => void;
   closingTeamIds?: ReadonlySet<string>;
   onOpenSentinelJob?: (target: JobsTarget) => void;
+  observedRows?: ReactNode;
 }
 
 export function SidebarWorkspaceTabs({
@@ -159,6 +164,7 @@ export function SidebarWorkspaceTabs({
   onRenameTab,
   onNewSession,
   onOpenRemoteTab,
+  newGeneralSessionMenu,
   newSessionDisabled = false,
   onRenameTeam,
   onRenamePlan,
@@ -166,12 +172,15 @@ export function SidebarWorkspaceTabs({
   onCloseTeam,
   closingTeamIds,
   onOpenSentinelJob,
+  observedRows,
 }: SidebarWorkspaceTabsProps) {
+  const configuredFilter = useSidebarMachineFilter();
+  const filter = useContext(SidebarWholeWorkspace) ? "all" : configuredFilter;
   const { jobs: workspaceCrons, refresh: refreshCrons } = useWorkspaceCrons(ws.id);
   const conciergeIds = useNeighborGatewayIds();
   // A tab bound to a Neighbor lives under that Neighbor, wherever it was created.
   const sortedTabs = useMemo(
-    () => visibleWorkspaceTabs(allSortedTabs, tabs).filter((tab) => !conciergeIds.has(tab.id)),
+    () => visibleWorkspaceTabs(allSortedTabs, tabs).filter((tab) => !isConciergeTab(tab) && !conciergeIds.has(tab.id)),
     [allSortedTabs, tabs, conciergeIds],
   );
   const membersByTeam = useMemo(() => groupWorkspaceTeamMembers(sortedTabs), [sortedTabs]);
@@ -182,24 +191,39 @@ export function SidebarWorkspaceTabs({
     [sortedTabs, attachmentsByOwner],
   );
   const { attachedIds, looseTabs, looseChildIds } = dragModel;
+  const visibleTree = useMemo(() => {
+    if (filter === "all") return null;
+    const visible = new Set<string>();
+    for (const member of sortedTabs) {
+      if (!matchesSidebarMachine(filter, member.remote_peer_id)) continue;
+      let tab: Tab | undefined = member;
+      while (tab && !visible.has(tab.id)) {
+        visible.add(tab.id);
+        tab = tab.parent_tab_id ? tabs[tab.parent_tab_id] : undefined;
+      }
+    }
+    return visible;
+  }, [filter, sortedTabs, tabs]);
 
+  const { generals } = usePairedWorkspaceInventory();
   const remoteTeams = useMemo(() => {
     const map = new Map<string, Team>();
     for (const tab of sortedTabs) {
-      const identity = remoteTeamIdentity(tab);
+      const identity = remoteTeamIdentity(tab, generals);
       if (identity && !map.has(identity.id)) {
         map.set(identity.id, {
           id: identity.id,
-          name: identity.title,
+          name: identity.title ?? null,
           lifecycle: "active",
           created_at: 0,
           workspace_id: ws.id,
           remote_peer_name: identity.peerName,
+          remote_peer_id: tab.ownership?.peer_id,
         });
       }
     }
     return map;
-  }, [sortedTabs, ws.id]);
+  }, [sortedTabs, ws.id, generals]);
 
   const teamById = useMemo(
     () => new Map(teams.filter((team) => team.workspace_id === ws.id).map((team) => [team.id, team])),
@@ -305,7 +329,7 @@ export function SidebarWorkspaceTabs({
       />
     );
     return (
-      <SidebarSortableBlock key={tab.id} tab={tab} group={group} groupKey={groupKey} pinnedIds={pinnedIds}
+      <SidebarSortableBlock key={tab.id} hidden={visibleTree !== null && !visibleTree.has(tab.id)} tab={tab} group={group} groupKey={groupKey} pinnedIds={pinnedIds}
         toWorkspaceOrder={toWorkspaceOrder} className="sidebar-tab-tree-row">
         <AgentChecklistDisclosure plans={plans} tabId={tab.id} title={tab.title}>
           {(toggle, detail) => <>{renderOwner(showsChecklist(tab) ? toggle : undefined)}{showsChecklist(tab) && detail}</>}
@@ -353,14 +377,17 @@ export function SidebarWorkspaceTabs({
 
     rows.push(
       <SortableRow
+        hidden={!wholeSidebarTeam(filter, membersByTeam.get(teamId) ?? members, ({ tab }) => tab.remote_peer_id).length}
         key={teamId}
         id={`${TEAM_PREFIX}${teamId}`}
         data={{ group: "tab", groupKey: ws.id, pinnedIds: pinnedLooseItems, toWorkspaceOrder: reorderUnits }}
       >
+      <SidebarWholeTeam.Provider value>
       <TeamJobsUnit
         sentinelScope={onOpenSentinelJob && teamById.has(teamId) ? { workspace_id: ws.id, team_id: teamId } : undefined}
         onOpenSentinel={onOpenSentinelJob ? (scenarioId) => onOpenSentinelJob({ teamId, scenarioId }) : undefined}
         team={team}
+        workspaceName={ws.name}
         plan={plan}
         tabs={tabs}
         workingManagerCount={countWorkingTabs(managers.map((member) => member.tab), tabStatuses)}
@@ -421,6 +448,7 @@ export function SidebarWorkspaceTabs({
           utilities: sectionAttention(terminals),
         }}
       />
+      </SidebarWholeTeam.Provider>
       </SortableRow>,
     );
   }
@@ -429,8 +457,9 @@ export function SidebarWorkspaceTabs({
     <>
       <SortableContext items={unitItems} strategy={verticalListSortingStrategy}>
         {rows}
+        {observedRows}
       </SortableContext>
-      <div className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
+      <div hidden={typeof filter === "object"} className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
         {onNewSession && !ws.cwd_missing && <CursorTooltip
           active={newSessionDisabled}
           content="Finish Get started first"
@@ -455,11 +484,11 @@ export function SidebarWorkspaceTabs({
             <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
           </button>
         </CursorTooltip>}
-        {onOpenRemoteTab && (
-          <button type="button" onClick={onOpenRemoteTab} aria-label="Open remote Tab" title="Open remote Tab" className={`flex shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)] ${touchMode ? "h-11 w-11" : "h-6 w-6"}`}>
+        {newGeneralSessionMenu ?? (onOpenRemoteTab && (
+          <button type="button" onClick={onOpenRemoteTab} aria-label="New session on another machine" title="New session on another machine" className={`flex shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)] ${touchMode ? "h-11 w-11" : "h-6 w-6"}`}>
             <MonitorUp size={12} strokeWidth={1.5} />
           </button>
-        )}
+        ))}
       </div>
     </>
   );

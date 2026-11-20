@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { accountModel, accountFailure, accountLoginPath } from "./accountModel";
 assert.deepEqual(accountModel({ identity: null, pending: false }), { kind: "signed_out" });
-assert.deepEqual(accountModel({ identity: null, pending: true }), { kind: "pending" });
+assert.deepEqual(accountModel({ identity: null, pending: true, login_attempt_id: "1" }), { kind: "signed_out" });
 const identity = { uid: "fixture", email: "fixture@example.test", display_name: "Fixture", provider: "fake" };
 assert.deepEqual(accountModel({ identity, pending: false }), { kind: "signed_in", identity });
-assert.deepEqual(accountModel({ identity, pending: true }), { kind: "pending" });
+assert.deepEqual(accountModel({ identity, pending: true, login_attempt_id: "1" }), { kind: "signed_in", identity });
 const safeError = accountFailure(new Error("opaque-sensitive-response"));
 assert.equal(safeError.kind, "error");
 assert.ok(safeError.kind === "error" && !safeError.message.includes("opaque-sensitive-response"));
@@ -25,7 +25,7 @@ for (const stage of ["preparation", "browser", "callback", "redemption", "creden
   const failure = accountModel(status);
   assert.equal(failure.kind, "error");
   assert.deepEqual(accountModel(structuredClone(status)), failure);
-  assert.deepEqual(accountModel({ ...status, pending: true }), { kind: "pending" });
+  assert.deepEqual(accountModel({ ...status, pending: true }), { kind: "signed_out" });
   assert.deepEqual(accountModel({ ...status, last_sign_in_failure: null }), { kind: "signed_out" });
 }
 console.log("24 retained sign-in failure assertions passed");
@@ -35,5 +35,7 @@ assert.deepEqual(accountModel({ identity: null, pending: false, session_revoked:
 const mismatch = { saved: "fixture-target-a", build: "fixture-target-b", reason: "opaque-mismatch-reason" };
 assert.deepEqual(accountModel({ identity: null, pending: false, target_mismatch: mismatch }), { kind: "signed_out", targetMismatch: "opaque-mismatch-reason" });
 assert.deepEqual(accountModel({ identity: null, pending: false, target_mismatch: null }), { kind: "signed_out" });
-assert.deepEqual(accountModel({ identity: null, pending: true, target_mismatch: mismatch }), { kind: "pending" });
+assert.deepEqual(accountModel({ identity: null, pending: true, target_mismatch: mismatch }), { kind: "signed_out", targetMismatch: "opaque-mismatch-reason" });
 console.log("3 account target mismatch assertions passed");
+
+assert.deepEqual(accountModel({ identity, pending: false, last_sign_in_failure: { stage: "callback", error: "cancelled" } }), { kind: "signed_in", identity });

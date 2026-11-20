@@ -138,7 +138,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
       </button>}
     </div>
     <div className="neighbors-body" data-panel={panelOpen || undefined}>
-      <div className="neighbors-canvas">
+      <div className="neighbors-canvas ct-canvas-background">
         {(neighbors.error || agentError) && <div className="neighbors-notices">
           {neighbors.error && <InlineErrorNotice error={neighbors.error} operation="managing your Neighbors" role="alert" />}
           {agentError && <InlineErrorNotice error={agentError} operation="asking your General Agent" role="alert" />}
@@ -162,8 +162,9 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
               : <div className="neighbor-me__signin">
                 <p className="neighbor-me__title">Sign in to meet your neighbors</p>
                 <p className="neighbor-me__hint">Invited? Sign in with that email for a free week.</p>
-                <Button size="sm" variant="primary" disabled={account.model.kind === "pending"} loading={account.model.kind === "pending"}
-                  onClick={() => { void account.signIn(); }}>Sign in or create account</Button>
+                <Button size="sm" variant="primary" disabled={account.model.kind === "pending"} loading={account.signingIn}
+                  onClick={() => { void account.signIn(); }}>{account.signingIn ? "Signing in…" : "Sign in or create account"}</Button>
+                {account.cancelSignIn && <Button size="sm" onClick={() => void account.cancelSignIn?.()}>Cancel</Button>}
               </div>}
           </div>
           {nodes.map((node, index) => <NodeButton key={node.id} node={node} index={index} selected={node.id === selected}

@@ -43,7 +43,7 @@ test("unchanged background snapshots do not render the composer and local edits 
   const reject = () => { throw new Error("Background updates must not send or mutate"); };
   try {
     await act(async () => root.render(<DraftStorageFixture><MuxStateStoreContext.Provider value={store}>
-      <ChatComposer tabId={tabId} tabProvider={null} currentPtyId={null} pendingPrompt={null}
+      <ChatComposer tabId={tabId} tabProvider={null} pendingPrompt={null}
         attachments={[]} addAttachments={reject} removeAttachment={reject} clearAttachments={reject}
         handlePasteEvent={reject} onWillSendMessage={reject} addOptimistic={reject}
         updateOptimistic={reject} observeChatSendStatus={reject} showComposerError={reject} />

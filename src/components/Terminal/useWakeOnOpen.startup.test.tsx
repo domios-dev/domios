@@ -4,6 +4,7 @@ import { expect, it, vi } from "vitest";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { createTransportClient } from "../../lib/transportClient";
 import { restoreStageView } from "../../lib/restoreStageView";
+import { PeerTabRelayError } from "../../lib/remoteChatState";
 import type { Tab, ThemeConfig } from "../../lib/types";
 import { MuxStateStoreContext, MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
@@ -89,6 +90,62 @@ it("recognizes the initial sleeping loader even before wake adds progress steps"
   } finally {
     await act(async () => root.unmount());
     host.remove();
+  }
+});
+
+it("shows the owner's wake refusal while the remote tab is still sleeping", async () => {
+  const tab = { id: "mesh:peer/refused-wake", frozen: true, agent_type: "fixture" } as Tab;
+  const refusal = new PeerTabRelayError(403, "/api/mesh/relay-to", "Fixture wake refusal", "peer_relay_not_authorized");
+  __setInvokeForTest(async () => { throw refusal; });
+  function Probe() {
+    const wake = useWakeOnOpen(tab, true);
+    return <RestoreStatePanel view={restoreStageView(tab, wake)} />;
+  }
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<Probe />));
+    expect(host.querySelector('[role="alert"] h2')?.textContent).toBe("Could not restore");
+  } finally {
+    await act(async () => root.unmount());
+    __setInvokeForTest(null);
+  }
+});
+
+it.each([
+  ["untyped", new Error("Opaque wake rejection")],
+  ["unconfirmed relay", new PeerTabRelayError(403, "/api/mesh/relay-to", "Opaque wake relay failure", "mesh_transport_submit_unconfirmed")],
+] as const)("keeps restoring after an %s wake rejection until the owner becomes ready", async (kind, rejection) => {
+  const sleeping: Tab = { id: `mesh:peer/${kind.replace(" ", "-")}-wake`, title: "Fixture",
+    tab_type: "Terminal", pty_id: null, cwd: null, frozen: true, agent_type: "fixture",
+    agent_session_id: "saved", session_binding_nonce: "bound" };
+  let rejectWake!: (reason: unknown) => void;
+  const request = new Promise<never>((_, reject) => { rejectWake = reject; });
+  const invoke = vi.fn(() => request);
+  __setInvokeForTest(invoke);
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const committedFrames: ReturnType<typeof paneFrame>[] = [];
+  function Probe({ tab }: { tab: Tab }) {
+    const wake = useWakeOnOpen(tab, true);
+    const view = restoreStageView(tab, wake);
+    return view.phase === "ready" ? <textarea aria-label="Message composer" /> : <RestoreStatePanel view={view} />;
+  }
+  const render = (tab: Tab) => act(async () => root.render(
+    <Profiler id="wake" onRender={() => committedFrames.push(paneFrame(host))}><Probe tab={tab} /></Profiler>,
+  ));
+  try {
+    await render(sleeping);
+    expect(paneFrame(host)).toBe("restoring");
+    await act(async () => rejectWake(rejection));
+    expect(paneFrame(host)).toBe("restoring");
+    await render({ ...sleeping, frozen: false, boot_stage: "agent_ready" });
+    expect(paneFrame(host)).toBe("content");
+    expect(committedFrames).not.toContain("error");
+    expect(invoke).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => root.unmount());
+    __setInvokeForTest(null);
   }
 });
 

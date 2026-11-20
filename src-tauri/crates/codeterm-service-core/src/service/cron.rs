@@ -691,7 +691,7 @@ impl ServiceContext {
             let job = store
                 .get(id)
                 .ok_or_else(|| format!("Cron job not found: {}", id))?;
-            if store.is_job_running(id) {
+            if store.job_has_active_run(job) {
                 return Err(format!("Cron job '{}' is already running", job.name));
             }
             if super::role_policy::resolve(job.role.as_deref())
@@ -717,15 +717,15 @@ impl ServiceContext {
         };
 
         let run_id = uuid::Uuid::new_v4().to_string();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-
-        let mut run_info = CronRunInfo {
+        let run_info = CronRunInfo {
+            scheduled_occurrence_at: None,
+            fired_at: None,
+            late_by_ms: None,
+            provider: Some(agent.clone()),
+            owner_instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
             cancel_reason: None,
             run_id: run_id.clone(),
-            started_at: now,
+            started_at: 0,
             finished_at: None,
             status: CronRunStatus::Running,
             tab_id: None,
@@ -790,7 +790,8 @@ impl ServiceContext {
             },
         );
 
-        let spawn = dispatch_after_trigger_record(cron, id, &run_info, || spawn(spec))?;
+        let (mut run_info, spawn) =
+            dispatch_after_trigger_record(cron, id, &run_info, || spawn(spec))?;
         match spawn {
             Ok(handle) => {
                 run_info.tab_id = Some(handle.tab_id.clone());
@@ -1046,18 +1047,27 @@ fn dispatch_after_trigger_record<T>(
     id: &str,
     run: &CronRunInfo,
     dispatch: impl FnOnce() -> T,
-) -> Result<T, String> {
-    record_trigger_run(cron, id, run)?;
-    Ok(dispatch())
+) -> Result<(CronRunInfo, T), String> {
+    let admitted = record_trigger_run(cron, id, run)?;
+    Ok((admitted, dispatch()))
 }
 
-fn record_trigger_run(cron: &CronState, id: &str, run: &CronRunInfo) -> Result<(), String> {
-    match commit(cron, |store| store.prepare_record_run(id, run.clone())) {
-        Ok(_) => Ok(()),
+fn record_trigger_run(
+    cron: &CronState,
+    id: &str,
+    run: &CronRunInfo,
+) -> Result<CronRunInfo, String> {
+    match commit(cron, |store| store.prepare_manual_run(id, run)) {
+        Ok(committed) => Ok(committed.value),
         Err(error) => {
             log::error!("Failed to record triggered cron run: job={id}: {error}");
             if error.applied() {
-                Ok(())
+                cron.lock()
+                    .get(id)
+                    .and_then(|job| job.last_run.as_ref())
+                    .filter(|last| last.run_id == run.run_id)
+                    .cloned()
+                    .ok_or_else(|| error.to_string())
             } else {
                 Err(error.to_string())
             }

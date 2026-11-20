@@ -61,6 +61,11 @@ async fn journey(finish: bool, deadline: bool) {
     })
     .unwrap();
     let run = CronRunInfo {
+        scheduled_occurrence_at: None,
+        fired_at: None,
+        late_by_ms: None,
+        provider: None,
+        owner_instance_id: None,
         cancel_reason: None,
         run_id: "fixture-run".into(),
         started_at: now,

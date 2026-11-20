@@ -460,6 +460,7 @@ fn upgraded_peer_announce_refreshes_a_stored_v1_record_then_other_routes_pass() 
         mesh.paired_peers["air"].relay_protocol_version
     };
     let announce = |relay_protocol_version| PeerAnnounce {
+        machine_identity: None,
         domios_version: None,
         domios_build: None,
         instance_id: "air".into(),
@@ -603,7 +604,7 @@ fn custom_permissions() {
     assert!(!check_access(&level, &Method::POST, "/api/config"));
 
     let admin = AccessLevel::Custom(vec![Permission::Admin]);
-    assert!(check_access(&admin, &Method::POST, "/api/config"));
+    assert!(check_access(&admin, &Method::PATCH, "/api/config"));
     assert!(check_access(&admin, &Method::DELETE, "/api/crons/123"));
 }
 

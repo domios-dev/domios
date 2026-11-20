@@ -1,6 +1,7 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NotificationBody } from "./NotificationBody";
+import { NotificationOrigin } from "./NotificationOrigin";
 import type { Notification } from "../../lib/types";
 import { neighborNotificationTarget, runNotificationAction } from "../../lib/notificationActions";
 import { Bell, Check, ChevronDown, Trash2, X } from "lucide-react";
@@ -157,6 +158,7 @@ export function NotificationPanel({
                     {timeAgo(notif.timestamp)}
                   </span>
                 </div>
+                {(notif.remote_origin || notif.peer_name) && <div className="text-[var(--ct-muted-fg)]"><NotificationOrigin notification={notif} /></div>}
                 {notif.body && (
                   <>
                     <button

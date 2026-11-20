@@ -1,10 +1,13 @@
 use std::time::Instant;
 
-use codeterm_types::pty::{AgentLiveState, TabStatus, TabStatusTracker, TabVerdict, TimelineState};
+use codeterm_types::pty::{
+    AgentLiveState, PromptKind, QuestionSubtype, TabStatus, TabStatusTracker, TabVerdict,
+    TimelineState,
+};
 use codeterm_util::lock_hold::{TimedMutex, TimedRwLock};
 
 use super::{MultiplexerSnapshot, MultiplexerState};
-use crate::multiplexer::types::{Tab, TabBacking};
+use crate::multiplexer::types::Tab;
 
 /// Chat transports publish their turn state; PTYs use the reconciled tracker.
 /// A live prompt outranks tracked states except a confirmed dead or failed PTY.
@@ -17,12 +20,8 @@ pub fn resolved_tab_status(
         log::debug!("[provider-access] status waiting tab={}", tab.id);
         return Some(TabStatus::Waiting);
     }
-    if matches!(tab.backing, TabBacking::ChatBackend { .. }) {
-        return Some(if tab.pending_prompt.is_some() {
-            TabStatus::Waiting
-        } else {
-            effective_tab_status(tab, None)
-        });
+    if tab.is_chat_backend() {
+        return Some(effective_tab_status(tab, None));
     }
     let tracked = tab
         .pty_id
@@ -44,11 +43,39 @@ pub fn effective_tab_status(tab: &Tab, resolved: Option<TabStatus>) -> TabStatus
     if tab.provider_signals.access_lost() {
         return TabStatus::Waiting;
     }
-    resolved.unwrap_or_else(|| match tab.agent_state.as_ref().map(|s| s.state) {
+    let chat = tab.is_chat_backend();
+    if chat && tab.pending_prompt.is_some() {
+        return TabStatus::Waiting;
+    }
+    let live = tab
+        .agent_state
+        .as_ref()
+        .filter(|state| !chat || state.subtype != Some(QuestionSubtype::Permission));
+    resolved.unwrap_or_else(|| match live.map(|s| s.state) {
         Some(TimelineState::Working) => TabStatus::Working,
         Some(TimelineState::Question) => TabStatus::Waiting,
         Some(TimelineState::Idle) | None => TabStatus::Idle,
     })
+}
+
+pub(super) fn chat_backend_agent_state(tab: &Tab, status: TabStatus) -> AgentLiveState {
+    let prompt_kind = tab
+        .pending_prompt
+        .as_ref()
+        .filter(|prompt| prompt.request_id.is_some())
+        .and(tab.pending_prompt_kind);
+    let current = tab
+        .agent_state
+        .as_ref()
+        .filter(|state| state.subtype != Some(QuestionSubtype::Permission));
+    if status == TabStatus::Waiting && prompt_kind == Some(PromptKind::Permission) {
+        return TabVerdict {
+            state: TimelineState::Question,
+            subtype: Some(QuestionSubtype::Permission),
+        }
+        .into();
+    }
+    agent_state_for_status(current, status)
 }
 
 pub(super) fn agent_state_for_status(

@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { ReturnToRoute } from "../../lib/returnTo";
+import type { RemoteTeamPlanTarget } from "./remoteTeamPlanModel";
 
 export interface CanvasFocusTarget {
   planId?: string;
@@ -12,6 +13,7 @@ export interface CanvasFocusTarget {
 export type PlanTargetJump = { view: "board" | "plan" } | { view: "task"; taskId: string };
 
 export interface CanvasWorkspaceTarget extends ReturnToRoute {
+  remoteTeam?: RemoteTeamPlanTarget;
   teamId?: string;
   managerTabId?: string | null;
   planId?: string;

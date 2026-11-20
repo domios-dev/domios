@@ -14,6 +14,18 @@ describe("remote tab transport adapter", () => {
   it("preserves an immediate timestamp in the peer's camelCase request", () => {
     expect(remoteTransportCall("delayed_send_create", { tabId: "mesh:peer/owned", text: "opaque body", scheduledAtMs: 1 })).toMatchObject({ method: "POST", suffix: "/delayed-messages", body: { text: "opaque body", scheduledAtMs: 1 } });
   });
+  it("routes recovery to B without rewriting its cursor or the original client tokens", () => {
+    const tabId = "mesh:peer-b/shared";
+    const cursor = JSON.stringify({ kind: "bytes", incarnation: "B/incarnation", offset: 309, session_binding_nonce: "B/nonce" });
+    expect(remoteTransportCall("chat_resume", { tabId, cursor })).toEqual({
+      ordinaryTabId: tabId, peerId: "peer-b", remoteTabId: "shared", method: "POST",
+      suffix: "/chat-raw/resume", body: { cursor }, select: undefined,
+    });
+    expect(remoteTransportCall("chat_send_admissions", { tabId, clientTokens: ["local/one", "local/two"] })).toEqual({
+      ordinaryTabId: tabId, peerId: "peer-b", remoteTabId: "shared", method: "POST",
+      suffix: "/chat-send/admissions", body: { clientTokens: ["local/one", "local/two"] }, select: undefined,
+    });
+  });
   it("resolves child authority from the owning peer's current tab",()=>{
     const call=remoteTransportCall("agent_runtime_child_authority",{tabId:"mesh:peer/owned"});
     expect(call).toMatchObject({peerId:"peer",method:"GET",suffix:"/runtime-authority"});
@@ -61,6 +73,12 @@ describe("remote tab transport adapter", () => {
     expect(call?.suffix).toBe("/agent/restart");
     expect(call?.remoteTabId).toBe("restored");
     expect(call?.body).toEqual({ fresh: true });
+  });
+  it("reruns a restored shell on the owning peer", () => {
+    expect(remoteTransportCall("mux_rerun_restored_shell", { tabId: "mesh:peer/restored" })).toEqual({
+      ordinaryTabId: "mesh:peer/restored", peerId: "peer", remoteTabId: "restored",
+      method: "POST", suffix: "/rerun-restored-shell", body: null, select: undefined,
+    });
   });
   it("routes local previews to the composite tab's owning daemon", () => {
     for (const command of ["read_local_preview_file", "read_html_preview_file", "check_local_preview_files"]) {
@@ -119,9 +137,10 @@ describe("remote tab transport adapter", () => {
       clientToken: "optimistic-1",
     });
     expect(send?.body).toEqual({ text: "hello", client_token: "optimistic-1" });
+    const recipient = { provider_id: "fixture", binding_nonce: "own-launch", session_id: "own-session" };
     expect(remoteTransportCall("chat_send_text", {
-      tabId: "mesh:peer/shared", text: "opaque", clientToken: "once", startupOverrideNonce: "own-launch",
-    })?.body).toEqual({ text: "opaque", client_token: "once", startup_override_nonce: "own-launch" });
+      tabId: "mesh:peer/shared", text: "/help", clientToken: "once", expectedRecipient: recipient,
+    })?.body).toEqual({ text: "/help", client_token: "once", expected_recipient: recipient });
   });
 
   it("treats a vanished remote prompt as a quiet no-op", () => {

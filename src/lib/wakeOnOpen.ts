@@ -15,7 +15,7 @@ export function shouldWakeOnOpen(
   isVisible: boolean,
   alreadyRequested: boolean,
 ): boolean {
-  const missingBackend = tab?.backing?.kind === "pty" && !tab.pty_id && !tab.protected
-    && !tab.close_restore?.stopped;
-  return Boolean(tab && !tabWakeRequiresRetry(tab) && (tab.frozen || missingBackend) && isVisible && !alreadyRequested);
+  if (!tab || !isVisible || alreadyRequested || tab.close_restore?.stopped || tabWakeRequiresRetry(tab)) return false;
+  const missingBackend = tab.backing?.kind === "pty" && !tab.pty_id && !tab.protected;
+  return Boolean(tab.frozen || missingBackend);
 }

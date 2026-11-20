@@ -815,5 +815,26 @@
       }
     ],
     "source": "synthetic canonical context/file boundary"
+  },
+  {
+    "name": "agent sender with model",
+    "raw": "<domios from=\"tab\" label=\"AGENT\" tab=\"a6e2c711\" model=\"gpt-6.1-sol\">Routed message body</domios>",
+    "route": "host_injected",
+    "segments": [
+      {
+        "attrs": {
+          "from": "tab",
+          "label": "AGENT",
+          "tab": "a6e2c711",
+          "model": "gpt-6.1-sol"
+        },
+        "body": "Routed message body",
+        "from": "tab",
+        "kind": "tab",
+        "tip": null,
+        "type": "frame"
+      }
+    ],
+    "source": "synthetic agent sender with model attribution"
   }
 ]

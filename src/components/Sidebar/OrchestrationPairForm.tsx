@@ -57,6 +57,8 @@ interface RoleRowProps {
   disabled?: boolean;
   /** Ties the provider control to a sentence that explains its current refusal. */
   providerDescribedBy?: string;
+  showCurrentModel?: boolean;
+  showEffortLabel?: boolean;
 }
 
 export function OrchestrationRoleRow({
@@ -83,6 +85,8 @@ export function OrchestrationRoleRow({
   onInstallProvider,
   disabled = false,
   providerDescribedBy,
+  showCurrentModel,
+  showEffortLabel,
 }: RoleRowProps) {
   const provider = providers.find((p) => p.id === providerId);
   const models = provider?.available_models ?? [];
@@ -135,6 +139,7 @@ export function OrchestrationRoleRow({
         {modelSlot && <div className="flex-1 min-w-0">{modelSlot}</div>}
         {pill && <div className="flex-1 min-w-0">
           <RoleModelButton label={label} provider={provider} modelId={modelId} effortId={effortId} disabled={locked} testId={modelTestId} immediate={!compact}
+            showCurrentModel={showCurrentModel}
             onChange={(nextModel, nextEffort) => {
               if (compact && onSelectionChange) onSelectionChange(nextModel, nextEffort);
               else onModelChange(nextModel);
@@ -156,6 +161,7 @@ export function OrchestrationRoleRow({
       </div>
       {(!pill || !compact) && modelControls && efforts.length > 0 && onEffortChange && (
         <div className="min-w-0">
+          {showEffortLabel && <div className="mb-1.5 text-[11px] font-medium text-[var(--ct-muted-fg)]">Effort</div>}
           <DropdownSelect
             className={accountSlot ? TOUCH_SELECT_HEIGHT : undefined}
             data-testid={effortTestId}
@@ -171,7 +177,7 @@ export function OrchestrationRoleRow({
       {details}
       {providerDisabled && (
         <div className="flex items-center gap-2 text-[10px] text-[var(--ct-muted-fg)]">
-          <span>{provider?.display_name ?? "This harness"}'s CLI isn't installed</span>
+          <span>{provider?.display_name ?? "This provider"}'s CLI isn't installed</span>
           {onInstallProvider && provider?.install_command && (
             <button
               type="button"

@@ -70,7 +70,7 @@ export function usePlanBoardState(
   const refresh = query.refetch;
 
   useEffect(() => {
-    if (!api || !planId) return;
+    if (!api || api.peerId || !planId) return;
     let active = true;
     const unlisteners: Array<() => void> = [];
 
@@ -97,7 +97,7 @@ export function usePlanBoardState(
       for (const unlisten of unlisteners) unlisten();
       unlisteners.length = 0;
     };
-  }, [api?.host, api?.port, api?.token, planId, refresh]);
+  }, [api?.host, api?.port, api?.token, api?.peerId, planId, refresh]);
 
   const snapshot = query.data;
   const key = JSON.stringify([api?.host, api?.port, api?.token, planId, snapshot?.revision]);

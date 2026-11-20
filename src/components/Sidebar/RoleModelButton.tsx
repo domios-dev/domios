@@ -14,7 +14,7 @@ export function modelEffortText(provider: ProviderDescriptor | undefined, modelI
 }
 
 /** One compact model pill for a role row; it opens the same model picker as a running tab. A seat carries only model and effort, so Advanced stays hidden. */
-export function RoleModelButton({ label, provider, modelId, effortId, disabled, onChange, testId, immediate = false }: {
+export function RoleModelButton({ label, provider, modelId, effortId, disabled, onChange, testId, immediate = false, showCurrentModel }: {
   label: string;
   provider: ProviderDescriptor | undefined;
   modelId: string;
@@ -23,6 +23,7 @@ export function RoleModelButton({ label, provider, modelId, effortId, disabled, 
   onChange: (modelId: string, effortId?: string) => void;
   testId?: string;
   immediate?: boolean;
+  showCurrentModel?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -39,7 +40,7 @@ export function RoleModelButton({ label, provider, modelId, effortId, disabled, 
       <span className="min-w-0 flex-1 truncate text-left">{unavailable ? "No models published" : text}</span>
       <ChevronDown size={12} aria-hidden="true" className="shrink-0 text-[var(--ct-muted-fg)]" />
     </button>
-    {open && provider && <ModelPickerPopover key={provider.id} descriptor={provider} showAdvanced={false} showReasoning={!immediate} immediate={immediate}
+    {open && provider && <ModelPickerPopover key={provider.id} descriptor={provider} showAdvanced={false} showReasoning={!immediate} immediate={immediate} showCurrentModel={showCurrentModel}
       gate={{ interactive: true, timing: "live", confirmRestart: false, note: `Used when the ${label} starts` }}
       triggerRef={trigger} currentModel={modelId} currentEffort={effortId} busy={false} failure={null}
       onCommit={(selection) => { onChange(selection.model, selection.effort); close(); }} onClose={close} />}

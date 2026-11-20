@@ -1,7 +1,8 @@
+import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "../../lib/bridge";
 import {
-  createPeerWorkspace, hostListingFailure, listHostPeers, listPeerWorkspaces,
+  createPeerWorkspace, hostListingFailure, listHostPeers, listPeerWorkspaces, placementMachinesFromHostPeers,
   type HostPeer, type HostPeerListing, type PeerWorkspace,
 } from "../../lib/teamTemplates/hostPeers";
 
@@ -18,6 +19,7 @@ export function usePeerPlacement({ wanted, listPeers = listHostPeers, listWorksp
   listWorkspaces?: (peerId: string) => Promise<PeerWorkspace[]>;
   createWorkspace?: (peerId: string, name: string) => Promise<string>;
 }) {
+  const names = useAccountMachineNames();
   const [listing, setListing] = useState<HostPeerListing | null>(null);
   const [peer, setPeerState] = useState<HostPeer | null>(null);
   const [workspaces, setWorkspaces] = useState<PeerWorkspace[] | null>(null);
@@ -42,11 +44,6 @@ export function usePeerPlacement({ wanted, listPeers = listHostPeers, listWorksp
     }, () => undefined);
     return () => { live = false; stop?.(); };
   }, [wanted, listPeers]);
-
-  // A machine that went offline or lost Full access leaves the choice.
-  useEffect(() => {
-    if (peer && listing && !listing.peers.some((candidate) => candidate.id === peer.id)) setPeerState(null);
-  }, [peer, listing]);
 
   useEffect(() => {
     setWorkspaces(null);
@@ -78,9 +75,12 @@ export function usePeerPlacement({ wanted, listPeers = listHostPeers, listWorksp
   }, [peer, workspace, workspaceChosen, newName, createWorkspace]);
 
   return {
-    peers: listing?.peers ?? null,
+    peers: listing?.peers.map(peer => ({ ...peer, name: names.peers.get(peer.id) ?? peer.name })) ?? null,
     peersReason: listing?.reason ?? null,
-    peer, setPeer,
+    machines: listing ? (listing.machines ?? placementMachinesFromHostPeers(listing.peers)).map(machine => ({
+      ...machine, name: (machine.local ? names.local : names.peers.get(machine.id)) ?? machine.name,
+    })) : null,
+    peer: peer && { ...peer, name: names.peers.get(peer.id) ?? peer.name }, setPeer,
     workspaces, workspacesReason,
     workspace, setWorkspace,
     newName, setNewName,

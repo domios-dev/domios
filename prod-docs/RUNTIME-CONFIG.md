@@ -85,9 +85,13 @@ For backup, stop Domios cleanly and preserve the complete `storage/` directory, 
 
 Jitter is applied on top of recurring cron fire times. A job with `0 * * * *` and `jitter_max_ms=5000` fires between `:00.000` and `:05.000` each hour. Auto-mode exists so users on `*/5 * * * *` schedules don't all hammer LLM providers at the same minute boundary.
 
-### Missed slots
+### Late and missed occurrences
 
-A recurring job whose scheduled (jittered) fire time passed more than 10 minutes ago, for example because the machine slept or Domios started late, does not fire late: it moves to its next future slot and the scheduler logs the skip. A slot missed by 10 minutes or less still fires once. A oneshot job always fires, however late.
+Cron history shows the original scheduled occurrence, the scheduler fire time, and the admission time. Manual runs have no scheduled occurrence. Runs admitted more than 5 seconds after their planned fire time, including any configured jitter, are marked late.
+
+A pending recurring occurrence expires 10 minutes after its planned fire time. The scheduler records it as missed without launching an agent and advances to the next future occurrence. It processes at most one pending occurrence per job when resuming. One-shot jobs remain eligible after the window and carry the late marker when they fire.
+
+Recurring failures count toward automatic disabling and leave the next occurrence on its configured cadence.
 
 ### Hidden spawn
 
@@ -208,4 +212,4 @@ librarian_enabled = true
 
 There is no per-session config: each provider owns where its sessions live. The `domios sessions` commands and `/api/sessions/*` find and resume them; `domios docs API-STATE` has the contract.
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->

@@ -51,6 +51,13 @@ impl ItemCache {
     pub fn retained(&self) -> (usize, usize) {
         (self.items.len(), self.cached_bytes)
     }
+    pub(crate) fn handoff_origin(
+        &self,
+    ) -> Option<crate::service::tab_chat::runtime_stored::handoff_origin::HandoffOrigin> {
+        self.items.iter().find_map(
+            crate::service::tab_chat::runtime_stored::handoff_origin::HandoffOrigin::recorded,
+        )
+    }
     fn row_bytes(row: &ChatMsg) -> usize {
         serde_json::to_vec(row).map_or(usize::MAX, |bytes| bytes.len())
     }
@@ -152,7 +159,17 @@ impl ItemCache {
             {
                 continue;
             }
-            if self.live_during_backfill.contains(&item.id) {
+            let provider_terminal_tool = item.kind == "tool_call"
+                && item.tool_completed_at_ms.is_some()
+                && item
+                    .tool_status
+                    .as_deref()
+                    .is_some_and(|status| status != "running")
+                && self.get(&item.id).is_some_and(|current| {
+                    current.tool_status.as_deref() == Some("interrupted")
+                        && current.tool_result.is_none()
+                });
+            if self.live_during_backfill.contains(&item.id) && !provider_terminal_tool {
                 continue;
             }
             item.runtime_source_item_id = None;
@@ -186,8 +203,20 @@ impl ItemCache {
         if self.backfill != HistoryBackfill::Complete {
             self.live_during_backfill.insert(item.id.clone());
         }
+        if item.timestamp.is_none() {
+            item.timestamp = self
+                .index(&item.id)
+                .and_then(|index| self.items[index].timestamp.clone());
+        }
         if let Some(status) = item.tool_status.as_deref() {
             let previous = self.index(&item.id).map(|index| &self.items[index]);
+            if let Some(previous) = previous
+                .filter(|previous| item.kind == "tool_call" && previous.tool_id == item.tool_id)
+            {
+                item.tool_kind = item.tool_kind.or_else(|| previous.tool_kind.clone());
+                item.tool_name = item.tool_name.or_else(|| previous.tool_name.clone());
+                item.tool_input = item.tool_input.or_else(|| previous.tool_input.clone());
+            }
             item.tool_started_at_ms = item
                 .tool_started_at_ms
                 .or_else(|| previous.and_then(|row| row.tool_started_at_ms))

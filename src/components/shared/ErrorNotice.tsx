@@ -1,10 +1,11 @@
 import { PaneState } from "./PaneState";
-import { useState, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { describeError, type ErrorContext, type ErrorDescription } from "../../lib/describeError";
 
 export interface ErrorNoticeAction { label: string; onClick: () => void; disabled?: boolean; ariaLabel?: string }
 export interface ErrorNoticeProps extends ErrorContext {
   error?: unknown;
+  children?: ReactNode;
   description?: ErrorDescription;
   actions?: ErrorNoticeAction[];
   blocking?: boolean;
@@ -19,6 +20,7 @@ function stopRowActivation(event: KeyboardEvent<HTMLElement>) {
 
 export function ErrorNotice({
   error,
+  children,
   description,
   actions = [],
   blocking = false,
@@ -40,6 +42,7 @@ export function ErrorNotice({
     {actions.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{actions.map(action =>
       <button key={action.ariaLabel ?? action.label} type="button" aria-label={action.ariaLabel ?? action.label} disabled={action.disabled} onKeyDown={stopRowActivation} onClick={event => { event.stopPropagation(); action.onClick(); }}
         className="rounded-md border border-[var(--ct-border)] px-2 py-1 text-xs hover:bg-[var(--ct-bg-hover)] disabled:opacity-50">{action.label}</button>)}</div>}
+    {children && <div className="mt-2">{children}</div>}
     {view.raw && <details onClick={event => event.stopPropagation()} onKeyDown={stopRowActivation} className="mt-2 text-xs text-[var(--ct-muted-fg)]">
       <summary className="cursor-pointer">Details</summary>
       <pre tabIndex={0} className="mt-2 max-h-60 select-text overflow-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{view.raw}</pre>

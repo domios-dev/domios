@@ -12,6 +12,7 @@ import { isPromptNotOnScreenResponse } from "../webApi";
 import { RemotePtyIdCache, writeRemotePty, type RemotePtyWriteResponse } from "../remotePtyIdCache";
 import type { AtomicSpawn, MultiplexerState, ShellProfile } from "../types";
 import type { TransportClient } from "../transportClient";
+import { REST_READ_TIMEOUT_MS } from "../restTimeoutPolicy";
 export type TabsTransportClient = Pick<TransportClient, "json">;
 type Args = Record<string, unknown> & {
     signal?: AbortSignal;
@@ -19,13 +20,22 @@ type Args = Record<string, unknown> & {
 };
 const enc = encodeURIComponent;
 const s = (args: Args, key: string, alias?: string): string => String(args[key] ?? (alias ? args[alias] : undefined) ?? "");
+function exactPeerId(args: Args): string {
+    const peerId = s(args, "peerId", "peer_id");
+    if (!peerId.trim()) throw new Error("An exact peer installation id is required");
+    return peerId;
+}
+function hasPeerTarget(args: Args): boolean {
+    return args.peerId !== undefined || args.peer_id !== undefined;
+}
 export interface PtyCursors { offsets: Map<string, number>; truncations: Map<string, number> }
 /** One relayed request on a paired peer; the peer's own refusal travels back as the error. */
 async function relayToPeer(client: TabsTransportClient, peer: string, method: string, path: string, body: unknown): Promise<unknown> {
-    const response = await client.json<{ ok?: boolean; data?: unknown; error?: string | null }>("POST", "/api/mesh/relay-to", {
-        target_peer_id: peer, method, path, body,
+    const response = await client.json<{ ok?: boolean; data?: unknown; error?: string | null; peer?: { instance_id: string } }>("POST", "/api/mesh/relay-to", {
+        target_instance_id: peer, method, path, body,
     });
     if (!response.ok) throw new Error(response.error ?? `${peer} did not answer ${method} ${path}`);
+    if (response.peer?.instance_id !== peer) throw new Error("Relay answered for a different installation");
     return response.data;
 }
 export function createTabsTransport(client: TabsTransportClient, cursors: PtyCursors = { offsets: new Map(), truncations: new Map() }) {
@@ -143,19 +153,19 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         chat_backfill: (a: Args) => clientFor(a).json<ChatBackfillResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/backfill`, {
             before_offset: a.beforeOffset,
             offset_kind: a.offsetKind,
-        }),
+        }, { timeoutMs: REST_READ_TIMEOUT_MS }),
         chat_history_page: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/history`, {
             source: s(a, "source"),
             session_id: s(a, "sessionId"),
             before_offset: a.beforeOffset,
-        }),
+        }, { timeoutMs: REST_READ_TIMEOUT_MS }),
         chat_resume: (a: Args) => clientFor(a).json<ChatResumeResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/resume`, {
             cursor: s(a, "cursor"),
         }),
         chat_send_text: (a: Args) => clientFor(a).json<ChatSendStatus>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-send`, {
             text: a.text,
             client_token: a.clientToken,
-            ...(a.startupOverrideNonce ? { startup_override_nonce: a.startupOverrideNonce } : {}),
+            ...(a.expectedRecipient ? { expected_recipient: a.expectedRecipient } : {}),
         }),
         chat_send_dismissals: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId"))}/chat-send/dismissals`),
         chat_send_delete: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-send/dismissals`, a.dismissal),
@@ -166,28 +176,51 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             const peer = s(a, "peerId", "peer_id");
             const response = await clientFor(a).json<{
                 ok?: boolean;
-                data?: unknown;
+                data?: MultiplexerState;
                 error?: string | null;
+                peer?: { instance_id: string; instance_name: string };
             }>("POST", "/api/mesh/relay-to", {
-                target_peer_id: peer,
+                target_instance_id: peer,
                 method: "GET",
-                path: "/api/tabs?local_only=true",
+                path: "/api/mux/state",
                 body: null,
             });
             if (!response.ok)
                 throw new Error(response.error ?? "Failed to list remote Tabs");
-            const peers = await clientFor(a).json<{
-                paired?: Array<{
-                    instance_id: string;
-                    instance_name: string;
-                }>;
-            }>("GET", "/api/mesh/peers");
-            const peerName = peers.paired?.find((item) => item.instance_id === peer)?.instance_name ?? peer;
-            return { peer_id: peer, peer_name: peerName, tabs: response.data ?? [] };
+            if (response.peer?.instance_id !== peer) throw new Error("Relay answered for a different installation");
+            const snapshot = response.data;
+            if (!snapshot?.tabs || typeof snapshot.tabs !== "object") throw new Error("Remote peer returned no multiplexer snapshot");
+            const tabs = Object.values(snapshot.tabs).filter(tab =>
+                !tab.id.startsWith("mesh:") && !tab.remote_peer_id && !tab.remote_tab_id);
+            const localTabIds = new Set(tabs.map(tab => tab.id));
+            return {
+                peer_id: peer,
+                peer_name: response.peer.instance_name,
+                tabs,
+                tab_statuses: Object.fromEntries(Object.entries(snapshot.tab_statuses ?? {})
+                    .filter(([tabId]) => localTabIds.has(tabId))),
+            };
         },
         mesh_peer_workspaces_list: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "GET", "/api/workspaces", null),
         // The peer's published multiplexer state: the only read that names both its workspaces and Teams.
         mesh_peer_mux_state: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "GET", "/api/mux/state", null),
+        mesh_peer_notifications_list: (a: Args) => relayToPeer(clientFor(a), exactPeerId(a), "GET", "/api/notifications", null),
+        mesh_peer_notification_action: (a: Args) => {
+            const peerId = exactPeerId(a);
+            const sourceId = s(a, "sourceId", "source_id");
+            if (!sourceId.trim()) throw new Error("A source notification id is required");
+            const id = enc(sourceId);
+            const label = s(a, "label");
+            switch (s(a, "notificationAction", "notification_action")) {
+                case "read": return relayToPeer(clientFor(a), peerId, "POST", "/api/notifications/" + id + "/read", null);
+                case "delete": return relayToPeer(clientFor(a), peerId, "DELETE", "/api/notifications/" + id, null);
+                case "resolve": return relayToPeer(clientFor(a), peerId, "POST", "/api/notifications/" + id + "/resolve", null);
+                case "answer":
+                    if (!label.trim()) throw new Error("A notification answer label is required");
+                    return relayToPeer(clientFor(a), peerId, "POST", "/api/notifications/" + id + "/answer", { label });
+                default: throw new Error("Unsupported remote notification action");
+            }
+        },
         // A provisioned folder on the peer; its owner's active workspace stays where it is.
         mesh_peer_workspace_create: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "POST", "/api/workspaces", {
             name: s(a, "name"), provision: true, activate: false,
@@ -211,7 +244,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                         pty_id?: string;
                     }>;
                 }>("POST", "/api/mesh/relay-to", {
-                    target_peer_id: peer,
+                    target_instance_id: peer,
                     method: "GET",
                     path: `/api/tabs/inspect?tab_ids=${enc(remoteTab)}`,
                     body: null,
@@ -220,7 +253,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             };
             if (suffix === "/pty/write") {
                 return writeRemotePty<unknown>(remotePtyIds, ordinary, resolvePtyId, (ptyId) => clientFor(a).json<RemotePtyWriteResponse<unknown>>("POST", "/api/mesh/relay-to", {
-                    target_peer_id: peer,
+                    target_instance_id: peer,
                     method: s(a, "method"),
                     path: `/api/pty/${enc(ptyId)}/write`,
                     body: a.body ?? null,
@@ -250,11 +283,12 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                     throw new Error("Unsupported remote PTY action");
             }
             const response = await clientFor(a).json("POST", "/api/mesh/relay-to", {
-                target_peer_id: peer,
+                target_instance_id: peer,
                 method: s(a, "method"),
                 path,
                 body: a.body ?? null,
-            });
+            }, suffix === "/chat-raw/backfill" || suffix === "/chat-raw/history"
+                ? { timeoutMs: REST_READ_TIMEOUT_MS } : undefined);
             const relay = response as {
                 ok?: boolean;
                 status?: number;
@@ -270,8 +304,11 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                     refusal?.code, refusal?.bytes_written);
             }
             if (suffix === "/chat-send" && relay.data != null) {
-                const status = (item: ChatSendStatus): ChatSendStatus => ({ ...item, tab_id: ordinary });
-                return Array.isArray(relay.data) ? relay.data.map(status) : status(relay.data as ChatSendStatus);
+                const project = (receipt: ChatSendStatus): ChatSendStatus => {
+                    if (receipt?.tab_id !== remoteTab) throw new Error("Remote Chat send receipt tab mismatch");
+                    return { ...receipt, tab_id: ordinary };
+                };
+                return Array.isArray(relay.data) ? relay.data.map(project) : project(relay.data as ChatSendStatus);
             }
             return relay.data;
         },
@@ -328,7 +365,9 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         }),
         save_session: (a: Args = {}) => clientFor(a).json("POST", "/api/session/save"),
         restart_general_agent: (a: Args = {}) => clientFor(a).json("POST", "/api/agents/general/restart"),
-        spawn_general_agent_session: (a: Args) => clientFor(a).json<AtomicSpawn>("POST", "/api/agents/general/sessions", a.params),
+        spawn_general_agent_session: (a: Args) => hasPeerTarget(a)
+            ? relayToPeer(clientFor(a), exactPeerId(a), "POST", "/api/agents/general/sessions", a.params) as Promise<AtomicSpawn>
+            : clientFor(a).json<AtomicSpawn>("POST", "/api/agents/general/sessions", a.params),
         provider_switch_status: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/switch-provider/${enc(s(a, "operationId"))}?wait=${a.wait === true}`),
         read_provider_history: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/provider-history?file=${enc(s(a, "file"))}`),
         switch_agent_provider: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/switch-provider`, { provider: a.providerId, model: a.model, reasoning_effort: a.reasoningEffort, force: a.force === true }),
@@ -374,9 +413,25 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                 preset?: string;
                 launchProfile?: string;
                 accountId?: string;
+                remoteWorkspaceId?: string;
             };
-        }): Promise<AtomicSpawn> => {
+        }): Promise<AtomicSpawn | { tab_id: string; workspace_id?: string }> => {
             const p = a.params;
+            if (hasPeerTarget(a)) {
+                const result = await relayToPeer(clientFor(a), exactPeerId(a), "POST", "/api/agents/spawn", {
+                    agent: p.agentId,
+                    ...(p.remoteWorkspaceId ? { workspace_id: p.remoteWorkspaceId } : {}),
+                    model: p.model,
+                    reasoning_effort: p.reasoningEffort,
+                    preset: p.preset,
+                    launch_profile: p.launchProfile,
+                });
+                if (!result || typeof result !== "object" || typeof (result as { tab_id?: unknown }).tab_id !== "string") {
+                    throw new Error("The selected machine did not return the created agent");
+                }
+                const created = result as { tab_id: string; workspace_id?: string };
+                return { tab_id: created.tab_id, ...(created.workspace_id ? { workspace_id: created.workspace_id } : {}) };
+            }
             const result = await clientFor(a).json<{
                 tab_id: string;
                 workspace_id?: string;
