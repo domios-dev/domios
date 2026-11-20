@@ -36,9 +36,13 @@ fn reversed_preparation_retains_original_bytes_and_reserved_order_after_reopen()
     let b = "\topaque-b\n界  ";
     let second_record = store.admit(&second, b, b.trim(), None).unwrap();
     drop(second);
-    assert!(!store.eligible(&second_record));
+    assert_eq!(
+        store.eligibility(&second_record),
+        UserSendEligibility::Preparing
+    );
     let first_record = store.admit(&first, a, a.trim(), None).unwrap();
     drop(first);
+    assert!(store.eligible(&second_record));
     assert_eq!(
         store.head("opaque-tab").unwrap().unwrap().send_id,
         first_record.send_id
