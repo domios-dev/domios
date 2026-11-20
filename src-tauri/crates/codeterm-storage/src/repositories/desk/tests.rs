@@ -33,6 +33,33 @@ fn restored_shell_fields_preserve_command_profile_and_stopped_state() {
     .is_err());
 }
 
+#[test]
+fn desk_leaf_limit_counts_escaped_json_bytes_and_refuses_one_byte_over() {
+    let mut fields = DeskLeafFields {
+        values: serde_json::json!({"agent_identity":{"agent_runtime_config":{"systemPrompt":""}}}),
+    };
+    let empty_bytes = serde_json::to_vec(&fields.values).unwrap().len();
+    let remaining = MAX_DESK_LEAF_BYTES - empty_bytes;
+    let prompt = "\n".repeat(remaining / 2) + &"x".repeat(remaining % 2);
+    assert!(prompt.len() < remaining);
+    fields.values["agent_identity"]["agent_runtime_config"]["systemPrompt"] =
+        serde_json::json!(prompt);
+    assert_eq!(
+        serde_json::to_vec(&fields.values).unwrap().len(),
+        MAX_DESK_LEAF_BYTES
+    );
+    assert_eq!(fields.validate(), Ok(()));
+    fields.values["agent_identity"]["agent_runtime_config"]["systemPrompt"] =
+        serde_json::json!(prompt + "x");
+    assert_eq!(
+        fields.validate(),
+        Err(crate::StorageError::Invalid {
+            field: "desk leaf fields",
+            reason: format!("exceeds {MAX_DESK_LEAF_BYTES} bytes"),
+        })
+    );
+}
+
 static NEXT_ROOT: AtomicU64 = AtomicU64::new(0);
 
 struct TempRoot(PathBuf);
