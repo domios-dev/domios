@@ -23,6 +23,7 @@ struct ValidatedInventory {
     snapshot: DeskSnapshot,
     cost: usize,
     counts: [usize; 4],
+    omitted_tabs: HashSet<String>,
 }
 
 impl ValidatedInventory {
@@ -34,12 +35,15 @@ impl ValidatedInventory {
             snapshot,
             cost,
             counts,
+            omitted_tabs: HashSet::new(),
         })
     }
 
     fn target(self, current: &DeskSnapshot, reduce: bool) -> Result<DeskSnapshot, StorageError> {
         let mut target = if reduce {
-            self.snapshot
+            let mut target = self.snapshot;
+            retain_omitted_tabs(current, &mut target, &self.omitted_tabs);
+            target
         } else {
             preserve_missing(current, self.snapshot)
         };
@@ -87,19 +91,81 @@ impl DeskRepository {
         self.submit_delta(snapshot, expected, true)
     }
 
+    /// A tab omitted during projection is distinct from an explicitly closed tab.
+    pub fn save_authorized_reduction_retaining_tabs(
+        &self,
+        snapshot: DeskSnapshot,
+        expected: Revision,
+        omitted_tabs: HashSet<String>,
+    ) -> Completion<Committed<()>> {
+        self.submit_delta_retaining_tabs(snapshot, expected, true, omitted_tabs)
+    }
+
     fn submit_delta(
         &self,
         snapshot: DeskSnapshot,
         expected: Revision,
         reduce: bool,
     ) -> Completion<Committed<()>> {
-        let validated = match ValidatedInventory::new(snapshot) {
+        self.submit_delta_retaining_tabs(snapshot, expected, reduce, HashSet::new())
+    }
+
+    fn submit_delta_retaining_tabs(
+        &self,
+        snapshot: DeskSnapshot,
+        expected: Revision,
+        reduce: bool,
+        omitted_tabs: HashSet<String>,
+    ) -> Completion<Committed<()>> {
+        let mut validated = match ValidatedInventory::new(snapshot) {
             Ok(validated) => validated,
             Err(error) => return Completion::settled(Err(error)),
         };
+        validated.cost = omitted_tabs.iter().fold(validated.cost, |cost, tab_id| {
+            cost.saturating_add(tab_id.len())
+        });
+        validated.omitted_tabs = omitted_tabs;
         self.storage.submit_mutation(validated.cost, move |cx| {
             apply_delta(cx, validated, expected, reduce)
         })
+    }
+}
+
+fn retain_omitted_tabs(
+    current: &DeskSnapshot,
+    target: &mut DeskSnapshot,
+    omitted_tabs: &HashSet<String>,
+) {
+    if omitted_tabs.is_empty() {
+        return;
+    }
+    let previous_workspaces: HashMap<_, _> = current
+        .workspaces
+        .iter()
+        .map(|workspace| (&workspace.record.id, workspace))
+        .collect();
+    let submitted_ids: HashSet<_> = target
+        .workspaces
+        .iter()
+        .flat_map(|workspace| workspace.tabs.iter().map(|tab| tab.id.as_str()))
+        .collect();
+    let retain: HashSet<_> = omitted_tabs
+        .iter()
+        .map(String::as_str)
+        .filter(|id| !submitted_ids.contains(id))
+        .collect();
+    for workspace in &mut target.workspaces {
+        let Some(previous) = previous_workspaces.get(&workspace.record.id) else {
+            continue;
+        };
+        let submitted_ids: HashSet<_> = workspace.tabs.iter().map(|tab| &tab.id).collect();
+        let retained: Vec<_> = previous
+            .tabs
+            .iter()
+            .filter(|tab| submitted_ids.contains(&tab.id) || retain.contains(tab.id.as_str()))
+            .cloned()
+            .collect();
+        workspace.tabs = preserve_order(&retained, &workspace.tabs, |tab| &tab.id);
     }
 }
 

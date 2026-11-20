@@ -1,107 +1,110 @@
 use codeterm_storage::MAX_DESK_LEAF_BYTES;
 use parking_lot::Mutex;
 use serde_json::Value;
-use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
-use std::hash::{Hash, Hasher};
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
-static WARNED: LazyLock<Mutex<HashMap<String, u64>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static WARNED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 
-const DERIVED_PROMPT: &str = "/agent_identity/agent_runtime_config";
+const RUNTIME_CONFIG: &str = "/agent_identity/agent_runtime_config";
 const SAVED_LAUNCH: &str = "/agent_identity/restorable_launch";
 
-fn encoded_len(value: &Value) -> usize {
-    serde_json::to_vec(value).map_or(usize::MAX, |bytes| bytes.len())
-}
-
 pub(super) fn retain_tabs(snapshot: &super::SessionSnapshot) {
-    fn collect<'a>(node: &'a super::SplitNodeSnapshot, ids: &mut HashSet<&'a str>) {
-        match node {
-            super::SplitNodeSnapshot::Leaf { tab_id, .. } => {
-                ids.insert(tab_id);
-            }
-            super::SplitNodeSnapshot::Split { children, .. } => {
-                for child in children {
-                    collect(child, ids);
-                }
-            }
-        }
-    }
-    let mut ids = HashSet::new();
-    for workspace in &snapshot.workspaces {
-        for tab in &workspace.tabs {
-            collect(&tab.split_tree, &mut ids);
-        }
-    }
-    WARNED.lock().retain(|id, _| ids.contains(id.as_str()));
+    let ids: HashSet<&str> = snapshot
+        .workspaces
+        .iter()
+        .flat_map(|workspace| workspace.tabs.iter().map(|tab| tab.id.as_str()))
+        .collect();
+    WARNED.lock().retain(|id| ids.contains(id.as_str()));
 }
 
-fn claim_warning(states: &mut HashMap<String, u64>, tab: &str, fingerprint: Option<u64>) -> bool {
-    match fingerprint {
-        Some(fingerprint) => {
-            if states.get(tab) == Some(&fingerprint) {
-                return false;
-            }
-            states.insert(tab.into(), fingerprint);
-            true
-        }
-        None => {
-            states.remove(tab);
-            false
-        }
+pub(super) fn report_omission(tab_id: &str, error: OversizedLayout) {
+    if WARNED.lock().insert(tab_id.into()) {
+        log::warn!("[desk] tab={tab_id} omitted from snapshot: {error}");
     }
 }
 
-fn remove_field(leaf: &mut Value, parent: &str, field: &str) -> Option<usize> {
-    let object = leaf.pointer_mut(parent)?.as_object_mut()?;
-    let removed = object.remove(field)?;
-    let bytes = match &removed {
-        Value::String(value) => {
-            2 + value
-                .bytes()
-                .map(|byte| match byte {
-                    b'"' | b'\\' | b'\n' | b'\r' | b'\t' | 8 | 12 => 2,
-                    0..=31 => 6,
-                    _ => 1,
-                })
-                .sum::<usize>()
-        }
-        _ => encoded_len(&removed),
-    };
-    Some(bytes + field.len() + 3 + usize::from(!object.is_empty()))
+pub(super) fn clear_omission(tab_id: &str) {
+    WARNED.lock().remove(tab_id);
 }
 
-// The composed runtime prompt is rebuilt from role and saved identity on restore,
-// so dropping it keeps one oversized tab from refusing the whole desk commit.
-pub(super) fn bound_leaf(tab_id: &str, mut leaf: Value) -> Value {
-    let encoded = serde_json::to_vec(&leaf).unwrap_or_default();
-    let mut remaining = encoded.len();
-    if remaining <= MAX_DESK_LEAF_BYTES {
-        claim_warning(&mut WARNED.lock(), tab_id, None);
-        return leaf;
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct OversizedLayout {
+    pub fields: &'static str,
+    pub bytes: usize,
+}
+
+impl std::fmt::Display for OversizedLayout {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} size {} exceeds {MAX_DESK_LEAF_BYTES} bytes",
+            self.fields, self.bytes
+        )
     }
-    let mut fingerprint = DefaultHasher::new();
-    encoded.hash(&mut fingerprint);
-    let warn = claim_warning(&mut WARNED.lock(), tab_id, Some(fingerprint.finish()));
-    let prompt_bytes = remove_field(&mut leaf, DERIVED_PROMPT, "systemPrompt");
-    remaining -= prompt_bytes.unwrap_or_default();
-    let dropped = prompt_bytes.is_some();
-    // Only a Worker's saved launch identity carries a persona; others are rebuilt from role.
-    let identity_bytes = if remaining > MAX_DESK_LEAF_BYTES
-        && leaf.get("role").and_then(Value::as_str) != Some("Worker")
-    {
-        remove_field(&mut leaf, SAVED_LAUNCH, "identity_instructions")
-    } else {
-        None
-    };
-    remaining -= identity_bytes.unwrap_or_default();
-    let identity_dropped = identity_bytes.is_some();
-    if warn {
-        log::warn!(
-            "[desk] tab={tab_id} leaf exceeds {MAX_DESK_LEAF_BYTES} bytes; dropped prompt={dropped} identity={identity_dropped} remaining={remaining}"
-        );
+}
+
+pub(super) fn check_size(
+    fields: &'static str,
+    value: &impl serde::Serialize,
+) -> Result<(), OversizedLayout> {
+    let mut size = JsonSize(0);
+    serde_json::to_writer(&mut size, value).expect("infallible JSON field size counter");
+    if size.0 > MAX_DESK_LEAF_BYTES {
+        return Err(OversizedLayout {
+            fields,
+            bytes: size.0,
+        });
     }
-    leaf
+    Ok(())
+}
+
+struct JsonSize(usize);
+
+impl std::io::Write for JsonSize {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn remove_field(leaf: &mut Value, parent: &str, field: &str) -> bool {
+    leaf.pointer_mut(parent)
+        .and_then(Value::as_object_mut)
+        .and_then(|object| object.remove(field))
+        .is_some()
+}
+
+pub(super) fn bound_leaf(mut leaf: Value) -> Result<Value, OversizedLayout> {
+    use codeterm_types::agent::{restore_role, role_kind::builtins, AgentRole};
+
+    let role = restore_role(leaf["role"].as_str(), leaf["role_profile"].as_str());
+    let manager = leaf["chatbackend_plugin_id"].is_null()
+        && role
+            .as_ref()
+            .is_some_and(|role| role.role == AgentRole::Manager);
+    let general = manager
+        && role.as_ref().and_then(|role| role.role_profile.as_deref())
+            == Some(builtins::GENERAL_AGENT);
+    if general {
+        // General Agent launch renders the current machine prompt from its role.
+        remove_field(&mut leaf, RUNTIME_CONFIG, "systemPrompt");
+        remove_field(&mut leaf, SAVED_LAUNCH, "identity_instructions");
+    }
+    let mut size = check_size("desk leaf fields", &leaf);
+    if manager && !general {
+        if size.is_err() && remove_field(&mut leaf, RUNTIME_CONFIG, "systemPrompt") {
+            size = check_size("desk leaf fields", &leaf);
+        }
+        if size.is_err() && remove_field(&mut leaf, SAVED_LAUNCH, "identity_instructions") {
+            size = check_size("desk leaf fields", &leaf);
+        }
+    }
+    size.map(|()| leaf)
 }
 
 #[cfg(test)]
