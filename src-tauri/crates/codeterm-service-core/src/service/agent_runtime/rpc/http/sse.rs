@@ -1,4 +1,5 @@
 use super::*;
+use tokio::io::AsyncBufReadExt;
 
 const EVENT_LIMIT: usize = 256 * 1024;
 
