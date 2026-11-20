@@ -31,7 +31,7 @@ jobs:
             const plugin = /^release\/plugin-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(pr.head.ref);
             if (!plugin && pr.head.ref !== 'release/next') throw new Error('Use release/next or release/plugin-<id>');
             core.setOutput('plugin', String(plugin));
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
