@@ -168,7 +168,14 @@ fn browser_manifest_declares_read_page_step() {
     assert_eq!(step.plugin, "browser");
     assert_eq!(
         step.descriptor.outcomes,
-        ["read", "navigation_failed", "needs_human", "browser_busy"]
+        [
+            "read",
+            "navigation_failed",
+            "needs_human",
+            "browser_busy",
+            "profile_not_allowed",
+            "origin_not_allowed"
+        ]
     );
     assert_eq!(step.descriptor.inputs.keys().collect::<Vec<_>>(), ["url"]);
     assert_eq!(
