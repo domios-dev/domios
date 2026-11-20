@@ -39,13 +39,14 @@ test("guide section title resolves", () => {
   assert(sectionTitle("guide" as SectionId) === "Guide", "guide title");
 });
 
-test("notification_settings_home: notifications sits between general and agents", () => {
+test("notification_settings_home: mesh follows general, then notifications and agents", () => {
   const ids = SETTINGS_SECTIONS.map((s) => s.id);
   const generalIdx = ids.indexOf("general");
   const notificationsIdx = ids.indexOf("notifications");
   const agentsIdx = ids.indexOf("agents");
   assert(generalIdx >= 0 && notificationsIdx >= 0 && agentsIdx >= 0, "missing nav ids");
-  assert(notificationsIdx === generalIdx + 1, "notifications should follow general");
+  assert(ids[generalIdx + 1] === "mesh", "mesh should follow general");
+  assert(notificationsIdx === generalIdx + 2, "notifications should follow mesh");
   assert(agentsIdx === notificationsIdx + 1, "agents should follow notifications");
 });
 

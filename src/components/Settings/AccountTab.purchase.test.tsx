@@ -11,6 +11,7 @@ const daemon = vi.hoisted(() => {
   const state = {
     identity: null as null | { uid: string; display_name: string; email: string; provider: string },
     pending: false,
+    attemptId: null as string | null,
     failure: null as null | { stage: "redemption"; error: "provider" },
     account: { plan: "free", fullAccess: false },
     paidPlan: undefined as string | null | undefined,
@@ -19,7 +20,6 @@ const daemon = vi.hoisted(() => {
     portals: 0,
     portalFailure: false,
     logins: 0,
-    login: null as null | ((outcome: "ok" | "fail") => void),
     upgrades: [] as string[],
     upgradeFails: false,
     upgradeWait: null as Promise<Response> | null,
@@ -30,7 +30,7 @@ const daemon = vi.hoisted(() => {
     giftAbortable: false,
   };
   const ok = (body: unknown) => ({ ok: true, json: async () => body, text: async () => "" });
-  const status = () => ({ identity: state.identity, pending: state.pending, last_sign_in_failure: state.failure });
+  const status = () => ({ identity: state.identity, pending: state.pending, login_attempt_id: state.attemptId, last_sign_in_failure: state.failure });
   const plan = () => {
     const signedIn = state.identity !== null;
     const current = signedIn ? state.account : { plan: "free", fullAccess: false };
@@ -64,17 +64,10 @@ const daemon = vi.hoisted(() => {
       ? { ok: false, status: 409, json: async () => ({ code: "no_billing_customer", message: "There is no paid subscription to manage. Your current access is not billed through Paddle." }) } : ok({}); }
     if (path.endsWith("/login")) {
       state.logins++;
+      state.attemptId = `login-${state.logins}`;
       state.pending = true;
-      const outcome = await new Promise<"ok" | "fail">((resolve) => { state.login = resolve; });
-      state.pending = false;
-      state.login = null;
-      if (outcome === "fail") {
-        state.failure = { stage: "redemption", error: "provider" };
-        return { ok: false, text: async () => "opaque" };
-      }
       state.failure = null;
-      state.identity = { uid: "user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
-      return ok(status());
+      return { ...ok({ attempt_id: state.attemptId }), status: 202 };
     }
     if (path.endsWith("/upgrade")) {
       state.upgrades.push(JSON.parse(String(init?.body)).plan);
@@ -113,8 +106,8 @@ let host: HTMLDivElement;
 
 beforeEach(() => {
   Object.assign(daemon.state, {
-    identity: null, pending: false, failure: null, account: { plan: "free", fullAccess: false },
-    logins: 0, login: null, upgrades: [], upgradeFails: false, upgradeWait: null, paidPlan: undefined, subscriptionUnavailable: false, catalogUnavailable: false, portals: 0,
+    identity: null, pending: false, attemptId: null, failure: null, account: { plan: "free", fullAccess: false },
+    logins: 0, upgrades: [], upgradeFails: false, upgradeWait: null, paidPlan: undefined, subscriptionUnavailable: false, catalogUnavailable: false, portals: 0,
     portalFailure: false, giftRequests: [], giftResponse: { schema_version: 1, status: "redeemed", plan: "max", duration: "lifetime", expires_at: null }, giftFailure: null, giftWait: null, giftAbortable: false,
   });
 });
@@ -143,8 +136,17 @@ const click = async (scope: HTMLElement, name: string) => {
   await settle();
 };
 const finishLogin = async (outcome: "ok" | "fail") => {
-  await act(async () => daemon.state.login!(outcome));
-  await settle();
+  expect(daemon.state.attemptId).not.toBeNull();
+  expect(daemon.state.pending).toBe(true);
+  await act(async () => {
+    daemon.state.pending = false;
+    if (outcome === "ok") {
+      daemon.state.identity = { uid: "user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+    } else {
+      daemon.state.failure = { stage: "redemption", error: "provider" };
+    }
+    window.dispatchEvent(new Event("domios:account-sign-in"));
+  });
 };
 const toast = () => host.querySelector('[data-testid="notification-toast"]');
 const planFailure = () => host.querySelector('[role="status"][aria-label="Something went wrong while managing your plan"]');
@@ -154,6 +156,7 @@ it("signed out: Choose starts sign-in on that card, then opens checkout with no 
   expect(button(card("Pro"), "Choose Pro")?.disabled).toBe(false);
   await click(card("Pro"), "Choose Pro");
   expect(daemon.state.logins).toBe(1);
+  expect(daemon.state.upgrades).toEqual([]);
   expect(card("Pro").querySelector('[role="status"]')).not.toBeNull();
   expect(button(card("Sponsor"), "Choose Sponsor")?.disabled).toBe(true);
   await finishLogin("ok");
@@ -168,7 +171,7 @@ it("an account that already has Pro gets the confirmation and no checkout", asyn
   await click(card("Pro"), "Choose Pro");
   await finishLogin("ok");
   expect(daemon.state.upgrades).toEqual([]);
-  expect(card("Pro").querySelector('[role="status"]')).not.toBeNull();
+  expect(card("Pro").querySelector('[role="status"]')?.textContent).toContain("You already have Pro.");
   expect(button(card("Pro"), "Choose Pro")).toBeUndefined();
 });
 
@@ -178,18 +181,32 @@ it("staff are never sent to checkout, for any plan", async () => {
   await click(card("Sponsor"), "Choose Sponsor");
   await finishLogin("ok");
   expect(daemon.state.upgrades).toEqual([]);
-  expect(card("Sponsor").querySelector('[role="status"]')).not.toBeNull();
+  expect(card("Sponsor").querySelector('[role="status"]')?.textContent).toContain("Included with your Domios team access.");
   await click(card("Pro"), "Choose Pro");
   expect(daemon.state.upgrades).toEqual([]);
-  expect(card("Pro").querySelector('[role="status"]')).not.toBeNull();
+  expect(card("Pro").querySelector('[role="status"]')?.textContent).toContain("Included with your Domios team access.");
 });
 
-it("a Pro subscriber choosing Sponsor still goes to checkout", async () => {
+it("a signed-out account with a Pro grant and no subscription can check out for Sponsor", async () => {
   daemon.state.account = { plan: "pro", fullAccess: false };
+  daemon.state.paidPlan = null;
   await mount();
   await click(card("Sponsor"), "Choose Sponsor");
   await finishLogin("ok");
   expect(daemon.state.upgrades).toEqual(["sponsor_yearly"]);
+});
+
+it("a live Pro subscriber who chose Sponsor before sign-in can review a plan change without opening checkout", async () => {
+  daemon.state.account = { plan: "pro", fullAccess: false };
+  await mount();
+  await click(card("Sponsor"), "Choose Sponsor");
+  await finishLogin("ok");
+  expect(daemon.state.upgrades).toEqual([]);
+  expect(daemon.state.identity?.uid).toBe("user");
+  expect(button(card("Sponsor"), "Choose Sponsor")).toBeUndefined();
+  await click(card("Sponsor"), "Upgrade to Sponsor");
+  expect(button(document.body, "Confirm plan change")).toBeDefined();
+  expect(daemon.state.upgrades).toEqual([]);
 });
 
 it("Cancel returns to idle at once, and a late sign-in success opens no checkout", async () => {
@@ -204,14 +221,13 @@ it("Cancel returns to idle at once, and a late sign-in success opens no checkout
 
 it("attaches to a sign-in already running elsewhere instead of starting another", async () => {
   daemon.state.pending = true;
+  daemon.state.attemptId = "external-attempt";
   await mount();
   await click(card("Pro"), "Choose Pro");
   expect(daemon.state.logins).toBe(0);
   expect(card("Pro").querySelector('[role="status"]')).not.toBeNull();
-  daemon.state.pending = false;
-  daemon.state.identity = { uid: "user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
-  await act(async () => window.dispatchEvent(new Event("domios:account-changed")));
-  await settle();
+  expect(daemon.state.upgrades).toEqual([]);
+  await finishLogin("ok");
   expect(daemon.state.upgrades).toEqual(["pro_yearly"]);
 });
 
@@ -223,6 +239,8 @@ it("a failed sign-in returns the card to idle and its toast Retry resumes the sa
   expect(toast()).not.toBeNull();
   await click(toast() as HTMLElement, "Retry");
   expect(daemon.state.logins).toBe(2);
+  expect(daemon.state.attemptId).toBe("login-2");
+  expect(daemon.state.upgrades).toEqual([]);
   await finishLogin("ok");
   expect(daemon.state.upgrades).toEqual(["sponsor_yearly"]);
 });

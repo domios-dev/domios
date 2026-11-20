@@ -31,7 +31,7 @@ const operation = (toolStatus: NonNullable<NormalizedChatMessage["toolStatus"]>)
   toolInput: { cmd: "gh run view 39149606573 --repo rollacode/codeterm --job 1" },
   toolStatus,
   toolStartedAtMs: 1_000,
-  ...(toolStatus === "completed" ? { toolCompletedAtMs: 5_000 } : {}),
+  ...(toolStatus === "completed" ? { toolCompletedAtMs: 5_000, toolDurationMs: 4_000 } : {}),
 });
 
 async function renderOperation(message: NormalizedChatMessage) {
@@ -80,7 +80,10 @@ it("keeps one accessible tool row and settles the same card in place", async () 
   expect(completed.querySelectorAll('[data-testid="chat-tool-call"]')).toHaveLength(1);
   expect(completed.querySelector('[data-chat-window-row="operation"]')?.hasAttribute("aria-live")).toBe(false);
   expect(completed.querySelector('[data-testid="chat-tool-call"]')?.getAttribute("data-tool-status")).toBe("success");
-  expect(completed.querySelector('[role="timer"]')?.textContent).toBe("completed · 4s");
+  expect(completed.querySelector('[role="timer"]')?.textContent).toBe("completed");
+  const durations = completed.querySelectorAll('[data-testid="toolcard-duration"]');
+  expect(durations).toHaveLength(1);
+  expect(durations[0].getAttribute("aria-label")).toBe("Duration 4000 milliseconds");
   clock.mockRestore();
 });
 
