@@ -26,12 +26,14 @@ const EMPTY_SUMMARIES: UsePlansResult = {
 interface PlansContextValue {
   api: ApiConfig;
   contextKey: number;
+  ready: boolean;
   index: PlanIndexEntry[];
   indexLoading: boolean;
   indexReconnecting: boolean;
   indexError: string | null;
   refetchIndex: () => Promise<void>;
   summaries: UsePlansResult;
+  summariesActive: boolean;
   requestSummaries: () => () => void;
 }
 
@@ -53,7 +55,8 @@ export function PlansProvider({
     setSummaryReaders((count) => count + 1);
     return () => setSummaryReaders((count) => count - 1);
   }, []);
-  const summaries = usePlans(api, { enabled: queriesEnabled && summaryReaders > 0, contextKey: peerContext.generation });
+  const summariesActive = summaryReaders > 0;
+  const summaries = usePlans(api, { enabled: queriesEnabled && summariesActive, contextKey: peerContext.generation });
 
   const {
     data: index,
@@ -61,6 +64,7 @@ export function PlansProvider({
     reconnecting: indexReconnecting,
     error: indexError,
     refetch: refetchIndex,
+    setData: setIndex,
   } = useResilientQuery((signal) => fetchPlanIndex(api, signal), EMPTY_INDEX, {
     enabled: queriesEnabled,
     deps: [api.host, api.port, api.token, peerContext.generation],
@@ -71,8 +75,14 @@ export function PlansProvider({
     let active = true;
     let unlistenPlanChanged: (() => void) | null = null;
     let unlistenPlansLoaded: (() => void) | null = null;
-    void listen<{ plan_id?: string }>("plan-changed", () => {
-      if (active) void refetchIndex();
+    void listen<{ plan_id?: string; deleted?: boolean }>("plan-changed", ({ payload }) => {
+      if (!active) return;
+      if (payload?.deleted && payload.plan_id) {
+        setIndex((previous) => previous.filter((entry) => entry.plan_id !== payload.plan_id));
+        void refetchIndex({ preempt: true });
+        return;
+      }
+      void refetchIndex();
     }).then((fn) => {
       if (!active) {
         fn();
@@ -94,18 +104,20 @@ export function PlansProvider({
       unlistenPlanChanged?.();
       unlistenPlansLoaded?.();
     };
-  }, [queriesEnabled, refetchIndex]);
+  }, [queriesEnabled, refetchIndex, setIndex]);
 
   const value = useMemo<PlansContextValue>(
     () => ({
       api,
       contextKey: peerContext.generation,
+      ready: queriesEnabled,
       index: queriesEnabled ? index : EMPTY_INDEX,
       indexLoading: queriesEnabled && indexLoading,
       indexReconnecting: queriesEnabled && indexReconnecting,
       indexError: queriesEnabled ? indexError : null,
       refetchIndex,
       summaries: queriesEnabled ? summaries : EMPTY_SUMMARIES,
+      summariesActive,
       requestSummaries,
     }),
     [
@@ -118,6 +130,7 @@ export function PlansProvider({
       indexError,
       refetchIndex,
       summaries,
+      summariesActive,
       requestSummaries,
     ],
   );
@@ -175,6 +188,32 @@ export function usePlanIndexOptional(): PlanIndexResult {
     reconnecting: ctx.indexReconnecting,
     error: ctx.indexError,
     refetch: ctx.refetchIndex,
+  };
+}
+
+export interface PlanProjectionStatus {
+  ready: boolean;
+  indexLoading: boolean;
+  indexReconnecting: boolean;
+  indexError: string | null;
+  summariesActive: boolean;
+  summariesLoading: boolean;
+  summariesReconnecting: boolean;
+  summariesError: string | null;
+}
+
+export function usePlanProjectionStatusOptional(): PlanProjectionStatus | null {
+  const ctx = useContext(PlansContext);
+  if (!ctx) return null;
+  return {
+    ready: ctx.ready,
+    indexLoading: ctx.indexLoading,
+    indexReconnecting: ctx.indexReconnecting,
+    indexError: ctx.indexError,
+    summariesActive: ctx.summariesActive,
+    summariesLoading: ctx.summaries.loading,
+    summariesReconnecting: ctx.summaries.reconnecting,
+    summariesError: ctx.summaries.error,
   };
 }
 

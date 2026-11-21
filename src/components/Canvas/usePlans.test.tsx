@@ -446,15 +446,20 @@ async function main() {
     const initial = deferred<Response>();
     const cursor = deferred<Response>();
     const requests: URL[] = [];
+    let initialSignal: AbortSignal | null = null;
     let deleted = false;
-    const page = (name: string) => Response.json({
-      plan_id: "live-board", revision: String(wireRevision), counts: { pending: 1 },
+    const page = (name: string, rev = String(wireRevision)) => Response.json({
+      plan_id: "live-board", revision: rev, counts: { pending: 1 },
       columns: { pending: { status: "pending", items: [{ id: name, name }], next_cursor: { created_at: 1, position: 1, task_id: name } } },
     });
-    globalThis.fetch = muxMockFetch(async (input) => {
+    const initialRev = String(wireRevision);
+    globalThis.fetch = muxMockFetch(async (input, init) => {
       const url = new URL(String(input));
       requests.push(url);
-      if (requests.length === 1) return initial.promise;
+      if (requests.length === 1) {
+        initialSignal = init?.signal ?? null;
+        return initial.promise;
+      }
       if (url.searchParams.has("status")) return cursor.promise;
       return deleted ? new Response("", { status: 404 }) : page("current");
     });
@@ -462,9 +467,9 @@ async function main() {
       (state) => state.data?.columns?.pending?.items.map((task) => task.name).join(",") ?? state.error ?? "Loading");
     try {
       await act(async () => { emitPlanChanged("live-board"); });
-      assert(probe.host.textContent === "current", "change delivers current scoped board");
-      await act(async () => { initial.resolve(page("obsolete")); });
-      assert(probe.host.textContent === "current", "late initial snapshot cannot overwrite a change");
+      assert(!initialSignal?.aborted && requests.length === 1, "same-authority change coalesces without aborting held initial board read");
+      await act(async () => { initial.resolve(page("obsolete", initialRev)); });
+      assert(probe.host.textContent === "current", "stale initial snapshot is rejected by revision floor and single follow-up converges");
       let pendingPage!: Promise<void>;
       await act(async () => { pendingPage = probe.current().loadNextPage("pending"); });
       const { fireResync } = await import("../../lib/resync");
@@ -477,7 +482,7 @@ async function main() {
       deleted = true;
       await act(async () => { emitPlanChanged("live-board"); });
       assert(probe.current().data === null && Boolean(probe.current().error), "deletion removes stale board state");
-      assert(requests.length === 5, "initial, change, cursor, recovery and deletion each issue one scoped request");
+      assert(requests.length === 5, "initial, follow-up, cursor, recovery and deletion each issue one scoped request");
       assert(requests.every((url) => url.pathname === "/api/plans/live-board/tasks" && !url.searchParams.has("full")), "recovery has no whole-plan fallback");
     } finally { await probe.unmount(); globalThis.fetch = previousFetch; }
   });
@@ -540,10 +545,12 @@ async function main() {
       assert(String(probe.host.textContent) === "Summary 1", "a pending change keeps the readable summary");
       revision = "4";
       await act(async () => { emit("4", "3"); });
-      assert(String(probe.host.textContent) === "Summary 4", "the newer committed snapshot is visible");
+      assert(String(probe.host.textContent) === "Summary 1", "advancing change coalesces behind in-flight patch while keeping readable summary");
+      await act(async () => { pending.resolve(Response.json({ ...summary(), title: "Obsolete", revision: "3" })); });
+      assert(String(probe.host.textContent) === "Summary 4", "superseded patch response is rejected by revision floor and follow-up converges");
       const count = requests.length;
-      await act(async () => { emit("2", "1"); pending.resolve(Response.json({ ...summary(), title: "Obsolete", revision: "3" })); });
-      assert(requests.length === count && String(probe.host.textContent) === "Summary 4", "older events and responses cannot overwrite a newer summary");
+      await act(async () => { emit("2", "1"); });
+      assert(requests.length === count && String(probe.host.textContent) === "Summary 4", "older events cannot issue reads or overwrite a newer summary");
       const { fireResync } = await import("../../lib/resync");
       revision = "6";
       await act(async () => { fireResync(); });
@@ -553,6 +560,230 @@ async function main() {
       assert(probe.current().plans.length === 0, "deletion removes the plan and its authorized read returns no payload");
       assert(requests.every((url) => !url.searchParams.has("full") && (url.searchParams.get("view") === "summary")), "every initial, event and recovery request asks for summaries");
     } finally { await probe.unmount(); globalThis.fetch = previousFetch; }
+  });
+
+  test("usePlans coalesces advancing same and foreign changes during held list without starving unaffected plans", async () => {
+    const previousFetch = globalThis.fetch;
+    const firstList = deferred<Response>();
+    const hotPatch = deferred<Response>();
+    let activeListReads = 0;
+    let maxListConcurrency = 0;
+    let listRequests = 0;
+    let abortedListReads = 0;
+    const patchUrls: string[] = [];
+    const makeSummary = (id: string, title: string, rev: string) => ({
+      ...FIXTURE_PLAN, id, title, tasks: [], sections: [], strides: [], revision: rev,
+    });
+
+    globalThis.fetch = muxMockFetch(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/plans" && url.searchParams.get("view") === "summary") {
+        listRequests += 1;
+        activeListReads += 1;
+        maxListConcurrency = Math.max(maxListConcurrency, activeListReads);
+        init?.signal?.addEventListener("abort", () => { abortedListReads += 1; }, { once: true });
+        try {
+          return await firstList.promise;
+        } finally {
+          activeListReads -= 1;
+        }
+      }
+      if (url.pathname.endsWith("/projection")) {
+        patchUrls.push(url.pathname);
+        if (url.pathname.includes("/pl_hot/")) return hotPatch.promise;
+        return new Response("", { status: 404 });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+
+    const emit = (plan_id: string, rev: string, prev: string, deleted = false) => {
+      for (const handler of listenHandlers.get("plan-changed") ?? []) {
+        handler({ payload: { plan_id, revision: rev, previous_revision: prev, task_ids: ["t1"], reset: false, deleted } });
+      }
+    };
+
+    const probe = await renderScopedProbe(
+      () => usePlans(API),
+      (value) => value.plans.map((plan) => `${plan.id}:${plan.title}`).sort().join(","),
+    );
+    try {
+      assert(listRequests === 1 && activeListReads === 1, "initial list read held");
+      await act(async () => {
+        emit("pl_hot", "2", "1");
+        emit("pl_foreign", "2", "1");
+        emit("pl_hot", "3", "2");
+        emit("pl_hot", "4", "3");
+        emit("pl_foreign", "3", "2");
+        emit("pl_hot", "5", "4");
+      });
+      assert(listRequests === 1 && abortedListReads === 0, "repeated advancing events do not abort held initial list read");
+
+      await act(async () => {
+        firstList.resolve(Response.json({
+          plans: [makeSummary("pl_hot", "Hot rev 1", "1"), makeSummary("pl_calm", "Calm rev 1", "1")],
+        }));
+      });
+      assert(maxListConcurrency === 1 && listRequests === 1 && abortedListReads === 0, "list read stays single-flight with zero aborts");
+      assert(probe.host.textContent === "pl_calm:Calm rev 1", "unaffected plan is immediately readable while stale hot plan waits for patch");
+      assert(patchUrls.filter((path) => path.includes("/pl_hot/")).length === 1, "one coalesced follow-up patch runs for pl_hot");
+
+      await act(async () => {
+        hotPatch.resolve(Response.json(makeSummary("pl_hot", "Hot rev 5", "5")));
+      });
+      assert(
+        probe.host.textContent === "pl_calm:Calm rev 1,pl_hot:Hot rev 5",
+        "hot plan converges to latest committed revision alongside unaffected plan",
+      );
+    } finally {
+      await probe.unmount();
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test("held list and board reads abort immediately on delete, epoch change, credential rotation, and plan switch", async () => {
+    const previousFetch = globalThis.fetch;
+    const heldList = deferred<Response>();
+    let listPhase: "hold" | "after-delete" = "hold";
+    let heldListSignal: AbortSignal | null = null;
+    const makeSummary = (id: string, title: string, rev: string) => ({
+      ...FIXTURE_PLAN, id, title, tasks: [], sections: [], strides: [], revision: rev,
+    });
+    globalThis.fetch = muxMockFetch(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/plans") {
+        if (listPhase === "hold") {
+          heldListSignal = init?.signal ?? null;
+          return heldList.promise;
+        }
+        return Response.json({ plans: [makeSummary("pl_keep", "Kept", "1")] });
+      }
+      return new Response("", { status: 404 });
+    });
+
+    const probe = await renderScopedProbe(
+      () => usePlans(API),
+      (value) => value.plans.map((plan) => plan.id).join(","),
+    );
+    try {
+      assert(heldListSignal && !heldListSignal.aborted, "initial list read held");
+      listPhase = "after-delete";
+      await act(async () => {
+        for (const handler of listenHandlers.get("plan-changed") ?? []) {
+          handler({ payload: { plan_id: "pl_gone", revision: "2", previous_revision: "1", task_ids: [], reset: false, deleted: true } });
+        }
+      });
+      assert(heldListSignal?.aborted, "actual deletion immediately aborts held pre-delete list read");
+      await act(async () => {
+        heldList.resolve(Response.json({
+          plans: [makeSummary("pl_gone", "Deleted", "1"), makeSummary("pl_keep", "Kept", "1")],
+        }));
+      });
+      assert(probe.host.textContent === "pl_keep", "late pre-delete list reply cannot resurrect deleted plan");
+    } finally {
+      await probe.unmount();
+      globalThis.fetch = previousFetch;
+    }
+
+    const { usePlanBoardState } = await import("./missionControl/usePlanBoardState");
+    const { FIXTURE_BOARD_READ_FIELDS } = await import("./cards/fixtures.testdata");
+    const heldBoard = deferred<Response>();
+    let activeHeldBoard = heldBoard;
+    let boardCalls = 0;
+    let boardActive = 0;
+    let maxBoardConcurrency = 0;
+    let boardSignal: AbortSignal | null = null;
+    let boardMode: "hold" | "converged" | "mismatch" | "parse-error" | "switched" = "hold";
+    const boardJson = (planId: string, rev: string, total: number) => Response.json({
+      ...FIXTURE_BOARD_READ_FIELDS,
+      plan_id: planId,
+      revision: rev,
+      task_counts: { pending: total, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0, total },
+      mission_control: {
+        held: { held_reviews: [], open_gates: [], oldest_hold_age_ms: null, verdicts_on_held: 0 },
+        bounces: { total_attempts: 0, tasks_on_second_attempt: 0, first_try_done: 0, labelled_bounced: 0 },
+        event_log: { recorded_events: 0, truncated: false, entries: [] },
+        areas: { state: "no_facet", facet_key: null, facet_label: null, groups: [], untagged_task_count: 0, role_fallback: [] },
+        kpi: { state: "recording", not_recording_reason: null, enable_setting: null, spend: { events: 0, bytes: 0, turns: 0, tokens: { input: 0, uncached_input: 0, output: 0, total: 0 } } },
+        spend: { scope: "machine", state: "recording", not_recording_reason: null, enable_setting: null, measured_tokens: 0, turns: 0, providers: [] },
+      },
+    });
+    globalThis.fetch = muxMockFetch(async (_input, init) => {
+      boardCalls += 1;
+      boardActive += 1;
+      maxBoardConcurrency = Math.max(maxBoardConcurrency, boardActive);
+      try {
+        if (boardMode === "hold") {
+          boardSignal = init?.signal ?? null;
+          return await activeHeldBoard.promise;
+        }
+        if (boardMode === "mismatch") return boardJson("pl_wrong", "4", 99);
+        if (boardMode === "parse-error") return new Response("not-json-body", { status: 200 });
+        if (boardMode === "switched") return boardJson("pl_other", "1", 7);
+        return boardJson("pl_selected", "4", 42);
+      } finally {
+        boardActive -= 1;
+      }
+    });
+
+    let latestBoard: ReturnType<typeof usePlanBoardState> | null = null;
+    function BoardProbe({ planId, token, rev }: { planId: string; token: string; rev: number }) {
+      const state = usePlanBoardState({ ...API, token }, planId, rev);
+      latestBoard = state;
+      return <output>{state.state ? `${state.state.plan_id}:${state.state.revision}:${state.state.task_counts.total}` : state.error ?? "Loading"}</output>;
+    }
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => { root.render(<BoardProbe planId="pl_selected" token="tok-1" rev={1} />); });
+      assert(boardCalls === 1 && !boardSignal?.aborted, "initial board read held");
+      await act(async () => {
+        for (const handler of listenHandlers.get("plan-changed") ?? []) {
+          handler({ payload: { plan_id: "pl_selected", revision: "2", previous_revision: "1", task_ids: ["t1"], reset: false, deleted: false } });
+          handler({ payload: { plan_id: "pl_foreign", revision: "9", previous_revision: "8", task_ids: ["t2"], reset: false, deleted: false } });
+          handler({ payload: { plan_id: "pl_selected", revision: "3", previous_revision: "2", task_ids: ["t1"], reset: false, deleted: false } });
+          handler({ payload: { plan_id: "pl_selected", revision: "4", previous_revision: "3", task_ids: ["t1"], reset: false, deleted: false } });
+        }
+        for (const handler of listenHandlers.get("graph-worker-progress") ?? []) {
+          handler({ payload: { plan_id: "pl_selected" } });
+        }
+        root.render(<BoardProbe planId="pl_selected" token="tok-1" rev={2} />);
+      });
+      assert(boardCalls === 1 && !boardSignal?.aborted, "same-authority board events and revision prop bumps coalesce without aborting initial read");
+
+      boardMode = "converged";
+      await act(async () => { heldBoard.resolve(boardJson("pl_selected", "1", 10)); });
+      assert(maxBoardConcurrency === 1 && boardCalls === 2, "initial board read + single coalesced follow-up");
+      assert(host.textContent === "pl_selected:4:42", "board converges to latest revision without publishing stale rev 1");
+
+      boardMode = "mismatch";
+      await act(async () => {
+        root.render(<BoardProbe planId="pl_selected" token="tok-2" rev={2} />);
+      });
+      assert(latestBoard?.state === null && latestBoard?.error?.includes("did not match the selected plan"), "selected-plan identity mismatch rejects wrong payload and preserves error detail");
+
+      boardMode = "parse-error";
+      await act(async () => {
+        root.render(<BoardProbe planId="pl_selected" token="tok-3" rev={2} />);
+      });
+      assert(latestBoard?.state === null && Boolean(latestBoard?.error) && latestBoard!.error !== "Could not load plans. Try again.", "non-HTTP JSON decode error keeps useful diagnostic detail");
+
+      const heldForSwitch = deferred<Response>();
+      activeHeldBoard = heldForSwitch;
+      boardMode = "hold";
+      await act(async () => { root.render(<BoardProbe planId="pl_selected" token="tok-4" rev={2} />); });
+      const switchSignal = boardSignal;
+      assert(switchSignal && !switchSignal.aborted, "board read held before plan switch");
+      boardMode = "switched";
+      await act(async () => { root.render(<BoardProbe planId="pl_other" token="tok-4" rev={2} />); });
+      assert(switchSignal.aborted, "switching selected plan immediately aborts held read");
+      await act(async () => { heldForSwitch.resolve(boardJson("pl_selected", "10", 999)); });
+      assert(host.textContent === "pl_other:1:7", "late previous-plan reply cannot contaminate switched plan");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      globalThis.fetch = previousFetch;
+    }
   });
 
   test("selected detail skips unrelated contiguous changes, ignores old events and recovers gaps", async () => {

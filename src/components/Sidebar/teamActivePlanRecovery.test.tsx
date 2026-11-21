@@ -1,5 +1,5 @@
 import { FIXTURE_PLAN_READ } from "../Canvas/cards/fixtures.testdata";
-import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
+import { muxMockFetch, settleDaemon } from "../../lib/muxMockFetch.testdata";
 // Run: npx tsx src/components/Sidebar/teamActivePlanRecovery.test.tsx
 
 import { act, useEffect, useState } from "react";
@@ -327,6 +327,8 @@ async function main() {
   assert(host.querySelector('[data-testid="team-card-activation"]')
     ?.getAttribute("aria-label") === "Open Old active effort",
   "REST failure intentionally retains the old projection");
+  assert(host.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "stale",
+    "retained same-authority projection exposes explicit stale freshness instead of inventing zeros");
 
   backendPlans = [currentPlan];
   backendSnapshot = snapshot("Current Team label");
@@ -346,6 +348,218 @@ async function main() {
   assertCurrentProjection(host);
 
   await act(async () => root.unmount());
+  host.remove();
+
+  // Verify unknown/unavailable counts, index-only positive total, authoritative index title,
+  // matching nonzero summary, genuine zero, known absence, and credential change fencing.
+  const LARGE_PLAN_ID = "pl_7lsisa";
+  const largeIndexEntry: PlanIndexEntry = {
+    plan_id: LARGE_PLAN_ID,
+    file_path: `/workspace/.domios/plans/active/${LARGE_PLAN_ID}/plan.json`,
+    canonical_project_path: "/workspace",
+    owner: FIXTURE_PLAN.owner,
+    title: "Domios",
+    status: "active",
+    updated_at: 100,
+    team_id: TEAM_ID,
+    assigned_tab_ids: [TAB_ID],
+    task_count: 1625,
+    open_task_count: 46,
+  };
+  const largeSummary: PlanSummaryRead = {
+    ...FIXTURE_PLAN_READ,
+    id: LARGE_PLAN_ID,
+    title: "Domios",
+    status: "active",
+    owner: FIXTURE_PLAN.owner,
+    project_path: "/workspace",
+    canonical_project_path: "/workspace",
+    created_at: 100,
+    updated_at: 100,
+    canvas: FIXTURE_PLAN.canvas,
+    mode: "planning",
+    planning_state: "drafting",
+    team_id: TEAM_ID,
+    revision: "100",
+    tasks: [],
+    task_counts: {
+      total: 1625,
+      pending: 30,
+      in_progress: 6,
+      in_review: 10,
+      blocked: 0,
+      paused: 0,
+      done: 1579,
+      cancelled: 0,
+    },
+  };
+
+  let releaseIndex!: () => void;
+  let releaseSummary!: () => void;
+  let releaseOldCredSummary!: () => void;
+  let indexRequested!: () => void;
+  const indexReady = new Promise<void>((resolve) => { indexRequested = resolve; });
+  let summaryRequested!: () => void;
+  const summaryReady = new Promise<void>((resolve) => { summaryRequested = resolve; });
+  let oldCredSummaryRequested!: () => void;
+  const oldCredSummaryReady = new Promise<void>((resolve) => { oldCredSummaryRequested = resolve; });
+  let stage: "hold-both" | "verified-zero" | "absent" | "hold-cred" | "denied" = "hold-both";
+  backendSnapshot = snapshot("Domios 1.16.1");
+
+  const prevFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    value: muxMockFetch(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/mux/state")) return response(backendSnapshot);
+      if (stage === "denied") return new Response("forbidden", { status: 403 });
+      if (stage === "absent") {
+        return response({ plans: [] });
+      }
+      if (stage === "verified-zero") {
+        return url.endsWith("/api/plans?view=summary")
+          ? response({ plans: [summary(currentPlan)] })
+          : response({ plans: [indexEntry(currentPlan)] });
+      }
+      if (stage === "hold-cred") {
+        if (url.endsWith("/api/plans?view=summary")) {
+          return new Promise<Response>((resolve) => {
+            releaseOldCredSummary = () => resolve(response({ plans: [largeSummary] }));
+            oldCredSummaryRequested();
+          });
+        }
+        return response({ plans: [largeIndexEntry] });
+      }
+      if (url.endsWith("/api/plans?view=summary")) {
+        return new Promise<Response>((resolve) => {
+          releaseSummary = () => resolve(response({ plans: [largeSummary] }));
+          summaryRequested();
+        });
+      }
+      if (url.endsWith("/api/plans")) {
+        return new Promise<Response>((resolve) => {
+          releaseIndex = () => resolve(response({ plans: [largeIndexEntry] }));
+          indexRequested();
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }),
+  });
+
+  let indexObservedInView!: () => void;
+  const indexRendered = new Promise<void>((resolve) => { indexObservedInView = resolve; });
+  function IndexObserver() {
+    const { index } = usePlanIndex();
+    useEffect(() => {
+      if (index.some((entry) => entry.plan_id === LARGE_PLAN_ID)) indexObservedInView();
+    }, [index]);
+    return null;
+  }
+
+  const stageHost = document.createElement("div");
+  document.body.appendChild(stageHost);
+  const stageRoot = createRoot(stageHost);
+  try {
+    await act(async () => {
+      stageRoot.render(<PlansProvider api={API}><IndexObserver /><Projection /></PlansProvider>);
+      await Promise.all([indexReady, summaryReady]);
+    });
+    assert(
+      stageHost.querySelector('[data-testid="team-status-unavailable"]') !== null,
+      "missing projection while loading renders unavailable status instead of false zeros",
+    );
+    assert(
+      stageHost.querySelector('[data-testid="team-status-tally"]') === null,
+      "no false-zero bucket tally while projection is missing and loading",
+    );
+
+    await act(async () => {
+      releaseIndex();
+      await indexRendered;
+    });
+    assert(
+      stageHost.querySelector('[data-testid="team-name"]')?.textContent === "Domios",
+      "authoritative index title replaces legacy Team display name while summary counts load",
+    );
+    assert(
+      stageHost.querySelector('[data-testid="team-status-unavailable"]')?.textContent?.includes("1625 tasks"),
+      "index-only positive task_count reports loading counts instead of fabricating zeros",
+    );
+    assert(
+      stageHost.querySelector('[data-testid="team-status-tally"]') === null,
+      "index-only positive total never renders zero buckets",
+    );
+
+    await act(async () => {
+      releaseSummary();
+      await settleDaemon();
+    });
+    assert(
+      stageHost.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "verified",
+      "matching summary marks counts verified",
+    );
+    assert(
+      stageHost.querySelector('[data-testid="team-status-todo"] .ct-plan-status-breakdown-count')?.textContent === "36"
+      && stageHost.querySelector('[data-testid="team-status-review"] .ct-plan-status-breakdown-count')?.textContent === "10"
+      && stageHost.querySelector('[data-testid="team-status-blocked"] .ct-plan-status-breakdown-count')?.textContent === "0"
+      && stageHost.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent === "1579",
+      "matching nonzero summary renders exact task buckets",
+    );
+
+    stage = "verified-zero";
+    await act(async () => {
+      fireExistingFullResync();
+      await settleDaemon();
+    });
+    assert(
+      stageHost.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "verified",
+      "genuine empty summary marks zero buckets verified",
+    );
+    assert(
+      ["todo", "review", "blocked", "done"].every(
+        (bucket) => stageHost.querySelector(`[data-testid="team-status-${bucket}"] .ct-plan-status-breakdown-count`)?.textContent === "0",
+      ),
+      "genuine zero plan renders verified zero counts",
+    );
+
+    stage = "absent";
+    await act(async () => {
+      fireExistingFullResync();
+      await settleDaemon();
+    });
+    assert(
+      stageHost.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "absent",
+      "confirmed absence of an active plan is distinguished from unavailable counts",
+    );
+
+    stage = "hold-cred";
+    await act(async () => {
+      stageRoot.render(<PlansProvider api={{ ...API, token: "cred-1" }}><IndexObserver /><Projection /></PlansProvider>);
+      await oldCredSummaryReady;
+    });
+    stage = "denied";
+    await act(async () => {
+      stageRoot.render(<PlansProvider api={{ ...API, token: "cred-2" }}><IndexObserver /><Projection /></PlansProvider>);
+      await settleDaemon();
+    });
+    await act(async () => {
+      releaseOldCredSummary();
+      await settleDaemon();
+    });
+    assert(
+      stageHost.querySelector('[data-testid="team-status-unavailable"]') !== null,
+      "access denial after credential change clears old-authority projection and stays unavailable",
+    );
+    assert(
+      stageHost.querySelector('[data-testid="team-name"]')?.textContent !== "Domios",
+      "late old-credential reply cannot restore forbidden plan title",
+    );
+  } finally {
+    await act(async () => stageRoot.unmount());
+    stageHost.remove();
+    Object.defineProperty(globalThis, "fetch", { configurable: true, value: prevFetch });
+  }
+
   __setListenForTest(null);
   console.log("  ✓ Team active-plan recovery converges after one existing full resync");
 }

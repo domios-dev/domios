@@ -50,6 +50,20 @@ export function deriveTeamTaskBuckets(
   }));
 }
 
+export interface TeamPlanCountMeta {
+  indexOnly?: boolean;
+  indexTaskCount?: number | null;
+  indexOpenTaskCount?: number | null;
+  loading?: boolean;
+  unavailable?: boolean;
+  stale?: boolean;
+}
+
+export type TeamPlanStatusSummary =
+  | { state: "verified"; buckets: TeamTaskBucket[]; counts: PlanStatusCounts; stale: boolean }
+  | { state: "unavailable"; totalTasks: number | null; openTasks: number | null; loading: boolean }
+  | { state: "absent"; buckets: TeamTaskBucket[]; counts: PlanStatusCounts };
+
 export function deriveCardStatusCounts(buckets: TeamTaskBucket[]): PlanStatusCounts {
   const count = (key: TeamTaskBucket["key"]) => buckets.find((bucket) => bucket.key === key)?.count ?? 0;
   const paused = count("paused");
@@ -59,6 +73,60 @@ export function deriveCardStatusCounts(buckets: TeamTaskBucket[]): PlanStatusCou
     blocked: count("blocked"),
     paused,
     done: count("done"),
+  };
+}
+
+export function resolveTeamPlanStatus(
+  plan: Plan | null,
+  tabs: Record<string, Tab>,
+  meta?: TeamPlanCountMeta,
+): TeamPlanStatusSummary {
+  if (!plan) {
+    if (meta?.loading || meta?.unavailable) {
+      return {
+        state: "unavailable",
+        totalTasks: null,
+        openTasks: null,
+        loading: Boolean(meta.loading),
+      };
+    }
+    return {
+      state: "absent",
+      buckets: EMPTY_BUCKETS,
+      counts: deriveCardStatusCounts(EMPTY_BUCKETS),
+    };
+  }
+  if (plan.task_counts) {
+    const buckets = deriveTeamTaskBuckets(plan, tabs);
+    return {
+      state: "verified",
+      buckets,
+      counts: deriveCardStatusCounts(buckets),
+      stale: Boolean(meta?.stale),
+    };
+  }
+  if (meta?.indexOnly) {
+    if (meta.indexTaskCount === 0) {
+      return {
+        state: "verified",
+        buckets: EMPTY_BUCKETS,
+        counts: deriveCardStatusCounts(EMPTY_BUCKETS),
+        stale: Boolean(meta.stale),
+      };
+    }
+    return {
+      state: "unavailable",
+      totalTasks: meta.indexTaskCount ?? null,
+      openTasks: meta.indexOpenTaskCount ?? null,
+      loading: Boolean(meta.loading),
+    };
+  }
+  const buckets = deriveTeamTaskBuckets(plan, tabs);
+  return {
+    state: "verified",
+    buckets,
+    counts: deriveCardStatusCounts(buckets),
+    stale: Boolean(meta?.stale),
   };
 }
 

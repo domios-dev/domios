@@ -2,12 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { onResync } from "./resync";
 import { computeBackoffDelay, formatPlanFetchError, isTransientFetchError } from "./fetchResilience";
 
+export interface UseResilientQueryRefetchOptions {
+  preempt?: boolean;
+}
+
 export interface UseResilientQueryResult<T> {
   data: T;
   loading: boolean;
   reconnecting: boolean;
   error: string | null;
-  refetch: () => Promise<void>;
+  refetch: (options?: UseResilientQueryRefetchOptions) => Promise<void>;
   setData: (value: T | ((prev: T) => T)) => void;
 }
 
@@ -20,28 +24,52 @@ function hasItems(data: unknown): boolean {
   return Array.isArray(data) ? data.length > 0 : data != null;
 }
 
+function isAuthDeniedError(err: unknown): boolean {
+  const status = typeof err === "object" && err !== null && "status" in err ? (err as { status?: unknown }).status : null;
+  return status === 401 || status === 403;
+}
+
+interface QueryState<T> {
+  scopeKey: string | null;
+  data: T;
+  loading: boolean;
+  reconnecting: boolean;
+  error: string | null;
+}
+
 export function useResilientQuery<T>(
   fetcher: (signal: AbortSignal) => Promise<T>,
   initialData: T,
   options: UseResilientQueryOptions = {},
 ): UseResilientQueryResult<T> {
   const enabled = options.enabled ?? true;
+  const depKey = JSON.stringify(options.deps ?? []);
+  const scopeKey = enabled ? depKey : null;
   const initialRef = useRef(initialData);
-  const [data, setDataState] = useState<T>(initialData);
-  const [loading, setLoading] = useState(enabled);
-  const [reconnecting, setReconnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<QueryState<T>>({
+    scopeKey,
+    data: initialData,
+    loading: enabled,
+    reconnecting: false,
+    error: null,
+  });
 
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
   const hasDataRef = useRef(false);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
+  const scopeKeyRef = useRef(scopeKey);
+  scopeKeyRef.current = scopeKey;
+  const authorityRef = useRef(0);
   const ctrlRef = useRef<AbortController | null>(null);
+  const inFlightRef = useRef<Promise<void> | null>(null);
+  const queuedRef = useRef(false);
+  const queuedResetBackoffRef = useRef(false);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptRef = useRef(0);
   const consecutiveFailureRef = useRef(0);
-  const runRef = useRef<(resetBackoff: boolean) => Promise<void>>(async () => {});
+  const runRef = useRef<(resetBackoff: boolean, preempt?: boolean) => Promise<void>>(async () => {});
 
   const clearRetry = useCallback(() => {
     if (retryTimerRef.current) {
@@ -51,10 +79,12 @@ export function useResilientQuery<T>(
   }, []);
 
   const setData = useCallback((value: T | ((prev: T) => T)) => {
-    setDataState((prev) => {
-      const next = typeof value === "function" ? (value as (p: T) => T)(prev) : value;
+    setState((prev) => {
+      const currentScope = scopeKeyRef.current;
+      const base = prev.scopeKey === currentScope ? prev.data : initialRef.current;
+      const next = typeof value === "function" ? (value as (p: T) => T)(base) : value;
       hasDataRef.current = hasItems(next);
-      return next;
+      return { ...prev, scopeKey: currentScope, data: next };
     });
   }, []);
 
@@ -63,47 +93,138 @@ export function useResilientQuery<T>(
     const delay = computeBackoffDelay(++attemptRef.current);
     retryTimerRef.current = setTimeout(() => {
       retryTimerRef.current = null;
-      void runRef.current(false);
+      void runRef.current(false, false);
     }, delay);
   }, [clearRetry]);
 
   const run = useCallback(
-    async (resetBackoff: boolean) => {
-      if (!enabledRef.current) return;
-      if (resetBackoff) {
-        attemptRef.current = 0;
-        clearRetry();
+    async (resetBackoff: boolean, preempt = false) => {
+      const activeScope = scopeKeyRef.current;
+      if (!enabledRef.current || activeScope === null) return;
+      if (ctrlRef.current && !preempt) {
+        queuedRef.current = true;
+        if (resetBackoff) queuedResetBackoffRef.current = true;
+        await (inFlightRef.current ?? Promise.resolve());
+        return;
       }
+      if (preempt) {
+        queuedRef.current = false;
+        queuedResetBackoffRef.current = false;
+        ctrlRef.current?.abort();
+      }
+      const runAuthority = authorityRef.current;
+      const execute = async (initialResetBackoff: boolean) => {
+        let shouldResetBackoff = initialResetBackoff;
+        for (;;) {
+          if (!enabledRef.current || authorityRef.current !== runAuthority || scopeKeyRef.current !== activeScope) {
+            return;
+          }
+          if (shouldResetBackoff) {
+            attemptRef.current = 0;
+            clearRetry();
+          }
 
-      ctrlRef.current?.abort();
-      const ctrl = new AbortController();
-      ctrlRef.current = ctrl;
+          const ctrl = new AbortController();
+          ctrlRef.current = ctrl;
 
-      const stale = hasDataRef.current;
-      if (!stale) setLoading(true);
-      setError(null);
+          const stale = hasDataRef.current;
+          setState((prev) => {
+            const sameScope = prev.scopeKey === activeScope;
+            return {
+              scopeKey: activeScope,
+              data: sameScope ? prev.data : initialRef.current,
+              loading: !stale,
+              reconnecting: sameScope ? prev.reconnecting : false,
+              error: null,
+            };
+          });
 
-      try {
-        const next = await fetcherRef.current(ctrl.signal);
-        if (ctrl.signal.aborted) return;
-        setDataState(next);
-        hasDataRef.current = hasItems(next);
-        setError(null);
-        attemptRef.current = 0;
-        consecutiveFailureRef.current = 0;
-        setReconnecting(false);
-      } catch (e) {
-        if (ctrl.signal.aborted || (e instanceof Error && e.name === "AbortError")) return;
-        const friendly = formatPlanFetchError(e);
-        if (!hasDataRef.current) setError(friendly);
-        if (hasDataRef.current) {
-          consecutiveFailureRef.current += 1;
-          if (consecutiveFailureRef.current >= 2) setReconnecting(true);
+          try {
+            const next = await fetcherRef.current(ctrl.signal);
+            if (ctrl.signal.aborted || authorityRef.current !== runAuthority || scopeKeyRef.current !== activeScope) {
+              return;
+            }
+            hasDataRef.current = hasItems(next);
+            attemptRef.current = 0;
+            consecutiveFailureRef.current = 0;
+            setState({
+              scopeKey: activeScope,
+              data: next,
+              loading: false,
+              reconnecting: false,
+              error: null,
+            });
+          } catch (e) {
+            if (
+              ctrl.signal.aborted
+              || authorityRef.current !== runAuthority
+              || scopeKeyRef.current !== activeScope
+              || (e instanceof Error && e.name === "AbortError")
+            ) {
+              return;
+            }
+            const friendly = formatPlanFetchError(e);
+            if (isAuthDeniedError(e)) {
+              hasDataRef.current = false;
+              consecutiveFailureRef.current = 0;
+              queuedRef.current = false;
+              queuedResetBackoffRef.current = false;
+              setState({
+                scopeKey: activeScope,
+                data: initialRef.current,
+                loading: false,
+                reconnecting: false,
+                error: friendly,
+              });
+              return;
+            }
+            if (!hasDataRef.current) {
+              setState({
+                scopeKey: activeScope,
+                data: initialRef.current,
+                loading: false,
+                reconnecting: false,
+                error: friendly,
+              });
+            } else {
+              consecutiveFailureRef.current += 1;
+              const reconnectingNow = consecutiveFailureRef.current >= 2;
+              setState((prev) => (
+                prev.scopeKey === activeScope
+                  ? { ...prev, loading: false, reconnecting: reconnectingNow }
+                  : prev
+              ));
+            }
+            if (!queuedRef.current && (hasDataRef.current || isTransientFetchError(e))) {
+              scheduleRetry();
+            }
+          } finally {
+            if (ctrlRef.current === ctrl) {
+              ctrlRef.current = null;
+            }
+          }
+
+          if (
+            authorityRef.current !== runAuthority
+            || !enabledRef.current
+            || scopeKeyRef.current !== activeScope
+            || !queuedRef.current
+          ) {
+            return;
+          }
+          shouldResetBackoff = queuedResetBackoffRef.current;
+          queuedRef.current = false;
+          queuedResetBackoffRef.current = false;
         }
-        if (hasDataRef.current || isTransientFetchError(e)) scheduleRetry();
+      };
+
+      const cycle = execute(resetBackoff);
+      inFlightRef.current = cycle;
+      try {
+        await cycle;
       } finally {
-        if (!ctrl.signal.aborted) {
-          setLoading(false);
+        if (inFlightRef.current === cycle) {
+          inFlightRef.current = null;
         }
       }
     },
@@ -112,38 +233,60 @@ export function useResilientQuery<T>(
 
   runRef.current = run;
 
-  const refetch = useCallback(async () => {
-    await run(true);
+  const refetch = useCallback(async (opts?: UseResilientQueryRefetchOptions) => {
+    await run(true, Boolean(opts?.preempt));
   }, [run]);
 
-  const depKey = JSON.stringify(options.deps ?? []);
-
   useEffect(() => {
+    authorityRef.current += 1;
+    queuedRef.current = false;
+    queuedResetBackoffRef.current = false;
+    hasDataRef.current = false;
+    consecutiveFailureRef.current = 0;
+    attemptRef.current = 0;
+    ctrlRef.current?.abort();
+    ctrlRef.current = null;
+    inFlightRef.current = null;
+    clearRetry();
+
     if (!enabled) {
-      setLoading(false);
-      setReconnecting(false);
-      setError(null);
-      hasDataRef.current = false;
-      consecutiveFailureRef.current = 0;
-      setDataState(initialRef.current);
-      ctrlRef.current?.abort();
-      clearRetry();
+      setState({
+        scopeKey: null,
+        data: initialRef.current,
+        loading: false,
+        reconnecting: false,
+        error: null,
+      });
       return;
     }
-    void run(true);
+
+    setState({
+      scopeKey,
+      data: initialRef.current,
+      loading: true,
+      reconnecting: false,
+      error: null,
+    });
+    void run(true, true);
     return () => {
+      authorityRef.current += 1;
+      queuedRef.current = false;
+      queuedResetBackoffRef.current = false;
       ctrlRef.current?.abort();
+      ctrlRef.current = null;
+      inFlightRef.current = null;
       clearRetry();
     };
-  }, [enabled, clearRetry, run, depKey]);
+  }, [enabled, clearRetry, run, scopeKey]);
 
   useEffect(() => {
     if (!enabled) return;
-    const onRecovery = () => {
-      void run(true);
+    const unResync = onResync(() => {
+      void run(true, true);
+    });
+    const onBoot = () => {
+      void run(true, true);
     };
-    const unResync = onResync(onRecovery);
-    const onBoot = () => onRecovery();
     window.addEventListener("codeterm-web-boot-changed", onBoot);
     return () => {
       unResync();
@@ -151,5 +294,13 @@ export function useResilientQuery<T>(
     };
   }, [enabled, run]);
 
-  return { data, loading, reconnecting, error, refetch, setData };
+  const current = scopeKey !== null && state.scopeKey === scopeKey;
+  return {
+    data: current ? state.data : initialRef.current,
+    loading: Boolean(scopeKey !== null && (!current || state.loading)),
+    reconnecting: Boolean(current && state.reconnecting),
+    error: current ? state.error : null,
+    refetch,
+    setData,
+  };
 }

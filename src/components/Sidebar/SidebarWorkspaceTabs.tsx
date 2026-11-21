@@ -13,6 +13,7 @@ import type {
 } from "../../lib/types";
 import { selectTeamStaffingManager, type TeamMemberRole } from "../../lib/teamActions";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
+import { usePlanProjectionStatusOptional } from "../Canvas/PlansProvider";
 import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
 import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
 import { SortableContext, SortableRow, verticalListSortingStrategy, TAB_PREFIX, TEAM_PREFIX } from "./sortable";
@@ -47,8 +48,16 @@ import {
 } from "./workspaceTeamModel";
 export type { TeamTabMember } from "./workspaceTeamModel";
 
+import type { TeamPlanCountMeta } from "./teamTaskStatus";
+
 type TeamPlan = Plan & { team_id?: string | null };
 type TeamSection = { teamId: string; index: number };
+interface TeamPlanProjection {
+  plan: Plan;
+  indexOnly: boolean;
+  indexTaskCount: number | null;
+  indexOpenTaskCount: number | null;
+}
 
 function indexedPlan(entry: PlanIndexEntry): Plan {
   return {
@@ -65,6 +74,18 @@ function indexedPlan(entry: PlanIndexEntry): Plan {
     loops: [],
     elements: [],
     tasks: [],
+    ...(entry.task_count === 0 ? {
+      task_counts: {
+        total: 0,
+        pending: 0,
+        in_progress: 0,
+        in_review: 0,
+        blocked: 0,
+        paused: 0,
+        done: 0,
+        cancelled: 0,
+      },
+    } : {}),
     canvas: { viewport: null },
     owner_history: [],
   };
@@ -73,21 +94,51 @@ function indexedPlan(entry: PlanIndexEntry): Plan {
 function newestActivePlansByTeam(
   plans: readonly TeamPlan[],
   planIndex: readonly PlanIndexEntry[],
-): Map<string, Plan> {
+): Map<string, TeamPlanProjection> {
   const fullById = new Map(plans.map((plan) => [plan.id, plan]));
-  const grouped = new Map<string, Plan>();
+  const grouped = new Map<string, TeamPlanProjection>();
   const indexedIds = new Set(planIndex.map((entry) => entry.plan_id));
-  const candidates = [
-    ...planIndex.map((entry) => fullById.get(entry.plan_id) ?? indexedPlan(entry)),
-    ...plans.filter((plan) => !indexedIds.has(plan.id)),
+  const candidates: TeamPlanProjection[] = [
+    ...planIndex.map((entry): TeamPlanProjection => {
+      const full = fullById.get(entry.plan_id);
+      if (!full) {
+        return {
+          plan: indexedPlan(entry),
+          indexOnly: true,
+          indexTaskCount: entry.task_count ?? null,
+          indexOpenTaskCount: entry.open_task_count ?? null,
+        };
+      }
+      const preferIndexTitle = Boolean(entry.title.trim())
+        && (entry.updated_at >= (full.updated_at ?? 0) || !full.title.trim());
+      const mergedStatus = entry.updated_at > (full.updated_at ?? 0) ? entry.status : full.status;
+      const plan = preferIndexTitle || mergedStatus !== full.status
+        ? { ...full, title: preferIndexTitle ? entry.title : full.title, status: mergedStatus }
+        : full;
+      return {
+        plan,
+        indexOnly: false,
+        indexTaskCount: entry.task_count ?? null,
+        indexOpenTaskCount: entry.open_task_count ?? null,
+      };
+    }),
+    ...plans
+      .filter((plan) => !indexedIds.has(plan.id))
+      .map((plan): TeamPlanProjection => ({
+        plan,
+        indexOnly: false,
+        indexTaskCount: null,
+        indexOpenTaskCount: null,
+      })),
   ];
-  for (const plan of candidates) {
+  for (const candidate of candidates) {
+    const { plan } = candidate;
     if (!plan.team_id || plan.status !== "active") continue;
     const current = grouped.get(plan.team_id);
-    const currentUpdatedAt = current?.updated_at ?? current?.created_at ?? 0;
+    const currentUpdatedAt = current?.plan.updated_at ?? current?.plan.created_at ?? 0;
     const updatedAt = plan.updated_at ?? plan.created_at ?? 0;
-    if (!current || updatedAt > currentUpdatedAt || (updatedAt === currentUpdatedAt && plan.id > current.id)) {
-      grouped.set(plan.team_id, plan);
+    if (!current || updatedAt > currentUpdatedAt || (updatedAt === currentUpdatedAt && plan.id > current.plan.id)) {
+      grouped.set(plan.team_id, candidate);
     }
   }
   return grouped;
@@ -229,13 +280,14 @@ export function SidebarWorkspaceTabs({
     () => new Map(teams.filter((team) => team.workspace_id === ws.id).map((team) => [team.id, team])),
     [teams, ws.id],
   );
+  const planProjectionStatus = usePlanProjectionStatusOptional();
   const plansByTeam = useMemo(
     () => newestActivePlansByTeam(plans as TeamPlan[], planIndex),
     [plans, planIndex],
   );
   const displayedAttention = useMemo(() => Object.fromEntries(sortedTabs.map(tab => {
     const attention = tabAttentionByTab?.[tab.id] ?? tabAttention(tab, tabStatuses[tab.id], []);
-    const loop = tab.team_id ? plansByTeam.get(tab.team_id)?.control_loop : undefined;
+    const loop = tab.team_id ? plansByTeam.get(tab.team_id)?.plan.control_loop : undefined;
     return [tab.id, tab.role_profile === "curator" ? curatorTabAttention(attention, loop) : attention];
   })), [sortedTabs, tabAttentionByTab, tabStatuses, plansByTeam]);
 
@@ -372,7 +424,35 @@ export function SidebarWorkspaceTabs({
       workspace_id: ws.id,
     };
     const managerTabId = selectTeamStaffingManager(managers.map((member) => member.tab));
-    const plan = plansByTeam.get(teamId) ?? null;
+    const planEntry = plansByTeam.get(teamId) ?? null;
+    const plan = planEntry?.plan ?? null;
+    const planCountMeta: TeamPlanCountMeta | undefined = planEntry || planProjectionStatus
+      ? {
+          indexOnly: planEntry?.indexOnly ?? false,
+          indexTaskCount: planEntry?.indexTaskCount ?? null,
+          indexOpenTaskCount: planEntry?.indexOpenTaskCount ?? null,
+          loading: Boolean(
+            planProjectionStatus && (
+              !planProjectionStatus.ready
+              || planProjectionStatus.indexLoading
+              || (planProjectionStatus.summariesActive && planProjectionStatus.summariesLoading)
+            ),
+          ),
+          unavailable: Boolean(
+            planProjectionStatus && (
+              !planProjectionStatus.ready
+              || Boolean(planProjectionStatus.indexError)
+              || (planProjectionStatus.summariesActive && Boolean(planProjectionStatus.summariesError))
+            ),
+          ),
+          stale: Boolean(
+            planProjectionStatus && (
+              planProjectionStatus.indexReconnecting
+              || (planProjectionStatus.summariesActive && planProjectionStatus.summariesReconnecting)
+            ),
+          ),
+        }
+      : undefined;
     const teamCrons = workspaceCrons.filter((job) => job.team_id === teamId);
 
     rows.push(
@@ -389,6 +469,7 @@ export function SidebarWorkspaceTabs({
         team={team}
         workspaceName={ws.name}
         plan={plan}
+        planCountMeta={planCountMeta}
         tabs={tabs}
         workingManagerCount={countWorkingTabs(managers.map((member) => member.tab), tabStatuses)}
         workingAgentCount={countWorkingTabs(agents.map((member) => member.tab), tabStatuses)}
