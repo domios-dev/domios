@@ -148,3 +148,35 @@ assert.equal(Object.values(declared.geminiOauth.public).some(path => /token/.tes
 assert.deepEqual(declared.geminiSettings.public, {selectedType: "security.auth.selectedType"});
 assert.equal(declared.geminiSettings.secret, undefined);
 console.log("✓ ACP quota reader: Google sign-in only, host-filled token, per-model parse, named reasons, no raw body or project");
+
+const antigravity = runtime.launchProfiles.antigravity;
+assert.equal(antigravity.binary, "agy");
+assert.deepEqual(antigravity.args, ["acp"]);
+assert.equal(antigravity.icon, "antigravity-color.svg");
+assert.equal(antigravity.limitsSource.kind, "unavailable");
+assert.equal(typeof antigravity.limitsSource.reason, "string");
+assert.equal(antigravity.limitsSource.reason.trim(), antigravity.limitsSource.reason);
+assert.ok(antigravity.limitsSource.reason.length > 0 && antigravity.limitsSource.reason.length <= 240);
+assert.equal(/[\u0000-\u001f\u007f]/.test(antigravity.limitsSource.reason), false);
+assert.ok(manifest.permissions.subprocess.allow.includes("agy"), "Antigravity launch binary is allowlisted");
+
+const runtimeFiles = fs.readFileSync(new URL("../runtime-files.txt", import.meta.url), "utf8").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+assert.ok(runtimeFiles.includes(antigravity.icon), "Antigravity icon is registered in runtime-files.txt");
+const iconBytes = fs.readFileSync(new URL(`../${antigravity.icon}`, import.meta.url));
+assert.ok(iconBytes.length > 0 && iconBytes.length <= 8 * 1024, "Antigravity icon fits host SVG size bound");
+const iconSvg = iconBytes.toString("utf8");
+assert.match(iconSvg, /^<svg viewBox="0 0 24 24" xmlns="http:\/\/www\.w3\.org\/2000\/svg">/);
+assert.equal(/<(mask|filter|script|style|title|foreignObject)\b/i.test(iconSvg), false, "Antigravity icon uses only sanitizer-allowed SVG elements");
+const definedIds = new Set([...iconSvg.matchAll(/\bid="([A-Za-z_][A-Za-z0-9_-]*)"/g)].map(match => match[1]));
+const referencedIds = [...iconSvg.matchAll(/url\(#([A-Za-z_][A-Za-z0-9_-]*)\)/g)].map(match => match[1]);
+assert.ok(definedIds.size > 0 && referencedIds.length > 0, "Antigravity color mark uses local gradients");
+for (const id of referencedIds) assert.ok(definedIds.has(id), `local gradient reference #${id} must be defined`);
+
+const runtimeManifest = JSON.parse(fs.readFileSync(new URL("./runtime-manifest.json", import.meta.url), "utf8"));
+assert.deepEqual(runtimeManifest.agentRuntime.launchProfiles.antigravity, antigravity, "runtime-manifest.json stays in sync with plugin.json");
+
+const antigravityPort = port({status: 200, body});
+const antigravityReply = readProfileLimits(antigravityPort.ports, {profile: "antigravity", source: antigravity.limitsSource}, NOW);
+assert.equal(typeof (antigravityReply as {error: string}).error, "string", "unavailable limitsSource never fabricates a balance or quota snapshot");
+assert.equal(antigravityPort.requests.length, 0, "unavailable limitsSource issues no network request");
+console.log("✓ ACP Antigravity profile: manifest metadata, allowlisted binary, sanitizer-safe color SVG, honest unavailable limits");

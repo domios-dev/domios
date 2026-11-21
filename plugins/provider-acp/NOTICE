@@ -1,8 +1,8 @@
-Gemini and DeepSeek profile marks
-Source: @lobehub/icons-static-svg 1.102.0
-Files: icons/gemini-color.svg, icons/deepseek-color.svg
+Antigravity, Gemini and DeepSeek profile marks
+Source: @lobehub/icons-static-svg (1.102.0: gemini-color.svg, deepseek-color.svg; 1.104.0: antigravity-color.svg)
+Files: icons/antigravity-color.svg, icons/gemini-color.svg, icons/deepseek-color.svg
 Repository: https://github.com/lobehub/lobe-icons
-Modified to remove fixed dimensions, styles and titles.
+Modified to remove fixed dimensions, styles and titles, and to express the Antigravity mark's color fills with bounded local gradients instead of filters/masks.
 
 MIT License
 
