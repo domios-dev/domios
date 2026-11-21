@@ -6,6 +6,23 @@ use std::{collections::HashMap, sync::{atomic::{AtomicBool, AtomicU8, Ordering},
 const CLAIMED: u8 = 1;
 const RETIRED: u8 = 2;
 
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) struct HandoffShutdown(pub Arc<crate::crash::shutdown::ShutdownAdmission>);
+
+fn admit_handoff<T>(svc: &ServiceContext, claim: impl FnOnce() -> T) -> Option<T> {
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(owner) = svc.try_ext::<HandoffShutdown>() { return owner.0.admit(claim); }
+    let _ = svc;
+    crate::crash::shutdown::with_shutdown_admission(claim)
+}
+
+fn observe_handoff_shutdown(svc: &ServiceContext) -> bool {
+    #[cfg(any(test, feature = "test-support"))]
+    if svc.try_ext::<HandoffShutdown>().is_some() { return false; }
+    let _ = svc;
+    crate::crash::shutdown::is_shutting_down()
+}
+
 pub struct SwitchLaunchAuthority {
     host: usize,
     expected: Mutex<Tab>,
@@ -37,9 +54,11 @@ pub fn with_switch_launch<T>(svc: &ServiceContext, expected: &Tab, launch: impl 
 }
 
 pub fn launch_authority(svc: &ServiceContext, tab: &str) -> Option<Arc<SwitchLaunchAuthority>> {
-    ASYNC_LAUNCH.try_with(Clone::clone).ok().flatten()
-        .or_else(|| LAUNCH.with(|slot| slot.borrow().clone()))
-        .filter(|authority| authority.host == Arc::as_ptr(&svc.mux) as usize && authority.expected.lock().id == tab)
+    let authority = match ASYNC_LAUNCH.try_with(Clone::clone) {
+        Ok(authority) => authority,
+        Err(_) => LAUNCH.with(|slot| slot.borrow().clone()),
+    };
+    authority.filter(|authority| authority.host == Arc::as_ptr(&svc.mux) as usize && authority.expected.lock().id == tab)
 }
 
 pub(crate) async fn scope_launch<T>(authority: Option<Arc<SwitchLaunchAuthority>>, future: impl std::future::Future<Output = T>) -> T {
@@ -157,9 +176,10 @@ impl SwitchHandoffAuthority {
     pub(crate) fn retire(&self) { self.claim_state.fetch_or(RETIRED, Ordering::AcqRel); }
 
     pub fn validate(&self, svc: &ServiceContext) -> Result<(), String> {
+        if observe_handoff_shutdown(svc) { return Err("provider_switch_superseded: shutdown closed handoff admission".into()); }
         let mux = svc.mux.read();
-        let valid = self.claim_state.load(Ordering::Acquire) & RETIRED == 0
-            && mux.get_tab(&self.target.id).is_some_and(|tab| self.matches_current(tab));
+        let valid = admit_handoff(svc, || self.claim_state.load(Ordering::Acquire) & RETIRED == 0
+            && mux.get_tab(&self.target.id).is_some_and(|tab| self.matches_current(tab))).unwrap_or(false);
         if valid { Ok(()) } else { Err("provider_switch_superseded: handoff authority revoked before write claim".into()) }
     }
 
@@ -170,13 +190,23 @@ impl SwitchHandoffAuthority {
     }
 
     pub(crate) fn claim(&self, svc: &ServiceContext) -> Result<(), RuntimeFailure> {
+        if observe_handoff_shutdown(svc) { return Err(if self.was_claimed() { RuntimeFailure::WrittenAwaitingEvidence } else { RuntimeFailure::Superseded }); }
         let mux = svc.mux.read();
+        admit_handoff(svc, || {
         if !mux.get_tab(&self.target.id).is_some_and(|tab| self.matches_current(tab)) {
             return Err(if self.was_claimed() { RuntimeFailure::WrittenAwaitingEvidence } else { RuntimeFailure::Superseded });
         }
-        self.claim_state.fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| (state & RETIRED == 0).then_some(state | CLAIMED))
+        self.claim_state.fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| (state == 0).then_some(CLAIMED))
             .map_err(|state| if state & CLAIMED != 0 { RuntimeFailure::WrittenAwaitingEvidence } else { RuntimeFailure::Superseded })?;
         Ok(())
+        }).unwrap_or_else(|| Err(if self.was_claimed() { RuntimeFailure::WrittenAwaitingEvidence } else { RuntimeFailure::Superseded }))
+    }
+
+    pub(crate) fn claim_submit_key(&self, svc: &ServiceContext) -> bool {
+        if observe_handoff_shutdown(svc) { return false; }
+        let mux = svc.mux.read();
+        admit_handoff(svc, || self.claim_state.load(Ordering::Acquire) == CLAIMED
+            && mux.get_tab(&self.target.id).is_some_and(|tab| self.matches_current(tab))).unwrap_or(false)
     }
 }
 
@@ -211,7 +241,9 @@ impl ServiceContext {
             target.session_binding_nonce.as_deref().ok_or("provider_switch_handoff_invalid: nonce missing")?,
         )?;
         let service = self.clone();
+        let continuation = authority.clone(); let continuation_service = self.clone();
         delivery.permit = delivery.permit.with_prewrite_claim(std::sync::Arc::new(move || authority.claim(&service).is_ok()));
+        delivery.permit = delivery.permit.with_submit_key_claim(b"\r", Arc::new(move || continuation.claim_submit_key(&continuation_service)));
         self.send_authenticated_delivery_with_routed_frame(delivery, frame)
     }
 

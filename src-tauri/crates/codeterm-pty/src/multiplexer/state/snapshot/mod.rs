@@ -746,7 +746,6 @@ fn install_leaf(
             session_binding_nonce: restored_identity
                 .and_then(|identity| identity.session_binding_nonce.clone()),
             reported_session_binding_nonce: restored_identity
-                .filter(|_| !failed_launch)
                 .and_then(|identity| identity.reported_session_binding_nonce.clone()),
             // Lineage is recovery evidence, not a session claim, so an unclaimed restore keeps it.
             prior_session_binding_nonces: agent_identity
@@ -830,6 +829,12 @@ fn install_leaf(
             provisional_launch: None,
         },
     );
+    if failed_launch {
+        if let Some(tab) = tabs.get_mut(tab_id).filter(|tab| tab.reported_session_binding_nonce.is_some()) {
+            tab.remember_superseded_binding_nonce();
+            tab.session_binding_nonce = None;
+        }
+    }
     Some(tab_id.clone())
 }
 

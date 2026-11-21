@@ -51,6 +51,18 @@ fn failed_role_pty_export_conserves_typed_failure_and_never_reads_a_session() {
     assert_eq!(current.boot_failure_reason.as_deref(), reason.as_str());
     assert!(current.frozen && current.pty_id.is_none());
     assert!(!current.launch_session_authenticated());
+    let mut contradictory = document;
+    let leaf = &mut contradictory["snapshot"]["workspaces"][0]["tabs"][0]["split_tree"];
+    leaf["agent_identity"]["session_binding_nonce"] = json!("contradictory-proof");
+    leaf["agent_identity"]["reported_session_binding_nonce"] = json!("contradictory-proof");
+    let snapshot: SessionSnapshot = serde_json::from_value(contradictory["snapshot"].clone()).unwrap();
+    assert!(capture_snapshot(&snapshot, |_| panic!("contradiction must refuse before session capture")).unwrap_err().contains("contradicts reported session binding"));
+    assert!(super::fixture_document(&contradictory).unwrap_err().contains("contradicts reported session binding"));
+    let restored = codeterm_service_core::multiplexer::state::MultiplexerState::from_session_snapshot(&snapshot);
+    let current = restored.get_tab("tab").unwrap();
+    assert!(!current.launch_session_authenticated());
+    assert!(codeterm_service_core::service::lazy_restore::automatic_restore_refusal(current).unwrap().contains("contradictory"));
+    assert!(capture_snapshot(&restored.to_session_snapshot(), |_| panic!("restored refusal must not launder evidence")).is_err());
 }
 
 #[test]

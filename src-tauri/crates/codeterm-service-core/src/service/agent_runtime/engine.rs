@@ -41,6 +41,9 @@ pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
 }
 
 pub use accounts::ensure_with_invocation;
+pub(crate) use accounts::ensure_expected;
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) use accounts::expected_launch_commit;
 pub use accounts::{launch_switch_target, reserve_switch_launch};
 pub(crate) use accounts::{account_boundary_ready, account_trial_idle};
 
@@ -266,7 +269,10 @@ async fn ensure_scoped(
     svc: &ServiceContext,
     tab: &str,
     fork: Option<(String, String)>,
+    expected_nonce: Option<String>,
+    original: Option<crate::multiplexer::types::Tab>,
 ) -> Result<Arc<Session>, RuntimeFailure> {
+    check_expected_nonce(svc, tab, expected_nonce.as_deref())?;
     let switch_launch = crate::service::messenger::switch_handoff::launch_authority(svc, tab);
     if let Some(authority) = &switch_launch { authority.validate(svc).map_err(|_| RuntimeFailure::Superseded)?; }
     if svc
@@ -279,11 +285,15 @@ async fn ensure_scoped(
             "Tab is sleeping; open or address it to wake".into(),
         ));
     }
-    super::restore::tab(svc, tab).map_err(RuntimeFailure::Refused)?;
+    let restored = super::restore::tab_expected(svc, tab, expected_nonce.as_deref());
+    check_expected_nonce(svc, tab, expected_nonce.as_deref())?;
+    restored.map_err(RuntimeFailure::Refused)?;
     require_launch_authority(svc, tab)?;
     let (provider, account, thread, nonce, config, cwd, saved_state) = {
         let mux = svc.mux.read();
         let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
+        if expected_nonce.as_deref().is_some_and(|nonce| target.session_binding_nonce.as_deref() != Some(nonce)) { return Err(RuntimeFailure::Superseded); }
+        if original.as_ref().is_some_and(|expected| !accounts::account_authority_matches(expected, target)) { return Err(RuntimeFailure::Superseded); }
         (
             target
                 .agent_type
@@ -314,12 +324,14 @@ async fn ensure_scoped(
     }
     let prompt_service = svc.clone();
     let prompt_tab = tab.to_string();
-    codeterm_plugin::js_runtime::spawn_blocking(move || {
-        crate::service::orchestrator::ensure_tab_runtime_prompt(&prompt_service, &prompt_tab)
+    let prompt_nonce = expected_nonce.clone();
+    let prompt = codeterm_plugin::js_runtime::spawn_blocking(move || {
+        prompt_service.ensure_runtime_prompt_expected(&prompt_tab, prompt_nonce.as_deref())
     })
     .await
-    .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
-    .map_err(RuntimeFailure::Refused)?;
+    .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?;
+    check_expected_nonce(svc, tab, expected_nonce.as_deref())?;
+    prompt.map_err(RuntimeFailure::Refused)?;
     if !super::requested_for_tab(svc, tab) {
         return Err(RuntimeFailure::Refused("Runtime capability absent".into()));
     }
@@ -331,6 +343,8 @@ async fn ensure_scoped(
         mux.ensure_tab_membership_mutable(tab)
             .map_err(RuntimeFailure::Refused)?;
         let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
+        if expected_nonce.as_deref().is_some_and(|nonce| target.session_binding_nonce.as_deref() != Some(nonce)) { return Err(RuntimeFailure::Superseded); }
+        if original.as_ref().is_some_and(|expected| !accounts::account_authority_matches(expected, target)) { return Err(RuntimeFailure::Superseded); }
         if !binding::matches_launch(target, &provider, &account, &nonce) {
             return Err(RuntimeFailure::Superseded);
         }
@@ -437,6 +451,7 @@ async fn ensure_scoped(
             .acquire()
             .await
             .map_err(|_| RuntimeFailure::Superseded)?;
+        check_expected_nonce(svc, tab, expected_nonce.as_deref())?;
         attempted.store(true, std::sync::atomic::Ordering::Release);
         let result = ensure_locked(svc, tab, &provider, &config, &session, fork.as_ref()).await;
         if let Err(reason) = &result {
@@ -461,6 +476,12 @@ async fn ensure_scoped(
         return Err(reason);
     }
     Ok(session)
+}
+
+fn check_expected_nonce(svc: &ServiceContext, tab: &str, expected: Option<&str>) -> Result<(), RuntimeFailure> {
+    if expected.is_some_and(|nonce| !svc.mux.read().get_tab(tab).is_some_and(|current| current.session_binding_nonce.as_deref() == Some(nonce))) {
+        Err(RuntimeFailure::Superseded)
+    } else { Ok(()) }
 }
 
 pub async fn ensure_locked(

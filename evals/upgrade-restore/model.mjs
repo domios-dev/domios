@@ -111,6 +111,7 @@ export function capturedFailedLaunch(document, tab) {
     || history.shape.length || history.transcript.backing_kind !== 'pty'
     || history.transcript.provider !== (tab.agent_type ?? null)
     || tab.chatbackend_plugin_id || tab.surface || identity.agent_runtime_state
+    || identity.reported_session_binding_nonce != null
     || (!tab.role && !tab.agent_type && !identity.restorable_launch?.failed_provider)) return null;
   return evidence;
 }

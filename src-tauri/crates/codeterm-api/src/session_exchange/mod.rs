@@ -92,12 +92,26 @@ fn failed_launch_evidence(node: &SplitNodeSnapshot) -> Option<FailedLaunchEviden
     let identity = agent_identity.as_ref()?;
     (identity.boot_stage == Some(codeterm_types::pty::BootStage::SpawnFailed)
         && identity.agent_runtime_state.is_none()
+        && identity.reported_session_binding_nonce.is_none()
         && chatbackend_plugin_id.is_none() && surface.is_none()
         && (role.is_some() || agent_type.is_some() || identity.restorable_launch.failed_provider.is_some()))
         .then(|| FailedLaunchEvidence {
             boot_stage: codeterm_types::pty::BootStage::SpawnFailed,
             boot_failure_reason: identity.boot_failure_reason.clone(),
         })
+}
+
+fn validate_failed_launch_snapshot(snapshot: &SessionSnapshot) -> Result<(), String> {
+    let mut nodes = Vec::new();
+    for workspace in &snapshot.workspaces { for tab in &workspace.tabs { leaves(&tab.split_tree, &mut nodes); } }
+    for node in nodes {
+        if let SplitNodeSnapshot::Leaf { agent_identity: Some(identity), .. } = node {
+            if identity.boot_stage == Some(codeterm_types::pty::BootStage::SpawnFailed) && identity.reported_session_binding_nonce.is_some() {
+                return Err("Failed launch contradicts reported session binding; passive import/export refused".into());
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Replay synthesizes text from these sizes, so the export grows with message count, not history bytes.
@@ -152,6 +166,7 @@ fn capture_snapshot(
         &SplitNodeSnapshot,
     ) -> Result<Vec<codeterm_types::agent::chat_types::ChatMsg>, String>,
 ) -> Result<(Value, Value, Vec<Value>), String> {
+    validate_failed_launch_snapshot(snapshot)?;
     let mut measurements = Vec::new();
     let mut histories = Vec::new();
     let mut all = Vec::new();
@@ -303,6 +318,7 @@ pub async fn import(
         ));
     }
     let (mut snapshot, mut plans) = import_stream::receive(body).await.map_err(failure)?;
+    validate_failed_launch_snapshot(&snapshot).map_err(failure)?;
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
         let fixture_cwd = codeterm_paths::data_dir().join("upgrade-restore-project");
@@ -349,9 +365,11 @@ pub async fn import(
 fn fixture_document(
     document: &Value,
 ) -> Result<(SessionSnapshot, Vec<codeterm_types::plan::Plan>), String> {
-    import_stream::decode(std::io::Cursor::new(
+    let decoded = import_stream::decode(std::io::Cursor::new(
         serde_json::to_vec(document).map_err(|error| error.to_string())?,
-    ))
+    ))?;
+    validate_failed_launch_snapshot(&decoded.0)?;
+    Ok(decoded)
 }
 
 #[cfg(test)]

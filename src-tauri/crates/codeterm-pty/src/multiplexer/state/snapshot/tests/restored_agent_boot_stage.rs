@@ -18,7 +18,6 @@ fn failed_role_launch_roundtrips_failure_without_creating_live_identity() {
             tab.agent_type = Some("historical-provider".into());
             tab.agent_session_id = Some("historical-session".into());
             tab.session_binding_nonce = Some("historical-nonce".into());
-            tab.reported_session_binding_nonce = Some("historical-nonce".into());
         }
         let encoded = serde_json::to_vec(&state.to_session_snapshot()).unwrap();
         let snapshot = serde_json::from_slice(&encoded).unwrap();
@@ -42,6 +41,25 @@ fn failed_role_launch_roundtrips_failure_without_creating_live_identity() {
         assert!(!tab.launch_session_authenticated());
         assert_eq!(crate::multiplexer::state::tab_status_label(tab, None), "error");
     }
+}
+
+#[test]
+fn contradictory_failed_binding_survives_snapshot_as_refusal_without_authentication() {
+    let (mut state, id) = MultiplexerState::new(); let tab = state.get_tab_mut(&id).unwrap();
+    tab.role = Some(AgentRole::Orchestrator); tab.agent_type = Some("retained-provider".into());
+    tab.agent_session_id = Some("retained-session".into());
+    tab.session_binding_nonce = Some("contradictory-proof".into());
+    tab.reported_session_binding_nonce = Some("contradictory-proof".into());
+    tab.boot_stage = Some(BootStage::SpawnFailed); tab.boot_failure_reason = Some("actual failure".into());
+    let snapshot = state.to_session_snapshot();
+    let restored = MultiplexerState::from_session_snapshot(&snapshot); let tab = restored.get_tab(&id).unwrap();
+    assert_eq!(tab.reported_session_binding_nonce.as_deref(), Some("contradictory-proof"));
+    assert!(tab.session_binding_nonce.is_none()); assert!(!tab.launch_session_authenticated());
+    assert!(tab.prior_session_binding_nonces.iter().any(|prior| prior.nonce == "contradictory-proof" && prior.session_id.as_deref() == Some("retained-session")));
+    assert_eq!(tab.boot_failure_reason.as_deref(), Some("actual failure"));
+    assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed)); assert!(tab.frozen);
+    let recaptured = serde_json::to_value(restored.to_session_snapshot()).unwrap();
+    assert!(recaptured.to_string().contains("contradictory-proof"));
 }
 
 #[test]

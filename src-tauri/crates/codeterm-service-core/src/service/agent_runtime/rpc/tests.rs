@@ -19,6 +19,76 @@ fn switch_authority_fixture() -> (crate::service::test_fixture::ServiceFixture, 
 }
 
 #[tokio::test]
+async fn shutdown_admission_and_primary_claim_have_one_order_at_the_actual_writer() {
+    use crate::service::messenger::switch_handoff::HandoffShutdown;
+    for shutdown_first in [false, true] {
+        let (fixture, _id, authority) = switch_authority_fixture();
+        let admission = Arc::new(crate::crash::shutdown::ShutdownAdmission::default());
+        assert!(fixture.service.set_ext(HandoffShutdown(admission.clone())).is_ok());
+        authority.validate(&fixture.service).unwrap();
+        let (read, _peer) = tokio::io::duplex(4096);
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let client = Client::attach(read, RecordingWriter(bytes.clone()));
+        let owner = fixture.service.clone(); let witness = authority.clone(); let gate = admission.clone();
+        let guard: PrewriteGuard = Arc::new(move || {
+            if shutdown_first { gate.close(); }
+            witness.claim(&owner)?;
+            if !shutdown_first { gate.close(); }
+            Ok(())
+        });
+        let call = RpcCall { method: "fixture/submit".into(), params: json!({"input":"opaque"}), target: None };
+        let result = client.notify_guarded(&call, Some(guard)).await;
+        assert!(authority.validate(&fixture.service).is_err());
+        assert!(!authority.claim_submit_key(&fixture.service));
+        if shutdown_first {
+            assert!(matches!(result, Err(RuntimeFailure::PrewriteRefused(_))));
+            assert!(!authority.was_claimed()); assert!(bytes.lock().is_empty());
+        } else {
+            result.unwrap(); assert!(authority.was_claimed());
+            let owner = fixture.service.clone(); let witness = authority.clone();
+            assert!(matches!(client.notify_guarded(&call, Some(Arc::new(move || witness.claim(&owner)))).await, Err(RuntimeFailure::WrittenAwaitingEvidence)));
+            assert_eq!(String::from_utf8(bytes.lock().clone()).unwrap().lines().count(), 1);
+        }
+    }
+}
+
+#[tokio::test]
+async fn claimed_handoff_key_continuation_obeys_shutdown_at_the_serialized_pty_writer() {
+    use crate::service::messenger::switch_handoff::HandoffShutdown;
+    struct KeyWriter(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for KeyWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> { self.0.lock().extend_from_slice(bytes); Ok(bytes.len()) }
+        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    }
+    for shutdown_first in [false, true] {
+        let (fixture, _id, authority) = switch_authority_fixture();
+        let admission = Arc::new(crate::crash::shutdown::ShutdownAdmission::default());
+        assert!(fixture.service.set_ext(HandoffShutdown(admission.clone())).is_ok());
+        let (read, _peer) = tokio::io::duplex(4096); let primary = Arc::new(Mutex::new(Vec::new()));
+        let client = Client::attach(read, RecordingWriter(primary.clone()));
+        let owner = fixture.service.clone(); let witness = authority.clone();
+        client.notify_guarded(&RpcCall { method: "fixture/submit".into(), params: json!({"input":"opaque"}), target: None },
+            Some(Arc::new(move || witness.claim(&owner)))).await.unwrap();
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let queue = crate::pty::write_queue::WriteQueue::new(Box::new(KeyWriter(bytes.clone())));
+        let gate = crate::pty::write_queue::GuardedInputGate::default(); gate.rearm();
+        let owner = fixture.service.clone(); let witness = authority.clone();
+        let key = gate.issue().unwrap().with_submit_key_claim(b"\r", Arc::new(move || {
+            if shutdown_first { admission.close(); }
+            let admitted = witness.claim_submit_key(&owner);
+            if !shutdown_first { admission.close(); }
+            admitted
+        })).for_submit_key(b"\r");
+        let result = queue.send_and_wait_guarded(b"\r".to_vec(), key.clone(), Duration::from_secs(1));
+        assert_eq!(result.is_ok(), !shutdown_first);
+        assert_eq!(bytes.lock().as_slice(), if shutdown_first { &b""[..] } else { &b"\r"[..] });
+        assert!(queue.send_and_wait_guarded(b"primary again".to_vec(), key, Duration::from_secs(1)).is_err());
+        assert_eq!(String::from_utf8(primary.lock().clone()).unwrap().lines().count(), 1);
+        assert!(authority.was_claimed());
+    }
+}
+
+#[tokio::test]
 async fn switch_authority_is_rechecked_at_request_turn_and_notification_write_claim() {
     for changed in ["team", "parent", "report", "account", "namespace", "nonce", "session", "frozen", "cancel"] {
         for door in ["request", "turn", "notification"] {

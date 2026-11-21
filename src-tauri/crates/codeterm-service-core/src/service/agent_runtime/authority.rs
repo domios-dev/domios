@@ -31,12 +31,16 @@ pub(super) fn record_spawn(
     provider: &str,
     nonce: &str,
 ) -> Result<(), String> {
-    let current = svc.mux.read().get_tab(tab).is_some_and(|target| {
+    if !super::engine::requested(svc, provider) { return Err("Authorized runtime spawn capability changed".into()); }
+    #[cfg(any(test, feature = "test-support"))]
+    super::engine::expected_launch_commit(svc, "record_spawn");
+    let mux = svc.mux.read();
+    let current = mux.get_tab(tab).is_some_and(|target| {
         target.agent_type.as_deref() == Some(provider)
             && target.session_binding_nonce.as_deref() == Some(nonce)
             && matches!(&target.backing, crate::multiplexer::types::TabBacking::ChatBackend { plugin_id, .. } if plugin_id == provider)
     });
-    if !current || !super::engine::requested(svc, provider) {
+    if !current {
         return Err("Authorized runtime spawn binding changed".into());
     }
     LAUNCHES.lock().insert(
