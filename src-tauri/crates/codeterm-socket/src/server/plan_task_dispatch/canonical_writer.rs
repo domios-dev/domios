@@ -252,17 +252,35 @@ pub(crate) fn refuse_lane_integration_while_canonical_held(
     let Some(input) = input else {
         return Ok(());
     };
+    if !shared_checkout::placement_reserves_checkout_writer(input.holder.placement) {
+        return Ok(());
+    }
     let task_id = &input.task_id;
     let holder_task_id = &input.holder.task_id;
     let holder_attempt_id = &input.holder.attempt_id;
-    let canonical = &input.canonical_path;
+    let canonical = input.canonical_path.trim();
+    if canonical.is_empty() {
+        return Ok(());
+    }
+    let ancestry_target = if let Some(worktree_primary) =
+        shared_checkout::resolved_git_primary_checkout_path(&input.worktree_path)
+    {
+        if shared_checkout::resolved_checkout_target(&worktree_primary)
+            != shared_checkout::resolved_checkout_target(canonical)
+        {
+            return Ok(());
+        }
+        worktree_primary
+    } else {
+        canonical.to_string()
+    };
     if codeterm_service_core::service::worker_lane::git_value(
         &input.worktree_path,
         ["rev-parse", "--verify", "HEAD^{commit}"],
     )
     .ok()
     .is_some_and(|tip| {
-        codeterm_service_core::service::worker_lane::is_ancestor(canonical, &tip, "HEAD")
+        codeterm_service_core::service::worker_lane::is_ancestor(&ancestry_target, &tip, "HEAD")
     }) {
         return Ok(());
     }

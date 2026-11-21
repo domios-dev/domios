@@ -25,6 +25,18 @@ struct ClosedReviewRead {
     _competition_group_id: Option<String>,
 }
 
+#[derive(serde::Deserialize)]
+struct LaneIntegrationCandidate {
+    target_task_id: String,
+    worktree_path: String,
+    target_plan_canonical: String,
+    holder_plan_id: String,
+    holder_task_id: String,
+    holder_attempt_id: String,
+    holder_placement: crate::plan::WorkerPlacement,
+    holder_checkout: String,
+}
+
 impl PlanDatabase {
     pub(in crate::service_plan) fn task_review_worker_projection(
         &self,
@@ -53,28 +65,128 @@ impl PlanDatabase {
         plan: &str,
         task: &str,
     ) -> Result<Option<crate::service_plan::LaneIntegrationRead>, PlanError> {
-        let connection = self.connection.lock();
-        record_query();
-        let raw: Option<String> = connection.query_row(
-            "WITH holder AS (SELECT t.task_id,a.position FROM plan_tasks t JOIN plan_task_attempts a
-                ON a.plan_id=t.plan_id AND a.task_id=t.task_id WHERE t.plan_id=?1
-                    AND json_extract(a.row_json,'$.closed_at') IS NULL AND json_extract(a.row_json,'$.retired_at') IS NULL
-                    AND CASE WHEN json_type(a.row_json,'$.placement') IS NULL THEN 0
-                        WHEN json_type(a.row_json,'$.placement')='text' THEN json_extract(a.row_json,'$.placement')<>'isolated_lane'
-                        ELSE json('invalid worker placement') END
-                ORDER BY t.position,a.position LIMIT 1)
-             SELECT json_object('plan_id',p.id,'task_id',t.task_id,'worktree_path',json_extract(t.row_json,'$.lane.worktree_path'),
-                'canonical_path',CASE WHEN trim(coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),?3)=''
-                    THEN json_extract(p.header_json,'$.project_path') ELSE json_extract(p.header_json,'$.canonical_project_path') END,
-                'holder',json_object('task_id',h.task_id,'attempt_id',json_extract(a.row_json,'$.id'),
-                    'placement',json_extract(a.row_json,'$.placement')))
-             FROM plans p JOIN plan_tasks t ON t.plan_id=p.id JOIN holder h
-                JOIN plan_task_attempts a ON a.plan_id=p.id AND a.task_id=h.task_id AND a.position=h.position
-             WHERE p.id=?1 AND t.task_id=?2 AND h.task_id<>t.task_id
-                AND trim(coalesce(json_extract(t.row_json,'$.lane.worktree_path'),''),?3)<>''",
-            params![plan,task,super::super::status_queries::WHITESPACE],|row|column(row,0),
-        ).optional().map_err(db_error)?;
-        raw.map(|raw| decode(plan, &raw)).transpose()
+        let sql = format!(
+            "WITH target AS (
+                SELECT p.id AS plan_id,
+                    t.task_id,
+                    CASE
+                        WHEN trim(coalesce(json_extract(t.row_json,'$.lane.worktree_path'),''),?3)<>''
+                            THEN json_extract(t.row_json,'$.lane.worktree_path')
+                        ELSE (
+                            SELECT json_extract(la.row_json,'$.worktree_path')
+                            FROM plan_task_attempts la
+                            WHERE la.plan_id=t.plan_id AND la.task_id=t.task_id
+                                AND coalesce(json_extract(la.row_json,'$.placement'),'isolated_lane')='isolated_lane'
+                                AND trim(coalesce(json_extract(la.row_json,'$.worktree_path'),''),?3)<>''
+                            ORDER BY la.position DESC LIMIT 1
+                        )
+                    END AS worktree_path,
+                    CASE WHEN trim(coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),?3)=''
+                        THEN json_extract(p.header_json,'$.project_path')
+                        ELSE json_extract(p.header_json,'$.canonical_project_path')
+                    END AS plan_canonical
+                FROM plans p JOIN plan_tasks t ON t.plan_id=p.id
+                WHERE p.id=?1 AND t.task_id=?2
+            ),
+            candidates AS (
+                SELECT
+                    target.task_id AS target_task_id,
+                    target.worktree_path,
+                    target.plan_canonical AS target_plan_canonical,
+                    hp.id AS holder_plan_id,
+                    t.task_id AS holder_task_id,
+                    json_extract(a.row_json,'$.id') AS holder_attempt_id,
+                    json_extract(a.row_json,'$.placement') AS holder_placement,
+                    CASE
+                        WHEN trim(coalesce(json_extract(a.row_json,'$.checkout_path'),''),?3)<>''
+                            THEN json_extract(a.row_json,'$.checkout_path')
+                        WHEN trim(coalesce(json_extract(a.row_json,'$.worktree_path'),''),?3)<>''
+                            THEN json_extract(a.row_json,'$.worktree_path')
+                        WHEN trim(coalesce(json_extract(hp.header_json,'$.canonical_project_path'),''),?3)<>''
+                            THEN json_extract(hp.header_json,'$.canonical_project_path')
+                        ELSE json_extract(hp.header_json,'$.project_path')
+                    END AS holder_checkout,
+                    (a.plan_id=?1) AS same_plan,
+                    hp.updated_at AS holder_plan_updated_at,
+                    t.position AS holder_task_pos,
+                    a.position AS holder_attempt_pos
+                FROM target
+                JOIN plan_task_attempts a ON a.open
+                JOIN plan_tasks t ON t.plan_id=a.plan_id AND t.task_id=a.task_id
+                JOIN plans hp ON hp.id=a.plan_id
+                WHERE trim(coalesce(target.worktree_path,''),?3)<>''
+                    AND NOT (a.plan_id=target.plan_id AND a.task_id=target.task_id)
+                    AND {writer}
+            )
+            SELECT json_object(
+                'target_task_id',target_task_id,
+                'worktree_path',worktree_path,
+                'target_plan_canonical',target_plan_canonical,
+                'holder_plan_id',holder_plan_id,
+                'holder_task_id',holder_task_id,
+                'holder_attempt_id',holder_attempt_id,
+                'holder_placement',holder_placement,
+                'holder_checkout',holder_checkout
+            )
+            FROM candidates
+            WHERE trim(coalesce(holder_checkout,''),?3)<>''
+            ORDER BY same_plan DESC, holder_plan_updated_at DESC, holder_plan_id, holder_task_pos, holder_attempt_pos",
+            writer = super::super::read_projections::checkout::LIVE_CHECKOUT_WRITER_PREDICATE,
+        );
+        let rows = {
+            let connection = self.connection.lock();
+            record_query();
+            let mut statement = connection.prepare(&sql).map_err(db_error)?;
+            let mapped = statement
+                .query_map(
+                    params![plan, task, super::super::status_queries::WHITESPACE],
+                    |row| column::<String>(row, 0),
+                )
+                .map_err(db_error)?;
+            mapped.collect::<Result<Vec<_>, _>>().map_err(db_error)?
+        };
+        if rows.is_empty() {
+            return Ok(None);
+        }
+        let mut target_primary: Option<Option<String>> = None;
+        let mut target_resolved: Option<String> = None;
+        for raw in rows {
+            let candidate: LaneIntegrationCandidate = decode(plan, &raw)?;
+            let primary = target_primary.get_or_insert_with(|| {
+                crate::service_plan::shared_checkout::resolved_git_primary_checkout_path(
+                    &candidate.worktree_path,
+                )
+            });
+            let expected = target_resolved.get_or_insert_with(|| {
+                primary
+                    .as_deref()
+                    .map(crate::service_plan::shared_checkout::canonical_path)
+                    .unwrap_or_else(|| {
+                        crate::service_plan::shared_checkout::resolved_checkout_target(
+                            &candidate.target_plan_canonical,
+                        )
+                    })
+            });
+            let holder_resolved = crate::service_plan::shared_checkout::resolved_checkout_target(
+                &candidate.holder_checkout,
+            );
+            if holder_resolved != *expected {
+                continue;
+            }
+            let canonical_path = primary.clone().unwrap_or(candidate.holder_checkout);
+            return Ok(Some(crate::service_plan::LaneIntegrationRead {
+                plan_id: candidate.holder_plan_id,
+                task_id: candidate.target_task_id,
+                worktree_path: candidate.worktree_path,
+                canonical_path,
+                holder: crate::service_plan::CanonicalWriterHoldRead {
+                    task_id: candidate.holder_task_id,
+                    attempt_id: candidate.holder_attempt_id,
+                    placement: candidate.holder_placement,
+                },
+            }));
+        }
+        Ok(None)
     }
 
     pub(in crate::service_plan) fn closed_review_continuation_projection(

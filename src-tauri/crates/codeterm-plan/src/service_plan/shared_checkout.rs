@@ -1,7 +1,9 @@
 use super::{PlanError, PlanStore};
 #[cfg(test)]
-use crate::plan::{Plan, Task};
-use crate::plan::{TaskFiles, WorkerPlacement};
+use crate::plan::Plan;
+use crate::plan::{
+    ExecutionIntent, Task, TaskExecutionAttempt, TaskFiles, TaskStatus, WorkerPlacement,
+};
 mod history;
 mod inspection;
 mod plain_folder;
@@ -28,6 +30,54 @@ fn canonical(plan: &Plan) -> String {
     canonical_path(path)
 }
 
+pub fn placement_reserves_checkout_writer(placement: WorkerPlacement) -> bool {
+    matches!(
+        placement,
+        WorkerPlacement::CanonicalWriter | WorkerPlacement::Shared
+    )
+}
+
+pub fn has_exact_confirmed_executor_termination(attempt: &TaskExecutionAttempt) -> bool {
+    attempt.mesh_peer.is_none()
+        && !attempt.id.trim().is_empty()
+        && !attempt.executor_tab_id.trim().is_empty()
+        && attempt.executor_termination.as_ref().is_some_and(|receipt| {
+            receipt.attempt_id == attempt.id
+                && receipt.executor_tab_id == attempt.executor_tab_id
+                && receipt.session_id == attempt.session_id
+                && receipt.session_binding_nonce == attempt.session_binding_nonce
+        })
+}
+
+pub fn attempt_reserves_checkout_writer(task: &Task, attempt: &TaskExecutionAttempt) -> bool {
+    attempt.closed_at.is_none()
+        && attempt.retired_at.is_none()
+        && task.execution_intent.requires_repository()
+        && placement_reserves_checkout_writer(attempt.placement)
+        && attempt.execution_intent != Some(ExecutionIntent::ReadOnly)
+        && !(task.status == TaskStatus::Cancelled
+            && has_exact_confirmed_executor_termination(attempt))
+}
+
+pub fn attempt_recorded_checkout<'a>(
+    attempt: &'a TaskExecutionAttempt,
+    plan_checkout: &'a str,
+) -> &'a str {
+    attempt
+        .checkout_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .or_else(|| {
+            attempt
+                .worktree_path
+                .as_deref()
+                .map(str::trim)
+                .filter(|path| !path.is_empty())
+        })
+        .unwrap_or(plan_checkout)
+}
+
 pub(in crate::service_plan) fn canonical_path(path: &str) -> String {
     let resolved = std::fs::canonicalize(path).ok();
     codeterm_paths::normalize_cwd(
@@ -37,6 +87,52 @@ pub(in crate::service_plan) fn canonical_path(path: &str) -> String {
             .as_deref()
             .unwrap_or(path),
     )
+}
+
+pub fn resolved_git_primary_checkout_path(path: &str) -> Option<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || !std::path::Path::new(trimmed).exists() {
+        return None;
+    }
+    let (git_dir, common_dir) =
+        codeterm_util::git_checkout::paths(std::path::Path::new(trimmed)).ok()?;
+    if let Some(primary) = common_dir
+        .parent()
+        .filter(|_| common_dir.file_name() == Some(std::ffi::OsStr::new(".git")))
+    {
+        return Some(codeterm_paths::canonical_cwd(&primary.to_string_lossy()));
+    }
+    if git_dir == common_dir {
+        let resolved = std::fs::canonicalize(trimmed).ok();
+        return Some(codeterm_paths::canonical_cwd(
+            resolved
+                .as_ref()
+                .map(|path| path.to_string_lossy())
+                .as_deref()
+                .unwrap_or(trimmed),
+        ));
+    }
+    Some(codeterm_paths::canonical_cwd(&common_dir.to_string_lossy()))
+}
+
+pub fn resolved_checkout_target(path: &str) -> String {
+    resolved_git_primary_checkout_path(path)
+        .map(|primary| canonical_path(&primary))
+        .unwrap_or_else(|| canonical_path(path))
+}
+
+fn attempt_matches_checkout(
+    attempt: &CheckoutAttemptRead,
+    plan_checkout: &str,
+    target_checkout: &str,
+) -> bool {
+    let effective = attempt
+        .checkout_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .unwrap_or(plan_checkout);
+    !effective.trim().is_empty() && resolved_checkout_target(effective) == target_checkout
 }
 
 #[cfg(test)]
@@ -54,19 +150,16 @@ pub(crate) fn validate_exclusive_checkout_at(
     task_id: &str,
     checkout: &str,
 ) -> Result<(), String> {
-    for owner_plan in plans
-        .iter()
-        .filter(|other| canonical_path(&other.checkout) == canonical_path(checkout))
-    {
+    let target = resolved_checkout_target(checkout);
+    for owner_plan in plans {
         for owner in &owner_plan.tasks {
             if owner_plan.id == plan_id && owner.id == task_id {
                 continue;
             }
-            if owner
-                .execution_attempts
-                .iter()
-                .any(|attempt| !attempt.placement.is_isolated_lane())
-            {
+            if owner.execution_attempts.iter().any(|attempt| {
+                placement_reserves_checkout_writer(attempt.placement)
+                    && attempt_matches_checkout(attempt, &owner_plan.checkout, &target)
+            }) {
                 return Err(format!(
                     "canonical checkout is held by task '{}' in plan '{}'",
                     owner.id, owner_plan.id
@@ -107,15 +200,16 @@ pub(crate) fn validate_shared_ownership_at(
     checkout: &str,
     files: &TaskFiles,
 ) -> Result<(), String> {
-    for owner_plan in plans
-        .iter()
-        .filter(|other| canonical_path(&other.checkout) == canonical_path(checkout))
-    {
+    let target = resolved_checkout_target(checkout);
+    for owner_plan in plans {
         for owner in &owner_plan.tasks {
             if owner_plan.id == plan_id && owner.id == task_id {
                 continue;
             }
             for attempt in &owner.execution_attempts {
+                if !attempt_matches_checkout(attempt, &owner_plan.checkout, &target) {
+                    continue;
+                }
                 if attempt.placement == WorkerPlacement::CanonicalWriter {
                     return Err(format!(
                         "canonical checkout is held exclusively by task '{}' in plan '{}'",
@@ -294,6 +388,7 @@ impl PlanStore {
                     attempt.placement == WorkerPlacement::Shared
                         && attempt.closed_at.is_none()
                         && attempt.retired_at.is_none()
+                        && attempt.execution_intent != Some(ExecutionIntent::ReadOnly)
                 }) {
                     if let Some(start) = attempt.shared_start_files.as_mut() {
                         for (path, hash) in &added_start {
