@@ -414,6 +414,29 @@ impl ProviderSwitchExt for ServiceContext {
                     .into(),
             );
         }
+        if route.target == TargetRoute::Runtime
+            && (input.launch_parameters.requested_model.is_some()
+                || input.launch_parameters.requested_reasoning_effort.is_some())
+        {
+            let mut mux = self.mux.write();
+            if let Some(current) = mux.get_tab_mut(&tab.id) {
+                if current.agent_type.as_deref() == Some(target)
+                    && current.agent_session_id.as_deref() == Some(session_id.as_str())
+                {
+                    if let Some(requested) = input.launch_parameters.requested_model.as_ref() {
+                        current.agent_requested_model = Some(requested.clone());
+                        current.restorable_launch.requested_model = Some(requested.clone());
+                    }
+                    if let Some(requested) =
+                        input.launch_parameters.requested_reasoning_effort.as_ref()
+                    {
+                        current.reasoning_effort_identity.requested = Some(requested.clone());
+                        current.restorable_launch.requested_reasoning_effort =
+                            Some(requested.clone());
+                    }
+                }
+            }
+        }
         self.persist_general_provider_switch(&tab, target, &input.launch_parameters, &session_id)?;
         let authority = source_authority.ready_target(&ready_target)?;
         operations::progress(self, &tab.id, "handoff");

@@ -37,16 +37,15 @@ fn switch_retirement_cannot_clear_a_replacement_or_reparented_source_after_reap(
         let (entered, observed) = std::sync::mpsc::sync_channel(1);
         let (release, blocked) = std::sync::mpsc::sync_channel(1);
         let blocked = parking_lot::Mutex::new(blocked);
-        assert!(fixture
-            .service
-            .set_ext(SwitchRetirementBoundary(std::sync::Arc::new(move || {
+        let _ = fixture.service.ext_or_init(|| {
+            SwitchRetirementBoundary(std::sync::Arc::new(move || {
                 entered.send(()).unwrap();
                 blocked
                     .lock()
                     .recv_timeout(std::time::Duration::from_secs(10))
                     .unwrap();
-            })))
-            .is_ok());
+            }))
+        });
         let service = fixture.service.clone();
         let retiring = std::thread::spawn(move || service.tear_down_switch_pty(&snap, &source));
         observed
@@ -880,7 +879,8 @@ fn profile_provider_switch_refuses_missing_unknown_and_uninstalled_profile_befor
         let error = fixture
             .service
             .switch_provider_in_place(&id, target, None, None, profile.map(str::to_owned), true)
-            .unwrap_err();
+            .err()
+            .unwrap();
         assert!(error.starts_with(code), "{profile:?}: {error}");
         assert_eq!(
             serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap(),
@@ -899,7 +899,8 @@ fn profile_provider_switch_refuses_missing_unknown_and_uninstalled_profile_befor
             Some("unexpected".into()),
             true,
         )
-        .unwrap_err();
+        .err()
+        .unwrap();
     assert!(
         unexpected.starts_with("unknown_launch_profile:"),
         "{unexpected}"

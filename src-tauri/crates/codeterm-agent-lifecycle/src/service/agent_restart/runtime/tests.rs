@@ -981,7 +981,8 @@ fn provider_switch_profile_runtime_validates_resolves_and_persists_launch_profil
             Some("installed".into()),
             true,
         )
-        .unwrap_err()
+        .err()
+        .unwrap()
         .contains("offered choices"));
     assert_eq!(
         serde_json::to_value(fixture.service.mux.read().get_tab(&fixture.tab).unwrap()).unwrap(),
