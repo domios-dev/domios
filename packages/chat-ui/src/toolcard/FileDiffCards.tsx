@@ -117,6 +117,19 @@ export function FilePathLabel({ path }: { path: string }) {
   </>;
 }
 
+function uniqueToolTexts(event: ToolEvent): string[] {
+  const seen = new Set<string>();
+  const texts: string[] = [];
+  for (const value of [event.detail, event.result]) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    texts.push(value);
+  }
+  return texts;
+}
+
 function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkActions, rawCommand }: { event: ToolEvent; diff: FileDiff; showResult: boolean; initiallyExpanded: boolean; renderHunkActions?: HunkActions; rawCommand: boolean }) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
   const [technicalOpen, setTechnicalOpen] = useState(false);
@@ -129,7 +142,7 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
   const heading = diff.kind === "add" ? `Created ${basename} +${diff.additions}` : `Edited ${name} +${diff.additions} −${diff.deletions}`;
   const cardLabel = heading;
   const language = knownLanguageFromPath(diff.movePath ?? diff.path);
-  const failed = event.status === "error";
+  const textDetails = uniqueToolTexts(event);
   const outcome = toolOutcomeVisual[event.status];
   const OutcomeGlyph = outcome.glyph;
   const path = diff.movePath ?? diff.path;
@@ -192,8 +205,12 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
             <HunkLines hunk={hunk} language={language} />
           </div>
         ))}
-        {(expanded || fullscreen) && showResult && failed && event.result && (
-          <div data-testid="toolcard-result" className="px-3 pt-1"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>
+        {(expanded || fullscreen) && showResult && textDetails.length > 0 && (
+          <div data-testid="toolcard-result" className="flex flex-col gap-1 px-3 pt-1">
+            {textDetails.map((detail, index) => (
+              <ToolOutputContent key={`${index}-${detail.slice(0, 32)}`} text={detail} maxHeight="12rem" />
+            ))}
+          </div>
         )}
         {(expanded || fullscreen) && technicalOpen && rawCommand && <BoundedMessageContent as="pre" data-testid="message-raw-content" collapsedHeight="12rem" className="m-0 whitespace-pre-wrap break-words px-3 pt-1 font-mono text-xs" style={{ color: "var(--ct-muted-fg)" }}>{rawToolPayload(event)}</BoundedMessageContent>}
       </div>

@@ -1,5 +1,5 @@
 import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, RuntimeReduction, TurnInput } from "@codeterm/plugin-sdk";
-import { object, text, reduceTool } from "./runtimeReduceTools";
+import { object, text, reduceTool, validToolCallId } from "./runtimeReduceTools";
 import { planRow, contextUsage } from "./runtimeReducePlan";
 import { commands, sessionSettings } from "./runtimeControls";
 import { copyAccounting, clearEntries, putEntry, removeEntry, mapBytes, mapKeys, utf8Length } from "./runtimeReduceAccounting";
@@ -10,6 +10,7 @@ export interface StreamCursor { replay:number; prompt:number; loading:boolean; u
 // `row` names the row that continues a message whose earlier offset was evicted.
 interface TextCursor { offset:number; chars:number; echo?:string; row?:string }
 const OFFSET_BUDGET=16384;
+const TOOL_ROW_BUDGET=32768;
 interface StreamState {
   epoch:number; nonce:string; sessionId:string; replay:number; prompt:number;
   turn:number; ordinal:number; seq:number; chunk?:TextCursor & {kind:string; id:string};
@@ -17,6 +18,90 @@ interface StreamState {
   evidenced:string[]; compacted:string[]; seenItems:string[]; evictedMessages?:string; loading:boolean; settled:boolean; started:boolean;
 }
 const json=(value:unknown):JsonValue=>value as JsonValue;
+function boundedText(value:string,maxBytes:number):{value:string;truncated:boolean} {
+  if (utf8Length(value)<=maxBytes) return {value,truncated:false};
+  const suffix="…";
+  const suffixBytes=utf8Length(suffix);
+  let output="",bytes=0;
+  for (const character of value) {
+    const size=utf8Length(character);
+    if (bytes+size+suffixBytes>maxBytes) break;
+    output+=character;bytes+=size;
+  }
+  return {value:output+suffix,truncated:true};
+}
+const jsonBytes=(value:unknown):number=>utf8Length(JSON.stringify(value));
+function retainedToolRow(row:ChatMsg):ChatMsg {
+  const retained:ChatMsg={id:row.id,seq:row.seq,type:row.type,content:"",...(row.toolId ? {toolId:row.toolId} : {}),collapsed:true};
+  for (const key of ["toolTitle","toolName"] as const) if (typeof row[key] === "string") retained[key]=boundedText(row[key]!,128).value;
+  if (row.toolKind) retained.toolKind=row.toolKind;
+  if (row.toolStatus) retained.toolStatus=row.toolStatus;
+  if (row.toolError !== undefined) retained.toolError=row.toolError;
+  if (row.toolInterrupted !== undefined) retained.toolInterrupted=row.toolInterrupted;
+  if (typeof row.toolSummary === "string") retained.toolSummary=boundedText(row.toolSummary,128).value;
+  if (typeof row.toolDetail === "string") retained.toolDetail=boundedText(row.toolDetail,192).value;
+  if (typeof row.toolResult === "string") retained.toolResult=boundedText(row.toolResult,192).value;
+  if (typeof row.toolArgs === "string") retained.toolArgs=boundedText(row.toolArgs,192).value;
+  if (row.toolInput !== undefined && jsonBytes(row.toolInput)<=256) retained.toolInput=row.toolInput;
+  if (row.fileDiffs !== undefined && jsonBytes(row.fileDiffs)<=384) retained.fileDiffs=row.fileDiffs;
+  for (const key of ["toolInput","toolArgs","toolResult","toolDetail","fileDiffs","toolSummary"] as const) {
+    if (jsonBytes(retained)<=1024) break;
+    delete retained[key];
+  }
+  return retained;
+}
+function boundedToolRow(row:ChatMsg):ChatMsg {
+  const result:ChatMsg={id:row.id,seq:row.seq,type:row.type,content:"",...(row.toolId ? {toolId:row.toolId} : {}),collapsed:true};
+  let truncated=false;
+  for (const key of ["toolTitle","toolName"] as const) if (typeof row[key] === "string") {
+    const bounded=boundedText(row[key]!,256);result[key]=bounded.value;truncated ||= bounded.truncated;
+  }
+  if (row.toolKind) result.toolKind=row.toolKind;
+  if (row.toolStatus) result.toolStatus=row.toolStatus;
+  if (row.toolError !== undefined) result.toolError=row.toolError;
+  if (row.toolInterrupted !== undefined) result.toolInterrupted=row.toolInterrupted;
+  if (typeof row.toolSummary === "string") {
+    const bounded=boundedText(row.toolSummary,256);result.toolSummary=bounded.value;truncated ||= bounded.truncated;
+  }
+  if (typeof row.toolDetail === "string") {
+    const bounded=boundedText(row.toolDetail,768);result.toolDetail=bounded.value;truncated ||= bounded.truncated;
+  }
+  if (typeof row.toolResult === "string") {
+    const bounded=boundedText(row.toolResult,768);result.toolResult=bounded.value;truncated ||= bounded.truncated;
+  }
+  if (typeof row.toolArgs === "string") {
+    const bounded=boundedText(row.toolArgs,384);result.toolArgs=bounded.value;truncated ||= bounded.truncated;
+  }
+  if (row.toolInput !== undefined) {
+    if (jsonBytes(row.toolInput)<=2048) result.toolInput=row.toolInput;
+    else truncated=true;
+  }
+  if (row.fileDiffs !== undefined) {
+    if (jsonBytes(row.fileDiffs)<=12288) result.fileDiffs=row.fileDiffs;
+    else truncated=true;
+  }
+  const note="ACP tool details were shortened to fit the display budget.";
+  if (truncated) {
+    result.toolDetail=[result.toolDetail,note].filter(Boolean).join("\n");
+  }
+  for (const key of ["toolInput","toolArgs","toolResult","toolDetail","toolSummary","fileDiffs"] as const) {
+    if (jsonBytes(result)<=TOOL_ROW_BUDGET) break;
+    delete result[key];
+    if (!result.toolDetail?.includes(note)) result.toolDetail=[result.toolDetail,note].filter(Boolean).join("\n");
+  }
+  return result;
+}
+function toolPatch(row:ChatMsg, previous:ChatMsg|undefined):ChatMsg {
+  const patch:ChatMsg={id:row.id,seq:row.seq,type:row.type,content:"",...(row.toolId ? {toolId:row.toolId} : {})};
+  if (!previous) return {...row};
+  for (const key of Object.keys(row) as (keyof ChatMsg)[]) {
+    if (["id","seq","type","content","toolId"].includes(key)) continue;
+    const value=row[key];
+    if (value !== undefined && JSON.stringify(value)!==JSON.stringify(previous[key]))
+      (patch as Record<string,unknown>)[key]=value;
+  }
+  return patch;
+}
 function initial(ctx:RuntimeContext, raw:JsonValue, cursor:StreamCursor):StreamState {
   const previous=object(raw);
   if (previous.epoch !== ctx.epoch || previous.nonce !== ctx.bindingNonce || previous.sessionId !== ctx.threadId)
@@ -37,22 +122,29 @@ function initial(ctx:RuntimeContext, raw:JsonValue, cursor:StreamCursor):StreamS
 function emit(state:StreamState, events:AgentEvent[], row:ChatMsg, patch=false):void {
   const previous=state.items[row.id];
   row.seq=previous?.seq ?? ++state.seq;
-  if (utf8Length(JSON.stringify(row)) > 32768) {
-    row={id:row.id,seq:row.seq,type:row.type,content:"[ACP row truncated: update exceeded the display budget]",
+  if (utf8Length(JSON.stringify(row)) > TOOL_ROW_BUDGET) {
+    row=row.type === "tool_call" ? boundedToolRow(row) : {id:row.id,seq:row.seq,type:row.type,content:"[ACP row truncated: update exceeded the display budget]",
       ...(row.toolStatus ? {toolStatus:row.toolStatus} : {}),...(row.toolId ? {toolId:row.toolId} : {})};
   }
-  const retained:ChatMsg={...previous,id:row.id,seq:row.seq,type:row.type,content:"",
+  const retained=row.type === "tool_call" ? retainedToolRow(row) : {...previous,id:row.id,seq:row.seq,type:row.type,content:"",
     ...(row.toolId ? {toolId:row.toolId} : {}),
     ...(row.toolTitle ? {toolTitle:Array.from(row.toolTitle).slice(0,256).join("")} : {}),
     ...(row.toolName ? {toolName:Array.from(row.toolName).slice(0,256).join("")} : {}),
-    ...(row.toolKind ? {toolKind:row.toolKind} : {}),
-    ...(row.toolStatus ? {toolStatus:row.toolStatus} : {})};
-  if (row.toolStatus === "running" && !previous && !admitToolIdentity(state,retained)) {
-    events.push({kind:"chatItem",threadId:state.sessionId,item:{...row,toolStatus:"interrupted",toolInterrupted:true,content:"[ACP tool tracking capacity exhausted]"}});
+    ...(row.toolKind ? {toolKind:row.toolKind} : {}),...(row.toolStatus ? {toolStatus:row.toolStatus} : {})};
+  if (row.toolStatus === "running" && !previous && !admitToolIdentity(state,{id:row.id,seq:row.seq,type:row.type,content:"",
+    ...(row.toolId ? {toolId:row.toolId} : {}),...(row.toolTitle ? {toolTitle:row.toolTitle} : {}),
+    ...(row.toolName ? {toolName:row.toolName} : {}),...(row.toolKind ? {toolKind:row.toolKind} : {}),toolStatus:row.toolStatus})) {
+    let exhausted:ChatMsg={...row,toolStatus:"interrupted",toolInterrupted:true,toolDetail:"[ACP tool tracking capacity exhausted]"};
+    if (jsonBytes(exhausted) > TOOL_ROW_BUDGET) exhausted=boundedToolRow(exhausted);
+    events.push({kind:"chatItem",threadId:state.sessionId,item:exhausted});
     return;
   }
   putEntry(state,"items",row.id,retained);
-  if (!patch || JSON.stringify(previous) !== JSON.stringify(retained) || row.toolInput !== undefined || row.toolResult !== undefined || row.fileDiffs !== undefined || row.toolInterrupted) events.push({kind:patch ? "chatItemPatch" : "chatItem",threadId:state.sessionId,item:row});
+  if (patch) {
+    const update=toolPatch(row,previous);
+    if (Object.keys(update).some(key=>!(["id","seq","type","content","toolId"].includes(key))))
+      events.push({kind:"chatItemPatch",threadId:state.sessionId,item:update});
+  } else events.push({kind:"chatItem",threadId:state.sessionId,item:row});
 }
 function admitToolIdentity(state:StreamState, retained:ChatMsg):boolean {
   let bytes=mapBytes(state,"items")+utf8Length(JSON.stringify({[retained.id]:retained}))-1;
@@ -83,6 +175,13 @@ function rememberOffset(state:StreamState, base:string, cursor:TextCursor):void 
 function rememberControl(state:StreamState, kind:string, update:Record<string,JsonValue>):void {
   const encoded=JSON.stringify(update);
   if (encoded.length <= 16384) putEntry(state,"controls",kind,JSON.parse(encoded) as JsonValue);
+}
+function warnInvalidToolCallId(state:StreamState, events:AgentEvent[]):void {
+  const key="invalid_tool_call_id";
+  if (!Object.prototype.hasOwnProperty.call(state.warnings,key) && Object.keys(state.warnings).length >= 32) return;
+  const count=state.warnings[key] ?? 0;
+  putEntry(state,"warnings",key,Math.min(count+1,Number.MAX_SAFE_INTEGER));
+  if (!count) events.push({kind:"notice",threadId:state.sessionId,message:"Refused ACP tool update with invalid or oversized toolCallId"});
 }
 function warn(state:StreamState, events:AgentEvent[], rawKind:string):void {
   const kind=rawKind.slice(0,128);
@@ -223,17 +322,16 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
       if (kind === "tool_call" || kind === "tool_call_update") {
         if (state.settled && !state.loading) continue;
         closeChunk(ctx,state,events);
-        const id=text(update.toolCallId);
-        const previous=id ? state.items[id] : undefined;
-        if (id && !state.seenItems.includes(id)) {state.ordinal++;state.seenItems.push(id);}
-        const row=reduceTool(update,previous,state.seq+1);
-        if (row && (previous || kind === "tool_call")) {
-          if (kind === "tool_call_update") {
-            if (update.title === undefined) { delete row.toolTitle;delete row.toolName; }
-            if (update.kind === undefined) delete row.toolKind;
-          }
-          emit(state,events,row,kind === "tool_call_update");
+        const rawId=text(update.toolCallId);
+        const id=validToolCallId(rawId);
+        if (!id) {
+          if (rawId) warnInvalidToolCallId(state,events);
+          continue;
         }
+        const previous=state.items[id];
+        if (!state.seenItems.includes(id)) {state.ordinal++;state.seenItems.push(id);}
+        const row=reduceTool(update,previous,state.seq+1);
+        if (row && (previous || kind === "tool_call")) emit(state,events,row,kind === "tool_call_update");
       } else if (kind === "plan") {
         closeChunk(ctx,state,events);
         const id=`${ctx.threadId}:plan`;
