@@ -258,23 +258,26 @@ impl InboxSession for Preparing {
 
 #[tokio::test]
 async fn inbox_retirement_cancels_preparation_without_retry_or_cloud_admission() {
-    use crate::adapter::{AuthenticatedCall, FirebaseTransport};
     struct NoCalls;
     #[async_trait]
-    impl AuthenticatedCall for NoCalls {
-        async fn id_token(&self) -> Result<zeroize::Zeroizing<String>> {
-            panic!("No cloud admission")
+    impl NeighborTransport for NoCalls {
+        async fn send(&self, _: &crate::wire::SignedEnvelope) -> Result<crate::wire::DeliveryStatus> {
+            panic!("No transport admission")
         }
-        async fn invoke(&self, _: &str, _: serde_json::Value) -> Result<serde_json::Value> {
-            panic!("No callable")
+        async fn listen_from_cursor(&self, _: &str, _: Option<&Cursor>) -> Result<Box<dyn crate::receive::InboxListener>> {
+            panic!("No transport admission")
+        }
+        async fn ack(&self, _: &str, _: &str) -> Result<crate::wire::DeliveryResult> {
+            panic!("No transport admission")
+        }
+        async fn peer_keys(&self, _: &str) -> Result<crate::wire::PeerKeys> {
+            panic!("No transport admission")
+        }
+        async fn delivery_status(&self, _: &str) -> Result<crate::wire::DeliveryResult> {
+            panic!("No transport admission")
         }
     }
-    let transport = FirebaseTransport {
-        calls: std::sync::Arc::new(NoCalls),
-        project: "demo-domios".into(),
-        uid: "owner".into(),
-        installation_id: "here".into(),
-    };
+    let transport = NoCalls;
     let (stop, stopped) = tokio::sync::watch::channel(false);
     let (entered, mut seen) = tokio::sync::mpsc::unbounded_channel();
     let session = Preparing { stopped, entered };
