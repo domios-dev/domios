@@ -17,7 +17,6 @@
     "package": "@google/gemini-cli@0.67.0",
     "source": "buildAvailableModes in the package bundle; session/new requires an API key",
     "currentModeId": "default",
-    "availableModes": ["default", "autoEdit", "yolo", "plan"],
-    "launchProfiles": ["gemini-cli"]
+    "availableModes": ["default", "autoEdit", "yolo", "plan"]
   }
 }

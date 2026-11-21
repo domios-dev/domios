@@ -1,6 +1,6 @@
-Antigravity, Gemini and DeepSeek profile marks
-Source: @lobehub/icons-static-svg (1.102.0: gemini-color.svg, deepseek-color.svg; 1.104.0: antigravity-color.svg)
-Files: icons/antigravity-color.svg, icons/gemini-color.svg, icons/deepseek-color.svg
+Antigravity and DeepSeek profile marks
+Source: @lobehub/icons-static-svg (1.102.0: deepseek-color.svg; 1.104.0: antigravity-color.svg)
+Files: icons/antigravity-color.svg, icons/deepseek-color.svg
 Repository: https://github.com/lobehub/lobe-icons
 Modified to remove fixed dimensions, styles and titles, and to express the Antigravity mark's color fills with bounded local gradients instead of filters/masks.
 
@@ -25,4 +25,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Official ACP Registry profile marks
+Source: https://cdn.agentclientprotocol.com/registry/v1/latest/
+Files: grok-build.svg, github-copilot-cli.svg, cline.svg, qwen-code.svg, kimi-code.svg, kilo.svg
+Modified to remove fixed width/height and non-SVG metadata attributes for sanitizer compliance.
+Each mark remains subject to its upstream publisher's license listed in the ACP Registry.
 

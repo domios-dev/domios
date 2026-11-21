@@ -127,12 +127,42 @@ fn plugin_icon_svg_accepts_shipped_color_marks_and_local_gradients() {
     for bytes in [
         include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../../plugins/provider-acp/gemini-color.svg"
+            "/../../../plugins/provider-acp/antigravity-color.svg"
         ))
         .as_slice(),
         include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../../plugins/provider-acp/deepseek-color.svg"
+        ))
+        .as_slice(),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-acp/grok-build.svg"
+        ))
+        .as_slice(),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-acp/github-copilot-cli.svg"
+        ))
+        .as_slice(),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-acp/cline.svg"
+        ))
+        .as_slice(),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-acp/qwen-code.svg"
+        ))
+        .as_slice(),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-acp/kimi-code.svg"
+        ))
+        .as_slice(),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-acp/kilo.svg"
         ))
         .as_slice(),
     ] {

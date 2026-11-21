@@ -39,19 +39,18 @@ export function iconOf(entry: Pick<CatalogEntry, "iconSvg" | "iconColor">): Plug
   return { icon_svg: entry.iconSvg, icon_color: entry.iconColor };
 }
 
-export function GroupLabel({ children }: { children: React.ReactNode }) {
+export function GroupLabel({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <div
-      style={{
-        fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-        fontSize: 10.5,
-        letterSpacing: "0.1em",
-        textTransform: "uppercase",
-        color: "var(--ct-muted)",
-        margin: "0 0 8px 2px",
-      }}
+    <h3
+      className={`m-0 mb-2 text-[13px] font-semibold leading-snug text-[var(--ct-fg)] ${className ?? ""}`.trim()}
     >
       {children}
-    </div>
+    </h3>
   );
 }

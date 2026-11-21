@@ -2,7 +2,12 @@ icon.svg
 plugin.js
 plugin.json
 runtime-files.txt
-gemini-color.svg
 deepseek-color.svg
 antigravity-color.svg
+grok-build.svg
+github-copilot-cli.svg
+cline.svg
+qwen-code.svg
+kimi-code.svg
+kilo.svg
 NOTICE

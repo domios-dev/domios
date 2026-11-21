@@ -10,11 +10,11 @@ import { nativeBridge } from "../../lib/nativeBridge";
  * top-level `AppConfig`. Caller passes the providerId; this component doesn't
  * know which plugin it's rendering for.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
+import { ArrowRight, Plus, X } from "lucide-react";
 import { DefaultModelPicker } from "./DefaultModelPicker";
 import { invoke } from "../../lib/bridge";
 import { Button } from "../shared/Button";
-import { Card } from "../shared/Card";
 import { Chip, type ChipVariant } from "../shared/Chip";
 import { FormRow } from "../shared/FormRow";
 import { LiquidToggle } from "../shared/LiquidToggle";
@@ -58,7 +58,7 @@ export function SchemaRenderer({
 }: SchemaRendererProps) {
   const providerConfig = (values ?? config.agents?.[providerId] ?? {}) as ProviderConfig;
   return (
-    <div className="space-y-5" data-testid="settings-schema" data-provider-id={providerId}>
+    <div className="space-y-4" data-testid="settings-schema" data-provider-id={providerId}>
       <FieldList
         fields={schema}
         providerId={providerId}
@@ -117,15 +117,21 @@ function FieldRenderer({
   hideActions,
   hidePathLinks,
 }: FieldRendererProps) {
+  const fieldId = useId();
   switch (field.kind) {
     case "section": {
       const badges = field.fields.filter((sub) => sub.kind === "badge");
       const body = field.fields.filter((sub) => sub.kind !== "badge");
       return (
-        <Card className="p-4 space-y-3" data-testid="settings-schema-section">
+        <section
+          className="ct-card ct-card--static p-4 space-y-3.5"
+          data-testid="settings-schema-section"
+        >
           <div className="space-y-1">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-medium text-[var(--ct-fg)]">{field.title}</div>
+              <h4 className="m-0 text-[13.5px] font-semibold leading-snug text-[var(--ct-fg)]">
+                {field.title}
+              </h4>
               {badges.length > 0 && (
                 <div className="flex flex-none items-center gap-1.5">
                   <FieldList fields={badges}
@@ -141,7 +147,7 @@ function FieldRenderer({
               )}
             </div>
             {field.description && (
-              <div className="text-xs leading-relaxed text-[var(--ct-muted-fg)]">{field.description}</div>
+              <p className="m-0 text-xs leading-relaxed text-[var(--ct-muted-fg)]">{field.description}</p>
             )}
           </div>
           <FieldList
@@ -154,7 +160,7 @@ function FieldRenderer({
             hideActions={hideActions}
             hidePathLinks={hidePathLinks}
           />
-        </Card>
+        </section>
       );
     }
 
@@ -176,15 +182,16 @@ function FieldRenderer({
       const value = (providerConfig[field.key] as string | undefined) ?? field.default ?? "";
       return (
         <div data-testid="settings-schema-field" data-settings-field={field.key}>
-          <FormRow label={field.label} hint={field.description}>
+          <FormRow label={field.label} htmlFor={fieldId} hint={field.description}>
             <input
+              id={fieldId}
               type="text"
               data-testid="settings-schema-text"
               data-settings-field={field.key}
               value={value}
               placeholder={field.placeholder}
               onChange={(e) => onChange(providerId, { [field.key]: e.target.value })}
-              className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+              className="ct-input ct-input--compact w-full"
             />
           </FormRow>
         </div>
@@ -195,8 +202,9 @@ function FieldRenderer({
       const value = (providerConfig[field.key] as number | undefined) ?? field.default ?? 0;
       return (
         <div data-testid="settings-schema-field" data-settings-field={field.key}>
-          <FormRow label={field.label}>
+          <FormRow label={field.label} htmlFor={fieldId} hint={field.description}>
             <input
+              id={fieldId}
               type="number"
               data-testid="settings-schema-number"
               data-settings-field={field.key}
@@ -204,7 +212,7 @@ function FieldRenderer({
               min={field.min}
               max={field.max}
               onChange={(e) => onChange(providerId, { [field.key]: Number(e.target.value) })}
-              className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+              className="ct-input ct-input--compact w-full"
             />
           </FormRow>
         </div>
@@ -222,19 +230,21 @@ function FieldRenderer({
         </div>;
       }
       return (
-        <div className="flex items-center justify-between" data-testid="settings-schema-field" data-settings-field={field.key}>
-          <span className="text-xs text-[var(--ct-fg)]">{field.label}</span>
-          <select
-            data-testid="settings-schema-select"
-            data-settings-field={field.key}
-            value={value}
-            onChange={(e) => onChange(providerId, { [field.key]: e.target.value })}
-            className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
-          >
-            {field.options.map(([id, label]) => (
-              <option key={id} value={id}>{label}</option>
-            ))}
-          </select>
+        <div data-testid="settings-schema-field" data-settings-field={field.key}>
+          <FormRow label={field.label} htmlFor={fieldId} hint={field.description}>
+            <select
+              id={fieldId}
+              data-testid="settings-schema-select"
+              data-settings-field={field.key}
+              value={value}
+              onChange={(e) => onChange(providerId, { [field.key]: e.target.value })}
+              className="ct-input ct-input--compact w-full"
+            >
+              {field.options.map(([id, label]) => (
+                <option key={id} value={id}>{label}</option>
+              ))}
+            </select>
+          </FormRow>
         </div>
       );
     }
@@ -324,6 +334,17 @@ function FieldRenderer({
 
 // ── Sub-components ───────────────────────────────────────────────
 
+type CompactPairField = Extract<ObjectArrayItemField, { kind: "text" | "number" }>;
+
+function isCompactPairArray(
+  fields: readonly ObjectArrayItemField[],
+): fields is readonly [CompactPairField, CompactPairField] {
+  return (
+    fields.length === 2
+    && fields.every((sub) => sub.kind === "text" || sub.kind === "number")
+  );
+}
+
 function ObjectArrayField({
   field,
   value,
@@ -333,7 +354,9 @@ function ObjectArrayField({
   value: Record<string, unknown>[];
   onChange: (next: Record<string, unknown>[]) => void;
 }) {
-  const itemLabel = field.item_label ?? field.label;
+  const itemLabel = field.item_label ?? "Entry";
+  const addNoun = itemLabel.toLowerCase();
+  const compactPairFields = isCompactPairArray(field.item.fields) ? field.item.fields : null;
   const add = () => onChange([...value, createDefaultObject(field.item.fields)]);
   const remove = (index: number) => onChange(value.filter((_, i) => i !== index));
   const update = (index: number, key: string, nextValue: unknown) => {
@@ -341,14 +364,124 @@ function ObjectArrayField({
   };
 
   return (
-    <div className="space-y-2" data-testid="settings-schema-array" data-settings-field={field.key}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-xs text-[var(--ct-fg)]">{field.label}</div>
-          {field.description && (
-            <div className="text-[10px] text-[var(--ct-muted)]">{field.description}</div>
-          )}
+    <div className="space-y-2.5" data-testid="settings-schema-array" data-settings-field={field.key}>
+      <div className="space-y-0.5">
+        <div className="text-xs font-medium text-[var(--ct-fg)]">{field.label}</div>
+        {field.description && (
+          <p className="m-0 text-[11px] leading-relaxed text-[var(--ct-muted-fg)]">{field.description}</p>
+        )}
+      </div>
+
+      {value.length === 0 ? (
+        <div
+          data-testid="settings-schema-array-empty"
+          className="rounded-[10px] border border-dashed border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-fg)_1.5%,var(--ct-bg))] px-3 py-2.5"
+        >
+          <div className="text-xs font-medium text-[var(--ct-fg)]">No entries yet</div>
+          <p className="m-0 mt-0.5 text-[11px] text-[var(--ct-muted-fg)]">
+            Add a {addNoun} below to start building this list.
+          </p>
         </div>
+      ) : compactPairFields ? (
+        <div className="space-y-1.5" data-testid="settings-schema-array-pairs">
+          <div
+            aria-hidden="true"
+            className="grid grid-cols-[minmax(0,1fr)_16px_minmax(0,1fr)_28px] items-center gap-2 px-0.5 text-[11px] font-medium text-[var(--ct-muted-fg)]"
+          >
+            <span className="truncate">{compactPairFields[0].label}</span>
+            <span />
+            <span className="truncate">{compactPairFields[1].label}</span>
+            <span />
+          </div>
+          {value.map((item, index) => (
+            <div
+              key={index}
+              data-testid="settings-schema-array-row"
+              className="grid grid-cols-[minmax(0,1fr)_16px_minmax(0,1fr)_28px] items-center gap-2"
+            >
+              <CompactPairInput
+                parentKey={field.key}
+                index={index}
+                itemLabel={itemLabel}
+                field={compactPairFields[0]}
+                value={item[compactPairFields[0].key]}
+                onChange={(next) => update(index, compactPairFields[0].key, next)}
+              />
+              <span className="flex items-center justify-center text-[var(--ct-muted)]" aria-hidden="true">
+                <ArrowRight size={13} />
+              </span>
+              <CompactPairInput
+                parentKey={field.key}
+                index={index}
+                itemLabel={itemLabel}
+                field={compactPairFields[1]}
+                value={item[compactPairFields[1].key]}
+                onChange={(next) => update(index, compactPairFields[1].key, next)}
+              />
+              <Button
+                variant="icon"
+                size="compact"
+                type="button"
+                data-testid="settings-schema-array-remove"
+                data-settings-field={`${field.key}.${index}`}
+                aria-label={`Remove ${addNoun} ${index + 1}`}
+                title={`Remove ${addNoun}`}
+                onClick={() => remove(index)}
+                className="!h-7 !min-h-7 !w-7 !px-0 text-[var(--ct-muted)] hover:text-[var(--ct-red)]"
+              >
+                <X size={13} aria-hidden="true" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {value.map((item, index) => (
+            <div
+              key={index}
+              className="space-y-2.5 rounded-[10px] border border-[var(--ct-border-subtle)] bg-[color-mix(in_srgb,var(--ct-fg)_2%,var(--ct-bg))] p-3"
+              data-testid="settings-schema-array-row"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-medium text-[var(--ct-fg)]">
+                  {arrayRowTitle(item, itemLabel, index)}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  type="button"
+                  data-testid="settings-schema-array-remove"
+                  data-settings-field={`${field.key}.${index}`}
+                  aria-label={`Remove ${arrayRowTitle(item, itemLabel, index)}`}
+                  onClick={() => remove(index)}
+                  className="inline-flex items-center gap-1 text-[11px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-red)]"
+                >
+                  <X size={12} aria-hidden="true" />
+                  Remove
+                </Button>
+              </div>
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                {field.item.fields.map((subField) => {
+                  const fullWidth = subField.kind === "textarea" || subField.kind === "json";
+                  return (
+                    <div key={subField.key} className={fullWidth ? "sm:col-span-2" : undefined}>
+                      <ObjectArrayItemInput
+                        parentKey={field.key}
+                        index={index}
+                        field={subField}
+                        value={item[subField.key]}
+                        onChange={(next) => update(index, subField.key, next)}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div>
         <Button
           variant="ghost"
           size="compact"
@@ -356,48 +489,61 @@ function ObjectArrayField({
           data-testid="settings-schema-array-add"
           data-settings-field={field.key}
           onClick={add}
-          className="text-[10px]"
+          className="inline-flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
         >
-          Add
+          <Plus size={13} aria-hidden="true" />
+          Add {addNoun}
         </Button>
       </div>
-      <div className="space-y-3">
-        {value.map((item, index) => (
-          <Card
-            key={index}
-            className="p-3 space-y-2"
-            data-testid="settings-schema-array-row"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-[11px] font-medium text-[var(--ct-fg)]">
-                {arrayRowTitle(item, itemLabel, index)}
-              </div>
-              <Button
-                variant="danger"
-                size="compact"
-                type="button"
-                data-testid="settings-schema-array-remove"
-                data-settings-field={`${field.key}.${index}`}
-                onClick={() => remove(index)}
-                className="text-[10px]"
-              >
-                Remove
-              </Button>
-            </div>
-            {field.item.fields.map((subField) => (
-              <ObjectArrayItemInput
-                key={subField.key}
-                parentKey={field.key}
-                index={index}
-                field={subField}
-                value={item[subField.key]}
-                onChange={(next) => update(index, subField.key, next)}
-              />
-            ))}
-          </Card>
-        ))}
-      </div>
     </div>
+  );
+}
+
+function CompactPairInput({
+  parentKey,
+  index,
+  itemLabel,
+  field,
+  value,
+  onChange,
+}: {
+  parentKey: string;
+  index: number;
+  itemLabel: string;
+  field: CompactPairField;
+  value: unknown;
+  onChange: (next: unknown) => void;
+}) {
+  const dataField = `${parentKey}.${index}.${field.key}`;
+  const ariaLabel = `${field.label} (${itemLabel.toLowerCase()} ${index + 1})`;
+  if (field.kind === "number") {
+    const numberValue = typeof value === "number" ? value : field.default ?? 0;
+    return (
+      <input
+        type="number"
+        aria-label={ariaLabel}
+        data-testid="settings-schema-array-number"
+        data-settings-field={dataField}
+        value={numberValue}
+        min={field.min}
+        max={field.max}
+        onInput={(e) => onChange(Number(e.currentTarget.value))}
+        className="ct-input ct-input--compact w-full"
+      />
+    );
+  }
+  const textValue = typeof value === "string" ? value : field.default ?? "";
+  return (
+    <input
+      type="text"
+      aria-label={ariaLabel}
+      data-testid="settings-schema-array-input"
+      data-settings-field={dataField}
+      value={textValue}
+      placeholder={field.placeholder ?? field.label}
+      onInput={(e) => onChange(e.currentTarget.value)}
+      className="ct-input ct-input--compact w-full"
+    />
   );
 }
 
@@ -438,7 +584,7 @@ function ObjectArrayItemInput({
   onChange: (next: unknown) => void;
 }) {
   const dataField = `${parentKey}.${index}.${field.key}`;
-  const label = <div className="text-[10px] text-[var(--ct-muted-fg)]">{field.label}</div>;
+  const label = <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{field.label}</div>;
 
   if (field.kind === "number") {
     const numberValue = typeof value === "number" ? value : field.default ?? 0;
@@ -453,7 +599,7 @@ function ObjectArrayItemInput({
           min={field.min}
           max={field.max}
           onInput={(e) => onChange(Number(e.currentTarget.value))}
-          className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+          className="ct-input ct-input--compact w-full"
         />
       </label>
     );
@@ -471,7 +617,7 @@ function ObjectArrayItemInput({
           placeholder={field.placeholder}
           rows={4}
           onInput={(e) => onChange(e.currentTarget.value)}
-          className="w-full resize-y bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+          className="ct-input w-full resize-y py-1.5"
         />
       </label>
     );
@@ -499,7 +645,7 @@ function ObjectArrayItemInput({
         value={textValue}
         placeholder={field.placeholder}
         onInput={(e) => onChange(e.currentTarget.value)}
-        className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+        className="ct-input ct-input--compact w-full"
       />
     </label>
   );
@@ -527,7 +673,7 @@ function JsonObjectInput({
 
   return (
     <label className="block space-y-1">
-      <div className="text-[10px] text-[var(--ct-muted-fg)]">{field.label}</div>
+      <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{field.label}</div>
       <textarea
         data-testid="settings-schema-array-json"
         data-settings-field={dataField}
@@ -548,10 +694,10 @@ function JsonObjectInput({
             setError("Invalid JSON");
           }
         }}
-        className="w-full resize-y bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 font-mono text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+        className="ct-input ct-input--mono w-full resize-y py-1.5"
       />
-      {error && <div className="text-[10px] text-[var(--ct-red)]">{error}</div>}
-      {!error && field.description && <div className="text-[10px] text-[var(--ct-muted)]">{field.description}</div>}
+      {error && <div className="text-[11px] text-[var(--ct-red)]">{error}</div>}
+      {!error && field.description && <div className="text-[11px] text-[var(--ct-muted-fg)]">{field.description}</div>}
     </label>
   );
 }
@@ -573,10 +719,10 @@ function ToggleField({
 }) {
   return (
     <div className="flex items-start justify-between gap-3" data-testid="settings-schema-toggle-row">
-      <div className="flex-1">
-        <div className="text-xs text-[var(--ct-fg)]">{label}</div>
+      <div className="min-w-0 flex-1">
+        <div className="text-[12.5px] font-medium text-[var(--ct-fg)]">{label}</div>
         {description && (
-          <div className="text-[10px] text-[var(--ct-muted-fg)] mt-0.5">{description}</div>
+          <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--ct-muted-fg)]">{description}</div>
         )}
       </div>
       <LiquidToggle

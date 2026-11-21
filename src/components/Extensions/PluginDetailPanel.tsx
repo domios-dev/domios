@@ -7,7 +7,12 @@ import {
   primaryAction,
   type CatalogEntry,
 } from "./pluginCatalog";
-import { CapabilityChip, capabilityLabel } from "./CapabilityChip";
+import {
+  CapabilityChip,
+  capabilityLabel,
+  permissionChipLabel,
+  pluginCapabilityLabel,
+} from "./CapabilityChip";
 import { SchemaRenderer } from "../Settings/SchemaRenderer";
 import { PresetManager } from "./PresetManager";
 import { ChatPreprocessorPresetManager } from "./ChatPreprocessorPresetManager";
@@ -66,7 +71,7 @@ export function PluginDetailPanel({
   // Agent plugins render their real provider settings via the shared screen.
   if (entry.installed && entry.capabilities?.agent_provider && config) {
     return (
-      <div>
+      <div className="flex flex-col gap-4">
         <AgentProviderScreen
           providerId={entry.id}
           fullConfig={config as unknown as AppConfig}
@@ -82,7 +87,7 @@ export function PluginDetailPanel({
   // installed; before install, fall through to the generic install view).
   if (entry.capabilities?.secret_backend && entry.installed && config) {
     return (
-      <div>
+      <div className="flex flex-col gap-4">
         <SecretBackendDetail entry={entry} config={config} onAction={onAction} actionBusy={busy} activity={activity} activityDisplayMap={activityDisplayMap} />
         {permissions}
         {networkAccess}
@@ -93,6 +98,7 @@ export function PluginDetailPanel({
   const action = primaryAction(entry);
 
   const schema = entry.settingsSchema ?? [];
+  const hasSectionWrapper = schema.some((field) => field.kind === "section");
   const current = (config?.plugins?.[entry.id] ?? {}) as Record<string, unknown>;
   const perms = entry.grantedPermissions ?? [];
   const capKeys = capabilityKeys(entry.capabilities);
@@ -102,7 +108,11 @@ export function PluginDetailPanel({
   };
 
   return (
-    <div data-testid="extensions-plugin-detail" data-plugin-id={entry.id}>
+    <div
+      className="flex flex-col gap-4"
+      data-testid="extensions-plugin-detail"
+      data-plugin-id={entry.id}
+    >
       <PluginDetailHeader
         entry={entry}
         busy={busy}
@@ -115,84 +125,116 @@ export function PluginDetailPanel({
         <div
           role="status"
           data-testid="extensions-reload-required"
-          style={{
-            fontSize: 12,
-            color: "var(--ct-warn)",
-            background: "color-mix(in srgb, var(--ct-yellow) 12%, transparent)",
-            border: "1px solid var(--ct-warn)",
-            borderRadius: 8,
-            padding: "8px 12px",
-            marginBottom: 14,
-          }}
+          className="rounded-[10px] border border-[color-mix(in_srgb,var(--ct-warn)_45%,transparent)] bg-[color-mix(in_srgb,var(--ct-yellow)_10%,var(--ct-bg))] px-3 py-2 text-xs text-[var(--ct-warn)]"
         >
           Reload Domios to activate this plugin.
         </div>
       )}
 
-      {entry.loadError && !entry.loadError.keptPrevious && <div data-testid="extensions-plugin-load-error"><InlineErrorNotice error={{ code: "plugin_load_failed", raw: `${entry.loadError.message}\n${entry.loadError.path}` }} /></div>}
-
-      {action.reason && action.disabled && (
-        <p role="note" data-testid="extensions-action-disabled-reason" style={{ fontSize: 12, color: "var(--ct-muted)", marginBottom: 14 }}>{action.reason}</p>
-      )}
-
-      {entry.capabilities?.chat_backend && entry.installed && !entry.pendingReload && (
-        <div style={{ marginBottom: 16 }}>
-          <Button
-            variant="primary"
-            size="sm"
-            data-testid="extensions-open-chat"
-            data-plugin-id={entry.id}
-            onClick={() => {
-              void invoke("open_chat_backend_tab", { pluginId: entry.id }).catch((e) =>
-                console.error("open_chat_backend_tab failed:", e),
-              );
-            }}
-            title={`Open a chat tab backed by ${entry.displayName}`}
-          >
-            Open chat
-          </Button>
+      {entry.loadError && !entry.loadError.keptPrevious && (
+        <div data-testid="extensions-plugin-load-error">
+          <InlineErrorNotice
+            error={{ code: "plugin_load_failed", raw: `${entry.loadError.message}\n${entry.loadError.path}` }}
+          />
         </div>
       )}
 
-      {entry.capabilities?.view && entry.installed && !entry.pendingReload && (
-        <div className="mb-4">
-          <Button size="sm" onClick={() => window.dispatchEvent(new CustomEvent("codeterm:open-panel", {
-            detail: { panel: `view:${entry.id}` },
-          }))}>
-            Open interface
-          </Button>
+      {action.reason && action.disabled && (
+        <p
+          role="note"
+          data-testid="extensions-action-disabled-reason"
+          className="m-0 text-xs leading-relaxed text-[var(--ct-muted-fg)]"
+        >
+          {action.reason}
+        </p>
+      )}
+
+      {((entry.capabilities?.chat_backend || entry.capabilities?.view) && entry.installed && !entry.pendingReload) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {entry.capabilities?.chat_backend && (
+            <Button
+              variant="primary"
+              size="sm"
+              data-testid="extensions-open-chat"
+              data-plugin-id={entry.id}
+              onClick={() => {
+                void invoke("open_chat_backend_tab", { pluginId: entry.id }).catch((e) =>
+                  console.error("open_chat_backend_tab failed:", e),
+                );
+              }}
+              title={`Open a chat tab backed by ${entry.displayName}`}
+            >
+              Open chat
+            </Button>
+          )}
+          {entry.capabilities?.view && (
+            <Button
+              size="sm"
+              onClick={() => window.dispatchEvent(new CustomEvent("codeterm:open-panel", {
+                detail: { panel: `view:${entry.id}` },
+              }))}
+            >
+              Open interface
+            </Button>
+          )}
         </div>
       )}
 
       {(capKeys.length > 0 || perms.length > 0) && (
-        <div style={{ marginBottom: 18 }} data-testid="extensions-capabilities">
-          <GroupLabel>Capabilities</GroupLabel>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px" }}>
+        <section
+          aria-label="Capabilities"
+          className="flex flex-col gap-2"
+          data-testid="extensions-capabilities"
+        >
+          <GroupLabel className="mb-0">Capabilities</GroupLabel>
+          <div className="flex flex-wrap items-center gap-1.5">
             {capKeys.map((c) => (
-              <CapabilityChip key={`cap-${c}`} variant="system" label={c.replace(/_/g, " ")} title={`Capability: ${c}`} />
+              <CapabilityChip
+                key={`cap-${c}`}
+                variant="system"
+                label={pluginCapabilityLabel(c)}
+                title={`Capability: ${c}`}
+              />
             ))}
             {perms.map((c) => (
-              <CapabilityChip key={`perm-${c}`} label={capabilityLabel(c)} title={c} />
+              <CapabilityChip
+                key={`perm-${c}`}
+                label={permissionChipLabel(c)}
+                title={capabilityLabel(c)}
+              />
             ))}
           </div>
-        </div>
+        </section>
       )}
 
       {permissions}
       {networkAccess}
 
       {entry.installed && schema.length > 0 && config && (
-        <div style={{ marginBottom: 20 }} data-testid="extensions-settings">
+        <section aria-label="Settings" data-testid="extensions-settings">
           <GroupLabel>Settings</GroupLabel>
-          <SchemaRenderer
-            schema={schema}
-            providerId={entry.id}
-            config={config as unknown as AppConfig}
-            values={current}
-            onChange={onPluginConfigChange}
-            hidePathLinks
-          />
-        </div>
+          {hasSectionWrapper ? (
+            <SchemaRenderer
+              schema={schema}
+              providerId={entry.id}
+              config={config as unknown as AppConfig}
+              values={current}
+              onChange={onPluginConfigChange}
+              hidePathLinks
+            />
+          ) : (
+            <div className="ct-card ct-card--static p-4">
+              <SchemaRenderer
+                schema={schema}
+                providerId={entry.id}
+                config={config as unknown as AppConfig}
+                values={current}
+                onChange={onPluginConfigChange}
+                hidePathLinks
+              />
+            </div>
+          )}
+        </section>
       )}
 
       {entry.installed && !entry.pendingReload && supportsPresets && (
@@ -203,27 +245,37 @@ export function PluginDetailPanel({
         <ChatPreprocessorPresetManager pluginId={entry.id} />
       )}
 
-      <GroupLabel>About</GroupLabel>
-      {entry.readmeMarkdown ? (
-        <MarkdownDescription markdown={entry.readmeMarkdown} />
-      ) : entry.description ? (
-        <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--ct-fg)", margin: 0 }} data-testid="extensions-description">{entry.description}</p>
-      ) : (
-        <p style={{ fontSize: 12.5, color: "var(--ct-muted)", margin: 0 }}>
-          No description provided for this {catalogKindLabel(entry)}.
-        </p>
-      )}
-      {entry.homepage && (
-        <a
-          data-testid="extensions-homepage-link"
-          href={entry.homepage}
-          target="_blank"
-          rel="noreferrer noopener"
-          style={{ display: "inline-block", marginTop: 10, fontSize: 12, color: "var(--ct-accent, #818cf8)" }}
-        >
-          {entry.homepage}
-        </a>
-      )}
+      <section
+        aria-label="About"
+        className="ct-card ct-card--static p-4"
+      >
+        <GroupLabel>About</GroupLabel>
+        {entry.readmeMarkdown ? (
+          <MarkdownDescription markdown={entry.readmeMarkdown} />
+        ) : entry.description ? (
+          <p
+            className="m-0 text-[13px] leading-relaxed text-[var(--ct-fg)]"
+            data-testid="extensions-description"
+          >
+            {entry.description}
+          </p>
+        ) : (
+          <p className="m-0 text-xs leading-relaxed text-[var(--ct-muted-fg)]">
+            No description provided for this {catalogKindLabel(entry)}.
+          </p>
+        )}
+        {entry.homepage && (
+          <a
+            data-testid="extensions-homepage-link"
+            href={entry.homepage}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="mt-2.5 inline-block text-xs text-[var(--ct-accent)] hover:underline"
+          >
+            {entry.homepage}
+          </a>
+        )}
+      </section>
     </div>
   );
 }
