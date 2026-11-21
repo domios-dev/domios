@@ -5,6 +5,132 @@ use super::sync_send::{
 use super::*;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+fn observed_target(fixture: &crate::service::test_fixture::ServiceFixture, source_id: &str, restored: bool) -> crate::multiplexer::types::Tab {
+    let expected = {
+        let mut mux = fixture.service.mux.write(); let source = mux.get_tab(source_id).unwrap().clone();
+        let workspace = mux.workspaces[0].id.clone(); let id = mux.create_tab(&workspace).unwrap();
+        let tab = mux.get_tab_mut(&id).unwrap(); tab.agent_type = source.agent_type.clone(); tab.cwd = source.cwd;
+        tab.backing = crate::multiplexer::types::TabBacking::ChatBackend { plugin_id: source.agent_type.unwrap(), session_id: String::new() };
+        tab.restored_from_snapshot = restored; tab.clone()
+    };
+    let (nonce, committed) = fixture.service.reserve_agent_launch_binding_nonce_if_current(&expected, None, None).unwrap();
+    crate::service::agent_runtime::authority::record_spawn(&fixture.service, &committed.id,
+        committed.agent_type.as_deref().unwrap(), nonce.as_deref().unwrap()).unwrap();
+    committed
+}
+
+#[test]
+fn completed_original_refusal_has_a_single_consuming_call_bound_observation() {
+    for fork in [None, Some(("source-thread", "source-turn"))] {
+        for comparison in ["original", "other-call", "replacement", "other-fork", "other-host"] {
+            let (fixture, source, _peer, _cleanup) = runtime_fixture_without_remote_history(RUNTIME_FIXTURE_SOURCE);
+            let original = observed_target(&fixture, &source, false); let expected = original.clone();
+            crate::service::agent_runtime::authority::record_spawn(&fixture.service, &original.id, original.agent_type.as_deref().unwrap(), original.session_binding_nonce.as_deref().unwrap()).unwrap();
+            let replacement = Arc::new(Mutex::new(None)); let captured = replacement.clone();
+            assert!(fixture.service.set_ext(ExpectedLaunchCommit { stage: "account_provision", callback: Mutex::new(Some(Box::new(move |svc| {
+                let (_, tab) = svc.reserve_agent_launch_binding_nonce_if_current(&expected, None, None).unwrap();
+                crate::service::agent_runtime::authority::record_spawn(svc, &tab.id, tab.agent_type.as_deref().unwrap(), tab.session_binding_nonce.as_deref().unwrap()).unwrap();
+                *captured.lock() = Some(serde_json::to_value(tab).unwrap());
+            }))) }).is_ok());
+            let mut outcome = crate::async_runtime::block_on(ensure_expected_observed(&fixture.service, &original.id, original.session_binding_nonce.as_deref().unwrap(), fork));
+            let witness = outcome.take_rejection().expect("completed account refusal before original session acquisition");
+            assert!(outcome.take_rejection().is_none());
+            if comparison == "other-call" {
+                let other = crate::async_runtime::block_on(ensure_expected_observed(&fixture.service, &original.id, original.session_binding_nonce.as_deref().unwrap(), fork));
+                assert!(!witness.matches_original(&other, &fixture.service, &original, fork));
+            } else if comparison == "replacement" {
+                let replacement = fixture.service.mux.read().get_tab(&original.id).unwrap().clone();
+                assert!(!witness.matches_original(&outcome, &fixture.service, &replacement, fork));
+            } else if comparison == "other-fork" {
+                let other = if fork.is_some() { None } else { Some(("other-source", "other-turn")) };
+                assert!(!witness.matches_original(&outcome, &fixture.service, &original, other));
+            } else if comparison == "other-host" {
+                let other = crate::service::test_fixture::ServiceFixture::new(crate::multiplexer::state::MultiplexerState::new().0);
+                assert!(!witness.matches_original(&outcome, &other.service, &original, fork));
+            } else { assert!(witness.matches_original(&outcome, &fixture.service, &original, fork)); }
+            assert!(matches!(outcome.into_result(), Err(RuntimeFailure::Superseded)));
+            assert_eq!(serde_json::to_value(fixture.service.mux.read().get_tab(&original.id).unwrap()).unwrap(), replacement.lock().clone().unwrap());
+            assert!(for_tab(&original.id).is_none());
+        }
+    }
+}
+
+#[test]
+fn removed_reused_and_unseeded_native_generations_never_become_fresh_rejections() {
+    for history in ["existing", "reused", "acquired-later", "removed", "re-recorded", "revoked", "missing", "restored"] {
+        let (fixture, source, _peer, _cleanup) = runtime_fixture_without_remote_history(RUNTIME_FIXTURE_SOURCE);
+        let original = observed_target(&fixture, &source, history == "restored");
+        let provider = original.agent_type.as_deref().unwrap(); let nonce = original.session_binding_nonce.as_deref().unwrap();
+        let installed = Arc::new(Mutex::new(None));
+        if matches!(history, "existing" | "reused" | "removed" | "re-recorded") {
+            let mut loaded = original.clone(); loaded.agent_session_id = Some("fixture-original-session".into());
+            *installed.lock() = Some(test_support::loaded_runtime(&loaded, fixture.service.agent_registry.provider_arc(provider)));
+            if history == "reused" {
+                let existing = for_tab(&original.id).unwrap();
+                bind(&fixture.service, &existing, "fixture-original-session", false).unwrap();
+                let mut outcome = crate::async_runtime::block_on(ensure_expected_observed(&fixture.service, &original.id, nonce, None));
+                assert!(outcome.take_rejection().is_none());
+                assert!(Arc::ptr_eq(&existing, &outcome.into_result().unwrap()));
+                test_support::stop_test(&original.id); continue;
+            }
+            if history != "existing" {
+                assert!(crate::async_runtime::block_on(ensure_with_invocation(&fixture.service, &original.id, None)).is_err());
+                test_support::stop_test(&original.id);
+                assert!(for_tab(&original.id).is_none());
+            }
+            if history == "re-recorded" { crate::service::agent_runtime::authority::record_spawn(&fixture.service, &original.id, provider, nonce).unwrap(); }
+        } else if matches!(history, "revoked" | "missing") {
+            crate::service::agent_runtime::authority::revoke(&original.id);
+            if history == "revoked" { crate::service::agent_runtime::authority::record_spawn(&fixture.service, &original.id, provider, nonce).unwrap(); }
+        }
+        let expected = original.clone(); let retained = installed.clone();
+        assert!(fixture.service.set_ext(ExpectedLaunchCommit { stage: "account_provision", callback: Mutex::new(Some(Box::new(move |svc| {
+            if history == "acquired-later" {
+                let mut loaded = expected.clone(); loaded.agent_session_id = Some("fixture-late-session".into());
+                *retained.lock() = Some(test_support::loaded_runtime(&loaded, svc.agent_registry.provider_arc(loaded.agent_type.as_deref().unwrap())));
+            } else { svc.reserve_agent_launch_binding_nonce_if_current(&expected, None, None).unwrap(); }
+        }))) }).is_ok());
+        let mut outcome = crate::async_runtime::block_on(ensure_expected_observed(&fixture.service, &original.id, nonce, None));
+        assert!(outcome.take_rejection().is_none(), "{history}");
+        assert!(outcome.into_result().is_err());
+        test_support::stop_test(&original.id);
+    }
+}
+
+#[tokio::test]
+async fn observed_start_timeout_or_drop_keeps_retained_provisioning_unknown_and_never_continues() {
+    use crate::service::provider_accounts::{provisioning, test_support as account_work};
+    for cancel in [false, true] {
+        let (fixture, source, _peer, _cleanup) = runtime_fixture_without_remote_history(RUNTIME_FIXTURE_SOURCE);
+        let original = observed_target(&fixture, &source, false);
+        let (entered, observed) = tokio::sync::oneshot::channel();
+        let (release, blocked) = std::sync::mpsc::sync_channel(1);
+        let mut receipt = account_work::work_receipt(&fixture.service);
+        assert!(fixture.service.set_ext(ExpectedLaunchCommit { stage: "account_provision", callback: Mutex::new(Some(Box::new(move |_| {
+            entered.send(()).unwrap(); blocked.recv_timeout(Duration::from_secs(10)).unwrap();
+        }))) }).is_ok());
+        let mut pending = Box::pin(ensure_expected_observed(&fixture.service, &original.id, original.session_binding_nonce.as_deref().unwrap(), None));
+        tokio::select! {
+            _ = &mut pending => panic!("start ended before the account job entered"),
+            entered = observed => entered.unwrap(),
+        }
+        assert_eq!(provisioning::retained_count(&fixture.service), 1);
+        if cancel { drop(pending); } else {
+            tokio::time::pause(); tokio::time::advance(Duration::from_secs(61)).await;
+            let mut outcome = pending.await;
+            assert!(outcome.take_rejection().is_none()); assert!(outcome.into_result().is_err());
+            tokio::time::resume();
+        }
+        let mut busy = ensure_expected_observed(&fixture.service, &original.id, original.session_binding_nonce.as_deref().unwrap(), None).await;
+        assert!(busy.take_rejection().is_none()); assert!(busy.into_result().is_err());
+        assert_eq!(provisioning::retained_count(&fixture.service), 1);
+        release.send(()).unwrap(); account_work::settled(&mut receipt).await.unwrap();
+        assert_eq!(provisioning::retained_count(&fixture.service), 0);
+        assert!(for_tab(&original.id).is_none());
+        assert!(!fixture.service.mux.read().get_tab(&original.id).unwrap().launch_session_authenticated());
+    }
+}
+
 #[test]
 fn expected_generation_rejects_stale_normal_and_fork_entries_without_touching_replacement() {
     for fork in [None, Some(("source-thread", "source-turn"))] {

@@ -7,6 +7,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::session_model::clear_runtime_model_evidence;
 use super::ServiceContext;
 
+pub(crate) struct MintedGeneration<'a> { tab: &'a crate::multiplexer::types::Tab, restored: bool }
+impl MintedGeneration<'_> {
+    pub(crate) fn tab(&self) -> &crate::multiplexer::types::Tab { self.tab }
+    pub(crate) fn restored(&self) -> bool { self.restored }
+}
+
 fn epoch_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -218,7 +224,9 @@ impl ServiceContext {
             }
             current.lifecycle_epoch = Some(key.epoch.0);
             current.lifecycle_operation_id = Some(key.operation_id.clone());
+            let restored = current.restored_from_snapshot;
             let _ = rotate_tab_nonce(current, &nonce, resume_target, true);
+            super::agent_runtime::authority::seed_generation(self, MintedGeneration { tab: current, restored });
             (current.role.map(|role| format!("{role:?}")), current.role_profile.clone(),
                 current.can_spawn, current.depth, current.team_id.clone(), current.parent_tab_id.clone(), current.clone())
         };
@@ -243,8 +251,12 @@ impl ServiceContext {
         self.invalidate_guarded_agent_input(tab_id);
         self.open_lifecycle_epoch(tab_id);
         let nonce = uuid::Uuid::new_v4().to_string();
-        let retired_prompt = self.mux.write().get_tab_mut(tab_id)
-            .and_then(|tab| rotate_tab_nonce(tab, &nonce, resume_target, launch_starting));
+        let retired_prompt = self.mux.write().get_tab_mut(tab_id).and_then(|tab| {
+            let restored = tab.restored_from_snapshot;
+            let prompt = rotate_tab_nonce(tab, &nonce, resume_target, launch_starting);
+            super::agent_runtime::authority::seed_generation(self, MintedGeneration { tab, restored });
+            prompt
+        });
         if let Some(identity) = retired_prompt {
             self.resolve_prompt_notifications(tab_id, &identity);
             self.emit_structured_prompt(tab_id, None, identity.kind);
@@ -272,6 +284,7 @@ impl ServiceContext {
                         let nonce = uuid::Uuid::new_v4().to_string();
                         tab.session_binding_nonce = Some(nonce.clone());
                         tab.reported_session_binding_nonce = None;
+                        super::agent_runtime::authority::seed_generation(self, MintedGeneration { restored: tab.restored_from_snapshot, tab });
                         (nonce, true)
                     }
                 },

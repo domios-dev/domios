@@ -59,6 +59,7 @@ fn abandoned_account_provisioning_retains_one_job_and_never_launches_late() {
         if !cancel {
             assert!(job.wait_blocking(std::time::Duration::ZERO).unwrap_err().starts_with("launch_account_supervision_unconfirmed:"));
         }
+        assert!(!job.observed_completed_refusal());
         drop(job);
         assert_eq!(provisioning::retained_count(&fixture.service), 1);
         assert!(account.start_resolution(&fixture.service, &id, || panic!("obsolete jobs must not queue")).is_err());
@@ -74,6 +75,22 @@ fn abandoned_account_provisioning_retains_one_job_and_never_launches_late() {
         assert_eq!(after.session_binding_nonce.as_deref(), Some(replacement.as_str()));
         assert!(!after.launch_session_authenticated());
         assert!(after.pty_id.is_none());
+    }
+}
+
+#[test]
+fn account_refusal_proof_requires_observed_settlement_before_cancellation() {
+    for cancel in [false, true] {
+        let (fixture, id) = retired_resume_fixture();
+        let (account, _) = super::super::account_supervision::prepare(&fixture.service, &id, "resume-provider", Some("exact-session")).unwrap();
+        let job = account.start_resolution(&fixture.service, &id, || Err("definitive account refusal".into())).unwrap();
+        assert_eq!(job.wait_blocking(std::time::Duration::from_secs(10)).unwrap_err(), "definitive account refusal");
+        assert!(job.observed_completed_refusal());
+        if cancel {
+            let job = std::sync::Arc::new(job); let cancelled = job.clone();
+            std::thread::spawn(move || { assert!(cancelled.wait_blocking(std::time::Duration::ZERO).is_err()); }).join().unwrap();
+            assert!(!job.observed_completed_refusal());
+        }
     }
 }
 

@@ -1,4 +1,67 @@
 use super::*;
+use crate::multiplexer::types::Tab;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+pub(crate) struct ExpectedEnsureOutcome {
+    result: Result<Arc<Session>, RuntimeFailure>,
+    observation: Option<Arc<ExpectedAcquisition>>,
+    issued: bool,
+}
+
+pub(crate) struct RejectedBeforeAcquisition { call: Arc<ExpectedAcquisition> }
+
+pub(super) struct ExpectedAcquisition {
+    owner: std::sync::Weak<crate::lock_hold::TimedRwLock<crate::multiplexer::state::MultiplexerState>>,
+    original: Tab,
+    fork: Option<(String, String)>,
+    generation: Arc<super::super::authority::NativeGeneration>,
+    acquired: AtomicBool,
+    settled: AtomicBool,
+}
+
+impl ExpectedAcquisition {
+    pub(super) fn mark_acquired(&self) { self.acquired.store(true, Ordering::Release); }
+    fn can_reject(&self) -> bool {
+        self.settled.load(Ordering::Acquire) && !self.acquired.load(Ordering::Acquire) && self.generation.unacquired()
+    }
+}
+
+impl ExpectedEnsureOutcome {
+    pub(crate) fn into_result(self) -> Result<Arc<Session>, RuntimeFailure> { self.result }
+    pub(crate) fn take_rejection(&mut self) -> Option<RejectedBeforeAcquisition> {
+        if self.issued { return None; }
+        self.issued = true;
+        self.result.is_err().then(|| self.observation.as_ref().filter(|call| call.can_reject())
+            .map(|call| RejectedBeforeAcquisition { call: call.clone() })).flatten()
+    }
+}
+
+impl RejectedBeforeAcquisition {
+    pub(crate) fn matches_original(self, outcome: &ExpectedEnsureOutcome, svc: &ServiceContext, original: &Tab, fork: Option<(&str, &str)>) -> bool {
+        outcome.result.is_err() && outcome.observation.as_ref().is_some_and(|call| Arc::ptr_eq(call, &self.call))
+            && self.call.can_reject() && self.call.owner.upgrade().is_some_and(|owner| Arc::ptr_eq(&owner, &svc.mux))
+            && crate::service::messenger::switch_handoff::same_binding(&self.call.original, original)
+            && self.call.fork.as_ref().map(|(thread, turn)| (thread.as_str(), turn.as_str())) == fork
+    }
+}
+
+fn capture_acquisition(svc: &ServiceContext, tab: &str, nonce: &str, fork: Option<(&str, &str)>) -> Option<Arc<ExpectedAcquisition>> {
+    let mux = svc.mux.read();
+    let original = mux.get_tab(tab).filter(|tab| tab.session_binding_nonce.as_deref() == Some(nonce)
+        && !tab.restored_from_snapshot && !tab.frozen && tab.lifecycle_epoch.is_some() && tab.lifecycle_operation_id.is_some())?;
+    let sessions = SESSIONS.lock();
+    let generation = super::super::authority::generation(svc, original)?;
+    if let Some(session) = sessions.get(tab) {
+        if session.context.lock().binding_nonce == nonce { generation.mark_acquired(); }
+        return None;
+    }
+    if !generation.unacquired() { return None; }
+    Some(Arc::new(ExpectedAcquisition {
+        owner: Arc::downgrade(&svc.mux), original: original.clone(),
+        fork: fork.map(|(thread, turn)| (thread.into(), turn.into())), generation,
+        acquired: AtomicBool::new(false), settled: AtomicBool::new(false),
+    }))
+}
 
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) struct ExpectedLaunchCommit {
@@ -8,7 +71,7 @@ pub(crate) struct ExpectedLaunchCommit {
 
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn expected_launch_commit(svc: &ServiceContext, stage: &str) {
-    if let Some(boundary) = svc.try_ext::<ExpectedLaunchCommit>().filter(|boundary| boundary.stage == stage) {
+    if let Some(boundary) = svc.try_ext::<super::ExpectedLaunchCommit>().filter(|boundary| boundary.stage == stage) {
         let callback = boundary.callback.lock().take();
         if let Some(callback) = callback { callback(svc); }
     }
@@ -19,14 +82,20 @@ pub(super) async fn ensure(
     tab: &str,
     fork: Option<(String, String)>,
 ) -> Result<Arc<Session>, RuntimeFailure> {
-    ensure_account(svc, tab, fork, None).await
+    ensure_account(svc, tab, fork, None, None).await
 }
 
 pub(crate) async fn ensure_expected(svc: &ServiceContext, tab: &str, expected_nonce: &str, fork: Option<(&str, &str)>) -> Result<Arc<Session>, RuntimeFailure> {
-    ensure_account(svc, tab, fork.map(|(thread, turn)| (thread.into(), turn.into())), Some(expected_nonce.to_owned())).await
+    super::ensure_expected_observed(svc, tab, expected_nonce, fork).await.into_result()
 }
 
-async fn ensure_account(svc: &ServiceContext, tab: &str, fork: Option<(String, String)>, expected_nonce: Option<String>) -> Result<Arc<Session>, RuntimeFailure> {
+pub(crate) async fn ensure_expected_observed(svc: &ServiceContext, tab: &str, expected_nonce: &str, fork: Option<(&str, &str)>) -> ExpectedEnsureOutcome {
+    let observation = capture_acquisition(svc, tab, expected_nonce, fork);
+    let result = ensure_account(svc, tab, fork.map(|(thread, turn)| (thread.into(), turn.into())), Some(expected_nonce.into()), observation.clone()).await;
+    ExpectedEnsureOutcome { result, observation, issued: false }
+}
+
+async fn ensure_account(svc: &ServiceContext, tab: &str, fork: Option<(String, String)>, expected_nonce: Option<String>, acquisition: Option<Arc<ExpectedAcquisition>>) -> Result<Arc<Session>, RuntimeFailure> {
     check_expected_nonce(svc, tab, expected_nonce.as_deref())?;
     let authority = if expected_nonce.is_some() { None } else { crate::service::messenger::switch_handoff::launch_authority(svc, tab) };
     crate::service::messenger::switch_handoff::scope_launch(authority.clone(), async {
@@ -61,6 +130,9 @@ async fn ensure_account(svc: &ServiceContext, tab: &str, fork: Option<(String, S
         crate::service::provider_accounts::for_tab(&owner, &target)
     }).map_err(RuntimeFailure::Refused)?;
     let invocation = observation.wait(std::time::Duration::from_secs(60)).await;
+    if let Some(acquisition) = &acquisition {
+        acquisition.settled.store(invocation.is_ok() || observation.observed_completed_refusal(), Ordering::Release);
+    }
     check_expected_nonce(svc, tab, expected_nonce.as_deref())?;
     let invocation = invocation.map_err(RuntimeFailure::Refused)?;
     if crate::crash::shutdown::is_shutting_down()
@@ -68,7 +140,7 @@ async fn ensure_account(svc: &ServiceContext, tab: &str, fork: Option<(String, S
         return Err(RuntimeFailure::Superseded);
     }
     let original = expected_nonce.as_ref().map(|_| expected.clone());
-    codeterm_plugin::provider_account::scope(invocation, ensure_scoped(svc, tab, fork, expected_nonce, original)).await
+    codeterm_plugin::provider_account::scope(invocation, ensure_scoped(svc, tab, fork, expected_nonce, original, acquisition)).await
     }).await
 }
 
@@ -117,7 +189,7 @@ pub async fn ensure_with_invocation(
 ) -> Result<Arc<Session>, RuntimeFailure> {
     let authority = crate::service::messenger::switch_handoff::launch_authority(svc, tab);
     crate::service::messenger::switch_handoff::scope_launch(authority,
-        codeterm_plugin::provider_account::scope(invocation, ensure_scoped(svc, tab, None, None, None))).await
+        codeterm_plugin::provider_account::scope(invocation, ensure_scoped(svc, tab, None, None, None, None))).await
 }
 
 pub(crate) fn account_boundary_ready(session: &Session, completion: Option<(&str, &str)>) -> bool {

@@ -35,7 +35,7 @@ pub(super) struct Owner {
     handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
-pub(crate) struct Observation(Arc<Owner>);
+pub(crate) struct Observation(Arc<Owner>, AtomicBool);
 
 struct Retained {
     service: ServiceContext,
@@ -127,10 +127,23 @@ fn start_job(
         drop(stored);
     });
     *owner.handle.lock() = Some(handle);
-    Ok(Observation(owner))
+    Ok(Observation(owner, AtomicBool::new(false)))
 }
 
 impl Observation {
+    pub(crate) fn observed_completed_refusal(&self) -> bool {
+        let _result = self.0.result.lock();
+        self.1.load(Ordering::Relaxed) && self.0.finished.load(Ordering::Acquire)
+            && !self.0.cancelled.load(Ordering::Acquire)
+    }
+
+    fn take_settled(&self, result: &mut Option<JobResult>) -> Option<JobResult> {
+        if self.0.cancelled.load(Ordering::Acquire) { return Some(Err(UNCONFIRMED.into())); }
+        if !self.0.finished.load(Ordering::Acquire) { return None; }
+        let value = result.take()?;
+        self.1.store(value.is_err(), Ordering::Relaxed);
+        Some(value)
+    }
     pub(crate) fn wait_blocking(&self, timeout: Duration) -> ResultContext {
         match self.wait_raw_blocking(timeout)? {
             Provisioned::Invocation(invocation) => Ok(invocation),
@@ -142,10 +155,7 @@ impl Observation {
         let deadline = Instant::now() + timeout;
         let mut result = self.0.result.lock();
         loop {
-            if self.0.cancelled.load(Ordering::Acquire) { return Err(UNCONFIRMED.into()); }
-            if self.0.finished.load(Ordering::Acquire) {
-                if let Some(result) = result.take() { return result; }
-            }
+            if let Some(result) = self.take_settled(&mut result) { return result; }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 self.0.cancelled.store(true, Ordering::Release);
@@ -161,14 +171,13 @@ impl Observation {
                 let changed = self.0.notified.notified();
                 tokio::pin!(changed);
                 changed.as_mut().enable();
-                if self.0.cancelled.load(Ordering::Acquire) { return Err(UNCONFIRMED.into()); }
-                if self.0.finished.load(Ordering::Acquire) {
-                    if let Some(result) = self.0.result.lock().take() { return result; }
-                }
+                let result = self.take_settled(&mut self.0.result.lock());
+                if let Some(result) = result { return result; }
                 changed.await;
             }
         }).await;
         match result.unwrap_or_else(|_| {
+            let _result = self.0.result.lock();
             self.0.cancelled.store(true, Ordering::Release);
             Err(UNCONFIRMED.into())
         })? {
@@ -180,6 +189,7 @@ impl Observation {
 
 impl Drop for Observation {
     fn drop(&mut self) {
+        let _result = self.0.result.lock();
         self.0.cancelled.store(true, Ordering::Release);
     }
 }
