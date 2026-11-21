@@ -66,143 +66,159 @@ impl<F: Fn() -> bool> Write for FlushProbe<F> {
 #[test]
 fn cron_settle_cron_complete_closes_after_response_flush() {
     for replacement in [false, true] {
-    use codeterm_service_core::cron::store::{
-        CronCreateParams, CronRunInfo, CronRunStatus, CronStore,
-    };
-    use std::sync::Arc;
+        use codeterm_service_core::cron::store::{
+            CronCreateParams, CronRunInfo, CronRunStatus, CronStore,
+        };
+        use std::sync::Arc;
 
-    let (mut mux, initial_tab) =
-        codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let workspace = mux.find_workspace_for_tab(&initial_tab).unwrap();
-    let tab_id = mux.create_tab(&workspace).unwrap();
-    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
-    let mut store = CronStore::new_with_path(fixture.temp.path().join("crons.json"));
-    let job_id = store
-        .create(CronCreateParams {
-            name: "rpc completion".into(),
-            workspace_id: "workspace".into(),
-            team_id: None,
-            detach_from_team: false,
-            schedule: "0 * * * *".into(),
-            task: "complete run".into(),
-            description: None,
-            agent: None,
-            model: None,
-            reasoning_effort: None,
-            cwd: None,
-            role: None,
-            skill: None,
-            creator_tab_id: None,
-            report_target_tab_id: None,
-            enabled: Some(false),
-            max_history: None,
-            oneshot: Some(false),
-            jitter_max_ms: Some(0),
-            tz: None,
-            timeout_seconds: None,
-        })
-        .unwrap()
-        .id;
-    store
-        .record_run(
-            &job_id,
-            CronRunInfo {
-                scheduled_occurrence_at: None,
-                fired_at: None,
-                late_by_ms: None,
-                provider: None,
-                owner_instance_id: None,
-                cancel_reason: None,
-                run_id: "rpc-complete-run".into(),
-                started_at: 1,
-                finished_at: None,
-                status: CronRunStatus::Running,
-                tab_id: Some(tab_id.clone()),
-                session_id: None,
+        let (mut mux, initial_tab) =
+            codeterm_service_core::multiplexer::state::MultiplexerState::new();
+        let workspace = mux.find_workspace_for_tab(&initial_tab).unwrap();
+        let tab_id = mux.create_tab(&workspace).unwrap();
+        let fixture = codeterm_neighbors_service::test_support::fixture(mux);
+        let mut store = CronStore::new_with_path(fixture.temp.path().join("crons.json"));
+        let job_id = store
+            .create(CronCreateParams {
+                name: "rpc completion".into(),
+                workspace_id: "workspace".into(),
+                team_id: None,
+                detach_from_team: false,
+                schedule: "0 * * * *".into(),
+                task: "complete run".into(),
+                description: None,
+                agent: None,
+                model: None,
+                reasoning_effort: None,
                 cwd: None,
-                summary: None,
-                report_delivery: None,
-            },
-        )
-        .unwrap();
+                role: None,
+                skill: None,
+                creator_tab_id: None,
+                report_target_tab_id: None,
+                enabled: Some(false),
+                max_history: None,
+                oneshot: Some(false),
+                jitter_max_ms: Some(0),
+                tz: None,
+                timeout_seconds: None,
+            })
+            .unwrap()
+            .id;
+        store
+            .record_run(
+                &job_id,
+                CronRunInfo {
+                    scheduled_occurrence_at: None,
+                    fired_at: None,
+                    late_by_ms: None,
+                    provider: None,
+                    owner_instance_id: None,
+                    cancel_reason: None,
+                    run_id: "rpc-complete-run".into(),
+                    started_at: 1,
+                    finished_at: None,
+                    status: CronRunStatus::Running,
+                    tab_id: Some(tab_id.clone()),
+                    session_id: None,
+                    cwd: None,
+                    summary: None,
+                    report_delivery: None,
+                },
+            )
+            .unwrap();
 
-    let cron: codeterm_service_core::CronState = Arc::new(parking_lot::Mutex::new(store));
-    let wake = Arc::new(std::sync::Condvar::new());
-    assert!(fixture.service.set_ext(cron.clone()).is_ok());
-    assert!(fixture
-        .service
-        .set_ext::<codeterm_service_core::CronWake>(wake)
-        .is_ok());
+        let cron: codeterm_service_core::CronState = Arc::new(parking_lot::Mutex::new(store));
+        let wake = Arc::new(std::sync::Condvar::new());
+        assert!(fixture.service.set_ext(cron.clone()).is_ok());
+        assert!(fixture
+            .service
+            .set_ext::<codeterm_service_core::CronWake>(wake)
+            .is_ok());
 
-    fixture.service.prepare_runtime_cron_owner_for_test(&tab_id, &job_id, "rpc-complete-run").unwrap();
-    fixture
-        .service
-        .ext::<codeterm_service_core::config::ConfigState>()
-        .lock()
-        .api
-        .token = Some("flush-owner-credential".into());
-    let request = serde_json::json!({
-        "jsonrpc": "2.0",
-        "credential": "flush-owner-credential",
-        "id": 1,
-        "protocol_version": protocol::PROTOCOL_VERSION,
-        "method": "cron.complete",
-        "params": {
-            "run_id": "rpc-complete-run",
-            "summary": "response-flush-summary",
-            "human_confirmed": true
-        }
-    });
-    let input = format!("{}\n", serde_json::to_string(&request).unwrap()).into_bytes();
-    let mux = fixture.service.mux.clone();
-    let flush_mux = mux.clone();
-    let flush_tab = tab_id.clone();
-    let mut stream = FlushProbe {
-        input: io::Cursor::new(input),
-        output: Vec::new(),
-        is_tab_open: move || {
-            let mut mux = flush_mux.write();
-            let open = mux.get_tab(&flush_tab).is_some();
-            if replacement {
-                let tab = mux.get_tab_mut(&flush_tab).unwrap();
-                tab.session_binding_nonce = Some("replacement-after-response".into());
-                tab.pty_id = Some("replacement-pty".into());
+        fixture
+            .service
+            .prepare_runtime_cron_owner_for_test(&tab_id, &job_id, "rpc-complete-run")
+            .unwrap();
+        fixture
+            .service
+            .ext::<codeterm_service_core::config::ConfigState>()
+            .lock()
+            .api
+            .token = Some("flush-owner-credential".into());
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "credential": "flush-owner-credential",
+            "id": 1,
+            "protocol_version": protocol::PROTOCOL_VERSION,
+            "method": "cron.complete",
+            "params": {
+                "run_id": "rpc-complete-run",
+                "summary": "response-flush-summary",
+                "human_confirmed": true
             }
-            open
-        },
-        tab_open_at_flush: None,
-    };
-    let svc = Arc::new(fixture.service.clone());
+        });
+        let input = format!("{}\n", serde_json::to_string(&request).unwrap()).into_bytes();
+        let mux = fixture.service.mux.clone();
+        let flush_mux = mux.clone();
+        let flush_tab = tab_id.clone();
+        let mut stream = FlushProbe {
+            input: io::Cursor::new(input),
+            output: Vec::new(),
+            is_tab_open: move || {
+                let mut mux = flush_mux.write();
+                let open = mux.get_tab(&flush_tab).is_some();
+                if replacement {
+                    let tab = mux.get_tab_mut(&flush_tab).unwrap();
+                    tab.session_binding_nonce = Some("replacement-after-response".into());
+                    tab.pty_id = Some("replacement-pty".into());
+                }
+                open
+            },
+            tab_open_at_flush: None,
+        };
+        let svc = Arc::new(fixture.service.clone());
 
-    let (ended, settled) = mpsc::channel();
-    fixture.ui.listen("cron-run-finished", move |_| { let _ = ended.send(()); });
-    handle_connection(
-        &mut stream,
-        &svc.mux,
-        &svc.pty,
-        &svc.notif,
-        &svc.output_buf,
-        &svc,
-    );
+        let (ended, settled) = mpsc::channel();
+        fixture.ui.listen("cron-run-finished", move |_| {
+            let _ = ended.send(());
+        });
+        handle_connection(
+            &mut stream,
+            &svc.mux,
+            &svc.pty,
+            &svc.notif,
+            &svc.output_buf,
+            &svc,
+        );
 
-    assert_eq!(stream.tab_open_at_flush, Some(true));
-    let response: serde_json::Value =
-        serde_json::from_slice(stream.output.strip_suffix(b"\n").unwrap()).unwrap();
-    assert_eq!(response["result"]["ok"], true, "response: {response}");
-    if replacement {
-        let mux = mux.read();
-        let tab = mux.get_tab(&tab_id).unwrap();
-        assert_eq!(tab.session_binding_nonce.as_deref(), Some("replacement-after-response"));
-        assert_eq!(tab.pty_id.as_deref(), Some("replacement-pty"));
-    } else { assert!(mux.read().get_tab(&tab_id).is_none()); }
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    while cron.lock().retained_run_report(&job_id, "rpc-complete-run").is_none() {
-        settled.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())).unwrap();
-    }
-    let receipt = cron.lock().get_history(&job_id)[0].clone();
-    assert_eq!(receipt.status, CronRunStatus::Success);
-    assert_eq!(receipt.summary.as_deref(), Some("response-flush-summary"));
-    assert_eq!(receipt.report_delivery.as_deref(), Some("no report target"));
+        assert_eq!(stream.tab_open_at_flush, Some(true));
+        let response: serde_json::Value =
+            serde_json::from_slice(stream.output.strip_suffix(b"\n").unwrap()).unwrap();
+        assert_eq!(response["result"]["ok"], true, "response: {response}");
+        if replacement {
+            let mux = mux.read();
+            let tab = mux.get_tab(&tab_id).unwrap();
+            assert_eq!(
+                tab.session_binding_nonce.as_deref(),
+                Some("replacement-after-response")
+            );
+            assert_eq!(tab.pty_id.as_deref(), Some("replacement-pty"));
+        } else {
+            assert!(mux.read().get_tab(&tab_id).is_none());
+        }
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while cron
+            .lock()
+            .retained_run_report(&job_id, "rpc-complete-run")
+            .is_none()
+        {
+            settled
+                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .unwrap();
+        }
+        let receipt = cron.lock().get_history(&job_id)[0].clone();
+        assert_eq!(receipt.status, CronRunStatus::Success);
+        assert_eq!(receipt.summary.as_deref(), Some("response-flush-summary"));
+        assert_eq!(receipt.report_delivery.as_deref(), Some("no report target"));
     }
 }
 

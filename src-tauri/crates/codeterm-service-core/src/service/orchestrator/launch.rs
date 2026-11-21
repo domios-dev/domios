@@ -15,11 +15,11 @@ pub(crate) fn skip_local_worker_role(
 pub use super::launch_env::PreparedAgentCommand;
 pub(crate) use crate::agent::registry::AgentRegistry;
 pub use command::prepare_agent_command_for_service;
-mod credentials;
 mod account_supervision;
+mod credentials;
+pub use account_supervision::mark_tab_agent_launch_started;
 #[cfg(test)]
 pub(crate) use account_supervision::reserve_launch_binding_nonce;
-pub use account_supervision::mark_tab_agent_launch_started;
 mod generation_registry;
 use generation_registry::LaunchRegistry;
 #[path = "launch/backend_reader.rs"]
@@ -99,11 +99,11 @@ pub struct ProviderSessionBinding {
     pub binding_nonce: String,
 }
 
-pub use generation::{record_provider_session, record_reader_termination, supersede_tab_launch};
 #[cfg(any(test, feature = "test-support"))]
 pub use generation::arm_provider_session_for_test;
 #[cfg(test)]
 use generation::take_reader_termination;
+pub use generation::{record_provider_session, record_reader_termination, supersede_tab_launch};
 
 fn existing_live_pty(svc: &ServiceContext, tab_id: &str) -> Option<String> {
     let pty_id = svc
@@ -300,13 +300,17 @@ pub fn launch_agent_in_background_with_invocation(
     );
     let public_send_key = public_send::arm(&svc, &tab_id, &agent_cmd, startup_turn_text);
     let public_send_guard = public_send::guard(&svc, &tab_id, public_send_key);
-    let (account, reserved_nonce) = match account_supervision::prepare(&svc, &tab_id, &agent_cmd, resume_session_id.as_deref()) {
-        Ok(account) => account,
-        Err(error) => {
-            if let Some(tx) = ready_tx { let _ = tx.send(Err(error)); }
-            return None;
-        }
-    };
+    let (account, reserved_nonce) =
+        match account_supervision::prepare(&svc, &tab_id, &agent_cmd, resume_session_id.as_deref())
+        {
+            Ok(account) => account,
+            Err(error) => {
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return None;
+            }
+        };
     let launch_nonce = reserved_nonce.clone();
     account.set_booting(&svc, &tab_id, true);
     crate::service::boot_wait::notify_boot_changed();
@@ -319,8 +323,14 @@ pub fn launch_agent_in_background_with_invocation(
             Ok(invocation) => invocation,
             Err(error) => {
                 if account.validate(&svc, &tab_id).is_ok() {
-                    account.fail_if_current(&launch, &svc, LaunchFailure::StartupSupervision(error.clone()));
-                } else { LAUNCH_REGISTRY.lock().finish(&launch); }
+                    account.fail_if_current(
+                        &launch,
+                        &svc,
+                        LaunchFailure::StartupSupervision(error.clone()),
+                    );
+                } else {
+                    LAUNCH_REGISTRY.lock().finish(&launch);
+                }
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));
                 }
@@ -331,7 +341,11 @@ pub fn launch_agent_in_background_with_invocation(
             let pty_claim = match svc.pty_ownership.acquire(&tab_id) {
                 Ok(claim) => claim,
                 Err(error) => {
-                    account.fail_if_current(&launch, &svc, LaunchFailure::StartupSupervision(error.clone()));
+                    account.fail_if_current(
+                        &launch,
+                        &svc,
+                        LaunchFailure::StartupSupervision(error.clone()),
+                    );
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(error));
                     }
@@ -340,7 +354,9 @@ pub fn launch_agent_in_background_with_invocation(
             };
             if let Err(error) = account.validate(&svc, &tab_id) {
                 LAUNCH_REGISTRY.lock().finish(&launch);
-                if let Some(tx) = ready_tx { let _ = tx.send(Err(error)); }
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
                 return;
             }
             crate::service::agent_lifecycle::timing::stage(&tab_id, "pending", "relaunch-worker");
@@ -417,8 +433,11 @@ pub fn launch_agent_in_background_with_invocation(
                             tab_id,
                             error
                         );
-                        if account.fail_if_current(&launch, &svc, failure) && !origin.relaunches_existing_agent() {
-                            let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                        if account.fail_if_current(&launch, &svc, failure)
+                            && !origin.relaunches_existing_agent()
+                        {
+                            let _ =
+                                svc.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
                         }
                         set_booting(&launch, false);
                         if let Some(tx) = ready_tx {
@@ -449,7 +468,8 @@ pub fn launch_agent_in_background_with_invocation(
             };
             if !selection.linked {
                 let error = LaunchFailure::TabClosed.reason();
-                let failed_current = account.fail_if_current(&launch, &svc, LaunchFailure::TabClosed);
+                let failed_current =
+                    account.fail_if_current(&launch, &svc, LaunchFailure::TabClosed);
                 set_booting(&launch, false);
                 if failed_current && !origin.relaunches_existing_agent() {
                     let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
@@ -627,7 +647,11 @@ pub fn launch_agent_in_background_with_invocation(
             ) {
                 Ok(command) => command,
                 Err(error) => {
-                    account.fail_if_current(&launch, &svc, LaunchFailure::StartupSupervision(error.clone()));
+                    account.fail_if_current(
+                        &launch,
+                        &svc,
+                        LaunchFailure::StartupSupervision(error.clone()),
+                    );
                     set_booting(&launch, false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(error));
@@ -720,7 +744,8 @@ pub fn launch_agent_in_background_with_invocation(
                             let replacement_claim = match svc.pty_ownership.acquire(&tab_id) {
                                 Ok(claim) => claim,
                                 Err(error) => {
-                                    account.fail_if_current(&launch,
+                                    account.fail_if_current(
+                                        &launch,
                                         &svc,
                                         LaunchFailure::StartupSupervision(error.clone()),
                                     );
@@ -758,11 +783,18 @@ pub fn launch_agent_in_background_with_invocation(
                                         return;
                                     }
                                 };
-                            let replacement_nonce = match account.reserve_replacement(&svc, &launch) {
+                            let replacement_nonce = match account.reserve_replacement(&svc, &launch)
+                            {
                                 Ok(nonce) => nonce,
                                 Err(error) => {
-                                    account.fail_if_current(&launch, &svc, LaunchFailure::StartupSupervision(error.clone()));
-                                    if let Some(tx) = ready_tx { let _ = tx.send(Err(error)); }
+                                    account.fail_if_current(
+                                        &launch,
+                                        &svc,
+                                        LaunchFailure::StartupSupervision(error.clone()),
+                                    );
+                                    if let Some(tx) = ready_tx {
+                                        let _ = tx.send(Err(error));
+                                    }
                                     return;
                                 }
                             };
@@ -799,7 +831,8 @@ pub fn launch_agent_in_background_with_invocation(
                             ) {
                                 Ok(command) => command,
                                 Err(error) => {
-                                    account.fail_if_current(&launch,
+                                    account.fail_if_current(
+                                        &launch,
                                         &svc,
                                         LaunchFailure::StartupSupervision(error.clone()),
                                     );
@@ -819,7 +852,11 @@ pub fn launch_agent_in_background_with_invocation(
                                 )
                             {
                                 let error = LaunchFailure::ShellReadyTimeout.reason();
-                                account.fail_if_current(&launch, &svc, LaunchFailure::ShellReadyTimeout);
+                                account.fail_if_current(
+                                    &launch,
+                                    &svc,
+                                    LaunchFailure::ShellReadyTimeout,
+                                );
                                 set_booting(&launch, false);
                                 if let Some(tx) = ready_tx {
                                     let _ = tx.send(Err(error));
@@ -832,8 +869,11 @@ pub fn launch_agent_in_background_with_invocation(
                                 return;
                             }
                             dispatched_authority = svc.user_send_authority(&tab_id).ok();
-                            match launch.write_if_current(|| account.validate(&svc, &tab_id).and_then(|_| wrapped_launch_cmd.send(&svc, &pty_id)))
-                            {
+                            match launch.write_if_current(|| {
+                                account
+                                    .validate(&svc, &tab_id)
+                                    .and_then(|_| wrapped_launch_cmd.send(&svc, &pty_id))
+                            }) {
                                 Some(result) => result,
                                 None => return,
                             }
@@ -1047,7 +1087,11 @@ pub fn launch_agent_in_background_with_invocation(
                         pty_id,
                         e
                     );
-                    account.fail_if_current(&launch, &svc, LaunchFailure::TaskDelivery(e.to_string()));
+                    account.fail_if_current(
+                        &launch,
+                        &svc,
+                        LaunchFailure::TaskDelivery(e.to_string()),
+                    );
                     set_booting(&launch, false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(format!("task delivery failed: {}", e)));

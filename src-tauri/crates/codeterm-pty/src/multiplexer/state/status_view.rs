@@ -1,8 +1,8 @@
 use std::time::Instant;
 
 use codeterm_types::pty::{
-    AgentLiveState, BootStage, PromptKind, QuestionSubtype, TabStatus, TabStatusTracker, TabVerdict,
-    TimelineState,
+    AgentLiveState, BootStage, PromptKind, QuestionSubtype, TabStatus, TabStatusTracker,
+    TabVerdict, TimelineState,
 };
 use codeterm_util::lock_hold::{TimedMutex, TimedRwLock};
 
@@ -143,8 +143,12 @@ pub fn tab_status_label(tab: &Tab, resolved: Option<TabStatus>) -> &'static str 
 fn launch_failed(tab: &Tab) -> bool {
     tab.boot_stage == Some(BootStage::SpawnFailed)
         || tab.agent_runtime_state.as_ref().is_some_and(|runtime| {
-            matches!(runtime["state"].as_str(), Some("degraded" | "refused" | "unavailable"))
-                || runtime.get("failureCode").is_some_and(|code| !code.is_null())
+            matches!(
+                runtime["state"].as_str(),
+                Some("degraded" | "refused" | "unavailable")
+            ) || runtime
+                .get("failureCode")
+                .is_some_and(|code| !code.is_null())
         })
 }
 

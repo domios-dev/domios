@@ -59,7 +59,9 @@ pub(super) fn dispatch_complete(
         })?;
     let after_response = completion.map(|completion| {
         Box::new(move || {
-            if let Err(error) = completion.finish() { log::error!("Cron after-response cleanup retained: {error}"); }
+            if let Err(error) = completion.finish() {
+                log::error!("Cron after-response cleanup retained: {error}");
+            }
         }) as PostResponseAction
     });
     Ok((serde_json::json!({"ok": true}), after_response))

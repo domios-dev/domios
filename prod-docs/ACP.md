@@ -44,7 +44,8 @@ The `local` profile is the entry point for another installed ACP v1 agent:
 
 ### Manage profiles through the CLI
 
-The local owner and live Team Orchestrators can manage profiles on this machine.
+The local owner, the authenticated current local General Agent, and live local
+Team Orchestrators can manage profiles on this machine.
 These commands refuse `--mesh`. Human-readable output is the default; add `--json`
 to read the shared `result` envelope.
 
@@ -395,4 +396,4 @@ an agent cannot change its own or another tab's mode this way.
   the current index and refuses unsupported distributions; neither proves agent
   authentication or compatibility.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->

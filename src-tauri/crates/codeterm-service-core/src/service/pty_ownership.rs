@@ -47,8 +47,12 @@ pub(crate) struct ClaimedPty<'a> {
 }
 
 impl ClaimedPty<'_> {
-    pub(crate) fn tab_id(&self) -> &str { self.claim.tab_id() }
-    pub(crate) fn pty_id(&self) -> &str { self.pty_id }
+    pub(crate) fn tab_id(&self) -> &str {
+        self.claim.tab_id()
+    }
+    pub(crate) fn pty_id(&self) -> &str {
+        self.pty_id
+    }
 }
 
 pub enum LinkOutcome {
@@ -247,7 +251,10 @@ impl crate::service::ServiceContext {
         pty_id: String,
         launch_owned: bool,
         mut before_link: impl FnMut(&str),
-        mut admit: impl FnMut(&crate::multiplexer::state::MultiplexerState, &ClaimedPty<'_>) -> Result<(), String>,
+        mut admit: impl FnMut(
+            &crate::multiplexer::state::MultiplexerState,
+            &ClaimedPty<'_>,
+        ) -> Result<(), String>,
     ) -> crate::service::pty_ownership::PtySelection {
         claim.settle(
             pty_id,
@@ -256,7 +263,16 @@ impl crate::service::ServiceContext {
             |selected| {
                 before_link(selected);
                 let mut mux = self.mux.write();
-                if claim.tab_id() != tab_id || admit(&mux, &ClaimedPty { claim, pty_id: selected }).is_err() {
+                if claim.tab_id() != tab_id
+                    || admit(
+                        &mux,
+                        &ClaimedPty {
+                            claim,
+                            pty_id: selected,
+                        },
+                    )
+                    .is_err()
+                {
                     crate::service::pty_ownership::LinkOutcome::Refused
                 } else if mux.get_tab(tab_id).is_none() {
                     crate::service::pty_ownership::LinkOutcome::TabMissing
@@ -281,5 +297,4 @@ impl crate::service::ServiceContext {
             },
         )
     }
-
 }

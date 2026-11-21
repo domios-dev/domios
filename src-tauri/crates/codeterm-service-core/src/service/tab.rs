@@ -191,7 +191,11 @@ impl ServiceContext {
         }
         super::task_files::release_tab(self, tab_id);
         self.cancel_agent_startup_supervision(tab_id);
-        let pad_result = if retire_pad { self.revoke_agent_pad(tab_id) } else { Ok(()) };
+        let pad_result = if retire_pad {
+            self.revoke_agent_pad(tab_id)
+        } else {
+            Ok(())
+        };
         self.orchestration().clear_dead_planner_binding(tab_id);
         self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
         self.settle_lanes_held_by_closed_tab(tab_id);
@@ -365,14 +369,26 @@ impl ServiceContext {
             &str,
         ) -> Result<(), String>,
     ) -> Result<(), String> {
-        self.close_tab_with_teardown_and_pad(tab_id, reason, validate, teardown, validate_commit, true)
+        self.close_tab_with_teardown_and_pad(
+            tab_id,
+            reason,
+            validate,
+            teardown,
+            validate_commit,
+            true,
+        )
     }
 
     pub(crate) fn close_tab_with_teardown_and_pad(
-        &self, tab_id: &str, reason: TabCloseReason,
+        &self,
+        tab_id: &str,
+        reason: TabCloseReason,
         validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
         teardown: impl FnOnce() -> Result<(), String>,
-        validate_commit: impl FnOnce(&mut crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
+        validate_commit: impl FnOnce(
+            &mut crate::multiplexer::state::MultiplexerState,
+            &str,
+        ) -> Result<(), String>,
         retire_pad: bool,
     ) -> Result<(), String> {
         let (pre_focus, reservation, provider_id, canonical_tab_id, session_id) = {
@@ -599,7 +615,14 @@ impl ServiceContext {
         pty_id: String,
         launch_owned: bool,
     ) -> crate::service::pty_ownership::PtySelection {
-        self.link_pty_with_admission(claim, tab_id, pty_id, launch_owned, |selected| self.seed_pending_scrollback_before_link(tab_id, selected), |_, _| Ok(()))
+        self.link_pty_with_admission(
+            claim,
+            tab_id,
+            pty_id,
+            launch_owned,
+            |selected| self.seed_pending_scrollback_before_link(tab_id, selected),
+            |_, _| Ok(()),
+        )
     }
 
     pub fn update_tab_cwd(&self, tab_id: &str, cwd: String) {

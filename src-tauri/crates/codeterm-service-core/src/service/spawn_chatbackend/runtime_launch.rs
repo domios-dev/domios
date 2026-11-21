@@ -1,5 +1,5 @@
-use super::*;
 use super::super::ServiceContext;
+use super::*;
 use crate::agent::run_watcher::runtime_runs::CronRunAuthority;
 use crate::service::MuxEmitCause;
 
@@ -35,10 +35,14 @@ impl ChatBackendRuntimeLaunch {
             self.cron_owner.as_ref(),
         ) {
             if let Some(owner) = &self.cron_owner {
-                if self.cron_owned && !runtime_boundary.load(std::sync::atomic::Ordering::Acquire) { let _ = svc.run_watcher.fail_sealed_cron_launch(&svc, owner, &error); }
+                if self.cron_owned && !runtime_boundary.load(std::sync::atomic::Ordering::Acquire) {
+                    let _ = svc.run_watcher.fail_sealed_cron_launch(&svc, owner, &error);
+                }
             }
-            if self.cron_owner.is_none() && !self.cron_owned && (self.runtime_fork.is_some()
-                || !crate::service::agent_runtime::requested_for_tab(&svc, &self.tab_id))
+            if self.cron_owner.is_none()
+                && !self.cron_owned
+                && (self.runtime_fork.is_some()
+                    || !crate::service::agent_runtime::requested_for_tab(&svc, &self.tab_id))
             {
                 svc.rollback_provisional_tab(&self.workspace_id, &self.tab_id);
                 let _ = svc.revoke_agent_pad(&self.tab_id);
@@ -57,18 +61,44 @@ impl ChatBackendRuntimeLaunch {
 }
 
 impl ServiceContext {
-    pub(crate) fn prepare_chatbackend_runtime_launch(&self, tab: &str, metadata: &crate::service::spawn::ChatBackendLaunchMetadata) -> Result<(), String> {
-        let provisional = if let Some(linkage @ crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id, run_id }) = metadata.owner_linkage.as_ref() {
-            let cron = self.try_ext::<crate::CronState>().ok_or("Cron state unavailable before runtime allocation")?;
-            self.run_watcher.reserve_cron_slot(self, cron, job_id, run_id)?;
-            let allocation = crate::service::spawn::cron_launch::CronAllocation::claim(self, job_id, run_id)?;
-            let expected = self.mux.read().get_tab(tab).cloned().ok_or("Runtime provisional tab absent")?;
+    pub(crate) fn prepare_chatbackend_runtime_launch(
+        &self,
+        tab: &str,
+        metadata: &crate::service::spawn::ChatBackendLaunchMetadata,
+    ) -> Result<(), String> {
+        let provisional = if let Some(
+            linkage @ crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id, run_id },
+        ) = metadata.owner_linkage.as_ref()
+        {
+            let cron = self
+                .try_ext::<crate::CronState>()
+                .ok_or("Cron state unavailable before runtime allocation")?;
+            self.run_watcher
+                .reserve_cron_slot(self, cron, job_id, run_id)?;
+            let allocation =
+                crate::service::spawn::cron_launch::CronAllocation::claim(self, job_id, run_id)?;
+            let expected = self
+                .mux
+                .read()
+                .get_tab(tab)
+                .cloned()
+                .ok_or("Runtime provisional tab absent")?;
             let owner = self.capture_allocated_cron_generation(&expected, linkage)?;
             Some(allocation.captured(owner))
-        } else { None };
-        if let Some(provisional) = &provisional { provisional.prepare()?; }
-        self.prepare_runtime_with_original(tab, metadata, provisional.as_ref().map(|owner| owner.owner()))?;
-        if let Some(provisional) = provisional { provisional.transfer(); }
+        } else {
+            None
+        };
+        if let Some(provisional) = &provisional {
+            provisional.prepare()?;
+        }
+        self.prepare_runtime_with_original(
+            tab,
+            metadata,
+            provisional.as_ref().map(|owner| owner.owner()),
+        )?;
+        if let Some(provisional) = provisional {
+            provisional.transfer();
+        }
         Ok(())
     }
 
@@ -78,7 +108,9 @@ impl ServiceContext {
         metadata: &crate::service::spawn::ChatBackendLaunchMetadata,
         original_cron: Option<&CronRunAuthority>,
     ) -> Result<(), String> {
-        if original_cron.is_some_and(|owner| !owner.matches(&self.mux.read())) { return Err("Original runtime generation changed before preparation".into()); }
+        if original_cron.is_some_and(|owner| !owner.matches(&self.mux.read())) {
+            return Err("Original runtime generation changed before preparation".into());
+        }
         crate::service::spawn_capability::validate_runtime_launch_arguments(
             &metadata.agent.provider,
             &metadata.agent.extra_args,
@@ -93,13 +125,17 @@ impl ServiceContext {
             params.plan_skill_manifest.as_ref().map_or(0, Vec::len)
         );
         if let Some(owner) = original_cron {
-            if self.run_watcher.cron_pad_lease(owner).is_none() { self.capture_cron_pad(owner)?; }
+            if self.run_watcher.cron_pad_lease(owner).is_none() {
+                self.capture_cron_pad(owner)?;
+            }
         }
         self.ensure_agent_pad(tab_id)?;
         self.ensure_session_binding_nonce(tab_id);
         {
             let mut mux = self.mux.write();
-            if original_cron.is_some_and(|owner| !owner.matches(&mux)) { return Err("Runtime cron launch changed during preparation".into()); }
+            if original_cron.is_some_and(|owner| !owner.matches(&mux)) {
+                return Err("Runtime cron launch changed during preparation".into());
+            }
             let tab = mux.get_tab_mut(tab_id).ok_or("Runtime launch tab absent")?;
             if tab.pty_id.is_some() {
                 return Err("Existing runtime launch requires released PTY ownership".into());
@@ -128,10 +164,21 @@ impl ServiceContext {
             &metadata.owner_linkage
         {
             if let Some(owner) = original_cron {
-                let cron = self.try_ext::<crate::CronState>().ok_or("Cron state unavailable before runtime admission")?;
+                let cron = self
+                    .try_ext::<crate::CronState>()
+                    .ok_or("Cron state unavailable before runtime admission")?;
                 self.reserve_captured_cron_launch(cron, owner)?;
-                self.bind_cron_spawn(cron, tab_id, job_id, run_id, owner.nonce().map(str::to_string), None)?;
-            } else { return Err("Runtime cron launch has no original generation".into()); }
+                self.bind_cron_spawn(
+                    cron,
+                    tab_id,
+                    job_id,
+                    run_id,
+                    owner.nonce().map(str::to_string),
+                    None,
+                )?;
+            } else {
+                return Err("Runtime cron launch has no original generation".into());
+            }
         }
         self.prepare_runtime_run_watcher(tab_id, metadata)?;
         self.prepare_runtime_worker_binding(&params, tab_id)?;
@@ -158,25 +205,59 @@ impl ServiceContext {
             if let Some(owner) = original_cron {
                 use sha2::Digest;
                 let digest = format!("{:x}", sha2::Sha256::digest(payload.as_bytes()));
-                let record = crate::multiplexer::types::PendingDeliveryRecord::new(digest, crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput).with_send_id(send);
-                self.pending_delivery_payloads.write(&record, &payload).map_err(|error| error.to_string())?;
-                if let Err(error) = self.run_watcher.seal_prepared_cron_input(self, owner, Some(record.clone())) {
-                    let live = crate::service::pending_delivery_payloads::live_payload_keys(&self.mux.read().snapshot());
-                    if let Err(cleanup) = self.pending_delivery_payloads.delete(&record, &live) { return Err(format!("{error}; original candidate payload cleanup refused: {cleanup}")); }
+                let record = crate::multiplexer::types::PendingDeliveryRecord::new(
+                    digest,
+                    crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+                )
+                .with_send_id(send);
+                self.pending_delivery_payloads
+                    .write(&record, &payload)
+                    .map_err(|error| error.to_string())?;
+                if let Err(error) =
+                    self.run_watcher
+                        .seal_prepared_cron_input(self, owner, Some(record.clone()))
+                {
+                    let live = crate::service::pending_delivery_payloads::live_payload_keys(
+                        &self.mux.read().snapshot(),
+                    );
+                    if let Err(cleanup) = self.pending_delivery_payloads.delete(&record, &live) {
+                        return Err(format!(
+                            "{error}; original candidate payload cleanup refused: {cleanup}"
+                        ));
+                    }
                     return Err(error);
                 }
-                crate::service::session_persist::persist_session_after_mutation(self, crate::service::session_persist::SessionPersistUrgency::Prompt)?;
+                crate::service::session_persist::persist_session_after_mutation(
+                    self,
+                    crate::service::session_persist::SessionPersistUrgency::Prompt,
+                )?;
             } else {
-                self.create_pending_delivery_with_send_id(tab_id, crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput, &payload, Some(&send)).map_err(|error| error.to_string())?;
+                self.create_pending_delivery_with_send_id(
+                    tab_id,
+                    crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+                    &payload,
+                    Some(&send),
+                )
+                .map_err(|error| error.to_string())?;
             }
-        } else if metadata.agent.task.as_deref().is_none_or(|task| task.trim().is_empty()) {
+        } else if metadata
+            .agent
+            .task
+            .as_deref()
+            .is_none_or(|task| task.trim().is_empty())
+        {
             if let Some(owner) = original_cron {
-                if self.mux.read().get_tab(tab_id).is_some_and(|tab| tab.pending_delivery.is_none()) {
-                    self.run_watcher.seal_prepared_cron_input(self, owner, None)?;
+                if self
+                    .mux
+                    .read()
+                    .get_tab(tab_id)
+                    .is_some_and(|tab| tab.pending_delivery.is_none())
+                {
+                    self.run_watcher
+                        .seal_prepared_cron_input(self, owner, None)?;
                 }
             }
         }
         Ok(())
     }
-
 }

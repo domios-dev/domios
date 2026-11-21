@@ -3,54 +3,103 @@ use std::fs;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
-use std::sync::{Arc, LazyLock, Weak};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, LazyLock, Weak};
 
-static PAD_GATES: LazyLock<Mutex<std::collections::HashMap<PathBuf, Weak<Mutex<()>>>>> = LazyLock::new(Mutex::default);
+static PAD_GATES: LazyLock<Mutex<std::collections::HashMap<PathBuf, Weak<Mutex<()>>>>> =
+    LazyLock::new(Mutex::default);
 const CRON_GENERATION_FILE: &str = ".domios-cron-generation.json";
 
 fn pad_gate(root: &Path, tab: &str) -> Arc<Mutex<()>> {
     let mut gates = PAD_GATES.lock();
     gates.retain(|_, gate| gate.strong_count() != 0);
     let key = root.join(tab);
-    if let Some(gate) = gates.get(&key).and_then(Weak::upgrade) { return gate; }
+    if let Some(gate) = gates.get(&key).and_then(Weak::upgrade) {
+        return gate;
+    }
     let gate = Arc::new(Mutex::new(()));
     gates.insert(key, Arc::downgrade(&gate));
     gate
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CronPadLease { root: PathBuf, tab: String, nonce: String, generation: String, created: bool }
+pub(crate) struct CronPadLease {
+    root: PathBuf,
+    tab: String,
+    nonce: String,
+    generation: String,
+    created: bool,
+}
 
 #[derive(Serialize, Deserialize)]
-struct PadGeneration { nonce: String, generation: String }
+struct PadGeneration {
+    nonce: String,
+    generation: String,
+}
 
 impl CronPadLease {
-    pub(crate) fn generation(&self) -> &str { &self.generation }
-    pub(crate) fn nonce(&self) -> &str { &self.nonce }
+    pub(crate) fn generation(&self) -> &str {
+        &self.generation
+    }
+    pub(crate) fn nonce(&self) -> &str {
+        &self.nonce
+    }
 }
 
 fn read_generation(path: &Path) -> Result<Option<PadGeneration>, String> {
     use std::io::Read;
-    let file = match fs::File::open(path) { Ok(file) => file, Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None), Err(error) => return Err(error.to_string()) };
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
     let mut bytes = Vec::new();
-    file.take(4097).read_to_end(&mut bytes).map_err(|error| error.to_string())?;
-    if bytes.len() > 4096 { return Err("Cron pad generation marker exceeds its bound".into()); }
-    let record: PadGeneration = serde_json::from_slice(&bytes).map_err(|error| format!("Cron pad generation marker is invalid: {error}"))?;
-    if record.nonce.len() > 512 || uuid::Uuid::parse_str(&record.generation).is_err() { return Err("Cron pad generation marker identity is invalid".into()); }
+    file.take(4097)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() > 4096 {
+        return Err("Cron pad generation marker exceeds its bound".into());
+    }
+    let record: PadGeneration = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Cron pad generation marker is invalid: {error}"))?;
+    if record.nonce.len() > 512 || uuid::Uuid::parse_str(&record.generation).is_err() {
+        return Err("Cron pad generation marker identity is invalid".into());
+    }
     Ok(Some(record))
 }
 
 fn ensure_generation(pad: &AgentPad, nonce: &str) -> Result<CronPadLease, String> {
-    if nonce.len() > 512 { return Err("Cron pad nonce exceeds its bound".into()); }
+    if nonce.len() > 512 {
+        return Err("Cron pad nonce exceeds its bound".into());
+    }
     let marker = pad.path.join(CRON_GENERATION_FILE);
     let record = match read_generation(&marker)? {
-        Some(record) if record.nonce == nonce => return Ok(CronPadLease { root:pad.root.clone(), tab:pad.tab_id.clone(), nonce:record.nonce, generation:record.generation, created:false }),
-        _ => PadGeneration { nonce: nonce.into(), generation: uuid::Uuid::new_v4().to_string() },
+        Some(record) if record.nonce == nonce => {
+            return Ok(CronPadLease {
+                root: pad.root.clone(),
+                tab: pad.tab_id.clone(),
+                nonce: record.nonce,
+                generation: record.generation,
+                created: false,
+            })
+        }
+        _ => PadGeneration {
+            nonce: nonce.into(),
+            generation: uuid::Uuid::new_v4().to_string(),
+        },
     };
-    crate::persisted_state::StateFile::new(&marker).with_private_permissions().without_backups().save(&serde_json::to_string(&record).map_err(|error| error.to_string())?)?;
-    Ok(CronPadLease { root: pad.root.clone(), tab: pad.tab_id.clone(), nonce: record.nonce, generation: record.generation, created: false })
+    crate::persisted_state::StateFile::new(&marker)
+        .with_private_permissions()
+        .without_backups()
+        .save(&serde_json::to_string(&record).map_err(|error| error.to_string())?)?;
+    Ok(CronPadLease {
+        root: pad.root.clone(),
+        tab: pad.tab_id.clone(),
+        nonce: record.nonce,
+        generation: record.generation,
+        created: false,
+    })
 }
 
 const TOMBSTONE_PREFIX: &str = ".revoked-";
@@ -399,71 +448,138 @@ impl super::ServiceContext {
         let root = self.agent_pad_data_dir.join("runtime").join("agent-pads");
         let gate = pad_gate(&root, tab_id);
         let _guard = gate.lock();
-        let (role, nonce) = self.mux.read().get_tab(tab_id).map(|tab| (pad_role_for_tab(tab), tab.session_binding_nonce.clone())).unwrap_or((AgentPadRole::General, None));
+        let (role, nonce) = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .map(|tab| (pad_role_for_tab(tab), tab.session_binding_nonce.clone()))
+            .unwrap_or((AgentPadRole::General, None));
         let pad = restore_unlocked(&self.agent_pad_data_dir, tab_id, role)?;
         if pad.path.join(CRON_GENERATION_FILE).exists() {
-            if let Some(nonce) = nonce { ensure_generation(&pad, &nonce)?; }
+            if let Some(nonce) = nonce {
+                ensure_generation(&pad, &nonce)?;
+            }
         }
         Ok(pad)
     }
 
-    pub(crate) fn capture_cron_pad(&self, owner: &crate::agent::run_watcher::runtime_runs::CronRunAuthority) -> Result<CronPadLease, String> {
+    pub(crate) fn capture_cron_pad(
+        &self,
+        owner: &crate::agent::run_watcher::runtime_runs::CronRunAuthority,
+    ) -> Result<CronPadLease, String> {
         let tab = owner.tab_id();
-        let nonce = owner.nonce().ok_or("Cron provisional pad has no original nonce")?;
+        let nonce = owner
+            .nonce()
+            .ok_or("Cron provisional pad has no original nonce")?;
         let root = self.agent_pad_data_dir.join("runtime").join("agent-pads");
         let gate = pad_gate(&root, tab);
         let _guard = gate.lock();
-        let (role, current) = self.mux.read().get_tab(tab).map(|tab| (pad_role_for_tab(tab), tab.session_binding_nonce.clone())).ok_or("Cron provisional tab disappeared before pad capture")?;
-        if current.as_deref() != Some(nonce) { return Err("Cron provisional generation changed before pad capture".into()); }
+        let (role, current) = self
+            .mux
+            .read()
+            .get_tab(tab)
+            .map(|tab| (pad_role_for_tab(tab), tab.session_binding_nonce.clone()))
+            .ok_or("Cron provisional tab disappeared before pad capture")?;
+        if current.as_deref() != Some(nonce) {
+            return Err("Cron provisional generation changed before pad capture".into());
+        }
         let path = root.join(tab);
         let created = !path.exists();
         let marker = path.join(CRON_GENERATION_FILE);
         let record = match read_generation(&marker)? {
             Some(record) if record.nonce == nonce => record,
-            _ => PadGeneration { nonce: nonce.into(), generation: uuid::Uuid::new_v4().to_string() },
+            _ => PadGeneration {
+                nonce: nonce.into(),
+                generation: uuid::Uuid::new_v4().to_string(),
+            },
         };
-        let lease = CronPadLease { root, tab: tab.into(), nonce: nonce.into(), generation: record.generation.clone(), created };
+        let lease = CronPadLease {
+            root,
+            tab: tab.into(),
+            nonce: nonce.into(),
+            generation: record.generation.clone(),
+            created,
+        };
         self.run_watcher.attach_cron_pad(owner, lease.clone())?;
         self.run_watcher.journal_cron_owner(owner)?;
         restore_unlocked(&self.agent_pad_data_dir, tab, role)?;
-        crate::persisted_state::StateFile::new(&marker).with_private_permissions().without_backups().save(&serde_json::to_string(&record).map_err(|error| error.to_string())?)?;
+        crate::persisted_state::StateFile::new(&marker)
+            .with_private_permissions()
+            .without_backups()
+            .save(&serde_json::to_string(&record).map_err(|error| error.to_string())?)?;
         Ok(lease)
     }
 
-    pub(crate) fn restore_cron_pad_lease(&self, tab: &str, nonce: &str, generation: &str) -> Result<Option<CronPadLease>, String> {
+    pub(crate) fn restore_cron_pad_lease(
+        &self,
+        tab: &str,
+        nonce: &str,
+        generation: &str,
+    ) -> Result<Option<CronPadLease>, String> {
         validate_tab_id(tab)?;
         let root = self.agent_pad_data_dir.join("runtime").join("agent-pads");
         let gate = pad_gate(&root, tab);
         let _guard = gate.lock();
         let record = read_generation(&root.join(tab).join(CRON_GENERATION_FILE))?;
-        Ok(record.filter(|record| record.nonce == nonce && record.generation == generation).map(|record| CronPadLease { root, tab: tab.into(), nonce: record.nonce, generation: record.generation, created: false }))
+        Ok(record
+            .filter(|record| record.nonce == nonce && record.generation == generation)
+            .map(|record| CronPadLease {
+                root,
+                tab: tab.into(),
+                nonce: record.nonce,
+                generation: record.generation,
+                created: false,
+            }))
     }
 
     pub(crate) fn revoke_cron_pad(&self, lease: &CronPadLease) -> Result<(), String> {
         validate_tab_id(&lease.tab)?;
         let root = self.agent_pad_data_dir.join("runtime").join("agent-pads");
-        if lease.root != root { return Err("Cron pad lease belongs to another root".into()); }
+        if lease.root != root {
+            return Err("Cron pad lease belongs to another root".into());
+        }
         let gate = pad_gate(&root, &lease.tab);
         let guard = gate.lock();
         let path = root.join(&lease.tab);
-        let tombstone = root.join(format!("{TOMBSTONE_PREFIX}{}-{}", lease.tab, lease.generation));
+        let tombstone = root.join(format!(
+            "{TOMBSTONE_PREFIX}{}-{}",
+            lease.tab, lease.generation
+        ));
         if path.exists() {
             let marker = read_generation(&path.join(CRON_GENERATION_FILE))?;
-            if marker.as_ref().is_some_and(|marker| marker.nonce != lease.nonce || marker.generation != lease.generation) { return Ok(()); }
-            if marker.is_none() && !lease.created { return Err("Original cron pad marker is absent; cleanup remains owned".into()); }
+            if marker.as_ref().is_some_and(|marker| {
+                marker.nonce != lease.nonce || marker.generation != lease.generation
+            }) {
+                return Ok(());
+            }
+            if marker.is_none() && !lease.created {
+                return Err("Original cron pad marker is absent; cleanup remains owned".into());
+            }
             verify_exact_child(&root, &lease.tab, &path)?;
             let mux = self.mux.read();
-            if mux.get_tab(&lease.tab).is_some_and(|tab| tab.session_binding_nonce.as_deref() != Some(lease.nonce.as_str())) { return Ok(()); }
-            if marker.is_none() && mux.get_tab(&lease.tab).is_none() { return Err("Unmarked provisional pad has no current original generation; preserve for adjudication".into()); }
-            fs::rename(&path, &tombstone).map_err(|error| format!("Claim original cron pad teardown: {error}"))?;
+            if mux.get_tab(&lease.tab).is_some_and(|tab| {
+                tab.session_binding_nonce.as_deref() != Some(lease.nonce.as_str())
+            }) {
+                return Ok(());
+            }
+            if marker.is_none() && mux.get_tab(&lease.tab).is_none() {
+                return Err("Unmarked provisional pad has no current original generation; preserve for adjudication".into());
+            }
+            fs::rename(&path, &tombstone)
+                .map_err(|error| format!("Claim original cron pad teardown: {error}"))?;
             drop(mux);
         }
         drop(guard);
         if tombstone.exists() {
             let actual_root = root.canonicalize().map_err(|error| error.to_string())?;
-            let actual = tombstone.canonicalize().map_err(|error| error.to_string())?;
-            if actual.parent() != Some(actual_root.as_path()) { return Err("Cron pad teardown escaped its root".into()); }
-            fs::remove_dir_all(&actual).map_err(|error| format!("Retire original cron pad: {error}"))?;
+            let actual = tombstone
+                .canonicalize()
+                .map_err(|error| error.to_string())?;
+            if actual.parent() != Some(actual_root.as_path()) {
+                return Err("Cron pad teardown escaped its root".into());
+            }
+            fs::remove_dir_all(&actual)
+                .map_err(|error| format!("Retire original cron pad: {error}"))?;
         }
         Ok(())
     }

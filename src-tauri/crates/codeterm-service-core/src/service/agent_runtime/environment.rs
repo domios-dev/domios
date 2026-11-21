@@ -169,8 +169,11 @@ impl ServiceContext {
         }
         let mux = self.mux.read();
         let current = mux.get_tab(tab).ok_or("Runtime tab unavailable")?;
-        if current.agent_type.as_deref() != Some(provider.as_str()) || current.session_binding_nonce.as_deref() != Some(nonce.as_str())
-            || crate::service::messenger::switch_handoff::launch_authority(self, tab).is_some_and(|authority| !authority.matches(current)) {
+        if current.agent_type.as_deref() != Some(provider.as_str())
+            || current.session_binding_nonce.as_deref() != Some(nonce.as_str())
+            || crate::service::messenger::switch_handoff::launch_authority(self, tab)
+                .is_some_and(|authority| !authority.matches(current))
+        {
             return Err("Runtime launch environment authority changed".into());
         }
         ENVIRONMENTS.lock().insert(

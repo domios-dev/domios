@@ -23,8 +23,8 @@ use std::{
 
 mod accounts;
 mod retirement;
-pub use retirement::stop_switch_source_blocking;
 use retirement::stop_session;
+pub use retirement::stop_switch_source_blocking;
 mod session;
 pub use session::{OutstandingRequest, Session};
 
@@ -40,14 +40,14 @@ pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
     SESSIONS.lock().get(tab).cloned()
 }
 
-pub use accounts::ensure_with_invocation;
 #[cfg(test)]
 pub(crate) use accounts::ensure_expected;
+pub use accounts::ensure_with_invocation;
 pub(crate) use accounts::ExpectedEnsureOutcome;
+pub(crate) use accounts::{account_boundary_ready, account_trial_idle};
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use accounts::{expected_launch_commit, ExpectedLaunchCommit};
 pub use accounts::{launch_switch_target, reserve_switch_launch};
-pub(crate) use accounts::{account_boundary_ready, account_trial_idle};
 
 pub(super) fn login_pending_session(
     svc: &ServiceContext,
@@ -253,7 +253,12 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
     accounts::ensure(svc, tab, None).await
 }
 
-pub(crate) async fn ensure_expected_observed(svc: &ServiceContext, tab: &str, expected_nonce: &str, fork: Option<(&str, &str)>) -> ExpectedEnsureOutcome {
+pub(crate) async fn ensure_expected_observed(
+    svc: &ServiceContext,
+    tab: &str,
+    expected_nonce: &str,
+    fork: Option<(&str, &str)>,
+) -> ExpectedEnsureOutcome {
     accounts::ensure_expected_observed(svc, tab, expected_nonce, fork).await
 }
 
@@ -281,7 +286,11 @@ async fn ensure_scoped(
 ) -> Result<Arc<Session>, RuntimeFailure> {
     check_expected_nonce(svc, tab, expected_nonce.as_deref())?;
     let switch_launch = crate::service::messenger::switch_handoff::launch_authority(svc, tab);
-    if let Some(authority) = &switch_launch { authority.validate(svc).map_err(|_| RuntimeFailure::Superseded)?; }
+    if let Some(authority) = &switch_launch {
+        authority
+            .validate(svc)
+            .map_err(|_| RuntimeFailure::Superseded)?;
+    }
     if svc
         .mux
         .read()
@@ -299,8 +308,18 @@ async fn ensure_scoped(
     let (provider, account, thread, nonce, config, cwd, saved_state) = {
         let mux = svc.mux.read();
         let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
-        if expected_nonce.as_deref().is_some_and(|nonce| target.session_binding_nonce.as_deref() != Some(nonce)) { return Err(RuntimeFailure::Superseded); }
-        if original.as_ref().is_some_and(|expected| !accounts::account_authority_matches(expected, target)) { return Err(RuntimeFailure::Superseded); }
+        if expected_nonce
+            .as_deref()
+            .is_some_and(|nonce| target.session_binding_nonce.as_deref() != Some(nonce))
+        {
+            return Err(RuntimeFailure::Superseded);
+        }
+        if original
+            .as_ref()
+            .is_some_and(|expected| !accounts::account_authority_matches(expected, target))
+        {
+            return Err(RuntimeFailure::Superseded);
+        }
         (
             target
                 .agent_type
@@ -350,15 +369,32 @@ async fn ensure_scoped(
         mux.ensure_tab_membership_mutable(tab)
             .map_err(RuntimeFailure::Refused)?;
         let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
-        if expected_nonce.as_deref().is_some_and(|nonce| target.session_binding_nonce.as_deref() != Some(nonce)) { return Err(RuntimeFailure::Superseded); }
-        if original.as_ref().is_some_and(|expected| !accounts::account_authority_matches(expected, target)) { return Err(RuntimeFailure::Superseded); }
+        if expected_nonce
+            .as_deref()
+            .is_some_and(|nonce| target.session_binding_nonce.as_deref() != Some(nonce))
+        {
+            return Err(RuntimeFailure::Superseded);
+        }
+        if original
+            .as_ref()
+            .is_some_and(|expected| !accounts::account_authority_matches(expected, target))
+        {
+            return Err(RuntimeFailure::Superseded);
+        }
         if !binding::matches_launch(target, &provider, &account, &nonce) {
             return Err(RuntimeFailure::Superseded);
         }
-        if switch_launch.as_ref().is_some_and(|authority| !authority.matches(target)) { return Err(RuntimeFailure::Superseded); }
+        if switch_launch
+            .as_ref()
+            .is_some_and(|authority| !authority.matches(target))
+        {
+            return Err(RuntimeFailure::Superseded);
+        }
         let mut sessions = SESSIONS.lock();
         super::authority::mark_acquisition(svc, target);
-        if let Some(acquisition) = &acquisition { acquisition.mark_acquired(); }
+        if let Some(acquisition) = &acquisition {
+            acquisition.mark_acquired();
+        }
         if sessions.get(tab).is_some_and(|session| {
             session.context.lock().binding_nonce != nonce
                 || session.provider != provider
@@ -487,10 +523,21 @@ async fn ensure_scoped(
     Ok(session)
 }
 
-fn check_expected_nonce(svc: &ServiceContext, tab: &str, expected: Option<&str>) -> Result<(), RuntimeFailure> {
-    if expected.is_some_and(|nonce| !svc.mux.read().get_tab(tab).is_some_and(|current| current.session_binding_nonce.as_deref() == Some(nonce))) {
+fn check_expected_nonce(
+    svc: &ServiceContext,
+    tab: &str,
+    expected: Option<&str>,
+) -> Result<(), RuntimeFailure> {
+    if expected.is_some_and(|nonce| {
+        !svc.mux
+            .read()
+            .get_tab(tab)
+            .is_some_and(|current| current.session_binding_nonce.as_deref() == Some(nonce))
+    }) {
         Err(RuntimeFailure::Superseded)
-    } else { Ok(()) }
+    } else {
+        Ok(())
+    }
 }
 
 pub async fn ensure_locked(
@@ -691,7 +738,11 @@ pub async fn ensure_locked(
                     crate::service::instance_env::instance_cli_binary_path(),
                     &env,
                 );
-                if let Some(authority) = &switch_launch { authority.validate(&owner).map_err(|_| RuntimeFailure::Superseded)?; }
+                if let Some(authority) = &switch_launch {
+                    authority
+                        .validate(&owner)
+                        .map_err(|_| RuntimeFailure::Superseded)?;
+                }
                 super::process::spawn(&launch, &cwd, env, &target).map(|process| {
                     (
                         Arc::new(process),
@@ -1042,7 +1093,9 @@ fn bind(
     let tab = mux
         .get_tab_mut(&context.tab_id)
         .ok_or(RuntimeFailure::Superseded)?;
-    if crate::service::messenger::switch_handoff::launch_authority(svc, &context.tab_id).is_some_and(|authority| !authority.matches(tab)) {
+    if crate::service::messenger::switch_handoff::launch_authority(svc, &context.tab_id)
+        .is_some_and(|authority| !authority.matches(tab))
+    {
         return Err(RuntimeFailure::Superseded);
     }
     commit_runtime_binding(tab, &context.binding_nonce, thread, fresh, |tab| {

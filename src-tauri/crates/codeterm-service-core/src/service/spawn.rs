@@ -8,9 +8,9 @@ use crate::agent::registry::AgentRegistry;
 
 #[cfg(test)]
 pub(crate) use crate::service::startup_turn::visible_spawn_starter_prompt;
+pub(crate) mod cron_launch;
 #[path = "spawn_warnings.rs"]
 mod spawn_warnings;
-pub(crate) mod cron_launch;
 pub use spawn_warnings::merge as merge_spawn_warnings;
 
 pub use super::spawn_cli::{create_cleared_agent_tab, provider_launch_preflight};
@@ -811,11 +811,20 @@ impl ServiceContext {
             .or(ws_cwd)
             .map(|cwd| ServiceContext::normalize_resolved_agent_cwd(&cwd));
 
-        let allocation = if let Some(RuntimeOwnerLinkage::CronRun { job_id, run_id }) = spec.chatbackend_launch.as_ref().and_then(|launch| launch.owner_linkage.as_ref()) {
-            let cron = self.try_ext::<crate::CronState>().ok_or("Cron state unavailable before hidden provisional allocation")?;
-            self.run_watcher.reserve_cron_slot(self, cron, job_id, run_id)?;
+        let allocation = if let Some(RuntimeOwnerLinkage::CronRun { job_id, run_id }) = spec
+            .chatbackend_launch
+            .as_ref()
+            .and_then(|launch| launch.owner_linkage.as_ref())
+        {
+            let cron = self
+                .try_ext::<crate::CronState>()
+                .ok_or("Cron state unavailable before hidden provisional allocation")?;
+            self.run_watcher
+                .reserve_cron_slot(self, cron, job_id, run_id)?;
             Some(cron_launch::CronAllocation::claim(self, job_id, run_id)?)
-        } else { None };
+        } else {
+            None
+        };
         let gate = self.limit_gate();
         let (tab_id, original) = {
             let mut mux = self.mux.write();
@@ -864,15 +873,31 @@ impl ServiceContext {
                     }
                 }
             }
-            let original = spec.chatbackend_launch.as_ref().and_then(|launch| launch.owner_linkage.as_ref()).and_then(|linkage| {
-                if !matches!(linkage, crate::service::spawn::RuntimeOwnerLinkage::CronRun { .. }) { return None; }
-                Some((mux.get_tab(&result)?.clone(), linkage.clone()))
-            });
+            let original = spec
+                .chatbackend_launch
+                .as_ref()
+                .and_then(|launch| launch.owner_linkage.as_ref())
+                .and_then(|linkage| {
+                    if !matches!(
+                        linkage,
+                        crate::service::spawn::RuntimeOwnerLinkage::CronRun { .. }
+                    ) {
+                        return None;
+                    }
+                    Some((mux.get_tab(&result)?.clone(), linkage.clone()))
+                });
             (result, original)
         };
-        let provisional = allocation.zip(original).map(|(allocation, (expected, linkage))| self.capture_allocated_cron_generation(&expected, &linkage).map(|owner| allocation.captured(owner))).transpose()?;
-        if let Some(provisional) = &provisional { provisional.prepare()?; }
-
+        let provisional = allocation
+            .zip(original)
+            .map(|(allocation, (expected, linkage))| {
+                self.capture_allocated_cron_generation(&expected, &linkage)
+                    .map(|owner| allocation.captured(owner))
+            })
+            .transpose()?;
+        if let Some(provisional) = &provisional {
+            provisional.prepare()?;
+        }
 
         self.set_and_lock_tab_agent_type_from(
             &tab_id,
@@ -900,13 +925,20 @@ impl ServiceContext {
 
         let mut env_vars = self.tab_env(&tab_id)?;
         env_vars.insert("CODETERM_TAB_ID".into(), tab_id.clone());
-        if let Some(provisional) = &provisional { provisional.pad()?; }
+        if let Some(provisional) = &provisional {
+            provisional.pad()?;
+        }
         let agent_pad = self.ensure_agent_pad(&tab_id).inspect_err(|_| {
-            if provisional.is_none() { self.rollback_provisional_tab(&ws_id, &tab_id); }
+            if provisional.is_none() {
+                self.rollback_provisional_tab(&ws_id, &tab_id);
+            }
         })?;
         env_vars.insert("CODETERM_PAD_DIR".into(), agent_pad.env_value());
         let binding_nonce = self.ensure_session_binding_nonce(&tab_id);
-        env_vars.insert("CODETERM_SESSION_BINDING_NONCE".into(), binding_nonce.clone());
+        env_vars.insert(
+            "CODETERM_SESSION_BINDING_NONCE".into(),
+            binding_nonce.clone(),
+        );
         if let Some(ref wid) = agent.worker_id {
             env_vars.insert("CODETERM_WORKER_ID".into(), wid.clone());
         }
@@ -930,7 +962,12 @@ impl ServiceContext {
         );
 
         let original_cron = provisional.as_ref().map(|owner| owner.owner().clone());
-        let pty_id = match self.link_hidden_agent_cron_pty(&tab_id, resolved_cwd, env_vars, original_cron.as_ref()) {
+        let pty_id = match self.link_hidden_agent_cron_pty(
+            &tab_id,
+            resolved_cwd,
+            env_vars,
+            original_cron.as_ref(),
+        ) {
             Ok(pty_id) => pty_id,
             Err(error) => {
                 if provisional.is_none() {
@@ -1035,7 +1072,9 @@ impl ServiceContext {
                 )
             })
             .flatten();
-        if let Some(provisional) = provisional { provisional.transfer(); }
+        if let Some(provisional) = provisional {
+            provisional.transfer();
+        }
         super::spawn_hidden_launch::start(
             svc_outer,
             super::spawn_hidden_launch::HiddenLaunch {
@@ -1067,8 +1106,6 @@ impl ServiceContext {
             budget_notice,
         })
     }
-
-
 }
 
 /// A visible launch carries a minted marker so a hook-less provider still binds

@@ -14,20 +14,27 @@ fn restored_backend_queue_excludes_failed_role_launches_even_if_thawed_by_stale_
     for provider in [None, Some("uninstalled-historical-provider")] {
         let (mut mux, id) = MultiplexerState::new();
         let tab = mux.get_tab_mut(&id).unwrap();
-        tab.role = Some(codeterm_service_core::multiplexer::types::AgentRole::Orchestrator);
+        tab.role = Some(codeterm_service_core::multiplexer::types::AgentRole::Manager);
+        tab.role_profile = Some("orchestrator".into());
         tab.agent_type = provider.map(str::to_owned);
         tab.agent_session_id = provider.map(|_| "historical-session".into());
         tab.boot_stage = Some(BootStage::SpawnFailed);
         tab.boot_failure_reason = Some("captured account failure".into());
         tab.last_active_at_ms = Some(u64::MAX);
-        let fixture = ServiceFixture::new(MultiplexerState::from_session_snapshot(&mux.to_session_snapshot()));
+        let fixture = ServiceFixture::new(MultiplexerState::from_session_snapshot(
+            &mux.to_session_snapshot(),
+        ));
         codeterm_service_core::service::lazy_restore::initialize(&fixture.service, 48);
         fixture.service.mux.write().get_tab_mut(&id).unwrap().frozen = false;
-        let before = serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
+        let before =
+            serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
         let service = Arc::new(fixture.service.clone());
         assert!(!restored_backend_tab_ids(&service).contains(&id));
         publish_backend_materialization_failure(&service, &id, "must not replace captured reason");
-        assert_eq!(serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap(), before);
+        assert_eq!(
+            serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap(),
+            before
+        );
     }
 }
 

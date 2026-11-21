@@ -687,6 +687,5 @@ pub(super) fn get_string_param(
 #[cfg(test)]
 mod tests;
 
-
 #[cfg(test)]
 mod process_split_contract;

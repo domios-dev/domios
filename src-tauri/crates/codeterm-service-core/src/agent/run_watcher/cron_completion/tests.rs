@@ -96,59 +96,137 @@ fn cron_completion_cannot_attach_to_a_foreign_run() {
 #[test]
 fn completion_lookup_requires_original_admission_and_preserves_a_replacement_watcher() {
     for cancel in [true, false] {
-    let (mux, tab) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let nonce = fixture.service.ensure_session_binding_nonce(&tab);
-    let mut store = crate::cron::store::CronStore::new_with_path(fixture.temp.path().join("cron.json"));
-    let job = store.create(serde_json::from_value(serde_json::json!({
+        let (mux, tab) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let nonce = fixture.service.ensure_session_binding_nonce(&tab);
+        let mut store =
+            crate::cron::store::CronStore::new_with_path(fixture.temp.path().join("cron.json"));
+        let job = store.create(serde_json::from_value(serde_json::json!({
         "name":"Completion authority", "workspace_id":"fixture", "schedule":"0 * * * *", "task":"opaque", "jitter_max_ms":0,
     })).unwrap()).unwrap();
-    store.record_run(&job.id, serde_json::from_value(serde_json::json!({
-        "run_id":"owned-run", "started_at":1, "status":"Running", "tab_id":tab,
-    })).unwrap()).unwrap();
-    store.register_tab(&tab, &job.id, "owned-run");
-    let cron: crate::CronState = std::sync::Arc::new(parking_lot::Mutex::new(store));
-    assert!(fixture.service.set_ext(cron.clone()).is_ok());
-    let registry = &fixture.service.run_watcher;
-    assert!(registry.cron_completion_state(&fixture.service, &tab, "owned-run").is_err());
-    assert!(registry.runs.lock().is_empty());
-    let linkage = crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id: job.id.clone(), run_id:"owned-run".into() };
-    registry.reserve_cron_slot(&fixture.service, &cron, &job.id, "owned-run").unwrap();
-    let sealed = registry.capture_cron_launch(&fixture.service, &linkage, &tab, &nonce, None).unwrap();
-    let pty = fixture.service.link_hidden_agent_cron_pty_with_builder(&tab, Some(&sealed), |gate| {
-        crate::pty::manager::build_session(gate, None, None, 120, 40, Default::default())
-    }).unwrap();
-    let original = registry.cron_binding(&tab, &job.id, "owned-run").unwrap();
-    fixture.service.bind_cron_spawn(&cron, &tab, &job.id, "owned-run", Some(nonce.clone()), Some(pty)).unwrap();
-    let admitted = registry.cron_completion_state(&fixture.service, &tab, "owned-run").unwrap();
-    assert_eq!(admitted.binding_nonce.as_deref(), Some(nonce.as_str()));
-    {
-        let mut mux = fixture.service.mux.write();
-        let replacement = mux.get_tab_mut(&tab).unwrap();
-        replacement.session_binding_nonce = Some("replacement-nonce".into());
-        replacement.pty_id = Some("replacement-pty".into());
-        replacement.agent_session_id = Some("replacement-session".into());
+        store
+            .record_run(
+                &job.id,
+                serde_json::from_value(serde_json::json!({
+                    "run_id":"owned-run", "started_at":1, "status":"Running", "tab_id":tab,
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        store.register_tab(&tab, &job.id, "owned-run");
+        let cron: crate::CronState = std::sync::Arc::new(parking_lot::Mutex::new(store));
+        assert!(fixture.service.set_ext(cron.clone()).is_ok());
+        let registry = &fixture.service.run_watcher;
+        assert!(registry
+            .cron_completion_state(&fixture.service, &tab, "owned-run")
+            .is_err());
+        assert!(registry.runs.lock().is_empty());
+        let linkage = crate::service::spawn::RuntimeOwnerLinkage::CronRun {
+            job_id: job.id.clone(),
+            run_id: "owned-run".into(),
+        };
+        registry
+            .reserve_cron_slot(&fixture.service, &cron, &job.id, "owned-run")
+            .unwrap();
+        let sealed = registry
+            .capture_cron_launch(&fixture.service, &linkage, &tab, &nonce, None)
+            .unwrap();
+        let pty = fixture
+            .service
+            .link_hidden_agent_cron_pty_with_builder(&tab, Some(&sealed), |gate| {
+                crate::pty::manager::build_session(gate, None, None, 120, 40, Default::default())
+            })
+            .unwrap();
+        let original = registry.cron_binding(&tab, &job.id, "owned-run").unwrap();
+        fixture
+            .service
+            .bind_cron_spawn(
+                &cron,
+                &tab,
+                &job.id,
+                "owned-run",
+                Some(nonce.clone()),
+                Some(pty),
+            )
+            .unwrap();
+        let admitted = registry
+            .cron_completion_state(&fixture.service, &tab, "owned-run")
+            .unwrap();
+        assert_eq!(admitted.binding_nonce.as_deref(), Some(nonce.as_str()));
+        {
+            let mut mux = fixture.service.mux.write();
+            let replacement = mux.get_tab_mut(&tab).unwrap();
+            replacement.session_binding_nonce = Some("replacement-nonce".into());
+            replacement.pty_id = Some("replacement-pty".into());
+            replacement.agent_session_id = Some("replacement-session".into());
+        }
+        registry.register(
+            fixture.service.clone(),
+            "replacement-pty".into(),
+            tab.clone(),
+            AgentRunKind::MemWorker {
+                worker_id: "replacement-worker".into(),
+            },
+            1200,
+            None,
+        );
+        assert!(registry
+            .cron_completion_state(&fixture.service, &tab, "owned-run")
+            .is_err());
+        assert!(registry.runs.lock().contains_key("replacement-pty"));
+        assert!(registry
+            .register_cron(fixture.service.clone(), &original, 1200, None)
+            .is_err());
+        if cancel {
+            assert_eq!(
+                fixture
+                    .service
+                    .cron_cancel_running(
+                        &cron,
+                        &job.id,
+                        crate::cron::store::CronCancelReason::UserCancel
+                    )
+                    .unwrap(),
+                1
+            );
+        } else {
+            let (ended, receipt) = std::sync::mpsc::channel();
+            fixture.ui.listen("cron-run-finished", move |_| {
+                let _ = ended.send(());
+            });
+            super::super::finish_run(
+                &fixture.service,
+                &admitted,
+                false,
+                "delayed original PTY end".into(),
+            );
+            receipt
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            let store = cron.lock();
+            let old = store.run_receipt(&job.id, "owned-run").unwrap();
+            assert_eq!(old.status, crate::cron::store::CronRunStatus::Failed);
+            assert!(
+                old.session_id.is_none(),
+                "replacement session cannot bind the old receipt"
+            );
+            assert_eq!(old.report_delivery.as_deref(), Some("no report target"));
+        }
+        assert!(registry.runs.lock().contains_key("replacement-pty"));
+        assert_eq!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab)
+                .unwrap()
+                .pty_id
+                .as_deref(),
+            Some("replacement-pty")
+        );
+        registry.mark_completed_externally("replacement-pty");
+        assert!(admitted
+            .completed
+            .load(std::sync::atomic::Ordering::Acquire));
     }
-    registry.register(fixture.service.clone(), "replacement-pty".into(), tab.clone(), AgentRunKind::MemWorker { worker_id:"replacement-worker".into() }, 1200, None);
-    assert!(registry.cron_completion_state(&fixture.service, &tab, "owned-run").is_err());
-    assert!(registry.runs.lock().contains_key("replacement-pty"));
-    assert!(registry.register_cron(fixture.service.clone(), &original, 1200, None).is_err());
-    if cancel {
-        assert_eq!(fixture.service.cron_cancel_running(&cron, &job.id, crate::cron::store::CronCancelReason::UserCancel).unwrap(), 1);
-    } else {
-        let (ended, receipt) = std::sync::mpsc::channel();
-        fixture.ui.listen("cron-run-finished", move |_| { let _ = ended.send(()); });
-        super::super::finish_run(&fixture.service, &admitted, false, "delayed original PTY end".into());
-        receipt.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
-        let store = cron.lock();
-        let old = store.run_receipt(&job.id, "owned-run").unwrap();
-        assert_eq!(old.status, crate::cron::store::CronRunStatus::Failed);
-        assert!(old.session_id.is_none(), "replacement session cannot bind the old receipt");
-        assert_eq!(old.report_delivery.as_deref(), Some("no report target"));
-    }
-    assert!(registry.runs.lock().contains_key("replacement-pty"));
-    assert_eq!(fixture.service.mux.read().get_tab(&tab).unwrap().pty_id.as_deref(), Some("replacement-pty"));
-    registry.mark_completed_externally("replacement-pty");
-    assert!(admitted.completed.load(std::sync::atomic::Ordering::Acquire));
-}
 }

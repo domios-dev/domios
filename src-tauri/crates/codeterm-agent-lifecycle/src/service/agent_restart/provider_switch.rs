@@ -159,7 +159,8 @@ impl ProviderSwitchExt for ServiceContext {
         let _claim = self
             .claim_provider_switch(&tab.id)
             .map_err(|error| switch_restart_error("provider_switch_in_progress", error))?;
-        let admitted_source = crate::service::messenger::switch_handoff::SwitchSourceAuthority::admitted(&tab);
+        let admitted_source =
+            crate::service::messenger::switch_handoff::SwitchSourceAuthority::admitted(&tab);
         let carry = self.authorize_provider_switch_binding_from_source(&admitted_source, target)?;
         if let Some(authority) = carry.as_ref() {
             let binding = authority.authorized_task_binding().clone();
@@ -254,7 +255,8 @@ impl ProviderSwitchExt for ServiceContext {
             false,
         )?;
         self.validate_provider_switch_binding(&tab.id, carry.as_ref())?;
-        let source_authority = crate::service::messenger::switch_handoff::SwitchSourceAuthority::admitted(&tab);
+        let source_authority =
+            crate::service::messenger::switch_handoff::SwitchSourceAuthority::admitted(&tab);
         operations::progress(self, &tab.id, "source_retirement");
         self.retire_provider_switch_input(&tab.id)?;
         crate::service::orchestrator::supersede_tab_launch(&tab.id);
@@ -273,9 +275,17 @@ impl ProviderSwitchExt for ServiceContext {
             }
             TargetRoute::Pty => {
                 let _pty_claim = self.pty_ownership.acquire(&tab.id)?;
-                if !self.mux.read().get_tab(&tab.id).is_some_and(|current| operations::source_matches(&tab, current)) {
+                if !self
+                    .mux
+                    .read()
+                    .get_tab(&tab.id)
+                    .is_some_and(|current| operations::source_matches(&tab, current))
+                {
                     binding_cleanup.preserve = true;
-                    return Err("provider_switch_superseded: source authority changed before retirement".into());
+                    return Err(
+                        "provider_switch_superseded: source authority changed before retirement"
+                            .into(),
+                    );
                 }
                 self.request_graceful_exit(
                     &snap,
@@ -285,7 +295,12 @@ impl ProviderSwitchExt for ServiceContext {
                 self.tear_down_switch_pty(&snap, &source_authority)?;
             }
         }
-        if !self.mux.read().get_tab(&tab.id).is_some_and(|current| source_authority.matches_retired(current)) {
+        if !self
+            .mux
+            .read()
+            .get_tab(&tab.id)
+            .is_some_and(|current| source_authority.matches_retired(current))
+        {
             binding_cleanup.preserve = true;
             return Err("provider_switch_superseded: source context changed during retirement; handoff was not sent".into());
         }
@@ -297,7 +312,9 @@ impl ProviderSwitchExt for ServiceContext {
                 .ok_or("provider_switch_superseded: tab closed after retirement")?;
             if !source_authority.matches_retired(current) {
                 binding_cleanup.preserve = true;
-                return Err("provider_switch_superseded: source context changed before target reset".into());
+                return Err(
+                    "provider_switch_superseded: source context changed before target reset".into(),
+                );
             }
             model::reset_for_target(current, target, route.target, &input.launch_parameters);
             current.agent_type_locked = true;
@@ -310,16 +327,25 @@ impl ProviderSwitchExt for ServiceContext {
                 Some(&self.mem),
             );
         }
-        let result = crate::service::messenger::switch_handoff::with_switch_launch(self, &launch_snapshot, || self.provider_switch_launch(
-            &snap,
-            route.target,
-            &input,
-            prepared,
-            carry_required,
-            force,
-        ));
+        let result = crate::service::messenger::switch_handoff::with_switch_launch(
+            self,
+            &launch_snapshot,
+            || {
+                self.provider_switch_launch(
+                    &snap,
+                    route.target,
+                    &input,
+                    prepared,
+                    carry_required,
+                    force,
+                )
+            },
+        );
         if result.is_err() {
-            binding_cleanup.preserve = result.as_ref().err().is_some_and(|error| error.starts_with("provider_switch_readiness_unconfirmed:") || error.starts_with("provider_switch_superseded:"));
+            binding_cleanup.preserve = result.as_ref().err().is_some_and(|error| {
+                error.starts_with("provider_switch_readiness_unconfirmed:")
+                    || error.starts_with("provider_switch_superseded:")
+            });
             if let Err(reason) = &result {
                 log::debug!(
                     "[provider-switch] tab={} target={} launch failed: {}",
@@ -327,18 +353,21 @@ impl ProviderSwitchExt for ServiceContext {
                     target,
                     reason
                 );
-                if !binding_cleanup.preserve && !reason.starts_with("provider_switch_superseded:") && operations::owns_target(self, &tab.id) {
-                  let mut mux = self.mux.write();
-                  if let Some(current) = mux.get_tab_mut(&tab.id) {
-                    current.agent_booting = false;
-                    if !current.launch_session_authenticated() {
-                        crate::service::boot_stage::apply_boot_stage(
-                            current,
-                            codeterm_types::pty::BootStage::SpawnFailed,
-                            Some(reason),
-                        );
+                if !binding_cleanup.preserve
+                    && !reason.starts_with("provider_switch_superseded:")
+                    && operations::owns_target(self, &tab.id)
+                {
+                    let mut mux = self.mux.write();
+                    if let Some(current) = mux.get_tab_mut(&tab.id) {
+                        current.agent_booting = false;
+                        if !current.launch_session_authenticated() {
+                            crate::service::boot_stage::apply_boot_stage(
+                                current,
+                                codeterm_types::pty::BootStage::SpawnFailed,
+                                Some(reason),
+                            );
+                        }
                     }
-                  }
                 }
             }
             self.schedule_session_persist_debounced();
@@ -347,7 +376,10 @@ impl ProviderSwitchExt for ServiceContext {
         let (session_id, ready_target) = result.map_err(|reason| format!("{reason}; source {} session {} retired; transcript {} retained; target {} in tab {} is recoverable only by exact current binding", source, tab.agent_session_id.as_deref().unwrap_or("unknown"), archive.display(), target, tab.id))?;
         binding_cleanup.interrupt_on_failure = false;
         if !operations::owns_target(self, &tab.id) {
-            return Err("provider_switch_superseded: target changed before handoff; input was not sent".into());
+            return Err(
+                "provider_switch_superseded: target changed before handoff; input was not sent"
+                    .into(),
+            );
         }
         self.persist_general_provider_switch(&tab, target, &input.launch_parameters, &session_id)?;
         let authority = source_authority.ready_target(&ready_target)?;
@@ -399,8 +431,12 @@ impl ProviderSwitchExt for ServiceContext {
         let tab = mux
             .get_tab_mut(tab_id)
             .ok_or("provider_switch_superseded: tab closed after source retirement")?;
-        if !crate::service::messenger::switch_handoff::SwitchSourceAuthority::admitted(source).matches_retired(tab) {
-            return Err("provider_switch_superseded: source authority changed before archive commit".into());
+        if !crate::service::messenger::switch_handoff::SwitchSourceAuthority::admitted(source)
+            .matches_retired(tab)
+        {
+            return Err(
+                "provider_switch_superseded: source authority changed before archive commit".into(),
+            );
         }
         tab.archive_provider_handoff(
             &provider,
@@ -450,14 +486,22 @@ impl ProviderSwitchExt for ServiceContext {
         let binding;
         match route {
             TargetRoute::Runtime => {
-                let launch = crate::service::messenger::switch_handoff::launch_authority(self, &snap.tab_id)
-                    .ok_or("provider_switch_superseded: admitted launch authority unavailable")?;
+                let launch =
+                    crate::service::messenger::switch_handoff::launch_authority(self, &snap.tab_id)
+                        .ok_or(
+                            "provider_switch_superseded: admitted launch authority unavailable",
+                        )?;
                 let nonce = agent_runtime::engine::reserve_switch_launch(self, &launch)?;
                 binding = operations::TargetBinding::capture(self, &snap.tab_id, target, &nonce)?;
                 operations::target_launched(&binding);
                 if let Some(prompt) = input.launch_parameters.identity_instructions.as_ref() {
                     if let Some(tab) = self.mux.write().get_tab_mut(&snap.tab_id) {
-                        if !launch.matches(tab) { return Err("provider_switch_superseded: target prompt authority changed".into()); }
+                        if !launch.matches(tab) {
+                            return Err(
+                                "provider_switch_superseded: target prompt authority changed"
+                                    .into(),
+                            );
+                        }
                         tab.agent_runtime_config
                             .get_or_insert_with(|| serde_json::json!({}))["systemPrompt"] =
                             serde_json::json!(prompt);
@@ -488,23 +532,45 @@ impl ProviderSwitchExt for ServiceContext {
                     None,
                     None,
                     None,
-                ).ok_or("provider_switch_launch_failed: target did not reserve a launch")?;
+                )
+                .ok_or("provider_switch_launch_failed: target did not reserve a launch")?;
                 binding = operations::TargetBinding::capture(self, &snap.tab_id, target, &nonce)?;
                 operations::target_launched(&binding);
             }
         }
-        let session = operations::await_target_binding(self, &snap.tab_id, &binding, std::time::Duration::from_secs(super::RESTART_READY_TIMEOUT_SECS))?;
+        let session = operations::await_target_binding(
+            self,
+            &snap.tab_id,
+            &binding,
+            std::time::Duration::from_secs(super::RESTART_READY_TIMEOUT_SECS),
+        )?;
         operations::progress(self, &snap.tab_id, "target_ready");
         outcome.agent_ready = true;
-        outcome.new_pty_id = self.mux.read().get_tab(&snap.tab_id).and_then(|tab| tab.pty_id.clone());
+        outcome.new_pty_id = self
+            .mux
+            .read()
+            .get_tab(&snap.tab_id)
+            .and_then(|tab| tab.pty_id.clone());
         let outcome = self
             .settle_restored_binding(outcome, snap, carry_required)
             .map_err(|error| switch_attempt_error("provider_switch_binding_failed", error))?;
         let mux = self.mux.read();
-        let current = mux.get_tab(&outcome.tab_id).filter(|tab| binding.matches(tab) && tab.agent_session_id.as_deref() == Some(session.as_str()) && tab.launch_session_authenticated())
+        let current = mux
+            .get_tab(&outcome.tab_id)
+            .filter(|tab| {
+                binding.matches(tab)
+                    && tab.agent_session_id.as_deref() == Some(session.as_str())
+                    && tab.launch_session_authenticated()
+            })
             .ok_or("provider_switch_superseded: target binding changed during settlement")?;
         operations::target_launched(&binding.pin_ready(current));
-        Ok((current.agent_session_id.clone().ok_or("provider_switch_binding_failed: target session unavailable")?, current.clone()))
+        Ok((
+            current
+                .agent_session_id
+                .clone()
+                .ok_or("provider_switch_binding_failed: target session unavailable")?,
+            current.clone(),
+        ))
     }
 
     fn provider_switch_route(

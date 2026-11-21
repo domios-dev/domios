@@ -16,8 +16,14 @@ fn compact_lifecycle_never_turns_missing_readiness_or_failure_into_idle() {
     tab.boot_stage = Some(BootStage::SpawnFailed);
     tab.boot_failure_reason = Some("opaque-supervision-failure".into());
     assert_eq!(tab_status_label(tab, Some(TabStatus::Idle)), "error");
-    assert_eq!(effective_tab_status(tab, Some(TabStatus::Idle)), TabStatus::Error);
-    assert_eq!(resolved_tab_status(tab, &TabStatusTracker::new(), |_, raw| raw), Some(TabStatus::Error));
+    assert_eq!(
+        effective_tab_status(tab, Some(TabStatus::Idle)),
+        TabStatus::Error
+    );
+    assert_eq!(
+        resolved_tab_status(tab, &TabStatusTracker::new(), |_, raw| raw),
+        Some(TabStatus::Error)
+    );
     tab.boot_stage = Some(BootStage::ShellReady);
     assert_eq!(tab_status_label(tab, Some(TabStatus::Idle)), "unknown");
     tab.agent_type = Some("opaque-provider".into());

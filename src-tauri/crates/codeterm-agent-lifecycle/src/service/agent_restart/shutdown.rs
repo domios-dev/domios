@@ -10,13 +10,28 @@ pub trait RestartShutdownExt {
     fn request_graceful_exit(&self, snap: &TabRestartSnapshot, force: bool, grace: Duration);
     fn idle_restart_termination_allowed(&self, snap: &TabRestartSnapshot) -> bool;
     fn tear_down_restart_pty(&self, snap: &TabRestartSnapshot) -> Result<(), String>;
-    fn tear_down_switch_pty(&self, snap: &TabRestartSnapshot, source: &crate::service::messenger::switch_handoff::SwitchSourceAuthority) -> Result<(), String>;
+    fn tear_down_switch_pty(
+        &self,
+        snap: &TabRestartSnapshot,
+        source: &crate::service::messenger::switch_handoff::SwitchSourceAuthority,
+    ) -> Result<(), String>;
 }
 
 impl RestartShutdownExt for ServiceContext {
-    fn tear_down_switch_pty(&self, snap: &TabRestartSnapshot, source: &crate::service::messenger::switch_handoff::SwitchSourceAuthority) -> Result<(), String> {
-        if !self.mux.read().get_tab(&snap.tab_id).is_some_and(|tab| source.matches_retired(tab)) {
-            return Err("provider_switch_superseded: source authority changed before PTY retirement".into());
+    fn tear_down_switch_pty(
+        &self,
+        snap: &TabRestartSnapshot,
+        source: &crate::service::messenger::switch_handoff::SwitchSourceAuthority,
+    ) -> Result<(), String> {
+        if !self
+            .mux
+            .read()
+            .get_tab(&snap.tab_id)
+            .is_some_and(|tab| source.matches_retired(tab))
+        {
+            return Err(
+                "provider_switch_superseded: source authority changed before PTY retirement".into(),
+            );
         }
         self.pty_ownership.release_pty(&snap.pty_id);
         let reaper = {
@@ -27,9 +42,13 @@ impl RestartShutdownExt for ServiceContext {
                 Err(error) => return Err(error),
             }
         };
-        if let Some(reaper) = reaper { reaper.wait_for_termination_bounded(Duration::from_secs(5))?; }
+        if let Some(reaper) = reaper {
+            reaper.wait_for_termination_bounded(Duration::from_secs(5))?;
+        }
         #[cfg(test)]
-        if let Some(boundary) = self.try_ext::<SwitchRetirementBoundary>() { (boundary.0)(); }
+        if let Some(boundary) = self.try_ext::<SwitchRetirementBoundary>() {
+            (boundary.0)();
+        }
         self.screen_state.remove(&snap.pty_id);
         self.finish_provider_switch_source_exit(source, true)
     }

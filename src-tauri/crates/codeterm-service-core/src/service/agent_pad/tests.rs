@@ -400,7 +400,6 @@ fn mesh_received_long_send_lands_in_local_recipient_pad() {
     assert!(text.contains("peer-token"));
 }
 
-
 #[test]
 fn cron_pad_original_lease_cannot_revoke_a_replacement_generation() {
     use crate::cron::store::{commit, CronCreateParams, CronStore};
@@ -410,25 +409,46 @@ fn cron_pad_original_lease_cannot_revoke_a_replacement_generation() {
     let fixture = ServiceFixture::new(mux);
     let svc = &fixture.service;
     let nonce = svc.ensure_session_binding_nonce(&tab);
-    let cron: crate::CronState = Arc::new(Mutex::new(CronStore::new_with_path(fixture.temp.path().join("crons.json"))));
+    let cron: crate::CronState = Arc::new(Mutex::new(CronStore::new_with_path(
+        fixture.temp.path().join("crons.json"),
+    )));
     assert!(svc.set_ext(cron.clone()).is_ok());
     let params: CronCreateParams = serde_json::from_value(serde_json::json!({"name":"Pad lease","workspace_id":"fixture","schedule":"0 * * * *","task":"opaque"})).unwrap();
-    let job = commit(&cron, |store| store.prepare_create(params.clone())).unwrap().value;
-    svc.run_watcher.reserve_cron_slot(svc, &cron, &job.id, "pad-run").unwrap();
-    let linkage = RuntimeOwnerLinkage::CronRun { job_id:job.id, run_id:"pad-run".into() };
+    let job = commit(&cron, |store| store.prepare_create(params.clone()))
+        .unwrap()
+        .value;
+    svc.run_watcher
+        .reserve_cron_slot(svc, &cron, &job.id, "pad-run")
+        .unwrap();
+    let linkage = RuntimeOwnerLinkage::CronRun {
+        job_id: job.id,
+        run_id: "pad-run".into(),
+    };
     let original = {
         let mux = svc.mux.read();
-        svc.run_watcher.provisional_cron_generation(mux.get_tab(&tab).unwrap(), &linkage).unwrap()
+        svc.run_watcher
+            .provisional_cron_generation(mux.get_tab(&tab).unwrap(), &linkage)
+            .unwrap()
     };
     let lease = svc.capture_cron_pad(&original).unwrap();
     let path = svc.ensure_agent_pad(&tab).unwrap().path().to_path_buf();
     fs::write(path.join("retained.md"), "opaque retained content").unwrap();
     assert_eq!(lease.nonce(), nonce);
-    svc.mux.write().get_tab_mut(&tab).unwrap().session_binding_nonce = Some("replacement".into());
+    svc.mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .session_binding_nonce = Some("replacement".into());
     svc.ensure_agent_pad(&tab).unwrap();
     let marker = fs::read(path.join(CRON_GENERATION_FILE)).unwrap();
     svc.revoke_cron_pad(&lease).unwrap();
     assert_eq!(fs::read(path.join(CRON_GENERATION_FILE)).unwrap(), marker);
-    assert_eq!(fs::read_to_string(path.join("retained.md")).unwrap(), "opaque retained content");
-    assert!(svc.restore_cron_pad_lease(&tab, lease.nonce(), lease.generation()).unwrap().is_none());
+    assert_eq!(
+        fs::read_to_string(path.join("retained.md")).unwrap(),
+        "opaque retained content"
+    );
+    assert!(svc
+        .restore_cron_pad_lease(&tab, lease.nonce(), lease.generation())
+        .unwrap()
+        .is_none());
 }

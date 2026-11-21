@@ -268,96 +268,103 @@ pub fn ensure_tab_runtime_prompt(
 }
 
 impl crate::service::ServiceContext {
-pub(crate) fn ensure_runtime_prompt_expected(&self, tab_id: &str, expected_nonce: Option<&str>) -> Result<(), String> {
-    let service = self;
-    let tab = service
-        .mux
-        .read()
-        .get_tab(tab_id)
-        .cloned()
-        .ok_or("Runtime tab absent")?;
-    if expected_nonce.is_some_and(|nonce| tab.session_binding_nonce.as_deref() != Some(nonce)) { return Err("Runtime launch generation superseded".into()); }
-    let current = tab
-        .agent_runtime_config
-        .as_ref()
-        .and_then(|config| config.get("systemPrompt"))
-        .and_then(serde_json::Value::as_str);
-    let general = crate::service::general_agent::is_general_agent(&tab);
-    if general
-        && !tab.restored_from_snapshot
-        && current.is_some_and(|prompt| !prompt.trim().is_empty())
-    {
-        return Ok(());
-    }
-    let manager = tab.role == Some(crate::multiplexer::types::AgentRole::Manager);
-    let preserve_current = !manager || !tab.restored_from_snapshot;
-    if current.is_some_and(|prompt| prompt.contains(ROLE_AUTHORITY))
-        && preserve_current
-        && !tab
-            .restorable_launch
-            .execution_sandbox
+    pub(crate) fn ensure_runtime_prompt_expected(
+        &self,
+        tab_id: &str,
+        expected_nonce: Option<&str>,
+    ) -> Result<(), String> {
+        let service = self;
+        let tab = service
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .cloned()
+            .ok_or("Runtime tab absent")?;
+        if expected_nonce.is_some_and(|nonce| tab.session_binding_nonce.as_deref() != Some(nonce)) {
+            return Err("Runtime launch generation superseded".into());
+        }
+        let current = tab
+            .agent_runtime_config
             .as_ref()
-            .is_some_and(|policy| policy.intent == crate::plan::ExecutionIntent::ReadOnly)
-    {
-        return Ok(());
+            .and_then(|config| config.get("systemPrompt"))
+            .and_then(serde_json::Value::as_str);
+        let general = crate::service::general_agent::is_general_agent(&tab);
+        if general
+            && !tab.restored_from_snapshot
+            && current.is_some_and(|prompt| !prompt.trim().is_empty())
+        {
+            return Ok(());
+        }
+        let manager = tab.role == Some(crate::multiplexer::types::AgentRole::Manager);
+        let preserve_current = !manager || !tab.restored_from_snapshot;
+        if current.is_some_and(|prompt| prompt.contains(ROLE_AUTHORITY))
+            && preserve_current
+            && !tab
+                .restorable_launch
+                .execution_sandbox
+                .as_ref()
+                .is_some_and(|policy| policy.intent == crate::plan::ExecutionIntent::ReadOnly)
+        {
+            return Ok(());
+        }
+        let mut params = SpawnAgentParams {
+            execution_intent: tab
+                .restorable_launch
+                .execution_sandbox
+                .as_ref()
+                .map(|policy| policy.intent.clone()),
+            agent: tab.agent_type.clone(),
+            role: tab.role.map(|role| role.label().into()),
+            role_profile: tab.role_profile.clone(),
+            team_id: tab.team_id.clone(),
+            plan_id: tab
+                .task_binding
+                .as_ref()
+                .and_then(|binding| binding.plan_id.clone()),
+            cwd: tab.cwd.clone(),
+            system_prompt: preserve_current
+                .then(|| current.map(str::to_string).or_else(|| saved_identity(&tab)))
+                .flatten(),
+            ..Default::default()
+        };
+        if params.plan_id.is_none() {
+            params.plan_id = bound_plan_id(&service.plan_store, tab_id, tab.team_id.as_deref())?;
+        }
+        prepare_runtime_identity(service, &mut params)?;
+        // A restored thread receives its identity, never a new onboarding turn.
+        params.task = None;
+        let prompt = if general {
+            crate::service::general_agent::instructions::render_system_prompt(
+                service.configuration().general_agent.capability_hints,
+                tab.agent_type.as_deref().unwrap_or_default(),
+                Some(&service.mem),
+            )
+        } else {
+            compose_runtime_system_prompt(&mut params).unwrap_or_default()
+        };
+        #[cfg(any(test, feature = "test-support"))]
+        crate::service::agent_runtime::engine::expected_launch_commit(service, "runtime_prompt");
+        let mut mux = service.mux.write();
+        let target = mux.get_tab_mut(tab_id).ok_or("Runtime tab absent")?;
+        if expected_nonce
+            .is_some_and(|nonce| target.session_binding_nonce.as_deref() != Some(nonce))
+            || target.session_binding_nonce != tab.session_binding_nonce
+            || target.agent_type != tab.agent_type
+        {
+            return Err("Runtime identity binding changed".into());
+        }
+        let config = target
+            .agent_runtime_config
+            .get_or_insert_with(|| serde_json::json!({}));
+        if config.is_null() {
+            *config = serde_json::json!({});
+        }
+        config
+            .as_object_mut()
+            .ok_or("Runtime config must be an object")?
+            .insert("systemPrompt".into(), serde_json::json!(prompt));
+        Ok(())
     }
-    let mut params = SpawnAgentParams {
-        execution_intent: tab
-            .restorable_launch
-            .execution_sandbox
-            .as_ref()
-            .map(|policy| policy.intent.clone()),
-        agent: tab.agent_type.clone(),
-        role: tab.role.map(|role| role.label().into()),
-        role_profile: tab.role_profile.clone(),
-        team_id: tab.team_id.clone(),
-        plan_id: tab
-            .task_binding
-            .as_ref()
-            .and_then(|binding| binding.plan_id.clone()),
-        cwd: tab.cwd.clone(),
-        system_prompt: preserve_current
-            .then(|| current.map(str::to_string).or_else(|| saved_identity(&tab)))
-            .flatten(),
-        ..Default::default()
-    };
-    if params.plan_id.is_none() {
-        params.plan_id = bound_plan_id(&service.plan_store, tab_id, tab.team_id.as_deref())?;
-    }
-    prepare_runtime_identity(service, &mut params)?;
-    // A restored thread receives its identity, never a new onboarding turn.
-    params.task = None;
-    let prompt = if general {
-        crate::service::general_agent::instructions::render_system_prompt(
-            service.configuration().general_agent.capability_hints,
-            tab.agent_type.as_deref().unwrap_or_default(),
-            Some(&service.mem),
-        )
-    } else {
-        compose_runtime_system_prompt(&mut params).unwrap_or_default()
-    };
-    #[cfg(any(test, feature = "test-support"))]
-    crate::service::agent_runtime::engine::expected_launch_commit(service, "runtime_prompt");
-    let mut mux = service.mux.write();
-    let target = mux.get_tab_mut(tab_id).ok_or("Runtime tab absent")?;
-    if expected_nonce.is_some_and(|nonce| target.session_binding_nonce.as_deref() != Some(nonce))
-        || target.session_binding_nonce != tab.session_binding_nonce
-        || target.agent_type != tab.agent_type
-    {
-        return Err("Runtime identity binding changed".into());
-    }
-    let config = target
-        .agent_runtime_config
-        .get_or_insert_with(|| serde_json::json!({}));
-    if config.is_null() {
-        *config = serde_json::json!({});
-    }
-    config
-        .as_object_mut()
-        .ok_or("Runtime config must be an object")?
-        .insert("systemPrompt".into(), serde_json::json!(prompt));
-    Ok(())
-}
 }
 
 #[cfg(test)]

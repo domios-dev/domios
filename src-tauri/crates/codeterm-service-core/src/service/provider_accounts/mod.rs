@@ -12,9 +12,9 @@ mod scheduler;
 mod sign_in;
 mod storage;
 pub(crate) use storage::ProvisionError;
+pub(crate) mod provisioning;
 pub mod switching;
 mod work;
-pub(crate) mod provisioning;
 pub use scheduler::{
     account_turn_boundary, can_try_now, select, transition, PtyInputRevision, SelectRequest,
     Transition,
@@ -500,7 +500,8 @@ pub(crate) fn invocation_at(
     let account = account.map(str::to_owned);
     let namespace = namespace.map(str::to_owned);
     provisioning::invocation(svc, move || {
-        invocation_at_typed(&owner, &provider, account.as_deref(), namespace.as_deref()).map_err(|error| error.to_string())
+        invocation_at_typed(&owner, &provider, account.as_deref(), namespace.as_deref())
+            .map_err(|error| error.to_string())
     })
 }
 
@@ -510,8 +511,12 @@ pub(crate) fn login_invocation(
     account: &str,
 ) -> Result<Option<Arc<InvocationContext>>, ProvisionError> {
     let namespace = credential_namespace(svc, provider, Some(account), None)?;
-    let owner = svc.clone(); let provider = provider.to_owned(); let account = account.to_owned();
-    provisioning::typed_invocation(svc, move || invocation_at_typed(&owner, &provider, Some(&account), namespace.as_deref()))
+    let owner = svc.clone();
+    let provider = provider.to_owned();
+    let account = account.to_owned();
+    provisioning::typed_invocation(svc, move || {
+        invocation_at_typed(&owner, &provider, Some(&account), namespace.as_deref())
+    })
 }
 
 fn invocation_at_typed(
@@ -535,8 +540,9 @@ fn invocation_at_typed(
         return Err("The selected harness account no longer exists".into());
     }
     let state = svc.ext_or_init::<State>(State::default);
-    let _provisioning = state.provisioning.try_lock()
-        .ok_or("account_provisioning_busy: credential provisioning is still owned by another operation")?;
+    let _provisioning = state.provisioning.try_lock().ok_or(
+        "account_provisioning_busy: credential provisioning is still owned by another operation",
+    )?;
     let usual = storage::usual_home(&capability)?;
     let invocation = storage::provision_namespace(
         &state.root,
@@ -554,22 +560,36 @@ pub(crate) fn prepare_named_session_hook(
     invocation: &InvocationContext,
 ) -> Result<Option<bool>, String> {
     let provider = invocation.provider().to_owned();
-    let Some(capability) = capability(svc, &provider) else { return Ok(None) };
+    let Some(capability) = capability(svc, &provider) else {
+        return Ok(None);
+    };
     let Some(home) = invocation
         .environment_entries()
         .find(|(key, _)| *key == capability.home_environment)
-        .and_then(|(_, value)| value).map(str::to_owned) else { return Ok(None) };
+        .and_then(|(_, value)| value)
+        .map(str::to_owned)
+    else {
+        return Ok(None);
+    };
     let owner = svc.clone();
     provisioning::hook(svc, move || {
         let _integration_write = codeterm_notifications::provider_hooks::lock_integration_changes();
         let consent = super::provider_hooks::integration_consent(&owner, &provider);
-        if consent == Some(false) { return Ok(Some(false)); }
+        if consent == Some(false) {
+            return Ok(Some(false));
+        }
         let state = owner.ext_or_init::<State>(State::default);
         let _provisioning = state.provisioning.try_lock()
             .ok_or("account_provisioning_busy: credential provisioning is still owned by another operation")?;
-        owner.agent_registry.with_provider(&provider, |provider| {
-            provider.named_account_session_hook(std::path::Path::new(&home), consent == Some(true))
-        }).transpose().map(Option::flatten).map_err(|error| error.to_string())
+        owner
+            .agent_registry
+            .with_provider(&provider, |provider| {
+                provider
+                    .named_account_session_hook(std::path::Path::new(&home), consent == Some(true))
+            })
+            .transpose()
+            .map(Option::flatten)
+            .map_err(|error| error.to_string())
     })
 }
 

@@ -120,12 +120,31 @@ impl RunWatcherRegistry {
         timeout_secs: u64,
         resume_system_prompt: Option<String>,
     ) {
-        let _ = self.register_owned(svc, pty_id, tab_id, kind, timeout_secs, resume_system_prompt, None);
+        let _ = self.register_owned(
+            svc,
+            pty_id,
+            tab_id,
+            kind,
+            timeout_secs,
+            resume_system_prompt,
+            None,
+        );
     }
 
-    fn register_owned(&self, svc: ServiceContext, pty_id: String, tab_id: String, kind: AgentRunKind, timeout_secs: u64, resume_system_prompt: Option<String>, owner: Option<&runtime_runs::CronRunAuthority>) -> Result<Arc<RunState>, String> {
+    fn register_owned(
+        &self,
+        svc: ServiceContext,
+        pty_id: String,
+        tab_id: String,
+        kind: AgentRunKind,
+        timeout_secs: u64,
+        resume_system_prompt: Option<String>,
+        owner: Option<&runtime_runs::CronRunAuthority>,
+    ) -> Result<Arc<RunState>, String> {
         let mux = svc.mux.read();
-        let binding_nonce = mux.get_tab(&tab_id).and_then(|tab| tab.session_binding_nonce.clone());
+        let binding_nonce = mux
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.session_binding_nonce.clone());
         let cron = svc.try_ext::<crate::CronState>().map(|cron| cron.lock());
         let state = Arc::new(RunState {
             pty_id: pty_id.clone(),
@@ -147,12 +166,19 @@ impl RunWatcherRegistry {
         if !self.original_cron_registration_allowed(owner, &mux, &state) {
             return Err("Cron registration lost its original launch".into());
         }
-        if !self.pty_cron_registration_allowed(cron.as_deref(), &mux, &state) { return Err("Cron run ended before watcher admission".into()); }
+        if !self.pty_cron_registration_allowed(cron.as_deref(), &mux, &state) {
+            return Err("Cron run ended before watcher admission".into());
+        }
         {
             let mut runs = self.runs.lock();
             if matches!(state.kind, AgentRunKind::Cron { .. }) {
                 if let Some(existing) = runs.get(&pty_id) {
-                    if existing.kind == state.kind && existing.tab_id == state.tab_id && existing.binding_nonce == state.binding_nonce { return Ok(existing.clone()); }
+                    if existing.kind == state.kind
+                        && existing.tab_id == state.tab_id
+                        && existing.binding_nonce == state.binding_nonce
+                    {
+                        return Ok(existing.clone());
+                    }
                     return Err("Cron PTY already has another watcher".into());
                 }
             }
@@ -962,7 +988,8 @@ fn finish_run_as(svc: &ServiceContext, state: &RunState, run_end: RunEnd, summar
         let mux = svc.mux.read();
         let tab = mux.get_tab(&state.tab_id).filter(|tab| {
             !matches!(state.kind, AgentRunKind::Cron { .. })
-                || tab.pty_id.as_deref() == Some(state.pty_id.as_str()) && tab.session_binding_nonce == state.binding_nonce
+                || tab.pty_id.as_deref() == Some(state.pty_id.as_str())
+                    && tab.session_binding_nonce == state.binding_nonce
         });
         (
             tab.and_then(|p| p.agent_session_id.clone()),
@@ -1000,9 +1027,13 @@ fn finish_run_as(svc: &ServiceContext, state: &RunState, run_end: RunEnd, summar
         }
         AgentRunKind::Cron { job_id, run_id } => {
             if let Some(nonce) = state.binding_nonce.as_ref() {
-                crate::service::launch_readiness::retire_attempt(&crate::service::launch_readiness::LaunchAttempt {
-                    tab_id: state.tab_id.clone(), pty_id: state.pty_id.clone(), binding_nonce: nonce.clone(),
-                });
+                crate::service::launch_readiness::retire_attempt(
+                    &crate::service::launch_readiness::LaunchAttempt {
+                        tab_id: state.tab_id.clone(),
+                        pty_id: state.pty_id.clone(),
+                        binding_nonce: nonce.clone(),
+                    },
+                );
             }
             let _ = cron_end::finish(
                 svc,

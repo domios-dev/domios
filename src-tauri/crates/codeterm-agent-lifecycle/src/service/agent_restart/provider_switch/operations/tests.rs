@@ -24,7 +24,10 @@ fn self_switch_is_owned_by_daemon_after_callers_identity_is_retired() {
                 Some("nonce-token"),
                 move |svc, tab, target, own| {
                     assert!(own);
-                    assert_eq!(delivered.fetch_add(1, std::sync::atomic::Ordering::SeqCst), 0);
+                    assert_eq!(
+                        delivered.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+                        0
+                    );
                     let mut mux = svc.mux.write();
                     let current = mux.get_tab_mut(tab).unwrap();
                     current.agent_type = Some(target.into());
@@ -71,16 +74,26 @@ fn self_switch_is_owned_by_daemon_after_callers_identity_is_retired() {
             .unwrap();
         assert_eq!(status.phase, "completed");
         assert!(status.outcome.unwrap().handoff_delivered);
-        assert_eq!(fixture.service.provider_switch_status(&id, &operation, true).unwrap().phase, "completed");
+        assert_eq!(
+            fixture
+                .service
+                .provider_switch_status(&id, &operation, true)
+                .unwrap()
+                .phase,
+            "completed"
+        );
         assert_eq!(handoffs.load(std::sync::atomic::Ordering::SeqCst), 1);
-        assert!(fixture
-            .service
-            .mux
-            .read()
-            .get_tab(&id)
-            .unwrap()
-            .session_binding_nonce
-            .as_deref() == Some("target-nonce"));
+        assert!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&id)
+                .unwrap()
+                .session_binding_nonce
+                .as_deref()
+                == Some("target-nonce")
+        );
     }
 }
 
@@ -137,20 +150,54 @@ fn changed_team_before_accepted_work_starts_refuses_without_running_handoff() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     mux.get_tab_mut(&id).unwrap().team_id = Some("accepted-team".into());
     let fixture = ServiceFixture::new(mux);
-    let accepted = fixture.service.accept_provider_switch_with(&id, "target".into(), None, None,
-        |_, _, _, _| panic!("changed authority cannot execute the accepted handoff")).unwrap();
-    fixture.service.mux.write().get_tab_mut(&id).unwrap().team_id = Some("replacement-team".into());
+    let accepted = fixture
+        .service
+        .accept_provider_switch_with(&id, "target".into(), None, None, |_, _, _, _| {
+            panic!("changed authority cannot execute the accepted handoff")
+        })
+        .unwrap();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&id)
+        .unwrap()
+        .team_id = Some("replacement-team".into());
     let operation = accepted.status.operation_id.clone();
     accepted.response_complete.send(()).unwrap();
-    let status = fixture.service.provider_switch_status(&id, &operation, true).unwrap();
+    let status = fixture
+        .service
+        .provider_switch_status(&id, &operation, true)
+        .unwrap();
     assert_eq!(status.phase, "failed");
-    assert!(status.error.unwrap().starts_with("provider_switch_superseded:"));
-    assert_eq!(fixture.service.mux.read().get_tab(&id).unwrap().team_id.as_deref(), Some("replacement-team"));
+    assert!(status
+        .error
+        .unwrap()
+        .starts_with("provider_switch_superseded:"));
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&id)
+            .unwrap()
+            .team_id
+            .as_deref(),
+        Some("replacement-team")
+    );
 }
 
 #[test]
 fn in_place_switch_cannot_adopt_reparented_source_after_operation_preflight() {
-    for changed in ["team", "parent", "report", "depth", "account", "namespace", "nonce"] {
+    for changed in [
+        "team",
+        "parent",
+        "report",
+        "depth",
+        "account",
+        "namespace",
+        "nonce",
+    ] {
         let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
         let tab = mux.get_tab_mut(&id).unwrap();
         tab.agent_type = Some("source".into());
@@ -176,16 +223,26 @@ fn in_place_switch_cannot_adopt_reparented_source_after_operation_preflight() {
                 }
                 let before = serde_json::to_value(svc.mux.read().get_tab(tab).unwrap()).unwrap();
                 let result = svc.switch_provider_in_place(tab, target, None, None, own);
-                assert!(result.as_ref().unwrap_err().starts_with("provider_switch_superseded:"), "{changed}");
+                assert!(matches!(result.as_ref(), Err(error) if error.starts_with("provider_switch_superseded:")), "{changed}");
                 assert_eq!(serde_json::to_value(svc.mux.read().get_tab(tab).unwrap()).unwrap(), before);
                 result
             }).unwrap();
         let operation = accepted.status.operation_id.clone();
         accepted.response_complete.send(()).unwrap();
-        let status = fixture.service.provider_switch_status(&id, &operation, true).unwrap();
+        let status = fixture
+            .service
+            .provider_switch_status(&id, &operation, true)
+            .unwrap();
         assert_eq!(status.phase, "failed");
         assert!(status.outcome.is_none());
-        assert!(fixture.service.mux.read().get_tab(&id).unwrap().pty_id.is_none());
+        assert!(fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&id)
+            .unwrap()
+            .pty_id
+            .is_none());
     }
 }
 
@@ -210,13 +267,19 @@ fn slow_switch_preflight_leaves_runtime_and_mux_responsive() {
     let operation = accepted.status.operation_id.clone();
     accepted.response_complete.send(()).unwrap();
     let entered_result = started.recv_timeout(Duration::from_secs(5));
-    let entry = fixture.service.provider_switch_operations().0.lock()[0].1.clone();
+    let entry = fixture.service.provider_switch_operations().0.lock()[0]
+        .1
+        .clone();
     let expired = wait_status(&entry, true, Instant::now());
     assert_eq!(expired.phase, "running");
     assert_eq!(expired.stage.as_deref(), Some("preflight"));
     assert!(expired.error.is_none());
-    assert!(fixture.service.accept_provider_switch_with(&id, "another".into(), None, None,
-        |_, _, _, _| panic!("expired waiter must not admit a second handoff")).is_err());
+    assert!(fixture
+        .service
+        .accept_provider_switch_with(&id, "another".into(), None, None, |_, _, _, _| panic!(
+            "expired waiter must not admit a second handoff"
+        ))
+        .is_err());
     let (sent, received) = mpsc::channel();
     fixture.service.rt.spawn(async move {
         sent.send(()).unwrap();
@@ -258,16 +321,24 @@ fn exact_late_binding_reconciles_uncertainty_without_handoff_or_stale_completion
         source: fixture.service.mux.read().get_tab(&id).unwrap().clone(),
         authorized_binding: Mutex::new(None),
         state: Mutex::new(ProviderSwitchStatus {
-            operation_id: "owned-operation".into(), tab_id: id.clone(), provider: "target".into(),
-            phase: "running".into(), stage: Some("target_binding".into()), outcome: None, error: None,
+            operation_id: "owned-operation".into(),
+            tab_id: id.clone(),
+            provider: "target".into(),
+            phase: "running".into(),
+            stage: Some("target_binding".into()),
+            outcome: None,
+            error: None,
         }),
-        changed: Condvar::new(), target: Mutex::new(Some(target.clone())),
+        changed: Condvar::new(),
+        target: Mutex::new(Some(target.clone())),
     });
-    let uncertain = await_target_binding(&fixture.service, &id, &target, Duration::ZERO).unwrap_err();
+    let uncertain =
+        await_target_binding(&fixture.service, &id, &target, Duration::ZERO).unwrap_err();
     assert!(uncertain.starts_with("provider_switch_readiness_unconfirmed:"));
     complete(&fixture.service, &operation, Err(uncertain));
     {
-        let _scope = OperationScope(CURRENT.with(|current| current.replace(Some(operation.clone()))));
+        let _scope =
+            OperationScope(CURRENT.with(|current| current.replace(Some(operation.clone()))));
         progress(&fixture.service, &id, "source_retirement");
         publish_phase(&fixture.service, &operation, "running");
     }
@@ -280,24 +351,59 @@ fn exact_late_binding_reconciles_uncertainty_without_handoff_or_stale_completion
         tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
     }
     crate::service::boot_wait::notify_boot_changed();
-    assert_eq!(await_target_binding(&fixture.service, &id, &target, Duration::ZERO).unwrap(), "late-session");
+    assert_eq!(
+        await_target_binding(&fixture.service, &id, &target, Duration::ZERO).unwrap(),
+        "late-session"
+    );
     let before = operation.state.lock().error.clone();
-    fixture.service.mux.write().get_tab_mut(&id).unwrap().team_id = Some("foreign-team".into());
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&id)
+        .unwrap()
+        .team_id = Some("foreign-team".into());
     reconcile_late_binding(&fixture.service, &operation);
     assert_eq!(operation.state.lock().error, before);
-    fixture.service.mux.write().get_tab_mut(&id).unwrap().team_id = None;
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&id)
+        .unwrap()
+        .team_id = None;
     reconcile_late_binding(&fixture.service, &operation);
-    assert_eq!(operation.state.lock().stage.as_deref(), Some("target_ready"));
+    assert_eq!(
+        operation.state.lock().stage.as_deref(),
+        Some("target_ready")
+    );
     assert_eq!(operation.state.lock().phase, "failed");
     assert!(operation.state.lock().outcome.is_none());
     let late_error = operation.state.lock().error.clone();
     reconcile_late_binding(&fixture.service, &operation);
     assert_eq!(operation.state.lock().error, late_error);
-    fixture.service.mux.write().get_tab_mut(&id).unwrap().session_binding_nonce = Some("replacement-nonce".into());
-    assert!(await_target_binding(&fixture.service, &id, &target, Duration::ZERO).unwrap_err().starts_with("provider_switch_superseded:"));
-    complete(&fixture.service, &operation, Err("stale cancellation".into()));
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&id)
+        .unwrap()
+        .session_binding_nonce = Some("replacement-nonce".into());
+    assert!(
+        await_target_binding(&fixture.service, &id, &target, Duration::ZERO)
+            .unwrap_err()
+            .starts_with("provider_switch_superseded:")
+    );
+    complete(
+        &fixture.service,
+        &operation,
+        Err("stale cancellation".into()),
+    );
     assert_eq!(operation.state.lock().error, late_error);
-    assert_eq!(fixture.service.mux.read().get_tab(&id).unwrap().boot_stage, Some(codeterm_types::pty::BootStage::AgentReady));
+    assert_eq!(
+        fixture.service.mux.read().get_tab(&id).unwrap().boot_stage,
+        Some(codeterm_types::pty::BootStage::AgentReady)
+    );
 }
 
 #[tokio::test]
