@@ -291,8 +291,8 @@ describe("aggregate terminal attachment", () => {
       onOutput() { throw new Error("Expected bytes"); },
       onBytes(bytes) {
         const renderedBytes = bytes.slice();
-        if (aWriteCount++ === 0) { firstStarted.resolve(); return firstWrite.promise.then(() => aVisibleChunks.push(renderedBytes)); }
-        if (bytes.length > retentionBytes / 2) { catchupStarted.resolve(); return catchupWrite.promise.then(() => aVisibleChunks.push(renderedBytes)); }
+        if (aWriteCount++ === 0) { firstStarted.resolve(); return firstWrite.promise.then(() => { aVisibleChunks.push(renderedBytes); }); }
+        if (bytes.length > retentionBytes / 2) { catchupStarted.resolve(); return catchupWrite.promise.then(() => { aVisibleChunks.push(renderedBytes); }); }
         aVisibleChunks.push(renderedBytes);
       },
       onRendered(offset) { aAckOffsets.push(offset); },
