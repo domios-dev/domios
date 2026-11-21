@@ -230,7 +230,7 @@ export function deliveryProjectionSends(
       return {
         ...send,
         segments: send.status?.system_send?.segments?.length ? send.status.system_send.segments
-          : frame ? [{ type: "frame" as const, kind: frame.attrs.from as FrameKind, from: frame.attrs.from, attrs: frame.attrs, body: frame.body,
+          : frame ? [{ type: "frame" as const, kind: (frame.attrs.from === "cli" ? "system" : frame.attrs.from) as FrameKind, from: frame.attrs.from, attrs: frame.attrs, body: frame.body,
             tip: frame.content.slice(frame.body.length).match(/<tip>([\s\S]*?)<\/tip>/)?.[1] ?? null }] : send.segments,
         echoEligible: deliveryState(send) !== "failed",
         neverWritten: deliveryState(send) === "queued",

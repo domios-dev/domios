@@ -410,6 +410,171 @@ async function main() {
     }
   });
 
+  test("mixed timed CLI prompts + untimed ACP rows keep order and identical System · CLI rendering across live and cold reload", async () => {
+    const heavyTabId = "heavy-hist-tab";
+    const sessionId = "qa-heavy-session";
+    const bindingNonce = "nonce-heavy";
+    const phase1At = Date.parse("2026-11-21T14:45:56.490Z");
+    const phase2At = Date.parse("2026-11-21T14:45:57.864Z");
+    const cliWire = (body: string) => `<domios from="cli">${body}</domios>`;
+    const rustCliSegments = (body: string) => [{
+      type: "unknown_frame" as const,
+      raw: cliWire(body),
+      attrs: { from: "cli" },
+      body,
+    }];
+    const makeStatus = (id: string, body: string, sentAtMs: number) => ({
+      tab_id: heavyTabId,
+      send_id: id,
+      correlationId: id,
+      state: "delivered" as const,
+      sequence: 2,
+      ledger_id: "ledger",
+      retained_from: 1,
+      error: null,
+      matched_row: {
+        source: { source_session_id: sessionId, record: { kind: "structured" as const, thread_id: sessionId, item_id: id } },
+        ordinal: 1,
+      },
+      system_send: { content: cliWire(body), sent_at_ms: sentAtMs, segments: rustCliSegments(body), segments_version: 2 },
+    });
+    const phase1Status = makeStatus("phase1-cli", "PHASE1_SMALL_A", phase1At);
+    const phase2Status = makeStatus("phase2-cli", "PHASE2_GROWTH_A", phase2At);
+    const untimedTail = Array.from({ length: 20 }, (_, i) => ({
+      id: `acp-${1461 + i}`,
+      type: "assistant",
+      content: i === 19 ? "SYNTH_A_PHASE2_GROWTH_A_C0450" : `SYNTH_A_PHASE2_ROW_${1461 + i}`,
+      seq: 1461 + i,
+      provider: "acp",
+      sourceSessionId: sessionId,
+    }));
+    const heavyTab = {
+      id: heavyTabId, pty_id: null, tab_type: "Terminal", title: "HeavyHistA", cwd: null,
+      agent_type: "acp", agent_session_id: sessionId, session_binding_nonce: bindingNonce,
+      backing: { kind: "chat_backend", plugin_id: "acp", session_id: sessionId },
+    } as Tab;
+    const store = createMuxStateStore(() => muxStateFor({ [heavyTabId]: heavyTab }));
+    const repository = new MemoryChatSendRepository();
+    __setChatSendRepositoryForTest(repository);
+    const host = document.body.appendChild(document.createElement("div"));
+    let root = createRoot(host);
+    const renderChat = () => (
+      <MuxStateStoreContext.Provider value={store}>
+        <MultiplexerActionsContext.Provider value={muxActions()}>
+          <TabSessionChat tabId={heavyTabId} chatBackend isVisible />
+        </MultiplexerActionsContext.Provider>
+      </MuxStateStoreContext.Provider>
+    );
+
+    const originalRaf = globalThis.requestAnimationFrame;
+    const originalCancelRaf = globalThis.cancelAnimationFrame;
+    let nextRafId = 1;
+    const cancelledRaf = new Set<number>();
+    Object.defineProperty(globalThis, "requestAnimationFrame", {
+      configurable: true,
+      value: (cb: FrameRequestCallback) => {
+        const id = nextRafId++;
+        queueMicrotask(() => { if (!cancelledRaf.delete(id)) cb(0); });
+        return id;
+      },
+    });
+    Object.defineProperty(globalThis, "cancelAnimationFrame", {
+      configurable: true,
+      value: (id: number) => { cancelledRaf.add(id); },
+    });
+    clearTranscriptWindows();
+
+    try {
+      // Part A: Partial tail window (start_offset=1461, offset=1481, offset_kind="items") — neither PHASE1 nor PHASE2 strands after C0450.
+      chatStartOverride = () => ({
+        text: "", offset_kind: "items", start_offset: 1461, offset: 1481,
+        messages: untimedTail, pending: false, source_session_id: sessionId, session_binding_nonce: bindingNonce,
+      });
+      chatSendStatusesOverride = [phase1Status, phase2Status];
+
+      await act(async () => root.render(renderChat()));
+      await act(async () => { await ensureChatSendTabHydrated(heavyTabId); await Promise.resolve(); await Promise.resolve(); });
+      const readArticles = () => [...host.querySelectorAll('[role="log"] [role="article"]')].map(el => ({
+        aria: el.getAttribute("aria-label") ?? "",
+        text: (el.textContent ?? "").trim(),
+      }));
+      const liveTail = readArticles();
+      assert(liveTail.length === untimedTail.length,
+        `live tail should have exactly ${untimedTail.length} rows, got ${liveTail.length}`);
+      assert(liveTail[liveTail.length - 1]?.text.includes("SYNTH_A_PHASE2_GROWTH_A_C0450"),
+        `live tail should end at C0450, got ${JSON.stringify(liveTail.slice(-3))}`);
+      assert(!liveTail.some(item => item.aria.startsWith("user message:")),
+        `live tail must not strand PHASE1/PHASE2 user bubbles after C0450, got ${JSON.stringify(liveTail.slice(-3))}`);
+
+      // Cold reload (drop in-memory stores while keeping IndexedDB repository): tail order stays identical.
+      await act(async () => root.unmount());
+      forgetChatSendsInMemory();
+      clearTranscriptWindows();
+      root = createRoot(host);
+      await act(async () => root.render(renderChat()));
+      await act(async () => { await ensureChatSendTabHydrated(heavyTabId); await Promise.resolve(); await Promise.resolve(); });
+      const reloadTail = readArticles();
+      assert(JSON.stringify(reloadTail) === JSON.stringify(liveTail),
+        `cold reload tail must match live tail: live=${JSON.stringify(liveTail.slice(-3))} reload=${JSON.stringify(reloadTail.slice(-3))}`);
+
+      // Part B: Full chronological session with timed <domios from="cli"> rows + untimed ACP rows:
+      // live vs cold reload render identical aria-label, identical "System · CLI" card, and identical chronological order.
+      const fullRows = [
+        { id: "phase1-cli", type: "user", content: "PHASE1_SMALL_A", inboundKind: "cli", segments: rustCliSegments("PHASE1_SMALL_A"),
+          timestamp: "2026-11-21T14:45:56.490185600+00:00", seq: 0, provider: "acp", sourceSessionId: sessionId },
+        { id: "acp-1", type: "assistant", content: "SYNTH_A_PHASE1_ROW_1", seq: 1, provider: "acp", sourceSessionId: sessionId },
+        { id: "phase2-cli", type: "user", content: "PHASE2_GROWTH_A", inboundKind: "cli", segments: rustCliSegments("PHASE2_GROWTH_A"),
+          timestamp: "2026-11-21T14:45:57.864548800+00:00", seq: 126, provider: "acp", sourceSessionId: sessionId },
+        { id: "acp-1480", type: "assistant", content: "SYNTH_A_PHASE2_GROWTH_A_C0450", seq: 1480, provider: "acp", sourceSessionId: sessionId },
+      ];
+      chatStartOverride = () => ({
+        text: "", offset_kind: "items", start_offset: 0, offset: 4,
+        messages: fullRows, pending: false, source_session_id: sessionId, session_binding_nonce: bindingNonce,
+      });
+
+      await act(async () => root.unmount());
+      clearTranscriptWindows();
+      root = createRoot(host);
+      await act(async () => root.render(renderChat()));
+      await act(async () => { await ensureChatSendTabHydrated(heavyTabId); await Promise.resolve(); await Promise.resolve(); });
+      const liveFull = readArticles();
+
+      // Cold reload (also test pre-existing durable record without segments).
+      await act(async () => root.unmount());
+      forgetChatSendsInMemory();
+      clearTranscriptWindows();
+      chatSendStatusesOverride = [
+        { ...phase1Status, system_send: { content: cliWire("PHASE1_SMALL_A"), sent_at_ms: phase1At } },
+        { ...phase2Status, system_send: { content: cliWire("PHASE2_GROWTH_A"), sent_at_ms: phase2At } },
+      ];
+      root = createRoot(host);
+      await act(async () => root.render(renderChat()));
+      await act(async () => { await ensureChatSendTabHydrated(heavyTabId); await Promise.resolve(); await Promise.resolve(); });
+      const reloadFull = readArticles();
+
+      assert(JSON.stringify(reloadFull) === JSON.stringify(liveFull),
+        `live and cold-reload full transcript must render identically: live=${JSON.stringify(liveFull)} reload=${JSON.stringify(reloadFull)}`);
+      assert(JSON.stringify(liveFull.map(item => item.aria)) === JSON.stringify([
+        "user message: PHASE1_SMALL_A",
+        "assistant message: SYNTH_A_PHASE1_ROW_1",
+        "user message: PHASE2_GROWTH_A",
+        "assistant message: SYNTH_A_PHASE2_GROWTH_A_C0450",
+      ]), `unexpected full transcript aria order: ${JSON.stringify(liveFull.map(item => item.aria))}`);
+      assert(liveFull[0].text.includes("System · CLI") && !liveFull[0].aria.includes("<domios"), "PHASE1 renders as clean System · CLI card");
+      assert(liveFull[2].text.includes("System · CLI") && !liveFull[2].aria.includes("<domios"), "PHASE2 renders as clean System · CLI card");
+    } finally {
+      chatStartOverride = null;
+      chatSendStatusesOverride = [];
+      await act(async () => root.unmount());
+      host.remove();
+      __setChatSendRepositoryForTest(null);
+      forgetChatSendsInMemory();
+      clearTranscriptWindows();
+      Object.defineProperty(globalThis, "requestAnimationFrame", { configurable: true, value: originalRaf });
+      Object.defineProperty(globalThis, "cancelAnimationFrame", { configurable: true, value: originalCancelRaf });
+    }
+  });
+
   let failed = 0;
   for (const [name, fn] of tests) {
     try { await fn(); console.log(`PASS ${name}`); }

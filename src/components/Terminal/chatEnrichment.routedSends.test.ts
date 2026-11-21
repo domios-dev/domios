@@ -34,11 +34,11 @@ test("untrusted user text keeps its literal leading envelope", () => {
   assert.equal(entry.origin, undefined);
 });
 
-for (const kind of ["tab", "report", "mesh", "system", "telegram", "curator"] as const) {
+for (const kind of ["tab", "report", "mesh", "system", "telegram", "curator", "cli"] as const) {
   test(`${kind} host segments survive a correlated plain provider echo`, () => {
     const attrs = { from: kind, label: "Weaver", tab: "8494e5c7", model: "opaque-model", user: "123", peer: "peer", context: "handoff" };
     const wire = `<domios from="${kind}" label="Weaver" tab="8494e5c7" model="opaque-model" user="123" peer="peer" context="handoff">**opaque body**<tip>opaque reply command</tip></domios>`;
-    const segments: MessageSegment[] = [kind === "curator"
+    const segments: MessageSegment[] = [kind === "curator" || kind === "cli"
       ? { type: "unknown_frame", raw: wire, attrs, body: "**opaque body**<tip>opaque reply command</tip>" }
       : { type: "frame", kind, from: kind, attrs, body: "**opaque body**", tip: "opaque reply command" }];
     const send: DeliverySend = { id: "host-send", correlationId: "host-token", content: wire, sentAtMs: 1000,

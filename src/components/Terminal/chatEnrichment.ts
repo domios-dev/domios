@@ -4,13 +4,14 @@ import { detectChatPrefix, framePrefix, type ChatOrigin } from "../../lib/chatPr
 
 const TIP = /\s*<tip>([\s\S]*?)<\/tip>\s*$/;
 
-/** The daemon parses only the frame kinds it knows, so a Neighbors frame reaches the chat as an unknown frame. It is a
- *  routed frame like any other: lift it into one, with its host tip split off the body. */
-function liftNeighborFrames(segments: readonly MessageSegment[]): MessageSegment[] {
+/** The daemon parses only the frame kinds it knows, so Neighbors and CLI frames reach the chat as unknown frames.
+ *  Lift them into routed frames like any other, with any host tip split off the body. */
+function liftHostFrames(segments: readonly MessageSegment[]): MessageSegment[] {
   return segments.map((segment): MessageSegment => {
-    if (segment.type !== "unknown_frame" || segment.attrs.from !== "neighbor") return segment;
+    if (segment.type !== "unknown_frame" || (segment.attrs.from !== "neighbor" && segment.attrs.from !== "cli")) return segment;
     const tip = TIP.exec(segment.body);
-    return { type: "frame", kind: "neighbor" as FrameKind, from: "neighbor", attrs: segment.attrs,
+    const from = segment.attrs.from;
+    return { type: "frame", kind: (from === "cli" ? "system" : "neighbor") as FrameKind, from, attrs: segment.attrs,
       body: tip ? segment.body.slice(0, tip.index) : segment.body, tip: tip ? tip[1].trim() : null };
   });
 }
@@ -54,7 +55,7 @@ function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedCha
     return [setup.notice, ...enrichUserMessage(setup.rest, { kind: "message", message: setup.rest })];
   }
   if (raw.segments) {
-    const segments = liftNeighborFrames(raw.segments) as typeof raw.segments;
+    const segments = liftHostFrames(raw.segments) as typeof raw.segments;
     const hasFrames = segments.some((segment) => segment.type === "frame");
     // With no closed frame and one correlation there is nothing to split: the message keeps its exact text, partial frames included.
     const single = !hasFrames && new Set(segments.map((segment) => segment.correlationId)).size <= 1;
@@ -100,6 +101,9 @@ function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedCha
       iconSvg: m.pluginIconSvg,
     };
     return [{ msg: m, item, origin }];
+  }
+  if ((m.inboundKind as string | undefined) === "cli") {
+    return [{ msg: m, item, origin: { kind: "system", context: "CLI" } }];
   }
   if (!prefix) return [{ msg: m, item, origin: undefined }];
   return [

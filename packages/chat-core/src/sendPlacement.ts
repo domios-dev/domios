@@ -2,6 +2,14 @@ import { claimedRecordLoaded, sendRow, type ChatSend } from "./sendOrder";
 import { timestampMs } from "./time";
 import type { NormalizedChatMessage } from "./types";
 
+function finiteTimeMs(value: number | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function rowTimeMs(row: NormalizedChatMessage): number | null {
+  return timestampMs(row.timestamp) ?? finiteTimeMs(row.toolStartedAtMs) ?? finiteTimeMs(row.toolCompletedAtMs);
+}
+
 export function pendingSendPosition(committed: readonly NormalizedChatMessage[], send: ChatSend): number {
   const record = send.matchedRow && claimedRecordLoaded(committed, send.matchedRow) ? send.matchedRow.source.record : undefined;
   const flowAtMs = send.held ? undefined : send.flowAtMs;
@@ -13,7 +21,7 @@ export function pendingSendPosition(committed: readonly NormalizedChatMessage[],
         || (source.record_start === record.record_start && source.record_row > record.record_row));
   }) : flowAtMs == null ? -1 : committed.findIndex(row => {
     if (record?.kind === "structured" && (row.sourceSessionId !== record.thread_id || row.inheritedFromSessionId != null)) return false;
-    const at = timestampMs(row.timestamp);
+    const at = rowTimeMs(row);
     return at != null && at > flowAtMs;
   });
   return index < 0 ? committed.length : index;
