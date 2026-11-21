@@ -162,6 +162,7 @@ impl RunWatcherRegistry {
             })
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn capture_cron_launch(&self, svc: &ServiceContext, linkage: &crate::service::spawn::RuntimeOwnerLinkage, tab: &str, nonce: &str, pty: Option<&str>) -> Result<CronRunAuthority, String> {
         if pty.is_some() { return Err("Cron PTY authority requires the original claim attachment".into()); }
         let crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id, run_id } = linkage else { return Err("Launch is not a cron run".into()) };

@@ -53,6 +53,7 @@ impl ServiceContext {
         self.bind_cron_spawn(cron, tab_id, job_id, run_id, owner.nonce().map(str::to_string), None)
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn reserve_cron_launch(&self, cron: &CronState, linkage: &crate::service::spawn::RuntimeOwnerLinkage, tab: &str, nonce: &str, pty: Option<&str>) -> Result<crate::agent::run_watcher::runtime_runs::CronRunAuthority, String> {
         if let crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id, run_id } = linkage { self.run_watcher.reserve_cron_slot(self, cron, job_id, run_id)?; }
         let owner = self.run_watcher.capture_cron_launch(self, linkage, tab, nonce, pty)?;
