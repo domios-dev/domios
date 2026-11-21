@@ -1,6 +1,11 @@
 import type { PlanView as Plan } from "../Canvas/planProjection";
 export type { TeamTaskBucket } from "./teamTaskStatus";
-import { EMPTY_BUCKETS, deriveCardStatusCounts, deriveTeamTaskBuckets, type TeamTaskBucket } from "./teamTaskStatus";
+import {
+  EMPTY_BUCKETS,
+  resolveTeamPlanStatus,
+  type TeamPlanCountMeta,
+  type TeamTaskBucket,
+} from "./teamTaskStatus";
 import { createNoticePublisher } from "../../lib/notices";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { describeError } from "../../lib/describeError";
@@ -25,7 +30,6 @@ import { TeamStatusTally } from "./TeamStatusTally";
 import { LockBadge } from "../billing/LockBadge";
 import { openLockedPlans } from "../billing/freeLimitGate";
 import { lockedDimClass, lockedView } from "../billing/freeLimitModel";
-import type { PlanStatusCounts } from "../shared/PlanStatusBreakdown";
 import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDisclosureState";
 import { refusalText } from "../../lib/refusalText";
 import { useProviderModelUsage } from "../../hooks/useProviderModelUsage";
@@ -48,23 +52,31 @@ export interface SidebarTeamActions {
   onCloseTeam?: (teamId: string) => Promise<TeamCloseInventory>;
 }
 
-export function useTeamPlanMotion(buckets: TeamTaskBucket[]) {
+export function useTeamPlanMotion(buckets: TeamTaskBucket[], trackMotion = true) {
   const signature = buckets.map((bucket) => bucket.count).join(":");
   const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
   const complete = total > 0 && buckets.find((bucket) => bucket.key === "done")?.count === total;
-  const previous = useRef({ signature, complete, total });
+  const previous = useRef({ signature, complete, total, tracked: trackMotion });
   const [revision, setRevision] = useState(0);
   const [reacting, setReacting] = useState(false);
   const [completionSweep, setCompletionSweep] = useState(false);
 
   useEffect(() => {
+    if (!trackMotion) {
+      previous.current = { signature, complete, total, tracked: false };
+      return;
+    }
+    if (!previous.current.tracked) {
+      previous.current = { signature, complete, total, tracked: true };
+      return;
+    }
     if (signature === previous.current.signature) return;
     const shouldSweep = previous.current.total > 0 && !previous.current.complete && complete;
-    previous.current = { signature, complete, total };
+    previous.current = { signature, complete, total, tracked: true };
     setRevision((current) => current + 1);
     setReacting(true);
     setCompletionSweep(shouldSweep);
-  }, [complete, signature, total]);
+  }, [complete, signature, total, trackMotion]);
 
   const onAnimationEnd = useCallback((event: ReactAnimationEvent<HTMLElement>) => {
     if (
@@ -389,6 +401,7 @@ function TeamMenu({
 export interface TeamUnitProps {
   team: Team;
   plan: Plan | null;
+  planCountMeta?: TeamPlanCountMeta;
   workspaceName?: string;
   tabs: Record<string, Tab>;
   managers: ReactNode;
@@ -431,6 +444,7 @@ export interface TeamEffortTarget {
 export function TeamUnit({
   team,
   plan,
+  planCountMeta,
   workspaceName,
   tabs,
   managers,
@@ -481,15 +495,12 @@ export function TeamUnit({
   const displayTitle = team.remote_peer_id
     ? remoteTeamName(team.id, team.name, plan?.title, workspaceName) ?? "Remote workspace"
     : plan?.title.trim() || team.name?.trim() || "Team";
-  const buckets = useMemo(
-    () => (plan ? deriveTeamTaskBuckets(plan, tabs) : EMPTY_BUCKETS),
-    [plan, tabs],
+  const planStatus = useMemo(
+    () => resolveTeamPlanStatus(plan, tabs, planCountMeta),
+    [plan, tabs, planCountMeta],
   );
-  const statusCounts = useMemo<PlanStatusCounts>(
-    () => deriveCardStatusCounts(buckets),
-    [buckets],
-  );
-  const planMotion = useTeamPlanMotion(buckets);
+  const buckets = planStatus.state === "unavailable" ? EMPTY_BUCKETS : planStatus.buckets;
+  const planMotion = useTeamPlanMotion(buckets, planStatus.state === "verified");
 
   useEffect(() => setName(team.name?.trim() || "Team"), [team.name]);
 
@@ -598,16 +609,35 @@ export function TeamUnit({
           )}
         </span>
       )}
-      <TeamStatusTally
-        key={`tally-${planMotion.revision}`}
-        data-testid="team-status-tally"
-        data-team-card-region="status-tally"
-        data-team-card-hit-target="team-card-activation"
-        className={`sidebar-team-readout${planMotion.completionSweep ? " sidebar-plan-entry-count-completion" : ""}`}
-        counts={statusCounts}
-        tone="muted"
-        itemTestIdPrefix="team-status"
-      />
+      {planStatus.state === "unavailable" ? (
+        <span
+          data-testid="team-status-unavailable"
+          data-team-card-region="status-tally"
+          data-team-card-hit-target="team-card-activation"
+          data-status-state={planStatus.loading ? "loading" : "unavailable"}
+          role="status"
+          className="sidebar-team-readout"
+        >
+          {planStatus.totalTasks !== null && planStatus.totalTasks > 0
+            ? `${planStatus.totalTasks} ${planStatus.totalTasks === 1 ? "task" : "tasks"} · ${planStatus.loading ? "loading counts…" : "counts unavailable"}`
+            : planStatus.loading
+              ? "Loading plan…"
+              : "Plan counts unavailable"}
+        </span>
+      ) : (
+        <TeamStatusTally
+          key={`tally-${planMotion.revision}`}
+          data-testid="team-status-tally"
+          data-team-card-region="status-tally"
+          data-team-card-hit-target="team-card-activation"
+          data-status-state={planStatus.state === "verified" ? (planStatus.stale ? "stale" : "verified") : "absent"}
+          data-status-freshness={planStatus.state === "verified" && planStatus.stale ? "stale" : undefined}
+          className={`sidebar-team-readout${planMotion.completionSweep ? " sidebar-plan-entry-count-completion" : ""}`}
+          counts={planStatus.counts}
+          tone="muted"
+          itemTestIdPrefix="team-status"
+        />
+      )}
       {renameError && <div data-testid="team-rename-error"><InlineErrorNotice error={renameError} operation="updating this Team" blocking /></div>}
     </div>
   </>;

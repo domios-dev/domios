@@ -13,6 +13,7 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 import {
   PlansProvider,
   useCanvasPlans,
+  usePlanIndex,
   usePlanSummaries,
   usePlanSummariesOptional,
   useSidebarPlansOptional,
@@ -116,6 +117,12 @@ async function installListenMock() {
 function emitPlansLoaded() {
   for (const handler of listenHandlers.get("plans-loaded") ?? []) {
     handler({ payload: {} });
+  }
+}
+
+function emitPlanChanged(payload: { plan_id: string; revision: string; previous_revision: string; deleted?: boolean }) {
+  for (const handler of listenHandlers.get("plan-changed") ?? []) {
+    handler({ payload: { task_ids: [], reset: false, deleted: false, ...payload } });
   }
 }
 
@@ -399,6 +406,160 @@ test("nested workspace retains its owner plan without importing another workspac
   assert(!selected.includes("other-plan"), "other workspace plan remains excluded");
   fullFixturePlans = [FIXTURE_PLAN];
   await act(async () => root.unmount());
+});
+
+test("held index read coalesces advancing plan changes and pre-delete reply cannot resurrect deleted plan", async () => {
+  const prevFetch = globalThis.fetch;
+  let activeIndexReads = 0;
+  let maxIndexConcurrency = 0;
+  let abortedIndexReads = 0;
+  let indexRequestCount = 0;
+  let releaseFirstIndex!: () => void;
+  let releaseDeletedHeldIndex!: () => void;
+  let firstIndexStarted!: () => void;
+  const firstIndexReady = new Promise<void>((resolve) => { firstIndexStarted = resolve; });
+  let preDeleteStarted!: () => void;
+  const preDeleteReady = new Promise<void>((resolve) => { preDeleteStarted = resolve; });
+  let phase: "initial" | "updated" | "pre-delete-hold" | "deleted" = "initial";
+
+  const makeEntry = (plan_id: string, title: string, task_count: number) => ({
+    plan_id,
+    file_path: `/tmp/${plan_id}.json`,
+    owner: FIXTURE_PLAN.owner,
+    title,
+    status: "active",
+    updated_at: 10,
+    assigned_tab_ids: [],
+    task_count,
+    open_task_count: task_count,
+  });
+
+  globalThis.fetch = muxMockFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/api/plans")) {
+      indexRequestCount += 1;
+      activeIndexReads += 1;
+      maxIndexConcurrency = Math.max(maxIndexConcurrency, activeIndexReads);
+      init?.signal?.addEventListener("abort", () => { abortedIndexReads += 1; }, { once: true });
+      if (phase === "initial") {
+        return new Promise<Response>((resolve, reject) => {
+          let settled = false;
+          const finish = () => {
+            if (settled) return false;
+            settled = true;
+            activeIndexReads -= 1;
+            return true;
+          };
+          init?.signal?.addEventListener("abort", () => {
+            if (finish()) reject(new DOMException("Aborted", "AbortError"));
+          }, { once: true });
+          releaseFirstIndex = () => {
+            if (finish()) {
+              resolve(Response.json({
+                plans: [makeEntry("pl_hot", "Hot v1", 5), makeEntry("pl_calm", "Calm v1", 2)],
+              }));
+            }
+          };
+          firstIndexStarted();
+        });
+      }
+      if (phase === "pre-delete-hold") {
+        return new Promise<Response>((resolve, reject) => {
+          let settled = false;
+          const finish = () => {
+            if (settled) return false;
+            settled = true;
+            activeIndexReads -= 1;
+            return true;
+          };
+          init?.signal?.addEventListener("abort", () => {
+            if (finish()) reject(new DOMException("Aborted", "AbortError"));
+          }, { once: true });
+          releaseDeletedHeldIndex = () => {
+            if (finish()) {
+              resolve(Response.json({
+                plans: [makeEntry("pl_hot", "Hot stale", 5), makeEntry("pl_calm", "Calm v1", 2)],
+              }));
+            }
+          };
+          preDeleteStarted();
+        });
+      }
+      activeIndexReads -= 1;
+      if (phase === "deleted") {
+        return Response.json({ plans: [makeEntry("pl_calm", "Calm v1", 2)] });
+      }
+      return Response.json({
+        plans: [makeEntry("pl_hot", "Hot v4", 8), makeEntry("pl_calm", "Calm v1", 2)],
+      });
+    }
+    return new Response("not found", { status: 404 });
+  });
+
+  let latestIndex: Array<{ plan_id: string; title: string }> = [];
+  function IndexProbe() {
+    const { index } = usePlanIndex();
+    latestIndex = index.map((entry) => ({ plan_id: entry.plan_id, title: entry.title }));
+    return null;
+  }
+
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => {
+      root.render(<PlansProvider api={API}><IndexProbe /></PlansProvider>);
+      await firstIndexReady;
+    });
+    assert(indexRequestCount === 1 && activeIndexReads === 1, "initial index read held");
+
+    await act(async () => {
+      emitPlanChanged({ plan_id: "pl_hot", revision: "2", previous_revision: "1" });
+      emitPlanChanged({ plan_id: "pl_foreign", revision: "2", previous_revision: "1" });
+      emitPlanChanged({ plan_id: "pl_hot", revision: "3", previous_revision: "2" });
+      emitPlanChanged({ plan_id: "pl_hot", revision: "4", previous_revision: "3" });
+      await Promise.resolve();
+    });
+    assert(indexRequestCount === 1 && abortedIndexReads === 0, "advancing changes coalesce without aborting initial index read");
+
+    phase = "updated";
+    await act(async () => {
+      releaseFirstIndex();
+      await flushAsyncWork();
+    });
+    assert(maxIndexConcurrency === 1, `index concurrency stays bounded at 1 (got ${maxIndexConcurrency})`);
+    assert(indexRequestCount === 2 && abortedIndexReads === 0, "initial read + single coalesced follow-up");
+    assert(
+      latestIndex.some((entry) => entry.plan_id === "pl_calm" && entry.title === "Calm v1")
+      && latestIndex.some((entry) => entry.plan_id === "pl_hot" && entry.title === "Hot v4"),
+      "unaffected entry readable and hot entry converged to latest revision",
+    );
+
+    phase = "pre-delete-hold";
+    await act(async () => {
+      emitPlanChanged({ plan_id: "pl_hot", revision: "5", previous_revision: "4" });
+      await preDeleteReady;
+    });
+    assert(indexRequestCount === 3 && activeIndexReads === 1, "refresh index read held before delete");
+
+    phase = "deleted";
+    await act(async () => {
+      emitPlanChanged({ plan_id: "pl_hot", revision: "6", previous_revision: "5", deleted: true });
+      await flushAsyncWork();
+    });
+    assert(abortedIndexReads === 1, "actual deletion immediately aborts held pre-delete index read");
+    assert(!latestIndex.some((entry) => entry.plan_id === "pl_hot"), "deleted plan removed from index");
+
+    await act(async () => {
+      releaseDeletedHeldIndex();
+      await flushAsyncWork();
+    });
+    assert(!latestIndex.some((entry) => entry.plan_id === "pl_hot"), "late pre-delete reply cannot resurrect deleted plan");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    globalThis.fetch = prevFetch;
+  }
 });
 
 function WorkspaceProbe({ projectPath }: { projectPath: string }) {
