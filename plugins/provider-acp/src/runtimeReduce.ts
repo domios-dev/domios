@@ -331,7 +331,7 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
         const previous=state.items[id];
         if (!state.seenItems.includes(id)) {state.ordinal++;state.seenItems.push(id);}
         const row=reduceTool(update,previous,state.seq+1);
-        if (row) emit(state,events,row,kind === "tool_call_update");
+        if (row && (previous || kind === "tool_call")) emit(state,events,row,kind === "tool_call_update");
       } else if (kind === "plan") {
         closeChunk(ctx,state,events);
         const id=`${ctx.threadId}:plan`;

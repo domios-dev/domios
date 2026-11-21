@@ -304,6 +304,45 @@ const updateFrame=(update:JsonValue):RuntimeFrame=>({kind:"notification",method:
     assert.ok(Buffer.byteLength(JSON.stringify(maxEvent.item))<=32768,"boundary-length valid toolCallId still stays within the 32 KiB row cap");
     assert.ok(maxEvent.item.toolDetail?.includes("shortened"));
   }
+  const orphanUpdate=reduceStream(context,null,[updateFrame({sessionUpdate:"tool_call_update",toolCallId:"never-started",status:"failed"})],cursor);
+  assert.equal(orphanUpdate.events.some(item=>item.kind === "chatItem" || item.kind === "chatItemPatch"),false,"unknown tool_call_update never emits an orphan chatItemPatch");
+  const detFixture=JSON.parse(fs.readFileSync(new URL("./fixtures/runtime/batch-row-determinism.json",import.meta.url),"utf8")) as {
+    context:RuntimeContext;
+    operations:{operation:Operation;context?:RuntimeContext}[];
+    rpc:({direction:"outbound";operation:number} | {direction:"inbound";operation:number;reply:{kind:"success";value:JsonValue}} | {direction:"inbound";frames:RuntimeFrame[];context?:RuntimeContext})[];
+    expected:{events:AgentEvent[]};
+  };
+  const replayDeterminism=(split:boolean):{events:AgentEvent[];maxStateBytes:number}=>{
+    const plans=new Map<number,ReturnType<typeof runtimePlan>>();
+    let state:JsonValue=null;
+    const events:AgentEvent[]=[];
+    let maxStateBytes=0;
+    const tabId=`stream-det-${split ? "split" : "batch"}`;
+    for (const record of detFixture.rpc) {
+      if (record.direction === "outbound") {
+        const entry=detFixture.operations[record.operation];
+        plans.set(record.operation,runtimePlan({...(entry.context ?? detFixture.context),tabId},entry.operation));
+      } else if ("reply" in record) {
+        const entry=detFixture.operations[record.operation];
+        const step=runtimeResponse({...(entry.context ?? detFixture.context),tabId},entry.operation,plans.get(record.operation)!.state,record.reply);
+        if (step.kind === "complete") events.push(...step.events ?? []);
+      } else {
+        const ctx={...(record.context ?? detFixture.context),tabId};
+        for (const batch of split ? record.frames.map(item=>[item]) : [record.frames]) {
+          const reduced=runtimeReduce(ctx,state,batch);
+          state=reduced.state;
+          maxStateBytes=Math.max(maxStateBytes,Buffer.byteLength(JSON.stringify(state)));
+          events.push(...reduced.events);
+        }
+      }
+    }
+    return {events,maxStateBytes};
+  };
+  const detBatch=replayDeterminism(false);
+  const detSplit=replayDeterminism(true);
+  assert.deepEqual(detBatch.events,detSplit.events,"batch-row-determinism matches split-frame reduction exactly");
+  assert.deepEqual(detBatch.events,detFixture.expected.events,"batch-row-determinism matches fixture expected events");
+  assert.ok(detSplit.maxStateBytes<65536 && detSplit.maxStateBytes>45000,"batch-row-determinism exercises the 47 KiB state eviction cap");
 }
 {
   const midReply=reduceStream(context,null,[frame("agent_message_chunk","before "),frame("agent_message_chunk","[MODE_UPDATE] plan"),frame("agent_message_chunk","after")],{prompt:1,loading:false});

@@ -25,7 +25,7 @@ const MAX_CONTENT_PARTS=64;
 function lines(value:string):string[] {
   if (!value) return [];
   const result=value.split(/\r?\n/);
-  if (result.at(-1) === "") result.pop();
+  if (result[result.length-1] === "") result.pop();
   return result;
 }
 
