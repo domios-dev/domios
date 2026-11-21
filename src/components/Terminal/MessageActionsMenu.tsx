@@ -182,7 +182,7 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
   };
 
   const menu = (
-          <div ref={menuRef} role="menu" aria-label="Message actions" className="ct-menu ct-msg-menu" onKeyDown={onMenuKey}>
+          <div ref={menuRef} role="menu" aria-label="Message actions" className="ct-menu ct-menu--opaque ct-msg-menu" onKeyDown={onMenuKey}>
             {metadata && <div role="note" aria-label={[metadata.time, metadata.date].join(" · ")} className="border-b px-3 py-2 text-xs" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>
               <time dateTime={metadata.dateTime} title={metadata.date} className="block truncate">{metadata.time} · {metadata.shortDate}</time>
               {(metadata.sender || metadata.deliveryState) && <div className="truncate">{[metadata.sender, metadata.deliveryState].filter(Boolean).join(" · ")}</div>}
@@ -234,10 +234,10 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
         {hoverIntent.pending && !open && <svg aria-hidden="true" className="ct-msg-dot__progress" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" pathLength="1" /></svg>}
       </button>
       {touch
-        ? open && createPortal(<div className="ct-menu-sheet ct-msg-sheet-wrap">{menu}</div>, document.body)
+        ? open && createPortal(<div className="ct-menu-sheet ct-msg-sheet-wrap" onMouseDown={(event) => event.stopPropagation()}>{menu}</div>, document.body)
         : (
           <AnchoredPopover open={open} anchor={buttonRef} gap={0} placement={side === "end" ? "bottom-end" : "bottom-start"}>
-            <div className="ct-msg-menu-wrap">{menu}</div>
+            <div className="ct-msg-menu-wrap" onMouseDown={(event) => event.stopPropagation()}>{menu}</div>
           </AnchoredPopover>
         )}
     </div>

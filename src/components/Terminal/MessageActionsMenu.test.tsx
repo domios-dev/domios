@@ -108,6 +108,73 @@ describe("message action hover wiring", () => {
       expect(document.activeElement).toBe(view.dot);
     } finally { await view.unmount(); }
   });
+
+  it("portals desktop menu outside the row, keeps Reply first, and blocks mousedown leakage to ancestor rows", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const rowMouseDown = vi.fn();
+    const markdownClip: ClipMessage = { ...clip, source: "**Second** turn" };
+    try {
+      await act(async () => {
+        root.render(
+          <div onMouseDown={rowMouseDown}>
+            <MessageActionsDot
+              clip={markdownClip}
+              side="end"
+              open
+              onOpenChange={() => {}}
+              actions={{ quote: () => {}, ask: () => {}, select: () => {} }}
+            />
+          </div>,
+        );
+      });
+      const menu = document.querySelector<HTMLElement>('[role="menu"][aria-label="Message actions"]');
+      expect(menu).not.toBeNull();
+      expect(host.contains(menu)).toBe(false);
+      expect(menu?.closest("[data-anchored-popover]")?.parentElement).toBe(document.body);
+      const labels = Array.from(menu!.querySelectorAll<HTMLElement>('[role="menuitem"]')).map((item) => item.getAttribute("aria-label"));
+      expect(labels).toEqual(["Reply", "Copy", "Copy as Markdown", "Select"]);
+      await act(async () => menu!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+      expect(rowMouseDown).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("portals touch sheet to document.body and dismisses via Close actions", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const onOpenChange = vi.fn();
+    try {
+      await act(async () => {
+        root.render(
+          <MessageActionsDot
+            clip={clip}
+            side="end"
+            touch
+            open
+            onOpenChange={onOpenChange}
+            actions={{ quote: () => {}, ask: () => {}, select: () => {} }}
+          />,
+        );
+      });
+      const menu = document.querySelector<HTMLElement>('[role="menu"][aria-label="Message actions"]');
+      expect(menu).not.toBeNull();
+      expect(host.contains(menu)).toBe(false);
+      expect(menu?.parentElement?.parentElement).toBe(document.body);
+      const closeButton = Array.from(menu!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+        .find((button) => button.textContent === "Close actions");
+      expect(closeButton).toBeDefined();
+      await act(async () => closeButton!.click());
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
 });
 
 describe("thread history message actions", () => {
