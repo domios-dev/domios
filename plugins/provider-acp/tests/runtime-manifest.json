@@ -9,6 +9,17 @@
       "args": []
     },
     "launchProfiles": {
+      "antigravity": {
+        "binary": "agy",
+        "args": [
+          "acp"
+        ],
+        "icon": "antigravity-color.svg",
+        "limitsSource": {
+          "kind": "unavailable",
+          "reason": "Antigravity exposes no official account-quota endpoint yet"
+        }
+      },
       "deepseek-harness": {
         "binary": "npx",
         "args": [
