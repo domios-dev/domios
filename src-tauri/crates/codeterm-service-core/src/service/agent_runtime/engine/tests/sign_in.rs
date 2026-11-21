@@ -446,11 +446,18 @@ module.exports = {
     assert_eq!(spawns.load(Ordering::SeqCst), 1);
 
     let frame = Messenger::from(MessageEnvelope::from_codeterm()).framed_delivery("opaque turn");
-    let refused = transport::send_envelope(&fixture.service, &tab_id, &frame, "tok-signed-out", None)
-        .unwrap_err();
-    assert!(refused.starts_with("tab_busy_refused:"), "unexpected refusal: {refused}");
+    let refused =
+        transport::send_envelope(&fixture.service, &tab_id, &frame, "tok-signed-out", None)
+            .unwrap_err();
+    assert!(
+        refused.starts_with("tab_busy_refused:"),
+        "unexpected refusal: {refused}"
+    );
     let gateway_err = classify(&tab_id, refused);
-    assert!(matches!(gateway_err, GatewayDeliveryError::BusyRefused { .. }));
+    assert!(matches!(
+        gateway_err,
+        GatewayDeliveryError::BusyRefused { .. }
+    ));
     let rendered = gateway_err.to_string();
     assert!(!rendered.starts_with("transport error:"));
     assert!(!StructuredDeliveryError::from_opaque(&tab_id, rendered).bytes_written());

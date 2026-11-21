@@ -308,7 +308,12 @@ mod tests {
     }
     #[test]
     fn exec_report_never_succeeds_without_an_exit_status() {
-        for completion in ["command_finished", "unknown", "target_restarting", "submit_unconfirmed"] {
+        for completion in [
+            "command_finished",
+            "unknown",
+            "target_restarting",
+            "submit_unconfirmed",
+        ] {
             let report = exec_report(&json!({"exit_code": null, "completion": completion}));
             assert_eq!(report.exit, 1);
             assert!(report.stderr.is_some());
@@ -336,7 +341,10 @@ mod tests {
         assert_eq!(failure.outcome.as_deref(), Some("submit_unconfirmed"));
         assert_eq!(failure.code.as_deref(), Some("submit_unconfirmed"));
         assert_eq!(failure.bytes_written, Some(true));
-        assert_eq!(failure.stdout.as_deref(), Some("{\"status\":\"updating\"}\n"));
+        assert_eq!(
+            failure.stdout.as_deref(),
+            Some("{\"status\":\"updating\"}\n")
+        );
         assert!(failure.output_truncated);
         assert_eq!(failure.retry_hint.as_deref(), Some("never replay blindly"));
         assert!(failure.message.contains("submit_unconfirmed"));

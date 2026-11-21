@@ -229,10 +229,7 @@ struct SequencedPlugin {
 }
 
 impl SequencedPlugin {
-    fn new(
-        responses: Vec<Result<serde_json::Value, VmError>>,
-        supports_sync: bool,
-    ) -> Arc<Self> {
+    fn new(responses: Vec<Result<serde_json::Value, VmError>>, supports_sync: bool) -> Arc<Self> {
         Arc::new(Self {
             calls: Mutex::new(Vec::new()),
             responses: Mutex::new(responses.into()),
@@ -376,7 +373,10 @@ fn unconfirmed_save_returns_typed_write_uncertain_without_leaking_payload() {
 #[test]
 fn pre_write_save_refusals_return_directly_without_readback() {
     for (envelope, expected_kind) in [
-        (json!({ "error": { "kind": "already_exists" } }), "already_exists"),
+        (
+            json!({ "error": { "kind": "already_exists" } }),
+            "already_exists",
+        ),
         (json!({ "error": { "kind": "locked" } }), "locked"),
         (
             json!({ "error": { "kind": "bad_request", "message": "name required" } }),

@@ -552,16 +552,19 @@ fn runtime_turn_usage_accumulates_distinct_responses_and_resets_on_thread_change
         .to_string(),
     )
     .unwrap();
-    fixture.service.agent_registry.register_provider(Box::new(JsProvider::new(
-        manifest,
-        std::sync::Arc::new(
-            PluginVm::from_source(
-                &session.provider,
-                "module.exports = { usageAccounting() { return 'runtime_turn'; } };".into(),
-            )
-            .unwrap(),
-        ),
-    )));
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(JsProvider::new(
+            manifest,
+            std::sync::Arc::new(
+                PluginVm::from_source(
+                    &session.provider,
+                    "module.exports = { usageAccounting() { return 'runtime_turn'; } };".into(),
+                )
+                .unwrap(),
+            ),
+        )));
 
     usage(
         &fixture.service,

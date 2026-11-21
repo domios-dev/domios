@@ -393,17 +393,26 @@ fn mesh_exec_classifies_409_variants_and_preserves_observed_output() {
         }),
     )
     .expect_err("submit_unconfirmed must exit nonzero");
-    assert_eq!(unconfirmed.code.as_deref(), Some(delivery::SUBMIT_UNCONFIRMED));
+    assert_eq!(
+        unconfirmed.code.as_deref(),
+        Some(delivery::SUBMIT_UNCONFIRMED)
+    );
     assert_eq!(
         unconfirmed.outcome.as_deref(),
         Some(delivery::OUTCOME_SUBMIT_UNCONFIRMED)
     );
     assert_eq!(unconfirmed.bytes_written, Some(true));
     assert_eq!(unconfirmed.class, Some(RefusalClass::Unknown));
-    assert_eq!(unconfirmed.output.as_deref(), Some("{\"status\":\"updating\"}\n"));
+    assert_eq!(
+        unconfirmed.output.as_deref(),
+        Some("{\"status\":\"updating\"}\n")
+    );
     assert!(unconfirmed.output_truncated);
     let json = unconfirmed.to_json();
-    assert_eq!(json["error"]["outcome"], delivery::OUTCOME_SUBMIT_UNCONFIRMED);
+    assert_eq!(
+        json["error"]["outcome"],
+        delivery::OUTCOME_SUBMIT_UNCONFIRMED
+    );
     assert_eq!(json["error"]["output"], "{\"status\":\"updating\"}\n");
     assert_eq!(json["error"]["output_truncated"], true);
     assert_eq!(json["error"]["bytes_written"], true);
@@ -412,7 +421,10 @@ fn mesh_exec_classifies_409_variants_and_preserves_observed_output() {
     for (code, expected_class) in [
         (delivery::TAB_BUSY_REFUSED, RefusalClass::Transient),
         (delivery::SHELL_EXITED_REFUSED, RefusalClass::Deterministic),
-        (delivery::EXEC_AGENT_TAB_REFUSED, RefusalClass::Deterministic),
+        (
+            delivery::EXEC_AGENT_TAB_REFUSED,
+            RefusalClass::Deterministic,
+        ),
     ] {
         let refused = classify(
             EXEC,
@@ -467,11 +479,20 @@ fn mesh_exec_target_restart_and_transport_drop_are_unknown_never_safe_retry() {
         }),
     )
     .expect_err("target_restarting must fail");
-    assert_eq!(restarting.code.as_deref(), Some(delivery::TARGET_RESTARTING));
-    assert_eq!(restarting.outcome.as_deref(), Some(delivery::OUTCOME_UNKNOWN));
+    assert_eq!(
+        restarting.code.as_deref(),
+        Some(delivery::TARGET_RESTARTING)
+    );
+    assert_eq!(
+        restarting.outcome.as_deref(),
+        Some(delivery::OUTCOME_UNKNOWN)
+    );
     assert_eq!(restarting.bytes_written, Some(true));
     assert_eq!(restarting.class, Some(RefusalClass::Unknown));
-    assert_eq!(restarting.output.as_deref(), Some("{\"status\":\"updating\"}\n"));
+    assert_eq!(
+        restarting.output.as_deref(),
+        Some("{\"status\":\"updating\"}\n")
+    );
 
     let dropped = classify(
         EXEC,

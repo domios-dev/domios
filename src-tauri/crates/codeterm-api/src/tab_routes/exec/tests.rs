@@ -125,7 +125,9 @@ fn exec_unconfirmed_preserves_observed_output_and_never_claims_zero_write() {
 fn exec_completion_classifies_completed_timeout_and_target_restarting_with_output() {
     let done = super::exec_completion_response(
         "pty",
-        Some(codeterm_service_core::service::ExecCompletion::CommandFinished { exit_code: Some(0) }),
+        Some(
+            codeterm_service_core::service::ExecCompletion::CommandFinished { exit_code: Some(0) },
+        ),
         super::ObservedOutput {
             output: "ok\n".into(),
             offset: 3,

@@ -86,7 +86,8 @@ var methods = {
   prompt: "session/prompt",
   steering: "_session/steering",
   cancel: "session/cancel",
-  update: "session/update"
+  update: "session/update",
+  extensionUpdate: "_x.ai/session/update"
 };
 
 // plugins/provider-acp/src/runtimeReduceAccounting.ts
@@ -301,29 +302,68 @@ function planRow(sessionId, update, previous, seq) {
   };
 }
 var count = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-function costMicros(value) {
-  const cost = object(value);
-  if (cost.currency !== "USD" || typeof cost.amount !== "number" || !Number.isFinite(cost.amount) || cost.amount < 0) return void 0;
-  const micros = Math.round(cost.amount * 1e6);
-  return count(micros) ? micros : void 0;
+function firstCount(...values) {
+  for (const value of values) if (count(value)) return value;
+  return void 0;
+}
+function costMicros(raw) {
+  if (raw.cost !== void 0 && raw.cost !== null) {
+    const cost = object(raw.cost);
+    if (cost.currency !== "USD" || typeof cost.amount !== "number" || !Number.isFinite(cost.amount) || cost.amount < 0) return void 0;
+    const micros = Math.round(cost.amount * 1e6);
+    return count(micros) ? micros : void 0;
+  }
+  if (count(raw.costUsdTicks)) {
+    const micros = Math.round(raw.costUsdTicks / 1e4);
+    return count(micros) ? micros : void 0;
+  }
+  const usd = raw.costUsd ?? raw.cost_usd;
+  if (typeof usd === "number" && Number.isFinite(usd) && usd >= 0) {
+    const micros = Math.round(usd * 1e6);
+    return count(micros) ? micros : void 0;
+  }
+  return void 0;
 }
 function contextUsage(threadId, value) {
   const raw = object(value);
   if (!count(raw.used) || !count(raw.size)) return void 0;
-  const cost = costMicros(raw.cost);
+  const cost = costMicros(raw);
   return { kind: "context", threadId, used_tokens: raw.used, window_tokens: raw.size, ...cost !== void 0 ? { cost_micros: cost } : {} };
 }
 function usage(value) {
   const raw = object(value);
-  if (!count(raw.inputTokens) || !count(raw.outputTokens)) return void 0;
-  const mapped = { input_tokens: raw.inputTokens, output_tokens: raw.outputTokens };
-  if (count(raw.cachedReadTokens)) mapped.cache_read_tokens = raw.cachedReadTokens;
-  if (count(raw.cachedWriteTokens)) mapped.cache_write_tokens = raw.cachedWriteTokens;
+  const input = firstCount(raw.inputTokens, raw.input_tokens);
+  const output = firstCount(raw.outputTokens, raw.output_tokens);
+  if (input === void 0 || output === void 0) return void 0;
+  const cacheRead = firstCount(raw.cachedReadTokens, raw.cached_read_tokens, raw.cache_read_input_tokens);
+  const cacheWrite = firstCount(raw.cachedWriteTokens, raw.cacheCreationTokens, raw.cached_write_tokens, raw.cache_creation_tokens, raw.cache_creation_input_tokens);
+  const thought = firstCount(raw.thoughtTokens, raw.reasoningTokens, raw.thought_tokens, raw.reasoning_tokens);
+  const total = firstCount(raw.totalTokens, raw.total_tokens);
+  const thoughtAdded = thought !== void 0 && thought > 0 && (total === void 0 || input + output < total) ? thought : 0;
+  const outputTokens = output + thoughtAdded;
+  let inputTokens = input;
+  if (cacheRead !== void 0 && (cacheRead > input || total !== void 0 && cacheRead > 0 && input + cacheRead + (cacheWrite ?? 0) + outputTokens === total)) {
+    inputTokens = input + cacheRead + (cacheWrite ?? 0);
+  } else if (cacheWrite !== void 0 && cacheWrite > 0 && total !== void 0 && input + cacheWrite + outputTokens === total) {
+    inputTokens = input + cacheWrite;
+  }
+  if (!count(inputTokens) || !count(outputTokens)) return void 0;
+  const mapped = { input_tokens: inputTokens, output_tokens: outputTokens };
+  if (cacheRead !== void 0) mapped.cache_read_tokens = cacheRead;
+  if (cacheWrite !== void 0) mapped.cache_write_tokens = cacheWrite;
   if (count(raw.used)) mapped.used_tokens = raw.used;
   if (count(raw.size)) mapped.window_tokens = raw.size;
-  const cost = costMicros(raw.cost);
+  const cost = costMicros(raw);
   if (cost !== void 0) mapped.cost_micros = cost;
   return mapped;
+}
+function usageFromPayload(value) {
+  const raw = object(value);
+  return usage(raw) ?? usage(raw.usage) ?? usage(object(raw._meta).usage) ?? usage(object(raw._meta).tokenUsage);
+}
+function usageFromReply(value) {
+  const raw = object(value);
+  return usage(raw.usage) ?? usage(object(raw._meta).usage) ?? usage(object(raw._meta).tokenUsage);
 }
 
 // plugins/provider-acp/src/runtimeControls.ts
@@ -583,7 +623,8 @@ function initial(ctx, raw, cursor) {
     evidenced: [...state.evidenced],
     compacted: [...state.compacted],
     seenItems: [...state.seenItems],
-    ...state.chunk ? { chunk: { ...state.chunk } } : {}
+    ...state.chunk ? { chunk: { ...state.chunk } } : {},
+    ...state.turnUsage ? { turnUsage: { ...state.turnUsage } } : {}
   };
   copyAccounting(state, copy);
   if (copy.replay !== cursor.replay) {
@@ -594,6 +635,7 @@ function initial(ctx, raw, cursor) {
     clearEntries(copy, "offsetById");
     delete copy.evictedMessages;
     delete copy.chunk;
+    delete copy.turnUsage;
     copy.settled = false;
     copy.started = false;
   } else if (copy.prompt !== cursor.prompt) {
@@ -603,6 +645,7 @@ function initial(ctx, raw, cursor) {
     clearEntries(copy, "offsetById");
     delete copy.evictedMessages;
     delete copy.chunk;
+    delete copy.turnUsage;
     copy.settled = false;
     copy.started = false;
   }
@@ -714,6 +757,10 @@ function closeChunk(ctx, state, events) {
   }
   delete state.chunk;
 }
+function streamTurnUsage(raw) {
+  const value = object(object(raw).turnUsage);
+  return typeof value.input_tokens === "number" && typeof value.output_tokens === "number" ? value : void 0;
+}
 function settleStream(ctx, raw, reason) {
   const source = object(raw);
   if (!ctx.threadId) return { state: raw, events: [] };
@@ -722,6 +769,7 @@ function settleStream(ctx, raw, reason) {
   const state = source;
   if (state.settled) return { state: raw, events: [] };
   const next = { ...state, items: Object.assign(/* @__PURE__ */ Object.create(null), state.items), offsetById: Object.assign(/* @__PURE__ */ Object.create(null), state.offsetById), controls: { ...state.controls }, warnings: Object.assign(/* @__PURE__ */ Object.create(null), state.warnings), evidenced: [...state.evidenced], settled: true };
+  delete next.turnUsage;
   copyAccounting(state, next);
   const events = [];
   closeChunk(ctx, next, events);
@@ -776,6 +824,16 @@ function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = fal
     const params = object(frame.params);
     if (params.sessionId !== ctx.threadId) continue;
     try {
+      if (frame.kind === "notification" && frame.method === methods.extensionUpdate) {
+        const update2 = object(params.update);
+        if (text(update2.sessionUpdate) === "turn_completed") {
+          const context = contextUsage(ctx.threadId, update2);
+          if (context) events.push(context);
+          const tokens = usageFromPayload(update2);
+          if (tokens && !state.loading && !cursor.unattributed) state.turnUsage = tokens;
+        }
+        continue;
+      }
       if (ownSubmitted && !state.loading && !state.settled) submittedRow(state, events, ownSubmitted, false);
       if (frame.kind === "request" && clientRequest(frame.method)) {
         if (!cursor.unattributed) startTurn(ctx, state, events);
@@ -868,9 +926,11 @@ function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = fal
           state.compacted.push(id);
           events.push({ kind: "contextCompacted", threadId: ctx.threadId, itemId: id });
         }
-      } else if (kind === "usage_update") {
+      } else if (kind === "usage_update" || kind === "turn_completed") {
         const mapped = contextUsage(ctx.threadId, update);
         if (mapped) events.push(mapped);
+        const tokens = usageFromPayload(update);
+        if (tokens && !state.loading && !cursor.unattributed) state.turnUsage = tokens;
       } else if (kind === "compaction_update" || kind === "compaction_summary_chunk") {
         const id = text(update.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
         if (!state.compacted.includes(id)) {
@@ -1630,15 +1690,16 @@ function runtimeResponse(ctx, op, raw, reply) {
     const turn = typeof object4(raw).prompt === "number" ? object4(raw).prompt : object4(state.projection).turn;
     if (turn !== state.cursor.prompt || !state.inFlight) {
       const queued = state.queued?.find((queued2) => queued2.prompt === turn);
-      if (queued && !queued.completed) queued.completed = { cancelled: value.stopReason === "cancelled", usage: usage(value.usage) };
+      if (queued && !queued.completed) queued.completed = { cancelled: value.stopReason === "cancelled", usage: usageFromReply(value) };
       return { kind: "complete", result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId, turnId: `${sessionId}:turn:${turn}` }, events: queued ? sessionAuthentication(state) : [] };
     }
     state.inFlight = false;
     state.instructions = void 0;
     const projected = reduceStream(ctx, state.projection ?? null, [], state.cursor, { sendId: op.sendId, input: op.input }, true);
+    const streamed = streamTurnUsage(projected.state);
     const settled = settleStream(ctx, projected.state, value.stopReason);
     state.projection = settled.state;
-    const mapped = usage(value.usage);
+    const mapped = usageFromReply(value) ?? streamed;
     const events = [...sessionAuthentication(state), ...mapped ? [{ kind: "usage", threadId: sessionId, usage: accountedUsage(mapped, op.sendId) }] : [], ...projected.events, ...settled.events];
     events.push(...promoteQueued(ctx, state));
     return { kind: "complete", result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId, turnId: `${sessionId}:turn:${turn}` }, events };
@@ -1649,7 +1710,7 @@ function runtimeReduce(ctx, raw, frames) {
   binding(ctx);
   const state = negotiated(ctx);
   if (!ctx.threadId || !state || state.sessionId !== ctx.threadId) return { state: raw, events: [] };
-  const own2 = frames.flatMap((frame, index) => object4(frame.params).sessionId === ctx.threadId && (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method)) ? [{ frame, index }] : []);
+  const own2 = frames.flatMap((frame, index) => object4(frame.params).sessionId === ctx.threadId && (frame.kind === "notification" && (frame.method === methods.update || frame.method === methods.extensionUpdate) || frame.kind === "request" && clientRequest(frame.method)) ? [{ frame, index }] : []);
   const prompts = frames.flatMap((frame) => {
     if (frame.kind !== "request") return [];
     const request2 = runtimePrompt(ctx, frame.method, frame.params);

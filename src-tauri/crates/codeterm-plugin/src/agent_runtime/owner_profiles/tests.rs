@@ -138,19 +138,15 @@ async fn cached_registry_svg_loads_for_profiles_while_explicit_local_icons_take_
     let store_path = root.path().join("owner-profiles.json");
     let url = "https://cdn.example.test/registry-agent.svg";
     let remote_svg = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M2 2h20v20H2z"/></svg>"#;
-    let cached = crate::plugin_icon::registry::resolve_with(
-        icon_cache.clone(),
-        url,
-        1_000,
-        |_| async {
+    let cached =
+        crate::plugin_icon::registry::resolve_with(icon_cache.clone(), url, 1_000, |_| async {
             crate::plugin_icon::registry::FetchOutcome::Ok {
                 mime: "image/svg+xml".into(),
                 bytes: remote_svg.to_vec(),
             }
-        },
-    )
-    .await
-    .expect("cached registry SVG");
+        })
+        .await
+        .expect("cached registry SVG");
 
     let declarations = json!({
         "registry-agent": {"binary":"registry-bin","args":[],"ownerConfigured":true,"registryId":"fixture-reg","iconUrl":url},
@@ -190,7 +186,10 @@ async fn cached_registry_svg_loads_for_profiles_while_explicit_local_icons_take_
         resolved["registry-agent"].icon_svg.as_deref(),
         Some(cached.as_str())
     );
-    assert_eq!(resolved["local-override"].icon_svg.as_deref(), Some(bundled));
+    assert_eq!(
+        resolved["local-override"].icon_svg.as_deref(),
+        Some(bundled)
+    );
     assert!(resolved["offline-agent"].icon_svg.is_none());
 
     cache().lock().insert(
@@ -200,7 +199,12 @@ async fn cached_registry_svg_loads_for_profiles_while_explicit_local_icons_take_
     let updated_url = "https://cdn.example.test/refreshed-agent.svg";
     assert!(sync_registry_icon_url_at(&store_path, "registry-agent", updated_url).unwrap());
     assert!(!sync_registry_icon_url_at(&store_path, "local-override", updated_url).unwrap());
-    assert!(!sync_registry_icon_url_at(&store_path, "registry-agent", "http://insecure.test/a.svg").unwrap());
+    assert!(!sync_registry_icon_url_at(
+        &store_path,
+        "registry-agent",
+        "http://insecure.test/a.svg"
+    )
+    .unwrap());
     assert!(refresh_icon_at(&store_path, updated_url, "<svg><path d=\"M3 3\"/></svg>").unwrap());
     let projected = cache().lock().get(&store_path).unwrap().clone().unwrap();
     assert_eq!(

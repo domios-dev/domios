@@ -109,9 +109,8 @@ fn copy_attachment(
     source: &Path,
     now_ms: u64,
 ) -> Result<AttachmentRef, PlanError> {
-    let meta = std::fs::metadata(source).map_err(|e| {
-        PlanError::Io(format!("attachment source '{}': {e}", source.display()))
-    })?;
+    let meta = std::fs::metadata(source)
+        .map_err(|e| PlanError::Io(format!("attachment source '{}': {e}", source.display())))?;
     if !meta.is_file() {
         return Err(PlanError::Io(format!(
             "attachment source is not a file: {}",
@@ -128,9 +127,8 @@ fn copy_attachment(
     let id = crate::plan::ids::short_id("att");
     let safe = safe_filename(source);
     let dir = attachment_dir(plan_root, target, entity_id);
-    std::fs::create_dir_all(&dir).map_err(|e| {
-        PlanError::Io(format!("create attachment dir '{}': {e}", dir.display()))
-    })?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| PlanError::Io(format!("create attachment dir '{}': {e}", dir.display())))?;
     let filename = format!("{id}-{safe}");
     let dest = dir.join(&filename);
     let size = codeterm_util::attachments::copy_complete_file(source, &dest, MAX_ATTACHMENT_BYTES)

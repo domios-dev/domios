@@ -170,10 +170,7 @@ fn peer_delivery_verdict(data: &serde_json::Value) -> PeerVerdict {
             .get("output")
             .and_then(|v| v.as_str())
             .map(str::to_string),
-        output_truncated: data
-            .get("output_truncated")
-            .and_then(|v| v.as_bool())
-            == Some(true),
+        output_truncated: data.get("output_truncated").and_then(|v| v.as_bool()) == Some(true),
     }
 }
 
@@ -378,13 +375,8 @@ pub(crate) fn classify_relay_answer(
         } else {
             None
         };
-        return Err(
-            failure_of(peer_name, peer.as_ref(), reason, retry, class).with_exec_observation(
-                outcome,
-                None,
-                false,
-            ),
-        );
+        return Err(failure_of(peer_name, peer.as_ref(), reason, retry, class)
+            .with_exec_observation(outcome, None, false));
     }
 
     let data = val.get("data").cloned().unwrap_or(serde_json::Value::Null);

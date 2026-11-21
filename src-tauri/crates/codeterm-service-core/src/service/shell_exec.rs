@@ -187,7 +187,11 @@ impl Drop for ExecWaiter {
 }
 
 pub fn publish(pty_id: &str, completion: ExecCompletion) {
-    publish_with_shutdown(pty_id, completion, crate::crash::shutdown::is_shutting_down());
+    publish_with_shutdown(
+        pty_id,
+        completion,
+        crate::crash::shutdown::is_shutting_down(),
+    );
 }
 
 pub(crate) fn publish_with_shutdown(pty_id: &str, completion: ExecCompletion, shutting_down: bool) {

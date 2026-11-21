@@ -35,7 +35,11 @@ fn icon_cache_dir_for_store(path: &Path) -> Option<PathBuf> {
         .parent()
         .and_then(Path::parent)
         .and_then(Path::file_name)?;
-    Some(codeterm_paths::data_dir().join(provider).join("cache/icons"))
+    Some(
+        codeterm_paths::data_dir()
+            .join(provider)
+            .join("cache/icons"),
+    )
 }
 
 pub fn valid_name(name: &str) -> Result<(), String> {
@@ -128,11 +132,7 @@ fn refresh_icon_at(path: &Path, url: &str, icon: &str) -> Result<bool, String> {
     Ok(changed)
 }
 
-pub fn sync_registry_icon_url(
-    provider: &str,
-    profile_id: &str,
-    url: &str,
-) -> Result<bool, String> {
+pub fn sync_registry_icon_url(provider: &str, profile_id: &str, url: &str) -> Result<bool, String> {
     sync_registry_icon_url_at(&path(provider)?, profile_id, url)
 }
 

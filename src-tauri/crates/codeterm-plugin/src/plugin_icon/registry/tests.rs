@@ -116,11 +116,20 @@ fn raster_types_need_matching_signatures_and_use_data_only() {
 #[test]
 fn redirect_policy_and_mime_caps_bound_https_svg_fetches() {
     assert!(redirect_allowed("https://cdn.example.test/icon.svg", 0));
-    assert!(redirect_allowed("https://cdn.example.test/icon.svg", MAX_REDIRECTS - 1));
-    assert!(!redirect_allowed("https://cdn.example.test/icon.svg", MAX_REDIRECTS));
+    assert!(redirect_allowed(
+        "https://cdn.example.test/icon.svg",
+        MAX_REDIRECTS - 1
+    ));
+    assert!(!redirect_allowed(
+        "https://cdn.example.test/icon.svg",
+        MAX_REDIRECTS
+    ));
     assert!(!redirect_allowed("http://cdn.example.test/icon.svg", 0));
     assert!(!redirect_allowed("file:///tmp/icon.svg", 0));
-    assert!(!redirect_allowed("https://user@cdn.example.test/icon.svg", 0));
+    assert!(!redirect_allowed(
+        "https://user@cdn.example.test/icon.svg",
+        0
+    ));
     assert_eq!(
         max_bytes_for_mime("image/svg+xml; charset=utf-8"),
         Some(crate::plugin_icon::MAX_PLUGIN_ICON_BYTES)
@@ -145,7 +154,10 @@ async fn resolve_caches_valid_svg_rejects_bad_payloads_and_falls_back_offline() 
     .await
     .expect("valid fetched SVG");
     assert!(fetched.contains("<path"));
-    assert_eq!(read_cached(root.path(), url).as_deref(), Some(fetched.as_str()));
+    assert_eq!(
+        read_cached(root.path(), url).as_deref(),
+        Some(fetched.as_str())
+    );
 
     let mut called = false;
     let cached_hit = resolve_with(root.path().to_path_buf(), url, 1_001, |_| {
@@ -175,14 +187,16 @@ async fn resolve_caches_valid_svg_rejects_bad_payloads_and_falls_back_offline() 
         b"<svg><mask id=\"m\"/><foreignObject/></svg>".to_vec(),
         vec![b'a'; crate::plugin_icon::MAX_PLUGIN_ICON_BYTES + 1],
     ] {
-        assert!(resolve_with(root.path().to_path_buf(), bad_url, 2_000, |_| async {
-            FetchOutcome::Ok {
-                mime: "image/svg+xml".into(),
-                bytes: bad,
-            }
-        })
-        .await
-        .is_none());
+        assert!(
+            resolve_with(root.path().to_path_buf(), bad_url, 2_000, |_| async {
+                FetchOutcome::Ok {
+                    mime: "image/svg+xml".into(),
+                    bytes: bad,
+                }
+            })
+            .await
+            .is_none()
+        );
         assert!(read_cached(root.path(), bad_url).is_none());
     }
 

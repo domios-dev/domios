@@ -49,7 +49,10 @@ fn add_opt(a: Option<u64>, b: Option<u64>) -> Option<u64> {
 
 fn max_token_usage(held: &TokenUsage, next: &TokenUsage) -> TokenUsage {
     TokenUsage {
-        response_id: next.response_id.clone().or_else(|| held.response_id.clone()),
+        response_id: next
+            .response_id
+            .clone()
+            .or_else(|| held.response_id.clone()),
         cost_micros: max_opt(held.cost_micros, next.cost_micros),
         input_tokens: held.input_tokens.max(next.input_tokens),
         output_tokens: held.output_tokens.max(next.output_tokens),
@@ -538,7 +541,9 @@ pub fn latest(
         })
         .collect::<Vec<_>>();
     drop(readings);
-    TURN_USAGE.lock().retain(|tab, _| mux.get_tab(tab).is_some());
+    TURN_USAGE
+        .lock()
+        .retain(|tab, _| mux.get_tab(tab).is_some());
     drop(mux);
     current.sort_by(|a, b| a.tab_id.cmp(&b.tab_id));
     enrich_latest(row, provider, current)

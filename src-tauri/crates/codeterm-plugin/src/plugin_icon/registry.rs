@@ -149,10 +149,7 @@ async fn fetch_https(url: String) -> FetchOutcome {
     let Some(limit) = max_bytes_for_mime(&mime) else {
         return FetchOutcome::Rejected;
     };
-    if response
-        .content_length()
-        .is_some_and(|n| n > limit as u64)
-    {
+    if response.content_length().is_some_and(|n| n > limit as u64) {
         return FetchOutcome::Rejected;
     }
     let mut bytes = Vec::new();

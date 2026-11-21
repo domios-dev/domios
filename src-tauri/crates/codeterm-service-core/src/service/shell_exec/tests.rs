@@ -143,7 +143,11 @@ async fn shell_exit_during_daemon_shutdown_classifies_as_target_restarting() {
     let pty = "exec-shutdown-exit";
     let waiter = ExecWaiter::for_command(pty, "domios update install");
     observe_command(pty, &start(Some("domios update install")));
-    publish_with_shutdown(pty, ExecCompletion::ShellExited { exit_code: Some(0) }, true);
+    publish_with_shutdown(
+        pty,
+        ExecCompletion::ShellExited { exit_code: Some(0) },
+        true,
+    );
     assert!(waiter.terminated());
     let completion = waiter.wait(Duration::ZERO).await;
     assert_eq!(completion, Some(ExecCompletion::TargetRestarting));
