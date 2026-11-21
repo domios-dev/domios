@@ -74,15 +74,17 @@ export function useWorkspaceTabActions(workspaceId: string, cwd: string | null, 
 }
 
 /** The selected workspace's header and tab tree. */
-export function SidebarWorkspaceDetail({ workspace, status, data, actions, observedContent }: {
+export function SidebarWorkspaceDetail({ workspace, status, data, actions, observedContent, allowObservedWorkspaceClose }: {
   workspace: Workspace;
   status: TabStatus | null;
   data: SidebarWorkspaceDetailData;
   actions: SidebarWorkspaceDetailActions;
   observedContent?: ReactNode;
+  allowObservedWorkspaceClose?: boolean;
 }) {
   const readOnly = observedContent != null;
   const workspaceId = workspace.id;
+  const canCloseObservedWorkspace = Boolean(readOnly && allowObservedWorkspaceClose && !workspace.protected);
   const cwd = workspace.cwd ?? null;
   const isActiveVisual = !readOnly && workspaceId === data.activeWorkspaceId && data.isWorkspaceMode;
   const sortedTabs = useMemo(() => tabsInWorkspace(workspace.tabs, data.tabs), [workspace.tabs, data.tabs]);
@@ -109,7 +111,8 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions, obser
         onOpenAutomation={readOnly ? undefined : openWorkspaceAutomation}
         newSessionDisabled={data.newSessionDisabled}
         onNewAgent={(agentId) => actions.newAgent(agentId, workspaceId, cwd)}
-        canClose={!readOnly}
+        canClose={!readOnly || canCloseObservedWorkspace}
+        allowReadOnlyClose={canCloseObservedWorkspace}
         readOnly={readOnly}
         status={status}
         showDisclosure={false}

@@ -913,6 +913,9 @@ export const Sidebar = memo(function Sidebar({
                       status={selectedWorkspaceKey ? workspaceActivity[selectedWorkspaceKey]?.status ?? null : null}
                       data={workspaceDetailData}
                       actions={workspaceDetailActions}
+                      allowObservedWorkspaceClose={Boolean(observedWorkspace
+                        && generalByPeerId.get(observedWorkspace.peerId)?.availability === "online"
+                        && !selectedWorkspace.protected)}
                       observedContent={observedWorkspace && <WorkspaceBrowseSection
                         workspace={observedWorkspace}
                         attachedTabs={state.tabs}

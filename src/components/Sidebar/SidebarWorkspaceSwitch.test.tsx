@@ -14,8 +14,13 @@ import { usePtyConnection } from "../../hooks/terminal/usePtyConnection";
 import { invoke } from "../../lib/bridge";
 import { subscribeTabOutput } from "../../lib/outputStream";
 import type { Terminal } from "@xterm/xterm";
+import type { RemoteWorkspaceCloseConfirmation, RemoteWorkspaceCloseTarget } from "./useRemoteWorkspaceClose";
 
 const mux = vi.hoisted(() => ({ state: {} as Record<string, unknown>, listeners: new Set<() => void>() }));
+const remoteCloseCalls = vi.hoisted(() => ({
+  requested: [] as Array<{ peerId: string; workspaceId: string; availability: string; protected: boolean }>,
+  confirmed: [] as Array<{ peerId: string; workspaceId: string }>,
+}));
 vi.mock("../../store/multiplexer/hooks", async () => {
   const { useSyncExternalStore } = await import("react");
   const subscribe = (listener: () => void) => { mux.listeners.add(listener); return () => { mux.listeners.delete(listener); }; };
@@ -46,6 +51,36 @@ vi.mock("../Automation/hostAdapter", () => ({
     delete: async () => undefined,
   },
 }));
+vi.mock("./useRemoteWorkspaceClose", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./useRemoteWorkspaceClose")>();
+  const { useState } = await import("react");
+  return {
+    ...original,
+    useRemoteWorkspaceClose: (availabilityForPeer: Parameters<typeof original.useRemoteWorkspaceClose>[0], onClosed: Parameters<typeof original.useRemoteWorkspaceClose>[1]) => {
+      const [pending, setPending] = useState<RemoteWorkspaceCloseConfirmation | null>(null);
+      return {
+        pending,
+        request: async (target: RemoteWorkspaceCloseTarget, isStillSelected: () => boolean) => {
+          if (target.availability !== "online" || availabilityForPeer(target.peerId) !== "online") return { kind: "offline" as const };
+          if (target.protected) return { kind: "protected" as const };
+          if (!isStillSelected()) return { kind: "stale" as const };
+          remoteCloseCalls.requested.push({ peerId: target.peerId, workspaceId: target.workspaceId, availability: target.availability, protected: target.protected });
+          setPending({ ...target, agentTitles: ["peer-lead", "other-worker"], blueprints: [], teams: [] });
+          return { kind: "ready" as const };
+        },
+        cancel: () => setPending(null),
+        confirm: async () => {
+          if (!pending) return { kind: "none" as const };
+          const target = pending;
+          setPending(null);
+          remoteCloseCalls.confirmed.push({ peerId: target.peerId, workspaceId: target.workspaceId });
+          onClosed(target.peerId, target.workspaceId);
+          return { kind: "closed" as const, target };
+        },
+      };
+    },
+  };
+});
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const config = { general_agent: { first_run_complete: true }, agent: {}, mesh: { enabled: false } } as AppConfig;
@@ -73,6 +108,8 @@ function mountHost() {
 afterEach(async () => {
   for (const close of hosts.splice(0)) await close();
   setSidebarMachineFilter("local");
+  remoteCloseCalls.requested.length = 0;
+  remoteCloseCalls.confirmed.length = 0;
   localStorage.clear();
   vi.unstubAllGlobals();
 });
@@ -307,4 +344,53 @@ it("keeps one workspace switcher and falls back to one visible workspace when fi
   expect(actions.getAttribute("aria-expanded")).toBe("true");
 
   expect(row(host, "local-worker")).toBeNull();
+});
+
+it("closes the selected online remote workspace from its accessible read-only header", async () => {
+  vi.stubGlobal("__CODETERM_DEV__", false);
+  vi.stubGlobal("__APP_VERSION__", "test");
+  const localTabs = [worker("local-worker", "Local home")];
+  setMux([workspaceOf("Local home", localTabs)], localTabs, "Local home");
+  const peerId = "blackstar";
+  const remoteId = "Peer home";
+  const lead = manager("peer-lead", remoteId);
+  const hand = worker("other-worker", remoteId);
+  const { host, root } = mountHost();
+  await act(async () => root.render(<PairedWorkspaceInventoryContext.Provider value={{
+    generals: [{ peerId, name: "BLACKSTAR", availability: "online", sessions: [] }],
+    browse: null,
+    peerWorkspaces: [{
+      peerId, workspace: workspaceOf(remoteId, [lead, hand]), teams: [{ ...team(remoteId), name: null }],
+      planTitles: new Map([[team(remoteId).id, "Peer plan title"]]),
+      tabs: [{ viewerId: `mesh:${peerId}/${lead.id}`, tab: lead }, { viewerId: `mesh:${peerId}/${hand.id}`, tab: hand }],
+    }],
+  }}><Sidebar config={config} /></PairedWorkspaceInventoryContext.Provider>));
+
+  await act(async () => setSidebarMachineFilter({ id: peerId, name: "BLACKSTAR" }));
+  const closeFromHeader = async () => {
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Actions for Peer home"]')!;
+    expect(trigger).toBeTruthy();
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    const menu = document.getElementById(trigger.getAttribute("aria-controls")!)!;
+    const items = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+    expect(items.map(item => item.textContent?.trim())).toEqual(["Close Workspace"]);
+    await act(async () => items[0].click());
+  };
+
+  await closeFromHeader();
+  let dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Close Peer home on BLACKSTAR"]');
+  expect(dialog).not.toBeNull();
+  expect(dialog?.textContent).toContain("Other agent tabs (2)");
+  expect(remoteCloseCalls.requested).toEqual([{ peerId, workspaceId: remoteId, availability: "online", protected: false }]);
+  await act(async () => dialog?.querySelector<HTMLButtonElement>("button")?.click());
+  expect(remoteCloseCalls.confirmed).toEqual([]);
+
+  await closeFromHeader();
+  dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Close Peer home on BLACKSTAR"]');
+  const confirm = [...(dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
+    .find(button => button.textContent?.trim() === "Close workspace");
+  expect(confirm).toBeTruthy();
+  await act(async () => confirm?.click());
+  expect(remoteCloseCalls.confirmed).toEqual([{ peerId, workspaceId: remoteId }]);
+  expect(host.querySelector('[data-testid="workspace-detail"]')).toBeNull();
 });
