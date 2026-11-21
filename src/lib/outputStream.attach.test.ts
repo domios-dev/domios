@@ -4,11 +4,22 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import capture from "./outputStream.capture.fixture.json";
 import { writeTerminalOutput } from "../hooks/terminal/terminalOutputWrite";
+import { OUTPUT_ACK_BYTES } from "../hooks/terminal/rendererOutputFlow";
 
 function pending<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
+}
+
+function joinBytes(chunks: readonly Uint8Array[]): Uint8Array {
+  const joined = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return joined;
 }
 
 interface OutputSseConnection {
@@ -254,6 +265,115 @@ describe("aggregate terminal attachment", () => {
     }
   });
 
+  it("reports the retained-tail gap after a non-owner stall exceeds retention and completes deferred controls in order", async () => {
+    vi.resetModules(); localStorage.clear();
+    sessionStorage.setItem("codeterm-web-output-boot", "boot");
+    const output = await import("./outputStream");
+    const transport = createOutputSseTransport();
+    output.bindOutputStreamTransport(transport.client);
+    const frameBytes = OUTPUT_ACK_BYTES;
+    const frameCount = 80;
+    const retentionBytes = 2 * 1024 * 1024;
+    const totalBytes = frameBytes * frameCount;
+    const queuedPrefixBytes = 8 * frameBytes;
+    const gapOffset = totalBytes - retentionBytes;
+    const outputBytes = new Uint8Array(totalBytes);
+    for (let index = 0; index < outputBytes.length; index++) outputBytes[index] = index % 251;
+
+    const firstWrite = pending<void>(), firstStarted = pending<void>();
+    const catchupWrite = pending<void>(), catchupStarted = pending<void>();
+    const replayWrite = pending<void>(), replayStarted = pending<void>(), endedReached = pending<void>();
+    const aVisibleChunks: Uint8Array[] = [], aAckOffsets: number[] = [], aGaps: number[] = [];
+    const bAckOffsets: number[] = [];
+    const bAckWaiters = new Map<number, () => void>();
+    let aWriteCount = 0, replayComplete = false, ended = false;
+    const stopA = output.subscribeTabOutput("a", {
+      onOutput() { throw new Error("Expected bytes"); },
+      onBytes(bytes) {
+        const renderedBytes = bytes.slice();
+        if (aWriteCount++ === 0) { firstStarted.resolve(); return firstWrite.promise.then(() => aVisibleChunks.push(renderedBytes)); }
+        if (bytes.length > retentionBytes / 2) { catchupStarted.resolve(); return catchupWrite.promise.then(() => aVisibleChunks.push(renderedBytes)); }
+        aVisibleChunks.push(renderedBytes);
+      },
+      onRendered(offset) { aAckOffsets.push(offset); },
+      onTruncated(from) { aGaps.push(from); },
+      onReplayComplete() { replayComplete = true; replayStarted.resolve(); return replayWrite.promise; },
+      onEnded() { ended = true; endedReached.resolve(); },
+    }, {}, "pty-a");
+    const stopB = output.subscribeTabOutput("b", {
+      onOutput() { throw new Error("Expected bytes"); },
+      onBytes() {},
+      onRendered(offset) {
+        bAckOffsets.push(offset);
+        const acknowledge = bAckWaiters.get(offset);
+        if (acknowledge) { bAckWaiters.delete(offset); acknowledge(); }
+      },
+      onTruncated() {}, onEnded() {},
+    }, {}, "pty-b");
+    const waitForOwnerAck = (offset: number) => new Promise<void>(resolve => bAckWaiters.set(offset, resolve));
+    const sendProducerCredit = async (connection: OutputSseConnection, offset: number) => {
+      const acknowledged = waitForOwnerAck(offset);
+      const credit = new Uint8Array(frameBytes).fill(offset / frameBytes % 251);
+      transport.send(connection, outputFrame("b", "pty-b", offset, credit));
+      await acknowledged;
+    };
+    const sendAFrame = (connection: OutputSseConnection, index: number) => {
+      const end = (index + 1) * frameBytes;
+      transport.send(connection, outputFrame("a", "pty-a", end, outputBytes.subarray(end - frameBytes, end)));
+    };
+    try {
+      const connection = await transport.waitForConnection(0);
+      sendAFrame(connection, 0);
+      await firstStarted.promise;
+      // B is the separate producer-credit viewer; each real 32 KiB render ACK permits another A frame.
+      for (let index = 0; index < frameCount - 1; index++) {
+        await sendProducerCredit(connection, (index + 1) * frameBytes);
+        sendAFrame(connection, index + 1);
+      }
+      transport.send(connection, { tab_id: "a", pty_id: "pty-a", boot: "boot", replay_complete: true, offset: totalBytes });
+      transport.send(connection, { tab_id: "a", pty_id: "pty-a", boot: "boot", ended: true });
+      await sendProducerCredit(connection, frameCount * frameBytes);
+
+      expect(bAckOffsets).toEqual(Array.from({ length: frameCount }, (_, index) => (index + 1) * frameBytes));
+      expect(aVisibleChunks).toEqual([]);
+      expect(aAckOffsets).toEqual([]);
+      expect(aGaps).toEqual([]);
+      expect(replayComplete).toBe(false);
+      expect(ended).toBe(false);
+
+      firstWrite.resolve();
+      await catchupStarted.promise;
+      expect(joinBytes(aVisibleChunks)).toEqual(outputBytes.subarray(0, queuedPrefixBytes));
+      expect(aAckOffsets).toEqual(Array.from({ length: queuedPrefixBytes / frameBytes }, (_, index) => (index + 1) * frameBytes));
+      expect(aGaps).toEqual([gapOffset]);
+      expect(replayComplete).toBe(false);
+      expect(ended).toBe(false);
+
+      catchupWrite.resolve();
+      await replayStarted.promise;
+      const expectedVisible = joinBytes([outputBytes.subarray(0, queuedPrefixBytes), outputBytes.subarray(gapOffset)]);
+      expect(joinBytes(aVisibleChunks)).toEqual(expectedVisible);
+      expect(aAckOffsets).toEqual([
+        ...Array.from({ length: queuedPrefixBytes / frameBytes }, (_, index) => (index + 1) * frameBytes),
+        totalBytes,
+      ]);
+      expect(replayComplete).toBe(true);
+      expect(ended).toBe(false);
+
+      replayWrite.resolve();
+      await endedReached.promise;
+      expect(aAckOffsets).toEqual([
+        ...Array.from({ length: queuedPrefixBytes / frameBytes }, (_, index) => (index + 1) * frameBytes),
+        totalBytes, totalBytes,
+      ]);
+      expect(aGaps).toEqual([gapOffset]);
+      expect(ended).toBe(true);
+    } finally {
+      firstWrite.resolve(); catchupWrite.resolve(); replayWrite.resolve();
+      stopB(); stopA(); output.resetOutputStream();
+    }
+  });
+
   it("does not let a detached held write advance the replacement terminal cursor", async () => {
     vi.resetModules(); localStorage.clear();
     sessionStorage.setItem("codeterm-web-output-boot", "boot");
@@ -298,6 +418,7 @@ describe("aggregate terminal attachment", () => {
     const oldWrite = pending<void>(), oldStarted = pending<void>(), oldFinished = pending<void>();
     const newRendered = pending<void>();
     const oldBytes: number[] = [], newBytes: number[] = [], rendered: number[] = [], resets = vi.fn();
+    let replayCompleteCalls = 0, endedCalls = 0;
     window.__outputStreamPerf = { frames: 0, bytes: 0, batches: 0, lastFrameAt: 0 };
     const stop = output.subscribeTabOutput("a", {
       onOutput() { throw new Error("Expected bytes"); },
@@ -306,7 +427,9 @@ describe("aggregate terminal attachment", () => {
         newBytes.push(...bytes);
       },
       onRendered(offset) { rendered.push(offset); if (offset === 1 && resets.mock.calls.length > 0) newRendered.resolve(); },
-      onReset: resets, onTruncated() {}, onEnded() {},
+      onReset: resets, onTruncated() {},
+      onReplayComplete() { replayCompleteCalls++; },
+      onEnded() { endedCalls++; },
     }, {}, "pty-a");
     try {
       const oldConnection = await transport.waitForConnection(0);
@@ -315,17 +438,23 @@ describe("aggregate terminal attachment", () => {
       for (let offset = 2; offset <= 17; offset++) {
         transport.send(oldConnection, outputFrame("a", "pty-a", offset, Uint8Array.of(offset)));
       }
+      transport.send(oldConnection, { tab_id: "a", pty_id: "pty-a", boot: "boot", replay_complete: true, offset: 17 });
+      transport.send(oldConnection, { tab_id: "a", pty_id: "pty-a", boot: "boot", ended: true });
       transport.send(oldConnection, { boot_changed: true, boot: "next-boot" });
       const nextConnection = await transport.waitForConnection(1);
       expect(resets).toHaveBeenCalledOnce();
-      expect(window.__outputStreamPerf.frames).toBe(18);
+      expect(window.__outputStreamPerf.frames).toBe(20);
       transport.send(nextConnection, outputFrame("a", "pty-a", 1, Uint8Array.of(66), "next-boot"));
       await newRendered.promise;
       expect(oldBytes).toEqual([65]);
       expect(newBytes).toEqual([66]);
+      expect(replayCompleteCalls).toBe(0);
+      expect(endedCalls).toBe(0);
       oldWrite.resolve();
       await oldFinished.promise;
       expect(rendered).toEqual([1]);
+      expect(replayCompleteCalls).toBe(0);
+      expect(endedCalls).toBe(0);
     } finally { oldWrite.resolve(); stop(); output.resetOutputStream(); delete window.__outputStreamPerf; }
   });
 
