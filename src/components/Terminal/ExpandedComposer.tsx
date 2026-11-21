@@ -2,41 +2,67 @@ import { useEffect, useId, useLayoutEffect, useState, type CSSProperties, type R
 import { X } from "lucide-react";
 import { FormDialog } from "../shared/FormDialog";
 
-export function ExpandedComposer({ anchorRef, onClose, children }: {
+function measureExpandedPosition(anchor: HTMLElement): CSSProperties {
+  const rect = anchor.getBoundingClientRect();
+  const vvHeight = window.visualViewport?.height ?? 0;
+  const viewportHeight = vvHeight > 0 ? vvHeight : window.innerHeight;
+  const width = Math.min(rect.width + 160, window.innerWidth - 24);
+  const bottom = Math.max(12, Math.min(Math.max(12, viewportHeight - 220), window.innerHeight - rect.bottom));
+  const maxHeight = Math.max(200, Math.floor(viewportHeight - bottom - 16));
+  return {
+    width,
+    left: Math.max(12, Math.min(rect.left - 136, window.innerWidth - width - 12)),
+    bottom,
+    maxHeight,
+  };
+}
+
+function samePosition(a: CSSProperties, b: CSSProperties): boolean {
+  return a.width === b.width && a.left === b.left && a.bottom === b.bottom && a.maxHeight === b.maxHeight;
+}
+
+export function ExpandedComposer({ anchorRef, onClose, headerStatus, children }: {
   anchorRef: RefObject<HTMLElement | null>;
   onClose: () => void;
+  headerStatus?: ReactNode;
   children: ReactNode;
 }) {
   const titleId = useId();
-  const [position, setPosition] = useState<CSSProperties>({});
+  const [position, setPosition] = useState<CSSProperties>({ bottom: 12, maxHeight: "calc(100dvh - 28px)" });
   useLayoutEffect(() => {
-    const anchor = anchorRef.current;
-    if (!anchor) return;
     const update = () => {
-      const rect = anchor.getBoundingClientRect();
-      const width = Math.min(rect.width + 160, window.innerWidth - 24);
-      const next = { width, left: Math.max(12, Math.min(rect.left - 136, window.innerWidth - width - 12)),
-        bottom: Math.max(12, window.innerHeight - rect.bottom) };
-      setPosition(previous => previous.width === next.width && previous.left === next.left && previous.bottom === next.bottom ? previous : next);
+      const anchor = anchorRef.current;
+      if (!anchor) return;
+      const next = measureExpandedPosition(anchor);
+      setPosition(previous => samePosition(previous, next) ? previous : next);
     };
     update();
+    const anchor = anchorRef.current;
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
-    observer?.observe(anchor);
+    if (anchor) observer?.observe(anchor);
     window.addEventListener("resize", update);
     window.visualViewport?.addEventListener("resize", update);
     return () => { observer?.disconnect(); window.removeEventListener("resize", update);
       window.visualViewport?.removeEventListener("resize", update); };
   }, [anchorRef]);
   useEffect(() => {
-    anchorRef.current?.ownerDocument.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')?.focus();
+    const anchor = anchorRef.current;
+    if (anchor) {
+      const next = measureExpandedPosition(anchor);
+      setPosition(previous => samePosition(previous, next) ? previous : next);
+    }
+    anchor?.ownerDocument.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')?.focus();
   }, [anchorRef]);
   return <FormDialog titleId={titleId} onCancel={onClose}
     className="ct-expanded-composer" style={position}
     onSubmit={(event) => event.preventDefault()}>
     <h2 id={titleId} className="sr-only">Message editor</h2>
-    <button type="button" className="ct-expanded-composer__close" aria-label="Close expanded editor" onClick={onClose}>
-      <X size={18} aria-hidden />
-    </button>
+    <div className="ct-expanded-composer__header">
+      {headerStatus ? <div className="ct-expanded-composer__status">{headerStatus}</div> : null}
+      <button type="button" className="ct-expanded-composer__close" aria-label="Close expanded editor" onClick={onClose}>
+        <X size={18} aria-hidden />
+      </button>
+    </div>
     {children}
   </FormDialog>;
 }

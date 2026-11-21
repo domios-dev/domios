@@ -51,11 +51,12 @@
 .ct-expanded-composer {
   position: fixed;
   max-width: none;
-  padding: 30px 16px 12px;
+  padding: 8px 16px 12px;
   background: var(--ct-surface);
   animation: ct-composer-rise 180ms var(--ct-ease-liquid-settle) both;
-  overflow: visible;
+  overflow: hidden;
   border-radius: var(--ct-composer-radius);
+  gap: 8px;
 }
 @keyframes ct-composer-rise {
   from { opacity: 0; transform: translateY(16px); }
@@ -64,26 +65,80 @@
 @media (prefers-reduced-motion: reduce) {
   .ct-expanded-composer { animation: none; }
 }
-.ct-expanded-composer__actions { grid-template-columns: 1fr auto auto; }
+.ct-expanded-composer__header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: none;
+  min-height: 28px;
+}
+.ct-expanded-composer__status {
+  margin-right: auto;
+  display: inline-flex;
+  align-items: center;
+}
+.ct-expanded-dictation-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ct-muted-fg);
+}
+.ct-expanded-dictation-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--ct-accent);
+  animation: ct-dictation-dot-pulse 1.6s ease-in-out infinite;
+}
+.ct-expanded-dictation-status[data-phase="starting"] .ct-expanded-dictation-dot,
+.ct-expanded-dictation-status[data-phase="finishing"] .ct-expanded-dictation-dot {
+  opacity: 0.6;
+}
+@keyframes ct-dictation-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.85); }
+}
+.ct-expanded-composer__actions {
+  grid-template-columns: 1fr auto auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .ct-expanded-composer__actions > .ct-composer-card {
   grid-column: 1 / -1;
   grid-row: 1;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
   border: 1px solid var(--ct-border);
   border-radius: 12px;
   background: var(--ct-bg);
   box-shadow: none;
   --tw-ring-shadow: 0 0 transparent;
 }
-.ct-expanded-composer .ct-composer-row { padding-inline: 12px; }
+.ct-expanded-composer .ct-composer-row {
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch;
+  padding-inline: 12px;
+}
+.ct-expanded-composer .ct-composer-row textarea {
+  max-height: 100%;
+}
 .ct-expanded-composer__actions > button { grid-row: 2; }
 .ct-expanded-composer__actions > button:first-child { grid-column: 1; justify-self: start; }
 .ct-expanded-composer__actions > button:last-child,
 .ct-expanded-composer__actions > .ct-composer-action-shell { grid-row: 2; grid-column: 3; }
-.ct-expanded-composer__schedule { grid-column: 2; grid-row: 2; }
+.ct-expanded-composer__schedule,
+.ct-expanded-composer__dictation {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: center;
+}
 .ct-expanded-composer__close {
-  position: absolute;
-  top: 4px;
-  right: 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -97,7 +152,7 @@
 }
 .ct-expanded-composer__close:hover { background: var(--ct-bg); color: var(--ct-fg); }
 @media (max-width: 640px) {
-  .ct-expanded-composer { padding: 32px 8px 12px; --ct-capsule-font-size: 16px; }
+  .ct-expanded-composer { padding: 8px 8px 12px; --ct-capsule-font-size: 16px; }
   .ct-composer-expand span { opacity: 1; }
 }
 .ct-composer-card {
@@ -312,5 +367,5 @@ textarea[data-dictating="true"] {
 @media (prefers-reduced-motion: reduce) {
   .ct-dictation-bar, .ct-dictation-cancel { transition: none; }
   .ct-dictation-waveform[data-silent="true"] .ct-dictation-bar { animation: none; }
-  .ct-voice-space-arming, .ct-voice-space-pop { animation: none; }
+  .ct-voice-space-arming, .ct-voice-space-pop, .ct-expanded-dictation-dot { animation: none; }
 }

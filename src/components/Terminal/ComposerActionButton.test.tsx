@@ -16,6 +16,9 @@ function test(name: string, fn: TestFn) { tests.push([name, fn]); }
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
+function assertEq<T>(actual: T, expected: T, message: string): void {
+  if (actual !== expected) throw new Error(`${message} (got ${String(actual)}, expected ${String(expected)})`);
+}
 
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -241,9 +244,8 @@ test("idle dictation button keeps round chrome, bloom glyphs, and tap-to-toggle 
     button.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 1000));
     button.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 100 }, 1100));
   });
-  const read = () => ({ ...counts });
-  assert(read().starts === 1, "quick tap must start dictation");
-  assert(read().stops === 0, "quick tap must stay active (tap-to-toggle)");
+  assertEq(counts.starts, 1, "quick tap must start dictation");
+  assertEq(counts.stops, 0, "quick tap must stay active (tap-to-toggle)");
 
   const activeDictation = dictationHandle({
     phase: "listening",
@@ -260,13 +262,12 @@ test("idle dictation button keeps round chrome, bloom glyphs, and tap-to-toggle 
     activeButton.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 2000));
     activeButton.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 100 }, 2050));
   });
-  assert(read().stops === 1, "tapping active dictation button must stop dictation");
-  assert(read().sends === 0, "stopping dictation must not accidentally trigger send");
+  assertEq(counts.stops, 1, "tapping active dictation button must stop dictation");
+  assertEq(counts.sends, 0, "stopping dictation must not accidentally trigger send");
 });
 
 test("dictation hold stops on release, drag-up locks, and drag-left cancels", async () => {
   const counts = { starts: 0, stops: 0, cancels: 0 };
-  const read = () => ({ ...counts });
   const dictation = dictationHandle({
     start: async () => { counts.starts++; },
     stop: async () => { counts.stops++; },
@@ -278,21 +279,27 @@ test("dictation hold stops on release, drag-up locks, and drag-left cancels", as
     button.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 1000));
     button.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 100 }, 1400));
   });
-  assert(read().starts === 1 && read().stops === 1 && read().cancels === 0, "holding >220ms must stop on release");
+  assertEq(counts.starts, 1, "hold must start dictation");
+  assertEq(counts.stops, 1, "holding >220ms must stop on release");
+  assertEq(counts.cancels, 0, "hold release must not cancel");
 
   await act(async () => {
     button.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 2000));
     button.dispatchEvent(pointerEvent("pointermove", { clientX: 100, clientY: 30 }, 2150));
     button.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 30 }, 2500));
   });
-  assert(read().starts === 2 && read().stops === 1 && read().cancels === 0, "dragging up must lock hands-free");
+  assertEq(counts.starts, 2, "drag-up must start dictation");
+  assertEq(counts.stops, 1, "dragging up must lock hands-free");
+  assertEq(counts.cancels, 0, "dragging up must not cancel");
 
   await act(async () => {
     button.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 3000));
     button.dispatchEvent(pointerEvent("pointermove", { clientX: 50, clientY: 100 }, 3150));
     button.dispatchEvent(pointerEvent("pointerup", { clientX: 50, clientY: 100 }, 3200));
   });
-  assert(read().starts === 3 && read().stops === 1 && read().cancels === 1, "dragging left must cancel dictation");
+  assertEq(counts.starts, 3, "drag-left must start dictation");
+  assertEq(counts.stops, 1, "dragging left must not stop");
+  assertEq(counts.cancels, 1, "dragging left must cancel dictation");
 });
 
 test("space-hold arming and ignition pop classes apply on the round mic button", async () => {

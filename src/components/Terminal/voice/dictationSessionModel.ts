@@ -42,8 +42,18 @@ export function changedDictationRange(before: string, after: string, selection?:
   return { start, end, text: after.slice(start, nextEnd) };
 }
 
-function joinsWords(left?: string, right?: string): boolean {
-  return !!left && !!right && /[\p{L}\p{N}]/u.test(left) && /[\p{L}\p{N}]/u.test(right);
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+const DIGIT_CHAR = /\p{N}/u;
+const AFTER_PUNCTUATION = /[.!?,;:…)]/;
+
+function needsSpaceBetween(leftText: string, rightChar?: string): boolean {
+  if (!leftText || !rightChar || !WORD_CHAR.test(rightChar)) return false;
+  const left = leftText[leftText.length - 1];
+  if (WORD_CHAR.test(left)) return true;
+  if (!AFTER_PUNCTUATION.test(left)) return false;
+  const prev = leftText[leftText.length - 2];
+  if ((left === "." || left === ",") && prev && DIGIT_CHAR.test(prev) && DIGIT_CHAR.test(rightChar)) return false;
+  return true;
 }
 
 export class DictationSessionModel {
@@ -70,8 +80,9 @@ export class DictationSessionModel {
   }
 
   private restoreText(): string {
+    const before = this.visible.slice(Math.max(0, this.start - 2), this.start);
     const separator = this.hasCommitted
-      && joinsWords(this.visible[this.start - 1], this.original[0] ?? this.visible[this.end]) ? " " : "";
+      && needsSpaceBetween(before, this.original[0] ?? this.visible[this.end]) ? " " : "";
     return separator + this.original;
   }
 
@@ -82,12 +93,14 @@ export class DictationSessionModel {
     const committed = update.final ? [update.committed, update.provisional].filter(Boolean).join(" ") : update.committed;
     const pending = update.final ? "" : update.provisional;
     if (!committed && !pending && !this.provisional) return;
-    const before = this.visible[this.start - 1];
+    const before = this.visible.slice(Math.max(0, this.start - 2), this.start);
     const after = this.visible[this.end];
-    const fixed = committed && joinsWords(before, committed[0]) ? " " + committed : committed;
-    const preview = pending && joinsWords(fixed[fixed.length - 1] ?? before, pending[0]) ? " " + pending : pending;
+    const fixed = committed && needsSpaceBetween(before, committed[0]) ? " " + committed : committed;
+    const beforePreview = fixed ? (before + fixed).slice(-2) : before;
+    const preview = pending && needsSpaceBetween(beforePreview, pending[0]) ? " " + pending : pending;
     const phrase = fixed + preview;
-    const spacer = joinsWords(phrase[phrase.length - 1] ?? (this.hasCommitted ? before : undefined), after) ? " " : "";
+    const tailSource = phrase ? (before + phrase).slice(-2) : (this.hasCommitted ? before : "");
+    const spacer = needsSpaceBetween(tailSource, after) ? " " : "";
     const text = phrase || this.hasCommitted ? phrase + spacer : this.original;
     const edit = { start: this.start, end: this.end, text };
     const changed = this.visible.slice(edit.start, edit.end) !== edit.text;

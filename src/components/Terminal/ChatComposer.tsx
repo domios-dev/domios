@@ -73,6 +73,7 @@ import { useStartupSend } from "./useStartupSend";
 import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
 import { useDictationDraft, useDictationSelection } from "./voice/dictationDraft";
 import { useLiveDictation } from "./voice/useLiveDictation";
+import { ExpandedDictationStatus } from "./voice/DictationStatus";
 import { createSpaceDictationHold, SPACE_DICTATION_POP_MS } from "./voice/spaceDictationHold";
 import { DICTATION_ACTION } from "../../lib/mentionSources/actions";
 import { canonicalMentionSlice, replaceMentionRange } from "./composerMentionTokens";
@@ -908,7 +909,13 @@ function ChatComposerImpl({
           <ComposerExpandHandle onExpand={() => { setPickerOpen(false); setExpandedEditor(true); }} />}
 
         {expandedEditor && isActive
-          ? <ExpandedComposer anchorRef={shellRef} onClose={() => setExpandedEditor(false)}>{composerActions}</ExpandedComposer>
+          ? <ExpandedComposer
+              anchorRef={shellRef}
+              onClose={() => setExpandedEditor(false)}
+              headerStatus={dictation.phase !== "idle" ? <ExpandedDictationStatus phase={dictation.phase} /> : undefined}
+            >
+              {composerActions}
+            </ExpandedComposer>
           : composerActions}
       </div>
     </ComposerDock>

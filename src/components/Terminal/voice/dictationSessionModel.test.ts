@@ -70,3 +70,21 @@ test("replacing the whole draft does not restore text the user chose to remove",
   draft.cancel();
   assert.equal(draft.durable, "replacement");
 });
+
+test("inserts a space after sentence and clause punctuation between dictated segments without breaking decimals", () => {
+  const sentences = new DictationSessionModel("one", "", 0, 0);
+  sentences.update(update(1, "", { committed: "Привет." }));
+  sentences.update(update(2, "Мир"));
+  assert.equal(sentences.text, "Привет. Мир");
+  sentences.update(update(3, "", { committed: "Мир!", final: true }));
+  assert.equal(sentences.durable, "Привет. Мир!");
+
+  const question = new DictationSessionModel("one", "Как дела?", 9, 9);
+  question.update(update(1, "", { committed: "Отлично,", final: false }));
+  question.update(update(2, "правда.", { final: true }));
+  assert.equal(question.durable, "Как дела? Отлично, правда.");
+
+  const decimal = new DictationSessionModel("one", "3.", 2, 2);
+  decimal.update(update(1, "", { committed: "14", final: true }));
+  assert.equal(decimal.durable, "3.14");
+});

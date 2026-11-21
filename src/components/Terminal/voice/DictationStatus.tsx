@@ -71,3 +71,15 @@ export function DictationStatus({ dictation }: { dictation: LiveDictation }) {
   if (!dictation.error) return null;
   return <span role="alert" className="ct-dictation-error">{dictation.error}</span>;
 }
+
+/** Calm dot + word header status shown in the expanded composer's top bar while dictation is active. */
+export function ExpandedDictationStatus({ phase }: { phase: LiveDictation["phase"] }) {
+  if (phase === "idle") return null;
+  const label = phase === "starting" ? "Starting" : phase === "finishing" ? "Finishing" : "Listening";
+  return (
+    <span className="ct-expanded-dictation-status" data-testid="expanded-dictation-status" data-phase={phase}>
+      <span className="ct-expanded-dictation-dot" aria-hidden="true" />
+      <span>{label}</span>
+    </span>
+  );
+}
