@@ -98,7 +98,7 @@ fn born(_: u32) -> Result<u128, String> {
     Err("Runtime process identities are unsupported on this OS".into())
 }
 
-pub(super) struct Member {
+pub(in crate::service::agent_runtime) struct Member {
     pid: u32,
     born: u128,
     event: OwnedFd,

@@ -20,7 +20,7 @@ pub(super) fn terminate(boundary: &Boundary) -> Result<(), String> {
         .map_err(|reason| format!("TerminateJobObject: {reason}"))
 }
 
-pub(super) struct Member {
+pub(in crate::service::agent_runtime) struct Member {
     handle: usize,
     born: u128,
 }

@@ -131,6 +131,7 @@ impl Drop for Terminal {
     }
 }
 impl Terminal {
+    #[cfg(test)]
     pub fn spawn(
         spec: &Command,
         cwd: &Path,

@@ -83,6 +83,7 @@ impl ServiceContext {
         .await
     }
 
+    #[cfg(test)]
     pub(crate) fn local_recording_input_event(
         &self,
         plugin_id: &str,
