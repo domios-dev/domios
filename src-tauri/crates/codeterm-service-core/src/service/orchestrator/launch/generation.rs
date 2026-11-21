@@ -1,5 +1,78 @@
 use super::*;
 
+pub fn record_provider_session(tab_id: &str, binding: &ProviderSessionBinding) -> bool {
+    let recorded = LAUNCH_REGISTRY
+        .lock()
+        .record_provider_session(tab_id, binding);
+    if recorded {
+        crate::service::agent_lifecycle::timing::stage(tab_id, &binding.pty_id, "session-bound");
+    }
+    recorded
+}
+#[cfg(any(test, feature = "test-support"))]
+pub fn arm_provider_session_for_test(tab_id: &str, pty_id: &str, nonce: &str) -> LaunchGeneration {
+    let launch = LaunchGeneration::begin(tab_id, pty_id.to_string());
+    LAUNCH_REGISTRY
+        .lock()
+        .bind_provider_session(&launch, nonce.to_string());
+    launch
+}
+pub fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
+    take_reader_termination(pty_id, |launch| {
+        svc.void_launch_session_proof(&launch.tab_id);
+        let reason = LaunchFailure::PtyEof.reason();
+        svc.emit_boot_stage(&launch.tab_id, BootStage::SpawnFailed, Some(&reason));
+    });
+}
+
+pub(super) fn take_reader_termination(pty_id: &str, commit: impl FnOnce(LaunchGeneration)) -> bool {
+    let mut registry = LAUNCH_REGISTRY.lock();
+    let launch = registry.take_for_pty(pty_id);
+    if let Some(launch) = launch {
+        commit(launch);
+        true
+    } else {
+        false
+    }
+}
+
+pub fn supersede_tab_launch(tab_id: &str) {
+    LAUNCH_REGISTRY.lock().supersede(tab_id);
+    log::debug!("[launch] tab={tab_id} superseded before restart teardown");
+}
+
+
+pub(super) fn command_with_binding_nonce_for_shell(
+    command: &str,
+    binding_nonce: &str,
+    startup_attempt_id: &str,
+    windows: bool,
+    cli_path: Option<&std::ffi::OsStr>,
+) -> String {
+    super::super::launch_env::command_with_binding_nonce_for_shell(
+        command,
+        binding_nonce,
+        startup_attempt_id,
+        windows,
+        cli_path,
+    )
+}
+
+pub(super) fn command_with_binding_nonce(
+    command: &str,
+    binding_nonce: &str,
+    startup_attempt_id: &str,
+) -> String {
+    let cli_path = crate::service::instance_env::instance_cli_binary_path();
+    command_with_binding_nonce_for_shell(
+        command,
+        binding_nonce,
+        startup_attempt_id,
+        cfg!(windows),
+        cli_path.as_ref().map(|path| path.as_os_str()),
+    )
+}
+
 pub(super) struct ReadinessRegistration(Option<crate::service::launch_readiness::LaunchAttempt>);
 
 impl ReadinessRegistration {
@@ -60,11 +133,10 @@ impl LaunchGeneration {
             .read()
             .get_tab(&self.tab_id)
             .and_then(|tab| tab.session_binding_nonce.clone());
-        // If another launch re-minted the binding after the early reservation, this launch
-        // takes a fresh nonce and sends pinned to the old one expire honestly.
         let nonce = match reserved_nonce {
             Some(reserved) if current.as_deref() == Some(reserved.as_str()) => reserved,
-            _ => reserve_binding_nonce(svc, &self.tab_id, resume_session_id),
+            Some(_) => return Err("launch binding changed before registration".into()),
+            None => reserve_binding_nonce(svc, &self.tab_id, resume_session_id),
         };
         if !svc
             .mux
@@ -78,7 +150,7 @@ impl LaunchGeneration {
         svc.arm_spawn_reply_relay(&self.tab_id, &nonce);
         self.binding_nonce = Some(nonce.clone());
         if let Some(invocation) = codeterm_plugin::provider_account::current() {
-            svc.prepare_launch_session_hook(&self.tab_id, &nonce, &invocation);
+            svc.prepare_launch_session_hook(&self.tab_id, &nonce, &invocation)?;
         }
         LAUNCH_REGISTRY
             .lock()

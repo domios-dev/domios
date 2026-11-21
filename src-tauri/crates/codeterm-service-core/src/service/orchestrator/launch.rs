@@ -16,6 +16,10 @@ pub use super::launch_env::PreparedAgentCommand;
 pub(crate) use crate::agent::registry::AgentRegistry;
 pub use command::prepare_agent_command_for_service;
 mod credentials;
+mod account_supervision;
+#[cfg(test)]
+pub(crate) use account_supervision::reserve_launch_binding_nonce;
+pub use account_supervision::mark_tab_agent_launch_started;
 mod generation_registry;
 use generation_registry::LaunchRegistry;
 #[path = "launch/backend_reader.rs"]
@@ -95,46 +99,11 @@ pub struct ProviderSessionBinding {
     pub binding_nonce: String,
 }
 
-pub fn record_provider_session(tab_id: &str, binding: &ProviderSessionBinding) -> bool {
-    let recorded = LAUNCH_REGISTRY
-        .lock()
-        .record_provider_session(tab_id, binding);
-    if recorded {
-        crate::service::agent_lifecycle::timing::stage(tab_id, &binding.pty_id, "session-bound");
-    }
-    recorded
-}
+pub use generation::{record_provider_session, record_reader_termination, supersede_tab_launch};
 #[cfg(any(test, feature = "test-support"))]
-pub fn arm_provider_session_for_test(tab_id: &str, pty_id: &str, nonce: &str) -> LaunchGeneration {
-    let launch = LaunchGeneration::begin(tab_id, pty_id.to_string());
-    LAUNCH_REGISTRY
-        .lock()
-        .bind_provider_session(&launch, nonce.to_string());
-    launch
-}
-pub fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
-    take_reader_termination(pty_id, |launch| {
-        svc.void_launch_session_proof(&launch.tab_id);
-        let reason = LaunchFailure::PtyEof.reason();
-        svc.emit_boot_stage(&launch.tab_id, BootStage::SpawnFailed, Some(&reason));
-    });
-}
-
-fn take_reader_termination(pty_id: &str, commit: impl FnOnce(LaunchGeneration)) -> bool {
-    let mut registry = LAUNCH_REGISTRY.lock();
-    let launch = registry.take_for_pty(pty_id);
-    if let Some(launch) = launch {
-        commit(launch);
-        true
-    } else {
-        false
-    }
-}
-
-pub fn supersede_tab_launch(tab_id: &str) {
-    LAUNCH_REGISTRY.lock().supersede(tab_id);
-    log::debug!("[launch] tab={tab_id} superseded before restart teardown");
-}
+pub use generation::arm_provider_session_for_test;
+#[cfg(test)]
+use generation::take_reader_termination;
 
 fn existing_live_pty(svc: &ServiceContext, tab_id: &str) -> Option<String> {
     let pty_id = svc
@@ -149,36 +118,9 @@ fn existing_live_pty(svc: &ServiceContext, tab_id: &str) -> Option<String> {
         .then_some(pty_id)
 }
 
-fn command_with_binding_nonce_for_shell(
-    command: &str,
-    binding_nonce: &str,
-    startup_attempt_id: &str,
-    windows: bool,
-    cli_path: Option<&std::ffi::OsStr>,
-) -> String {
-    super::launch_env::command_with_binding_nonce_for_shell(
-        command,
-        binding_nonce,
-        startup_attempt_id,
-        windows,
-        cli_path,
-    )
-}
-
-fn command_with_binding_nonce(
-    command: &str,
-    binding_nonce: &str,
-    startup_attempt_id: &str,
-) -> String {
-    let cli_path = crate::service::instance_env::instance_cli_binary_path();
-    command_with_binding_nonce_for_shell(
-        command,
-        binding_nonce,
-        startup_attempt_id,
-        cfg!(windows),
-        cli_path.as_ref().map(|path| path.as_os_str()),
-    )
-}
+use generation::command_with_binding_nonce;
+#[cfg(test)]
+use generation::command_with_binding_nonce_for_shell;
 
 #[allow(dead_code)]
 fn replacement_pty_candidate(
@@ -357,21 +299,28 @@ pub fn launch_agent_in_background_with_invocation(
         reasoning_effort.as_deref(),
     );
     let public_send_key = public_send::arm(&svc, &tab_id, &agent_cmd, startup_turn_text);
-    // thread spawns: callers get the tab id immediately and may send right away.
-    let reserved_nonce = reserve_launch_binding_nonce(&svc, &tab_id, resume_session_id.as_deref());
+    let public_send_guard = public_send::guard(&svc, &tab_id, public_send_key);
+    let (account, reserved_nonce) = match account_supervision::prepare(&svc, &tab_id, &agent_cmd, resume_session_id.as_deref()) {
+        Ok(account) => account,
+        Err(error) => {
+            if let Some(tx) = ready_tx { let _ = tx.send(Err(error)); }
+            return None;
+        }
+    };
     let launch_nonce = reserved_nonce.clone();
-    mark_tab_agent_launch_started(&svc.mux, &tab_id);
+    account.set_booting(&svc, &tab_id, true);
     crate::service::boot_wait::notify_boot_changed();
     let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
     std::thread::spawn(move || {
-        let resolved_invocation = match invocation {
-            Some(invocation) => Ok(invocation),
-            None => crate::service::provider_accounts::for_tab(&svc, &tab_id),
-        };
+        crate::startup::boot_timing::mark(&tab_id, None, "account_supervision_begin");
+        let resolved_invocation = account.resolve_bounded(&svc, &tab_id, invocation);
+        crate::startup::boot_timing::mark(&tab_id, None, "account_supervision_settled");
         let invocation = match resolved_invocation {
             Ok(invocation) => invocation,
             Err(error) => {
-                launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
+                if account.validate(&svc, &tab_id).is_ok() {
+                    account.fail_if_current(&launch, &svc, LaunchFailure::StartupSupervision(error.clone()));
+                } else { LAUNCH_REGISTRY.lock().finish(&launch); }
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));
                 }
@@ -379,17 +328,21 @@ pub fn launch_agent_in_background_with_invocation(
             }
         };
         codeterm_plugin::provider_account::with_context(invocation, || {
-            let public_send_guard = public_send::guard(&svc, &tab_id, public_send_key);
             let pty_claim = match svc.pty_ownership.acquire(&tab_id) {
                 Ok(claim) => claim,
                 Err(error) => {
-                    launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
+                    account.fail_if_current(&launch, &svc, LaunchFailure::StartupSupervision(error.clone()));
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(error));
                     }
                     return;
                 }
             };
+            if let Err(error) = account.validate(&svc, &tab_id) {
+                LAUNCH_REGISTRY.lock().finish(&launch);
+                if let Some(tx) = ready_tx { let _ = tx.send(Err(error)); }
+                return;
+            }
             crate::service::agent_lifecycle::timing::stage(&tab_id, "pending", "relaunch-worker");
             let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
             if !launch.emit(&svc, BootStage::PtyStarting) {
@@ -397,9 +350,7 @@ pub fn launch_agent_in_background_with_invocation(
             }
             let set_booting = |launch: &LaunchGeneration, value: bool| {
                 launch.commit_if_current(|| {
-                    if let Some(p) = svc.mux.write().get_tab_mut(&tab_id) {
-                        p.agent_booting = value;
-                    }
+                    account.set_booting(&svc, &tab_id, value);
                 });
                 crate::service::boot_wait::notify_boot_changed();
             };
@@ -425,7 +376,7 @@ pub fn launch_agent_in_background_with_invocation(
                     }
                     Err(failure) => {
                         let error = failure.reason();
-                        launch.fail(&svc, failure);
+                        account.fail_if_current(&launch, &svc, failure);
                         set_booting(&launch, false);
                         if let Some(tx) = ready_tx {
                             let _ = tx.send(Err(error));
@@ -443,7 +394,7 @@ pub fn launch_agent_in_background_with_invocation(
                     Ok(reader) => (BackendPty { id: pty_id, reader }, true),
                     Err(failure) => {
                         let error = failure.reason();
-                        launch.fail(&svc, failure);
+                        account.fail_if_current(&launch, &svc, failure);
                         set_booting(&launch, false);
                         if let Some(tx) = ready_tx {
                             let _ = tx.send(Err(error));
@@ -466,8 +417,9 @@ pub fn launch_agent_in_background_with_invocation(
                             tab_id,
                             error
                         );
-                        launch.fail(&svc, failure);
-                        let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                        if account.fail_if_current(&launch, &svc, failure) && !origin.relaunches_existing_agent() {
+                            let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                        }
                         set_booting(&launch, false);
                         if let Some(tx) = ready_tx {
                             let _ = tx.send(Err(format!("backend PTY spawn failed: {}", error)));
@@ -497,9 +449,11 @@ pub fn launch_agent_in_background_with_invocation(
             };
             if !selection.linked {
                 let error = LaunchFailure::TabClosed.reason();
-                launch.fail(&svc, LaunchFailure::TabClosed);
+                let failed_current = account.fail_if_current(&launch, &svc, LaunchFailure::TabClosed);
                 set_booting(&launch, false);
-                let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                if failed_current && !origin.relaunches_existing_agent() {
+                    let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                }
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));
                 }
@@ -522,7 +476,7 @@ pub fn launch_agent_in_background_with_invocation(
                 Ok(monitor) => monitor,
                 Err(failure) => {
                     let error = failure.reason();
-                    launch.fail(&svc, failure);
+                    account.fail_if_current(&launch, &svc, failure);
                     set_booting(&launch, false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(error));
@@ -594,7 +548,7 @@ pub fn launch_agent_in_background_with_invocation(
                         "the authenticated session could not be adopted".into(),
                     );
                     let error = failure.reason();
-                    launch.fail(&svc, failure);
+                    account.fail_if_current(&launch, &svc, failure);
                     set_booting(&launch, false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(error));
@@ -608,7 +562,7 @@ pub fn launch_agent_in_background_with_invocation(
                     task_identity.as_ref(),
                 ) {
                     let failure = LaunchFailure::StartupSupervision(error.clone());
-                    launch.fail(&svc, failure);
+                    account.fail_if_current(&launch, &svc, failure);
                     set_booting(&launch, false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(error));
@@ -621,7 +575,7 @@ pub fn launch_agent_in_background_with_invocation(
                         "the reused launch lost its authenticated session".into(),
                     );
                     let error = failure.reason();
-                    launch.fail(&svc, failure);
+                    account.fail_if_current(&launch, &svc, failure);
                     set_booting(&launch, false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(error));
@@ -647,7 +601,7 @@ pub fn launch_agent_in_background_with_invocation(
                     reserved_nonce,
                 ) {
                     let failure = LaunchFailure::StartupSupervision(error.clone());
-                    launch.fail(&svc, failure);
+                    account.fail_if_current(&launch, &svc, failure);
                     set_booting(&launch, false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(error));
@@ -673,7 +627,7 @@ pub fn launch_agent_in_background_with_invocation(
             ) {
                 Ok(command) => command,
                 Err(error) => {
-                    launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
+                    account.fail_if_current(&launch, &svc, LaunchFailure::StartupSupervision(error.clone()));
                     set_booting(&launch, false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(error));
@@ -704,7 +658,7 @@ pub fn launch_agent_in_background_with_invocation(
                 )
             {
                 let error = LaunchFailure::ShellReadyTimeout.reason();
-                launch.fail(&svc, LaunchFailure::ShellReadyTimeout);
+                account.fail_if_current(&launch, &svc, LaunchFailure::ShellReadyTimeout);
                 set_booting(&launch, false);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));
@@ -728,7 +682,7 @@ pub fn launch_agent_in_background_with_invocation(
             }
             if reader_monitor.closed() {
                 let error = LaunchFailure::PtyEof.reason();
-                launch.fail(&svc, LaunchFailure::PtyEof);
+                account.fail_if_current(&launch, &svc, LaunchFailure::PtyEof);
                 set_booting(&launch, false);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));
@@ -738,6 +692,7 @@ pub fn launch_agent_in_background_with_invocation(
             // (#93 — keeps shell-level launch off the bracketed-paste path).
             let mut dispatched_authority = svc.user_send_authority(&tab_id).ok();
             let first_launch = match launch.write_if_current(|| {
+                account.validate(&svc, &tab_id)?;
                 if direct {
                     Ok(())
                 } else {
@@ -748,6 +703,7 @@ pub fn launch_agent_in_background_with_invocation(
                 None => return,
             };
             let launch_result = match first_launch {
+                Err(error) if account.validate(&svc, &tab_id).is_err() => Err(error),
                 Err(error) => {
                     match await_replacement_pty(
                         &svc,
@@ -764,7 +720,7 @@ pub fn launch_agent_in_background_with_invocation(
                             let replacement_claim = match svc.pty_ownership.acquire(&tab_id) {
                                 Ok(claim) => claim,
                                 Err(error) => {
-                                    launch.fail(
+                                    account.fail_if_current(&launch,
                                         &svc,
                                         LaunchFailure::StartupSupervision(error.clone()),
                                     );
@@ -781,7 +737,7 @@ pub fn launch_agent_in_background_with_invocation(
                                 Ok(reader) => reader,
                                 Err(failure) => {
                                     let error = failure.reason();
-                                    launch.fail(&svc, failure);
+                                    account.fail_if_current(&launch, &svc, failure);
                                     set_booting(&launch, false);
                                     if let Some(tx) = ready_tx {
                                         let _ = tx.send(Err(error));
@@ -794,7 +750,7 @@ pub fn launch_agent_in_background_with_invocation(
                                     Ok(monitor) => monitor,
                                     Err(failure) => {
                                         let error = failure.reason();
-                                        launch.fail(&svc, failure);
+                                        account.fail_if_current(&launch, &svc, failure);
                                         set_booting(&launch, false);
                                         if let Some(tx) = ready_tx {
                                             let _ = tx.send(Err(error));
@@ -802,16 +758,24 @@ pub fn launch_agent_in_background_with_invocation(
                                         return;
                                     }
                                 };
+                            let replacement_nonce = match account.reserve_replacement(&svc, &launch) {
+                                Ok(nonce) => nonce,
+                                Err(error) => {
+                                    account.fail_if_current(&launch, &svc, LaunchFailure::StartupSupervision(error.clone()));
+                                    if let Some(tx) = ready_tx { let _ = tx.send(Err(error)); }
+                                    return;
+                                }
+                            };
                             if let Err(error) = launch.capture_binding_nonce(
                                 &svc,
                                 task_identity.as_ref(),
                                 public_send_key,
                                 origin,
                                 resume_session_id.as_deref(),
-                                None,
+                                Some(replacement_nonce),
                             ) {
                                 let failure = LaunchFailure::StartupSupervision(error.clone());
-                                launch.fail(&svc, failure);
+                                account.fail_if_current(&launch, &svc, failure);
                                 set_booting(&launch, false);
                                 if let Some(tx) = ready_tx {
                                     let _ = tx.send(Err(error));
@@ -835,7 +799,7 @@ pub fn launch_agent_in_background_with_invocation(
                             ) {
                                 Ok(command) => command,
                                 Err(error) => {
-                                    launch.fail(
+                                    account.fail_if_current(&launch,
                                         &svc,
                                         LaunchFailure::StartupSupervision(error.clone()),
                                     );
@@ -855,7 +819,7 @@ pub fn launch_agent_in_background_with_invocation(
                                 )
                             {
                                 let error = LaunchFailure::ShellReadyTimeout.reason();
-                                launch.fail(&svc, LaunchFailure::ShellReadyTimeout);
+                                account.fail_if_current(&launch, &svc, LaunchFailure::ShellReadyTimeout);
                                 set_booting(&launch, false);
                                 if let Some(tx) = ready_tx {
                                     let _ = tx.send(Err(error));
@@ -868,7 +832,7 @@ pub fn launch_agent_in_background_with_invocation(
                                 return;
                             }
                             dispatched_authority = svc.user_send_authority(&tab_id).ok();
-                            match launch.write_if_current(|| wrapped_launch_cmd.send(&svc, &pty_id))
+                            match launch.write_if_current(|| account.validate(&svc, &tab_id).and_then(|_| wrapped_launch_cmd.send(&svc, &pty_id)))
                             {
                                 Some(result) => result,
                                 None => return,
@@ -888,7 +852,7 @@ pub fn launch_agent_in_background_with_invocation(
                 );
                 let failure = LaunchFailure::LaunchWrite(e.to_string());
                 let error = failure.reason();
-                launch.fail(&svc, failure);
+                account.fail_if_current(&launch, &svc, failure);
                 set_booting(&launch, false);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));
@@ -926,7 +890,7 @@ pub fn launch_agent_in_background_with_invocation(
 
             if reader_monitor.closed() {
                 let error = LaunchFailure::PtyEof.reason();
-                launch.fail(&svc, LaunchFailure::PtyEof);
+                account.fail_if_current(&launch, &svc, LaunchFailure::PtyEof);
                 set_booting(&launch, false);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));
@@ -999,7 +963,7 @@ pub fn launch_agent_in_background_with_invocation(
                     Ok(readiness) => Some(readiness),
                     Err(refusal) => {
                         let failure = LaunchFailure::ProviderInputNotReady(refusal.reason());
-                        launch.fail(&svc, failure.clone());
+                        account.fail_if_current(&launch, &svc, failure.clone());
                         set_booting(&launch, false);
                         if let Some(tx) = ready_tx {
                             let _ = tx.send(Err(failure.reason()));
@@ -1024,7 +988,7 @@ pub fn launch_agent_in_background_with_invocation(
                     "provider composer evidence was not observed before the readiness deadline"
                         .into(),
                 );
-                launch.fail(&svc, failure.clone());
+                account.fail_if_current(&launch, &svc, failure.clone());
                 set_booting(&launch, false);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(failure.reason()));
@@ -1042,7 +1006,7 @@ pub fn launch_agent_in_background_with_invocation(
                     let failure = LaunchFailure::ProviderInputNotReady(
                         "launch readiness no longer owns the first-turn composer evidence".into(),
                     );
-                    launch.fail(&svc, failure.clone());
+                    account.fail_if_current(&launch, &svc, failure.clone());
                     set_booting(&launch, false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(failure.reason()));
@@ -1083,7 +1047,7 @@ pub fn launch_agent_in_background_with_invocation(
                         pty_id,
                         e
                     );
-                    launch.fail(&svc, LaunchFailure::TaskDelivery(e.to_string()));
+                    account.fail_if_current(&launch, &svc, LaunchFailure::TaskDelivery(e.to_string()));
                     set_booting(&launch, false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(format!("task delivery failed: {}", e)));
@@ -1162,27 +1126,4 @@ pub fn launch_agent_in_background_with_invocation(
         });
     });
     launch_nonce
-}
-
-/// An unauthenticated launch reserves its nonce on the caller's thread, so a send admitted
-/// right after scheduling pins this launch rather than the one it replaces.
-pub(crate) fn reserve_launch_binding_nonce(
-    svc: &ServiceContext,
-    tab_id: &str,
-    resume_session_id: Option<&str>,
-) -> Option<String> {
-    let authenticated = svc
-        .mux
-        .read()
-        .get_tab(tab_id)
-        .is_some_and(|tab| tab.launch_session_authenticated());
-    (!authenticated).then(|| generation::reserve_binding_nonce(svc, tab_id, resume_session_id))
-}
-
-pub fn mark_tab_agent_launch_started(mux: &crate::multiplexer::commands::MuxState, tab_id: &str) {
-    if let Some(tab) = mux.write().get_tab_mut(tab_id) {
-        tab.restored_from_snapshot = false;
-        tab.agent_booting = true;
-        tab.restorable_launch.failed_provider = None;
-    }
 }

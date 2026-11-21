@@ -9,12 +9,15 @@ use serde_json::json;
 use std::sync::{mpsc, Arc};
 
 const PROVIDER: &str = "run-end-fixture";
+#[path = "terminal_tests.rs"]
+mod terminal;
 const SOURCE: &str = r#"
 module.exports = {
   runtimePlan(ctx, op) { return {action:{kind:'request',call:{method:op.kind,params:op}},state:null}; },
   runtimeResponse(ctx, op) {
     let result = {kind:'done'}, events = [];
     if (op.kind === 'initialize') result = {kind:'initialized'};
+    if (op.kind === 'forkThread') result = {kind:'threadForked',sourceThreadId:op.sourceThreadId,threadId:ctx.bindingNonce,turnId:op.turnId};
     if (op.kind === 'resumeThread' || op.kind === 'openThread')
       result = {kind:'threadLoaded',threadId:op.threadId || ctx.bindingNonce,settings:op.settings};
     if (op.kind === 'readHistory') {
@@ -37,6 +40,12 @@ struct Scene {
 }
 impl Drop for Scene {
     fn drop(&mut self) {
+        for (_, run) in self.fixture.service.run_watcher.runtime_runs.lock().drain() {
+            let _ = run.cancelled.send(true);
+        }
+        for (_, run) in self.fixture.service.run_watcher.runs.lock().drain() {
+            run.completed.store(true, std::sync::atomic::Ordering::Release);
+        }
         let tabs = self.fixture.service.mux.read().snapshot().tabs;
         for tab in tabs.keys() {
             engine::stop_blocking(&self.fixture.service, tab).unwrap();
@@ -64,6 +73,7 @@ impl Scene {
             "initialize",
             "resumeThread",
             "openThread",
+            "forkThread",
             "readHistory",
             "submitTurn",
             "control",

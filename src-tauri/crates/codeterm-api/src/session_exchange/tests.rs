@@ -15,6 +15,57 @@ pub(super) fn fixture_document() -> serde_json::Value {
 }
 
 #[test]
+fn failed_role_pty_export_conserves_typed_failure_and_never_reads_a_session() {
+    let mut document = fixture_document();
+    let leaf = &mut document["snapshot"]["workspaces"][0]["tabs"][0]["split_tree"];
+    leaf["agent_type"] = serde_json::Value::Null;
+    leaf["agent_session_id"] = serde_json::Value::Null;
+    leaf["role"] = json!("Orchestrator");
+    leaf["role_profile"] = json!("orchestrator");
+    leaf["team_id"] = json!("owned-team");
+    leaf["parent_tab_id"] = json!("owned-parent");
+    leaf["agent_identity"] = json!({"boot_stage":"spawn_failed",
+        "boot_failure_reason":"StartupSupervisionFailed: Account tab has no harness"});
+    let snapshot: SessionSnapshot = serde_json::from_value(document["snapshot"].clone()).unwrap();
+    let (safe, histories, measurements) = capture_snapshot(&snapshot, |_| panic!("failed launch has no live session authority")).unwrap();
+    let restored_leaf = &safe["workspaces"][0]["tabs"][0]["split_tree"];
+    assert_eq!(restored_leaf["role"], "Orchestrator");
+    assert_eq!(restored_leaf["role_profile"], "orchestrator");
+    assert_eq!(restored_leaf["team_id"], "owned-team");
+    assert_eq!(restored_leaf["parent_tab_id"], "owned-parent");
+    assert!(restored_leaf["agent_type"].is_null());
+    assert!(restored_leaf["agent_session_id"].is_null());
+    assert_eq!(restored_leaf["agent_identity"]["boot_stage"], "spawn_failed");
+    let reason = restored_leaf["agent_identity"]["boot_failure_reason"].clone();
+    assert_eq!(reason, json!(super::sanitize::filler("StartupSupervisionFailed: Account tab has no harness")));
+    assert_eq!(histories[0]["transcript"]["status"], "failed_launch");
+    assert_eq!(histories[0]["transcript"]["backing_kind"], "pty");
+    assert!(histories[0]["transcript"]["provider"].is_null());
+    assert_eq!(histories[0]["transcript"]["failed_launch"]["boot_failure_reason"], reason);
+    assert_eq!(histories[0]["shape"], json!([]));
+    assert_eq!(measurements[0]["history_items"], 0);
+    let safe_snapshot: SessionSnapshot = serde_json::from_value(safe).unwrap();
+    let restored = codeterm_service_core::multiplexer::state::MultiplexerState::from_session_snapshot(&safe_snapshot);
+    let current = restored.get_tab("tab").unwrap();
+    assert_eq!(current.boot_stage, Some(codeterm_types::pty::BootStage::SpawnFailed));
+    assert_eq!(current.boot_failure_reason.as_deref(), reason.as_str());
+    assert!(current.frozen && current.pty_id.is_none());
+    assert!(!current.launch_session_authenticated());
+    let mut contradictory = document;
+    let leaf = &mut contradictory["snapshot"]["workspaces"][0]["tabs"][0]["split_tree"];
+    leaf["agent_identity"]["session_binding_nonce"] = json!("contradictory-proof");
+    leaf["agent_identity"]["reported_session_binding_nonce"] = json!("contradictory-proof");
+    let snapshot: SessionSnapshot = serde_json::from_value(contradictory["snapshot"].clone()).unwrap();
+    assert!(capture_snapshot(&snapshot, |_| panic!("contradiction must refuse before session capture")).unwrap_err().contains("contradicts reported session binding"));
+    assert!(super::fixture_document(&contradictory).unwrap_err().contains("contradicts reported session binding"));
+    let restored = codeterm_service_core::multiplexer::state::MultiplexerState::from_session_snapshot(&snapshot);
+    let current = restored.get_tab("tab").unwrap();
+    assert!(!current.launch_session_authenticated());
+    assert!(codeterm_service_core::service::lazy_restore::automatic_restore_refusal(current).unwrap().contains("contradictory"));
+    assert!(capture_snapshot(&restored.to_session_snapshot(), |_| panic!("restored refusal must not launder evidence")).is_err());
+}
+
+#[test]
 fn fixture_document_refuses_malformed_and_unpublishable_snapshots() {
     let valid = fixture_document();
     assert!(super::fixture_document(&valid).is_ok());

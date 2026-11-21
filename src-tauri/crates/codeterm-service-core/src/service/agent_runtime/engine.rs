@@ -22,6 +22,9 @@ use std::{
 };
 
 mod accounts;
+mod retirement;
+pub use retirement::stop_switch_source_blocking;
+use retirement::stop_session;
 mod session;
 pub use session::{OutstandingRequest, Session};
 
@@ -38,6 +41,12 @@ pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
 }
 
 pub use accounts::ensure_with_invocation;
+#[cfg(test)]
+pub(crate) use accounts::ensure_expected;
+pub(crate) use accounts::ExpectedEnsureOutcome;
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) use accounts::{expected_launch_commit, ExpectedLaunchCommit};
+pub use accounts::{launch_switch_target, reserve_switch_launch};
 pub(crate) use accounts::{account_boundary_ready, account_trial_idle};
 
 pub(super) fn login_pending_session(
@@ -234,82 +243,6 @@ pub async fn stop(svc: &ServiceContext, tab: &str) -> Result<(), String> {
     stop_session(svc, tab, session).await
 }
 
-async fn stop_session(
-    svc: &ServiceContext,
-    tab: &str,
-    session: Arc<Session>,
-) -> Result<(), String> {
-    if !SESSIONS
-        .lock()
-        .get(tab)
-        .is_some_and(|current| Arc::ptr_eq(current, &session))
-    {
-        return Err(RuntimeFailure::Superseded.to_string());
-    }
-    cancel_stop_retry(svc, tab);
-    super::turn_requests::end_for_lifecycle(
-        svc,
-        &session,
-        "Runtime stopped before the turn completion reply",
-    )
-    .await;
-    let permit = session.gate.try_acquire().ok();
-    session.gate.close();
-    let process = session.process.lock().clone();
-    if let Some(process) = process {
-        if let Err(reason) = super::client_bridge::cancel_all(svc, &session, &process, true).await {
-            process.finish().await.map_err(|error| error.to_string())?;
-            return Err(reason.to_string());
-        }
-        if let Err(reason) = super::background::cleanup(
-            svc,
-            &session,
-            &process,
-            super::background::Mode::Shutdown,
-            Vec::new(),
-            permit.is_some(),
-        )
-        .await
-        {
-            let epoch = session.context.lock().epoch;
-            session.state.lock().degrade(epoch, &reason);
-            publish(svc, tab, &session);
-            return Err(reason.to_string());
-        }
-    }
-    super::transcript::archive(&session).await;
-    {
-        let mut sessions = SESSIONS.lock();
-        if !sessions
-            .get(tab)
-            .is_some_and(|current| Arc::ptr_eq(current, &session))
-        {
-            return Err(RuntimeFailure::Superseded.to_string());
-        }
-        sessions.remove(tab);
-    }
-    super::authority::revoke(tab);
-    super::environment::revoke(tab);
-    super::capture::revoke(tab);
-    let cli_tab = tab.to_string();
-    let cli_cleanup =
-        codeterm_plugin::js_runtime::spawn_blocking(move || super::cli_exception::revoke(&cli_tab))
-            .await
-            .map_err(|error| error.to_string())
-            .and_then(|result| result);
-    super::login::forget(&session);
-    {
-        let mut state = session.state.lock();
-        state.failure_code = None;
-        state.phase = RuntimePhase::Unloaded {
-            reason: Some("Runtime stopped".into()),
-        };
-    }
-    session.control_changes.send_replace(());
-    session.process.close();
-    cli_cleanup
-}
-
 fn cancel_stop_retry(svc: &ServiceContext, tab: &str) {
     if let Err(error) = super::capacity_retry::cancel(svc, tab) {
         log::warn!("[runtime-retry] queued retry cleanup failed for {tab}: {error}");
@@ -318,6 +251,10 @@ fn cancel_stop_retry(svc: &ServiceContext, tab: &str) {
 
 pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, RuntimeFailure> {
     accounts::ensure(svc, tab, None).await
+}
+
+pub(crate) async fn ensure_expected_observed(svc: &ServiceContext, tab: &str, expected_nonce: &str, fork: Option<(&str, &str)>) -> ExpectedEnsureOutcome {
+    accounts::ensure_expected_observed(svc, tab, expected_nonce, fork).await
 }
 
 pub(super) async fn ensure_fork(
@@ -338,7 +275,13 @@ async fn ensure_scoped(
     svc: &ServiceContext,
     tab: &str,
     fork: Option<(String, String)>,
+    expected_nonce: Option<String>,
+    original: Option<crate::multiplexer::types::Tab>,
+    acquisition: Option<Arc<accounts::ExpectedAcquisition>>,
 ) -> Result<Arc<Session>, RuntimeFailure> {
+    check_expected_nonce(svc, tab, expected_nonce.as_deref())?;
+    let switch_launch = crate::service::messenger::switch_handoff::launch_authority(svc, tab);
+    if let Some(authority) = &switch_launch { authority.validate(svc).map_err(|_| RuntimeFailure::Superseded)?; }
     if svc
         .mux
         .read()
@@ -349,11 +292,15 @@ async fn ensure_scoped(
             "Tab is sleeping; open or address it to wake".into(),
         ));
     }
-    super::restore::tab(svc, tab).map_err(RuntimeFailure::Refused)?;
+    let restored = super::restore::tab_expected(svc, tab, expected_nonce.as_deref());
+    check_expected_nonce(svc, tab, expected_nonce.as_deref())?;
+    restored.map_err(RuntimeFailure::Refused)?;
     require_launch_authority(svc, tab)?;
     let (provider, account, thread, nonce, config, cwd, saved_state) = {
         let mux = svc.mux.read();
         let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
+        if expected_nonce.as_deref().is_some_and(|nonce| target.session_binding_nonce.as_deref() != Some(nonce)) { return Err(RuntimeFailure::Superseded); }
+        if original.as_ref().is_some_and(|expected| !accounts::account_authority_matches(expected, target)) { return Err(RuntimeFailure::Superseded); }
         (
             target
                 .agent_type
@@ -384,12 +331,14 @@ async fn ensure_scoped(
     }
     let prompt_service = svc.clone();
     let prompt_tab = tab.to_string();
-    codeterm_plugin::js_runtime::spawn_blocking(move || {
-        crate::service::orchestrator::ensure_tab_runtime_prompt(&prompt_service, &prompt_tab)
+    let prompt_nonce = expected_nonce.clone();
+    let prompt = codeterm_plugin::js_runtime::spawn_blocking(move || {
+        prompt_service.ensure_runtime_prompt_expected(&prompt_tab, prompt_nonce.as_deref())
     })
     .await
-    .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
-    .map_err(RuntimeFailure::Refused)?;
+    .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?;
+    check_expected_nonce(svc, tab, expected_nonce.as_deref())?;
+    prompt.map_err(RuntimeFailure::Refused)?;
     if !super::requested_for_tab(svc, tab) {
         return Err(RuntimeFailure::Refused("Runtime capability absent".into()));
     }
@@ -401,10 +350,15 @@ async fn ensure_scoped(
         mux.ensure_tab_membership_mutable(tab)
             .map_err(RuntimeFailure::Refused)?;
         let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
+        if expected_nonce.as_deref().is_some_and(|nonce| target.session_binding_nonce.as_deref() != Some(nonce)) { return Err(RuntimeFailure::Superseded); }
+        if original.as_ref().is_some_and(|expected| !accounts::account_authority_matches(expected, target)) { return Err(RuntimeFailure::Superseded); }
         if !binding::matches_launch(target, &provider, &account, &nonce) {
             return Err(RuntimeFailure::Superseded);
         }
+        if switch_launch.as_ref().is_some_and(|authority| !authority.matches(target)) { return Err(RuntimeFailure::Superseded); }
         let mut sessions = SESSIONS.lock();
+        super::authority::mark_acquisition(svc, target);
+        if let Some(acquisition) = &acquisition { acquisition.mark_acquired(); }
         if sessions.get(tab).is_some_and(|session| {
             session.context.lock().binding_nonce != nonce
                 || session.provider != provider
@@ -506,6 +460,7 @@ async fn ensure_scoped(
             .acquire()
             .await
             .map_err(|_| RuntimeFailure::Superseded)?;
+        check_expected_nonce(svc, tab, expected_nonce.as_deref())?;
         attempted.store(true, std::sync::atomic::Ordering::Release);
         let result = ensure_locked(svc, tab, &provider, &config, &session, fork.as_ref()).await;
         if let Err(reason) = &result {
@@ -530,6 +485,12 @@ async fn ensure_scoped(
         return Err(reason);
     }
     Ok(session)
+}
+
+fn check_expected_nonce(svc: &ServiceContext, tab: &str, expected: Option<&str>) -> Result<(), RuntimeFailure> {
+    if expected.is_some_and(|nonce| !svc.mux.read().get_tab(tab).is_some_and(|current| current.session_binding_nonce.as_deref() == Some(nonce))) {
+        Err(RuntimeFailure::Superseded)
+    } else { Ok(()) }
 }
 
 pub async fn ensure_locked(
@@ -664,6 +625,7 @@ pub async fn ensure_locked(
         let target = tab.to_string();
         let provider_id = provider.to_string();
         let launch_nonce = context.binding_nonce.clone();
+        let switch_launch = crate::service::messenger::switch_handoff::launch_authority(svc, tab);
         let (process, host_mcp, declared_bridges) =
             codeterm_plugin::js_runtime::spawn_blocking(move || {
                 let nonce = launch_nonce;
@@ -729,6 +691,7 @@ pub async fn ensure_locked(
                     crate::service::instance_env::instance_cli_binary_path(),
                     &env,
                 );
+                if let Some(authority) = &switch_launch { authority.validate(&owner).map_err(|_| RuntimeFailure::Superseded)?; }
                 super::process::spawn(&launch, &cwd, env, &target).map(|process| {
                     (
                         Arc::new(process),
@@ -1079,6 +1042,9 @@ fn bind(
     let tab = mux
         .get_tab_mut(&context.tab_id)
         .ok_or(RuntimeFailure::Superseded)?;
+    if crate::service::messenger::switch_handoff::launch_authority(svc, &context.tab_id).is_some_and(|authority| !authority.matches(tab)) {
+        return Err(RuntimeFailure::Superseded);
+    }
     commit_runtime_binding(tab, &context.binding_nonce, thread, fresh, |tab| {
         svc.publish_boot_stage_transition(
             &context.tab_id,

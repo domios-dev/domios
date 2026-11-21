@@ -264,12 +264,19 @@ pub fn ensure_tab_runtime_prompt(
     service: &crate::service::ServiceContext,
     tab_id: &str,
 ) -> Result<(), String> {
+    service.ensure_runtime_prompt_expected(tab_id, None)
+}
+
+impl crate::service::ServiceContext {
+pub(crate) fn ensure_runtime_prompt_expected(&self, tab_id: &str, expected_nonce: Option<&str>) -> Result<(), String> {
+    let service = self;
     let tab = service
         .mux
         .read()
         .get_tab(tab_id)
         .cloned()
         .ok_or("Runtime tab absent")?;
+    if expected_nonce.is_some_and(|nonce| tab.session_binding_nonce.as_deref() != Some(nonce)) { return Err("Runtime launch generation superseded".into()); }
     let current = tab
         .agent_runtime_config
         .as_ref()
@@ -329,9 +336,12 @@ pub fn ensure_tab_runtime_prompt(
     } else {
         compose_runtime_system_prompt(&mut params).unwrap_or_default()
     };
+    #[cfg(any(test, feature = "test-support"))]
+    crate::service::agent_runtime::engine::expected_launch_commit(service, "runtime_prompt");
     let mut mux = service.mux.write();
     let target = mux.get_tab_mut(tab_id).ok_or("Runtime tab absent")?;
-    if target.session_binding_nonce != tab.session_binding_nonce
+    if expected_nonce.is_some_and(|nonce| target.session_binding_nonce.as_deref() != Some(nonce))
+        || target.session_binding_nonce != tab.session_binding_nonce
         || target.agent_type != tab.agent_type
     {
         return Err("Runtime identity binding changed".into());
@@ -347,6 +357,7 @@ pub fn ensure_tab_runtime_prompt(
         .ok_or("Runtime config must be an object")?
         .insert("systemPrompt".into(), serde_json::json!(prompt));
     Ok(())
+}
 }
 
 #[cfg(test)]

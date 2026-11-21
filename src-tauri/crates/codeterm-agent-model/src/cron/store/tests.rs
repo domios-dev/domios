@@ -794,6 +794,8 @@ fn update_schedule_only_recomputes_next_run() {
 // ── Time-travel semantics (injected MockClock) ─────────────────────
 
 use crate::cron::clock::MockClock;
+#[path = "terminal_tests.rs"]
+mod terminal;
 
 /// 2023-11-14T22:13:20Z — fixed epoch so boundary math is deterministic.
 const T0: u64 = 1_700_000_000_000;

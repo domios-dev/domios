@@ -121,6 +121,24 @@ pub(super) struct RunEdit {
 }
 
 impl RunEdit {
+    fn copies(&self) -> impl Iterator<Item = &CronRunInfo> {
+        self.entry.iter().chain(self.job.iter().filter_map(|job| {
+            job.last_run.as_ref().filter(|run| run.run_id == self.run_id)
+        }))
+    }
+
+    fn current(&self) -> Option<&CronRunInfo> {
+        self.entry.as_ref().or_else(|| {
+            self.job.as_ref()?.last_run.as_ref().filter(|run| run.run_id == self.run_id)
+        })
+    }
+
+    fn terminal(&self) -> bool {
+        self.entry.as_ref().is_some_and(|run| !is_active_run(run))
+            || self.job.as_ref().and_then(|job| job.last_run.as_ref())
+                .is_some_and(|run| run.run_id == self.run_id && !is_active_run(run))
+    }
+
     fn mirror(&mut self) -> Option<&mut CronRunInfo> {
         let run_id = &self.run_id;
         self.job
@@ -163,6 +181,51 @@ impl RunEdit {
 }
 
 impl CronStore {
+    pub fn run_receipt(&self, job_id: &str, run_id: &str) -> Option<&CronRunInfo> {
+        self.history_entry(job_id, run_id).or_else(|| {
+            self.get(job_id)?.last_run.as_ref().filter(|run| run.run_id == run_id)
+        })
+    }
+
+    pub fn run_is_active(&self, job_id: &str, run_id: &str) -> bool {
+        let copies = self.run_copies(job_id, run_id);
+        copies.iter().any(Option::is_some) && copies.into_iter().flatten().all(is_active_run)
+    }
+
+    pub(super) fn run_copies(&self, job: &str, run: &str) -> [Option<&CronRunInfo>; 2] {
+        [self.history_entry(job, run), self.get(job).and_then(|job| job.last_run.as_ref()).filter(|receipt| receipt.run_id == run)]
+    }
+
+    pub fn run_is_cancelled(&self, job: &str, run: &str) -> bool {
+        self.run_copies(job, run).into_iter().flatten().any(|run| run.status == CronRunStatus::Cancelled)
+    }
+
+    pub fn retained_run_report(&self, job_id: &str, run_id: &str) -> Option<String> {
+        self.run_copies(job_id, run_id).into_iter().flatten().find_map(|run| run.report_delivery.clone())
+    }
+
+    pub fn register_active_tab(&mut self, tab: &str, job: &str, run: &str) -> bool {
+        if !self.run_is_active(job, run)
+            || self.run_copies(job, run).into_iter().flatten().any(|receipt| receipt.tab_id.as_deref() != Some(tab))
+            || self.tab_owners.get(tab).is_some_and(|owner| owner != &(job.to_string(), run.to_string()))
+        {
+            return false;
+        }
+        self.tab_owners.insert(tab.into(), (job.into(), run.into()));
+        true
+    }
+
+    pub fn prepare_bind_run_tab(&self, job: &str, run: &str, tab: &str) -> Prepared<bool> {
+        let mut edit = self.edit_run(job, run);
+        if !self.run_is_active(job, run)
+            || edit.copies().any(|receipt| receipt.tab_id.as_deref().is_some_and(|own| own != tab))
+        {
+            return Prepared::unchanged(false);
+        }
+        edit.each(|receipt| receipt.tab_id = Some(tab.into()));
+        edit.into_prepared(self, true)
+    }
+
     pub fn get(&self, id: &str) -> Option<&CronJob> {
         self.file.jobs.iter().find(|j| j.id == id)
     }
@@ -204,11 +267,11 @@ impl CronStore {
         let mut seen = HashSet::new();
         for job in &self.file.jobs {
             for run in self.file.history.get(&job.id).into_iter().flatten() {
-                if is_active_run(run) && seen.insert(run.run_id.clone()) {
+                if self.run_is_active(&job.id, &run.run_id) && seen.insert(run.run_id.clone()) {
                     runs.push((job.id.clone(), run.clone()));
                 }
             }
-            if let Some(run) = job.last_run.as_ref().filter(|run| is_active_run(run)) {
+            if let Some(run) = job.last_run.as_ref().filter(|run| self.run_is_active(&job.id, &run.run_id)) {
                 if seen.insert(run.run_id.clone()) {
                     runs.push((job.id.clone(), run.clone()));
                 }
@@ -217,7 +280,7 @@ impl CronStore {
         runs
     }
 
-    /// Locate a run by id across all jobs' history, without knowing its job_id
+    /// Locate a run by id across retained history and last-run receipts, without its job_id
     /// up front — used to distinguish "no such run" from "run already
     /// finalized" when its tab ownership has already been unregistered.
     pub fn find_run_by_id(&self, run_id: &str) -> Option<(&str, &CronRunInfo)> {
@@ -225,7 +288,9 @@ impl CronStore {
             runs.iter()
                 .find(|r| r.run_id == run_id)
                 .map(|r| (job_id.as_str(), r))
-        })
+        }).or_else(|| self.file.jobs.iter().find_map(|job| {
+            job.last_run.as_ref().filter(|run| run.run_id == run_id).map(|run| (job.id.as_str(), run))
+        }))
     }
 
     pub(super) fn history_entry(&self, job_id: &str, run_id: &str) -> Option<&CronRunInfo> {
@@ -610,7 +675,8 @@ impl CronStore {
     }
 
     pub fn job_has_active_run(&self, job: &CronJob) -> bool {
-        self.is_job_running(&job.id) || job.last_run.as_ref().is_some_and(is_active_run)
+        self.tab_owners.values().any(|(own_job, run)| own_job == &job.id && self.run_is_active(&job.id, run))
+            || job.last_run.as_ref().is_some_and(|run| self.run_is_active(&job.id, &run.run_id))
     }
 
     pub fn prepare_scheduled_run(
@@ -686,8 +752,7 @@ impl CronStore {
         Ok(Prepared::new(start_run(job, run), ()))
     }
 
-    /// The real completion path. Idempotent: once a run has a terminal status, later calls
-    /// update timestamps but skip accounting, so only the first is `fresh`.
+    /// Only the first terminal transition changes the run or its accounting.
     pub fn prepare_finish_run(
         &self,
         job_id: &str,
@@ -707,43 +772,38 @@ impl CronStore {
         summary: Option<&str>,
         cancel_reason: Option<super::CronCancelReason>,
     ) -> Result<Prepared<RunFinished>, String> {
+        let mut edit = self.edit_run(job_id, run_id);
+        if edit.current().is_none() || edit.terminal() {
+            return Ok(Prepared::unchanged(RunFinished {
+                fresh: false,
+                elapsed_ms: None,
+            }));
+        }
         if (status == CronRunStatus::Cancelled) != cancel_reason.is_some() {
             return Err("Cancelled cron runs require a typed cancel reason".into());
         }
         let now = self.now_ms();
-        let mut edit = self.edit_run(job_id, run_id);
+        let fresh = matches!(status, CronRunStatus::Success | CronRunStatus::Failed | CronRunStatus::Cancelled);
         if let Some(session) = session {
             edit.each(|run| set_session(run, session));
         }
         if let Some(summary) = summary {
             edit.each(|run| run.summary = Some(summary.to_string()));
         }
-        let mut prior: Option<CronRunStatus> = None;
         let mut started_at: Option<u64> = None;
         edit.each(|run| {
-            if prior.is_none() {
-                prior = Some(run.status.clone());
-            }
             if started_at.is_none() {
                 started_at = Some(run.started_at);
             }
             run.status = status.clone();
             run.cancel_reason = cancel_reason;
-            run.finished_at = Some(now);
+            if fresh {
+                run.finished_at = Some(now);
+            }
         });
-        // First terminal status wins — a racing duplicate completion call for the
-        // same run must not double-count failures or re-fire a notification.
-        let already_terminal = matches!(
-            prior,
-            Some(CronRunStatus::Failed)
-                | Some(CronRunStatus::Success)
-                | Some(CronRunStatus::Cancelled)
-        );
-        let mut fresh = false;
-        if !already_terminal {
+        if fresh {
             if let Some(job) = edit.job.as_mut() {
                 apply_failure_accounting(job, job_id, &status, now);
-                fresh = true;
             }
         }
         let finished = RunFinished {
@@ -760,6 +820,9 @@ impl CronStore {
         session: RunSession<'_>,
     ) -> Prepared<()> {
         let mut edit = self.edit_run(job_id, run_id);
+        if edit.terminal() {
+            return Prepared::unchanged(());
+        }
         edit.each(|run| set_session(run, session));
         edit.into_prepared(self, ())
     }
@@ -772,8 +835,11 @@ impl CronStore {
         delivery: &str,
     ) -> Prepared<()> {
         let mut edit = self.edit_run(job_id, run_id);
+        if edit.copies().any(|run| run.status == CronRunStatus::Cancelled || run.report_delivery.is_some()) {
+            return Prepared::unchanged(());
+        }
         edit.each(|run| {
-            run.summary = Some(summary.to_string());
+            run.summary.get_or_insert_with(|| summary.to_string());
             run.report_delivery = Some(delivery.to_string());
         });
         edit.into_prepared(self, ())
@@ -782,6 +848,9 @@ impl CronStore {
     /// Records the tab a dispatched run was spawned into.
     pub fn prepare_set_run_tab(&self, job_id: &str, run_id: &str, tab_id: &str) -> Prepared<()> {
         let mut edit = self.edit_run(job_id, run_id);
+        if edit.terminal() {
+            return Prepared::unchanged(());
+        }
         edit.each(|run| run.tab_id = Some(tab_id.to_string()));
         edit.into_prepared(self, ())
     }
@@ -794,11 +863,16 @@ impl CronStore {
         now_ms: u64,
         reason: super::CronCancelReason,
     ) -> Result<Prepared<Vec<(String, u64)>>, String> {
+        let runs: Vec<_> = self.active_runs().into_iter().filter(|(job, _)| job == job_id).map(|(_, run)| run.run_id).collect();
+        self.prepare_cancel_runs(job_id, &runs, now_ms, reason)
+    }
+
+    pub fn prepare_cancel_runs(&self, job_id: &str, runs: &[String], now_ms: u64, reason: super::CronCancelReason) -> Result<Prepared<Vec<(String, u64)>>, String> {
         let original = self
             .get(job_id)
             .ok_or_else(|| format!("Cron job not found: {}", job_id))?;
         let unfinished = |run: &CronRunInfo| {
-            matches!(
+            runs.contains(&run.run_id) && self.run_is_active(job_id, &run.run_id) && matches!(
                 run.status,
                 CronRunStatus::Running | CronRunStatus::AwaitingOwnerPrompt
             )
@@ -967,7 +1041,7 @@ fn set_session(run: &mut CronRunInfo, session: RunSession<'_>) {
 /// service::cron_complete parity: dashboards and grep-based observability need every
 /// Failed/Cancelled run.
 pub fn log_finished(job_id: &str, run_id: &str, status: &CronRunStatus, run: RunFinished) {
-    if matches!(status, CronRunStatus::Failed | CronRunStatus::Cancelled) {
+    if run.fresh && matches!(status, CronRunStatus::Failed | CronRunStatus::Cancelled) {
         log::info!(
             "Cron run completed: job={}, run={}, status={:?}, elapsed_ms={}",
             job_id,

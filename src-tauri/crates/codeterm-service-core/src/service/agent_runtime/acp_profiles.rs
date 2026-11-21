@@ -20,17 +20,24 @@ pub fn authorize(svc: &ServiceContext, credential: &str) -> Result<(), String> {
     };
     let mux = svc.mux.read();
     let allowed = mux.get_tab(&caller.tab_id).is_some_and(|tab| {
-        tab.session_binding_nonce.as_deref() == Some(caller.binding_nonce.as_str())
+        let current_nonce =
+            tab.session_binding_nonce.as_deref() == Some(caller.binding_nonce.as_str());
+        let general = current_nonce
+            && tab.agent_session_id.is_some()
+            && tab.reported_session_binding_nonce.as_deref() == Some(caller.binding_nonce.as_str())
+            && crate::service::general_agent::session_contract::owns_main(&mux, tab);
+        let orchestrator = current_nonce
             && tab.anchors_team()
             && tab
                 .team_id
                 .as_deref()
-                .is_some_and(|id| mux.get_team(id).is_some())
+                .is_some_and(|id| mux.get_team(id).is_some());
+        general || orchestrator
     });
     if allowed {
         Ok(())
     } else {
-        Err("ACP profile management requires the local owner or a live Orchestrator".into())
+        Err("ACP profile management requires the local owner, an authenticated local General Agent, or a live Orchestrator".into())
     }
 }
 

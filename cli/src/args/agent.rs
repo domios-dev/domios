@@ -97,7 +97,7 @@ pub struct ReportArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AgentAction {
-    /// Manage local ACP launch profiles (local owner or Orchestrator only)
+    /// Manage local ACP launch profiles (local owner, authenticated local General Agent, or live local Orchestrator)
     Acp {
         #[command(subcommand)]
         action: super::agent_acp::AcpAction,
