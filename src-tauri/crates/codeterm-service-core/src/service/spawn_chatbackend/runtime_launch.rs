@@ -1,7 +1,66 @@
 use super::super::ServiceContext;
 use super::*;
+use crate::agent::provider::SystemPromptDelivery;
 use crate::agent::run_watcher::runtime_runs::CronRunAuthority;
 use crate::service::MuxEmitCause;
+
+/// What the first runtime turn carries: a system-prompt-capable provider already
+/// holds the brief in its instructions, so it only receives the assigned-task starter.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum RuntimeFirstTurn {
+    Starter(String),
+    Task(String),
+}
+
+pub(super) fn runtime_pending_payload(
+    existing: Option<&crate::multiplexer::types::PendingDeliveryRecord>,
+    agent: &crate::service::spawn::AgentSpawnSpec,
+    provider: Option<&dyn crate::agent::provider::AgentProvider>,
+    system_prompt_delivery: Option<&SystemPromptDelivery>,
+) -> Option<RuntimeFirstTurn> {
+    if existing.is_some() {
+        None
+    } else {
+        runtime_initial_payload(agent, provider, system_prompt_delivery)
+    }
+}
+
+pub(super) fn runtime_initial_payload(
+    agent: &crate::service::spawn::AgentSpawnSpec,
+    provider: Option<&dyn crate::agent::provider::AgentProvider>,
+    system_prompt_delivery: Option<&SystemPromptDelivery>,
+) -> Option<RuntimeFirstTurn> {
+    let task = agent
+        .task
+        .as_deref()
+        .filter(|task| !task.trim().is_empty())?;
+    let delivery = system_prompt_delivery
+        .cloned()
+        .or_else(|| provider.map(|provider| provider.system_prompt_delivery()));
+    let instructions_capable = delivery.as_ref().is_some_and(|delivery| {
+        matches!(
+            crate::service::launch_delivery::mode_for_descriptor(delivery),
+            crate::service::launch_delivery::LaunchDeliveryMode::SystemPrompt
+        )
+    });
+    if instructions_capable {
+        let prompt = crate::agent::provider::StarterPrompt::AssignedTask;
+        let text = crate::service::launch_delivery::assigned_task_starter(
+            provider
+                .and_then(|provider| provider.starter_prompt_text(prompt))
+                .as_deref(),
+        );
+        return Some(RuntimeFirstTurn::Starter(
+            crate::service::launch_delivery::mark_starter_prompt(prompt, text),
+        ));
+    }
+    Some(RuntimeFirstTurn::Task(
+        match agent.task_preamble.as_deref() {
+            Some(preamble) => format!("{preamble}{task}"),
+            None => task.into(),
+        },
+    ))
+}
 
 /// The provider runtime start of a staged chatBackend tab, which a dispatch may run off its RPC thread.
 pub(crate) struct ChatBackendRuntimeLaunch {
@@ -61,6 +120,21 @@ impl ChatBackendRuntimeLaunch {
 }
 
 impl ServiceContext {
+    pub(super) fn runtime_system_prompt_delivery(
+        &self,
+        provider_id: &str,
+        provider: Option<&dyn crate::agent::provider::AgentProvider>,
+    ) -> Option<SystemPromptDelivery> {
+        provider
+            .map(|provider| provider.system_prompt_delivery())
+            .filter(|delivery| !matches!(delivery, SystemPromptDelivery::External))
+            .or_else(|| {
+                self.chatbackend_registry
+                    .descriptor(provider_id)
+                    .map(|descriptor| descriptor.system_prompt_delivery)
+            })
+    }
+
     pub(crate) fn prepare_chatbackend_runtime_launch(
         &self,
         tab: &str,
@@ -185,6 +259,8 @@ impl ServiceContext {
         self.prepare_agent_runtime_launch_options(tab_id, &params)?;
         self.prepare_agent_runtime_launch_env(tab_id, &metadata.agent.extra_env)?;
         let provider = self.agent_registry.provider_arc(&metadata.agent.provider);
+        let delivery =
+            self.runtime_system_prompt_delivery(&metadata.agent.provider, provider.as_deref());
         let payload = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id).ok_or("Runtime launch tab absent")?;
@@ -192,6 +268,7 @@ impl ServiceContext {
                 tab.pending_delivery.as_ref(),
                 &metadata.agent,
                 provider.as_deref(),
+                delivery.as_ref(),
             )
         };
         if let Some(payload) = payload {
