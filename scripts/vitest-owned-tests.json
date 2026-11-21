@@ -455,5 +455,6 @@
   "src/components/Terminal/voice/TranscriberSetupAction.test.tsx",
   "src/components/Terminal/voice/DictationStatus.test.tsx",
   "src/components/Terminal/composerDropSurface.test.tsx",
-  "src/lib/teamTemplates/peerStartOutcome.test.ts"
+  "src/lib/teamTemplates/peerStartOutcome.test.ts",
+  "src/components/Terminal/useChatActivationReconcile.test.tsx"
 ]

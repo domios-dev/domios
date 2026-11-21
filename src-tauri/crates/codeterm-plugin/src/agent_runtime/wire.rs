@@ -181,22 +181,40 @@ pub struct RuntimeCommand {
     #[ts(optional)]
     pub argument_hint: Option<String>,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeConfigOptionKind {
+    Select,
+    Boolean,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeConfigOption {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kind: Option<RuntimeConfigOptionKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub description: Option<String>,
     pub id: String,
     pub name: String,
     pub current_value: String,
     pub options: Vec<RuntimeConfigValue>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeConfigValue {
     pub value: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub group: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
@@ -797,6 +815,10 @@ pub enum AgentRuntimeEvent {
     },
     ThreadReverted {
         thread_id: String,
+    },
+    SessionTitle {
+        thread_id: String,
+        title: String,
     },
 }
 

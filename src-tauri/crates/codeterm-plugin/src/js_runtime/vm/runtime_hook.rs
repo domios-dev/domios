@@ -207,21 +207,28 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
                 )
             })?;
             if let Some(token) = credential {
-                let descriptor = args
+                let descriptors: Vec<serde_json::Value> = args
                     .first()
                     .and_then(|ctx| ctx.get("hostMcp"))
                     .cloned()
                     .and_then(|value| {
                         serde_json::from_value::<crate::agent_runtime::RuntimeHostMcp>(value).ok()
                     })
-                    .map(|descriptor| serde_json::json!([descriptor.descriptor()]));
+                    .map(|descriptor| {
+                        descriptor
+                            .allowed_descriptors()
+                            .into_iter()
+                            .map(|entry| serde_json::json!([entry]))
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 let mut protected = value.clone();
                 for path in ["/action/call/params", "/plan/action/call/params"] {
                     if let Some(params) = protected
                         .pointer_mut(path)
                         .and_then(serde_json::Value::as_object_mut)
                     {
-                        params.retain(|_, value| Some(&*value) != descriptor.as_ref());
+                        params.retain(|_, value| !descriptors.iter().any(|allowed| allowed == value));
                     }
                 }
                 if contains_credential(&protected, token) {

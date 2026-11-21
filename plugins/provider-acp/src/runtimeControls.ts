@@ -11,6 +11,20 @@ export function label(value:unknown):value is string {
   }
   return bytes <= 256;
 }
+function description(value:unknown):string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized=value.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g," ").replace(/\s+/g," ").trim();
+  if (!normalized.length) return undefined;
+  let out="", bytes=0;
+  for (const character of normalized) {
+    const point=character.codePointAt(0)!;
+    if (point >= 0xd800 && point <= 0xdfff) continue;
+    const size=point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4;
+    if (bytes + size > 512) break;
+    out+=character;bytes+=size;
+  }
+  return out.length ? out : undefined;
+}
 function list(value:unknown, limit:number):Record<string,JsonValue>[] {
   return Array.isArray(value) && value.length <= limit ? value.map(object) : [];
 }
@@ -29,15 +43,35 @@ export function configOptions(value:unknown):NonNullable<RuntimeSettings["config
   return list(value,64).flatMap(config=>{
     if (!label(config.id) || !label(config.name) || seen.has(config.id)) return [];
     seen.add(config.id);
-    const values=list(config.options,128).flatMap(entry=>Array.isArray(entry.options) ? list(entry.options,128) : [entry]);
+    const optionDescription=description(config.description);
+    if (config.type === "boolean" && typeof config.currentValue === "boolean") {
+      return [{id:config.id,name:config.name,kind:"boolean" as const,currentValue:config.currentValue ? "true" : "false",options:[],
+        ...(label(config.category) ? {category:config.category} : {}),
+        ...(optionDescription ? {description:optionDescription} : {})}];
+    }
+    const grouped:Array<{entry:Record<string,JsonValue>; group?:string}>=[];
+    for (const entry of list(config.options,128)) {
+      if (Array.isArray(entry.options)) {
+        const groupLabel=label(entry.name) ? entry.name : label(entry.group) ? entry.group : undefined;
+        for (const nested of list(entry.options,128)) grouped.push({entry:nested,group:groupLabel});
+      } else {
+        grouped.push({entry});
+      }
+    }
     const ids=new Set<string>();
-    const options=values.slice(0,128).flatMap(entry=>{
+    const options=grouped.slice(0,128).flatMap(({entry,group})=>{
       if (!label(entry.value) || !label(entry.name) || ids.has(entry.value)) return [];
-      ids.add(entry.value);return [{value:entry.value,name:entry.name}];
+      ids.add(entry.value);
+      const choiceDescription=description(entry.description);
+      return [{value:entry.value,name:entry.name,
+        ...(choiceDescription ? {description:choiceDescription} : {}),
+        ...(group ? {group} : {})}];
     });
-    if (config.type !== "select" || !label(config.currentValue)) return [{id:config.id,name:config.name,currentValue:String(config.currentValue).slice(0,256) || "Unknown",options:[]}];
+    if (config.type !== "select" || !label(config.currentValue)) return [{id:config.id,name:config.name,currentValue:String(config.currentValue).slice(0,256) || "Unknown",options:[],
+      ...(optionDescription ? {description:optionDescription} : {})}];
     return [{id:config.id,name:config.name,currentValue:config.currentValue,options,
-      ...(label(config.category) ? {category:config.category} : {})}];
+      ...(label(config.category) ? {category:config.category} : {}),
+      ...(optionDescription ? {description:optionDescription} : {})}];
   });
 }
 export function modelOption(settings:RuntimeSettings | undefined) {

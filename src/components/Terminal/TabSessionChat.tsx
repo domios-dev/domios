@@ -31,6 +31,7 @@ import { forkableTurnEnds } from "./messageForkModel";
 import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowContext, type OutboundReportEntry } from "./ChatTranscriptRow";
 import { chatWindowRows } from "./chatWindowRowsModel";
 import { composerRunningTool, projectChatTranscriptActivity } from "./chatTranscriptActivity";
+import { latestFailedToolCallId as findLatestFailedToolCallId, latestTurnStopNoticeId, submitTurnContinuation } from "./chatTurnTail";
 import { CompactToolRowsProvider, LocalArtifactScope } from "@codeterm/chat-ui";
 import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
 import { createDocumentInventory } from "./chatDocuments";
@@ -693,15 +694,8 @@ function TabSessionChatBody({
   useEffect(() => () => { if (DEV_BUILD) chatResponsivenessTrace.release(tabId); }, [tabId]);
   // Drop torn-down tab diagnostics immediately instead of waiting for LRU eviction.
   useEffect(() => () => chatProjectionMonitor.forget(tabId), [tabId]);
-  const latestFailedToolCallId = useMemo(() => {
-    for (let i = renderedEnrichedMessages.length - 1; i >= 0; i -= 1) {
-      const msg = renderedEnrichedMessages[i]?.msg;
-      if (msg?.type === "tool_call" && msg.toolError === true) {
-        return msg.id;
-      }
-    }
-    return null;
-  }, [renderedEnrichedMessages]);
+  const latestFailedToolCallId = useMemo(() => findLatestFailedToolCallId(renderedEnrichedMessages), [renderedEnrichedMessages]);
+  const latestStopNoticeId = useMemo(() => latestTurnStopNoticeId(renderedEnrichedMessages), [renderedEnrichedMessages]);
 
   // Keep the ref array stable when streaming changes no plan reference.
   const visiblePlanRefsRef = useRef<{
@@ -845,6 +839,9 @@ function TabSessionChatBody({
   }, [tabId, showComposerError]);
   const forkFrom = useLatestCallback((turnId: string) => { void runThreadHistory("fork", turnId); }, [runThreadHistory]);
   const revertTo = useLatestCallback((turnId: string) => setPendingThreadRevertTurn(turnId), []);
+  const continueTurn = useLatestCallback(() => {
+    if (!readOnly && !agentActivity.active) submitTurnContinuation(tabId, followSentMessage, addOptimistic, observeChatSendStatus, showComposerError);
+  }, [readOnly, agentActivity.active, followSentMessage, addOptimistic, tabId, observeChatSendStatus, showComposerError]);
   const canRevertTurns = descriptor?.agent_runtime?.threadHistory?.actions.includes("revert") === true;
   const rowContext = useMemo<ChatTranscriptRowContext>(() => ({
     tabId,
@@ -869,10 +866,11 @@ function TabSessionChatBody({
     retrySend: retryChatDelivery,
     forkFrom,
     revertTo,
+    onContinueTurn: readOnly ? undefined : continueTurn,
   }), [tabId, promptAnswers, uiFontScale, answeredInteractiveIds, messageSelection.rowHandlers, handleContentLayout, resolveTabName,
     resolvePeerName, onOpenPlan, resolvePlanRef, handleAnswerInteractive, handleRerunShellCommand, handleStopReminder, openJobs,
     onOpenTerminalFallback, handleJumpToShellCommand, resolveFocusTab, jumpToQuoted, answerNotification, deleteSend, retryChatDelivery,
-    forkFrom, revertTo, readOnly]);
+    forkFrom, revertTo, continueTurn, readOnly]);
 
   const setupState = (<ChatSetupState
           visible={isActive}
@@ -1044,6 +1042,7 @@ function TabSessionChatBody({
               cursor={messageSelection.cursor ? messageSelection.cursor === msg.id : messageIndex === renderedEnrichedMessages.length - 1}
               streaming={msg.id === streamingId}
               latestFailedToolCall={msg.id === latestFailedToolCallId}
+              canContinueTurn={!readOnly && !agentActivity.active && msg.id === latestStopNoticeId}
               forkable={forkableMessages.has(msg.id)}
               revertible={canRevertTurns}
               context={rowContext}

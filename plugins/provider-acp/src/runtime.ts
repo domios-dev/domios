@@ -29,7 +29,7 @@ interface Negotiation {
   cursor:StreamCursor;
   inFlight:boolean;
   promptOrdinal?:number;
-  queued?:{prompt:number;sendId:string;completed?:{cancelled:boolean;usage?:TokenUsage}}[];
+  queued?:{prompt:number;sendId:string;completed?:{stopReason:string;usage?:TokenUsage}}[];
   mcpUnavailable?:string;
   projection?:JsonValue;
   promptSend?:{sendId:string};
@@ -195,17 +195,35 @@ function clientCapabilities(ctx:RuntimeContext):JsonValue {
   return {fs:{readTextFile:ctx.clientBridges?.fsRead === true,writeTextFile:ctx.clientBridges?.fsWrite === true},terminal:ctx.clientBridges?.terminal === true};
 }
 
-function sessionRequest(ctx:RuntimeContext, method:string, sessionId?:string):RuntimePlan {
-  const mcpServers=hostMcpServers(ctx);
+function sessionRequest(ctx:RuntimeContext, capabilities:Record<string,JsonValue>, method:string, sessionId?:string, forceStdio=false):RuntimePlan {
+  const {servers:mcpServers,transport}=selectHostMcpServers(ctx,capabilities,forceStdio);
   const plan=request(method, {...(sessionId ? {sessionId} : {}),cwd:ctx.cwd,mcpServers});
-  plan.state={method,mcpOffered:mcpServers.length > 0};
+  plan.state={method,mcpOffered:mcpServers.length > 0,...(transport !== "none" ? {mcpTransport:transport} : {})};
   return plan;
 }
 
-function hostMcpServers(ctx:RuntimeContext):JsonValue[] {
+export function supportsHttpMcp(capabilities:Record<string,JsonValue>|undefined):boolean {
+  return object(capabilities?.mcpCapabilities).http === true;
+}
+
+export function selectHostMcpServers(
+  ctx:RuntimeContext,
+  capabilities?:Record<string,JsonValue>,
+  forceStdio=false,
+):{servers:JsonValue[]; transport:"http"|"stdio"|"none"} {
   const descriptor=ctx.hostMcp;
-  return descriptor
-    ? [{name:descriptor.name,command:descriptor.command,args:[...descriptor.args],env:Object.entries(descriptor.env ?? {}).sort(([a],[b])=>a < b ? -1 : a > b ? 1 : 0).map(([name,value])=>({name,value}))}] : [];
+  if (!descriptor) return {servers:[],transport:"none"};
+  if (!forceStdio && supportsHttpMcp(capabilities) && descriptor.http && typeof descriptor.http.url === "string" && descriptor.http.url.length > 0) {
+    const headers=Object.entries(descriptor.http.headers ?? {})
+      .sort(([a],[b])=>a < b ? -1 : a > b ? 1 : 0)
+      .map(([name,value])=>({name,value}));
+    return {servers:[{type:"http",name:descriptor.name,url:descriptor.http.url,headers}],transport:"http"};
+  }
+  return {
+    servers:[{name:descriptor.name,command:descriptor.command,args:[...descriptor.args],
+      env:Object.entries(descriptor.env ?? {}).sort(([a],[b])=>a < b ? -1 : a > b ? 1 : 0).map(([name,value])=>({name,value}))}],
+    transport:"stdio",
+  };
 }
 
 export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
@@ -247,6 +265,12 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       return request("session/set_mode",{sessionId,modeId:op.value});
     }
     const option=state.settings?.configOptions?.find(option=>option.id === value.id);
+    if (option?.kind === "boolean") {
+      if (value.value !== true && value.value !== false && value.value !== "true" && value.value !== "false")
+        return refusePlan("Configuration value was not advertised");
+      const boolValue=value.value === true || value.value === "true";
+      return request("session/set_config_option",{sessionId,configId:option.id,type:"boolean",value:boolValue});
+    }
     if (!option?.options.some(option=>option.value === value.value)) return refusePlan("Configuration value was not advertised");
     return optionRequest(state,sessionId,option.id,value.value as string);
   }
@@ -259,7 +283,7 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
     }
     case "openThread":
       if (ctx.threadId || state.sessionId) return refusePlan("ACP session is already bound");
-      return sessionRequest(ctx,methods.newSession);
+      return sessionRequest(ctx,state.capabilities,methods.newSession);
     case "resumeThread": {
       if (state.sessionId && state.sessionId !== op.threadId) return refusePlan("ACP session does not belong to this runtime");
       if (state.sessionActive && state.sessionId === op.threadId)
@@ -271,7 +295,7 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       state.sessionActive=false;
       state.sessionId=op.threadId;
       state.cursor={replay:state.cursor.replay+1,prompt:0,loading:true};
-      return sessionRequest(ctx,method,op.threadId);
+      return sessionRequest(ctx,state.capabilities,method,op.threadId);
     }
     case "submitTurn": {
       const sessionId = ownSession(ctx, state);
@@ -348,7 +372,7 @@ function promoteQueued(ctx:RuntimeContext, state:Negotiation):import("@codeterm/
     state.projection={...object(next.state),started:true};
     events.push({kind:"turnState",threadId:sessionId,turnId:`${sessionId}:turn:${queued.prompt}`,state:"working"});
     if (!queued.completed) break;
-    const settledQueued=settleStream(ctx,state.projection,queued.completed.cancelled ? "cancelled" : "end_turn");
+    const settledQueued=settleStream(ctx,state.projection,queued.completed.stopReason);
     state.projection=settledQueued.state;
     state.inFlight=false;
     if (queued.completed.usage) events.push({kind:"usage",threadId:sessionId,usage:accountedUsage(queued.completed.usage,queued.sendId)});
@@ -416,6 +440,9 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     if (op.kind === "resumeThread" && sessionOperation && reply.error.code !== -32000)
       return refused("session_load_refused", reply.error.message);
     if (sessionOperation && ![-32000,-32002,-32601].includes(reply.error.code) && state && !state.sessionActive && object(raw).mcpOffered === true && ctx.hostMcp) {
+      if (object(raw).mcpTransport === "http") {
+        return {kind:"continue",plan:sessionRequest(ctx,state.capabilities,method as string,op.kind === "resumeThread" ? op.threadId : undefined,true)};
+      }
       state.mcpUnavailable=`Domios tools are unavailable for this agent: ${Array.from(reply.error.message).slice(0,1000).join("")}`;
       const plan=request(method as string,{...(op.kind === "resumeThread" ? {sessionId:op.threadId} : {}),cwd:ctx.cwd,mcpServers:[]});
       plan.state={method,mcpOffered:false};
@@ -524,7 +551,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     const turn=typeof object(raw).prompt === "number" ? object(raw).prompt : object(state.projection).turn;
     if (turn !== state.cursor.prompt || !state.inFlight) {
       const queued=state.queued?.find(queued=>queued.prompt === turn);
-      if (queued && !queued.completed) queued.completed={cancelled:value.stopReason === "cancelled",usage:usageFromReply(value)};
+      if (queued && !queued.completed) queued.completed={stopReason:value.stopReason,usage:usageFromReply(value)};
       return {kind:"complete",result:{kind:"turnAccepted",threadId:sessionId,sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events:queued ? sessionAuthentication(state) : []};
     }
     state.inFlight=false;

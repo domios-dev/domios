@@ -937,7 +937,8 @@ pub fn validate_runtime_reduction(
             | AgentRuntimeEvent::ControlsConfirmed { thread_id, .. }
             | AgentRuntimeEvent::Question { thread_id, .. }
             | AgentRuntimeEvent::ContextCompacted { thread_id, .. }
-            | AgentRuntimeEvent::ThreadReverted { thread_id } => thread_id,
+            | AgentRuntimeEvent::ThreadReverted { thread_id }
+            | AgentRuntimeEvent::SessionTitle { thread_id, .. } => thread_id,
             AgentRuntimeEvent::SendEvidence {
                 item_id,
                 thread_id,
@@ -973,6 +974,11 @@ pub fn validate_runtime_reduction(
                 if !rpc_id(request_id) =>
             {
                 return Err(invalid("invalid prompt request id"));
+            }
+            AgentRuntimeEvent::SessionTitle { title, .. }
+                if title.is_empty() || title.len() > 256 || title.chars().any(char::is_control) =>
+            {
+                return Err(invalid("invalid session title"));
             }
             _ => {}
         }
