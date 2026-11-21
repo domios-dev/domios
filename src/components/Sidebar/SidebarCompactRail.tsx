@@ -57,6 +57,7 @@ function RailTab({ tab, observed, status, attention, active, touchMode, hidden, 
   const icon = tab.agent_type ? <AgentIcon tab={tab} providerId={tab.agent_type} title={machine ? "" : undefined} className="text-[15px]" /> : <TerminalIcon size={14} />;
   const mark = <TabAttentionMark title={title} attention={attention ?? tabAttention(tab, status, [], active)} active={active} placement="compact" remote={Boolean(machine)} />;
   const activityKind = machine?.unavailable ? "idle" : activity.kind;
+  const backgroundActive = !machine?.unavailable && activityKind === "idle" && activity.backgroundTasks > 0;
   return <button
     type="button"
     hidden={hidden}
@@ -66,6 +67,7 @@ function RailTab({ tab, observed, status, attention, active, touchMode, hidden, 
     className="ct-compact-rail__tab"
     data-active={active || undefined}
     data-activity={activityKind}
+    data-background-work={backgroundActive ? "true" : undefined}
     data-touch-mode={touchMode || undefined}
     aria-current={active ? "page" : undefined}
     aria-label={machine ? `Open tab ${title}, ${machine.label}` : `Open tab ${title}`}
@@ -74,7 +76,9 @@ function RailTab({ tab, observed, status, attention, active, touchMode, hidden, 
     onMouseLeave={machine ? undefined : onLeave}
   >
     {machine ? <RemoteTabIcon machine={machine}>{icon}{mark}</RemoteTabIcon> : <>{icon}{mark}</>}
-    {activityKind === "working" && !attention?.showMark && <span className="ct-compact-rail__status" aria-hidden="true" />}
+    {(activityKind === "working" || backgroundActive) && !attention?.showMark && (
+      <span className="ct-compact-rail__status" data-background-work={backgroundActive ? "true" : undefined} aria-hidden="true" />
+    )}
   </button>;
 }
 

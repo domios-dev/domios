@@ -116,6 +116,9 @@ pub(super) fn environment(
 pub(super) struct Terminal {
     pub output: Arc<Mutex<Vec<u8>>>,
     pub truncated: Arc<Mutex<bool>>,
+    command_line: String,
+    cwd: String,
+    pid: u32,
     stop: watch::Sender<bool>,
     ended: watch::Receiver<Option<Result<Value, String>>>,
     limit: usize,
@@ -130,9 +133,19 @@ impl Drop for Terminal {
 impl Terminal {
     pub fn spawn(
         spec: &Command,
+        cwd: &Path,
+        directory: std::fs::File,
+        env: &BTreeMap<String, String>,
+    ) -> Result<Arc<Self>, String> {
+        Self::spawn_with_notify(spec, cwd, directory, env, None)
+    }
+
+    pub fn spawn_with_notify(
+        spec: &Command,
         _cwd: &Path,
         directory: std::fs::File,
         env: &BTreeMap<String, String>,
+        on_exit: Option<Arc<tokio::sync::Notify>>,
     ) -> Result<Arc<Self>, String> {
         #[cfg(windows)]
         let resolved_program = windows::program(
@@ -279,16 +292,46 @@ impl Terminal {
                 Ok(json!({"exitCode":status.code(),"signal":signal}))
             })();
             finished.send_replace(Some(result));
+            if let Some(notify) = on_exit {
+                notify.notify_one();
+            }
         });
+        let command_line = std::iter::once(spec.command.as_str())
+            .chain(spec.args.iter().map(String::as_str))
+            .map(|part| {
+                if part.is_empty() || part.chars().any(char::is_whitespace) {
+                    format!("\"{}\"", part.replace('"', "\\\""))
+                } else {
+                    part.to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let cwd_text = codeterm_paths::strip_verbatim_prefix(&_cwd.to_string_lossy());
         Ok(Arc::new(Self {
             output,
             truncated,
+            command_line,
+            cwd: cwd_text,
+            pid,
             stop,
             ended,
             limit,
             #[cfg(test)]
             changes,
         }))
+    }
+    pub fn running(&self) -> bool {
+        self.ended.borrow().is_none()
+    }
+    pub fn command_line(&self) -> &str {
+        &self.command_line
+    }
+    pub fn cwd(&self) -> &str {
+        &self.cwd
+    }
+    pub fn pid(&self) -> u32 {
+        self.pid
     }
     pub fn output(&self) -> Value {
         let mut text = String::from_utf8_lossy(&self.output.lock()).into_owned();

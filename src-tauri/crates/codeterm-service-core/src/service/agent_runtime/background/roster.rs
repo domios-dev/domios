@@ -25,6 +25,7 @@ pub(in crate::service::agent_runtime) fn watch(
     process: &Arc<Process>,
 ) {
     if !supported(session) {
+        super::os_watch::watch(svc, session, process);
         return;
     }
     let (svc, session, process) = (svc.clone(), session.clone(), process.clone());

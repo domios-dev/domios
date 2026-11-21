@@ -16,10 +16,18 @@ mod unix;
 use unix as native;
 #[cfg(windows)]
 mod background;
+mod os_background;
 #[cfg(any(windows, test))]
 mod orphans;
 #[cfg(any(windows, test))]
 mod selective;
+
+pub(in crate::service::agent_runtime) type NativeMember = native::Member;
+
+pub(in crate::service::agent_runtime) use os_background::{
+    format_os_process_id, parse_os_process_id, wait_for_any_exit, ExitWaitCancel, HostMcpFilter,
+    OsBackgroundSnapshot, SelectedBackgroundProcess,
+};
 
 /// The runtime process tree retained before a Stop, so tools it orphans can still be ended.
 pub(super) struct ToolTree {
@@ -37,6 +45,12 @@ pub(super) struct Member {
     argv: Vec<String>,
     cwd: Option<PathBuf>,
     native: native::Member,
+}
+
+impl Member {
+    pub(super) fn token(&self) -> u128 {
+        self.native.token()
+    }
 }
 
 #[cfg(test)]
@@ -323,6 +337,17 @@ fn process_command(system: &sysinfo::System, pid: u32) -> Option<(Vec<String>, O
         .collect::<Option<Vec<_>>>()
         .unwrap_or_default();
     Some((argv, process.cwd().map(std::path::Path::to_path_buf)))
+}
+
+#[cfg(unix)]
+fn process_command_with_parent(
+    system: &sysinfo::System,
+    pid: u32,
+) -> Option<(Vec<String>, Option<PathBuf>, u32)> {
+    let process = system.process(sysinfo::Pid::from_u32(pid))?;
+    let (argv, cwd) = process_command(system, pid)?;
+    let parent = process.parent().map(sysinfo::Pid::as_u32).unwrap_or(0);
+    Some((argv, cwd, parent))
 }
 
 #[cfg(windows)]

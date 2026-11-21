@@ -843,9 +843,19 @@ async fn execute(
                     cwd.strip_prefix(&bridge.root)
                         .map_err(|_| "Terminal cwd outside root")?,
                 )?;
-                let terminal = terminal::Terminal::spawn(&command, &cwd, directory, &env)?;
+                let on_exit = session
+                    .process
+                    .lock()
+                    .as_ref()
+                    .map(|process| process.background_changed.clone());
+                let terminal =
+                    terminal::Terminal::spawn_with_notify(&command, &cwd, directory, &env, on_exit.clone())?;
                 let id = uuid::Uuid::new_v4().to_string();
                 state.terminals.insert(id.clone(), terminal);
+                drop(state);
+                if let Some(notify) = on_exit {
+                    notify.notify_one();
+                }
                 Ok(json!({"terminalId":id}))
             })
             .await
@@ -872,9 +882,15 @@ async fn execute(
             };
             if kill {
                 terminal.kill().await?;
+                if let Some(process) = session.process.lock().clone() {
+                    process.background_changed.notify_one();
+                }
             }
             if release {
                 bridge.state.lock().terminals.remove(&id);
+                if let Some(process) = session.process.lock().clone() {
+                    process.background_changed.notify_one();
+                }
                 return Ok(json!({}));
             }
             if wait {
@@ -941,6 +957,54 @@ pub(super) async fn cancel(
     } else {
         Err(RuntimeFailure::Refused(errors.join("; ")))
     }
+}
+
+pub(super) fn active_terminals(
+    context: &RuntimeContext,
+) -> Vec<(String, String, String, u32)> {
+    let Ok(bridge) = bridge(context) else {
+        return Vec::new();
+    };
+    let state = bridge.state.lock();
+    if state.closed || state.session != context.thread_id {
+        return Vec::new();
+    }
+    let mut active = state
+        .terminals
+        .iter()
+        .filter(|(_, terminal)| terminal.running())
+        .map(|(id, terminal)| {
+            (
+                id.clone(),
+                terminal.command_line().to_owned(),
+                terminal.cwd().to_owned(),
+                terminal.pid(),
+            )
+        })
+        .collect::<Vec<_>>();
+    active.sort_by(|left, right| left.0.cmp(&right.0));
+    active
+}
+
+pub(super) async fn stop_terminal(
+    context: &RuntimeContext,
+    terminal_id: &str,
+) -> Result<bool, String> {
+    let Ok(bridge) = bridge(context) else {
+        return Ok(false);
+    };
+    let terminal = {
+        let mut state = bridge.state.lock();
+        if state.closed || state.session != context.thread_id {
+            return Ok(false);
+        }
+        state.terminals.remove(terminal_id)
+    };
+    let Some(terminal) = terminal else {
+        return Ok(false);
+    };
+    terminal.kill().await?;
+    Ok(true)
 }
 
 pub(super) fn begin_turn(context: &RuntimeContext) {

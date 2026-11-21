@@ -1092,6 +1092,7 @@ pub async fn ensure_locked(
     }
     svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     svc.on_turn_resume_binding_changed(tab);
+    let _ = process.capture_session_baseline().await;
     process.background_changed.notify_one();
     Ok(())
 }

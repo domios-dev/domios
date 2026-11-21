@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readableActivityLine, tabActivity, type TabActivityInput, type TabActivity } from "./tabActivity";
 import type { BootStage, TabStatus } from "./types";
-import { aggregateTabStatuses } from "../components/Sidebar/tabStatuses";
+import { aggregateTabStatuses, countWorkingTabs } from "../components/Sidebar/tabStatuses";
 import type { Tab } from "./types";
 
 const agent: TabActivityInput = { tab_type: "Terminal", agent_type: "fixture", agent_session_id: "bound-session" };
@@ -129,3 +129,54 @@ assert.equal(tabActivity({ ...agent, pending_prompt: { question: "short-token", 
 assert.equal(tabActivity({ ...agent, pending_prompt: toolApproval, agent_state: { state: "question", subtype: "permission" } } as TabActivityInput, "Waiting").label, "Waiting for your permission");
 assert.equal(tabActivity({ ...agent, pending_prompt: toolApproval } as TabActivityInput, "Waiting").label, "Waiting for your answer", "a multi-line question is summarised");
 assert.equal(tabActivity({ ...agent, pending_prompt: { question: "x".repeat(81), options: choices } } as TabActivityInput, "Waiting").label, "Waiting for your answer", "a long question is summarised");
+
+const runtimeBgBase: Tab = {
+  id: "rt-bg",
+  title: "Runtime",
+  tab_type: "Terminal",
+  pty_id: null,
+  cwd: "/work",
+  agent_type: "fixture-runtime",
+  agent_session_id: "root-session",
+  session_binding_nonce: "nonce-1",
+  backing: { kind: "chat_backend", plugin_id: "fixture-runtime", session_id: "root-session" },
+  boot_stage: "agent_ready",
+  agent_state: { state: "idle" },
+  agent_runtime_state: {
+    state: "loaded",
+    epoch: 3,
+    backgroundProcesses: {
+      rootThreadId: "root-session",
+      bindingNonce: "nonce-1",
+      epoch: 3,
+      processes: [{
+        threadId: "root-session",
+        processId: "os:5000:100",
+        itemId: "os-bg:5000:100",
+        command: "cargo nextest run",
+        cwd: "/work",
+        osPid: 5000,
+      }],
+    },
+  },
+};
+const idleWithRuntimeBg = tabActivity(runtimeBgBase, "Idle");
+assert.equal(idleWithRuntimeBg.kind, "idle", "runtime background process preserves idle turn send readiness");
+assert.equal(idleWithRuntimeBg.active, false);
+assert.equal(idleWithRuntimeBg.canStop, false);
+assert.equal(idleWithRuntimeBg.backgroundTasks, 1);
+assert.equal(aggregateTabStatuses(["rt-bg"], { "rt-bg": "Idle" }, { "rt-bg": runtimeBgBase }), "Working");
+assert.equal(countWorkingTabs([runtimeBgBase], { "rt-bg": "Idle" }), 1);
+
+const staleEpochBg: Tab = {
+  ...runtimeBgBase,
+  agent_runtime_state: { ...runtimeBgBase.agent_runtime_state!, epoch: 4 },
+};
+assert.equal(tabActivity(staleEpochBg, "Idle").backgroundTasks, 0, "stale background process epoch is ignored");
+const clearedRuntimeBg: Tab = {
+  ...runtimeBgBase,
+  agent_runtime_state: { state: "loaded", epoch: 3 },
+};
+assert.equal(tabActivity(clearedRuntimeBg, "Idle").backgroundTasks, 0);
+assert.equal(aggregateTabStatuses(["rt-bg"], { "rt-bg": "Idle" }, { "rt-bg": clearedRuntimeBg }), "Idle");
+assert.equal(countWorkingTabs([clearedRuntimeBg], { "rt-bg": "Idle" }), 0);

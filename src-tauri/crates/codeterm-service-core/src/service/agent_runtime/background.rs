@@ -6,6 +6,7 @@ use super::{
 };
 use crate::service::ServiceContext;
 
+mod os_watch;
 mod roster;
 use codeterm_plugin::agent_runtime::*;
 pub(super) use roster::{changed_by, preserve_projection, watch};
@@ -166,9 +167,6 @@ fn session_for_authority(
 ) -> Result<(Arc<Session>, RuntimeContext, Arc<Process>), RuntimeFailure> {
     let session = engine::for_tab(tab).ok_or(RuntimeFailure::Superseded)?;
     engine::validate_binding(svc, &session)?;
-    if !supported(&session) {
-        return Err(refused("Background process controls are unavailable"));
-    }
     let context = session.context.lock().clone();
     if context.epoch != authority.epoch
         || context.binding_nonce != authority.binding_nonce
@@ -266,6 +264,9 @@ async fn list_for_tab_inner(
     authority: BackgroundProcessAuthority,
 ) -> Result<BackgroundProcessSnapshot, RuntimeFailure> {
     let (session, context, process) = session_for_authority(svc, tab, &authority)?;
+    if !supported(&session) {
+        return os_watch::list(svc, &session, &process, &context, &authority).await;
+    }
     roster::refresh(svc, &session, &process, &context, &authority).await
 }
 
@@ -311,6 +312,19 @@ async fn stop_for_tab_inner(
     }
     let authority = request.authority();
     let (session, context, process) = session_for_authority(svc, tab, &authority)?;
+    if !supported(&session) {
+        return os_watch::stop(
+            svc,
+            tab,
+            &session,
+            &process,
+            &context,
+            &authority,
+            &request.thread_id,
+            &request.process_id,
+        )
+        .await;
+    }
     let _operation = process.background_operation.lock().await;
     validate_current_session(svc, tab, &authority, &session)?;
     if !owns_runtime_thread(&context, &request.thread_id) {
