@@ -218,6 +218,16 @@ function sessionCapabilitiesSummary(raw:unknown):{fork?:true;list?:true;close?:t
   return Object.keys(summary).length ? summary : undefined;
 }
 
+function normalizeSessionCwd(rawPath:string):string {
+  let normalized=rawPath.trim().replace(/\\/g,"/");
+  if (/^\/[A-Za-z]:(?:\/|$)/.test(normalized)) normalized=normalized.slice(1);
+  if (/^[a-z]:(?:\/|$)/.test(normalized)) normalized=normalized[0].toUpperCase()+normalized.slice(1);
+  while (normalized.length > 1 && normalized.endsWith("/") && !/^[A-Za-z]:\/$/.test(normalized)) {
+    normalized=normalized.slice(0,-1);
+  }
+  return normalized;
+}
+
 function decodeListedSessions(raw:unknown):{sessionId:string;cwd:string;title?:string;updatedAt?:string}[]|undefined {
   if (!Array.isArray(raw)) return undefined;
   const sessions:{sessionId:string;cwd:string;title?:string;updatedAt?:string}[]=[];
@@ -225,7 +235,7 @@ function decodeListedSessions(raw:unknown):{sessionId:string;cwd:string;title?:s
   for (const entry of raw.slice(0,100)) {
     const item=object(entry);
     const sessionId=typeof item.sessionId === "string" ? item.sessionId.trim() : "";
-    const cwd=typeof item.cwd === "string" ? item.cwd.trim() : "";
+    const cwd=typeof item.cwd === "string" ? normalizeSessionCwd(item.cwd) : "";
     if (!sessionId || sessionId.length > 4096 || !cwd || cwd.length > 4096 || seen.has(sessionId)) continue;
     seen.add(sessionId);
     const title=typeof item.title === "string" && item.title.trim() ? item.title.trim().slice(0,256) : undefined;

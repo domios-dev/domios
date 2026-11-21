@@ -650,6 +650,50 @@ fn project_filter_resolves_unknown_paths_after_raw_prefilter() {
 }
 
 #[test]
+fn project_filter_matches_windows_drive_slash_backslash_and_leading_slash_forms() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("win-session.jsonl");
+    std::fs::write(&path, "needle\n").expect("write win session");
+    let file = path.to_string_lossy().to_string();
+    let mut meta = session("win-1", &file, 10);
+    meta.project_path = Some("/C:/Developer/codeterm/codeterm".into());
+    let p = probe(
+        vec![meta],
+        vec![(&file, vec![("user", "needle in windows session")])],
+    );
+
+    for query_project in [
+        "C:/Developer/codeterm/codeterm",
+        r"C:\Developer\codeterm\codeterm",
+        "/C:/Developer/codeterm/codeterm",
+        "/c:/Developer/codeterm/codeterm/",
+    ] {
+        let result = p
+            .registry
+            .search_sessions(&SessionSearchOpts {
+                project_path: Some(query_project.into()),
+                ..opts(&["needle"], 10)
+            })
+            .unwrap();
+        assert_eq!(
+            result.hits.len(),
+            1,
+            "expected project={query_project} to match /C:/Developer/codeterm/codeterm"
+        );
+        assert_eq!(result.hits[0].meta.session_id, "win-1");
+    }
+
+    let other = p
+        .registry
+        .search_sessions(&SessionSearchOpts {
+            project_path: Some("C:/Developer/codeterm/other".into()),
+            ..opts(&["needle"], 10)
+        })
+        .unwrap();
+    assert!(other.hits.is_empty());
+}
+
+#[test]
 fn provider_without_content_source_is_reported_not_silently_empty() {
     let p = probe_with(
         SessionContentSource::None,
