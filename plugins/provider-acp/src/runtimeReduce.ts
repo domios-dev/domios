@@ -211,11 +211,17 @@ export function streamTurnUsage(raw:JsonValue):TokenUsage|undefined {
   return typeof value.input_tokens === "number" && typeof value.output_tokens === "number"
     ? value as unknown as TokenUsage : undefined;
 }
-export function settleStream(ctx:RuntimeContext, raw:JsonValue, reason:string):RuntimeReduction {
+export function settleStream(
+  ctx:RuntimeContext,
+  raw:JsonValue,
+  reason:string,
+  apiError?:{content:string; toolInput:JsonValue},
+):RuntimeReduction {
   const source=object(raw);
   if (!ctx.threadId) return {state:raw,events:[]};
+  const detail=reason === "cancelled" ? {detail:"interrupted" as const} : reason === "failed" ? {detail:"failed" as const} : {};
   if (source.sessionId !== ctx.threadId || source.epoch !== ctx.epoch || source.nonce !== ctx.bindingNonce)
-    return {state:raw,events:[{kind:"turnState",threadId:ctx.threadId,state:"idle",...(reason === "cancelled" ? {detail:"interrupted" as const} : {})}]};
+    return {state:raw,events:[{kind:"turnState",threadId:ctx.threadId,state:"idle",...detail}]};
   const state=source as unknown as StreamState;
   if (state.settled) return {state:raw,events:[]};
   const next:StreamState={...state,items:Object.assign(Object.create(null),state.items),offsetById:Object.assign(Object.create(null),state.offsetById),controls:{...state.controls},warnings:Object.assign(Object.create(null),state.warnings),evidenced:[...state.evidenced],settled:true};
@@ -225,7 +231,19 @@ export function settleStream(ctx:RuntimeContext, raw:JsonValue, reason:string):R
   closeChunk(ctx,next,events);
   for (const row of Object.values(next.items)) if (row.toolStatus === "running")
     emit(next,events,{id:row.id,seq:row.seq,type:row.type,content:"",...(row.toolId ? {toolId:row.toolId} : {}),toolStatus:"interrupted",toolInterrupted:true},true);
-  events.push({kind:"turnState",threadId:ctx.threadId,turnId:`${state.sessionId}:turn:${state.turn}`,state:"idle",...(reason === "cancelled" ? {detail:"interrupted" as const} : {})});
+  const turnId=`${state.sessionId}:turn:${state.turn}`;
+  if (apiError) {
+    emit(next,events,{
+      id:`${turnId}:error`,
+      seq:0,
+      type:"system",
+      systemSubtype:"api_error",
+      toolFlowId:turnId,
+      content:boundedText(apiError.content || "Provider request failed",4096).value,
+      toolInput:apiError.toolInput,
+    });
+  }
+  events.push({kind:"turnState",threadId:ctx.threadId,turnId,state:"idle",...detail});
   boundState(next);
   return {state:json(next),events};
 }
