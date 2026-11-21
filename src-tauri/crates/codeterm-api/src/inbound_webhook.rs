@@ -208,6 +208,7 @@ fn secret_error_kind(error: &SecretError) -> &'static str {
         SecretError::AlreadyExists => "already_exists",
         SecretError::BadRequest { .. } => "bad_request",
         SecretError::Backend { .. } => "backend_unavailable",
+        SecretError::WriteUncertain { .. } => "write_uncertain",
     }
 }
 

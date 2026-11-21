@@ -6,11 +6,21 @@ const SENTINEL: &str = "SENTINEL-VALUE-7f3a";
 #[test]
 fn a_backend_payload_never_survives_redaction() {
     let payload = json!([{ "id": "i1", "login": { "password": SENTINEL } }]).to_string();
-    let message = SecretError::Backend { message: payload }
-        .redacted()
-        .to_string();
+    let message = SecretError::Backend {
+        message: payload.clone(),
+    }
+    .redacted()
+    .to_string();
     assert!(!message.contains(SENTINEL));
     assert_eq!(message, format!("secret store backend: {WITHHELD}"));
+    let uncertain = SecretError::WriteUncertain { message: payload }
+        .redacted()
+        .to_string();
+    assert!(!uncertain.contains(SENTINEL));
+    assert_eq!(
+        uncertain,
+        format!("secret store write uncertain: {WITHHELD}")
+    );
 }
 
 #[test]

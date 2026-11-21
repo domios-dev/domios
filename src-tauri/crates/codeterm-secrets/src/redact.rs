@@ -7,7 +7,7 @@ use crate::{SecretError, SecretRef};
 
 const MAX_REASON_CHARS: usize = 160;
 const MAX_CANDIDATES: usize = 20;
-const WITHHELD: &str = "backend error (details withheld)";
+pub(crate) const WITHHELD: &str = "backend error (details withheld)";
 
 /// A backend reason survives only when it is short, single-line prose; anything
 /// that could be structured output (JSON, quoted fields) is replaced.
@@ -32,6 +32,7 @@ impl SecretError {
             SecretError::AlreadyExists => "already_exists",
             SecretError::BadRequest { .. } => "bad_request",
             SecretError::Backend { .. } => "backend",
+            SecretError::WriteUncertain { .. } => "write_uncertain",
         }
     }
 
@@ -41,6 +42,9 @@ impl SecretError {
                 message: bounded_reason(&message),
             },
             SecretError::Backend { message } => SecretError::Backend {
+                message: bounded_reason(&message),
+            },
+            SecretError::WriteUncertain { message } => SecretError::WriteUncertain {
                 message: bounded_reason(&message),
             },
             SecretError::Ambiguous { candidates } => SecretError::Ambiguous {

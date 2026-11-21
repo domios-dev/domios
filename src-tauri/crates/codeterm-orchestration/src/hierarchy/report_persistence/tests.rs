@@ -557,3 +557,79 @@ fn current_tab_binding_resolves_missing_report_identity_before_persistence() {
         "report persisted from current tab binding"
     );
 }
+
+#[test]
+fn missing_report_attachment_rejects_before_mutating_task_without_stale_binding_conflict() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "attachment preflight".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_tab("orch"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = add_task(&store, &plan.id, "guarded task", 2);
+    store
+        .edit_plan_fixture(&plan.id, 3, |plan| {
+            plan.tasks[0].status = TaskStatus::InProgress;
+            Ok(())
+        })
+        .unwrap();
+    store
+        .assign_task(&plan.id, &task_id, "worker", None, 4)
+        .unwrap();
+    store
+        .update_attempt_executor_identity(
+            &plan.id,
+            &task_id,
+            "worker",
+            None,
+            Some("worker-session"),
+            Some("worker-nonce"),
+            None,
+            5,
+        )
+        .unwrap();
+    let missing = dir.path().join("missing-dir").join("proof.png");
+    let details = ReportDetails {
+        caller_tab_id: Some("worker".into()),
+        caller_session_id: Some("worker-session".into()),
+        session_binding_nonce: Some("worker-nonce".into()),
+        owner_epoch: Some(0),
+        status: Some(ReportStatus::InReview),
+        attachments: vec![missing.display().to_string()],
+        ..Default::default()
+    };
+
+    let failure = persist_local_task_report(
+        &store,
+        "worker",
+        &plan.id,
+        &task_id,
+        &AgentRef::from_tab("worker"),
+        "should reject before persisting",
+        &details,
+        Some("in_review"),
+        Some("worker_report"),
+        6,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        failure.report_outcome,
+        ReportOutcomeClass::TransitionRejected
+    );
+    assert!(
+        failure.cause.contains("proof.png"),
+        "rejection must name the missing attachment: {}",
+        failure.cause
+    );
+    assert!(
+        !failure.cause.contains("PRODUCT INCIDENT"),
+        "missing attachment is a caller refusal, not a product incident: {}",
+        failure.cause
+    );
+    let task = store.get(&plan.id).unwrap().tasks.remove(0);
+    assert!(task.milestones.is_empty());
+    assert_eq!(task.status, TaskStatus::InProgress);
+}

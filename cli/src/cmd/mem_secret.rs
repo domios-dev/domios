@@ -105,13 +105,18 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
             }
             if json || json_mode {
                 println!("{}", crate::cmd::output::encode(&body).unwrap_or_default());
+                let _ = std::io::stdout().flush();
             } else {
                 let value = body
                     .get("value")
                     .and_then(|v| v.as_str())
                     .unwrap_or_default();
-                let _ = std::io::stdout().write_all(value.as_bytes());
+                let mut stdout = std::io::stdout();
+                let _ = stdout.write_all(value.as_bytes());
+                let _ = stdout.flush();
             }
+            // Exit immediately so raw secret output never flushes through inbound-message tailing or probes stdin.
+            std::process::exit(0);
         }
         MemSecretAction::Search { query } => {
             let url = format!(

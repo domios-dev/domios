@@ -73,6 +73,35 @@ fn media_type_for(path: &Path) -> String {
     .into()
 }
 
+pub fn validate_attachment_source(source: &Path) -> Result<(), PlanError> {
+    let meta = std::fs::metadata(source).map_err(|e| {
+        PlanError::InvalidPlanText(format!(
+            "attachment source '{}' is not accessible: {e}",
+            source.display()
+        ))
+    })?;
+    if !meta.is_file() {
+        return Err(PlanError::InvalidPlanText(format!(
+            "attachment source is not a file: {}",
+            source.display()
+        )));
+    }
+    if meta.len() == 0 {
+        return Err(PlanError::InvalidPlanText(format!(
+            "attachment source is empty: {}",
+            source.display()
+        )));
+    }
+    if meta.len() > MAX_ATTACHMENT_BYTES {
+        return Err(PlanError::InvalidPlanText(format!(
+            "attachment exceeds {} bytes: {}",
+            MAX_ATTACHMENT_BYTES,
+            source.display()
+        )));
+    }
+    Ok(())
+}
+
 fn copy_attachment(
     plan_root: &Path,
     target: AttachmentTarget,
@@ -80,7 +109,9 @@ fn copy_attachment(
     source: &Path,
     now_ms: u64,
 ) -> Result<AttachmentRef, PlanError> {
-    let meta = std::fs::metadata(source).map_err(|e| PlanError::Io(e.to_string()))?;
+    let meta = std::fs::metadata(source).map_err(|e| {
+        PlanError::Io(format!("attachment source '{}': {e}", source.display()))
+    })?;
     if !meta.is_file() {
         return Err(PlanError::Io(format!(
             "attachment source is not a file: {}",
@@ -97,7 +128,9 @@ fn copy_attachment(
     let id = crate::plan::ids::short_id("att");
     let safe = safe_filename(source);
     let dir = attachment_dir(plan_root, target, entity_id);
-    std::fs::create_dir_all(&dir).map_err(|e| PlanError::Io(e.to_string()))?;
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        PlanError::Io(format!("create attachment dir '{}': {e}", dir.display()))
+    })?;
     let filename = format!("{id}-{safe}");
     let dest = dir.join(&filename);
     let size = codeterm_util::attachments::copy_complete_file(source, &dest, MAX_ATTACHMENT_BYTES)

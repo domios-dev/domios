@@ -39,6 +39,14 @@ fn a_short_reason_and_known_kinds_survive() {
     );
     let locked = json!({ "error": { "kind": "locked" } });
     assert_eq!(secret_failure(423, &locked).unwrap().0, 3);
+    let uncertain = json!({ "error": { "kind": "write_uncertain" } });
+    let (code, err) = secret_failure(503, &uncertain).unwrap();
+    assert_eq!(code, 6);
+    assert!(err.message.contains("domios mem secret get"));
+    assert_eq!(
+        err.data.as_ref().and_then(|d| d.get("secret_kind")),
+        Some(&json!("write_uncertain"))
+    );
     assert!(secret_failure(200, &json!({})).is_none());
 }
 
