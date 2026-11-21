@@ -217,6 +217,28 @@ export function usePlanProjectionStatusOptional(): PlanProjectionStatus | null {
   };
 }
 
+export interface PeerPlanSummariesResult extends UsePlansResult {
+  available: boolean;
+}
+
+export function usePeerPlanSummaries(
+  peerId: string | null | undefined,
+  options: { enabled?: boolean } = {},
+): PeerPlanSummariesResult {
+  const ctx = useContext(PlansContext);
+  const normalizedPeerId = peerId?.trim() || null;
+  const enabled = Boolean(ctx?.ready && ctx.api.enabled && normalizedPeerId) && (options.enabled ?? true);
+  const peerApi = useMemo<ApiConfig | undefined>(
+    () => (ctx && normalizedPeerId ? { ...ctx.api, peerId: normalizedPeerId } : undefined),
+    [ctx, normalizedPeerId],
+  );
+  const result = usePlans(peerApi, { enabled, contextKey: ctx?.contextKey });
+  return useMemo(
+    () => ({ ...result, available: enabled }),
+    [result, enabled],
+  );
+}
+
 export function usePlanSummaries(): UsePlansResult {
   const context = usePlansContext();
   useEffect(context.requestSummaries, [context.requestSummaries]);

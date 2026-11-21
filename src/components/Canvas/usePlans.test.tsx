@@ -786,6 +786,187 @@ async function main() {
     }
   });
 
+  test("remote peer usePlans scopes by exact peerId, coalesces, and fences switch/invalidate/late replies", async () => {
+    const previousFetch = globalThis.fetch;
+    const { peerEventRail } = await import("../../lib/peerEventRail");
+    const { resolveTeamPlanStatus, selectRemoteTeamPlanProjection } = await import("../Sidebar/teamTaskStatus");
+    const { PlansProvider, usePeerPlanSummaries } = await import("./PlansProvider");
+    const heldEight = deferred<Response>();
+    const heldBeforeSwitch = deferred<Response>();
+    let eightPhase: "hold-initial" | "reconciled" | "genuine-empty" | "hold-switch" = "hold-initial";
+    let eightSignal: AbortSignal | null = null;
+    const relayTargets: string[] = [];
+    const relay = (data: unknown, status = 200) => Response.json({ ok: status === 200, status, data });
+    const done94Summary = {
+      ...FIXTURE_PLAN,
+      id: "pl_rek",
+      team_id: "team_sauron",
+      title: "Rekap",
+      revision: "94",
+      tasks: Array.from({ length: 25 }, (_, i) => ({ id: `t-${i}`, name: `Task ${i}`, status: "done" })),
+      sections: [],
+      strides: [],
+      task_counts: { total: 94, pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 94, cancelled: 0 },
+    };
+    const emptySummary = {
+      ...FIXTURE_PLAN,
+      id: "pl_empty",
+      team_id: "team_empty",
+      title: "Empty remote effort",
+      revision: "1",
+      tasks: [],
+      sections: [],
+      strides: [],
+      task_counts: { total: 0, pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0 },
+    };
+
+    const peerListeners = new Map<string, Set<(event: import("../../lib/peerEventRail").PeerEvent) => void>>();
+    const originalObserve = peerEventRail.observe;
+    peerEventRail.observe = (peerId, listener) => {
+      const set = peerListeners.get(peerId) ?? new Set();
+      set.add(listener);
+      peerListeners.set(peerId, set);
+      return () => { set.delete(listener); };
+    };
+    const emitPeer = (peerId: string, event: import("../../lib/peerEventRail").PeerEvent) => {
+      for (const listener of peerListeners.get(peerId) ?? []) listener(event);
+    };
+
+    globalThis.fetch = muxMockFetch(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/mesh/relay-to") {
+        const body = JSON.parse(String(init?.body)) as { target_instance_id: string; path: string };
+        relayTargets.push(`${body.target_instance_id}:${body.path}`);
+        if (body.target_instance_id === "eight") {
+          if (eightPhase === "hold-initial") {
+            eightSignal = init?.signal ?? null;
+            return heldEight.promise;
+          }
+          if (eightPhase === "hold-switch") {
+            eightSignal = init?.signal ?? null;
+            return heldBeforeSwitch.promise;
+          }
+          if (eightPhase === "genuine-empty") {
+            return relay({ plans: [emptySummary] });
+          }
+          return relay({ plans: [done94Summary] });
+        }
+        return relay({
+          plans: [{ ...FIXTURE_PLAN, id: "pl_peer_b", team_id: "team_b", title: "Peer B", revision: "1", tasks: [], sections: [], strides: [], task_counts: { total: 3, pending: 3, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0 } }],
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
+
+    let latest: UsePlansResult | null = null;
+    function RemoteProbe({ peerId }: { peerId: string }) {
+      const state = usePlans({ ...API, peerId });
+      latest = state;
+      return <output>{state.loading ? "loading" : state.plans.map((p) => `${p.id}:${p.task_counts?.done ?? "?"}`).join(",")}</output>;
+    }
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => { root.render(<RemoteProbe peerId="eight" />); });
+      assert(latest?.loading && latest.plans.length === 0, "held remote summary read stays loading without inventing zeros");
+      assert(resolveTeamPlanStatus(null, {}, { loading: true, unavailable: true }).state === "unavailable", "missing held remote summary stays unavailable");
+
+      await act(async () => {
+        heldEight.resolve(relay({ plans: [done94Summary] }));
+      });
+      assert(host.textContent === "pl_rek:94", "authoritative remote summary exposes Done 94, not loaded page 25");
+      const status94 = resolveTeamPlanStatus(latest!.plans[0]!, {});
+      assert(status94.state === "verified" && status94.counts.done === 94, "Team card resolves authoritative 94 done from remote summary");
+
+      const truncatedWithoutCounts = { ...done94Summary, task_counts: undefined, task_window: { next_cursor: { position: 25, task_id: "t-24" } } };
+      assert(
+        resolveTeamPlanStatus(truncatedWithoutCounts as unknown as import("./planProjection").PlanView, {}).state === "unavailable",
+        "truncated 25-of-94 task window without task_counts never fabricates 25 as total",
+      );
+
+      eightPhase = "genuine-empty";
+      await act(async () => { emitPeer("eight", { type: "reconcile" }); });
+      const emptyStatus = resolveTeamPlanStatus(latest!.plans[0]!, {});
+      assert(emptyStatus.state === "verified" && emptyStatus.counts.done === 0 && emptyStatus.counts.todo === 0, "genuine empty remote summary verifies zero");
+
+      await act(async () => { emitPeer("eight", { type: "invalidate" }); });
+      assert(latest!.plans.length === 0 && latest!.loading, "peer invalidate clears prior remote summaries immediately");
+
+      eightPhase = "reconciled";
+      await act(async () => { emitPeer("eight", { type: "reconcile" }); });
+      assert(host.textContent === "pl_rek:94", "peer reconcile restores authoritative remote summary");
+
+      eightPhase = "hold-switch";
+      await act(async () => { emitPeer("eight", { type: "plans-loaded" }); });
+      const switchSignal = eightSignal;
+      assert(switchSignal && !switchSignal.aborted, "remote summary read held before peer switch");
+
+      await act(async () => { root.render(<RemoteProbe peerId="peer-b" />); });
+      assert(switchSignal.aborted, "switching peerId immediately aborts held read from eight");
+      assert(host.textContent === "pl_peer_b:0", "switched peer displays its own authoritative summary");
+
+      await act(async () => { heldBeforeSwitch.resolve(relay({ plans: [done94Summary] })); });
+      assert(host.textContent === "pl_peer_b:0", "late eight reply cannot leak into peer-b");
+      assert(relayTargets.some((t) => t.startsWith("eight:/api/plans?view=summary")), "remote reads targeted exact peer eight");
+
+      // Verify the single-read consumer contract (usePeerPlanSummaries + selectRemoteTeamPlanProjection)
+      const countBeforeContract = relayTargets.length;
+      eightPhase = "reconciled";
+      let contractSummary: ReturnType<typeof usePeerPlanSummaries> | null = null;
+      function ContractProbe() {
+        contractSummary = usePeerPlanSummaries("eight");
+        return null;
+      }
+      await act(async () => {
+        root.render(<PlansProvider api={API}><ContractProbe /></PlansProvider>);
+        await Promise.resolve();
+      });
+      const eightSummaryCalls = relayTargets.slice(countBeforeContract).filter((t) => t === "eight:/api/plans?view=summary").length;
+      assert(eightSummaryCalls === 1, `consumer contract issues one bounded summary read for all Teams on peer (got ${eightSummaryCalls})`);
+      const matched = selectRemoteTeamPlanProjection({
+        teamId: "team_sauron",
+        owningPeerId: "eight",
+        viewedPeerId: "eight",
+        plans: contractSummary!.plans,
+        available: contractSummary!.available,
+        loading: contractSummary!.loading,
+        reconnecting: contractSummary!.reconnecting,
+        error: contractSummary!.error,
+      });
+      assert(matched.plan?.id === "pl_rek", "contract binds exact Team active plan on owning peer");
+      const resolvedMatched = resolveTeamPlanStatus(matched.plan, {}, matched.meta);
+      assert(resolvedMatched.state === "verified" && resolvedMatched.counts.done === 94, "contract yields authoritative Done 94");
+      const foreignTeam = selectRemoteTeamPlanProjection({
+        teamId: "team_sauron",
+        owningPeerId: "third-peer",
+        viewedPeerId: "eight",
+        plans: contractSummary!.plans,
+        available: contractSummary!.available,
+        loading: contractSummary!.loading,
+        reconnecting: contractSummary!.reconnecting,
+        error: contractSummary!.error,
+      });
+      assert(foreignTeam.plan === null && foreignTeam.meta.unavailable === true, "foreign-owned Team stays unavailable instead of cross-matching");
+      const missingTeam = selectRemoteTeamPlanProjection({
+        teamId: "team_no_plan",
+        owningPeerId: "eight",
+        viewedPeerId: "eight",
+        plans: contractSummary!.plans,
+        available: contractSummary!.available,
+        loading: contractSummary!.loading,
+        reconnecting: contractSummary!.reconnecting,
+        error: contractSummary!.error,
+      });
+      assert(missingTeam.plan === null && missingTeam.meta.unavailable === false, "confirmed absence on online peer is distinct from unavailable");
+    } finally {
+      peerEventRail.observe = originalObserve;
+      await act(async () => root.unmount());
+      host.remove();
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   test("selected detail skips unrelated contiguous changes, ignores old events and recovers gaps", async () => {
     const previousFetch = globalThis.fetch;
     let reads = 0;

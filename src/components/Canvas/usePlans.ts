@@ -2,6 +2,7 @@ import type { PlanView as Plan } from "./planProjection";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import { formatPlanFetchError } from "../../lib/fetchResilience";
+import { peerEventRail } from "../../lib/peerEventRail";
 import { onResync } from "../../lib/resync";
 import type { ApiConfig } from "../../lib/types";
 import { fetchPlanProjection, fetchPlans, PlanReadError } from "./plansApi";
@@ -25,7 +26,8 @@ export interface UsePlansOptions {
 
 export function usePlans(api: ApiConfig | undefined, options: UsePlansOptions = {}): UsePlansResult {
   const enabled = (options.enabled ?? true) && Boolean(api?.enabled);
-  const key = enabled ? JSON.stringify([api?.host, api?.port, api?.token, options.project, options.chat, options.tabId, options.contextKey]) : null;
+  const peerId = api?.peerId;
+  const key = enabled ? JSON.stringify([api?.host, api?.port, api?.token, peerId, options.project, options.chat, options.tabId, options.contextKey]) : null;
   const selected = useRef(key);
   selected.current = key;
   const [state, setState] = useState<{ key: string | null; plans: PlanProjection[]; loading: boolean; error: string | null }>({
@@ -253,27 +255,51 @@ export function usePlans(api: ApiConfig | undefined, options: UsePlansOptions = 
       await fetchPatch(change.plan_id);
     };
     if (key) {
-      stops.push(onResync((reason) => {
-        if (reason === "epoch_changed") {
+      if (peerId) {
+        stops.push(peerEventRail.observe(peerId, (event) => {
+          if (!current()) return;
+          if (event.type === "invalidate") {
+            listQueued = false;
+            listRead?.abort();
+            listRead = null;
+            cancelPatches();
+            pendingPatches.clear();
+            observed.clear();
+            deletedFloors.clear();
+            plans.clear();
+            publish(null, true);
+          } else if (event.type === "reconcile" || event.type === "plans-loaded") {
+            observed.clear();
+            deletedFloors.clear();
+            void load({ preempt: true });
+          } else if (event.type === "plan-changed") {
+            void patch(event.data).catch(() => load());
+          }
+        }));
+        void load({ preempt: true });
+      } else {
+        stops.push(onResync((reason) => {
+          if (reason === "epoch_changed") {
+            observed.clear();
+            deletedFloors.clear();
+          }
+          void load({ preempt: true });
+        }));
+        const boot = () => {
           observed.clear();
           deletedFloors.clear();
-        }
-        void load({ preempt: true });
-      }));
-      const boot = () => {
-        observed.clear();
-        deletedFloors.clear();
-        void load({ preempt: true });
-      };
-      window.addEventListener("codeterm-web-boot-changed", boot);
-      stops.push(() => window.removeEventListener("codeterm-web-boot-changed", boot));
-      void Promise.all([
-        listen<CommittedPlanChange>("plan-changed", ({ payload }) => { if (current()) void patch(payload).catch(() => load()); }),
-        listen("plans-loaded", () => { void load(); }),
-      ].map(async (subscription) => {
-        const stop = await subscription;
-        if (active) stops.push(stop); else stop();
-      })).then(() => { if (active) void load({ preempt: true }); }).catch((cause: unknown) => publish(formatPlanFetchError(cause)));
+          void load({ preempt: true });
+        };
+        window.addEventListener("codeterm-web-boot-changed", boot);
+        stops.push(() => window.removeEventListener("codeterm-web-boot-changed", boot));
+        void Promise.all([
+          listen<CommittedPlanChange>("plan-changed", ({ payload }) => { if (current()) void patch(payload).catch(() => load()); }),
+          listen("plans-loaded", () => { void load(); }),
+        ].map(async (subscription) => {
+          const stop = await subscription;
+          if (active) stops.push(stop); else stop();
+        })).then(() => { if (active) void load({ preempt: true }); }).catch((cause: unknown) => publish(formatPlanFetchError(cause)));
+      }
     }
     return () => {
       active = false;
@@ -283,7 +309,7 @@ export function usePlans(api: ApiConfig | undefined, options: UsePlansOptions = 
       pendingPatches.clear();
       for (const stop of stops) stop();
     };
-  }, [key, api?.host, api?.port, api?.token, project, chat, tabId]);
+  }, [key, api?.host, api?.port, api?.token, peerId, project, chat, tabId]);
 
   const current = state.key === key;
   return {

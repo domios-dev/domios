@@ -8,10 +8,12 @@ import { Window } from "happy-dom";
 import type { Tab, MultiplexerState, Team, Workspace } from "../../lib/types";
 import { __setListenForTest } from "../../lib/bridge";
 import { fireResync } from "../../lib/resync";
-import { PlansProvider, usePlanIndex, useSidebarPlansOptional } from "../Canvas/PlansProvider";
+import { PlansProvider, usePeerPlanSummaries, usePlanIndex, useSidebarPlansOptional } from "../Canvas/PlansProvider";
+import { selectRemoteTeamPlanProjection } from "./teamTaskStatus";
+import { TeamUnit } from "./TeamUnit";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { PlanSummaryRead } from "../Canvas/planProjection";
-import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
+import { FIXTURE_PLAN, FIXTURE_TASK, FIXTURE_TASK_METADATA } from "../Canvas/cards/fixtures.testdata";
 import type { Plan, Task } from "../Canvas/types";
 import { SidebarDnd } from "./sortable";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
@@ -558,6 +560,233 @@ async function main() {
     await act(async () => stageRoot.unmount());
     stageHost.remove();
     Object.defineProperty(globalThis, "fetch", { configurable: true, value: prevFetch });
+  }
+
+  // Remote browsed peer Team cards (eight / Sauron case): single bounded peer summary read,
+  // held -> unavailable, authoritative Done 94 (never loaded 25), genuine empty, foreign Team fenced,
+  // peer switch and late-reply fenced.
+  const { peerEventRail } = await import("../../lib/peerEventRail");
+  const remoteListeners = new Map<string, Set<(event: import("../../lib/peerEventRail").PeerEvent) => void>>();
+  const originalObserve = peerEventRail.observe;
+  peerEventRail.observe = (peerId, listener) => {
+    const set = remoteListeners.get(peerId) ?? new Set();
+    set.add(listener);
+    remoteListeners.set(peerId, set);
+    return () => { set.delete(listener); };
+  };
+  let releaseEight!: () => void;
+  let eightRequested!: () => void;
+  const eightReady = new Promise<void>((resolve) => { eightRequested = resolve; });
+  let releaseEightSwitch!: () => void;
+  let eightSwitchRequested!: () => void;
+  const eightSwitchReady = new Promise<void>((resolve) => { eightSwitchRequested = resolve; });
+  let eightMode: "hold" | "hold-switch" = "hold";
+  let eightSummaryRequests = 0;
+
+  const relayJson = (data: unknown) => response({ ok: true, status: 200, data });
+  const eightPlans: PlanSummaryRead[] = [
+    {
+      ...FIXTURE_PLAN_READ,
+      id: "pl_rek",
+      title: "Rekap: Navid Playground",
+      status: "active",
+      owner: FIXTURE_PLAN.owner,
+      project_path: "/sauron",
+      canonical_project_path: "/sauron",
+      created_at: 94,
+      updated_at: 94,
+      canvas: FIXTURE_PLAN.canvas,
+      mode: "planning",
+      planning_state: "drafting",
+      team_id: "team_rekap",
+      revision: "94",
+      tasks: Array.from({ length: 25 }, (_, i) => ({
+        ...FIXTURE_TASK_METADATA,
+        id: `rek-${i}`,
+        name: `REK-${i}`,
+        status: "done" as const,
+      })),
+      task_counts: { total: 94, pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 94, cancelled: 0 },
+    },
+    {
+      ...FIXTURE_PLAN_READ,
+      id: "pl_empty_remote",
+      title: "Project X",
+      status: "active",
+      owner: FIXTURE_PLAN.owner,
+      project_path: "/sauron",
+      canonical_project_path: "/sauron",
+      created_at: 1,
+      updated_at: 1,
+      canvas: FIXTURE_PLAN.canvas,
+      mode: "planning",
+      planning_state: "drafting",
+      team_id: "team_project_x",
+      revision: "1",
+      tasks: [],
+      task_counts: { total: 0, pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0 },
+    },
+  ];
+  const ubuntaPlans: PlanSummaryRead[] = [
+    {
+      ...FIXTURE_PLAN_READ,
+      id: "pl_ubunta",
+      title: "Ubunta effort",
+      status: "active",
+      owner: FIXTURE_PLAN.owner,
+      project_path: "/ubunta",
+      canonical_project_path: "/ubunta",
+      created_at: 2,
+      updated_at: 2,
+      canvas: FIXTURE_PLAN.canvas,
+      mode: "planning",
+      planning_state: "drafting",
+      team_id: "team_rekap",
+      revision: "2",
+      tasks: [],
+      task_counts: { total: 4, pending: 2, in_progress: 0, in_review: 1, blocked: 0, paused: 0, done: 1, cancelled: 0 },
+    },
+  ];
+
+  const remotePrevFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    value: muxMockFetch(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/api/plans")) return response({ plans: [] });
+      if (url.endsWith("/api/mesh/relay-to")) {
+        const envelope = JSON.parse(String(init?.body)) as { target_instance_id: string; path: string };
+        if (envelope.target_instance_id === "eight" && envelope.path === "/api/plans?view=summary") {
+          eightSummaryRequests += 1;
+          if (eightMode === "hold") {
+            return new Promise<Response>((resolve) => {
+              releaseEight = () => resolve(relayJson({ plans: eightPlans }));
+              eightRequested();
+            });
+          }
+          return new Promise<Response>((resolve) => {
+            releaseEightSwitch = () => resolve(relayJson({ plans: eightPlans }));
+            eightSwitchRequested();
+          });
+        }
+        if (envelope.target_instance_id === "ubunta" && envelope.path === "/api/plans?view=summary") {
+          return relayJson({ plans: ubuntaPlans });
+        }
+      }
+      return new Response("not found", { status: 404 });
+    }),
+  });
+
+  function RemoteTeamCardsProbe({ peerId }: { peerId: string }) {
+    const remote = usePeerPlanSummaries(peerId);
+    const entries = [
+      { id: "team_rekap", name: "Rekap: Navid Playground", ownerPeer: peerId },
+      { id: "team_project_x", name: "Project X", ownerPeer: peerId },
+      { id: "team_foreign", name: "Foreign Team", ownerPeer: "other-peer" },
+    ];
+    return (
+      <>
+        {entries.map((entry) => {
+          const matched = selectRemoteTeamPlanProjection({
+            teamId: entry.id,
+            owningPeerId: entry.ownerPeer,
+            viewedPeerId: peerId,
+            plans: remote.plans,
+            available: remote.available,
+            loading: remote.loading,
+            reconnecting: remote.reconnecting,
+            error: remote.error,
+          });
+          return (
+            <TeamUnit
+              key={`${peerId}:${entry.id}`}
+              team={{
+                id: entry.id,
+                name: entry.name,
+                lifecycle: "active",
+                created_at: 1,
+                workspace_id: "sauron",
+                remote_peer_id: entry.ownerPeer,
+                remote_peer_name: entry.ownerPeer,
+              }}
+              plan={matched.plan}
+              planCountMeta={matched.meta}
+              tabs={{}}
+              managers={null}
+              managerCount={1}
+              workers={null}
+              workerCount={0}
+              workingWorkerCount={0}
+              providers={[]}
+            />
+          );
+        })}
+      </>
+    );
+  }
+
+  const remoteHost = document.createElement("div");
+  document.body.appendChild(remoteHost);
+  const remoteRoot = createRoot(remoteHost);
+  try {
+    await act(async () => {
+      remoteRoot.render(<PlansProvider api={API}><RemoteTeamCardsProbe peerId="eight" /></PlansProvider>);
+      await eightReady;
+    });
+    assert(eightSummaryRequests === 1, "one bounded remote summary read serves all remote Team cards");
+    assert(
+      remoteHost.querySelectorAll('[data-testid="team-status-unavailable"]').length === 3
+      && remoteHost.querySelectorAll('[data-testid="team-status-tally"]').length === 0,
+      "held remote summary read keeps all remote Team cards unavailable instead of zero",
+    );
+
+    await act(async () => {
+      releaseEight();
+      await settleDaemon();
+    });
+    const rekapCard = remoteHost.querySelector('[data-team-id="team_rekap"]')!;
+    const projectXCard = remoteHost.querySelector('[data-team-id="team_project_x"]')!;
+    const foreignCard = remoteHost.querySelector('[data-team-id="team_foreign"]')!;
+    assert(
+      rekapCard.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "verified"
+      && rekapCard.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent === "94"
+      && rekapCard.querySelector('[data-testid="team-status-todo"] .ct-plan-status-breakdown-count')?.textContent === "0",
+      "remote Team card renders authoritative Done 94, never loaded page 25 or fabricated 0",
+    );
+    assert(
+      projectXCard.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "verified"
+      && projectXCard.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent === "0",
+      "genuine empty remote plan renders verified zero buckets",
+    );
+    assert(
+      foreignCard.querySelector('[data-testid="team-status-unavailable"]') !== null,
+      "foreign-peer Team card stays unavailable rather than cross-matching or fabricating zeros",
+    );
+
+    eightMode = "hold-switch";
+    await act(async () => {
+      for (const listener of remoteListeners.get("eight") ?? []) listener({ type: "plans-loaded" });
+      await eightSwitchReady;
+    });
+    await act(async () => {
+      remoteRoot.render(<PlansProvider api={API}><RemoteTeamCardsProbe peerId="ubunta" /></PlansProvider>);
+      await settleDaemon();
+    });
+    await act(async () => {
+      releaseEightSwitch();
+      await settleDaemon();
+    });
+    const ubuntaCard = remoteHost.querySelector('[data-team-id="team_rekap"]')!;
+    assert(
+      ubuntaCard.querySelector('[data-testid="team-status-todo"] .ct-plan-status-breakdown-count')?.textContent === "2"
+      && ubuntaCard.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent === "1",
+      "peer switch isolates remote counts and late eight reply cannot overwrite ubunta",
+    );
+  } finally {
+    peerEventRail.observe = originalObserve;
+    await act(async () => remoteRoot.unmount());
+    remoteHost.remove();
+    Object.defineProperty(globalThis, "fetch", { configurable: true, value: remotePrevFetch });
   }
 
   __setListenForTest(null);

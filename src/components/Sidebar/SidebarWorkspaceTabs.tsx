@@ -426,7 +426,9 @@ export function SidebarWorkspaceTabs({
     const managerTabId = selectTeamStaffingManager(managers.map((member) => member.tab));
     const planEntry = plansByTeam.get(teamId) ?? null;
     const plan = planEntry?.plan ?? null;
-    const planCountMeta: TeamPlanCountMeta | undefined = planEntry || planProjectionStatus
+    const planCountMeta: TeamPlanCountMeta | undefined = team.remote_peer_id && !plan
+      ? { unavailable: true, loading: false }
+      : planEntry || planProjectionStatus
       ? {
           indexOnly: planEntry?.indexOnly ?? false,
           indexTaskCount: planEntry?.indexTaskCount ?? null,

@@ -76,6 +76,61 @@ export function deriveCardStatusCounts(buckets: TeamTaskBucket[]): PlanStatusCou
   };
 }
 
+export interface RemoteTeamPlanMatch {
+  plan: Plan | null;
+  meta: TeamPlanCountMeta;
+}
+
+export function selectRemoteTeamPlanProjection(input: {
+  teamId: string | null | undefined;
+  owningPeerId: string;
+  viewedPeerId: string;
+  plans: readonly (Plan & { team_id?: string | null })[];
+  available: boolean;
+  loading: boolean;
+  reconnecting: boolean;
+  error: string | null;
+}): RemoteTeamPlanMatch {
+  if (!input.teamId || input.owningPeerId !== input.viewedPeerId) {
+    return { plan: null, meta: { unavailable: true, loading: false } };
+  }
+  let matched: Plan | null = null;
+  for (const candidate of input.plans) {
+    if (candidate.team_id !== input.teamId || candidate.status !== "active") continue;
+    const currentUpdatedAt = matched?.updated_at ?? matched?.created_at ?? 0;
+    const updatedAt = candidate.updated_at ?? candidate.created_at ?? 0;
+    if (!matched || updatedAt > currentUpdatedAt || (updatedAt === currentUpdatedAt && candidate.id > matched.id)) {
+      matched = candidate;
+    }
+  }
+  if (matched) {
+    return {
+      plan: matched,
+      meta: {
+        loading: input.loading,
+        unavailable: Boolean(input.error),
+        stale: input.reconnecting,
+      },
+    };
+  }
+  if (!input.available || input.loading || Boolean(input.error)) {
+    return {
+      plan: null,
+      meta: {
+        loading: input.loading,
+        unavailable: true,
+      },
+    };
+  }
+  return {
+    plan: null,
+    meta: {
+      loading: false,
+      unavailable: false,
+    },
+  };
+}
+
 export function resolveTeamPlanStatus(
   plan: Plan | null,
   tabs: Record<string, Tab>,
@@ -103,6 +158,15 @@ export function resolveTeamPlanStatus(
       buckets,
       counts: deriveCardStatusCounts(buckets),
       stale: Boolean(meta?.stale),
+    };
+  }
+  const hasTruncatedWindow = "task_window" in plan && Boolean((plan as { task_window?: unknown }).task_window);
+  if (hasTruncatedWindow) {
+    return {
+      state: "unavailable",
+      totalTasks: meta?.indexTaskCount ?? null,
+      openTasks: meta?.indexOpenTaskCount ?? null,
+      loading: Boolean(meta?.loading),
     };
   }
   if (meta?.indexOnly) {
