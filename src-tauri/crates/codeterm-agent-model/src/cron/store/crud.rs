@@ -863,11 +863,16 @@ impl CronStore {
         now_ms: u64,
         reason: super::CronCancelReason,
     ) -> Result<Prepared<Vec<(String, u64)>>, String> {
+        let runs: Vec<_> = self.active_runs().into_iter().filter(|(job, _)| job == job_id).map(|(_, run)| run.run_id).collect();
+        self.prepare_cancel_runs(job_id, &runs, now_ms, reason)
+    }
+
+    pub fn prepare_cancel_runs(&self, job_id: &str, runs: &[String], now_ms: u64, reason: super::CronCancelReason) -> Result<Prepared<Vec<(String, u64)>>, String> {
         let original = self
             .get(job_id)
             .ok_or_else(|| format!("Cron job not found: {}", job_id))?;
         let unfinished = |run: &CronRunInfo| {
-            self.run_is_active(job_id, &run.run_id) && matches!(
+            runs.contains(&run.run_id) && self.run_is_active(job_id, &run.run_id) && matches!(
                 run.status,
                 CronRunStatus::Running | CronRunStatus::AwaitingOwnerPrompt
             )

@@ -1,8 +1,9 @@
 use super::*;
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CronReportPlan {
     pub(crate) target: Option<String>,
+    pub(crate) target_refused: bool,
     pub(crate) name: String,
     pub(crate) retire_oneshot: bool,
 }
@@ -17,19 +18,25 @@ impl ServiceContext {
         let store = cron.lock();
         let job = store.get(job_id);
         CronReportPlan {
-            target: job.and_then(|job| job.report_target_tab_id.clone()),
-            name: job.map(|job| job.name.trim().to_string()).filter(|name| !name.is_empty()).unwrap_or_else(|| job_id.into()),
+            target: job.and_then(|job| job.report_target_tab_id.as_ref()).filter(|target| target.len() <= 128).cloned(),
+            target_refused: job.and_then(|job| job.report_target_tab_id.as_ref()).is_some_and(|target| target.len() > 128),
+            name: job.map(|job| job.name.trim().chars().take(256).collect::<String>()).filter(|name| !name.is_empty()).unwrap_or_else(|| job_id.into()),
             retire_oneshot: job.is_some_and(|job| job.oneshot && !crate::service::role_policy::resolve(job.role.as_deref()).is_some_and(|policy| policy.retain_oneshot())),
         }
     }
 
     pub(crate) fn deliver_cron_terminal_report(&self, plan: &CronReportPlan, end: CronRunEnd<'_>, deliver: impl FnOnce(&str, MessageEnvelope, &str) -> Result<(), String>) -> String {
+        if plan.target_refused {
+            self.log_system_notice("Cron report target refused".into(), Some("Report target identity exceeds its metadata bound; no delivery was invoked".into()), Some("error"));
+            return "failed: report target identity exceeds its bound".into();
+        }
         let Some(target) = &plan.target else { return "no report target".into() };
         let report = format!("Cron run {} completed with status {:?}. Summary: {}", end.run_id, end.status, end.summary);
         let envelope = MessageEnvelope::codeterm_reminder(cron_end_context(&plan.name, &end.status));
         cron_report_delivery_label(deliver(target, envelope, &report))
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn prepare_runtime_cron_owner(
         &self,
         tab_id: &str,
@@ -37,6 +44,7 @@ impl ServiceContext {
         run_id: &str,
     ) -> Result<(), String> {
         let cron = self.extensions.try_get::<CronState>().ok_or("Runtime cron state unavailable")?;
+        self.run_watcher.reserve_cron_slot(self, cron, job_id, run_id)?;
         let linkage = crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id: job_id.into(), run_id: run_id.into() };
         let owner = match self.run_watcher.cron_binding(tab_id, job_id, run_id) {
             Some(owner) => owner,
@@ -46,6 +54,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn reserve_cron_launch(&self, cron: &CronState, linkage: &crate::service::spawn::RuntimeOwnerLinkage, tab: &str, nonce: &str, pty: Option<&str>) -> Result<crate::agent::run_watcher::runtime_runs::CronRunAuthority, String> {
+        if let crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id, run_id } = linkage { self.run_watcher.reserve_cron_slot(self, cron, job_id, run_id)?; }
         let owner = self.run_watcher.capture_cron_launch(self, linkage, tab, nonce, pty)?;
         self.reserve_captured_cron_launch(cron, &owner)?;
         Ok(owner)
@@ -86,19 +95,23 @@ impl ServiceContext {
     }
 
     pub(crate) fn settle_owned_cron_cleanup(&self, owner: &crate::agent::run_watcher::runtime_runs::CronRunAuthority, reason: TabCloseReason) -> Result<(), String> {
+        let (canonical, lease) = self.run_watcher.claim_cron_cleanup(owner)?;
+        let _lease = lease.lock();
+        let owner = &canonical;
+        if let Some(pad) = self.run_watcher.cron_pad_lease(owner) { self.revoke_cron_pad(&pad)?; }
         if let Some(pty) = self.run_watcher.pending_cron_cleanup(owner) {
             pty.teardown.wait_for_completion(std::time::Instant::now() + std::time::Duration::from_secs(5))?;
         }
         let current = owner.matches(&self.mux.read());
         let mut session = if current { owner.pty_id().and_then(|pty| self.pty.lock().get_session(pty)) } else { None };
         if current {
-            let outcome = self.close_tab_with_teardown(owner.tab_id(), reason, |mux, _| {
+            let outcome = self.close_tab_with_teardown_and_pad(owner.tab_id(), reason, |mux, _| {
                 if !owner.matches(mux) { return Err("Cron launch changed before cleanup".into()); }
                 Ok(())
             }, || Ok(()), |mux, _| {
                 if !owner.matches(mux) { return Err("Cron launch changed during cleanup".into()); }
                 Ok(())
-            });
+            }, false);
             if let Err(error) = outcome {
                 if owner.matches(&self.mux.read()) { self.run_watcher.retain_cron_cleanup(owner, None); return Err(error); }
                 session = None;
@@ -130,6 +143,7 @@ impl ServiceContext {
                 return Err(error);
             }
         }
+        if self.run_watcher.cron_allocation_pending(owner.job_id(), owner.run_id()) { return Err("Original cron allocation still owns teardown; cleanup will resume on release".into()); }
         self.run_watcher.complete_cron_cleanup(owner);
         if let Some(wake) = self.try_ext::<crate::CronWake>() { wake.notify_all(); }
         Ok(())

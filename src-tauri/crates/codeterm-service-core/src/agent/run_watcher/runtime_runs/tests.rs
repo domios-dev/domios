@@ -17,6 +17,7 @@ module.exports = {
   runtimeResponse(ctx, op) {
     let result = {kind:'done'}, events = [];
     if (op.kind === 'initialize') result = {kind:'initialized'};
+    if (op.kind === 'forkThread') result = {kind:'threadForked',sourceThreadId:op.sourceThreadId,threadId:ctx.bindingNonce,turnId:op.turnId};
     if (op.kind === 'resumeThread' || op.kind === 'openThread')
       result = {kind:'threadLoaded',threadId:op.threadId || ctx.bindingNonce,settings:op.settings};
     if (op.kind === 'readHistory') {
@@ -72,6 +73,7 @@ impl Scene {
             "initialize",
             "resumeThread",
             "openThread",
+            "forkThread",
             "readHistory",
             "submitTurn",
             "control",

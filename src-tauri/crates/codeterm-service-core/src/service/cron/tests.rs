@@ -21,6 +21,7 @@ fn admit_fixture_run(fixture: &ServiceFixture, cron: &crate::CronState, tab: &st
     else { assert!(fixture.service.set_ext(cron.clone()).is_ok()); }
     assert!(fixture.service.mux.read().get_tab(tab).unwrap().pty_id.is_none());
     let linkage = crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id: job.into(), run_id: run.into() };
+    fixture.service.run_watcher.reserve_cron_slot(&fixture.service, cron, job, run).unwrap();
     fixture.service.reserve_cron_launch(cron, &linkage, tab, nonce, None).unwrap();
     fixture.service.bind_cron_spawn(cron, tab, job, run, Some(nonce.into()), None).unwrap();
 }

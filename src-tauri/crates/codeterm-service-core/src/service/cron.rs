@@ -2,7 +2,7 @@ use super::ServiceContext;
 mod terminal;
 pub(crate) use terminal::CronReportPlan;
 use crate::cron::store::{
-    commit, finish_run, CronCommitError, CronCommitted, CronCreateParams, CronJob, CronRunInfo,
+    commit, CronCommitError, CronCommitted, CronCreateParams, CronJob, CronRunInfo,
     CronRunStatus, CronScope, CronStore, CronUpdateParams,
 };
 use crate::multiplexer::types::TabCloseReason;
@@ -573,48 +573,50 @@ impl ServiceContext {
         id: &str,
         reason: crate::cron::store::CronCancelReason,
     ) -> Result<usize, String> {
-        let now_ms = cron.lock().now_ms();
-        let cancelled = match commit(cron, |store| {
-            store.prepare_cancel_running(id, now_ms, reason)
-        }) {
+        self.run_watcher.ensure_cron_recovery(self, cron)?;
+        let _cancelling = self.run_watcher.begin_cron_cancellation(id)?;
+        let recovery = self.run_watcher.cron_cancellation_snapshot(id);
+        let (now_ms, requested, mappings, owned) = {
+            let store = cron.lock();
+            let requested: Vec<_> = store.active_runs().into_iter().filter(|(job, _)| job == id).map(|(_, run)| run.run_id).collect();
+            self.run_watcher.retain_cancellation_finalizers(id);
+            let mappings: Vec<_> = store.tab_owners_for_job(id).into_iter().filter_map(|tab| {
+                let (job, run) = store.get_tab_owner(&tab)?;
+                requested.contains(run).then(|| (tab.clone(), job.clone(), run.clone()))
+            }).collect();
+            for (tab, job, run) in &mappings {
+                if let Some(owner) = self.run_watcher.cron_binding(tab, job, run) { self.run_watcher.retain_cron_cleanup(&owner, None); }
+            }
+            (store.now_ms(), requested, mappings, self.run_watcher.cron_cleanup_owners(id))
+        };
+        let missing_retained = cron.lock().get(id).is_none() && !recovery.is_empty();
+        let cancelled = if missing_retained { Vec::new() } else { match commit(cron, |store| store.prepare_cancel_runs(id, &requested, now_ms, reason)) {
             Ok(done) => {
                 for (run_id, elapsed_ms) in &done.value {
-                    // Observability parity with update_run_status — see crud::log_finished.
-                    log::info!(
-                        "Cron run completed: job={}, run={}, status=Cancelled, elapsed_ms={}",
-                        id,
-                        run_id,
-                        elapsed_ms
-                    );
+                    log::info!("Cron run completed: job={}, run={}, status=Cancelled, elapsed_ms={}", id, run_id, elapsed_ms);
                 }
                 done.value.into_iter().map(|(run, _)| run).collect::<Vec<_>>()
             }
             Err(error) if error.applied() => {
                 log::error!("Failed to persist cron cancellation: job={id}: {error}");
-                cron.lock().get_history(id).into_iter().filter(|run| run.status == CronRunStatus::Cancelled && run.finished_at == Some(now_ms) && run.cancel_reason == Some(reason)).map(|run| run.run_id.clone()).collect()
+                let store = cron.lock();
+                requested.iter().filter(|run| store.run_is_cancelled(id, run)).cloned().collect()
             }
             Err(error) => return Err(error.to_string()),
-        };
-        let to_close = {
+        } };
+        let count = mappings.iter().filter(|(_, _, run)| cancelled.contains(run)).count();
+        {
             let mut store = cron.lock();
-            let tabs: Vec<_> = store.tab_owners_for_job(id).into_iter().filter(|tab| {
-                store.get_tab_owner(tab).is_some_and(|(_, run)| cancelled.contains(run))
-            }).collect();
-            let mut owned = Vec::new();
-            for tab_id in &tabs {
-                let authority = store.get_tab_owner(tab_id).and_then(|(job, run)| self.run_watcher.cron_binding(tab_id, job, run));
-                owned.push(authority);
-                store.unregister_tab(tab_id);
+            for (tab, job, run) in &mappings {
+                if cancelled.contains(run) && store.get_tab_owner(tab) == Some(&(job.clone(), run.clone())) { store.unregister_tab(tab); }
             }
-            owned
-        };
-
-        let count = to_close.len();
-        let retained = self.run_watcher.cancelled_cron_bindings(&cron.lock(), id);
-        for owner in to_close.iter().flatten() {
-            self.close_owned_cron_launch(owner, TabCloseReason::Cancelled);
         }
-        for owner in retained.into_iter().filter(|owner| !to_close.iter().flatten().any(|attempted| attempted == owner)) { self.close_owned_cron_launch(&owner, TabCloseReason::Cancelled); }
+        for owner in &owned {
+            let cancelled = cron.lock().run_is_cancelled(id, owner.run_id());
+            if cancelled { self.run_watcher.cancel_cron_finalizer(owner); }
+        }
+        self.run_watcher.adjudicate_cron_cancellation(self, cron, recovery, &owned)?;
+        if let Some(wake) = self.try_ext::<crate::CronWake>() { wake.notify_all(); }
         self.emit_cron_changed();
         Ok(count)
     }
@@ -762,6 +764,7 @@ impl ServiceContext {
             },
         );
 
+        self.run_watcher.reserve_cron_slot(self, cron, id, &run_id)?;
         let mut run_info = record_trigger_run_with_admission(cron, id, &run_info, || !self.run_watcher.cron_job_finalizing(id))?;
         let spawn = spawn(spec);
         match spawn {
@@ -794,7 +797,7 @@ impl ServiceContext {
                 }
             }
             Err(e) => {
-                let _ = finish_run(cron, id, &run_id, CronRunStatus::Failed, None);
+                self.run_watcher.settle_cron_spawn_refusal(self, cron, id, &run_id, &e)?;
                 return Err(e);
             }
         }
@@ -821,6 +824,8 @@ impl ServiceContext {
         if caller_tab_id.is_none() && !human_confirmed {
             return Err("completing a cron run without tab identity requires --yes".into());
         }
+        self.run_watcher.ensure_cron_recovery(self, cron)?;
+        if self.run_watcher.unknown_cron_outcome(run_id) { return Err("Cron terminal outcome is unknown; use cron.cancel on the exact job to acknowledge retained effects without replay".into()); }
         if self.run_watcher.resume_cron_finalizer_for_run(self, run_id, caller_tab_id, binding_nonce, human_confirmed) || self.run_watcher.resume_cron_cleanup_for_run(self, run_id, caller_tab_id, binding_nonce, human_confirmed) {
             return Ok(None);
         }

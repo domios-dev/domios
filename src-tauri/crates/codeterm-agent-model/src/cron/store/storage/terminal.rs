@@ -157,6 +157,9 @@ fn prepare(store: &mut CronStore, request: &TerminalRun, change: &TerminalChange
         }
         TerminalChange::Retire => {
             if store.get(&request.job_id).is_none() { return Ok(Prepared::unchanged(RunFinished { fresh: false, elapsed_ms: None })); }
+            if !store.get(&request.job_id).is_some_and(|job| job.oneshot && job.last_run.as_ref().is_some_and(|run| run.run_id == request.run_id && !matches!(run.status, CronRunStatus::Running | CronRunStatus::AwaitingOwnerPrompt))) {
+                return Err("Cron oneshot definition or last occurrence changed; retirement remains owned for adjudication".into());
+            }
             let retire = store.prepare_delete(&request.job_id, true)?;
             return Ok(Prepared { value: RunFinished { fresh: !retire.changes.is_empty(), elapsed_ms: None }, changes: retire.changes });
         }
@@ -174,7 +177,7 @@ fn prepare(store: &mut CronStore, request: &TerminalRun, change: &TerminalChange
             };
             for change in &mut prepared.changes {
                 if let CronChange::UpdateRuns { history, job, .. } = change {
-                    for run in history { bind(run)?; }
+                    for run in history.iter_mut().filter(|run| run.run_id == request.run_id) { bind(run)?; }
                     if let Some(run) = job.as_mut().and_then(|job| job.last_run.as_mut()).filter(|run| run.run_id == request.run_id) { bind(run)?; }
                 }
             }
@@ -207,4 +210,8 @@ async fn settle_prior(cron: &CronState) -> Result<(), CronCommitError> {
     });
     notify_fence_settled(cron);
     outcome
+}
+
+impl CronStore {
+    pub fn terminal_recovery_root(&self) -> PathBuf { self.logs_root.clone() }
 }

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -85,7 +85,10 @@ pub struct RunWatcherRegistry {
     runtime_runs: Mutex<HashMap<String, runtime_runs::RuntimeRun>>,
     cron_bindings: Mutex<HashMap<String, runtime_runs::CronRunAuthority>>,
     cron_cleanup: Mutex<HashMap<(String, String), runtime_runs::CronCleanup>>,
+    cron_cancelling: Mutex<HashSet<String>>,
+    cron_allocations: Mutex<HashSet<(String, String)>>,
     cron_finalizers: Mutex<HashMap<(String, String), Arc<cron_end::Finalizer>>>,
+    cron_recovery: Mutex<cron_end::Recovery>,
 }
 
 impl Default for RunWatcherRegistry {
@@ -101,7 +104,10 @@ impl RunWatcherRegistry {
             runtime_runs: Mutex::new(HashMap::new()),
             cron_bindings: Mutex::new(HashMap::new()),
             cron_cleanup: Mutex::new(HashMap::new()),
+            cron_cancelling: Mutex::new(HashSet::new()),
+            cron_allocations: Mutex::new(HashSet::new()),
             cron_finalizers: Mutex::new(HashMap::new()),
+            cron_recovery: Mutex::new(cron_end::Recovery::default()),
         }
     }
 

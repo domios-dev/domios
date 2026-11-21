@@ -2,7 +2,73 @@ use super::ServiceContext;
 use crate::agent::run_watcher::runtime_runs::CronRunAuthority;
 use std::collections::HashMap;
 
+pub(crate) struct CronAllocation {
+    svc: ServiceContext,
+    job: String,
+    run: String,
+    armed: bool,
+}
+
+impl CronAllocation {
+    pub(crate) fn claim(svc: &ServiceContext, job: &str, run: &str) -> Result<Self, String> {
+        svc.run_watcher.claim_cron_allocation(job, run)?;
+        Ok(Self { svc:svc.clone(), job:job.into(), run:run.into(), armed:true })
+    }
+
+    pub(crate) fn captured(mut self, owner: CronRunAuthority) -> ProvisionalCronLaunch {
+        self.armed = false;
+        ProvisionalCronLaunch::new(&self.svc, owner)
+    }
+}
+
+impl Drop for CronAllocation {
+    fn drop(&mut self) {
+        if !self.armed { return; }
+        if let Some(cron) = self.svc.try_ext::<crate::CronState>() {
+            if let Err(error) = self.svc.run_watcher.settle_unallocated_cron_claim(&self.svc, cron, &self.job, &self.run) {
+                self.svc.log_system_notice("Cron allocation outcome retained".into(), Some(error), Some("error"));
+            }
+        }
+    }
+}
+
+pub(crate) struct ProvisionalCronLaunch {
+    svc: ServiceContext,
+    owner: CronRunAuthority,
+    armed: bool,
+}
+
+impl ProvisionalCronLaunch {
+    pub(crate) fn new(svc: &ServiceContext, owner: CronRunAuthority) -> Self { Self { svc: svc.clone(), owner, armed: true } }
+    pub(crate) fn owner(&self) -> &CronRunAuthority { &self.owner }
+    pub(crate) fn prepare(&self) -> Result<(), String> { self.svc.run_watcher.journal_cron_owner(&self.owner) }
+    pub(crate) fn pad(&self) -> Result<(), String> { self.svc.capture_cron_pad(&self.owner).map(|_| ()) }
+    pub(crate) fn transfer(mut self) -> CronRunAuthority { self.armed = false; self.svc.run_watcher.release_cron_allocation(&self.svc, &self.owner); self.owner.clone() }
+}
+
+impl Drop for ProvisionalCronLaunch {
+    fn drop(&mut self) {
+        if self.armed {
+            self.svc.run_watcher.release_cron_allocation(&self.svc, &self.owner);
+            if let Some(handle) = self.svc.run_watcher.fail_sealed_cron_launch(&self.svc, &self.owner, "provisional launch refused before owner transfer") {
+                if let Err(error) = handle.wait_for_terminal() {
+                    self.svc.log_system_notice("Cron provisional terminal outcome retained".into(), Some(error), Some("error"));
+                }
+                self.svc.close_owned_cron_launch(&self.owner, crate::multiplexer::types::TabCloseReason::SpawnRollback);
+            } else if self.svc.try_ext::<crate::CronState>().is_some_and(|cron| cron.lock().run_is_cancelled(self.owner.job_id(), self.owner.run_id())) {
+                self.svc.close_owned_cron_launch(&self.owner, crate::multiplexer::types::TabCloseReason::Cancelled);
+            }
+        }
+    }
+}
+
 impl ServiceContext {
+    pub(crate) fn capture_allocated_cron_generation(&self, expected: &crate::multiplexer::types::Tab, linkage: &crate::service::spawn::RuntimeOwnerLinkage) -> Result<CronRunAuthority, String> {
+        let (nonce, committed) = self.reserve_agent_launch_binding_nonce_if_current(expected, None, None)?;
+        if nonce.is_none() { return Err("Cron allocation cannot adopt an authenticated generation".into()); }
+        self.run_watcher.provisional_cron_generation(&committed, linkage).ok_or_else(|| "Cron allocation has no original run linkage".into())
+    }
+
     pub fn link_hidden_agent_pty(&self, tab: &str, cwd: Option<String>, env: HashMap<String, String>) -> Result<String, String> {
         self.link_hidden_agent_cron_pty(tab, cwd, env, None)
     }
@@ -53,6 +119,9 @@ impl ServiceContext {
             return Err("Cron launch changed after PTY admission".into());
         }
         self.agent_run_pty_map.lock().insert(tab.into(), selection.pty_id.clone());
+        drop(mux);
+        drop(claim);
+        if let Some(owner) = attached { self.run_watcher.journal_cron_owner(&owner)?; }
         Ok(selection.pty_id)
     }
 }

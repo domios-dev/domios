@@ -113,6 +113,7 @@ fn completion_lookup_requires_original_admission_and_preserves_a_replacement_wat
     assert!(registry.cron_completion_state(&fixture.service, &tab, "owned-run").is_err());
     assert!(registry.runs.lock().is_empty());
     let linkage = crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id: job.id.clone(), run_id:"owned-run".into() };
+    registry.reserve_cron_slot(&fixture.service, &cron, &job.id, "owned-run").unwrap();
     let sealed = registry.capture_cron_launch(&fixture.service, &linkage, &tab, &nonce, None).unwrap();
     let pty = fixture.service.link_hidden_agent_cron_pty_with_builder(&tab, Some(&sealed), |gate| {
         crate::pty::manager::build_session(gate, None, None, 120, 40, Default::default())

@@ -36,9 +36,20 @@ pub(crate) struct CronRunAuthority {
     pub(super) pty_id: Option<String>,
 }
 
+pub(crate) struct CronRuntimeStart {
+    owner: CronRunAuthority,
+}
+
 pub(super) struct CronCleanup {
     owner: CronRunAuthority,
     pty: Option<std::sync::Arc<crate::pty::manager::PtySession>>,
+    gate: std::sync::Arc<parking_lot::Mutex<()>>,
+    pad: Option<crate::service::agent_pad::CronPadLease>,
+}
+
+pub(crate) struct CronCancellation<'a> { registry: &'a RunWatcherRegistry, job: String }
+impl Drop for CronCancellation<'_> {
+    fn drop(&mut self) { self.registry.cron_cancelling.lock().remove(&self.job); }
 }
 
 impl CronRunAuthority {
@@ -94,6 +105,7 @@ impl RunWatcherRegistry {
         };
         let mux = svc.mux.read();
         if !owner.matches(&mux) { return Err("Cron launch changed before reservation".into()); }
+        self.retain_cron_cleanup(&owner, None);
         Ok(owner)
     }
 
@@ -121,6 +133,64 @@ impl RunWatcherRegistry {
             return None;
         }
         self.finish_runtime_owned(svc, tab, RuntimeRunKey { nonce, kind: Some(kind), failed_start_epoch }, false, false, format!("Runtime startup failed: {error}"))
+    }
+
+    fn cron_start_is_unwritten(&self, svc: &ServiceContext, owner: &CronRunAuthority, original: Option<&crate::multiplexer::types::Tab>) -> bool {
+        if owner.pty_id().is_some() || self.cron_bindings.lock().get(owner.tab_id()) != Some(owner) { return false; }
+        let runs = self.runtime_runs.lock();
+        let eligible = runs.get(owner.tab_id()).is_some_and(|run| run.nonce.as_str() == owner.nonce().unwrap_or_default()
+            && run.kind == (AgentRunKind::Cron { job_id:owner.job_id.clone(), run_id:owner.run_id.clone() })
+            && !run.armed && !run.ended_turn && !run.reported && run.completion.is_none() && !*run.cancelled.borrow());
+        drop(runs);
+        if !eligible { return false; }
+        if let Some(pending) = original.and_then(|tab| tab.pending_delivery.as_ref()) {
+            if pending.state() != crate::multiplexer::types::PendingDeliveryState::Pending || pending.attempt_provenance().is_some() { return false; }
+            if pending.send_id().and_then(|id| svc.chat_send_ledger.status(id)).is_some_and(|status| status.state != crate::service::chat_send_transaction::ChatSendState::Pending) { return false; }
+        }
+        let Some(cron) = svc.try_ext::<crate::CronState>() else { return false };
+        let store = cron.lock();
+        store.run_is_active(owner.job_id(), owner.run_id()) && store.run_receipt(owner.job_id(), owner.run_id()).is_some_and(|run|
+            run.tab_id.as_deref() == Some(owner.tab_id()) && run.session_id.is_none() && run.report_delivery.is_none())
+    }
+
+    pub(crate) fn capture_cron_runtime_start(&self, svc: &ServiceContext, owner: &CronRunAuthority, original: &crate::multiplexer::types::Tab) -> Option<CronRuntimeStart> {
+        if !owner.matches(&svc.mux.read()) || !self.cron_start_is_unwritten(svc, owner, Some(original)) { return None; }
+        let runs = self.runtime_runs.lock();
+        runs.get(owner.tab_id()).filter(|run| run.nonce.as_str() == owner.nonce().unwrap_or_default()
+            && run.kind == (AgentRunKind::Cron { job_id:owner.job_id.clone(), run_id:owner.run_id.clone() })
+            && !run.armed && !run.ended_turn && !run.reported && run.completion.is_none() && !*run.cancelled.borrow())?;
+        Some(CronRuntimeStart { owner:owner.clone() })
+    }
+
+    pub(crate) fn runtime_rejected_before_acquisition(&self, svc: &ServiceContext, retained: &CronRuntimeStart, original: &crate::multiplexer::types::Tab, fork: Option<(&str, &str)>, outcome: &mut engine::ExpectedEnsureOutcome) -> Option<cron_end::CronEndHandle> {
+        let owner = &retained.owner;
+        if original.id != owner.tab_id || original.session_binding_nonce != owner.binding_nonce || original.pty_id.is_some()
+            || owner.matches(&svc.mux.read()) || self.cron_bindings.lock().get(owner.tab_id()) != Some(owner) { return None; }
+        let cron = svc.try_ext::<crate::CronState>()?;
+        {
+            let store = cron.lock();
+            if !store.run_is_active(owner.job_id(), owner.run_id()) || !store.run_receipt(owner.job_id(), owner.run_id()).is_some_and(|run| run.tab_id.as_deref() == Some(owner.tab_id()) && run.session_id.is_none() && run.report_delivery.is_none()) { return None; }
+        }
+        if let Some(pending) = original.pending_delivery.as_ref() {
+            if pending.send_id().and_then(|id| svc.chat_send_ledger.status(id)).is_some_and(|status| status.state != crate::service::chat_send_transaction::ChatSendState::Pending) { return None; }
+        }
+        if engine::for_tab(owner.tab_id()).is_some_and(|session| Some(session.context.lock().binding_nonce.as_str()) == owner.nonce()) { return None; }
+        let proof = outcome.take_rejection()?;
+        if !proof.matches_original(outcome, svc, original, fork) { return None; }
+        cron_end::finish(svc, cron_end::EndedCronRun { tab_id:owner.tab_id(), job_id:owner.job_id(), run_id:owner.run_id(), success:false,
+            summary:"Runtime startup rejected before original session acquisition".into(), raw_output:"", session_id:None, cwd:None,
+            binding_nonce:owner.nonce(), pty_id:None, failed_start_epoch:None })
+    }
+
+    pub(crate) fn runtime_ended_start_result(&self, svc: &ServiceContext, owner: &CronRunAuthority, original: &crate::multiplexer::types::Tab, error: &crate::service::agent_runtime::model::RuntimeFailure) -> Option<cron_end::CronEndHandle> {
+        use crate::service::agent_runtime::model::RuntimeFailure;
+        if matches!(error, RuntimeFailure::Superseded | RuntimeFailure::SignInRequired | RuntimeFailure::WrittenAwaitingEvidence)
+            || matches!(error, RuntimeFailure::Refused(reason) if reason.starts_with("account_provisioning_busy:") || reason.starts_with("launch_account_supervision_unconfirmed:"))
+            || !self.cron_start_is_unwritten(svc, owner, Some(original)) { return None; }
+        let nonce = owner.nonce()?;
+        let epoch = ended_unbound_start(svc, owner.tab_id(), nonce)?;
+        let kind = AgentRunKind::Cron { job_id:owner.job_id.clone(), run_id:owner.run_id.clone() };
+        self.finish_runtime_owned(svc, owner.tab_id(), RuntimeRunKey { nonce, kind:Some(&kind), failed_start_epoch:Some(epoch) }, false, false, format!("Runtime startup failed: {error}"))
     }
 
     pub(crate) fn has_runtime_run(&self, tab: &str) -> bool {
@@ -371,10 +441,12 @@ impl RunWatcherRegistry {
         if let Some((job_id, run_id)) = cron_kind {
             let (session, cwd) = {
                 let mux = svc.mux.read();
-                let target = mux.get_tab(tab).filter(|target| target.session_binding_nonce.as_deref() == Some(nonce) && target.pty_id.is_none())?;
-                (target.agent_session_id.clone(), target.cwd.clone())
+                let target = mux.get_tab(tab).filter(|target| target.session_binding_nonce.as_deref() == Some(nonce) && target.pty_id.is_none());
+                (target.and_then(|target| target.agent_session_id.clone()), target.and_then(|target| target.cwd.clone()))
             };
-            let output = serde_json::to_string(&runtime_messages(tab)).unwrap_or_default();
+            let output = engine::for_tab(tab).filter(|session| session.context.lock().binding_nonce == nonce)
+                .filter(|_| svc.mux.read().get_tab(tab).is_some_and(|target| target.session_binding_nonce.as_deref() == Some(nonce)))
+                .and_then(|session| serde_json::to_string(&session.cache.lock().snapshot()).ok()).unwrap_or_default();
             return cron_end::finish(svc, cron_end::EndedCronRun {
                 tab_id: tab, job_id: &job_id, run_id: &run_id, success, summary,
                 raw_output: &output, session_id: session.as_deref(), cwd: cwd.as_deref(),
@@ -502,6 +574,7 @@ impl RunWatcherRegistry {
     pub(crate) fn bind_cron(&self, owner: CronRunAuthority) -> bool {
         let mut bindings = self.cron_bindings.lock();
         if bindings.get(&owner.tab_id).is_some_and(|prior| prior != &owner) { return false; }
+        self.retain_cron_cleanup(&owner, None);
         bindings.insert(owner.tab_id.clone(), owner);
         true
     }
@@ -535,30 +608,71 @@ impl RunWatcherRegistry {
         if bindings.get(&owner.tab_id) == Some(owner) { bindings.remove(&owner.tab_id); }
     }
 
+    pub(crate) fn attach_cron_pad(&self, owner: &CronRunAuthority, pad: crate::service::agent_pad::CronPadLease) -> Result<(), String> {
+        self.retain_cron_cleanup(owner, None);
+        let mut entries = self.cron_cleanup.lock();
+        let entry = entries.get_mut(&(owner.job_id.clone(), owner.run_id.clone())).ok_or("Cron pad cleanup owner is absent")?;
+        if entry.owner.tab_id != owner.tab_id || entry.owner.binding_nonce != owner.binding_nonce { return Err("Cron pad belongs to a different original generation".into()); }
+        entry.pad = Some(pad);
+        Ok(())
+    }
+
+    pub(crate) fn cron_pad_lease(&self, owner: &CronRunAuthority) -> Option<crate::service::agent_pad::CronPadLease> {
+        self.cron_cleanup.lock().get(&(owner.job_id.clone(), owner.run_id.clone())).filter(|entry| entry.owner.tab_id == owner.tab_id && entry.owner.binding_nonce == owner.binding_nonce).and_then(|entry| entry.pad.clone())
+    }
+
+    pub(crate) fn provisional_cron_generation(&self, tab: &crate::multiplexer::types::Tab, linkage: &crate::service::spawn::RuntimeOwnerLinkage) -> Option<CronRunAuthority> {
+        let crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id, run_id } = linkage else { return None };
+        let owner = CronRunAuthority { tab_id: tab.id.clone(), job_id: job_id.clone(), run_id: run_id.clone(), binding_nonce: tab.session_binding_nonce.clone(), pty_id: tab.pty_id.clone() };
+        self.retain_cron_cleanup(&owner, None);
+        Some(owner)
+    }
+
+    pub(crate) fn fail_sealed_cron_launch(&self, svc: &ServiceContext, owner: &CronRunAuthority, reason: &str) -> Option<cron_end::CronEndHandle> {
+        let failed_start_epoch = match engine::for_tab(owner.tab_id()).filter(|session| Some(session.context.lock().binding_nonce.as_str()) == owner.nonce()) {
+            Some(_) => Some(ended_unbound_start(svc, owner.tab_id(), owner.nonce()?)?),
+            None => None,
+        };
+        cron_end::finish(svc, cron_end::EndedCronRun { tab_id: owner.tab_id(), job_id: owner.job_id(), run_id: owner.run_id(), success: false, summary: format!("Runtime startup failed: {reason}"), raw_output: "", session_id: None, cwd: None, binding_nonce: owner.nonce(), pty_id: owner.pty_id(), failed_start_epoch })
+    }
+
+    pub(crate) fn begin_cron_cancellation(&self, job: &str) -> Result<CronCancellation<'_>, String> {
+        if !self.cron_cancelling.lock().insert(job.into()) { return Err("Cron cancellation is already settling".into()); }
+        Ok(CronCancellation { registry: self, job: job.into() })
+    }
+
+    pub(crate) fn cron_cleanup_owners(&self, job: &str) -> Vec<CronRunAuthority> {
+        self.cron_cleanup.lock().values().filter(|entry| entry.owner.job_id == job).map(|entry| entry.owner.clone()).collect()
+    }
+
+    pub(crate) fn claim_cron_cleanup(&self, owner: &CronRunAuthority) -> Result<(CronRunAuthority, std::sync::Arc<parking_lot::Mutex<()>>), String> {
+        self.retain_cron_cleanup(owner, None);
+        let pending = self.cron_cleanup.lock();
+        let entry = pending.get(&(owner.job_id.clone(), owner.run_id.clone())).ok_or("Cron cleanup owner missing")?;
+        if entry.owner.tab_id != owner.tab_id || entry.owner.binding_nonce != owner.binding_nonce { return Err("Cron cleanup belongs to another original generation".into()); }
+        Ok((entry.owner.clone(), entry.gate.clone()))
+    }
+
     pub(crate) fn pending_cron_cleanup(&self, owner: &CronRunAuthority) -> Option<std::sync::Arc<crate::pty::manager::PtySession>> {
         self.cron_cleanup.lock().get(&(owner.job_id.clone(), owner.run_id.clone())).filter(|entry| entry.owner == *owner).and_then(|entry| entry.pty.clone())
     }
 
     pub(crate) fn retain_cron_cleanup(&self, owner: &CronRunAuthority, pty: Option<std::sync::Arc<crate::pty::manager::PtySession>>) {
         let mut pending = self.cron_cleanup.lock();
-        let entry = pending.entry((owner.job_id.clone(), owner.run_id.clone())).or_insert_with(|| CronCleanup { owner: owner.clone(), pty: None });
-        if entry.owner == *owner && pty.is_some() { entry.pty = pty; }
+        let entry = pending.entry((owner.job_id.clone(), owner.run_id.clone())).or_insert_with(|| CronCleanup { owner: owner.clone(), pty: None, gate: std::sync::Arc::new(parking_lot::Mutex::new(())), pad: None });
+        if entry.owner.tab_id == owner.tab_id && entry.owner.binding_nonce == owner.binding_nonce {
+            if entry.owner.pty_id.is_none() && owner.pty_id.is_some() { entry.owner = owner.clone(); }
+            if pty.is_some() { entry.pty = pty; }
+        }
     }
 
     pub(crate) fn complete_cron_cleanup(&self, owner: &CronRunAuthority) {
+        if self.cron_allocation_pending(owner.job_id(), owner.run_id()) { return; }
         let mut pending = self.cron_cleanup.lock();
         let key = (owner.job_id.clone(), owner.run_id.clone());
         if pending.get(&key).is_some_and(|entry| entry.owner == *owner) { pending.remove(&key); }
         drop(pending);
         self.release_cron_binding(owner);
-    }
-
-    pub(crate) fn cancelled_cron_bindings(&self, store: &crate::cron::store::CronStore, job: &str) -> Vec<CronRunAuthority> {
-        let mut owners: Vec<_> = self.cron_bindings.lock().values().filter(|owner| owner.job_id == job && store.run_receipt(job, &owner.run_id).is_some_and(|run| run.status == crate::cron::store::CronRunStatus::Cancelled)).cloned().collect();
-        for entry in self.cron_cleanup.lock().values().filter(|entry| entry.owner.job_id == job && store.run_receipt(job, &entry.owner.run_id).is_some() && !store.run_is_active(job, &entry.owner.run_id)) {
-            if !owners.contains(&entry.owner) { owners.push(entry.owner.clone()); }
-        }
-        owners
     }
 
     pub(crate) fn resume_cron_cleanup_for_run(&self, svc: &ServiceContext, run: &str, caller: Option<&str>, nonce: Option<&str>, human: bool) -> bool {
@@ -605,33 +719,6 @@ fn current_runtime_binding(svc: &ServiceContext, context: &RuntimeContext) -> bo
 }
 
 impl ServiceContext {
-    pub(crate) fn fail_prepared_runtime_cron(
-        &self,
-        tab: &str,
-        metadata: &crate::service::spawn::ChatBackendLaunchMetadata,
-        reason: &str,
-    ) {
-        let Some(crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id, run_id }) = &metadata.owner_linkage else {
-            return;
-        };
-        let Some(owner) = self.run_watcher.cron_binding(tab, job_id, run_id) else { return };
-        let Some(nonce) = owner.binding_nonce.as_deref() else { return };
-        let kind = AgentRunKind::Cron { job_id: job_id.clone(), run_id: run_id.clone() };
-        let settlement = if self.run_watcher.has_runtime_run(tab) {
-            self.run_watcher.finish_runtime_owned(self, tab, RuntimeRunKey { nonce, kind: Some(&kind), failed_start_epoch: None }, false, false, reason.into())
-        } else {
-            cron_end::finish(self, cron_end::EndedCronRun {
-                tab_id: &owner.tab_id, job_id, run_id, success: false, summary: reason.into(), raw_output: "",
-                session_id: None, cwd: metadata.params.cwd.as_deref(), binding_nonce: owner.binding_nonce.as_deref(), pty_id: None, failed_start_epoch: None,
-            })
-        };
-        if let Some(settlement) = settlement {
-            if let Err(error) = settlement.wait_for_terminal() {
-                log::error!("Cron preparation terminal outcome retained: job={job_id} run={run_id}: {error}");
-            }
-        }
-    }
-
     pub(crate) fn prepare_runtime_run_watcher(
         &self,
         tab: &str,

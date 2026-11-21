@@ -1,4 +1,6 @@
+use super::*;
 use super::super::ServiceContext;
+use crate::agent::run_watcher::runtime_runs::CronRunAuthority;
 use crate::service::MuxEmitCause;
 
 /// The provider runtime start of a staged chatBackend tab, which a dispatch may run off its RPC thread.
@@ -12,6 +14,7 @@ pub(crate) struct ChatBackendRuntimeLaunch {
     pub(super) runtime_fork: Option<crate::service::spawn::RuntimeForkLaunch>,
     pub(super) emit_state_change: bool,
     pub(super) cron_owned: bool,
+    pub(super) cron_owner: Option<CronRunAuthority>,
 }
 
 impl ChatBackendRuntimeLaunch {
@@ -21,14 +24,20 @@ impl ChatBackendRuntimeLaunch {
 
     pub(crate) fn run(self) -> Result<(), String> {
         let svc = self.svc;
+        let runtime_boundary = std::sync::atomic::AtomicBool::new(false);
         if let Err(error) = svc.chatbackend_launch_with_runtime_fork(
             self.plugin_id,
             self.tab_id.clone(),
             self.config,
             self.history_meta,
             self.runtime_fork.clone(),
+            Some(&runtime_boundary),
+            self.cron_owner.as_ref(),
         ) {
-            if !self.cron_owned && (self.runtime_fork.is_some()
+            if let Some(owner) = &self.cron_owner {
+                if self.cron_owned && !runtime_boundary.load(std::sync::atomic::Ordering::Acquire) { let _ = svc.run_watcher.fail_sealed_cron_launch(&svc, owner, &error); }
+            }
+            if self.cron_owner.is_none() && !self.cron_owned && (self.runtime_fork.is_some()
                 || !crate::service::agent_runtime::requested_for_tab(&svc, &self.tab_id))
             {
                 svc.rollback_provisional_tab(&self.workspace_id, &self.tab_id);
@@ -45,4 +54,115 @@ impl ChatBackendRuntimeLaunch {
         );
         Ok(())
     }
+}
+
+impl ServiceContext {
+    pub(crate) fn prepare_chatbackend_runtime_launch(&self, tab: &str, metadata: &crate::service::spawn::ChatBackendLaunchMetadata) -> Result<(), String> {
+        let provisional = if let Some(linkage @ crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id, run_id }) = metadata.owner_linkage.as_ref() {
+            let cron = self.try_ext::<crate::CronState>().ok_or("Cron state unavailable before runtime allocation")?;
+            self.run_watcher.reserve_cron_slot(self, cron, job_id, run_id)?;
+            let allocation = crate::service::spawn::cron_launch::CronAllocation::claim(self, job_id, run_id)?;
+            let expected = self.mux.read().get_tab(tab).cloned().ok_or("Runtime provisional tab absent")?;
+            let owner = self.capture_allocated_cron_generation(&expected, linkage)?;
+            Some(allocation.captured(owner))
+        } else { None };
+        if let Some(provisional) = &provisional { provisional.prepare()?; }
+        self.prepare_runtime_with_original(tab, metadata, provisional.as_ref().map(|owner| owner.owner()))?;
+        if let Some(provisional) = provisional { provisional.transfer(); }
+        Ok(())
+    }
+
+    pub(super) fn prepare_runtime_with_original(
+        &self,
+        tab_id: &str,
+        metadata: &crate::service::spawn::ChatBackendLaunchMetadata,
+        original_cron: Option<&CronRunAuthority>,
+    ) -> Result<(), String> {
+        if original_cron.is_some_and(|owner| !owner.matches(&self.mux.read())) { return Err("Original runtime generation changed before preparation".into()); }
+        crate::service::spawn_capability::validate_runtime_launch_arguments(
+            &metadata.agent.provider,
+            &metadata.agent.extra_args,
+        )?;
+        let params =
+            launch_options::authorize(self, &metadata.agent.provider, Some(&metadata.params))?;
+        log::debug!(
+            "[spawn.runtime] prepared tab={tab_id} plan={:?} task={:?} intent={:?} manifest_entries={}",
+            params.plan_id,
+            params.task_id,
+            params.execution_intent,
+            params.plan_skill_manifest.as_ref().map_or(0, Vec::len)
+        );
+        if let Some(owner) = original_cron {
+            if self.run_watcher.cron_pad_lease(owner).is_none() { self.capture_cron_pad(owner)?; }
+        }
+        self.ensure_agent_pad(tab_id)?;
+        self.ensure_session_binding_nonce(tab_id);
+        {
+            let mut mux = self.mux.write();
+            if original_cron.is_some_and(|owner| !owner.matches(&mux)) { return Err("Runtime cron launch changed during preparation".into()); }
+            let tab = mux.get_tab_mut(tab_id).ok_or("Runtime launch tab absent")?;
+            if tab.pty_id.is_some() {
+                return Err("Existing runtime launch requires released PTY ownership".into());
+            }
+            if metadata.agent.fork_session {
+                return Err("Runtime spawn cannot replace a bound thread with a fork".into());
+            }
+            tab.agent_session_id = runtime_resume_thread(
+                tab.agent_session_id.as_deref(),
+                metadata.agent.resume_session_id.as_deref(),
+            )?;
+            if let Some(cwd) = metadata.params.cwd.as_deref() {
+                tab.cwd = Some(Self::normalize_resolved_agent_cwd(cwd));
+            }
+            tab.backing = TabBacking::ChatBackend {
+                plugin_id: metadata.agent.provider.clone(),
+                session_id: tab.agent_session_id.clone().unwrap_or_default(),
+            };
+            tab.chat_view = true;
+            stamp_chatbackend_launch_identity(tab, metadata);
+        }
+        if let Some(worker_id) = metadata.agent.worker_id.as_deref() {
+            self.workers.set_tab_id(worker_id, tab_id.into());
+        }
+        if let Some(crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id, run_id }) =
+            &metadata.owner_linkage
+        {
+            if let Some(owner) = original_cron {
+                let cron = self.try_ext::<crate::CronState>().ok_or("Cron state unavailable before runtime admission")?;
+                self.reserve_captured_cron_launch(cron, owner)?;
+                self.bind_cron_spawn(cron, tab_id, job_id, run_id, owner.nonce().map(str::to_string), None)?;
+            } else { return Err("Runtime cron launch has no original generation".into()); }
+        }
+        self.prepare_runtime_run_watcher(tab_id, metadata)?;
+        self.prepare_runtime_worker_binding(&params, tab_id)?;
+        self.prepare_agent_runtime_launch_options(tab_id, &params)?;
+        self.prepare_agent_runtime_launch_env(tab_id, &metadata.agent.extra_env)?;
+        let provider = self.agent_registry.provider_arc(&metadata.agent.provider);
+        let payload = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(tab_id).ok_or("Runtime launch tab absent")?;
+            runtime_pending_payload(
+                tab.pending_delivery.as_ref(),
+                &metadata.agent,
+                provider.as_deref(),
+            )
+        };
+        if let Some(payload) = payload {
+            let payload = match payload {
+                RuntimeFirstTurn::Starter(starter) => starter,
+                RuntimeFirstTurn::Task(task) => {
+                    self.spawn_task_message(tab_id, &task).unwrap_or(task)
+                }
+            };
+            self.create_pending_delivery_with_send_id(
+                tab_id,
+                crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+                &payload,
+                Some(&uuid::Uuid::new_v4().to_string()),
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
+
 }

@@ -11,7 +11,7 @@ use std::time::Duration;
 use codeterm_cron::occurrence::STALE_FIRE_MS;
 use codeterm_cron::occurrence::{FireDecision, Occurrence};
 
-use super::store::{commit, finish_run, CronCommitError, CronJob, CronRunInfo, CronRunStatus};
+use super::store::{commit, CronCommitError, CronJob, CronRunInfo, CronRunStatus};
 use crate::service::ServiceState;
 
 pub use codeterm_agent_model::cron::CronState;
@@ -26,6 +26,7 @@ pub fn start(cron_state: CronState, cron_wake: CronWake, service: ServiceState) 
 
     codeterm_util::named_thread::spawn("cron-scheduler", move || {
         log::info!("Cron scheduler started");
+        if let Err(error) = service.run_watcher.ensure_cron_recovery(&service, &cron_state) { service.log_system_notice("Cron recovery requires attention".into(), Some(error), Some("error")); }
         loop {
             let wait = tick(&cron_state, &service);
             let guard = wake_mutex.lock().unwrap();
@@ -357,6 +358,10 @@ fn fire_job_with_spawn(
         },
     );
 
+    if let Err(error) = service.run_watcher.reserve_cron_slot(service, cron_state, job_id, &run_id) {
+        service.log_system_notice("Cron launch admission refused".into(), Some(error), Some("error"));
+        return FireStart::Refused;
+    }
     let fired_at = cron_state.lock().now_ms();
     match record_scheduled_fire_with_admission(cron_state, job_id, &run_id, occurrence, Some(fired_at), || !service.run_watcher.cron_job_finalizing(job_id)) {
         FireStart::Recorded => {}
@@ -421,12 +426,6 @@ fn fire_job_with_spawn(
                             Some("error"),
                         );
                         record_role_launch_failure(service, cron_state, &job, &run_id, now);
-                        if let Err(error) = service.close_tab_with_reason(
-                            &handle.tab_id,
-                            crate::multiplexer::types::TabCloseReason::AgentRunEnded,
-                        ) {
-                            log::error!("[cron] close unbound launch {}: {error}", handle.tab_id);
-                        }
                         return FireStart::Recorded;
                     }
                 }
@@ -441,14 +440,10 @@ fn fire_job_with_spawn(
                 record_role_launch_failure(service, cron_state, &job, &run_id, now);
             }
 
-            let fresh_transition =
-                finish_run(cron_state, job_id, &run_id, CronRunStatus::Failed, None)
-                    .unwrap_or(false);
-
-            service.log_system_notice(format!("Cron failed: {}", job_id), Some(e), Some("error"));
-            if fresh_transition {
-                crate::cron::notify::notify_on_consecutive_failure(service, cron_state, job_id);
+            if let Err(error) = service.run_watcher.settle_cron_spawn_refusal(service, cron_state, job_id, &run_id, &e) {
+                service.log_system_notice("Cron spawn refusal requires recovery".into(), Some(error), Some("error"));
             }
+            service.log_system_notice(format!("Cron failed: {}", job_id), Some(e), Some("error"));
         }
     }
     FireStart::Recorded
@@ -467,17 +462,8 @@ fn record_role_launch_failure(
     if let Err(error) = policy.launch_failed(service, job, now) {
         log::error!("[cron] roll back launch {}: {error}", job.id);
     }
-    match super::store::finish_run_with_summary(
-        cron,
-        &job.id,
-        run_id,
-        CronRunStatus::Failed,
-        "failed",
-        None,
-    ) {
-        Ok(true) => crate::cron::notify::notify_on_consecutive_failure(service, cron, &job.id),
-        Ok(false) => {}
-        Err(error) => log::error!("[cron] record launch failure {}: {error}", job.id),
+    if let Err(error) = service.run_watcher.settle_cron_spawn_refusal(service, cron, &job.id, run_id, "Role launch failed") {
+        service.log_system_notice("Cron role launch cleanup requires recovery".into(), Some(error), Some("error"));
     }
     service.emit_cron_changed();
 }
