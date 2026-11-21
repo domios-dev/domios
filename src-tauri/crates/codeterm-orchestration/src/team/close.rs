@@ -273,6 +273,115 @@ pub(super) fn team_close_lanes(
     lanes
 }
 
+#[derive(Debug)]
+pub enum WorkspaceCloseLanePreviewError {
+    TooLarge,
+    Unavailable(String),
+}
+
+/// Reads the same lane ownership, dirtiness, registration, and ancestry facts
+/// used by Team close without running its cleanup or PlanStore mutation path.
+pub fn workspace_close_lane_preview(
+    plans: &[TeamClosePlanRead],
+    team_id: &str,
+    member_tab_ids: &[String],
+    max_rows: usize,
+) -> Result<Vec<codeterm_types::workspace_close_preview::WorkspaceClosePreviewLane>, WorkspaceCloseLanePreviewError> {
+    let projected_rows = plans
+        .iter()
+        .map(|plan| {
+            1usize
+                .saturating_add(plan.tasks.len())
+                .saturating_add(
+                    plan.tasks
+                        .iter()
+                        .map(|task| task.attempt_lanes.len())
+                        .sum::<usize>(),
+                )
+        })
+        .sum::<usize>();
+    if projected_rows > max_rows {
+        return Err(WorkspaceCloseLanePreviewError::TooLarge);
+    }
+    let lanes = team_close_lanes(plans, team_id, member_tab_ids);
+    if lanes.len() > max_rows {
+        return Err(WorkspaceCloseLanePreviewError::TooLarge);
+    }
+    lanes
+        .iter()
+        .map(|lane| {
+            use codeterm_types::workspace_close_preview::WorkspaceCloseLaneState as State;
+            let worktree_exists = match lane.worktree_path.as_deref() {
+                Some(path) => match std::fs::metadata(path) {
+                    Ok(_) => true,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+                    Err(error) => {
+                        return Err(WorkspaceCloseLanePreviewError::Unavailable(format!(
+                            "could not inspect lane worktree {path}: {error}"
+                        )))
+                    }
+                },
+                None => false,
+            };
+            let branch_exists = match lane.branch.as_deref() {
+                Some(branch) => branch_exists(lane, branch).map_err(
+                    WorkspaceCloseLanePreviewError::Unavailable,
+                )?,
+                None => false,
+            };
+            let reason = lane_hold_reason(lane);
+            if reason.as_deref().is_some_and(lane_fact_unavailable) {
+                return Err(WorkspaceCloseLanePreviewError::Unavailable(
+                    reason.unwrap_or_else(|| "lane safety facts are unavailable".into()),
+                ));
+            }
+            let orphan = !worktree_exists && branch_exists;
+            let state = if orphan {
+                State::Orphan
+            } else if reason
+                .as_deref()
+                .is_some_and(|reason| reason.starts_with("dirty worktree:"))
+            {
+                State::Dirty
+            } else if reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("unmerged commits"))
+            {
+                State::Unmerged
+            } else if reason.is_some() {
+                State::Held
+            } else if lane
+                .worktree_path
+                .as_deref()
+                .is_some_and(|_| !worktree_exists)
+            {
+                State::Orphan
+            } else {
+                State::Safe
+            };
+            let detail = reason.or_else(|| {
+                orphan.then(|| "the recorded branch has no registered worktree".into())
+            });
+            Ok(codeterm_types::workspace_close_preview::WorkspaceClosePreviewLane {
+                plan_id: lane.plan_id.clone(),
+                task_id: lane.task_id.clone(),
+                path: lane.worktree_path.clone(),
+                branch: lane.branch.clone(),
+                state,
+                detail,
+            })
+        })
+        .collect()
+}
+
+fn lane_fact_unavailable(reason: &str) -> bool {
+    reason.contains("git ")
+        || reason.contains("git could not run")
+        || reason.contains("cannot verify")
+        || reason.contains("not recorded")
+        || reason.contains("failed in '")
+}
+
 pub(super) fn finish_team_lane_cleanup(
     plan_store: &PlanStore,
     lanes: &[TeamCloseLane],
