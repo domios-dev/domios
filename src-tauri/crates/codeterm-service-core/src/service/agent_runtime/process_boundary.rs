@@ -16,9 +16,9 @@ mod unix;
 use unix as native;
 #[cfg(windows)]
 mod background;
-mod os_background;
 #[cfg(any(windows, test))]
 mod orphans;
+mod os_background;
 #[cfg(any(windows, test))]
 mod selective;
 

@@ -101,7 +101,17 @@ fn is_persistent_mcp_sidecar(argv: &[String]) -> bool {
     let runner = executable(first).to_ascii_lowercase();
     if matches!(
         runner.as_str(),
-        "node" | "npx" | "npm" | "pnpm" | "bun" | "bunx" | "deno" | "python" | "python3" | "uv" | "uvx"
+        "node"
+            | "npx"
+            | "npm"
+            | "pnpm"
+            | "bun"
+            | "bunx"
+            | "deno"
+            | "python"
+            | "python3"
+            | "uv"
+            | "uvx"
     ) {
         if argv
             .iter()
@@ -124,10 +134,12 @@ fn is_bare_shell(argv: &[String]) -> bool {
     }
     let name = executable(first).to_ascii_lowercase();
     match name.as_str() {
-        "sh" | "bash" | "zsh" | "dash" => argv
-            .iter()
-            .skip(1)
-            .all(|arg| matches!(arg.as_str(), "-l" | "-i" | "--login" | "--noprofile" | "--norc")),
+        "sh" | "bash" | "zsh" | "dash" => argv.iter().skip(1).all(|arg| {
+            matches!(
+                arg.as_str(),
+                "-l" | "-i" | "--login" | "--noprofile" | "--norc"
+            )
+        }),
         "pwsh" | "powershell" => argv.iter().skip(1).all(|arg| {
             let lower = arg.to_ascii_lowercase();
             matches!(
@@ -271,14 +283,11 @@ pub(in crate::service::agent_runtime) fn select_background_processes(
             break;
         }
         let command = if is_bare_shell(&root.argv) {
-            let Some(child_cmd) = children_by_parent
-                .get(&root.pid)
-                .and_then(|children| {
-                    children
-                        .iter()
-                        .find_map(|child| command_for_process(&child.argv))
-                })
-            else {
+            let Some(child_cmd) = children_by_parent.get(&root.pid).and_then(|children| {
+                children
+                    .iter()
+                    .find_map(|child| command_for_process(&child.argv))
+            }) else {
                 continue;
             };
             child_cmd

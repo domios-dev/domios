@@ -28,7 +28,7 @@ const readable = { filePaths: true, inlineText: true, imagePaths: true };
 const inline = { filePaths: false, inlineText: true, imagePaths: false };
 const images = { filePaths: false, inlineText: true, imagePaths: true };
 
-const storeBlobSpy = vi.fn(async () => "/opaque/picked.png");
+const storeBlobSpy = vi.fn(async (..._args: unknown[]) => "/opaque/picked.png");
 vi.mock("./voice/audio", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./voice/audio")>()),
   storeBlob: (...args: unknown[]) => storeBlobSpy(...args),

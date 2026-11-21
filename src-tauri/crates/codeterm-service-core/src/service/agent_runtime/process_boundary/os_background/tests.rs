@@ -77,7 +77,13 @@ fn selects_top_level_command_roots_and_excludes_baseline_mcp_and_console_hosts()
             &["cargo.exe", "nextest", "run", "-p", "codeterm-service-core"],
             Some("/repo"),
         ),
-        proc_entry(203, 202, 53, &["rustc.exe", "--crate-name", "foo"], Some("/repo")),
+        proc_entry(
+            203,
+            202,
+            53,
+            &["rustc.exe", "--crate-name", "foo"],
+            Some("/repo"),
+        ),
         proc_entry(
             300,
             101,

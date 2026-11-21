@@ -225,14 +225,12 @@ function pointerEvent(type: string, init: Record<string, unknown>, timeStamp: nu
 }
 
 test("idle dictation button keeps round chrome, bloom glyphs, and tap-to-toggle without triggering send", async () => {
-  let starts = 0;
-  let stops = 0;
-  let sends = 0;
+  const counts = { starts: 0, stops: 0, sends: 0 };
   const dictation = dictationHandle({
-    start: async () => { starts++; },
-    stop: async () => { stops++; },
+    start: async () => { counts.starts++; },
+    stop: async () => { counts.stops++; },
   });
-  const { button } = await renderButton(voiceHandle({ mainIsSend: false }), { dictation, onSend: () => { sends++; } });
+  const { button } = await renderButton(voiceHandle({ mainIsSend: false }), { dictation, onSend: () => { counts.sends++; } });
   assert(button.classList.contains("ct-composer-round-button"), "idle dictation button must keep round chrome");
   assert(button.classList.contains("ct-composer-voice-bubble"), "idle dictation button must keep voice bubble class");
   assert(button.querySelector(".ct-send-bloom"), "Mic <-> Send bloom missing");
@@ -243,17 +241,18 @@ test("idle dictation button keeps round chrome, bloom glyphs, and tap-to-toggle 
     button.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 1000));
     button.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 100 }, 1100));
   });
-  assert(starts === 1, "quick tap must start dictation");
-  assert(stops === 0, "quick tap must stay active (tap-to-toggle)");
+  const read = () => ({ ...counts });
+  assert(read().starts === 1, "quick tap must start dictation");
+  assert(read().stops === 0, "quick tap must stay active (tap-to-toggle)");
 
   const activeDictation = dictationHandle({
     phase: "listening",
     active: () => true,
-    stop: async () => { stops++; },
+    stop: async () => { counts.stops++; },
   });
   const { button: activeButton } = await renderButton(voiceHandle({ mainIsSend: true }), {
     dictation: activeDictation,
-    onSend: () => { sends++; },
+    onSend: () => { counts.sends++; },
   });
   assert(activeButton.dataset.testid === "composer-voice-button", "active dictation must stay voice stop button even with text");
   assert(activeButton.getAttribute("aria-pressed") === "true", "active dictation aria-pressed must be true");
@@ -261,18 +260,17 @@ test("idle dictation button keeps round chrome, bloom glyphs, and tap-to-toggle 
     activeButton.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 2000));
     activeButton.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 100 }, 2050));
   });
-  assert(stops === 1, "tapping active dictation button must stop dictation");
-  assert(sends === 0, "stopping dictation must not accidentally trigger send");
+  assert(read().stops === 1, "tapping active dictation button must stop dictation");
+  assert(read().sends === 0, "stopping dictation must not accidentally trigger send");
 });
 
 test("dictation hold stops on release, drag-up locks, and drag-left cancels", async () => {
-  let starts = 0;
-  let stops = 0;
-  let cancels = 0;
+  const counts = { starts: 0, stops: 0, cancels: 0 };
+  const read = () => ({ ...counts });
   const dictation = dictationHandle({
-    start: async () => { starts++; },
-    stop: async () => { stops++; },
-    cancel: () => { cancels++; },
+    start: async () => { counts.starts++; },
+    stop: async () => { counts.stops++; },
+    cancel: () => { counts.cancels++; },
   });
   const { button } = await renderButton(voiceHandle({ mainIsSend: false }), { dictation });
 
@@ -280,21 +278,21 @@ test("dictation hold stops on release, drag-up locks, and drag-left cancels", as
     button.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 1000));
     button.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 100 }, 1400));
   });
-  assert(starts === 1 && stops === 1 && cancels === 0, "holding >220ms must stop on release");
+  assert(read().starts === 1 && read().stops === 1 && read().cancels === 0, "holding >220ms must stop on release");
 
   await act(async () => {
     button.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 2000));
     button.dispatchEvent(pointerEvent("pointermove", { clientX: 100, clientY: 30 }, 2150));
     button.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 30 }, 2500));
   });
-  assert(starts === 2 && stops === 1 && cancels === 0, "dragging up must lock hands-free");
+  assert(read().starts === 2 && read().stops === 1 && read().cancels === 0, "dragging up must lock hands-free");
 
   await act(async () => {
     button.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 3000));
     button.dispatchEvent(pointerEvent("pointermove", { clientX: 50, clientY: 100 }, 3150));
     button.dispatchEvent(pointerEvent("pointerup", { clientX: 50, clientY: 100 }, 3200));
   });
-  assert(starts === 3 && stops === 1 && cancels === 1, "dragging left must cancel dictation");
+  assert(read().starts === 3 && read().stops === 1 && read().cancels === 1, "dragging left must cancel dictation");
 });
 
 test("space-hold arming and ignition pop classes apply on the round mic button", async () => {

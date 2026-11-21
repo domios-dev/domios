@@ -17,7 +17,8 @@ fn idle_surfaces_os_and_bridge_work_active_turn_keeps_tracked_only_and_clears_on
     let fg_turn2 = selected(5001, 200, "git status");
 
     // Foreground command during an active turn is never surfaced prematurely.
-    let (during_turn1, kept) = reconcile_os_entries("root", true, &[bg_cmd.clone()], &[], &mut tracked);
+    let (during_turn1, kept) =
+        reconcile_os_entries("root", true, &[bg_cmd.clone()], &[], &mut tracked);
     assert!(during_turn1.is_empty());
     assert!(kept.is_empty());
     assert!(tracked.is_empty());
@@ -39,7 +40,10 @@ fn idle_surfaces_os_and_bridge_work_active_turn_keeps_tracked_only_and_clears_on
     assert_eq!(after_turn1[1].process.process_id, "bridge:term-1");
     assert_eq!(after_turn1[1].process.command, "node watch.mjs");
     assert!(kept.contains(&(5000, 100)));
-    let raw_processes: Vec<_> = after_turn1.iter().map(|entry| entry.process.clone()).collect();
+    let raw_processes: Vec<_> = after_turn1
+        .iter()
+        .map(|entry| entry.process.clone())
+        .collect();
     validate_background_processes(&raw_processes).expect("entries satisfy protocol schema");
 
     // A new active turn preserves the previously tracked background task while hiding new foreground commands.

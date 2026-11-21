@@ -848,8 +848,13 @@ async fn execute(
                     .lock()
                     .as_ref()
                     .map(|process| process.background_changed.clone());
-                let terminal =
-                    terminal::Terminal::spawn_with_notify(&command, &cwd, directory, &env, on_exit.clone())?;
+                let terminal = terminal::Terminal::spawn_with_notify(
+                    &command,
+                    &cwd,
+                    directory,
+                    &env,
+                    on_exit.clone(),
+                )?;
                 let id = uuid::Uuid::new_v4().to_string();
                 state.terminals.insert(id.clone(), terminal);
                 drop(state);
@@ -959,9 +964,7 @@ pub(super) async fn cancel(
     }
 }
 
-pub(super) fn active_terminals(
-    context: &RuntimeContext,
-) -> Vec<(String, String, String, u32)> {
+pub(super) fn active_terminals(context: &RuntimeContext) -> Vec<(String, String, String, u32)> {
     let Ok(bridge) = bridge(context) else {
         return Vec::new();
     };
