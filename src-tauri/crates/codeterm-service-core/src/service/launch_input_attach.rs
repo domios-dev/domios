@@ -242,12 +242,16 @@ impl ServiceContext {
         tab_id: &str,
         nonce: &str,
         invocation: &codeterm_plugin::provider_account::InvocationContext,
-    ) {
-        if let Some(available) =
-            super::provider_accounts::prepare_named_session_hook(self, invocation)
-        {
-            self.record_launch_session_hook(tab_id, nonce, available);
+    ) -> Result<(), String> {
+        let expected = self.mux.read().get_tab(tab_id).cloned().filter(|tab| tab.session_binding_nonce.as_deref() == Some(nonce))
+            .ok_or("launch_hook_superseded: original launch unavailable")?;
+        let available = super::provider_accounts::prepare_named_session_hook(self, invocation)?;
+        let mux = self.mux.read();
+        if !mux.get_tab(tab_id).is_some_and(|current| super::messenger::switch_handoff::same_binding(&expected, current)) {
+            return Err("launch_hook_superseded: launch authority changed during provisioning".into());
         }
+        if let Some(available) = available { self.store_launch_session_hook(tab_id, nonce, available); }
+        Ok(())
     }
 
     pub(crate) fn hookless_launch_has_input(&self, attempt: &LaunchAttempt) -> bool {
@@ -266,6 +270,10 @@ impl ServiceContext {
         {
             return;
         }
+        self.store_launch_session_hook(tab_id, nonce, available);
+    }
+
+    fn store_launch_session_hook(&self, tab_id: &str, nonce: &str, available: bool) {
         self.session_start_hooks()
             .tabs
             .lock()

@@ -307,7 +307,7 @@ pub fn launch_agent_in_background_with_invocation(
         }
     };
     let launch_nonce = reserved_nonce.clone();
-    mark_tab_agent_launch_started(&svc.mux, &tab_id);
+    account.set_booting(&svc, &tab_id, true);
     crate::service::boot_wait::notify_boot_changed();
     let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
     std::thread::spawn(move || {
@@ -757,7 +757,7 @@ pub fn launch_agent_in_background_with_invocation(
                                         return;
                                     }
                                 };
-                            let replacement_nonce = match account.reserve_replacement(&svc, &tab_id) {
+                            let replacement_nonce = match account.reserve_replacement(&svc, &launch) {
                                 Ok(nonce) => nonce,
                                 Err(error) => {
                                     account.fail_if_current(&launch, &svc, LaunchFailure::StartupSupervision(error.clone()));

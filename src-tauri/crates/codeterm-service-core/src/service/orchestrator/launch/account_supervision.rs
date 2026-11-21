@@ -8,6 +8,7 @@ pub(super) struct LaunchAccount {
     provider: String,
     resume: Option<String>,
     expected: Arc<parking_lot::Mutex<Tab>>,
+    switch_launch: Option<Arc<crate::service::messenger::switch_handoff::SwitchLaunchAuthority>>,
 }
 
 fn exact_resume_source(svc: &ServiceContext, tab: &Tab, provider: &str, resume: &str) -> bool {
@@ -49,7 +50,12 @@ fn exact_resume_source(svc: &ServiceContext, tab: &Tab, provider: &str, resume: 
 pub(super) fn prepare(
     svc: &ServiceContext, tab: &str, provider: &str, resume: Option<&str>,
 ) -> Result<(LaunchAccount, Option<String>), String> {
-    let source = svc.mux.read().get_tab(tab).cloned().ok_or("launch_account_source_unavailable")?;
+    let switch_launch = crate::service::messenger::switch_handoff::launch_authority(svc, tab);
+    if let Some(authority) = &switch_launch { authority.validate(svc)?; }
+    let source = match &switch_launch {
+        Some(authority) => authority.snapshot(),
+        None => svc.mux.read().get_tab(tab).cloned().ok_or("launch_account_source_unavailable")?,
+    };
     if source.frozen || source.agent_type.as_deref().is_some_and(|current| current != provider)
         || match resume {
             Some(resume) => !exact_resume_source(svc, &source, provider, resume),
@@ -58,8 +64,9 @@ pub(super) fn prepare(
     {
         return Err("launch_account_source_changed: exact provider/resume authority is unavailable".into());
     }
-    let (reserved, expected) = svc.reserve_agent_launch_binding_nonce_if_current(&source, resume)?;
-    let account = LaunchAccount {provider: provider.into(), resume: resume.map(str::to_owned), expected: Arc::new(parking_lot::Mutex::new(expected))};
+    let (reserved, expected) = svc.reserve_agent_launch_binding_nonce_if_current(&source, resume, None)?;
+    if let Some(authority) = &switch_launch { authority.reserved(expected.clone()); }
+    let account = LaunchAccount {provider: provider.into(), resume: resume.map(str::to_owned), expected: Arc::new(parking_lot::Mutex::new(expected)), switch_launch};
     account.validate(svc, tab)?;
     if let Some(session) = resume.filter(|_| reserved.is_some()) {
         crate::service::launch_session_detection::register_resume_launch_marker(tab, session);
@@ -68,13 +75,18 @@ pub(super) fn prepare(
 }
 
 impl LaunchAccount {
-    pub(super) fn reserve_replacement(&self, svc: &ServiceContext, tab: &str) -> Result<String, String> {
-        self.validate(svc, tab)?;
-        let source = svc.mux.read().get_tab(tab).cloned().ok_or("launch_account_source_unavailable")?;
-        let (nonce, expected) = svc.reserve_agent_launch_binding_nonce_if_current(&source, self.resume.as_deref())?;
+    pub(super) fn reserve_replacement(&self, svc: &ServiceContext, launch: &LaunchGeneration) -> Result<String, String> {
+        let source = self.expected.lock().clone();
+        let registry = LAUNCH_REGISTRY.lock();
+        if !registry.owns(launch) {
+            return Err("launch_account_source_changed: replacement generation is obsolete".into());
+        }
+        let (nonce, expected) = svc.reserve_agent_launch_binding_nonce_if_current(
+            &source, self.resume.as_deref(), Some(&launch.pty_id))?;
         let nonce = nonce.ok_or("launch_account_replacement_unnecessary: current launch already authenticated")?;
+        if let Some(authority) = &self.switch_launch { authority.reserved(expected.clone()); }
         *self.expected.lock() = expected;
-        self.validate(svc, tab)?;
+        drop(registry);
         Ok(nonce)
     }
 
@@ -90,12 +102,18 @@ impl LaunchAccount {
     }
 
     pub(super) fn validate(&self, svc: &ServiceContext, tab: &str) -> Result<(), String> {
+        if crate::crash::shutdown::is_shutting_down() {
+            return Err("launch_account_source_changed: service is shutting down".into());
+        }
         let mux = svc.mux.read();
         let current = mux.get_tab(tab).ok_or("launch_account_source_unavailable")?;
         self.validate_snapshot(current)
     }
 
     fn validate_snapshot(&self, current: &Tab) -> Result<(), String> {
+        if self.switch_launch.as_ref().is_some_and(|authority| !authority.matches(current)) {
+            return Err("launch_account_source_changed: admitted switch launch was revoked".into());
+        }
         let expected = self.expected.lock();
         if current.session_binding_nonce.is_none()
             || current.session_binding_nonce != expected.session_binding_nonce
@@ -107,6 +125,9 @@ impl LaunchAccount {
             || current.role != expected.role || current.role_profile != expected.role_profile
             || current.task_binding != expected.task_binding || current.cwd != expected.cwd
             || current.can_spawn != expected.can_spawn || current.depth != expected.depth
+            || current.report_target_tab_id != expected.report_target_tab_id
+            || current.report_target_mesh_peer != expected.report_target_mesh_peer
+            || current.spawned_by_tab_id != expected.spawned_by_tab_id
             || current.ownership != expected.ownership || current.neighbor_authority != expected.neighbor_authority
             || current.backing != expected.backing || current.frozen
             || current.agent_type.as_deref().is_some_and(|provider| provider != self.provider)
@@ -122,7 +143,10 @@ impl LaunchAccount {
 
     pub(super) fn set_booting(&self, svc: &ServiceContext, tab: &str, value: bool) {
         if let Some(current) = svc.mux.write().get_tab_mut(tab) {
-            if self.validate_snapshot(current).is_ok() { current.agent_booting = value; }
+            if self.validate_snapshot(current).is_ok() {
+                current.agent_booting = value;
+                if value { current.restored_from_snapshot = false; current.restorable_launch.failed_provider = None; }
+            }
         }
     }
 
@@ -147,9 +171,7 @@ impl LaunchAccount {
         let owner = svc.clone();
         let tab = tab.to_owned();
         let account = self.clone();
-        let (send, receive) = std::sync::mpsc::sync_channel(1);
-        svc.rt.spawn_blocking(move || {
-            let result = account.resolve_with(&owner, &tab, || {
+        self.start_resolution(svc, &tab, move || {
                 let (id, saved_namespace) = {
                     let expected = account.expected.lock();
                     (crate::service::provider_accounts::selected_account(&expected).to_owned(), expected.restorable_launch.account_namespace.clone())
@@ -166,11 +188,20 @@ impl LaunchAccount {
                     return Err("launch_account_context_changed: credential namespace changed".into());
                 }
                 Ok(resolved)
-            });
-            let _ = send.send(result);
-        });
-        receive.recv_timeout(std::time::Duration::from_secs(60))
-            .map_err(|_| "launch_account_supervision_unconfirmed: account provisioning did not settle; no provider launch was authorized".to_owned())?
+        })?.wait_blocking(std::time::Duration::from_secs(60))
+    }
+
+    pub(super) fn start_resolution(
+        &self, svc: &ServiceContext, tab: &str,
+        provision: impl FnOnce() -> Result<Option<Arc<InvocationContext>>, String> + Send + 'static,
+    ) -> Result<crate::service::provider_accounts::provisioning::Observation, String> {
+        self.validate(svc, tab)?;
+        let owner = svc.clone();
+        let account = self.clone();
+        let tab = tab.to_owned();
+        crate::service::provider_accounts::provisioning::start(svc, move || {
+            account.resolve_with(&owner, &tab, provision)
+        })
     }
 }
 

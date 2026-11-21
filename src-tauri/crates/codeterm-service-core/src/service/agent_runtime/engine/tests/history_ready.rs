@@ -5,18 +5,116 @@ use super::sync_send::{
 use super::*;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-#[tokio::test]
-async fn account_supervision_deadline_cannot_continue_a_cancelled_launch() {
-    let (release, provision) = tokio::sync::oneshot::channel::<()>();
-    assert!(matches!(
-        accounts::await_account_supervision(provision, Duration::ZERO).await,
-        Err(RuntimeFailure::Deadline)
-    ));
-    assert!(release.send(()).is_err());
-    assert_eq!(
-        accounts::await_account_supervision(std::future::ready(7), Duration::ZERO).await.unwrap(),
-        7
-    );
+#[test]
+fn switch_launch_refuses_replacement_before_runtime_admission_and_bootstrap_write() {
+    use crate::service::messenger::switch_handoff::{with_switch_launch, launch_authority};
+    use std::{pin::Pin, task::Poll};
+    use tokio::io::{AsyncRead, ReadBuf};
+    for changed in ["team", "account", "namespace", "nonce"] {
+        let (fixture, id, mut peer, _cleanup) = runtime_fixture_without_remote_history(RUNTIME_FIXTURE_SOURCE);
+        let session = for_tab(&id).unwrap();
+        let expected = {
+            let mut mux = fixture.service.mux.write(); let tab = mux.get_tab_mut(&id).unwrap();
+            tab.agent_session_id = None; tab.reported_session_binding_nonce = None;
+            if let crate::multiplexer::types::TabBacking::ChatBackend { session_id, .. } = &mut tab.backing { session_id.clear(); }
+            tab.clone()
+        };
+        with_switch_launch(&fixture.service, &expected, || {
+            let authority = launch_authority(&fixture.service, &id).unwrap();
+            let nonce = reserve_switch_launch(&fixture.service, &authority)?;
+            session.context.lock().binding_nonce = nonce;
+            session.context.lock().thread_id = None;
+            {
+                let mut mux = fixture.service.mux.write(); let tab = mux.get_tab_mut(&id).unwrap();
+                match changed {
+                    "team" => tab.team_id = Some("replacement-team".into()),
+                    "account" => tab.restorable_launch.account_id = Some("replacement-account".into()),
+                    "namespace" => tab.restorable_launch.account_namespace = Some("replacement-namespace".into()),
+                    "nonce" => tab.session_binding_nonce = Some("replacement-nonce".into()),
+                    _ => unreachable!(),
+                }
+            }
+            let before = serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
+            let params = crate::service::SpawnAgentParams { agent: expected.agent_type.clone(), skip_permissions: Some(false), ..Default::default() };
+            assert!(fixture.service.prepare_agent_runtime_launch_options(&id, &params).is_err());
+            assert!(fixture.service.prepare_agent_runtime_launch_env(&id, &Default::default()).is_err());
+            assert!(launch_switch_target(&fixture.service, &authority, Value::Null).is_err());
+            let process = session.process.lock().clone().unwrap();
+            crate::async_runtime::block_on(async {
+                assert!(run(&fixture.service, &session.provider, &session, &process, RuntimeOperation::Initialize).await.is_err());
+                std::future::poll_fn(|cx| {
+                    let mut bytes = [0; 1]; let mut buffer = ReadBuf::new(&mut bytes);
+                    assert!(Pin::new(&mut peer).poll_read(cx, &mut buffer).is_pending());
+                    Poll::Ready(())
+                }).await;
+            });
+            assert_eq!(serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap(), before);
+            Ok(())
+        }).unwrap();
+    }
+}
+
+#[test]
+fn switch_launch_publication_cannot_clear_reparented_replacement() {
+    use crate::service::messenger::switch_handoff::with_switch_launch;
+    let (fixture, id, _peer, _cleanup) = runtime_fixture_without_remote_history(RUNTIME_FIXTURE_SOURCE);
+    let session = for_tab(&id).unwrap();
+    let expected = fixture.service.mux.read().get_tab(&id).unwrap().clone();
+    let (entered, release) = super::super::publication::hold_publication_for_test(&id);
+    let owner = fixture.service.clone(); let target = id.clone();
+    let publisher = std::thread::spawn(move || with_switch_launch(&owner, &expected, || {
+        let epoch = session.state.lock().epoch;
+        session.state.lock().degrade(epoch, &RuntimeFailure::Refused("obsolete switch launch".into()));
+        publish(&owner, &target, &session);
+        Ok(())
+    }));
+    entered.recv_timeout(Duration::from_secs(10)).unwrap();
+    let before = {
+        let mut mux = fixture.service.mux.write(); let tab = mux.get_tab_mut(&id).unwrap();
+        tab.team_id = Some("replacement-team".into()); tab.parent_tab_id = Some("replacement-parent".into());
+        tab.report_target_tab_id = Some("replacement-report".into());
+        serde_json::to_value(tab).unwrap()
+    };
+    release.send(()).unwrap(); publisher.join().unwrap().unwrap();
+    assert_eq!(serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap(), before);
+}
+
+#[test]
+fn switch_handoff_conserves_the_claimed_payload_when_provider_proposes_a_replan() {
+    use crate::service::messenger::{AgentInput, MessageEnvelope, Messenger, switch_handoff::SwitchSourceAuthority};
+    use std::{pin::Pin, task::Poll};
+    use tokio::io::{AsyncRead, ReadBuf};
+    let source = RUNTIME_FIXTURE_SOURCE.replace("runtimeResponse(ctx, op, state, reply) {",
+        "runtimeResponse(ctx, op, state, reply) { if (op.kind === 'submitTurn') return {kind:'continue',beforeAcceptance:true,plan:{action:{kind:'request',call:{method:'fixture/submit',params:op}},state:null}};");
+    let (fixture, id, peer, _cleanup) = runtime_fixture_without_remote_history(&source);
+    let session = for_tab(&id).unwrap();
+    bind(&fixture.service, &session, "own-thread", false).unwrap();
+    let ready = fixture.service.mux.read().get_tab(&id).unwrap().clone();
+    let mut original = ready.clone(); original.agent_type = Some("previous-provider".into());
+    original.agent_session_id = Some("previous-session".into());
+    let authority = SwitchSourceAuthority::admitted(&original).ready_target(&ready).unwrap();
+    let input = AgentInput::Framed(Messenger::from(MessageEnvelope::from_codeterm()).framed_delivery("opaque switch handoff"));
+    let reader = crate::async_runtime::spawn(async move {
+        let mut peer = BufReader::new(peer); let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(10), peer.read_line(&mut line)).await.unwrap().unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["method"], "fixture/submit");
+        assert_eq!(line.matches("opaque switch handoff").count(), 1);
+        let error = serde_json::json!({"id":request["id"],"error":{"code":-1,"message":"opaque refusal"}});
+        peer.get_mut().write_all(format!("{error}\n").as_bytes()).await.unwrap();
+        peer.into_inner()
+    });
+    assert!(fixture.service.send_provider_switch_handoff(authority.clone(), &input).is_err());
+    assert!(authority.was_claimed());
+    assert!(fixture.service.send_provider_switch_handoff(authority, &input).is_err());
+    crate::async_runtime::block_on(async {
+        let mut peer = reader.await.unwrap();
+        std::future::poll_fn(|cx| {
+            let mut bytes = [0; 1]; let mut buffer = ReadBuf::new(&mut bytes);
+            assert!(Pin::new(&mut peer).poll_read(cx, &mut buffer).is_pending());
+            Poll::Ready(())
+        }).await;
+    });
 }
 
 #[test]

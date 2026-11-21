@@ -210,6 +210,9 @@ impl ServiceContext {
         {
             let mut mux = self.mux.write();
             let tab = mux.get_tab_mut(tab_id).ok_or("Runtime tab unavailable")?;
+            if crate::service::messenger::switch_handoff::launch_authority(self, tab_id).is_some_and(|authority| !authority.matches(tab)) {
+                return Err("provider_switch_superseded: runtime options authority changed".into());
+            }
             if tab.agent_type.as_deref() != Some(provider.as_str())
                 || tab.session_binding_nonce.as_deref() != Some(nonce.as_str())
             {
@@ -271,6 +274,7 @@ fn publish_failure(svc: &ServiceContext, tab_id: &str, scope: &(String, String),
         let Some(tab) = mux.get_tab_mut(tab_id) else {
             return;
         };
+        if crate::service::messenger::switch_handoff::launch_authority(svc, tab_id).is_some_and(|authority| !authority.matches(tab)) { return; }
         if tab.agent_type.as_deref() != Some(scope.0.as_str())
             || tab.session_binding_nonce.as_deref() != Some(scope.1.as_str())
         {

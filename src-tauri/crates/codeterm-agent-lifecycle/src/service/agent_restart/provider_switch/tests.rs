@@ -9,6 +9,55 @@ use crate::service::plan::{
 use crate::service::test_fixture::ServiceFixture;
 
 #[test]
+fn switch_retirement_cannot_clear_a_replacement_or_reparented_source_after_reap() {
+    use crate::service::agent_restart::shutdown::SwitchRetirementBoundary;
+    use crate::service::messenger::switch_handoff::SwitchSourceAuthority;
+    for replacement in [false, true] {
+        let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.agent_type = Some("source".into());
+        tab.agent_session_id = Some("source-session".into());
+        tab.session_binding_nonce = Some("source-nonce".into());
+        tab.reported_session_binding_nonce = Some("source-nonce".into());
+        tab.pty_id = Some("reaped-source-pty".into());
+        let source = SwitchSourceAuthority::admitted(tab);
+        let snap = TabRestartSnapshot {
+            tab_id: id.clone(), pty_id: "reaped-source-pty".into(), provider: "source".into(), target_provider: None,
+            session_id: Some("source-session".into()), cwd: None, auto_approve: false, role: None, role_profile: None, handoff_history: None,
+        };
+        let fixture = ServiceFixture::new(mux);
+        let (entered, observed) = std::sync::mpsc::sync_channel(1);
+        let (release, blocked) = std::sync::mpsc::sync_channel(1);
+        let blocked = parking_lot::Mutex::new(blocked);
+        assert!(fixture.service.set_ext(SwitchRetirementBoundary(std::sync::Arc::new(move || {
+            entered.send(()).unwrap();
+            blocked.lock().recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+        }))).is_ok());
+        let service = fixture.service.clone();
+        let retiring = std::thread::spawn(move || service.tear_down_switch_pty(&snap, &source));
+        observed.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&id).unwrap();
+            tab.team_id = Some("replacement-team".into());
+            tab.parent_tab_id = Some("replacement-parent".into());
+            tab.report_target_tab_id = Some("replacement-report".into());
+            if replacement {
+                tab.pty_id = Some("replacement-pty".into());
+                tab.session_binding_nonce = Some("replacement-nonce".into());
+                tab.reported_session_binding_nonce = Some("replacement-nonce".into());
+                tab.agent_session_id = Some("replacement-session".into());
+                tab.restorable_launch.account_namespace = Some("replacement-namespace".into());
+            }
+        }
+        let before = serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
+        release.send(()).unwrap();
+        assert!(retiring.join().unwrap().unwrap_err().starts_with("provider_switch_superseded:"));
+        assert_eq!(serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap(), before);
+    }
+}
+
+#[test]
 fn owner_switch_bypasses_restart_cooldown_but_keeps_lifecycle_exclusion() {
     let (mux, id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
@@ -301,6 +350,7 @@ fn source_archive_failure_releases_authority_and_fences_the_attempt() {
                 service: &fixture.service,
                 tab_id: &id,
                 interrupt_on_failure: true,
+        preserve: false,
             };
             assert!(!fixture.service.signal_worker_interruption(
             &id,
@@ -473,14 +523,22 @@ fn provider_switch_restores_plan_attempt_for_acknowledgement_and_report() {
         .lane
         .clone();
 
-    let authority = fixture
-        .service
-        .authorize_provider_switch_binding(
-            &tab_id,
-            "source-provider",
-            "target-provider",
-            "source-nonce",
-        )
+    let source_snapshot = fixture.service.mux.read().get_tab(&tab_id).unwrap().clone();
+    let admitted = crate::service::messenger::switch_handoff::SwitchSourceAuthority::admitted(&source_snapshot);
+    let replacement = std::sync::Arc::new(parking_lot::Mutex::new(None));
+    let captured = replacement.clone();
+    let changed_tab = tab_id.clone();
+    fixture.service.before_switch_binding_commit_for_test(std::sync::Arc::new(move |service| {
+        let mut mux = service.mux.write(); let tab = mux.get_tab_mut(&changed_tab).unwrap();
+        tab.team_id = Some("replacement-team".into()); tab.parent_tab_id = Some("replacement-parent".into());
+        tab.report_target_tab_id = Some("replacement-report".into());
+        tab.restorable_launch.account_namespace = Some("replacement-namespace".into());
+        *captured.lock() = Some(serde_json::to_value(tab).unwrap());
+    })).unwrap();
+    assert!(fixture.service.authorize_provider_switch_binding_from_source(&admitted, "target-provider").is_err());
+    assert_eq!(serde_json::to_value(fixture.service.mux.read().get_tab(&tab_id).unwrap()).unwrap(), replacement.lock().clone().unwrap());
+    *fixture.service.mux.write().get_tab_mut(&tab_id).unwrap() = source_snapshot;
+    let authority = fixture.service.authorize_provider_switch_binding_from_source(&admitted, "target-provider")
         .unwrap()
         .expect("the exact plan attempt is carried even when tab metadata is incomplete");
     let restored_tab_binding = fixture
@@ -492,6 +550,7 @@ fn provider_switch_restores_plan_attempt_for_acknowledgement_and_report() {
         .task_binding
         .clone()
         .unwrap();
+    assert_eq!(authority.authorized_task_binding(), &restored_tab_binding);
     assert_eq!(
         restored_tab_binding.plan_id.as_deref(),
         Some(plan.id.as_str())

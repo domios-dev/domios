@@ -13,6 +13,21 @@ mod policy;
 mod read_failure_tests;
 mod user_send;
 
+pub fn automatic_restore_refusal(tab: &Tab) -> Option<&'static str> {
+    let agent_launch = tab.role.is_some() || tab.agent_type.is_some() || tab.restorable_launch.failed_provider.is_some();
+    if !agent_launch || !tab.restored_from_snapshot || tab.boot_stage != Some(BootStage::SpawnFailed) {
+        return None;
+    }
+    let passive = matches!(tab.backing, TabBacking::Pty)
+        && tab.agent_runtime_state.is_none() && tab.agent_state.is_none()
+        && tab.reported_session_binding_nonce.is_none() && tab.pty_id.is_none() && !tab.agent_booting;
+    Some(if passive {
+        "restored_failed_launch_preserved: explicit lifecycle recovery is required"
+    } else {
+        "restored_failed_launch_refused: contradictory launch evidence"
+    })
+}
+
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_boundary;
 
@@ -104,7 +119,8 @@ fn initialize_with_continuing(
         .values()
         .map(|tab| {
             let read =
-                if tab.agent_type.is_none() && tab.role.is_none() && tab.task_binding.is_none() {
+                if automatic_restore_refusal(tab).is_some()
+                    || tab.agent_type.is_none() && tab.role.is_none() && tab.task_binding.is_none() {
                     Ok(false)
                 } else {
                     read(&tab.id)
@@ -124,6 +140,10 @@ fn initialize_with_continuing(
     for workspace in &snapshot.workspaces {
         for id in &workspace.tabs {
             if let Some(tab) = mux.get_tab_mut(id) {
+                if automatic_restore_refusal(tab).is_some() {
+                    tab.frozen = true;
+                    continue;
+                }
                 let is_continuing = match continuing.get(id) {
                     Some(Ok(continuing)) => *continuing,
                     Some(Err(_)) => {
@@ -230,6 +250,11 @@ fn wake_with_intent(
         let resolved = mux
             .resolve_tab_id(tab_id)
             .ok_or_else(|| format!("Tab {tab_id} not found"))?;
+        if intent != WakeIntent::Restart {
+            if let Some(reason) = mux.get_tab(&resolved).and_then(automatic_restore_refusal) {
+                return if intent == WakeIntent::Open { Ok(()) } else { Err(reason.into()) };
+            }
+        }
         if intent == WakeIntent::Open
             && !mux
                 .get_tab(&resolved)

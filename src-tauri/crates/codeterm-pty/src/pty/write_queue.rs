@@ -27,10 +27,24 @@ struct GuardedInputState {
     writer: Mutex<()>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct GuardedInputPermit {
     epoch: u64,
     gate: Arc<GuardedInputState>,
+    prewrite_claim: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+}
+
+impl std::fmt::Debug for GuardedInputPermit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GuardedInputPermit").field("epoch", &self.epoch).finish_non_exhaustive()
+    }
+}
+
+impl GuardedInputPermit {
+    pub fn with_prewrite_claim(mut self, claim: Arc<dyn Fn() -> bool + Send + Sync>) -> Self {
+        self.prewrite_claim = Some(claim);
+        self
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -57,6 +71,7 @@ impl GuardedInputGate {
             GuardedInputPermit {
                 epoch,
                 gate: self.state.clone(),
+                prewrite_claim: None,
             }
         })
     }
@@ -225,6 +240,7 @@ impl WriteQueue {
                     .map_err(|error| error.to_string())
             };
             let result = match request.permit.as_ref() {
+                Some(permit) if permit.prewrite_claim.as_ref().is_some_and(|claim| !claim()) => Err(STALE_AGENT_INPUT.into()),
                 Some(permit) => match permit.gate.writer.lock() {
                     Ok(_guard) if permit.gate.epoch.load(Ordering::Acquire) == permit.epoch => {
                         write(&mut writer)

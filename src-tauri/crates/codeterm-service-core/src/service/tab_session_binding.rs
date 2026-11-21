@@ -173,6 +173,7 @@ impl ServiceContext {
         &self,
         expected: &crate::multiplexer::types::Tab,
         resume_target: Option<&str>,
+        owned_pty_transition: Option<&str>,
     ) -> Result<(Option<String>, crate::multiplexer::types::Tab), String> {
         use crate::session::lifecycle::{LifecycleKey, LifecycleTransition};
         let key = LifecycleKey::new(&expected.id,
@@ -195,9 +196,15 @@ impl ServiceContext {
                 || current.team_id != expected.team_id || current.parent_tab_id != expected.parent_tab_id
                 || current.task_binding != expected.task_binding || current.cwd != expected.cwd
                 || current.can_spawn != expected.can_spawn || current.depth != expected.depth
+                || current.report_target_tab_id != expected.report_target_tab_id
+                || current.report_target_mesh_peer != expected.report_target_mesh_peer
+                || current.spawned_by_tab_id != expected.spawned_by_tab_id
                 || current.neighbor_authority != expected.neighbor_authority
-                || current.pty_id != expected.pty_id || current.backing != expected.backing
+                || current.pty_id.as_deref() != owned_pty_transition.or(expected.pty_id.as_deref())
+                || current.backing != expected.backing
                 || current.frozen != expected.frozen || current.ownership != expected.ownership
+                || current.protected != expected.protected
+                || current.close_restore.as_ref().is_some_and(|closed| closed.stopped) != expected.close_restore.as_ref().is_some_and(|closed| closed.stopped)
             {
                 return Err("launch_account_source_changed: reservation authority changed".into());
             }

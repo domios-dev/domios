@@ -2,6 +2,54 @@ use super::*;
 use std::sync::{Arc, Mutex};
 
 #[test]
+fn serialized_prewrite_refuses_revocation_after_enqueue_without_writing_the_payload() {
+    let data = Arc::new(Mutex::new(Vec::new()));
+    let (entered, observed) = mpsc::sync_channel(1);
+    let (release, blocked) = mpsc::sync_channel(1);
+    let queue = WriteQueue::new(Box::new(FirstWriteBarrier {
+        data: data.clone(), first_entered: entered, release_first: blocked, first: true,
+    }));
+    queue.send(b"prior".to_vec()).unwrap();
+    observed.recv_timeout(Duration::from_secs(1)).unwrap();
+    let allowed = Arc::new(AtomicBool::new(true));
+    let checks = Arc::new(AtomicU64::new(0));
+    let gate = GuardedInputGate::default();
+    gate.rearm();
+    let permit = gate.issue().unwrap().with_prewrite_claim({
+        let allowed = allowed.clone(); let checks = checks.clone();
+        Arc::new(move || { checks.fetch_add(1, Ordering::SeqCst); allowed.load(Ordering::SeqCst) })
+    });
+    assert!(is_write_ack_timeout(&queue.send_and_wait_guarded(b"primary".to_vec(), permit, Duration::ZERO).unwrap_err()));
+    allowed.store(false, Ordering::SeqCst);
+    release.send(()).unwrap();
+    queue.send_and_wait(Vec::new(), Duration::from_secs(1)).unwrap();
+    assert_eq!(*data.lock().unwrap(), b"prior");
+    assert_eq!(checks.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn claimed_write_survives_ack_uncertainty_once_and_revoked_submit_key_is_refused() {
+    let data = Arc::new(Mutex::new(Vec::new()));
+    let (entered, observed) = mpsc::sync_channel(1);
+    let (release, blocked) = mpsc::sync_channel(1);
+    let queue = WriteQueue::new(Box::new(FirstWriteBarrier {
+        data: data.clone(), first_entered: entered, release_first: blocked, first: true,
+    }));
+    let allowed = Arc::new(AtomicBool::new(true));
+    let gate = GuardedInputGate::default(); gate.rearm();
+    let permit = gate.issue().unwrap().with_prewrite_claim({
+        let allowed = allowed.clone(); Arc::new(move || allowed.load(Ordering::SeqCst))
+    });
+    assert!(is_write_ack_timeout(&queue.send_and_wait_guarded(b"primary".to_vec(), permit.clone(), Duration::ZERO).unwrap_err()));
+    observed.recv_timeout(Duration::from_secs(1)).unwrap();
+    allowed.store(false, Ordering::SeqCst);
+    release.send(()).unwrap();
+    queue.send_and_wait(Vec::new(), Duration::from_secs(1)).unwrap();
+    assert!(is_stale_agent_input(&queue.send_and_wait_guarded(b"\r".to_vec(), permit, Duration::from_secs(1)).unwrap_err()));
+    assert_eq!(*data.lock().unwrap(), b"primary");
+}
+
+#[test]
 fn update_reservation_refuses_before_enqueue_and_releases_without_replaying() {
     let writes = Arc::new(Mutex::new(Vec::new()));
     let queue = WriteQueue::new(Box::new(MockWriter {

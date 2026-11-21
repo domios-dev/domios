@@ -95,6 +95,7 @@ struct Write {
 impl Write {
     fn begin(&self, client: &Client) -> Result<(), RuntimeFailure> {
         if let Some(reason) = self.guard.as_ref().and_then(|guard| guard().err()) {
+            if matches!(reason, RuntimeFailure::WrittenAwaitingEvidence) { return Err(reason); }
             return Err(RuntimeFailure::PrewriteRefused(reason.to_string()));
         }
         if let Some(witness) = &self.turn_write {
@@ -405,6 +406,9 @@ impl Client {
     pub async fn notify(&self, call: &RpcCall) -> Result<(), RuntimeFailure> {
         self.queue(json!({"method":call.method,"params":call.params}))
             .await
+    }
+    pub(crate) async fn notify_guarded(&self, call: &RpcCall, guard: Option<PrewriteGuard>) -> Result<(), RuntimeFailure> {
+        self.queue_guarded(json!({"method":call.method,"params":call.params}), guard).await
     }
     pub async fn reply(&self, id: &RpcId, result: Reply) -> Result<(), RuntimeFailure> {
         self.queue(match result {

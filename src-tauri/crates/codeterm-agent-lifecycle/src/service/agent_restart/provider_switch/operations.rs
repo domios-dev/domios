@@ -8,6 +8,8 @@ use std::{
 pub use codeterm_wire::api_contracts::ProviderSwitchStatus;
 
 struct Operation {
+    source: Tab,
+    authorized_binding: Mutex<Option<crate::multiplexer::types::TaskBinding>>,
     state: Mutex<ProviderSwitchStatus>,
     changed: Condvar,
     target: Mutex<Option<TargetBinding>>,
@@ -17,25 +19,53 @@ struct Operation {
 pub(super) struct TargetBinding {
     provider: String,
     nonce: String,
-    epoch: Option<u64>,
-    operation: Option<String>,
-    team: Option<String>,
-    parent: Option<String>,
-    role: Option<crate::multiplexer::types::AgentRole>,
-    profile: Option<String>,
-    task: Option<crate::multiplexer::types::TaskBinding>,
-    ownership: Option<codeterm_types::pty::RemoteOwnership>,
+    authority: Tab,
+}
+
+pub(super) fn same_context(expected: &Tab, current: &Tab) -> bool {
+    crate::service::messenger::switch_handoff::same_context(expected, current)
+}
+
+pub(super) fn source_matches(expected: &Tab, current: &Tab) -> bool {
+    crate::service::messenger::switch_handoff::same_binding(expected, current)
+}
+
+pub(super) fn admitted_source_matches(tab: &Tab) -> bool {
+    CURRENT.with(|current| current.borrow().as_ref().is_none_or(|operation| source_matches(&operation.source, tab)))
+}
+
+pub(super) fn authorize_task_carry(binding: &crate::multiplexer::types::TaskBinding) {
+    OWNERSHIP.with(|ownership| {
+        if let Some(ownership) = ownership.borrow_mut().as_mut() { ownership.source.task_binding = Some(binding.clone()); }
+    });
+    CURRENT.with(|current| {
+        if let Some(operation) = current.borrow().as_ref() {
+            *operation.authorized_binding.lock() = Some(binding.clone());
+        }
+    });
+}
+
+fn target_context_matches(operation: &Operation, tab: &Tab) -> bool {
+    let mut source = operation.source.clone();
+    if let Some(binding) = operation.authorized_binding.lock().as_ref() {
+        source.task_binding = Some(binding.clone());
+    }
+    same_context(&source, tab)
 }
 
 impl TargetBinding {
     pub(super) fn matches(&self, tab: &Tab) -> bool {
         tab.agent_type.as_deref() == Some(self.provider.as_str())
             && tab.session_binding_nonce.as_deref() == Some(self.nonce.as_str())
-            && tab.lifecycle_epoch == self.epoch
-            && tab.lifecycle_operation_id == self.operation
-            && tab.team_id == self.team && tab.parent_tab_id == self.parent
-            && tab.role == self.role && tab.role_profile == self.profile
-            && tab.task_binding == self.task && tab.ownership == self.ownership
+            && tab.lifecycle_epoch == self.authority.lifecycle_epoch
+            && tab.lifecycle_operation_id == self.authority.lifecycle_operation_id
+            && same_context(&self.authority, tab)
+            && tab.restorable_launch.account_id == self.authority.restorable_launch.account_id
+            && tab.restorable_launch.account_namespace == self.authority.restorable_launch.account_namespace
+            && (!self.authority.launch_session_authenticated()
+                || self.authority.boot_stage != Some(codeterm_types::pty::BootStage::AgentReady)
+                || tab.agent_session_id == self.authority.agent_session_id
+                    && tab.pty_id == self.authority.pty_id && tab.backing == self.authority.backing)
     }
 
     pub(super) fn capture(svc: &ServiceContext, tab: &str, provider: &str, nonce: &str) -> Result<Self, String> {
@@ -44,16 +74,35 @@ impl TargetBinding {
             tab.agent_type.as_deref() == Some(provider)
                 && tab.session_binding_nonce.as_deref() == Some(nonce)
         }).ok_or("provider_switch_superseded: target launch changed")?;
+        if !OWNERSHIP.with(|ownership| ownership.borrow().as_ref().is_none_or(|ownership| same_context(&ownership.source, tab))) {
+            return Err("provider_switch_superseded: source context changed before target capture".into());
+        }
+        if !CURRENT.with(|current| current.borrow().as_ref().is_none_or(|operation| target_context_matches(operation, tab))) {
+            return Err("provider_switch_superseded: source context was revoked before target launch".into());
+        }
         Ok(Self {
-            provider: provider.into(), nonce: nonce.into(), epoch: tab.lifecycle_epoch,
-            operation: tab.lifecycle_operation_id.clone(),
-            team: tab.team_id.clone(), parent: tab.parent_tab_id.clone(), role: tab.role,
-            profile: tab.role_profile.clone(), task: tab.task_binding.clone(), ownership: tab.ownership.clone(),
+            provider: provider.into(), nonce: nonce.into(), authority: tab.clone(),
         })
+    }
+
+    pub(super) fn pin_ready(&self, current: &Tab) -> Self {
+        let mut pinned = self.clone();
+        pinned.authority = current.clone();
+        pinned
     }
 }
 
+struct Ownership { source: Tab, target: Option<TargetBinding> }
+pub(super) struct OwnershipScope(Option<Ownership>);
+impl Drop for OwnershipScope {
+    fn drop(&mut self) { OWNERSHIP.with(|ownership| ownership.replace(self.0.take())); }
+}
+pub(super) fn own_source(source: &Tab) -> OwnershipScope {
+    OwnershipScope(OWNERSHIP.with(|ownership| ownership.replace(Some(Ownership { source: source.clone(), target: None }))))
+}
+
 thread_local! {
+    static OWNERSHIP: std::cell::RefCell<Option<Ownership>> = const { std::cell::RefCell::new(None) };
     static CURRENT: std::cell::RefCell<Option<Arc<Operation>>> = const { std::cell::RefCell::new(None) };
 }
 
@@ -92,6 +141,9 @@ pub(super) fn progress(svc: &ServiceContext, tab: &str, stage: &'static str) {
 }
 
 pub(super) fn target_launched(target: &TargetBinding) {
+    OWNERSHIP.with(|ownership| {
+        if let Some(ownership) = ownership.borrow_mut().as_mut() { ownership.target = Some(target.clone()); }
+    });
     CURRENT.with(|current| {
         let Some(operation) = current.borrow().clone() else { return };
         *operation.target.lock() = Some(target.clone());
@@ -99,6 +151,12 @@ pub(super) fn target_launched(target: &TargetBinding) {
 }
 
 pub(super) fn owns_target(svc: &ServiceContext, tab: &str) -> bool {
+    if let Some(owned) = OWNERSHIP.with(|ownership| ownership.borrow().as_ref().map(|ownership| {
+        svc.mux.read().get_tab(tab).is_some_and(|tab| match &ownership.target {
+            Some(target) => target.matches(tab),
+            None => crate::service::messenger::switch_handoff::SwitchSourceAuthority::admitted(&ownership.source).matches_retired(tab),
+        })
+    })) { return owned; }
     CURRENT.with(|current| {
         let Some(operation) = current.borrow().clone() else { return true };
         let target = operation.target.lock().clone();
@@ -249,6 +307,8 @@ impl ProviderSwitchOperationsExt for ServiceContext {
             error: None,
         };
         let operation = Arc::new(Operation {
+            source: source.clone(),
+            authorized_binding: Mutex::new(None),
             state: Mutex::new(status.clone()),
             changed: Condvar::new(),
             target: Mutex::new(None),
@@ -287,14 +347,7 @@ impl ProviderSwitchOperationsExt for ServiceContext {
                 let current = svc.mux.read().get_tab(&tab).cloned();
                 let result = match current {
                     Some(current)
-                        if current.agent_type == source.agent_type
-                            && current.agent_session_id == source.agent_session_id
-                            && current.session_binding_nonce == source.session_binding_nonce
-                            && current.team_id == source.team_id
-                            && current.parent_tab_id == source.parent_tab_id
-                            && current.role == source.role && current.role_profile == source.role_profile
-                            && current.task_binding == source.task_binding && current.ownership == source.ownership
-                            && current.cwd == source.cwd && current.backing == source.backing =>
+                        if source_matches(&source, &current) =>
                     {
                         run(&svc, &tab, &provider, own)
                     }

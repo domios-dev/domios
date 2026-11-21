@@ -20,6 +20,9 @@ const fixtureBytes = readFileSync(file);
 const fixtureDigest = createHash('sha256').update(fixtureBytes).digest('hex');
 const document = JSON.parse(fixtureBytes);
 const expected = requireBackings(document);
+const active = expected.filter(tab => !capturedUnavailable(document, tab) && !capturedFailedLaunch(document, tab));
+const passive = expected.filter(tab => capturedUnavailable(document, tab));
+const failedLaunches = expected.filter(tab => capturedFailedLaunch(document, tab));
 const benchLib = fileURLToPath(new URL('../_lib/lib.sh', import.meta.url));
 const deadline = performance.now() + deadlineSeconds * 1000;
 async function dc(...args) {
@@ -36,7 +39,7 @@ const currentHealth = await daemon.health();
 if (currentHealth.instance?.name !== dev.instance) throw new Error('Daemon instance differs from the resolved DEV instance');
 if (currentHealth.build_sha !== expectedBuild) throw new Error('Running full build SHA differs from required replay SHA');
 const providers = await daemon.providers();
-for (const providerId of new Set(expected.filter(tab => tab.agent_type).map(tab => tab.agent_type))) {
+for (const providerId of new Set(expected.filter(tab => !capturedFailedLaunch(document, tab) && tab.agent_type).map(tab => tab.agent_type))) {
   const provider = providers.find(row => row.id === providerId);
   const resolvedBinary = provider?.cli_status?.resolved_path;
   const executable = process.platform === 'win32' ? `${providerId}.cmd` : providerId;
@@ -61,9 +64,6 @@ if (mode === 'stage') {
 if (mode !== 'verify') throw new Error('Unknown replay mode');
 requireRestart(JSON.parse(readFileSync(join(root, 'stage-result.json'), 'utf8')),
   currentHealth.boot_id, fixtureDigest);
-const active = expected.filter(tab => !capturedUnavailable(document, tab) && !capturedFailedLaunch(document, tab));
-const passive = expected.filter(tab => capturedUnavailable(document, tab));
-const failedLaunches = expected.filter(tab => capturedFailedLaunch(document, tab));
 const results = await Promise.all(active.map(async tab => {
   const events = new Events(dev, AbortSignal.timeout(Math.max(1, Math.ceil(deadline - performance.now()))));
   try {

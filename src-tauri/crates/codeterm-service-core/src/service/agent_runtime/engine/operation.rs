@@ -157,6 +157,26 @@ async fn run_inner(
     operation: RuntimeOperation,
     handed_off: &AtomicBool,
 ) -> Result<RuntimeResult, RuntimeFailure> {
+    let switch_authority = match &operation {
+        RuntimeOperation::SubmitTurn { send_id, .. } => crate::service::messenger::switch_handoff::for_send(svc, send_id),
+        _ => None,
+    };
+    let launch_authority = crate::service::messenger::switch_handoff::launch_authority(svc, &session.context.lock().tab_id);
+    let switch_guard: Option<rpc::PrewriteGuard> = (switch_authority.is_some() || launch_authority.is_some()).then(|| {
+        let authority = switch_authority.clone();
+        let launch = launch_authority.clone();
+        let owner = svc.clone();
+        let runtime = session.clone();
+        let epoch = runtime.context.lock().epoch;
+        Arc::new(move || {
+            if runtime.context.lock().epoch != epoch {
+                return Err(if authority.as_ref().is_some_and(|authority| authority.was_claimed()) { RuntimeFailure::WrittenAwaitingEvidence } else { RuntimeFailure::Superseded });
+            }
+            if let Some(launch) = &launch { launch.validate(&owner).map_err(|_| RuntimeFailure::Superseded)?; }
+            if let Some(authority) = &authority { authority.claim(&owner)?; }
+            Ok(())
+        }) as rpc::PrewriteGuard
+    });
     let mut context = session.context.lock().clone();
     super::super::cli_exception::validate_before_operation(svc, &context).await?;
     let declined = super::super::permission_policy::declined(session, &operation);
@@ -264,7 +284,10 @@ async fn run_inner(
                 let captured_read = matches!(operation, RuntimeOperation::ReadHistory { .. })
                     .then(|| operation.clone());
                 let captured_login = super::super::login::declared_operation_witness(&operation);
+                let captured_switch = switch_guard.clone();
+                let captured_claim = switch_authority.clone();
                 let guard: rpc::PrewriteGuard = Arc::new(move || {
+                    let result = (|| {
                     if runtime.context.lock().epoch != epoch {
                         return Err(RuntimeFailure::Superseded);
                     }
@@ -287,7 +310,12 @@ async fn run_inner(
                         let tab = runtime.context.lock().tab_id.clone();
                         capture::validate_if_present(&owner, &tab, send)?;
                     }
+                    if let Some(guard) = &captured_switch { guard()?; }
                     Ok(())
+                    })();
+                    result.map_err(|reason| if captured_claim.as_ref().is_some_and(|authority| authority.was_claimed()) {
+                        RuntimeFailure::WrittenAwaitingEvidence
+                    } else { reason })
                 });
                 #[cfg(debug_assertions)]
                 if matches!(call.method.as_str(), "thread/start" | "thread/resume") {
@@ -326,7 +354,7 @@ async fn run_inner(
                     ));
                 }
                 handed_off.store(true, Ordering::Release);
-                process.client.notify(notification).await?;
+                process.client.notify_guarded(notification, switch_guard.clone()).await?;
                 Ok(Value::Null)
             }
             RuntimeAction::Reply { request_id, result } => {
@@ -404,6 +432,9 @@ async fn run_inner(
                 plan,
                 before_acceptance,
             } => {
+                if switch_authority.as_ref().is_some_and(|authority| authority.was_claimed()) {
+                    return Err(RuntimeFailure::WrittenAwaitingEvidence);
+                }
                 if matches!(operation, RuntimeOperation::SubmitTurn { .. })
                     && (!refused || !before_acceptance)
                 {
@@ -475,7 +506,7 @@ async fn run_inner(
                         ));
                     }
                     handed_off.store(true, Ordering::Release);
-                    process.client.notify(&notification).await?;
+                    process.client.notify_guarded(&notification, switch_guard.clone()).await?;
                 }
                 if let Some(events) = events {
                     let current = session.context.lock().clone();

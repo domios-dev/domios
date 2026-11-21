@@ -149,6 +149,47 @@ fn changed_team_before_accepted_work_starts_refuses_without_running_handoff() {
 }
 
 #[test]
+fn in_place_switch_cannot_adopt_reparented_source_after_operation_preflight() {
+    for changed in ["team", "parent", "report", "depth", "account", "namespace", "nonce"] {
+        let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.agent_type = Some("source".into());
+        tab.agent_session_id = Some("source-session".into());
+        tab.session_binding_nonce = Some("source-nonce".into());
+        tab.reported_session_binding_nonce = Some("source-nonce".into());
+        let fixture = ServiceFixture::new(mux);
+        let accepted = fixture.service.accept_provider_switch_with(&id, "target".into(), None, None,
+            move |svc, tab, target, own| {
+                {
+                    let mut mux = svc.mux.write();
+                    let current = mux.get_tab_mut(tab).unwrap();
+                    match changed {
+                        "team" => current.team_id = Some("replacement-team".into()),
+                        "parent" => current.parent_tab_id = Some("replacement-parent".into()),
+                        "report" => current.report_target_tab_id = Some("replacement-report".into()),
+                        "depth" => current.depth = current.depth.saturating_add(1),
+                        "account" => current.restorable_launch.account_id = Some("replacement-account".into()),
+                        "namespace" => current.restorable_launch.account_namespace = Some("replacement-namespace".into()),
+                        "nonce" => current.session_binding_nonce = Some("replacement-nonce".into()),
+                        _ => unreachable!(),
+                    }
+                }
+                let before = serde_json::to_value(svc.mux.read().get_tab(tab).unwrap()).unwrap();
+                let result = svc.switch_provider_in_place(tab, target, None, None, own);
+                assert!(result.as_ref().unwrap_err().starts_with("provider_switch_superseded:"), "{changed}");
+                assert_eq!(serde_json::to_value(svc.mux.read().get_tab(tab).unwrap()).unwrap(), before);
+                result
+            }).unwrap();
+        let operation = accepted.status.operation_id.clone();
+        accepted.response_complete.send(()).unwrap();
+        let status = fixture.service.provider_switch_status(&id, &operation, true).unwrap();
+        assert_eq!(status.phase, "failed");
+        assert!(status.outcome.is_none());
+        assert!(fixture.service.mux.read().get_tab(&id).unwrap().pty_id.is_none());
+    }
+}
+
+#[test]
 fn slow_switch_preflight_leaves_runtime_and_mux_responsive() {
     use std::{sync::mpsc, time::Duration};
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
@@ -214,6 +255,8 @@ fn exact_late_binding_reconciles_uncertainty_without_handoff_or_stale_completion
     let fixture = ServiceFixture::new(mux);
     let target = TargetBinding::capture(&fixture.service, &id, "target", "current-nonce").unwrap();
     let operation = Arc::new(Operation {
+        source: fixture.service.mux.read().get_tab(&id).unwrap().clone(),
+        authorized_binding: Mutex::new(None),
         state: Mutex::new(ProviderSwitchStatus {
             operation_id: "owned-operation".into(), tab_id: id.clone(), provider: "target".into(),
             phase: "running".into(), stage: Some("target_binding".into()), outcome: None, error: None,
@@ -272,6 +315,8 @@ async fn completion_analytics_is_once_only_current_and_consent_gated() {
     )
     .await;
     let operation = || Operation {
+        source: fixture.service.mux.read().get_tab(&tab_id).unwrap().clone(),
+        authorized_binding: Mutex::new(None),
         state: Mutex::new(ProviderSwitchStatus {
             operation_id: "private-operation".into(),
             tab_id: tab_id.clone(),
