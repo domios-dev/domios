@@ -184,6 +184,15 @@ impl super::super::ServiceContext {
     }
 
     pub fn capture_shutdown_shells(&self) {
+        let pty_ids: Vec<String> = self
+            .mux
+            .read()
+            .snapshot()
+            .tabs
+            .values()
+            .filter_map(|tab| tab.pty_id.clone())
+            .collect();
+        crate::service::shell_exec::publish_target_restarting_for(&pty_ids);
         let gate = self.ext_or_init(Gate::default);
         let initiating_tab = gate
             .0

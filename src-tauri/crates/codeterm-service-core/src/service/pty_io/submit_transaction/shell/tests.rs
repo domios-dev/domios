@@ -287,3 +287,23 @@ fn running_shell_send_is_admitted_and_payload_is_written_once() {
     assert_eq!(result.submit_key_writes, 1);
     assert_eq!(*trace.writes.borrow(), ["opaque", "enter"]);
 }
+
+#[test]
+fn target_restart_during_submit_wait_stops_without_replaying_payload_or_enter() {
+    let pty = "shell-restart-mid-submit";
+    let mut trace = ShellTrace::new(pty, None);
+    trace.submit_keys = ShellSubmitKeys::UtilityCommand;
+    let result = run_shell(&trace, "opaque").unwrap();
+    assert_eq!(*trace.writes.borrow(), ["opaque", "enter"]);
+    assert_eq!(result.submit_key_writes, 1);
+    assert!(!result.submit_observed);
+
+    crate::service::shell_exec::publish_with_shutdown(
+        pty,
+        ExecCompletion::TargetRestarting,
+        true,
+    );
+    let mut waiter = trace.waiter.into_inner().expect("waiter registered");
+    assert!(waiter.terminated());
+    assert_eq!(waiter.try_completion(), Some(ExecCompletion::TargetRestarting));
+}

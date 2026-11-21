@@ -58,25 +58,118 @@ fn exec_output_with_an_evicted_front_reports_truncation() {
 
 #[test]
 fn exec_submission_uncertainty_is_never_a_prewrite_failure() {
-    assert_eq!(
-        super::exec_submission_error("tab_busy_refused: shell command running"),
-        (
-            super::StatusCode::CONFLICT,
-            "tab_busy_refused: shell input is busy; nothing written",
-        )
+    let agent = super::exec_agent_tab_rejection();
+    assert_eq!(agent.status, super::StatusCode::CONFLICT);
+    assert_eq!(agent.body["outcome"], "refused");
+    assert_eq!(agent.body["bytes_written"], false);
+    assert_eq!(agent.body["error"]["code"], "exec_agent_tab_refused");
+
+    let exited = super::exec_shell_exited_rejection();
+    assert_eq!(exited.status, super::StatusCode::CONFLICT);
+    assert_eq!(exited.body["outcome"], "refused");
+    assert_eq!(exited.body["bytes_written"], false);
+    assert_eq!(exited.body["error"]["code"], "shell_exited_refused");
+
+    let busy = super::exec_prewrite_rejection(
+        codeterm_service_core::service::ShellExecError::BusyRefused(
+            "a shell command is running".into(),
+        ),
     );
-    assert_eq!(
-        super::exec_submission_error("submit_unconfirmed: no command-start mark"),
-        (
-            super::StatusCode::CONFLICT,
-            "submit_unconfirmed: command queued; execution not confirmed; do not resend",
-        )
+    assert_eq!(busy.status, super::StatusCode::CONFLICT);
+    assert_eq!(busy.body["outcome"], "refused");
+    assert_eq!(busy.body["bytes_written"], false);
+    assert_eq!(busy.body["error"]["code"], "tab_busy_refused");
+    assert!(busy.body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("a shell command is running"));
+
+    let unavailable = super::exec_prewrite_rejection(
+        codeterm_service_core::service::ShellExecError::PtyUnavailable(
+            "closed before write".into(),
+        ),
     );
-    assert_eq!(
-        super::exec_submission_error("pty_unavailable: closed before write"),
-        (
-            super::StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to write to PTY"
-        )
+    assert_eq!(unavailable.status, super::StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(unavailable.body["outcome"], "refused");
+    assert_eq!(unavailable.body["bytes_written"], false);
+    assert_eq!(unavailable.body["error"]["code"], "pty_unavailable");
+}
+
+#[test]
+fn exec_unconfirmed_preserves_observed_output_and_never_claims_zero_write() {
+    let observed = super::ObservedOutput {
+        output: "{\"status\":\"updating\"}\n".into(),
+        offset: 64,
+        truncated: true,
+    };
+    let rejection = super::exec_unconfirmed_rejection(
+        observed,
+        Some(codeterm_service_core::service::ExecCompletion::TargetRestarting),
     );
+    assert_eq!(rejection.status, super::StatusCode::CONFLICT);
+    assert_eq!(rejection.body["outcome"], "submit_unconfirmed");
+    assert_eq!(rejection.body["bytes_written"], true);
+    assert_eq!(rejection.body["output"], "{\"status\":\"updating\"}\n");
+    assert_eq!(rejection.body["offset"], 64);
+    assert_eq!(rejection.body["output_truncated"], true);
+    assert_eq!(rejection.body["completion"], "target_restarting");
+    assert_eq!(rejection.body["error"]["code"], "submit_unconfirmed");
+    assert_eq!(rejection.body["error"]["bytes_written"], true);
+    assert!(rejection.body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("do not resend"));
+}
+
+#[test]
+fn exec_completion_classifies_completed_timeout_and_target_restarting_with_output() {
+    let done = super::exec_completion_response(
+        "pty",
+        Some(codeterm_service_core::service::ExecCompletion::CommandFinished { exit_code: Some(0) }),
+        super::ObservedOutput {
+            output: "ok\n".into(),
+            offset: 3,
+            truncated: false,
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(done["outcome"], "completed");
+    assert_eq!(done["bytes_written"], true);
+    assert_eq!(done["exit_code"], 0);
+    assert_eq!(done["output"], "ok\n");
+
+    let timed_out = super::exec_completion_response(
+        "pty",
+        None,
+        super::ObservedOutput {
+            output: "partial".into(),
+            offset: 7,
+            truncated: false,
+        },
+        Some(true),
+    )
+    .unwrap();
+    assert_eq!(timed_out["outcome"], "unknown");
+    assert_eq!(timed_out["timeout"], true);
+    assert_eq!(timed_out["output"], "partial");
+
+    let restarting = super::exec_completion_response(
+        "pty",
+        Some(codeterm_service_core::service::ExecCompletion::TargetRestarting),
+        super::ObservedOutput {
+            output: "{\"status\":\"updating\"}\n".into(),
+            offset: 22,
+            truncated: false,
+        },
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(restarting.status, super::StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(restarting.body["outcome"], "unknown");
+    assert_eq!(restarting.body["bytes_written"], true);
+    assert_eq!(restarting.body["completion"], "target_restarting");
+    assert_eq!(restarting.body["output"], "{\"status\":\"updating\"}\n");
+    assert_eq!(restarting.body["error"]["code"], "target_restarting");
+    assert_eq!(restarting.body["error"]["bytes_written"], true);
 }
