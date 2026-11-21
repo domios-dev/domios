@@ -816,12 +816,13 @@ async fn perform_relay_unredacted(
         if !grant.current(&state.mesh.lock()) {
             return Ok((grant_refusal(), true));
         }
-        if !origin.owner_trusted()
-            && matches!(
-                authorization,
-                PeerRelayAuthorization::WorkspaceClose { .. }
-                    | PeerRelayAuthorization::WorkspaceClosePreview { .. }
-            )
+        if (!origin.owner_trusted()
+            && matches!(authorization, PeerRelayAuthorization::WorkspaceClose { .. }))
+            || (origin != crate::auth::AuthenticatedOrigin::Owner
+                && matches!(
+                    authorization,
+                    PeerRelayAuthorization::WorkspaceClosePreview { .. }
+                ))
         {
             return Err((
                 StatusCode::FORBIDDEN,

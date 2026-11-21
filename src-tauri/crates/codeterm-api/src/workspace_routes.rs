@@ -284,7 +284,7 @@ pub async fn close_preview(
     Path(id): Path<String>,
 ) -> Result<Json<WorkspaceClosePreview>, (StatusCode, String)> {
     let (identity, origin) = crate::auth::authenticated_request(&state, &headers)?;
-    if !origin.owner_trusted() {
+    if origin != crate::auth::AuthenticatedOrigin::Owner {
         return Err((
             StatusCode::FORBIDDEN,
             "Only owner-origin requests may inspect workspace close previews".into(),

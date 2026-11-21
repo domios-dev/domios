@@ -147,6 +147,7 @@ async fn workspace_close_preview_enforces_owner_and_workspace_authority() {
         ));
     }
 
+    let expected_installation_id = state.mesh.lock().ident.identity.instance_id.clone();
     let ok = close_preview(
         AxumState(state.clone()),
         bearer_headers("owner-secret"),
@@ -155,7 +156,7 @@ async fn workspace_close_preview_enforces_owner_and_workspace_authority() {
     .await
     .unwrap();
     assert_eq!(ok.0.workspace_id, ws);
-    assert_eq!(ok.0.installation_id, "cron-entry-off-runtime");
+    assert_eq!(ok.0.installation_id, expected_installation_id);
 
     let mut owner_with_tab = bearer_headers("owner-secret");
     owner_with_tab.insert("X-CodeTerm-Tab-Id", tab.parse().unwrap());
