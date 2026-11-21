@@ -187,5 +187,12 @@ fn live_canonical_writer_excludes_readonly_nonrepository_and_confirmed_cancelled
         ..Default::default()
     });
     plan.tasks = vec![unrecorded];
+    assert_eq!(
+        live_canonical_writer(&plan),
+        Some(("task_unrecorded", "attempt_unrecorded")),
+        "non-empty canonical_project_path still anchors checkout authority"
+    );
+
+    plan.canonical_project_path.clear();
     assert_eq!(live_canonical_writer(&plan), None);
 }
