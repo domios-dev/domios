@@ -517,7 +517,7 @@ it.each([200, 503])("admits a read by default on released capacity; dispatched H
   expect(f.posted.filter(post => post.path === "/api/mesh/peers")).toHaveLength(1);
 });
 
-it("cancels catalogue reads and lets the Browser surface lookup recover released capacity", async () => {
+it("cancels catalogue reads and unblocks visible Browser surface lookup under held ordinary reads with bounded priority and Stop headroom", async () => {
   const f = fixture(undefined, window.location.origin);
   vi.stubGlobal("fetch", f.fetch);
   configureDaemonTransport({ origin: window.location.origin, token: "fixture-token" });
@@ -532,26 +532,84 @@ it("cancels catalogue reads and lets the Browser surface lookup recover released
     expect(await f.cancelled()).toBe(post.id);
   }
   __setListenForTest(async () => () => {});
+  let answerSurfaces = true;
+  const heldSurfaces: Posted[] = [];
   f.reply(async post => {
     if (post.path === "/api/surfaces") {
-      f.head(post); f.text(post, JSON.stringify({declared:[{plugin_id:"browser",surface_id:"browser",renderer:"stream",runtime:"browser"}],open:[]})); f.end(post);
+      if (answerSurfaces) {
+        f.head(post); f.text(post, JSON.stringify({declared:[{plugin_id:"browser",surface_id:"browser",renderer:"stream",runtime:"browser"}],open:[]})); f.end(post);
+      } else {
+        heldSurfaces.push(post);
+      }
+    } else if (post.path.endsWith("/stop")) {
+      f.head(post); f.text(post, '{"ok":true}'); f.end(post);
     }
     return Response.json({accepted:true},{status:202});
   });
   for (let index=0;index<48;index++) void f.client.localJson("GET",`/api/read-${index}`).catch(()=>{});
-  const first = await f.next();
+  for (let index=0;index<48;index++) await f.next();
   let lookup: SurfaceDeclLookup = {status:"loading"};
   function Probe() { lookup=useSurfaceDecl(undefined,"browser","browser",0,null); return null; }
   const root=createRoot(document.createElement("div"));
   try {
     await act(async()=>root.render(createElement(Probe)));
-    expect(lookup.status).toBe("loading");
-    expect(streamMuxDiagnostics()[0]).toMatchObject({requests:48,waitingReads:1});
-    expect(f.posted.some(post=>post.path==="/api/surfaces")).toBe(false);
-    await act(async()=>{ f.head(first); f.text(first,'{}'); f.end(first); });
     expect(lookup).toMatchObject({status:"ready",declared:{runtime:"browser"}});
-    expect(f.posted.filter(post=>post.path==="/api/surfaces")).toHaveLength(1);
+    const surfacePosts = f.posted.filter(post=>post.path==="/api/surfaces");
+    expect(surfacePosts).toHaveLength(1);
+    expect(new Headers(surfacePosts[0].init.headers).get("X-Domios-Mux-Cancellable")).toBe("1");
+    expect(streamMuxDiagnostics()[0]).toMatchObject({requests:48,waitingReads:0});
+
+    // Saturate the bounded 8-slot visible-read reserve while all 48 ordinary reads remain held.
+    answerSurfaces = false;
+    for (let index=0;index<8;index++) void f.client.localJson("GET","/api/surfaces").catch(()=>{});
+    for (let index=0;index<8;index++) expect((await f.next()).path).toBe("/api/surfaces");
+    expect(streamMuxDiagnostics()[0]).toMatchObject({requests:56,waitingReads:0});
+
+    // A 9th visible read waits cleanly and remains cancellable without dispatching.
+    const cancelExtra = new AbortController();
+    let waited!: () => void;
+    const waitObserved = new Promise<void>(resolve => { waited = resolve; });
+    const extra = f.client.request!("/api/surfaces", { signal: cancelExtra.signal, [MUX_CAPACITY_WAIT]: waited } as MuxRequestInit).catch(error => error);
+    await waitObserved;
+    expect(streamMuxDiagnostics()[0]).toMatchObject({requests:56,waitingReads:1});
+    cancelExtra.abort();
+    expect(await extra).toMatchObject({name:"AbortError"});
+    expect(streamMuxDiagnostics()[0].waitingReads).toBe(0);
+
+    // Stop still dispatches and succeeds immediately despite 48 ordinary + 8 visible held reads.
+    await expect(f.client.localJson("POST","/api/tabs/active/stop",{})).resolves.toEqual({ok:true});
+
+    // Another waiting visible read wakes once one held visible read completes (ordinary reads still held).
+    let wokeWait!: () => void;
+    const wokeObserved = new Promise<void>(resolve => { wokeWait = resolve; });
+    const queuedVisible = f.client.request!("/api/surfaces", { [MUX_CAPACITY_WAIT]: wokeWait } as MuxRequestInit);
+    await wokeObserved;
+    answerSurfaces = true;
+    const released = heldSurfaces.shift()!;
+    f.head(released); f.text(released, '{"declared":[],"open":[]}'); f.end(released);
+    const wokeResponse = await queuedVisible;
+    expect(await wokeResponse.json()).toMatchObject({declared:[{runtime:"browser"}]});
   } finally { await act(async()=>root.unmount()); __setListenForTest(null); }
+});
+
+it("keeps the fourth carrier POST slot reserved for Stop ahead of visible surface reads", async () => {
+  const f = fixture();
+  const accepts: Array<(response: Response) => void> = [];
+  f.reply(post => {
+    if (post.path.endsWith("/stop")) {
+      f.head(post); f.text(post, '{"ok":true}'); f.end(post);
+      return Promise.resolve(Response.json({ accepted: true }, { status: 202 }));
+    }
+    return new Promise(resolve => accepts.push(resolve));
+  });
+  for (let index = 0; index < 4; index++) void f.client.localJson("GET", "/api/surfaces").catch(() => {});
+  try {
+    for (let index = 0; index < 3; index++) expect((await f.next()).path).toBe("/api/surfaces");
+    const stop = f.client.localJson("POST", "/api/tabs/active/stop", {}).catch(error => error);
+    expect((await f.next()).path).toBe("/api/tabs/active/stop");
+    expect(await stop).toEqual({ ok: true });
+    expect(f.posted.filter(post => post.path === "/api/surfaces")).toHaveLength(3);
+  } finally { for (const accept of accepts) accept(Response.json({ accepted: true }, { status: 202 })); }
 });
 
 it("expires an undispatched queued action as safe to retry without later sending it", async () => {
