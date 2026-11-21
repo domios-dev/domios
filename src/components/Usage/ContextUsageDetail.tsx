@@ -19,6 +19,7 @@ export function ContextUsageDetail({ title, usage, capturedAt, now, reason, onOp
       <UsageGauge label="Context window" variant="session" pct={usage.percent} resetsAt={null} state={classify(usage.percent)}
         now={now} note={`${compact.format(usage.used)} of ${compact.format(usage.window)} tokens`} />
       {usage.sessionTokens != null && <div className="ct-usage-account-credits"><span className="k">Session tokens</span><span className="v">{usage.sessionTokens.toLocaleString("en-US")}</span></div>}
+      {usage.tokenBreakdown && <p className="ct-usage-detail">{usage.tokenBreakdown}</p>}
       {usage.costMicros != null && <div className="ct-usage-account-credits"><span className="k">Session cost</span><span className="v">{formatCostMicros(usage.costMicros)}</span></div>}
       {reason && <p className="ct-usage-detail">{reason}</p>}
       <div className="ct-usage-foot">

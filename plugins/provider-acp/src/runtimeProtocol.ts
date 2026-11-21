@@ -8,6 +8,7 @@ export const methods = {
   steering: "_session/steering",
   cancel: "session/cancel",
   update: "session/update",
+  extensionUpdate: "_x.ai/session/update",
 } as const;
 export const clientCapabilities = {
   fs: {readTextFile: false, writeTextFile: false},

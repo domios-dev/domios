@@ -149,7 +149,8 @@
         "answer": []
       },
       "notificationMethods": [
-        "session/update"
+        "session/update",
+        "_x.ai/session/update"
       ],
       "clientBridges": {
         "fsRead": true,

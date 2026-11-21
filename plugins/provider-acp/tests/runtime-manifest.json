@@ -134,7 +134,8 @@
       "answer": []
     },
     "notificationMethods": [
-      "session/update"
+      "session/update",
+      "_x.ai/session/update"
     ],
     "clientBridges": {
       "fsRead": true,
@@ -236,6 +237,7 @@
     "prompt-images-undeclared.json",
     "prompt-image-bytes-missing.json",
     "prompt-resource-refused.json",
-    "prompt-images-echo.json"
+    "prompt-images-echo.json",
+    "turn-usage-accounting.json"
   ]
 }

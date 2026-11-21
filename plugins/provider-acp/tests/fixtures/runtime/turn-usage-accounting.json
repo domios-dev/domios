@@ -1,0 +1,493 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.18.7",
+    "tabId": "turn-usage-accounting",
+    "bindingNonce": "nonce-fixture",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "",
+        "settings": {}
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "session-fixture",
+        "sendId": "send-reply-usage",
+        "input": {
+          "text": "Turn 1",
+          "attachments": []
+        },
+        "settings": {}
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "turn-usage-accounting",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "session-fixture",
+        "sendId": "send-stream-usage",
+        "input": {
+          "text": "Turn 2",
+          "attachments": []
+        },
+        "settings": {}
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "turn-usage-accounting",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "session-fixture",
+        "sendId": "send-no-usage",
+        "input": {
+          "text": "Turn 3",
+          "attachments": []
+        },
+        "settings": {}
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "turn-usage-accounting",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {},
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/new",
+          "params": {
+            "cwd": "/work/project",
+            "mcpServers": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "sessionId": "session-fixture"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/prompt",
+          "params": {
+            "sessionId": "session-fixture",
+            "prompt": [
+              {
+                "type": "text",
+                "text": "Turn 1"
+              }
+            ]
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:1"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "stopReason": "end_turn",
+          "usage": {
+            "inputTokens": 35000,
+            "outputTokens": 12000,
+            "thoughtTokens": 5000,
+            "cachedReadTokens": 5000,
+            "cachedWriteTokens": 1000,
+            "totalTokens": 53000,
+            "cost": {
+              "amount": 0.042,
+              "currency": "USD"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 3,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/prompt",
+          "params": {
+            "sessionId": "session-fixture",
+            "prompt": [
+              {
+                "type": "text",
+                "text": "Turn 2"
+              }
+            ]
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:2"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "_x.ai/session/update",
+        "params": {
+          "sessionId": "session-fixture",
+          "update": {
+            "sessionUpdate": "turn_completed",
+            "prompt_id": "prompt-2",
+            "stop_reason": "end_turn",
+            "usage": {
+              "inputTokens": 25368,
+              "outputTokens": 33,
+              "totalTokens": 25401,
+              "cachedReadTokens": 25088,
+              "cacheCreationTokens": 0,
+              "reasoningTokens": 17,
+              "costUsdTicks": 45226800
+            }
+          }
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "turn-usage-accounting",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [
+          {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:2"
+          }
+        ],
+        "threadParents": [],
+        "threadId": "session-fixture",
+        "activeTurnId": "session-fixture:turn:2"
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 3,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "stopReason": "end_turn"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 4,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/prompt",
+          "params": {
+            "sessionId": "session-fixture",
+            "prompt": [
+              {
+                "type": "text",
+                "text": "Turn 3"
+              }
+            ]
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:3"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 4,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "stopReason": "end_turn"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
+          }
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "session-fixture",
+            "sendId": "send-reply-usage",
+            "turnId": "session-fixture:turn:1"
+          },
+          "events": [
+            {
+              "kind": "usage",
+              "threadId": "session-fixture",
+              "usage": {
+                "input_tokens": 36000,
+                "output_tokens": 17000,
+                "cache_read_tokens": 5000,
+                "cache_write_tokens": 1000,
+                "cost_micros": 42000,
+                "response_id": "send-reply-usage"
+              }
+            },
+            {
+              "kind": "turnState",
+              "threadId": "session-fixture",
+              "state": "idle",
+              "turnId": "session-fixture:turn:1"
+            }
+          ]
+        }
+      },
+      {
+        "operation": 3,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "session-fixture",
+            "sendId": "send-stream-usage",
+            "turnId": "session-fixture:turn:2"
+          },
+          "events": [
+            {
+              "kind": "usage",
+              "threadId": "session-fixture",
+              "usage": {
+                "input_tokens": 25368,
+                "output_tokens": 33,
+                "cache_read_tokens": 25088,
+                "cache_write_tokens": 0,
+                "cost_micros": 4523,
+                "response_id": "send-stream-usage"
+              }
+            },
+            {
+              "kind": "turnState",
+              "threadId": "session-fixture",
+              "state": "idle",
+              "turnId": "session-fixture:turn:2"
+            }
+          ]
+        }
+      },
+      {
+        "operation": 4,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "session-fixture",
+            "sendId": "send-no-usage",
+            "turnId": "session-fixture:turn:3"
+          },
+          "events": [
+            {
+              "kind": "turnState",
+              "threadId": "session-fixture",
+              "state": "idle",
+              "turnId": "session-fixture:turn:3"
+            }
+          ]
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "usage",
+        "threadId": "session-fixture",
+        "usage": {
+          "input_tokens": 36000,
+          "output_tokens": 17000,
+          "cache_read_tokens": 5000,
+          "cache_write_tokens": 1000,
+          "cost_micros": 42000,
+          "response_id": "send-reply-usage"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "state": "idle",
+        "turnId": "session-fixture:turn:1"
+      },
+      {
+        "kind": "usage",
+        "threadId": "session-fixture",
+        "usage": {
+          "input_tokens": 25368,
+          "output_tokens": 33,
+          "cache_read_tokens": 25088,
+          "cache_write_tokens": 0,
+          "cost_micros": 4523,
+          "response_id": "send-stream-usage"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "state": "idle",
+        "turnId": "session-fixture:turn:2"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "state": "idle",
+        "turnId": "session-fixture:turn:3"
+      }
+    ]
+  }
+}

@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { RuntimeUsageProjection, UsageSnapshot } from "../../types/usage";
 import { contextMeter } from "../Terminal/composerModels";
+import { runtimeTokenBreakdown } from "./runtimeUsage";
 
 export interface ContextUsage {
   used: number;
@@ -8,6 +9,7 @@ export interface ContextUsage {
   percent: number;
   /** Session tokens the harness reported for this tab, when it reports them. */
   sessionTokens: number | null;
+  tokenBreakdown: string | null;
   costMicros: number | null;
 }
 
@@ -28,6 +30,7 @@ export function contextUsage(context: unknown, runtime: RuntimeUsageProjection |
   return {
     ...meter,
     sessionTokens: tokens ? tokens.input_tokens + tokens.output_tokens : null,
+    tokenBreakdown: tokens && runtime ? runtimeTokenBreakdown(runtime) : null,
     costMicros: tokens?.cost_micros ?? contextCostMicros(context),
   };
 }
