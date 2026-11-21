@@ -26,6 +26,7 @@ export interface AgentReportPayloadReport {
   from_title?: string;
   message?: string;
   timestamp?: number;
+  kind?: string | null;
   plan_id?: string | null;
   task_id?: string | null;
   status?: string | null;
@@ -39,6 +40,7 @@ export interface AgentReportEventPayload {
   from_tab_id: string;
   from_title?: string;
   message?: string;
+  kind?: string | null;
   report: AgentReportPayloadReport;
   task_report?: AgentReportTaskOutcome | null;
   report_outcome?: AgentReportOutcomeClass | null;
@@ -56,6 +58,7 @@ export interface ProjectedAgentReport {
   /** The other end of this report, from the projecting tab's point of view. */
   counterpartTabId: string;
   message: string;
+  kind: string | null;
   task: string | null;
   status: string | null;
   branch: string | null;
@@ -77,6 +80,7 @@ interface AgentReportRecord {
   senderTitle: string;
   targetTabId: string;
   message: string;
+  kind: string | null;
   task: string | null;
   status: string | null;
   branch: string | null;
@@ -172,6 +176,7 @@ export function ingestAgentReport(payload: AgentReportEventPayload): boolean {
     senderTitle: text(payload.from_title) ?? text(payload.report.from_title) ?? senderTabId,
     targetTabId,
     message: text(payload.message) ?? text(payload.report.message) ?? "",
+    kind: text(payload.kind) ?? text(payload.report.kind),
     task: taskRef(payload.report, outcome),
     status: text(payload.report.status),
     branch: text(payload.report.branch),

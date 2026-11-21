@@ -167,6 +167,72 @@ describe("report source positions", () => {
     });
     expect([...placed.afterIndex]).toEqual([[0, [0]]]);
   });
+
+  it("timestamped host status falls back to same-session source position before later untimed rows", () => {
+    const rows = [
+      { id: "prompt", at: 100 },
+      { id: "ack", at: null },
+      { id: "work-1", at: null },
+      { id: "tool-1", at: null },
+    ];
+    const positions = {
+      sourceMessageIds: rows.map(row => row.id),
+      messageId: (row: { id: string }) => row.id,
+      reportMessageIds: ["ack"],
+    };
+    const placed = placeOutboundReports(rows, timeOf, [150], positions);
+    expect([...placed.afterIndex]).toEqual([[1, [0]]]);
+    expect(placed.trailing).toEqual([]);
+
+    const allUntimed = rows.map(row => ({ ...row, at: null }));
+    const placedUntimed = placeOutboundReports(allUntimed, timeOf, [150], positions);
+    expect([...placedUntimed.afterIndex]).toEqual([[1, [0]]]);
+    expect(placedUntimed.trailing).toEqual([]);
+  });
+
+  it("a stale earlier source anchor never pulls a newer timed report before a later timed row", () => {
+    const rows = [{ id: "a", at: 100 }, { id: "b", at: 200 }];
+    const placed = placeOutboundReports(rows, timeOf, [900], {
+      sourceMessageIds: ["a", "b"], messageId: row => row.id, reportMessageIds: ["a"],
+    });
+    expect(placed.afterIndex.size).toBe(0);
+    expect(placed.trailing).toEqual([0]);
+  });
+
+  it("respects hidden-window and session fences for timestamped source-anchored reports", () => {
+    const visible = [{ id: "work-1", at: null }, { id: "work-2", at: null }];
+    const olderHidden = placeOutboundReports(visible, timeOf, [150], {
+      sourceMessageIds: ["ack-old", "work-1", "work-2"],
+      messageId: row => row.id,
+      reportMessageIds: ["ack-old"],
+    }, { hiddenBefore: true, hiddenAfter: false });
+    expect(olderHidden.afterIndex.size).toBe(0);
+    expect(olderHidden.trailing).toEqual([]);
+
+    const olderVisible = placeOutboundReports(visible, timeOf, [150], {
+      sourceMessageIds: ["ack-old", "work-1", "work-2"],
+      messageId: row => row.id,
+      reportMessageIds: ["ack-old"],
+    }, { hiddenBefore: false, hiddenAfter: false });
+    expect([...olderVisible.afterIndex]).toEqual([[-1, [0]]]);
+    expect(olderVisible.trailing).toEqual([]);
+
+    const newerHidden = placeOutboundReports(visible, timeOf, [150, 160], {
+      sourceMessageIds: ["work-1", "work-2", "work-3"],
+      messageId: row => row.id,
+      reportMessageIds: ["work-2", "work-3"],
+    }, { hiddenBefore: false, hiddenAfter: true });
+    expect([...newerHidden.afterIndex]).toEqual([[1, [0]]]);
+    expect(newerHidden.trailing).toEqual([]);
+
+    const foreignSessionFiltered = placeOutboundReports(visible, timeOf, [150], {
+      sourceMessageIds: ["work-1", "work-2"],
+      messageId: row => row.id,
+      reportMessageIds: [null],
+    });
+    expect(foreignSessionFiltered.afterIndex.size).toBe(0);
+    expect(foreignSessionFiltered.trailing).toEqual([0]);
+  });
 });
 
 it("places a hidden issuing tool after the preceding visible source row", () => {

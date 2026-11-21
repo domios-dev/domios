@@ -8,6 +8,7 @@ import { decodeCliMessageText } from "./messageText";
 import { pickUiFontScaleValue } from "../uiFontScale";
 import { formatCommunicationEndpoint } from "./templates";
 import {
+  isTaskReportEvent,
   reportContentBody,
   reportOutcomeLine,
   reportOutcomeTone,
@@ -26,6 +27,7 @@ export interface OutboundReportDescriptor {
   sha: string | null;
   message: string;
   taskOutcome: ReportTaskOutcome | null;
+  kind?: string | null;
 }
 
 interface Props {
@@ -53,6 +55,8 @@ export function OutboundReportCard({ report, onFocusTab, onOpenPlan, resolvePlan
   const tone = reportOutcomeTone(outcome);
   const outcomeLine = reportOutcomeLine(outcome);
   const failed = tone === "error" || (tone === null && /^(?:blocked|error|failed)$/i.test(report.status ?? ""));
+  const taskReport = isTaskReportEvent(report.status, outcome, report.kind);
+  const recipient = formatCommunicationEndpoint(report.recipient);
 
   return (
     <InboundActivityCard
@@ -61,13 +65,13 @@ export function OutboundReportCard({ report, onFocusTab, onOpenPlan, resolvePlan
       status={failed ? "error" : "success"}
       expanded={expanded}
       onToggle={() => setExpanded((previous) => !previous)}
-      title={`Report to ${formatCommunicationEndpoint(report.recipient)}`}
+      title={taskReport ? `Report to ${recipient}` : `Update to ${recipient}`}
       summary={report.task ?? "status update"}
       presentationSummary={<ReportTaskSummary task={report.task} resolvePlanRef={resolvePlanRef} />}
-      visual={{ glyph: Send, color: "var(--ct-magenta)", label: "report" }}
+      visual={{ glyph: Send, color: "var(--ct-magenta)", label: taskReport ? "report" : "update" }}
       chips={chips}
       onFocusTab={onFocusTab}
-      disclosureLabel="report Details"
+      disclosureLabel={taskReport ? "report Details" : "update Details"}
     >
       <div className={`ct-compact-scroll grid gap-2 ${textSize}`}>
         {outcomeLine && (

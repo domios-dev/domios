@@ -16,6 +16,7 @@ import { conversationEntries } from "./chatPagingModel";
 import type { OutboundReportEntry } from "./ChatTranscriptRow";
 import { outboundReportRows, type LiveOutboundReport } from "./outboundReportRows";
 import { mergeAccountNoticeRows } from "./accountNoticeRows";
+import { reportVerdict } from "@codeterm/chat-ui";
 
 // A long-running agent tab: three days of turns, each with the same report tool
 // call, read newest page first and paged back the way the Chat view pages it.
@@ -119,7 +120,7 @@ function renderedColumn({ state, visible, live = FULL_STORE, hostRows = [], send
     reportPositions: {
       sourceMessageIds: transcript.map(msg => msg.sourceMessageId ?? msg.id),
       messageId: ({ msg }) => msg.sourceMessageId ?? msg.id,
-      reportMessageIds: cards.rail.map(report => report.position?.message_id ?? null),
+      reportMessageIds: cards.rail.map(report => report.position?.source_session_id === authority.sourceSessionId ? report.position.message_id : null),
     },
     askTimes: [],
   });
@@ -295,4 +296,73 @@ test("a send that fails while queued moves to its send time once", () => {
   const failed = view([send("queued", sentAt, "failed")]);
   assert.deepEqual(neighbours(failed, "queued"), [`report-${TURNS - 1}`, `reply-${TURNS - 1}`]);
   assert.deepEqual(view([send("queued", sentAt, "failed")]), failed, "the failed bubble stays where it was sent");
+});
+
+test("timestamped startup status stays anchored above later untimed ACP rows, tool patches, and reentry", () => {
+  const startAt = START;
+  const prompt: NormalizedChatMessage = { id: "prompt-0", type: "user", content: "assigned task", timestamp: iso(startAt) };
+  const ackRow: NormalizedChatMessage = { id: "ack-0", type: "assistant", content: "acknowledging" };
+  const workRow: NormalizedChatMessage = { id: "work-1", type: "assistant", content: "working" };
+  const toolRow: NormalizedChatMessage = { id: "tool-1", type: "tool_call", content: "running", toolName: "Bash", toolKind: "command", toolId: "t-1" };
+  const readyCard: LiveOutboundReport = {
+    targetTabId: "elgar001",
+    at: startAt + 5_000,
+    position: { source_session_id: authority.sourceSessionId, message_id: "ack-0" },
+    descriptor: {
+      reportId: "rep-ready",
+      recipient: "Elgar",
+      task: "pl_7lsisa/task_uw3aw9",
+      status: null,
+      sha: null,
+      message: "opaque startup notice",
+      taskOutcome: null,
+    },
+  };
+  const foreignCard: LiveOutboundReport = {
+    ...readyCard,
+    at: startAt + 6_000,
+    position: { source_session_id: "other-session", message_id: "ack-0" },
+    descriptor: { ...readyCard.descriptor, reportId: "rep-foreign" },
+  };
+  const finalReport: LiveOutboundReport = {
+    targetTabId: "elgar001",
+    at: startAt + 14 * 60_000,
+    position: { source_session_id: authority.sourceSessionId, message_id: "tool-1" },
+    descriptor: {
+      reportId: "rep-final",
+      recipient: "Elgar",
+      task: "pl_7lsisa/task_uw3aw9",
+      status: "in_review",
+      sha: "4f5d23dff5",
+      message: "opaque final report",
+      taskOutcome: { persisted: true, transitionRejected: false, cause: null, reportOutcome: null },
+    },
+  };
+
+  assert.equal(reportVerdict(readyCard.descriptor.status, readyCard.descriptor.taskOutcome), "sent");
+  assert.equal(reportVerdict(finalReport.descriptor.status, finalReport.descriptor.taskOutcome), "in_review");
+
+  let state = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot", authority, range: null, rows: [prompt, ackRow, workRow, toolRow],
+  }).state;
+  const liveBeforePatch = renderedColumn({ state, visible: 20, live: [readyCard, readyCard] });
+  assert.deepEqual(liveBeforePatch.map(item => item.key), ["prompt-0", "ack-0", "report-ready", "work-1", "tool-1"]);
+
+  state = reduceTranscript(state, {
+    kind: "delta", authority, range: null, rows: [{ ...toolRow, content: "completed" }],
+  }).state;
+  const liveAfterPatch = renderedColumn({ state, visible: 20, live: [readyCard, finalReport] });
+  assert.deepEqual(liveAfterPatch.map(item => item.key), ["prompt-0", "ack-0", "report-ready", "work-1", "tool-1", "report-final"]);
+
+  const reentry = renderedColumn({
+    state: reduceTranscript(createTranscriptState(), {
+      kind: "snapshot", authority, range: null, rows: [prompt, ackRow, workRow, { ...toolRow, content: "completed" }],
+    }).state,
+    visible: 20,
+    live: [readyCard, finalReport],
+  });
+  assert.deepEqual(reentry.map(item => item.key), liveAfterPatch.map(item => item.key));
+
+  const withForeign = renderedColumn({ state, visible: 20, live: [readyCard, foreignCard] });
+  assert.deepEqual(withForeign.map(item => item.key), ["prompt-0", "ack-0", "report-ready", "work-1", "tool-1", "report-foreign"]);
 });

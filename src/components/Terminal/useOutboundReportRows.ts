@@ -25,6 +25,7 @@ export function useOutboundReportRows(tabId: string, rows: readonly EnrichedChat
       status: report.status,
       sha: report.sha,
       message: report.message,
+      ...(report.kind ? { kind: report.kind } : {}),
       taskOutcome: report.taskOutcome && {
         persisted: report.taskOutcome.persisted,
         transitionRejected: report.taskOutcome.transition_rejected,
