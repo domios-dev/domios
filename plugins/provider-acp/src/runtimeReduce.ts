@@ -1,5 +1,5 @@
 import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, RuntimeReduction, TurnInput } from "@codeterm/plugin-sdk";
-import { object, text, reduceTool } from "./runtimeReduceTools";
+import { object, text, reduceTool, validToolCallId } from "./runtimeReduceTools";
 import { planRow, contextUsage } from "./runtimeReducePlan";
 import { commands, sessionSettings } from "./runtimeControls";
 import { copyAccounting, clearEntries, putEntry, removeEntry, mapBytes, mapKeys, utf8Length } from "./runtimeReduceAccounting";
@@ -80,14 +80,14 @@ function boundedToolRow(row:ChatMsg):ChatMsg {
     if (jsonBytes(row.fileDiffs)<=12288) result.fileDiffs=row.fileDiffs;
     else truncated=true;
   }
+  const note="ACP tool details were shortened to fit the display budget.";
   if (truncated) {
-    const note="ACP tool details were shortened to fit the display budget.";
     result.toolDetail=[result.toolDetail,note].filter(Boolean).join("\n");
   }
   for (const key of ["toolInput","toolArgs","toolResult","toolDetail","toolSummary","fileDiffs"] as const) {
     if (jsonBytes(result)<=TOOL_ROW_BUDGET) break;
     delete result[key];
-    result.toolDetail="ACP tool details were shortened to fit the display budget.";
+    if (!result.toolDetail?.includes(note)) result.toolDetail=[result.toolDetail,note].filter(Boolean).join("\n");
   }
   return result;
 }
@@ -134,7 +134,9 @@ function emit(state:StreamState, events:AgentEvent[], row:ChatMsg, patch=false):
   if (row.toolStatus === "running" && !previous && !admitToolIdentity(state,{id:row.id,seq:row.seq,type:row.type,content:"",
     ...(row.toolId ? {toolId:row.toolId} : {}),...(row.toolTitle ? {toolTitle:row.toolTitle} : {}),
     ...(row.toolName ? {toolName:row.toolName} : {}),...(row.toolKind ? {toolKind:row.toolKind} : {}),toolStatus:row.toolStatus})) {
-    events.push({kind:"chatItem",threadId:state.sessionId,item:{...row,toolStatus:"interrupted",toolInterrupted:true,toolDetail:"[ACP tool tracking capacity exhausted]"}});
+    let exhausted:ChatMsg={...row,toolStatus:"interrupted",toolInterrupted:true,toolDetail:"[ACP tool tracking capacity exhausted]"};
+    if (jsonBytes(exhausted) > TOOL_ROW_BUDGET) exhausted=boundedToolRow(exhausted);
+    events.push({kind:"chatItem",threadId:state.sessionId,item:exhausted});
     return;
   }
   putEntry(state,"items",row.id,retained);
@@ -173,6 +175,13 @@ function rememberOffset(state:StreamState, base:string, cursor:TextCursor):void 
 function rememberControl(state:StreamState, kind:string, update:Record<string,JsonValue>):void {
   const encoded=JSON.stringify(update);
   if (encoded.length <= 16384) putEntry(state,"controls",kind,JSON.parse(encoded) as JsonValue);
+}
+function warnInvalidToolCallId(state:StreamState, events:AgentEvent[]):void {
+  const key="invalid_tool_call_id";
+  if (!Object.prototype.hasOwnProperty.call(state.warnings,key) && Object.keys(state.warnings).length >= 32) return;
+  const count=state.warnings[key] ?? 0;
+  putEntry(state,"warnings",key,Math.min(count+1,Number.MAX_SAFE_INTEGER));
+  if (!count) events.push({kind:"notice",threadId:state.sessionId,message:"Refused ACP tool update with invalid or oversized toolCallId"});
 }
 function warn(state:StreamState, events:AgentEvent[], rawKind:string):void {
   const kind=rawKind.slice(0,128);
@@ -313,9 +322,14 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
       if (kind === "tool_call" || kind === "tool_call_update") {
         if (state.settled && !state.loading) continue;
         closeChunk(ctx,state,events);
-        const id=text(update.toolCallId);
-        const previous=id ? state.items[id] : undefined;
-        if (id && !state.seenItems.includes(id)) {state.ordinal++;state.seenItems.push(id);}
+        const rawId=text(update.toolCallId);
+        const id=validToolCallId(rawId);
+        if (!id) {
+          if (rawId) warnInvalidToolCallId(state,events);
+          continue;
+        }
+        const previous=state.items[id];
+        if (!state.seenItems.includes(id)) {state.ordinal++;state.seenItems.push(id);}
         const row=reduceTool(update,previous,state.seq+1);
         if (row) emit(state,events,row,kind === "tool_call_update");
       } else if (kind === "plan") {

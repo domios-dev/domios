@@ -1,8 +1,15 @@
 import type { ChatMsg, JsonValue } from "@codeterm/plugin-sdk";
+import { utf8Length } from "./runtimeReduceAccounting";
 
 export const object = (value:unknown):Record<string,JsonValue> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string,JsonValue> : {};
 export const text = (value:unknown):string|undefined => typeof value === "string" && value.length > 0 ? value : undefined;
+export const MAX_TOOL_CALL_ID_BYTES = 4096;
+export function validToolCallId(value:unknown):string|undefined {
+  const id=text(value);
+  if (!id || id.includes("\0") || utf8Length(JSON.stringify(id))-2 > MAX_TOOL_CALL_ID_BYTES) return undefined;
+  return id;
+}
 
 // WHY: hosts decode frames into maps whose key order varies by platform, so provider JSON
 // is rendered with sorted keys to keep tool text identical everywhere.
@@ -89,7 +96,7 @@ function locationSummary(value:JsonValue):string {
 }
 
 export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|undefined, seq:number):ChatMsg|undefined {
-  const id = text(update.toolCallId);
+  const id = validToolCallId(update.toolCallId);
   if (!id) return undefined;
   const row:ChatMsg = {...previous,id,seq:previous?.seq ?? seq,type:"tool_call",content:"",toolId:id,collapsed:true};
   if (typeof update.title === "string") { row.toolTitle=update.title;row.toolName=update.title; }
@@ -106,7 +113,8 @@ export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|und
   const status = Object.prototype.hasOwnProperty.call(statuses,String(update.status))
     ? statuses[String(update.status) as keyof typeof statuses] : undefined;
   if (status) { row.toolStatus=status; row.toolError=status === "failed"; }
-  if (update.rawOutput !== undefined && update.rawOutput !== null)
+  const hasRawOutput=update.rawOutput !== undefined && update.rawOutput !== null;
+  if (hasRawOutput)
     row.toolResult=typeof update.rawOutput === "string" ? update.rawOutput : canonicalJson(update.rawOutput);
   if (Array.isArray(update.locations)) row.toolSummary=locationSummary(update.locations);
   if (Array.isArray(update.content)) {
@@ -123,8 +131,11 @@ export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|und
         else if (mapped) diffs.push(mapped.value);
       }
     }
+    const explicitEmpty=update.content.length === 0 && previous !== undefined;
     if (results.length || omitted) row.toolResult=[...results,...(omitted ? ["ACP tool detail was omitted because the bounded diff or content limit was reached."] : [])].join("\n");
-    row.fileDiffs=diffs;
+    else if (!hasRawOutput && (explicitEmpty || previous?.toolResult !== undefined)) row.toolResult="";
+    if (diffs.length) row.fileDiffs=diffs;
+    else if (explicitEmpty || previous?.fileDiffs !== undefined) row.fileDiffs=[];
   }
   return row;
 }

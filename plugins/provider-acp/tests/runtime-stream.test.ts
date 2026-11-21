@@ -205,7 +205,13 @@ const updateFrame=(update:JsonValue):RuntimeFrame=>({kind:"notification",method:
   assert.equal((newFile.fileDiffs?.[0] as {deletions:number}).deletions,0,"new files do not claim removed lines");
   const cleared=reduceTool({toolCallId:"edit-a",content:[]},completion,3)!;
   assert.deepEqual(cleared.fileDiffs,[],"an explicit empty content array replaces prior diff detail");
-  assert.equal(reduceTool({toolCallId:"empty-content",content:[]},undefined,1)?.toolResult,undefined,"empty provider content creates no output");
+  assert.equal(cleared.toolResult,"","an explicit empty content array replaces prior text detail in parity with fileDiffs");
+  const clearedWithRaw=reduceTool({toolCallId:"edit-a",content:[],rawOutput:"final raw"},completion,3)!;
+  assert.deepEqual(clearedWithRaw.fileDiffs,[],"explicit empty content clears diffs even when rawOutput is supplied");
+  assert.equal(clearedWithRaw.toolResult,"final raw","explicit rawOutput survives an accompanying empty content array");
+  const freshEmpty=reduceTool({toolCallId:"empty-content",content:[]},undefined,1)!;
+  assert.equal(freshEmpty.toolResult,undefined,"empty provider content creates no output");
+  assert.equal(freshEmpty.fileDiffs,undefined,"empty provider content creates no empty fileDiffs on a new call");
 }
 {
   let state:JsonValue=null;
@@ -248,6 +254,18 @@ const updateFrame=(update:JsonValue):RuntimeFrame=>({kind:"notification",method:
   assert.equal(rows.get("edit-b")?.toolResult,"permission refused");
   assert.equal(events.filter(event=>(event.kind === "chatItem" || event.kind === "chatItemPatch") && event.item.id === "edit-a").length,4,
     "one start and three same-id updates fold into one stable row");
+  const clearEvents=apply({sessionUpdate:"tool_call_update",toolCallId:"edit-a",content:[]});
+  assert.equal(clearEvents.length,1);
+  assert.equal(clearEvents[0].kind,"chatItemPatch");
+  assert.deepEqual(rows.get("edit-a")?.fileDiffs,[],"streamed explicit empty content clears prior fileDiffs");
+  assert.equal(rows.get("edit-a")?.toolResult,"","streamed explicit empty content clears prior toolResult in parity with fileDiffs");
+  apply({sessionUpdate:"tool_call",toolCallId:"edit-large",title:"Edit large",kind:"edit",status:"in_progress",content:[
+    {type:"diff",path:"/workspace/big.txt",oldText:"before\n",newText:`${"line\n".repeat(400)}`},
+    {type:"content",content:{type:"text",text:"x".repeat(2000)}},
+  ]});
+  apply({sessionUpdate:"tool_call_update",toolCallId:"edit-large",content:[]});
+  assert.deepEqual(rows.get("edit-large")?.fileDiffs,[],"explicit empty content clears prior diffs even when retained state pruned them");
+  assert.equal(rows.get("edit-large")?.toolResult,"","explicit empty content clears prior toolResult even when retained state pruned it");
 }
 {
   const oversized=reduceStream(context,null,[updateFrame({sessionUpdate:"tool_call",toolCallId:"bounded-edit",title:"Edit",kind:"edit",status:"failed",rawOutput:"x".repeat(40000)})],cursor);
@@ -259,6 +277,32 @@ const updateFrame=(update:JsonValue):RuntimeFrame=>({kind:"notification",method:
     assert.equal(event.item.toolStatus,"failed");
     assert.equal(event.item.toolError,true);
     assert.ok(event.item.toolDetail?.includes("shortened"),"dropped output is disclosed in a native tool field");
+  }
+  assert.equal(reduceTool({toolCallId:"x".repeat(20000),title:"Edit",kind:"edit",status:"in_progress"},undefined,1),undefined,"oversized toolCallId is refused before duplicating into id and toolId");
+  assert.equal(reduceTool({toolCallId:"bad\0id",title:"Edit",kind:"edit",status:"in_progress"},undefined,1),undefined,"NUL toolCallId is refused");
+  assert.equal(reduceTool({toolCallId:"\u0001".repeat(1000),title:"Edit",kind:"edit",status:"in_progress"},undefined,1),undefined,"JSON-escaped oversized toolCallId is refused");
+  const badIdFrames=[
+    updateFrame({sessionUpdate:"tool_call",toolCallId:"x".repeat(20000),title:"Edit",kind:"edit",status:"in_progress"}),
+    updateFrame({sessionUpdate:"tool_call_update",toolCallId:"x".repeat(20000),status:"completed"}),
+    updateFrame({sessionUpdate:"tool_call",toolCallId:"\u0001".repeat(1000),title:"Escaped",kind:"edit",status:"in_progress"}),
+    updateFrame({sessionUpdate:"tool_call",toolCallId:"valid-after-bad",title:"Healthy edit",kind:"edit",status:"completed"}),
+  ];
+  const refused=reduceStream(context,null,badIdFrames,cursor);
+  const chatItems=refused.events.filter((item): item is Extract<AgentEvent,{kind:"chatItem"|"chatItemPatch"}> => item.kind === "chatItem" || item.kind === "chatItemPatch");
+  assert.equal(chatItems.length,1,"refused oversized toolCallIds emit no chat rows while subsequent valid calls proceed");
+  assert.equal(chatItems[0].item.id,"valid-after-bad");
+  assert.ok(refused.events.every(item=>item.kind !== "chatItem" && item.kind !== "chatItemPatch" || Buffer.byteLength(JSON.stringify(item.item))<=32768));
+  assert.equal(refused.events.filter(item=>item.kind === "notice").length,1,"refused toolCallIds emit one bounded deduplicated notice");
+  assert.ok(Buffer.byteLength(JSON.stringify(refused.state))<4096,"refused oversized toolCallIds do not bloat reducer state");
+  const maxId="k".repeat(4096);
+  const maxIdRow=reduceStream(context,null,[updateFrame({sessionUpdate:"tool_call",toolCallId:maxId,title:"Max ID",kind:"edit",status:"completed",rawOutput:"y".repeat(40000)})],cursor);
+  const maxEvent=maxIdRow.events.find(item=>item.kind === "chatItem");
+  assert.ok(maxEvent?.kind === "chatItem");
+  if (maxEvent?.kind === "chatItem") {
+    assert.equal(maxEvent.item.id,maxId);
+    assert.equal(maxEvent.item.toolId,maxId);
+    assert.ok(Buffer.byteLength(JSON.stringify(maxEvent.item))<=32768,"boundary-length valid toolCallId still stays within the 32 KiB row cap");
+    assert.ok(maxEvent.item.toolDetail?.includes("shortened"));
   }
 }
 {

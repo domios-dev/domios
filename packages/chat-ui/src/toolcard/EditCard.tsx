@@ -23,6 +23,19 @@ function agentPadRelativePath(path: string): string | null {
   return separator >= 0 && separator < remainder.length - 1 ? remainder.slice(separator + 1) : null;
 }
 
+function uniqueToolTexts(event: ToolEvent): string[] {
+  const seen = new Set<string>();
+  const texts: string[] = [];
+  for (const value of [event.detail, event.result]) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    texts.push(value);
+  }
+  return texts;
+}
+
 export function EditCard({ event, expanded, onToggle }: { event: ToolEvent; expanded: boolean; onToggle: () => void }) {
   const edits = event.edits ?? [];
   const added = edits.reduce((n, edit) => n + countAdded(edit), 0);
@@ -31,14 +44,14 @@ export function EditCard({ event, expanded, onToggle }: { event: ToolEvent; expa
   const padPaths = edits.map((edit) => agentPadRelativePath(edit.path));
   const isAgentPad = padPaths.length > 0 && padPaths.every(Boolean);
   const padSummary = isAgentPad ? [...new Set(padPaths)].join(", ") : undefined;
-  const textDetails = [...new Set([event.detail, event.result].filter((value): value is string => Boolean(value?.trim())))];
+  const textDetails = uniqueToolTexts(event);
   const unavailable = event.status === "pending" ? "Waiting for edit details." : "Edit details unavailable.";
   return <ToolCardFrame event={event} expanded={expanded} onToggle={onToggle} title={isAgentPad ? "AgentPad" : undefined} summary={padSummary} disclosureLabel={isAgentPad ? "AgentPad edit details" : undefined} metric={edits.length > 0 ? <span data-testid="toolcard-edit-summary" className="shrink-0 font-mono text-[10px]"><span style={{ color: "var(--ct-green)" }}>+{added}</span> <span style={{ color: "var(--ct-red)" }}>-{removed}</span></span> : undefined}>
-    {expanded && Array.from(groups, ([path, fileEdits]) => <section key={path} data-testid="toolcard-edit-file">
+    {Array.from(groups, ([path, fileEdits]) => <section key={path} data-testid="toolcard-edit-file">
       <div className="mb-1 font-mono text-xs" style={{ color: "var(--ct-fg)" }}>{agentPadRelativePath(path) ?? path} <span style={{ color: "var(--ct-muted-fg)" }}>+{fileEdits.reduce((n, edit) => n + countAdded(edit), 0)} -{fileEdits.reduce((n, edit) => n + countRemoved(edit), 0)}</span></div>
       <DiffView edits={fileEdits} language={languageForEdits(path, fileEdits)} />
     </section>)}
-    {expanded && textDetails.map((detail, index) => <div key={`${index}-${detail.slice(0,32)}`} data-testid="toolcard-result"><ToolOutputContent text={detail} maxHeight="12rem" /></div>)}
-    {expanded && edits.length === 0 && textDetails.length === 0 && <p data-testid="toolcard-detail-unavailable" className="text-xs" style={{ color: "var(--ct-muted-fg)" }}>{unavailable}</p>}
+    {textDetails.map((detail, index) => <div key={`${index}-${detail.slice(0,32)}`} data-testid="toolcard-result"><ToolOutputContent text={detail} maxHeight="12rem" /></div>)}
+    {edits.length === 0 && textDetails.length === 0 && <p data-testid="toolcard-detail-unavailable" className="text-xs" style={{ color: "var(--ct-muted-fg)" }}>{unavailable}</p>}
   </ToolCardFrame>;
 }
