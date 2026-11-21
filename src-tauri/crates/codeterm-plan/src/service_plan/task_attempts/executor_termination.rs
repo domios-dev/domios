@@ -48,7 +48,9 @@ impl<'a> From<&'a TaskExecutionAttempt> for ExecutorSourceFields<'a> {
 }
 
 fn same_executor(left: &TaskExecutionAttempt, right: ExecutorSourceFields<'_>) -> bool {
-    left.id == right.id
+    !right.id.trim().is_empty()
+        && !right.executor_tab_id.trim().is_empty()
+        && left.id == right.id
         && left.executor_tab_id == right.executor_tab_id
         && left.session_id.as_deref() == right.session_id
         && left.session_binding_nonce.as_deref() == right.session_binding_nonce
@@ -77,13 +79,50 @@ impl PlanStore {
                     .iter_mut()
                     .find(|attempt| same_executor(attempt, source))
                     .ok_or_else(|| PlanError::Io("executor termination identity changed".into()))?;
-                attempt.executor_termination = Some(TaskExecutorTermination {
-                    attempt_id: source.id.into(),
-                    executor_tab_id: source.executor_tab_id.into(),
-                    session_id: source.session_id.map(str::to_owned),
-                    session_binding_nonce: source.session_binding_nonce.map(str::to_owned),
-                    confirmed_at: now,
-                });
+                let already_confirmed = attempt.executor_termination.as_ref().is_some_and(
+                    |receipt| {
+                        receipt.attempt_id == source.id
+                            && receipt.executor_tab_id == source.executor_tab_id
+                            && receipt.session_id.as_deref() == source.session_id
+                            && receipt.session_binding_nonce.as_deref()
+                                == source.session_binding_nonce
+                    },
+                );
+                if !already_confirmed {
+                    attempt.executor_termination = Some(TaskExecutorTermination {
+                        attempt_id: source.id.into(),
+                        executor_tab_id: source.executor_tab_id.into(),
+                        session_id: source.session_id.map(str::to_owned),
+                        session_binding_nonce: source.session_binding_nonce.map(str::to_owned),
+                        confirmed_at: now,
+                    });
+                }
+                if edit.task.status == crate::plan::TaskStatus::Cancelled {
+                    let retiring = attempt.closed_at.is_none() || attempt.retired_at.is_none();
+                    attempt.closed_at.get_or_insert(now);
+                    attempt.retired_at.get_or_insert(now);
+                    let mut owner_released = false;
+                    if edit.task.assigned_tab_id.as_deref() == Some(source.executor_tab_id) {
+                        edit.task.assigned_tab_id = None;
+                        owner_released = true;
+                    }
+                    if edit.task.lane.tab_id.as_deref() == Some(source.executor_tab_id) {
+                        edit.task.lane.tab_id = None;
+                        owner_released = true;
+                    }
+                    if edit.task.interruption.owner_tab_id.as_deref()
+                        == Some(source.executor_tab_id)
+                        && edit.task.interruption.owner_session_id.as_deref() == source.session_id
+                    {
+                        edit.task.interruption.owner_tab_id = None;
+                        edit.task.interruption.owner_session_id = None;
+                        edit.task.interruption.handoff_required = false;
+                        owner_released = true;
+                    }
+                    if retiring || owner_released {
+                        edit.task.updated_at = now;
+                    }
+                }
                 Ok(())
             },
         )

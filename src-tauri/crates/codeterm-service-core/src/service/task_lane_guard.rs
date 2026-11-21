@@ -77,13 +77,30 @@ pub fn classify_mutating_lane(
 
 /// `(task_id, attempt_id)` of a live attempt holding canonical against integration.
 pub fn live_canonical_writer(plan: &Plan) -> Option<(&str, &str)> {
+    let canonical = canonical_path_of(plan).trim();
+    let canonical_target = (!canonical.is_empty())
+        .then(|| crate::service::plan::shared_checkout::resolved_checkout_target(canonical));
     plan.tasks.iter().find_map(|task| {
         task.execution_attempts
             .iter()
             .find(|attempt| {
-                attempt.closed_at.is_none()
-                    && attempt.retired_at.is_none()
-                    && !attempt.placement.is_isolated_lane()
+                if !crate::service::plan::shared_checkout::attempt_reserves_checkout_writer(
+                    task, attempt,
+                ) {
+                    return false;
+                }
+                let attempt_checkout =
+                    crate::service::plan::shared_checkout::attempt_recorded_checkout(
+                        attempt, canonical,
+                    );
+                if attempt_checkout.trim().is_empty() {
+                    return false;
+                }
+                canonical_target.as_ref().is_none_or(|expected| {
+                    crate::service::plan::shared_checkout::resolved_checkout_target(
+                        attempt_checkout,
+                    ) == *expected
+                })
             })
             .map(|attempt| (task.id.as_str(), attempt.id.as_str()))
     })

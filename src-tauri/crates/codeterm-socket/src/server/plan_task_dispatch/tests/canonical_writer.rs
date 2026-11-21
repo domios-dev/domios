@@ -711,6 +711,7 @@ fn default_intent_task_without_git_dispatches_shared_and_refuses_an_overlap() {
             execution_attempts: vec![CheckoutAttemptRead {
                 id: "attempt_peer".into(),
                 placement: WorkerPlacement::Shared,
+                checkout_path: None,
             }],
         }],
     };
@@ -735,4 +736,394 @@ fn default_intent_task_without_git_dispatches_shared_and_refuses_an_overlap() {
             refusal.message
         );
     }
+}
+
+#[test]
+fn canonical_writer_excludes_readonly_nonrepository_and_unrelated_website_lane_while_blocking_cross_plan_aliases(
+) {
+    use codeterm_service_core::service::plan::{CanonicalWriterHoldRead, LaneIntegrationRead};
+
+    let (_domios_root, domios) = super::git_project();
+    let (_website_root, website) = super::git_project();
+    let domios_lane = domios.parent().unwrap().join("domios-lane");
+    let website_lane = website.parent().unwrap().join("website-lane");
+    super::git(
+        &domios,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "lane/domios-cross",
+            domios_lane.to_str().unwrap(),
+        ],
+    );
+    super::git(
+        &website,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "lane/website-external",
+            website_lane.to_str().unwrap(),
+        ],
+    );
+    super::git(
+        &domios_lane,
+        &["commit", "--allow-empty", "-m", "unmerged domios lane"],
+    );
+    let dirty_website = website_lane.join("dirty-site.txt");
+    std::fs::write(&dirty_website, "preserve dirty website work").unwrap();
+    let dirty_domios = domios_lane.join("dirty-domios.txt");
+    std::fs::write(&dirty_domios, "preserve dirty domios work").unwrap();
+
+    for non_writer in [WorkerPlacement::ReadOnly, WorkerPlacement::NonRepository] {
+        let input = LaneIntegrationRead {
+            plan_id: "plan-non-writer".into(),
+            task_id: "task-lane".into(),
+            worktree_path: domios_lane.display().to_string(),
+            canonical_path: domios.display().to_string(),
+            holder: CanonicalWriterHoldRead {
+                task_id: "task-ro".into(),
+                attempt_id: "attempt-ro".into(),
+                placement: non_writer,
+            },
+        };
+        refuse_projected_lane_integration(Some(&input))
+            .expect("read-only and non-repository placements never block lane integration");
+    }
+
+    let mismatched_repo = LaneIntegrationRead {
+        plan_id: "plan-domios".into(),
+        task_id: "task-website".into(),
+        worktree_path: website_lane.display().to_string(),
+        canonical_path: domios.display().to_string(),
+        holder: CanonicalWriterHoldRead {
+            task_id: "task-writer".into(),
+            attempt_id: "attempt-writer".into(),
+            placement: WorkerPlacement::CanonicalWriter,
+        },
+    };
+    refuse_projected_lane_integration(Some(&mismatched_repo))
+        .expect("actual WEBSITE lane repository must not conflict with Domios canonical writer");
+
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(store_dir.path());
+    let mut plan_a = Plan::new(
+        "Domios canonical".into(),
+        domios.display().to_string(),
+        OrchestratorRef::from_tab("orch-a"),
+    );
+    store.save(&mut plan_a, 1).unwrap();
+    let writer_task = store
+        .add_task(
+            &plan_a.id,
+            NewTask {
+                name: "writer".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let writer_attempt = store
+        .begin_task_dispatch_with_reserved_attempt_and_gates(
+            &plan_a.id,
+            &writer_task,
+            "writer-tab",
+            "Writer",
+            TaskLaneMetadata::default(),
+            ExecutionIntent::Mutating,
+            None,
+            None,
+            "attempt-domios-writer",
+            vec![],
+            WorkerPlacement::CanonicalWriter,
+            3,
+        )
+        .unwrap();
+
+    let mut plan_b = Plan::new(
+        "Media plan".into(),
+        domios.join(".").display().to_string(),
+        OrchestratorRef::from_tab("orch-b"),
+    );
+    store.save(&mut plan_b, 4).unwrap();
+    let domios_lane_task = store
+        .add_task(
+            &plan_b.id,
+            NewTask {
+                name: "domios-lane".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            5,
+        )
+        .unwrap();
+    let website_lane_task = store
+        .add_task(
+            &plan_b.id,
+            NewTask {
+                name: "website-lane".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            6,
+        )
+        .unwrap();
+    store
+        .edit_plan_fixture(&plan_b.id, 7, |plan| {
+            for (id, path) in [
+                (&domios_lane_task, &domios_lane),
+                (&website_lane_task, &website_lane),
+            ] {
+                plan.tasks
+                    .iter_mut()
+                    .find(|task| &task.id == id)
+                    .unwrap()
+                    .lane
+                    .worktree_path = Some(path.display().to_string());
+            }
+            Ok(())
+        })
+        .unwrap();
+
+    let website_projection = store
+        .task_lane_integration_projection(&plan_b.id, &website_lane_task)
+        .unwrap();
+    assert!(website_projection.is_none());
+    refuse_projected_lane_integration(website_projection.as_ref()).unwrap();
+
+    let domios_projection = store
+        .task_lane_integration_projection(&plan_b.id, &domios_lane_task)
+        .unwrap()
+        .expect("live Domios writer in Plan A must block Plan B alias lane");
+    let refusal = refuse_projected_lane_integration(Some(&domios_projection)).unwrap_err();
+    assert_eq!(refusal.code, CANONICAL_WRITER_HOLDS_CHECKOUT_CODE);
+    let data = refusal.data.unwrap();
+    assert_eq!(data["holder_task_id"], writer_task);
+    assert_eq!(data["holder_attempt_id"], writer_attempt);
+    assert!(data["safe_alternative"]
+        .as_str()
+        .unwrap()
+        .contains(&plan_a.id));
+
+    let mut plan_website = Plan::new(
+        "Website canonical".into(),
+        website.join(".").display().to_string(),
+        OrchestratorRef::from_tab("orch-web"),
+    );
+    store.save(&mut plan_website, 8).unwrap();
+    let website_writer = store
+        .add_task(
+            &plan_website.id,
+            NewTask {
+                name: "website-writer".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            9,
+        )
+        .unwrap();
+    store
+        .begin_task_dispatch_with_reserved_attempt_and_gates(
+            &plan_website.id,
+            &website_writer,
+            "web-writer-tab",
+            "WebWriter",
+            TaskLaneMetadata::default(),
+            ExecutionIntent::Mutating,
+            None,
+            None,
+            "attempt-web-writer",
+            vec![],
+            WorkerPlacement::CanonicalWriter,
+            10,
+        )
+        .unwrap();
+
+    let ancestor_projection = store
+        .task_lane_integration_projection(&plan_b.id, &website_lane_task)
+        .unwrap()
+        .expect("live Website canonical writer holds Website checkout");
+    refuse_projected_lane_integration(Some(&ancestor_projection))
+        .expect("already-merged Website ancestor lane passes without checkout mutation");
+
+    super::git(
+        &website_lane,
+        &["commit", "--allow-empty", "-m", "unmerged website commit"],
+    );
+    assert!(refuse_projected_lane_integration(Some(&ancestor_projection)).is_err());
+
+    assert_eq!(
+        std::fs::read_to_string(&dirty_website).unwrap(),
+        "preserve dirty website work"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&dirty_domios).unwrap(),
+        "preserve dirty domios work"
+    );
+}
+
+#[test]
+fn canonical_writer_cancel_before_exit_releases_lane_review_after_exact_termination_not_status_only(
+) {
+    use codeterm_service_core::plan::TaskStatus;
+    use codeterm_service_core::service::plan::task_attempts::ExecutorSourceFields;
+
+    let (_git_root, project) = super::git_project();
+    let lane = project.parent().unwrap().join("cancel-exit-lane");
+    super::git(
+        &project,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "lane/cancel-exit",
+            lane.to_str().unwrap(),
+        ],
+    );
+    super::git(
+        &lane,
+        &["commit", "--allow-empty", "-m", "unmerged lane commit"],
+    );
+    let dirty_lane_file = lane.join("keep.txt");
+    std::fs::write(&dirty_lane_file, "unmerged dirty state").unwrap();
+
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(store_dir.path());
+    let mut plan = Plan::new(
+        "Cancel before exit".into(),
+        project.display().to_string(),
+        OrchestratorRef::from_tab("orch"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let writer_task = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "writer".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let lane_task = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "lane".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+
+    let attempt_id = store
+        .begin_task_dispatch_with_reserved_attempt_and_gates(
+            &plan.id,
+            &writer_task,
+            "writer-tab",
+            "Writer",
+            TaskLaneMetadata::default(),
+            ExecutionIntent::Mutating,
+            None,
+            None,
+            "attempt-cancel-writer",
+            vec![],
+            WorkerPlacement::CanonicalWriter,
+            4,
+        )
+        .unwrap();
+    store
+        .finish_task_dispatch(
+            &plan.id,
+            &writer_task,
+            "writer-tab",
+            &attempt_id,
+            "session-writer",
+            "nonce-writer",
+            TaskLaneMetadata::default(),
+            5,
+        )
+        .unwrap();
+    store
+        .edit_plan_fixture(&plan.id, 6, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|task| task.id == lane_task)
+                .unwrap()
+                .lane
+                .worktree_path = Some(lane.display().to_string());
+            plan.tasks
+                .iter_mut()
+                .find(|task| task.id == writer_task)
+                .unwrap()
+                .status = TaskStatus::Cancelled;
+            Ok(())
+        })
+        .unwrap();
+
+    let still_held = store
+        .task_lane_integration_projection(&plan.id, &lane_task)
+        .unwrap();
+    assert!(refuse_projected_lane_integration(still_held.as_ref()).is_err());
+
+    let wrong = ExecutorSourceFields {
+        id: &attempt_id,
+        executor_tab_id: "writer-tab",
+        provider: None,
+        session_id: Some("session-writer"),
+        session_binding_nonce: Some("wrong-nonce"),
+        mesh_peer: None,
+    };
+    assert!(store
+        .record_task_executor_termination(&plan.id, &writer_task, wrong, 7)
+        .is_err());
+    assert!(refuse_projected_lane_integration(
+        store
+            .task_lane_integration_projection(&plan.id, &lane_task)
+            .unwrap()
+            .as_ref()
+    )
+    .is_err());
+
+    let exact = ExecutorSourceFields {
+        id: &attempt_id,
+        executor_tab_id: "writer-tab",
+        provider: None,
+        session_id: Some("session-writer"),
+        session_binding_nonce: Some("nonce-writer"),
+        mesh_peer: None,
+    };
+    store
+        .record_task_executor_termination(&plan.id, &writer_task, exact, 8)
+        .unwrap();
+
+    let released = store
+        .task_lane_integration_projection(&plan.id, &lane_task)
+        .unwrap();
+    assert!(released.is_none());
+    refuse_projected_lane_integration(released.as_ref()).unwrap();
+
+    drop(store);
+    let reopened = PlanStore::new_for_test(store_dir.path());
+    let persisted = reopened
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == writer_task)
+        .unwrap();
+    assert_eq!(persisted.execution_attempts.len(), 1);
+    assert_eq!(persisted.execution_attempts[0].closed_at, Some(8));
+    assert_eq!(persisted.execution_attempts[0].retired_at, Some(8));
+    assert!(persisted.execution_attempts[0]
+        .executor_termination
+        .is_some());
+    assert_eq!(
+        std::fs::read_to_string(&dirty_lane_file).unwrap(),
+        "unmerged dirty state"
+    );
 }
