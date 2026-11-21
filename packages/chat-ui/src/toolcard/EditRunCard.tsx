@@ -6,7 +6,7 @@ import { ChatCardMenu, copyPlainText } from "../ChatCardMenu";
 import { useChatBlockHost } from "../blocks/ChatBlockHost";
 import { ToolOutputContent } from "../ToolOutputContent";
 import { COMMAND_TREE_CAP, LINE_CLASS } from "./CommandTree";
-import { DiffHunkLines, FilePathLabel, changedLines } from "./FileDiffCards";
+import { DiffHunkLines, FilePathLabel, changedLines, uniqueToolTexts } from "./FileDiffCards";
 import { StatusGlyph, statusName } from "./ToolActivityStream";
 import { toolKindVisual } from "./toolKindVisual";
 import { toolDurationLabel } from "./toolDuration";
@@ -17,6 +17,7 @@ const RAIL = { color: QUIET, opacity: 0.6 };
 /** One file of a run: every edit to the same path, in order. */
 interface RunFile {
   id: string;
+  memberId: string;
   path: string;
   movePath?: string;
   kind?: FileDiff["kind"];
@@ -25,20 +26,27 @@ interface RunFile {
   hunks: FileDiff["hunks"];
   status: ToolEvent["status"];
   durationMs?: number;
+  textDetails: string[];
 }
 
 function runFiles(members: ToolEvent[]): RunFile[] {
-  return members.flatMap((member) => (member.fileDiffs ?? []).map((diff, index) => ({
-    id: `${member.id}:${index}`,
-    path: diff.path,
-    movePath: diff.movePath,
-    kind: diff.kind,
-    additions: diff.additions,
-    deletions: diff.deletions,
-    hunks: diff.hunks,
-    status: member.status,
-    durationMs: member.durationMs,
-  })));
+  return members.flatMap((member) => {
+    const textDetails = uniqueToolTexts(member);
+    return (member.fileDiffs ?? []).map((diff, index) => ({
+      id: `${member.id}:${index}`,
+      memberId: member.id,
+      path: diff.path,
+      movePath: diff.movePath,
+      kind: diff.kind,
+      additions: diff.additions,
+      deletions: diff.deletions,
+      hunks: diff.hunks,
+      status: member.status,
+      durationMs: member.durationMs,
+      // Attach member-level detail/result once per tool operation so multi-file diffs do not duplicate it.
+      textDetails: index === 0 ? textDetails : [],
+    }));
+  });
 }
 
 function Counts({ additions, deletions, kind }: { additions: number; deletions: number; kind?: FileDiff["kind"] }) {
@@ -49,13 +57,24 @@ function Counts({ additions, deletions, kind }: { additions: number; deletions: 
 }
 
 function FileDetail({ file }: { file: RunFile }) {
-  if (file.hunks.length === 0) return <div className="px-1 font-mono text-[11px]" style={{ color: QUIET }}>{file.kind === "delete" ? "File deleted" : "Empty file"}</div>;
-  return <div data-testid="edit-run-diff" className="overflow-x-auto rounded border py-0.5" style={{ borderColor: "var(--ct-border)", background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)" }}>
-    {file.hunks.map((hunk, index) => <div key={index}>
-      <div className="px-3 py-0.5 font-mono text-[10.5px]" style={{ color: QUIET }}>{changedLines(hunk)}</div>
-      <DiffHunkLines hunk={hunk} path={file.movePath ?? file.path} />
-    </div>)}
-  </div>;
+  const diffBody = file.hunks.length === 0
+    ? <div className="px-1 font-mono text-[11px]" style={{ color: QUIET }}>{file.kind === "delete" ? "File deleted" : "Empty file"}</div>
+    : <div data-testid="edit-run-diff" className="overflow-x-auto rounded border py-0.5" style={{ borderColor: "var(--ct-border)", background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)" }}>
+      {file.hunks.map((hunk, index) => <div key={index}>
+        <div className="px-3 py-0.5 font-mono text-[10.5px]" style={{ color: QUIET }}>{changedLines(hunk)}</div>
+        <DiffHunkLines hunk={hunk} path={file.movePath ?? file.path} />
+      </div>)}
+    </div>;
+  return <>
+    {diffBody}
+    {file.textDetails.length > 0 && (
+      <div data-testid="toolcard-result" className="flex flex-col gap-1 pt-1">
+        {file.textDetails.map((detail, index) => (
+          <ToolOutputContent key={`${index}-${detail.slice(0, 32)}`} text={detail} maxHeight="12rem" />
+        ))}
+      </div>
+    )}
+  </>;
 }
 
 /** Back-to-back file edits as one line with a tree of files, in the same shape as a command group. */
@@ -69,12 +88,19 @@ export function EditRunCard({ event, expanded, onToggle }: { event: ToolEvent; e
   const Glyph = visual.glyph;
   const additions = files.reduce((sum, file) => sum + file.additions, 0);
   const deletions = files.reduce((sum, file) => sum + file.deletions, 0);
+  const distinctFileCount = new Set(files.map((file) => file.movePath ?? file.path)).size;
   const hasNonEdit = files.some((file) => file.kind === "add" || file.kind === "delete" || file.kind === "rename");
-  const title = hasNonEdit ? "File changes" : `Edited ${files.length} ${files.length === 1 ? "file" : "files"}`;
+  const title = hasNonEdit ? "File changes" : `Edited ${distinctFileCount} ${distinctFileCount === 1 ? "file" : "files"}`;
   const visible = expanded || files.length <= COMMAND_TREE_CAP + 1 ? files.length : COMMAND_TREE_CAP;
   const hidden = files.length - visible;
-  const failures = members.filter((member) => member.status === "error" && member.result);
   const openFile = host.openFileChange;
+  const openRow = openId ? files.find((file) => file.id === openId) : undefined;
+  const openMemberShownInline = openRow && openRow.textDetails.length > 0 ? openRow.memberId : null;
+  const groupDetails = members.flatMap((member) => {
+    if (member.id === openMemberShownInline) return [];
+    const texts = uniqueToolTexts(member);
+    return texts.length > 0 ? [{ id: member.id, texts }] : [];
+  });
 
   return (
     <section
@@ -150,8 +176,10 @@ export function EditRunCard({ event, expanded, onToggle }: { event: ToolEvent; e
           </button>
         </li>}
       </ol>
-      {expanded && failures.length > 0 && <div data-testid="toolcard-result" className="px-3 pb-2">
-        {failures.map((member) => <ToolOutputContent key={member.id} text={member.result ?? ""} maxHeight="12rem" />)}
+      {expanded && groupDetails.length > 0 && <div data-testid="toolcard-result" className="flex flex-col gap-1 px-3 pb-2">
+        {groupDetails.flatMap((entry) => entry.texts.map((text, index) => (
+          <ToolOutputContent key={`${entry.id}:${index}`} text={text} maxHeight="12rem" />
+        )))}
       </div>}
     </section>
   );

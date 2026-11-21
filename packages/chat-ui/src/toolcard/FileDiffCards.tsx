@@ -117,7 +117,7 @@ export function FilePathLabel({ path }: { path: string }) {
   </>;
 }
 
-function uniqueToolTexts(event: ToolEvent): string[] {
+export function uniqueToolTexts(event: Pick<ToolEvent, "detail" | "result">): string[] {
   const seen = new Set<string>();
   const texts: string[] = [];
   for (const value of [event.detail, event.result]) {
