@@ -42,8 +42,9 @@ pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
 
 pub use accounts::ensure_with_invocation;
 pub(crate) use accounts::ensure_expected;
+pub(crate) use accounts::ExpectedEnsureOutcome;
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) use accounts::expected_launch_commit;
+pub(crate) use accounts::{expected_launch_commit, ExpectedLaunchCommit};
 pub use accounts::{launch_switch_target, reserve_switch_launch};
 pub(crate) use accounts::{account_boundary_ready, account_trial_idle};
 
@@ -251,6 +252,10 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
     accounts::ensure(svc, tab, None).await
 }
 
+pub(crate) async fn ensure_expected_observed(svc: &ServiceContext, tab: &str, expected_nonce: &str, fork: Option<(&str, &str)>) -> ExpectedEnsureOutcome {
+    accounts::ensure_expected_observed(svc, tab, expected_nonce, fork).await
+}
+
 pub(super) async fn ensure_fork(
     svc: &ServiceContext,
     tab: &str,
@@ -271,6 +276,7 @@ async fn ensure_scoped(
     fork: Option<(String, String)>,
     expected_nonce: Option<String>,
     original: Option<crate::multiplexer::types::Tab>,
+    acquisition: Option<Arc<accounts::ExpectedAcquisition>>,
 ) -> Result<Arc<Session>, RuntimeFailure> {
     check_expected_nonce(svc, tab, expected_nonce.as_deref())?;
     let switch_launch = crate::service::messenger::switch_handoff::launch_authority(svc, tab);
@@ -350,6 +356,8 @@ async fn ensure_scoped(
         }
         if switch_launch.as_ref().is_some_and(|authority| !authority.matches(target)) { return Err(RuntimeFailure::Superseded); }
         let mut sessions = SESSIONS.lock();
+        super::authority::mark_acquisition(svc, target);
+        if let Some(acquisition) = &acquisition { acquisition.mark_acquired(); }
         if sessions.get(tab).is_some_and(|session| {
             session.context.lock().binding_nonce != nonce
                 || session.provider != provider
