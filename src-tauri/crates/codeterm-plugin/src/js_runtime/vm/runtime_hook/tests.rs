@@ -339,6 +339,7 @@ fn host_mcp_credential_is_allowed_only_in_exact_outbound_descriptor() {
             "CODETERM_API_TOKEN".into(),
             "<credential-placeholder>".into(),
         )]),
+        http: None,
     };
     let context = json!({"hostMcp":descriptor});
     let vm = PluginVm::from_source("descriptor-boundary", "module.exports={runtimePlan(ctx,op){return {action:{kind:'request',call:{method:'session/new',params:{mcpServers:op.servers}}},state:{method:'session/new'}}}}".into()).unwrap();

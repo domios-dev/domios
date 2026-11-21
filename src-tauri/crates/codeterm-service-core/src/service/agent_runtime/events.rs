@@ -87,6 +87,10 @@ pub enum RuntimeEvent {
     ThreadReverted {
         thread_id: String,
     },
+    SessionTitleUpdated {
+        thread_id: String,
+        title: String,
+    },
     Warning {
         id: String,
         message: String,
@@ -472,6 +476,10 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
         AgentRuntimeEvent::ThreadReverted { thread_id } => RuntimeEvent::ThreadReverted {
             thread_id: thread_id.clone(),
         },
+        AgentRuntimeEvent::SessionTitle { thread_id, title } => RuntimeEvent::SessionTitleUpdated {
+            thread_id: thread_id.clone(),
+            title: title.clone(),
+        },
     }
 }
 
@@ -571,7 +579,7 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
             item.kind = "compaction".into();
             upsert_item(maps, thread_id, item);
         }
-        RuntimeEvent::ThreadReverted { .. } => {}
+        RuntimeEvent::ThreadReverted { .. } | RuntimeEvent::SessionTitleUpdated { .. } => {}
         RuntimeEvent::Warning { id, message } => {
             let mut item = ChatMsg::default();
             item.id = id.clone();

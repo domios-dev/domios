@@ -17,7 +17,29 @@ interface StreamState {
   epoch:number; nonce:string; sessionId:string; replay:number; prompt:number;
   turn:number; ordinal:number; seq:number; chunk?:TextCursor & {kind:string; id:string}; turnUsage?:TokenUsage;
   items:Record<string,ChatMsg>; offsetById:Record<string,TextCursor>; warnings:Record<string,number>; controls:Record<string,JsonValue>;
-  evidenced:string[]; compacted:string[]; seenItems:string[]; evictedMessages?:string; loading:boolean; settled:boolean; started:boolean;
+  evidenced:string[]; compacted:string[]; seenItems:string[]; evictedMessages?:string; lastTitle?:string; loading:boolean; settled:boolean; started:boolean;
+}
+const MAX_SESSION_TITLE_CHARS=64;
+export function sanitizeSessionTitle(value:unknown):string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized=value.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g," ").replace(/\s+/g," ").trim();
+  if (!normalized.length) return undefined;
+  let out="", chars=0, bytes=0;
+  for (const character of normalized) {
+    const point=character.codePointAt(0)!;
+    if (point >= 0xd800 && point <= 0xdfff) continue;
+    const size=point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4;
+    if (chars >= MAX_SESSION_TITLE_CHARS || bytes + size > 256) break;
+    out+=character;chars++;bytes+=size;
+  }
+  const trimmed=out.trim();
+  return trimmed.length ? trimmed : undefined;
+}
+function stopReasonNotice(reason:string):{reason:"max_tokens"|"max_turn_requests"|"refusal"; label:string} | undefined {
+  if (reason === "max_tokens") return {reason:"max_tokens",label:"Stopped at output limit"};
+  if (reason === "max_turn_requests") return {reason:"max_turn_requests",label:"Stopped at turn limit"};
+  if (reason === "refusal") return {reason:"refusal",label:"Agent refused this request"};
+  return undefined;
 }
 const json=(value:unknown):JsonValue=>value as JsonValue;
 function boundedText(value:string,maxBytes:number):{value:string;truncated:boolean} {
@@ -243,6 +265,19 @@ export function settleStream(
       content:boundedText(apiError.content || "Provider request failed",4096).value,
       toolInput:apiError.toolInput,
     });
+  } else {
+    const stopNotice=stopReasonNotice(reason);
+    if (stopNotice) {
+      emit(next,events,{
+        id:`${turnId}:stop_reason`,
+        seq:0,
+        type:"system",
+        systemSubtype:"turn_stop_reason",
+        toolFlowId:turnId,
+        toolInput:{stopReason:stopNotice.reason},
+        content:stopNotice.label,
+      });
+    }
   }
   events.push({kind:"turnState",threadId:ctx.threadId,turnId,state:"idle",...detail});
   boundState(next);
@@ -381,10 +416,17 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
           events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:sessionSettings(update)});
         if (kind === "current_mode_update" && typeof update.currentModeId === "string")
           events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:{mode:update.currentModeId}});
-        const compaction=object(object(update._meta).compaction);
-        if (kind !== "session_info_update" || !Object.keys(compaction).length) continue;
-        const id=text(compaction.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
-        if (!state.compacted.includes(id)) {state.compacted.push(id);events.push({kind:"contextCompacted",threadId:ctx.threadId,itemId:id});}
+        if (kind === "session_info_update") {
+          const title=sanitizeSessionTitle(update.title);
+          if (title && title !== state.lastTitle) {
+            state.lastTitle=title;
+            events.push({kind:"sessionTitle",threadId:ctx.threadId,title});
+          }
+          const compaction=object(object(update._meta).compaction);
+          if (!Object.keys(compaction).length) continue;
+          const id=text(compaction.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
+          if (!state.compacted.includes(id)) {state.compacted.push(id);events.push({kind:"contextCompacted",threadId:ctx.threadId,itemId:id});}
+        }
       } else if (kind === "usage_update" || kind === "turn_completed" || kind === "quota_update") {
         const mapped=contextUsage(ctx.threadId,update);
         if (mapped) events.push(mapped);

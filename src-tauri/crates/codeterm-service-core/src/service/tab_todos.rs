@@ -16,6 +16,7 @@ mod own_write;
 mod proposal;
 mod recitation;
 mod review;
+mod runtime_plan;
 
 pub use own_write::{restore_checklist_presence, TabTodoWriteOutcome};
 use recitation::{recitation_text, summary};
@@ -69,19 +70,59 @@ impl ServiceContext {
 
     /// Every committed checklist mutation announces its new revision to the UI.
     fn todo_changed(&self, checklist: TabTodoChecklist) -> TabTodoChecklist {
+        let plan_revision = runtime_plan::revision_for(&checklist.tab_id);
         self.sync_checklist_presence(&checklist.tab_id, !checklist.items.is_empty());
         self.ui.emit(
             TAB_TODO_CHANGED_EVENT,
             serde_json::json!({
                 "tab_id": checklist.tab_id,
                 "generation": checklist.generation,
-                "revision": checklist.revision,
+                "revision": checklist.revision.saturating_add(plan_revision),
             }),
         );
         checklist
     }
 
+    /// Merges a runtime agent's `update_plan` snapshot into the tab's existing sidebar checklist
+    /// without overwriting or clobbering Domios `tab_todo` items.
+    pub(crate) fn update_runtime_plan_checklist(
+        &self,
+        tab_id: &str,
+        item: &codeterm_types::agent::chat_types::ChatMsg,
+    ) {
+        let Some(entries) = runtime_plan::extract_plan_entries(item) else {
+            return;
+        };
+        let Some(snapshot) = runtime_plan::record(tab_id, entries, now_secs()) else {
+            return;
+        };
+        let present = !snapshot.entries.is_empty();
+        let stored_meta = self.optional_todo_store().and_then(|store| {
+            crate::async_runtime::block_on(store.get(tab_id.to_owned())).ok().flatten()
+        });
+        let stored_has_items = stored_meta
+            .as_ref()
+            .is_some_and(|checklist| !checklist.items.is_empty());
+        self.sync_checklist_presence(tab_id, stored_has_items || present);
+        let generation = stored_meta
+            .as_ref()
+            .map_or(1, |checklist| checklist.generation.max(1));
+        let revision = stored_meta
+            .as_ref()
+            .map_or(0, |checklist| checklist.revision)
+            .saturating_add(snapshot.revision);
+        self.ui.emit(
+            TAB_TODO_CHANGED_EVENT,
+            serde_json::json!({
+                "tab_id": tab_id,
+                "generation": generation,
+                "revision": revision,
+            }),
+        );
+    }
+
     pub(crate) fn forget_evicted_tab_todos(&self, tab_ids: Vec<String>) {
+        runtime_plan::forget_tabs(&tab_ids);
         let Some(storage) = self
             .try_ext::<StorageAuthority>()
             .and_then(StorageAuthority::storage)
@@ -384,7 +425,9 @@ impl ServiceContext {
     ) -> Result<Option<TabTodoChecklist>, String> {
         let target = self.todo_tab(target_tab_id)?;
         self.require_owner_or_user(&target, actor_tab_id)?;
-        self.todo_store()?.get(target.id).await
+        let stored = self.todo_store()?.get(target.id.clone()).await?;
+        let plan = runtime_plan::for_tab(&target.id);
+        Ok(runtime_plan::merge_checklist(&target.id, stored, plan))
     }
 
     pub async fn tab_todo_parent_summary(

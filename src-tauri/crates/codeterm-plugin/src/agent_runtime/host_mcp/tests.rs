@@ -22,6 +22,7 @@ fn context() -> RuntimeContext {
                 "--binding-nonce".into(),
                 "nonce".into(),
             ],
+            http: None,
         }),
         ..Default::default()
     }
@@ -134,4 +135,21 @@ fn host_mcp_refuses_tampering_on_other_outbound_methods() {
         target: None,
     };
     assert!(validate_runtime_call(&cap, &ctx, &RuntimeOperation::Initialize, &call).is_ok());
+}
+
+#[test]
+fn host_mcp_accepts_exact_http_descriptor_when_configured_and_refuses_tampering() {
+    let mut ctx = context();
+    ctx.host_mcp.as_mut().unwrap().http = Some(RuntimeHostMcpHttp {
+        url: "http://127.0.0.1:7686/api/mcp".into(),
+        headers: std::collections::BTreeMap::from([(
+            "Authorization".into(),
+            "Bearer <credential-placeholder>".into(),
+        )]),
+    });
+    let http = ctx.host_mcp.as_ref().unwrap().http_descriptor().unwrap();
+    assert!(validate_call(&ctx, json!({"mcpServers":[http.clone()]})).is_ok());
+    let mut tampered = http;
+    tampered["url"] = json!("http://127.0.0.1:9999/evil");
+    assert!(validate_call(&ctx, json!({"mcpServers":[tampered]})).is_err());
 }

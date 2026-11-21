@@ -54,6 +54,7 @@ export interface ChatTranscriptRowContext {
   retrySend: (sendId: string) => void;
   forkFrom: (turnId: string) => void;
   revertTo: (turnId: string) => void;
+  onContinueTurn?: () => void;
 }
 
 export interface ChatTranscriptRowProps {
@@ -73,6 +74,7 @@ export interface ChatTranscriptRowProps {
   cursor: boolean;
   streaming: boolean;
   latestFailedToolCall: boolean;
+  canContinueTurn?: boolean;
   forkable: boolean;
   revertible: boolean;
   ariaLabel: string;
@@ -129,7 +131,7 @@ function sameRowProps(left: ChatTranscriptRowProps, right: ChatTranscriptRowProp
 /** One transcript row; it renders again only when its own message, rails, delivery or selection change. */
 export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySeparator, originProps, reports, asks, liveActivityLabel,
   deliverySend, deliveryView, deliveryBehindTurn, sourceOrdinal, selected, joinNext, selecting, cursor, streaming, latestFailedToolCall,
-  forkable, revertible, ariaLabel, context }: ChatTranscriptRowProps) {
+  canContinueTurn, forkable, revertible, ariaLabel, context }: ChatTranscriptRowProps) {
   const { msg, item, origin } = entry;
   const pendingDelivery = deliverySend && deliveryView && deliveryView !== "delivered";
   const remoteFailure = deliverySend?.remoteFailure;
@@ -196,6 +198,7 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
             onOriginClick={originProps?.onOriginClick}
             onFocusTab={context.onFocusTab}
             onJumpToMessage={context.onJumpToMessage}
+            onContinueTurn={canContinueTurn ? context.onContinueTurn : undefined}
           />
         </ChatMessageRow>
       </ChatHighlightRow>

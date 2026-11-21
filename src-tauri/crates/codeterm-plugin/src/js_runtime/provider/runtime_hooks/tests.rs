@@ -655,6 +655,7 @@ async fn host_mcp_context_absent_for_undeclared_plugin_across_all_hooks() {
         name: "domios".into(),
         command: "/trusted/domios".into(),
         args: vec!["mcp".into(), "serve".into()],
+        http: None,
     });
     let mut js = provider("function plan(ctx){return {action:{kind:'request',call:{method:'handshake',params:{descriptor:ctx.hostMcp || null}}},state:null}}; module.exports={runtimePlan:plan,runtimeResponse(ctx){return {kind:'continue',plan:plan(ctx)}},runtimeReduce(ctx){return {state:{descriptor:ctx.hostMcp || null},events:[]}}}");
     for declared in [false, true] {

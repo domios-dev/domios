@@ -58,6 +58,7 @@ pub(super) fn descriptor(
             "--binding-nonce".into(),
             nonce.into(),
         ],
+        http: None,
     })
 }
 

@@ -401,6 +401,8 @@ fn unchanged_settings_confirm_without_a_new_provider_event() {
 fn control_changes_name_only_confirmed_non_model_controls_that_changed() {
     let declared = |effort: &str| codeterm_plugin::agent_runtime::RuntimeConfigOption {
         category: Some("thought_level".into()),
+        kind: None,
+        description: None,
         id: "opaque-effort".into(),
         name: "Effort".into(),
         current_value: effort.into(),
