@@ -11,6 +11,30 @@ const NOT_SHUTTING_DOWN: u8 = 0;
 
 static SHUTDOWN_CAUSE: AtomicU8 = AtomicU8::new(NOT_SHUTTING_DOWN);
 
+#[derive(Default)]
+pub struct ShutdownAdmission(std::sync::Mutex<bool>);
+
+impl ShutdownAdmission {
+    pub fn admit<T>(&self, claim: impl FnOnce() -> T) -> Option<T> {
+        let closed = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if *closed { None } else { Some(claim()) }
+    }
+
+    pub fn close(&self) { self.close_with(|| ()); }
+
+    fn close_with<T>(&self, close: impl FnOnce() -> T) -> T {
+        let mut closed = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        *closed = true;
+        close()
+    }
+}
+
+static SHUTDOWN_ADMISSION: ShutdownAdmission = ShutdownAdmission(std::sync::Mutex::new(false));
+
+pub fn with_shutdown_admission<T>(claim: impl FnOnce() -> T) -> Option<T> {
+    SHUTDOWN_ADMISSION.admit(claim)
+}
+
 fn encode(reason: ShutdownReason) -> u8 {
     match reason {
         ShutdownReason::UserExit => 1,
@@ -73,14 +97,14 @@ pub fn mark_shutting_down() {
 }
 
 pub fn mark_shutting_down_for(reason: ShutdownReason) {
-    let first_request = SHUTDOWN_CAUSE
+    let first_request = SHUTDOWN_ADMISSION.close_with(|| SHUTDOWN_CAUSE
         .compare_exchange(
             NOT_SHUTTING_DOWN,
             encode(reason),
             Ordering::SeqCst,
             Ordering::SeqCst,
         )
-        .is_ok();
+        .is_ok());
     if let Some(recorded) = decode(SHUTDOWN_CAUSE.load(Ordering::SeqCst)) {
         codeterm_shutdown::arm_sentinel_shutdown(recorded);
     }

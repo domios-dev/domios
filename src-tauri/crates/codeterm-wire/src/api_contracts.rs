@@ -198,6 +198,9 @@ pub struct ProviderSwitchStatus {
     pub tab_id: String,
     pub provider: String,
     pub phase: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub stage: Option<String>,
     pub outcome: Option<ProviderSwitchOutcome>,
     pub error: Option<String>,
 }

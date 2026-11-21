@@ -3,6 +3,227 @@ use super::LaunchGeneration;
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::launch_diagnostics::AgentLaunchOrigin;
 
+pub(super) fn retired_resume_fixture() -> (crate::service::test_fixture::ServiceFixture, String) {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("resume-provider".into());
+    tab.agent_session_id = Some("exact-session".into());
+    tab.session_binding_nonce = Some("retired-nonce".into());
+    tab.reported_session_binding_nonce = Some("retired-nonce".into());
+    tab.restored_from_snapshot = true;
+    tab.restorable_launch.exited_chat_binding = Some(crate::multiplexer::types::ExitedChatBinding {
+        provider_id: "resume-provider".into(), session_id: "exact-session".into(), nonce: "retired-nonce".into(),
+    });
+    assert!(crate::service::tab::clear_agent_identity_for_lifecycle_exit(tab));
+    (crate::service::test_fixture::ServiceFixture::new(mux), id)
+}
+
+#[test]
+fn retired_live_identity_uses_exact_resume_account_authority_without_rebinding() {
+    let (fixture, id) = retired_resume_fixture();
+    assert_eq!(crate::service::provider_accounts::for_tab(&fixture.service, &id).unwrap_err(), "Account tab has no harness");
+    for (provider, session) in [("foreign", Some("exact-session")), ("resume-provider", Some("foreign-session")), ("resume-provider", None)] {
+        assert!(super::super::account_supervision::prepare(&fixture.service, &id, provider, session).is_err());
+    }
+    let (account, reserved) = super::super::account_supervision::prepare(&fixture.service, &id, "resume-provider", Some("exact-session")).unwrap();
+    assert!(reserved.is_some());
+    assert!(account.resolve_bounded(&fixture.service, &id, None).unwrap().is_none());
+    let foreign = codeterm_plugin::provider_account::InvocationContext::new("foreign-provider".into(), "foreign-account".into(),
+        Default::default(), Vec::new(), Vec::new()).unwrap();
+    assert!(account.resolve_with(&fixture.service, &id, || Ok(Some(foreign))).unwrap_err().starts_with("launch_account_context_changed:"));
+    let current = fixture.service.mux.read().get_tab(&id).unwrap().clone();
+    assert!(current.agent_type.is_none());
+    assert!(current.agent_session_id.is_none());
+    assert!(current.reported_session_binding_nonce.is_none());
+    assert!(!current.launch_session_authenticated());
+    assert_eq!(current.prior_session_binding_nonces.last().unwrap().resume_target_session_id.as_deref(), Some("exact-session"));
+}
+
+#[test]
+fn abandoned_account_provisioning_retains_one_job_and_never_launches_late() {
+    use crate::service::provider_accounts::{provisioning, test_support};
+    for cancel in [false, true] {
+        let (fixture, id) = retired_resume_fixture();
+        let (account, _) = super::super::account_supervision::prepare(
+            &fixture.service, &id, "resume-provider", Some("exact-session")).unwrap();
+        let (entered, entry) = std::sync::mpsc::sync_channel(1);
+        let (release, blocked) = std::sync::mpsc::sync_channel(1);
+        let mut receipt = test_support::work_receipt(&fixture.service);
+        let job = account.start_resolution(&fixture.service, &id, move || {
+            entered.send(()).unwrap();
+            blocked.recv_timeout(std::time::Duration::from_secs(10)).map_err(|_| "fixture provisioning was not released".to_owned())?;
+            Ok(None)
+        }).unwrap();
+        entry.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+        assert_eq!(provisioning::retained_count(&fixture.service), 1);
+        if !cancel {
+            assert!(job.wait_blocking(std::time::Duration::ZERO).unwrap_err().starts_with("launch_account_supervision_unconfirmed:"));
+        }
+        drop(job);
+        assert_eq!(provisioning::retained_count(&fixture.service), 1);
+        assert!(account.start_resolution(&fixture.service, &id, || panic!("obsolete jobs must not queue")).is_err());
+        let engine = crate::async_runtime::block_on(crate::service::agent_runtime::engine::ensure(&fixture.service, &id));
+        assert!(matches!(engine, Err(crate::service::agent_runtime::model::RuntimeFailure::Refused(reason)) if reason.starts_with("account_provisioning_busy:")));
+        let replacement = fixture.service.rotate_session_binding_nonce(&id);
+        let before = serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
+        release.send(()).unwrap();
+        crate::async_runtime::block_on(test_support::settled(&mut receipt)).unwrap();
+        assert_eq!(provisioning::retained_count(&fixture.service), 0);
+        let after = fixture.service.mux.read().get_tab(&id).unwrap().clone();
+        assert_eq!(serde_json::to_value(&after).unwrap(), before);
+        assert_eq!(after.session_binding_nonce.as_deref(), Some(replacement.as_str()));
+        assert!(!after.launch_session_authenticated());
+        assert!(after.pty_id.is_none());
+    }
+}
+
+#[test]
+fn switch_launch_reserves_only_the_admitted_reset_and_observer_expiry_keeps_its_owner() {
+    use crate::service::messenger::switch_handoff::with_switch_launch;
+    for changed in ["team", "parent", "report", "account", "namespace", "nonce"] {
+        let (fixture, id) = retired_resume_fixture();
+        let expected = {
+            let mut mux = fixture.service.mux.write(); let tab = mux.get_tab_mut(&id).unwrap();
+            tab.agent_type = Some("resume-provider".into());
+            tab.clone()
+        };
+        with_switch_launch(&fixture.service, &expected, || {
+            {
+                let mut mux = fixture.service.mux.write(); let tab = mux.get_tab_mut(&id).unwrap();
+                match changed {
+                    "team" => tab.team_id = Some("replacement-team".into()),
+                    "parent" => tab.parent_tab_id = Some("replacement-parent".into()),
+                    "report" => tab.report_target_tab_id = Some("replacement-report".into()),
+                    "account" => tab.restorable_launch.account_id = Some("replacement-account".into()),
+                    "namespace" => tab.restorable_launch.account_namespace = Some("replacement-namespace".into()),
+                    "nonce" => tab.session_binding_nonce = Some("replacement-nonce".into()),
+                    _ => unreachable!(),
+                }
+            }
+            let before = serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
+            assert!(super::super::account_supervision::prepare(&fixture.service, &id, "resume-provider", None).is_err());
+            assert_eq!(serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap(), before);
+            Ok(())
+        }).unwrap();
+    }
+    let (fixture, id) = retired_resume_fixture();
+    let expected = {
+        let mut mux = fixture.service.mux.write(); let tab = mux.get_tab_mut(&id).unwrap();
+        tab.agent_type = Some("resume-provider".into()); tab.clone()
+    };
+    let mut surviving = None;
+    let result: Result<(), String> = with_switch_launch(&fixture.service, &expected, || {
+        let (account, nonce) = super::super::account_supervision::prepare(&fixture.service, &id, "resume-provider", None)?;
+        assert!(nonce.is_some()); surviving = Some(account);
+        Err("provider_switch_readiness_unconfirmed: fixture observation expired".into())
+    });
+    assert!(result.is_err());
+    let account = surviving.unwrap();
+    account.validate(&fixture.service, &id).unwrap();
+    assert!(account.resolve_bounded(&fixture.service, &id, None).unwrap().is_none());
+    assert!(!fixture.service.mux.read().get_tab(&id).unwrap().launch_session_authenticated());
+}
+
+#[test]
+fn provisioning_cannot_authorize_a_changed_account_namespace_nonce_or_team() {
+    for changed in ["provider", "account", "namespace", "nonce", "epoch", "operation", "team"] {
+        let (fixture, id) = retired_resume_fixture();
+        let (account, _) = super::super::account_supervision::prepare(&fixture.service, &id, "resume-provider", Some("exact-session")).unwrap();
+        let result = account.resolve_with(&fixture.service, &id, || {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&id).unwrap();
+            match changed {
+                "provider" => tab.agent_type = Some("foreign".into()),
+                "account" => tab.restorable_launch.account_id = Some("foreign-account".into()),
+                "namespace" => tab.restorable_launch.account_namespace = Some("foreign-namespace".into()),
+                "nonce" => tab.session_binding_nonce = Some("foreign-nonce".into()),
+                "epoch" => tab.lifecycle_epoch = Some(999),
+                "operation" => tab.lifecycle_operation_id = Some("foreign-operation".into()),
+                "team" => tab.team_id = Some("foreign-team".into()),
+                _ => unreachable!(),
+            }
+            Ok(None)
+        });
+        assert!(result.unwrap_err().starts_with("launch_account_source_changed:"), "{changed}");
+        let before = serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
+        let launch = LaunchGeneration::begin(&id, "stale-pty".into());
+        assert!(!account.fail_if_current(&launch, &fixture.service,
+            super::super::LaunchFailure::StartupSupervision("stale account failure".into())));
+        let after = serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
+        assert_eq!(after, before, "{changed}: stale failure must preserve replacement");
+        assert!(fixture.service.mux.read().get_tab(&id).unwrap().agent_session_id.is_none());
+    }
+}
+
+#[test]
+fn conditional_reservation_refuses_stale_source_without_touching_replacement() {
+    for changed in ["provider", "session", "nonce", "account", "namespace", "operation", "pty", "team"] {
+        let (fixture, id) = retired_resume_fixture();
+        let expected = fixture.service.mux.read().get_tab(&id).unwrap().clone();
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&id).unwrap();
+            match changed {
+                "provider" => tab.agent_type = Some("replacement".into()),
+                "session" => tab.agent_session_id = Some("replacement-session".into()),
+                "nonce" => tab.session_binding_nonce = Some("replacement-nonce".into()),
+                "account" => tab.restorable_launch.account_id = Some("replacement-account".into()),
+                "namespace" => tab.restorable_launch.account_namespace = Some("replacement-namespace".into()),
+                "operation" => tab.lifecycle_operation_id = Some("replacement-operation".into()),
+                "pty" => tab.pty_id = Some("replacement-pty".into()),
+                "team" => tab.team_id = Some("replacement-team".into()),
+                _ => unreachable!(),
+            }
+        }
+        let before = serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
+        assert!(fixture.service.reserve_agent_launch_binding_nonce_if_current(&expected, Some("exact-session"), None).is_err());
+        let after = serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
+        assert_eq!(after, before, "{changed}");
+    }
+}
+
+#[test]
+fn replacement_reservation_cannot_adopt_authority_changed_after_account_preflight() {
+    for changed in ["nonce", "operation", "account", "namespace", "team", "generation", "owned-pty"] {
+        let (fixture, id) = retired_resume_fixture();
+        let (account, reserved) = super::super::account_supervision::prepare(
+            &fixture.service, &id, "resume-provider", Some("exact-session")).unwrap();
+        let mut launch = LaunchGeneration::begin(&id, "old-pty".into());
+        launch.binding_nonce = reserved;
+        account.validate(&fixture.service, &id).unwrap();
+        assert!(launch.replace("replacement-pty".into()));
+        fixture.service.mux.write().get_tab_mut(&id).unwrap().pty_id = Some("replacement-pty".into());
+        if changed == "nonce" { fixture.service.rotate_session_binding_nonce(&id); }
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&id).unwrap();
+            match changed {
+                "nonce" => (),
+                "operation" => tab.lifecycle_operation_id = Some("B-operation".into()),
+                "account" => tab.restorable_launch.account_id = Some("B-account".into()),
+                "namespace" => tab.restorable_launch.account_namespace = Some("B-namespace".into()),
+                "team" => tab.team_id = Some("B-team".into()),
+                "generation" | "owned-pty" => (),
+                _ => unreachable!(),
+            }
+        }
+        let newer = (changed == "generation").then(|| LaunchGeneration::begin(&id, "B-pty".into()));
+        let before = serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
+        let result = account.reserve_replacement(&fixture.service, &launch);
+        let after = serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
+        if changed == "owned-pty" {
+            let nonce = result.unwrap();
+            assert_ne!(after, before);
+            assert_eq!(fixture.service.mux.read().get_tab(&id).unwrap().session_binding_nonce.as_deref(), Some(nonce.as_str()));
+            account.validate(&fixture.service, &id).unwrap();
+        } else {
+            assert!(result.is_err(), "{changed}");
+            assert_eq!(after, before, "{changed}: A must not rotate or revoke B");
+        }
+        LAUNCH_REGISTRY.lock().finish(newer.as_ref().unwrap_or(&launch));
+    }
+}
+
 #[test]
 fn cancelled_readiness_registration_retires_only_its_own_attempt() {
     use crate::service::launch_readiness::{
@@ -152,13 +373,13 @@ fn early_send_nonce_survives_initial_launch_registration() {
 }
 
 #[test]
-fn launch_whose_reservation_was_reminted_registers_a_fresh_nonce() {
+fn launch_whose_reservation_was_reminted_cannot_replace_the_new_nonce() {
     let (mut mux, tab_id) = MultiplexerState::new();
     mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("opaque-provider".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     super::super::mark_tab_agent_launch_started(&fixture.service.mux, &tab_id);
     let reserved = super::super::generation::reserve_binding_nonce(&fixture.service, &tab_id, None);
-    fixture.service.rotate_session_binding_nonce(&tab_id);
+    let replacement = fixture.service.rotate_session_binding_nonce(&tab_id);
     fixture
         .service
         .mux
@@ -167,7 +388,7 @@ fn launch_whose_reservation_was_reminted_registers_a_fresh_nonce() {
         .unwrap()
         .pty_id = Some("registered-pty".into());
     let mut launch = LaunchGeneration::begin(&tab_id, "registered-pty".into());
-    launch
+    assert!(launch
         .capture_binding_nonce(
             &fixture.service,
             None,
@@ -176,9 +397,8 @@ fn launch_whose_reservation_was_reminted_registers_a_fresh_nonce() {
             None,
             Some(reserved.clone()),
         )
-        .expect("a re-minted reservation must not fail the launch");
-    let registered = launch.binding_nonce.clone().unwrap();
-    assert_ne!(registered, reserved);
+        .is_err());
+    assert!(launch.binding_nonce.is_none());
     assert_eq!(
         fixture
             .service
@@ -186,7 +406,7 @@ fn launch_whose_reservation_was_reminted_registers_a_fresh_nonce() {
             .read()
             .get_tab(&tab_id)
             .and_then(|tab| tab.session_binding_nonce.clone()),
-        Some(registered)
+        Some(replacement)
     );
     assert!(LAUNCH_REGISTRY.lock().finish(&launch));
 }

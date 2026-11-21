@@ -1,7 +1,7 @@
 import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {resolve, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {requireBackings, leaves, measurements, synthesizeHistory} from './model.mjs';
+import {requireBackings, leaves, measurements, synthesizeHistory, capturedFailedLaunch} from './model.mjs';
 import {peer} from './fake-peer.mjs';
 import {utilityKind} from './utility.mjs';
 
@@ -25,7 +25,8 @@ for (const workspace of document.snapshot.workspaces) {
   delete workspace.provisioned_cwd;
 }
 for (const tab of leaves(document)) {
-  const kind = utilityKind(tab);
+  const failed = capturedFailedLaunch(document, tab);
+  const kind = failed ? null : utilityKind(tab);
   if (kind) document.replay_utilities.push({tab_id: tab.tab_id, kind, captured_cwd: tab.cwd,
     captured_shell_profile: tab.shell_profile, captured_surface: tab.surface});
   tab.cwd = join(root, 'project');
@@ -36,7 +37,7 @@ for (const tab of leaves(document)) {
   } else if (kind === 'surface') {
     tab.surface = {plugin_id: 'upgrade-restore-fixture', surface_id: 'fixture', instance_id: tab.tab_id};
   }
-  if (tab.agent_type === 'claude') {
+  if (!failed && tab.agent_type === 'claude') {
     const sessionId = tab.claude_session_id ?? tab.agent_session_id;
     const project = join(claudeConfig, 'projects', tab.cwd.replace(/[^A-Za-z0-9]/g, '-'));
     mkdirSync(project, {recursive: true});

@@ -326,7 +326,7 @@ pub(super) fn submit_authenticated_pty_input<T>(
 }
 
 impl ServiceContext {
-    fn authenticated_pty_delivery(
+    pub(crate) fn authenticated_pty_delivery(
         &self,
         tab_id: &str,
         expected_pty_id: Option<&str>,
@@ -405,7 +405,7 @@ impl ServiceContext {
         result
     }
 
-    fn send_authenticated_delivery_with_routed_frame(
+    pub(crate) fn send_authenticated_delivery_with_routed_frame(
         &self,
         delivery: AuthenticatedPtyDelivery,
         frame: crate::service::messenger::FramedDelivery,

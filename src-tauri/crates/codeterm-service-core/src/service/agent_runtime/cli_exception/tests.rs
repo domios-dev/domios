@@ -320,6 +320,40 @@ fn normal_runtime_shutdown_releases_matching_policy_without_erasing_saved_tab() 
 }
 
 #[test]
+fn detached_retirement_lease_never_reselects_or_removes_a_replacement_policy() {
+    for shared_path in [false, true] {
+        let (_directory, mut original, sandbox, executable) = fixture();
+        original.tab_id = uuid::Uuid::new_v4().to_string();
+        let policy = provision(&original, &sandbox, &executable, ".runtime-policy").unwrap();
+        original.restricted_cli = Some(policy.clone());
+        LEASES.lock().insert(original.tab_id.clone(), Lease {
+            policy: policy.clone(), sandbox: sandbox.clone(), provider: "opaque-provider".into(),
+            _executable_pin: pin_executable(&executable).unwrap(),
+        });
+        let detached = take_owned("opaque-provider", &original).unwrap().unwrap();
+        let mut replacement = original.clone();
+        replacement.epoch += 1; replacement.binding_nonce = "replacement-binding".into();
+        let replacement_policy = if shared_path {
+            let mut policy = policy.clone(); policy.epoch = replacement.epoch; policy.binding_nonce = replacement.binding_nonce.clone(); policy
+        } else {
+            provision(&replacement, &sandbox, &executable, ".replacement-policy").unwrap()
+        };
+        replacement.restricted_cli = Some(replacement_policy.clone());
+        LEASES.lock().insert(original.tab_id.clone(), Lease {
+            policy: replacement_policy.clone(), sandbox, provider: "opaque-provider".into(),
+            _executable_pin: pin_executable(&executable).unwrap(),
+        });
+        assert!(take_owned("opaque-provider", &original).is_err());
+        assert_eq!(LEASES.lock().get(&original.tab_id).unwrap().policy, replacement_policy);
+        revoke_owned(detached).unwrap();
+        assert_eq!(LEASES.lock().get(&original.tab_id).unwrap().policy, replacement_policy);
+        verify_files(&replacement_policy).unwrap();
+        if !shared_path { assert!(!paths(&policy).0.exists()); }
+        revoke(&replacement.tab_id).unwrap();
+    }
+}
+
+#[test]
 fn lease_revocation_reports_preserved_foreign_policy() {
     let (_directory, mut context, sandbox, executable) = fixture();
     context.tab_id = uuid::Uuid::new_v4().to_string();

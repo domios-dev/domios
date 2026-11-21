@@ -605,7 +605,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         let result = match self.permit.as_ref() {
             Some(permit) => session.write_and_flush_guarded_with_enqueued(
                 key.to_vec(),
-                permit.clone(),
+                permit.for_submit_key(key),
                 timeout,
                 || {
                     self.queued_submit_keys
