@@ -163,6 +163,7 @@ async fn publish_with_origin(
             .await?;
         }
         events::observe(&mut session.context.lock(), &runtime);
+        super::super::projections::observe_rate_limit_reset(svc, session, &runtime, at);
         let retry = super::super::capacity_retry::observe(svc, session, &runtime, at).await;
         super::super::controls::observe_event(session, &runtime);
         let send_id = match &runtime {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import type {FetchOpts, FetchResult} from "@codeterm/plugin-sdk";
-import {readProfileLimits, type LimitsPorts} from "../src/limits";
+import {parseStatusLineQuota, readProfileLimits, statusLineQuotaSnapshot, type LimitsPorts} from "../src/limits";
 
 function port(results: FetchResult | FetchResult[], credentials: Record<string, Record<string, string>> = {}) {
   const queue = Array.isArray(results) ? [...results] : [results];
@@ -180,3 +180,74 @@ const antigravityReply = readProfileLimits(antigravityPort.ports, {profile: "ant
 assert.equal(typeof (antigravityReply as {error: string}).error, "string", "unavailable limitsSource never fabricates a balance or quota snapshot");
 assert.equal(antigravityPort.requests.length, 0, "unavailable limitsSource issues no network request");
 console.log("✓ ACP Antigravity profile: manifest metadata, allowlisted binary, sanitizer-safe color SVG, honest unavailable limits");
+
+// Extensible statusLine quota JSON parser (remaining_fraction, reset_time, reset_in_seconds, disabled, malformed fail-closed)
+{
+  const SL_NOW = 1_795_280_000_000;
+  const isoReset = "2026-11-22T07:50:32Z";
+  const parsed = parseStatusLineQuota({
+    plan_tier: "Pro",
+    quota: {
+      "gemini-weekly": {remaining_fraction: 0.9378, reset_time: isoReset, reset_in_seconds: 560580},
+      "gemini-pro": {remaining_fraction: 0.25, reset_in_seconds: 1800},
+      "disabled-group": {remaining_fraction: 0, disabled: true, reset_in_seconds: 60},
+      "amount-only": {remaining_amount: 42},
+    },
+  }, SL_NOW);
+  assert.deepEqual(parsed, {
+    title: "Account quota (Pro)",
+    limits: [
+      {label: "gemini-pro", used_percent: 75, resets_at: SL_NOW + 1_800_000},
+      {label: "gemini-weekly", used_percent: 6.2, resets_at: Date.parse(isoReset)},
+    ],
+  }, "parses remaining_fraction, prefers ISO reset_time over reset_in_seconds, skips disabled and amount-only buckets, sorts highest used first");
+
+  const fromJsonString = statusLineQuotaSnapshot(JSON.stringify({
+    quota: {"claude-5h": {remaining_fraction: 0.5, reset_in_seconds: 0}},
+  }), SL_NOW);
+  assert.equal(typeof fromJsonString, "string");
+  const decoded = JSON.parse(fromJsonString as string);
+  assert.equal(decoded.billing_mode, "subscription");
+  assert.equal(decoded.limits_reported, true);
+  assert.deepEqual(decoded.usage_details.quota, {
+    title: "Account quota",
+    limits: [{label: "claude-5h", used_percent: 50, resets_at: null}],
+  });
+
+  const allDisabled = statusLineQuotaSnapshot({quota: {"group-a": {remaining_fraction: 0.5, disabled: true}}}, SL_NOW);
+  assert.equal(typeof allDisabled, "object");
+  assert.match((allDisabled as {error: string}).error, /no active model quota/);
+
+  for (const malformed of [
+    null,
+    "",
+    "not json",
+    "x".repeat(64 * 1024 + 1),
+    {},
+    {quota: []},
+    {quota: {"": {remaining_fraction: 0.5}}},
+    {quota: {"bad\nkey": {remaining_fraction: 0.5}}},
+    {quota: {"group-a": "bad"}},
+    {quota: {"group-a": {remaining_fraction: -0.01}}},
+    {quota: {"group-a": {remaining_fraction: 1.01}}},
+    {quota: {"group-a": {remaining_fraction: Number.NaN}}},
+    {quota: {"group-a": {remaining_fraction: "0.5"}}},
+    {quota: {"group-a": {remaining_fraction: 0.5, disabled: "true"}}},
+    {quota: {"group-a": {remaining_fraction: 0.5, reset_time: "tomorrow"}}},
+    {quota: {"group-a": {remaining_fraction: 0.5, reset_in_seconds: -10}}},
+    {quota: {"group-a": {remaining_fraction: 0.5, reset_in_seconds: 40 * 86400}}},
+    {quota: Object.fromEntries(Array.from({length: 129}, (_, i) => [`bucket-${i}`, {remaining_fraction: 0.5}]))},
+  ]) {
+    assert.equal(parseStatusLineQuota(malformed, SL_NOW), null, `must reject malformed statusLine quota: ${String(malformed).slice(0, 60)}`);
+  }
+
+  const pushReply = readProfileLimits(port({status: 200, body}).ports, {profile: "future-acp", source: {kind: "quota", reader: "statusline-quota"}}, SL_NOW);
+  assert.equal(typeof pushReply, "object");
+  assert.match((pushReply as {error: string}).error, /agent hook/);
+
+  const limitsSourceText = fs.readFileSync(new URL("../src/limits.ts", import.meta.url), "utf8");
+  for (const forbidden of [".at(", "Object.hasOwn(", ".replaceAll(", "console."]) {
+    assert.equal(limitsSourceText.includes(forbidden), false, `limits.ts must stay QuickJS ES2020-safe (found ${forbidden})`);
+  }
+  console.log("✓ ACP statusLine quota parser: fractions, reset_time/reset_in_seconds, disabled, malformed fail-closed, QuickJS ES2020-safe");
+}

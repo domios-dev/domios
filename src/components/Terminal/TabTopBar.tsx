@@ -264,9 +264,12 @@ export function TabTopBar({
   const usageContext = shellTab && "context" in shellTab ? shellTab.context : undefined;
   const tabProvider = shellTab?.agent_type ?? (shellTab?.backing?.kind === "chat_backend" ? shellTab.backing.plugin_id : null);
   const accountId = shellTab?.account?.id === "default" ? null : shellTab?.account?.id ?? null;
+  const launchProfile = shellTab?.agent_runtime_config?.launchProfile;
+  const profileAccountId = typeof launchProfile === "string" && launchProfile ? `profile:${launchProfile}` : null;
   const usageSession = usageSource && {
     provider: usageSource.trackingProvider,
     accountId,
+    profileAccountId,
     tabId,
     threadId: shellTab?.agent_session_id,
     context: usageContext,
@@ -379,6 +382,7 @@ export function TabTopBar({
             chatBackend={shellTab?.backing?.kind === "chat_backend"}
             context={usageContext}
             borrowedAccount={usageSource.borrowedAccount}
+            profileAccountId={usageSource.borrowedAccount ? null : profileAccountId}
           />
         )}
         <ComposerContextMeter tabId={tabId} />
