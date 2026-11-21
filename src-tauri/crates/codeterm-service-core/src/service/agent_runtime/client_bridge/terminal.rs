@@ -141,6 +141,7 @@ impl Terminal {
         Self::spawn_with_notify(spec, cwd, directory, env, None)
     }
 
+    #[cfg(test)]
     pub fn spawn_with_notify(
         spec: &Command,
         cwd: &Path,
