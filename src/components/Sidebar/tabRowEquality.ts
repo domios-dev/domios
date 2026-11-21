@@ -1,4 +1,5 @@
 import type { Tab } from "../../lib/types";
+import { runtimeBackgroundProcesses } from "../../lib/tabActivity";
 
 /** Top-level tab fields a sidebar row shows or hands to its menu; a change to any of them re-renders the row. */
 const ROW_TAB_FIELDS = [
@@ -67,6 +68,7 @@ export function sameRowTab(previous: Tab, next: Tab): boolean {
     && previous.agent_state?.phase === next.agent_state?.phase
     && previous.agent_state?.subtype === next.agent_state?.subtype
     && JSON.stringify(previous.provider_signals?.background?.running) === JSON.stringify(next.provider_signals?.background?.running)
+    && JSON.stringify(runtimeBackgroundProcesses(previous)) === JSON.stringify(runtimeBackgroundProcesses(next))
     && JSON.stringify(previous.remote_channels) === JSON.stringify(next.remote_channels)
     && JSON.stringify(previous.connected_services) === JSON.stringify(next.connected_services);
 }

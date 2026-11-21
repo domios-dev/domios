@@ -1,9 +1,44 @@
 import type { Tab, TabAgentState, TabStatus } from "./types";
+import type { BackgroundProcessEntry } from "./backgroundProcesses";
 import { runtimeResponseDeadlinePending } from "./agentRuntimeState";
 import { providerErrorReason } from "./providerSignals";
 import { shellStateLabel } from "./shellCommandState";
 import { tabFailure, tabLaunched, tabSessionBound, type TabFailure } from "./tabFailure";
 import { liveRuntimePrompt } from "./promptAnswers";
+
+export function runtimeBackgroundProcesses(
+  tab: TabActivityInput | null | undefined,
+): readonly BackgroundProcessEntry[] {
+  if (tab?.remote_channels && tab.remote_channels.control !== "available") return [];
+  const runtime = tab?.agent_runtime_state;
+  const roster = runtime?.backgroundProcesses;
+  if (!roster || runtime?.state !== "loaded") return [];
+  if (!tab?.agent_session_id || !tab.session_binding_nonce) return [];
+  if (
+    roster.rootThreadId !== tab.agent_session_id
+    || roster.bindingNonce !== tab.session_binding_nonce
+    || roster.epoch !== runtime.epoch
+  ) {
+    return [];
+  }
+  return roster.processes;
+}
+
+export function backgroundWorkLabel(count: number): string {
+  return count === 1 ? "Running background task" : `Running ${count} background tasks`;
+}
+
+function liveBackgroundTaskCount(
+  tab: TabActivityInput | null | undefined,
+  sessionBound: boolean,
+): number {
+  if (!sessionBound) return 0;
+  const providerIds = Object.keys(tab?.provider_signals?.background?.running ?? {});
+  const runtimeProcesses = runtimeBackgroundProcesses(tab);
+  if (!runtimeProcesses.length) return providerIds.length;
+  const known = new Set(runtimeProcesses.flatMap((entry) => [entry.threadId, entry.processId]));
+  return runtimeProcesses.length + providerIds.filter((id) => !known.has(id)).length;
+}
 
 export interface AgentState extends Omit<TabAgentState, "state"> {
   state: TabAgentState["state"] | "quiet";
@@ -141,7 +176,7 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   else kind = "idle";
   const failure = kind === "failed" ? tabFailure({ status, bootStage: tab?.boot_stage, runtime: tab?.agent_runtime_state,
     launched: tabLaunched(tab), chatBacked: tab?.backing?.kind === "chat_backend" }) : undefined;
-  const backgroundTasks = sessionBound ? Object.keys(tab?.provider_signals?.background?.running ?? {}).length : 0;
+  const backgroundTasks = liveBackgroundTaskCount(tab, sessionBound);
   const quiet = kind === "idle" && live?.state === "quiet";
   const state = quiet ? "quiet" : kind === "working" ? "working" : kind === "waiting-on-user" ? "question" : "idle";
   const matchingLive = kind !== "starting" && kind !== "failed" && live?.state === state;

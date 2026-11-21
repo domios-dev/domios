@@ -1,6 +1,14 @@
 use super::{model::RuntimeFailure, rpc::Client};
 use parking_lot::Mutex;
-use std::{collections::HashMap, process::Stdio, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    process::Stdio,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 use tokio::{io::AsyncReadExt, sync::watch};
 
 pub struct Process {
@@ -8,7 +16,10 @@ pub struct Process {
     pub ended: watch::Receiver<Option<RuntimeFailure>>,
     stop: watch::Sender<Option<bool>>,
     turn_members: parking_lot::Mutex<Vec<super::process_boundary::Member>>,
-    pub(super) background_changed: tokio::sync::Notify,
+    session_baseline: parking_lot::Mutex<HashSet<(u32, u128)>>,
+    first_turn_started: AtomicBool,
+    pub(super) tracked_os_background: parking_lot::Mutex<HashSet<(u32, u128)>>,
+    pub(super) background_changed: Arc<tokio::sync::Notify>,
     pub(super) background_operation: tokio::sync::Mutex<()>,
     boundary: Option<Arc<super::process_boundary::Boundary>>,
 }
@@ -34,7 +45,10 @@ impl Process {
             ended: exit,
             stop,
             boundary: None,
-            background_changed: Default::default(),
+            session_baseline: parking_lot::Mutex::new(HashSet::new()),
+            first_turn_started: AtomicBool::new(false),
+            tracked_os_background: parking_lot::Mutex::new(HashSet::new()),
+            background_changed: Arc::new(tokio::sync::Notify::new()),
             background_operation: Default::default(),
             turn_members: parking_lot::Mutex::new(Vec::new()),
         }
@@ -51,10 +65,75 @@ impl Process {
             .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
     }
 
+    pub(super) async fn capture_session_baseline(&self) -> Result<(), RuntimeFailure> {
+        if self.first_turn_started.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let Some(boundary) = self.boundary.clone() else {
+            return Ok(());
+        };
+        let ids = tokio::task::spawn_blocking(move || boundary.baseline_identities())
+            .await
+            .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))??;
+        let mut baseline = self.session_baseline.lock();
+        if !self.first_turn_started.load(Ordering::Acquire) {
+            baseline.extend(ids);
+        }
+        Ok(())
+    }
+
     pub(super) async fn begin_turn(&self) -> Result<(), RuntimeFailure> {
         let members = self.observe().await?;
+        if !self.first_turn_started.swap(true, Ordering::AcqRel) {
+            let mut baseline_ids: Vec<(u32, u128)> = members
+                .iter()
+                .map(|member| (member.pid, member.token()))
+                .collect();
+            if let Some(boundary) = self.boundary.clone() {
+                if let Ok(Ok(extra)) =
+                    tokio::task::spawn_blocking(move || boundary.baseline_identities()).await
+                {
+                    baseline_ids.extend(extra);
+                }
+            }
+            self.session_baseline.lock().extend(baseline_ids);
+        }
         *self.turn_members.lock() = members;
         Ok(())
+    }
+
+    pub(super) async fn observe_background(
+        &self,
+        host_mcp: Option<super::process_boundary::HostMcpFilter>,
+        fallback_cwd: String,
+    ) -> Result<super::process_boundary::OsBackgroundSnapshot, RuntimeFailure> {
+        let Some(boundary) = self.boundary.clone() else {
+            return Ok(super::process_boundary::OsBackgroundSnapshot {
+                entries: Vec::new(),
+                watch_handles: Vec::new(),
+            });
+        };
+        let baseline: Vec<(u32, u128)> = self.session_baseline.lock().iter().copied().collect();
+        tokio::task::spawn_blocking(move || {
+            boundary.observe_background(&baseline, host_mcp.as_ref(), &fallback_cwd)
+        })
+        .await
+        .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+    }
+
+    pub(super) async fn stop_os_background(
+        &self,
+        pid: u32,
+        born: u128,
+        others: Vec<(u32, u128)>,
+    ) -> Result<(), RuntimeFailure> {
+        let boundary = self.boundary.clone().ok_or(RuntimeFailure::Superseded)?;
+        let baseline: Vec<(u32, u128)> = self.session_baseline.lock().iter().copied().collect();
+        tokio::task::spawn_blocking(move || {
+            boundary.stop_os_background(pid, born, &baseline, &others)
+        })
+        .await
+        .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
     }
 
     pub(super) async fn verify_interrupt(
@@ -400,7 +479,10 @@ pub(super) fn spawn(
         ended: exit,
         stop,
         boundary: Some(boundary),
-        background_changed: Default::default(),
+        session_baseline: parking_lot::Mutex::new(HashSet::new()),
+        first_turn_started: AtomicBool::new(false),
+        tracked_os_background: parking_lot::Mutex::new(HashSet::new()),
+        background_changed: Arc::new(tokio::sync::Notify::new()),
         background_operation: Default::default(),
         turn_members: parking_lot::Mutex::new(Vec::new()),
     })

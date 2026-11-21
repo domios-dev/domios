@@ -31,3 +31,31 @@ for (const patch of [{ iconSvg: "<svg id='registry'/>" }, { agentName: "Updated 
 }
 assert.equal(sameRowTab(runtimeTab, { ...runtimeTab, agent_runtime_config: { launchProfile: "second" } }), false, "profile icon changes reach the sidebar");
 assert.equal(sameRowTab(runtimeTab, { ...runtimeTab, agent_runtime_state: { ...runtimeTab.agent_runtime_state!, epoch: 2 } }), true, "runtime epochs alone do not change row presentation");
+
+const boundRuntime = variant({
+  agent_session_id: "root",
+  session_binding_nonce: "nonce",
+  agent_runtime_state: { state: "loaded", epoch: 1 },
+});
+const withRuntimeBg = {
+  ...boundRuntime,
+  agent_runtime_state: {
+    state: "loaded" as const,
+    epoch: 1,
+    backgroundProcesses: {
+      rootThreadId: "root",
+      bindingNonce: "nonce",
+      epoch: 1,
+      processes: [{
+        threadId: "root",
+        processId: "os:5000:100",
+        itemId: "os-bg:5000:100",
+        command: "cargo nextest run",
+        cwd: "/work",
+        osPid: 5000,
+      }],
+    },
+  },
+};
+assert.equal(sameRowTab(boundRuntime, withRuntimeBg), false, "runtime background processes reach the sidebar row");
+assert.equal(sameRowTab(withRuntimeBg, { ...withRuntimeBg, agent_runtime_state: { ...withRuntimeBg.agent_runtime_state!, epoch: 2 } }), false, "epoch change invalidating runtime background processes reaches the sidebar row");

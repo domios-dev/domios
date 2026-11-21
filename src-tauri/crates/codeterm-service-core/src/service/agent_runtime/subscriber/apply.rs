@@ -574,6 +574,9 @@ fn apply(
             };
             engine::publish(svc, &context.tab_id, session);
             if matches!(state, RuntimeTurnState::Idle) {
+                if let Some(process) = session.process.lock().clone() {
+                    process.background_changed.notify_one();
+                }
                 svc.staged_model_turn_completed(
                     &context.tab_id,
                     &thread_id,
