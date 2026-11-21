@@ -243,6 +243,19 @@ impl LocalRecordingRegistry {
         self.state.lock().entries.contains_key(id)
     }
 
+    pub fn plugin_ids(&self) -> Vec<String> {
+        self.state.lock().entries.keys().cloned().collect()
+    }
+
+    pub fn has_pending_reservation(&self, id: &str) -> bool {
+        self.reap_completed();
+        self.state
+            .lock()
+            .reservations
+            .values()
+            .any(|reservation| reservation.plugin_id == id)
+    }
+
     pub fn declaration(&self, id: &str) -> Option<LocalRecordingTrigger> {
         self.state
             .lock()
@@ -258,16 +271,38 @@ impl LocalRecordingRegistry {
     }
 
     pub fn set_enabled(&self, id: &str, enabled: bool) -> Result<RecordingStatus, &'static str> {
+        self.set_enabled_with(id, enabled, || Ok(()))
+    }
+
+    /// Persistence must not reenter this registry; the lock excludes concurrent grant revocation.
+    pub fn set_enabled_persisted(
+        &self,
+        id: &str,
+        enabled: bool,
+        persist: impl FnOnce() -> Result<(), String>,
+    ) -> Result<RecordingStatus, String> {
+        self.set_enabled_with(id, enabled, persist)
+    }
+
+    fn set_enabled_with<E: From<&'static str>>(
+        &self,
+        id: &str,
+        enabled: bool,
+        persist: impl FnOnce() -> Result<(), E>,
+    ) -> Result<RecordingStatus, E> {
         let (result, invalidation) = {
             let mut state = self.state.lock();
             let RegistryState {
                 entries,
                 reservations,
             } = &mut *state;
-            let entry = entries.get_mut(id).ok_or("trigger_not_declared")?;
+            let entry = entries
+                .get_mut(id)
+                .ok_or_else(|| E::from("trigger_not_declared"))?;
             if enabled && !entry.granted {
-                return Err("local_recording_grant_required");
+                return Err("local_recording_grant_required".into());
             }
+            persist()?;
             let invalidation = if entry.enabled != enabled {
                 let (generation, stopped) = invalidate_entry(entry, reservations);
                 entry.enabled = enabled;
@@ -286,6 +321,60 @@ impl LocalRecordingRegistry {
             self.finish_invalidation(invalidation);
         }
         Ok(result)
+    }
+
+    pub fn restore_persisted(
+        &self,
+        id: &str,
+        devices: SelectedDevices,
+        enabled: bool,
+    ) -> Result<RecordingStatus, &'static str> {
+        if !devices.valid() {
+            return Err("devices_unavailable");
+        }
+        let mut state = self.state.lock();
+        let entry = state.entries.get_mut(id).ok_or("trigger_not_declared")?;
+        if !entry.granted {
+            return Err("local_recording_grant_required");
+        }
+        if entry.devices.is_none() && !entry.available && entry.reservation_id.is_none() {
+            entry.devices = Some(devices);
+            entry.enabled = enabled;
+            entry.available = false;
+            entry.generation = next_generation();
+        }
+        Ok(status(id, entry))
+    }
+
+    pub fn rebind_selected_devices_if_eligible(
+        &self,
+        id: &str,
+        expected_generation: u64,
+        devices: SelectedDevices,
+        persist: impl FnOnce() -> Result<(), String>,
+    ) -> Result<u64, String> {
+        if !devices.valid() {
+            return Err("devices_unavailable".into());
+        }
+        let mut state = self.state.lock();
+        let entry = state
+            .entries
+            .get_mut(id)
+            .ok_or_else(|| "trigger_not_declared".to_string())?;
+        if !entry.granted {
+            return Err("local_recording_grant_required".into());
+        }
+        if !entry.enabled {
+            return Err("trigger_disabled".into());
+        }
+        if entry.available || entry.reservation_id.is_some() || entry.generation != expected_generation
+        {
+            return Err("subscription_stale".into());
+        }
+        persist()?;
+        entry.devices = Some(devices);
+        entry.generation = next_generation();
+        Ok(entry.generation)
     }
 
     pub fn revoke(&self, id: &str) {
@@ -479,6 +568,7 @@ impl LocalRecordingRegistry {
             if entry.reservation_id == Some(setup.reservation_id) {
                 entry.reservation_id = None;
                 entry.available = false;
+                entry.generation = next_generation();
             }
         }
         match error.teardown {

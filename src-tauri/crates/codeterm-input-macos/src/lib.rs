@@ -1,5 +1,6 @@
 #![cfg(any(target_os = "macos", test))]
 
+use std::collections::BTreeSet;
 #[cfg(target_os = "macos")]
 use std::sync::Arc;
 
@@ -98,6 +99,62 @@ pub struct MacSelection {
 pub struct MacElementUsage {
     pub usage_page: u16,
     pub usage: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MacArrivalFilter {
+    pub vendor_id: u16,
+    pub product_id: u16,
+    pub collection_usage_page: u16,
+    pub collection_usage: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MacArrivalEvent {
+    pub input_id: String,
+}
+
+pub(crate) fn arrival_filter_valid(filter: &MacArrivalFilter) -> bool {
+    filter.vendor_id != 0
+        && filter.product_id != 0
+        && filter.collection_usage_page != 0
+        && filter.collection_usage != 0
+        && filter.collection_usage_page != 7
+        && !(filter.collection_usage_page == 1 && matches!(filter.collection_usage, 1 | 2 | 6 | 7))
+}
+
+pub(crate) struct ArrivalTracker {
+    known: BTreeSet<String>,
+    max_entries: usize,
+}
+
+impl ArrivalTracker {
+    pub(crate) fn new(max_entries: usize) -> Self {
+        Self {
+            known: BTreeSet::new(),
+            max_entries,
+        }
+    }
+
+    pub(crate) fn seed(&mut self, device_id: String) {
+        if !device_id.is_empty() && self.known.len() < self.max_entries {
+            self.known.insert(device_id);
+        }
+    }
+
+    pub(crate) fn observe_arrival(&mut self, device_id: String) -> bool {
+        if device_id.is_empty() || self.known.contains(&device_id) {
+            return false;
+        }
+        if self.known.len() < self.max_entries {
+            self.known.insert(device_id);
+        }
+        true
+    }
+
+    pub(crate) fn observe_removal(&mut self, device_id: &str) {
+        self.known.remove(device_id);
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -355,6 +412,8 @@ impl InputDecoder {
 #[cfg(target_os = "macos")]
 pub use native::{MacInputSubscription, MacSetupFailure, MacTeardown};
 #[cfg(target_os = "macos")]
+pub use native_arrival::MacArrivalWatcher;
+#[cfg(target_os = "macos")]
 pub fn subscribe(
     selection: MacSelection,
     generation: u64,
@@ -362,10 +421,20 @@ pub fn subscribe(
 ) -> Result<MacInputSubscription, MacSetupFailure> {
     native::subscribe(selection, generation, callback)
 }
+#[cfg(target_os = "macos")]
+pub fn watch_arrivals(
+    filter: MacArrivalFilter,
+    callback: Arc<dyn Fn(MacArrivalEvent) + Send + Sync>,
+) -> Result<MacArrivalWatcher, MacSetupFailure> {
+    native_arrival::watch_arrivals(filter, callback)
+}
 
 #[cfg(target_os = "macos")]
 #[path = "native.rs"]
 mod native;
+#[cfg(target_os = "macos")]
+#[path = "native_arrival.rs"]
+mod native_arrival;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;

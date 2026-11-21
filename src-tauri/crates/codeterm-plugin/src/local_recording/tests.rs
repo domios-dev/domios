@@ -436,3 +436,93 @@ fn revoked_device_selection_never_calls_persistence() {
         devices("before")
     );
 }
+
+#[test]
+fn enabled_persist_failure_preserves_state_and_revoked_never_persists() {
+    let registry = LocalRecordingRegistry::default();
+    registry.register("own", declaration(), true);
+    let err = registry
+        .set_enabled_persisted("own", true, || Err("storage_failed".into()))
+        .unwrap_err();
+    assert_eq!(err, "storage_failed");
+    assert!(!registry.status("own").unwrap().enabled);
+
+    registry.revoke("own");
+    let err = registry
+        .set_enabled_persisted("own", true, || {
+            panic!("revoked enable must not reach storage")
+        })
+        .unwrap_err();
+    assert_eq!(err, "local_recording_grant_required");
+}
+
+#[test]
+fn restore_persisted_restores_granted_selection_and_refuses_ungranted() {
+    let registry = LocalRecordingRegistry::default();
+    registry.register("ungranted", declaration(), false);
+    assert_eq!(
+        registry.restore_persisted("ungranted", devices("input"), true),
+        Err("local_recording_grant_required")
+    );
+
+    registry.register("granted", declaration(), true);
+    let initial_gen = registry.status("granted").unwrap().generation;
+    let restored = registry
+        .restore_persisted("granted", devices("input"), true)
+        .unwrap();
+    assert!(restored.granted);
+    assert!(restored.enabled);
+    assert!(restored.devices_selected);
+    assert!(!restored.available);
+    assert!(restored.generation > initial_gen);
+    assert_eq!(registry.plugin_ids(), vec!["granted", "ungranted"]);
+}
+
+#[test]
+fn rebind_selected_devices_allocates_fresh_generation_and_refuses_stale_or_disabled() {
+    let registry = LocalRecordingRegistry::default();
+    configured(&registry, "own", devices("port-a"));
+    let gen_before = registry.status("own").unwrap().generation;
+    let gen_after = registry
+        .rebind_selected_devices_if_eligible("own", gen_before, devices("port-b"), || Ok(()))
+        .unwrap();
+    assert!(gen_after > gen_before);
+    assert_eq!(registry.selected_devices("own").unwrap().0, devices("port-b"));
+
+    assert_eq!(
+        registry
+            .rebind_selected_devices_if_eligible("own", gen_before, devices("port-c"), || {
+                panic!("stale generation must not persist")
+            })
+            .unwrap_err(),
+        "subscription_stale"
+    );
+
+    registry.set_enabled("own", false).unwrap();
+    let disabled_gen = registry.status("own").unwrap().generation;
+    assert_eq!(
+        registry
+            .rebind_selected_devices_if_eligible("own", disabled_gen, devices("port-c"), || {
+                panic!("disabled plugin must not persist")
+            })
+            .unwrap_err(),
+        "trigger_disabled"
+    );
+}
+
+#[test]
+fn failed_subscription_setup_bumps_generation_for_next_rearm() {
+    let registry = LocalRecordingRegistry::default();
+    configured(&registry, "own", devices("port-a"));
+    let first = registry.begin_subscription_setup("own").unwrap();
+    let _ = registry.fail_subscription_setup(
+        &first,
+        LocalInputSetupError {
+            reason: "windows_input_removed".into(),
+            teardown: None,
+        },
+    );
+    let second = registry.begin_subscription_setup("own").unwrap();
+    assert!(second.generation > first.generation);
+    registry.cancel_subscription_setup(&second);
+}

@@ -11,12 +11,18 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
+#[path = "arrival.rs"]
+mod arrival;
 #[path = "ffi.rs"]
 mod ffi;
 #[path = "lifecycle.rs"]
 mod lifecycle;
 #[path = "receiver_status.rs"]
 pub mod receiver_status;
+pub use arrival::{
+    WindowsArrivalEvent, WindowsArrivalPendingWatch, WindowsArrivalSetupFailure,
+    WindowsArrivalWatcher,
+};
 use ffi::*;
 #[cfg(test)]
 use lifecycle::{receive_completion, request_stop_wake, teardown_acknowledgement};
@@ -43,6 +49,7 @@ const RIDEV_REMOVE: u32 = 0x0000_0001;
 const WM_NCCREATE: u32 = 0x0081;
 const WM_INPUT: u32 = 0x00FF;
 const WM_INPUT_DEVICE_CHANGE: u32 = 0x00FE;
+const GIDC_ARRIVAL: usize = 1;
 const GIDC_REMOVAL: usize = 2;
 const GWLP_USERDATA: i32 = -21;
 const PM_NOREMOVE: u32 = 0;

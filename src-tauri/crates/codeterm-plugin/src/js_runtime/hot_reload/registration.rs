@@ -46,6 +46,9 @@ impl HotReloadRegistry {
         let core = super::super::loader::is_core_plugin(provider.manifest(), provider.trust());
         self.caps
             .register_plugin_with_core(provider.manifest(), provider.vm(), core);
+        if self.caps.local_recording.contains(&id) {
+            self.notify_local_recording_registered(&id);
+        }
         self.notify_event_sources_changed();
         if had_tab_menu || self.caps.tab_menu.contains(&id) {
             self.emit_tab_menu_changed();

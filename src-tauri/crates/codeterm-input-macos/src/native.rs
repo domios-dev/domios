@@ -12,7 +12,7 @@ use std::thread;
 use std::time::Duration;
 
 type CFIndex = isize;
-type CFTypeRef = *const c_void;
+pub(super) type CFTypeRef = *const c_void;
 type CFAllocatorRef = CFTypeRef;
 type CFStringRef = CFTypeRef;
 type CFDictionaryRef = CFTypeRef;
@@ -21,17 +21,17 @@ type CFArrayRef = CFTypeRef;
 type CFSetRef = CFTypeRef;
 type CFNumberRef = CFTypeRef;
 type CFStringEncoding = u32;
-type CFRunLoopRef = *mut c_void;
+pub(super) type CFRunLoopRef = *mut c_void;
 type CFRunLoopObserverRef = *mut c_void;
-type IOHIDManagerRef = *mut c_void;
-type IOHIDDeviceRef = *mut c_void;
+pub(super) type IOHIDManagerRef = *mut c_void;
+pub(super) type IOHIDDeviceRef = *mut c_void;
 type IOHIDElementRef = *mut c_void;
 type IOHIDValueRef = *mut c_void;
-type IOReturn = i32;
+pub(super) type IOReturn = i32;
 const CF_NUMBER_SINT64_TYPE: i32 = 4;
 const CF_STRING_ENCODING_UTF8: CFStringEncoding = 0x0800_0100;
-const CF_RUN_LOOP_ENTRY: usize = 1;
-const SETUP_ACK_TIMEOUT: Duration = Duration::from_secs(5);
+pub(super) const CF_RUN_LOOP_ENTRY: usize = 1;
+pub(super) const SETUP_ACK_TIMEOUT: Duration = Duration::from_secs(5);
 const TEARDOWN_ACK_TIMEOUT: Duration = Duration::from_secs(5);
 const IOHID_REQUEST_LISTEN_EVENT: u32 = 1;
 const IOHID_ACCESS_GRANTED: u32 = 0;
@@ -40,7 +40,7 @@ const IOHID_ACCESS_UNKNOWN: u32 = 2;
 const IOHID_ELEMENT_TYPE_INPUT_BUTTON: u32 = 2;
 const IOHID_ELEMENT_TYPE_COLLECTION: u32 = 513;
 const IOHID_COLLECTION_TYPE_APPLICATION: u32 = 1;
-const MAX_MATCHING_DEVICES: usize = 64;
+pub(super) const MAX_MATCHING_DEVICES: usize = 64;
 type ValueCallback = unsafe extern "C" fn(*mut c_void, IOReturn, *mut c_void, IOHIDValueRef);
 type DeviceCallback = unsafe extern "C" fn(*mut c_void, IOReturn, *mut c_void, IOHIDDeviceRef);
 type RunLoopObserverCallback = unsafe extern "C" fn(CFRunLoopObserverRef, usize, *mut c_void);
@@ -49,24 +49,24 @@ struct CFDictionaryKeyCallBacks([usize; 6]);
 #[repr(C)]
 struct CFDictionaryValueCallBacks([usize; 5]);
 #[repr(C)]
-struct CFRunLoopObserverContext([usize; 5]);
+pub(super) struct CFRunLoopObserverContext(pub(super) [usize; 5]);
 
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
-    static kCFAllocatorDefault: CFAllocatorRef;
-    static kCFRunLoopDefaultMode: CFStringRef;
+    pub(super) static kCFAllocatorDefault: CFAllocatorRef;
+    pub(super) static kCFRunLoopDefaultMode: CFStringRef;
     static kCFTypeDictionaryKeyCallBacks: CFDictionaryKeyCallBacks;
     static kCFTypeDictionaryValueCallBacks: CFDictionaryValueCallBacks;
-    fn CFRelease(value: CFTypeRef);
-    fn CFRetain(value: CFTypeRef) -> CFTypeRef;
+    pub(super) fn CFRelease(value: CFTypeRef);
+    pub(super) fn CFRetain(value: CFTypeRef) -> CFTypeRef;
     fn CFStringCreateWithCString(
         allocator: CFAllocatorRef,
         value: *const c_char,
         encoding: CFStringEncoding,
     ) -> CFStringRef;
-    fn CFRunLoopGetCurrent() -> CFRunLoopRef;
-    fn CFRunLoopRun();
-    fn CFRunLoopObserverCreate(
+    pub(super) fn CFRunLoopGetCurrent() -> CFRunLoopRef;
+    pub(super) fn CFRunLoopRun();
+    pub(super) fn CFRunLoopObserverCreate(
         allocator: CFAllocatorRef,
         activities: usize,
         repeats: u8,
@@ -74,12 +74,12 @@ extern "C" {
         callout: Option<RunLoopObserverCallback>,
         context: *const CFRunLoopObserverContext,
     ) -> CFRunLoopObserverRef;
-    fn CFRunLoopAddObserver(
+    pub(super) fn CFRunLoopAddObserver(
         run_loop: CFRunLoopRef,
         observer: CFRunLoopObserverRef,
         mode: CFStringRef,
     );
-    fn CFRunLoopObserverInvalidate(observer: CFRunLoopObserverRef);
+    pub(super) fn CFRunLoopObserverInvalidate(observer: CFRunLoopObserverRef);
     fn CFRunLoopStop(run_loop: CFRunLoopRef);
     fn CFRunLoopWakeUp(run_loop: CFRunLoopRef);
     fn CFNumberCreate(
@@ -99,17 +99,25 @@ extern "C" {
     fn CFDictionarySetValue(dictionary: CFMutableDictionaryRef, key: CFTypeRef, value: CFTypeRef);
     fn CFArrayGetCount(array: CFArrayRef) -> CFIndex;
     fn CFArrayGetValueAtIndex(array: CFArrayRef, index: CFIndex) -> CFTypeRef;
-    fn CFSetGetCount(set: CFSetRef) -> CFIndex;
-    fn CFSetGetValues(set: CFSetRef, values: *mut CFTypeRef);
+    pub(super) fn CFSetGetCount(set: CFSetRef) -> CFIndex;
+    pub(super) fn CFSetGetValues(set: CFSetRef, values: *mut CFTypeRef);
 }
 
 #[link(name = "IOKit", kind = "framework")]
 extern "C" {
     fn IOHIDCheckAccess(request_type: u32) -> u32;
     fn IOHIDRequestAccess(request_type: u32) -> u8;
-    fn IOHIDManagerCreate(allocator: CFAllocatorRef, options: u32) -> IOHIDManagerRef;
-    fn IOHIDManagerSetDeviceMatching(manager: IOHIDManagerRef, matching: CFDictionaryRef);
-    fn IOHIDManagerRegisterDeviceRemovalCallback(
+    pub(super) fn IOHIDManagerCreate(allocator: CFAllocatorRef, options: u32) -> IOHIDManagerRef;
+    pub(super) fn IOHIDManagerSetDeviceMatching(
+        manager: IOHIDManagerRef,
+        matching: CFDictionaryRef,
+    );
+    pub(super) fn IOHIDManagerRegisterDeviceMatchingCallback(
+        manager: IOHIDManagerRef,
+        callback: Option<DeviceCallback>,
+        context: *mut c_void,
+    );
+    pub(super) fn IOHIDManagerRegisterDeviceRemovalCallback(
         manager: IOHIDManagerRef,
         callback: Option<DeviceCallback>,
         context: *mut c_void,
@@ -120,19 +128,19 @@ extern "C" {
         context: *mut c_void,
     );
     fn IOHIDManagerSetInputValueMatching(manager: IOHIDManagerRef, matching: CFDictionaryRef);
-    fn IOHIDManagerScheduleWithRunLoop(
+    pub(super) fn IOHIDManagerScheduleWithRunLoop(
         manager: IOHIDManagerRef,
         run_loop: CFRunLoopRef,
         run_loop_mode: CFStringRef,
     );
-    fn IOHIDManagerUnscheduleFromRunLoop(
+    pub(super) fn IOHIDManagerUnscheduleFromRunLoop(
         manager: IOHIDManagerRef,
         run_loop: CFRunLoopRef,
         run_loop_mode: CFStringRef,
     );
-    fn IOHIDManagerOpen(manager: IOHIDManagerRef, options: u32) -> IOReturn;
-    fn IOHIDManagerClose(manager: IOHIDManagerRef, options: u32) -> IOReturn;
-    fn IOHIDManagerCopyDevices(manager: IOHIDManagerRef) -> CFSetRef;
+    pub(super) fn IOHIDManagerOpen(manager: IOHIDManagerRef, options: u32) -> IOReturn;
+    pub(super) fn IOHIDManagerClose(manager: IOHIDManagerRef, options: u32) -> IOReturn;
+    pub(super) fn IOHIDManagerCopyDevices(manager: IOHIDManagerRef) -> CFSetRef;
     fn IOHIDDeviceGetProperty(device: IOHIDDeviceRef, key: CFStringRef) -> CFTypeRef;
     fn IOHIDDeviceGetService(device: IOHIDDeviceRef) -> u32;
     fn IOHIDDeviceCopyMatchingElements(
@@ -180,6 +188,17 @@ enum TeardownState {
 }
 
 impl MacTeardown {
+    pub(super) fn new_pending(
+        completion: Receiver<Result<(), String>>,
+        run_loop: Option<RunLoopHandle>,
+    ) -> Self {
+        Self {
+            completion,
+            run_loop,
+            state: TeardownState::Pending,
+        }
+    }
+
     pub fn wait_blocking(&mut self) -> Result<(), String> {
         match &self.state {
             TeardownState::Complete => return Ok(()),
@@ -204,9 +223,9 @@ impl MacTeardown {
     }
 }
 
-struct CoreFoundationRunLoop {
-    run_loop: CFRunLoopRef,
-    stop_requested: Arc<AtomicBool>,
+pub(super) struct CoreFoundationRunLoop {
+    pub(super) run_loop: CFRunLoopRef,
+    pub(super) stop_requested: Arc<AtomicBool>,
 }
 unsafe impl Send for CoreFoundationRunLoop {}
 
@@ -220,7 +239,7 @@ impl RunLoopResourceOps for CoreFoundationRunLoop {
     }
 }
 
-fn request_run_loop_stop(run_loop: CFRunLoopRef, stop_requested: &AtomicBool) {
+pub(super) fn request_run_loop_stop(run_loop: CFRunLoopRef, stop_requested: &AtomicBool) {
     if !stop_requested.swap(true, Ordering::AcqRel) {
         unsafe {
             CFRunLoopStop(run_loop);
@@ -265,12 +284,12 @@ struct NativeState {
     requires_input_monitoring: bool,
 }
 
-struct RunLoopStart {
-    ready: Option<SyncSender<Result<RunLoopHandle, String>>>,
-    run_loop: Option<RunLoopHandle>,
-    active: Arc<AtomicBool>,
+pub(super) struct RunLoopStart {
+    pub(super) ready: Option<SyncSender<Result<RunLoopHandle, String>>>,
+    pub(super) run_loop: Option<RunLoopHandle>,
+    pub(super) active: Arc<AtomicBool>,
 }
-unsafe extern "C" fn run_loop_started(
+pub(super) unsafe extern "C" fn run_loop_started(
     _observer: CFRunLoopObserverRef,
     _activity: usize,
     info: *mut c_void,
@@ -732,7 +751,9 @@ unsafe fn create_value_matching(element: &ElementDescriptor) -> Option<CFMutable
     ];
     create_dictionary(&values)
 }
-unsafe fn create_dictionary(values: &[(&'static [u8], i64)]) -> Option<CFMutableDictionaryRef> {
+pub(super) unsafe fn create_dictionary(
+    values: &[(&'static [u8], i64)],
+) -> Option<CFMutableDictionaryRef> {
     let dictionary = CFDictionaryCreateMutable(
         kCFAllocatorDefault,
         values.len() as CFIndex,
@@ -787,7 +808,7 @@ unsafe fn device_properties_match(device: IOHIDDeviceRef, selection: &MacSelecti
         && number_property(device, b"LocationID\0").and_then(|value| u32::try_from(value).ok())
             == DeviceIdentity::decode(&selection.input_id).map(|identity| identity.location_id)
 }
-unsafe fn device_identity(device: IOHIDDeviceRef) -> Option<DeviceIdentity> {
+pub(super) unsafe fn device_identity(device: IOHIDDeviceRef) -> Option<DeviceIdentity> {
     let location_id = u32::try_from(number_property(device, b"LocationID\0")?).ok()?;
     let service = IOHIDDeviceGetService(device);
     if service == 0 {
@@ -802,7 +823,10 @@ unsafe fn device_identity(device: IOHIDDeviceRef) -> Option<DeviceIdentity> {
         registry_entry_id,
     })
 }
-unsafe fn number_property(device: IOHIDDeviceRef, key_text: &'static [u8]) -> Option<i64> {
+pub(super) unsafe fn number_property(
+    device: IOHIDDeviceRef,
+    key_text: &'static [u8],
+) -> Option<i64> {
     let key = create_hid_key(key_text)?;
     let value = IOHIDDeviceGetProperty(device, key);
     let result = if value.is_null() || CFGetTypeID(value) != CFNumberGetTypeID() {
