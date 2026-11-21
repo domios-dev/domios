@@ -421,32 +421,45 @@ export function removeChatSend(tabId: string, id: string): void {
   if (next.length !== current.length) publish(tabId, next);
 }
 
+function updateHostStatus(status: ChatSendStatus): void {
+  const current = hostStatusesByTab.get(status.tab_id);
+  const prior = current?.get(status.send_id);
+  if (prior && prior.ledger_id === status.ledger_id && prior.sequence > status.sequence) return;
+  hostStatusesByTab.set(status.tab_id, new Map(current).set(status.send_id, status));
+}
+
 export function observeDeliveryStatus(status: ChatSendStatus): void | Promise<void> {
   if (status.system_send && status.correlationId && !readChatSends(status.tab_id)
     .some(send => send.id === status.send_id || send.correlationId === status.correlationId)) return restoreSystemChatSend(status);
+  updateHostStatus(status);
   const current = readChatSends(status.tab_id);
   const next = current.map((send) => applyDeliveryStatus(send, status));
   if (next.some((send, index) => send !== current[index])) publish(status.tab_id, next);
-  hostStatusesByTab.set(status.tab_id, new Map(hostStatusesByTab.get(status.tab_id)).set(status.send_id, status));
-  notifyIfLoadedSnapshotChanged(status.tab_id);
+  else notifyIfLoadedSnapshotChanged(status.tab_id);
 }
 
 async function restoreSystemChatSend(status: ChatSendStatus): Promise<void> {
   const sourceRepository = activeRepository;
   await ensureTabHydrated(status.tab_id);
-  const marker = await sourceRepository.readDismissal(status.tab_id, status.send_id);
+  if (sourceRepository !== activeRepository) return;
+  const marker = dismissalMarkersByTab.get(status.tab_id)?.get(status.send_id)
+    ?? await sourceRepository.readDismissal(status.tab_id, status.send_id);
   if (sourceRepository !== activeRepository) return;
   if (marker) {
     if (rememberDismissalMarker(status.tab_id, marker)) notify(status.tab_id);
     return;
   }
-  if (!readChatSends(status.tab_id).some(send => send.id === status.send_id || send.correlationId === status.correlationId)) {
-    addChatSend(status.tab_id, {
-      id: status.send_id, correlationId: status.correlationId,
-      content: status.system_send!.content, sentAtMs: status.system_send!.sent_at_ms,
-    });
-  }
-  await observeDeliveryStatus(status);
+  updateHostStatus(status);
+  const current = readChatSends(status.tab_id);
+  const existing = current.some(send => send.id === status.send_id || send.correlationId === status.correlationId);
+  const next = existing
+    ? current.map((send) => applyDeliveryStatus(send, status))
+    : [...current, applyDeliveryStatus({
+        id: status.send_id, correlationId: status.correlationId,
+        content: status.system_send!.content, sentAtMs: status.system_send!.sent_at_ms,
+      }, status)];
+  if (!existing || next.some((send, index) => send !== current[index])) publish(status.tab_id, next);
+  else notifyIfLoadedSnapshotChanged(status.tab_id);
 }
 
 export function failChatSendRequest(tabId: string, id: string, reason?: unknown): void {

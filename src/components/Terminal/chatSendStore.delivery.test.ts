@@ -12,6 +12,7 @@ import {
   useChatSendSnapshot,
 } from "./chatSendStore";
 import { deliveryState } from "./chatDeliveryModel";
+import type { MessageSegment } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { MemoryChatSendDatabase, MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 import { encodeChatSend, encodeChatSendTombstone } from "./chatSendDurableModel";
@@ -580,5 +581,67 @@ test("Retry mints a fresh correlation id on an insecure origin without crypto.ra
     assert.match(retry.correlationId ?? "", /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   } finally {
     if (original) Object.defineProperty(globalThis, "crypto", original);
+  }
+});
+
+test("restoring a system_send publishes atomically with status and accepts same-sequence segment enrichment", async () => {
+  const tabId = "atomic-system-send";
+  const repository = new MemoryChatSendRepository();
+  __setChatSendRepositoryForTest(repository);
+  const wire = '<domios from="tab" label="Dumas" tab="duma0001">opaque routed message</domios>';
+  const segments: MessageSegment[] = [{
+    type: "frame", kind: "tab", from: "tab",
+    attrs: { from: "tab", label: "Dumas", tab: "duma0001" }, body: "opaque routed message", tip: null,
+  }];
+  const initialStatus: ChatSendStatus = {
+    tab_id: tabId, send_id: "dumas-send", correlationId: "dumas-token", state: "written",
+    sequence: 1, ledger_id: "ledger", retained_from: 1, error: null,
+    system_send: { content: wire, sent_at_ms: 1_800_000_000_000 },
+  };
+  const enrichedStatus: ChatSendStatus = {
+    ...initialStatus,
+    system_send: { content: wire, sent_at_ms: 1_800_000_000_000, segments, segments_version: 2 },
+  };
+  const observed: Array<ReturnType<typeof useChatSendSnapshot>["sends"]> = [];
+  const persistedSnapshots: Array<ReturnType<typeof readChatSends>[number]> = [];
+  const basePersist = repository.persist.bind(repository);
+  repository.persist = async (persistTabId, previous, current) => {
+    persistedSnapshots.push(current);
+    return basePersist(persistTabId, previous, current);
+  };
+  function Probe() {
+    const snapshot = useChatSendSnapshot(tabId);
+    observed.push(snapshot.sends);
+    return null;
+  }
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    await act(async () => ensureChatSendTabHydrated(tabId));
+    observed.length = 0;
+    persistedSnapshots.length = 0;
+    const writesBefore = repository.writes.length;
+
+    await act(async () => { await observeDeliveryStatus(initialStatus); });
+    assert.equal(observed.length, 1, "restored system_send publishes once with status already attached");
+    assert.equal(repository.writes.length, writesBefore + 1);
+    assert.equal(persistedSnapshots.length, 1, "restored system_send persists once with status attached");
+    assert.ok(persistedSnapshots[0]?.status?.system_send, "first persisted record already carries system_send status");
+    for (const sends of observed) {
+      const dumas = sends.find((send) => send.id === "dumas-send");
+      assert.ok(dumas?.status?.system_send, "restored send is never published raw without status");
+      assert.equal(dumas?.status?.state, "written");
+    }
+
+    await act(async () => { await observeDeliveryStatus(enrichedStatus); });
+    assert.equal(observed.length, 2, "same-sequence host-segment enrichment publishes the updated send");
+    assert.deepEqual(readChatSends(tabId)[0]?.status?.system_send?.segments, segments);
+    assert.equal(readChatSends(tabId)[0]?.status?.system_send?.segments_version, 2);
+
+    await act(async () => { await observeDeliveryStatus(enrichedStatus); });
+    assert.equal(observed.length, 2, "replayed identical same-sequence enrichment does not republish");
+  } finally {
+    await act(async () => root.unmount());
+    __setChatSendRepositoryForTest(null);
   }
 });

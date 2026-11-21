@@ -42,6 +42,7 @@ mod process_boundary;
 mod process_slot;
 pub mod profile_options;
 pub mod projections;
+pub mod report_position;
 pub mod reset_credits;
 pub mod thread_history;
 mod transcript;

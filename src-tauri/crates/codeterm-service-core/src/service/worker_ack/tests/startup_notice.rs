@@ -340,3 +340,247 @@ fn lifecycle_provider_read_failure_precedes_report_persistence_and_delivery() {
         1
     );
 }
+
+fn next_bus_agent_report(
+    events: &mut tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>,
+) -> Value {
+    while let Ok(envelope) = events.try_recv() {
+        if let codeterm_events::SystemEvent::Generic { event_type, data } = envelope.event {
+            if event_type == "agent.report" {
+                return data;
+            }
+        }
+    }
+    panic!("expected agent.report bus event");
+}
+
+fn last_ui_agent_report(fixture: &crate::service::test_fixture::ServiceFixture) -> Value {
+    fixture
+        .ui
+        .0
+        .lock()
+        .iter()
+        .rev()
+        .find(|(event, _)| event == "agent-report")
+        .map(|(_, payload)| payload.clone())
+        .expect("expected agent-report UI event")
+}
+
+#[test]
+fn startup_notices_capture_bound_sender_position_before_later_rows_and_tool_patches() {
+    for (kind, via_worker_lifecycle) in [("dispatch_ready", false), ("worker_ack", true)] {
+        let (fixture, parent_tab_id, worker_tab_id) = lifecycle_fixture(true);
+        let worker_tab = {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&worker_tab_id).unwrap();
+            tab.agent_type = Some("acp".into());
+            tab.cwd = Some("/workspace".into());
+            tab.agent_session_id = Some("worker-session".into());
+            tab.session_binding_nonce = Some("worker-nonce".into());
+            tab.clone()
+        };
+        let _runtime =
+            crate::service::agent_runtime::engine::test_support::live_runtime(&worker_tab);
+        let session = crate::service::agent_runtime::engine::for_tab(&worker_tab_id).unwrap();
+        session
+            .cache
+            .lock()
+            .reconcile(crate::agent::chat_types::ChatMsg {
+                id: "ack-row".into(),
+                kind: "assistant".into(),
+                content: "acknowledging".into(),
+                ..Default::default()
+            });
+        let mut bus = fixture.service.events.subscribe();
+        let delivery = crate::service::test_fixture::RecordingHierarchyReportDelivery::default();
+
+        if via_worker_lifecycle {
+            fixture
+                .service
+                .publish_worker_lifecycle_report_with_delivery(
+                    &parent_tab_id,
+                    &worker_tab_id,
+                    "Order",
+                    "pl_fixture",
+                    "task_fixture",
+                    json!({ "kind": kind, "attempt_id": "attempt_l33cqd" }),
+                    &delivery,
+                );
+        } else {
+            fixture.service.publish_agent_startup_report_with_delivery(
+                &parent_tab_id,
+                &worker_tab_id,
+                "Order",
+                json!({
+                    "kind": kind,
+                    "plan_id": "pl_fixture",
+                    "task_id": "task_fixture",
+                    "attempt_id": "attempt_l33cqd",
+                }),
+                &delivery,
+            );
+        }
+
+        session
+            .cache
+            .lock()
+            .reconcile(crate::agent::chat_types::ChatMsg {
+                id: "later-assistant".into(),
+                kind: "assistant".into(),
+                content: "working".into(),
+                ..Default::default()
+            });
+        session
+            .cache
+            .lock()
+            .reconcile(crate::agent::chat_types::ChatMsg {
+                id: "later-tool".into(),
+                kind: "tool_call".into(),
+                content: "running".into(),
+                ..Default::default()
+            });
+        session
+            .cache
+            .lock()
+            .reconcile(crate::agent::chat_types::ChatMsg {
+                id: "later-tool".into(),
+                kind: "tool_call".into(),
+                content: "patched".into(),
+                ..Default::default()
+            });
+
+        let expected_position =
+            json!({ "source_session_id": "worker-session", "message_id": "ack-row" });
+        let bus_event = next_bus_agent_report(&mut bus);
+        let ui_event = last_ui_agent_report(&fixture);
+        assert_eq!(bus_event["sender_position"], expected_position);
+        assert_eq!(ui_event["sender_position"], expected_position);
+        assert_eq!(bus_event["kind"], json!(kind));
+        assert_eq!(ui_event["kind"], json!(kind));
+        assert_eq!(bus_event["report"]["id"], ui_event["report"]["id"]);
+        assert!(ui_event["report"]["status"].is_null());
+        assert_eq!(
+            bus_event["report"]["sender_position"],
+            expected_position
+        );
+        assert_eq!(bus_event["report"]["kind"], json!(kind));
+        let stored = fixture
+            .service
+            .report_store
+            .lock()
+            .get(&parent_tab_id, false);
+        let stored_report = stored
+            .iter()
+            .find(|report| report.id == bus_event["report"]["id"])
+            .expect("startup report is stored before publication");
+        assert_eq!(stored_report.sender_position.as_ref().unwrap().message_id, "ack-row");
+        assert_eq!(stored_report.kind.as_deref(), Some(kind));
+        assert_eq!(
+            crate::service::agent_runtime::report_position::sender_position(
+                &fixture.service,
+                &worker_tab_id,
+            ),
+            Some(crate::agent::reports::ReportSenderPosition {
+                source_session_id: "worker-session".into(),
+                message_id: "later-tool".into(),
+            })
+        );
+    }
+}
+
+#[test]
+fn startup_notices_keep_null_sender_position_on_empty_cache_or_replaced_binding() {
+    let (fixture, parent_tab_id, worker_tab_id) = lifecycle_fixture(true);
+    let worker_tab = {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&worker_tab_id).unwrap();
+        tab.agent_type = Some("acp".into());
+        tab.cwd = Some("/workspace".into());
+        tab.agent_session_id = Some("worker-session".into());
+        tab.session_binding_nonce = Some("worker-nonce".into());
+        tab.clone()
+    };
+    let runtime = crate::service::agent_runtime::engine::test_support::live_runtime(&worker_tab);
+    let session = crate::service::agent_runtime::engine::for_tab(&worker_tab_id).unwrap();
+    let mut bus = fixture.service.events.subscribe();
+    let delivery = crate::service::test_fixture::RecordingHierarchyReportDelivery::default();
+
+    fixture.service.publish_agent_startup_report_with_delivery(
+        &parent_tab_id,
+        &worker_tab_id,
+        "Order",
+        json!({ "kind": "dispatch_ready", "task_id": "task_fixture", "attempt_id": "attempt_empty" }),
+        &delivery,
+    );
+    assert_eq!(next_bus_agent_report(&mut bus)["sender_position"], Value::Null);
+    assert_eq!(last_ui_agent_report(&fixture)["sender_position"], Value::Null);
+
+    session
+        .cache
+        .lock()
+        .reconcile(crate::agent::chat_types::ChatMsg {
+            id: "seed-row".into(),
+            kind: "assistant".into(),
+            content: "seeded".into(),
+            ..Default::default()
+        });
+
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&worker_tab_id)
+        .unwrap()
+        .session_binding_nonce = Some("replaced-nonce".into());
+    fixture
+        .service
+        .publish_worker_lifecycle_report_with_delivery(
+            &parent_tab_id,
+            &worker_tab_id,
+            "Order",
+            "pl_fixture",
+            "task_fixture",
+            json!({ "kind": "worker_ack", "attempt_id": "attempt_nonce" }),
+            &delivery,
+        );
+    assert_eq!(next_bus_agent_report(&mut bus)["sender_position"], Value::Null);
+    assert_eq!(last_ui_agent_report(&fixture)["sender_position"], Value::Null);
+
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&worker_tab_id).unwrap();
+        tab.session_binding_nonce = Some("worker-nonce".into());
+        tab.agent_session_id = Some("replaced-session".into());
+    }
+    fixture.service.publish_agent_startup_report_with_delivery(
+        &parent_tab_id,
+        &worker_tab_id,
+        "Order",
+        json!({ "kind": "dispatch_ready", "task_id": "task_fixture", "attempt_id": "attempt_session" }),
+        &delivery,
+    );
+    assert_eq!(next_bus_agent_report(&mut bus)["sender_position"], Value::Null);
+    assert_eq!(last_ui_agent_report(&fixture)["sender_position"], Value::Null);
+
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&worker_tab_id)
+        .unwrap()
+        .agent_session_id = Some("worker-session".into());
+    drop(runtime);
+    fixture
+        .service
+        .publish_worker_lifecycle_report_with_delivery(
+            &parent_tab_id,
+            &worker_tab_id,
+            "Order",
+            "pl_fixture",
+            "task_fixture",
+            json!({ "kind": "worker_ack", "attempt_id": "attempt_stopped" }),
+            &delivery,
+        );
+    assert_eq!(next_bus_agent_report(&mut bus)["sender_position"], Value::Null);
+    assert_eq!(last_ui_agent_report(&fixture)["sender_position"], Value::Null);
+}

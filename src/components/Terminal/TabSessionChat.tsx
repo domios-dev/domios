@@ -130,6 +130,7 @@ import { streamingMessageId } from "./streamingMessage";
 import { requestChatMessageReveal } from "../../lib/chatMessageReveal";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { useRemoteViewerConnection, type RemoteViewerConnection } from "./useRemoteViewerConnection";
+import { webRequestContext } from "../../lib/webApi";
 
 interface Props {
   inputStatus?: ReactNode;
@@ -605,7 +606,11 @@ function TabSessionChatBody({
 
   const resolveTabName = useChatTabNameResolver(tabCommunicationNames);
 
-  const reportRows = useOutboundReportRows(tabId, renderedEnrichedMessages, allMessages, tabTitleMap);
+  const reportRows = useOutboundReportRows(tabId, renderedEnrichedMessages, allMessages, tabTitleMap, {
+    peerId: remoteConnection?.peerId ?? parseCompositeTabId(tabId)?.peerId ?? tab?.remote_peer_id ?? null,
+    sessionId: agentSessionId, bindingNonce: tab?.session_binding_nonce ?? null,
+    bootGeneration: tab?.lifecycle_epoch ?? null, runtimeEpoch: runtime.state?.epoch ?? null, requestContext: webRequestContext(),
+  });
   const outboundReports = reportRows.rail;
 
   const renderOutboundReport = (index: number) => {

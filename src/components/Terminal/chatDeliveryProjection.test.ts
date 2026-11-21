@@ -259,3 +259,94 @@ test("mid-turn routed deliveries take their own slots before a later owner excha
   assert.deepEqual(committed.rows.filter(item => item.routing?.kind === "tab").map(item => item.timestamp),
     provider.map(item => item.timestamp));
 });
+
+test("received system_send keeps its authoritative slot during work, tool patches, and reentry while outbound holds stay queued", () => {
+  const authority = { sourceSessionId: "ritchie-session", sessionBindingNonce: "launch" };
+  const base = send.sentAtMs;
+  const dumasBody = "opaque dumas guidance";
+  const dumasWire = `<domios from="tab" label="Dumas" tab="duma0001">${dumasBody}</domios>`;
+  const dumasSegments = [{
+    type: "frame" as const, kind: "tab" as const, from: "tab",
+    attrs: { from: "tab", label: "Dumas", tab: "duma0001" }, body: dumasBody, tip: null,
+  }];
+  const dumasWritten: DeliverySend = {
+    id: "dumas", correlationId: "dumas-token", content: dumasWire, sentAtMs: base + 2000,
+    status: {
+      tab_id: "tab", send_id: "dumas", correlationId: "dumas-token", state: "written", sequence: 1,
+      ledger_id: "ledger", retained_from: 1, error: null,
+      system_send: { content: dumasWire, sent_at_ms: base + 2000, segments: dumasSegments, segments_version: 2 },
+    },
+  };
+  const outbound: DeliverySend = {
+    id: "outbound", correlationId: "outbound-token", content: "owner follow-up", sentAtMs: base + 2500,
+    status: {
+      tab_id: "tab", send_id: "outbound", correlationId: "outbound-token", state: "written", sequence: 2,
+      ledger_id: "ledger", retained_from: 1, error: null,
+    },
+  };
+  const initialRows: NormalizedChatMessage[] = [
+    { id: "start", type: "user", content: "start", sourceSessionId: "ritchie-session", timestamp: String(base) },
+    { id: "early", type: "assistant", content: "early", sourceSessionId: "ritchie-session", timestamp: String(base + 1000) },
+  ];
+  const snapshot = reduceTranscript(createTranscriptState(), { kind: "snapshot", authority, range: null, rows: initialRows }).state;
+  const liveMemory = memory();
+  const render = (sends: DeliverySend[], transcript: typeof snapshot, mem: ReturnType<typeof memory>) => {
+    const queued = queuedDeliveryIds(sends, true, mem);
+    const projectedSends = deliveryProjectionSends(sends, null, queued);
+    const projection = projectTranscript(transcript, projectedSends);
+    const rendered = stableDeliveryEntries(conversationEntries(projection.rows), projectedSends, projection.echoes, mem, projection.outside);
+    return { queued, rows: rendered.map(({ msg }) => msg) };
+  };
+
+  const initial = render([dumasWritten, outbound], snapshot, liveMemory);
+  assert.equal(initial.queued.has("dumas"), false, "received system_send without ACTIVE_TURN_HOLD never joins tail queue");
+  assert.equal(initial.queued.has("outbound"), true, "genuine outbound send stays queued behind active turn");
+
+  const laterAssistant: NormalizedChatMessage = {
+    id: "later-assistant", type: "assistant", content: "new progress",
+    sourceSessionId: "ritchie-session", timestamp: String(base + 3000),
+  };
+  const laterTool: NormalizedChatMessage = {
+    id: "later-tool", type: "tool_call", content: "running step 1",
+    sourceSessionId: "ritchie-session", timestamp: String(base + 4000),
+  };
+  const withLater = reduceTranscript(snapshot, { kind: "delta", authority, range: null, rows: [laterAssistant, laterTool] }).state;
+  const duringWork = render([dumasWritten, outbound], withLater, liveMemory);
+  assert.deepEqual(duringWork.rows.map(item => item.id), ["start", "early", "dumas", "later-assistant", "later-tool", "outbound"]);
+  assert.equal(duringWork.rows[2].content, dumasBody);
+  assert.equal(duringWork.rows[2].routing?.label, "Dumas");
+
+  const withToolPatch = reduceTranscript(withLater, {
+    kind: "delta", authority, range: null, rows: [{ ...laterTool, content: "completed step 2" }],
+  }).state;
+  const afterPatch = render([dumasWritten, outbound], withToolPatch, liveMemory);
+  assert.deepEqual(afterPatch.rows.map(item => item.id), ["start", "early", "dumas", "later-assistant", "later-tool", "outbound"]);
+
+  const dumasDelivered: DeliverySend = { ...dumasWritten, status: { ...dumasWritten.status!, state: "delivered", sequence: 3 } };
+  const reentryBeforeEcho = render([dumasDelivered, outbound], withToolPatch, memory());
+  assert.deepEqual(reentryBeforeEcho.rows.map(item => item.id), ["start", "early", "dumas", "later-assistant", "later-tool", "outbound"]);
+
+  const withEcho = reduceTranscript(withToolPatch, {
+    kind: "delta", authority, range: null,
+    rows: [{ id: "provider-dumas", type: "user", content: dumasWire, correlationId: "dumas-token", segments: dumasSegments,
+      sourceSessionId: "ritchie-session", timestamp: String(base + 2000) }],
+  }).state;
+  const reentryAfterEcho = render([dumasDelivered, outbound], withEcho, memory());
+  assert.deepEqual(reentryAfterEcho.rows.map(item => item.id), ["start", "early", "dumas", "later-assistant", "later-tool", "outbound"]);
+  assert.equal(reentryAfterEcho.rows[2].content, dumasBody);
+  assert.equal(reentryAfterEcho.rows[2].routing?.label, "Dumas");
+
+  const heldMemory = memory();
+  const heldSystem: DeliverySend = {
+    ...dumasWritten, id: "held-system", correlationId: "held-system-token",
+    status: { ...dumasWritten.status!, send_id: "held-system", correlationId: "held-system-token",
+      state: "held", pending_reason: "held_active_turn", sequence: 1 },
+  };
+  assert.equal(queuedDeliveryIds([heldSystem], true, heldMemory).has("held-system"), true);
+  const releasedSystem: DeliverySend = {
+    ...heldSystem, wasHeld: true,
+    status: { ...heldSystem.status!, state: "written", pending_reason: undefined, sequence: 2 },
+  };
+  assert.equal(queuedDeliveryIds([releasedSystem], true, heldMemory).has("held-system"), false);
+  assert.equal(queuedDeliveryIds([releasedSystem], true, memory()).has("held-system"), false);
+});
