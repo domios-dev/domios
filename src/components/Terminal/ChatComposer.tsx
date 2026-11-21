@@ -58,7 +58,7 @@ import { ComposerCapsuleField } from "./ComposerCapsuleField";
 import { ComposerTextInput } from "./ComposerTextInput";
 import { useComposerMentionTokens } from "./useComposerMentionTokens";
 import { ComposerMentionHighlight } from "./ComposerMentionHighlight";
-import { capsulesInDraft, hasCapsuleTokens } from "./composerCapsules";
+import { capsuleSpans, capsulesInDraft, hasCapsuleTokens } from "./composerCapsules";
 import { replaceTextareaRange, useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
 import { composerSendPlan, resolveComposerSend } from "./composerSendPlan";
 import { recordDroppedUploads } from "./DroppedUploadNotice";
@@ -71,6 +71,11 @@ import type { ComposerReply } from "./composerReply";
 import { useComposerReply } from "./useComposerReply";
 import { useStartupSend } from "./useStartupSend";
 import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
+import { useDictationDraft, useDictationSelection } from "./voice/dictationDraft";
+import { useLiveDictation } from "./voice/useLiveDictation";
+import { DICTATION_ACTION } from "../../lib/mentionSources/actions";
+import { canonicalMentionSlice, replaceMentionRange } from "./composerMentionTokens";
+import type { ComposerMention, MentionQuery } from "../../lib/composerMentions";
 
 const VOICE_TRANSCRIBE_ERROR = "Voice transcription failed";
 
@@ -221,7 +226,7 @@ function ChatComposerImpl({
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
 
-  const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`, showComposerError);
+  const [persisted, persist] = usePersistentDraft(`tab-session-chat:${tabId}`, showComposerError);
   const [expandedEditor, setExpandedEditor] = useState(false);
   const recall = useComposerRecall(tabId);
   const workspaceId = useMuxSelector(useLatestCallback((state) => state.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? state.tabs[tabId]?.workspace_id ?? null, [tabId]));
@@ -234,8 +239,30 @@ function ChatComposerImpl({
   });
   const compositionGate = useRef(createCompositionGate()).current;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const dictationDraft = useDictationDraft(persisted, persist, textareaRef, tabId, compositionGate);
+  const { text: input, edit: setInput } = dictationDraft;
   const mentionTokens = useComposerMentionTokens(input, setInput, textareaRef);
   const displayInput = mentionTokens.draft.text;
+  useDictationSelection(dictationDraft, mentionTokens.draft);
+  const dictationIdentity = useMuxSelector(useLatestCallback(state => {
+    const tab = state.tabs[tabId];
+    return JSON.stringify([tabId, tab?.pty_id, tab?.agent_session_id, tab?.session_binding_nonce]);
+  }, [tabId]));
+  const dictation = useLiveDictation(tabId, dictationIdentity, isActive && !replacement, {
+    prepare(session) {
+      const editor = textareaRef.current;
+      if (!editor || editor.value !== displayInput) return false;
+      const { selectionStart: start, selectionEnd: end } = editor;
+      const protectedRanges = [...mentionTokens.draft.tokens, ...capsuleSpans(displayInput)]
+        .filter(span => start < span.end && end > span.start);
+      const anchor = protectedRanges.length ? Math.max(end, ...protectedRanges.map(span => span.end)) : start;
+      dictationDraft.start(session, mentionTokens.draft, anchor, Math.max(anchor, end));
+      return true;
+    },
+    update: update => dictationDraft.update(update, mentionTokens.draft),
+    cancel: () => dictationDraft.cancel(mentionTokens.draft),
+    composing: () => compositionGate.active,
+  });
   const shellRef = useRef<HTMLDivElement>(null);
   const { layout: composerLayout, measure: measureComposer } = useComposerLayout(input, textareaRef, shellRef, compositionGate, !replacement, expandedEditor);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
@@ -294,6 +321,19 @@ function ChatComposerImpl({
   useComposerInsertions(tabId, capsules.insertContext);
   const reply = useComposerReply(tabId, flagComposerError, refocusComposer);
   const mentionPicker = useRef<ComposerMentionsHandle>(null);
+  function pickMention(mention: ComposerMention, query: MentionQuery) {
+    if (mention.id !== DICTATION_ACTION) { mentionTokens.insert(mention, query); return; }
+    const editor = textareaRef.current;
+    if (!editor || editor.value !== displayInput || dictation.active()) return;
+    const draft = mentionTokens.draft;
+    const anchor = canonicalMentionSlice(draft, 0, query.start).length;
+    const canonical = replaceMentionRange(draft, query.start, query.end, "");
+    replaceTextareaRange(editor, query.start, query.end, "", false);
+    void dictation.start(session => {
+      dictationDraft.startAt(session, canonical, anchor, anchor);
+      return true;
+    });
+  }
   const { expand: expandDsTasks, plansSink } = useDsTasksExpander(tabId);
 
   useLayoutEffect(() => { recordComposerPaint(); }, [input]);
@@ -368,8 +408,8 @@ function ChatComposerImpl({
     refocusComposer();
   }
 
-  function buildDraft(extraAttachments: string[] = []) {
-    const text = input.trim();
+  function buildDraft(extraAttachments: string[] = [], canonical = input) {
+    const text = canonical.trim();
     const cleanExtraAttachments = extraAttachments
       .map((p) => p.trim())
       .filter((p, i, all) => p.length > 0 && all.indexOf(p) === i);
@@ -399,9 +439,9 @@ function ChatComposerImpl({
     );
   }
 
-  async function send(extraAttachments: string[] = []) {
+  async function send(extraAttachments: string[] = [], canonical?: string) {
     if (!sendPolicy.allowed || sendUnavailableReason) return;
-    const draft = buildDraft(extraAttachments);
+    const draft = buildDraft(extraAttachments, canonical);
     if (!draft) return;
     const { text, allAttachments, recordedVoiceAttachments, quoted } = draft;
     const target = { expectedRecipient: sendPolicy.recipient };
@@ -551,6 +591,14 @@ function ChatComposerImpl({
     await deleteDelayedMessage(id);
   }), []);
   const pickSlashCommand = useLatestCallback(pickSuggestion, []);
+  const sendFinalized = useLatestCallback(() => {
+    if (isActiveRef.current) void send([], dictationDraft.current());
+  }, []);
+  function sendFromComposer() {
+    if (!sendPolicy.allowed || sendUnavailableReason) return;
+    if (dictation.active()) dictation.finishThen(sendFinalized);
+    else void send([], dictationDraft.current());
+  }
 
   if (replacement) return <ComposerDock mode={composerLayout.mode} ref={shellRef}>{replacement}</ComposerDock>;
 
@@ -560,12 +608,13 @@ function ChatComposerImpl({
       tabId={tabId}
       onAttach={(paths) => void attachInline(paths)}
       uploadFiles={capsules.uploads.addFiles}
-      onSend={() => void send()}
-      onSchedule={() => { setExpandedEditor(false); openScheduleModal(); }}
+      onSend={sendFromComposer}
+      onSchedule={dictation.phase === "idle" ? () => { setExpandedEditor(false); openScheduleModal(); } : undefined}
       onSendWithAttachments={(paths) => void send(paths)}
       onError={flagComposerError}
       sendDisabled={!sendPolicy.allowed || (!input.trim() && attachments.length === 0 && !reply.reply)}
       sendUnavailableReason={sendUnavailableReason}
+      dictation={dictation}
       hasText={input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
       cardHeader={(reply.reply || attachments.length > 0) && <>
         {reply.reply && <ReplyQuote label={reply.reply.label} excerpt={reply.reply.excerpt} onRemove={() => { reply.clear(); refocusComposer(); }} />}
@@ -580,7 +629,7 @@ function ChatComposerImpl({
         onHighlight={setPickerHighlight}
         onPick={pickSlashCommand}
       />
-      <ComposerMentions ref={mentionPicker} tabId={tabId} input={displayInput} setInput={mentionTokens.change} onInsert={mentionTokens.insert} tokens={mentionTokens.draft.tokens}
+      <ComposerMentions ref={mentionPicker} tabId={tabId} input={displayInput} setInput={mentionTokens.change} onInsert={pickMention} tokens={mentionTokens.draft.tokens}
         onPicked={refocusComposer} textareaRef={textareaRef} anchorRef={shellRef} />
       {plansSink}
       {!sendPolicy.allowed && <span role="status">Connecting to chat — sending is unavailable</span>}
@@ -600,6 +649,7 @@ function ChatComposerImpl({
         <ComposerTextInput
           data-testid="chat-composer"
           data-tab-id={tabId}
+          data-dictating={dictation.phase === "listening" ? "true" : undefined}
           aria-label="Message composer"
           aria-invalid={composerInvalid}
           ref={textareaRef}
@@ -613,10 +663,17 @@ function ChatComposerImpl({
           onBeforeInput={(e) => {
             recordComposerBeforeInput(e.nativeEvent.inputType || "beforeinput");
             mentionTokens.beforeInput(e);
+            if (!e.defaultPrevented) dictationDraft.noteSelection(mentionTokens.draft, e.nativeEvent.inputType || "");
           }}
           onKeyDown={(e) => {
             recordComposerIgnoredKey(e.key);
             if (isImeKeyEvent(compositionGate, e.nativeEvent.isComposing, e.nativeEvent.keyCode)) return;
+            if (e.code === "Escape" && dictation.active()) {
+              e.preventDefault();
+              e.stopPropagation();
+              dictation.cancel();
+              return;
+            }
             let enterIntent = composerEnterIntent(composerDevice, {
               code: e.code, key: e.key, keyCode: e.nativeEvent.keyCode, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey,
               metaKey: e.metaKey, altKey: e.altKey, isComposing: e.nativeEvent.isComposing,
@@ -676,11 +733,12 @@ function ChatComposerImpl({
             }
             if (enterIntent === "submit") {
               e.preventDefault();
-              void send();
+              sendFromComposer();
             }
           }}
           onCompositionStart={() => {
             if (textareaRef.current) mentionTokens.snapSelection(textareaRef.current);
+            dictationDraft.noteSelection(mentionTokens.draft, "insertCompositionText");
             beginComposition(compositionGate);
             if (capsulesActive) setComposing(true);
             if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("start");
@@ -691,6 +749,7 @@ function ChatComposerImpl({
             // Commit the finished draft once and run the autosize the gate
             // deferred; both are no-ops when state already mirrors the DOM.
             mentionTokens.change(e.currentTarget.value);
+            dictation.compositionEnded();
             measureComposer();
             if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("end");
           }}

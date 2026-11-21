@@ -86,7 +86,9 @@ impl CapabilityRegistries {
         }
         vm.activate_binary_transfers();
         if caps.transcriber {
-            let transcriber = Arc::new(super::JsTranscriber::new(vm.clone(), id.clone()));
+            let transcriber = Arc::new(
+                super::JsTranscriber::new(vm.clone(), id.clone()).with_dictation(caps.dictation),
+            );
             self.transcribe.register(id.clone(), transcriber.clone());
             if caps.graph_nodes.converters.is_empty() {
                 // A transcriber is the audio -> text edge unless the plugin

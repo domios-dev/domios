@@ -103,6 +103,7 @@ impl ExtensionsBuilder {
     }
 
     pub(crate) fn insert_service_slots(&mut self) {
+        self.insert::<crate::service::dictation::DictationSessions>(Default::default());
         self.insert_late::<crate::service::provider_accounts::State>();
         self.insert_late::<crate::service::neighbor_account::StartupAccount>();
         self.insert_late::<crate::service::neighbor_account::AccountDataRoot>();

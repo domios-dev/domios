@@ -9,7 +9,7 @@ export interface MentionScope {
 export interface MentionContext { scope: MentionScope; signal: AbortSignal }
 export interface ComposerMention {
   id: string;
-  kind?: "tab" | "task" | "plan" | "blueprint" | "file";
+  kind?: "tab" | "task" | "plan" | "blueprint" | "file" | "action";
   providerId?: string | null;
   status?: string;
   label: string;

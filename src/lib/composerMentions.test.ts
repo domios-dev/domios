@@ -11,6 +11,7 @@ import { fixtureGraph, fixtureNode } from "../components/Automation/fixtures.tes
 import type { Plan, Task } from "../components/Canvas/types";
 import type { Tab, Workspace } from "./types";
 import { formatAttachmentMarker } from "@codeterm/chat-core";
+import { composerActionQuery, composerActions, DICTATION_ACTION } from "./mentionSources/actions";
 
 const ctx: MentionContext = { scope: { tabId: "self", workspaceId: "ws1", projectPath: "/project1", teamId: "team1" }, signal: new AbortController().signal };
 const row = (label: string, extra: Partial<ComposerMention> = {}): ComposerMention => ({ id: label, label, description: "", insertText: label, group: "Fixture", match: 1, ...extra });
@@ -188,6 +189,12 @@ test("dismissal survives typing, reopens on backspace or a fresh @", () => {
   assert.equal(mentionDismissed(dismissed, "@cod", 4, activeMentionQuery("@cod")!), true);
   assert.equal(mentionDismissed(dismissed, "@c", 2, activeMentionQuery("@c")!), false);
   assert.equal(mentionDismissed(dismissed, "@co @", 5, activeMentionQuery("@co @")!), false);
+});
+test("dictation is an action and leaves the text beyond the caret outside its query", () => {
+  assert.equal(composerActions("dict")[0]?.id, DICTATION_ACTION);
+  assert.equal(composerActions("dicta")[0]?.kind, "action");
+  assert.deepEqual(composerActionQuery("hello@dictasuffix", 11, 11), { start: 5, end: 11, partial: "dicta" });
+  assert.equal(composerActionQuery("hello@dictionary", 16, 16), null);
 });
 async function main() { for (const [name, fn] of tests) { await fn(); console.log(`PASS ${name}`); } console.log(`${tests.length} tests passed`); }
 void main().catch((error) => { console.error(error); process.exitCode = 1; });

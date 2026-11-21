@@ -1,5 +1,63 @@
 use super::*;
 
+#[tokio::test]
+async fn live_dictation_requires_the_declared_js_capability() {
+    let vm = vm_with(r#"module.exports.default = {
+      dictationLaunch() { return {state:"setup", reason:"missing fixture model"}; }
+    }"#);
+    let clip_only = JsTranscriber::new(vm.clone(), "test");
+    assert!(!clip_only.supports_dictation());
+    assert!(matches!(clip_only.start_dictation().await, DictationAdmission::Unavailable(_)));
+    let live = JsTranscriber::new(vm, "test").with_dictation(true);
+    assert!(live.supports_dictation());
+    assert!(matches!(live.start_dictation().await, DictationAdmission::Setup(reason) if reason == "missing fixture model"));
+}
+
+#[test]
+fn dictation_process_frames_have_one_bounded_binary_request_and_revisable_reply() {
+    use std::io::Cursor;
+    let mut written = Vec::new();
+    let mut reply = Cursor::new(b"{\"committed\":\"\",\"provisional\":\"interim speech\"}\n");
+    let segment = session::exchange(&mut written, &mut reply, &[7, 8]).unwrap();
+    assert_eq!(written, [2, 0, 0, 0, 7, 8]);
+    assert!(segment.committed.is_empty());
+    assert_eq!(segment.provisional, "interim speech");
+    let mut written = Vec::new();
+    let mut reply = Cursor::new(b"{\"committed\":\"final speech\",\"provisional\":\"\"}\n");
+    let segment = session::exchange(&mut written, &mut reply, &[]).unwrap();
+    assert_eq!(written, [0; 4]);
+    assert_eq!(segment.committed, "final speech");
+    let mut oversized = Cursor::new(vec![b' '; codeterm_types::dictation::MAX_UPDATE_BYTES + 1]);
+    assert!(session::exchange(&mut Vec::new(), &mut oversized, &[7, 8]).is_err());
+}
+
+#[tokio::test]
+async fn dictation_glance_gets_the_loaded_bundle_and_keeps_legacy_argument_positions() {
+    use crate::glance::GlanceProvider;
+    let directory = tempfile::tempdir().unwrap();
+    let entry = directory.path().join("plugin.js");
+    for has_dictation in [false, true] {
+        let declaration = if has_dictation { "dictationLaunch() {}," } else { "" };
+        std::fs::write(&entry, format!(r#"module.exports.default = {{
+          {declaration}
+          renderGlance(ctx, own) {{
+            return {{title: JSON.stringify([ctx.fixture, own || null, arguments.length]), nodes:[]}};
+          }},
+          glanceAction(action, ctx, own) {{
+            return {{title: JSON.stringify([action, ctx.fixture, own || null, arguments.length]), nodes:[]}};
+          }}
+        }}"#)).unwrap();
+        let vm = Arc::new(PluginVm::load("fixture-glance", &entry).unwrap());
+        let provider = super::super::JsGlanceProvider::new(vm, "fixture-glance");
+        let ctx = json!({"fixture":"scope", "bundle":"caller-controlled"});
+        let expected = has_dictation.then(|| directory.path().to_string_lossy().into_owned());
+        let render = provider.render(ctx.clone()).await.unwrap();
+        let action = provider.action("activate", ctx).await.unwrap();
+        assert_eq!(render.title, Some(json!(["scope", expected, if has_dictation {2} else {1}]).to_string()));
+        assert_eq!(action.title, Some(json!(["activate", "scope", expected, if has_dictation {3} else {2}]).to_string()));
+    }
+}
+
 fn vm_with(src: &str) -> Arc<PluginVm> {
     Arc::new(PluginVm::from_source("test-transcriber", src.to_string()).expect("vm"))
 }

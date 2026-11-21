@@ -6,6 +6,9 @@ import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import { useAttachmentUploads } from "./useAttachmentUploads";
 import { useComposerVoice } from "./voice/useComposerVoice";
 import { ComposerIssuesProvider, useHasComposerIssuesProvider } from "./ComposerIssuesContext";
+import { DictationControls, DictationStatus } from "./voice/DictationStatus";
+import { DictationSetupPrompt } from "./voice/DictationSetupPrompt";
+import type { LiveDictation } from "./voice/useLiveDictation";
 
 export { storeBrowserFiles, useWebFileDrop } from "./composerFiles";
 
@@ -25,6 +28,7 @@ interface Props {
   cardFooter?: ReactNode;
   canAttach?: boolean;
   uploadFiles?: (files: File[]) => Promise<void>;
+  dictation?: LiveDictation;
 }
 
 export function ComposerActions(props: Props) {
@@ -50,6 +54,7 @@ function ComposerActionsBody({
   cardFooter,
   canAttach = true,
   uploadFiles,
+  dictation,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const uploads = useAttachmentUploads(onAttach);
@@ -66,6 +71,11 @@ function ComposerActionsBody({
 
   const attachButton = canAttach && !voiceUi.isPreview
     && <ComposerAttachButton uploading={uploads.busy} onClick={() => fileRef.current?.click()} />;
+  const dictationHeader = dictation && (dictation.setup || dictation.error || dictation.phase !== "idle");
+  const sendButton = !voiceUi.isPreview && (!dictation || voiceUi.mainIsSend || voiceUi.voiceActive) && (
+    <ComposerActionButton voiceUi={voiceUi} sendDisabled={sendDisabled}
+      sendUnavailableReason={sendUnavailableReason} onSend={onSend} onSchedule={onSchedule} />
+  );
 
   return (
     <>
@@ -87,20 +97,19 @@ function ComposerActionsBody({
       {voiceUploads.status}
       <div className={expanded ? "ct-expanded-composer__actions relative grid w-full items-end gap-2" : "relative flex w-full items-end gap-1.5"}>
         {attachButton}
-        <ComposerInputShell voiceUi={voiceUi} header={cardHeader} footer={cardFooter}
-          actions={!expanded && voiceUi.mainIsSend && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />}>
+        <ComposerInputShell voiceUi={voiceUi} header={dictationHeader ? <>
+          {dictation?.setup && <DictationSetupPrompt reason={dictation.setup} onDismiss={dictation.dismissSetup} />}
+          {dictation && <DictationStatus dictation={dictation} />}
+          {cardHeader}
+        </> : cardHeader} footer={cardFooter}
+          actions={!expanded && voiceUi.mainIsSend && dictation?.phase !== "finishing" && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />}>
           {children}
         </ComposerInputShell>
         {expanded && voiceUi.mainIsSend && onSchedule && <div className="ct-expanded-composer__schedule"><ComposerScheduleButton onSchedule={onSchedule} /></div>}
-        {!voiceUi.isPreview && (
-          <ComposerActionButton
-            voiceUi={voiceUi}
-            sendDisabled={sendDisabled}
-            sendUnavailableReason={sendUnavailableReason}
-            onSend={onSend}
-            onSchedule={onSchedule}
-          />
-        )}
+        {dictation ? <div className="ct-dictation-actions flex shrink-0 items-center gap-1">
+          {!voiceUi.composerHidden && <DictationControls dictation={dictation} disabled={voiceUi.voiceActive} />}
+          {sendButton}
+        </div> : sendButton}
       </div>
     </>
   );

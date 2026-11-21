@@ -402,6 +402,7 @@ pub fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
 pub fn is_local_only_path(path: &str) -> bool {
     let path = request_path(path);
     path.starts_with("/api/analytics/")
+        || path.starts_with("/api/dictation/")
         || path.starts_with("/api/secrets/")
         || path.starts_with("/api/account/")
         || path == "/api/mesh/debug/sign"

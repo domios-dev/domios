@@ -277,9 +277,14 @@ export interface SecretBackend {
 
 export type TranscribeResult = OptionalWireFields<import("./gen/TranscribeOut").TranscribeOut, "text" | "error">;
 
+export type DictationLaunch =
+  | { state: "ready"; bin: string; script: string; args: string[] }
+  | { state: "setup" | "unavailable"; reason: string };
+
 export interface Transcriber {
   transcribe(path: string, lang?: string): TranscribeResult;
   transcribeStatus?(): unknown;
+  dictationLaunch?(): DictationLaunch;
 }
 
 // ─── converter + graphNodes (declared conversions and event sources) ───
@@ -644,13 +649,13 @@ export interface PluginModule
     Partial<ModelProviderConfig> {
   onPermissionChanged?(event: PermissionChangedEvent): void | import("./gen/HostError").HostError;
   statusBubble?(ctx: TabContext): StatusBubble | null;
-  renderGlance?(ctx: TabContext): GlanceView;
+  renderGlance?(ctx: TabContext, bundle?: string): GlanceView;
   viewCall?: ViewCall;
   /** Requires manifest mediaDelivery. Lookup only: never submit work. Paths are relative to this plugin's own data directory. */
   mediaFile?(id: string, context: MediaFileContext): import("./mediaDelivery").MediaFile;
   /** Refresh account-backed remote execution availability and environments. */
   discoverRemoteTask?(): import("./remoteTasks").RemoteTaskDiscovery;
-  glanceAction?(action: string, ctx: TabContext): unknown;
+  glanceAction?(action: string, ctx: TabContext, bundle?: string): unknown;
   // Test-only exports and other plugin-private members are allowed.
   [key: string]: unknown;
 }

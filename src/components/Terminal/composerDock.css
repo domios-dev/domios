@@ -194,3 +194,50 @@
   .ct-composer-status > .ct-composer-lane { min-width: 0; flex: 1; }
   .ct-chat-bottom-bar { margin-bottom: var(--ct-keyboard-composer-gap, 0.5rem); padding-bottom: var(--ct-keyboard-composer-gap, 0.375rem); }
 }
+.ct-dictation-mic {
+  touch-action: none;
+}
+
+.ct-expanded-composer__actions > .ct-dictation-actions {
+  grid-row: 2;
+  grid-column: 3;
+}
+
+.ct-dictation-mic[aria-pressed="true"] {
+  color: var(--ct-accent);
+}
+
+.ct-dictation-status, .ct-dictation-error, .ct-dictation-setup {
+  color: var(--ct-muted-fg);
+  font-size: 0.75rem;
+}
+
+.ct-dictation-status {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.ct-dictation-error {
+  color: var(--ct-red);
+}
+
+.ct-dictation-listening {
+  width: 2px;
+  height: 0.85em;
+  border-radius: 1px;
+  background: var(--ct-accent);
+}
+
+.ct-dictation-setup {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.ct-dictation-setup strong {
+  color: var(--ct-fg);
+}
+
+textarea[data-dictating="true"] {
+  caret-color: var(--ct-accent) !important;
+}

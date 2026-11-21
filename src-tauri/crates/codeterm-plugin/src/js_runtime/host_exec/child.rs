@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 #[derive(Clone)]
-pub(super) struct Target {
+pub(in crate::js_runtime) struct Target {
     #[cfg(unix)]
     pid: u32,
     #[cfg(windows)]
@@ -13,7 +13,7 @@ pub(super) struct Target {
 }
 
 impl Target {
-    pub(super) fn terminate(&self) {
+    pub(in crate::js_runtime) fn terminate(&self) {
         #[cfg(windows)]
         self.job.terminate();
         #[cfg(unix)]
@@ -23,7 +23,7 @@ impl Target {
     }
 }
 
-pub(super) struct Owned {
+pub(in crate::js_runtime) struct Owned {
     child: Child,
     target: Target,
     readers: Vec<JoinHandle<()>>,
@@ -65,7 +65,7 @@ impl Owned {
         })
     }
 
-    pub(super) fn target(&self) -> Target {
+    pub(in crate::js_runtime) fn target(&self) -> Target {
         self.target.clone()
     }
 
