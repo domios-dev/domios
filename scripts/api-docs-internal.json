@@ -140,6 +140,11 @@
     "reason": "Internal UI dictation stream lifecycle; voice transcription is driven by the desktop/web composer."
   },
   {
+    "method": "GET",
+    "path": "/api/workspaces/{id}/close-preview",
+    "reason": "Internal owner-only workspace close preview for the desktop/web sidebar; agent tabs are refused."
+  },
+  {
     "method": "POST",
     "path": "/api/workspaces/{id}/tabs/{tab_id}/close",
     "reason": "Internal UI or transport protocol; use the documented tab, workspace or Mesh controls."

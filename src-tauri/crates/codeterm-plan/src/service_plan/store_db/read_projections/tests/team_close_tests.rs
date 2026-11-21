@@ -181,7 +181,8 @@ fn team_close_projection_bounded_ignores_unrelated_plans_and_history_and_loads_o
     selected_task.execution_attempts.push(local_open);
     selected_task.execution_attempts.push(remote_open);
     for index in 0..256 {
-        let mut closed = crate::service_plan::load_audit::attempt(&format!("closed-{index}"), "member");
+        let mut closed =
+            crate::service_plan::load_audit::attempt(&format!("closed-{index}"), "member");
         closed.closed_at = Some(index as u64 + 1);
         selected_task.execution_attempts.push(closed);
     }
@@ -256,14 +257,16 @@ fn team_close_projection_bounded_refuses_atomically_when_selected_rows_exceed_ca
                 TaskStatus::InProgress,
                 Some("member"),
             );
-            task.execution_attempts.push(crate::service_plan::load_audit::attempt(
-                &format!("a-{index}-1"),
-                "member",
-            ));
-            task.execution_attempts.push(crate::service_plan::load_audit::attempt(
-                &format!("a-{index}-2"),
-                "member",
-            ));
+            task.execution_attempts
+                .push(crate::service_plan::load_audit::attempt(
+                    &format!("a-{index}-1"),
+                    "member",
+                ));
+            task.execution_attempts
+                .push(crate::service_plan::load_audit::attempt(
+                    &format!("a-{index}-2"),
+                    "member",
+                ));
             task
         })
         .collect();

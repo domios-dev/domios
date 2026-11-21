@@ -71,8 +71,10 @@ fn install_blueprints(fixture: &codeterm_service_core::service::test_fixture::Se
         &storage,
         codeterm_service_core::cron::clock::MockClock::starting_at(1000),
     );
-    let handle =
-        codeterm_sentinel_host::scheduler::fixture_handle_with_ui(store, fixture.service.ui.clone());
+    let handle = codeterm_sentinel_host::scheduler::fixture_handle_with_ui(
+        store,
+        fixture.service.ui.clone(),
+    );
     codeterm_sentinel_host::manage_fixture_ports(&fixture.service, &handle);
 }
 
@@ -365,12 +367,22 @@ async fn workspace_close_preview_reports_complete_facts_warnings_and_never_loads
     assert_eq!(preview.crons, vec!["WS Cron".to_string()]);
     assert_eq!(preview.teams.len(), 2);
 
-    let team = preview.teams.iter().find(|t| t.id == local_team_id).unwrap();
+    let team = preview
+        .teams
+        .iter()
+        .find(|t| t.id == local_team_id)
+        .unwrap();
     assert!(!team.remote);
     assert_eq!(team.crons, vec!["Team Cron".to_string()]);
     assert_eq!(team.tasks.len(), 3);
-    assert!(team.tasks.iter().all(|t| t.plan_title == "Selected Plan Title"));
-    assert!(team.tasks.iter().any(|t| t.task_id == "t-orphan" && t.orphan));
+    assert!(team
+        .tasks
+        .iter()
+        .all(|t| t.plan_title == "Selected Plan Title"));
+    assert!(team
+        .tasks
+        .iter()
+        .any(|t| t.task_id == "t-orphan" && t.orphan));
     assert!(team
         .open_attempts
         .iter()
@@ -387,11 +399,7 @@ async fn workspace_close_preview_reports_complete_facts_warnings_and_never_loads
         .unwrap();
     assert!(remote_team.remote);
 
-    let warning_kinds = preview
-        .warnings
-        .iter()
-        .map(|w| &w.kind)
-        .collect::<Vec<_>>();
+    let warning_kinds = preview.warnings.iter().map(|w| &w.kind).collect::<Vec<_>>();
     assert!(warning_kinds.contains(&&WorkspaceCloseWarningKind::RemoteMember));
     assert!(warning_kinds.contains(&&WorkspaceCloseWarningKind::RemoteTeam));
     assert!(warning_kinds.contains(&&WorkspaceCloseWarningKind::OrphanTask));

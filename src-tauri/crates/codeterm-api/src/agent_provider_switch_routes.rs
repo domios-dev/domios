@@ -81,12 +81,9 @@ pub(crate) async fn switch_provider(
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
     let result = tokio::task::spawn_blocking(move || {
-        state.svc.accept_provider_switch(
-            &tab,
-            body.into(),
-            caller.as_deref(),
-            nonce.as_deref(),
-        )
+        state
+            .svc
+            .accept_provider_switch(&tab, body.into(), caller.as_deref(), nonce.as_deref())
     })
     .await;
     match result {

@@ -484,7 +484,10 @@ fn respawn_keeps_persona() {
     store
         .assign_task(&plan_id, &task_id, "tab_old", None, 3)
         .unwrap();
-    let attempt = store.list_task_attempts(&plan_id, &task_id).unwrap().remove(0);
+    let attempt = store
+        .list_task_attempts(&plan_id, &task_id)
+        .unwrap()
+        .remove(0);
     assert_ne!(attempt.attempt_id, "tab_old");
     assert!(attempt.attempt.executor_title.is_none());
     store
@@ -847,10 +850,7 @@ fn respawn_commit_preserves_admission_when_review_backlog_changes() {
     );
 }
 
-fn plan_with_task(
-    title: &str,
-    task: NewTask,
-) -> (tempfile::TempDir, PlanStore, String, String) {
+fn plan_with_task(title: &str, task: NewTask) -> (tempfile::TempDir, PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut plan = Plan::new(
@@ -908,7 +908,10 @@ fn respawn_prompt_starts_with_canonical_identity_once() {
     store
         .assign_task(&plan_id, &task_id, "tab_old", None, 3)
         .unwrap();
-    let attempt = store.list_task_attempts(&plan_id, &task_id).unwrap().remove(0);
+    let attempt = store
+        .list_task_attempts(&plan_id, &task_id)
+        .unwrap()
+        .remove(0);
     let draft = store
         .build_task_respawn_draft(
             &plan_id,
@@ -1118,7 +1121,10 @@ fn respawn_pre_spawn_record_rolls_back_cleanly_and_launch_identity_keeps_session
         Some(crate::plan::ExecutionIntent::Mutating)
     );
     assert_eq!(created.attempt.launch_profile.as_deref(), Some("selected"));
-    assert_eq!(created.attempt.requested_model.as_deref(), Some("opaque-model"));
+    assert_eq!(
+        created.attempt.requested_model.as_deref(),
+        Some("opaque-model")
+    );
     assert_eq!(created.attempt.reasoning_effort.as_deref(), Some("high"));
     assert!(created.attempt.executor_title.is_some());
     assert_eq!(

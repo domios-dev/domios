@@ -811,7 +811,8 @@ fn unavailable_switch_details_omit_the_executable_search_path() {
 }
 
 #[test]
-fn profile_provider_switch_refuses_missing_unknown_and_uninstalled_profile_before_retiring_source() {
+fn profile_provider_switch_refuses_missing_unknown_and_uninstalled_profile_before_retiring_source()
+{
     use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
     use std::sync::Arc;
 

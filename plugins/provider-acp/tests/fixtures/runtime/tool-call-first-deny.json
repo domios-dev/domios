@@ -584,7 +584,6 @@
           "type": "tool_call",
           "content": "",
           "toolId": "call-1",
-          "collapsed": true,
           "toolStatus": "failed",
           "toolError": true,
           "toolResult": "Denied"
@@ -593,8 +592,8 @@
       {
         "kind": "turnState",
         "threadId": "session-fixture",
-        "state": "idle",
-        "turnId": "session-fixture:turn:1"
+        "turnId": "session-fixture:turn:1",
+        "state": "idle"
       }
     ]
   }

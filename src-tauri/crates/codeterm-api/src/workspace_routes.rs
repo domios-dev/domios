@@ -12,7 +12,7 @@ use codeterm_service_core::api_support::OptionalJson;
 use codeterm_types::workspace_close_preview::{
     WorkspaceCloseLaneState, WorkspaceClosePreview, WorkspaceClosePreviewAttempt,
     WorkspaceClosePreviewMember, WorkspaceClosePreviewRemoteMember, WorkspaceClosePreviewTab,
-    WorkspaceClosePreviewTeam, WorkspaceClosePreviewTask, WorkspaceClosePreviewWarning,
+    WorkspaceClosePreviewTask, WorkspaceClosePreviewTeam, WorkspaceClosePreviewWarning,
     WorkspaceCloseWarningKind,
 };
 
@@ -54,7 +54,10 @@ impl Write for BoundedSizeWriter {
         let next = self.written.saturating_add(bytes.len());
         if next > WORKSPACE_CLOSE_PREVIEW_MAX_BYTES {
             self.exceeded = true;
-            return Err(io::Error::new(io::ErrorKind::WriteZero, "preview byte bound exceeded"));
+            return Err(io::Error::new(
+                io::ErrorKind::WriteZero,
+                "preview byte bound exceeded",
+            ));
         }
         self.written = next;
         Ok(bytes.len())
@@ -362,7 +365,10 @@ struct PreviewBudget {
 
 impl PreviewBudget {
     fn new() -> Self {
-        Self { rows: 0, warnings: Vec::new() }
+        Self {
+            rows: 0,
+            warnings: Vec::new(),
+        }
     }
 
     fn remaining(&self) -> usize {
@@ -386,7 +392,13 @@ impl PreviewBudget {
         detail: String,
     ) -> Result<(), WorkspaceClosePreviewError> {
         self.add(1)?;
-        self.warnings.push(WorkspaceClosePreviewWarning { kind, team_id, plan_id, task_id, detail });
+        self.warnings.push(WorkspaceClosePreviewWarning {
+            kind,
+            team_id,
+            plan_id,
+            task_id,
+            detail,
+        });
         Ok(())
     }
 }
@@ -413,11 +425,14 @@ fn build_workspace_close_preview(
 ) -> Result<WorkspaceClosePreview, WorkspaceClosePreviewError> {
     use codeterm_sentinel_host::AutomationGraphExt;
 
-    svc.ensure_storage_available().map_err(WorkspaceClosePreviewError::Unavailable)?;
+    svc.ensure_storage_available()
+        .map_err(WorkspaceClosePreviewError::Unavailable)?;
     let mut budget = PreviewBudget::new();
     let (workspace_name, tabs, mut teams, missing_team_metadata) = {
         let mux = svc.mux.read();
-        let workspace = mux.get_workspace(workspace_id).ok_or(WorkspaceClosePreviewError::NotFound)?;
+        let workspace = mux
+            .get_workspace(workspace_id)
+            .ok_or(WorkspaceClosePreviewError::NotFound)?;
         if workspace.protected {
             return Err(WorkspaceClosePreviewError::Protected);
         }
@@ -439,13 +454,16 @@ fn build_workspace_close_preview(
                     "Workspace {workspace_id} references missing tab {tab_id}"
                 ))
             })?;
-            let remote = tab.ownership.as_ref().map(|ownership| WorkspaceClosePreviewRemoteMember {
-                tab_id: tab.id.clone(),
-                title: tab.title.clone(),
-                peer_id: ownership.peer_id.clone(),
-                peer_name: ownership.peer_name.clone(),
-                team_id: ownership.team.as_ref().map(|team| team.id.clone()),
-            });
+            let remote =
+                tab.ownership
+                    .as_ref()
+                    .map(|ownership| WorkspaceClosePreviewRemoteMember {
+                        tab_id: tab.id.clone(),
+                        title: tab.title.clone(),
+                        peer_id: ownership.peer_id.clone(),
+                        peer_name: ownership.peer_name.clone(),
+                        team_id: ownership.team.as_ref().map(|team| team.id.clone()),
+                    });
             tabs.push(PreviewTab {
                 id: tab.id.clone(),
                 title: tab.title.clone(),
@@ -469,7 +487,10 @@ fn build_workspace_close_preview(
                 team_ids.insert(team_id.clone());
             }
         }
-        for team in mux.teams_for_workspace(workspace_id).take(WORKSPACE_CLOSE_PREVIEW_MAX_ROWS + 1) {
+        for team in mux
+            .teams_for_workspace(workspace_id)
+            .take(WORKSPACE_CLOSE_PREVIEW_MAX_ROWS + 1)
+        {
             team_ids.insert(team.id.clone());
         }
         if team_ids.len() > WORKSPACE_CLOSE_PREVIEW_MAX_ROWS {
@@ -483,8 +504,10 @@ fn build_workspace_close_preview(
                         local_anchors.insert(id.clone());
                     }
                 }
-                if let Some((ownership, remote_team)) =
-                    tab.ownership.as_ref().and_then(|o| o.team.as_ref().map(|t| (o, t)))
+                if let Some((ownership, remote_team)) = tab
+                    .ownership
+                    .as_ref()
+                    .and_then(|o| o.team.as_ref().map(|t| (o, t)))
                 {
                     let qualified = format!("mesh:{}/{}", ownership.peer_id, remote_team.id);
                     if team_ids.contains(&remote_team.id) {
@@ -508,7 +531,11 @@ fn build_workspace_close_preview(
                 .and_then(|team| team.name.as_deref())
                 .map(str::trim)
                 .filter(|name| !name.is_empty())
-                .unwrap_or(if record.is_some() { "Team" } else { "Missing team metadata" })
+                .unwrap_or(if record.is_some() {
+                    "Team"
+                } else {
+                    "Missing team metadata"
+                })
                 .to_string();
             teams.insert(team_id.clone(), empty_preview_team(team_id, name, remote));
         }
@@ -528,7 +555,10 @@ fn build_workspace_close_preview(
     budget.add(teams.len())?;
     budget.add(teams.values().map(|team| team.members.len()).sum::<usize>())?;
 
-    let remote_members = tabs.iter().filter_map(|tab| tab.remote.clone()).collect::<Vec<_>>();
+    let remote_members = tabs
+        .iter()
+        .filter_map(|tab| tab.remote.clone())
+        .collect::<Vec<_>>();
     budget.add(remote_members.len())?;
     for remote in &remote_members {
         budget.warn(
@@ -536,13 +566,19 @@ fn build_workspace_close_preview(
             remote.team_id.clone(),
             None,
             None,
-            format!("{} is remotely owned by {} ({})", remote.title, remote.peer_name, remote.peer_id),
+            format!(
+                "{} is remotely owned by {} ({})",
+                remote.title, remote.peer_name, remote.peer_id
+            ),
         )?;
     }
     let agent_tabs = tabs
         .iter()
         .filter(|tab| tab.agent && tab.team_id.is_none())
-        .map(|tab| WorkspaceClosePreviewTab { tab_id: tab.id.clone(), title: tab.title.clone() })
+        .map(|tab| WorkspaceClosePreviewTab {
+            tab_id: tab.id.clone(),
+            title: tab.title.clone(),
+        })
         .collect::<Vec<_>>();
     budget.add(agent_tabs.len())?;
 
@@ -594,17 +630,34 @@ fn build_workspace_close_preview(
             "Workspace blueprint ownership inventory is truncated".into(),
         ));
     }
-    let tab_teams = tabs.iter().map(|t| (t.id.as_str(), t.team_id.as_deref())).collect::<BTreeMap<_, _>>();
+    let tab_teams = tabs
+        .iter()
+        .map(|t| (t.id.as_str(), t.team_id.as_deref()))
+        .collect::<BTreeMap<_, _>>();
     let mut blueprints = Vec::new();
-    for blueprint in graph.blueprints.iter().filter(|bp| format!("{:?}", bp.state) == "Running") {
-        let name = blueprint.name.as_deref().unwrap_or(&blueprint.id).to_string();
+    for blueprint in graph
+        .blueprints
+        .iter()
+        .filter(|bp| format!("{:?}", bp.state) == "Running")
+    {
+        let name = blueprint
+            .name
+            .as_deref()
+            .unwrap_or(&blueprint.id)
+            .to_string();
         match blueprint.owner.kind.as_str() {
             "team" => {
-                let team_id = blueprint.owner.team_id.as_deref().filter(|id| !id.is_empty()).ok_or_else(|| {
-                    WorkspaceClosePreviewError::Unavailable(format!(
-                        "Running Blueprint {} has no Team owner identity", blueprint.id
-                    ))
-                })?;
+                let team_id = blueprint
+                    .owner
+                    .team_id
+                    .as_deref()
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| {
+                        WorkspaceClosePreviewError::Unavailable(format!(
+                            "Running Blueprint {} has no Team owner identity",
+                            blueprint.id
+                        ))
+                    })?;
                 budget.add(1)?;
                 if let Some(team) = teams.get_mut(team_id) {
                     team.blueprints.push(name);
@@ -615,16 +668,25 @@ fn build_workspace_close_preview(
                         Some(team_id.to_string()),
                         None,
                         None,
-                        format!("Running Blueprint {} has no Team in the selected workspace.", blueprint.id),
+                        format!(
+                            "Running Blueprint {} has no Team in the selected workspace.",
+                            blueprint.id
+                        ),
                     )?;
                 }
             }
             "tab" => {
-                let tab_id = blueprint.owner.tab_id.as_deref().filter(|id| !id.is_empty()).ok_or_else(|| {
-                    WorkspaceClosePreviewError::Unavailable(format!(
-                        "Running Blueprint {} has no tab owner identity", blueprint.id
-                    ))
-                })?;
+                let tab_id = blueprint
+                    .owner
+                    .tab_id
+                    .as_deref()
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| {
+                        WorkspaceClosePreviewError::Unavailable(format!(
+                            "Running Blueprint {} has no tab owner identity",
+                            blueprint.id
+                        ))
+                    })?;
                 budget.add(1)?;
                 match tab_teams.get(tab_id).copied() {
                     Some(Some(team_id)) => {
@@ -649,7 +711,8 @@ fn build_workspace_close_preview(
             }
             other => {
                 return Err(WorkspaceClosePreviewError::Unavailable(format!(
-                    "Running Blueprint {} has unsupported owner kind {other}", blueprint.id
+                    "Running Blueprint {} has unsupported owner kind {other}",
+                    blueprint.id
                 )))
             }
         }
@@ -662,7 +725,10 @@ fn build_workspace_close_preview(
                 Some(team_id.clone()),
                 None,
                 None,
-                format!("Team {} has remote membership; its owning peer remains authoritative.", team.name),
+                format!(
+                    "Team {} has remote membership; its owning peer remains authoritative.",
+                    team.name
+                ),
             )?;
             continue;
         }
@@ -675,7 +741,11 @@ fn build_workspace_close_preview(
                 "Workspace tab references a Team with missing metadata".into(),
             )?;
         }
-        let members = team.members.iter().map(|m| m.tab_id.clone()).collect::<Vec<_>>();
+        let members = team
+            .members
+            .iter()
+            .map(|m| m.tab_id.clone())
+            .collect::<Vec<_>>();
         let plans = svc
             .plan_store
             .team_close_projection_bounded(team_id, &members, budget.remaining())
@@ -692,12 +762,9 @@ fn build_workspace_close_preview(
         let plan_rows = plans
             .iter()
             .map(|p| {
-                p.tasks.len().saturating_add(
-                    p.tasks
-                        .iter()
-                        .map(|t| t.open_attempts.len())
-                        .sum::<usize>(),
-                )
+                p.tasks
+                    .len()
+                    .saturating_add(p.tasks.iter().map(|t| t.open_attempts.len()).sum::<usize>())
             })
             .sum::<usize>();
         budget.add(plan_rows)?;
@@ -712,7 +779,9 @@ fn build_workspace_close_preview(
                 WorkspaceClosePreviewError::TooLarge
             }
             codeterm_orchestration::team::close::WorkspaceCloseLanePreviewError::Unavailable(d) => {
-                WorkspaceClosePreviewError::Unavailable(format!("Team lane safety inventory is unavailable: {d}"))
+                WorkspaceClosePreviewError::Unavailable(format!(
+                    "Team lane safety inventory is unavailable: {d}"
+                ))
             }
         })?;
         budget.add(lanes.len())?;
@@ -724,7 +793,9 @@ fn build_workspace_close_preview(
                 WorkspaceCloseLaneState::Orphan => Some(WorkspaceCloseWarningKind::OrphanBranch),
                 WorkspaceCloseLaneState::Held => Some(WorkspaceCloseWarningKind::HeldLane),
                 WorkspaceCloseLaneState::Remote => Some(WorkspaceCloseWarningKind::RemoteAttempt),
-                WorkspaceCloseLaneState::Unavailable => Some(WorkspaceCloseWarningKind::LaneUnavailable),
+                WorkspaceCloseLaneState::Unavailable => {
+                    Some(WorkspaceCloseWarningKind::LaneUnavailable)
+                }
             };
             if let Some(kind) = kind {
                 budget.warn(
@@ -733,18 +804,34 @@ fn build_workspace_close_preview(
                     Some(lane.plan_id.clone()),
                     Some(lane.task_id.clone()),
                     lane.detail.clone().unwrap_or_else(|| {
-                        format!("Lane {} is {:?}", lane.branch.as_deref().or(lane.path.as_deref()).unwrap_or("unknown"), lane.state)
+                        format!(
+                            "Lane {} is {:?}",
+                            lane.branch
+                                .as_deref()
+                                .or(lane.path.as_deref())
+                                .unwrap_or("unknown"),
+                            lane.state
+                        )
                     }),
                 )?;
             }
         }
         for plan in &plans {
-            let plan_title = if plan.title.trim().is_empty() { plan.id.clone() } else { plan.title.clone() };
+            let plan_title = if plan.title.trim().is_empty() {
+                plan.id.clone()
+            } else {
+                plan.title.clone()
+            };
             for task in &plan.tasks {
                 let status = serde_json::to_value(&task.status)
                     .ok()
                     .and_then(|v| v.as_str().map(str::to_string))
-                    .ok_or_else(|| WorkspaceClosePreviewError::Unavailable(format!("Task {}/{} has an unknown status", plan.id, task.id)))?;
+                    .ok_or_else(|| {
+                        WorkspaceClosePreviewError::Unavailable(format!(
+                            "Task {}/{} has an unknown status",
+                            plan.id, task.id
+                        ))
+                    })?;
                 let orphan = plan.team_id.as_deref() == Some(team_id.as_str())
                     && status == "in_progress"
                     && task.member_executor.is_none();
@@ -754,7 +841,10 @@ fn build_workspace_close_preview(
                         Some(team_id.clone()),
                         Some(plan.id.clone()),
                         Some(task.id.clone()),
-                        format!("In-progress task {} has no live Team member owner", task.name),
+                        format!(
+                            "In-progress task {} has no live Team member owner",
+                            task.name
+                        ),
                     )?;
                 }
                 if task.has_remote_attempt {
@@ -810,7 +900,10 @@ fn build_workspace_close_preview(
         teams: teams.into_values().collect(),
         warnings: budget.warnings,
     };
-    let mut writer = BoundedSizeWriter { written: 0, exceeded: false };
+    let mut writer = BoundedSizeWriter {
+        written: 0,
+        exceeded: false,
+    };
     if let Err(error) = serde_json::to_writer(&mut writer, &preview) {
         if writer.exceeded {
             return Err(WorkspaceClosePreviewError::TooLarge);

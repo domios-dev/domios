@@ -410,7 +410,10 @@ fn outbound_snapshot_keeps_original_metadata_and_is_bounded_independent_of_recei
     assert_eq!(snapshot.len(), 2);
     assert_eq!(snapshot[0].target_tab_id, "recipient-two");
     assert_eq!(snapshot[1].target_tab_id, "recipient-three");
-    assert_ne!(snapshot[0].report.id, first.id, "sender retention evicted only its oldest row");
+    assert_ne!(
+        snapshot[0].report.id, first.id,
+        "sender retention evicted only its oldest row"
+    );
     assert_eq!(snapshot[0].report.id, second.id);
     assert_eq!(snapshot[1].report.id, third.id);
 
@@ -447,7 +450,10 @@ fn outbound_snapshot_keeps_original_metadata_and_is_bounded_independent_of_recei
     assert_eq!(received[0].id, retained.id);
     let after_clear = retained_store.outbound_for_sender("sender");
     assert_eq!(after_clear[0].report.id, retained.id);
-    assert_eq!(after_clear[0].report.sender_position, retained.sender_position);
+    assert_eq!(
+        after_clear[0].report.sender_position,
+        retained.sender_position
+    );
     assert_eq!(after_clear[0].report.kind, retained.kind);
 
     retained_store.remove("sender");

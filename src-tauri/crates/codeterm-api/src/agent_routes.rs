@@ -761,9 +761,7 @@ pub async fn get_reports(
                 && caller_session_id.is_some_and(|session| !session.is_empty())
                 && caller_binding_nonce.is_some_and(|nonce| !nonce.is_empty())
         });
-        if id.starts_with("mesh:")
-            || caller_tab_id != Some(id.as_str())
-            || !current_binding_matches
+        if id.starts_with("mesh:") || caller_tab_id != Some(id.as_str()) || !current_binding_matches
         {
             return Err((
                 StatusCode::FORBIDDEN,

@@ -495,7 +495,9 @@ impl ReportStore {
                 target_tab_id: orchestrator_tab_id.to_string(),
                 report: report.clone(),
             });
-            let excess = entries.len().saturating_sub(self.max_reports_per_orchestrator);
+            let excess = entries
+                .len()
+                .saturating_sub(self.max_reports_per_orchestrator);
             if excess > 0 {
                 entries.drain(..excess);
             }

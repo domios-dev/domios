@@ -1019,13 +1019,21 @@ mod lane_safety_tests {
 
         let dirty_wt = worktrees.join("dirty");
         let dirty_wt_str = codeterm_paths::strip_verbatim_prefix(&dirty_wt.display().to_string());
-        run_git(&repo_str, &["worktree", "add", "-b", "lane/dirty", &dirty_wt_str]).unwrap();
+        run_git(
+            &repo_str,
+            &["worktree", "add", "-b", "lane/dirty", &dirty_wt_str],
+        )
+        .unwrap();
         std::fs::write(dirty_wt.join("untracked.txt"), "dirty\n").unwrap();
 
         let unmerged_wt = worktrees.join("unmerged");
         let unmerged_wt_str =
             codeterm_paths::strip_verbatim_prefix(&unmerged_wt.display().to_string());
-        run_git(&repo_str, &["worktree", "add", "-b", "lane/unmerged", &unmerged_wt_str]).unwrap();
+        run_git(
+            &repo_str,
+            &["worktree", "add", "-b", "lane/unmerged", &unmerged_wt_str],
+        )
+        .unwrap();
         std::fs::write(unmerged_wt.join("change.txt"), "ahead\n").unwrap();
         run_git(&unmerged_wt_str, &["add", "change.txt"]).unwrap();
         run_git(&unmerged_wt_str, &["commit", "-m", "ahead"]).unwrap();
@@ -1060,13 +1068,34 @@ mod lane_safety_tests {
             project_path: repo_str.clone(),
             canonical_project_path: repo_str.clone(),
             tasks: vec![
-                mk_task("t-dirty", Some(dirty_wt_str.clone()), "lane/dirty", Some(LaneOwnership::DomiosLane)),
-                mk_task("t-unmerged", Some(unmerged_wt_str.clone()), "lane/unmerged", Some(LaneOwnership::DomiosLane)),
-                mk_task("t-orphan", None, "lane/orphan", Some(LaneOwnership::DomiosLane)),
-                mk_task("t-foreign", None, "feature/ext", Some(LaneOwnership::ForeignCheckout)),
+                mk_task(
+                    "t-dirty",
+                    Some(dirty_wt_str.clone()),
+                    "lane/dirty",
+                    Some(LaneOwnership::DomiosLane),
+                ),
+                mk_task(
+                    "t-unmerged",
+                    Some(unmerged_wt_str.clone()),
+                    "lane/unmerged",
+                    Some(LaneOwnership::DomiosLane),
+                ),
+                mk_task(
+                    "t-orphan",
+                    None,
+                    "lane/orphan",
+                    Some(LaneOwnership::DomiosLane),
+                ),
+                mk_task(
+                    "t-foreign",
+                    None,
+                    "feature/ext",
+                    Some(LaneOwnership::ForeignCheckout),
+                ),
             ],
         };
-        let preview = workspace_close_lane_preview(&[plan], "team-1", &["member".into()], 16).unwrap();
+        let preview =
+            workspace_close_lane_preview(&[plan], "team-1", &["member".into()], 16).unwrap();
         let states = preview
             .iter()
             .map(|lane| (lane.task_id.as_str(), lane.state))

@@ -313,9 +313,14 @@ where
     spawn_params.workspace_id = Some(reservation_workspace);
     spawn_params.existing_tab_id = Some(reserved_tab_id.clone());
 
-    let (mut created, rollback) = match store
-        .record_task_respawn_attempt_with_profile(&id, &tid, &reserved_tab_id, &draft, svc, now)
-    {
+    let (mut created, rollback) = match store.record_task_respawn_attempt_with_profile(
+        &id,
+        &tid,
+        &reserved_tab_id,
+        &draft,
+        svc,
+        now,
+    ) {
         Ok(recorded) => recorded,
         Err(error) => {
             let mut rpc_error = plan_rpc_err(error);
@@ -553,10 +558,9 @@ mod tests {
         }
         let fixture = ServiceFixture::new(mux);
         let svc = &fixture.service;
-        svc.agent_registry
-            .register_provider(Box::new(
-                codeterm_service_core::agent::test_provider::MockProvider::new("fixture-agent"),
-            ));
+        svc.agent_registry.register_provider(Box::new(
+            codeterm_service_core::agent::test_provider::MockProvider::new("fixture-agent"),
+        ));
         let mut plan = svc
             .plan_store
             .create_plan_for_team(
@@ -600,7 +604,10 @@ mod tests {
                 Ok(())
             })
             .unwrap();
-        let source_attempt = svc.plan_store.list_task_attempts(&plan.id, &task_id).unwrap()[0]
+        let source_attempt = svc
+            .plan_store
+            .list_task_attempts(&plan.id, &task_id)
+            .unwrap()[0]
             .attempt
             .clone();
         svc.plan_store
@@ -652,7 +659,10 @@ mod tests {
                 let replacement = &task.execution_attempts[1];
                 assert_eq!(replacement.id, authority.attempt_id);
                 assert_eq!(replacement.executor_tab_id, reserved_tab);
-                assert_eq!(replacement.execution_intent, Some(ExecutionIntent::ReadOnly));
+                assert_eq!(
+                    replacement.execution_intent,
+                    Some(ExecutionIntent::ReadOnly)
+                );
                 let binding = service
                     .plan_store
                     .assigned_task_binding_projection(reserved_tab)

@@ -226,10 +226,7 @@ mod tests {
         assert_eq!(params.plan_id.as_deref(), Some("pl_opaque"));
         assert_eq!(params.task_id.as_deref(), Some("task_opaque"));
         assert_eq!(params.authorized_gates, vec!["opaque-gate"]);
-        assert_eq!(
-            params.plan_skill_manifest.as_ref().map(Vec::len),
-            Some(1)
-        );
+        assert_eq!(params.plan_skill_manifest.as_ref().map(Vec::len), Some(1));
         assert_eq!(params.speed.as_deref(), Some("opaque-tier"));
         assert_eq!(params.execution_intent, Some(ExecutionIntent::Mutating));
         assert_eq!(params.agent.as_deref(), Some("fixture-agent"));

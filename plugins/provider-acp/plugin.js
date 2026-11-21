@@ -89,42 +89,166 @@ var methods = {
   update: "session/update"
 };
 
+// plugins/provider-acp/src/runtimeReduceAccounting.ts
+var mapKeys = ["items", "controls", "warnings", "offsetById"];
+var totalsByState = /* @__PURE__ */ new WeakMap();
+function utf8Length(value) {
+  let bytes = 0;
+  for (let index = 0; index < value.length; ) {
+    const code = value.codePointAt(index);
+    bytes += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
+    index += code > 65535 ? 2 : 1;
+  }
+  return bytes;
+}
+function contribution(id, value) {
+  if (value === void 0 || typeof value === "function" || typeof value === "symbol") return 0;
+  return utf8Length(JSON.stringify({ [id]: value })) - 1;
+}
+function totals(state) {
+  let cached = totalsByState.get(state);
+  if (!cached) {
+    cached = { items: 0, controls: 0, warnings: 0, offsetById: 0 };
+    for (const key of mapKeys) for (const [id, value] of Object.entries(state[key])) cached[key] += contribution(id, value);
+    totalsByState.set(state, cached);
+  }
+  return cached;
+}
+function copyAccounting(source, target) {
+  totalsByState.set(target, { ...totals(source) });
+}
+function forgetAccounting(state) {
+  if (state !== null && typeof state === "object") totalsByState.delete(state);
+}
+function mapBytes(state, key) {
+  const total = totals(state)[key];
+  return total ? total + 1 : 2;
+}
+function putEntry(state, key, id, value) {
+  const cached = totals(state);
+  cached[key] += contribution(id, value) - contribution(id, state[key][id]);
+  state[key][id] = value;
+}
+function removeEntry(state, key, id) {
+  const before = mapBytes(state, key), cached = totals(state);
+  cached[key] -= contribution(id, state[key][id]);
+  delete state[key][id];
+  return mapBytes(state, key) - before;
+}
+function clearEntries(state, key) {
+  totals(state)[key] = 0;
+  state[key] = /* @__PURE__ */ Object.create(null);
+}
+
 // plugins/provider-acp/src/runtimeReduceTools.ts
 var object = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 var text = (value) => typeof value === "string" && value.length > 0 ? value : void 0;
+var MAX_TOOL_CALL_ID_BYTES = 4096;
+function validToolCallId(value) {
+  const id = text(value);
+  if (!id || id.includes("\0") || utf8Length(JSON.stringify(id)) - 2 > MAX_TOOL_CALL_ID_BYTES) return void 0;
+  return id;
+}
 var canonicalJson = (value) => JSON.stringify(value, (_key, item) => item !== null && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]])) : item);
+var MAX_DIFF_LINES = 4096;
+var MAX_DIFF_CELLS = 4e4;
+var MAX_CONTENT_PARTS = 64;
+function lines(value) {
+  if (!value) return [];
+  const result = value.split(/\r?\n/);
+  if (result[result.length - 1] === "") result.pop();
+  return result;
+}
 function diff(content) {
-  if (typeof content.path !== "string" || typeof content.newText !== "string" || content.oldText !== null && typeof content.oldText !== "string") return void 0;
-  const lines = (value) => value ? value.replace(/\n$/, "").split("\n") : [];
-  const oldLines = lines(typeof content.oldText === "string" ? content.oldText : "");
+  if (typeof content.path !== "string" || !content.path.trim() || typeof content.newText !== "string" || content.oldText !== null && typeof content.oldText !== "string") return void 0;
+  const oldLines = content.oldText === null ? [] : lines(content.oldText);
   const newLines = lines(content.newText);
-  return {
+  if (oldLines.length > MAX_DIFF_LINES || newLines.length > MAX_DIFF_LINES)
+    return { value: {}, omitted: true };
+  let prefix2 = 0;
+  while (prefix2 < oldLines.length && prefix2 < newLines.length && oldLines[prefix2] === newLines[prefix2]) prefix2++;
+  let oldEnd = oldLines.length, newEnd = newLines.length;
+  while (oldEnd > prefix2 && newEnd > prefix2 && oldLines[oldEnd - 1] === newLines[newEnd - 1]) {
+    oldEnd--;
+    newEnd--;
+  }
+  const oldCount = oldEnd - prefix2, newCount = newEnd - prefix2;
+  if (!oldCount && !newCount) {
+    if (content.oldText === null) return { value: {
+      path: content.path,
+      kind: "add",
+      additions: 0,
+      deletions: 0,
+      hunks: [{ oldStart: 0, oldLines: 0, newStart: 0, newLines: 0, lines: [] }]
+    }, omitted: false };
+    return void 0;
+  }
+  const columns = newCount + 1;
+  const cells = (oldCount + 1) * columns;
+  if (cells > MAX_DIFF_CELLS) return { value: {}, omitted: true };
+  const lcs = new Uint32Array(cells);
+  for (let oldIndex2 = oldCount - 1; oldIndex2 >= 0; oldIndex2--) {
+    for (let newIndex2 = newCount - 1; newIndex2 >= 0; newIndex2--) {
+      const at = oldIndex2 * columns + newIndex2;
+      lcs[at] = oldLines[prefix2 + oldIndex2] === newLines[prefix2 + newIndex2] ? lcs[(oldIndex2 + 1) * columns + newIndex2 + 1] + 1 : Math.max(lcs[(oldIndex2 + 1) * columns + newIndex2], lcs[at + 1]);
+    }
+  }
+  const changed = [];
+  let oldIndex = 0, newIndex = 0;
+  while (oldIndex < oldCount || newIndex < newCount) {
+    if (oldIndex < oldCount && newIndex < newCount && oldLines[prefix2 + oldIndex] === newLines[prefix2 + newIndex]) {
+      changed.push(` ${oldLines[prefix2 + oldIndex]}`);
+      oldIndex++;
+      newIndex++;
+    } else if (newIndex < newCount && (oldIndex === oldCount || lcs[oldIndex * columns + newIndex + 1] > lcs[(oldIndex + 1) * columns + newIndex])) {
+      changed.push(`+${newLines[prefix2 + newIndex]}`);
+      newIndex++;
+    } else {
+      changed.push(`-${oldLines[prefix2 + oldIndex]}`);
+      oldIndex++;
+    }
+  }
+  return { value: {
     path: content.path,
     kind: content.oldText === null ? "add" : "modify",
-    additions: newLines.length,
-    deletions: oldLines.length,
+    additions: changed.filter((line) => line.startsWith("+")).length,
+    deletions: changed.filter((line) => line.startsWith("-")).length,
     hunks: [{
-      oldStart: oldLines.length ? 1 : 0,
-      oldLines: oldLines.length,
-      newStart: newLines.length ? 1 : 0,
-      newLines: newLines.length,
-      lines: [...oldLines.map((line) => `-${line}`), ...newLines.map((line) => `+${line}`)]
+      oldStart: oldCount ? prefix2 + 1 : prefix2,
+      oldLines: oldCount,
+      newStart: newCount ? prefix2 + 1 : prefix2,
+      newLines: newCount,
+      lines: changed
     }]
-  };
+  }, omitted: false };
+}
+function locationSummary(value) {
+  if (!Array.isArray(value)) return "";
+  const locations = [];
+  let count2 = 0;
+  for (const raw of value) {
+    const location = object(raw);
+    if (typeof location.path !== "string" || !location.path.trim()) continue;
+    count2++;
+    if (locations.length < 8) locations.push(typeof location.line === "number" && Number.isSafeInteger(location.line) && location.line > 0 ? `${location.path}:${location.line}` : location.path);
+  }
+  if (count2 > locations.length) locations.push(`+${count2 - locations.length} more locations`);
+  return locations.join(", ");
 }
 function reduceTool(update, previous, seq) {
-  const id = text(update.toolCallId);
+  const id = validToolCallId(update.toolCallId);
   if (!id) return void 0;
   const row = { ...previous, id, seq: previous?.seq ?? seq, type: "tool_call", content: "", toolId: id, collapsed: true };
   if (typeof update.title === "string") {
     row.toolTitle = update.title;
     row.toolName = update.title;
   }
+  if (typeof update.name === "string") row.toolName = update.name;
   if (typeof update.kind === "string") {
     const kinds2 = { execute: "command", edit: "edit", read: "read", search: "search" };
     row.toolKind = Object.prototype.hasOwnProperty.call(kinds2, update.kind) ? kinds2[update.kind] : "generic";
   }
-  if (update.rawInput !== void 0) {
+  if (update.rawInput !== void 0 && update.rawInput !== null) {
     row.toolInput = update.rawInput;
     row.toolArgs = typeof update.rawInput === "string" ? update.rawInput : canonicalJson(update.rawInput);
   }
@@ -134,21 +258,29 @@ function reduceTool(update, previous, seq) {
     row.toolStatus = status;
     row.toolError = status === "failed";
   }
-  if (update.rawOutput !== void 0) row.toolResult = typeof update.rawOutput === "string" ? update.rawOutput : canonicalJson(update.rawOutput);
+  const hasRawOutput = update.rawOutput !== void 0 && update.rawOutput !== null;
+  if (hasRawOutput)
+    row.toolResult = typeof update.rawOutput === "string" ? update.rawOutput : canonicalJson(update.rawOutput);
+  if (Array.isArray(update.locations)) row.toolSummary = locationSummary(update.locations);
   if (Array.isArray(update.content)) {
     const results = [];
     const diffs = [];
-    for (const raw of update.content) {
+    let omitted2 = update.content.length > MAX_CONTENT_PARTS;
+    for (const raw of update.content.slice(0, MAX_CONTENT_PARTS)) {
       const part = object(raw);
       const block = object(part.content);
       if (part.type === "content" && block.type === "text" && typeof block.text === "string") results.push(block.text);
       if (part.type === "diff") {
         const mapped = diff(part);
-        if (mapped) diffs.push(mapped);
+        if (mapped?.omitted) omitted2 = true;
+        else if (mapped) diffs.push(mapped.value);
       }
     }
-    if (results.length) row.toolResult = results.join("\n");
+    const explicitEmpty = update.content.length === 0 && previous !== void 0;
+    if (results.length || omitted2) row.toolResult = [...results, ...omitted2 ? ["ACP tool detail was omitted because the bounded diff or content limit was reached."] : []].join("\n");
+    else if (!hasRawOutput && (explicitEmpty || previous?.toolResult !== void 0)) row.toolResult = "";
     if (diffs.length) row.fileDiffs = diffs;
+    else if (explicitEmpty || previous?.fileDiffs !== void 0) row.fileDiffs = [];
   }
   return row;
 }
@@ -290,57 +422,6 @@ function authentication(methods2, authenticated, required) {
   return { state: authenticationState(methods2, { authenticated, required }), methods: methods2.map((method) => ({ id: method.id, name: method.name, available: method.type === "agent" })) };
 }
 
-// plugins/provider-acp/src/runtimeReduceAccounting.ts
-var mapKeys = ["items", "controls", "warnings", "offsetById"];
-var totalsByState = /* @__PURE__ */ new WeakMap();
-function utf8Length(value) {
-  let bytes = 0;
-  for (let index = 0; index < value.length; ) {
-    const code = value.codePointAt(index);
-    bytes += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
-    index += code > 65535 ? 2 : 1;
-  }
-  return bytes;
-}
-function contribution(id, value) {
-  if (value === void 0 || typeof value === "function" || typeof value === "symbol") return 0;
-  return utf8Length(JSON.stringify({ [id]: value })) - 1;
-}
-function totals(state) {
-  let cached = totalsByState.get(state);
-  if (!cached) {
-    cached = { items: 0, controls: 0, warnings: 0, offsetById: 0 };
-    for (const key of mapKeys) for (const [id, value] of Object.entries(state[key])) cached[key] += contribution(id, value);
-    totalsByState.set(state, cached);
-  }
-  return cached;
-}
-function copyAccounting(source, target) {
-  totalsByState.set(target, { ...totals(source) });
-}
-function forgetAccounting(state) {
-  if (state !== null && typeof state === "object") totalsByState.delete(state);
-}
-function mapBytes(state, key) {
-  const total = totals(state)[key];
-  return total ? total + 1 : 2;
-}
-function putEntry(state, key, id, value) {
-  const cached = totals(state);
-  cached[key] += contribution(id, value) - contribution(id, state[key][id]);
-  state[key][id] = value;
-}
-function removeEntry(state, key, id) {
-  const before = mapBytes(state, key), cached = totals(state);
-  cached[key] -= contribution(id, state[key][id]);
-  delete state[key][id];
-  return mapBytes(state, key) - before;
-}
-function clearEntries(state, key) {
-  totals(state)[key] = 0;
-  state[key] = /* @__PURE__ */ Object.create(null);
-}
-
 // plugins/provider-acp/src/runtimeReduceSeen.ts
 var BITS = 4096;
 function bits(id) {
@@ -372,7 +453,103 @@ function recordEvicted(filter, ids) {
 
 // plugins/provider-acp/src/runtimeReduce.ts
 var OFFSET_BUDGET = 16384;
+var TOOL_ROW_BUDGET = 32768;
 var json = (value) => value;
+function boundedText(value, maxBytes) {
+  if (utf8Length(value) <= maxBytes) return { value, truncated: false };
+  const suffix = "\u2026";
+  const suffixBytes = utf8Length(suffix);
+  let output = "", bytes = 0;
+  for (const character of value) {
+    const size2 = utf8Length(character);
+    if (bytes + size2 + suffixBytes > maxBytes) break;
+    output += character;
+    bytes += size2;
+  }
+  return { value: output + suffix, truncated: true };
+}
+var jsonBytes = (value) => utf8Length(JSON.stringify(value));
+function retainedToolRow(row) {
+  const retained = { id: row.id, seq: row.seq, type: row.type, content: "", ...row.toolId ? { toolId: row.toolId } : {}, collapsed: true };
+  for (const key of ["toolTitle", "toolName"]) if (typeof row[key] === "string") retained[key] = boundedText(row[key], 128).value;
+  if (row.toolKind) retained.toolKind = row.toolKind;
+  if (row.toolStatus) retained.toolStatus = row.toolStatus;
+  if (row.toolError !== void 0) retained.toolError = row.toolError;
+  if (row.toolInterrupted !== void 0) retained.toolInterrupted = row.toolInterrupted;
+  if (typeof row.toolSummary === "string") retained.toolSummary = boundedText(row.toolSummary, 128).value;
+  if (typeof row.toolDetail === "string") retained.toolDetail = boundedText(row.toolDetail, 192).value;
+  if (typeof row.toolResult === "string") retained.toolResult = boundedText(row.toolResult, 192).value;
+  if (typeof row.toolArgs === "string") retained.toolArgs = boundedText(row.toolArgs, 192).value;
+  if (row.toolInput !== void 0 && jsonBytes(row.toolInput) <= 256) retained.toolInput = row.toolInput;
+  if (row.fileDiffs !== void 0 && jsonBytes(row.fileDiffs) <= 384) retained.fileDiffs = row.fileDiffs;
+  for (const key of ["toolInput", "toolArgs", "toolResult", "toolDetail", "fileDiffs", "toolSummary"]) {
+    if (jsonBytes(retained) <= 1024) break;
+    delete retained[key];
+  }
+  return retained;
+}
+function boundedToolRow(row) {
+  const result = { id: row.id, seq: row.seq, type: row.type, content: "", ...row.toolId ? { toolId: row.toolId } : {}, collapsed: true };
+  let truncated = false;
+  for (const key of ["toolTitle", "toolName"]) if (typeof row[key] === "string") {
+    const bounded = boundedText(row[key], 256);
+    result[key] = bounded.value;
+    truncated || (truncated = bounded.truncated);
+  }
+  if (row.toolKind) result.toolKind = row.toolKind;
+  if (row.toolStatus) result.toolStatus = row.toolStatus;
+  if (row.toolError !== void 0) result.toolError = row.toolError;
+  if (row.toolInterrupted !== void 0) result.toolInterrupted = row.toolInterrupted;
+  if (typeof row.toolSummary === "string") {
+    const bounded = boundedText(row.toolSummary, 256);
+    result.toolSummary = bounded.value;
+    truncated || (truncated = bounded.truncated);
+  }
+  if (typeof row.toolDetail === "string") {
+    const bounded = boundedText(row.toolDetail, 768);
+    result.toolDetail = bounded.value;
+    truncated || (truncated = bounded.truncated);
+  }
+  if (typeof row.toolResult === "string") {
+    const bounded = boundedText(row.toolResult, 768);
+    result.toolResult = bounded.value;
+    truncated || (truncated = bounded.truncated);
+  }
+  if (typeof row.toolArgs === "string") {
+    const bounded = boundedText(row.toolArgs, 384);
+    result.toolArgs = bounded.value;
+    truncated || (truncated = bounded.truncated);
+  }
+  if (row.toolInput !== void 0) {
+    if (jsonBytes(row.toolInput) <= 2048) result.toolInput = row.toolInput;
+    else truncated = true;
+  }
+  if (row.fileDiffs !== void 0) {
+    if (jsonBytes(row.fileDiffs) <= 12288) result.fileDiffs = row.fileDiffs;
+    else truncated = true;
+  }
+  const note = "ACP tool details were shortened to fit the display budget.";
+  if (truncated) {
+    result.toolDetail = [result.toolDetail, note].filter(Boolean).join("\n");
+  }
+  for (const key of ["toolInput", "toolArgs", "toolResult", "toolDetail", "toolSummary", "fileDiffs"]) {
+    if (jsonBytes(result) <= TOOL_ROW_BUDGET) break;
+    delete result[key];
+    if (!result.toolDetail?.includes(note)) result.toolDetail = [result.toolDetail, note].filter(Boolean).join("\n");
+  }
+  return result;
+}
+function toolPatch(row, previous) {
+  const patch = { id: row.id, seq: row.seq, type: row.type, content: "", ...row.toolId ? { toolId: row.toolId } : {} };
+  if (!previous) return { ...row };
+  for (const key of Object.keys(row)) {
+    if (["id", "seq", "type", "content", "toolId"].includes(key)) continue;
+    const value = row[key];
+    if (value !== void 0 && JSON.stringify(value) !== JSON.stringify(previous[key]))
+      patch[key] = value;
+  }
+  return patch;
+}
 function initial(ctx, raw, cursor) {
   const previous = object(raw);
   if (previous.epoch !== ctx.epoch || previous.nonce !== ctx.bindingNonce || previous.sessionId !== ctx.threadId)
@@ -436,8 +613,8 @@ function initial(ctx, raw, cursor) {
 function emit(state, events, row, patch = false) {
   const previous = state.items[row.id];
   row.seq = previous?.seq ?? ++state.seq;
-  if (utf8Length(JSON.stringify(row)) > 32768) {
-    row = {
+  if (utf8Length(JSON.stringify(row)) > TOOL_ROW_BUDGET) {
+    row = row.type === "tool_call" ? boundedToolRow(row) : {
       id: row.id,
       seq: row.seq,
       type: row.type,
@@ -446,7 +623,7 @@ function emit(state, events, row, patch = false) {
       ...row.toolId ? { toolId: row.toolId } : {}
     };
   }
-  const retained = {
+  const retained = row.type === "tool_call" ? retainedToolRow(row) : {
     ...previous,
     id: row.id,
     seq: row.seq,
@@ -458,12 +635,28 @@ function emit(state, events, row, patch = false) {
     ...row.toolKind ? { toolKind: row.toolKind } : {},
     ...row.toolStatus ? { toolStatus: row.toolStatus } : {}
   };
-  if (row.toolStatus === "running" && !previous && !admitToolIdentity(state, retained)) {
-    events.push({ kind: "chatItem", threadId: state.sessionId, item: { ...row, toolStatus: "interrupted", toolInterrupted: true, content: "[ACP tool tracking capacity exhausted]" } });
+  if (row.toolStatus === "running" && !previous && !admitToolIdentity(state, {
+    id: row.id,
+    seq: row.seq,
+    type: row.type,
+    content: "",
+    ...row.toolId ? { toolId: row.toolId } : {},
+    ...row.toolTitle ? { toolTitle: row.toolTitle } : {},
+    ...row.toolName ? { toolName: row.toolName } : {},
+    ...row.toolKind ? { toolKind: row.toolKind } : {},
+    toolStatus: row.toolStatus
+  })) {
+    let exhausted = { ...row, toolStatus: "interrupted", toolInterrupted: true, toolDetail: "[ACP tool tracking capacity exhausted]" };
+    if (jsonBytes(exhausted) > TOOL_ROW_BUDGET) exhausted = boundedToolRow(exhausted);
+    events.push({ kind: "chatItem", threadId: state.sessionId, item: exhausted });
     return;
   }
   putEntry(state, "items", row.id, retained);
-  if (!patch || JSON.stringify(previous) !== JSON.stringify(retained) || row.toolInput !== void 0 || row.toolResult !== void 0 || row.fileDiffs !== void 0 || row.toolInterrupted) events.push({ kind: patch ? "chatItemPatch" : "chatItem", threadId: state.sessionId, item: row });
+  if (patch) {
+    const update = toolPatch(row, previous);
+    if (Object.keys(update).some((key) => !["id", "seq", "type", "content", "toolId"].includes(key)))
+      events.push({ kind: "chatItemPatch", threadId: state.sessionId, item: update });
+  } else events.push({ kind: "chatItem", threadId: state.sessionId, item: row });
 }
 function admitToolIdentity(state, retained) {
   let bytes = mapBytes(state, "items") + utf8Length(JSON.stringify({ [retained.id]: retained })) - 1;
@@ -493,6 +686,13 @@ function rememberOffset(state, base, cursor) {
 function rememberControl(state, kind, update) {
   const encoded = JSON.stringify(update);
   if (encoded.length <= 16384) putEntry(state, "controls", kind, JSON.parse(encoded));
+}
+function warnInvalidToolCallId(state, events) {
+  const key = "invalid_tool_call_id";
+  if (!Object.prototype.hasOwnProperty.call(state.warnings, key) && Object.keys(state.warnings).length >= 32) return;
+  const count2 = state.warnings[key] ?? 0;
+  putEntry(state, "warnings", key, Math.min(count2 + 1, Number.MAX_SAFE_INTEGER));
+  if (!count2) events.push({ kind: "notice", threadId: state.sessionId, message: "Refused ACP tool update with invalid or oversized toolCallId" });
 }
 function warn(state, events, rawKind) {
   const kind = rawKind.slice(0, 128);
@@ -632,23 +832,19 @@ function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = fal
       if (kind === "tool_call" || kind === "tool_call_update") {
         if (state.settled && !state.loading) continue;
         closeChunk(ctx, state, events);
-        const id = text(update.toolCallId);
-        const previous = id ? state.items[id] : void 0;
-        if (id && !state.seenItems.includes(id)) {
+        const rawId = text(update.toolCallId);
+        const id = validToolCallId(rawId);
+        if (!id) {
+          if (rawId) warnInvalidToolCallId(state, events);
+          continue;
+        }
+        const previous = state.items[id];
+        if (!state.seenItems.includes(id)) {
           state.ordinal++;
           state.seenItems.push(id);
         }
         const row = reduceTool(update, previous, state.seq + 1);
-        if (row && (previous || kind === "tool_call")) {
-          if (kind === "tool_call_update") {
-            if (update.title === void 0) {
-              delete row.toolTitle;
-              delete row.toolName;
-            }
-            if (update.kind === void 0) delete row.toolKind;
-          }
-          emit(state, events, row, kind === "tool_call_update");
-        }
+        if (row && (previous || kind === "tool_call")) emit(state, events, row, kind === "tool_call_update");
       } else if (kind === "plan") {
         closeChunk(ctx, state, events);
         const id = `${ctx.threadId}:plan`;
@@ -876,9 +1072,9 @@ function lineCount(value) {
 function preview(value, prefix2 = "") {
   const text2 = readable(value);
   if (!text2) return [];
-  const lines = text2.split("\n", 4);
-  if (lines[lines.length - 1] === "") lines.pop();
-  return lines.slice(0, 3).map((line) => `${prefix2}${line}`).concat(lines.length > 3 ? ["\u2026"] : []);
+  const lines2 = text2.split("\n", 4);
+  if (lines2[lines2.length - 1] === "") lines2.pop();
+  return lines2.slice(0, 3).map((line) => `${prefix2}${line}`).concat(lines2.length > 3 ? ["\u2026"] : []);
 }
 function displayPath(path) {
   if (path.startsWith("\\\\?\\UNC\\")) return "\\\\" + path.slice(8);
@@ -895,36 +1091,36 @@ function writeHeader(tool) {
 function permissionQuestion(tool) {
   const title = readable(tool.title, 256).trim() || "Tool permission requested";
   const kind = readable(tool.kind, 64).trim();
-  const lines = [kind && kind !== "other" ? `${title}
+  const lines2 = [kind && kind !== "other" ? `${title}
 Kind: ${kind}` : title];
   const paths = /* @__PURE__ */ new Set();
   const addPath = (value) => {
     const path = readable(value, 512);
     if (path && !paths.has(path) && paths.size < 4) {
       paths.add(path);
-      lines.push(`Path: ${path}`);
+      lines2.push(`Path: ${path}`);
     }
   };
   if (Array.isArray(tool.locations)) for (const location of tool.locations.slice(0, 4)) addPath(object3(location).path);
   const input = object3(tool.rawInput);
   addPath(input.path);
   const command = readable(input.command || input.commandLine || input.cmd, 768);
-  if (command) lines.push(`Command: ${command}`);
+  if (command) lines2.push(`Command: ${command}`);
   if (Array.isArray(tool.content)) for (const entry of tool.content.slice(0, 4)) {
     const content = object3(entry);
     if (content.type === "diff") {
       addPath(content.path);
-      lines.push(`Diff: ${readable(content.path, 512) || "file"} (+${lineCount(content.newText)} added, -${lineCount(content.oldText)} removed lines)`);
-      lines.push(...preview(content.oldText, "- "), ...preview(content.newText, "+ "));
+      lines2.push(`Diff: ${readable(content.path, 512) || "file"} (+${lineCount(content.newText)} added, -${lineCount(content.oldText)} removed lines)`);
+      lines2.push(...preview(content.oldText, "- "), ...preview(content.newText, "+ "));
     } else if (content.type === "content") {
       const block = object3(content.content);
-      if (block.type === "text") lines.push(...preview(block.text));
+      if (block.type === "text") lines2.push(...preview(block.text));
     }
   }
-  lines.push("Allow this tool call?");
+  lines2.push("Allow this tool call?");
   const header = writeHeader(tool);
   const budget = Math.max(0, 2048 - header.length);
-  return header + (budget ? readable(lines.join("\n"), budget) : "");
+  return header + (budget ? readable(lines2.join("\n"), budget) : "");
 }
 function runtimePrompt(ctx, method, params) {
   const data = object3(params);

@@ -413,7 +413,11 @@ impl ServiceContext {
             "sender_position": report.sender_position.clone(),
             "report": report.clone(),
         });
-        if let Some(kind) = report.kind.as_deref().filter(|kind| !kind.trim().is_empty()) {
+        if let Some(kind) = report
+            .kind
+            .as_deref()
+            .filter(|kind| !kind.trim().is_empty())
+        {
             bus_payload["kind"] = Value::String(kind.to_string());
             ui_payload["kind"] = Value::String(kind.to_string());
         }

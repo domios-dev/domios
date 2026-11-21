@@ -1,13 +1,13 @@
 use super::*;
+use crate::test_fixture::ServiceFixture;
+use crate::traits::HierarchyExt;
+use codeterm_service_core::agent::reports::ReportDetails;
 use codeterm_service_core::{
     agent::chat_types::ChatMsg,
     multiplexer::state::MultiplexerState,
     multiplexer::types::AgentRole,
     service::agent_runtime::engine::{self, test_support},
 };
-use crate::traits::HierarchyExt;
-use crate::test_fixture::ServiceFixture;
-use codeterm_service_core::agent::reports::ReportDetails;
 
 #[test]
 fn report_position_keeps_the_untimed_source_row_before_final_text() {
@@ -34,10 +34,12 @@ fn report_position_keeps_the_untimed_source_row_before_final_text() {
     });
     assert_eq!(
         position,
-        Some(codeterm_service_core::agent::reports::ReportSenderPosition {
-            source_session_id: "own-session".into(),
-            message_id: "report-tool".into(),
-        })
+        Some(
+            codeterm_service_core::agent::reports::ReportSenderPosition {
+                source_session_id: "own-session".into(),
+                message_id: "report-tool".into(),
+            }
+        )
     );
     assert_eq!(
         sender_position(&fixture.service, &tab_id)

@@ -85,7 +85,9 @@ impl PlanDatabase {
         self.team_close_projection_inner(team, members, None)
             .map_err(|error| match error {
                 TeamCloseProjectionError::Store(error) => error,
-                TeamCloseProjectionError::TooLarge => unreachable!("unbounded projection cannot overflow"),
+                TeamCloseProjectionError::TooLarge => {
+                    unreachable!("unbounded projection cannot overflow")
+                }
             })
     }
 

@@ -817,7 +817,10 @@ fn socket_plan_task_respawn_runtime_persists_binding_before_spawn_and_reaches_wo
         .session_binding_nonce
         .clone()
         .expect("respawned ChatBackend tab must bind a non-null nonce");
-    assert_eq!(tab.reported_session_binding_nonce.as_deref(), Some(nonce.as_str()));
+    assert_eq!(
+        tab.reported_session_binding_nonce.as_deref(),
+        Some(nonce.as_str())
+    );
 
     let persisted = svc.plan_store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(persisted.execution_attempts.len(), 2);

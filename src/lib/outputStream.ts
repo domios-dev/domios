@@ -505,7 +505,7 @@ function deliverAggregateRenderJob(queue: AggregateRenderQueue, job: AggregateRe
   try {
     for (const sink of targets) {
       if (!isCurrentAggregateRenderQueue(queue) || !sinks.get(job.tabId)?.has(sink)) continue;
-      let result: void | Promise<void>;
+      let result: void | Promise<void> = undefined;
       if (job.kind === "output") result = deliverAggregateOutput(queue, sink, job);
       else if (job.kind === "replay_complete") result = deliverAggregateReplayComplete(queue, sink, job);
       else if (job.kind === "truncated") deliverAggregateTruncation(queue, sink, job);
@@ -600,7 +600,7 @@ function drainAggregateRenderQueue(queue: AggregateRenderQueue): void {
         queue.pendingBytes += job.size;
         queue.pendingFrames++;
       }
-      let result: void | Promise<void>;
+      let result: void | Promise<void> = undefined;
       try {
         result = deliverAggregateRenderJob(queue, job);
       } catch (error) {

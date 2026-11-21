@@ -845,7 +845,11 @@ impl HierarchyExt for ServiceContext {
             "task_report": task_report.clone(),
             "report_outcome": report_outcome,
         });
-        if let Some(kind) = report.kind.as_deref().filter(|kind| !kind.trim().is_empty()) {
+        if let Some(kind) = report
+            .kind
+            .as_deref()
+            .filter(|kind| !kind.trim().is_empty())
+        {
             bus_payload["kind"] = serde_json::json!(kind);
         }
         self.events.broadcast("agent.report", bus_payload);
@@ -857,7 +861,11 @@ impl HierarchyExt for ServiceContext {
             task_report,
         );
         event["sender_position"] = serde_json::json!(report.sender_position);
-        if let Some(kind) = report.kind.as_deref().filter(|kind| !kind.trim().is_empty()) {
+        if let Some(kind) = report
+            .kind
+            .as_deref()
+            .filter(|kind| !kind.trim().is_empty())
+        {
             event["kind"] = serde_json::json!(kind);
         }
         self.ui.emit("agent-report", event);

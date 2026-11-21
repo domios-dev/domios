@@ -100,11 +100,8 @@ impl PlanStore {
                 attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
                 attempt.authorized_gates = draft.authorized_gates.clone();
                 attempt.placement = draft.source_attempt.placement;
-                attempt.execution_intent = draft
-                    .source_attempt
-                    .execution_intent
-                    .clone()
-                    .or_else(|| {
+                attempt.execution_intent =
+                    draft.source_attempt.execution_intent.clone().or_else(|| {
                         (draft.execution_intent != crate::plan::ExecutionIntent::Unspecified)
                             .then(|| draft.execution_intent.clone())
                     });

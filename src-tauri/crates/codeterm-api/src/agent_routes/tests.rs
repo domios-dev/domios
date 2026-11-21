@@ -697,21 +697,25 @@ async fn outbound_report_snapshot_is_sender_scoped_and_never_consumes_recipient_
     let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = crate::test_support::app_state(&fixture);
     let recipient = "recipient-tab";
-    let report = state.svc.report_store.lock().add_detailed_with_host_metadata(
-        recipient,
-        &sender,
-        "Sender",
-        "opaque lifecycle notice",
-        ReportDetails::default(),
-        None,
-        AgentReportHostMetadata {
-            sender_position: Some(ReportSenderPosition {
-                source_session_id: "source-session".into(),
-                message_id: "ack-row".into(),
-            }),
-            kind: Some("dispatch_ready".into()),
-        },
-    );
+    let report = state
+        .svc
+        .report_store
+        .lock()
+        .add_detailed_with_host_metadata(
+            recipient,
+            &sender,
+            "Sender",
+            "opaque lifecycle notice",
+            ReportDetails::default(),
+            None,
+            AgentReportHostMetadata {
+                sender_position: Some(ReportSenderPosition {
+                    source_session_id: "source-session".into(),
+                    message_id: "ack-row".into(),
+                }),
+                kind: Some("dispatch_ready".into()),
+            },
+        );
 
     let mut sender_headers = HeaderMap::new();
     sender_headers.insert("x-codeterm-tab-id", sender.parse().unwrap());
@@ -727,9 +731,7 @@ async fn outbound_report_snapshot_is_sender_scoped_and_never_consumes_recipient_
         AxumState(state.clone()),
         sender_headers.clone(),
         Path(sender.clone()),
-        Query(ReportsQuery {
-            clear: None,
-        }),
+        Query(ReportsQuery { clear: None }),
     )
     .await
     .unwrap()
@@ -748,9 +750,7 @@ async fn outbound_report_snapshot_is_sender_scoped_and_never_consumes_recipient_
         AxumState(state.clone()),
         sender_headers.clone(),
         Path(sender.clone()),
-        Query(ReportsQuery {
-            clear: None,
-        }),
+        Query(ReportsQuery { clear: None }),
     )
     .await
     .unwrap()
@@ -761,9 +761,7 @@ async fn outbound_report_snapshot_is_sender_scoped_and_never_consumes_recipient_
         AxumState(state.clone()),
         HeaderMap::new(),
         Path(recipient.into()),
-        Query(ReportsQuery {
-            clear: Some(false),
-        }),
+        Query(ReportsQuery { clear: Some(false) }),
     )
     .await
     .unwrap()
@@ -783,9 +781,7 @@ async fn outbound_report_snapshot_is_sender_scoped_and_never_consumes_recipient_
         AxumState(state.clone()),
         foreign_headers,
         Path(sender.clone()),
-        Query(ReportsQuery {
-            clear: None,
-        }),
+        Query(ReportsQuery { clear: None }),
     )
     .await
     .unwrap_err();
@@ -805,23 +801,22 @@ async fn outbound_report_snapshot_is_sender_scoped_and_never_consumes_recipient_
         AxumState(state.clone()),
         remote_headers,
         Path("mesh:peer/remote-tab".into()),
-        Query(ReportsQuery {
-            clear: None,
-        }),
+        Query(ReportsQuery { clear: None }),
     )
     .await
     .unwrap_err();
     assert_eq!(remote_read.0, StatusCode::FORBIDDEN);
 
     let mut stale_binding_headers = sender_headers.clone();
-    stale_binding_headers.insert("x-codeterm-binding-nonce", "replaced-nonce".parse().unwrap());
+    stale_binding_headers.insert(
+        "x-codeterm-binding-nonce",
+        "replaced-nonce".parse().unwrap(),
+    );
     let stale_binding = super::get_reports(
         AxumState(state.clone()),
         stale_binding_headers,
         Path(sender.clone()),
-        Query(ReportsQuery {
-            clear: None,
-        }),
+        Query(ReportsQuery { clear: None }),
     )
     .await
     .unwrap_err();
@@ -831,9 +826,7 @@ async fn outbound_report_snapshot_is_sender_scoped_and_never_consumes_recipient_
         AxumState(state.clone()),
         sender_headers.clone(),
         Path(sender.clone()),
-        Query(ReportsQuery {
-            clear: Some(true),
-        }),
+        Query(ReportsQuery { clear: Some(true) }),
     )
     .await
     .unwrap_err();
@@ -843,9 +836,7 @@ async fn outbound_report_snapshot_is_sender_scoped_and_never_consumes_recipient_
         AxumState(state.clone()),
         HeaderMap::new(),
         Path(recipient.into()),
-        Query(ReportsQuery {
-            clear: Some(true),
-        }),
+        Query(ReportsQuery { clear: Some(true) }),
     )
     .await
     .unwrap()
@@ -855,9 +846,7 @@ async fn outbound_report_snapshot_is_sender_scoped_and_never_consumes_recipient_
         AxumState(state),
         sender_headers,
         Path(sender.clone()),
-        Query(ReportsQuery {
-            clear: None,
-        }),
+        Query(ReportsQuery { clear: None }),
     )
     .await
     .unwrap()

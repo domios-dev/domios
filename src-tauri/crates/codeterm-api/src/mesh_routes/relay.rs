@@ -821,9 +821,7 @@ async fn perform_relay_unredacted(
             } => {
                 return close_workspace_from_mesh_peer(state, peer_id, workspace_id, force).await;
             }
-            PeerRelayAuthorization::WorkspaceClosePreview {
-                workspace_id, ..
-            } => {
+            PeerRelayAuthorization::WorkspaceClosePreview { workspace_id, .. } => {
                 let response = workspace_close_preview_from_mesh_peer(state, workspace_id).await?;
                 if !grant.current(&state.mesh.lock()) {
                     return Ok(grant_refusal());

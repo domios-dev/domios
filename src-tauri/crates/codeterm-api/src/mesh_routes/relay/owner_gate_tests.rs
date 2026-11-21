@@ -342,8 +342,8 @@ fn relay_paths_with_dot_segments_or_backslashes_are_rejected() {
 }
 
 #[tokio::test]
-async fn workspace_close_preview_relay_enforces_owner_origin_and_workspace_authority_without_mutation()
-{
+async fn workspace_close_preview_relay_enforces_owner_origin_and_workspace_authority_without_mutation(
+) {
     use codeterm_service_core::mesh::types::Permission;
 
     for path in [
@@ -399,17 +399,17 @@ async fn workspace_close_preview_relay_enforces_owner_origin_and_workspace_autho
     mux.get_tab_mut(&agent_tab).unwrap().title = "WorkerOne".into();
 
     let fixture = codeterm_neighbors_service::test_support::fixture(mux);
-    let storage = codeterm_storage::Storage::open(
-        fixture.temp.path().join("storage"),
-        Default::default(),
-    )
-    .unwrap();
+    let storage =
+        codeterm_storage::Storage::open(fixture.temp.path().join("storage"), Default::default())
+            .unwrap();
     let store = codeterm_sentinel_host::store::Store::with_storage(
         &storage,
         codeterm_service_core::cron::clock::MockClock::starting_at(1000),
     );
-    let handle =
-        codeterm_sentinel_host::scheduler::fixture_handle_with_ui(store, fixture.service.ui.clone());
+    let handle = codeterm_sentinel_host::scheduler::fixture_handle_with_ui(
+        store,
+        fixture.service.ui.clone(),
+    );
     codeterm_sentinel_host::manage_fixture_ports(&fixture.service, &handle);
 
     let state = app_state(&fixture);
@@ -471,7 +471,10 @@ async fn workspace_close_preview_relay_enforces_owner_origin_and_workspace_autho
     assert_eq!(preview.agent_tabs.len(), 1);
     assert_eq!(preview.agent_tabs[0].title, "WorkerOne");
     let after = serde_json::to_value(fixture.service.mux.read().snapshot()).unwrap();
-    assert_eq!(after, before, "close-preview must not mutate multiplexer state");
+    assert_eq!(
+        after, before,
+        "close-preview must not mutate multiplexer state"
+    );
 
     let missing = perform_relay(
         &state,

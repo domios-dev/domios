@@ -204,8 +204,13 @@ impl ServiceContext {
         &self,
         callback: Arc<dyn Fn(&ServiceContext) + Send + Sync>,
     ) -> Result<(), String> {
-        self.set_ext(SwitchBindingCommit(Mutex::new(Some(callback))))
-            .map_err(|_| "switch binding fixture already installed".into())
+        let slot = self.ext_or_init(|| SwitchBindingCommit(Mutex::new(None)));
+        let mut guard = slot.0.lock();
+        if guard.is_some() {
+            return Err("switch binding fixture already installed".into());
+        }
+        *guard = Some(callback);
+        Ok(())
     }
     #[cfg(any(test, feature = "test-support"))]
     pub fn forget_completed_session_for_test(&self, tab_id: &str) {

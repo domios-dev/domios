@@ -905,8 +905,6 @@
           "content": "",
           "toolId": "call_00_7HX7JuFIbKjahcigcBAA7511",
           "toolStatus": "completed",
-          "collapsed": true,
-          "toolError": false,
           "toolResult": "<path>/work/project/probe-marker.txt</path>\n<type>file</type>\n<content>\nCreated file\n</content>"
         }
       },

@@ -459,10 +459,7 @@ fn startup_notices_capture_bound_sender_position_before_later_rows_and_tool_patc
         assert_eq!(ui_event["kind"], json!(kind));
         assert_eq!(bus_event["report"]["id"], ui_event["report"]["id"]);
         assert!(ui_event["report"]["status"].is_null());
-        assert_eq!(
-            bus_event["report"]["sender_position"],
-            expected_position
-        );
+        assert_eq!(bus_event["report"]["sender_position"], expected_position);
         assert_eq!(bus_event["report"]["kind"], json!(kind));
         let stored = fixture
             .service
@@ -473,7 +470,10 @@ fn startup_notices_capture_bound_sender_position_before_later_rows_and_tool_patc
             .iter()
             .find(|report| report.id == bus_event["report"]["id"])
             .expect("startup report is stored before publication");
-        assert_eq!(stored_report.sender_position.as_ref().unwrap().message_id, "ack-row");
+        assert_eq!(
+            stored_report.sender_position.as_ref().unwrap().message_id,
+            "ack-row"
+        );
         assert_eq!(stored_report.kind.as_deref(), Some(kind));
         assert_eq!(
             crate::service::agent_runtime::report_position::sender_position(
@@ -512,8 +512,14 @@ fn startup_notices_keep_null_sender_position_on_empty_cache_or_replaced_binding(
         json!({ "kind": "dispatch_ready", "task_id": "task_fixture", "attempt_id": "attempt_empty" }),
         &delivery,
     );
-    assert_eq!(next_bus_agent_report(&mut bus)["sender_position"], Value::Null);
-    assert_eq!(last_ui_agent_report(&fixture)["sender_position"], Value::Null);
+    assert_eq!(
+        next_bus_agent_report(&mut bus)["sender_position"],
+        Value::Null
+    );
+    assert_eq!(
+        last_ui_agent_report(&fixture)["sender_position"],
+        Value::Null
+    );
 
     session
         .cache
@@ -543,8 +549,14 @@ fn startup_notices_keep_null_sender_position_on_empty_cache_or_replaced_binding(
             json!({ "kind": "worker_ack", "attempt_id": "attempt_nonce" }),
             &delivery,
         );
-    assert_eq!(next_bus_agent_report(&mut bus)["sender_position"], Value::Null);
-    assert_eq!(last_ui_agent_report(&fixture)["sender_position"], Value::Null);
+    assert_eq!(
+        next_bus_agent_report(&mut bus)["sender_position"],
+        Value::Null
+    );
+    assert_eq!(
+        last_ui_agent_report(&fixture)["sender_position"],
+        Value::Null
+    );
 
     {
         let mut mux = fixture.service.mux.write();
@@ -559,8 +571,14 @@ fn startup_notices_keep_null_sender_position_on_empty_cache_or_replaced_binding(
         json!({ "kind": "dispatch_ready", "task_id": "task_fixture", "attempt_id": "attempt_session" }),
         &delivery,
     );
-    assert_eq!(next_bus_agent_report(&mut bus)["sender_position"], Value::Null);
-    assert_eq!(last_ui_agent_report(&fixture)["sender_position"], Value::Null);
+    assert_eq!(
+        next_bus_agent_report(&mut bus)["sender_position"],
+        Value::Null
+    );
+    assert_eq!(
+        last_ui_agent_report(&fixture)["sender_position"],
+        Value::Null
+    );
 
     fixture
         .service
@@ -581,6 +599,12 @@ fn startup_notices_keep_null_sender_position_on_empty_cache_or_replaced_binding(
             json!({ "kind": "worker_ack", "attempt_id": "attempt_stopped" }),
             &delivery,
         );
-    assert_eq!(next_bus_agent_report(&mut bus)["sender_position"], Value::Null);
-    assert_eq!(last_ui_agent_report(&fixture)["sender_position"], Value::Null);
+    assert_eq!(
+        next_bus_agent_report(&mut bus)["sender_position"],
+        Value::Null
+    );
+    assert_eq!(
+        last_ui_agent_report(&fixture)["sender_position"],
+        Value::Null
+    );
 }

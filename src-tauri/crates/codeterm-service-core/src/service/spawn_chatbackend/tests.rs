@@ -954,9 +954,7 @@ fn chatbackend_only_session_config_provider_emits_starter_not_duplicate_task() {
         fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
             Ok(())
         }
-        fn list_models(
-            &self,
-        ) -> Result<Vec<crate::agent::provider::ModelInfo>, ChatBackendError> {
+        fn list_models(&self) -> Result<Vec<crate::agent::provider::ModelInfo>, ChatBackendError> {
             Ok(Vec::new())
         }
     }

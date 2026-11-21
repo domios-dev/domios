@@ -830,8 +830,15 @@ fn worker_ack_final_deadline_finalizes_attempt_for_redispatch() {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().display().to_string();
     let store = PlanStore::new_for_test(root.path());
-    let (plan_id, task_id, attempt_id) =
-        starting_worker_task(&store, &project, "Dispatch", "worker", "tab-worker", "Ada", 1);
+    let (plan_id, task_id, attempt_id) = starting_worker_task(
+        &store,
+        &project,
+        "Dispatch",
+        "worker",
+        "tab-worker",
+        "Ada",
+        1,
+    );
     let mut with_older_attempt = store.get(&plan_id).unwrap();
     let task = with_older_attempt
         .tasks
@@ -910,8 +917,15 @@ fn blocked_before_worker_ack_deadline_receives_no_startup_mutation() {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().display().to_string();
     let store = PlanStore::new_for_test(root.path());
-    let (plan_id, task_id, attempt_id) =
-        starting_worker_task(&store, &project, "Dispatch", "worker", "tab-worker", "Ada", 1);
+    let (plan_id, task_id, attempt_id) = starting_worker_task(
+        &store,
+        &project,
+        "Dispatch",
+        "worker",
+        "tab-worker",
+        "Ada",
+        1,
+    );
     let mut blocked_plan = store.get(&plan_id).unwrap();
     let blocked = blocked_plan
         .tasks
@@ -1170,7 +1184,10 @@ fn respawned_attempt_ack_enforces_exact_runtime_session_and_nonce() {
         )
         .unwrap();
     assert_eq!(ack.attempt.id, created.attempt.id);
-    assert_eq!(ack.attempt.session_id.as_deref(), Some("session-respawn-exact"));
+    assert_eq!(
+        ack.attempt.session_id.as_deref(),
+        Some("session-respawn-exact")
+    );
     assert_eq!(
         ack.attempt.session_binding_nonce.as_deref(),
         Some("nonce-respawn-exact")
