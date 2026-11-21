@@ -129,13 +129,15 @@ interface AggregateRenderQueue {
   pendingFrames: number;
   active: boolean;
   running: boolean;
-  blocked: Array<{ job: AggregateRenderJob; resolve: () => void }>;
+  overflowFrame?: OutputFrame;
+  overflowTruncation?: OutputFrame;
+  overflowReplayComplete?: OutputFrame;
+  overflowEnded?: OutputFrame;
 }
 
 const aggregateRenderQueues = new Map<string, AggregateRenderQueue>();
 const MAX_AGGREGATE_RENDER_BYTES = 256 * 1024;
 const MAX_AGGREGATE_RENDER_FRAMES = 16;
-const MAX_AGGREGATE_RENDER_ADMISSIONS = 2;
 
 let boot: string | null = readBoot();
 let streamAbort: AbortController | null = null;
@@ -229,10 +231,10 @@ function invalidateAggregateRenderQueue(queue: AggregateRenderQueue): void {
   queue.jobs = [];
   queue.pendingBytes = 0;
   queue.pendingFrames = 0;
-  for (const blocked of queue.blocked) {
-    blocked.resolve();
-  }
-  queue.blocked = [];
+  queue.overflowFrame = undefined;
+  queue.overflowTruncation = undefined;
+  queue.overflowReplayComplete = undefined;
+  queue.overflowEnded = undefined;
   if (aggregateRenderQueues.get(queue.key) === queue) aggregateRenderQueues.delete(queue.key);
 }
 
@@ -252,7 +254,7 @@ function aggregateRenderQueue(tabId: string, bootId: string, ptyId: string): Agg
     queue = {
       key, tabId, boot: bootId, ptyId, outputGeneration,
       jobs: [], cursors: new Map(), pendingBytes: 0, pendingFrames: 0,
-      active: true, running: false, blocked: [],
+      active: true, running: false,
     };
     aggregateRenderQueues.set(key, queue);
   }
@@ -264,40 +266,49 @@ function aggregateRenderHasCapacity(queue: AggregateRenderQueue, job: AggregateR
     && (queue.pendingFrames === 0 || queue.pendingBytes + job.size <= MAX_AGGREGATE_RENDER_BYTES);
 }
 
-function admitBlockedAggregateRender(queue: AggregateRenderQueue): void {
-  while (isCurrentAggregateRenderQueue(queue) && queue.blocked.length > 0
-    && aggregateRenderHasCapacity(queue, queue.blocked[0].job)) {
-    const blocked = queue.blocked.shift()!;
-    queue.pendingBytes += blocked.job.size;
-    queue.pendingFrames++;
-    queue.jobs.push(blocked.job);
-    blocked.resolve();
-  }
+function hasAggregateRenderOverflow(queue: AggregateRenderQueue): boolean {
+  return queue.overflowFrame !== undefined || queue.overflowTruncation !== undefined
+    || queue.overflowReplayComplete !== undefined || queue.overflowEnded !== undefined;
 }
 
-async function enqueueAggregateRender(tabId: string, frame: OutputFrame, kind: AggregateRenderJob["kind"], bytes?: Uint8Array): Promise<void> {
+function enqueueAggregateRender(tabId: string, frame: OutputFrame, kind: AggregateRenderJob["kind"], bytes?: Uint8Array): void {
   const ptyId = frame.pty_id ?? rings.get(tabId)?.ptyId
     ?? [...(sinks.get(tabId) ?? [])].map(sink => sinkIdentities.get(sink)?.boundPtyId).find(Boolean)
     ?? tabId;
   const queue = aggregateRenderQueue(tabId, frame.boot ?? boot ?? "", ptyId);
   const job: AggregateRenderJob = {
-    kind, tabId, boot: frame.boot ?? boot ?? "", ptyId, frame, bytes,
+    kind, tabId, boot: frame.boot ?? boot ?? "", ptyId,
+    frame: kind === "output" || kind === "catchup"
+      ? { tab_id: tabId, pty_id: ptyId, boot: frame.boot ?? boot ?? "", from: frame.from, offset: frame.offset }
+      : frame,
+    bytes,
     size: Math.max(1, bytes?.length ?? 0),
   };
   if (!isCurrentAggregateRenderQueue(queue)) return;
-  if (queue.blocked.length === 0 && aggregateRenderHasCapacity(queue, job)) {
+  const full = !aggregateRenderHasCapacity(queue, job);
+  if (kind === "output" || kind === "catchup") {
+    if (hasAggregateRenderOverflow(queue) || full) {
+      // OutputRetention owns the bounded bytes; the queue keeps one coalesced catch-up cursor.
+      queue.overflowFrame = {
+        tab_id: tabId, pty_id: ptyId, boot: queue.boot, offset: frame.offset,
+      };
+    } else {
+      queue.pendingBytes += job.size;
+      queue.pendingFrames++;
+      queue.jobs.push(job);
+    }
+  } else if (kind === "truncated" && (hasAggregateRenderOverflow(queue) || full)) {
+    queue.overflowTruncation = frame;
+  } else if (kind === "replay_complete" && (hasAggregateRenderOverflow(queue) || full)) {
+    queue.overflowReplayComplete = frame;
+  } else if (kind === "ended" && (hasAggregateRenderOverflow(queue) || full)) {
+    queue.overflowEnded = frame;
+  } else if (!full) {
     queue.pendingBytes += job.size;
     queue.pendingFrames++;
     queue.jobs.push(job);
-    void drainAggregateRenderQueue(queue);
-    return;
   }
-  if (queue.blocked.length >= MAX_AGGREGATE_RENDER_ADMISSIONS) {
-    throw new Error("Aggregate output render admission exceeded its bounded handoff");
-  }
-  const admitted = new Promise<void>((resolve) => { queue.blocked.push({ job, resolve }); });
   void drainAggregateRenderQueue(queue);
-  await admitted;
 }
 
 function activeAggregateSink(queue: AggregateRenderQueue, sink: TabOutputSink, subscription: object | undefined): boolean {
@@ -392,12 +403,51 @@ function reportAggregateRenderFailure(queue: AggregateRenderQueue, error: unknow
   }
 }
 
+function takeDeferredAggregateRenderJob(queue: AggregateRenderQueue): AggregateRenderJob | undefined {
+  if (queue.overflowTruncation) {
+    const frame = queue.overflowTruncation;
+    queue.overflowTruncation = undefined;
+    return { kind: "truncated", tabId: queue.tabId, boot: queue.boot, ptyId: queue.ptyId, frame, size: 1 };
+  }
+  if (queue.overflowFrame) {
+    queue.overflowFrame = undefined;
+    const cached = retainedOutput.snapshot(queue.tabId);
+    if (cached && cached.boot === queue.boot && cached.ptyId === queue.ptyId) {
+      const frame = {
+        tab_id: queue.tabId, pty_id: queue.ptyId, boot: queue.boot,
+        from: cached.offset - cached.bytes.length, offset: cached.offset,
+      };
+      return {
+        kind: "catchup", tabId: queue.tabId, boot: queue.boot, ptyId: queue.ptyId,
+        frame, bytes: cached.bytes, size: Math.max(1, cached.bytes.length),
+      };
+    }
+  }
+  if (queue.overflowReplayComplete) {
+    const frame = queue.overflowReplayComplete;
+    queue.overflowReplayComplete = undefined;
+    return { kind: "replay_complete", tabId: queue.tabId, boot: queue.boot, ptyId: queue.ptyId, frame, size: 1 };
+  }
+  if (queue.overflowEnded) {
+    const frame = queue.overflowEnded;
+    queue.overflowEnded = undefined;
+    return { kind: "ended", tabId: queue.tabId, boot: queue.boot, ptyId: queue.ptyId, frame, size: 1 };
+  }
+  return undefined;
+}
+
 async function drainAggregateRenderQueue(queue: AggregateRenderQueue): Promise<void> {
   if (queue.running || !isCurrentAggregateRenderQueue(queue)) return;
   queue.running = true;
   try {
-    while (isCurrentAggregateRenderQueue(queue) && queue.jobs.length > 0) {
-      const job = queue.jobs.shift()!;
+    while (isCurrentAggregateRenderQueue(queue) && (queue.jobs.length > 0 || hasAggregateRenderOverflow(queue))) {
+      const deferred = queue.jobs.length === 0;
+      const job = deferred ? takeDeferredAggregateRenderJob(queue) : queue.jobs.shift();
+      if (!job) continue;
+      if (deferred) {
+        queue.pendingBytes += job.size;
+        queue.pendingFrames++;
+      }
       try {
         await deliverAggregateRenderJob(queue, job);
       } catch (error) {
@@ -407,19 +457,18 @@ async function drainAggregateRenderQueue(queue: AggregateRenderQueue): Promise<v
         if (isCurrentAggregateRenderQueue(queue)) {
           queue.pendingBytes -= job.size;
           queue.pendingFrames--;
-          admitBlockedAggregateRender(queue);
         }
       }
     }
   } finally {
     queue.running = false;
-    if (isCurrentAggregateRenderQueue(queue) && queue.jobs.length === 0 && queue.blocked.length === 0) {
+    if (isCurrentAggregateRenderQueue(queue) && queue.jobs.length === 0 && !hasAggregateRenderOverflow(queue)) {
       aggregateRenderQueues.delete(queue.key);
     }
   }
 }
 
-async function handleFrame(msg: OutputFrame): Promise<void> {
+function handleFrame(msg: OutputFrame): void {
   const bytes = typeof msg.b64 === "string" ? decodeOutputBytes(msg.b64) : undefined;
   const perf = accountOutputFrame(bytes);
   if (msg.boot_changed && msg.boot) {
@@ -445,24 +494,27 @@ async function handleFrame(msg: OutputFrame): Promise<void> {
   if (msg.replay_complete) {
     if (set && ![...set].some(sink => acceptsSinkOutput(tab, sink, msg))) return;
     completedReplays.set(tab, msg);
-    if (set) await enqueueAggregateRender(tab, msg, "replay_complete");
+    if (set) enqueueAggregateRender(tab, msg, "replay_complete");
     return;
   }
   if (bytes && set && ![...set].some(sink => acceptsSinkOutput(tab, sink, msg))) return;
   if (typeof msg.offset === "number" && bytes) {
-    const ring = { boot: msg.boot ?? boot ?? "", ptyId: msg.pty_id };
+    const framePtyId = msg.pty_id
+      ?? [...(set ?? [])].map(sink => sinkIdentities.get(sink)?.boundPtyId).find(Boolean)
+      ?? tab;
+    const ring = { boot: msg.boot ?? boot ?? "", ptyId: framePtyId };
     const previous = rings.get(tab);
     const sameRing = previous?.boot === ring.boot && previous.ptyId === ring.ptyId;
     if (!sameRing) invalidateAggregateRenderQueues(tab);
     offsets.set(tab, sameRing ? Math.max(offsets.get(tab) ?? 0, msg.offset) : msg.offset);
     rings.set(tab, ring);
     retainedOutput.append(tab, {
-      boot: ring.boot, ptyId: msg.pty_id ?? tab, offset: msg.offset,
+      boot: ring.boot, ptyId: ring.ptyId, offset: msg.offset,
       bytes,
     });
     if (set) {
       perf && (perf.batches += 1);
-      await enqueueAggregateRender(tab, msg, "output", bytes);
+      enqueueAggregateRender(tab, msg, "output", bytes);
     }
     return;
   }
@@ -474,11 +526,11 @@ async function handleFrame(msg: OutputFrame): Promise<void> {
       rings.set(tab, { boot: msg.boot ?? boot ?? "", ptyId: msg.pty_id });
       retainedOutput.delete(tab); completedReplays.delete(tab);
     }
-    if (set) await enqueueAggregateRender(tab, msg, "truncated");
+    if (set) enqueueAggregateRender(tab, msg, "truncated");
     return;
   }
   if (msg.ended) {
-    if (set) await enqueueAggregateRender(tab, msg, "ended");
+    if (set) enqueueAggregateRender(tab, msg, "ended");
   }
 }
 
@@ -635,15 +687,15 @@ export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal:
   if (cached && (ptyId === undefined || cached.ptyId === ptyId)) {
     const from = cached.offset - cached.bytes.length;
     const frame = { tab_id: tabId, pty_id: cached.ptyId, boot: cached.boot, from, offset: cached.offset };
-    catchup = enqueueAggregateRender(tabId, frame, "catchup", cached.bytes)
-      .then(() => {
-        if (sinkSubscriptions.get(sink) === subscription && outputGeneration === subscriptionGeneration) sink.onReady?.();
-      });
+    enqueueAggregateRender(tabId, frame, "catchup", cached.bytes);
+    catchup = catchup.then(() => {
+      if (sinkSubscriptions.get(sink) === subscription && outputGeneration === subscriptionGeneration) sink.onReady?.();
+    });
   }
   const completed = completedReplays.get(tabId);
-  if (completed) catchup = catchup.then(async () => {
+  if (completed) catchup = catchup.then(() => {
     if (sinkSubscriptions.get(sink) === subscription && outputGeneration === subscriptionGeneration) {
-      await enqueueAggregateRender(tabId, completed, "replay_complete");
+      enqueueAggregateRender(tabId, completed, "replay_complete");
     }
   });
   void catchup.catch(error => {

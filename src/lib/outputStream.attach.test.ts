@@ -197,7 +197,7 @@ describe("aggregate terminal attachment", () => {
     const firstWrite = pending<void>(), firstStarted = pending<void>();
     const firstBRendered = pending<void>(), capacityReached = pending<void>();
     const lastAcknowledge = pending<void>(), secondBRendered = pending<void>();
-    const aBytes: number[] = [], aRendered: number[] = [], bRendered: number[] = [];
+    const aBytes: number[] = [], aRendered: number[] = [], aGaps: number[] = [], bRendered: number[] = [];
     let seenFrames = 0;
     window.__outputStreamPerf = {
       get frames() { return seenFrames; },
@@ -210,8 +210,8 @@ describe("aggregate terminal attachment", () => {
         aBytes.push(...bytes);
         if (aBytes.length === 1) { firstStarted.resolve(); return firstWrite.promise; }
       },
-      onRendered(offset) { aRendered.push(offset); if (offset === 17) lastAcknowledge.resolve(); },
-      onTruncated() {}, onEnded() {},
+      onRendered(offset) { aRendered.push(offset); if (offset === 24) lastAcknowledge.resolve(); },
+      onTruncated(from) { aGaps.push(from); }, onEnded() {},
     }, {}, "pty-a");
     const stopB = output.subscribeTabOutput("b", {
       onOutput() { throw new Error("Expected bytes"); },
@@ -231,21 +231,25 @@ describe("aggregate terminal attachment", () => {
       await firstBRendered.promise;
       expect(bRendered).toEqual([1]);
 
-      for (let offset = 2; offset <= 17; offset++) {
+      for (let offset = 2; offset <= 24; offset++) {
         transport.send(connection, outputFrame("a", "pty-a", offset, Uint8Array.of(offset)));
       }
       transport.send(connection, outputFrame("b", "pty-b", 2, Uint8Array.of(101)));
       await capacityReached.promise;
       expect(aBytes).toEqual([1]);
+      expect(aRendered).toEqual([]);
       expect(bRendered).toEqual([1]);
+      await secondBRendered.promise;
+      expect(bRendered).toEqual([1, 2]);
 
       firstWrite.resolve();
       await lastAcknowledge.promise;
-      await secondBRendered.promise;
-      expect(aBytes).toEqual(Array.from({ length: 17 }, (_, index) => index + 1));
-      expect(aRendered).toEqual(Array.from({ length: 17 }, (_, index) => index + 1));
+      expect(aBytes).toEqual(Array.from({ length: 24 }, (_, index) => index + 1));
+      expect(aRendered).toEqual([...Array.from({ length: 16 }, (_, index) => index + 1), 24]);
+      expect(aGaps).toEqual([]);
       expect(bRendered).toEqual([1, 2]);
     } finally {
+      firstWrite.resolve();
       stopB(); stopA(); output.resetOutputStream(); delete window.__outputStreamPerf;
     }
   });
@@ -294,6 +298,7 @@ describe("aggregate terminal attachment", () => {
     const oldWrite = pending<void>(), oldStarted = pending<void>(), oldFinished = pending<void>();
     const newRendered = pending<void>();
     const oldBytes: number[] = [], newBytes: number[] = [], rendered: number[] = [], resets = vi.fn();
+    window.__outputStreamPerf = { frames: 0, bytes: 0, batches: 0, lastFrameAt: 0 };
     const stop = output.subscribeTabOutput("a", {
       onOutput() { throw new Error("Expected bytes"); },
       onBytes(bytes) {
@@ -307,9 +312,13 @@ describe("aggregate terminal attachment", () => {
       const oldConnection = await transport.waitForConnection(0);
       transport.send(oldConnection, outputFrame("a", "pty-a", 1, Uint8Array.of(65)));
       await oldStarted.promise;
+      for (let offset = 2; offset <= 17; offset++) {
+        transport.send(oldConnection, outputFrame("a", "pty-a", offset, Uint8Array.of(offset)));
+      }
       transport.send(oldConnection, { boot_changed: true, boot: "next-boot" });
       const nextConnection = await transport.waitForConnection(1);
       expect(resets).toHaveBeenCalledOnce();
+      expect(window.__outputStreamPerf.frames).toBe(18);
       transport.send(nextConnection, outputFrame("a", "pty-a", 1, Uint8Array.of(66), "next-boot"));
       await newRendered.promise;
       expect(oldBytes).toEqual([65]);
@@ -317,7 +326,7 @@ describe("aggregate terminal attachment", () => {
       oldWrite.resolve();
       await oldFinished.promise;
       expect(rendered).toEqual([1]);
-    } finally { stop(); output.resetOutputStream(); }
+    } finally { oldWrite.resolve(); stop(); output.resetOutputStream(); delete window.__outputStreamPerf; }
   });
 
   it("acknowledges only completed xterm writes and disconnects even on capacity recovery", async () => {
