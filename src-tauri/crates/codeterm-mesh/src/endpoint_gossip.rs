@@ -41,12 +41,42 @@ pub struct SignedEndpointRecord {
     pub signature: String,
 }
 
+pub(crate) struct VerifiedEndpointRecord {
+    pub(crate) record: SignedEndpointRecord,
+    membership: VerifiedMembership,
+}
+
 #[derive(Default)]
 pub(crate) struct EndpointRecords {
-    pub(crate) records: BTreeMap<String, SignedEndpointRecord>,
+    pub(crate) records: BTreeMap<String, VerifiedEndpointRecord>,
 }
 
 impl MeshManager {
+    fn endpoint_membership_current(&self, membership: &VerifiedMembership) -> bool {
+        if self.account_authority().is_none() {
+            return false;
+        }
+        let state = self.account_state();
+        let matches_registry = state.registry_members.as_ref().is_some_and(|members| {
+            members
+                .get(&membership.installation_id)
+                .is_some_and(|(key, generation, slot)| {
+                    key == &membership.key_id
+                        && *generation == membership.key_generation
+                        && *slot == membership.slot_revision
+                })
+        });
+        matches_registry
+            && state.signed_in_account() == Some(membership.account_id.as_str())
+            && membership.is_current(self.now())
+            && !state
+                .revoked_installations
+                .contains(&membership.installation_id)
+            && !state
+                .unavailable_installations
+                .contains(&membership.installation_id)
+    }
+
     pub fn verify_endpoint_record(
         &self,
         record: &SignedEndpointRecord,
@@ -67,24 +97,8 @@ impl MeshManager {
             .account_authority()
             .ok_or(AdmissionRefusal::Unauthenticated)?;
         let membership = authority.verify_membership(&claim.membership, self.now())?;
-        let state = self.account_state();
-        let matches_registry = state.registry_members.as_ref().is_some_and(|members| {
-            members
-                .get(&claim.installation_id)
-                .is_some_and(|(key, generation, slot)| {
-                    key == &membership.key_id
-                        && *generation == membership.key_generation
-                        && *slot == membership.slot_revision
-                })
-        });
-        if !matches_registry
-            || state.signed_in_account() != Some(membership.account_id.as_str())
-            || membership.installation_id != claim.installation_id
-            || !membership.is_current(self.now())
-            || state.revoked_installations.contains(&claim.installation_id)
-            || state
-                .unavailable_installations
-                .contains(&claim.installation_id)
+        if membership.installation_id != claim.installation_id
+            || !self.endpoint_membership_current(&membership)
             || !authority.verify_possession(&membership, &claim.digest()?, &record.signature)
         {
             return Err(AdmissionRefusal::AuthRefused);
@@ -96,7 +110,7 @@ impl MeshManager {
         &mut self,
         record: SignedEndpointRecord,
     ) -> Result<bool, AdmissionRefusal> {
-        self.verify_endpoint_record(&record)?;
+        let membership = self.verify_endpoint_record(&record)?;
         let members = self
             .account_state()
             .registry_members
@@ -107,7 +121,7 @@ impl MeshManager {
             .retain(|id, _| members.contains_key(id));
         let id = &record.claim.installation_id;
         if let Some(known) = self.endpoint_records.records.get(id) {
-            if record.claim.sequence <= known.claim.sequence {
+            if record.claim.sequence <= known.record.claim.sequence {
                 return Ok(false);
             }
         } else if self.endpoint_records.records.len() >= MAX_ENDPOINT_RECORDS {
@@ -137,7 +151,9 @@ impl MeshManager {
                 }
             }
         }
-        self.endpoint_records.records.insert(id.clone(), record);
+        self.endpoint_records
+            .records
+            .insert(id.clone(), VerifiedEndpointRecord { record, membership });
         self.bump_gate();
         Ok(true)
     }
@@ -177,27 +193,37 @@ impl MeshManager {
         self.endpoint_records
             .records
             .values()
-            .filter(|record| self.verify_endpoint_record(record).is_ok())
-            .cloned()
+            .filter(|entry| self.endpoint_membership_current(&entry.membership))
+            .map(|entry| entry.record.clone())
             .collect()
     }
 
     pub fn has_endpoint_record(&self, installation_id: &str) -> bool {
-        self.endpoint_records
-            .records
-            .get(installation_id)
-            .is_some_and(|record| self.verify_endpoint_record(record).is_ok())
+        self.verified_endpoint_record(installation_id).is_some()
     }
 
     pub fn endpoint_target(&self, installation_id: &str) -> Option<LinkTarget> {
-        let record = self.endpoint_records.records.get(installation_id)?;
-        self.verify_endpoint_record(record).ok()?;
-        let endpoint = record.claim.endpoint.as_ref()?;
-        Some(LinkTarget {
-            installation_id: installation_id.to_owned(),
-            ip: endpoint.tailnet_ip.clone(),
-            api_port: endpoint.api_port,
-        })
+        self.verified_endpoint_record(installation_id)?
+            .claim
+            .endpoint
+            .as_ref()
+            .map(|endpoint| LinkTarget {
+                installation_id: installation_id.to_owned(),
+                ip: endpoint.tailnet_ip.clone(),
+                api_port: endpoint.api_port,
+            })
+    }
+
+    /// Signatures were checked on admission; reads re-verify only live membership and registry state.
+    pub(crate) fn verified_endpoint_record(
+        &self,
+        installation_id: &str,
+    ) -> Option<&SignedEndpointRecord> {
+        self.endpoint_records
+            .records
+            .get(installation_id)
+            .filter(|entry| self.endpoint_membership_current(&entry.membership))
+            .map(|entry| &entry.record)
     }
 }
 
@@ -217,7 +243,7 @@ pub async fn receive_endpoint_records(
                         .endpoint_records
                         .records
                         .get(&record.claim.installation_id)
-                        .is_none_or(|known| record.claim.sequence > known.claim.sequence);
+                        .is_none_or(|known| record.claim.sequence > known.record.claim.sequence);
                     newer
                         .then(|| {
                             manager

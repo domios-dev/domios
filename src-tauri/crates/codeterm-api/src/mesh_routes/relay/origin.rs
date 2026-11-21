@@ -5,11 +5,43 @@ use crate::{
     routes::AppState,
 };
 
+#[cfg(test)]
 pub(super) fn peer_client(
     state: &AppState,
     headers: &HeaderMap,
     client: codeterm_service_core::mesh::transport::PeerClient,
 ) -> Result<codeterm_service_core::mesh::transport::PeerClient, (StatusCode, String)> {
+    let (_, token) = signed_token_for_local_caller(state, headers)?;
+    Ok(client.with_signed_token(token))
+}
+
+pub(super) fn signed_peer_client(
+    state: &AppState,
+    headers: &HeaderMap,
+    primary: String,
+    alternatives: Vec<String>,
+) -> Result<
+    (
+        AuthenticatedOrigin,
+        codeterm_service_core::mesh::transport::PeerClient,
+    ),
+    (StatusCode, String),
+> {
+    let (origin, token) = signed_token_for_local_caller(state, headers)?;
+    Ok((
+        origin,
+        codeterm_service_core::mesh::transport::PeerClient::new_signed_route(
+            primary,
+            alternatives,
+            &token,
+        ),
+    ))
+}
+
+fn signed_token_for_local_caller(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(AuthenticatedOrigin, String), (StatusCode, String)> {
     let (caller, origin) = crate::auth::authenticated_request(state, headers)?;
     if !matches!(caller, CallerIdentity::Local | CallerIdentity::Tab(_)) {
         return Err((
@@ -17,8 +49,80 @@ pub(super) fn peer_client(
             "Outbound mesh signing requires a local caller".into(),
         ));
     }
-    let agent = crate::auth::authenticated_agent(state, headers)?;
-    Ok(client.with_signed_token(sign(state, origin, agent.as_ref())?))
+    let agent = crate::auth::authenticated_agent_for_origin(state, headers, origin)?;
+    Ok((origin, sign(state, origin, agent.as_ref())?))
+}
+
+/// Single-pass Ed25519 verification + nonce admission for inbound signed mesh requests.
+pub(crate) fn authenticate_signed_mesh_request(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<
+    (
+        String,
+        AuthenticatedOrigin,
+        Option<codeterm_service_core::mesh::crown::AuthenticatedAgent>,
+    ),
+    (StatusCode, String),
+> {
+    let auth = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    let token = auth.strip_prefix("Bearer ").unwrap_or("");
+    let (known_keys, our_id) = crate::auth::mesh_keys(state);
+    let claims = codeterm_service_core::mesh::crown::verify_request_claims(token, &known_keys)
+        .map_err(|_| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Invalid or unknown signature".to_string(),
+            )
+        })?;
+    if claims.from_instance_id == our_id {
+        let agent = (claims.origin == AuthenticatedOrigin::Agent)
+            .then_some(claims.agent)
+            .flatten();
+        return Ok(("local".to_string(), claims.origin, agent));
+    }
+    let peer_id = claims.from_instance_id;
+    {
+        let mut mesh = state.mesh.lock();
+        let Some(peer) = mesh.paired_peers.get(&peer_id) else {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                format!("Peer {} not paired", peer_id),
+            ));
+        };
+        if known_keys.get(&peer_id) != Some(&peer.public_key) {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Invalid or unknown signature".to_string(),
+            ));
+        }
+        if claims.origin == AuthenticatedOrigin::Agent
+            && claims
+                .agent
+                .as_ref()
+                .is_none_or(|agent| agent.instance_id != peer_id)
+        {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Invalid or unknown signature".to_string(),
+            ));
+        }
+        if crate::auth::peer_grant::PeerGrant::capture(&mesh, &peer_id).is_none() {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Invalid or unknown signature".to_string(),
+            ));
+        }
+        mesh.check_and_record_nonce_id(claims.nonce)
+            .map_err(|error| (StatusCode::UNAUTHORIZED, error))?;
+    }
+    let agent = (claims.origin == AuthenticatedOrigin::Agent)
+        .then_some(claims.agent)
+        .flatten();
+    Ok((peer_id, claims.origin, agent))
 }
 
 pub(super) fn loopback_request(
@@ -77,24 +181,17 @@ pub(super) fn sign(
     origin: AuthenticatedOrigin,
     agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
 ) -> Result<String, (StatusCode, String)> {
-    let mesh = state.mesh.lock();
-    let identity = &mesh.ident.identity;
-    let key = identity.private_key.as_deref().ok_or((
+    let (instance_id, key) = state.mesh.lock().signing_credentials().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "Mesh signing key unavailable".into(),
     ))?;
-    codeterm_service_core::mesh::crown::sign_request_with_agent(
-        key,
-        &identity.instance_id,
-        origin,
-        agent,
-    )
-    .map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Sign failed: {error}"),
-        )
-    })
+    codeterm_service_core::mesh::crown::sign_request_with_agent(&key, &instance_id, origin, agent)
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Sign failed: {error}"),
+            )
+        })
 }
 
 pub(super) fn protocol_refusal(peer_name: &str, protocol: u16) -> (StatusCode, String) {
