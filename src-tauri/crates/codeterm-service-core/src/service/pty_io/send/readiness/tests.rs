@@ -82,3 +82,42 @@ fn visible_anywhere_accepts_a_busy_provider_cursor_above_the_bottom_region() {
         false
     ));
 }
+
+#[test]
+fn initial_hold_wakes_on_first_ready_screen_event_and_unmet_readiness_stops_without_retry_loop() {
+    let ready = std::cell::Cell::new(false);
+    let waits = std::cell::Cell::new(0usize);
+    assert!(wait_for_observed_readiness(
+        std::time::Instant::now() + std::time::Duration::from_secs(5),
+        || provider_frame_ready(
+            ready.get(),
+            false,
+            true,
+            false,
+            ready.get()
+                && composer_input_ready_for_position(
+                    input(),
+                    ComposerCursorPosition::PromptLine,
+                    false,
+                ),
+        ),
+        |remaining| {
+            assert!(!remaining.is_zero());
+            waits.set(waits.get() + 1);
+            ready.set(true);
+            true
+        },
+    ));
+    assert_eq!(waits.get(), 1);
+
+    let closed_waits = std::cell::Cell::new(0usize);
+    assert!(!wait_for_observed_readiness(
+        std::time::Instant::now() + std::time::Duration::from_secs(5),
+        || false,
+        |_| {
+            closed_waits.set(closed_waits.get() + 1);
+            false
+        },
+    ));
+    assert_eq!(closed_waits.get(), 1);
+}
