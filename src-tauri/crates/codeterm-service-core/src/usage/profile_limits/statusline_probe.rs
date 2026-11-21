@@ -267,6 +267,29 @@ fn run_command_probe(
         }
         listener_finished.store(true, Ordering::Release);
     });
+    struct ListenerGuard {
+        stop: Arc<AtomicBool>,
+        done: Arc<AtomicBool>,
+        addr: std::net::SocketAddr,
+        handle: Option<std::thread::JoinHandle<()>>,
+    }
+    impl Drop for ListenerGuard {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Release);
+            if !self.done.load(Ordering::Acquire) {
+                let _ = TcpStream::connect_timeout(&self.addr, Duration::from_millis(100));
+            }
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+    let listener_guard = ListenerGuard {
+        stop,
+        done: listener_done,
+        addr,
+        handle: Some(listener_handle),
+    };
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -276,11 +299,6 @@ fn run_command_probe(
             pixel_height: 0,
         })
         .map_err(|error| {
-            stop.store(true, Ordering::Release);
-            if !listener_done.load(Ordering::Acquire) {
-                let _ = TcpStream::connect_timeout(&addr, Duration::from_millis(100));
-            }
-            let _ = listener_handle.join();
             (
                 UsageFailureKind::Internal,
                 format!("Failed to open headless PTY for quota probe: {error}"),
@@ -292,11 +310,6 @@ fn run_command_probe(
         Ok(child) => child,
         Err(error) => {
             drop(pair);
-            stop.store(true, Ordering::Release);
-            if !listener_done.load(Ordering::Acquire) {
-                let _ = TcpStream::connect_timeout(&addr, Duration::from_millis(100));
-            }
-            let _ = listener_handle.join();
             return Err((
                 UsageFailureKind::FetchError,
                 format!("Failed to launch quota probe binary: {error}"),
@@ -367,11 +380,7 @@ fn run_command_probe(
     if let Some(handle) = drain_handle {
         let _ = handle.join();
     }
-    stop.store(true, Ordering::Release);
-    if !listener_done.load(Ordering::Acquire) {
-        let _ = TcpStream::connect_timeout(&addr, Duration::from_millis(100));
-    }
-    let _ = listener_handle.join();
+    drop(listener_guard);
     drop(temp_dir);
 
     outcome.map(|quota| build_snapshot(provider, profile, quota, now_ms))
