@@ -460,11 +460,30 @@ fn startup_notices_capture_bound_sender_position_before_later_rows_and_tool_patc
         assert_eq!(bus_event["report"]["id"], ui_event["report"]["id"]);
         assert!(ui_event["report"]["status"].is_null());
         assert_eq!(
+            bus_event["report"]["sender_position"],
+            expected_position
+        );
+        assert_eq!(bus_event["report"]["kind"], json!(kind));
+        let stored = fixture
+            .service
+            .report_store
+            .lock()
+            .get(&parent_tab_id, false);
+        let stored_report = stored
+            .iter()
+            .find(|report| report.id == bus_event["report"]["id"])
+            .expect("startup report is stored before publication");
+        assert_eq!(stored_report.sender_position.as_ref().unwrap().message_id, "ack-row");
+        assert_eq!(stored_report.kind.as_deref(), Some(kind));
+        assert_eq!(
             crate::service::agent_runtime::report_position::sender_position(
                 &fixture.service,
                 &worker_tab_id,
             ),
-            json!({ "source_session_id": "worker-session", "message_id": "later-tool" })
+            Some(crate::agent::reports::ReportSenderPosition {
+                source_session_id: "worker-session".into(),
+                message_id: "later-tool".into(),
+            })
         );
     }
 }

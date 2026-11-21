@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::reports::ReportDetails;
+use crate::agent::reports::{AgentReportHostMetadata, ReportDetails};
 use crate::service::message_gateway::{DeliveryClass, MessageBody, MessageOrigin, OutboundMessage};
 use crate::service::report_delivery::HierarchyReportDelivery;
 use crate::service::startup_lease::StartupHoldRejection;
@@ -398,13 +398,11 @@ impl ServiceContext {
         sender_tab_id: &str,
         sender_title: &str,
         message: &str,
-        notice_kind: Option<&str>,
-        sender_position: Value,
         report: &crate::agent::reports::AgentReport,
     ) {
         let mut bus_payload = json!({
             "target_tab_id": recipient_tab_id,
-            "sender_position": sender_position.clone(),
+            "sender_position": report.sender_position.clone(),
             "report": report.clone(),
         });
         let mut ui_payload = json!({
@@ -412,10 +410,10 @@ impl ServiceContext {
             "from_tab_id": sender_tab_id,
             "from_title": sender_title,
             "message": message,
-            "sender_position": sender_position,
+            "sender_position": report.sender_position.clone(),
             "report": report.clone(),
         });
-        if let Some(kind) = notice_kind.filter(|kind| !kind.trim().is_empty()) {
+        if let Some(kind) = report.kind.as_deref().filter(|kind| !kind.trim().is_empty()) {
             bus_payload["kind"] = Value::String(kind.to_string());
             ui_payload["kind"] = Value::String(kind.to_string());
         }
@@ -440,13 +438,20 @@ impl ServiceContext {
         let notice_kind = payload.get("kind").and_then(Value::as_str);
         let sender_position =
             crate::service::agent_runtime::report_position::sender_position(self, agent_tab_id);
-        let report = self.report_store.lock().add_detailed(
+        let host_metadata = AgentReportHostMetadata {
+            sender_position,
+            kind: notice_kind
+                .filter(|kind| !kind.trim().is_empty())
+                .map(str::to_string),
+        };
+        let report = self.report_store.lock().add_detailed_with_host_metadata(
             supervisor_tab_id,
             agent_tab_id,
             agent_title,
             &message,
             ReportDetails::default(),
             None,
+            host_metadata,
         );
         let gate = self.hierarchy_report_recipient_gate(supervisor_tab_id);
         self.emit_lifecycle_report_events(
@@ -454,8 +459,6 @@ impl ServiceContext {
             agent_tab_id,
             agent_title,
             &message,
-            notice_kind,
-            sender_position,
             &report,
         );
         self.deliver_hierarchy_report_if_allowed(&gate, &report, delivery);
@@ -923,18 +926,25 @@ impl ServiceContext {
         let notice_kind = payload.get("kind").and_then(Value::as_str);
         let sender_position =
             crate::service::agent_runtime::report_position::sender_position(self, worker_tab_id);
+        let host_metadata = AgentReportHostMetadata {
+            sender_position,
+            kind: notice_kind
+                .filter(|kind| !kind.trim().is_empty())
+                .map(str::to_string),
+        };
         let details = ReportDetails {
             plan_id: Some(plan_id.to_string()),
             task_id: Some(task_id.to_string()),
             ..Default::default()
         };
-        let report = self.report_store.lock().add_detailed(
+        let report = self.report_store.lock().add_detailed_with_host_metadata(
             parent_tab_id,
             worker_tab_id,
             worker_title,
             &message,
             details,
             None,
+            host_metadata,
         );
         let gate = self.hierarchy_report_recipient_gate(parent_tab_id);
         self.emit_lifecycle_report_events(
@@ -942,8 +952,6 @@ impl ServiceContext {
             worker_tab_id,
             worker_title,
             &message,
-            notice_kind,
-            sender_position,
             &report,
         );
         self.deliver_hierarchy_report_if_allowed(&gate, &report, delivery);

@@ -33,6 +33,7 @@ export interface AgentReportPayloadReport {
   branch?: string | null;
   sha?: string | null;
   report_outcome?: AgentReportOutcomeClass | null;
+  sender_position?: { source_session_id: string; message_id: string } | null;
 }
 
 export interface AgentReportEventPayload {
@@ -45,6 +46,45 @@ export interface AgentReportEventPayload {
   task_report?: AgentReportTaskOutcome | null;
   report_outcome?: AgentReportOutcomeClass | null;
   sender_position?: { source_session_id: string; message_id: string } | null;
+}
+
+export interface OutboundAgentReportSnapshotRow {
+  target_tab_id: string;
+  report: AgentReportPayloadReport & { from_tab_id: string };
+}
+
+export interface OutboundReportSnapshotAuthority {
+  peerId: string | null;
+  sessionId: string | null;
+  bindingNonce: string | null;
+  bootGeneration: number | null;
+  runtimeEpoch: number | null;
+  requestContext: number;
+}
+
+export function outboundReportSnapshotRequest(
+  tabId: string,
+  authority: OutboundReportSnapshotAuthority,
+): { path: string; scopeKey: string; headers: Record<string, string> } | null {
+  if (tabId.startsWith("mesh:") || authority.peerId != null || !text(authority.sessionId) || !text(authority.bindingNonce)) return null;
+  return {
+    path: `/api/tabs/${encodeURIComponent(tabId)}/reports`,
+    scopeKey: JSON.stringify([
+      tabId,
+      authority.peerId,
+      authority.sessionId,
+      authority.bindingNonce,
+      authority.bootGeneration,
+      authority.runtimeEpoch,
+      authority.requestContext,
+    ]),
+    headers: {
+      Accept: "application/vnd.domios.agent-reports.outbound+json",
+      "X-CodeTerm-Tab-Id": tabId,
+      "X-CodeTerm-Session-Id": authority.sessionId,
+      "X-CodeTerm-Binding-Nonce": authority.bindingNonce,
+    },
+  };
 }
 
 export type AgentReportSide = "outbound" | "inbound";
@@ -99,6 +139,9 @@ const records = new Map<string, AgentReportRecord>();
 const projections = new Map<string, AgentReportProjection>();
 const listeners = new Map<string, Set<() => void>>();
 let eventSubscription: Promise<() => void> | null = null;
+let eventSubscriptionGeneration = 0;
+let nextSnapshotGeneration = 0;
+const snapshotReads = new Map<string, { generation: number; scopeKey: string }>();
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
@@ -176,14 +219,14 @@ export function ingestAgentReport(payload: AgentReportEventPayload): boolean {
     senderTitle: text(payload.from_title) ?? text(payload.report.from_title) ?? senderTabId,
     targetTabId,
     message: text(payload.message) ?? text(payload.report.message) ?? "",
-    kind: text(payload.kind) ?? text(payload.report.kind),
+    kind: text(payload.report.kind) ?? text(payload.kind),
     task: taskRef(payload.report, outcome),
     status: text(payload.report.status),
     branch: text(payload.report.branch),
     sha: text(payload.report.sha),
     taskOutcome: outcome,
     timestamp: normalizeEpochMs(payload.report.timestamp),
-    senderPosition: payload.sender_position ?? null,
+    senderPosition: payload.report.sender_position ?? payload.sender_position ?? null,
   });
   while (records.size > MAX_PROJECTED_REPORTS) {
     const oldest = records.keys().next().value;
@@ -198,6 +241,49 @@ export function ingestAgentReport(payload: AgentReportEventPayload): boolean {
   invalidate(senderTabId);
   if (targetTabId !== senderTabId) invalidate(targetTabId);
   return true;
+}
+
+export function ingestOutboundAgentReportSnapshot(
+  senderTabId: string,
+  snapshot: unknown,
+): number {
+  if (!Array.isArray(snapshot)) return 0;
+  let added = 0;
+  for (const value of snapshot) {
+    if (typeof value !== "object" || value === null || !("report" in value) || !("target_tab_id" in value)) continue;
+    const row = value as OutboundAgentReportSnapshotRow;
+    if (typeof row.target_tab_id !== "string" || !row.target_tab_id || row.report?.from_tab_id !== senderTabId) continue;
+    if (typeof row.report.id !== "string" || !row.report.id) continue;
+    const position = row.report.sender_position;
+    if (position != null && (typeof position.source_session_id !== "string" || !position.source_session_id
+      || typeof position.message_id !== "string" || !position.message_id)) continue;
+    const existing = records.get(row.report.id);
+    if (existing) {
+      if (existing.senderTabId !== senderTabId || existing.targetTabId !== row.target_tab_id) continue;
+      const senderPosition = position ?? null;
+      const kind = text(row.report.kind);
+      if ((!existing.senderPosition && senderPosition) || (!existing.kind && kind)) {
+        records.set(row.report.id, {
+          ...existing,
+          senderPosition: existing.senderPosition ?? senderPosition,
+          kind: existing.kind ?? kind,
+        });
+        invalidate(senderTabId);
+        if (row.target_tab_id !== senderTabId) invalidate(row.target_tab_id);
+      }
+      continue;
+    }
+    if (ingestAgentReport({
+      target_tab_id: row.target_tab_id,
+      from_tab_id: senderTabId,
+      from_title: row.report.from_title,
+      message: row.report.message,
+      kind: row.report.kind,
+      sender_position: row.report.sender_position,
+      report: row.report,
+    })) added += 1;
+  }
+  return added;
 }
 
 function projected(record: AgentReportRecord, side: AgentReportSide): ProjectedAgentReport {
@@ -231,20 +317,30 @@ export function agentReportById(reportId: string): ProjectedAgentReport | null {
   return record ? projected(record, "outbound") : null;
 }
 
-function ensureAgentReportListener(): void {
-  if (eventSubscription) return;
-  eventSubscription = listen<AgentReportEventPayload>(AGENT_REPORT_EVENT, (event) => {
-    ingestAgentReport(event.payload);
+function ensureAgentReportListener(): Promise<() => void> {
+  if (eventSubscription) return eventSubscription;
+  const generation = ++eventSubscriptionGeneration;
+  let subscription: Promise<() => void>;
+  subscription = listen<AgentReportEventPayload>(AGENT_REPORT_EVENT, (event) => {
+    if (generation === eventSubscriptionGeneration) ingestAgentReport(event.payload);
+  }).then((unlisten) => {
+    if (generation !== eventSubscriptionGeneration) {
+      unlisten();
+      return () => {};
+    }
+    return unlisten;
+  }).catch((error: unknown) => {
+    if (generation === eventSubscriptionGeneration) eventSubscription = null;
+    throw error;
   });
-  void eventSubscription.catch(() => {
-    eventSubscription = null;
-  });
+  eventSubscription = subscription;
+  return subscription;
 }
 
 /** The subscription the hook uses; exported so non-React owners and fixtures
  *  drive the same listener ownership instead of a parallel one. */
 export function subscribeAgentReportProjection(tabId: string, onChange: () => void): () => void {
-  ensureAgentReportListener();
+  void ensureAgentReportListener().catch(() => {});
   const existing = listeners.get(tabId) ?? new Set<() => void>();
   existing.add(onChange);
   listeners.set(tabId, existing);
@@ -252,6 +348,35 @@ export function subscribeAgentReportProjection(tabId: string, onChange: () => vo
     existing.delete(onChange);
     if (existing.size === 0) listeners.delete(tabId);
   };
+}
+
+export async function hydrateOutboundAgentReportSnapshot(
+  senderTabId: string,
+  scopeKey: string,
+  read: (signal: AbortSignal) => Promise<unknown>,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const generation = ++nextSnapshotGeneration;
+  snapshotReads.set(senderTabId, { generation, scopeKey });
+  const forget = () => {
+    if (snapshotReads.get(senderTabId)?.generation === generation) snapshotReads.delete(senderTabId);
+  };
+  signal.addEventListener("abort", forget, { once: true });
+  if (signal.aborted) forget();
+  const isCurrent = () => !signal.aborted
+    && snapshotReads.get(senderTabId)?.generation === generation
+    && snapshotReads.get(senderTabId)?.scopeKey === scopeKey;
+  try {
+    await ensureAgentReportListener().catch(() => {});
+    if (!isCurrent()) return false;
+    const snapshot = await read(signal);
+    if (!isCurrent()) return false;
+    ingestOutboundAgentReportSnapshot(senderTabId, snapshot);
+    return true;
+  } finally {
+    signal.removeEventListener("abort", forget);
+    forget();
+  }
 }
 
 export function useAgentReportProjection(tabId: string): AgentReportProjection {
@@ -271,7 +396,11 @@ export function resetAgentReportProjection(): void {
   }
   records.clear();
   projections.clear();
+  snapshotReads.clear();
+  eventSubscriptionGeneration += 1;
+  const subscription = eventSubscription;
   eventSubscription = null;
+  void subscription?.then((unlisten) => unlisten()).catch(() => {});
   for (const tabId of affected) {
     for (const listener of listeners.get(tabId) ?? []) listener();
   }

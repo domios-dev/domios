@@ -17,8 +17,11 @@ import type { OutboundReportEntry } from "./ChatTranscriptRow";
 import { outboundReportRows, type LiveOutboundReport } from "./outboundReportRows";
 import { mergeAccountNoticeRows } from "./accountNoticeRows";
 import { reportVerdict } from "@codeterm/chat-ui";
+import { __setListenForTest } from "../../lib/bridge";
 import {
+  hydrateOutboundAgentReportSnapshot,
   ingestAgentReport,
+  outboundReportSnapshotRequest,
   readAgentReportProjection,
   resetAgentReportProjection,
   type AgentReportEventPayload,
@@ -444,4 +447,153 @@ test("actual emitted startup agent-report envelope projects one neutral anchored
   } finally {
     resetAgentReportProjection();
   }
+});
+
+test("cold host snapshot restores the original startup card once before later untimed rows", async () => {
+  resetAgentReportProjection();
+  let subscribed = false;
+  let receive: ((event: { payload: AgentReportEventPayload }) => void) | null = null;
+  __setListenForTest(<T>(event: string, handler: (value: { payload: T }) => void) => {
+    assert.equal(event, "agent-report");
+    receive = handler as (value: { payload: AgentReportEventPayload }) => void;
+    subscribed = true;
+    return Promise.resolve(() => { subscribed = false; });
+  });
+  try {
+    const request = outboundReportSnapshotRequest("order001", {
+      peerId: null, sessionId: "session", bindingNonce: "launch", bootGeneration: 2, runtimeEpoch: 7, requestContext: 3,
+    });
+    assert.ok(request);
+    assert.equal(request.path, "/api/tabs/order001/reports");
+    assert.equal(request.headers["X-CodeTerm-Session-Id"], "session");
+    assert.equal(request.headers["X-CodeTerm-Binding-Nonce"], "launch");
+    assert.equal(outboundReportSnapshotRequest("mesh:peer/order001", {
+      peerId: "peer", sessionId: "session", bindingNonce: "launch", bootGeneration: 2, runtimeEpoch: 7, requestContext: 3,
+    }), null, "remote tabs cannot read a local sender index");
+    assert.equal(outboundReportSnapshotRequest("order001", {
+      peerId: null, sessionId: "session", bindingNonce: null, bootGeneration: 2, runtimeEpoch: 7, requestContext: 3,
+    }), null, "a missing binding nonce cannot authorize a read");
+
+    const startAt = START;
+    const prompt: NormalizedChatMessage = { id: "prompt-0", type: "user", content: "assigned task", timestamp: iso(startAt) };
+    const ackRow: NormalizedChatMessage = { id: "ack-0", type: "assistant", content: "acknowledging" };
+    const workRow: NormalizedChatMessage = { id: "work-1", type: "assistant", content: "working" };
+    const toolRow: NormalizedChatMessage = { id: "tool-1", type: "tool_call", content: "patched", toolName: "Bash", toolKind: "command", toolId: "tool-1" };
+    const event: AgentReportEventPayload = {
+      target_tab_id: "elgar001", from_tab_id: "order001", from_title: "Order", message: "opaque ready",
+      report: { id: "rep-cold-ready", from_tab_id: "order001", from_title: "Order", message: "opaque ready",
+        timestamp: Math.floor((startAt + 5_000) / 1000), status: null },
+    };
+    const snapshot = [{
+      target_tab_id: "elgar001",
+      report: {
+        ...event.report,
+        kind: "dispatch_ready",
+        sender_position: { source_session_id: "session", message_id: "ack-0" },
+      },
+    }];
+    const hydrated = await hydrateOutboundAgentReportSnapshot("order001", request.scopeKey, async () => {
+      assert.equal(subscribed, true, "the event listener is installed before the snapshot read");
+      assert.ok(receive);
+      receive!({ payload: event });
+      return snapshot;
+    }, new AbortController().signal);
+    assert.equal(hydrated, true);
+    const report = readAgentReportProjection("order001").outbound[0];
+    assert.ok(report);
+    assert.equal(report.reportId, "rep-cold-ready");
+    assert.equal(report.timestamp, startAt + 5_000);
+    assert.equal(report.status, null);
+    assert.equal(report.kind, "dispatch_ready");
+    assert.deepEqual(report.senderPosition, { source_session_id: "session", message_id: "ack-0" });
+    assert.equal(readAgentReportProjection("order001").outbound.length, 1, "event/read overlap merges by the original id");
+
+    const live: LiveOutboundReport[] = [report].map((row) => ({
+      targetTabId: row.targetTabId,
+      at: row.timestamp,
+      position: row.senderPosition,
+      descriptor: {
+        reportId: row.reportId, recipient: "Elgar", task: row.task, status: row.status, sha: row.sha,
+        message: row.message, kind: row.kind, taskOutcome: null,
+      },
+    }));
+    assert.equal(reportVerdict(report.status, report.taskOutcome), "sent");
+    const state = reduceTranscript(createTranscriptState(), {
+      kind: "snapshot", authority, range: null, rows: [prompt, ackRow, workRow, toolRow],
+    }).state;
+    const column = renderedColumn({ state, visible: 20, live });
+    assert.deepEqual(column.map((item) => item.key), ["prompt-0", "ack-0", "report-cold-ready", "work-1", "tool-1"]);
+
+    resetAgentReportProjection();
+    const coldReloaded = await hydrateOutboundAgentReportSnapshot("order001", request.scopeKey, async () => snapshot,
+      new AbortController().signal);
+    assert.equal(coldReloaded, true);
+    const coldReport = readAgentReportProjection("order001").outbound[0];
+    assert.ok(coldReport);
+    assert.deepEqual({
+      id: coldReport.reportId,
+      timestamp: coldReport.timestamp,
+      status: coldReport.status,
+      position: coldReport.senderPosition,
+      kind: coldReport.kind,
+    }, {
+      id: report.reportId,
+      timestamp: report.timestamp,
+      status: report.status,
+      position: report.senderPosition,
+      kind: report.kind,
+    }, "a cold projection reload keeps the original report metadata");
+    const coldColumn = renderedColumn({
+      state,
+      visible: 20,
+      live: [{ ...live[0]!, at: coldReport.timestamp, position: coldReport.senderPosition }],
+    });
+    assert.deepEqual(coldColumn.map((item) => item.key), column.map((item) => item.key));
+  } finally {
+    resetAgentReportProjection();
+    __setListenForTest(null);
+  }
+});
+
+test("snapshot generation fences late reads after session, nonce, peer, boot, epoch, or relay context changes", async () => {
+  __setListenForTest(async () => () => {});
+  const base = { peerId: null, sessionId: "session", bindingNonce: "nonce", bootGeneration: 8, runtimeEpoch: 2, requestContext: 4 };
+  const original = outboundReportSnapshotRequest("order001", base)!;
+  for (const authority of [
+    { ...base, sessionId: "replacement-session" },
+    { ...base, bindingNonce: "replacement-nonce" },
+    { ...base, peerId: "peer" },
+    { ...base, bootGeneration: 9 },
+    { ...base, runtimeEpoch: 3 },
+    { ...base, requestContext: 5 },
+  ]) {
+    const changed = outboundReportSnapshotRequest("order001", authority);
+    assert.ok(!changed || changed.scopeKey !== original.scopeKey, "every authority generation has a distinct read scope");
+  }
+
+  resetAgentReportProjection();
+  let resolveOld: ((snapshot: unknown) => void) | null = null;
+  let started!: () => void;
+  const readStarted = new Promise<void>((resolve) => { started = resolve; });
+  const controller = new AbortController();
+  const oldRead = hydrateOutboundAgentReportSnapshot("order001", original.scopeKey, () => {
+    started();
+    return new Promise((resolve) => { resolveOld = resolve; });
+  }, controller.signal);
+  await readStarted;
+  const next = outboundReportSnapshotRequest("order001", { ...base, bindingNonce: "replacement-nonce" })!;
+  assert.equal(await hydrateOutboundAgentReportSnapshot("order001", next.scopeKey, async () => [], new AbortController().signal), true,
+    "an empty supported snapshot is a successful empty result");
+  resolveOld!([{
+    target_tab_id: "foreign-target",
+    report: { id: "rep-stale", from_tab_id: "order001", timestamp: Math.floor(START / 1000) },
+  }]);
+  assert.equal(await oldRead, false, "late snapshots from a replaced binding are ignored");
+  assert.equal(readAgentReportProjection("order001").outbound.length, 0);
+  await assert.rejects(hydrateOutboundAgentReportSnapshot("order001", next.scopeKey, async () => {
+    throw new Error("read refused");
+  }, new AbortController().signal), /read refused/);
+  assert.equal(readAgentReportProjection("order001").outbound.length, 0, "refused reads do not fabricate cards");
+  resetAgentReportProjection();
+  __setListenForTest(null);
 });
