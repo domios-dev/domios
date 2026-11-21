@@ -959,6 +959,26 @@ async function main() {
         error: contractSummary!.error,
       });
       assert(missingTeam.plan === null && missingTeam.meta.unavailable === false, "confirmed absence on online peer is distinct from unavailable");
+
+      // Source counterexample: old zero summary (updated_at 100) superseded by newer index (updated_at 200, task_count 94)
+      const supersededZero = resolveTeamPlanStatus(
+        { ...emptySummary, updated_at: 100 } as unknown as import("./planProjection").PlanView,
+        {},
+        { indexOnly: false, indexTaskCount: 94, indexOpenTaskCount: 0, indexUpdatedAt: 200, loading: false },
+      );
+      assert(
+        supersededZero.state === "unavailable" && supersededZero.totalTasks === 94,
+        "newer index task_count 94 supersedes older zero summary instead of showing verified zero",
+      );
+      const supersededNonzero = resolveTeamPlanStatus(
+        { ...done94Summary, updated_at: 100 } as unknown as import("./planProjection").PlanView,
+        {},
+        { indexOnly: false, indexTaskCount: 100, indexOpenTaskCount: 6, indexUpdatedAt: 200, loading: false },
+      );
+      assert(
+        supersededNonzero.state === "verified" && supersededNonzero.stale === true && supersededNonzero.counts.done === 94,
+        "newer index ahead of older nonzero summary marks retained buckets explicitly stale",
+      );
     } finally {
       peerEventRail.observe = originalObserve;
       await act(async () => root.unmount());

@@ -562,6 +562,227 @@ async function main() {
     Object.defineProperty(globalThis, "fetch", { configurable: true, value: prevFetch });
   }
 
+  // Source counterexample: old zero summary (updated_at 100, total 0) -> newer index (updated_at 200,
+  // task_count 94) while replacement summary is held -> convergence to Done 94 (with 25 loaded rows),
+  // plus epoch/credential replacement while held.
+  const COUNTER_PLAN_ID = "pl_counter";
+  const oldZeroSummary: PlanSummaryRead = {
+    ...FIXTURE_PLAN_READ,
+    id: COUNTER_PLAN_ID,
+    title: "Counter effort",
+    status: "active",
+    owner: FIXTURE_PLAN.owner,
+    project_path: "/workspace",
+    canonical_project_path: "/workspace",
+    created_at: 100,
+    updated_at: 100,
+    canvas: FIXTURE_PLAN.canvas,
+    mode: "planning",
+    planning_state: "drafting",
+    team_id: TEAM_ID,
+    revision: "100",
+    tasks: [],
+    task_counts: { total: 0, pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0 },
+  };
+  const oldZeroIndex: PlanIndexEntry = {
+    plan_id: COUNTER_PLAN_ID,
+    file_path: `/workspace/.domios/plans/active/${COUNTER_PLAN_ID}/plan.json`,
+    canonical_project_path: "/workspace",
+    owner: FIXTURE_PLAN.owner,
+    title: "Counter effort",
+    status: "active",
+    updated_at: 100,
+    team_id: TEAM_ID,
+    assigned_tab_ids: [TAB_ID],
+    task_count: 0,
+    open_task_count: 0,
+  };
+  const newerIndex94: PlanIndexEntry = {
+    ...oldZeroIndex,
+    updated_at: 200,
+    task_count: 94,
+    open_task_count: 0,
+  };
+  const newerSummary94: PlanSummaryRead = {
+    ...oldZeroSummary,
+    updated_at: 200,
+    revision: "200",
+    tasks: Array.from({ length: 25 }, (_, i) => ({
+      ...FIXTURE_TASK_METADATA,
+      id: `counter-${i}`,
+      name: `Counter ${i}`,
+      status: "done" as const,
+    })),
+    task_counts: { total: 94, pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 94, cancelled: 0 },
+  };
+  let counterPhase: "old-zero" | "hold-replacement" | "epoch-replaced" = "old-zero";
+  let releaseReplacementSummary!: () => void;
+  let replacementRequested!: () => void;
+  const replacementReady = new Promise<void>((resolve) => { replacementRequested = resolve; });
+  let counterIndexUpdated!: () => void;
+  const counterIndexReady = new Promise<void>((resolve) => { counterIndexUpdated = resolve; });
+
+  const counterPrevFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    value: muxMockFetch(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/mux/state")) return response(backendSnapshot);
+      if (counterPhase === "old-zero") {
+        return url.endsWith("/api/plans?view=summary")
+          ? response({ plans: [oldZeroSummary] })
+          : response({ plans: [oldZeroIndex] });
+      }
+      if (counterPhase === "hold-replacement") {
+        if (url.endsWith("/api/plans")) return response({ plans: [newerIndex94] });
+        if (url.includes(`/api/plans/${COUNTER_PLAN_ID}/projection`) || url.endsWith("/api/plans?view=summary")) {
+          return new Promise<Response>((resolve) => {
+            releaseReplacementSummary = () => resolve(response(
+              url.includes("/projection") ? newerSummary94 : { plans: [newerSummary94] },
+            ));
+            replacementRequested();
+          });
+        }
+      }
+      if (counterPhase === "epoch-replaced") {
+        const replacedSummary: PlanSummaryRead = {
+          ...oldZeroSummary,
+          id: "pl_epoch_new",
+          title: "Post-epoch effort",
+          updated_at: 300,
+          revision: "1",
+          task_counts: { total: 5, pending: 2, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 3, cancelled: 0 },
+        };
+        const replacedIndex: PlanIndexEntry = {
+          ...oldZeroIndex,
+          plan_id: "pl_epoch_new",
+          title: "Post-epoch effort",
+          updated_at: 300,
+          task_count: 5,
+          open_task_count: 2,
+        };
+        return url.endsWith("/api/plans?view=summary")
+          ? response({ plans: [replacedSummary] })
+          : response({ plans: [replacedIndex] });
+      }
+      return new Response("not found", { status: 404 });
+    }),
+  });
+
+  function CounterIndexObserver() {
+    const { index } = usePlanIndex();
+    useEffect(() => {
+      if (index.some((entry) => entry.plan_id === COUNTER_PLAN_ID && entry.task_count === 94)) counterIndexUpdated();
+    }, [index]);
+    return null;
+  }
+
+  const counterHost = document.createElement("div");
+  document.body.appendChild(counterHost);
+  const counterRoot = createRoot(counterHost);
+  try {
+    await act(async () => {
+      counterRoot.render(<PlansProvider api={API}><CounterIndexObserver /><Projection /></PlansProvider>);
+      await settleDaemon();
+    });
+    assert(
+      counterHost.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "verified"
+      && counterHost.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent === "0",
+      "precondition: old summary updated_at 100 starts at verified 0",
+    );
+
+    counterPhase = "hold-replacement";
+    await act(async () => {
+      for (const handler of listenHandlers.get("plan-changed") ?? []) {
+        handler({ payload: { plan_id: COUNTER_PLAN_ID, revision: "200", previous_revision: "100", task_ids: [], reset: false, deleted: false } });
+      }
+      await Promise.all([counterIndexReady, replacementReady]);
+    });
+    assert(
+      counterHost.querySelector('[data-testid="team-status-unavailable"]')?.textContent?.includes("94 tasks"),
+      "newer index task_count 94 over older zero summary preserves known total 94 while replacement summary is held",
+    );
+    assert(
+      counterHost.querySelector('[data-testid="team-status-tally"]') === null,
+      "superseded zero buckets are never shown as verified zero when newer index reports 94 tasks",
+    );
+
+    await act(async () => {
+      releaseReplacementSummary();
+      await settleDaemon();
+    });
+    assert(
+      counterHost.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "verified"
+      && counterHost.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent === "94",
+      "matching replacement summary converges to verified Done 94 without counting 25 loaded rows",
+    );
+
+    counterPhase = "hold-replacement";
+    let releaseEpochHeld!: () => void;
+    let epochHeldRequested!: () => void;
+    const epochHeldReady = new Promise<void>((resolve) => { epochHeldRequested = resolve; });
+    Object.defineProperty(globalThis, "fetch", {
+      configurable: true,
+      value: muxMockFetch(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/api/mux/state")) return response(backendSnapshot);
+        if (counterPhase === "hold-replacement") {
+          if (url.includes("/projection")) {
+            return new Promise<Response>((resolve) => {
+              releaseEpochHeld = () => resolve(response({ ...newerSummary94, revision: "201" }));
+              epochHeldRequested();
+            });
+          }
+          return response({ plans: [newerIndex94] });
+        }
+        const replacedSummary: PlanSummaryRead = {
+          ...oldZeroSummary,
+          id: "pl_epoch_new",
+          title: "Post-epoch effort",
+          updated_at: 300,
+          revision: "1",
+          task_counts: { total: 5, pending: 2, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 3, cancelled: 0 },
+        };
+        const replacedIndex: PlanIndexEntry = {
+          ...oldZeroIndex,
+          plan_id: "pl_epoch_new",
+          title: "Post-epoch effort",
+          updated_at: 300,
+          task_count: 5,
+          open_task_count: 2,
+        };
+        return url.endsWith("/api/plans?view=summary")
+          ? response({ plans: [replacedSummary] })
+          : response({ plans: [replacedIndex] });
+      }),
+    });
+    await act(async () => {
+      for (const handler of listenHandlers.get("plan-changed") ?? []) {
+        handler({ payload: { plan_id: COUNTER_PLAN_ID, revision: "201", previous_revision: "200", task_ids: [], reset: false, deleted: false } });
+      }
+      await epochHeldReady;
+    });
+    counterPhase = "epoch-replaced";
+    await act(async () => {
+      fireResync("epoch_changed");
+      await settleDaemon();
+    });
+    await act(async () => {
+      releaseEpochHeld();
+      await settleDaemon();
+    });
+    assert(
+      counterHost.querySelector('[data-testid="team-name"]')?.textContent === "Post-epoch effort"
+      && counterHost.querySelector('[data-testid="team-status-todo"] .ct-plan-status-breakdown-count')?.textContent === "2"
+      && counterHost.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent === "3",
+      "epoch replacement clears held pre-epoch summary and rejects late pre-epoch reply",
+    );
+  } finally {
+    await act(async () => counterRoot.unmount());
+    counterHost.remove();
+    Object.defineProperty(globalThis, "fetch", { configurable: true, value: counterPrevFetch });
+  }
+
   // Remote browsed peer Team cards (eight / Sauron case): single bounded peer summary read,
   // held -> unavailable, authoritative Done 94 (never loaded 25), genuine empty, foreign Team fenced,
   // peer switch and late-reply fenced.

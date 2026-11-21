@@ -57,6 +57,7 @@ interface TeamPlanProjection {
   indexOnly: boolean;
   indexTaskCount: number | null;
   indexOpenTaskCount: number | null;
+  indexUpdatedAt: number | null;
 }
 
 function indexedPlan(entry: PlanIndexEntry): Plan {
@@ -107,6 +108,7 @@ function newestActivePlansByTeam(
           indexOnly: true,
           indexTaskCount: entry.task_count ?? null,
           indexOpenTaskCount: entry.open_task_count ?? null,
+          indexUpdatedAt: entry.updated_at,
         };
       }
       const preferIndexTitle = Boolean(entry.title.trim())
@@ -120,6 +122,7 @@ function newestActivePlansByTeam(
         indexOnly: false,
         indexTaskCount: entry.task_count ?? null,
         indexOpenTaskCount: entry.open_task_count ?? null,
+        indexUpdatedAt: entry.updated_at,
       };
     }),
     ...plans
@@ -129,14 +132,15 @@ function newestActivePlansByTeam(
         indexOnly: false,
         indexTaskCount: null,
         indexOpenTaskCount: null,
+        indexUpdatedAt: null,
       })),
   ];
   for (const candidate of candidates) {
     const { plan } = candidate;
     if (!plan.team_id || plan.status !== "active") continue;
     const current = grouped.get(plan.team_id);
-    const currentUpdatedAt = current?.plan.updated_at ?? current?.plan.created_at ?? 0;
-    const updatedAt = plan.updated_at ?? plan.created_at ?? 0;
+    const currentUpdatedAt = Math.max(current?.plan.updated_at ?? current?.plan.created_at ?? 0, current?.indexUpdatedAt ?? 0);
+    const updatedAt = Math.max(plan.updated_at ?? plan.created_at ?? 0, candidate.indexUpdatedAt ?? 0);
     if (!current || updatedAt > currentUpdatedAt || (updatedAt === currentUpdatedAt && plan.id > current.plan.id)) {
       grouped.set(plan.team_id, candidate);
     }
@@ -433,6 +437,7 @@ export function SidebarWorkspaceTabs({
           indexOnly: planEntry?.indexOnly ?? false,
           indexTaskCount: planEntry?.indexTaskCount ?? null,
           indexOpenTaskCount: planEntry?.indexOpenTaskCount ?? null,
+          indexUpdatedAt: planEntry?.indexUpdatedAt ?? null,
           loading: Boolean(
             planProjectionStatus && (
               !planProjectionStatus.ready
