@@ -27,6 +27,7 @@ interface DurableDraft {
   voiceTranscribing?: boolean;
   capsules: DeliveryDraft["capsules"];
   reply: DeliveryDraft["reply"];
+  inlineReply?: boolean;
 }
 
 interface DurableSend {
@@ -135,6 +136,7 @@ export function encodeChatSend(tabId: string, send: DeliverySend, revision = 0, 
       ...(draft.voiceTranscribing !== undefined ? { voiceTranscribing: draft.voiceTranscribing } : {}),
       capsules: draft.capsules as DurableDraft["capsules"],
       reply: draft.reply as DurableDraft["reply"],
+      ...(draft.inlineReply !== undefined ? { inlineReply: draft.inlineReply } : {}),
     } } : {}),
   };
   return { format: "codeterm.chat-send", version: 1, tabId, sendId: send.id, revision, order,
@@ -317,6 +319,7 @@ export function decodeChatSend(record: ChatSendDurableRecord): DeliverySend | nu
         ...(value.draft.voiceTranscribing !== undefined ? { voiceTranscribing: value.draft.voiceTranscribing } : {}),
         capsules: value.draft.capsules,
         reply: value.draft.reply,
+        ...(value.draft.inlineReply !== undefined ? { inlineReply: value.draft.inlineReply } : {}),
       } } : {}),
     };
   } catch {

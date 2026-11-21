@@ -183,6 +183,23 @@ main().then(
   },
 );
 
+test("inline reply serializes quoted text directly without file markers or mesh transfers", async () => {
+  const { transfers, deps } = harness();
+  const reply = { label: "Fermi", excerpt: "Done now.", ref: "a1", path: "", content: "Fermi:\n> Done **now**." };
+  const localInline = await composeAttachmentDraft("tab-7", "why?", [], [], deps, EMPTY_CAPSULES, reply, true);
+  assert.equal(localInline.composed, "Fermi:\n> Done **now**.\n\nwhy?");
+  assert.ok(!localInline.composed.includes("<domios"));
+
+  const remoteInline = await composeAttachmentDraft(remoteTab, "why?", [], [], deps, EMPTY_CAPSULES, reply, true);
+  assert.equal(remoteInline.composed, "Fermi:\n> Done **now**.\n\nwhy?");
+  assert.equal(transfers.length, 0, "inline replies never transfer a file to a remote peer");
+
+  const storedReply = { ...reply, path: sourceImage };
+  const forcedInline = await composeAttachmentDraft(remoteTab, "", [], [], deps, EMPTY_CAPSULES, storedReply, true);
+  assert.equal(forcedInline.composed, "Fermi:\n> Done **now**.");
+  assert.equal(transfers.length, 0, "inlineReply overrides stored file paths on filePaths:false harnesses");
+});
+
 test("host transcription notes and missing remote transcripts refuse delivery", async () => {
   const note = markVoice(targetVoice, null, "transcribe request failed: engine offline");
   const localFailure = harness({ transcribeLocal: async () => note });

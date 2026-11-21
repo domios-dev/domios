@@ -6,7 +6,7 @@ import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import { useAttachmentUploads } from "./useAttachmentUploads";
 import { useComposerVoice } from "./voice/useComposerVoice";
 import { ComposerIssuesProvider, useHasComposerIssuesProvider } from "./ComposerIssuesContext";
-import { DictationControls, DictationStatus } from "./voice/DictationStatus";
+import { DictationPresence, DictationStatus } from "./voice/DictationStatus";
 import { DictationSetupPrompt } from "./voice/DictationSetupPrompt";
 import type { LiveDictation } from "./voice/useLiveDictation";
 
@@ -29,6 +29,8 @@ interface Props {
   canAttach?: boolean;
   uploadFiles?: (files: File[]) => Promise<void>;
   dictation?: LiveDictation;
+  spaceArming?: boolean;
+  spacePop?: boolean;
 }
 
 export function ComposerActions(props: Props) {
@@ -55,6 +57,8 @@ function ComposerActionsBody({
   canAttach = true,
   uploadFiles,
   dictation,
+  spaceArming = false,
+  spacePop = false,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const uploads = useAttachmentUploads(onAttach);
@@ -71,11 +75,9 @@ function ComposerActionsBody({
 
   const attachButton = canAttach && !voiceUi.isPreview
     && <ComposerAttachButton uploading={uploads.busy} onClick={() => fileRef.current?.click()} />;
-  const dictationHeader = dictation && (dictation.setup || dictation.error || dictation.phase !== "idle");
-  const sendButton = !voiceUi.isPreview && (!dictation || voiceUi.mainIsSend || voiceUi.voiceActive) && (
-    <ComposerActionButton voiceUi={voiceUi} sendDisabled={sendDisabled}
-      sendUnavailableReason={sendUnavailableReason} onSend={onSend} onSchedule={onSchedule} />
-  );
+  const dictationActive = Boolean(dictation && dictation.phase !== "idle");
+  const dictationHeader = Boolean(dictation && (dictation.setup || dictation.error));
+  const scheduleVisible = voiceUi.mainIsSend && !dictationActive && Boolean(onSchedule);
 
   return (
     <>
@@ -97,19 +99,29 @@ function ComposerActionsBody({
       {voiceUploads.status}
       <div className={expanded ? "ct-expanded-composer__actions relative grid w-full items-end gap-2" : "relative flex w-full items-end gap-1.5"}>
         {attachButton}
-        <ComposerInputShell voiceUi={voiceUi} header={dictationHeader ? <>
+        <ComposerInputShell voiceUi={voiceUi} dictationPhase={dictation?.phase} header={dictationHeader ? <>
           {dictation?.setup && <DictationSetupPrompt reason={dictation.setup} onDismiss={dictation.dismissSetup} />}
           {dictation && <DictationStatus dictation={dictation} />}
           {cardHeader}
         </> : cardHeader} footer={cardFooter}
-          actions={!expanded && voiceUi.mainIsSend && dictation?.phase !== "finishing" && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />}>
+          actions={dictationActive && dictation
+            ? <DictationPresence dictation={dictation} />
+            : (!expanded && scheduleVisible && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />)}>
           {children}
         </ComposerInputShell>
-        {expanded && voiceUi.mainIsSend && onSchedule && <div className="ct-expanded-composer__schedule"><ComposerScheduleButton onSchedule={onSchedule} /></div>}
-        {dictation ? <div className="ct-dictation-actions flex shrink-0 items-center gap-1">
-          {!voiceUi.composerHidden && <DictationControls dictation={dictation} disabled={voiceUi.voiceActive} />}
-          {sendButton}
-        </div> : sendButton}
+        {expanded && scheduleVisible && onSchedule && <div className="ct-expanded-composer__schedule"><ComposerScheduleButton onSchedule={onSchedule} /></div>}
+        {!voiceUi.isPreview && (
+          <ComposerActionButton
+            voiceUi={voiceUi}
+            dictation={dictation}
+            spaceArming={spaceArming}
+            spacePop={spacePop}
+            sendDisabled={sendDisabled}
+            sendUnavailableReason={sendUnavailableReason}
+            onSend={onSend}
+            onSchedule={onSchedule}
+          />
+        )}
       </div>
     </>
   );

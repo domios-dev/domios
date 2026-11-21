@@ -10,6 +10,7 @@ import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { ChatComposer } from "./ChatComposer";
+import { replyInComposer } from "./composerReply";
 import { parseAttachmentMarkers } from "@codeterm/chat-core";
 import { createTabsTransport } from "../../lib/transport/tabs";
 import type { HttpMethod } from "../../lib/transportClient";
@@ -27,9 +28,10 @@ const readable = { filePaths: true, inlineText: true, imagePaths: true };
 const inline = { filePaths: false, inlineText: true, imagePaths: false };
 const images = { filePaths: false, inlineText: true, imagePaths: true };
 
+const storeBlobSpy = vi.fn(async () => "/opaque/picked.png");
 vi.mock("./voice/audio", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./voice/audio")>()),
-  storeBlob: async () => "/opaque/picked.png",
+  storeBlob: (...args: unknown[]) => storeBlobSpy(...args),
 }));
 
 it("sends the image selected in Attach file on a runtime tab", async () => {
@@ -163,6 +165,61 @@ it.each([
       expect(editor.getAttribute("aria-invalid")).toBe("true");
       expect(error).toHaveBeenCalledOnce();
     }
+  } finally {
+    await act(async () => root.unmount()); host.remove(); setAgentDescriptors([]);
+  }
+});
+
+it("sends Reply quotes inline on filePaths:false inlineText:true (ACP) via Enter and Send without file markers", async () => {
+  storeBlobSpy.mockClear();
+  setAgentDescriptors([{ id: "acp-fixture", attachments: images } as ProviderDescriptor]);
+  const sent: string[] = [];
+  const errors: string[] = [];
+  __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "chat_send_text") {
+      sent.push(String(args?.text));
+      return { send_id: `sent-${sent.length}`, tab_id: "acp-reply-tab", state: "delivered", ledger_id: "ledger", sequence: sent.length, retained_from: 0 } as T;
+    }
+    if (["delayed_send_list", "cron_list"].includes(command)) return [] as T;
+    return { items: [], receiverTargets: {} } as T;
+  });
+  __setListenForTest(async () => () => {});
+  const state = { workspaces: [], tabs: { "acp-reply-tab": { id: "acp-reply-tab", pty_id: null, tab_type: "Terminal", title: "ACP", cwd: null } }, teams: [], notifications: [], tabStatuses: {}, toasts: [],
+    activeTabIds: {}, generation: 1, pendingCloses: [], active_workspace_id: null, focused_tab_id: null } as ExtendedState;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}><ComposerIssuesProvider>
+      <ChatComposer tabId="acp-reply-tab" tabProvider="acp-fixture" pendingPrompt={null}
+        attachments={[]} addAttachments={() => {}} removeAttachment={() => {}} clearAttachments={() => {}}
+        handlePasteEvent={() => {}} onWillSendMessage={() => {}} addOptimistic={() => `opt-${sent.length + 1}`}
+        updateOptimistic={() => {}} observeChatSendStatus={() => {}} showComposerError={(msg) => errors.push(msg)} />
+    </ComposerIssuesProvider></MuxStateStoreContext.Provider>));
+
+    await act(async () => replyInComposer("acp-reply-tab", {
+      label: "Fermi", excerpt: "Done now.", ref: "m1", content: "Fermi:\n> Done **now**.",
+    }));
+    expect(storeBlobSpy).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-testid="reply-quote"]')).not.toBeNull();
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, "follow up");
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => editor.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", key: "Enter", bubbles: true })));
+    expect(errors).toEqual([]);
+    expect(sent).toEqual(["Fermi:\n> Done **now**.\n\nfollow up"]);
+    expect(parseAttachmentMarkers(sent[0]).attachments).toEqual([]);
+    expect(host.querySelector('[data-testid="reply-quote"]')).toBeNull();
+
+    await act(async () => replyInComposer("acp-reply-tab", {
+      label: "Fermi", excerpt: "Second quote", ref: "m2", content: "Fermi:\n> Second quote",
+    }));
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="composer-send-button"]')!
+      .dispatchEvent(new PointerEvent("pointerup", { button: 0, bubbles: true })));
+    expect(errors).toEqual([]);
+    expect(sent).toEqual(["Fermi:\n> Done **now**.\n\nfollow up", "Fermi:\n> Second quote"]);
+    expect(host.querySelector('[data-testid="reply-quote"]')).toBeNull();
   } finally {
     await act(async () => root.unmount()); host.remove(); setAgentDescriptors([]);
   }
