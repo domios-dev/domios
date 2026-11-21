@@ -165,6 +165,12 @@ fn claims_belong_to_this_launchs_running_turn() {
         "an interrupted agent may discard the tool result"
     );
     session.prompts_cancelled.store(false, Ordering::Release);
+    // Drive the owner explicitly so Idle does not drain the queued send before the idle-claim check.
+    svc.pending_delivery_payloads
+        .user_sends
+        .tab(&tab)
+        .running
+        .store(true, Ordering::Release);
     publish_turn(svc, &session, "running", RuntimeTurnState::Idle);
     assert_eq!(
         svc.claim_inbound_tool_messages(&tab, &nonce, "idle")
@@ -715,6 +721,12 @@ fn digest_and_abandoned_claim_traces_distinguish_zero_write_release_from_postwri
     let (fixture, tab, _peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
     let svc = &fixture.service;
     let (session, nonce) = running_turn(svc, &tab);
+    // Drive the owner explicitly so abandoned-claim settlement runs inside the thread-local capture.
+    svc.pending_delivery_payloads
+        .user_sends
+        .tab(&tab)
+        .running
+        .store(true, Ordering::Release);
     let mut abandoned_id = String::new();
     let abandoned_events = crate::flow_trace::test_capture::capture(|| {
         let record = admit(svc, &tab, "opaque abandoned");
