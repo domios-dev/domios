@@ -743,6 +743,14 @@ fn socket_plan_task_respawn_runtime_persists_binding_before_spawn_and_reaches_wo
     svc.plan_store
         .acknowledge_task_attempt(&plan.id, &task, &source_tab, &source_attempt, 11)
         .unwrap();
+    let owner_epoch = svc
+        .plan_store
+        .inspect_task_for_test(&task)
+        .unwrap()
+        .task
+        .interruption
+        .owner_epoch;
+    assert_eq!(owner_epoch, 1);
 
     let respawned = crate::server::plan_task_rpc::dispatch(
         "plan.task.respawn",
@@ -750,7 +758,8 @@ fn socket_plan_task_respawn_runtime_persists_binding_before_spawn_and_reaches_wo
             "plan_id": plan.id, "task_id": task, "attempt_id": source_attempt,
             "provider": PROVIDER, "launch_profile": "selected",
             "caller_tab_id": owner, "parent_tab_id": owner, "workspace_id": workspace,
-            "session_id": "owner-session", "session_binding_nonce": "owner-nonce"
+            "session_id": "owner-session", "session_binding_nonce": "owner-nonce",
+            "owner_epoch": owner_epoch
         })),
         &Arc::new(svc.clone()),
         20,
@@ -760,6 +769,7 @@ fn socket_plan_task_respawn_runtime_persists_binding_before_spawn_and_reaches_wo
     let respawn_attempt = respawned["attempt"]["id"].as_str().unwrap().to_owned();
     assert_ne!(respawn_tab, source_tab);
     assert_ne!(respawn_attempt, source_attempt);
+    assert!(svc.mux.read().get_tab(&source_tab).is_none());
 
     // Immediately upon respawn return, tab.task_binding must already be non-null.
     let immediate_binding = svc
@@ -906,9 +916,13 @@ fn socket_plan_task_respawn_spawn_failure_rolls_back_attempt_and_closes_reserved
             Ok(())
         })
         .unwrap();
-    let source = svc.plan_store.list_task_attempts(&plan.id, &task).unwrap()[0]
-        .attempt_id
+    let source_attempt = svc.plan_store.list_task_attempts(&plan.id, &task).unwrap()[0]
+        .attempt
         .clone();
+    svc.plan_store
+        .record_task_executor_termination(&plan.id, &task, &source_attempt, 6)
+        .unwrap();
+    let source = source_attempt.id;
     let tabs_before = svc.mux.read().snapshot().tabs.len();
 
     let error = crate::server::plan_task_rpc::dispatch(

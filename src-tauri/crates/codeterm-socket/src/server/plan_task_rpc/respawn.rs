@@ -600,9 +600,13 @@ mod tests {
                 Ok(())
             })
             .unwrap();
-        let source_id = svc.plan_store.list_task_attempts(&plan.id, &task_id).unwrap()[0]
-            .attempt_id
+        let source_attempt = svc.plan_store.list_task_attempts(&plan.id, &task_id).unwrap()[0]
+            .attempt
             .clone();
+        svc.plan_store
+            .record_task_executor_termination(&plan.id, &task_id, &source_attempt, 6)
+            .unwrap();
+        let source_id = source_attempt.id;
         let tabs_before = svc.mux.read().snapshot().tabs.len();
         let observed = Cell::new(false);
 
