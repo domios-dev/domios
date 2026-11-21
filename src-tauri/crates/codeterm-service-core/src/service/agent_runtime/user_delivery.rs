@@ -4,11 +4,17 @@ use crate::service::{
     pending_delivery_payloads::user_sends::{UserSendAuthority, MAX_UNSETTLED},
     ServiceContext,
 };
-use std::sync::atomic::Ordering;
+use std::sync::{atomic::Ordering, Arc};
+#[cfg(debug_assertions)]
+use std::time::Instant;
 
 /// Client token of a restart continuation, inside its runtime envelope token.
 pub(crate) const TURN_RESUME_TOKEN: &str = "turn-resume:";
 const RECOVERY_HOLD: &str = "runtime_recovery_in_progress";
+
+fn trace_stage(send_id: &str, stage: &str, tab: &str, provider: &str, outcome: &str) {
+    crate::flow_trace::record(send_id, stage, tab, provider, outcome, None);
+}
 
 fn resumes_interrupted_turn(
     record: &crate::service::pending_delivery_payloads::user_sends::UserSendRecord,
@@ -32,6 +38,17 @@ fn next_queued(
 
 fn hold_for_recovery(svc: &ServiceContext, tab: &str) -> Result<(), String> {
     for record in svc.pending_delivery_payloads.user_sends.queued(tab)? {
+        trace_stage(
+            &record.send_id,
+            "send.held",
+            tab,
+            &record.authority.provider_id,
+            "recovery",
+        );
+        log::debug!(
+            "[delivery-stage] tab={tab} send_id={} stage=held reason={RECOVERY_HOLD}",
+            record.send_id
+        );
         if let Some(status) = svc
             .chat_send_ledger
             .set_user_pending_reason(&record.send_id, Some(RECOVERY_HOLD))
@@ -63,32 +80,84 @@ pub(super) fn restore_input(
     }
 }
 
-pub(crate) fn is_ready(svc: &ServiceContext, authority: &UserSendAuthority) -> bool {
+pub(crate) fn readiness_blocker(
+    svc: &ServiceContext,
+    authority: &UserSendAuthority,
+) -> Option<&'static str> {
     let owner = svc
         .pending_delivery_payloads
         .user_sends
         .tab(&authority.tab_id);
-    if owner.revoked.load(Ordering::Acquire) || owner.failed.load(Ordering::Acquire) {
-        return false;
+    if owner.revoked.load(Ordering::Acquire) {
+        return Some("owner_revoked");
+    }
+    if owner.failed.load(Ordering::Acquire) {
+        return Some("owner_failed");
     }
     let Some(session) = engine::for_tab(&authority.tab_id) else {
-        return false;
+        return Some("session_absent");
     };
     let context = session.context.lock().clone();
     let process = session.process.lock().clone();
-    authority.provider_id == session.provider
-        && authority.binding_nonce == context.binding_nonce
-        && authority
-            .observed_session_id
-            .as_deref()
-            .is_none_or(|thread| context.thread_id.as_deref() == Some(thread))
-        && context.thread_id.is_some()
-        // Ready lands right after resume; history backfill continues behind it and never gates a send.
+    if authority.provider_id != session.provider {
+        return Some("provider_mismatch");
+    }
+    if authority.binding_nonce != context.binding_nonce {
+        return Some("nonce_mismatch");
+    }
+    if !authority
+        .observed_session_id
+        .as_deref()
+        .is_none_or(|thread| context.thread_id.as_deref() == Some(thread))
+    {
+        return Some("thread_mismatch");
+    }
+    if context.thread_id.is_none() {
+        return Some("thread_absent");
+    }
+    // Ready lands right after resume; history backfill continues behind it and never gates a send.
+    if !matches!(session.state.lock().phase, RuntimePhase::Ready) {
+        return Some("phase_not_ready");
+    }
+    if !process.is_some_and(|process| {
+        process.ended.borrow().is_none() && process.client.ended().borrow().is_none()
+    }) {
+        return Some("process_ended");
+    }
+    if engine::validate_binding(svc, &session).is_err() {
+        return Some("binding_invalid");
+    }
+    None
+}
+
+pub(crate) fn is_ready(svc: &ServiceContext, authority: &UserSendAuthority) -> bool {
+    readiness_blocker(svc, authority).is_none()
+}
+
+fn ready_session(svc: &ServiceContext, tab: &str) -> Option<Arc<engine::Session>> {
+    if crate::service::messenger::switch_handoff::launch_authority(svc, tab).is_some() {
+        return None;
+    }
+    let session = engine::for_tab(tab)?;
+    let live_tab = svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .is_some_and(|target| !target.frozen && !target.restored_from_snapshot);
+    if !live_tab {
+        return None;
+    }
+    let context = session.context.lock().clone();
+    let process = session.process.lock().clone();
+    let ready = context.thread_id.is_some()
+        && session.thread_loaded.load(Ordering::Acquire)
         && matches!(session.state.lock().phase, RuntimePhase::Ready)
+        && !session.compaction.lock().held(context.epoch)
         && process.is_some_and(|process| {
             process.ended.borrow().is_none() && process.client.ended().borrow().is_none()
         })
-        && engine::validate_binding(svc, &session).is_ok()
+        && engine::validate_binding(svc, &session).is_ok();
+    ready.then_some(session)
 }
 
 pub(crate) fn is_current_session(
@@ -154,6 +223,13 @@ fn settle_held_sends(svc: &ServiceContext, tab: &str) -> Result<(), String> {
             .chat_send_ledger
             .expire_owned_before_write(&record.send_id, "launch_degraded_before_write")
         {
+            trace_stage(
+                &record.send_id,
+                "send.failed",
+                tab,
+                &record.authority.provider_id,
+                "launch_degraded_before_write",
+            );
             svc.ui.emit(
                 "chat-send-status",
                 serde_json::to_value(status).unwrap_or_default(),
@@ -185,32 +261,54 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
         hold_for_recovery(svc, tab)?;
         return Ok(UserDrain::Idle);
     }
-    let session = match crate::async_runtime::block_on(engine::ensure(svc, tab)) {
-        Ok(session) => session,
-        Err(reason) => {
-            // Recovery may have claimed the runtime while this attempt ran; its completion wakes the owner.
-            if svc.runtime_recovery_owns_sends(tab) {
-                hold_for_recovery(svc, tab)?;
-                return Ok(UserDrain::Idle);
-            }
-            if degrade_ends_held_sends(&reason, published_state(svc, tab).as_deref()) {
-                settle_held_sends(svc, tab)?;
-                return Ok(UserDrain::Idle);
-            }
-            for record in store.queued(tab)? {
-                if let Some(status) = svc
-                    .chat_send_ledger
-                    .set_user_pending_reason(&record.send_id, Some(&reason.to_string()))
-                {
-                    svc.ui.emit(
-                        "chat-send-status",
-                        serde_json::to_value(status).unwrap_or_default(),
-                    );
+    #[cfg(debug_assertions)]
+    let ensure_started = Instant::now();
+    // Skip redundant engine::ensure on a live ready session so drain never blocks on session.gate.
+    let (session, _ensure_mode) = match ready_session(svc, tab) {
+        Some(session) => (session, "fast_ready"),
+        None => match crate::async_runtime::block_on(engine::ensure(svc, tab)) {
+            Ok(session) => (session, "ensured"),
+            Err(reason) => {
+                #[cfg(debug_assertions)]
+                let ensure_us = ensure_started.elapsed().as_micros();
+                // Recovery may have claimed the runtime while this attempt ran; its completion wakes the owner.
+                if svc.runtime_recovery_owns_sends(tab) {
+                    hold_for_recovery(svc, tab)?;
+                    return Ok(UserDrain::Idle);
                 }
+                if degrade_ends_held_sends(&reason, published_state(svc, tab).as_deref()) {
+                    settle_held_sends(svc, tab)?;
+                    return Ok(UserDrain::Idle);
+                }
+                for record in store.queued(tab)? {
+                    trace_stage(
+                        &record.send_id,
+                        "send.held",
+                        tab,
+                        &record.authority.provider_id,
+                        "initial_readiness",
+                    );
+                    #[cfg(debug_assertions)]
+                    log::debug!(
+                        "[delivery-stage] tab={tab} send_id={} stage=held reason=initial_readiness ensure_us={ensure_us} detail={reason}",
+                        record.send_id
+                    );
+                    if let Some(status) = svc
+                        .chat_send_ledger
+                        .set_user_pending_reason(&record.send_id, Some(&reason.to_string()))
+                    {
+                        svc.ui.emit(
+                            "chat-send-status",
+                            serde_json::to_value(status).unwrap_or_default(),
+                        );
+                    }
+                }
+                return Ok(UserDrain::Idle);
             }
-            return Ok(UserDrain::Idle);
-        }
+        },
     };
+    #[cfg(debug_assertions)]
+    let ensure_us = ensure_started.elapsed().as_micros();
     for _ in 0..MAX_UNSETTLED {
         let recovering = svc.runtime_recovery_owns_sends(tab);
         let Some(mut record) = next_queued(store.queued(tab)?, recovering) else {
@@ -241,6 +339,13 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
                     .chat_send_ledger
                     .expire_owned_before_write(&record.send_id, "launch_ended_before_write")
                 {
+                    trace_stage(
+                        &record.send_id,
+                        "send.failed",
+                        tab,
+                        &record.authority.provider_id,
+                        "launch_ended_before_write",
+                    );
                     svc.ui.emit(
                         "chat-send-status",
                         serde_json::to_value(status).unwrap_or_default(),
@@ -250,11 +355,51 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
             }
             return Ok(UserDrain::Idle);
         }
-        if !is_ready(svc, &record.authority) || !store.eligible(&record) {
+        if let Some(_blocker) = readiness_blocker(svc, &record.authority) {
+            trace_stage(
+                &record.send_id,
+                "send.held",
+                tab,
+                &record.authority.provider_id,
+                "initial_readiness",
+            );
+            #[cfg(debug_assertions)]
+            log::debug!(
+                "[delivery-stage] tab={tab} send_id={} stage=held reason=initial_readiness blocker={_blocker} ensure_mode={_ensure_mode} ensure_us={ensure_us}",
+                record.send_id
+            );
+            return Ok(UserDrain::Idle);
+        }
+        if !store.eligible(&record) {
+            trace_stage(
+                &record.send_id,
+                "send.held",
+                tab,
+                &record.authority.provider_id,
+                "admission_preparing",
+            );
+            #[cfg(debug_assertions)]
+            log::debug!(
+                "[delivery-stage] tab={tab} send_id={} stage=held reason=admission_preparing ensure_mode={_ensure_mode} ensure_us={ensure_us}",
+                record.send_id
+            );
             return Ok(UserDrain::Idle);
         }
         let text = store.prepared(&record)?;
         if super::turn_requests::holds_submit(&session, &text) {
+            trace_stage(
+                &record.send_id,
+                "send.held",
+                tab,
+                &record.authority.provider_id,
+                "active_turn",
+            );
+            #[cfg(debug_assertions)]
+            log::debug!(
+                "[delivery-stage] tab={tab} send_id={} stage=held reason={} ensure_mode={_ensure_mode} ensure_us={ensure_us}",
+                record.send_id,
+                super::turn_requests::ACTIVE_TURN_HOLD
+            );
             if let Some(status) = svc.chat_send_ledger.set_user_pending_reason(
                 &record.send_id,
                 Some(super::turn_requests::ACTIVE_TURN_HOLD),
@@ -272,6 +417,13 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
                     &record.send_id,
                     "recording_recipient_changed_before_write",
                 ) {
+                    trace_stage(
+                        &record.send_id,
+                        "send.failed",
+                        tab,
+                        &record.authority.provider_id,
+                        "recording_recipient_changed",
+                    );
                     svc.ui.emit(
                         "chat-send-status",
                         serde_json::to_value(status).unwrap_or_default(),
@@ -286,6 +438,8 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
             .thread_id
             .as_deref()
             .ok_or("Runtime thread unavailable")?;
+        #[cfg(debug_assertions)]
+        let claim_started = Instant::now();
         if !store.claim(&record, Some(thread))? {
             return Ok(UserDrain::Idle);
         }
@@ -303,11 +457,26 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
         } else {
             super::inbound::begin_digest(svc, tab, &session, &record, &text, &context)
         };
+        let digest_used = digest.is_some();
+        trace_stage(
+            &record.send_id,
+            "send.claimed",
+            tab,
+            &record.authority.provider_id,
+            if digest_used { "digest_head" } else { "direct" },
+        );
+        #[cfg(debug_assertions)]
+        let claim_us = claim_started.elapsed().as_micros();
         let input = match &digest {
             Some(digest) => digest.input.clone(),
             None => restore_input(&record, &text)?,
         };
+        #[cfg(debug_assertions)]
+        let submit_started = Instant::now();
         let result = transport::send(svc, tab, &input, Some(&record.send_id));
+        #[cfg(debug_assertions)]
+        let submit_us = submit_started.elapsed().as_micros();
+        let submit_ok = result.is_ok();
         let zero_write = result
             .as_ref()
             .err()
@@ -341,8 +510,20 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
                 serde_json::to_value(status).unwrap_or_default(),
             );
         }
+        #[cfg(debug_assertions)]
+        log::debug!(
+            "[delivery-stage] tab={tab} send_id={} stage=transport_return ensure_mode={_ensure_mode} ensure_us={ensure_us} claim_us={claim_us} submit_us={submit_us} ok={submit_ok} zero_write={zero_write} digest={digest_used}",
+            record.send_id
+        );
         if let Some(reason) = rejection {
             if !store.discard_queued_from_ended_launch(&record)? {
+                trace_stage(
+                    &record.send_id,
+                    "send.released",
+                    tab,
+                    &record.authority.provider_id,
+                    "zero_write_direct",
+                );
                 return Ok(UserDrain::ZeroWriteRefusal {
                     dispatch_generation,
                 });
@@ -351,6 +532,13 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
                 .chat_send_ledger
                 .expire_owned_before_write(&record.send_id, &reason)
             {
+                trace_stage(
+                    &record.send_id,
+                    "send.failed",
+                    tab,
+                    &record.authority.provider_id,
+                    "rejected_before_write",
+                );
                 svc.ui.emit(
                     "chat-send-status",
                     serde_json::to_value(status).unwrap_or_default(),
@@ -365,6 +553,13 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
                     &record.send_id,
                     "recording_recipient_changed_before_write",
                 ) {
+                    trace_stage(
+                        &record.send_id,
+                        "send.failed",
+                        tab,
+                        &record.authority.provider_id,
+                        "recording_recipient_changed",
+                    );
                     svc.ui.emit(
                         "chat-send-status",
                         serde_json::to_value(status).unwrap_or_default(),
@@ -375,9 +570,25 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
             continue;
         }
         if zero_write {
+            trace_stage(
+                &record.send_id,
+                "send.released",
+                tab,
+                &record.authority.provider_id,
+                "zero_write_direct",
+            );
             return Ok(UserDrain::ZeroWriteRefusal {
                 dispatch_generation,
             });
+        }
+        if !submit_ok {
+            trace_stage(
+                &record.send_id,
+                "send.uncertain",
+                tab,
+                &record.authority.provider_id,
+                "postwrite_direct",
+            );
         }
         store.complete(&record)?;
         super::capture::retire(&record.send_id);
