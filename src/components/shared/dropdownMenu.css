@@ -1,6 +1,7 @@
 .ct-anchored-popover {
   position: fixed;
   z-index: 1500;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -31,7 +32,8 @@
 }
 
 /* Keep text from the underlying surface out of menus over busy content. */
-.ct-menu:is(.ct-menu--modal, .ct-menu--opaque) {
+.ct-menu:where(.ct-menu--modal, .ct-menu--opaque),
+:where(.ct-anchored-popover, .ct-menu-sheet) .ct-menu {
   background: var(--ct-glass-sheen), var(--ct-surface);
   backdrop-filter: none;
   animation-name: ct-opaque-menu-in;
