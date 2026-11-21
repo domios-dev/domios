@@ -132,6 +132,32 @@ async fn stop_session_scoped(
     let process = retirement
         .map(|retirement| retirement.process.clone())
         .unwrap_or_else(|| session.process.lock().clone());
+    if retirement.is_none() && permit.is_some() {
+        let should_close = session
+            .state
+            .lock()
+            .session_capabilities
+            .as_ref()
+            .is_some_and(|caps| caps.close);
+        let thread_id = session.context.lock().thread_id.clone();
+        if let (true, Some(thread_id), Some(live_process)) = (should_close, thread_id, process.as_ref()) {
+            let _ = tokio::time::timeout(
+                Duration::from_secs(3),
+                run(
+                    svc,
+                    &session.provider,
+                    &session,
+                    live_process,
+                    RuntimeOperation::Control {
+                        thread_id: Some(thread_id),
+                        action: "closeSession".into(),
+                        value: serde_json::json!({}),
+                    },
+                ),
+            )
+            .await;
+        }
+    }
     if let Some(process) = process {
         if let Err(reason) = client_bridge::cancel_all(svc, &session, &process, true).await {
             process.finish().await.map_err(|error| error.to_string())?;

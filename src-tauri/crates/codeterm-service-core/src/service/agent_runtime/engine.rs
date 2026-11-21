@@ -40,6 +40,13 @@ pub fn requested(svc: &ServiceContext, provider: &str) -> bool {
 pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
     SESSIONS.lock().get(tab).cloned()
 }
+pub(super) fn all_sessions() -> Vec<(String, Arc<Session>)> {
+    SESSIONS
+        .lock()
+        .iter()
+        .map(|(tab, session)| (tab.clone(), session.clone()))
+        .collect()
+}
 
 #[cfg(test)]
 pub(crate) use accounts::ensure_expected;

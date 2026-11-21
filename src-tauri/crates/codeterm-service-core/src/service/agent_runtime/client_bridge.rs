@@ -820,6 +820,7 @@ async fn execute(
             .map_err(|error| error.to_string())?
         }
         Request::Create { command, .. } => {
+            let owner = svc.clone();
             let bridge = bridge.clone();
             let session = session.clone();
             let expected = context.clone();
@@ -836,6 +837,7 @@ async fn execute(
                 {
                     return Err(BridgeError::from("Command grant expired before spawn"));
                 }
+                drop(current);
                 fs::root_matches(&bridge.root, &bridge.root_handle)?;
                 let cwd = terminal_cwd(&bridge, &command)?;
                 let directory = fs::directory(
@@ -848,14 +850,42 @@ async fn execute(
                     .lock()
                     .as_ref()
                     .map(|process| process.background_changed.clone());
-                let terminal = terminal::Terminal::spawn_with_notify(
+                let id = uuid::Uuid::new_v4().to_string();
+                let stream_owner = owner.clone();
+                let stream_session = session.clone();
+                let stream_expected = expected.clone();
+                let stream_terminal_id = id.clone();
+                let on_output: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |tail: String| {
+                    let live = stream_session.context.lock().clone();
+                    if live.epoch != stream_expected.epoch
+                        || live.binding_nonce != stream_expected.binding_nonce
+                        || live.thread_id != stream_expected.thread_id
+                    {
+                        return;
+                    }
+                    let updated = stream_session
+                        .cache
+                        .lock()
+                        .patch_terminal_output(&stream_terminal_id, tail);
+                    if let Some(item) = updated {
+                        crate::service::tab_chat::structured_sink::emit_live_runtime_chat_msg(
+                            stream_owner.ui.as_ref(),
+                            &live.tab_id,
+                            &item,
+                            live.thread_id.as_deref(),
+                            Some(&live.binding_nonce),
+                            None,
+                        );
+                    }
+                });
+                let terminal = terminal::Terminal::spawn_with_callbacks(
                     &command,
                     &cwd,
                     directory,
                     &env,
                     on_exit.clone(),
+                    Some(on_output),
                 )?;
-                let id = uuid::Uuid::new_v4().to_string();
                 state.terminals.insert(id.clone(), terminal);
                 drop(state);
                 if let Some(notify) = on_exit {

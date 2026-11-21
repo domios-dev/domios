@@ -77,6 +77,13 @@ export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[
   );
 }
 
+function shortLocationLabel(path: string, line?: number): string {
+  const normalized = path.replace(/\\/g, "/");
+  const segments = normalized.split("/").filter(Boolean);
+  const base = segments.length > 1 ? segments.slice(-2).join("/") : normalized;
+  return line !== undefined ? `${base}:${line}` : base;
+}
+
 export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, subtitle, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, disclosureToggleLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel, expandable = true }: ToolCardFrameProps) {
   const host = useChatBlockHost();
   const compact = useCompactToolRow();
@@ -89,7 +96,8 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const StatusGlyph = outcome.glyph;
   const error = event.status === "error";
   const inlineCommand = event.kind === "command";
-  const quietOperation = event.kind === "read" || event.kind === "search";
+  const quietOperation = !communication && variant !== "codeterm"
+    && (event.kind === "read" || event.kind === "search" || event.kind === "generic" || event.kind === "fetch");
   const inlineRow = inlineCommand || quietOperation;
   const iconColor = quietOperation ? "var(--ct-muted-fg)" : visual.color;
   const statusColor = event.status === "success" ? "var(--ct-muted-fg)" : outcome.color;
@@ -100,6 +108,18 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const label = title === undefined ? visual.label : title;
   const detailsId = `chat-details-${useId().replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const labelText = typeof label === "string" && label ? label : visual.label;
+  const rawSummary = summary === "" ? "" : (summary ?? event.description ?? event.summary ?? "");
+  const locations = event.locations?.length ? event.locations : undefined;
+  const locationText = locations
+    ? locations.map((loc) => (loc.line !== undefined ? `${loc.path}:${loc.line}` : loc.path)).join(", ")
+    : "";
+  const duplicateSummary = typeof rawSummary === "string" && (
+    (rawSummary.trim() !== "" && rawSummary.trim() === labelText.trim())
+    || (Boolean(locations) && rawSummary.trim() === locationText)
+  );
+  const resolvedSummary = summary === "" || duplicateSummary
+    ? null
+    : rawSummary || (label ? null : "Tool activity");
   const cardDisclosureLabel = communication && disclosureToggleLabel
     ? open ? disclosureToggleLabel.expanded : disclosureToggleLabel.collapsed
     : open ? "Collapse card" : "Expand card";
@@ -143,12 +163,38 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
           <span className={subtitle ? "ct-tool-labels flex min-w-0 flex-1 flex-col items-start gap-0 font-mono text-[12.5px] leading-[18px]" : "ct-tool-labels flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]"}>
             {label && <span className={inlineCommand ? "sr-only" : `${communication ? "min-w-0 max-w-full flex-[1_1_auto]" : "max-w-[60%] shrink-0"} truncate ${quietOperation ? "font-medium" : "font-semibold"}`} style={{ color: communication || quietOperation ? "var(--ct-fg)" : visual.color }}>{label}</span>}
             {subtitle && <span className="max-w-full truncate text-[10.5px] font-normal leading-[14px]" style={{ color: "color-mix(in srgb, var(--ct-muted-fg) 72%, transparent)" }}>{subtitle}</span>}
-            <span className={summary === "" ? "hidden" : "ct-tool-subject min-w-0 truncate"} data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{summary === "" ? null : (summary ?? event.description ?? event.summary) || "Tool activity"}</span>
+            <span className={resolvedSummary === null ? "hidden" : "ct-tool-subject min-w-0 truncate"} data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{resolvedSummary}</span>
             {metric ?? chips}
             <ToolOutcomeFacts event={event} />
             {!expanded && tail}
           </span>
         </button>
+        {locations && (
+          <span className="flex min-w-0 max-w-[40%] shrink items-center gap-2 overflow-hidden font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
+            {locations.slice(0, 3).map((loc) => {
+              const locLabel = shortLocationLabel(loc.path, loc.line);
+              const full = loc.line !== undefined ? `${loc.path}:${loc.line}` : loc.path;
+              return host.openFileChange ? (
+                <button
+                  key={full}
+                  type="button"
+                  data-testid="toolcard-location"
+                  title={full}
+                  onClick={(e) => { e.stopPropagation(); host.openFileChange?.(loc.path, "file", loc.line); }}
+                  className="truncate text-left hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]"
+                  style={{ color: "var(--ct-muted-fg)" }}
+                >
+                  {locLabel}
+                </button>
+              ) : (
+                <span key={full} data-testid="toolcard-location" title={full} className="truncate">
+                  {locLabel}
+                </span>
+              );
+            })}
+            {locations.length > 3 && <span className="shrink-0 text-[10.5px]">+{locations.length - 3}</span>}
+          </span>
+        )}
         {opener}
         {event.status === "unresolved" && (
           <span data-testid="toolcard-no-result" className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>no result</span>

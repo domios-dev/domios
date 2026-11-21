@@ -269,6 +269,19 @@ impl ItemCache {
             .back()
             .map_or(0, |row| row.seq.saturating_add(1).max(0) as u64)
     }
+    pub fn patch_terminal_output(&mut self, terminal_id: &str, output: String) -> Option<ChatMsg> {
+        let index = self.items.iter().rposition(|row| {
+            row.kind == "tool_call"
+                && row.tool_status.as_deref() == Some("running")
+                && row.tool_background_task_id.as_deref() == Some(terminal_id)
+        })?;
+        if self.items[index].tool_result.as_deref() == Some(output.as_str()) {
+            return None;
+        }
+        let mut updated = self.items[index].clone();
+        updated.tool_result = Some(output);
+        Some(self.reconcile(updated))
+    }
     pub fn restore_transcript(&mut self, rows: Vec<ChatMsg>) {
         for row in rows {
             if self.positions.contains_key(&row.id) {

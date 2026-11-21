@@ -197,6 +197,13 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
   }
 
   if (message.type === "image") {
+    if (message.imageData && message.imageMimeType) {
+      return (
+        <div className="mb-1.5 w-full min-w-0">
+          <ToolOutputContent text={`data:${message.imageMimeType};base64,${message.imageData}`} />
+        </div>
+      );
+    }
     return (
       <div className="mb-1.5 w-full min-w-0">
         <ImageBadge />

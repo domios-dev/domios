@@ -297,6 +297,7 @@ impl AgentProvider for NativeRuntime {
                         binary_version: value["binaryVersion"].as_str().map(str::to_string),
                         agent_name: value["agentName"].as_str().map(str::to_string),
                         mid_turn_input: value["midTurnInput"] == true,
+                        session_capabilities: None,
                     },
                     RuntimeOperation::OpenThread { settings, .. } => RuntimeResult::ThreadLoaded {
                         thread_id: value["threadId"]

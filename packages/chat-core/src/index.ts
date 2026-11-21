@@ -16,6 +16,7 @@ export type {
   ChatSessionIntent,
   ToolEventKind,
   ToolEdit,
+  ToolLocation,
   FileDiff,
   FileDiffHunk,
   ToolRichResult,

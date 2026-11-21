@@ -45,12 +45,34 @@ pub fn publish(
     svc: &ServiceContext,
     session: &Session,
     request: RpcId,
+    prompt: PendingPrompt,
+    kind: PromptKind,
+) {
+    publish_with_detail(svc, session, request, prompt, kind, None, None);
+}
+
+pub fn publish_with_detail(
+    svc: &ServiceContext,
+    session: &Session,
+    request: RpcId,
     mut prompt: PendingPrompt,
     kind: PromptKind,
+    file_diffs: Option<serde_json::Value>,
+    elicitation: Option<serde_json::Value>,
 ) {
     let context = session.context.lock().clone();
     super::client_bridge::approvals::remember(&context, &request);
-    prompt.request_id = Some(request_token(&context, &request));
+    let token = request_token(&context, &request);
+    prompt.request_id = Some(token.clone());
+    let detail = if file_diffs.is_some() || elicitation.is_some() {
+        Some(serde_json::json!({
+            "requestId": token,
+            "fileDiffs": file_diffs,
+            "elicitation": elicitation,
+        }))
+    } else {
+        None
+    };
     let changed = {
         let mut prompts = PROMPTS.lock();
         if !session.prompts.lock().contains_key(&request) {
@@ -86,6 +108,10 @@ pub fn publish(
         }
         set_visible(tab, queue.front())
     };
+    if detail.is_some() {
+        session.state.lock().pending_prompt_detail = detail;
+        engine::publish_controls(svc, &context.tab_id, session);
+    }
     emit_visible(svc, &context.tab_id, changed);
     svc.mark_agent_waiting(&context.tab_id);
     auto_confirm_bridge(svc, &context.tab_id);
@@ -166,6 +192,11 @@ fn remove(svc: &ServiceContext, context: &RuntimeContext, request: Option<&RpcId
         (before.filter(|_| changed.is_some()), changed)
     };
     if let Some(identity) = removed {
+        if let Some(session) = engine::for_tab(&context.tab_id) {
+            if session.state.lock().pending_prompt_detail.take().is_some() {
+                engine::publish_controls(svc, &context.tab_id, &session);
+            }
+        }
         svc.resolve_prompt_notifications(&context.tab_id, &identity);
         emit_visible(svc, &context.tab_id, changed);
         auto_confirm_bridge(svc, &context.tab_id);

@@ -301,6 +301,7 @@ pub fn validate_runtime_plan(
             .thread_history
             .as_ref()
             .is_some_and(|history| history.actions.contains(&RuntimeThreadHistoryAction::Fork))
+        && !cap.permits_method(op, "session/fork")
     {
         return Err(mismatch("fork thread history capability absent"));
     }
@@ -381,6 +382,7 @@ pub fn validate_runtime_call(
                     params["threadId"].as_str() == Some(source_thread_id)
                         && params["lastTurnId"].as_str() == Some(turn_id)
                 }
+                "session/fork" => params["sessionId"].as_str() == Some(source_thread_id),
                 _ => false,
             };
         if !valid {
@@ -716,6 +718,20 @@ fn validate_runtime_result(
         ) => true,
         (RuntimeOperation::Control { action, .. }, RuntimeResult::ResetCreditConsumed { .. }) => {
             action == "redeemResetCredit"
+        }
+        (
+            RuntimeOperation::Control { action, .. },
+            RuntimeResult::SessionsListed {
+                sessions,
+                next_cursor,
+            },
+        ) => {
+            action == "listSessions"
+                && sessions.len() <= 100
+                && sessions
+                    .iter()
+                    .all(|session| identifier(&session.session_id) && !session.cwd.is_empty())
+                && next_cursor.as_ref().is_none_or(|cursor| identifier(cursor))
         }
         _ => false,
     };

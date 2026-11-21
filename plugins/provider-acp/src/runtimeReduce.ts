@@ -1,5 +1,5 @@
 import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, RuntimeReduction, TokenUsage, TurnInput } from "@codeterm/plugin-sdk";
-import { object, text, reduceTool, validToolCallId } from "./runtimeReduceTools";
+import { object, text, reduceTool, validToolCallId, fileUriToPath } from "./runtimeReduceTools";
 import { planRow, contextUsage, usageFromPayload } from "./runtimeReducePlan";
 import { parseStatusLineQuota } from "./limits";
 import { methods } from "./runtimeProtocol";
@@ -62,15 +62,19 @@ function retainedToolRow(row:ChatMsg):ChatMsg {
   if (row.toolStatus) retained.toolStatus=row.toolStatus;
   if (row.toolError !== undefined) retained.toolError=row.toolError;
   if (row.toolInterrupted !== undefined) retained.toolInterrupted=row.toolInterrupted;
+  if (row.toolExitCode !== undefined) retained.toolExitCode=row.toolExitCode;
+  if (typeof row.toolBackgroundTaskId === "string") retained.toolBackgroundTaskId=boundedText(row.toolBackgroundTaskId,128).value;
   if (typeof row.toolSummary === "string") retained.toolSummary=boundedText(row.toolSummary,128).value;
   if (typeof row.toolDetail === "string") retained.toolDetail=boundedText(row.toolDetail,192).value;
   if (typeof row.toolResult === "string") retained.toolResult=boundedText(row.toolResult,192).value;
   if (typeof row.toolArgs === "string") retained.toolArgs=boundedText(row.toolArgs,192).value;
   if (row.toolInput !== undefined && jsonBytes(row.toolInput)<=256) retained.toolInput=row.toolInput;
   if (row.fileDiffs !== undefined && jsonBytes(row.fileDiffs)<=384) retained.fileDiffs=row.fileDiffs;
-  for (const key of ["toolInput","toolArgs","toolResult","toolDetail","fileDiffs","toolSummary"] as const) {
+  const locs=(row as Record<string,unknown>).toolLocations;
+  if (locs !== undefined && jsonBytes(locs)<=384) (retained as Record<string,unknown>).toolLocations=locs;
+  for (const key of ["toolInput","toolArgs","toolResult","toolDetail","fileDiffs","toolLocations","toolSummary"] as const) {
     if (jsonBytes(retained)<=1024) break;
-    delete retained[key];
+    delete (retained as Record<string,unknown>)[key];
   }
   return retained;
 }
@@ -84,6 +88,8 @@ function boundedToolRow(row:ChatMsg):ChatMsg {
   if (row.toolStatus) result.toolStatus=row.toolStatus;
   if (row.toolError !== undefined) result.toolError=row.toolError;
   if (row.toolInterrupted !== undefined) result.toolInterrupted=row.toolInterrupted;
+  if (row.toolExitCode !== undefined) result.toolExitCode=row.toolExitCode;
+  if (typeof row.toolBackgroundTaskId === "string") result.toolBackgroundTaskId=boundedText(row.toolBackgroundTaskId,128).value;
   if (typeof row.toolSummary === "string") {
     const bounded=boundedText(row.toolSummary,256);result.toolSummary=bounded.value;truncated ||= bounded.truncated;
   }
@@ -104,13 +110,18 @@ function boundedToolRow(row:ChatMsg):ChatMsg {
     if (jsonBytes(row.fileDiffs)<=12288) result.fileDiffs=row.fileDiffs;
     else truncated=true;
   }
+  const locs=(row as Record<string,unknown>).toolLocations;
+  if (locs !== undefined) {
+    if (jsonBytes(locs)<=2048) (result as Record<string,unknown>).toolLocations=locs;
+    else truncated=true;
+  }
   const note="ACP tool details were shortened to fit the display budget.";
   if (truncated) {
     result.toolDetail=[result.toolDetail,note].filter(Boolean).join("\n");
   }
-  for (const key of ["toolInput","toolArgs","toolResult","toolDetail","toolSummary","fileDiffs"] as const) {
+  for (const key of ["toolInput","toolArgs","toolResult","toolDetail","toolSummary","toolLocations","fileDiffs"] as const) {
     if (jsonBytes(result)<=TOOL_ROW_BUDGET) break;
-    delete result[key];
+    delete (result as Record<string,unknown>)[key];
     if (!result.toolDetail?.includes(note)) result.toolDetail=[result.toolDetail,note].filter(Boolean).join("\n");
   }
   return result;
@@ -146,7 +157,8 @@ function initial(ctx:RuntimeContext, raw:JsonValue, cursor:StreamCursor):StreamS
 function emit(state:StreamState, events:AgentEvent[], row:ChatMsg, patch=false):void {
   const previous=state.items[row.id];
   row.seq=previous?.seq ?? ++state.seq;
-  if (utf8Length(JSON.stringify(row)) > TOOL_ROW_BUDGET) {
+  const maxRowBytes=row.type === "image" ? 262144 : TOOL_ROW_BUDGET;
+  if (utf8Length(JSON.stringify(row)) > maxRowBytes) {
     row=row.type === "tool_call" ? boundedToolRow(row) : {id:row.id,seq:row.seq,type:row.type,content:"[ACP row truncated: update exceeded the display budget]",
       ...(row.toolStatus ? {toolStatus:row.toolStatus} : {}),...(row.toolId ? {toolId:row.toolId} : {})};
   }
@@ -284,7 +296,7 @@ export function settleStream(
   return {state:json(next),events};
 }
 export function clientRequest(method:string):boolean {
-  return ["session/request_permission","fs/read_text_file","fs/write_text_file","terminal/create","terminal/output","terminal/wait_for_exit","terminal/kill","terminal/release"].includes(method);
+  return [methods.requestPermission,methods.elicitation,"fs/read_text_file","fs/write_text_file","terminal/create","terminal/output","terminal/wait_for_exit","terminal/kill","terminal/release"].includes(method);
 }
 function startTurn(ctx:RuntimeContext, state:StreamState, events:AgentEvent[]):void {
   if (!state.loading && !state.settled && state.prompt > 0 && !state.started && !ctx.activeTurnId) {
@@ -348,9 +360,54 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
       if (!cursor.unattributed) startTurn(ctx,state,events);
       if (ownSubmitted && !state.loading && !state.settled) submittedRow(state,events,ownSubmitted,true);
       if (kind === "user_message_chunk" || kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
+        if (state.settled && !state.loading) continue;
         const content=object(update.content);
-        if (content.type !== "text" || typeof content.text !== "string" || state.settled && !state.loading) continue;
-        const chunkText=content.text;
+        let chunkText:string|undefined;
+        if (content.type === "text" && typeof content.text === "string") {
+          chunkText=content.text;
+        } else if (kind === "agent_message_chunk" && content.type === "image") {
+          const mime=text(content.mimeType);
+          const data=text(content.data);
+          if (mime && /^image\/[a-zA-Z0-9.+-]+$/.test(mime) && data && data.length <= 262144) {
+            closeChunk(ctx,state,events);
+            state.ordinal++;
+            const id=`${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`;
+            emit(state,events,{id,seq:0,type:"image",content:"",imageData:data,imageMimeType:mime});
+            if (!cursor.unattributed && !state.loading && !state.started)
+              events.push({kind:"turnState",threadId:ctx.threadId,turnId:ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`,state:"working"});
+          }
+          continue;
+        } else if (kind === "agent_message_chunk" && content.type === "resource_link") {
+          const uri=text(content.uri);
+          if (!uri) continue;
+          const filePath=fileUriToPath(uri);
+          const target=filePath ?? uri;
+          const label=(text(content.title) ?? text(content.name) ?? target).replace(/[\[\]]/g,"");
+          chunkText=`[${label}](${target})`;
+        } else if (kind === "agent_message_chunk" && content.type === "resource") {
+          const resource=object(content.resource);
+          const mime=text(resource.mimeType);
+          const blob=text(resource.blob);
+          if (mime && /^image\/[a-zA-Z0-9.+-]+$/.test(mime) && blob && blob.length <= 262144) {
+            closeChunk(ctx,state,events);
+            state.ordinal++;
+            const id=`${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`;
+            emit(state,events,{id,seq:0,type:"image",content:"",imageData:blob,imageMimeType:mime});
+            continue;
+          }
+          const uri=text(resource.uri);
+          const filePath=uri ? fileUriToPath(uri) : undefined;
+          const target=filePath ?? uri;
+          const body=typeof resource.text === "string" ? resource.text : undefined;
+          if (body && target) chunkText=`[${target}](${target})\n\n${body}`;
+          else if (body) chunkText=body;
+          else if (target) chunkText=`[${target}](${target})`;
+          else continue;
+        } else if (kind === "agent_message_chunk" && content.type === "audio") {
+          chunkText=`[Audio (${text(content.mimeType) ?? "audio"})]`;
+        } else {
+          continue;
+        }
         if (kind === "user_message_chunk" && submitted && state.evidenced.includes(submitted.sendId)) continue;
         const messageId=text(update.messageId);
         const explicit=messageId ? `${kind}:${messageId}` : undefined;
@@ -377,13 +434,13 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
           if (claim) chunk.echo=claim.sendId;
           else delete chunk.echo;
         }
-        chunk.chars+=content.text.length;
+        chunk.chars+=chunkText.length;
         const type=kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thinking" : "assistant";
         const previous=state.items[chunk.id];
         const row:ChatMsg={id:chunk.id,seq:previous?.seq ?? ++state.seq,type,content:"",...(type === "thinking" ? {collapsed:true} : {})};
-        events.push(chunk.offset ? {kind:"chatItemAppend",threadId:state.sessionId,itemId:row.id,content:content.text,offset:chunk.offset}
-          : {kind:"chatItem",threadId:state.sessionId,item:{...row,content:content.text}});
-        chunk.offset+=utf8Length(content.text);
+        events.push(chunk.offset ? {kind:"chatItemAppend",threadId:state.sessionId,itemId:row.id,content:chunkText,offset:chunk.offset}
+          : {kind:"chatItem",threadId:state.sessionId,item:{...row,content:chunkText}});
+        chunk.offset+=utf8Length(chunkText);
         putEntry(state,"items",row.id,row);
         const key=explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : undefined;
         if (key) rememberOffset(state,key,{offset:chunk.offset,chars:chunk.chars,...(chunk.echo ? {echo:chunk.echo} : {}),...(chunk.id !== key ? {row:chunk.id} : {})});

@@ -4,6 +4,7 @@ import { Window } from "happy-dom";
 import { CommandCard } from "./CommandCard";
 import { EditCard } from "./EditCard";
 import { GenericToolCard } from "./GenericToolCard";
+import { ChatBlockHostProvider } from "../blocks/ChatBlockHost";
 import type { ToolEvent } from "@codeterm/chat-core";
 
 const window = new Window({ url: "http://localhost/" });
@@ -49,6 +50,56 @@ const cases: Array<[string, () => Promise<void>]> = [
   ["generic does not leak braces", async () => {
     const { host } = await render(<GenericToolCard event={event({ kind: "generic", detail: "plain" })} expanded onToggle={() => {}} />);
     if (host.textContent?.includes("{")) throw new Error("generic JSON leak");
+  }],
+  ["generic and fetch use plain inline style without Tool activity filler or redundant completed badge", async () => {
+    const { host: genericHost } = await render(
+      <GenericToolCard
+        event={event({
+          kind: "generic",
+          status: "success",
+          title: "Run mcp_domios_messages_check",
+          summary: "",
+          message: { id: "g1", type: "tool_call", content: "", toolStatus: "completed", toolName: "Run mcp_domios_messages_check" },
+        })}
+        expanded={false}
+        onToggle={() => {}}
+      />,
+    );
+    if (!genericHost.querySelector(".ct-command-inline")) throw new Error("generic card did not use plain inline style");
+    if (genericHost.textContent?.includes("Tool activity")) throw new Error("generic card leaked Tool activity filler");
+    if (genericHost.textContent?.includes("completed")) throw new Error("generic card showed redundant completed chip");
+
+    const { host: fetchHost } = await render(
+      <GenericToolCard
+        event={event({ kind: "fetch", status: "success", title: "Fetch docs", summary: "" })}
+        expanded={false}
+        onToggle={() => {}}
+      />,
+    );
+    if (!fetchHost.querySelector(".ct-command-inline")) throw new Error("fetch card did not use plain inline style");
+  }],
+  ["clickable locations open file at line and pending commands stream live output", async () => {
+    const opened: Array<[string, string, number | undefined]> = [];
+    const { host } = await render(
+      <ChatBlockHostProvider value={{ openFileChange: (path, view, line) => { opened.push([path, view, line]); } }}>
+        <CommandCard
+          event={event({
+            kind: "command",
+            status: "pending",
+            result: "line 1\nline 2",
+            locations: [{ path: "/work/src/main.ts", line: 17 }],
+          })}
+          expanded
+          onToggle={() => {}}
+        />
+      </ChatBlockHostProvider>,
+    );
+    if (!host.querySelector('[data-testid="toolcard-spinner"]')) throw new Error("pending command missing running indicator");
+    if (!host.querySelector('[data-testid="toolcard-result"]')?.textContent?.includes("line 2")) throw new Error("pending command hid live streamed output");
+    const locBtn = host.querySelector<HTMLButtonElement>('[data-testid="toolcard-location"]');
+    if (!locBtn || locBtn.textContent !== "src/main.ts:17") throw new Error("tool location button missing");
+    await act(async () => locBtn.click());
+    if (opened.length !== 1 || opened[0][0] !== "/work/src/main.ts" || opened[0][2] !== 17) throw new Error("clicking tool location did not open file at line");
   }],
 ];
 

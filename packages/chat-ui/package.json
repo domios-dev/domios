@@ -10,6 +10,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./Button": "./src/Button.tsx",
+    "./FileDiffCards": "./src/toolcard/FileDiffCards.tsx",
     "./MessageBubble": "./src/MessageBubble.tsx",
     "./renderability": "./src/renderability.ts",
     "./dsTasksBlock": "./src/codeterm/dsTasksBlock.ts",

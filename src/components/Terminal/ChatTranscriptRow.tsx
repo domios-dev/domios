@@ -13,6 +13,7 @@ import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
 import { canRetryChatSend, canDeleteChatSend, canEditChatSend, deliveryError, resendsWithCli, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
 import { editChatDelivery } from "./chatDeliveryComposer";
+import { messageTurnId } from "./messageForkModel";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 
 type MessageBubbleProps = React.ComponentProps<typeof MessageBubble>;
@@ -142,7 +143,7 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
   const onEdit = !remoteFailure && deliverySend && canEditChatSend(deliverySend) ? () => editChatDelivery(context.tabId, deliverySend) : undefined;
   const resendWithCli = Boolean(deliverySend && resendsWithCli(deliverySend));
   const message = useMemo(() => context.promptAnswers ? msg : { ...msg, interactive: [] }, [msg, context.promptAnswers]);
-  const turnId = msg.toolFlowId;
+  const turnId = messageTurnId(msg);
   if(msg.systemSubtype==="account_transition")return <ChatWindowRow message={msg}><ChatDaySeparator label={daySeparator}/><AccountContinuationNoticeCard message={msg}/></ChatWindowRow>;
   return (
     <ChatWindowRow message={msg} liveActivityLabel={liveActivityLabel}>

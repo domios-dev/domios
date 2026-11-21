@@ -600,6 +600,8 @@ fn apply(
             request_id: Some(request_id),
             prompt: Some(prompt),
             permission,
+            file_diffs,
+            elicitation,
             resolved: false,
             ..
         } if owned(&thread_id) => {
@@ -627,7 +629,15 @@ fn apply(
                 } else {
                     codeterm_types::pty::PromptKind::Structured
                 };
-                super::super::prompt_answers::publish(svc, session, request_id, prompt, kind);
+                super::super::prompt_answers::publish_with_detail(
+                    svc,
+                    session,
+                    request_id,
+                    prompt,
+                    kind,
+                    file_diffs,
+                    elicitation,
+                );
             }
         }
         RuntimeEvent::RequestUpdated {

@@ -80,6 +80,11 @@ export interface ToolRichResult {
   prompt?: string;
 }
 
+export interface ToolLocation {
+  path: string;
+  line?: number;
+}
+
 export interface ToolEdit {
   path: string;
   old: string;
@@ -158,6 +163,7 @@ export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIco
     endedAt?: number;
   };
   sessionIntent?: ChatSessionIntent;
+  toolLocations?: ToolLocation[];
   sourceType?: string;
   sourceSubtype?: string;
   level?: string;

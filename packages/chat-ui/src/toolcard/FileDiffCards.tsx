@@ -67,6 +67,32 @@ function DiffLine({ line, content }: { line: string; content: ReactNode }) {
   );
 }
 
+export function FileDiffPreview({ diff, maxHeight = "10rem" }: { diff: FileDiff; maxHeight?: string }) {
+  const language = knownLanguageFromPath(diff.path);
+  return (
+    <div
+      data-testid="file-diff-hunks"
+      className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} overflow-auto rounded-md border py-1`}
+      style={{
+        maxHeight,
+        borderColor: "var(--ct-border)",
+        background: "color-mix(in srgb, var(--ct-bg) 60%, var(--ct-surface))",
+      }}
+    >
+      {diff.hunks.map((hunk, index) => (
+        <div key={`${hunk.oldStart}:${hunk.newStart}:${index}`}>
+          {diff.hunks.length > 1 && (
+            <div className="px-3 py-0.5 font-mono text-[10px]" style={{ color: "var(--ct-muted-fg)" }}>
+              {changedLines(hunk)}
+            </div>
+          )}
+          <HunkLines hunk={hunk} language={language} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Highlights only the code after each marker, so the marker column keeps its add/remove tint. */
 function HunkLines({ hunk, language }: { hunk: FileDiffHunk; language: string }) {
   const code = useMemo(() => hunk.lines.map((line) => line.substring(1)).join("\n"), [hunk.lines]);

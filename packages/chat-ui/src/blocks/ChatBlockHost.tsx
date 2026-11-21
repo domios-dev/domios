@@ -116,7 +116,7 @@ export interface ChatCardMenuSpec {
 /** Scope-wide services for chat blocks. Absent fields hide the matching control instead of faking it. */
 export interface ChatBlockHost {
   interacted?(kind: DsKind, action: "open" | "submit"): void;
-  openFileChange?(path: string, view: "diff" | "file"): void;
+  openFileChange?(path: string, view: "diff" | "file", line?: number): void;
   mentionTabId?: string;
   mentions?: ChatMentionHost;
   /** Draws a card's overflow trigger and menu with the host's shared dropdown. */

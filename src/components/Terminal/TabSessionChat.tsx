@@ -73,6 +73,8 @@ import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, Notification, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
+import { ComposerApprovalDock } from "./ComposerApprovalDock";
+import { mergeRuntimePromptDetail } from "./composerModels";
 import { ManagedTabBar } from "./ManagedTabBar";
 import { managedTabPresentation } from "../../lib/managedTab";
 import { BusyState } from "../shared/BusyState";
@@ -352,11 +354,7 @@ function TabSessionChatBody({
     [deliverySends, tab?.pty_id, tab?.session_binding_nonce]);
   const firstTurnReady = lazyFirstTurnComposerIsLive(tab) || (!snapshotReady && !tab?.frozen
     && !tab?.agent_booting && tab?.boot_stage !== "spawn_failed" && localFirstTurnSends.length > 0);
-  const forkableMessages = useMemo(() => forkableTurnEnds(
-    allMessages,
-    descriptor?.agent_runtime?.threadHistory?.actions.includes("fork") === true,
-    newerMessageCount > 0,
-  ), [allMessages, descriptor, newerMessageCount]);
+  const forkableMessages = useMemo(() => forkableTurnEnds(allMessages, descriptor?.agent_runtime?.threadHistory?.actions.includes("fork") === true || runtime.state?.sessionCapabilities?.fork === true, newerMessageCount > 0), [allMessages, descriptor, newerMessageCount, runtime.state?.sessionCapabilities?.fork]);
   const heldAuthority = readTranscriptWindow(transcriptWindowKey(tabId, agentSessionId)).transcript.authority;
   const hasHeldWindow = heldAuthority != null
     && heldAuthority.sourceSessionId === agentSessionId
@@ -464,26 +462,16 @@ function TabSessionChatBody({
   const [contextSlot, setContextSlot] = useState<HTMLDivElement | null>(null);
   const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
   const runThreadHistory = useLatestCallback(async (action: "fork" | "revert", turnId: string, confirmed = false) => {
-    const threadId = tab?.agent_session_id;
-    const bindingNonce = tab?.session_binding_nonce;
-    const epoch = runtime.state?.epoch;
-    if (!threadId || !bindingNonce || !epoch) {
-      showComposerError("Runtime thread binding is unavailable");
-      return;
-    }
-    try {
-      await invoke("agent_runtime_thread_history", {
-        tabId,
-        request: { action, turnId, confirmed, binding: { threadId, bindingNonce, epoch } },
-      });
-    } catch (error) {
-      showComposerError(error instanceof Error ? error.message : String(error));
-    }
+    const threadId = tab?.agent_session_id, bindingNonce = tab?.session_binding_nonce, epoch = runtime.state?.epoch;
+    if (!threadId || !bindingNonce || !epoch) { showComposerError("Runtime thread binding is unavailable"); return; }
+    try { await invoke("agent_runtime_thread_history", { tabId, request: { action, turnId, confirmed, binding: { threadId, bindingNonce, epoch } } }); }
+    catch (error) { showComposerError(error instanceof Error ? error.message : String(error)); }
   }, [runtime.state?.epoch, showComposerError, tab?.agent_session_id, tab?.session_binding_nonce, tabId]);
   useEffect(() => {
     if (!sessionBindingSurface.showRecoveryAction) setBindingRecoveryOpen(false);
   }, [sessionBindingSurface.showRecoveryAction]);
-  const promptPart = promptMessagePart(descriptor, pendingPrompt, answeredPromptQuestion, runtimePrompt);
+  const dockPrompt = useMemo(() => mergeRuntimePromptDetail(runtimePrompt, runtime.state?.pendingPromptDetail), [runtimePrompt, runtime.state?.pendingPromptDetail]);
+  const promptPart = dockPrompt ? null : promptMessagePart(descriptor, pendingPrompt, answeredPromptQuestion, runtimePrompt);
 
   useEffect(() => {
     if (!pendingPrompt) setAnsweredPromptQuestion(null);
@@ -1166,6 +1154,7 @@ function TabSessionChatBody({
           tabProvider={tabProvider}
           isActive={isActive}
           pendingPrompt={pendingPrompt}
+          promptDock={dockPrompt && !readOnly ? <ComposerApprovalDock prompt={dockPrompt} tabId={tabId} active={isActive} onRespond={handleRespondPrompt} /> : undefined}
           attachments={attachments}
           addAttachments={addAttachments}
           removeAttachment={removeAttachment}
