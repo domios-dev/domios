@@ -469,13 +469,14 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     let reopen = false;
     try {
       if (!pending.has(entry.id)) return;
-      if (entry.session !== live) { reopen = true; return; }
+      const owner = entry.session;
+      if (!owner || owner !== live) { reopen = true; return; }
       entry.state = transitionMuxRequest(entry.state, { type: "posted" }).state;
       const headers = new Headers(entry.init.headers);
       let body = entry.init.body;
-      let path = "/api/stream-mux/" + entry.session + "/requests/" + entry.id;
+      let path = "/api/stream-mux/" + owner + "/requests/" + entry.id;
       if (entry.stream) {
-        path = "/api/stream-mux/" + entry.session + "/channels";
+        path = "/api/stream-mux/" + owner + "/channels";
         headers.set("Content-Type", "application/json"); headers.delete("Accept");
         body = JSON.stringify({ channel: entry.id, path: entry.path });
       } else {
@@ -485,7 +486,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       }
       const attempted = control(path, { method: "POST", headers, body, signal: entry.aborter.signal });
       entry.post = attempted.then(() => {}, () => {});
-      if (transport().currentToken()) entry.onDispatched?.(entry.session);
+      if (transport().currentToken()) entry.onDispatched?.(owner);
       const ack = await attempted;
       if (!pending.has(entry.id)) { await ack.body?.cancel(); return; }
       if (ack.status !== 202) {

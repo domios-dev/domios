@@ -13,7 +13,7 @@ const tests: Array<[string, TestFn]> = [];
 function test(name: string, fn: TestFn) {
   tests.push([name, fn]);
 }
-function assert(condition: unknown, message: string): asserts condition {
+function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
 }
 
@@ -363,7 +363,7 @@ async function main() {
       await Promise.resolve();
     });
     const oldSignal = readPendingSignal();
-    assert(oldSignal, "the first page request has an abort signal");
+    if (!oldSignal) throw new Error("the first page request has an abort signal");
     await act(async () => {
       root.render(<TaskBoardProbe planId="replacement-plan" />);
       await flushMicrotasks();
@@ -430,7 +430,7 @@ async function main() {
       await Promise.resolve();
     });
     const oldSignal = readPendingSignal();
-    assert(oldSignal, "the task read has an abort signal");
+    if (!oldSignal) throw new Error("the task read has an abort signal");
     await act(async () => {
       root.render(<TaskDetailProbe planId="replacement-detail-plan" />);
       await flushMicrotasks();
@@ -446,7 +446,7 @@ async function main() {
     const initial = deferred<Response>();
     const cursor = deferred<Response>();
     const requests: URL[] = [];
-    let initialSignal: AbortSignal | null = null;
+    const initialSignal: { current: AbortSignal | null } = { current: null };
     let deleted = false;
     const page = (name: string, rev = String(wireRevision)) => Response.json({
       plan_id: "live-board", revision: rev, counts: { pending: 1 },
@@ -457,7 +457,7 @@ async function main() {
       const url = new URL(String(input));
       requests.push(url);
       if (requests.length === 1) {
-        initialSignal = init?.signal ?? null;
+        initialSignal.current = init?.signal ?? null;
         return initial.promise;
       }
       if (url.searchParams.has("status")) return cursor.promise;
@@ -467,7 +467,7 @@ async function main() {
       (state) => state.data?.columns?.pending?.items.map((task) => task.name).join(",") ?? state.error ?? "Loading");
     try {
       await act(async () => { emitPlanChanged("live-board"); });
-      assert(!initialSignal?.aborted && requests.length === 1, "same-authority change coalesces without aborting held initial board read");
+      assert(!initialSignal.current?.aborted && requests.length === 1, "same-authority change coalesces without aborting held initial board read");
       await act(async () => { initial.resolve(page("obsolete", initialRev)); });
       assert(probe.host.textContent === "current", "stale initial snapshot is rejected by revision floor and single follow-up converges");
       let pendingPage!: Promise<void>;
@@ -644,7 +644,7 @@ async function main() {
     const previousFetch = globalThis.fetch;
     const heldList = deferred<Response>();
     let listPhase: "hold" | "after-delete" = "hold";
-    let heldListSignal: AbortSignal | null = null;
+    const heldListSignal: { current: AbortSignal | null } = { current: null };
     const makeSummary = (id: string, title: string, rev: string) => ({
       ...FIXTURE_PLAN, id, title, tasks: [], sections: [], strides: [], revision: rev,
     });
@@ -652,7 +652,7 @@ async function main() {
       const url = new URL(String(input));
       if (url.pathname === "/api/plans") {
         if (listPhase === "hold") {
-          heldListSignal = init?.signal ?? null;
+          heldListSignal.current = init?.signal ?? null;
           return heldList.promise;
         }
         return Response.json({ plans: [makeSummary("pl_keep", "Kept", "1")] });
@@ -665,14 +665,14 @@ async function main() {
       (value) => value.plans.map((plan) => plan.id).join(","),
     );
     try {
-      assert(heldListSignal && !heldListSignal.aborted, "initial list read held");
+      assert(heldListSignal.current && !heldListSignal.current.aborted, "initial list read held");
       listPhase = "after-delete";
       await act(async () => {
         for (const handler of listenHandlers.get("plan-changed") ?? []) {
           handler({ payload: { plan_id: "pl_gone", revision: "2", previous_revision: "1", task_ids: [], reset: false, deleted: true } });
         }
       });
-      assert(heldListSignal?.aborted, "actual deletion immediately aborts held pre-delete list read");
+      assert(heldListSignal.current?.aborted, "actual deletion immediately aborts held pre-delete list read");
       await act(async () => {
         heldList.resolve(Response.json({
           plans: [makeSummary("pl_gone", "Deleted", "1"), makeSummary("pl_keep", "Kept", "1")],
@@ -691,7 +691,7 @@ async function main() {
     let boardCalls = 0;
     let boardActive = 0;
     let maxBoardConcurrency = 0;
-    let boardSignal: AbortSignal | null = null;
+    const boardSignal: { current: AbortSignal | null } = { current: null };
     let boardMode: "hold" | "converged" | "mismatch" | "parse-error" | "switched" = "hold";
     const boardJson = (planId: string, rev: string, total: number) => Response.json({
       ...FIXTURE_BOARD_READ_FIELDS,
@@ -713,7 +713,7 @@ async function main() {
       maxBoardConcurrency = Math.max(maxBoardConcurrency, boardActive);
       try {
         if (boardMode === "hold") {
-          boardSignal = init?.signal ?? null;
+          boardSignal.current = init?.signal ?? null;
           return await activeHeldBoard.promise;
         }
         if (boardMode === "mismatch") return boardJson("pl_wrong", "4", 99);
@@ -725,10 +725,10 @@ async function main() {
       }
     });
 
-    let latestBoard: ReturnType<typeof usePlanBoardState> | null = null;
+    const latestBoard: { current: ReturnType<typeof usePlanBoardState> | null } = { current: null };
     function BoardProbe({ planId, token, rev }: { planId: string; token: string; rev: number }) {
       const state = usePlanBoardState({ ...API, token }, planId, rev);
-      latestBoard = state;
+      latestBoard.current = state;
       return <output>{state.state ? `${state.state.plan_id}:${state.state.revision}:${state.state.task_counts.total}` : state.error ?? "Loading"}</output>;
     }
     const host = document.createElement("div");
@@ -736,7 +736,7 @@ async function main() {
     const root = createRoot(host);
     try {
       await act(async () => { root.render(<BoardProbe planId="pl_selected" token="tok-1" rev={1} />); });
-      assert(boardCalls === 1 && !boardSignal?.aborted, "initial board read held");
+      assert(boardCalls === 1 && !boardSignal.current?.aborted, "initial board read held");
       await act(async () => {
         for (const handler of listenHandlers.get("plan-changed") ?? []) {
           handler({ payload: { plan_id: "pl_selected", revision: "2", previous_revision: "1", task_ids: ["t1"], reset: false, deleted: false } });
@@ -749,7 +749,7 @@ async function main() {
         }
         root.render(<BoardProbe planId="pl_selected" token="tok-1" rev={2} />);
       });
-      assert(boardCalls === 1 && !boardSignal?.aborted, "same-authority board events and revision prop bumps coalesce without aborting initial read");
+      assert(boardCalls === 1 && !boardSignal.current?.aborted, "same-authority board events and revision prop bumps coalesce without aborting initial read");
 
       boardMode = "converged";
       await act(async () => { heldBoard.resolve(boardJson("pl_selected", "1", 10)); });
@@ -760,19 +760,19 @@ async function main() {
       await act(async () => {
         root.render(<BoardProbe planId="pl_selected" token="tok-2" rev={2} />);
       });
-      assert(latestBoard?.state === null && latestBoard?.error?.includes("did not match the selected plan"), "selected-plan identity mismatch rejects wrong payload and preserves error detail");
+      assert(latestBoard.current?.state === null && latestBoard.current?.error?.includes("did not match the selected plan"), "selected-plan identity mismatch rejects wrong payload and preserves error detail");
 
       boardMode = "parse-error";
       await act(async () => {
         root.render(<BoardProbe planId="pl_selected" token="tok-3" rev={2} />);
       });
-      assert(latestBoard?.state === null && Boolean(latestBoard?.error) && latestBoard!.error !== "Could not load plans. Try again.", "non-HTTP JSON decode error keeps useful diagnostic detail");
+      assert(latestBoard.current?.state === null && Boolean(latestBoard.current?.error) && latestBoard.current!.error !== "Could not load plans. Try again.", "non-HTTP JSON decode error keeps useful diagnostic detail");
 
       const heldForSwitch = deferred<Response>();
       activeHeldBoard = heldForSwitch;
       boardMode = "hold";
       await act(async () => { root.render(<BoardProbe planId="pl_selected" token="tok-4" rev={2} />); });
-      const switchSignal = boardSignal;
+      const switchSignal = boardSignal.current;
       assert(switchSignal && !switchSignal.aborted, "board read held before plan switch");
       boardMode = "switched";
       await act(async () => { root.render(<BoardProbe planId="pl_other" token="tok-4" rev={2} />); });
@@ -794,7 +794,7 @@ async function main() {
     const heldEight = deferred<Response>();
     const heldBeforeSwitch = deferred<Response>();
     let eightPhase: "hold-initial" | "reconciled" | "genuine-empty" | "hold-switch" = "hold-initial";
-    let eightSignal: AbortSignal | null = null;
+    const eightSignal: { current: AbortSignal | null } = { current: null };
     const relayTargets: string[] = [];
     const relay = (data: unknown, status = 200) => Response.json({ ok: status === 200, status, data });
     const done94Summary = {
@@ -839,11 +839,11 @@ async function main() {
         relayTargets.push(`${body.target_instance_id}:${body.path}`);
         if (body.target_instance_id === "eight") {
           if (eightPhase === "hold-initial") {
-            eightSignal = init?.signal ?? null;
+            eightSignal.current = init?.signal ?? null;
             return heldEight.promise;
           }
           if (eightPhase === "hold-switch") {
-            eightSignal = init?.signal ?? null;
+            eightSignal.current = init?.signal ?? null;
             return heldBeforeSwitch.promise;
           }
           if (eightPhase === "genuine-empty") {
@@ -858,10 +858,10 @@ async function main() {
       return new Response("not found", { status: 404 });
     });
 
-    let latest: UsePlansResult | null = null;
+    const latest: { current: UsePlansResult | null } = { current: null };
     function RemoteProbe({ peerId }: { peerId: string }) {
       const state = usePlans({ ...API, peerId });
-      latest = state;
+      latest.current = state;
       return <output>{state.loading ? "loading" : state.plans.map((p) => `${p.id}:${p.task_counts?.done ?? "?"}`).join(",")}</output>;
     }
     const host = document.createElement("div");
@@ -869,14 +869,14 @@ async function main() {
     const root = createRoot(host);
     try {
       await act(async () => { root.render(<RemoteProbe peerId="eight" />); });
-      assert(latest?.loading && latest.plans.length === 0, "held remote summary read stays loading without inventing zeros");
+      assert(latest.current?.loading && latest.current.plans.length === 0, "held remote summary read stays loading without inventing zeros");
       assert(resolveTeamPlanStatus(null, {}, { loading: true, unavailable: true }).state === "unavailable", "missing held remote summary stays unavailable");
 
       await act(async () => {
         heldEight.resolve(relay({ plans: [done94Summary] }));
       });
       assert(host.textContent === "pl_rek:94", "authoritative remote summary exposes Done 94, not loaded page 25");
-      const status94 = resolveTeamPlanStatus(latest!.plans[0]!, {});
+      const status94 = resolveTeamPlanStatus(latest.current!.plans[0]!, {});
       assert(status94.state === "verified" && status94.counts.done === 94, "Team card resolves authoritative 94 done from remote summary");
 
       const truncatedWithoutCounts = { ...done94Summary, task_counts: undefined, task_window: { next_cursor: { position: 25, task_id: "t-24" } } };
@@ -887,11 +887,11 @@ async function main() {
 
       eightPhase = "genuine-empty";
       await act(async () => { emitPeer("eight", { type: "reconcile" }); });
-      const emptyStatus = resolveTeamPlanStatus(latest!.plans[0]!, {});
+      const emptyStatus = resolveTeamPlanStatus(latest.current!.plans[0]!, {});
       assert(emptyStatus.state === "verified" && emptyStatus.counts.done === 0 && emptyStatus.counts.todo === 0, "genuine empty remote summary verifies zero");
 
       await act(async () => { emitPeer("eight", { type: "invalidate" }); });
-      assert(latest!.plans.length === 0 && latest!.loading, "peer invalidate clears prior remote summaries immediately");
+      assert(latest.current!.plans.length === 0 && latest.current!.loading, "peer invalidate clears prior remote summaries immediately");
 
       eightPhase = "reconciled";
       await act(async () => { emitPeer("eight", { type: "reconcile" }); });
@@ -899,7 +899,7 @@ async function main() {
 
       eightPhase = "hold-switch";
       await act(async () => { emitPeer("eight", { type: "plans-loaded" }); });
-      const switchSignal = eightSignal;
+      const switchSignal = eightSignal.current;
       assert(switchSignal && !switchSignal.aborted, "remote summary read held before peer switch");
 
       await act(async () => { root.render(<RemoteProbe peerId="peer-b" />); });

@@ -24,7 +24,7 @@ const tests: Array<[string, TestFn]> = [];
 function test(name: string, fn: TestFn) {
   tests.push([name, fn]);
 }
-function assert(condition: unknown, message: string): asserts condition {
+function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
 }
 

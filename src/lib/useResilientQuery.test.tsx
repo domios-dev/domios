@@ -10,7 +10,7 @@ const tests: Array<[string, TestFn]> = [];
 function test(name: string, fn: TestFn) {
   tests.push([name, fn]);
 }
-function assert(condition: unknown, message: string): asserts condition {
+function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
 }
 
@@ -276,7 +276,7 @@ test("same-authority refetches coalesce without aborting an in-flight read", asy
 
 test("authority change and auth denial immediately fence held and retained data", async () => {
   const { useResilientQuery } = await import("./useResilientQuery");
-  let firstSignal: AbortSignal | null = null;
+  const firstSignal: { current: AbortSignal | null } = { current: null };
   let releaseFirst!: (value: string[]) => void;
   let mode: "hold" | "ok" | "denied" = "ok";
 
@@ -285,7 +285,7 @@ test("authority change and auth denial immediately fence held and retained data"
     const state = useResilientQuery(
       (signal) => {
         if (mode === "hold") {
-          firstSignal = signal;
+          firstSignal.current = signal;
           return new Promise<string[]>((resolve) => { releaseFirst = resolve; });
         }
         if (mode === "denied") {
@@ -308,11 +308,11 @@ test("authority change and auth denial immediately fence held and retained data"
 
   mode = "hold";
   await act(async () => { void holder.current!.refetch(); await Promise.resolve(); });
-  assert(firstSignal && !firstSignal.aborted, "held read active under cred-a");
+  assert(firstSignal.current && !firstSignal.current.aborted, "held read active under cred-a");
 
   mode = "ok";
   await act(async () => { root.render(<AuthorityProbe token="cred-b" />); });
-  assert(firstSignal?.aborted, "credential change immediately aborts held read");
+  assert(firstSignal.current?.aborted, "credential change immediately aborts held read");
   assert(holder.current?.data.join(",") === "data-cred-b", "new credential publishes its own data");
 
   await act(async () => { releaseFirst(["data-cred-a-late"]); await Promise.resolve(); });
