@@ -11,9 +11,25 @@ use codeterm_agent_lifecycle::prelude::*;
 pub(crate) struct SwitchProviderBody {
     provider: String,
     model: Option<String>,
+    #[serde(default)]
+    launch_profile: Option<String>,
     reasoning_effort: Option<String>,
     #[serde(default)]
     force: bool,
+}
+
+impl From<SwitchProviderBody>
+    for codeterm_agent_lifecycle::service::agent_restart::ProviderSwitchRequest
+{
+    fn from(body: SwitchProviderBody) -> Self {
+        Self {
+            provider: body.provider,
+            model: body.model,
+            launch_profile: body.launch_profile,
+            reasoning_effort: body.reasoning_effort,
+            force: body.force,
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -67,12 +83,7 @@ pub(crate) async fn switch_provider(
     let result = tokio::task::spawn_blocking(move || {
         state.svc.accept_provider_switch(
             &tab,
-            codeterm_agent_lifecycle::service::agent_restart::ProviderSwitchRequest {
-                provider: body.provider,
-                model: body.model,
-                reasoning_effort: body.reasoning_effort,
-                force: body.force,
-            },
+            body.into(),
             caller.as_deref(),
             nonce.as_deref(),
         )
@@ -158,11 +169,32 @@ mod tests {
     }
     #[test]
     fn provider_switch_request_preserves_target_selection_and_stop_choice() {
-        let body: SwitchProviderBody = serde_json::from_value(serde_json::json!({"provider":"target-token","model":"model-token","reasoning_effort":"effort-token","force":true})).unwrap();
-        assert_eq!(body.provider, "target-token");
-        assert_eq!(body.model.as_deref(), Some("model-token"));
-        assert_eq!(body.reasoning_effort.as_deref(), Some("effort-token"));
-        assert!(body.force);
+        let body: SwitchProviderBody = serde_json::from_value(serde_json::json!({
+            "provider": "target-token",
+            "model": "model-token",
+            "launch_profile": "profile-token",
+            "reasoning_effort": "effort-token",
+            "force": true
+        }))
+        .unwrap();
+        let request: codeterm_agent_lifecycle::service::agent_restart::ProviderSwitchRequest =
+            body.into();
+        assert_eq!(request.provider, "target-token");
+        assert_eq!(request.model.as_deref(), Some("model-token"));
+        assert_eq!(request.launch_profile.as_deref(), Some("profile-token"));
+        assert_eq!(request.reasoning_effort.as_deref(), Some("effort-token"));
+        assert!(request.force);
+
+        let without_profile: SwitchProviderBody = serde_json::from_value(serde_json::json!({
+            "provider": "target-token"
+        }))
+        .unwrap();
+        let request: codeterm_agent_lifecycle::service::agent_restart::ProviderSwitchRequest =
+            without_profile.into();
+        assert_eq!(request.provider, "target-token");
+        assert!(request.launch_profile.is_none());
+        assert!(!request.force);
+
         assert!(serde_json::from_value::<SwitchProviderBody>(
             serde_json::json!({"model":"model-token"})
         )

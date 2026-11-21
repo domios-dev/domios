@@ -234,7 +234,7 @@ fn unavailable_target_refuses_before_retiring_or_mutating_source() {
     ));
     assert!(fixture
         .service
-        .switch_provider_in_place(&id, "missing-target", None, None, false)
+        .switch_provider_in_place(&id, "missing-target", None, None, None, false)
         .is_err());
     let mux = fixture.service.mux.read();
     let tab = mux.get_tab(&id).unwrap();
@@ -809,4 +809,103 @@ fn unavailable_switch_details_omit_the_executable_search_path() {
     assert!(message.contains("target-cli"));
     assert!(!message.contains("opaque-private-path"));
     assert!(message.len() < 256);
+}
+
+#[test]
+fn profile_provider_switch_refuses_missing_unknown_and_uninstalled_profile_before_retiring_source() {
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    use std::sync::Arc;
+
+    let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("source-fixture".into());
+    tab.agent_session_id = Some("source-thread".into());
+    tab.session_binding_nonce = Some("source-nonce".into());
+    tab.reported_session_binding_nonce = Some("source-nonce".into());
+    tab.backing = TabBacking::Pty;
+    tab.pty_id = Some("source-pty".into());
+    tab.agent_booting = false;
+    let fixture = ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("source-fixture"),
+    ));
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("plain-target"),
+    ));
+    let target = "profile-refusal-target";
+    let manifest = PluginManifest::from_json_str(
+        &serde_json::json!({
+            "id": target,
+            "version": "1.0.0",
+            "displayName": "Profile target",
+            "binaryName": "nonexistent-placeholder-binary",
+            "capabilities": {
+                "agentProvider": true,
+                "chatBackend": {"spawnable": true, "sessionConfig": true, "agentTasks": true},
+                "agentRuntime": {
+                    "runtime": "stdio-jsonrpc",
+                    "command": {"binary": "nonexistent-placeholder-binary", "args": []},
+                    "launchProfiles": {
+                        "uninstalled": {
+                            "binary": "missing-profile-bin",
+                            "args": [],
+                            "ownerConfigured": true
+                        }
+                    },
+                    "requestMethods": {"initialize": ["initialize"]},
+                    "notificationMethods": []
+                }
+            },
+            "permissions": {
+                "subprocess": {"allow": ["nonexistent-placeholder-binary", "missing-profile-bin"]}
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(JsProvider::new(
+            manifest,
+            Arc::new(PluginVm::from_source(target, "module.exports = {};".into()).unwrap()),
+        )));
+
+    let before = serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
+    for (profile, code) in [
+        (None, "launch_profile_required:"),
+        (Some("unknown"), "unknown_launch_profile:"),
+        (Some("uninstalled"), "launch_profile_not_installed:"),
+    ] {
+        let error = fixture
+            .service
+            .switch_provider_in_place(&id, target, None, None, profile.map(str::to_owned), true)
+            .unwrap_err();
+        assert!(error.starts_with(code), "{profile:?}: {error}");
+        assert_eq!(
+            serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap(),
+            before,
+            "{profile:?}"
+        );
+    }
+
+    let unexpected = fixture
+        .service
+        .switch_provider_in_place(
+            &id,
+            "plain-target",
+            None,
+            None,
+            Some("unexpected".into()),
+            true,
+        )
+        .unwrap_err();
+    assert!(
+        unexpected.starts_with("unknown_launch_profile:"),
+        "{unexpected}"
+    );
+    assert_eq!(
+        serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap(),
+        before
+    );
 }

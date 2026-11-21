@@ -974,6 +974,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             tab,
             provider,
             model,
+            launch_profile,
             reasoning_effort,
             force,
         } => {
@@ -985,6 +986,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 crate::cmd::agent_provider_switch::SwitchProviderRequest {
                     provider,
                     model,
+                    launch_profile,
                     reasoning_effort,
                     force,
                 },

@@ -310,6 +310,7 @@ pub struct AcceptedProviderSwitch {
 pub struct ProviderSwitchRequest {
     pub provider: String,
     pub model: Option<String>,
+    pub launch_profile: Option<String>,
     pub reasoning_effort: Option<String>,
     pub force: bool,
 }
@@ -366,6 +367,7 @@ impl ProviderSwitchOperationsExt for ServiceContext {
                     provider,
                     request.model,
                     request.reasoning_effort,
+                    request.launch_profile,
                     request.force || own,
                 )
             },

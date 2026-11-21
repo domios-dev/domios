@@ -836,7 +836,7 @@ fn locked_tab_refuses_restart_switch_runtime_and_shared_launch_before_side_effec
         );
     }
     assert!(svc
-        .switch_provider_in_place(&tab, "opaque-provider", None, None, true)
+        .switch_provider_in_place(&tab, "opaque-provider", None, None, None, true)
         .err()
         .unwrap()
         .starts_with("plan_limit_locked: "));
@@ -846,6 +846,7 @@ fn locked_tab_refuses_restart_switch_runtime_and_shared_launch_before_side_effec
             super::super::provider_switch::ProviderSwitchRequest {
                 provider: "opaque-provider".into(),
                 model: None,
+                launch_profile: None,
                 reasoning_effort: None,
                 force: true,
             },
@@ -883,4 +884,161 @@ fn locked_tab_refuses_restart_switch_runtime_and_shared_launch_before_side_effec
         .lock()
         .in_progress
         .is_empty());
+}
+
+#[test]
+fn provider_switch_profile_runtime_validates_resolves_and_persists_launch_profile() {
+    let fixture = RuntimeFixture::prepared(SOURCE, true);
+    let source_transcript = fixture.temp.path().join("source-thread.jsonl");
+    std::fs::write(&source_transcript, []).unwrap();
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_session_file(
+            "source-provider",
+            source_transcript,
+        ),
+    ));
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&fixture.tab).unwrap();
+        tab.agent_type = Some("source-provider".into());
+        tab.agent_session_id = Some("source-thread".into());
+        tab.session_binding_nonce = Some("source-nonce".into());
+        tab.reported_session_binding_nonce = Some("source-nonce".into());
+        tab.backing = TabBacking::Pty;
+        tab.pty_id = Some("source-pty-generation".into());
+        tab.lifecycle_epoch = Some(1);
+        tab.agent_booting = false;
+    }
+    let target = format!("profile-switch-{}", uuid::Uuid::new_v4());
+    let manifest = PluginManifest::from_json_str(
+        &json!({
+            "id": target,
+            "version": "1.0.0",
+            "displayName": "Profile fixture",
+            "binaryName": "nonexistent-placeholder-binary",
+            "capabilities": {
+                "agentProvider": true,
+                "chatBackend": {"spawnable": true, "sessionConfig": true, "agentTasks": true},
+                "agentRuntime": {
+                    "runtimeModes": [{"id": "auto-accept-edits", "displayName": "Auto accept edits"}],
+                    "runtime": "stdio-jsonrpc",
+                    "command": {"binary": "nonexistent-placeholder-binary", "args": []},
+                    "launchProfiles": {"installed": {"binary": "node", "args": []}},
+                    "requestMethods": fixture_request_methods(),
+                    "notificationMethods": []
+                }
+            },
+            "spawn": {
+                "readinessStrategy": {"kind": "poll_shell_prompt", "timeoutSecs": 1},
+                "taskDelivery": "inline_flag",
+                "systemPromptDelivery": {"kind": "cli_flag", "flag": "--opaque-system"},
+                "verifySubmit": {"kind": "none"}
+            },
+            "permissions": {
+                "subprocess": {"allow": ["nonexistent-placeholder-binary", "node"]}
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(JsProvider::new(
+            manifest,
+            Arc::new(PluginVm::from_source(&target, SOURCE.into()).unwrap()),
+        )));
+    agent_runtime::profile_options::seed_catalogue_for_test(
+        &fixture.service,
+        &target,
+        "installed",
+        json!({"configOptions": [
+            {
+                "id": "model",
+                "name": "Model",
+                "category": "model",
+                "currentValue": "wire-model",
+                "options": [{"value": "wire-model", "name": "Friendly Model"}]
+            },
+            {
+                "id": "effort",
+                "name": "Effort",
+                "category": "thought_level",
+                "currentValue": "high",
+                "options": [{"value": "high", "name": "High Effort"}]
+            }
+        ]}),
+    );
+    let before =
+        serde_json::to_value(fixture.service.mux.read().get_tab(&fixture.tab).unwrap()).unwrap();
+    assert!(fixture
+        .service
+        .switch_provider_in_place(
+            &fixture.tab,
+            &target,
+            Some("unknown-model".into()),
+            None,
+            Some("installed".into()),
+            true,
+        )
+        .unwrap_err()
+        .contains("offered choices"));
+    assert_eq!(
+        serde_json::to_value(fixture.service.mux.read().get_tab(&fixture.tab).unwrap()).unwrap(),
+        before
+    );
+    let outcome = fixture
+        .service
+        .switch_provider_in_place(
+            &fixture.tab,
+            &target,
+            Some("Friendly Model".into()),
+            Some("High Effort".into()),
+            Some("installed".into()),
+            true,
+        )
+        .unwrap();
+    assert!(outcome.binding_restored && outcome.handoff_delivered);
+    let open = fixture
+        .requests()
+        .into_iter()
+        .find(|frame| frame["method"] == "openThread")
+        .unwrap();
+    assert_eq!(open["params"]["settings"]["model"], "wire-model");
+    assert_eq!(open["params"]["settings"]["effort"], "high");
+    let tab = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&fixture.tab)
+        .cloned()
+        .unwrap();
+    assert_eq!(
+        agent_runtime::launch_profile::of_tab(&tab).as_deref(),
+        Some("installed")
+    );
+    assert_eq!(
+        tab.agent_runtime_config
+            .as_ref()
+            .and_then(|config| config["launchProfile"].as_str()),
+        Some("installed")
+    );
+    assert_eq!(tab.agent_requested_model.as_deref(), Some("Friendly Model"));
+    assert_eq!(
+        tab.agent_provider_resolved_model.as_deref(),
+        Some("wire-model")
+    );
+    assert_eq!(
+        tab.restorable_launch.requested_model.as_deref(),
+        Some("Friendly Model")
+    );
+    assert_eq!(tab.restorable_launch.model.as_deref(), Some("wire-model"));
+    assert_eq!(
+        tab.restorable_launch.requested_reasoning_effort.as_deref(),
+        Some("High Effort")
+    );
+    assert_eq!(
+        tab.restorable_launch.resolved_reasoning_effort.as_deref(),
+        Some("high")
+    );
 }
