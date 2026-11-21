@@ -171,7 +171,7 @@ describe("mux POST admission", () => {
     expect(muxRequestWireLimit("foreground")).toBe(MUX_REQUEST_LIMIT);
   });
 
-  it("prioritizes visible reads ahead of normal reads while reserving the fourth POST slot for foreground and preserving bulk fairness", () => {
+  it("prioritizes visible reads ahead of normal reads while reserving the fourth POST slot for foreground and preserving normal interactive and bulk fairness", () => {
     let state = EMPTY_MUX_POSTS;
     for (const id of ["i1", "i2", "i3"]) state = muxPostEnqueue(state, id, "interactive", "normal");
     state = muxPostEnqueue(state, "v1", "interactive", "visible");
@@ -185,6 +185,37 @@ describe("mux POST admission", () => {
     step = muxPostStart(state); state = step.state;
     expect(step.ids).toEqual(["stop"]);
 
+    // With normal interactive waiting, no bulk, and a replenished visible queue, normal interactive gets bounded service.
+    let noBulk = EMPTY_MUX_POSTS;
+    noBulk = muxPostEnqueue(noBulk, "plan", "interactive", "normal");
+    noBulk = muxPostEnqueue(noBulk, "health", "interactive", "normal");
+    const noBulkOrder: string[] = [];
+    for (let round = 0; round < 4; round++) {
+      for (let i = 0; i < 3; i++) noBulk = muxPostEnqueue(noBulk, `vis-${round}-${i}`, "interactive", "visible");
+      const next = muxPostStart(noBulk); noBulk = next.state; noBulkOrder.push(...next.ids);
+      for (const id of next.ids) noBulk = muxPostRemove(noBulk, id);
+    }
+    expect(noBulkOrder.indexOf("plan")).toBeGreaterThan(0);
+    expect(noBulkOrder.indexOf("plan")).toBeLessThanOrEqual(4);
+    expect(noBulkOrder.indexOf("health")).toBeGreaterThan(noBulkOrder.indexOf("plan"));
+    expect(noBulkOrder.indexOf("health")).toBeLessThanOrEqual(9);
+
+    // With both normal interactive and bulk waiting under a replenished visible queue, both make bounded progress.
+    let mixed = EMPTY_MUX_POSTS;
+    mixed = muxPostEnqueue(mixed, "state", "interactive", "normal");
+    mixed = muxPostEnqueue(mixed, "bulk", "bulk", "normal");
+    const mixedOrder: string[] = [];
+    for (let round = 0; round < 4; round++) {
+      for (let i = 0; i < 3; i++) mixed = muxPostEnqueue(mixed, `vis-${round}-${i}`, "interactive", "visible");
+      const next = muxPostStart(mixed); mixed = next.state; mixedOrder.push(...next.ids);
+      for (const id of next.ids) mixed = muxPostRemove(mixed, id);
+    }
+    expect(mixedOrder.indexOf("state")).toBeGreaterThan(0);
+    expect(mixedOrder.indexOf("state")).toBeLessThanOrEqual(4);
+    expect(mixedOrder.indexOf("bulk")).toBeGreaterThan(0);
+    expect(mixedOrder.indexOf("bulk")).toBeLessThanOrEqual(8);
+
+    // With only bulk waiting under a visible burst, bulk still makes bounded progress.
     let fair = EMPTY_MUX_POSTS;
     for (let i = 0; i < 16; i++) fair = muxPostEnqueue(fair, `v-${i}`, "interactive", "visible");
     fair = muxPostEnqueue(fair, "bulk", "bulk", "normal");

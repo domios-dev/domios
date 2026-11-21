@@ -127,8 +127,12 @@ export interface MuxPostState {
   readonly active: ReadonlyMap<string, { traffic: MuxTraffic; priority: MuxRequestPriority }>;
   readonly pending: ReadonlyArray<{ id: string; traffic: MuxTraffic; priority: MuxRequestPriority }>;
   readonly burst: number;
+  readonly visibleBurst: number;
 }
-export const EMPTY_MUX_POSTS: MuxPostState = { active: new Map(), pending: [], burst: 0 };
+export const EMPTY_MUX_POSTS: MuxPostState = { active: new Map(), pending: [], burst: 0, visibleBurst: 0 };
+
+const INTERACTIVE_POST_BURST = 8;
+const VISIBLE_POST_BURST = 4;
 
 export function muxPostEnqueue(state: MuxPostState, id: string, traffic: MuxTraffic, priority: MuxRequestPriority = "normal"): MuxPostState {
   return { ...state, pending: [...state.pending, { id, traffic, priority }] };
@@ -146,6 +150,7 @@ export function muxPostCancel(state: MuxPostState, id: string): MuxPostState {
 export function muxPostStart(state: MuxPostState, canStart: (id: string, selected: string[]) => boolean = () => true): { state: MuxPostState; ids: string[] } {
   const active = new Map(state.active), pending = [...state.pending], ids: string[] = [];
   let burst = state.burst;
+  let visibleBurst = state.visibleBurst;
   while (active.size < 4) {
     const bulkAvailable = [...active.values()].filter(item => item.traffic === "bulk").length < 2;
     const eligible = (item: MuxPostState["pending"][number]) => (item.traffic !== "bulk" || bulkAvailable) && canStart(item.id, ids);
@@ -153,14 +158,16 @@ export function muxPostStart(state: MuxPostState, canStart: (id: string, selecte
     const visible = active.size < 3 ? pending.findIndex(item => item.priority === "visible" && eligible(item)) : -1;
     const interactive = active.size < 3 ? pending.findIndex(item => item.priority === "normal" && item.traffic === "interactive" && eligible(item)) : -1;
     const bulk = active.size < 3 ? pending.findIndex(item => item.priority === "normal" && item.traffic === "bulk" && eligible(item)) : -1;
-    const prioritized = visible >= 0 ? visible : interactive;
-    const index = foreground >= 0 ? foreground : prioritized >= 0 && (burst < 8 || bulk < 0) ? prioritized : bulk;
+    const prioritized = visible >= 0 && (visibleBurst < VISIBLE_POST_BURST || interactive < 0) ? visible : interactive;
+    const index = foreground >= 0 ? foreground : prioritized >= 0 && (burst < INTERACTIVE_POST_BURST || bulk < 0) ? prioritized : bulk;
     if (index < 0) break;
     const [item] = pending.splice(index, 1);
     active.set(item.id, { traffic: item.traffic, priority: item.priority }); ids.push(item.id);
-    burst = item.traffic === "interactive" ? Math.min(8, burst + 1) : 0;
+    burst = item.traffic === "interactive" ? Math.min(INTERACTIVE_POST_BURST, burst + 1) : 0;
+    visibleBurst = item.priority === "visible" ? Math.min(VISIBLE_POST_BURST, visibleBurst + 1)
+      : item.priority === "normal" ? 0 : visibleBurst;
   }
-  return { state: { active, pending, burst }, ids };
+  return { state: { active, pending, burst, visibleBurst }, ids };
 }
 
 export type MuxResponseStage = "head" | "body" | "done";
