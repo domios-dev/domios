@@ -180,6 +180,88 @@ const liveFixture=JSON.parse(fs.readFileSync(new URL("./fixtures/live-turns.json
 };
 const updateFrame=(update:JsonValue):RuntimeFrame=>({kind:"notification",method:"session/update",params:{sessionId:"session-fixture",update}});
 {
+  const stateUpdates:Record<string,JsonValue>={toolCallId:"edit-a",title:"Edit file",name:"apply_patch",kind:"edit",status:"in_progress",
+    rawInput:{path:"/workspace/a.txt"},content:[
+      {type:"diff",path:"/workspace/a.txt",oldText:"before\nkeep\n",newText:"after\nkeep\n"},
+      {type:"content",content:{type:"text",text:"Provider edit detail"}},
+    ],locations:[{path:"/workspace/a.txt",line:7}]};
+  const partial=reduceTool(stateUpdates,undefined,1)!;
+  const completion=reduceTool({toolCallId:"edit-a",status:"completed",rawInput:null,rawOutput:null},partial,2)!;
+  assert.equal(completion.toolTitle,"Edit file");
+  assert.equal(completion.toolName,"apply_patch");
+  assert.equal(completion.toolKind,"edit");
+  assert.deepEqual(completion.toolInput,{path:"/workspace/a.txt"},"null rawInput is a no-op on partial updates");
+  assert.equal(completion.toolResult,"Provider edit detail","null rawOutput does not replace supplied detail");
+  assert.equal(completion.toolResult,"Provider edit detail");
+  assert.equal(completion.toolSummary,"/workspace/a.txt:7");
+  const edit=completion.fileDiffs?.[0] as {path:string;kind:string;additions:number;deletions:number;hunks:{lines:string[]}[]};
+  assert.equal(edit.kind,"modify");
+  assert.equal(edit.path,"/workspace/a.txt");
+  assert.equal(edit.additions,1,"unchanged source lines do not inflate edit counts");
+  assert.equal(edit.deletions,1,"unchanged source lines do not inflate edit counts");
+  assert.deepEqual(edit.hunks[0].lines,["-before","+after"]);
+  const newFile=reduceTool({toolCallId:"new-file",kind:"edit",status:"completed",content:[{type:"diff",path:"new.txt",oldText:null,newText:"new\n"}]},undefined,1)!;
+  assert.equal((newFile.fileDiffs?.[0] as {kind:string;deletions:number}).kind,"add");
+  assert.equal((newFile.fileDiffs?.[0] as {deletions:number}).deletions,0,"new files do not claim removed lines");
+  const cleared=reduceTool({toolCallId:"edit-a",content:[]},completion,3)!;
+  assert.deepEqual(cleared.fileDiffs,[],"an explicit empty content array replaces prior diff detail");
+  assert.equal(reduceTool({toolCallId:"empty-content",content:[]},undefined,1)?.toolResult,undefined,"empty provider content creates no output");
+}
+{
+  let state:JsonValue=null;
+  const rows=new Map<string,ChatMsg>();
+  const events:AgentEvent[]=[];
+  const apply=(update:Record<string,JsonValue>):AgentEvent[]=>{
+    const result=reduceStream(context,state,[updateFrame(update)],cursor);
+    state=result.state;events.push(...result.events);
+    for (const event of result.events) foldRow(rows,event);
+    return result.events;
+  };
+  apply({sessionUpdate:"tool_call",toolCallId:"edit-a",title:"Edit file",kind:"edit",status:"pending",rawInput:{path:"/workspace/a.txt"}});
+  apply({sessionUpdate:"tool_call_update",toolCallId:"edit-a",status:"in_progress",content:[
+    {type:"diff",path:"/workspace/a.txt",oldText:"before\nkeep\n",newText:"after\nkeep\n"},
+    {type:"content",content:{type:"text",text:"Provider edit detail"}},
+  ]});
+  const completionEvents=apply({sessionUpdate:"tool_call_update",toolCallId:"edit-a",status:"completed"});
+  assert.equal(completionEvents.length,1);
+  assert.equal(completionEvents[0].kind,"chatItemPatch");
+  if (completionEvents[0].kind === "chatItemPatch") {
+    assert.equal(completionEvents[0].item.toolTitle,undefined,"status-only patches leave earlier metadata to the same-ID host merge");
+    assert.equal(completionEvents[0].item.toolStatus,"completed");
+  }
+  apply({sessionUpdate:"tool_call_update",toolCallId:"edit-a",content:[
+    {type:"diff",path:"/workspace/a.txt",oldText:"after\n",newText:"later\n"},
+    {type:"content",content:{type:"text",text:"Late provider detail"}},
+  ]});
+  apply({sessionUpdate:"tool_call",toolCallId:"edit-b",title:"Edit file",kind:"edit",status:"in_progress"});
+  apply({sessionUpdate:"tool_call_update",toolCallId:"edit-b",status:"failed",rawOutput:"permission refused"});
+  assert.deepEqual([...rows.keys()], ["edit-a","edit-b"],"distinct call ids remain separate even with matching titles");
+  assert.equal(rows.get("edit-a")?.toolStatus,"completed");
+  assert.equal(rows.get("edit-a")?.toolTitle,"Edit file");
+  assert.equal(rows.get("edit-a")?.toolKind,"edit");
+  assert.equal(rows.get("edit-a")?.toolInput && (rows.get("edit-a")?.toolInput as Record<string,string>).path,"/workspace/a.txt");
+  assert.equal(rows.get("edit-a")?.toolResult,"Late provider detail");
+  assert.equal((rows.get("edit-a")?.fileDiffs?.[0] as {additions:number}).additions,1);
+  assert.equal(rows.get("edit-b")?.toolStatus,"failed");
+  assert.equal(rows.get("edit-b")?.toolError,true);
+  assert.equal(rows.get("edit-b")?.toolTitle,"Edit file","completion-only error updates preserve earlier title");
+  assert.equal(rows.get("edit-b")?.toolResult,"permission refused");
+  assert.equal(events.filter(event=>(event.kind === "chatItem" || event.kind === "chatItemPatch") && event.item.id === "edit-a").length,4,
+    "one start and three same-id updates fold into one stable row");
+}
+{
+  const oversized=reduceStream(context,null,[updateFrame({sessionUpdate:"tool_call",toolCallId:"bounded-edit",title:"Edit",kind:"edit",status:"failed",rawOutput:"x".repeat(40000)})],cursor);
+  const event=oversized.events.find(event=>event.kind === "chatItem");
+  assert.ok(event?.kind === "chatItem");
+  if (event?.kind === "chatItem") {
+    assert.ok(Buffer.byteLength(JSON.stringify(event.item))<=32768,"oversized tool rows stay within the per-row UTF-8 budget");
+    assert.equal(event.item.toolId,"bounded-edit");
+    assert.equal(event.item.toolStatus,"failed");
+    assert.equal(event.item.toolError,true);
+    assert.ok(event.item.toolDetail?.includes("shortened"),"dropped output is disclosed in a native tool field");
+  }
+}
+{
   const midReply=reduceStream(context,null,[frame("agent_message_chunk","before "),frame("agent_message_chunk","[MODE_UPDATE] plan"),frame("agent_message_chunk","after")],{prompt:1,loading:false});
   const rows=new Map<string,ChatMsg>();
   for (const event of midReply.events) foldRow(rows,event);

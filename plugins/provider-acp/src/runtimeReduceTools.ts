@@ -11,48 +11,120 @@ export const canonicalJson = (value:JsonValue):string => JSON.stringify(value, (
     ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, (item as Record<string,unknown>)[key]]))
     : item);
 
-function diff(content:Record<string,JsonValue>):JsonValue|undefined {
-  if (typeof content.path !== "string" || typeof content.newText !== "string"
+const MAX_DIFF_LINES=4096;
+const MAX_DIFF_CELLS=40000;
+const MAX_CONTENT_PARTS=64;
+
+function lines(value:string):string[] {
+  if (!value) return [];
+  const result=value.split(/\r?\n/);
+  if (result.at(-1) === "") result.pop();
+  return result;
+}
+
+function diff(content:Record<string,JsonValue>):{value:JsonValue;omitted:boolean}|undefined {
+  if (typeof content.path !== "string" || !content.path.trim() || typeof content.newText !== "string"
     || content.oldText !== null && typeof content.oldText !== "string") return undefined;
-  const lines = (value:string):string[] => value ? value.replace(/\n$/, "").split("\n") : [];
-  const oldLines = lines(typeof content.oldText === "string" ? content.oldText : "");
-  const newLines = lines(content.newText);
-  return {path:content.path,kind:content.oldText === null ? "add" : "modify",
-    additions:newLines.length,deletions:oldLines.length,
-    hunks:[{oldStart:oldLines.length ? 1 : 0,oldLines:oldLines.length,
-      newStart:newLines.length ? 1 : 0,newLines:newLines.length,
-      lines:[...oldLines.map(line=>`-${line}`),...newLines.map(line=>`+${line}`)]}]};
+  const oldLines=content.oldText === null ? [] : lines(content.oldText);
+  const newLines=lines(content.newText);
+  if (oldLines.length > MAX_DIFF_LINES || newLines.length > MAX_DIFF_LINES)
+    return {value:{},omitted:true};
+
+  let prefix=0;
+  while (prefix<oldLines.length && prefix<newLines.length && oldLines[prefix] === newLines[prefix]) prefix++;
+  let oldEnd=oldLines.length,newEnd=newLines.length;
+  while (oldEnd>prefix && newEnd>prefix && oldLines[oldEnd-1] === newLines[newEnd-1]) {oldEnd--;newEnd--;}
+  const oldCount=oldEnd-prefix,newCount=newEnd-prefix;
+  if (!oldCount && !newCount) {
+    if (content.oldText === null) return {value:{path:content.path,kind:"add",additions:0,deletions:0,
+      hunks:[{oldStart:0,oldLines:0,newStart:0,newLines:0,lines:[]}]},omitted:false};
+    return undefined;
+  }
+
+  const columns=newCount+1;
+  const cells=(oldCount+1)*columns;
+  if (cells > MAX_DIFF_CELLS) return {value:{},omitted:true};
+  const lcs=new Uint32Array(cells);
+  for (let oldIndex=oldCount-1;oldIndex>=0;oldIndex--) {
+    for (let newIndex=newCount-1;newIndex>=0;newIndex--) {
+      const at=oldIndex*columns+newIndex;
+      lcs[at]=oldLines[prefix+oldIndex] === newLines[prefix+newIndex]
+        ? lcs[(oldIndex+1)*columns+newIndex+1]+1
+        : Math.max(lcs[(oldIndex+1)*columns+newIndex],lcs[at+1]);
+    }
+  }
+
+  const changed:string[]=[];
+  let oldIndex=0,newIndex=0;
+  while (oldIndex<oldCount || newIndex<newCount) {
+    if (oldIndex<oldCount && newIndex<newCount && oldLines[prefix+oldIndex] === newLines[prefix+newIndex]) {
+      changed.push(` ${oldLines[prefix+oldIndex]}`);oldIndex++;newIndex++;
+    } else if (newIndex<newCount && (oldIndex===oldCount
+      || lcs[oldIndex*columns+newIndex+1] > lcs[(oldIndex+1)*columns+newIndex])) {
+      changed.push(`+${newLines[prefix+newIndex]}`);newIndex++;
+    } else {
+      changed.push(`-${oldLines[prefix+oldIndex]}`);oldIndex++;
+    }
+  }
+  return {value:{path:content.path,kind:content.oldText === null ? "add" : "modify",
+    additions:changed.filter(line=>line.startsWith("+")).length,
+    deletions:changed.filter(line=>line.startsWith("-")).length,
+    hunks:[{oldStart:oldCount ? prefix+1 : prefix,oldLines:oldCount,
+      newStart:newCount ? prefix+1 : prefix,newLines:newCount,lines:changed}]},omitted:false};
+}
+
+function locationSummary(value:JsonValue):string {
+  if (!Array.isArray(value)) return "";
+  const locations:string[]=[];
+  let count=0;
+  for (const raw of value) {
+    const location=object(raw);
+    if (typeof location.path !== "string" || !location.path.trim()) continue;
+    count++;
+    if (locations.length<8) locations.push(typeof location.line === "number" && Number.isSafeInteger(location.line) && location.line > 0
+      ? `${location.path}:${location.line}` : location.path);
+  }
+  if (count>locations.length) locations.push(`+${count-locations.length} more locations`);
+  return locations.join(", ");
 }
 
 export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|undefined, seq:number):ChatMsg|undefined {
   const id = text(update.toolCallId);
   if (!id) return undefined;
   const row:ChatMsg = {...previous,id,seq:previous?.seq ?? seq,type:"tool_call",content:"",toolId:id,collapsed:true};
-  if (typeof update.title === "string") { row.toolTitle=update.title; row.toolName=update.title; }
+  if (typeof update.title === "string") { row.toolTitle=update.title;row.toolName=update.title; }
+  if (typeof update.name === "string") row.toolName=update.name;
   if (typeof update.kind === "string") {
     const kinds:Record<string,string>={execute:"command",edit:"edit",read:"read",search:"search"};
     row.toolKind=Object.prototype.hasOwnProperty.call(kinds,update.kind) ? kinds[update.kind] : "generic";
   }
-  if (update.rawInput !== undefined) {
-    row.toolInput=update.rawInput;
+  if (update.rawInput !== undefined && update.rawInput !== null) {
+    row.toolInput=update.rawInput as Record<string,unknown>;
     row.toolArgs=typeof update.rawInput === "string" ? update.rawInput : canonicalJson(update.rawInput);
   }
   const statuses = {pending:"running",in_progress:"running",completed:"completed",failed:"failed",cancelled:"interrupted"} as const;
   const status = Object.prototype.hasOwnProperty.call(statuses,String(update.status))
     ? statuses[String(update.status) as keyof typeof statuses] : undefined;
   if (status) { row.toolStatus=status; row.toolError=status === "failed"; }
-  if (update.rawOutput !== undefined) row.toolResult=typeof update.rawOutput === "string" ? update.rawOutput : canonicalJson(update.rawOutput);
+  if (update.rawOutput !== undefined && update.rawOutput !== null)
+    row.toolResult=typeof update.rawOutput === "string" ? update.rawOutput : canonicalJson(update.rawOutput);
+  if (Array.isArray(update.locations)) row.toolSummary=locationSummary(update.locations);
   if (Array.isArray(update.content)) {
     const results:string[]=[];
     const diffs:JsonValue[]=[];
-    for (const raw of update.content) {
+    let omitted=update.content.length > MAX_CONTENT_PARTS;
+    for (const raw of update.content.slice(0,MAX_CONTENT_PARTS)) {
       const part=object(raw);
       const block=object(part.content);
       if (part.type === "content" && block.type === "text" && typeof block.text === "string") results.push(block.text);
-      if (part.type === "diff") { const mapped=diff(part); if (mapped) diffs.push(mapped); }
+      if (part.type === "diff") {
+        const mapped=diff(part);
+        if (mapped?.omitted) omitted=true;
+        else if (mapped) diffs.push(mapped.value);
+      }
     }
-    if (results.length) row.toolResult=results.join("\n");
-    if (diffs.length) row.fileDiffs=diffs;
+    if (results.length || omitted) row.toolResult=[...results,...(omitted ? ["ACP tool detail was omitted because the bounded diff or content limit was reached."] : [])].join("\n");
+    row.fileDiffs=diffs;
   }
   return row;
 }
