@@ -266,10 +266,6 @@
 }
 
 .ct-dictation-bubble {
-  position: absolute;
-  bottom: calc(100% + 12px);
-  right: 0;
-  z-index: 30;
   width: min(19rem, calc(100vw - 2rem));
   padding: 12px 14px;
   border: 1px solid var(--ct-border);
@@ -283,6 +279,12 @@
   line-height: 1.45;
   transform-origin: calc(100% - 1rem) 100%;
   animation: ct-dictation-bubble-pop 320ms var(--ct-ease-liquid-settle) both;
+}
+
+.ct-anchored-popover[data-side="bottom"] .ct-dictation-bubble {
+  border-bottom-right-radius: 14px;
+  border-top-right-radius: var(--ct-bubble-tail-radius, 6px);
+  transform-origin: calc(100% - 1rem) 0%;
 }
 
 .ct-dictation-bubble--error {

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState, type RefObject } from "react";
 import { X } from "lucide-react";
+import { AnchoredPopover } from "../../shared/AnchoredPopover";
 import { Button } from "../../shared/Button";
 import { askGeneralAgent, focusTab, generalAgentTab } from "../../../lib/generalAgent";
 import { useMuxStateStore } from "../../../store/multiplexer/selectorStore";
@@ -10,36 +11,19 @@ export function clearDictationSetupHandoff() {
   setupInFlight = null;
 }
 
-export function DictationSetupPrompt({ reason, onDismiss }: { reason: string; onDismiss(): void }) {
+export function DictationSetupPrompt({
+  reason,
+  onDismiss,
+  anchor,
+}: {
+  reason: string;
+  onDismiss(): void;
+  anchor: RefObject<HTMLElement | null>;
+}) {
   const store = useMuxStateStore();
-  const bubbleRef = useRef<HTMLDivElement>(null);
-  const dismissRef = useRef(onDismiss);
-  dismissRef.current = onDismiss;
   const issued = useRef(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.code !== "Escape" && event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      dismissRef.current();
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (!target) return;
-      const shell = bubbleRef.current?.closest(".ct-composer-action-shell");
-      if (bubbleRef.current?.contains(target) || shell?.contains(target)) return;
-      dismissRef.current();
-    };
-    document.addEventListener("keydown", onKeyDown, true);
-    document.addEventListener("pointerdown", onPointerDown, true);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown, true);
-      document.removeEventListener("pointerdown", onPointerDown, true);
-    };
-  }, []);
 
   async function install() {
     if (issued.current) return;
@@ -67,33 +51,34 @@ export function DictationSetupPrompt({ reason, onDismiss }: { reason: string; on
   }
 
   return (
-    <div
-      ref={bubbleRef}
-      className="ct-dictation-bubble ct-dictation-setup"
-      data-testid="dictation-setup-bubble"
-      role="group"
-      aria-label="Install dictation"
-    >
-      <div className="ct-dictation-bubble__head">
-        <strong>Install dictation?</strong>
-        <button
-          type="button"
-          className="ct-dictation-bubble__close"
-          aria-label="Dismiss dictation setup"
-          title="Dismiss"
-          disabled={pending}
-          onClick={onDismiss}
-        >
-          <X size={14} strokeWidth={2.2} aria-hidden="true" />
-        </button>
+    <AnchoredPopover open anchor={anchor} placement="top-end" gap={12} onClose={onDismiss}>
+      <div
+        className="ct-dictation-bubble ct-dictation-setup"
+        data-testid="dictation-setup-bubble"
+        role="group"
+        aria-label="Install dictation"
+      >
+        <div className="ct-dictation-bubble__head">
+          <strong>Install dictation?</strong>
+          <button
+            type="button"
+            className="ct-dictation-bubble__close"
+            aria-label="Dismiss dictation setup"
+            title="Dismiss"
+            disabled={pending}
+            onClick={onDismiss}
+          >
+            <X size={14} strokeWidth={2.2} aria-hidden="true" />
+          </button>
+        </div>
+        <p className="ct-dictation-bubble__body">{reason} General can guide the local model download.</p>
+        <div className="ct-dictation-bubble__actions">
+          <Button type="button" variant="primary" size="sm" loading={pending} disabled={pending} onClick={() => void install()}>
+            Set up with General
+          </Button>
+        </div>
+        {error && <div role="alert" className="ct-dictation-bubble__alert">{error}</div>}
       </div>
-      <p className="ct-dictation-bubble__body">{reason} General can guide the local model download.</p>
-      <div className="ct-dictation-bubble__actions">
-        <Button type="button" variant="primary" size="sm" loading={pending} disabled={pending} onClick={() => void install()}>
-          Set up with General
-        </Button>
-      </div>
-      {error && <div role="alert" className="ct-dictation-bubble__alert">{error}</div>}
-    </div>
+    </AnchoredPopover>
   );
 }

@@ -197,10 +197,10 @@ export function ComposerActionButton({
     <div className="ct-composer-action-shell ct-composer-control relative shrink-0">
       {effectiveHold && <VoiceLockPill />}
       {!effectiveHold && !voiceActive && dictation?.setup && (
-        <DictationSetupPrompt reason={dictation.setup} onDismiss={dictation.dismissSetup} />
+        <DictationSetupPrompt reason={dictation.setup} onDismiss={dictation.dismissSetup} anchor={buttonRef} />
       )}
       {!effectiveHold && !voiceActive && !dictation?.setup && dictation?.error && (
-        <DictationStatus dictation={dictation} />
+        <DictationStatus dictation={dictation} anchor={buttonRef} />
       )}
       <button
         ref={buttonRef}

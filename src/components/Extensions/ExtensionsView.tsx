@@ -21,6 +21,7 @@ import { PluginList } from "./PluginList";
 import { PluginDetailPanel, type ActionKind, type ActionOptions } from "./PluginDetailPanel";
 import { type AppConfigShape } from "./shared";
 import { pluginActionPayload } from "./pluginActions";
+import { loadPluginSettings, savePluginSettings, type PluginSettings } from "./pluginSettingsApi";
 import type { ChannelRecord } from "./types";
 import type { AppConfig, PluginActivity } from "../../lib/types";
 import type { PluginActivityDisplayMap } from "../../lib/usePluginActivity";
@@ -58,6 +59,7 @@ export function ExtensionsView({
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
   const [addChannelOpen, setAddChannelOpen] = useState(false);
   const [narrowDetailOpen, setNarrowDetailOpen] = useState(initialSelection !== null);
+  const [pluginSettings, setPluginSettings] = useState<{ pluginId: string; values: PluginSettings } | null>(null);
 
   const refreshConfig = useCallback(async () => {
     try {
@@ -94,18 +96,27 @@ export function ExtensionsView({
   const updates = useMemo(() => updateCount(catalog), [catalog]);
   const selected = selectedId ? catalog.find((e) => e.id === selectedId) ?? null : null;
 
-  const saveSetting = useCallback(async (pluginId: string, key: string, value: unknown) => {
+  const saveSetting = useCallback(async (pluginId: string, values: PluginSettings) => {
+    setPluginSettings((prev) => (prev?.pluginId === pluginId ? { pluginId, values: { ...prev.values, ...values } } : prev));
     try {
-      const cfg = await invoke<AppConfigShape>("get_config");
-      const plugins = { ...(cfg.plugins ?? {}) };
-      plugins[pluginId] = { ...(plugins[pluginId] ?? {}), [key]: value };
-      await invoke("update_config", { config: { ...cfg, plugins } });
-      setConfig({ ...cfg, plugins });
+      const saved = await savePluginSettings(pluginId, values);
+      setPluginSettings({ pluginId, values: saved });
       setLocalError(null);
     } catch (e) {
       setLocalError(`Couldn't save ${pluginId} setting: ${String(e)}`);
     }
   }, []);
+
+  const settingsPluginId = visible && selected?.installed && (selected.settingsSchema?.length ?? 0) > 0 ? selected.id : null;
+  useEffect(() => {
+    if (!settingsPluginId) return;
+    let current = true;
+    loadPluginSettings(settingsPluginId).then(
+      (values) => { if (current) setPluginSettings({ pluginId: settingsPluginId, values }); },
+      (e: unknown) => { if (current) setLocalError(`Couldn't load ${settingsPluginId} settings: ${String(e)}`); },
+    );
+    return () => { current = false; };
+  }, [settingsPluginId]);
 
   const runAction = useCallback(
     async (key: string, action: Record<string, unknown>): Promise<boolean> => {
@@ -285,6 +296,7 @@ export function ExtensionsView({
               <PluginDetailPanel
                 entry={selected}
                 config={config}
+                settings={pluginSettings?.pluginId === selected.id ? pluginSettings.values : null}
                 busy={busy}
                 activity={pluginActivities.get(selected.id)}
                 activityDisplayMap={pluginActivityDisplayMap}

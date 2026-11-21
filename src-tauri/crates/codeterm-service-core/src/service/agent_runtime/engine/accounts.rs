@@ -283,11 +283,13 @@ async fn ensure_account(
         check_expected_nonce(svc, tab, expected_nonce.as_deref())?;
         let invocation = invocation.map_err(RuntimeFailure::Refused)?;
         if crate::crash::shutdown::is_shutting_down()
-            || !svc
-                .mux
-                .read()
-                .get_tab(tab)
-                .is_some_and(|current| account_authority_matches(&expected, current))
+            || !svc.mux.read().get_tab(tab).is_some_and(|current| {
+                if authority.is_some() || expected_nonce.is_some() {
+                    account_authority_matches(&expected, current)
+                } else {
+                    concurrent_ensure_authority_matches(&expected, current)
+                }
+            })
         {
             return Err(RuntimeFailure::Superseded);
         }
@@ -342,6 +344,37 @@ pub fn launch_switch_target(
         .or_else(|error| super::login_pending_session(svc, &expected.id, error))
         .map(|_| ())
         .map_err(|error| format!("Runtime tab {} degraded: {error}", expected.id))
+}
+
+/// A plain concurrent `ensure()` may observe the same launch generation committing its initial
+/// thread binding (`None -> Some(thread)` with matching `reported_session_binding_nonce`) while
+/// waiting on account provisioning; reuse that bound runtime instead of falsely returning Superseded.
+fn concurrent_ensure_authority_matches(
+    expected: &crate::multiplexer::types::Tab,
+    current: &crate::multiplexer::types::Tab,
+) -> bool {
+    if account_authority_matches(expected, current) {
+        return true;
+    }
+    let Some(bound_thread) = current.agent_session_id.as_deref() else {
+        return false;
+    };
+    if expected.agent_session_id.is_some()
+        || current.session_binding_nonce.is_none()
+        || current.reported_session_binding_nonce != current.session_binding_nonce
+    {
+        return false;
+    }
+    let mut bound = expected.clone();
+    bound.agent_session_id = Some(bound_thread.to_owned());
+    if let crate::multiplexer::types::TabBacking::ChatBackend { session_id, .. } =
+        &mut bound.backing
+    {
+        if session_id.is_empty() {
+            *session_id = bound_thread.to_owned();
+        }
+    }
+    account_authority_matches(&bound, current)
 }
 
 pub(super) fn account_authority_matches(

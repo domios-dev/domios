@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react";
-import { localArtifactOpeningAvailable, openLocalArtifact, type ChatBlockHost, type LiveBindingSource } from "@codeterm/chat-ui";
+import type { ChatBlockHost, LiveBindingSource } from "@codeterm/chat-ui";
+import { localArtifactOpeningAvailable, openLocalArtifact } from "@codeterm/chat-ui/localArtifactLoader";
 import { planSidePanelStore } from "../Canvas/planSidePanelStore";
 import { insertIntoComposer } from "./composerInsertion";
 import { chatChangesStore } from "./chatChangesStore";

@@ -112,6 +112,17 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
         )
         .unwrap();
     cron.lock().register_tab(&tab_id, &job.id, "pending-run");
+    fixture
+        .service
+        .run_watcher
+        .bind_cron_witness_for_test(
+            &fixture.service,
+            "pending-pty".into(),
+            tab_id.clone(),
+            job.id.clone(),
+            "pending-run".into(),
+        )
+        .unwrap();
     let mut plan = Plan::new(
         "Manual round".into(),
         fixture.temp.path().display().to_string(),

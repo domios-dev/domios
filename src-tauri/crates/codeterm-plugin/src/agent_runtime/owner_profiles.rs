@@ -1,7 +1,7 @@
 use super::{AgentRuntimeCapability, RuntimeLaunchProfile};
 use parking_lot::Mutex;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::Read,
     path::{Path, PathBuf},
     sync::OnceLock,
@@ -207,10 +207,29 @@ pub fn overlay(
     provider: &str,
     capability: AgentRuntimeCapability,
 ) -> Result<AgentRuntimeCapability, String> {
-    if capability.launch_profiles.is_none() {
+    let Some(builtins) = &capability.launch_profiles else {
         return Ok(capability);
+    };
+    let owner = load(provider)?;
+    for id in owner.keys().filter(|id| builtins.contains_key(*id)) {
+        warn_shadowed_once(provider, id);
     }
-    overlay_with(capability, load(provider)?)
+    overlay_with(capability, owner)
+}
+
+/// Capability reads repeat on every provider poll; a standing collision is reported once per process.
+fn warn_shadowed_once(provider: &str, id: &str) {
+    const MAX_REPORTED: usize = 256;
+    static REPORTED: OnceLock<Mutex<BTreeSet<(String, String)>>> = OnceLock::new();
+    let mut reported = REPORTED.get_or_init(Default::default).lock();
+    let key = (provider.to_owned(), id.to_owned());
+    if reported.len() >= MAX_REPORTED || reported.contains(&key) {
+        return;
+    }
+    reported.insert(key);
+    log::warn!(
+        "[agent-runtime] ignoring {provider} owner launch profile '{id}' shadowed by a built-in profile"
+    );
 }
 
 pub fn overlay_with(
@@ -225,9 +244,6 @@ pub fn overlay_with(
             .collect();
         for (id, mut profile) in owner {
             if profiles.contains_key(&id) {
-                log::warn!(
-                    "[agent-runtime] ignoring owner launch profile '{id}' shadowed by a built-in profile"
-                );
                 continue;
             }
             if let Some(bundled) = profile
