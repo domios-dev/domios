@@ -31,8 +31,8 @@
           ],
           "icon": "antigravity-color.svg",
           "limitsSource": {
-            "kind": "unavailable",
-            "reason": "Antigravity ACP exposes no account-quota telemetry yet; quota resets appear when hit"
+            "kind": "quota",
+            "reader": "statusline-quota"
           }
         },
         "deepseek-harness": {

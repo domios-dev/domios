@@ -148,6 +148,38 @@ function parseBucketResetAt(resetTime:unknown, resetInSeconds:unknown, nowMs:num
   return {ok:true, value:null};
 }
 
+const LOWER_WINDOWS = new Set(["hourly", "daily", "weekly", "monthly", "session"]);
+const DURATION_SEGMENT = /^\d+[smhdw]$/i;
+const SHORT_DURATION = /^\d+[smh]$/i;
+const DAY_DURATION = /^\d+d$/i;
+const WEEK_DURATION = /^\d+w$/i;
+const DIGIT_PREFIX_CODE = /^(\d+)([a-z]+)$/i;
+
+function formatBucketLabel(rawKey:string): string {
+  const parts = rawKey.trim().split(/[-_]+/).filter(Boolean);
+  if (!parts.length) return rawKey.trim();
+  return parts.map((part, index) => {
+    const lower = part.toLowerCase();
+    if (DURATION_SEGMENT.test(lower)) return lower;
+    if (index > 0 && LOWER_WINDOWS.has(lower)) return lower;
+    const digitCode = DIGIT_PREFIX_CODE.exec(part);
+    if (digitCode) return `${digitCode[1]}${digitCode[2].toUpperCase()}`;
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  }).join(" ");
+}
+
+function bucketSortMeta(rawKey:string): {digitGroup:number; group:string; windowRank:number} {
+  const parts = rawKey.trim().split(/[-_]+/).filter(Boolean);
+  const group = (parts[0] ?? rawKey.trim()).toLowerCase();
+  const digitGroup = /^\d/.test(group) ? 1 : 0;
+  const last = parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "";
+  const windowRank = last === "session" || last === "hourly" || SHORT_DURATION.test(last) ? 0
+    : last === "daily" || DAY_DURATION.test(last) ? 1
+    : last === "weekly" || WEEK_DURATION.test(last) ? 2
+    : last === "monthly" ? 3 : 4;
+  return {digitGroup, group, windowRank};
+}
+
 /** Parses documented statusLine quota JSON `{ quota: { [bucketId]: { remaining_fraction?, reset_time?, reset_in_seconds?, disabled? } }, plan_tier? }`. */
 export function parseStatusLineQuota(raw:unknown, nowMs:number): ParsedQuotaReading | null {
   if (!Number.isFinite(nowMs) || nowMs < 0) return null;
@@ -165,11 +197,11 @@ export function parseStatusLineQuota(raw:unknown, nowMs:number): ParsedQuotaRead
   if (!isPlainObject(quota)) return null;
   const keys = Object.keys(quota);
   if (keys.length > MAX_QUOTA_BUCKETS) return null;
-  const limits:QuotaLimit[] = [];
+  const entries:{limit:QuotaLimit; digitGroup:number; group:string; windowRank:number}[] = [];
   for (let i = 0; i < keys.length; i++) {
     const rawKey = keys[i];
-    const label = validBucketLabel(rawKey);
-    if (!label) return null;
+    const validKey = validBucketLabel(rawKey);
+    if (!validKey) return null;
     const entry = quota[rawKey];
     if (!isPlainObject(entry)) return null;
     if (entry.disabled !== undefined && typeof entry.disabled !== "boolean") return null;
@@ -179,13 +211,23 @@ export function parseStatusLineQuota(raw:unknown, nowMs:number): ParsedQuotaRead
     if (typeof fraction !== "number" || !Number.isFinite(fraction) || fraction < 0 || fraction > 1) return null;
     const reset = parseBucketResetAt(entry.reset_time, entry.reset_in_seconds, nowMs);
     if (!reset.ok) return null;
-    limits.push({
-      label,
-      used_percent:Math.round((1 - fraction) * 1000) / 10,
-      resets_at:reset.value,
+    const meta = bucketSortMeta(validKey);
+    entries.push({
+      limit:{
+        label:formatBucketLabel(validKey),
+        used_percent:Math.round((1 - fraction) * 1000) / 10,
+        resets_at:reset.value,
+      },
+      ...meta,
     });
   }
-  limits.sort((a, b) => b.used_percent - a.used_percent || a.label.localeCompare(b.label));
+  entries.sort((a, b) =>
+    a.digitGroup - b.digitGroup
+    || a.group.localeCompare(b.group)
+    || a.windowRank - b.windowRank
+    || b.limit.used_percent - a.limit.used_percent
+    || a.limit.label.localeCompare(b.limit.label));
+  const limits = entries.map(entry => entry.limit);
   const rawTier = root.plan_tier;
   const tier = typeof rawTier === "string" && rawTier.trim().length > 0 && rawTier.trim().length <= 64 && PRINTABLE_LABEL.test(rawTier.trim())
     ? rawTier.trim() : null;

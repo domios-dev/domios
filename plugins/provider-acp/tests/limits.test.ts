@@ -153,11 +153,7 @@ const antigravity = runtime.launchProfiles.antigravity;
 assert.equal(antigravity.binary, "agy");
 assert.deepEqual(antigravity.args, ["acp"]);
 assert.equal(antigravity.icon, "antigravity-color.svg");
-assert.equal(antigravity.limitsSource.kind, "unavailable");
-assert.equal(typeof antigravity.limitsSource.reason, "string");
-assert.equal(antigravity.limitsSource.reason.trim(), antigravity.limitsSource.reason);
-assert.ok(antigravity.limitsSource.reason.length > 0 && antigravity.limitsSource.reason.length <= 240);
-assert.equal(/[\u0000-\u001f\u007f]/.test(antigravity.limitsSource.reason), false);
+assert.deepEqual(antigravity.limitsSource, {kind: "quota", reader: "statusline-quota"});
 assert.ok(manifest.permissions.subprocess.allow.includes("agy"), "Antigravity launch binary is allowlisted");
 
 const runtimeFiles = fs.readFileSync(new URL("../runtime-files.txt", import.meta.url), "utf8").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
@@ -177,13 +173,38 @@ assert.deepEqual(runtimeManifest.agentRuntime.launchProfiles.antigravity, antigr
 
 const antigravityPort = port({status: 200, body});
 const antigravityReply = readProfileLimits(antigravityPort.ports, {profile: "antigravity", source: antigravity.limitsSource}, NOW);
-assert.equal(typeof (antigravityReply as {error: string}).error, "string", "unavailable limitsSource never fabricates a balance or quota snapshot");
-assert.equal(antigravityPort.requests.length, 0, "unavailable limitsSource issues no network request");
-console.log("✓ ACP Antigravity profile: manifest metadata, allowlisted binary, sanitizer-safe color SVG, honest unavailable limits");
+assert.equal(typeof (antigravityReply as {error: string}).error, "string", "statusline-quota JS fallback names host hook/probe path cleanly");
+assert.equal(antigravityPort.requests.length, 0, "statusline-quota issues no direct network fetch from JS");
+console.log("✓ ACP Antigravity profile: manifest metadata, allowlisted binary, sanitizer-safe color SVG, statusline-quota limitsSource");
 
-// Extensible statusLine quota JSON parser (remaining_fraction, reset_time, reset_in_seconds, disabled, malformed fail-closed)
+// Extensible statusLine quota JSON parser (real captured agy payload, human labels, primary-first order, disabled, malformed fail-closed)
 {
   const SL_NOW = 1_795_280_000_000;
+  const realAgyPayload = {
+    product: "antigravity",
+    plan_tier: "Google AI Ultra",
+    email: "owner@example.com",
+    quota: {
+      "3p-5h": {remaining_fraction: 1, reset_time: "2026-11-22T02:38:44Z", reset_in_seconds: 17999},
+      "3p-weekly": {remaining_fraction: 1, reset_time: "2026-11-28T21:38:44Z", reset_in_seconds: 604799},
+      "gemini-5h": {remaining_fraction: 0.9533681, reset_time: "2026-11-22T02:31:19Z", reset_in_seconds: 17554},
+      "gemini-weekly": {remaining_fraction: 0.51503307, reset_time: "2026-11-28T11:31:19Z", reset_in_seconds: 568354},
+    },
+  };
+  const realParsed = parseStatusLineQuota(realAgyPayload, SL_NOW);
+  assert.deepEqual(realParsed, {
+    title: "Account quota (Google AI Ultra)",
+    limits: [
+      {label: "Gemini 5h", used_percent: 4.7, resets_at: Date.parse("2026-11-22T02:31:19Z")},
+      {label: "Gemini weekly", used_percent: 48.5, resets_at: Date.parse("2026-11-28T11:31:19Z")},
+      {label: "3P 5h", used_percent: 0, resets_at: Date.parse("2026-11-22T02:38:44Z")},
+      {label: "3P weekly", used_percent: 0, resets_at: Date.parse("2026-11-28T21:38:44Z")},
+    ],
+  }, "real agy payload formats clean human labels and orders Gemini 5h/weekly ahead of 3P 5h/weekly");
+  const realSnap = statusLineQuotaSnapshot(realAgyPayload, SL_NOW);
+  assert.equal(typeof realSnap, "string");
+  assert.equal((realSnap as string).includes("owner@example.com"), false, "email is never retained in stored quota snapshot");
+
   const isoReset = "2026-11-22T07:50:32Z";
   const parsed = parseStatusLineQuota({
     plan_tier: "Pro",
@@ -197,10 +218,10 @@ console.log("✓ ACP Antigravity profile: manifest metadata, allowlisted binary,
   assert.deepEqual(parsed, {
     title: "Account quota (Pro)",
     limits: [
-      {label: "gemini-pro", used_percent: 75, resets_at: SL_NOW + 1_800_000},
-      {label: "gemini-weekly", used_percent: 6.2, resets_at: Date.parse(isoReset)},
+      {label: "Gemini weekly", used_percent: 6.2, resets_at: Date.parse(isoReset)},
+      {label: "Gemini Pro", used_percent: 75, resets_at: SL_NOW + 1_800_000},
     ],
-  }, "parses remaining_fraction, prefers ISO reset_time over reset_in_seconds, skips disabled and amount-only buckets, sorts highest used first");
+  }, "parses remaining_fraction, prefers ISO reset_time over reset_in_seconds, skips disabled and amount-only buckets");
 
   const fromJsonString = statusLineQuotaSnapshot(JSON.stringify({
     quota: {"claude-5h": {remaining_fraction: 0.5, reset_in_seconds: 0}},
@@ -211,7 +232,7 @@ console.log("✓ ACP Antigravity profile: manifest metadata, allowlisted binary,
   assert.equal(decoded.limits_reported, true);
   assert.deepEqual(decoded.usage_details.quota, {
     title: "Account quota",
-    limits: [{label: "claude-5h", used_percent: 50, resets_at: null}],
+    limits: [{label: "Claude 5h", used_percent: 50, resets_at: null}],
   });
 
   const allDisabled = statusLineQuotaSnapshot({quota: {"group-a": {remaining_fraction: 0.5, disabled: true}}}, SL_NOW);

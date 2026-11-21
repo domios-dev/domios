@@ -30,7 +30,7 @@ fn parses_documented_statusline_quota_and_fails_closed_on_malformed() {
     assert_eq!(parsed["title"], "Account quota (Pro)");
     let limits = parsed["limits"].as_array().unwrap();
     assert_eq!(limits.len(), 2);
-    assert_eq!(limits[0]["label"], "bucket-pro");
+    assert_eq!(limits[0]["label"], "Bucket Pro");
     assert_eq!(limits[0]["used_percent"], 75.0);
     assert_eq!(
         limits[0]["resets_at"],
@@ -38,9 +38,33 @@ fn parses_documented_statusline_quota_and_fails_closed_on_malformed() {
             .unwrap()
             .timestamp_millis()
     );
-    assert_eq!(limits[1]["label"], "bucket-fast");
+    assert_eq!(limits[1]["label"], "Bucket Fast");
     assert_eq!(limits[1]["used_percent"], 10.0);
     assert_eq!(limits[1]["resets_at"], (now + 600_000) as i64);
+
+    let ordered = parse_statusline_quota(
+        &json!({
+            "plan_tier": "Ultra",
+            "quota": {
+                "3p-weekly": { "remaining_fraction": 1.0, "reset_time": "2026-11-28T21:38:44Z" },
+                "3p-5h": { "remaining_fraction": 1.0, "reset_time": "2026-11-22T02:38:44Z" },
+                "alpha-weekly": { "remaining_fraction": 0.51503307, "reset_time": "2026-11-28T11:31:19Z" },
+                "alpha-5h": { "remaining_fraction": 0.9533681, "reset_time": "2026-11-22T02:31:19Z" }
+            }
+        }),
+        now,
+    )
+    .unwrap();
+    let ordered_labels: Vec<&str> = ordered["limits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ordered_labels,
+        vec!["Alpha 5h", "Alpha weekly", "3P 5h", "3P weekly"]
+    );
 
     for bad in [
         json!({}),
@@ -151,6 +175,6 @@ fn statusline_quota_ingestion_requires_exact_tab_binding_and_persists_under_prof
     let latest = super::super::latest(svc, &provider, Some(&key)).unwrap();
     assert_eq!(latest["parsed_ok"], true);
     assert_eq!(latest["usage_details"]["quota"]["title"], "Account quota (Ultra)");
-    assert_eq!(latest["usage_details"]["quota"]["limits"][0]["label"], "group-a");
+    assert_eq!(latest["usage_details"]["quota"]["limits"][0]["label"], "Group A");
     assert_eq!(latest["usage_details"]["quota"]["limits"][0]["used_percent"], 40.0);
 }
