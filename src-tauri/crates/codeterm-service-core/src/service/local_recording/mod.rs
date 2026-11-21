@@ -2,6 +2,7 @@ mod admission;
 pub(crate) mod chat;
 mod clip;
 mod completion;
+pub(crate) mod hotplug;
 mod inventory;
 pub(crate) mod leases;
 pub(crate) mod platform;
@@ -37,6 +38,7 @@ impl ServiceContext {
                 service
                     .local_recordings
                     .invalidate_generation(&invalidation.plugin_id, invalidation.generation);
+                service.cancel_local_recording_arrival_watch(&invalidation.plugin_id);
                 service.ui.emit_native(
                     "local-recording-capture-invalidated",
                     serde_json::to_value(&invalidation).unwrap_or_default(),
@@ -56,13 +58,17 @@ impl ServiceContext {
         }
         let weak = self.weak_self();
         let id = plugin_id.to_string();
+        let event_adapter = adapter.clone();
         let callback = std::sync::Arc::new(move |event| {
             let Some(svc) = weak.upgrade() else {
                 return;
             };
             let id = id.clone();
+            let adapter = event_adapter.clone();
             crate::async_runtime::spawn_blocking(move || {
-                if let Err(error) = svc.local_recording_input_event(&id, event) {
+                if let Err(error) =
+                    svc.local_recording_input_event_with_adapter(&id, event, Some(adapter))
+                {
                     log::debug!("[local-recording] trigger refused: {error}");
                 }
             });
@@ -82,11 +88,21 @@ impl ServiceContext {
         plugin_id: &str,
         event: platform::SelectedInputEvent,
     ) -> Result<(), String> {
+        self.local_recording_input_event_with_adapter(plugin_id, event, None)
+    }
+
+    pub(crate) fn local_recording_input_event_with_adapter(
+        &self,
+        plugin_id: &str,
+        event: platform::SelectedInputEvent,
+        adapter: Option<Arc<dyn platform::LocalInputAdapter>>,
+    ) -> Result<(), String> {
         match event {
             platform::SelectedInputEvent::Press { generation } => {
                 self.local_recording_signal(plugin_id, generation)
             }
             platform::SelectedInputEvent::Unavailable { generation, reason } => {
+                let removed = matches!(reason, platform::InputUnavailable::Removed);
                 let reason = match reason {
                     platform::InputUnavailable::Removed => {
                         LocalRecordingInvalidationReason::DeviceRemoved
@@ -108,8 +124,22 @@ impl ServiceContext {
                 let status = self.local_recording_status(plugin_id)?;
                 self.ui.emit(
                     "local-recording-status",
-                    serde_json::to_value(status).unwrap_or_default(),
+                    serde_json::to_value(&status).unwrap_or_default(),
                 );
+                if removed
+                    && status.granted
+                    && status.enabled
+                    && status.devices_selected
+                    && !status.available
+                {
+                    if let Some(adapter) = adapter {
+                        let _ = self.schedule_local_recording_reconcile(
+                            plugin_id.into(),
+                            adapter,
+                            hotplug::ReconcileMode::WatchOnly,
+                        );
+                    }
+                }
                 Ok(())
             }
         }
@@ -172,20 +202,39 @@ impl ServiceContext {
         enabled: bool,
         adapter: Arc<dyn platform::LocalInputAdapter>,
     ) -> Result<(RecordingStatus, Option<Receiver<()>>), String> {
+        self.install_local_recording_invalidation_observer()?;
         if enabled && !platform::supported() {
             return Err("local_recording_unsupported".into());
         }
-        let status = self
-            .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
-            .set_enabled(plugin_id, enabled)
-            .map_err(str::to_string)?;
+        let store = self
+            .ext::<Arc<crate::service::local_recording::RecordingSelectionStore>>()
+            .clone();
+        let status = if enabled {
+            self.ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
+                .set_enabled_persisted(plugin_id, true, || store.set_enabled(plugin_id, true))?
+        } else {
+            let status = self
+                .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
+                .set_enabled(plugin_id, false)
+                .map_err(str::to_string)?;
+            if let Err(error) = store.set_enabled(plugin_id, false) {
+                log::debug!("[local-recording] could not persist disabled preference: {error}");
+            }
+            self.cancel_local_recording_arrival_watch(plugin_id);
+            status
+        };
         self.ui.emit(
             "local-recording-status",
             serde_json::to_value(&status).unwrap_or_default(),
         );
-        let completion =
-            (enabled && status.granted && status.devices_selected && !status.available)
-                .then(|| self.schedule_local_recording_subscription(plugin_id.into(), adapter));
+        let completion = (enabled && status.granted && status.devices_selected && !status.available)
+            .then(|| {
+                self.schedule_local_recording_reconcile(
+                    plugin_id.into(),
+                    adapter,
+                    hotplug::ReconcileMode::AttachOrWatch,
+                )
+            });
         Ok((status, completion))
     }
 
@@ -194,6 +243,7 @@ impl ServiceContext {
         plugin_id: &str,
         devices: SelectedDevices,
     ) -> Result<u64, String> {
+        self.install_local_recording_invalidation_observer()?;
         if !platform::supported() {
             return Err("local_recording_unsupported".into());
         }
@@ -212,9 +262,10 @@ impl ServiceContext {
             })?;
         let status = self.local_recording_status(plugin_id)?;
         if status.enabled && status.granted && !status.available {
-            self.schedule_local_recording_subscription(
+            let _ = self.schedule_local_recording_reconcile(
                 plugin_id.into(),
                 platform::production_adapter(),
+                hotplug::ReconcileMode::AttachOrWatch,
             );
         }
         Ok(generation)
@@ -263,36 +314,6 @@ impl ServiceContext {
 
     pub fn local_recording_cancel(&self, lease: &str) {
         self.local_recordings.cancel(lease);
-    }
-
-    fn schedule_local_recording_subscription(
-        &self,
-        plugin_id: String,
-        adapter: Arc<dyn platform::LocalInputAdapter>,
-    ) -> Receiver<()> {
-        let weak = self.weak_self();
-        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
-        crate::async_runtime::spawn(async move {
-            let service = weak.upgrade();
-            let result = match service {
-                Some(service) => {
-                    let result = service.local_recording_subscribe(&plugin_id, adapter).await;
-                    if let Ok(status) = service.local_recording_status(&plugin_id) {
-                        service.ui.emit(
-                            "local-recording-status",
-                            serde_json::to_value(status).unwrap_or_default(),
-                        );
-                    }
-                    result
-                }
-                None => Err("recording_host_unavailable".into()),
-            };
-            if let Err(error) = result {
-                log::debug!("[local-recording] subscription setup refused: {error}");
-            }
-            let _ = finished_tx.send(());
-        });
-        finished_rx
     }
 }
 

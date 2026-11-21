@@ -500,6 +500,7 @@ pub(crate) fn compose_observed(
             vm.set_service(Arc::downgrade(&host));
         }
         plugin::js_runtime::set_watcher_service(Arc::downgrade(&host));
+        service_state.restore_local_recording_plugins();
         codeterm_service_core::service::plugin_prompt::refresh(
             service_state
                 .ext::<codeterm_service_core::agent_commands::AgentCommandRegistryHandle>(),

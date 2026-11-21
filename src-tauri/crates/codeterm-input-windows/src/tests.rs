@@ -474,3 +474,40 @@ fn local_input_declaration_refuses_keyboard_and_mouse_registration() {
         assert!(!supports_trigger(&trigger));
     }
 }
+
+#[test]
+fn local_input_windows_arrival_matches_declared_trigger_only() {
+    let trigger = declaration();
+    let matching =
+        r"\\?\HID#VID_3547&PID_0008&MI_00&Col01#8&newport&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+    assert!(arrival::arrival_matches_trigger(&trigger, matching));
+
+    for foreign in [
+        r"\\?\HID#VID_9999&PID_0008&MI_00&Col01#8&newport&0&0000#{guid}",
+        r"\\?\HID#VID_3547&PID_0009&MI_00&Col01#8&newport&0&0000#{guid}",
+        r"\\?\HID#VID_3547&PID_0008&MI_01&Col01#8&newport&0&0000#{guid}",
+        r"\\?\HID#VID_3547&PID_0008&MI_00&Col02#8&newport&0&0000#{guid}",
+        "not-a-hid-path",
+    ] {
+        assert!(!arrival::arrival_matches_trigger(&trigger, foreign));
+    }
+
+    let mut no_button = trigger;
+    no_button.button = None;
+    assert!(!arrival::arrival_matches_trigger(&no_button, matching));
+}
+
+#[test]
+fn local_input_windows_arrival_tracker_dedups_initial_handles_and_rearms_after_removal() {
+    let mut tracker = arrival::ArrivalHandleTracker::new(2);
+    tracker.seed(0);
+    tracker.seed(100);
+    assert!(!tracker.observe_arrival(0));
+    assert!(!tracker.observe_arrival(100));
+    assert!(tracker.observe_arrival(200));
+    assert!(!tracker.observe_arrival(200));
+    tracker.observe_removal(100);
+    assert!(tracker.observe_arrival(100));
+    tracker.observe_removal(200);
+    assert!(tracker.observe_arrival(300));
+}

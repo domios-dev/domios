@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-const SETUP_DEADLINE: Duration = Duration::from_secs(5);
+pub(crate) const SETUP_DEADLINE: Duration = Duration::from_secs(5);
 const TEARDOWN_DEADLINE: Duration = Duration::from_secs(5);
 const WAIT_OBJECT_0: u32 = 0;
 const WAIT_TIMEOUT: u32 = 0x0000_0102;
@@ -173,7 +173,7 @@ impl Drop for WindowsInputPendingSubscription {
 }
 
 impl WindowsInputTeardown {
-    fn stopping(
+    pub(crate) fn stopping(
         control: &ThreadControl,
         completion: Option<Receiver<Result<(), TeardownError>>>,
         thread: Option<JoinHandle<()>>,

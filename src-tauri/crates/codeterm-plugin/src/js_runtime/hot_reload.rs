@@ -380,6 +380,17 @@ impl HotReloadRegistry {
         }
     }
 
+    fn notify_local_recording_registered(&self, id: &str) {
+        if let Some(service) = self
+            .service
+            .lock()
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+        {
+            service.local_recording_plugin_registered(id);
+        }
+    }
+
     pub fn new(
         roots: Vec<PathBuf>,
         registrar: Arc<dyn PluginProviderRegistrar>,
