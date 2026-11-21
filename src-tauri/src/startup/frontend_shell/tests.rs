@@ -351,6 +351,80 @@ fn start_failure_page_carries_its_reason_without_changing_the_permitted_document
 }
 
 #[test]
+fn unsolicited_history_back_to_starting_or_brand_is_cancelled_once_frontend_is_active() {
+    let origin = Some("http://127.0.0.1:7686");
+    let unavailable = unavailable_url().unwrap();
+    let fallback = fallback_url().unwrap();
+    let starting = starting_url().unwrap();
+    let start_failed = start_failure_url(Some("opaque-cause")).unwrap();
+    let frontend = Url::parse("http://127.0.0.1:7686/bundled/index.html").unwrap();
+    let external = Url::parse("https://example.com/path").unwrap();
+    let decide = |url: &Url, state: ShellNavigationState| {
+        shell_navigation_decision(url, origin, None, &unavailable, &fallback, state)
+    };
+    let active = ShellNavigationState {
+        frontend_active: true,
+        permit: None,
+    };
+
+    let starting_back = decide(&starting, active);
+    let reconnecting_back = decide(&unavailable, active);
+    let start_failed_back = decide(&start_failed, active);
+    assert!(
+        !starting_back.allowed
+            && !starting_back.open_externally
+            && !reconnecting_back.allowed
+            && !reconnecting_back.open_externally
+            && !start_failed_back.allowed
+            && !start_failed_back.open_externally,
+        "unsolicited navigation while frontend is active was allowed: starting={starting_back:?} reconnecting={reconnecting_back:?} start_failure={start_failed_back:?}"
+    );
+
+    let startup_starting = decide(
+        &starting,
+        ShellNavigationState {
+            frontend_active: false,
+            permit: None,
+        },
+    );
+    assert!(startup_starting.allowed && !startup_starting.open_externally);
+
+    for (url, permit) in [
+        (&starting, GuardedShellDocument::Starting),
+        (&unavailable, GuardedShellDocument::Reconnecting),
+        (&start_failed, GuardedShellDocument::StartFailed),
+    ] {
+        let permitted = decide(
+            url,
+            ShellNavigationState {
+                frontend_active: true,
+                permit: Some(permit),
+            },
+        );
+        assert!(
+            permitted.allowed && !permitted.open_externally,
+            "{permit:?} {permitted:?}"
+        );
+    }
+
+    for permit in [None, Some(GuardedShellDocument::Starting)] {
+        let same_origin = decide(
+            &frontend,
+            ShellNavigationState {
+                frontend_active: true,
+                permit,
+            },
+        );
+        assert!(same_origin.allowed && !same_origin.open_externally);
+    }
+
+    let opened = decide(&external, active);
+    assert!(!opened.allowed && opened.open_externally);
+    let packaged = decide(&fallback, active);
+    assert!(packaged.allowed && !packaged.open_externally);
+}
+
+#[test]
 fn external_link_decision_table() {
     let origin = Some("http://127.0.0.1:7686");
     for (target, expected) in [
