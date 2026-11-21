@@ -204,10 +204,9 @@ describe("DictationPresence and DictationStatus", () => {
         </MuxStateStoreContext.Provider>,
       ));
       const inputCard = host.querySelector<HTMLElement>('[data-testid="composer-input-shell"]')!;
-      const actionShell = host.querySelector<HTMLElement>(".ct-composer-action-shell")!;
-      const bubble = host.querySelector<HTMLElement>('[data-testid="dictation-setup-bubble"]')!;
+      const bubble = document.querySelector<HTMLElement>('[data-testid="dictation-setup-bubble"]')!;
       expect(bubble).not.toBeNull();
-      expect(actionShell.contains(bubble)).toBe(true);
+      expect(bubble.closest("[data-anchored-popover]")).not.toBeNull();
       expect(inputCard.contains(bubble)).toBe(false);
       expect(bubble.textContent).toContain("Install dictation?");
       expect(bubble.textContent).toContain("Set up with General");
@@ -221,7 +220,11 @@ describe("DictationPresence and DictationStatus", () => {
       await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true })));
       expect(dismissSetup).toHaveBeenCalledTimes(2);
 
-      // Error bubble also anchors to the mic shell with x dismiss and never inflates the input card.
+      // Outside click also dismisses via AnchoredPopover.
+      await act(async () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+      expect(dismissSetup).toHaveBeenCalledTimes(3);
+
+      // Error bubble also anchors to the mic shell via AnchoredPopover with x dismiss and never inflates the input card.
       await act(async () => root.render(
         <MuxStateStoreContext.Provider value={store}>
           <ComposerActions
@@ -237,9 +240,9 @@ describe("DictationPresence and DictationStatus", () => {
           </ComposerActions>
         </MuxStateStoreContext.Provider>,
       ));
-      const errorBubble = host.querySelector<HTMLElement>('[data-testid="dictation-error-bubble"]')!;
+      const errorBubble = document.querySelector<HTMLElement>('[data-testid="dictation-error-bubble"]')!;
       expect(errorBubble).not.toBeNull();
-      expect(actionShell.contains(errorBubble)).toBe(true);
+      expect(errorBubble.closest("[data-anchored-popover]")).not.toBeNull();
       expect(inputCard.contains(errorBubble)).toBe(false);
       await act(async () => errorBubble.querySelector<HTMLButtonElement>('button[aria-label="Dismiss dictation error"]')!.click());
       expect(dismissError).toHaveBeenCalledOnce();

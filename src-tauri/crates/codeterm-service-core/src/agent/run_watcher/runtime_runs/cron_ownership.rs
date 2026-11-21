@@ -263,6 +263,33 @@ impl RunWatcherRegistry {
         run_id: String,
         timeout_secs: u64,
     ) -> Result<(), String> {
+        let owner = self.bind_cron_for_test(&svc, pty_id, tab_id, job_id, run_id)?;
+        self.register_cron(svc, &owner, timeout_secs, None)
+    }
+
+    /// Records the launch witness only; the run watcher registers lazily on first completion.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn bind_cron_witness_for_test(
+        &self,
+        svc: &ServiceContext,
+        pty_id: String,
+        tab_id: String,
+        job_id: String,
+        run_id: String,
+    ) -> Result<(), String> {
+        self.bind_cron_for_test(svc, pty_id, tab_id, job_id, run_id)
+            .map(|_| ())
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    fn bind_cron_for_test(
+        &self,
+        svc: &ServiceContext,
+        pty_id: String,
+        tab_id: String,
+        job_id: String,
+        run_id: String,
+    ) -> Result<CronRunAuthority, String> {
         let binding_nonce = svc
             .mux
             .read()
@@ -278,6 +305,6 @@ impl RunWatcherRegistry {
         if !self.bind_cron(owner.clone()) {
             return Err("Cron test binding conflicted with an existing witness".into());
         }
-        self.register_cron(svc, &owner, timeout_secs, None)
+        Ok(owner)
     }
 }

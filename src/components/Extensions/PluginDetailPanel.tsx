@@ -33,6 +33,7 @@ export type ActionOptions = { removeData?: boolean; allowHosts?: string[]; disal
 export function PluginDetailPanel({
   entry,
   config,
+  settings = null,
   busy,
   onAction,
   onHostGrant,
@@ -44,12 +45,14 @@ export function PluginDetailPanel({
 }: {
   entry: CatalogEntry;
   config: AppConfigShape | null;
+  /** The plugin's own `config.yaml` settings, as `host.settingsJson()` returns them; null until loaded. */
+  settings?: Record<string, unknown> | null;
   busy: string | null;
   activity?: PluginActivity;
   activityDisplayMap: PluginActivityDisplayMap;
   onAction: (kind: ActionKind, entry: CatalogEntry, options?: ActionOptions) => void;
   onHostGrant: (pluginId: string, host: string, allow: boolean) => void;
-  onSave: (pluginId: string, key: string, value: unknown) => Promise<void>;
+  onSave: (pluginId: string, values: Record<string, unknown>) => Promise<void>;
   onUpdateFullConfig: (next: AppConfig) => void | Promise<void>;
   onGone: () => void;
 }) {
@@ -57,7 +60,8 @@ export function PluginDetailPanel({
   const descriptor = useAgentDescriptor(entry.id);
   const supportsPresets = descriptor?.behavior_config?.model === "presets_and_system_prompt";
   const permissions = entry.installed ? <PluginPermissions pluginId={entry.id} permissions={entry.sensitivePermissions} /> : null;
-  const networkConfig = config?.plugins?.[entry.id];
+  // Schema settings live in config.yaml; the secret backend keeps its own config namespace.
+  const networkConfig = settings ?? config?.plugins?.[entry.id];
   const networkBaseUrl = networkConfig?.baseUrl ?? networkConfig?.serverUrl;
   const networkAccess = entry.installed && entry.networkRequested ? (
     <PluginNetworkAccess
@@ -99,12 +103,12 @@ export function PluginDetailPanel({
 
   const schema = entry.settingsSchema ?? [];
   const hasSectionWrapper = schema.some((field) => field.kind === "section");
-  const current = (config?.plugins?.[entry.id] ?? {}) as Record<string, unknown>;
+  const current = settings ?? {};
   const perms = entry.grantedPermissions ?? [];
   const capKeys = capabilityKeys(entry.capabilities);
 
   const onPluginConfigChange = (id: string, patch: Partial<ProviderConfig>) => {
-    for (const [k, v] of Object.entries(patch)) void onSave(id, k, v);
+    void onSave(id, patch as Record<string, unknown>);
   };
 
   return (
@@ -210,7 +214,7 @@ export function PluginDetailPanel({
       {permissions}
       {networkAccess}
 
-      {entry.installed && schema.length > 0 && config && (
+      {entry.installed && schema.length > 0 && config && settings && (
         <section aria-label="Settings" data-testid="extensions-settings">
           <GroupLabel>Settings</GroupLabel>
           {hasSectionWrapper ? (

@@ -61,6 +61,8 @@ pub struct PluginManagerAction {
     pub force: bool,
     #[serde(default)]
     pub remove_data: bool,
+    #[serde(default)]
+    pub values: serde_json::Map<String, Value>,
 }
 
 pub(crate) async fn plugin_manager_snapshot_for_service(
@@ -171,6 +173,26 @@ fn snapshot_flight_role() -> SnapshotFlightRole {
 }
 
 pub fn run_action(action: PluginManagerAction, svc: &ServiceContext) -> Result<Value, String> {
+    match action.kind.as_str() {
+        "read-settings" => {
+            return super::settings::read(
+                action
+                    .plugin_id
+                    .as_deref()
+                    .ok_or("read-settings requires pluginId")?,
+            )
+        }
+        "write-settings" => {
+            return super::settings::write(
+                action
+                    .plugin_id
+                    .as_deref()
+                    .ok_or("write-settings requires pluginId")?,
+                action.values,
+            )
+        }
+        _ => {}
+    }
     if action.kind == "permission" {
         let output = super::permissions::permission_action(
             action

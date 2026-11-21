@@ -80,7 +80,9 @@ it("keeps one accessible tool row and settles the same card in place", async () 
   expect(completed.querySelectorAll('[data-testid="chat-tool-call"]')).toHaveLength(1);
   expect(completed.querySelector('[data-chat-window-row="operation"]')?.hasAttribute("aria-live")).toBe(false);
   expect(completed.querySelector('[data-testid="chat-tool-call"]')?.getAttribute("data-tool-status")).toBe("success");
-  expect(completed.querySelector('[role="timer"]')?.textContent).toBe("completed");
+  expect(completed.querySelector('[role="timer"]')).toBeNull();
+  expect(completed.querySelector('[data-testid="toolcard-status"]')?.getAttribute("role")).toBe("status");
+  expect(completed.querySelector('[data-testid="toolcard-status"]')?.getAttribute("aria-label")).toBe("success");
   const durations = completed.querySelectorAll('[data-testid="toolcard-duration"]');
   expect(durations).toHaveLength(1);
   expect(durations[0].getAttribute("aria-label")).toBe("Duration 4000 milliseconds");

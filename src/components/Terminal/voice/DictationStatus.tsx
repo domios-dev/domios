@@ -1,5 +1,6 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useSyncExternalStore, type RefObject } from "react";
 import { X } from "lucide-react";
+import { AnchoredPopover } from "../../shared/AnchoredPopover";
 import { COMPOSER_BUTTON_BASE } from "../composerButton";
 import {
   dictationWaveformBars,
@@ -68,38 +69,16 @@ export function DictationPresence({ dictation }: { dictation: LiveDictation }) {
 }
 
 /** Compact floating glass error bubble anchored to the round mic button. */
-export function DictationStatus({ dictation }: { dictation: LiveDictation }) {
-  const bubbleRef = useRef<HTMLDivElement>(null);
-  const dismissRef = useRef(dictation.dismissError);
-  dismissRef.current = dictation.dismissError;
-  const hasError = Boolean(dictation.error);
-
-  useEffect(() => {
-    if (!hasError) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.code !== "Escape" && event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      dismissRef.current?.();
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (!target) return;
-      const shell = bubbleRef.current?.closest(".ct-composer-action-shell");
-      if (bubbleRef.current?.contains(target) || shell?.contains(target)) return;
-      dismissRef.current?.();
-    };
-    document.addEventListener("keydown", onKeyDown, true);
-    document.addEventListener("pointerdown", onPointerDown, true);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown, true);
-      document.removeEventListener("pointerdown", onPointerDown, true);
-    };
-  }, [hasError]);
-
+export function DictationStatus({
+  dictation,
+  anchor,
+}: {
+  dictation: LiveDictation;
+  anchor?: RefObject<HTMLElement | null>;
+}) {
   if (!dictation.error) return null;
-  return (
-    <div ref={bubbleRef} className="ct-dictation-bubble ct-dictation-bubble--error" data-testid="dictation-error-bubble">
+  const bubble = (
+    <div className="ct-dictation-bubble ct-dictation-bubble--error" data-testid="dictation-error-bubble">
       <div className="ct-dictation-bubble__head">
         <span role="alert" className="ct-dictation-error">{dictation.error}</span>
         {dictation.dismissError && (
@@ -115,6 +94,12 @@ export function DictationStatus({ dictation }: { dictation: LiveDictation }) {
         )}
       </div>
     </div>
+  );
+  if (!anchor) return bubble;
+  return (
+    <AnchoredPopover open anchor={anchor} placement="top-end" gap={12} onClose={dictation.dismissError}>
+      {bubble}
+    </AnchoredPopover>
   );
 }
 

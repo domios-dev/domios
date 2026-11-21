@@ -9,12 +9,15 @@ use super::cli::{read_audit_events, run_plugin_cli};
 /// Scan plugin roots for `plugin.json` manifests, keyed by id. The CLI `plugin list`
 /// only reports installed plugins with empty paths, so it can't surface capabilities
 /// or workspace-loaded plugins; this gives the on-disk truth the daemon loads.
+pub(super) fn plugin_roots() -> Vec<std::path::PathBuf> {
+    let workspace = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.."));
+    codeterm_service_core::plugin::js_runtime::default_roots(Some(workspace.as_path()))
+}
+
 pub(super) fn scan_plugin_manifests(
 ) -> std::collections::HashMap<String, (std::path::PathBuf, Value, Option<String>)> {
-    let workspace = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.."));
-    let roots = codeterm_service_core::plugin::js_runtime::default_roots(Some(workspace.as_path()));
     let mut map = std::collections::HashMap::new();
-    for root in roots {
+    for root in plugin_roots() {
         let Ok(entries) = std::fs::read_dir(&root) else {
             continue;
         };

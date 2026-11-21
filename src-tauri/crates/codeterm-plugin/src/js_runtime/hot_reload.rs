@@ -329,6 +329,29 @@ pub fn refresh_installed_plugins(ids: &[String]) -> Result<(), String> {
         .refresh_installed(ids)
 }
 
+/// Immediately pushes newly saved `config.yaml` JSON into the live plugin VM so
+/// `host.settingsJson()` reflects UI writes before the filesystem watcher ticks.
+pub fn reload_plugin_settings(plugin_id: &str, settings_json: String) {
+    let Some(watcher) = WATCHER.get() else {
+        return;
+    };
+    {
+        let _reconciliation = watcher.reconciliation.lock();
+        let Some(vm) = watcher.existing_vm(plugin_id) else {
+            return;
+        };
+        vm.reload_settings(settings_json);
+        if let Some(tracked) = watcher.state.lock().get_mut(plugin_id) {
+            tracked.config_mtime = config_mtime_for(&tracked.manifest_path, plugin_id);
+        }
+    }
+    watcher.registrar.provider_settings_changed(plugin_id);
+    watcher
+        .caps
+        .chatbackend
+        .refresh_after_input_change(plugin_id);
+}
+
 pub fn notify_permission_changed(
     plugin_id: &str,
     event: &crate::plugin_lifecycle::PermissionChangedEvent,

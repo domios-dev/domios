@@ -577,6 +577,57 @@ test("refresh failure preserves cached rows and shows error", async () => {
   cleanup();
 });
 
+test("plugin settings save to and reload from the plugin's own settings store", async () => {
+  const dictionary = [{ from: "Что это", to: "DOMIOS_ARRAY_OK" }];
+  const store: Record<string, unknown> = { dictionary, language: "auto" };
+  const actions: Array<Record<string, unknown>> = [];
+  const snapshot: PluginSnapshot = {
+    plugins: [{ id: "dictation", display_name: "Dictation", removable: true, settings_schema: [{ kind: "text", key: "language", label: "Language" }] }],
+    channels: SNAPSHOT.channels,
+    diff: [],
+    marketplace: [],
+  };
+  __setInvokeForTest(async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
+    if (cmd === "get_config") return { plugins: {} } as T;
+    if (cmd === "plugin_manager_snapshot") return snapshot as T;
+    const action = args?.action as Record<string, unknown> | undefined;
+    if (cmd === "plugin_manager_action" && action?.pluginId === "dictation") {
+      actions.push(action);
+      if (action.kind === "write-settings") Object.assign(store, action.values);
+      if (action.kind === "read-settings" || action.kind === "write-settings") return { settings: structuredClone(store) } as T;
+    }
+    throw new Error(`unexpected invoke: ${cmd}`);
+  });
+  const languageInput = () => document.querySelector<HTMLInputElement>('[data-testid="settings-schema-text"][data-settings-field="language"]');
+  const open = async () => {
+    __resetPluginSnapshotStoreForTest();
+    const view = await renderExtensionsView();
+    await flush();
+    await act(async () => {
+      view.host.querySelector<HTMLElement>('[data-testid="extensions-plugin-row"][data-plugin-id="dictation"]')?.click();
+    });
+    await flush();
+    return view;
+  };
+
+  const first = await open();
+  assert(languageInput()?.value === "auto", "settings should load from the plugin settings store");
+  await act(async () => changeInput(languageInput()!, "ru"));
+  await flush();
+  const write = actions.find((action) => action.kind === "write-settings");
+  assert(JSON.stringify(write?.values) === JSON.stringify({ language: "ru" }), "a save should send only the edited setting");
+  assert(JSON.stringify(store.dictionary) === JSON.stringify(dictionary), "a save should keep structured settings intact");
+  assert(languageInput()?.value === "ru", "the saved value should render from the daemon's answer");
+  await act(async () => first.root.unmount());
+  first.host.remove();
+
+  const reopened = await open();
+  assert(languageInput()?.value === "ru", "a reload should render the persisted value");
+  await act(async () => reopened.root.unmount());
+  reopened.host.remove();
+  cleanup();
+});
+
 async function main() {
   const started = performance.now();
   let failed = 0;

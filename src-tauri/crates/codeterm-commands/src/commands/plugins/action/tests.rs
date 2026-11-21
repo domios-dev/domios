@@ -196,6 +196,7 @@ fn update_action_builds_json_cli_args() {
         remove_data: false,
         allow_hosts: Vec::new(),
         disallow_hosts: Vec::new(),
+        values: Default::default(),
     };
     assert_eq!(
         plugin_action_args(&action).unwrap(),
@@ -239,6 +240,7 @@ fn update_action_builds_json_cli_args_without_plugin_id() {
         remove_data: false,
         allow_hosts: Vec::new(),
         disallow_hosts: Vec::new(),
+        values: Default::default(),
     };
     assert_eq!(
         plugin_action_args(&action).unwrap(),
@@ -263,6 +265,7 @@ fn settings_action_builds_shared_cli_args() {
         remove_data: false,
         allow_hosts: vec!["api.example.test".into()],
         disallow_hosts: vec!["old.example.test:8443".into()],
+        values: Default::default(),
     };
     assert_eq!(
         plugin_action_args(&action).unwrap(),
@@ -296,6 +299,7 @@ fn add_channel_requires_url() {
         remove_data: false,
         allow_hosts: Vec::new(),
         disallow_hosts: Vec::new(),
+        values: Default::default(),
     };
     assert!(plugin_action_args(&action).unwrap_err().contains("url"));
 }
@@ -317,6 +321,7 @@ fn remove_action_builds_json_cli_args_with_optional_force() {
         remove_data: false,
         allow_hosts: Vec::new(),
         disallow_hosts: Vec::new(),
+        values: Default::default(),
     };
     assert_eq!(
         plugin_action_args(&base).unwrap(),
@@ -364,6 +369,7 @@ fn remove_action_requires_plugin_id() {
         remove_data: false,
         allow_hosts: Vec::new(),
         disallow_hosts: Vec::new(),
+        values: Default::default(),
     };
     assert!(plugin_action_args(&action)
         .unwrap_err()
@@ -387,6 +393,7 @@ fn plugin_action_activity_maps_install_remove_and_update() {
         remove_data: false,
         allow_hosts: Vec::new(),
         disallow_hosts: Vec::new(),
+        values: Default::default(),
     };
     let install_activity = plugin_action_activity(&install).unwrap();
     assert_eq!(install_activity.plugin_id, "transcriber");
@@ -408,6 +415,7 @@ fn plugin_action_activity_maps_install_remove_and_update() {
         remove_data: false,
         allow_hosts: Vec::new(),
         disallow_hosts: Vec::new(),
+        values: Default::default(),
     };
     let remove_activity = plugin_action_activity(&remove).unwrap();
     assert_eq!(remove_activity.plugin_id, "transcriber");
@@ -429,6 +437,7 @@ fn plugin_action_activity_maps_install_remove_and_update() {
         remove_data: false,
         allow_hosts: Vec::new(),
         disallow_hosts: Vec::new(),
+        values: Default::default(),
     };
     let update_activity = plugin_action_activity(&update_system).unwrap();
     assert_eq!(update_activity.plugin_id, "codeterm-core");
@@ -453,6 +462,7 @@ fn plugin_action_activity_maps_channel_operations() {
         remove_data: false,
         allow_hosts: Vec::new(),
         disallow_hosts: Vec::new(),
+        values: Default::default(),
     };
     let add_activity = plugin_action_activity(&add).unwrap();
     assert_eq!(add_activity.plugin_id, "channel:demo");
@@ -474,6 +484,7 @@ fn plugin_action_activity_maps_channel_operations() {
         remove_data: false,
         allow_hosts: Vec::new(),
         disallow_hosts: Vec::new(),
+        values: Default::default(),
     };
     let refresh_activity = plugin_action_activity(&refresh).unwrap();
     assert_eq!(refresh_activity.plugin_id, "channel:demo");
