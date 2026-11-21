@@ -388,6 +388,8 @@ pub struct Capabilities {
     pub secret_backend: SecretBackendCap,
     #[serde(default)]
     pub transcriber: bool,
+    #[serde(default)]
+    pub dictation: bool,
     /// Graph node declarations: media conversions and typed, bounded event
     /// sources. Object only; see `graph_nodes` for the accepted subset.
     #[serde(default, skip_serializing_if = "GraphNodesCap::is_empty")]

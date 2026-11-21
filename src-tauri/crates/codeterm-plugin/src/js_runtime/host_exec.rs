@@ -24,7 +24,7 @@ use super::host_api::PluginSandbox;
 const MAX_EXEC_JOBS_PER_PLUGIN: usize = 128;
 const EXEC_JOB_RETENTION: Duration = Duration::from_secs(5 * 60);
 const ASYNC_JOB_WAIT_BOUND: Duration = super::call_deadline::STANDARD;
-mod child;
+pub(super) mod child;
 mod control;
 mod scoped;
 pub(super) use scoped::{
@@ -33,6 +33,28 @@ pub(super) use scoped::{
 
 thread_local! {
     static HOST_EXEC_ENV: RefCell<Vec<HashMap<String, String>>> = const { RefCell::new(Vec::new()) };
+}
+
+pub(super) fn spawn_dictation_child(
+    bin: &str,
+    entry: &std::path::Path,
+    args: &[String],
+) -> Result<child::Owned, String> {
+    let resolved = resolve_bin(bin, &well_known_bin_dirs());
+    let mut command = crate::provider_command::command(&resolved)?;
+    command
+        .arg(entry)
+        .args(args)
+        .env_clear()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    for key in ["SYSTEMROOT", "WINDIR", "LANG", "LC_ALL"] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    child::Owned::spawn(&mut command).map_err(|error| format!("Cannot start the dictation worker: {error}"))
 }
 
 pub(super) struct HostExecEnvGuard;

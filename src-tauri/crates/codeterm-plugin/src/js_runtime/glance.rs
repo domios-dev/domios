@@ -17,6 +17,14 @@ pub struct JsGlanceProvider {
     id: String,
 }
 
+fn include_dictation_bundle(vm: &PluginVm, args: &mut Vec<Value>) {
+    if has_method(vm, "dictationLaunch") {
+        if let Some(bundle) = vm.dictation_bundle() {
+            args.push(Value::String(bundle.to_string_lossy().into_owned()));
+        }
+    }
+}
+
 impl JsGlanceProvider {
     pub fn new(vm: Arc<PluginVm>, id: impl Into<String>) -> Self {
         Self { vm, id: id.into() }
@@ -35,7 +43,9 @@ impl GlanceProvider for JsGlanceProvider {
         let vm = self.vm.clone();
         crate::js_runtime::vm::spawn_blocking(move || {
             super::vm::grant_ctx_cwd(&vm, &ctx);
-            call_json::<GlanceView>(&vm, "renderGlance", &[ctx])
+            let mut args = vec![ctx];
+            include_dictation_bundle(&vm, &mut args);
+            call_json::<GlanceView>(&vm, "renderGlance", &args)
         })
         .await
         .map_err(|e| GlanceError::Render(format!("glance render task failed: {e}")))?
@@ -48,11 +58,13 @@ impl GlanceProvider for JsGlanceProvider {
         crate::js_runtime::vm::spawn_blocking(move || {
             super::vm::grant_ctx_cwd(&vm, &ctx);
             // `glanceAction` is optional — without it, a button just re-renders.
-            if has_method(&vm, "glanceAction") {
-                call_json::<GlanceView>(&vm, "glanceAction", &[Value::String(action), ctx])
+            let (method, mut args) = if has_method(&vm, "glanceAction") {
+                ("glanceAction", vec![Value::String(action), ctx])
             } else {
-                call_json::<GlanceView>(&vm, "renderGlance", &[ctx])
-            }
+                ("renderGlance", vec![ctx])
+            };
+            include_dictation_bundle(&vm, &mut args);
+            call_json::<GlanceView>(&vm, method, &args)
         })
         .await
         .map_err(|e| GlanceError::Render(format!("glance action task failed: {e}")))?

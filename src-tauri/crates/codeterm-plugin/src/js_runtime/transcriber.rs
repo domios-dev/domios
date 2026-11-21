@@ -6,17 +6,25 @@ use serde::Deserialize;
 use serde_json::json;
 
 use super::call_deadline::LongCall;
-use super::vm::{call_json_async, call_json_async_until, PluginVm, VmError};
-use crate::transcribe::{TranscribeError, Transcriber, TranscriberStatus, Transcript};
+use super::vm::{call_json_async, call_json_async_until, has_method, PluginVm, VmError};
+use crate::transcribe::{DictationAdmission, TranscribeError, Transcriber, TranscriberStatus, Transcript};
+
+mod session;
 
 pub struct JsTranscriber {
     vm: Arc<PluginVm>,
     id: String,
+    dictation: bool,
 }
 
 impl JsTranscriber {
     pub fn new(vm: Arc<PluginVm>, id: impl Into<String>) -> Self {
-        Self { vm, id: id.into() }
+        Self { vm, id: id.into(), dictation: false }
+    }
+
+    pub(super) fn with_dictation(mut self, enabled: bool) -> Self {
+        self.dictation = enabled;
+        self
     }
 }
 
@@ -40,6 +48,17 @@ struct StatusOut {
 impl Transcriber for JsTranscriber {
     fn id(&self) -> &str {
         &self.id
+    }
+
+    fn supports_dictation(&self) -> bool {
+        self.dictation && has_method(&self.vm, "dictationLaunch")
+    }
+
+    async fn start_dictation(&self) -> DictationAdmission {
+        if !self.supports_dictation() {
+            return DictationAdmission::Unavailable("No live dictation process is declared.".into());
+        }
+        session::start(self.vm.clone()).await
     }
 
     async fn status(&self) -> TranscriberStatus {

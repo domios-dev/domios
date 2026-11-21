@@ -1,19 +1,17 @@
 # Voice transcription & local dictation
 
-How speech-to-text works in Domios, and how you (an agent) stand up either
-direction yourself. The guiding principle: **the STT engine is an external,
-swappable service behind a `/transcribe` contract; Domios only ships the thin
-glue.** Never embed a whisper model in the Domios binary — it's GPU/CUDA-bound,
-platform-specific, and multi-GB. Keep it a daemon, point at it by URL.
+The composer supports local live dictation through a plugin that recognizes
+speech as you record. The voice-note pipeline uses its configured clip
+transcriber. Plugins manage their own engines and models.
 
 ## The two directions
 
 | Direction | What it is | Owner |
 |-----------|-----------|-------|
 | **Inbound** | Telegram/Discord voice message → text before it reaches the GA | native |
-| **Outbound** | Local mic → text injected into a tab (dictation) | external driver today; native is planned |
+| **Composer** | Local microphone → revisable text in the current draft | Live-capable Transcriber plugin |
 
-Both speak the **same `/transcribe` contract**, so one STT daemon serves both.
+The HTTP contract below describes a remote backend for recorded clips.
 
 ## The `/transcribe` contract
 
@@ -93,33 +91,21 @@ multipart-upload to a beefier peer (e.g. a 4090 box on the Tailnet). Same
 response shape either path. Reusable for any peer that wants a remote GPU as
 backup.
 
-## Outbound: build a local dictation driver
+## Live dictation in the composer
 
-Until native support lands, dictation is an external driver you run. Recipe:
-
-1. **Hotkey** — global push-to-talk (e.g. Python `keyboard`, toggle on a combo).
-2. **Capture** — record mic to a temp WAV (16 kHz mono; `sounddevice`).
-3. **Transcribe** — POST the WAV (or its path, if the daemon is local) to
-   `/transcribe`; read `text`. Collapse whisper's internal line breaks to spaces
-   (`re.sub(r"\s+", " ", text)`) so auto-submit works.
-4. **Inject into a tab** — two ways:
-   - CLI: `domios send "<text>" --tab <id>` (auto-submits)
-   - HTTP: `POST /api/tabs/<tab_id>/send` with `Authorization: Bearer
-     <service_token>` (register via `domios service add`, token is scoped to
-     that endpoint). Good for a daemon with no shell.
-
-### The focus caveat
-
-Targeting "the tab the user is looking at" is **not reliable today**:
-`domios tab current` is stale and `tab focus` doesn't update it (issue #123).
-An external driver should inject into a **fixed tab id** (`MIC_TAB`) through the
-supported tab send API (`domios send` or `POST /api/tabs/{id}/send`).
-
-A working prototype lives in the `transcribe-telegram-voice` skill scripts
-(`mic-dictation.py` + `start-mic-dictation.ps1`).
+- Start from the composer microphone or search for **Dictation** with
+  `@dictation`. Tap to toggle, hold to dictate until release, or slide up to lock.
+- Review the recognized text in the draft. **Stop** finishes the current
+  segment. **Cancel** discards its provisional text. Use **Send** to submit.
+- If setup is required, choose **Set up with General** above the composer.
+  General can guide installation of the official Transcriber plugin and its
+  local Parakeet model while the draft remains in its own tab.
+- In the plugin's glance panel, install, select, or test a model. The default
+  Parakeet TDT 0.6B v3 supports Russian and English. Its model download is about
+  487 MB and setup requires 64-bit Python 3.12.
 
 ## Today
 
 Transcription uses an external service; today an external dictation driver can submit through the supported tab-send API. To add a new STT backend, implement `/transcribe` and point a URL at it. Don't put the model in the binary.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

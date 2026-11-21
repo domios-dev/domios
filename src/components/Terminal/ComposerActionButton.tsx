@@ -85,6 +85,7 @@ export function ComposerActionButton({
         }}
         onClick={(e) => {
           e.preventDefault();
+          if (e.detail === 0 && mainIsSend && !sendDisabled && !sendUnavailableReason) onSend();
         }}
         onContextMenu={(e) => {
           if (!mainIsSend || !onSchedule) return;

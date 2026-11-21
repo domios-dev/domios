@@ -5,6 +5,7 @@
 use std::path::Path;
 
 use async_trait::async_trait;
+use codeterm_types::dictation::DictationSegment;
 
 /// The text produced for an audio file.
 #[derive(Debug, Clone)]
@@ -62,11 +63,29 @@ impl std::fmt::Display for TranscribeError {
 
 impl std::error::Error for TranscribeError {}
 
+pub enum DictationAdmission {
+    Ready(Box<dyn DictationSession>),
+    Setup(String),
+    Unavailable(String),
+}
+
+#[async_trait]
+pub trait DictationSession: Send {
+    async fn update(&mut self, pcm: Vec<u8>, finish: bool) -> Result<DictationSegment, String>;
+    async fn close(self: Box<Self>);
+}
+
 /// A transcription backend. Implemented by JS plugins (`JsTranscriber`).
 #[async_trait]
 pub trait Transcriber: Send + Sync {
     fn id(&self) -> &str;
     async fn status(&self) -> TranscriberStatus;
+    fn supports_dictation(&self) -> bool {
+        false
+    }
+    async fn start_dictation(&self) -> DictationAdmission {
+        DictationAdmission::Unavailable("This transcriber does not offer live dictation.".into())
+    }
     /// Transcribe an audio file already on disk. `language` is a hint (may be `""`).
     async fn transcribe(
         &self,
