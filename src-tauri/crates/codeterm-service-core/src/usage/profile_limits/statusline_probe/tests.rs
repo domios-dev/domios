@@ -225,7 +225,10 @@ fn probe_captures_quota_over_loopback_kills_child_early_and_cleans_temp_dir() {
     );
     let dir = observed_dir.lock().unwrap().clone().unwrap();
     assert!(!dir.exists(), "temp directory must be deleted on success");
-    assert_eq!(snapshot.account_id.as_deref(), Some("profile:capture-fixture"));
+    assert_eq!(
+        snapshot.account_id.as_deref(),
+        Some("profile:capture-fixture")
+    );
     let details = snapshot.usage_details.unwrap();
     assert!(!details.to_string().contains("private-user@example.com"));
     assert_eq!(details["quota"]["title"], "Account quota (Fixture Ultra)");

@@ -610,6 +610,32 @@ function parseBucketResetAt(resetTime, resetInSeconds, nowMs) {
   }
   return { ok: true, value: null };
 }
+var LOWER_WINDOWS = /* @__PURE__ */ new Set(["hourly", "daily", "weekly", "monthly", "session"]);
+var DURATION_SEGMENT = /^\d+[smhdw]$/i;
+var SHORT_DURATION = /^\d+[smh]$/i;
+var DAY_DURATION = /^\d+d$/i;
+var WEEK_DURATION = /^\d+w$/i;
+var DIGIT_PREFIX_CODE = /^(\d+)([a-z]+)$/i;
+function formatBucketLabel(rawKey) {
+  const parts = rawKey.trim().split(/[-_]+/).filter(Boolean);
+  if (!parts.length) return rawKey.trim();
+  return parts.map((part, index) => {
+    const lower = part.toLowerCase();
+    if (DURATION_SEGMENT.test(lower)) return lower;
+    if (index > 0 && LOWER_WINDOWS.has(lower)) return lower;
+    const digitCode = DIGIT_PREFIX_CODE.exec(part);
+    if (digitCode) return `${digitCode[1]}${digitCode[2].toUpperCase()}`;
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  }).join(" ");
+}
+function bucketSortMeta(rawKey) {
+  const parts = rawKey.trim().split(/[-_]+/).filter(Boolean);
+  const group = (parts[0] ?? rawKey.trim()).toLowerCase();
+  const digitGroup = /^\d/.test(group) ? 1 : 0;
+  const last = parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "";
+  const windowRank = last === "session" || last === "hourly" || SHORT_DURATION.test(last) ? 0 : last === "daily" || DAY_DURATION.test(last) ? 1 : last === "weekly" || WEEK_DURATION.test(last) ? 2 : last === "monthly" ? 3 : 4;
+  return { digitGroup, group, windowRank };
+}
 function parseStatusLineQuota(raw, nowMs) {
   if (!Number.isFinite(nowMs) || nowMs < 0) return null;
   let root = raw;
@@ -626,11 +652,11 @@ function parseStatusLineQuota(raw, nowMs) {
   if (!isPlainObject(quota)) return null;
   const keys = Object.keys(quota);
   if (keys.length > MAX_QUOTA_BUCKETS) return null;
-  const limits = [];
+  const entries = [];
   for (let i = 0; i < keys.length; i++) {
     const rawKey = keys[i];
-    const label2 = validBucketLabel(rawKey);
-    if (!label2) return null;
+    const validKey = validBucketLabel(rawKey);
+    if (!validKey) return null;
     const entry = quota[rawKey];
     if (!isPlainObject(entry)) return null;
     if (entry.disabled !== void 0 && typeof entry.disabled !== "boolean") return null;
@@ -640,13 +666,18 @@ function parseStatusLineQuota(raw, nowMs) {
     if (typeof fraction !== "number" || !Number.isFinite(fraction) || fraction < 0 || fraction > 1) return null;
     const reset = parseBucketResetAt(entry.reset_time, entry.reset_in_seconds, nowMs);
     if (!reset.ok) return null;
-    limits.push({
-      label: label2,
-      used_percent: Math.round((1 - fraction) * 1e3) / 10,
-      resets_at: reset.value
+    const meta = bucketSortMeta(validKey);
+    entries.push({
+      limit: {
+        label: formatBucketLabel(validKey),
+        used_percent: Math.round((1 - fraction) * 1e3) / 10,
+        resets_at: reset.value
+      },
+      ...meta
     });
   }
-  limits.sort((a, b) => b.used_percent - a.used_percent || a.label.localeCompare(b.label));
+  entries.sort((a, b) => a.digitGroup - b.digitGroup || a.group.localeCompare(b.group) || a.windowRank - b.windowRank || b.limit.used_percent - a.limit.used_percent || a.limit.label.localeCompare(b.limit.label));
+  const limits = entries.map((entry) => entry.limit);
   const rawTier = root.plan_tier;
   const tier = typeof rawTier === "string" && rawTier.trim().length > 0 && rawTier.trim().length <= 64 && PRINTABLE_LABEL.test(rawTier.trim()) ? rawTier.trim() : null;
   return { title: tier ? `Account quota (${tier})` : "Account quota", limits };
@@ -1413,11 +1444,11 @@ ${body2}`;
         if (quotaPayload) {
           const parsedQuota = parseStatusLineQuota(quotaPayload, Date.now());
           if (parsedQuota && parsedQuota.limits.length) {
-            const rateLimits = parsedQuota.limits.slice(0, 4).filter((limit) => limit.label.length > 0 && limit.label.length <= 128 && !/\s/.test(limit.label)).map((limit) => ({
-              window: limit.label,
+            const rateLimits = parsedQuota.limits.slice(0, 4).map((limit) => ({
+              window: limit.label.toLowerCase().replace(/\s+/g, "-"),
               usedPercent: limit.used_percent,
               ...limit.resets_at !== null && limit.resets_at >= 0 ? { resetsAt: limit.resets_at } : {}
-            }));
+            })).filter((limit) => limit.window.length > 0 && limit.window.length <= 128);
             if (rateLimits.length) events.push({ kind: "rateLimits", threadId: ctx.threadId, rateLimits });
           }
         }
@@ -2496,6 +2527,15 @@ function sessionCapabilitiesSummary(raw) {
   };
   return Object.keys(summary).length ? summary : void 0;
 }
+function normalizeSessionCwd(rawPath) {
+  let normalized = rawPath.trim().replace(/\\/g, "/");
+  if (/^\/[A-Za-z]:(?:\/|$)/.test(normalized)) normalized = normalized.slice(1);
+  if (/^[a-z]:(?:\/|$)/.test(normalized)) normalized = normalized[0].toUpperCase() + normalized.slice(1);
+  while (normalized.length > 1 && normalized.endsWith("/") && !/^[A-Za-z]:\/$/.test(normalized)) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
+}
 function decodeListedSessions(raw) {
   if (!Array.isArray(raw)) return void 0;
   const sessions = [];
@@ -2503,7 +2543,7 @@ function decodeListedSessions(raw) {
   for (const entry of raw.slice(0, 100)) {
     const item = object4(entry);
     const sessionId = typeof item.sessionId === "string" ? item.sessionId.trim() : "";
-    const cwd = typeof item.cwd === "string" ? item.cwd.trim() : "";
+    const cwd = typeof item.cwd === "string" ? normalizeSessionCwd(item.cwd) : "";
     if (!sessionId || sessionId.length > 4096 || !cwd || cwd.length > 4096 || seen.has(sessionId)) continue;
     seen.add(sessionId);
     const title = typeof item.title === "string" && item.title.trim() ? item.title.trim().slice(0, 256) : void 0;

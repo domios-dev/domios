@@ -252,4 +252,32 @@ impl RunWatcherRegistry {
         svc.close_owned_cron_launch(&owner, TabCloseReason::AgentRunEnded);
         true
     }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn register_cron_for_test(
+        &self,
+        svc: ServiceContext,
+        pty_id: String,
+        tab_id: String,
+        job_id: String,
+        run_id: String,
+        timeout_secs: u64,
+    ) -> Result<(), String> {
+        let binding_nonce = svc
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.session_binding_nonce.clone());
+        let owner = CronRunAuthority {
+            tab_id,
+            job_id,
+            run_id,
+            binding_nonce,
+            pty_id: Some(pty_id),
+        };
+        if !self.bind_cron(owner.clone()) {
+            return Err("Cron test binding conflicted with an existing witness".into());
+        }
+        self.register_cron(svc, &owner, timeout_secs, None)
+    }
 }

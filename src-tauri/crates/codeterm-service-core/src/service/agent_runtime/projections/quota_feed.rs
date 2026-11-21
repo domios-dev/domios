@@ -74,9 +74,7 @@ fn is_duration_segment(lower: &str) -> bool {
     let bytes = lower.as_bytes();
     bytes.len() >= 2
         && matches!(bytes[bytes.len() - 1], b's' | b'm' | b'h' | b'd' | b'w')
-        && bytes[..bytes.len() - 1]
-            .iter()
-            .all(u8::is_ascii_digit)
+        && bytes[..bytes.len() - 1].iter().all(u8::is_ascii_digit)
 }
 
 fn format_bucket_label(raw_key: &str) -> String {
@@ -191,7 +189,14 @@ pub fn parse_statusline_quota(body: &Value, now_ms: u64) -> Option<Value> {
         let used_percent = ((1.0 - fraction) * 1000.0).round() / 10.0;
         let (digit_group, group, window_rank) = bucket_sort_meta(&valid_key);
         let label = format_bucket_label(&valid_key);
-        limits.push((digit_group, group, window_rank, label, used_percent, resets_at));
+        limits.push((
+            digit_group,
+            group,
+            window_rank,
+            label,
+            used_percent,
+            resets_at,
+        ));
     }
     limits.sort_by(|a, b| {
         a.0.cmp(&b.0)

@@ -94,17 +94,18 @@ async fn journey(finish: bool, deadline: bool) {
         .agent_run_pty_map
         .lock()
         .insert(tab_id.clone(), "fixture-pty".into());
-    fixture.service.run_watcher.register(
-        fixture.service.clone(),
-        "fixture-pty".into(),
-        tab_id.clone(),
-        codeterm_service_core::agent::run_watcher::AgentRunKind::Cron {
-            job_id: job.id.clone(),
-            run_id: "fixture-run".into(),
-        },
-        900,
-        None,
-    );
+    fixture
+        .service
+        .run_watcher
+        .register_cron_for_test(
+            fixture.service.clone(),
+            "fixture-pty".into(),
+            tab_id.clone(),
+            job.id.clone(),
+            "fixture-run".into(),
+            900,
+        )
+        .unwrap();
     let response = hook_session_start(AxumState(state.clone()), Path(tab_id.clone()), HeaderMap::new(),
         OptionalJson(Some(serde_json::json!({"provider_id":PROVIDER,"session_id":SESSION,"binding_nonce":NONCE,"source":"startup"})))).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
