@@ -10,6 +10,7 @@ import { fitTextReduction } from "./runtimeReduceBudget";
 import { runtimePrompt, runtimeAnswer } from "./runtimePrompts";
 import { authentication, sessionSettings, modelOption, effortOption, label, sessionModel, selectedSessionModel, configOptions } from "./runtimeControls";
 import { launchSelection } from "./launchSelection";
+import { classifyPromptQuotaError } from "./runtimeQuota";
 
 interface Negotiation {
   epoch:number;
@@ -386,8 +387,26 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       const turn=object(raw).prompt;
       state.queued=state.queued?.filter(queued=>queued.prompt !== turn || queued.sendId !== op.sendId);
       if (state.cursor.prompt === turn && state.promptSend?.sendId === op.sendId) {
+        const quotaSignal=classifyPromptQuotaError(reply.error);
         state.inFlight=false;
         delete state.promptSend;
+        if (quotaSignal) {
+          const sessionId=ownSession(ctx,state);
+          const turnId=`${sessionId}:turn:${turn}`;
+          const projected=reduceStream(ctx,state.projection ?? null,[],state.cursor);
+          const settled=settleStream(ctx,projected.state,"failed",{
+            content:reply.error.message || "Rate limit reached",
+            toolInput:quotaSignal as unknown as JsonValue,
+          });
+          state.projection=settled.state;
+          const events:import("@codeterm/plugin-sdk").AgentEvent[]=[
+            ...sessionAuthentication(state),
+            ...projected.events,
+            ...settled.events,
+            ...promoteQueued(ctx,state),
+          ];
+          return {kind:"complete",result:{kind:"turnAccepted",threadId:sessionId,sendId:op.sendId,turnId},events};
+        }
         const projected=reduceStream(ctx,state.projection ?? null,[],state.cursor).state;
         state.projection=settleStream(ctx,projected,"error").state;
         // The host settles refusals and starts deferred activity; keep the successor projection ready.
