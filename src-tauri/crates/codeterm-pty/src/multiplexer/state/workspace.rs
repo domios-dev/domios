@@ -5,10 +5,10 @@ use codeterm_entitlements::LimitKey;
 impl MultiplexerState {
     /// Teams whose persisted workspace provenance matches one workspace.
     /// Returns borrowed rows so scoped readers do not clone the global Team list.
-    pub fn teams_for_workspace(
-        &self,
-        workspace_id: &str,
-    ) -> impl Iterator<Item = &codeterm_types::team::Team> {
+    pub fn teams_for_workspace<'a>(
+        &'a self,
+        workspace_id: &'a str,
+    ) -> impl Iterator<Item = &'a codeterm_types::team::Team> + 'a {
         self.team_order
             .iter()
             .filter_map(|team_id| self.teams.get(team_id))

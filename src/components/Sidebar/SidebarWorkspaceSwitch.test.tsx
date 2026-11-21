@@ -41,6 +41,7 @@ vi.mock("../../store/multiplexer/hooks", async () => {
         mux.state = { ...mux.state, active_workspace_id: workspaceId, activeTabIds: { ...mux.state.activeTabIds as Record<string, string>, [workspaceId]: tabId } };
         for (const listener of [...mux.listeners]) listener();
       },
+      upsertToast: vi.fn(),
     }),
     useMuxSelector: (select: (state: object) => unknown) => select(useSyncExternalStore(subscribe, () => mux.state)),
   };

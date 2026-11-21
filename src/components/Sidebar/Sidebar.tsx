@@ -877,13 +877,13 @@ export const Sidebar = memo(function Sidebar({
                 firstRunMuted={firstRunActive}
                 expanded={workspacesSectionExpanded} onToggle={toggleWorkspacesSection}>
                 {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && <>
-                  {workspaceMachineGroups.map(group => {
+                  {workspaceMachineGroups.map((group, index) => {
                     const groupKey = JSON.stringify([group.peerId]);
                     const availability = group.peerId ? availabilityForPeer(group.peerId) ?? "offline" : "online";
                     const machineStatus = availability === "update-required" ? "update required"
                       : availability === "signed-out" ? "signed out" : availability;
                     return <WorkspaceCardGrid
-                      key={groupKey}
+                      key={index === 0 ? "workspace-grid-primary" : groupKey}
                       workspaces={group.workspaces.map(({ key, workspace }) => ({ ...workspace, id: key }))}
                       selectedWorkspaceId={selectedWorkspaceKey}
                       statuses={workspaceStatuses}

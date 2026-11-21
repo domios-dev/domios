@@ -260,19 +260,22 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, w
     </div>;
 
   return <>
-    {showMachineHeader ? (
-      <section
-        className="sidebar-workspace-machine-section"
-        data-testid="workspace-machine-section"
-        data-peer-id={machinePeerId ?? undefined}
-        aria-label={machineRowLabel({ name: resolvedMachineName, identity: machineIdentity, status: status ?? "online", local: !machinePeerId })}
-      >
+    <div
+      className={showMachineHeader ? "sidebar-workspace-machine-section" : undefined}
+      data-testid={showMachineHeader ? "workspace-machine-section" : undefined}
+      data-peer-id={showMachineHeader ? (machinePeerId ?? undefined) : undefined}
+      role={showMachineHeader ? "region" : undefined}
+      aria-label={showMachineHeader
+        ? machineRowLabel({ name: resolvedMachineName, identity: machineIdentity, status: status ?? "online", local: !machinePeerId })
+        : undefined}
+    >
+      {showMachineHeader && (
         <h3 className="sidebar-workspace-machine-heading">
           <MachinePickerRow name={resolvedMachineName} identity={machineIdentity} status={status ?? "online"} local={!machinePeerId} />
         </h3>
-        {grid}
-      </section>
-    ) : grid}
+      )}
+      {grid}
+    </div>
     {editingWorkspace && createPortal(
       <div
         ref={editorRef}
