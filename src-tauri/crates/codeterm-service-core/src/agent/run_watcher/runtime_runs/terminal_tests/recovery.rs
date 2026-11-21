@@ -84,7 +84,8 @@ pub(super) fn runtime_finalizer_retains_watcher_until_held_write_and_report_cont
         .is_none());
 }
 
-pub(super) fn runtime_terminal_refusal_retains_original_owner_and_explicit_completion_resumes_it_once() {
+pub(super) fn runtime_terminal_refusal_retains_original_owner_and_explicit_completion_resumes_it_once(
+) {
     let clock = MockClock::starting_at(1_700_000_000_000);
     let scene = storage_scene(clock.clone());
     let (tab, nonce, run, metadata) = staged(&scene, clock);
@@ -340,7 +341,8 @@ pub(super) fn runtime_pre_reservation_refusal_retires_provisional_pad_and_tab() 
     assert_eq!(scene.cron.lock().run_receipt(job_id, &run), Some(&original));
 }
 
-pub(super) fn deferred_runtime_pre_transport_failure_terminalizes_original_even_after_tab_disappears() {
+pub(super) fn deferred_runtime_pre_transport_failure_terminalizes_original_even_after_tab_disappears(
+) {
     for disappeared in [false, true] {
         let scene = Scene::new();
         let (tab, _, run, mut metadata) = staged(&scene, MockClock::starting_at(1_700_000_000_000));
@@ -413,7 +415,8 @@ pub(super) fn deferred_runtime_pre_transport_failure_terminalizes_original_even_
     }
 }
 
-pub(super) fn restart_known_report_with_replacement_requires_adjudication_and_preserves_replacement() {
+pub(super) fn restart_known_report_with_replacement_requires_adjudication_and_preserves_replacement(
+) {
     let scene = storage_scene(MockClock::starting_at(1_700_000_000_000));
     let (tab, nonce, run, metadata) = staged(&scene, MockClock::starting_at(1_700_000_000_000));
     let svc = &scene.fixture.service;
@@ -596,7 +599,8 @@ pub(super) fn staged_cron_expected_generation_normal_and_fork_preserve_valid_ori
     }
 }
 
-pub(super) fn staged_cron_replacement_refusal_preserves_original_and_replacement_with_acquired_controls() {
+pub(super) fn staged_cron_replacement_refusal_preserves_original_and_replacement_with_acquired_controls(
+) {
     for fork in [false, true] {
         for acquired in [false, true] {
             let scene = Scene::new();
@@ -817,7 +821,8 @@ pub(super) fn staged_cron_retained_provisioning_stays_pending_without_process_or
     );
 }
 
-pub(super) fn staged_cron_completed_account_refusal_requires_original_prepared_input_and_native_history() {
+pub(super) fn staged_cron_completed_account_refusal_requires_original_prepared_input_and_native_history(
+) {
     for fork in [false, true] {
         for input in [
             "empty",
@@ -1083,7 +1088,8 @@ pub(super) fn runtime_cron_completion_materializes_bounded_nonrereadable_cache_e
     }
 }
 
-pub(super) fn runtime_completion_projection_bounds_scalar_escaping_depth_and_utf8_before_serialization() {
+pub(super) fn runtime_completion_projection_bounds_scalar_escaping_depth_and_utf8_before_serialization(
+) {
     for (content, nesting) in [
         ("🙂".repeat(1024 * 1024), 0),
         ("\u{0001}".repeat(1000), 0),

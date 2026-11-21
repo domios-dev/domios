@@ -642,7 +642,8 @@ fn deferred_runtime_pre_transport_failure_terminalizes_original_even_after_tab_d
 
 #[test]
 fn restart_known_report_with_replacement_requires_adjudication_and_preserves_replacement() {
-    recovery::restart_known_report_with_replacement_requires_adjudication_and_preserves_replacement();
+    recovery::restart_known_report_with_replacement_requires_adjudication_and_preserves_replacement(
+    );
 }
 
 #[test]

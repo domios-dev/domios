@@ -106,7 +106,7 @@ export interface ChatCardMenuItem {
   onSelect(): void;
 }
 
-export type MessageMenuKind = "open" | "copy" | "copy-markdown" | "ask" | "details" | "select" | "fork" | "revert" | "delete";
+export type MessageMenuKind = "reply" | "open" | "copy" | "copy-markdown" | "ask" | "details" | "select" | "fork" | "revert" | "delete";
 
 export interface ChatCardMenuSpec {
   label: string;

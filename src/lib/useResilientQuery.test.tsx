@@ -13,6 +13,10 @@ function test(name: string, fn: TestFn) {
 function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
 }
+function requirePresent<T>(value: T | null | undefined, message: string): T {
+  if (value == null) throw new Error(message);
+  return value;
+}
 
 function currentReconnect(state: UseResilientQueryResult<string[]> | null): boolean {
   return state?.reconnecting === true;
@@ -71,10 +75,10 @@ test("failing fetch surfaces friendly error then recovers", async () => {
   await act(async () => {
     await new Promise((r) => setTimeout(r, 30));
   });
-  assert(holder.current, "state captured");
-  assert(holder.current.error?.includes("Reconnecting"), "friendly error, not raw TypeError");
-  assert(!holder.current.error?.includes("Load failed"), "raw message hidden");
-  assert(holder.current.data.length === 0, "no data yet");
+  const failed = requirePresent(holder.current, "state captured");
+  assert(failed.error?.includes("Reconnecting"), "friendly error, not raw TypeError");
+  assert(!failed.error?.includes("Load failed"), "raw message hidden");
+  assert(failed.data.length === 0, "no data yet");
 
   shouldFail = false;
   await act(async () => {

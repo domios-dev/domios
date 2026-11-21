@@ -26,11 +26,11 @@ const SELECT_HINT = <span className="inline-flex items-center gap-1"><kbd classN
 /** The message's own actions, as the shared menu model; a card's items merge into them (see `mergeMessageMenu`). */
 export function messageMenuItems(clip: ClipMessage, actions: MessageMenuActions, { touch = false }: { touch?: boolean } = {}): ChatCardMenuItem[] {
   const items: ChatCardMenuItem[] = [
+    { label: "Reply", kind: "reply", icon: icon(MessageSquarePlus), onSelect: () => actions.quote(clip) },
     { label: "Copy", kind: "copy", icon: icon(Copy), onSelect: () => writeClipboardFlavours(messageClipboard(clip)) },
   ];
   if (sourceDiffersFromVisible(clip)) items.push({ label: "Copy as Markdown", kind: "copy-markdown", icon: icon(Hash), onSelect: () => writeClipboardFlavours(messageMarkdownClipboard(clip)) });
   items.push(
-    { label: "Ask about this", kind: "ask", icon: icon(MessageSquarePlus), onSelect: () => actions.quote(clip) },
     { label: "Select", kind: "select", icon: icon(ListChecks), hint: touch ? undefined : SELECT_HINT, onSelect: () => actions.select() },
   );
   if (actions.fork) items.push({ label: "Fork from here", kind: "fork", icon: icon(GitBranch), onSelect: actions.fork });

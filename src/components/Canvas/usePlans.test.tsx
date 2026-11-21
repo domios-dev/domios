@@ -16,6 +16,10 @@ function test(name: string, fn: TestFn) {
 function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
 }
+function requirePresent<T>(value: T | null | undefined, message: string): T {
+  if (value == null) throw new Error(message);
+  return value;
+}
 
 const API: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],
   enabled: true,
@@ -772,8 +776,8 @@ async function main() {
       activeHeldBoard = heldForSwitch;
       boardMode = "hold";
       await act(async () => { root.render(<BoardProbe planId="pl_selected" token="tok-4" rev={2} />); });
-      const switchSignal = boardSignal.current;
-      assert(switchSignal && !switchSignal.aborted, "board read held before plan switch");
+      const switchSignal = requirePresent(boardSignal.current, "board read held before plan switch");
+      assert(!switchSignal.aborted, "board read held before plan switch");
       boardMode = "switched";
       await act(async () => { root.render(<BoardProbe planId="pl_other" token="tok-4" rev={2} />); });
       assert(switchSignal.aborted, "switching selected plan immediately aborts held read");
@@ -899,8 +903,8 @@ async function main() {
 
       eightPhase = "hold-switch";
       await act(async () => { emitPeer("eight", { type: "plans-loaded" }); });
-      const switchSignal = eightSignal.current;
-      assert(switchSignal && !switchSignal.aborted, "remote summary read held before peer switch");
+      const switchSignal = requirePresent(eightSignal.current, "remote summary read held before peer switch");
+      assert(!switchSignal.aborted, "remote summary read held before peer switch");
 
       await act(async () => { root.render(<RemoteProbe peerId="peer-b" />); });
       assert(switchSignal.aborted, "switching peerId immediately aborts held read from eight");
