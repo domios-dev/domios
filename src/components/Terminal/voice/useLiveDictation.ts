@@ -316,6 +316,7 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     active: () => owned.current !== null || updates.current.length > 0 || rollback.current,
     cancel: () => { if (owned.current) discard(owned.current); },
     dismissSetup: () => setSetup(null),
+    dismissError: () => setError(null),
   };
 }
 

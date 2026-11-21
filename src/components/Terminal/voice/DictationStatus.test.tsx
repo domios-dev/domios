@@ -1,6 +1,10 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
+import { createMuxStateStore } from "../../../store/multiplexer/selectorStore";
+import { MuxStateStoreContext } from "../../../store/multiplexer/context";
+import type { ExtendedState } from "../../../store/multiplexer/tree";
+import { ComposerActions } from "../ComposerActions";
 import { DictationPresence, DictationStatus } from "./DictationStatus";
 import {
   createDictationLevelChannel,
@@ -72,6 +76,7 @@ describe("DictationPresence and DictationStatus", () => {
       finishThen: () => {},
       compositionEnded: () => {},
       dismissSetup: () => {},
+      dismissError: () => {},
       active: () => true,
       readLevel: channel.read,
       subscribeLevel: channel.subscribe,
@@ -132,6 +137,7 @@ describe("DictationPresence and DictationStatus", () => {
       finishThen: () => {},
       compositionEnded: () => {},
       dismissSetup: () => {},
+      dismissError: () => {},
       active: () => true,
       readLevel: channel.read,
       subscribeLevel: channel.subscribe,
@@ -148,6 +154,95 @@ describe("DictationPresence and DictationStatus", () => {
       const waveform = host.querySelector<HTMLElement>('[data-testid="dictation-waveform"]')!;
       expect(waveform.dataset.phase).toBe("starting");
       expect(waveform.querySelectorAll(".ct-dictation-bar")).toHaveLength(DICTATION_WAVEFORM_BARS);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("renders Install dictation? as a floating glass bubble anchored to the mic shell with x and Escape dismissal, keeping the input card clean", async () => {
+    const channel = createDictationLevelChannel();
+    const dismissSetup = vi.fn();
+    const dismissError = vi.fn();
+    const state = {
+      workspaces: [], tabs: {}, teams: [], notifications: [], tabStatuses: {}, toasts: [],
+      activeTabIds: {}, generation: 1, pendingCloses: [], active_workspace_id: null, focused_tab_id: null,
+    } as ExtendedState;
+    const store = createMuxStateStore(() => state);
+    const base: LiveDictation = {
+      phase: "idle",
+      error: null,
+      setup: "No local transcriber installed.",
+      start: async () => {},
+      stop: async () => {},
+      cancel: () => {},
+      finishThen: () => {},
+      compositionEnded: () => {},
+      dismissSetup,
+      dismissError,
+      active: () => false,
+      readLevel: channel.read,
+      subscribeLevel: channel.subscribe,
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(
+        <MuxStateStoreContext.Provider value={store}>
+          <ComposerActions
+            onAttach={() => {}}
+            onSend={() => {}}
+            onSendWithAttachments={() => {}}
+            onError={() => {}}
+            sendDisabled={false}
+            hasText={false}
+            dictation={base}
+          >
+            <textarea aria-label="Message composer" defaultValue="" />
+          </ComposerActions>
+        </MuxStateStoreContext.Provider>,
+      ));
+      const inputCard = host.querySelector<HTMLElement>('[data-testid="composer-input-shell"]')!;
+      const actionShell = host.querySelector<HTMLElement>(".ct-composer-action-shell")!;
+      const bubble = host.querySelector<HTMLElement>('[data-testid="dictation-setup-bubble"]')!;
+      expect(bubble).not.toBeNull();
+      expect(actionShell.contains(bubble)).toBe(true);
+      expect(inputCard.contains(bubble)).toBe(false);
+      expect(bubble.textContent).toContain("Install dictation?");
+      expect(bubble.textContent).toContain("Set up with General");
+      expect(bubble.textContent).not.toContain("Not now");
+
+      const closeBtn = bubble.querySelector<HTMLButtonElement>('button[aria-label="Dismiss dictation setup"]')!;
+      expect(closeBtn).not.toBeNull();
+      await act(async () => closeBtn.click());
+      expect(dismissSetup).toHaveBeenCalledTimes(1);
+
+      await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true })));
+      expect(dismissSetup).toHaveBeenCalledTimes(2);
+
+      // Error bubble also anchors to the mic shell with x dismiss and never inflates the input card.
+      await act(async () => root.render(
+        <MuxStateStoreContext.Provider value={store}>
+          <ComposerActions
+            onAttach={() => {}}
+            onSend={() => {}}
+            onSendWithAttachments={() => {}}
+            onError={() => {}}
+            sendDisabled={false}
+            hasText={false}
+            dictation={{ ...base, setup: null, error: "Microphone permission denied" }}
+          >
+            <textarea aria-label="Message composer" defaultValue="" />
+          </ComposerActions>
+        </MuxStateStoreContext.Provider>,
+      ));
+      const errorBubble = host.querySelector<HTMLElement>('[data-testid="dictation-error-bubble"]')!;
+      expect(errorBubble).not.toBeNull();
+      expect(actionShell.contains(errorBubble)).toBe(true);
+      expect(inputCard.contains(errorBubble)).toBe(false);
+      await act(async () => errorBubble.querySelector<HTMLButtonElement>('button[aria-label="Dismiss dictation error"]')!.click());
+      expect(dismissError).toHaveBeenCalledOnce();
     } finally {
       await act(async () => root.unmount());
       host.remove();

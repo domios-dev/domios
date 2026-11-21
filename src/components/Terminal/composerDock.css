@@ -265,9 +265,98 @@
   padding-inline-start: 0.375rem;
 }
 
-.ct-dictation-error, .ct-dictation-setup {
-  color: var(--ct-muted-fg);
+.ct-dictation-bubble {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  right: 0;
+  z-index: 30;
+  width: min(19rem, calc(100vw - 2rem));
+  padding: 12px 14px;
+  border: 1px solid var(--ct-border);
+  border-radius: 14px;
+  border-bottom-right-radius: var(--ct-bubble-tail-radius, 6px);
+  background: var(--ct-glass-sheen), var(--ct-glass-bg);
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
+  backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
+  color: var(--ct-fg);
   font-size: 0.75rem;
+  line-height: 1.45;
+  transform-origin: calc(100% - 1rem) 100%;
+  animation: ct-dictation-bubble-pop 320ms var(--ct-ease-liquid-settle) both;
+}
+
+.ct-dictation-bubble--error {
+  padding: 10px 12px;
+}
+
+@keyframes ct-dictation-bubble-pop {
+  0% { opacity: 0; transform: translateY(10px) scale(0.88); }
+  62% { opacity: 1; transform: translateY(-2px) scale(1.015); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.ct-dictation-bubble__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ct-dictation-bubble__head strong {
+  color: var(--ct-fg);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.ct-dictation-bubble__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: -3px -4px 0 0;
+  flex: none;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+  transition: color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.ct-dictation-bubble__close:hover,
+.ct-dictation-bubble__close:focus-visible {
+  color: var(--ct-fg);
+  background: color-mix(in srgb, var(--ct-fg) 8%, transparent);
+  outline: none;
+}
+
+.ct-dictation-bubble__close:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ct-dictation-bubble__body {
+  margin: 4px 0 0;
+  color: var(--ct-muted-fg);
+}
+
+.ct-dictation-bubble__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.ct-dictation-bubble__alert {
+  margin-top: 8px;
+  color: var(--ct-red);
+}
+
+.ct-dictation-setup {
+  display: grid;
 }
 
 .ct-dictation-error {
@@ -325,15 +414,6 @@
   background: color-mix(in srgb, var(--ct-red) 12%, transparent);
 }
 
-.ct-dictation-setup {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.ct-dictation-setup strong {
-  color: var(--ct-fg);
-}
-
 textarea[data-dictating="true"] {
   caret-color: var(--ct-accent) !important;
 }
@@ -365,7 +445,7 @@ textarea[data-dictating="true"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ct-dictation-bar, .ct-dictation-cancel { transition: none; }
+  .ct-dictation-bar, .ct-dictation-cancel, .ct-dictation-bubble__close { transition: none; }
   .ct-dictation-waveform[data-silent="true"] .ct-dictation-bar { animation: none; }
-  .ct-voice-space-arming, .ct-voice-space-pop, .ct-expanded-dictation-dot { animation: none; }
+  .ct-voice-space-arming, .ct-voice-space-pop, .ct-expanded-dictation-dot, .ct-dictation-bubble { animation: none; }
 }

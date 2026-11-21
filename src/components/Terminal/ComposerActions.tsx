@@ -6,8 +6,7 @@ import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import { useAttachmentUploads } from "./useAttachmentUploads";
 import { useComposerVoice } from "./voice/useComposerVoice";
 import { ComposerIssuesProvider, useHasComposerIssuesProvider } from "./ComposerIssuesContext";
-import { DictationPresence, DictationStatus } from "./voice/DictationStatus";
-import { DictationSetupPrompt } from "./voice/DictationSetupPrompt";
+import { DictationPresence } from "./voice/DictationStatus";
 import type { LiveDictation } from "./voice/useLiveDictation";
 
 export { storeBrowserFiles, useWebFileDrop } from "./composerFiles";
@@ -76,7 +75,6 @@ function ComposerActionsBody({
   const attachButton = canAttach && !voiceUi.isPreview
     && <ComposerAttachButton uploading={uploads.busy} onClick={() => fileRef.current?.click()} />;
   const dictationActive = Boolean(dictation && dictation.phase !== "idle");
-  const dictationHeader = Boolean(dictation && (dictation.setup || dictation.error));
   const scheduleVisible = voiceUi.mainIsSend && !dictationActive && Boolean(onSchedule);
 
   return (
@@ -99,11 +97,7 @@ function ComposerActionsBody({
       {voiceUploads.status}
       <div className={expanded ? "ct-expanded-composer__actions relative grid w-full items-end gap-2" : "relative flex w-full items-end gap-1.5"}>
         {attachButton}
-        <ComposerInputShell voiceUi={voiceUi} dictationPhase={dictation?.phase} header={dictationHeader ? <>
-          {dictation?.setup && <DictationSetupPrompt reason={dictation.setup} onDismiss={dictation.dismissSetup} />}
-          {dictation && <DictationStatus dictation={dictation} />}
-          {cardHeader}
-        </> : cardHeader} footer={cardFooter}
+        <ComposerInputShell voiceUi={voiceUi} dictationPhase={dictation?.phase} header={cardHeader} footer={cardFooter}
           actions={!expanded
             ? (dictationActive && dictation
               ? <DictationPresence dictation={dictation} />
