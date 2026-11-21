@@ -54,3 +54,71 @@ test("a claim inside the loaded span has a provisional slot while it waits for i
   assert.deepEqual(foreign.pending.map(send => send.id), ["send-foreign"]);
   assert.deepEqual([...foreign.outside], []);
 });
+
+test("delivered claims before an untimed partial items window stay settled in unloaded history, not at the tail", () => {
+  const untimedTail: NormalizedChatMessage[] = Array.from({ length: 200 }, (_, offset) => ({
+    id: `acp-${1281 + offset}`,
+    type: offset % 3 === 0 ? "thinking" : offset % 3 === 1 ? "tool_call" : "assistant",
+    content: offset === 199 ? "SYNTH_A_PHASE2_GROWTH_A_C0450" : `acp-row-${1281 + offset}`,
+    seq: 1281 + offset,
+  }));
+  const partialItems = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot",
+    authority,
+    range: { unit: "items", start: 1281, end: 1481 },
+    rows: untimedTail,
+  }).state;
+  const phase1 = claim("02faf3d6", "02faf3d6", 1_000);
+  const phase2 = claim("711242a2", "711242a2", 2_000);
+
+  const tailProjection = projectTranscript(partialItems, [phase1, phase2]);
+  assert.deepEqual(tailProjection.pending, []);
+  assert.deepEqual([...tailProjection.outside], ["02faf3d6", "711242a2"]);
+  assert.equal(tailProjection.rows[tailProjection.rows.length - 1]?.id, "acp-1480");
+
+  // A brand-new send issued after a loaded row in that untimed window still keeps its tail slot.
+  const fresh: ChatSend = {
+    ...claim("fresh-send", "fresh-item", 9_000),
+    echoBoundary: { sourceSessionId: "session-a", sessionBindingNonce: "launch-a", lastRowId: "acp-1480" },
+  };
+  const withFresh = projectTranscript(partialItems, [phase1, phase2, fresh]);
+  assert.deepEqual(withFresh.pending.map(send => send.id), ["fresh-send"]);
+  assert.deepEqual([...withFresh.outside], ["02faf3d6", "711242a2"]);
+  assert.equal(withFresh.rows[withFresh.rows.length - 1]?.id, "fresh-send");
+
+  // Backfilling seq=0..1280 restores PHASE1 (seq=0) and PHASE2 (seq=126) in exact chronological order.
+  const older: NormalizedChatMessage[] = [
+    { ...row("02faf3d6", 1_000, "user"), seq: 0, content: "PHASE1_SMALL_A" },
+    ...Array.from({ length: 125 }, (_, i) => ({ id: `acp-${i + 1}`, type: "assistant" as const, content: `r-${i + 1}`, seq: i + 1 })),
+    { ...row("711242a2", 2_000, "user"), seq: 126, content: "PHASE2_GROWTH_A" },
+    ...Array.from({ length: 1154 }, (_, i) => ({ id: `acp-${i + 127}`, type: "assistant" as const, content: `r-${i + 127}`, seq: i + 127 })),
+  ];
+  const backfilled = reduceTranscript(partialItems, {
+    kind: "backfill",
+    authority,
+    range: { unit: "items", start: 0, end: 1281 },
+    rows: older,
+  }).state;
+  const full = projectTranscript(backfilled, [phase1, phase2]);
+  assert.deepEqual(full.pending, []);
+  assert.deepEqual([...full.outside], []);
+  assert.equal(full.rows[0]?.id, "02faf3d6");
+  assert.equal(full.rows[126]?.id, "711242a2");
+  assert.equal(full.rows[full.rows.length - 1]?.id, "acp-1480");
+});
+
+test("evicted older untimed unranged rows never resurrect older delivered claims at the tail", () => {
+  const evictedState: TranscriptState = {
+    authority,
+    segments: [{
+      kind: "delta",
+      range: null,
+      rows: [{ id: "acp-tail", type: "assistant", content: "SYNTH_A_PHASE2_GROWTH_A_C0450", sourceSessionId: "session-a", seq: 1480 }],
+    }],
+    evictedOlder: 1041,
+  };
+  const projection = projectTranscript(evictedState, [claim("02faf3d6", "02faf3d6", 1_000)]);
+  assert.deepEqual(projection.pending, []);
+  assert.deepEqual([...projection.outside], ["02faf3d6"]);
+  assert.deepEqual(projection.rows.map(item => item.id), ["acp-tail"]);
+});

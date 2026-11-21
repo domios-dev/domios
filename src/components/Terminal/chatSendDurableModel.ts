@@ -12,6 +12,8 @@ interface DurableEcho {
 interface DurableSystemSend {
   body: BodyRef;
   sent_at_ms: number;
+  segments?: NonNullable<ChatSendStatus["system_send"]>["segments"];
+  segments_version?: number;
 }
 
 type DurableStatus = Omit<ChatSendStatus, "tab_id" | "system_send"> & {
@@ -420,7 +422,12 @@ function encodeStatus(status: ChatSendStatus, body: (value: string) => BodyRef):
   const { tab_id: _tabId, system_send: systemSend, ...fields } = status;
   return {
     ...fields,
-    ...(systemSend !== undefined ? { system_send: { body: body(systemSend.content), sent_at_ms: systemSend.sent_at_ms } } : {}),
+    ...(systemSend !== undefined ? { system_send: {
+      body: body(systemSend.content),
+      sent_at_ms: systemSend.sent_at_ms,
+      ...(systemSend.segments?.length ? { segments: systemSend.segments } : {}),
+      ...(systemSend.segments_version !== undefined ? { segments_version: systemSend.segments_version } : {}),
+    } } : {}),
   };
 }
 
@@ -429,7 +436,12 @@ function decodeStatus(tabId: string, record: ChatSendDurableRecord, status: Dura
   return {
     ...fields,
     tab_id: tabId,
-    ...(systemSend !== undefined ? { system_send: { content: readRequiredBody(record, systemSend.body), sent_at_ms: systemSend.sent_at_ms } } : {}),
+    ...(systemSend !== undefined ? { system_send: {
+      content: readRequiredBody(record, systemSend.body),
+      sent_at_ms: systemSend.sent_at_ms,
+      ...(systemSend.segments?.length ? { segments: systemSend.segments } : {}),
+      ...(systemSend.segments_version !== undefined ? { segments_version: systemSend.segments_version } : {}),
+    } } : {}),
   };
 }
 

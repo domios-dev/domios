@@ -12,6 +12,7 @@ import {
 import { placeChatRails } from "./chatBodyVisibility";
 import { deliveryProjectionSends, type DeliverySend } from "./chatDeliveryModel";
 import { createDeliveryProjectionMemory, queuedDeliveryIds, stableDeliveryEntries, type DeliveryProjectionMemory } from "./chatDeliveryProjection";
+import { decodeChatSend, encodeChatSend } from "./chatSendDurableModel";
 import { conversationEntries } from "./chatPagingModel";
 import type { OutboundReportEntry } from "./ChatTranscriptRow";
 import { outboundReportRows, type LiveOutboundReport } from "./outboundReportRows";
@@ -115,7 +116,7 @@ function renderedColumn({ state, visible, live = FULL_STORE, hostRows = [], send
   const liveSends = deliveryProjectionSends(sends, null, queuedDeliveryIds(sends, turnRunning, projectionMemory));
   const projection = projectTranscript(state, liveSends);
   const transcript = mergeAccountNoticeRows(projection.rows, hostRows);
-  const entries = stableDeliveryEntries(conversationEntries(transcript), liveSends, projection.echoes, projectionMemory);
+  const entries = stableDeliveryEntries(conversationEntries(transcript), liveSends, projection.echoes, projectionMemory, projection.outside);
   const start = Math.max(0, entries.length - visible);
   const window = entries.slice(start);
   const cards = outboundReportRows({ rows: window, transcript, live, recipient: (tab) => tab ?? "parent" });
@@ -602,4 +603,120 @@ test("snapshot generation fences late reads after session, nonce, peer, boot, ep
   assert.equal(readAgentReportProjection("order001").outbound.length, 0, "refused reads do not fabricate cards");
   resetAgentReportProjection();
   __setListenForTest(null);
+});
+
+test("mixed timed user/CLI seq=0/126 + untimed ACP seq=1..125/127..1480 keeps chronological order across live tail, cold reload, and backfill", () => {
+  const session = "qa-heavy-session";
+  const heavyAuthority = { sourceSessionId: session, sessionBindingNonce: "heavy-launch" };
+  const phase1At = Date.parse("2026-11-21T14:45:56.490Z");
+  const phase2At = Date.parse("2026-11-21T14:45:57.864Z");
+  const cliWire = (body: string) => `<domios from="cli">${body}</domios>`;
+  const rustCliSegments = (body: string) => [{
+    type: "unknown_frame" as const,
+    raw: cliWire(body),
+    attrs: { from: "cli" },
+    body,
+  }];
+  const persistedRows: NormalizedChatMessage[] = [
+    { id: "phase1-id", type: "user", content: "PHASE1_SMALL_A", inboundKind: "cli" as NormalizedChatMessage["inboundKind"],
+      segments: rustCliSegments("PHASE1_SMALL_A"), timestamp: "2026-11-21T14:45:56.490185600+00:00", seq: 0, sourceSessionId: session },
+    ...Array.from({ length: 125 }, (_, i): NormalizedChatMessage => ({
+      id: `p1-row-${i + 1}`, type: "assistant", content: `SYNTH_A_PHASE1_${i + 1}`, seq: i + 1, sourceSessionId: session,
+    })),
+    { id: "phase2-id", type: "user", content: "PHASE2_GROWTH_A", inboundKind: "cli" as NormalizedChatMessage["inboundKind"],
+      segments: rustCliSegments("PHASE2_GROWTH_A"), timestamp: "2026-11-21T14:45:57.864548800+00:00", seq: 126, sourceSessionId: session },
+    ...Array.from({ length: 1354 }, (_, i): NormalizedChatMessage => ({
+      id: `p2-row-${i + 127}`, type: "assistant",
+      content: i === 1353 ? "SYNTH_A_PHASE2_GROWTH_A_C0450" : `SYNTH_A_PHASE2_${i + 127}`,
+      seq: i + 127, sourceSessionId: session,
+    })),
+  ];
+  const makeDeliveredCliSend = (id: string, body: string, sentAtMs: number): DeliverySend => ({
+    id,
+    correlationId: id,
+    content: cliWire(body),
+    sentAtMs,
+    matchedRow: {
+      source: { source_session_id: session, record: { kind: "structured", thread_id: session, item_id: id } },
+      ordinal: 1,
+    },
+    status: {
+      tab_id: "heavy-tab",
+      send_id: id,
+      correlationId: id,
+      state: "delivered",
+      sequence: 2,
+      ledger_id: "ledger",
+      retained_from: 1,
+      error: null,
+      matched_row: {
+        source: { source_session_id: session, record: { kind: "structured", thread_id: session, item_id: id } },
+        ordinal: 1,
+      },
+      system_send: { content: cliWire(body), sent_at_ms: sentAtMs, segments: rustCliSegments(body), segments_version: 2 },
+    },
+  });
+  const liveSends = [
+    makeDeliveredCliSend("phase1-id", "PHASE1_SMALL_A", phase1At),
+    makeDeliveredCliSend("phase2-id", "PHASE2_GROWTH_A", phase2At),
+  ];
+  const reloadedSends = liveSends.map(item => decodeChatSend(encodeChatSend("heavy-tab", item))!);
+  const legacyReloadedSends = liveSends.map(item => ({
+    ...item,
+    status: {
+      ...item.status!,
+      system_send: { content: item.content, sent_at_ms: item.sentAtMs },
+    },
+  }));
+
+  // 1) Partial tail window (last 200 untimed ACP rows, start=1281..1481): neither PHASE1 nor PHASE2 strands after C0450.
+  const tailState = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot",
+    authority: heavyAuthority,
+    range: { unit: "items", start: 1281, end: 1481 },
+    rows: persistedRows.slice(1281),
+  }).state;
+  for (const [label, sends] of [["live", liveSends], ["cold-reload", reloadedSends], ["legacy-cold-reload", legacyReloadedSends]] as const) {
+    const projected = deliveryProjectionSends(sends);
+    const result = projectTranscript(tailState, projected);
+    const entries = stableDeliveryEntries(conversationEntries(result.rows), projected, result.echoes, memory(), result.outside);
+    assert.deepEqual(result.pending, [], `${label}: older delivered sends are not pending at tail`);
+    assert.deepEqual([...result.outside], ["phase1-id", "phase2-id"], `${label}: older delivered sends stay in unloaded history`);
+    assert.equal(entries[entries.length - 1]?.msg.content, "SYNTH_A_PHASE2_GROWTH_A_C0450", `${label}: C0450 stays last`);
+    assert.equal(entries.some(entry => entry.msg.id === "phase1-id" || entry.msg.id === "phase2-id"), false, `${label}: no stranded user bubble at tail`);
+  }
+
+  // 2) Full/backfilled 1,481-row transcript: PHASE1 at seq=0 before seq=1..125, PHASE2 at seq=126 before seq=127..1480.
+  const fullState = reduceTranscript(tailState, {
+    kind: "backfill",
+    authority: heavyAuthority,
+    range: { unit: "items", start: 0, end: 1281 },
+    rows: persistedRows.slice(0, 1281),
+  }).state;
+  for (const [label, sends] of [["live", liveSends], ["cold-reload", reloadedSends], ["legacy-cold-reload", legacyReloadedSends]] as const) {
+    const projected = deliveryProjectionSends(sends);
+    const result = projectTranscript(fullState, projected);
+    const entries = stableDeliveryEntries(conversationEntries(result.rows), projected, result.echoes, memory(), result.outside);
+    assert.equal(entries.length, 1481, `${label}: all 1,481 rows render once`);
+    assert.equal(entries[0]?.msg.id, "phase1-id", `${label}: PHASE1_SMALL_A stays at idx=0`);
+    assert.equal(entries[0]?.msg.content, "PHASE1_SMALL_A", `${label}: PHASE1_SMALL_A body clean`);
+    assert.deepEqual(entries[0]?.origin, { kind: "system", context: "CLI" }, `${label}: PHASE1_SMALL_A origin is System · CLI`);
+    assert.equal(entries[126]?.msg.id, "phase2-id", `${label}: PHASE2_GROWTH_A stays at idx=126`);
+    assert.equal(entries[126]?.msg.content, "PHASE2_GROWTH_A", `${label}: PHASE2_GROWTH_A body clean`);
+    assert.deepEqual(entries[126]?.origin, { kind: "system", context: "CLI" }, `${label}: PHASE2_GROWTH_A origin is System · CLI`);
+    assert.equal(entries[1480]?.msg.content, "SYNTH_A_PHASE2_GROWTH_A_C0450", `${label}: C0450 stays last`);
+  }
+
+  // 3) Live system_send before echo vs cold-reload (both preserved and stripped segments) render identically for <domios from="cli">.
+  const emptyState = { ...createTranscriptState(), authority: heavyAuthority };
+  const livePending = conversationEntries(projectTranscript(emptyState, deliveryProjectionSends([liveSends[0]])).rows);
+  const reloadedPending = conversationEntries(projectTranscript(emptyState, deliveryProjectionSends([reloadedSends[0]])).rows);
+  const legacyPending = conversationEntries(projectTranscript(emptyState, deliveryProjectionSends([legacyReloadedSends[0]])).rows);
+  const committed = conversationEntries([persistedRows[0]]);
+  for (const entries of [livePending, reloadedPending, legacyPending, committed]) {
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].msg.content, "PHASE1_SMALL_A");
+    assert.deepEqual(entries[0].origin, { kind: "system", context: "CLI" });
+    assert.equal(entries[0].msg.routing?.kind, "cli");
+  }
 });
