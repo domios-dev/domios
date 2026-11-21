@@ -117,12 +117,12 @@ pub async fn mesh_rpc(
     headers: HeaderMap,
     Json(request): Json<MeshRpcRequest>,
 ) -> Json<MeshRpcResponse> {
-    let authenticated: Result<_, (axum::http::StatusCode, String)> = (|| {
-        let peer = super::relay::check_mesh_signature(&state, &headers)?;
-        let origin = crate::auth::authenticated_origin(&state, &headers)?;
-        let agent = crate::auth::authenticated_agent(&state, &headers)?;
-        Ok((peer, origin, agent))
-    })();
+    let authenticated = crate::auth::off_runtime(
+        &state,
+        &headers,
+        super::relay::authenticate_signed_mesh_request,
+    )
+    .await;
     let (peer, origin, agent) = match authenticated {
         Ok(authenticated) => authenticated,
         Err((_, message)) => return Json(authority_refusal(message)),

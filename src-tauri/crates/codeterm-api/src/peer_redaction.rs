@@ -47,18 +47,24 @@ pub(crate) async fn redact_peer_response(response: Response) -> Response {
     let Ok(bytes) = axum::body::to_bytes(body, usize::MAX).await else {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
+    let scanned = bytes.clone();
+    match tokio::task::spawn_blocking(move || redacted_json(&scanned)).await {
+        Ok(Some(body)) => {
+            parts.headers.remove(header::CONTENT_LENGTH);
+            Response::from_parts(parts, Body::from(body))
+        }
+        Ok(None) => Response::from_parts(parts, Body::from(bytes)),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// Large listings make the scan and re-encode CPU work, so it runs on the blocking pool.
+fn redacted_json(bytes: &[u8]) -> Option<Vec<u8>> {
     if !bytes.windows(MARKER.len()).any(|window| window == MARKER) {
-        return Response::from_parts(parts, Body::from(bytes));
+        return None;
     }
-    let Ok(mut value) = serde_json::from_slice::<Value>(&bytes) else {
-        return Response::from_parts(parts, Body::from(bytes));
-    };
-    if !redact_for_peer(&mut value) {
-        return Response::from_parts(parts, Body::from(bytes));
-    }
-    parts.headers.remove(header::CONTENT_LENGTH);
-    let body = serde_json::to_vec(&value).unwrap_or_default();
-    Response::from_parts(parts, Body::from(body))
+    let mut value = serde_json::from_slice::<Value>(bytes).ok()?;
+    redact_for_peer(&mut value).then(|| serde_json::to_vec(&value).unwrap_or_default())
 }
 
 #[cfg(test)]

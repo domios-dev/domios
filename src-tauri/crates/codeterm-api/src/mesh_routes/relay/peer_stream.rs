@@ -66,10 +66,6 @@ pub async fn mesh_relay_stream(
     headers: HeaderMap,
     Query(q): Query<RelayStreamQuery>,
 ) -> Result<Response, (StatusCode, String)> {
-    let diagnostic_level = crate::stream_diagnostics::configured_level(
-        state.config.lock().diagnostics.terminal_transport,
-    );
-
     let bare = q.path.split('?').next().unwrap_or(&q.path);
     if !is_streamable_relay_path(bare) {
         return Err((
@@ -88,10 +84,9 @@ pub async fn mesh_relay_stream(
         ));
     }
     if shared {
-        if !matches!(
-            crate::auth::caller_identity(&state, &headers)?,
-            crate::auth::CallerIdentity::Local
-        ) {
+        let caller =
+            crate::auth::off_runtime(&state, &headers, crate::auth::caller_identity).await?;
+        if !matches!(caller, crate::auth::CallerIdentity::Local) {
             return Err((
                 StatusCode::FORBIDDEN,
                 "Peer rail requires a local owner".into(),
@@ -130,41 +125,50 @@ pub async fn mesh_relay_stream(
     }
     validate_relay_path(&path).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
-    let client = {
-        let mesh = state.mesh.lock();
-        let peer = mesh
-            .paired_peers
-            .get(&q.peer)
-            .ok_or_else(|| peer_not_paired_error(&q.peer))?;
-        if shared {
-            let expected = q
-                .link
-                .as_deref()
-                .and_then(|link| serde_json::from_str::<[String; 2]>(link).ok());
-            if !expected.is_some_and(|[key, paired_at]| {
-                key == peer.public_key && paired_at == peer.paired_at
-            }) {
-                return Err((StatusCode::CONFLICT, "Peer rail pairing changed".into()));
-            }
-        }
-        if !peer.online {
-            return Err((
-                StatusCode::SERVICE_UNAVAILABLE,
-                "remote tab unavailable".into(),
-            ));
-        }
-        if !codeterm_service_core::mesh::types::is_supported_relay_protocol(
-            peer.relay_protocol_version,
-        ) {
-            return Err((
-                StatusCode::UPGRADE_REQUIRED,
-                origin::protocol_refusal(&peer.instance_name, peer.relay_protocol_version).1,
-            ));
-        }
-        mesh.client_for(&q.peer)
-            .ok_or_else(|| peer_unroutable_error(&peer.instance_name))?
-    };
-    let client = origin::peer_client(&state, &headers, client)?;
+    let (peer_id, link) = (q.peer.clone(), q.link.clone());
+    let (diagnostic_level, client) =
+        crate::auth::off_runtime(&state, &headers, move |state, headers| {
+            let diagnostic_level = crate::stream_diagnostics::configured_level(
+                state.config.lock().diagnostics.terminal_transport,
+            );
+            let (primary, alternatives) = {
+                let mesh = state.mesh.lock();
+                let peer = mesh
+                    .paired_peers
+                    .get(&peer_id)
+                    .ok_or_else(|| peer_not_paired_error(&peer_id))?;
+                if shared {
+                    let expected = link
+                        .as_deref()
+                        .and_then(|link| serde_json::from_str::<[String; 2]>(link).ok());
+                    if !expected.is_some_and(|[key, paired_at]| {
+                        key == peer.public_key && paired_at == peer.paired_at
+                    }) {
+                        return Err((StatusCode::CONFLICT, "Peer rail pairing changed".into()));
+                    }
+                }
+                if !peer.online {
+                    return Err((
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "remote tab unavailable".into(),
+                    ));
+                }
+                if !codeterm_service_core::mesh::types::is_supported_relay_protocol(
+                    peer.relay_protocol_version,
+                ) {
+                    return Err((
+                        StatusCode::UPGRADE_REQUIRED,
+                        origin::protocol_refusal(&peer.instance_name, peer.relay_protocol_version)
+                            .1,
+                    ));
+                }
+                mesh.peer_route_endpoints(&peer_id)
+                    .ok_or_else(|| peer_unroutable_error(&peer.instance_name))?
+            };
+            let (_, client) = origin::signed_peer_client(state, headers, primary, alternatives)?;
+            Ok((diagnostic_level, client))
+        })
+        .await?;
     if shared {
         return super::peer_rail::subscribe(client, state.mesh.clone(), q.peer, path).await;
     }

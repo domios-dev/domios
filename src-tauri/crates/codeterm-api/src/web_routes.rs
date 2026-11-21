@@ -680,14 +680,15 @@ pub async fn chat_raw_start(
     _headers: HeaderMap,
     Path(tab_id): Path<String>,
     Json(body): Json<ChatSubscriptionBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    use axum::response::IntoResponse;
     let slot =
         crate::request_bound::RequestSlot::acquire_when_available(format!("chat-start:{tab_id}"))
             .await
             .map_err(|(status, error)| (status, error.0.to_string()))?;
     let svc = state.svc.clone();
     let queued = std::time::Instant::now();
-    let result = tokio::task::spawn_blocking(move || {
+    let payload = tokio::task::spawn_blocking(move || {
         let _slot = slot;
         let queue_us = queued.elapsed().as_micros();
         let result =
@@ -698,12 +699,16 @@ pub async fn chat_raw_start(
             queued.elapsed().as_micros(),
             result.is_ok()
         );
-        result.map(|result| serde_json::to_value(result).unwrap_or_default())
+        result.and_then(|result| serde_json::to_vec(&result).map_err(|error| error.to_string()))
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .map_err(|e| (StatusCode::CONFLICT, e))?;
-    Ok(Json(result))
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        payload,
+    )
+        .into_response())
 }
 
 #[derive(serde::Deserialize)]
