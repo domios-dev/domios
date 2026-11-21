@@ -14,7 +14,8 @@ fn restored_backend_queue_excludes_failed_role_launches_even_if_thawed_by_stale_
     for provider in [None, Some("uninstalled-historical-provider")] {
         let (mut mux, id) = MultiplexerState::new();
         let tab = mux.get_tab_mut(&id).unwrap();
-        tab.role = Some(codeterm_service_core::multiplexer::types::AgentRole::Orchestrator);
+        tab.role = Some(codeterm_service_core::multiplexer::types::AgentRole::Manager);
+        tab.role_profile = Some("orchestrator".into());
         tab.agent_type = provider.map(str::to_owned);
         tab.agent_session_id = provider.map(|_| "historical-session".into());
         tab.boot_stage = Some(BootStage::SpawnFailed);

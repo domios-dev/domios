@@ -176,7 +176,7 @@ fn in_place_switch_cannot_adopt_reparented_source_after_operation_preflight() {
                 }
                 let before = serde_json::to_value(svc.mux.read().get_tab(tab).unwrap()).unwrap();
                 let result = svc.switch_provider_in_place(tab, target, None, None, own);
-                assert!(result.as_ref().unwrap_err().starts_with("provider_switch_superseded:"), "{changed}");
+                assert!(matches!(result.as_ref(), Err(error) if error.starts_with("provider_switch_superseded:")), "{changed}");
                 assert_eq!(serde_json::to_value(svc.mux.read().get_tab(tab).unwrap()).unwrap(), before);
                 result
             }).unwrap();
