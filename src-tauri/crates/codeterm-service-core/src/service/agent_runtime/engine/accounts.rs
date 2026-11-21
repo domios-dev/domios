@@ -85,6 +85,7 @@ pub(super) async fn ensure(
     ensure_account(svc, tab, fork, None, None).await
 }
 
+#[cfg(test)]
 pub(crate) async fn ensure_expected(svc: &ServiceContext, tab: &str, expected_nonce: &str, fork: Option<(&str, &str)>) -> Result<Arc<Session>, RuntimeFailure> {
     super::ensure_expected_observed(svc, tab, expected_nonce, fork).await.into_result()
 }

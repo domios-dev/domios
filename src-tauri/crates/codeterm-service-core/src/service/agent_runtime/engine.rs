@@ -41,6 +41,7 @@ pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
 }
 
 pub use accounts::ensure_with_invocation;
+#[cfg(test)]
 pub(crate) use accounts::ensure_expected;
 pub(crate) use accounts::ExpectedEnsureOutcome;
 #[cfg(any(test, feature = "test-support"))]

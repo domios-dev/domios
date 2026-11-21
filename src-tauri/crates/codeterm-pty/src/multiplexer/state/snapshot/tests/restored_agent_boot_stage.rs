@@ -7,7 +7,7 @@ fn failed_role_launch_roundtrips_failure_without_creating_live_identity() {
     for (reason, identity) in [(None, false), (Some("opaque supervision failure"), false), (Some("opaque supervision failure"), true)] {
         let (mut state, id) = MultiplexerState::new();
         let tab = state.get_tab_mut(&id).unwrap();
-        tab.role = Some(AgentRole::Orchestrator);
+        tab.role = Some(AgentRole::Manager);
         tab.role_profile = Some("orchestrator".into());
         tab.team_id = Some("owned-team".into());
         tab.parent_tab_id = Some("owned-parent".into());
@@ -25,7 +25,7 @@ fn failed_role_launch_roundtrips_failure_without_creating_live_identity() {
         let tab = restored.get_tab(&id).unwrap();
         assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
         assert_eq!(tab.boot_failure_reason.as_deref(), reason);
-        assert_eq!(tab.role, Some(AgentRole::Orchestrator));
+        assert_eq!(tab.role, Some(AgentRole::Manager));
         assert_eq!(tab.role_profile.as_deref(), Some("orchestrator"));
         assert_eq!(tab.team_id.as_deref(), Some("owned-team"));
         assert_eq!(tab.parent_tab_id.as_deref(), Some("owned-parent"));
@@ -46,7 +46,8 @@ fn failed_role_launch_roundtrips_failure_without_creating_live_identity() {
 #[test]
 fn contradictory_failed_binding_survives_snapshot_as_refusal_without_authentication() {
     let (mut state, id) = MultiplexerState::new(); let tab = state.get_tab_mut(&id).unwrap();
-    tab.role = Some(AgentRole::Orchestrator); tab.agent_type = Some("retained-provider".into());
+    tab.role = Some(AgentRole::Manager); tab.role_profile = Some("orchestrator".into());
+    tab.agent_type = Some("retained-provider".into());
     tab.agent_session_id = Some("retained-session".into());
     tab.session_binding_nonce = Some("contradictory-proof".into());
     tab.reported_session_binding_nonce = Some("contradictory-proof".into());
@@ -57,6 +58,8 @@ fn contradictory_failed_binding_survives_snapshot_as_refusal_without_authenticat
     assert!(tab.session_binding_nonce.is_none()); assert!(!tab.launch_session_authenticated());
     assert!(tab.prior_session_binding_nonces.iter().any(|prior| prior.nonce == "contradictory-proof" && prior.session_id.as_deref() == Some("retained-session")));
     assert_eq!(tab.boot_failure_reason.as_deref(), Some("actual failure"));
+    assert_eq!(tab.role, Some(AgentRole::Manager));
+    assert_eq!(tab.role_profile.as_deref(), Some("orchestrator"));
     assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed)); assert!(tab.frozen);
     let recaptured = serde_json::to_value(restored.to_session_snapshot()).unwrap();
     assert!(recaptured.to_string().contains("contradictory-proof"));

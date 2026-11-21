@@ -205,6 +205,7 @@ impl LaunchAccount {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn reserve_launch_binding_nonce(
     svc: &ServiceContext,
     tab_id: &str,

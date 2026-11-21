@@ -6,7 +6,8 @@ fn compact_lifecycle_never_turns_missing_readiness_or_failure_into_idle() {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
     assert_eq!(tab_status_label(tab, None), "unknown");
-    tab.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
+    tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
+    tab.role_profile = Some("orchestrator".into());
     tab.agent_booting = true;
     assert_eq!(tab_status_label(tab, Some(TabStatus::Idle)), "starting");
     tab.agent_booting = false;
