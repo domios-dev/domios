@@ -25,6 +25,8 @@ pub struct Session {
     pub state: Mutex<RuntimeState>,
     pub cache: Mutex<ItemCache>,
     pub auth: Mutex<RuntimeAuthState>,
+    pub(in crate::service::agent_runtime) credential_stamp:
+        Mutex<Option<super::credential_stamp::CredentialStamp>>,
     pub(in crate::service::agent_runtime) login: Mutex<super::super::login::LoginState>,
     pub thread_loaded: std::sync::atomic::AtomicBool,
     pub hook_state: Mutex<Value>,

@@ -254,3 +254,255 @@ fn exercise_login(method: RuntimeLoginMethod, fresh: bool, outcome: Option<&str>
     assert_eq!(session.state.lock().snapshot().state, "loaded");
     server.abort();
 }
+
+#[test]
+fn stale_signed_out_runtime_respawns_once_when_credentials_appear_on_disk() {
+    use crate::multiplexer::{state::MultiplexerState, types::TabBacking};
+    use crate::service::{
+        delivery_error::DeliveryError as StructuredDeliveryError,
+        message_gateway::{classify, DeliveryError as GatewayDeliveryError},
+        messenger::{Delivery, MessageEnvelope, Messenger},
+        test_fixture::ServiceFixture,
+    };
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    use std::sync::atomic::AtomicUsize;
+
+    const PROVIDER: &str = "stale-auth-fixture";
+    const STALE_AUTH_SOURCE: &str = r#"
+module.exports = {
+  runtimePlan(ctx, op) {
+    const method = {
+      initialize: 'fixture/initialize',
+      openThread: 'fixture/open',
+      resumeThread: 'fixture/resume',
+      readHistory: 'fixture/history',
+      control: 'fixture/control',
+      submitTurn: 'fixture/submit',
+    }[op.kind];
+    return { action: { kind: 'request', call: { method, params: op } }, state: null };
+  },
+  runtimeResponse(ctx, op, state, reply) {
+    if (op.kind === 'initialize') {
+      return {
+        kind: 'complete',
+        result: { kind: 'initialized' },
+        events: [{ kind: 'auth', state: reply.value.auth }],
+      };
+    }
+    if (op.kind === 'control') {
+      if (op.action === 'auth') {
+        return {
+          kind: 'complete',
+          result: { kind: 'done' },
+          events: [{ kind: 'auth', state: reply.value.auth }],
+        };
+      }
+      const value = op.value;
+      const login = value.action === 'cancel'
+        ? { status: 'canceled', loginId: value.loginId }
+        : {
+            status: 'pending',
+            method: value.method,
+            loginId: 'opaque-login',
+            url: 'https://example.invalid/opaque',
+            ...(value.method === 'device' ? { userCode: 'opaque-code' } : {}),
+          };
+      return { kind: 'complete', result: { kind: 'done' }, events: [{ kind: 'authLogin', login }] };
+    }
+    if (op.kind === 'openThread' || op.kind === 'resumeThread') {
+      return {
+        kind: 'complete',
+        result: { kind: 'threadLoaded', threadId: op.threadId || 'opaque-thread', settings: op.settings },
+      };
+    }
+    if (op.kind === 'submitTurn') {
+      return {
+        kind: 'complete',
+        result: { kind: 'turnAccepted', threadId: op.threadId, sendId: op.sendId, turnId: reply.value.turnId },
+      };
+    }
+    return { kind: 'complete', result: { kind: 'historyPage', threadId: op.threadId, items: [], openItems: [], order: op.order } };
+  },
+  runtimeReduce() { return { state: null, events: [] }; }
+};
+"#;
+
+    struct Stop(String);
+    impl Drop for Stop {
+        fn drop(&mut self) {
+            test_support::stop_test(&self.0);
+        }
+    }
+
+    let home = tempfile::tempdir().unwrap();
+    let (mut mux, tab_id) = MultiplexerState::new();
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.cwd = Some(
+            crate::test_support::fixture_manifest_dir()
+                .to_string_lossy()
+                .into_owned()
+                .into(),
+        );
+        tab.backing = TabBacking::ChatBackend {
+            plugin_id: PROVIDER.into(),
+            session_id: String::new(),
+        };
+    }
+    let fixture = ServiceFixture::new(mux);
+    let _storage = fixture.install_seeded_storage_desk();
+    let binary = std::env::current_exe().unwrap();
+    let manifest = PluginManifest::from_json_str(
+        &json!({
+            "id": PROVIDER,
+            "version": "1.0.0",
+            "displayName": "Stale Auth Fixture",
+            "accounts": {
+                "homeEnvironment": "FIXTURE_STALE_AUTH_HOME",
+                "defaultHome": home.path().to_string_lossy(),
+                "secretEnvironment": [],
+                "isolatedPaths": ["auth.json"],
+                "credentialFiles": ["auth.json"],
+                "sharedPaths": [],
+                "continuation": "unverified"
+            },
+            "capabilities": {
+                "agentProvider": true,
+                "chatBackend": { "spawnable": true, "sessionConfig": true, "agentTasks": true },
+                "agentRuntime": {
+                    "runtime": "stdio-jsonrpc",
+                    "command": { "binary": binary, "args": [] },
+                    "login": { "methods": ["browser", "device", "apiKey"] },
+                    "requestMethods": {
+                        "control": ["fixture/control"],
+                        "initialize": ["fixture/initialize"],
+                        "openThread": ["fixture/open"],
+                        "resumeThread": ["fixture/resume"],
+                        "readHistory": ["fixture/history"],
+                        "submitTurn": ["fixture/submit"]
+                    },
+                    "notificationMethods": []
+                }
+            },
+            "permissions": { "subprocess": { "allow": [binary] } }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(JsProvider::new(
+            manifest,
+            Arc::new(PluginVm::from_source(PROVIDER, STALE_AUTH_SOURCE.into()).unwrap()),
+        )));
+
+    let spawns = Arc::new(AtomicUsize::new(0));
+    let spawn_count = spawns.clone();
+    let cred_file = home.path().join("auth.json");
+    let _ports = crate::service::agent_runtime::process::test_ports::register(&tab_id, move || {
+        spawn_count.fetch_add(1, Ordering::SeqCst);
+        let cached_signed_in = cred_file.exists();
+        let (process, peer) = crate::service::agent_runtime::process::test_ports::connected();
+        crate::async_runtime::spawn(async move {
+            let mut peer = BufReader::new(peer);
+            loop {
+                let mut line = String::new();
+                match peer.read_line(&mut line).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let result = if request["method"] == "fixture/submit" {
+                    json!({ "turnId": "accepted-turn" })
+                } else {
+                    json!({ "auth": if cached_signed_in { "signedIn" } else { "signedOut" } })
+                };
+                let response = json!({ "id": request["id"], "result": result });
+                if peer
+                    .get_mut()
+                    .write_all(format!("{response}\n").as_bytes())
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        process
+    });
+    let _stop = Stop(tab_id.clone());
+
+    transport::launch(&fixture.service, PROVIDER, &tab_id, json!({})).unwrap();
+    let session = for_tab(&tab_id).unwrap();
+    let initial_epoch = session.context.lock().epoch;
+    assert_eq!(spawns.load(Ordering::SeqCst), 1);
+    assert_eq!(session.state.lock().snapshot().state, "loginPending");
+
+    assert!(matches!(
+        crate::async_runtime::block_on(ensure(&fixture.service, &tab_id)),
+        Err(RuntimeFailure::SignInRequired)
+    ));
+    assert_eq!(spawns.load(Ordering::SeqCst), 1);
+
+    let frame = Messenger::from(MessageEnvelope::from_codeterm()).framed_delivery("opaque turn");
+    let refused = transport::send_envelope(&fixture.service, &tab_id, &frame, "tok-signed-out", None)
+        .unwrap_err();
+    assert!(refused.starts_with("tab_busy_refused:"), "unexpected refusal: {refused}");
+    let gateway_err = classify(&tab_id, refused);
+    assert!(matches!(gateway_err, GatewayDeliveryError::BusyRefused { .. }));
+    let rendered = gateway_err.to_string();
+    assert!(!rendered.starts_with("transport error:"));
+    assert!(!StructuredDeliveryError::from_opaque(&tab_id, rendered).bytes_written());
+    assert_eq!(spawns.load(Ordering::SeqCst), 1);
+
+    crate::async_runtime::block_on(login::operate(
+        &fixture.service,
+        &tab_id,
+        login::LoginRequest {
+            owner_confirmed: false,
+            binding: None,
+            login_id: None,
+            method_id: None,
+            provider_id: None,
+            account: None,
+            code: None,
+            action: None,
+            method: Some(RuntimeLoginMethod::Device),
+            api_key: None,
+        },
+    ))
+    .unwrap();
+    std::fs::write(home.path().join("auth.json"), b"opaque-credential").unwrap();
+
+    assert!(matches!(
+        crate::async_runtime::block_on(ensure(&fixture.service, &tab_id)),
+        Err(RuntimeFailure::SignInRequired)
+    ));
+    assert_eq!(spawns.load(Ordering::SeqCst), 1);
+
+    crate::async_runtime::block_on(login::operate(
+        &fixture.service,
+        &tab_id,
+        login::LoginRequest {
+            owner_confirmed: false,
+            binding: None,
+            login_id: None,
+            method_id: None,
+            provider_id: None,
+            account: None,
+            code: None,
+            action: Some("cancel".into()),
+            method: None,
+            api_key: None,
+        },
+    ))
+    .unwrap();
+
+    let delivered =
+        transport::send_envelope(&fixture.service, &tab_id, &frame, "tok-signed-in", None).unwrap();
+    assert!(matches!(delivered, Delivery::ChatBackend { .. }));
+    assert_eq!(spawns.load(Ordering::SeqCst), 2);
+    assert!(session.context.lock().epoch > initial_epoch);
+    assert_eq!(session.state.lock().snapshot().state, "loaded");
+}
