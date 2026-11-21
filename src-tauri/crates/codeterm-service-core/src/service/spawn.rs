@@ -1,5 +1,4 @@
 use crate::service::MuxEmitCause;
-use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 

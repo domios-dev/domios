@@ -3,7 +3,7 @@ use std::thread::JoinHandle;
 use parking_lot::Mutex;
 
 use crate::cron::store::{CronRunStatus, CronStore};
-use crate::cron::store::storage::{log_finished, TerminalRun, TerminalRunCommit};
+use crate::cron::store::storage::{log_finished, RunFinished, TerminalRun, TerminalRunCommit};
 use crate::multiplexer::types::TabCloseReason;
 use crate::service::cron::CronRunEnd;
 use crate::service::messenger::MessageEnvelope;
@@ -35,7 +35,7 @@ pub(super) struct Finalizer {
     request: Mutex<TerminalRun>,
     raw_output: String,
     raw_bytes: Option<usize>,
-    known_finished: Mutex<Option<crate::cron::store::RunFinished>>,
+    known_finished: Mutex<Option<RunFinished>>,
     cancelled: AtomicBool,
     delivery_gate: Mutex<()>,
     unknown: AtomicBool,

@@ -117,7 +117,7 @@ impl Recovery {
         if let Some(incident) = &self.incident { return Err(incident.clone()); }
         if self.root.is_some() { return if self.root.as_ref() == Some(&root) { Ok(()) } else { Err("Cron recovery root changed".into()) }; }
         self.root = Some(root);
-        let result = (|| {
+        let result: Result<(), String> = (|| {
             let bytes = read(&self.path()?)?;
             let journal: Journal = bytes.as_ref().map(|bytes| serde_json::from_slice(bytes).map_err(|error| format!("Cron journal is invalid; preserve for repair: {error}"))).transpose()?.unwrap_or_default();
             if journal.records.len() > MAX_OWNERS { return Err("Cron journal owner capacity is invalid; preserve for repair".into()); }

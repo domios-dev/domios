@@ -277,7 +277,7 @@ impl crate::service::ServiceContext {
             |selected| {
                 self.observe_shell_ready(selected, None);
                 crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
-                self.emit_state_changed(MuxEmitCause::TabLifecycle);
+                self.emit_state_changed(crate::service::MuxEmitCause::TabLifecycle);
             },
         )
     }
