@@ -25,18 +25,23 @@ export function bulkCreditDue(received: number, posted: number): number | null {
 /** Bounds how long a suspect carrier may stay silent before it is replaced; it never proves liveness. */
 export const CARRIER_PROOF_MS = 5_000;
 
-export type CarrierLiveness = "trusted" | "proving";
-export type CarrierLivenessEvent = "suspect" | "proven" | "deadline" | "closed";
-export type CarrierLivenessAction = "none" | "probe" | "replace";
+export type CarrierLiveness = "trusted" | "queued" | "proving";
+export type CarrierLivenessEvent = "suspect" | "dispatched" | "proven" | "deadline" | "closed" | "unsent";
+export type CarrierLivenessAction = "none" | "probe" | "arm" | "replace";
 
 /** A carrier can stop delivering without ending (a frozen or backgrounded page, a dropped mobile link)
- *  while the daemon still acknowledges posts; only a response delivered through it proves it alive again. */
+ *  while the daemon still acknowledges posts; only a response delivered through it proves it alive again,
+ *  and only a dispatched probe may trigger replacement on deadline. */
 export function transitionCarrierLiveness(
   state: CarrierLiveness,
   event: CarrierLivenessEvent,
 ): { state: CarrierLiveness; action: CarrierLivenessAction } {
   if (event === "closed" || event === "proven") return { state: "trusted", action: "none" };
-  if (state === "trusted") return event === "suspect" ? { state: "proving", action: "probe" } : { state, action: "none" };
+  if (state === "trusted") return event === "suspect" ? { state: "queued", action: "probe" } : { state, action: "none" };
+  if (state === "queued") {
+    if (event === "dispatched") return { state: "proving", action: "arm" };
+    return event === "unsent" ? { state: "trusted", action: "none" } : { state, action: "none" };
+  }
   return event === "deadline" ? { state: "trusted", action: "replace" } : { state, action: "none" };
 }
 
