@@ -403,12 +403,12 @@ fn cron_restart_pending_finish_and_delivery_intent_remain_unknown_until_exact_ca
             binding_nonce:None, pty_id:None,
         };
         // The crash is injected at the persisted boundary, before any delivery invocation.
-        svc.run_watcher.checkpoint_cron(&run.cron, &owner, recovery::Phase::FinishPending, (0, ""), None, None).unwrap();
+        svc.run_watcher.checkpoint_cron(&run.cron, &owner, recovery::Phase::FinishPending, (Some(0), ""), None, None).unwrap();
         commit(&run.cron, |store| store.prepare_finish_run_with_summary(
             &run.job_id, &run.run_id, CronRunStatus::Success, None, Some("original terminal"), None,
         )).unwrap();
         if phase == recovery::Phase::DeliveryIntent {
-            svc.run_watcher.checkpoint_cron(&run.cron, &owner, phase, (0, ""), Some(svc.cron_report_plan(&run.cron, &run.job_id)), None).unwrap();
+            svc.run_watcher.checkpoint_cron(&run.cron, &owner, phase, (Some(0), ""), Some(svc.cron_report_plan(&run.cron, &run.job_id)), None).unwrap();
         }
         let original = run.cron.lock().run_receipt(&run.job_id, &run.run_id).unwrap().clone();
         let mut restarted = svc.clone();
@@ -439,7 +439,7 @@ fn cron_journal_write_refusal_preserves_live_phase_and_external_evidence() {
     let changed = b"preserved external evidence";
     std::fs::write(&path, changed).unwrap();
     let owner = CronRunAuthority { tab_id:RUN_TAB.into(), job_id:run.job_id.clone(), run_id:run.run_id.clone(), binding_nonce:None, pty_id:None };
-    assert!(svc.run_watcher.checkpoint_cron(&run.cron, &owner, recovery::Phase::FinishPending, (0, ""), None, None).is_err());
+    assert!(svc.run_watcher.checkpoint_cron(&run.cron, &owner, recovery::Phase::FinishPending, (Some(0), ""), None, None).is_err());
     assert_eq!(svc.run_watcher.cron_record(&run.job_id, &run.run_id).unwrap().phase, recovery::Phase::Planned);
     assert_eq!(std::fs::read(&path).unwrap(), changed);
     assert_ne!(original, changed);
@@ -551,27 +551,56 @@ fn cron_journal_rejects_stale_phase_without_overwriting_original_progress() {
 
 
 #[test]
-fn cron_uncaptured_allocation_acknowledges_effects_but_retains_bounded_resource_capacity() {
-    let run = oneshot_run(None);
-    let svc = &run.fixture.service;
-    svc.run_watcher.reserve_cron_slot(svc, &run.cron, &run.job_id, &run.run_id).unwrap();
-    svc.run_watcher.claim_cron_allocation(&run.job_id, &run.run_id).unwrap();
-    let mut restarted = svc.clone();
-    restarted.run_watcher = Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new());
-    restarted.run_watcher.ensure_cron_recovery(&restarted, &run.cron).unwrap();
-    assert!(restarted.run_watcher.unknown_cron_outcome(&run.run_id));
-    assert_eq!(restarted.cron_cancel_running(&run.cron, &run.job_id, crate::cron::store::CronCancelReason::UserCancel).unwrap(), 0);
-    let receipt = run.cron.lock().run_receipt(&run.job_id, &run.run_id).unwrap().clone();
-    assert_eq!(receipt.status, CronRunStatus::Cancelled);
-    let record = restarted.run_watcher.cron_record(&run.job_id, &run.run_id).unwrap();
-    assert_eq!(record.phase, recovery::Phase::Adjudicated);
-    assert_eq!(record.unknown_at, Some(recovery::Phase::Allocating));
-    assert!(!restarted.run_watcher.cron_job_finalizing(&run.job_id));
-    restarted.run_watcher.reserve_cron_slot(&restarted, &run.cron, &run.job_id, "future-after-adjudication").unwrap();
-    assert!(restarted.run_watcher.cron_record(&run.job_id, &run.run_id).is_some(), "uncaptured resource capacity never evaporates on acknowledgment");
-    assert_eq!(run.cron.lock().run_receipt(&run.job_id, &run.run_id), Some(&receipt));
+fn cron_uncaptured_allocation_acknowledgment_preserves_job_and_global_resource_barriers() {
+    for restart in [false, true] {
+        let run = oneshot_run(None);
+        let svc = &run.fixture.service;
+        svc.run_watcher.reserve_cron_slot(svc, &run.cron, &run.job_id, &run.run_id).unwrap();
+        svc.run_watcher.claim_cron_allocation(&run.job_id, &run.run_id).unwrap();
+        let mut owner = svc.clone();
+        if restart {
+            owner.run_watcher = Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new());
+            owner.run_watcher.ensure_cron_recovery(&owner, &run.cron).unwrap();
+        } else {
+            let mut interrupted = svc.run_watcher.cron_record(&run.job_id, &run.run_id).unwrap();
+            interrupted.unknown_at = Some(recovery::Phase::Allocating); interrupted.phase = recovery::Phase::Unknown;
+            svc.run_watcher.replace_cron_record(interrupted).unwrap();
+        }
+        assert!(owner.run_watcher.unknown_cron_outcome(&run.run_id));
+        assert_eq!(owner.cron_cancel_running(&run.cron, &run.job_id, crate::cron::store::CronCancelReason::UserCancel).unwrap(), 0);
+        let receipt = run.cron.lock().run_receipt(&run.job_id, &run.run_id).unwrap().clone();
+        assert_eq!(receipt.status, CronRunStatus::Cancelled);
+        let record = owner.run_watcher.cron_record(&run.job_id, &run.run_id).unwrap();
+        assert_eq!(record.phase, recovery::Phase::Adjudicated);
+        assert_eq!(record.unknown_at, Some(recovery::Phase::Allocating));
+        assert!(owner.run_watcher.cron_job_finalizing(&run.job_id));
+        assert!(owner.run_watcher.reserve_cron_slot(&owner, &run.cron, &run.job_id, "future-after-ack").is_err());
+        let params: CronCreateParams = serde_json::from_value(serde_json::json!({
+            "name":"unrelated", "workspace_id":"workspace", "schedule":"in 1h", "task":"opaque", "jitter_max_ms":0,
+        })).unwrap();
+        let unrelated = commit(&run.cron, |store| store.prepare_create(params.clone())).unwrap().value;
+        owner.run_watcher.reserve_cron_slot(&owner, &run.cron, &unrelated.id, "unrelated-run").unwrap();
+        if restart {
+            assert!(owner.run_watcher.settle_unallocated_cron_claim(&owner, &run.cron, &run.job_id, &run.run_id).is_err(), "restart cannot reconstruct an original release witness");
+            let mut again = owner.clone(); again.run_watcher = Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new());
+            again.run_watcher.ensure_cron_recovery(&again, &run.cron).unwrap();
+            assert!(again.run_watcher.cron_job_finalizing(&run.job_id));
+            assert!(again.run_watcher.reserve_cron_slot(&again, &run.cron, &run.job_id, "future-after-restart").is_err());
+        } else {
+            let archive = run.cron.lock().log_file(&run.job_id, &run.run_id).unwrap().with_extension("terminal-adjudicated.json");
+            std::fs::create_dir_all(archive.parent().unwrap()).unwrap();
+            std::fs::write(&archive, "retained conflicting evidence").unwrap();
+            assert!(owner.run_watcher.settle_unallocated_cron_claim(&owner, &run.cron, &run.job_id, &run.run_id).is_err());
+            assert!(owner.run_watcher.cron_job_finalizing(&run.job_id));
+            assert!(owner.run_watcher.cron_allocation_pending(&run.job_id, &run.run_id));
+            std::fs::remove_file(&archive).unwrap();
+            owner.run_watcher.settle_unallocated_cron_claim(&owner, &run.cron, &run.job_id, &run.run_id).unwrap();
+            assert!(!owner.run_watcher.cron_job_finalizing(&run.job_id));
+            owner.run_watcher.reserve_cron_slot(&owner, &run.cron, &run.job_id, "future-after-original-release").unwrap();
+        }
+        assert_eq!(run.cron.lock().run_receipt(&run.job_id, &run.run_id), Some(&receipt));
+    }
 }
-
 
 #[test]
 fn max_history_zero_retired_oneshot_acknowledges_only_confirmed_cleanup_without_replay() {

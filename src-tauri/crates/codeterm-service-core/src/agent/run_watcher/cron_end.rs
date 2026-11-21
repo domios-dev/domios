@@ -34,7 +34,7 @@ pub(super) struct Finalizer {
     owner: CronRunAuthority,
     request: Mutex<TerminalRun>,
     raw_output: String,
-    raw_bytes: usize,
+    raw_bytes: Option<usize>,
     known_finished: Mutex<Option<crate::cron::store::RunFinished>>,
     cancelled: AtomicBool,
     delivery_gate: Mutex<()>,
@@ -48,6 +48,7 @@ pub(super) struct Finalizer {
     role_settled: AtomicBool,
     failure: Mutex<Option<String>>,
     failed_start_epoch: Option<u64>,
+    rejection: Option<super::runtime_runs::RejectedCronStart>,
     phase: Mutex<FinalPhase>,
     report: Mutex<Option<(crate::service::cron::CronReportPlan, String)>>,
 }
@@ -99,7 +100,15 @@ fn restart_finalizer(svc: &ServiceContext, retained: &Finalizer) {
 }
 
 fn start(svc: &ServiceContext, run: EndedCronRun<'_>, deliver: Option<Deliver>) -> Option<CronEndHandle> {
-    start_gated(svc, run, deliver, None)
+    start_gated(svc, run, deliver, None, None, true)
+}
+
+pub(super) fn finish_projected(svc: &ServiceContext, run: EndedCronRun<'_>, complete: bool) -> Option<CronEndHandle> {
+    start_gated(svc, run, None, None, None, complete)
+}
+
+pub(super) fn finish_rejected(svc: &ServiceContext, run: EndedCronRun<'_>, admission: super::runtime_runs::RejectedCronStart) -> Option<CronEndHandle> {
+    start_gated(svc, run, None, None, Some(admission), true)
 }
 
 struct ResponseFence {
@@ -125,13 +134,13 @@ pub(crate) fn finish_after_response(svc: &ServiceContext, owner: &CronRunAuthori
     let handle = start_gated(svc, EndedCronRun {
         tab_id: owner.tab_id(), job_id: owner.job_id(), run_id: owner.run_id(), success: true, summary,
         raw_output: raw, session_id: session, cwd, binding_nonce: owner.nonce(), pty_id: owner.pty_id(), failed_start_epoch: None,
-    }, None, Some(ResponseFence { release: wait, cleaned }));
+    }, None, Some(ResponseFence { release: wait, cleaned }), None, true);
     let Some(handle) = handle else { return Ok(None) };
     if !handle.wait_for_terminal()? { return Ok(None); }
     Ok(Some(ResponseRelease { release, cleaned: receipt }))
 }
 
-fn start_gated(svc: &ServiceContext, run: EndedCronRun<'_>, deliver: Option<Deliver>, response: Option<ResponseFence>) -> Option<CronEndHandle> {
+fn start_gated(svc: &ServiceContext, run: EndedCronRun<'_>, deliver: Option<Deliver>, response: Option<ResponseFence>, rejection: Option<super::runtime_runs::RejectedCronStart>, complete_output: bool) -> Option<CronEndHandle> {
     let cron = svc.try_ext::<crate::CronState>()?.clone();
     let key = (run.job_id.to_string(), run.run_id.to_string());
     let own = CronRunAuthority {
@@ -153,10 +162,11 @@ fn start_gated(svc: &ServiceContext, run: EndedCronRun<'_>, deliver: Option<Deli
                 summary: recovery::bounded(&run.summary, recovery::MAX_SUMMARY), session_id: run.session_id.filter(|value| value.len() <= 1024).map(str::to_string), cwd: run.cwd.filter(|value| value.len() <= 4096).map(str::to_string),
                 tab_id: Some(run.tab_id.into()),
             }),
-            raw_output: recovery::tail(run.raw_output), raw_bytes: run.raw_output.len(), known_finished: Mutex::new(None), cancelled: AtomicBool::new(false), delivery_gate: Mutex::new(()), unknown: AtomicBool::new(false), plain_shell: response.is_some(), attempt: Mutex::new(None), deliver: Mutex::new(deliver.map(DeliveryPort::Injected).unwrap_or(DeliveryPort::Production)),
+            raw_output: recovery::tail(run.raw_output), raw_bytes: complete_output.then_some(run.raw_output.len()), known_finished: Mutex::new(None), cancelled: AtomicBool::new(false), delivery_gate: Mutex::new(()), unknown: AtomicBool::new(false), plain_shell: response.is_some(), attempt: Mutex::new(None), deliver: Mutex::new(deliver.map(DeliveryPort::Injected).unwrap_or(DeliveryPort::Production)),
             running: AtomicBool::new(false), resume_after_allocation: AtomicBool::new(false), effects_started: AtomicBool::new(false), role_settled: AtomicBool::new(false),
             failure: Mutex::new(None),
             failed_start_epoch: run.failed_start_epoch,
+            rejection,
             phase: Mutex::new(FinalPhase::Terminal), report: Mutex::new(None),
         }));
         if entry.owner != own || entry.running.swap(true, Ordering::AcqRel) { return None; }
@@ -187,7 +197,7 @@ fn start_gated(svc: &ServiceContext, run: EndedCronRun<'_>, deliver: Option<Deli
                 });
                 if !still_ended { let _ = settled.send(Ok(false)); return Ok(()); }
             }
-            if !finalizer.role_settled.swap(true, Ordering::AcqRel) && cron.lock().run_is_active(&key.0, &key.1) {
+            if !finalizer.role_settled.swap(true, Ordering::AcqRel) && finalizer.rejection.is_none() && cron.lock().run_is_active(&key.0, &key.1) {
                 let job = cron.lock().get(&key.0).cloned();
                 if let Some((job, policy)) = job.as_ref().and_then(|job| crate::service::role_policy::resolve(job.role.as_deref()).map(|policy| (job, policy))) {
                     let now = cron.lock().now_ms();
@@ -249,7 +259,13 @@ fn start_gated(svc: &ServiceContext, run: EndedCronRun<'_>, deliver: Option<Deli
                         FinalPhase::Retire => TerminalRunCommit::retire(request.clone()),
                         _ => unreachable!("effects have no persistence attempt"),
                     });
-                    match crate::async_runtime::block_on(attempt.settle(&cron)) {
+                    let result = if phase == FinalPhase::Terminal {
+                        match finalizer.rejection.as_ref() {
+                            Some(rejection) => crate::async_runtime::block_on(attempt.settle_guarded(&cron, || Ok(svc.mux.write()), |store, mux| rejection.admit(&svc, mux, store))),
+                            None => crate::async_runtime::block_on(attempt.settle(&cron)),
+                        }
+                    } else { crate::async_runtime::block_on(attempt.settle(&cron)) };
+                    match result {
                         Ok(finished) => finished,
                         Err(error) => {
                             let unknown = matches!(error, crate::cron::store::CronCommitError::Unconfirmed(_));
@@ -283,7 +299,8 @@ fn start_gated(svc: &ServiceContext, run: EndedCronRun<'_>, deliver: Option<Deli
                         let _ = settled.send(Ok(true));
                         if let Some(release) = response_release.take() { let _ = release.recv(); }
                         if !finalizer.effects_started.swap(true, Ordering::AcqRel) {
-                            let log_text = format!("--- SUMMARY ---\n{}\n\n--- RAW OUTPUT TAIL ({} original bytes) ---\n{}", request.summary, finalizer.raw_bytes, finalizer.raw_output);
+                            let extent = finalizer.raw_bytes.map(|bytes| format!("complete input evidence: {bytes} bytes")).unwrap_or_else(|| "PARTIAL recent content projection; original bytecount unavailable".into());
+                            let log_text = format!("--- SUMMARY ---\n{}\n\n--- BOUNDED OUTPUT EVIDENCE ({extent}; full transcript bytecount/digest unavailable) ---\n{}", request.summary, finalizer.raw_output);
                             if finalizer.plain_shell && request.status == CronRunStatus::Success {
                                 let oneshot = cron.lock().get(&key.0).is_some_and(|job| job.oneshot);
                                 log::info!("Cron run completed: job={}, run={}, oneshot={}, summary_len={}", key.0, key.1, oneshot, log_text.len());

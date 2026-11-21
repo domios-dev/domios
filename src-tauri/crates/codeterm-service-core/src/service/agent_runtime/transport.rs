@@ -543,21 +543,20 @@ fn launch_with_fork(
     let run_owner = svc.run_watcher.runtime_start_owner(tab, &nonce);
     let retained_cron = cron_owner.and_then(|owner| svc.run_watcher.capture_cron_runtime_start(svc, owner, &original));
     if let Some(boundary) = boundary { boundary.store(true, std::sync::atomic::Ordering::Release); }
-    let result = crate::async_runtime::block_on(async {
-        if cron_owner.is_some() {
-            let mut outcome = engine::ensure_expected_observed(svc, tab, &nonce, fork).await;
-            if let Some(retained) = retained_cron.as_ref() {
-                let _ = svc.run_watcher.runtime_rejected_before_acquisition(svc, retained, &original, fork, &mut outcome);
-            }
-            return outcome.into_result();
+    let result = if cron_owner.is_some() {
+        let outcome = crate::async_runtime::block_on(engine::ensure_expected_observed(svc, tab, &nonce, fork));
+        match retained_cron {
+            Some(retained) => svc.run_watcher.runtime_rejected_before_acquisition(svc, retained, &original, fork, outcome),
+            None => outcome.into_result(),
         }
-        match fork {
-            Some((source_thread_id, turn_id)) => {
-                engine::ensure_fork(svc, tab, source_thread_id, turn_id).await
+    } else {
+        crate::async_runtime::block_on(async {
+            match fork {
+                Some((source_thread_id, turn_id)) => engine::ensure_fork(svc, tab, source_thread_id, turn_id).await,
+                None => engine::ensure(svc, tab).await,
             }
-            None => engine::ensure(svc, tab).await,
-        }
-    })
+        })
+    }
     .or_else(|error| match fork {
         None if cron_owner.is_none_or(|owner| owner.matches(&svc.mux.read())) => engine::login_pending_session(svc, tab, error),
         None => Err(error),

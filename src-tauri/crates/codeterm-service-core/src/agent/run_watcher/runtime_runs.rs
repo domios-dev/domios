@@ -14,6 +14,7 @@ pub(super) struct RuntimeRun {
     completion: Option<RuntimeCompletion>,
     reported: bool,
     cancelled: tokio::sync::watch::Sender<bool>,
+    prepared_input: Option<PreparedCronInput>,
 }
 
 struct RuntimeCompletion {
@@ -38,6 +39,70 @@ pub(crate) struct CronRunAuthority {
 
 pub(crate) struct CronRuntimeStart {
     owner: CronRunAuthority,
+    input: PreparedCronInput,
+}
+
+enum PreparedCronInput { Empty, Created { record: String, send: String }, Admitted { record: String, send: String } }
+
+type NativeRejectionProof = Box<dyn FnOnce(&engine::ExpectedEnsureOutcome, &ServiceContext, &crate::multiplexer::types::Tab, Option<(&str, &str)>) -> bool + Send>;
+type CronStartGuards<'a> = (
+    parking_lot::MutexGuard<'a, std::collections::HashMap<String, CronRunAuthority>>,
+    parking_lot::MutexGuard<'a, std::collections::HashMap<String, RuntimeRun>>,
+);
+
+pub(super) struct RejectedCronStart {
+    start: CronRuntimeStart,
+    original: crate::multiplexer::types::Tab,
+    fork: Option<(String, String)>,
+    proof: parking_lot::Mutex<Option<NativeRejectionProof>>,
+    outcome: std::sync::Arc<parking_lot::Mutex<Option<engine::ExpectedEnsureOutcome>>>,
+}
+
+impl RejectedCronStart {
+    pub(super) fn admit<'a>(&'a self, svc: &'a ServiceContext, mux: &crate::multiplexer::state::MultiplexerState, store: &crate::cron::store::CronStore) -> Result<CronStartGuards<'a>, String> {
+        let owner = &self.start.owner;
+        let current = mux.get_tab(owner.tab_id()).filter(|_| owner.matches(mux)).ok_or("Original cron generation is absent or replaced")?;
+        if !crate::service::messenger::switch_handoff::same_binding(&self.original, current) { return Err("Original cron launch context changed".into()); }
+        if !input_is_unwritten(svc, current, &self.start.input) { return Err("Original cron input admission changed".into()); }
+        if !active_start_receipt(store, owner) { return Err("Original cron receipt is no longer an active unwritten start".into()); }
+        let bindings = svc.run_watcher.cron_bindings.lock();
+        if bindings.get(owner.tab_id()) != Some(owner) { return Err("Original cron binding changed".into()); }
+        let runs = svc.run_watcher.runtime_runs.lock();
+        if !runs.get(owner.tab_id()).is_some_and(|run| unwritten_start(run, owner)) { return Err("Original cron watcher changed".into()); }
+        if engine::for_tab(owner.tab_id()).is_some() { return Err("A runtime Session now owns this tab".into()); }
+        let mut proof = self.proof.lock();
+        let outcome = self.outcome.lock();
+        let outcome = outcome.as_ref().ok_or("Native original observation was released")?;
+        if !proof.take().is_some_and(|proof| proof(outcome, svc, &self.original, self.fork.as_ref().map(|(thread, turn)| (thread.as_str(), turn.as_str())))) {
+            return Err("Native never-acquired proof is absent, consumed or no longer valid; no terminal resubmission is authorized".into());
+        }
+        Ok((bindings, runs))
+    }
+}
+
+fn unwritten_start(run: &RuntimeRun, owner: &CronRunAuthority) -> bool {
+    run.nonce.as_str() == owner.nonce().unwrap_or_default()
+        && run.kind == (AgentRunKind::Cron { job_id:owner.job_id.clone(), run_id:owner.run_id.clone() })
+        && !run.armed && !run.ended_turn && !run.reported && run.completion.is_none() && !*run.cancelled.borrow()
+}
+
+fn active_start_receipt(store: &crate::cron::store::CronStore, owner: &CronRunAuthority) -> bool {
+    store.run_is_active(owner.job_id(), owner.run_id()) && store.run_receipt(owner.job_id(), owner.run_id()).is_some_and(|run|
+        run.tab_id.as_deref() == Some(owner.tab_id()) && run.session_id.is_none() && run.report_delivery.is_none())
+}
+
+fn input_is_unwritten(svc: &ServiceContext, current: &crate::multiplexer::types::Tab, input: &PreparedCronInput) -> bool {
+    let (record, send, newly_created) = match input {
+        PreparedCronInput::Empty => return current.pending_delivery.is_none(),
+        PreparedCronInput::Created { record, send } => (record, send, true),
+        PreparedCronInput::Admitted { record, send } => (record, send, false),
+    };
+    let pending = current.pending_delivery.as_ref().is_some_and(|pending| pending.record_id() == record && pending.send_id() == Some(send.as_str())
+        && pending.state() == crate::multiplexer::types::PendingDeliveryState::Pending && pending.attempt_provenance().is_none());
+    pending && match svc.chat_send_ledger.status(send) {
+        Some(status) => status.tab_id == current.id && status.send_id == *send && status.state == crate::service::chat_send_transaction::ChatSendState::Pending,
+        None => newly_created,
+    }
 }
 
 pub(super) struct CronCleanup {
@@ -145,7 +210,7 @@ impl RunWatcherRegistry {
         if !eligible { return false; }
         if let Some(pending) = original.and_then(|tab| tab.pending_delivery.as_ref()) {
             if pending.state() != crate::multiplexer::types::PendingDeliveryState::Pending || pending.attempt_provenance().is_some() { return false; }
-            if pending.send_id().and_then(|id| svc.chat_send_ledger.status(id)).is_some_and(|status| status.state != crate::service::chat_send_transaction::ChatSendState::Pending) { return false; }
+            if !pending.send_id().and_then(|id| svc.chat_send_ledger.status(id)).is_some_and(|status| status.tab_id == owner.tab_id && status.state == crate::service::chat_send_transaction::ChatSendState::Pending) { return false; }
         }
         let Some(cron) = svc.try_ext::<crate::CronState>() else { return false };
         let store = cron.lock();
@@ -153,33 +218,61 @@ impl RunWatcherRegistry {
             run.tab_id.as_deref() == Some(owner.tab_id()) && run.session_id.is_none() && run.report_delivery.is_none())
     }
 
-    pub(crate) fn capture_cron_runtime_start(&self, svc: &ServiceContext, owner: &CronRunAuthority, original: &crate::multiplexer::types::Tab) -> Option<CronRuntimeStart> {
-        if !owner.matches(&svc.mux.read()) || !self.cron_start_is_unwritten(svc, owner, Some(original)) { return None; }
-        let runs = self.runtime_runs.lock();
-        runs.get(owner.tab_id()).filter(|run| run.nonce.as_str() == owner.nonce().unwrap_or_default()
-            && run.kind == (AgentRunKind::Cron { job_id:owner.job_id.clone(), run_id:owner.run_id.clone() })
-            && !run.armed && !run.ended_turn && !run.reported && run.completion.is_none() && !*run.cancelled.borrow())?;
-        Some(CronRuntimeStart { owner:owner.clone() })
+    pub(crate) fn seal_prepared_cron_input(&self, svc: &ServiceContext, owner: &CronRunAuthority, created: Option<crate::multiplexer::types::PendingDeliveryRecord>) -> Result<(), String> {
+        let mut mux = svc.mux.write();
+        let current = mux.get_tab(owner.tab_id()).filter(|_| owner.matches(&mux)).ok_or("Original cron input generation changed")?;
+        if current.pending_delivery.is_some() { return Err("Existing pending input cannot acquire creation authority".into()); }
+        if !active_start_receipt(&svc.try_ext::<crate::CronState>().ok_or("Cron state absent")?.lock(), owner) { return Err("Original cron input receipt is no longer active".into()); }
+        let mut runs = self.runtime_runs.lock();
+        let run = runs.get_mut(owner.tab_id()).filter(|run| unwritten_start(run, owner)).ok_or("Original cron watcher changed before input preparation")?;
+        if run.prepared_input.is_some() { return Err("Cron initial input preparation was already sealed".into()); }
+        let input = match created.as_ref() {
+            Some(record) => {
+                let send = record.send_id().ok_or("New cron input has no original send ID")?;
+                if record.state() != crate::multiplexer::types::PendingDeliveryState::Pending || record.attempt_provenance().is_some() { return Err("New cron input was already claimed".into()); }
+                PreparedCronInput::Created { record:record.record_id().to_string(), send:send.into() }
+            }
+            None => PreparedCronInput::Empty,
+        };
+        mux.get_tab_mut(owner.tab_id()).ok_or("Original cron input tab disappeared")?.pending_delivery = created;
+        run.prepared_input = Some(input);
+        Ok(())
     }
 
-    pub(crate) fn runtime_rejected_before_acquisition(&self, svc: &ServiceContext, retained: &CronRuntimeStart, original: &crate::multiplexer::types::Tab, fork: Option<(&str, &str)>, outcome: &mut engine::ExpectedEnsureOutcome) -> Option<cron_end::CronEndHandle> {
-        let owner = &retained.owner;
+    pub(crate) fn capture_cron_runtime_start(&self, svc: &ServiceContext, owner: &CronRunAuthority, original: &crate::multiplexer::types::Tab) -> Option<CronRuntimeStart> {
+        let mux = svc.mux.read();
+        let current = mux.get_tab(owner.tab_id()).filter(|_| owner.matches(&mux))?;
+        let bound = self.cron_bindings.lock().get(owner.tab_id()) == Some(owner);
+        if !bound || !active_start_receipt(&svc.try_ext::<crate::CronState>()?.lock(), owner) { return None; }
+        let mut runs = self.runtime_runs.lock();
+        let run = runs.get_mut(owner.tab_id()).filter(|run| unwritten_start(run, owner))?;
+        let input = match run.prepared_input.take() {
+            Some(prepared) => prepared,
+            None => {
+                let pending = original.pending_delivery.as_ref()?;
+                let send = pending.send_id()?;
+                let status = svc.chat_send_ledger.status(send)?;
+                if status.tab_id != owner.tab_id || status.state != crate::service::chat_send_transaction::ChatSendState::Pending { return None; }
+                PreparedCronInput::Admitted { record:pending.record_id().to_string(), send:send.into() }
+            }
+        };
+        if !input_is_unwritten(svc, current, &input) { return None; }
+        Some(CronRuntimeStart { owner:owner.clone(), input })
+    }
+
+    pub(crate) fn runtime_rejected_before_acquisition(&self, svc: &ServiceContext, retained: CronRuntimeStart, original: &crate::multiplexer::types::Tab, fork: Option<(&str, &str)>, mut outcome: engine::ExpectedEnsureOutcome) -> Result<std::sync::Arc<engine::Session>, crate::service::agent_runtime::model::RuntimeFailure> {
+        let Some(proof) = outcome.take_rejection() else { return outcome.into_result() };
+        let owner = retained.owner.clone();
         if original.id != owner.tab_id || original.session_binding_nonce != owner.binding_nonce || original.pty_id.is_some()
-            || owner.matches(&svc.mux.read()) || self.cron_bindings.lock().get(owner.tab_id()) != Some(owner) { return None; }
-        let cron = svc.try_ext::<crate::CronState>()?;
-        {
-            let store = cron.lock();
-            if !store.run_is_active(owner.job_id(), owner.run_id()) || !store.run_receipt(owner.job_id(), owner.run_id()).is_some_and(|run| run.tab_id.as_deref() == Some(owner.tab_id()) && run.session_id.is_none() && run.report_delivery.is_none()) { return None; }
-        }
-        if let Some(pending) = original.pending_delivery.as_ref() {
-            if pending.send_id().and_then(|id| svc.chat_send_ledger.status(id)).is_some_and(|status| status.state != crate::service::chat_send_transaction::ChatSendState::Pending) { return None; }
-        }
-        if engine::for_tab(owner.tab_id()).is_some_and(|session| Some(session.context.lock().binding_nonce.as_str()) == owner.nonce()) { return None; }
-        let proof = outcome.take_rejection()?;
-        if !proof.matches_original(outcome, svc, original, fork) { return None; }
-        cron_end::finish(svc, cron_end::EndedCronRun { tab_id:owner.tab_id(), job_id:owner.job_id(), run_id:owner.run_id(), success:false,
+            || !owner.matches(&svc.mux.read()) { return outcome.into_result(); }
+        let outcome = std::sync::Arc::new(parking_lot::Mutex::new(Some(outcome)));
+        let native: NativeRejectionProof = Box::new(move |outcome, svc, original, fork| proof.matches_original(outcome, svc, original, fork));
+        let admission = RejectedCronStart { start:retained, original:original.clone(), fork:fork.map(|(thread, turn)| (thread.into(), turn.into())), proof:parking_lot::Mutex::new(Some(native)), outcome:outcome.clone() };
+        if let Some(handle) = cron_end::finish_rejected(svc, cron_end::EndedCronRun { tab_id:owner.tab_id(), job_id:owner.job_id(), run_id:owner.run_id(), success:false,
             summary:"Runtime startup rejected before original session acquisition".into(), raw_output:"", session_id:None, cwd:None,
-            binding_nonce:owner.nonce(), pty_id:None, failed_start_epoch:None })
+            binding_nonce:owner.nonce(), pty_id:None, failed_start_epoch:None }, admission) { let _ = handle.wait_for_terminal(); }
+        let result = outcome.lock().take().expect("Original native outcome is consumed once").into_result();
+        result
     }
 
     pub(crate) fn runtime_ended_start_result(&self, svc: &ServiceContext, owner: &CronRunAuthority, original: &crate::multiplexer::types::Tab, error: &crate::service::agent_runtime::model::RuntimeFailure) -> Option<cron_end::CronEndHandle> {
@@ -243,6 +336,7 @@ impl RunWatcherRegistry {
             runs.insert(
                 tab.into(),
                 RuntimeRun {
+                    prepared_input: None,
                     nonce: nonce.clone(),
                     kind: kind.clone(),
                     armed: false,
@@ -444,15 +538,15 @@ impl RunWatcherRegistry {
                 let target = mux.get_tab(tab).filter(|target| target.session_binding_nonce.as_deref() == Some(nonce) && target.pty_id.is_none());
                 (target.and_then(|target| target.agent_session_id.clone()), target.and_then(|target| target.cwd.clone()))
             };
-            let output = engine::for_tab(tab).filter(|session| session.context.lock().binding_nonce == nonce)
+            let (output, complete_output) = engine::for_tab(tab).filter(|session| session.context.lock().binding_nonce == nonce)
                 .filter(|_| svc.mux.read().get_tab(tab).is_some_and(|target| target.session_binding_nonce.as_deref() == Some(nonce)))
-                .and_then(|session| serde_json::to_string(&session.cache.lock().snapshot()).ok()).unwrap_or_default();
-            return cron_end::finish(svc, cron_end::EndedCronRun {
+                .map(|session| session.cache.lock().terminal_evidence()).unwrap_or_else(|| ("PARTIAL runtime cache evidence unavailable; full transcript bytecount/digest unavailable".into(), false));
+            return cron_end::finish_projected(svc, cron_end::EndedCronRun {
                 tab_id: tab, job_id: &job_id, run_id: &run_id, success, summary,
                 raw_output: &output, session_id: session.as_deref(), cwd: cwd.as_deref(),
                 binding_nonce: Some(nonce), pty_id: None,
                 failed_start_epoch: key.failed_start_epoch,
-            });
+            }, complete_output);
         }
         let run = {
             let mut runs = self.runtime_runs.lock();

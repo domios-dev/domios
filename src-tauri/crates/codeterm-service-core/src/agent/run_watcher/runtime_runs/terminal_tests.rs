@@ -636,6 +636,7 @@ fn staged_cron_expected_generation_normal_and_fork_preserve_valid_original_launc
         scene.fixture.set_agent_full_access(false);
         let (tab, _, run, mut metadata) = staged(&scene, MockClock::starting_at(1_700_000_000_000));
         let svc = &scene.fixture.service;
+        metadata.agent.task = Some("opaque valid initial input".into());
         metadata.params.existing_tab_id = Some(tab.clone());
         metadata.params.skip_permissions = Some(false);
         if fork { metadata.runtime_fork = Some(crate::service::spawn::RuntimeForkLaunch { source_thread_id:"source-thread".into(), turn_id:"source-turn".into() }); }
@@ -685,7 +686,7 @@ fn staged_cron_expected_generation_normal_and_fork_preserve_valid_original_launc
 
 
 #[test]
-fn staged_cron_provisioning_rejection_uses_native_proof_and_preserves_acquired_uncertainty() {
+fn staged_cron_replacement_refusal_preserves_original_and_replacement_with_acquired_controls() {
     for fork in [false, true] {
         for acquired in [false, true] {
             let scene = Scene::new();
@@ -744,21 +745,12 @@ fn staged_cron_provisioning_rejection_uses_native_proof_and_preserves_acquired_u
             let ended = scene.ended("cron-run-finished");
             assert!(launch.run().is_err());
             assert_eq!(starts.load(std::sync::atomic::Ordering::Acquire), 0);
-            if acquired {
-                assert_eq!(scene.cron.lock().run_receipt(job_id, &run).unwrap().status, CronRunStatus::Running);
-                assert!(svc.run_watcher.cron_job_finalizing(job_id));
-            } else {
-                ended.recv_timeout(Duration::from_secs(5)).unwrap();
-                let store = scene.cron.lock(); let receipt = store.run_receipt(job_id, &run).unwrap();
-                assert_eq!(receipt.status, CronRunStatus::Failed);
-                assert_eq!(receipt.finished_at, Some(1_700_000_000_000));
-                assert_eq!(receipt.report_delivery.as_deref(), Some("no report target"));
-                assert_eq!(store.get(job_id).unwrap().consecutive_failures, 1);
-            }
+            assert_eq!(scene.cron.lock().run_receipt(job_id, &run).unwrap().status, CronRunStatus::Running);
+            assert!(ended.try_recv().is_err());
             assert_eq!(serde_json::to_value(svc.mux.read().get_tab(&tab).unwrap()).unwrap(), replacement.lock().clone().expect("actual account provision boundary reached"));
             assert!(svc.run_watcher.runtime_runs.lock().get(&tab).is_some_and(|watcher| matches!(&watcher.kind, AgentRunKind::MemWorker { worker_id } if worker_id == "replacement-worker")));
             assert_eq!(engine::for_tab(&tab).unwrap().context.lock().thread_id.as_deref(), Some("replacement-session"));
-            if acquired {
+            {
                 assert_eq!(svc.cron_cancel_running(&scene.cron, job_id, CronCancelReason::UserCancel).unwrap(), 1);
                 assert_eq!(serde_json::to_value(svc.mux.read().get_tab(&tab).unwrap()).unwrap(), replacement.lock().clone().unwrap());
                 assert!(svc.run_watcher.runtime_runs.lock().get(&tab).is_some_and(|watcher| matches!(&watcher.kind, AgentRunKind::MemWorker { worker_id } if worker_id == "replacement-worker")));
@@ -803,4 +795,146 @@ fn staged_cron_retained_provisioning_stays_pending_without_process_or_payload_re
     crate::async_runtime::block_on(test_support::settled(&mut work)).unwrap();
     assert_eq!(scene.cron.lock().run_receipt(job_id, &run).unwrap().status, CronRunStatus::Running);
     assert_eq!(svc.cron_cancel_running(&scene.cron, job_id, CronCancelReason::UserCancel).unwrap(), 1);
+}
+
+#[test]
+fn staged_cron_completed_account_refusal_requires_original_prepared_input_and_native_history() {
+    for fork in [false, true] {
+        for input in ["empty", "created", "existing-missing-ledger", "admitted", "acquired", "removed"] {
+            let scene = Scene::new(); scene.fixture.set_agent_full_access(false);
+            let (tab, _, run, mut metadata) = staged(&scene, MockClock::starting_at(1_700_000_000_000));
+            let svc = &scene.fixture.service;
+            metadata.params.existing_tab_id = Some(tab.clone()); metadata.params.skip_permissions = Some(false);
+            if matches!(input, "created" | "acquired" | "removed") { metadata.agent.task = Some("opaque initial input".into()); }
+            if fork { metadata.runtime_fork = Some(crate::service::spawn::RuntimeForkLaunch { source_thread_id:"source-thread".into(), turn_id:"source-turn".into() }); }
+            {
+                let mut mux = svc.mux.write(); let picker = mux.get_tab_mut(&tab).unwrap();
+                picker.agent_type = None; picker.backing = crate::multiplexer::types::TabBacking::Pty;
+            }
+            let existing_send = if matches!(input, "existing-missing-ledger" | "admitted") {
+                let send = uuid::Uuid::new_v4().to_string();
+                svc.create_pending_delivery_with_send_id(&tab, crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput, "opaque existing input", Some(&send)).unwrap();
+                Some(send)
+            } else { None };
+            let mut spec: crate::service::spawn::SpawnTabSpec = serde_json::from_value(json!({
+                "workspace_id":svc.mux.read().find_workspace_for_tab(&tab).unwrap(),
+                "command":{"kind":"chat_backend","plugin_id":PROVIDER,"config":{}},
+            })).unwrap(); spec.chatbackend_launch = Some(Box::new(metadata.clone()));
+            let (_, launch) = svc.stage_chatbackend_spawn(spec, false).unwrap();
+            let RuntimeOwnerLinkage::CronRun { job_id, .. } = metadata.owner_linkage.as_ref().unwrap() else { unreachable!() };
+            let owner = svc.run_watcher.cron_binding(&tab, job_id, &run).unwrap();
+            if input == "admitted" { svc.chat_send_ledger.start_runtime_claim(&tab, "opaque existing input", existing_send.as_deref().unwrap()).unwrap(); }
+            let prepared_send = svc.mux.read().get_tab(&tab).unwrap().pending_delivery.as_ref().and_then(|pending| pending.send_id().map(str::to_string));
+            if input == "acquired" {
+                crate::service::agent_runtime::authority::record_spawn_for_test(svc, &tab, PROVIDER, owner.nonce().unwrap());
+                let mut original = svc.mux.read().get_tab(&tab).unwrap().clone(); original.agent_session_id = Some("earlier-original-session".into());
+                let earlier = engine::test_support::loaded_runtime(&original, svc.agent_registry.provider_arc(PROVIDER));
+                assert!(crate::async_runtime::block_on(engine::ensure_with_invocation(svc, &tab, None)).is_err());
+                engine::test_support::stop_test(&tab); drop(earlier);
+            }
+            // The actual account path refuses a nonexistent isolated account without rotating the tab.
+            svc.mux.write().get_tab_mut(&tab).unwrap().restorable_launch.account_id = Some("missing-fixture-account".into());
+            let original_pending = serde_json::to_value(&svc.mux.read().get_tab(&tab).unwrap().pending_delivery).unwrap();
+            let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0)); let observed = calls.clone();
+            let _process = crate::service::agent_runtime::process::test_ports::register(&tab, move || {
+                observed.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                let (process, peer) = crate::service::agent_runtime::process::test_ports::connected(); drop(peer); process
+            });
+            let reached = Arc::new(std::sync::atomic::AtomicBool::new(false)); let seen = reached.clone(); let target = tab.clone();
+            assert!(svc.set_ext(engine::ExpectedLaunchCommit { stage:"account_provision", callback:Mutex::new(Some(Box::new(move |svc| {
+                seen.store(true, std::sync::atomic::Ordering::Release);
+                if input == "removed" { svc.mux.write().remove_tab(&target).unwrap(); }
+            }))) }).is_ok());
+            let ended = scene.ended("cron-run-finished");
+            assert!(launch.run().is_err());
+            assert!(reached.load(std::sync::atomic::Ordering::Acquire));
+            assert_eq!(calls.load(std::sync::atomic::Ordering::Acquire), 0);
+            if input == "created" { assert!(svc.chat_send_ledger.status(prepared_send.as_deref().unwrap()).is_none(), "rejected native start never reached bootstrap admission"); }
+            let positive = matches!(input, "empty" | "created" | "admitted");
+            if positive {
+                ended.recv_timeout(Duration::from_secs(5)).unwrap();
+                let receipt = scene.cron.lock().run_receipt(job_id, &run).unwrap().clone();
+                assert_eq!(receipt.status, CronRunStatus::Failed);
+                assert_eq!(receipt.finished_at, Some(1_700_000_000_000));
+                assert_eq!(scene.cron.lock().get(job_id).unwrap().consecutive_failures, 1);
+                assert_eq!(receipt.report_delivery.as_deref(), Some("no report target"));
+                assert!(ended.try_recv().is_err());
+                assert!(svc.mux.read().get_tab(&tab).is_none());
+            } else {
+                assert_eq!(scene.cron.lock().run_receipt(job_id, &run).unwrap().status, CronRunStatus::Running);
+                assert!(ended.try_recv().is_err());
+                if input != "removed" {
+                    let current = svc.mux.read().get_tab(&tab).unwrap().clone();
+                    assert_eq!(current.session_binding_nonce.as_deref(), owner.nonce());
+                    assert_eq!(serde_json::to_value(&current.pending_delivery).unwrap(), original_pending);
+                }
+                svc.cron_cancel_running(&scene.cron, job_id, CronCancelReason::UserCancel).unwrap();
+            }
+        }
+    }
+}
+
+#[test]
+fn runtime_cron_completion_materializes_bounded_nonrereadable_cache_evidence() {
+    for oversized in [false, true] {
+        let scene = Scene::new(); let svc = &scene.fixture.service;
+        let (tab, _, run, metadata) = staged(&scene, MockClock::starting_at(1_700_000_000_000));
+        let RuntimeOwnerLinkage::CronRun { job_id, .. } = metadata.owner_linkage.as_ref().unwrap() else { unreachable!() };
+        svc.prepare_runtime_cron_owner(&tab, job_id, &run).unwrap();
+        svc.prepare_runtime_run_watcher(&tab, &metadata).unwrap();
+        let owner = svc.run_watcher.cron_binding(&tab, job_id, &run).unwrap();
+        let mut original = svc.mux.read().get_tab(&tab).unwrap().clone(); original.agent_session_id = Some("output-session".into());
+        let live = engine::test_support::loaded_runtime(&original, svc.agent_registry.provider_arc(PROVIDER));
+        let session = engine::for_tab(&tab).unwrap();
+        let ordinary: ChatMsg = serde_json::from_value(json!({"id":"ordinary", "type":"assistant", "content":"ordinary output", "seq":0})).unwrap();
+        session.cache.lock().reconcile(ordinary);
+        if oversized {
+            for n in 0..192 {
+                let row: ChatMsg = serde_json::from_value(json!({"id":format!("row-{n}"), "type":"assistant", "content":"x".repeat(32 * 1024), "seq":n+1})).unwrap();
+                session.cache.lock().reconcile(row);
+            }
+            let mut deep = json!("opaque"); for _ in 0..24 { deep = json!([deep]); }
+            let row: ChatMsg = serde_json::from_value(json!({"id":"recent-large", "type":"assistant", "content":"🙂".repeat(1024 * 1024), "tool_input":deep, "seq":194})).unwrap();
+            session.cache.lock().reconcile(row);
+        }
+        let before = session.cache.lock().retained();
+        let (evidence, complete) = session.cache.lock().terminal_evidence();
+        assert!(evidence.len() <= 8 * 1024);
+        if oversized {
+            assert!(!complete); assert!(evidence.starts_with("PARTIAL"));
+            let cache = session.cache.lock();
+            assert_eq!(cache.retained(), before);
+            assert_eq!(cache.get("recent-large").unwrap().content.len(), 4 * 1024 * 1024);
+            assert!(cache.get("recent-large").unwrap().tool_input.is_some());
+        } else {
+            assert!(complete);
+            assert_eq!(evidence, serde_json::to_string(&session.cache.lock().snapshot()).unwrap());
+        }
+        svc.run_watcher.finish_runtime(svc, &tab, owner.nonce().unwrap(), true, false, "completed".into()).unwrap().join().unwrap();
+        assert_eq!(session.cache.lock().retained(), before);
+        let log = scene.cron.lock().log_file(job_id, &run).unwrap();
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert!(text.contains(&evidence));
+        assert!(text.contains("full transcript bytecount/digest unavailable"));
+        let record: serde_json::Value = serde_json::from_slice(&std::fs::read(log.with_extension("terminal-settled.json")).unwrap()).unwrap();
+        if oversized { assert!(record["input_bytes"].is_null()); } else { assert_eq!(record["input_bytes"], evidence.len()); }
+        assert_eq!(record["projection_digest"].as_str().unwrap().len(), 64);
+        assert_eq!(scene.cron.lock().run_receipt(job_id, &run).unwrap().status, CronRunStatus::Success);
+        drop(live);
+    }
+}
+
+#[test]
+fn runtime_completion_projection_bounds_scalar_escaping_depth_and_utf8_before_serialization() {
+    for (content, nesting) in [("🙂".repeat(1024 * 1024), 0), ("\u{0001}".repeat(1000), 0), ("ordinary".into(), 24)] {
+        let mut cache = crate::service::agent_runtime::model::ItemCache::default();
+        let mut value = json!("opaque"); for _ in 0..nesting { value = json!([value]); }
+        let row: ChatMsg = serde_json::from_value(json!({"id":"recent", "type":"assistant", "content":content, "tool_input":value})).unwrap();
+        cache.reconcile(row);
+        let retained = cache.retained();
+        let (evidence, complete) = cache.terminal_evidence();
+        assert!(!complete); assert!(evidence.starts_with("PARTIAL")); assert!(evidence.len() <= 8 * 1024);
+        assert_eq!(cache.retained(), retained);
+        assert_eq!(cache.get("recent").unwrap().content, content);
+    }
 }

@@ -32,8 +32,8 @@ pub(super) struct Record {
     intent: Option<String>,
     pub(super) plan: Option<crate::service::cron::CronReportPlan>,
     pub(super) delivery: Option<String>,
-    bytes: u64,
-    tail_digest: String,
+    input_bytes: Option<u64>,
+    projection_digest: String,
 }
 
 impl Record {
@@ -191,10 +191,13 @@ impl super::super::RunWatcherRegistry {
         if !self.cron_allocations.lock().remove(&(job.into(), run.into())) {
             return Err("Original unallocated claim is absent; resource capacity remains retained".into());
         }
-        if self.cron_record(job, run).is_some_and(|record| record.acknowledged_uncaptured_allocation()) {
-            return self.archive_cron_record(cron, job, run, true);
-        }
-        self.settle_cron_spawn_refusal(svc, cron, job, run, "Allocation refused before original tab capture")
+        let result = if self.cron_record(job, run).is_some_and(|record| record.acknowledged_uncaptured_allocation()) {
+            self.archive_cron_record(cron, job, run, true)
+        } else {
+            self.settle_cron_spawn_refusal(svc, cron, job, run, "Allocation refused before original tab capture")
+        };
+        if result.is_err() { self.cron_allocations.lock().insert((job.into(), run.into())); }
+        result
     }
 
     pub(crate) fn settle_cron_spawn_refusal(&self, svc: &ServiceContext, cron: &crate::CronState, job: &str, run: &str, reason: &str) -> Result<(), String> {
@@ -244,7 +247,7 @@ impl super::super::RunWatcherRegistry {
         let result = (|| {
             for mut record in records {
                 if record.acknowledged_uncaptured_allocation() {
-                    svc.log_system_notice("Cron uncaptured allocation remains owned".into(), Some(format!("job={} run={}; effects were acknowledged, original tab identity was not durably captured; its global capacity remains reserved and no resource close is authorized", record.job, record.run)), Some("error"));
+                    svc.log_system_notice("Cron uncaptured allocation remains owned".into(), Some(format!("job={} run={}; effects were acknowledged, original tab identity was not durably captured; its per-job admission barrier and global capacity remain reserved and no resource close is authorized", record.job, record.run)), Some("error"));
                     continue;
                 }
                 if record.phase == Phase::Unknown {
@@ -302,9 +305,9 @@ impl super::super::RunWatcherRegistry {
         if let Some(record) = recovery.records.get(&identity) {
             return if record.phase == Phase::Planned { Ok(()) } else { Err("The original launch already owns this occurrence; replacement allocation is refused".into()) };
         }
-        if recovery.records.values().any(|record| record.job == job && !record.acknowledged_uncaptured_allocation()) { return Err("This cron job retains an earlier owner; use cron.cancel to adjudicate its exact evidence before a new occurrence".into()); }
+        if recovery.records.values().any(|record| record.job == job) { return Err("This cron job retains an earlier resource owner; exact original release or cleanup is required before a new occurrence".into()); }
         let mut next = recovery.records.clone();
-        next.insert(identity, Record { revision:0, job: job.into(), run: run.into(), owner: None, phase: Phase::Planned, unknown_at: None, proof: None, intent: None, plan: None, delivery: None, bytes: 0, tail_digest: String::new() });
+        next.insert(identity, Record { revision:0, job: job.into(), run: run.into(), owner: None, phase: Phase::Planned, unknown_at: None, proof: None, intent: None, plan: None, delivery: None, input_bytes: Some(0), projection_digest: String::new() });
         recovery.save(next)
     }
 
@@ -353,12 +356,12 @@ impl super::super::RunWatcherRegistry {
         self.replace_cron_record(record)
     }
 
-    pub(super) fn checkpoint_cron(&self, cron: &crate::CronState, owner: &CronRunAuthority, phase: Phase, output: (usize, &str), plan: Option<crate::service::cron::CronReportPlan>, delivery: Option<String>) -> Result<(), String> {
+    pub(super) fn checkpoint_cron(&self, cron: &crate::CronState, owner: &CronRunAuthority, phase: Phase, output: (Option<usize>, &str), plan: Option<crate::service::cron::CronReportPlan>, delivery: Option<String>) -> Result<(), String> {
         let mut record = self.cron_record(owner.job_id(), owner.run_id()).ok_or("Original cron continuation reservation is absent")?;
         if record.phase == Phase::Adjudicated { return Err("Cron continuation was adjudicated".into()); }
         record.phase = phase;
-        record.bytes = output.0 as u64;
-        record.tail_digest = digest(output.1.as_bytes());
+        record.input_bytes = output.0.map(|bytes| bytes as u64);
+        record.projection_digest = digest(output.1.as_bytes());
         if matches!(phase, Phase::Confirmed | Phase::Cleanup | Phase::DeliveryIntent | Phase::DeliveryKnown | Phase::Report | Phase::Retire) { record.proof = proof(&cron.lock(), owner.job_id(), owner.run_id()); }
         if plan.is_some() { record.plan = plan; }
         if delivery.is_some() { record.delivery = delivery; }
@@ -437,7 +440,7 @@ impl super::super::RunWatcherRegistry {
                 let mut acknowledged = current;
                 acknowledged.phase = Phase::Adjudicated;
                 self.replace_cron_record(acknowledged)?;
-                svc.log_system_notice("Cron unknown effects acknowledged; allocation capacity retained".into(), Some(format!("job={} run={}; original tab identity was not durably captured; no resource was closed, evidence and one global capacity slot remain owned for exact resource adjudication", record.job, record.run)), Some("error"));
+                svc.log_system_notice("Cron unknown effects acknowledged; allocation capacity retained".into(), Some(format!("job={} run={}; original tab identity was not durably captured; no resource was closed, evidence, its per-job admission barrier and one global capacity slot remain owned for exact resource adjudication", record.job, record.run)), Some("error"));
                 continue;
             }
             let owner = match owner { Some(owner) => Some(owner), None => self.restore_journal_owner(svc, cron, &current, true)? };
@@ -479,5 +482,5 @@ impl super::super::RunWatcherRegistry {
         }
     }
 
-    pub(super) fn retained_cron_jobs(&self, job: &str) -> bool { self.cron_recovery.lock().records.values().any(|record| record.job == job && record.phase != Phase::Planned && !record.acknowledged_uncaptured_allocation()) }
+    pub(super) fn retained_cron_jobs(&self, job: &str) -> bool { self.cron_recovery.lock().records.values().any(|record| record.job == job && record.phase != Phase::Planned) }
 }

@@ -154,13 +154,27 @@ impl ServiceContext {
                     self.spawn_task_message(tab_id, &task).unwrap_or(task)
                 }
             };
-            self.create_pending_delivery_with_send_id(
-                tab_id,
-                crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-                &payload,
-                Some(&uuid::Uuid::new_v4().to_string()),
-            )
-            .map_err(|error| error.to_string())?;
+            let send = uuid::Uuid::new_v4().to_string();
+            if let Some(owner) = original_cron {
+                use sha2::Digest;
+                let digest = format!("{:x}", sha2::Sha256::digest(payload.as_bytes()));
+                let record = crate::multiplexer::types::PendingDeliveryRecord::new(digest, crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput).with_send_id(send);
+                self.pending_delivery_payloads.write(&record, &payload).map_err(|error| error.to_string())?;
+                if let Err(error) = self.run_watcher.seal_prepared_cron_input(self, owner, Some(record.clone())) {
+                    let live = crate::service::pending_delivery_payloads::live_payload_keys(&self.mux.read().snapshot());
+                    if let Err(cleanup) = self.pending_delivery_payloads.delete(&record, &live) { return Err(format!("{error}; original candidate payload cleanup refused: {cleanup}")); }
+                    return Err(error);
+                }
+                crate::service::session_persist::persist_session_after_mutation(self, crate::service::session_persist::SessionPersistUrgency::Prompt)?;
+            } else {
+                self.create_pending_delivery_with_send_id(tab_id, crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput, &payload, Some(&send)).map_err(|error| error.to_string())?;
+            }
+        } else if metadata.agent.task.as_deref().is_none_or(|task| task.trim().is_empty()) {
+            if let Some(owner) = original_cron {
+                if self.mux.read().get_tab(tab_id).is_some_and(|tab| tab.pending_delivery.is_none()) {
+                    self.run_watcher.seal_prepared_cron_input(self, owner, None)?;
+                }
+            }
         }
         Ok(())
     }

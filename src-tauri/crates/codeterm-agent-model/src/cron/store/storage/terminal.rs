@@ -36,6 +36,10 @@ impl TerminalRunCommit {
     }
 
     pub async fn settle(&mut self, cron: &CronState) -> Result<RunFinished, CronCommitError> {
+        self.settle_guarded(cron, || Ok(()), |_, _| Ok(())).await
+    }
+
+    pub async fn settle_guarded<G, A>(&mut self, cron: &CronState, mut exclusion: impl FnMut() -> Result<G, String>, mut admission: impl FnMut(&CronStore, &G) -> Result<A, String>) -> Result<RunFinished, CronCommitError> {
         #[cfg(any(test, feature = "test-support"))]
         if let Some(finished) = self.legacy_pending {
             cron.lock().save().map_err(CronCommitError::Unsaved)?;
@@ -56,23 +60,35 @@ impl TerminalRunCommit {
         }
         let storage = cron.lock().commits_to_storage();
         if !storage {
-            let request = &self.request;
-            let mut prepared_result = None;
-            let outcome = commit(cron, |store| {
-                let prepared = prepare(store, request, &self.change)?;
-                prepared_result = Some(prepared.value);
-                Ok(prepared)
-            });
-            if outcome.as_ref().is_err_and(|error| error.applied()) { self.legacy_pending = prepared_result; }
-            return outcome.map(|done| done.value);
+            #[cfg(any(test, feature = "test-support"))]
+            {
+                let prepared = {
+                    let lifecycle = exclusion().map_err(CronCommitError::Refused)?;
+                    let mut store = cron.lock();
+                    let _admission = admission(&store, &lifecycle).map_err(CronCommitError::Refused)?;
+                    let prepared = prepare(&mut store, &self.request, &self.change).map_err(CronCommitError::Refused)?;
+                    for change in &prepared.changes { store.apply_change(change); }
+                    prepared
+                };
+                if !prepared.changes.is_empty() {
+                    self.legacy_pending = Some(prepared.value);
+                    cron.lock().save().map_err(CronCommitError::Unsaved)?;
+                    self.legacy_pending = None;
+                }
+                return Ok(prepared.value);
+            }
+            #[cfg(not(any(test, feature = "test-support")))]
+            return Err(CronCommitError::NotApplied("legacy cron backend is test-only".into()));
         }
         settle_prior(cron).await?;
         for _ in 0..MAX_ATTEMPTS {
             let (prepared, bases, completion, probe) = {
+                let lifecycle = exclusion().map_err(CronCommitError::Refused)?;
                 let mut store = cron.lock();
                 if !store.fence_clear() {
                     return Err(CronCommitError::Fenced("cron terminal admission awaits earlier settlement".into()));
                 }
+                let _admission = admission(&store, &lifecycle).map_err(CronCommitError::Refused)?;
                 let prepared = prepare(&mut store, &self.request, &self.change).map_err(CronCommitError::Refused)?;
                 if prepared.changes.is_empty() {
                     return Ok(prepared.value);
