@@ -1,15 +1,22 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { invalidateWebRequestContext, WebApiError } from "../../lib/webApi";
 import { useRemoteWorkspaceClose, remoteWorkspaceClosePort, type RemoteWorkspaceClosePort } from "./useRemoteWorkspaceClose";
 
 const transportMocks = vi.hoisted(() => ({
   json: vi.fn(),
   daemonTransportForPeer: vi.fn(),
+  transportListeners: new Set<(client: unknown) => void>(),
 }));
 
 vi.mock("../../lib/daemonBootstrap", () => ({
   daemonTransportForPeer: transportMocks.daemonTransportForPeer,
+  onDaemonTransport: (listener: (client: unknown) => void) => {
+    transportMocks.transportListeners.add(listener);
+    listener({ origin: () => "http://127.0.0.1:7686" });
+    return () => { transportMocks.transportListeners.delete(listener); };
+  },
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -44,23 +51,71 @@ function mount(port: RemoteWorkspaceClosePort, isOnline = true) {
 }
 
 describe("remote workspace close", () => {
-  it("reads one exact selected-peer workspace preview and validates its identity", async () => {
+  beforeEach(() => {
+    transportMocks.json.mockReset();
+    transportMocks.daemonTransportForPeer.mockReset();
+  });
+
+  it("reads one exact selected-peer workspace preview and validates its identity and mappings", async () => {
     const signal = new AbortController().signal;
-    transportMocks.daemonTransportForPeer.mockReturnValue({ json: transportMocks.json });
+    transportMocks.daemonTransportForPeer.mockReturnValue({
+      json: transportMocks.json,
+      currentToken: () => "tok-1",
+    });
     transportMocks.json.mockResolvedValueOnce({
       installation_id: "peer-b",
       workspace_id: "shared-id",
       workspace_name: "Project B",
       protected: false,
-      agent_tabs: [{ tab_id: "tab-b", title: "Worker B" }],
+      agent_tabs: [
+        { tab_id: "member-1", title: "Team Member" },
+        { tab_id: "tab-b", title: "Worker B" },
+      ],
       remote_members: [],
       crons: ["Daily check"],
       blueprints: ["Deploy B"],
-      teams: [],
-      warnings: [],
+      teams: [{
+        id: "team-b",
+        name: "Team B",
+        remote: false,
+        members: [{ tab_id: "member-1", title: "Team Member", role: "Worker", role_profile: "worker", remote: false }],
+        crons: ["Team cron"],
+        blueprints: ["Team pipeline"],
+        tasks: [{
+          plan_id: "pl-1",
+          plan_title: "Release Plan",
+          task_id: "t-1",
+          task_name: "Ship API",
+          status: "in_progress",
+          orphan: true,
+          remote_attempt: false,
+        }],
+        open_attempts: [{
+          plan_id: "pl-1",
+          task_id: "t-1",
+          attempt_id: "att-42",
+          executor_tab_id: "member-1",
+          remote: true,
+        }],
+        lanes: [{
+          plan_id: "pl-1",
+          task_id: "t-1",
+          path: "/lanes/dirty",
+          branch: "lane/dirty",
+          state: "dirty",
+          detail: "dirty worktree",
+        }],
+      }],
+      warnings: [{
+        kind: "dirty_lane",
+        team_id: "team-b",
+        plan_id: "pl-1",
+        task_id: "t-1",
+        detail: "dirty worktree",
+      }],
     });
 
-    const inventory = await remoteWorkspaceClosePort.readInventory("peer-b", "shared-id", signal);
+    const mapped = await remoteWorkspaceClosePort.readInventory("peer-b", "shared-id", signal);
 
     expect(transportMocks.daemonTransportForPeer).toHaveBeenCalledTimes(1);
     expect(transportMocks.daemonTransportForPeer).toHaveBeenCalledWith("peer-b");
@@ -71,7 +126,18 @@ describe("remote workspace close", () => {
       undefined,
       { signal },
     );
-    expect(inventory).toMatchObject({ workspaceName: "Project B", agentTitles: ["Worker B"], blueprints: ["Deploy B"] });
+    expect(mapped).toMatchObject({
+      workspaceName: "Project B",
+      agentTitles: ["Worker B"],
+      crons: ["Daily check"],
+      blueprints: ["Deploy B"],
+      warnings: ["dirty worktree"],
+    });
+    expect(mapped.teams[0].lanes).toEqual([
+      "Release Plan: Ship API (orphan task)",
+      "Open attempt att-42 · member-1 (remote)",
+      "/lanes/dirty · lane/dirty · dirty · dirty worktree",
+    ]);
 
     transportMocks.json.mockResolvedValueOnce({
       installation_id: "peer-c",
@@ -88,6 +154,125 @@ describe("remote workspace close", () => {
     await expect(remoteWorkspaceClosePort.readInventory("peer-b", "shared-id", signal)).rejects.toThrow(
       "The close preview does not match the selected machine and workspace.",
     );
+
+    transportMocks.json.mockResolvedValueOnce({
+      installation_id: "peer-b",
+      workspace_id: "other-workspace",
+      workspace_name: "Other",
+      protected: false,
+      agent_tabs: [],
+      remote_members: [],
+      crons: [],
+      blueprints: [],
+      teams: [],
+      warnings: [],
+    });
+    await expect(remoteWorkspaceClosePort.readInventory("peer-b", "shared-id", signal)).rejects.toThrow(
+      "The close preview does not match the selected machine and workspace.",
+    );
+
+    transportMocks.json.mockResolvedValueOnce({
+      installation_id: "peer-b",
+      workspace_id: "shared-id",
+      workspace_name: "General",
+      protected: true,
+      agent_tabs: [],
+      remote_members: [],
+      crons: [],
+      blueprints: [],
+      teams: [],
+      warnings: [],
+    });
+    await expect(remoteWorkspaceClosePort.readInventory("peer-b", "shared-id", signal)).rejects.toThrow(
+      "The selected workspace is protected and cannot be closed.",
+    );
+  });
+
+  it("posts one exact-workspace close via the selected peer transport and reads back status honestly", async () => {
+    transportMocks.daemonTransportForPeer.mockReturnValue({ json: transportMocks.json });
+    transportMocks.json.mockResolvedValueOnce({ ok: true });
+
+    await remoteWorkspaceClosePort.closeWorkspace("peer-b", "shared-id");
+
+    expect(transportMocks.daemonTransportForPeer).toHaveBeenCalledWith("peer-b");
+    expect(transportMocks.json).toHaveBeenCalledTimes(1);
+    expect(transportMocks.json).toHaveBeenCalledWith(
+      "POST",
+      "/api/workspaces/shared-id/close",
+      { force: true, confirm: "shared-id" },
+      { signal: undefined, callerTabId: undefined },
+    );
+
+    transportMocks.json.mockRejectedValueOnce(new WebApiError(404, "/api/workspaces/shared-id/close-preview", "Workspace not found"));
+    await expect(remoteWorkspaceClosePort.workspaceExists("peer-b", "shared-id")).resolves.toBe(false);
+
+    transportMocks.json.mockRejectedValueOnce(new WebApiError(413, "/api/workspaces/shared-id/close-preview", "Too large"));
+    await expect(remoteWorkspaceClosePort.workspaceExists("peer-b", "shared-id")).resolves.toBe(true);
+
+    transportMocks.json.mockRejectedValueOnce(new WebApiError(503, "/api/workspaces/shared-id/close-preview", "Unavailable"));
+    await expect(remoteWorkspaceClosePort.workspaceExists("peer-b", "shared-id")).rejects.toThrow("503");
+
+    transportMocks.json.mockResolvedValueOnce({ installation_id: "peer-c", workspace_id: "shared-id" });
+    await expect(remoteWorkspaceClosePort.workspaceExists("peer-b", "shared-id")).rejects.toThrow(
+      "The close preview does not match the selected machine and workspace.",
+    );
+  });
+
+  it("invalidates in-flight previews when peer availability, request epoch, or daemon transport rotates", async () => {
+    let resolveInventory!: (value: typeof inventory) => void;
+    const readInventory = vi.fn<RemoteWorkspaceClosePort["readInventory"]>(() => new Promise(resolve => { resolveInventory = resolve; }));
+    const closeWorkspace = vi.fn(async () => {});
+    const port: RemoteWorkspaceClosePort = {
+      readInventory,
+      closeWorkspace,
+      workspaceExists: vi.fn(async () => false),
+    };
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    let online = true;
+    let hook!: ReturnType<typeof useRemoteWorkspaceClose>;
+    function Harness() {
+      hook = useRemoteWorkspaceClose(() => online ? "online" : "offline", vi.fn(), port);
+      return null;
+    }
+    try {
+      await act(async () => root.render(<Harness />));
+
+      let pendingReq!: Promise<Awaited<ReturnType<typeof hook.request>>>;
+      await act(async () => { pendingReq = hook.request(target, () => true); });
+      online = false;
+      let outcome!: Awaited<ReturnType<typeof hook.request>>;
+      await act(async () => {
+        resolveInventory(inventory);
+        outcome = await pendingReq;
+      });
+      expect(outcome.kind).toBe("stale");
+      expect(hook.pending).toBeNull();
+
+      online = true;
+      await act(async () => { pendingReq = hook.request(target, () => true); });
+      invalidateWebRequestContext();
+      await act(async () => {
+        resolveInventory(inventory);
+        outcome = await pendingReq;
+      });
+      expect(outcome.kind).toBe("stale");
+      expect(hook.pending).toBeNull();
+
+      await act(async () => { pendingReq = hook.request(target, () => true); });
+      await act(async () => {
+        for (const listener of transportMocks.transportListeners) listener({ origin: () => "http://127.0.0.1:7686", rotated: true });
+        resolveInventory(inventory);
+        outcome = await pendingReq;
+      });
+      expect(outcome.kind).toBe("stale");
+      expect(hook.pending).toBeNull();
+      expect(closeWorkspace).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
   });
 
   it("confirms and reads back the exact peer/workspace, then prevents a second close", async () => {

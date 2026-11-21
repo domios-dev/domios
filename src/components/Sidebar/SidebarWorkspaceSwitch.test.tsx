@@ -86,7 +86,7 @@ vi.mock("./useRemoteWorkspaceClose", async (importOriginal) => {
           if (target.protected) return { kind: "protected" as const };
           if (!isStillSelected()) return { kind: "stale" as const };
           remoteCloseCalls.requested.push({ peerId: target.peerId, workspaceId: target.workspaceId, availability: target.availability, protected: target.protected });
-          setPending({ ...target, agentTitles: ["peer-lead", "other-worker"], blueprints: [], teams: [] });
+          setPending({ ...target, agentTitles: ["peer-lead", "other-worker"], crons: [], blueprints: [], teams: [] });
           return { kind: "ready" as const };
         },
         cancel: () => setPending(null),

@@ -623,10 +623,13 @@ export const Sidebar = memo(function Sidebar({
   const remoteWorkspaceClose = useRemoteWorkspaceClose(availabilityForPeer, onRemoteWorkspaceClosed);
   useEffect(() => {
     const pending = remoteWorkspaceClose.pending;
-    if (pending && sidebarWorkspaceKey(pending.peerId, pending.workspaceId) !== selectedWorkspaceKey) {
+    if (pending && (
+      sidebarWorkspaceKey(pending.peerId, pending.workspaceId) !== selectedWorkspaceKey
+      || availabilityForPeer(pending.peerId) !== "online"
+    )) {
       remoteWorkspaceClose.cancel();
     }
-  }, [remoteWorkspaceClose.pending, remoteWorkspaceClose.cancel, selectedWorkspaceKey]);
+  }, [remoteWorkspaceClose.pending, remoteWorkspaceClose.cancel, selectedWorkspaceKey, availabilityForPeer]);
   const peerWorkspaceKeys = useMemo(() => new Set((peerWorkspaces ?? []).map(workspace => sidebarWorkspaceKey(workspace.peerId, workspace.workspace.id))), [peerWorkspaces]);
   useEffect(() => {
     setClosedRemoteWorkspaceKeys(previous => {

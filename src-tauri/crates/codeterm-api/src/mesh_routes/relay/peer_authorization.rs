@@ -170,15 +170,24 @@ pub(super) async fn workspace_close_preview_from_mesh_peer(
     state: &AppState,
     workspace_id: &str,
 ) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
-    let preview = crate::workspace_routes::close_preview_for_mesh_peer(state, workspace_id).await?;
-    let data = serde_json::to_value(preview)
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    Ok(codeterm_service_core::mesh::types::RelayResponse {
-        ok: true,
-        status: StatusCode::OK.as_u16(),
-        data: Some(data),
-        error: None,
-    })
+    match crate::workspace_routes::close_preview_for_mesh_peer(state, workspace_id).await {
+        Ok(preview) => {
+            let data = serde_json::to_value(preview)
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+            Ok(codeterm_service_core::mesh::types::RelayResponse {
+                ok: true,
+                status: StatusCode::OK.as_u16(),
+                data: Some(data),
+                error: None,
+            })
+        }
+        Err((status, message)) => Ok(codeterm_service_core::mesh::types::RelayResponse {
+            ok: false,
+            status: status.as_u16(),
+            data: None,
+            error: Some(message),
+        }),
+    }
 }
 
 pub(super) async fn close_workspace_from_mesh_peer(

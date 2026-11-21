@@ -72,7 +72,6 @@ impl<'a> PeerScope<'a> {
                     | ReadCronRun
                     | ReadService
                     | ReadPlan
-                    | ReadWorkspaceClosePreview
                     | ReadHost
             ),
             AccessLevel::AgentIsolated => match self.operation {

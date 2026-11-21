@@ -1,8 +1,9 @@
-import { useCallback, useRef, useState } from "react";
-import type { WorkspaceClosePreview } from "../../gen/WorkspaceClosePreview";
-import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { WorkspaceClosePreview } from "../../../gen/WorkspaceClosePreview";
+import { daemonTransportForPeer, onDaemonTransport } from "../../lib/daemonBootstrap";
 import { createTabsTransport } from "../../lib/transport/tabs";
-import { WebApiError } from "../../lib/webApi";
+import type { TransportClient } from "../../lib/transportClient";
+import { WebApiError, webRequestContext } from "../../lib/webApi";
 import type { TeamCloseResource } from "./teamCloseResources";
 import type { GeneralAvailability } from "../../store/multiplexer/pairedWorkspaceProjection";
 
@@ -51,17 +52,29 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isStaleCredentialError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
 export const remoteWorkspaceClosePort: RemoteWorkspaceClosePort = {
   async readInventory(peerId, workspaceId, signal) {
     const transport = daemonTransportForPeer(peerId);
+    const tokenBefore = transport.currentToken?.() ?? null;
+    const contextBefore = webRequestContext();
     const preview = await transport.json<WorkspaceClosePreview>(
       "GET",
       `/api/workspaces/${encodeURIComponent(workspaceId)}/close-preview`,
       undefined,
       { signal },
     );
+    if (webRequestContext() !== contextBefore || (transport.currentToken?.() ?? null) !== tokenBefore) {
+      throw new DOMException("Credentials changed", "AbortError");
+    }
     if (preview.installation_id !== peerId || preview.workspace_id !== workspaceId) {
       throw new Error("The close preview does not match the selected machine and workspace.");
+    }
+    if (preview.protected) {
+      throw new Error("The selected workspace is protected and cannot be closed.");
     }
     const teamMemberIds = new Set(preview.teams.flatMap(team => team.members.map(member => member.tab_id)));
     const teams: TeamCloseResource[] = preview.teams.map(team => ({
@@ -77,7 +90,7 @@ export const remoteWorkspaceClosePort: RemoteWorkspaceClosePort = {
       blueprints: team.blueprints,
       lanes: [
         ...team.tasks.map(task => `${task.plan_title}: ${task.task_name}${task.orphan ? " (orphan task)" : ""}${task.remote_attempt ? " (remote attempt)" : ""}`),
-        ...team.open_attempts.map(attempt => `Open attempt ${attempt.id}${attempt.executor_tab_id ? ` · ${attempt.executor_tab_id}` : ""}${attempt.remote ? " (remote)" : ""}`),
+        ...team.open_attempts.map(attempt => `Open attempt ${attempt.attempt_id}${attempt.executor_tab_id ? ` · ${attempt.executor_tab_id}` : ""}${attempt.remote ? " (remote)" : ""}`),
         ...team.lanes.map(lane => [lane.path, lane.branch, lane.state, lane.detail].filter(Boolean).join(" · ")),
       ],
     }));
@@ -100,13 +113,17 @@ export const remoteWorkspaceClosePort: RemoteWorkspaceClosePort = {
   },
   async workspaceExists(peerId, workspaceId) {
     try {
-      await daemonTransportForPeer(peerId).json<WorkspaceClosePreview>(
+      const preview = await daemonTransportForPeer(peerId).json<WorkspaceClosePreview>(
         "GET",
         `/api/workspaces/${encodeURIComponent(workspaceId)}/close-preview`,
       );
+      if (preview.installation_id !== peerId || preview.workspace_id !== workspaceId) {
+        throw new Error("The close preview does not match the selected machine and workspace.");
+      }
       return true;
     } catch (error) {
       if (error instanceof WebApiError && error.status === 404) return false;
+      if (error instanceof WebApiError && (error.status === 409 || error.status === 413)) return true;
       throw error;
     }
   },
@@ -122,6 +139,26 @@ export function useRemoteWorkspaceClose(
   const generation = useRef(0);
   const inventoryRead = useRef<AbortController | null>(null);
 
+  useEffect(() => {
+    if (typeof onDaemonTransport !== "function") return;
+    let initialized = false;
+    let previous: TransportClient | null = null;
+    return onDaemonTransport((client) => {
+      if (!initialized) {
+        initialized = true;
+        previous = client;
+        return;
+      }
+      if (client === previous) return;
+      previous = client;
+      generation.current++;
+      inventoryRead.current?.abort();
+      inventoryRead.current = null;
+      pendingRef.current = null;
+      setPending(null);
+    });
+  }, []);
+
   const request = useCallback(async (
     target: RemoteWorkspaceCloseTarget,
     isStillSelected: () => boolean,
@@ -130,20 +167,26 @@ export function useRemoteWorkspaceClose(
     if (target.protected) return { kind: "protected" };
     if (!isStillSelected()) return { kind: "stale" };
     const requestGeneration = ++generation.current;
+    const contextBefore = webRequestContext();
     inventoryRead.current?.abort();
     const controller = new AbortController();
     inventoryRead.current = controller;
     pendingRef.current = null;
     setPending(null);
+    const isStale = () => controller.signal.aborted
+      || requestGeneration !== generation.current
+      || webRequestContext() !== contextBefore
+      || !isStillSelected()
+      || availabilityForPeer(target.peerId) !== "online";
     try {
       const inventory = await port.readInventory(target.peerId, target.workspaceId, controller.signal);
-      if (controller.signal.aborted || requestGeneration !== generation.current || !isStillSelected()) return { kind: "stale" };
+      if (isStale()) return { kind: "stale" };
       const confirmation = { ...target, ...inventory };
       pendingRef.current = confirmation;
       setPending(confirmation);
       return { kind: "ready" };
     } catch (error) {
-      if (controller.signal.aborted || requestGeneration !== generation.current || !isStillSelected()) return { kind: "stale" };
+      if (isStale() || isStaleCredentialError(error)) return { kind: "stale" };
       return { kind: "inventory_failed", detail: errorMessage(error) };
     } finally {
       if (inventoryRead.current === controller) inventoryRead.current = null;
