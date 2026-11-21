@@ -593,3 +593,117 @@ fn management_requires_owner_or_live_orchestrator_credentials() {
     svc.revoke_tab_credential(&orchestrator);
     assert!(authorize(svc, &orchestrator_token).is_err());
 }
+
+#[test]
+fn registry_install_exposes_sanitized_icon_and_isolates_invalid_or_offline_icons() {
+    let (fixture, _, _serial) = fixture();
+    let svc = &fixture.service;
+    let mut events = svc.events.subscribe();
+
+    let registry_profile = |icon_url: &str| -> RuntimeLaunchProfile {
+        serde_json::from_value(json!({
+            "binary":"npx",
+            "args":["@fixture/agent@1.0.0"],
+            "ownerConfigured":true,
+            "registryId":"fixture-agent",
+            "iconUrl":icon_url,
+            "install":{"distribution":"npx","package":"@fixture/agent@1.0.0"}
+        }))
+        .unwrap()
+    };
+
+    let valid_svg = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M2 2h20v20H2z"/></svg>"#;
+    let expected = codeterm_plugin::plugin_icon::registry::sanitize("image/svg+xml", valid_svg)
+        .expect("valid icon");
+    finalize_registry_install(
+        svc,
+        "icon-valid",
+        registry_profile("https://cdn.example.test/valid.svg"),
+        |_| codeterm_plugin::plugin_icon::registry::sanitize("image/svg+xml", valid_svg),
+    )
+    .unwrap();
+    let saved = owner_profiles::load(PROVIDER).unwrap();
+    assert_eq!(
+        saved["icon-valid"].icon_svg.as_deref(),
+        Some(expected.as_str())
+    );
+    let mut saw_contributions_changed = false;
+    while let Ok(envelope) = events.try_recv() {
+        if matches!(
+            envelope.event,
+            codeterm_events::SystemEvent::ContributionsChanged { ref kind } if kind == "agent_provider"
+        ) {
+            saw_contributions_changed = true;
+        }
+    }
+    assert!(
+        saw_contributions_changed,
+        "saving a registry profile must notify agent_provider consumers"
+    );
+
+    finalize_registry_install(
+        svc,
+        "icon-malicious",
+        registry_profile("https://cdn.example.test/malicious.svg"),
+        |_| {
+            codeterm_plugin::plugin_icon::registry::sanitize(
+                "image/svg+xml",
+                b"<svg><script>alert(1)</script></svg>",
+            )
+        },
+    )
+    .unwrap();
+    assert!(owner_profiles::load(PROVIDER).unwrap()["icon-malicious"]
+        .icon_svg
+        .is_none());
+
+    finalize_registry_install(
+        svc,
+        "icon-oversized",
+        registry_profile("https://cdn.example.test/oversized.svg"),
+        |_| {
+            codeterm_plugin::plugin_icon::registry::sanitize(
+                "image/svg+xml",
+                &vec![b'x'; codeterm_plugin::plugin_icon::MAX_PLUGIN_ICON_BYTES + 1],
+            )
+        },
+    )
+    .unwrap();
+    assert!(owner_profiles::load(PROVIDER).unwrap()["icon-oversized"]
+        .icon_svg
+        .is_none());
+
+    finalize_registry_install(
+        svc,
+        "icon-offline",
+        registry_profile("https://cdn.example.test/offline.svg"),
+        |_| None,
+    )
+    .unwrap();
+    assert!(owner_profiles::load(PROVIDER).unwrap()["icon-offline"]
+        .icon_svg
+        .is_none());
+
+    let mut local_override = registry_profile("https://cdn.example.test/ignored.svg");
+    local_override.icon = Some("local-color.svg".into());
+    let mut fetched_for_local = false;
+    finalize_registry_install(svc, "icon-local-override", local_override, |_| {
+        fetched_for_local = true;
+        Some(expected.clone())
+    })
+    .unwrap();
+    assert!(
+        !fetched_for_local,
+        "explicit local icon override must not be replaced by a remote registry icon"
+    );
+
+    for id in [
+        "icon-valid",
+        "icon-malicious",
+        "icon-oversized",
+        "icon-offline",
+        "icon-local-override",
+    ] {
+        remove(svc, id).unwrap();
+    }
+}

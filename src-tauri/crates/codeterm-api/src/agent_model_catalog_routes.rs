@@ -26,6 +26,11 @@ pub async fn refresh_agent_provider_models(
             .refresh_remote_task_environments(&body.provider_id)
             .await
             .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+        codeterm_service_core::service::agent_runtime::refresh_provider_profile_icons(
+            &state.svc,
+            &body.provider_id,
+        )
+        .await;
         let discovery_required = provider
             .model_catalogue_capability()
             .live_discovery_required;
