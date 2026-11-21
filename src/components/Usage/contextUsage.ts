@@ -3,6 +3,13 @@ import type { RuntimeUsageProjection, UsageSnapshot } from "../../types/usage";
 import { contextMeter } from "../Terminal/composerModels";
 import { runtimeTokenBreakdown } from "./runtimeUsage";
 
+export interface ContextTokenDetails {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
 export interface ContextUsage {
   used: number;
   window: number;
@@ -10,6 +17,7 @@ export interface ContextUsage {
   /** Session tokens the harness reported for this tab, when it reports them. */
   sessionTokens: number | null;
   tokenBreakdown: string | null;
+  tokenDetails?: ContextTokenDetails | null;
   costMicros: number | null;
 }
 
@@ -31,6 +39,12 @@ export function contextUsage(context: unknown, runtime: RuntimeUsageProjection |
     ...meter,
     sessionTokens: tokens ? tokens.input_tokens + tokens.output_tokens : null,
     tokenBreakdown: tokens && runtime ? runtimeTokenBreakdown(runtime) : null,
+    tokenDetails: tokens ? {
+      input: tokens.input_tokens ?? 0,
+      output: tokens.output_tokens ?? 0,
+      cacheRead: tokens.cache_read_tokens ?? 0,
+      cacheWrite: tokens.cache_write_tokens ?? 0,
+    } : null,
     costMicros: tokens?.cost_micros ?? contextCostMicros(context),
   };
 }
