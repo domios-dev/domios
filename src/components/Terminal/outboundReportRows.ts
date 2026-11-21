@@ -47,6 +47,7 @@ function sameEntry(left: OutboundReportEntry, right: OutboundReportEntry): boole
   return left.targetTabId === right.targetTabId && left.at === right.at
     && leftPosition?.source_session_id === rightPosition?.source_session_id && leftPosition?.message_id === rightPosition?.message_id
     && a.reportId === b.reportId && a.recipient === b.recipient
+    && (a.kind ?? null) === (b.kind ?? null)
     && a.task === b.task && a.status === b.status && a.sha === b.sha && a.message === b.message && sameOutcome(a.taskOutcome, b.taskOutcome);
 }
 

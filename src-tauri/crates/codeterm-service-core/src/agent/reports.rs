@@ -1,6 +1,7 @@
 use super::ledger::OrchestrationLedger;
 pub use codeterm_agent_model::agent::reports::{
-    AgentReport, ReportDetails, ReportModelIdentity, ReportStatus, BLOCK_PROPOSAL_NOTICE,
+    AgentReport, AgentReportHostMetadata, OutboundAgentReport, ReportDetails, ReportModelIdentity,
+    ReportSenderPosition, ReportStatus, BLOCK_PROPOSAL_NOTICE,
 };
 use std::sync::Arc;
 type ModelReportStore = codeterm_agent_model::agent::reports::ReportStore;
@@ -48,6 +49,26 @@ impl ReportStore {
             model,
         )
     }
+    pub fn add_detailed_with_host_metadata(
+        &mut self,
+        orchestrator_tab_id: &str,
+        from_tab_id: &str,
+        from_title: &str,
+        message: &str,
+        details: ReportDetails,
+        model: Option<&str>,
+        host_metadata: AgentReportHostMetadata,
+    ) -> AgentReport {
+        self.0.add_detailed_with_host_metadata(
+            orchestrator_tab_id,
+            from_tab_id,
+            from_title,
+            message,
+            details,
+            model,
+            host_metadata,
+        )
+    }
     pub fn add_detailed_with_model_identity(
         &mut self,
         orchestrator_tab_id: &str,
@@ -88,6 +109,9 @@ impl ReportStore {
     }
     pub fn get(&mut self, orchestrator_tab_id: &str, clear: bool) -> Vec<AgentReport> {
         self.0.get(orchestrator_tab_id, clear)
+    }
+    pub fn outbound_for_sender(&self, sender_tab_id: &str) -> Vec<OutboundAgentReport> {
+        self.0.outbound_for_sender(sender_tab_id)
     }
     pub fn claim_pending_for(&mut self, orchestrator_tab_id: &str) -> Vec<AgentReport> {
         self.0.claim_pending_for(orchestrator_tab_id)

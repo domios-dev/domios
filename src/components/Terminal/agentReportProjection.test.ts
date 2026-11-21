@@ -240,6 +240,25 @@ async function main(): Promise<void> {
       .find((card) => card.reportId === msStampedId)?.timestamp === 1_770_000_200_000,
     "an already-milliseconds timestamp did not pass through unchanged",
   );
+  const kindedId = "e2b7a6c1-44c0-4a8e-9b12-8a7c6d5e4f30";
+  assert(
+    ingestAgentReport({
+      ...UNTASKED_REPORT,
+      kind: "dispatch_ready",
+      report: { id: kindedId, timestamp: 1_770_000_300 },
+    }),
+    "a kinded status notice was not projected",
+  );
+  assert(
+    readAgentReportProjection(WORKER_TAB).outbound
+      .find((card) => card.reportId === kindedId)?.kind === "dispatch_ready",
+    "structured report kind was dropped during projection",
+  );
+  assert(
+    readAgentReportProjection(WORKER_TAB).outbound
+      .find((card) => card.reportId === msStampedId)?.kind === null,
+    "missing report kind did not stay null",
+  );
 
   // Remount safety: the store outlives every subscriber, so a Chat that
   // unmounts and mounts again re-reads the same single card per report_id.

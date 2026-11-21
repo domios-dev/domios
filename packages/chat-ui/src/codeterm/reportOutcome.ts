@@ -54,6 +54,22 @@ export function shortSha(sha: string | null | undefined): string | null {
   return trimmed.length > 9 ? trimmed.slice(0, 9) : trimmed;
 }
 
+/** True only when the daemon recorded an explicit report status, a persisted
+ *  task report, or a classified task-report outcome — never bare transport acceptance. */
+export function isTaskReportEvent(
+  status: string | null | undefined,
+  outcome: ReportTaskOutcome | null,
+  kind?: string | null,
+): boolean {
+  if (kind?.trim()) return kind.trim() === "task_report";
+  return Boolean(
+    status?.trim()
+    || outcome?.persisted
+    || outcome?.transitionRejected
+    || outcome?.reportOutcome,
+  );
+}
+
 export function reportVerdict(
   status: string | null | undefined,
   outcome: ReportTaskOutcome | null,
@@ -64,7 +80,8 @@ export function reportVerdict(
   if (outcome?.reportOutcome === "block_proposed") return "Block proposed";
   if (outcome?.reportOutcome === "structurally_not_attachable") return "reported";
   if (outcome?.reportOutcome === "delivered_unattached") return "delivered";
-  return status?.trim() || "reported";
+  if (status?.trim()) return status.trim();
+  return outcome?.persisted ? "reported" : "sent";
 }
 
 /** A rejected transition is the Orchestrator's concern: the card keeps its verdict chip and leaves the cause to the raw report. */

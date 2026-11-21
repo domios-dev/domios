@@ -44,7 +44,9 @@ use report_persistence::{
 };
 
 use codeterm_service_core::agent::ledger::LedgerRow;
-use codeterm_service_core::agent::reports::{ReportDetails, ReportModelIdentity, ReportStatus};
+use codeterm_service_core::agent::reports::{
+    AgentReportHostMetadata, ReportDetails, ReportModelIdentity, ReportStatus,
+};
 use codeterm_service_core::plan::AgentRef;
 use codeterm_service_core::service::{
     RejectedTaskTransition, ReportResult, ReportSubmissionError, ServiceContext, ServiceState,
@@ -802,7 +804,7 @@ impl HierarchyExt for ServiceContext {
         let report = self
             .report_store
             .lock()
-            .add_detailed_with_model_identity_and_outcome(
+            .add_detailed_with_model_identity_and_outcome_and_host_metadata(
                 &storage_key,
                 tab_id,
                 &from_title,
@@ -810,6 +812,10 @@ impl HierarchyExt for ServiceContext {
                 details,
                 model_identity,
                 report_outcome,
+                AgentReportHostMetadata {
+                    sender_position,
+                    kind: None,
+                },
             );
         self.report_store.lock().claim(&report.id);
         let trace_flow = report.attempt_id.clone().or_else(|| {
@@ -832,16 +838,17 @@ impl HierarchyExt for ServiceContext {
             rejected_task_transition.as_ref(),
             report_outcome,
         );
-        self.events.broadcast(
-            "agent.report",
-            serde_json::json!({
-                "target_tab_id": storage_key,
-                "sender_position": sender_position,
-                "report": report.clone(),
-                "task_report": task_report.clone(),
-                "report_outcome": report_outcome,
-            }),
-        );
+        let mut bus_payload = serde_json::json!({
+            "target_tab_id": storage_key,
+            "sender_position": report.sender_position.clone(),
+            "report": report.clone(),
+            "task_report": task_report.clone(),
+            "report_outcome": report_outcome,
+        });
+        if let Some(kind) = report.kind.as_deref().filter(|kind| !kind.trim().is_empty()) {
+            bus_payload["kind"] = serde_json::json!(kind);
+        }
+        self.events.broadcast("agent.report", bus_payload);
         let mut event = report_event::agent_report_event(
             &storage_key,
             tab_id,
@@ -849,7 +856,10 @@ impl HierarchyExt for ServiceContext {
             &report,
             task_report,
         );
-        event["sender_position"] = sender_position;
+        event["sender_position"] = serde_json::json!(report.sender_position);
+        if let Some(kind) = report.kind.as_deref().filter(|kind| !kind.trim().is_empty()) {
+            event["kind"] = serde_json::json!(kind);
+        }
         self.ui.emit("agent-report", event);
 
         match target {

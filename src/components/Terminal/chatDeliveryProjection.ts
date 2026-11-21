@@ -24,6 +24,7 @@ const TURN_ENDS_BEFORE_UNECHOED_RELEASE = 2;
 
 function tailWaitEnded(send: DeliverySend, state: DeliveryState, turnEnds: number): boolean {
   return Boolean(send.dismissed) || send.echo != null || state === "failed"
+    || (Boolean(send.status?.system_send) && (state === "delivered" || send.status?.pending_reason !== ACTIVE_TURN_HOLD))
     || (state === "delivered" && send.matchedRow?.source.record.kind === "structured")
     || ((state === "uncertain" || state === "delivered") && turnEnds >= TURN_ENDS_BEFORE_UNECHOED_RELEASE);
 }
@@ -42,8 +43,9 @@ export function queuedDeliveryIds(sends: readonly DeliverySend[], turnRunning: b
     if (memory.released.has(send.id)) continue;
     const state = deliveryState(send);
     const inFlight = state === "sending" || state === "queued";
-    if (send.status?.pending_reason === ACTIVE_TURN_HOLD
-      || (!memory.seen.has(send.id) && inFlight && (turnRunning || send.wasHeld))) memory.queued.add(send.id);
+    const systemSend = Boolean(send.status?.system_send);
+    if ((state !== "delivered" && send.status?.pending_reason === ACTIVE_TURN_HOLD)
+      || (!systemSend && !memory.seen.has(send.id) && inFlight && (turnRunning || send.wasHeld))) memory.queued.add(send.id);
     if (!memory.queued.has(send.id)) continue;
     const turnEnds = (memory.turnEnds.get(send.id) ?? 0) + (turnEnded ? 1 : 0);
     if (tailWaitEnded(send, state, turnEnds)) {

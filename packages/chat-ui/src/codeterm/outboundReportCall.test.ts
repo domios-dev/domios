@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { reduceToolEvents, type NormalizedChatMessage, type ToolEvent } from "@codeterm/chat-core";
 import { outboundReportCalls, outboundReportIds } from "./outboundReportCall";
+import { isTaskReportEvent, reportVerdict } from "./reportOutcome";
 
 const PAD_WRITE = "cat > \"$(domios pad path)/report.md\" <<'EOF'\n## Changes\nopaque body\nEOF\n";
 
@@ -62,4 +63,27 @@ test("report ids are read from raw printed output", () => {
   assert.deepEqual(outboundReportIds(humanReceipt("r-4")), ["r-4"]);
   assert.deepEqual(outboundReportIds("report_id r-5 inline"), []);
   assert.deepEqual(outboundReportIds(undefined), []);
+});
+
+test("generic transport acceptance stays neutral while task transitions remain truthful", () => {
+  assert.equal(isTaskReportEvent(null, null), false);
+  assert.equal(reportVerdict(null, null), "sent");
+  assert.equal(isTaskReportEvent(null, { persisted: false, transitionRejected: false, cause: null, reportOutcome: null }), false);
+  assert.equal(reportVerdict(null, { persisted: false, transitionRejected: false, cause: null, reportOutcome: null }), "sent");
+  assert.equal(isTaskReportEvent("in_review", null, "dispatch_ready"), false);
+  assert.equal(isTaskReportEvent(null, null, "task_report"), true);
+  assert.equal(isTaskReportEvent("in_review", { persisted: true, transitionRejected: false, cause: null, reportOutcome: null }), true);
+  assert.equal(reportVerdict("in_review", { persisted: true, transitionRejected: false, cause: null, reportOutcome: null }), "in_review");
+  assert.equal(isTaskReportEvent("failed", null), true);
+  assert.equal(reportVerdict("failed", null), "failed");
+  assert.equal(isTaskReportEvent(null, { persisted: true, transitionRejected: false, cause: null, reportOutcome: null }), true);
+  assert.equal(reportVerdict(null, { persisted: true, transitionRejected: false, cause: null, reportOutcome: null }), "reported");
+  assert.equal(
+    isTaskReportEvent(null, { persisted: false, transitionRejected: true, cause: "opaque", reportOutcome: "transition_rejected" }),
+    true,
+  );
+  assert.equal(
+    reportVerdict("in_review", { persisted: false, transitionRejected: true, cause: "opaque", reportOutcome: "transition_rejected" }),
+    "transition rejected",
+  );
 });
