@@ -12,7 +12,7 @@ pub(crate) const INVALID_REMOTE_TAB_ID: &str = "invalid remote tab id";
 mod adopt;
 mod capture;
 mod chat_view;
-pub(super) mod exec;
+pub(crate) mod exec;
 mod inspect;
 pub(crate) mod labels;
 pub(crate) mod remote_target;
@@ -494,11 +494,11 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     Err(e) => exec::fail_exec(json, format!("unreadable exec result: {e}")),
                 },
                 Ok(resp) => {
-                    let status = resp.status();
+                    let status = resp.status().as_u16();
                     let text = resp.text().unwrap_or_default();
-                    exec::fail_exec(json, format!("HTTP {status}: {text}"));
+                    exec::fail_exec_http(json, status, &text);
                 }
-                Err(e) => exec::fail_exec(json, format!("request failed: {e}")),
+                Err(e) => exec::fail_exec_transport(json, &e.to_string()),
             }
         }
         TabAction::Search { pattern } => {

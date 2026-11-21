@@ -320,6 +320,25 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         relay::mesh_close_tab_and_forget_remote_worker(&base, target, id, cli.json);
         return;
     }
+    if matches!(
+        cli.command,
+        Commands::Tab {
+            action: super::TabAction::Exec { .. }
+        }
+    ) {
+        let answer =
+            relay::mesh_relay_invoke_with_peer(target, &method, &path, body.as_deref(), cli.json);
+        let data = if cli.json {
+            relay::with_answering_peer(answer.data, answer.peer.as_ref())
+        } else {
+            relay::announce_answering_peer(target, answer.peer.as_ref());
+            answer.data
+        };
+        if data.get("output").is_some() {
+            crate::cmd::tab::exec::finish_exec(cli.json, data);
+        }
+        crate::cmd::tab::exec::fail_exec(cli.json, "the peer returned no exec result".into());
+    }
     if matches!(cli.command, Commands::SendText { to_shell: true, .. }) {
         tty_line_guard::enforce(target, body.as_deref(), cli.json);
     }

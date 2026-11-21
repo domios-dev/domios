@@ -476,7 +476,7 @@ pub async fn mesh_relay(
         .delivery_id
         .as_deref()
         .map(str::trim)
-        .filter(|id| !id.is_empty() && is_tab_send(&cmd.method, &cmd.path))
+        .filter(|id| !id.is_empty() && is_tab_delivery(&cmd.method, &cmd.path))
     else {
         return perform_relay(
             &state,
@@ -568,24 +568,31 @@ fn is_tab_send(method: &str, path: &str) -> bool {
     method.eq_ignore_ascii_case("POST") && bare.ends_with("/send")
 }
 
-/// A logical tab send gets a fresh delivery id for at-most-once dedupe; every
-/// other relayed operation opts out (None).
-fn relay_send_delivery_id(method: &str, path: &str) -> Option<String> {
-    is_tab_send(method, path).then(|| uuid::Uuid::new_v4().to_string())
+fn is_tab_exec(method: &str, path: &str) -> bool {
+    let bare = path.split('?').next().unwrap_or(path);
+    method.eq_ignore_ascii_case("POST") && bare.ends_with("/exec")
 }
 
-/// Failure deadline for the relay's own loopback call to a tab send. The send
-/// route waits on the target's own readiness for up to 90s and answers with a
-/// classified delivery code; a shorter deadline here discards that answer and
-/// reports a bare transport error instead. Stays under the mesh client's 120s
-/// relay budget so the peer's classification, not the sender's transport, decides.
+fn is_tab_delivery(method: &str, path: &str) -> bool {
+    is_tab_send(method, path) || is_tab_exec(method, path)
+}
+
+/// Logical tab deliveries (`send` and `exec`) get a fresh delivery id for
+/// at-most-once dedupe; every other relayed operation opts out (None).
+fn relay_send_delivery_id(method: &str, path: &str) -> Option<String> {
+    is_tab_delivery(method, path).then(|| uuid::Uuid::new_v4().to_string())
+}
+
+/// Failure deadline for the relay's own loopback call to a tab delivery. The
+/// route waits on the target's own readiness or exec timeout and answers with
+/// a classified outcome; staying under the 120s relay budget lets the peer decide.
 const SEND_FORWARD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(110);
 
 /// Reads answer in milliseconds; they keep the short failure deadline.
 const READ_FORWARD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
 pub(crate) fn local_forward_deadline(method: &str, path: &str) -> std::time::Duration {
-    if is_tab_send(method, path) || crate::mesh_attachment::is_attachment_ingest(method, path) {
+    if is_tab_delivery(method, path) || crate::mesh_attachment::is_attachment_ingest(method, path) {
         SEND_FORWARD_DEADLINE
     } else {
         READ_FORWARD_DEADLINE
@@ -605,6 +612,17 @@ fn local_forward_http_client() -> Result<&'static reqwest::Client, (StatusCode, 
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
 
+fn relay_failure_outcome(code: &str, bytes_written: Option<bool>) -> &'static str {
+    use codeterm_mesh::contract::delivery;
+    if code == delivery::SUBMIT_UNCONFIRMED {
+        delivery::OUTCOME_SUBMIT_UNCONFIRMED
+    } else if bytes_written == Some(false) {
+        delivery::OUTCOME_REFUSED
+    } else {
+        delivery::OUTCOME_UNKNOWN
+    }
+}
+
 /// A locally generated relay failure that carries a delivery code the sender can
 /// branch on. `bytes_written` is `None` when the outcome is genuinely unknown —
 /// absent never means "nothing happened".
@@ -614,11 +632,12 @@ fn relay_failure(
     bytes_written: Option<bool>,
     message: String,
 ) -> codeterm_service_core::mesh::types::RelayResponse {
-    let mut error = serde_json::json!({ "code": code, "message": message });
+    let outcome = relay_failure_outcome(code, bytes_written);
+    let mut error = serde_json::json!({ "code": code, "outcome": outcome, "message": message });
     if let Some(written) = bytes_written {
         error["bytes_written"] = serde_json::json!(written);
     }
-    let data = serde_json::json!({ "ok": false, "error": error });
+    let data = serde_json::json!({ "ok": false, "outcome": outcome, "error": error });
     codeterm_service_core::mesh::types::RelayResponse {
         ok: false,
         status,

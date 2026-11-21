@@ -1,7 +1,7 @@
 use super::cycle::{CycleWait, SubmitCycleSignal};
 use super::payload_write::{MessagePayload, PayloadWriteFailure};
 use super::*;
-use crate::service::shell_exec::ExecWaiter;
+use crate::service::shell_exec::{ExecCompletion, ExecWaiter};
 
 pub(crate) fn shell_dispatch(bytes: &[u8]) -> (Vec<u8>, String) {
     let bytes = bytes.strip_suffix(b"\r").unwrap_or(bytes);
@@ -97,6 +97,14 @@ impl SubmitTransport for ShellTransport<'_> {
             if self.exact_user_turn_present(text) {
                 return true;
             }
+            if self
+                .waiter
+                .borrow()
+                .as_ref()
+                .is_some_and(ExecWaiter::terminated)
+            {
+                break;
+            }
             match self.claim.cycle.wait_for_wake_until(
                 self.claim.generation,
                 deadline,
@@ -109,12 +117,31 @@ impl SubmitTransport for ShellTransport<'_> {
         self.exact_user_turn_present(text)
     }
     fn wait_for_deferred_submit_ready(&self, deadline: Instant) -> DeferredSubmitWait {
+        if self
+            .waiter
+            .borrow()
+            .as_ref()
+            .is_some_and(ExecWaiter::terminated)
+        {
+            return DeferredSubmitWait::Inactive;
+        }
         match self
             .claim
             .cycle
             .wait_for_wake_until(self.claim.generation, deadline, &self.wake_rx)
         {
-            CycleWait::Event => DeferredSubmitWait::Woken,
+            CycleWait::Event => {
+                if self
+                    .waiter
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(ExecWaiter::terminated)
+                {
+                    DeferredSubmitWait::Inactive
+                } else {
+                    DeferredSubmitWait::Woken
+                }
+            }
             CycleWait::Deadline => DeferredSubmitWait::Deadline,
             CycleWait::Inactive => DeferredSubmitWait::Inactive,
         }
@@ -180,7 +207,15 @@ impl SubmitTransport for ShellTransport<'_> {
     }
 }
 
-pub(crate) fn submit_shell_dispatch(
+pub(crate) enum ShellDispatchOutcome {
+    Started(InjectionResult, ExecWaiter),
+    Unconfirmed {
+        completion: Option<ExecCompletion>,
+        error: InjectionError,
+    },
+}
+
+pub(crate) fn submit_shell_dispatch_observed(
     svc: &ServiceContext,
     pty_id: &str,
     payload: &[u8],
@@ -188,7 +223,7 @@ pub(crate) fn submit_shell_dispatch(
     claim: SubmitCycleClaim,
     queued: Option<&dyn Fn(usize)>,
     submit_keys: ShellSubmitKeys,
-) -> Result<(InjectionResult, ExecWaiter), InjectionError> {
+) -> Result<ShellDispatchOutcome, InjectionError> {
     let (wake_tx, wake_rx) = mpsc::sync_channel(1);
     let transport = ShellTransport {
         svc,
@@ -202,18 +237,55 @@ pub(crate) fn submit_shell_dispatch(
         queued,
         submit_keys,
     };
-    let result = run_shell(&transport, expected)?;
-    let elapsed = result.elapsed;
-    let result = result.require_submission(true, elapsed, String::new())?;
-    let waiter =
-        transport
-            .waiter
-            .into_inner()
-            .ok_or_else(|| InjectionError::SubmitNeverConfirmed {
-                waited: elapsed,
+    let run_result = run_shell(&transport, expected).and_then(|result| {
+        let elapsed = result.elapsed;
+        result.require_submission(true, elapsed, String::new())
+    });
+    let waiter = transport.waiter.into_inner();
+    match (run_result, waiter) {
+        (Ok(result), Some(waiter)) => Ok(ShellDispatchOutcome::Started(result, waiter)),
+        (Ok(result), None) => Ok(ShellDispatchOutcome::Unconfirmed {
+            completion: None,
+            error: InjectionError::SubmitNeverConfirmed {
+                waited: result.elapsed,
                 screen_tail: String::new(),
-            })?;
-    Ok((result, waiter))
+            },
+        }),
+        (
+            Err(
+                error @ (InjectionError::SubmitNeverConfirmed { .. }
+                | InjectionError::EchoMismatch { .. }),
+            ),
+            mut waiter,
+        ) => {
+            let completion = waiter.as_mut().and_then(ExecWaiter::try_completion);
+            Ok(ShellDispatchOutcome::Unconfirmed { completion, error })
+        }
+        (Err(error), _) => Err(error),
+    }
+}
+
+pub(crate) fn submit_shell_dispatch(
+    svc: &ServiceContext,
+    pty_id: &str,
+    payload: &[u8],
+    expected: &str,
+    claim: SubmitCycleClaim,
+    queued: Option<&dyn Fn(usize)>,
+    submit_keys: ShellSubmitKeys,
+) -> Result<(InjectionResult, ExecWaiter), InjectionError> {
+    match submit_shell_dispatch_observed(
+        svc,
+        pty_id,
+        payload,
+        expected,
+        claim,
+        queued,
+        submit_keys,
+    )? {
+        ShellDispatchOutcome::Started(result, waiter) => Ok((result, waiter)),
+        ShellDispatchOutcome::Unconfirmed { error, .. } => Err(error),
+    }
 }
 
 fn run_shell<T: SubmitTransport>(
