@@ -32,6 +32,7 @@ pub(super) fn export_api(config: &Config) -> Result<(), Box<dyn std::error::Erro
     codeterm_types::agent::chat_types::RichMessage::export_all(config)?;
     codeterm_types::api_contracts::ChatStartResult::export_all(config)?;
     codeterm_types::api_contracts::ChatBackfillResult::export_all(config)?;
+    codeterm_types::workspace_close_preview::WorkspaceClosePreview::export_all(config)?;
     codeterm_wire::api_contracts::TabFailure::export_all(config)?;
     codeterm_wire::api_contracts::TeamCloseLaneRecord::export_all(config)?;
     codeterm_wire::api_contracts::TeamCloseInventory::export_all(config)?;

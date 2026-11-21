@@ -4,16 +4,20 @@ export function WorkspaceCloseConfirmDialog({
   workspaceName,
   machineName,
   agentTitles,
+  crons = [],
   blueprints = [],
   teams,
+  warnings = [],
   onConfirm,
   onCancel,
 }: {
   workspaceName: string;
   machineName?: string;
   agentTitles: string[];
+  crons?: readonly string[];
   blueprints?: readonly string[];
   teams: readonly TeamCloseResource[];
+  warnings?: readonly string[];
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -59,8 +63,22 @@ export function WorkspaceCloseConfirmDialog({
           <ul className="px-3 py-1 text-[var(--ct-fg)]">
             {agentTitles.map((title, index) => <li key={`${title}-${index}`}>{title}</li>)}
           </ul>
+          {crons.length > 0 && (
+            <section className="pt-2">
+              <div>Workspace crons ({crons.length})</div>
+              <ul className="px-3 py-1 text-[var(--ct-fg)]">{crons.map((cron, index) => <li key={`${cron}-${index}`}>{cron}</li>)}</ul>
+            </section>
+          )}
           <div className="pt-1">Running tab-owned Blueprints ({blueprints.length})</div>
           <ul className="px-3 py-1 text-[var(--ct-fg)]">{blueprints.map((blueprint) => <li key={blueprint}>{blueprint}</li>)}</ul>
+          {warnings.length > 0 && (
+            <section aria-label="Workspace close warnings" className="pt-2">
+              <div>Warnings ({warnings.length})</div>
+              <ul className="px-3 py-1 text-[var(--ct-fg)]">
+                {warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}
+              </ul>
+            </section>
+          )}
         </div>
         <div className="flex justify-end gap-2 border-t border-[var(--ct-border)] px-4 py-3">
           <button

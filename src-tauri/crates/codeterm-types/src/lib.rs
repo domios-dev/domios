@@ -16,3 +16,6 @@ mod test_support;
 pub mod app_quit;
 
 pub mod api_contracts;
+pub mod workspace_close_preview;
+
+pub use workspace_close_preview::*;

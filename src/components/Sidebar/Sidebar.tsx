@@ -1061,8 +1061,10 @@ export const Sidebar = memo(function Sidebar({
           workspaceName={remoteWorkspaceClose.pending.workspaceName}
           machineName={remoteWorkspaceClose.pending.machineName}
           agentTitles={remoteWorkspaceClose.pending.agentTitles}
+          crons={remoteWorkspaceClose.pending.crons}
           blueprints={remoteWorkspaceClose.pending.blueprints}
           teams={remoteWorkspaceClose.pending.teams}
+          warnings={remoteWorkspaceClose.pending.warnings}
           onCancel={remoteWorkspaceClose.cancel}
           onConfirm={() => { void confirmRemoteWorkspaceClose(); }}
         />

@@ -3,6 +3,18 @@ use crate::multiplexer::types::Workspace;
 use codeterm_entitlements::LimitKey;
 
 impl MultiplexerState {
+    /// Teams whose persisted workspace provenance matches one workspace.
+    /// Returns borrowed rows so scoped readers do not clone the global Team list.
+    pub fn teams_for_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> impl Iterator<Item = &codeterm_types::team::Team> {
+        self.team_order
+            .iter()
+            .filter_map(|team_id| self.teams.get(team_id))
+            .filter(move |team| team.workspace_id == workspace_id)
+    }
+
     pub fn create_workspace(&mut self, name: String, cwd: Option<String>) -> WorkspaceInfo {
         let cwd = cwd.map(|path| codeterm_paths::strip_verbatim_prefix(&path));
         let workspace_id = short_id();

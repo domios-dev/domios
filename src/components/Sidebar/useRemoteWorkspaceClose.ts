@@ -1,12 +1,9 @@
 import { useCallback, useRef, useState } from "react";
-import type { PlanView } from "../Canvas/planProjection";
-import type { BlueprintSnapshot } from "../Automation/types";
+import type { WorkspaceClosePreview } from "../../gen/WorkspaceClosePreview";
 import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
-import { createOrchestrationTransport } from "../../lib/transport/orchestration";
 import { createTabsTransport } from "../../lib/transport/tabs";
-import type { MultiplexerState, Workspace } from "../../lib/types";
-import { teamCloseResourcesForWorkspace, type TeamCloseResource } from "./teamCloseResources";
-import { flattenSidebarTabs, tabsInWorkspace } from "./workspaceTabs";
+import { WebApiError } from "../../lib/webApi";
+import type { TeamCloseResource } from "./teamCloseResources";
 import type { GeneralAvailability } from "../../store/multiplexer/pairedWorkspaceProjection";
 
 export interface RemoteWorkspaceCloseTarget {
@@ -20,12 +17,17 @@ export interface RemoteWorkspaceCloseTarget {
 
 export interface RemoteWorkspaceCloseConfirmation extends RemoteWorkspaceCloseTarget {
   agentTitles: string[];
+  crons: string[];
   blueprints: string[];
   teams: TeamCloseResource[];
+  warnings?: string[];
 }
 
+type RemoteWorkspaceCloseInventory = Pick<RemoteWorkspaceCloseConfirmation,
+  "workspaceName" | "agentTitles" | "crons" | "blueprints" | "teams" | "warnings">;
+
 export interface RemoteWorkspaceClosePort {
-  readInventory(peerId: string, workspaceId: string, signal: AbortSignal): Promise<Pick<RemoteWorkspaceCloseConfirmation, "workspaceName" | "agentTitles" | "blueprints" | "teams">>;
+  readInventory(peerId: string, workspaceId: string, signal: AbortSignal): Promise<RemoteWorkspaceCloseInventory>;
   closeWorkspace(peerId: string, workspaceId: string): Promise<void>;
   workspaceExists(peerId: string, workspaceId: string): Promise<boolean>;
 }
@@ -49,50 +51,64 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function readPlanViews(peerId: string, signal: AbortSignal) {
-  const client = createOrchestrationTransport(daemonTransportForPeer(peerId));
-  const index = await client.list_plan_index({ signal });
-  // Close inventory also depends on lane and open-attempt owners, which the index omits.
-  const plans: PlanView[] = [];
-  for (let offset = 0; offset < index.length; offset += 4) {
-    signal.throwIfAborted();
-    const batch = await Promise.all(index.slice(offset, offset + 4).map(({ plan_id }) => client.get_plan_full({ planId: plan_id }, { signal })));
-    plans.push(...batch as unknown as PlanView[]);
-  }
-  return plans;
-}
-
-const remoteWorkspaceClosePort: RemoteWorkspaceClosePort = {
+export const remoteWorkspaceClosePort: RemoteWorkspaceClosePort = {
   async readInventory(peerId, workspaceId, signal) {
     const transport = daemonTransportForPeer(peerId);
-    const orchestration = createOrchestrationTransport(transport);
-    const [snapshot, crons, graph] = await Promise.all([
-      transport.json<MultiplexerState>("GET", "/api/mux/state", undefined, { signal }),
-      orchestration.cron_list({ workspaceId }),
-      orchestration.automation_graph_workspace_snapshot({ workspaceId }, { signal }),
-    ]);
-    const workspace = snapshot.workspaces.find(candidate => candidate.id === workspaceId);
-    if (!workspace || workspace.protected) throw new Error("The selected workspace is unavailable or protected on that machine.");
-    const workspaceTabs = tabsInWorkspace(workspace.tabs, snapshot.tabs);
-    const plans = await readPlanViews(peerId, signal);
-    const blueprints: readonly BlueprintSnapshot[] = graph.blueprints ?? [];
-    const teams = teamCloseResourcesForWorkspace(workspace, snapshot.tabs, snapshot.teams ?? [], crons, plans, blueprints);
-    const teamMemberIds = new Set(teams.flatMap(team => team.members.map(member => member.tabId)));
-    const agentTitles = flattenSidebarTabs(workspace.tabs, snapshot.tabs)
-      .filter(tab => tab.agent_type && !teamMemberIds.has(tab.id)).map(tab => tab.title);
-    const workspaceTabIds = new Set(workspaceTabs.map(tab => tab.id));
-    const tabBlueprints = blueprints.filter(blueprint => blueprint.state === "running" && blueprint.owner?.kind === "tab"
-      && blueprint.owner.tab_id !== null && workspaceTabIds.has(blueprint.owner.tab_id) && !teamMemberIds.has(blueprint.owner.tab_id))
-      .map(blueprint => blueprint.name ?? blueprint.id);
-    return { workspaceName: workspace.name, agentTitles, blueprints: tabBlueprints, teams };
+    const preview = await transport.json<WorkspaceClosePreview>(
+      "GET",
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/close-preview`,
+      undefined,
+      { signal },
+    );
+    if (preview.installation_id !== peerId || preview.workspace_id !== workspaceId) {
+      throw new Error("The close preview does not match the selected machine and workspace.");
+    }
+    const teamMemberIds = new Set(preview.teams.flatMap(team => team.members.map(member => member.tab_id)));
+    const teams: TeamCloseResource[] = preview.teams.map(team => ({
+      id: team.id,
+      name: team.name,
+      members: team.members.map(member => ({
+        tabId: member.tab_id,
+        title: member.title,
+        role: member.role,
+        roleProfile: member.role_profile,
+      })),
+      crons: team.crons,
+      blueprints: team.blueprints,
+      lanes: [
+        ...team.tasks.map(task => `${task.plan_title}: ${task.task_name}${task.orphan ? " (orphan task)" : ""}${task.remote_attempt ? " (remote attempt)" : ""}`),
+        ...team.open_attempts.map(attempt => `Open attempt ${attempt.id}${attempt.executor_tab_id ? ` · ${attempt.executor_tab_id}` : ""}${attempt.remote ? " (remote)" : ""}`),
+        ...team.lanes.map(lane => [lane.path, lane.branch, lane.state, lane.detail].filter(Boolean).join(" · ")),
+      ],
+    }));
+    const agentTitles = preview.agent_tabs
+      .filter(tab => !teamMemberIds.has(tab.tab_id))
+      .map(tab => tab.title);
+    const warnings = preview.warnings.map(warning => warning.detail);
+    return {
+      workspaceName: preview.workspace_name,
+      agentTitles,
+      crons: preview.crons,
+      blueprints: preview.blueprints,
+      teams,
+      warnings,
+    };
   },
   async closeWorkspace(peerId, workspaceId) {
     const transport = createTabsTransport(daemonTransportForPeer(peerId));
     await transport.mux_close_workspace({ workspaceId, force: true });
   },
   async workspaceExists(peerId, workspaceId) {
-    const snapshot = await daemonTransportForPeer(peerId).json<MultiplexerState>("GET", "/api/mux/state");
-    return snapshot.workspaces.some((workspace: Workspace) => workspace.id === workspaceId);
+    try {
+      await daemonTransportForPeer(peerId).json<WorkspaceClosePreview>(
+        "GET",
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/close-preview`,
+      );
+      return true;
+    } catch (error) {
+      if (error instanceof WebApiError && error.status === 404) return false;
+      throw error;
+    }
   },
 };
 
