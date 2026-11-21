@@ -107,6 +107,8 @@ fn end_run(run: &OneshotRun, success: bool, summary: &str, deliveries: &Deliveri
             session_id: None,
             cwd: None,
             binding_nonce: None,
+            pty_id: None,
+            failed_start_epoch: None,
         },
         move |tab_id, envelope, text| {
             recorded.lock().push((
@@ -295,6 +297,8 @@ fn cron_settle_async_runtime_progresses_while_cron_writer_is_held() {
                         session_id: None,
                         cwd: None,
                         binding_nonce: None,
+                        pty_id: None,
+                        failed_start_epoch: None,
                     },
                     |_, _, _| Ok(()),
                 )
@@ -315,4 +319,45 @@ fn cron_settle_async_runtime_progresses_while_cron_writer_is_held() {
     let history = cron.get_history(&run.job_id);
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].status, CronRunStatus::Success);
+}
+
+#[test]
+fn report_persistence_refusal_keeps_delivery_continuation_without_replay() {
+    let opened = std::sync::OnceLock::new();
+    let run = oneshot_run_in(Some(REPORT_TAB), |fixture| {
+        let root = fixture.temp.path().join("instance");
+        crate::storage::test_support::seed_empty_root(&root);
+        let storage = crate::storage::Storage::open(root, crate::storage::StorageConfig::default()).unwrap();
+        let store = CronStore::open_storage(&storage, fixture.temp.path().join("crons"), crate::cron::clock::system_clock(), CronStorageOptions::default(), "fixture".into()).unwrap();
+        opened.set(storage).ok().unwrap();
+        store
+    });
+    let deliveries = Deliveries::default();
+    let recorded = deliveries.clone();
+    let storage = opened.get().unwrap().clone();
+    finish_with(&run.fixture.service, EndedCronRun {
+        tab_id: RUN_TAB, job_id: &run.job_id, run_id: &run.run_id, success: false,
+        summary: "retained report".into(), raw_output: "", session_id: None, cwd: None,
+        binding_nonce: None, pty_id: None, failed_start_epoch: None,
+    }, move |tab, _, text| {
+        recorded.lock().push((tab.into(), text.into()));
+        storage.inject_fault(crate::storage::Fault::FailNextCommit).wait(std::time::Duration::from_secs(5)).unwrap();
+        Ok(())
+    }).unwrap().join().unwrap();
+    assert_eq!(deliveries.lock().len(), 1);
+    assert!(run.fixture.service.run_watcher.cron_job_finalizing(&run.job_id));
+    assert!(run.cron.lock().get(&run.job_id).is_some(), "oneshot retirement waits for report persistence");
+    assert!(run.cron.lock().run_receipt(&run.job_id, &run.run_id).unwrap().report_delivery.is_none());
+    let (sent, done) = std::sync::mpsc::channel();
+    run.fixture.ui.listen("cron-run-finished", move |_| { let _ = sent.send(()); });
+    assert!(run.fixture.service.run_watcher.resume_cron_finalizer_for_run(&run.fixture.service, &run.run_id, None, None, true));
+    done.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+    assert_eq!(deliveries.lock().len(), 1, "resume must not deliver again");
+    let fresh = CronStore::open_storage(opened.get().unwrap(), run.fixture.temp.path().join("crons"), crate::cron::clock::system_clock(), CronStorageOptions::default(), "fixture".into()).unwrap();
+    assert!(fresh.get(&run.job_id).is_none());
+    let receipt = fresh.run_receipt(&run.job_id, &run.run_id).unwrap();
+    assert_eq!(receipt.summary.as_deref(), Some("retained report"));
+    assert_eq!(receipt.report_delivery.as_deref(), Some("delivered"));
+    assert!(run.fixture.service.run_watcher.cron_finalizers.lock().is_empty());
+    assert!(!run.fixture.service.run_watcher.cron_job_finalizing(&run.job_id));
 }

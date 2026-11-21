@@ -28,8 +28,8 @@ impl ChatBackendRuntimeLaunch {
             self.history_meta,
             self.runtime_fork.clone(),
         ) {
-            if self.runtime_fork.is_some()
-                || !crate::service::agent_runtime::requested_for_tab(&svc, &self.tab_id)
+            if !self.cron_owned && (self.runtime_fork.is_some()
+                || !crate::service::agent_runtime::requested_for_tab(&svc, &self.tab_id))
             {
                 svc.rollback_provisional_tab(&self.workspace_id, &self.tab_id);
                 let _ = svc.revoke_agent_pad(&self.tab_id);

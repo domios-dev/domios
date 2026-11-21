@@ -585,35 +585,7 @@ impl ServiceContext {
         pty_id: String,
         launch_owned: bool,
     ) -> crate::service::pty_ownership::PtySelection {
-        claim.settle(
-            pty_id,
-            launch_owned,
-            |candidate| self.pty.lock().get_session(candidate).is_some(),
-            |selected| {
-                self.seed_pending_scrollback_before_link(tab_id, selected);
-                let mut mux = self.mux.write();
-                if mux.get_tab(tab_id).is_none() {
-                    crate::service::pty_ownership::LinkOutcome::TabMissing
-                } else {
-                    crate::service::pty_ownership::LinkOutcome::Linked(
-                        mux.link_pty(tab_id, selected.to_string()),
-                    )
-                }
-            },
-            |orphan| {
-                log::warn!(
-                    "[link_pty] Tab {} rejected orphan pty {}",
-                    tab_id,
-                    &orphan[..orphan.len().min(8)]
-                );
-                self.kill_ptys(&[orphan.to_string()]);
-            },
-            |selected| {
-                self.observe_shell_ready(selected, None);
-                crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
-                self.emit_state_changed(MuxEmitCause::TabLifecycle);
-            },
-        )
+        self.link_pty_with_admission(claim, tab_id, pty_id, launch_owned, |selected| self.seed_pending_scrollback_before_link(tab_id, selected), |_, _| Ok(()))
     }
 
     pub fn update_tab_cwd(&self, tab_id: &str, cwd: String) {

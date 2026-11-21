@@ -39,6 +39,12 @@ struct Scene {
 }
 impl Drop for Scene {
     fn drop(&mut self) {
+        for (_, run) in self.fixture.service.run_watcher.runtime_runs.lock().drain() {
+            let _ = run.cancelled.send(true);
+        }
+        for (_, run) in self.fixture.service.run_watcher.runs.lock().drain() {
+            run.completed.store(true, std::sync::atomic::Ordering::Release);
+        }
         let tabs = self.fixture.service.mux.read().snapshot().tabs;
         for tab in tabs.keys() {
             engine::stop_blocking(&self.fixture.service, tab).unwrap();

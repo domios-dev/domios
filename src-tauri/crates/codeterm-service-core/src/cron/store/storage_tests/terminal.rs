@@ -45,3 +45,79 @@ fn storage_cron_cancelled_receipt_survives_stale_timeout_and_next_occurrence() {
     assert_eq!(f.cron.lock().get_tab_owner("future-tab"), Some(&(job.id.clone(), "future".into())));
     assert_eq!(f.rehydrated().get_history(&job.id)[0], &original);
 }
+
+fn terminal_request(job: &str, run: &str) -> crate::cron::store::storage::TerminalRun {
+    crate::cron::store::storage::TerminalRun {
+        job_id:job.into(), run_id:run.into(), status:CronRunStatus::Failed,
+        summary:"owned terminal summary".into(), session_id:Some("owned-session".into()), cwd:Some("owned-cwd".into()),
+        tab_id: Some(format!("tab-{run}")),
+    }
+}
+
+#[test]
+fn storage_cron_terminal_owner_waits_for_original_completion_beyond_observer_deadline() {
+    let f = fixture();
+    let job = f.create(params("Retained terminal write"));
+    f.start(&job.id, "owned");
+    f.cron.lock().set_storage_deadline(Duration::ZERO);
+    let hold = held(&f.storage);
+    let submitted = gate(&f.cron, CronStage::Submitted);
+    let owner = f.cron.clone();
+    let request = terminal_request(&job.id, "owned");
+    let finishing = std::thread::spawn(move || {
+        let mut attempt = crate::cron::store::storage::TerminalRunCommit::new(request);
+        crate::async_runtime::block_on(attempt.settle(&owner))
+    });
+    submitted.wait_reached();
+    submitted.release();
+    assert!(f.cron.try_lock().is_some());
+    assert_eq!(f.cron.lock().run_receipt(&job.id, "owned").unwrap().status, CronRunStatus::Running);
+    assert_eq!(f.rehydrated().run_receipt(&job.id, "owned").unwrap().status, CronRunStatus::Running);
+    hold.release();
+    assert!(finishing.join().unwrap().unwrap().fresh);
+    f.assert_cache_is_committed();
+    assert_eq!(f.rehydrated().run_receipt(&job.id, "owned").unwrap().summary.as_deref(), Some("owned terminal summary"));
+    assert_eq!(f.cron.lock().get(&job.id).unwrap().consecutive_failures, 1);
+}
+
+#[test]
+fn storage_cron_terminal_definite_refusal_is_recoverable_without_duplicate_accounting() {
+    let f = fixture();
+    let job = f.create(params("Recover terminal refusal"));
+    f.start(&job.id, "owned");
+    f.storage.inject_fault(Fault::FailNextCommit).wait(DEADLINE).unwrap();
+    let mut attempt = crate::cron::store::storage::TerminalRunCommit::new(terminal_request(&job.id, "owned"));
+    let failed = crate::async_runtime::block_on(attempt.settle(&f.cron));
+    assert!(matches!(failed, Err(CronCommitError::NotApplied(_))));
+    assert_eq!(f.cron.lock().get(&job.id).unwrap().consecutive_failures, 0);
+    assert_eq!(f.rehydrated().run_receipt(&job.id, "owned").unwrap().status, CronRunStatus::Running);
+    assert!(crate::async_runtime::block_on(attempt.settle(&f.cron)).unwrap().fresh);
+    assert!(!crate::async_runtime::block_on(attempt.settle(&f.cron)).unwrap().fresh);
+    f.assert_cache_is_committed();
+    assert_eq!(f.cron.lock().get(&job.id).unwrap().consecutive_failures, 1);
+}
+
+#[test]
+fn storage_cron_terminal_continues_after_the_original_unconfirmed_fence_settles() {
+    let f = fixture();
+    let job = f.create(params("Earlier outcome"));
+    f.start(&job.id, "owned");
+    f.cron.lock().set_storage_deadline(Duration::ZERO);
+    let hold = held(&f.storage);
+    let earlier = commit(&f.cron, |store| store.prepare_update(&job.id, rename("earlier original write")));
+    assert!(matches!(earlier, Err(CronCommitError::Unconfirmed(_))));
+    let owner = f.cron.clone();
+    let request = terminal_request(&job.id, "owned");
+    let (entered, waiting) = mpsc::channel();
+    let finishing = std::thread::spawn(move || {
+        let mut attempt = crate::cron::store::storage::TerminalRunCommit::new(request);
+        entered.send(()).unwrap();
+        crate::async_runtime::block_on(attempt.settle(&owner))
+    });
+    waiting.recv_timeout(DEADLINE).unwrap();
+    hold.release();
+    assert!(finishing.join().unwrap().unwrap().fresh);
+    f.assert_cache_is_committed();
+    assert_eq!(f.cron.lock().get(&job.id).unwrap().name, "earlier original write");
+    assert_eq!(f.cron.lock().get(&job.id).unwrap().consecutive_failures, 1);
+}

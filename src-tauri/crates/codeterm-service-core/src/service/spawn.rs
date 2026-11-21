@@ -11,6 +11,7 @@ use crate::agent::registry::AgentRegistry;
 pub(crate) use crate::service::startup_turn::visible_spawn_starter_prompt;
 #[path = "spawn_warnings.rs"]
 mod spawn_warnings;
+mod cron_launch;
 pub use spawn_warnings::merge as merge_spawn_warnings;
 
 pub use super::spawn_cli::{create_cleared_agent_tab, provider_launch_preflight};
@@ -892,10 +893,8 @@ impl ServiceContext {
             self.rollback_provisional_tab(&ws_id, &tab_id);
         })?;
         env_vars.insert("CODETERM_PAD_DIR".into(), agent_pad.env_value());
-        env_vars.insert(
-            "CODETERM_SESSION_BINDING_NONCE".into(),
-            self.ensure_session_binding_nonce(&tab_id),
-        );
+        let binding_nonce = self.ensure_session_binding_nonce(&tab_id);
+        env_vars.insert("CODETERM_SESSION_BINDING_NONCE".into(), binding_nonce.clone());
         if let Some(ref wid) = agent.worker_id {
             env_vars.insert("CODETERM_WORKER_ID".into(), wid.clone());
         }
@@ -918,11 +917,19 @@ impl ServiceContext {
             &env_vars,
         );
 
-        let pty_id = match self.link_hidden_agent_pty(&tab_id, resolved_cwd, env_vars) {
+        let original_cron = spec.chatbackend_launch.as_ref().and_then(|metadata| metadata.owner_linkage.as_ref())
+            .filter(|linkage| matches!(linkage, RuntimeOwnerLinkage::CronRun { .. }))
+            .map(|linkage| self.run_watcher.capture_cron_launch(self, linkage, &tab_id, &binding_nonce, None)).transpose()?;
+        let pty_id = match self.link_hidden_agent_cron_pty(&tab_id, resolved_cwd, env_vars, original_cron.as_ref()) {
             Ok(pty_id) => pty_id,
             Err(error) => {
-                let _ = self.revoke_agent_pad(&tab_id);
-                self.rollback_provisional_tab(&ws_id, &tab_id);
+                if let Some(owner) = original_cron.as_ref() {
+                    let cleanup = self.run_watcher.cron_binding(owner.tab_id(), owner.job_id(), owner.run_id()).filter(|captured| captured.nonce() == owner.nonce()).unwrap_or_else(|| owner.clone());
+                    self.close_owned_cron_launch(&cleanup, crate::multiplexer::types::TabCloseReason::SpawnRollback);
+                } else {
+                    let _ = self.revoke_agent_pad(&tab_id);
+                    self.rollback_provisional_tab(&ws_id, &tab_id);
+                }
                 return Err(error);
             }
         };
@@ -1053,38 +1060,7 @@ impl ServiceContext {
         })
     }
 
-    pub fn link_hidden_agent_pty(
-        &self,
-        tab_id: &str,
-        cwd: Option<String>,
-        env_vars: HashMap<String, String>,
-    ) -> Result<String, String> {
-        self.link_hidden_agent_pty_with_builder(tab_id, |gate| {
-            crate::pty::manager::build_session(gate, None, cwd, 120, 40, env_vars)
-        })
-    }
 
-    fn link_hidden_agent_pty_with_builder(
-        &self,
-        tab_id: &str,
-        build: impl FnOnce(
-            crate::pty::manager::PtySpawnGate,
-        ) -> Result<crate::pty::manager::BuiltSession, String>,
-    ) -> Result<String, String> {
-        let pty_claim = self.pty_ownership.acquire(tab_id)?;
-        let gate = self.pty.lock().spawn_gate();
-        let built = build(gate)?;
-        let candidate = self.pty.lock().register_session(None, built).0;
-        super::pty_resize::resize(&self.pty, &self.screen_state, &candidate, None)?;
-        let selection = self.link_pty_with_claim(&pty_claim, tab_id, candidate, true);
-        if !selection.linked {
-            return Err(format!("Tab {tab_id} closed before PTY link"));
-        }
-        self.agent_run_pty_map
-            .lock()
-            .insert(tab_id.to_string(), selection.pty_id.clone());
-        Ok(selection.pty_id)
-    }
 }
 
 /// A visible launch carries a minted marker so a hook-less provider still binds

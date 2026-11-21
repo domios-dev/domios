@@ -358,7 +358,7 @@ fn fire_job_with_spawn(
     );
 
     let fired_at = cron_state.lock().now_ms();
-    match record_scheduled_fire(cron_state, job_id, &run_id, occurrence, Some(fired_at)) {
+    match record_scheduled_fire_with_admission(cron_state, job_id, &run_id, occurrence, Some(fired_at), || !service.run_watcher.cron_job_finalizing(job_id)) {
         FireStart::Recorded => {}
         outcome => return outcome,
     }
@@ -378,27 +378,19 @@ fn fire_job_with_spawn(
                 handle.tab_id
             );
 
-            if !runtime_owner_prebound {
-                cron_state
-                    .lock()
-                    .register_tab(&handle.tab_id, job_id, &run_id);
-                if let Err(error) = commit(cron_state, |store| {
-                    Ok(store.prepare_set_run_tab(job_id, &run_id, &handle.tab_id))
-                }) {
-                    log::error!(
-                        "Failed to record cron run tab: job={job_id} run={run_id}: {error}"
-                    );
+            let launch_owner = if !runtime_owner_prebound {
+                match service.admit_cron_handle(cron_state, &handle, job_id, &run_id) {
+                    Ok(owner) => Some(owner),
+                    Err(error) => {
+                        service.log_system_notice(format!("Cron launch admission ended: {job_id}"), Some(error), Some("error"));
+                        return FireStart::Recorded;
+                    }
                 }
-            }
+            } else { None };
             service.sync_cron_owner_prompt_state(&handle.tab_id);
 
             // Register with the auto-complete watcher (cron flavor).
-            if let Some(pty_id) = service
-                .agent_run_pty_map
-                .lock()
-                .get(&handle.tab_id)
-                .cloned()
-            {
+            if let Some(owner) = launch_owner {
                 let global_timeout = service.configuration().memory.worker_timeout_seconds;
                 let timeout = job_timeout.unwrap_or(global_timeout);
                 if job_timeout.is_some() {
@@ -409,17 +401,11 @@ fn fire_job_with_spawn(
                         timeout
                     );
                 }
-                service.run_watcher.register(
-                    (**service).clone(),
-                    pty_id,
-                    handle.tab_id.clone(),
-                    crate::agent::run_watcher::AgentRunKind::Cron {
-                        job_id: job_id.to_string(),
-                        run_id: run_id.clone(),
-                    },
-                    timeout,
-                    resume_system_prompt.clone(),
-                );
+                if let Err(error) = service.run_watcher.register_cron((**service).clone(), &owner, timeout, resume_system_prompt.clone()) {
+                    service.close_owned_cron_launch(&owner, crate::multiplexer::types::TabCloseReason::Cancelled);
+                    service.log_system_notice(format!("Cron watcher admission ended: {job_id}"), Some(error), Some("error"));
+                    return FireStart::Recorded;
+                }
             }
 
             if let Some(policy) = crate::service::role_policy::resolve(spec.role.as_deref()) {
@@ -522,8 +508,13 @@ fn record_scheduled_fire(
     occurrence: Occurrence,
     fired_at: Option<u64>,
 ) -> FireStart {
+    record_scheduled_fire_with_admission(cron, job_id, run_id, occurrence, fired_at, || true)
+}
+
+fn record_scheduled_fire_with_admission(cron: &CronState, job_id: &str, run_id: &str, occurrence: Occurrence, fired_at: Option<u64>, admit: impl Fn() -> bool) -> FireStart {
     let mut decision = None;
     let recorded = commit(cron, |store| {
+        if !admit() { return Err("Cron terminal effects require settlement before another launch".into()); }
         let mut run = run_to_record(store, job_id, run_id);
         run.fired_at = fired_at;
         let prepared = store.prepare_scheduled_run(job_id, occurrence, run)?;

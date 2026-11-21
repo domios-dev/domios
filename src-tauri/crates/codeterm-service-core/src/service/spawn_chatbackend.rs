@@ -442,8 +442,10 @@ impl ServiceContext {
             if let Some(launch) = launch {
                 if let Err(error) = self.prepare_chatbackend_runtime_launch(&tab_id, launch) {
                     self.fail_prepared_runtime_cron(&tab_id, launch, &error);
-                    self.rollback_provisional_tab(&ws_id, &tab_id);
-                    let _ = self.revoke_agent_pad(&tab_id);
+                    if !matches!(launch.owner_linkage, Some(super::spawn::RuntimeOwnerLinkage::CronRun { .. })) {
+                        self.rollback_provisional_tab(&ws_id, &tab_id);
+                        let _ = self.revoke_agent_pad(&tab_id);
+                    }
                     return Err(error);
                 }
             }
@@ -481,6 +483,10 @@ impl ServiceContext {
         tab_id: &str,
         metadata: &super::spawn::ChatBackendLaunchMetadata,
     ) -> Result<(), String> {
+        let original_cron = if let Some(linkage @ super::spawn::RuntimeOwnerLinkage::CronRun { .. }) = metadata.owner_linkage.as_ref() {
+            let cron = self.try_ext::<crate::CronState>().ok_or("Runtime cron state unavailable")?;
+            Some(self.reserve_cron_launch(cron, linkage, tab_id, &self.ensure_session_binding_nonce(tab_id), None)?)
+        } else { None };
         super::spawn_capability::validate_runtime_launch_arguments(
             &metadata.agent.provider,
             &metadata.agent.extra_args,
@@ -498,6 +504,7 @@ impl ServiceContext {
         self.ensure_session_binding_nonce(tab_id);
         {
             let mut mux = self.mux.write();
+            if original_cron.as_ref().is_some_and(|owner| !owner.matches(&mux)) { return Err("Runtime cron launch changed during preparation".into()); }
             let tab = mux.get_tab_mut(tab_id).ok_or("Runtime launch tab absent")?;
             if tab.pty_id.is_some() {
                 return Err("Existing runtime launch requires released PTY ownership".into());

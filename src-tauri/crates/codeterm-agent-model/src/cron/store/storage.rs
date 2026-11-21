@@ -9,7 +9,8 @@ use std::sync::{mpsc, Arc};
 use std::task::{Context, Poll, Wake, Waker};
 use std::time::{Duration, Instant};
 
-use super::crud::{log_finished, CronChange, Prepared, RunSession};
+use super::crud::{CronChange, Prepared, RunSession};
+pub use super::crud::log_finished;
 use super::{CronFile, CronJob, CronRunInfo, CronRunStatus, CronStore};
 use crate::cron::clock::SharedClock;
 use crate::cron::CronState;
@@ -20,6 +21,8 @@ use crate::storage::{
 
 mod codec;
 mod port;
+mod terminal;
+pub use terminal::{TerminalRun, TerminalRunCommit};
 
 #[cfg(any(test, feature = "test-support"))]
 mod test_support;

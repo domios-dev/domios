@@ -12,6 +12,7 @@ use crate::service::ServiceContext;
 mod blocking_prompt;
 pub mod cron_completion;
 mod cron_end;
+pub(crate) use cron_end::ResponseRelease;
 #[cfg(test)]
 mod explicit_finish_tests;
 pub mod runtime_runs;
@@ -64,6 +65,7 @@ struct ResultEvent {
 pub struct RunState {
     pty_id: String,
     tab_id: String,
+    binding_nonce: Option<String>,
     kind: AgentRunKind,
     scanner: Mutex<ResultEventScanner>,
     started_at: Instant,
@@ -81,6 +83,9 @@ pub struct RunState {
 pub struct RunWatcherRegistry {
     pub runs: Mutex<HashMap<String, Arc<RunState>>>,
     runtime_runs: Mutex<HashMap<String, runtime_runs::RuntimeRun>>,
+    cron_bindings: Mutex<HashMap<String, runtime_runs::CronRunAuthority>>,
+    cron_cleanup: Mutex<HashMap<(String, String), runtime_runs::CronCleanup>>,
+    cron_finalizers: Mutex<HashMap<(String, String), Arc<cron_end::Finalizer>>>,
 }
 
 impl Default for RunWatcherRegistry {
@@ -94,6 +99,9 @@ impl RunWatcherRegistry {
         Self {
             runs: Mutex::new(HashMap::new()),
             runtime_runs: Mutex::new(HashMap::new()),
+            cron_bindings: Mutex::new(HashMap::new()),
+            cron_cleanup: Mutex::new(HashMap::new()),
+            cron_finalizers: Mutex::new(HashMap::new()),
         }
     }
 
@@ -106,9 +114,17 @@ impl RunWatcherRegistry {
         timeout_secs: u64,
         resume_system_prompt: Option<String>,
     ) {
+        let _ = self.register_owned(svc, pty_id, tab_id, kind, timeout_secs, resume_system_prompt, None);
+    }
+
+    fn register_owned(&self, svc: ServiceContext, pty_id: String, tab_id: String, kind: AgentRunKind, timeout_secs: u64, resume_system_prompt: Option<String>, owner: Option<&runtime_runs::CronRunAuthority>) -> Result<Arc<RunState>, String> {
+        let mux = svc.mux.read();
+        let binding_nonce = mux.get_tab(&tab_id).and_then(|tab| tab.session_binding_nonce.clone());
+        let cron = svc.try_ext::<crate::CronState>().map(|cron| cron.lock());
         let state = Arc::new(RunState {
             pty_id: pty_id.clone(),
             tab_id,
+            binding_nonce,
             kind,
             scanner: Mutex::new(ResultEventScanner::new()),
             started_at: Instant::now(),
@@ -122,9 +138,25 @@ impl RunWatcherRegistry {
             resume_system_prompt,
             cron_completion: Mutex::new(None),
         });
-        self.runs.lock().insert(pty_id, state.clone());
+        if !self.original_cron_registration_allowed(owner, &mux, &state) {
+            return Err("Cron registration lost its original launch".into());
+        }
+        if !self.pty_cron_registration_allowed(cron.as_deref(), &mux, &state) { return Err("Cron run ended before watcher admission".into()); }
+        {
+            let mut runs = self.runs.lock();
+            if matches!(state.kind, AgentRunKind::Cron { .. }) {
+                if let Some(existing) = runs.get(&pty_id) {
+                    if existing.kind == state.kind && existing.tab_id == state.tab_id && existing.binding_nonce == state.binding_nonce { return Ok(existing.clone()); }
+                    return Err("Cron PTY already has another watcher".into());
+                }
+            }
+            runs.insert(pty_id, state.clone());
+        }
+        drop(cron);
+        drop(mux);
         // Use tauri's runtime handle so this works even when register() is called from outside a tokio reactor (e.g. main thread spawn paths).
-        crate::async_runtime::spawn(watchdog_loop(svc, state, timeout_secs));
+        crate::async_runtime::spawn(watchdog_loop(svc, state.clone(), timeout_secs));
+        Ok(state)
     }
 
     /// Tell the watcher this run is already finished via an explicit
@@ -140,7 +172,6 @@ impl RunWatcherRegistry {
     }
 
     pub fn mark_tab_completed_externally(&self, tab_id: &str) {
-        self.retire_runtime(tab_id);
         self.runs.lock().retain(|_, state| {
             if state.tab_id != tab_id {
                 return true;
@@ -168,7 +199,7 @@ impl RunWatcherRegistry {
             reason
         );
         finish_run(svc, &state, false, reason);
-        self.runs.lock().remove(pty_id);
+        self.retire_finished_watcher(&state);
     }
 
     pub fn fail_cron_on_process_exit(
@@ -191,7 +222,7 @@ impl RunWatcherRegistry {
             return false;
         }
         let finish = !state.completed.swap(true, Ordering::AcqRel);
-        self.runs.lock().remove(pty_id);
+        self.retire_finished_watcher(&state);
         if finish {
             log::warn!(
                 "[run-watcher] cron agent exited: tab={} reason={}",
@@ -272,7 +303,7 @@ impl RunWatcherRegistry {
         }
         log::info!("[run-watcher] semantic-idle complete: tab={}", state.tab_id);
         finish_run(svc, &state, true, "(agent returned to idle)".to_string());
-        self.runs.lock().remove(pty_id);
+        self.retire_finished_watcher(&state);
     }
 
     /// Completion-via-report: a provider Stop POST that carried the tab's
@@ -312,7 +343,7 @@ impl RunWatcherRegistry {
         };
         log::info!("[run-watcher] stop-report complete: tab={}", tab_id);
         finish_run(svc, &state, true, "(provider reported stop)".to_string());
-        self.runs.lock().remove(&state.pty_id);
+        self.retire_finished_watcher(&state);
     }
 
     /// The nonce gate: a run is claimable only when the report nonce equals
@@ -366,7 +397,7 @@ impl RunWatcherRegistry {
         }
         log::info!("[run-watcher] stop-hook complete: tab={}", tab_id);
         finish_run(svc, &state, true, "(agent stopped)".to_string());
-        self.runs.lock().remove(&state.pty_id);
+        self.retire_finished_watcher(&state);
     }
 
     /// Test seam: register a run without spawning the watchdog loop.
@@ -375,6 +406,7 @@ impl RunWatcherRegistry {
         let state = Arc::new(RunState {
             pty_id: pty_id.to_string(),
             tab_id: tab_id.to_string(),
+            binding_nonce: None,
             kind: AgentRunKind::MemWorker {
                 worker_id: format!("worker-{pty_id}"),
             },
@@ -429,7 +461,7 @@ impl RunWatcherRegistry {
                     state.tab_id, success, signal.subtype, summary.len()
                 );
                 finish_run(svc, &state, success, summary);
-                self.runs.lock().remove(&state.pty_id);
+                self.retire_finished_watcher(&state);
             }
         }
     }
@@ -542,7 +574,7 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                     false,
                     format!("agent exited to shell; {} restarts exhausted", MAX_RESTARTS),
                 );
-                svc.run_watcher.runs.lock().remove(&state.pty_id);
+                svc.run_watcher.retire_finished_watcher(&state);
                 return;
             }
             state.restart_count.fetch_add(1, Ordering::AcqRel);
@@ -615,7 +647,7 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                     ready_for_success,
                     format!("idle for {}s without an explicit completion", idle_secs),
                 );
-                svc.run_watcher.runs.lock().remove(&state.pty_id);
+                svc.run_watcher.retire_finished_watcher(&state);
                 return;
             }
         }
@@ -891,7 +923,7 @@ fn end_on_hard_timeout(svc: &ServiceContext, state: &RunState, elapsed_secs: u64
     if let AgentRunKind::MemWorker { worker_id } = &state.kind {
         crate::mem::dream_runs::finalize_dream_at_deadline(svc, worker_id, &summary);
     }
-    svc.run_watcher.runs.lock().remove(&state.pty_id);
+    svc.run_watcher.retire_finished_watcher(&state);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -922,7 +954,10 @@ fn finish_run_as(svc: &ServiceContext, state: &RunState, run_end: RunEnd, summar
     // Bound to the tab by the SessionStart hook; capture session_id + cwd before close_tab so the run stays renderable in the read-only chat-ui.
     let (session_id, run_cwd) = {
         let mux = svc.mux.read();
-        let tab = mux.get_tab(&state.tab_id);
+        let tab = mux.get_tab(&state.tab_id).filter(|tab| {
+            !matches!(state.kind, AgentRunKind::Cron { .. })
+                || tab.pty_id.as_deref() == Some(state.pty_id.as_str()) && tab.session_binding_nonce == state.binding_nonce
+        });
         (
             tab.and_then(|p| p.agent_session_id.clone()),
             tab.and_then(|p| p.cwd.clone()),
@@ -958,12 +993,10 @@ fn finish_run_as(svc: &ServiceContext, state: &RunState, run_end: RunEnd, summar
             let _ = svc.close_tab_with_reason(&state.tab_id, TabCloseReason::AgentRunEnded);
         }
         AgentRunKind::Cron { job_id, run_id } => {
-            if let Some(attempt) = crate::service::launch_readiness::LaunchAttempt::current(
-                &svc.mux,
-                &state.tab_id,
-                &state.pty_id,
-            ) {
-                crate::service::launch_readiness::retire_attempt(&attempt);
+            if let Some(nonce) = state.binding_nonce.as_ref() {
+                crate::service::launch_readiness::retire_attempt(&crate::service::launch_readiness::LaunchAttempt {
+                    tab_id: state.tab_id.clone(), pty_id: state.pty_id.clone(), binding_nonce: nonce.clone(),
+                });
             }
             let _ = cron_end::finish(
                 svc,
@@ -976,7 +1009,9 @@ fn finish_run_as(svc: &ServiceContext, state: &RunState, run_end: RunEnd, summar
                     raw_output: &clean,
                     session_id: session_id.as_deref(),
                     cwd: run_cwd.as_deref(),
-                    binding_nonce: None,
+                    binding_nonce: state.binding_nonce.as_deref(),
+                    pty_id: Some(&state.pty_id),
+                    failed_start_epoch: None,
                 },
             );
         }
