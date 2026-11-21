@@ -103,6 +103,8 @@ struct ShellSupervisor {
     view_bootstrap: parking_lot::Mutex<Option<ShellBootstrap>>,
     initial_document: initial_document::InitialDocument,
     reconnect: reconnect::RecoveryOwner,
+    frontend_active: AtomicBool,
+    shell_permit: AtomicU8,
 }
 
 struct StartupDiagnosticsPreflight(Option<(u16, PortPreflight)>);
@@ -268,6 +270,135 @@ fn navigation_allowed(
             && url.password().is_none())
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GuardedShellDocument {
+    Starting,
+    Reconnecting,
+    StartFailed,
+}
+
+impl GuardedShellDocument {
+    fn code(self) -> u8 {
+        match self {
+            Self::Starting => 1,
+            Self::Reconnecting => 2,
+            Self::StartFailed => 3,
+        }
+    }
+
+    fn from_code(code: u8) -> Option<Self> {
+        match code {
+            1 => Some(Self::Starting),
+            2 => Some(Self::Reconnecting),
+            3 => Some(Self::StartFailed),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ShellNavigationState {
+    frontend_active: bool,
+    permit: Option<GuardedShellDocument>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ShellNavigationDecision {
+    allowed: bool,
+    open_externally: bool,
+}
+
+fn guarded_shell_document(url: &Url, unavailable: &Url) -> Option<GuardedShellDocument> {
+    if starting_url().is_ok_and(|starting| same_navigation_document(url, &starting)) {
+        Some(GuardedShellDocument::Starting)
+    } else if same_navigation_document(url, unavailable) {
+        Some(GuardedShellDocument::Reconnecting)
+    } else if start_failure_url(None).is_ok_and(|failed| same_navigation_document(url, &failed)) {
+        Some(GuardedShellDocument::StartFailed)
+    } else {
+        None
+    }
+}
+
+fn shell_navigation_decision(
+    url: &Url,
+    origin: Option<&str>,
+    api_origin: Option<&str>,
+    unavailable: &Url,
+    fallback: &Url,
+    state: ShellNavigationState,
+) -> ShellNavigationDecision {
+    if let Some(document) = guarded_shell_document(url, unavailable) {
+        let permitted = state.permit == Some(document);
+        if state.frontend_active && !permitted {
+            // Windows starting document is http; cancelling it must not open a browser.
+            return ShellNavigationDecision {
+                allowed: false,
+                open_externally: false,
+            };
+        }
+        return ShellNavigationDecision {
+            allowed: true,
+            open_externally: false,
+        };
+    }
+    let allowed = navigation_allowed(url, origin, api_origin, unavailable, fallback);
+    ShellNavigationDecision {
+        allowed,
+        open_externally: !allowed && external_link(url, origin, api_origin).is_some(),
+    }
+}
+
+fn grant_shell_navigation(
+    app: &codeterm_client_shell::app_runtime::AppHandle,
+    document: GuardedShellDocument,
+) {
+    if let Some(supervisor) = app.try_state::<ShellSupervisor>() {
+        supervisor
+            .shell_permit
+            .store(document.code(), Ordering::Release);
+    }
+}
+
+fn take_shell_navigation_permit(
+    app: &codeterm_client_shell::app_runtime::AppHandle,
+) -> Option<GuardedShellDocument> {
+    app.try_state::<ShellSupervisor>().and_then(|supervisor| {
+        GuardedShellDocument::from_code(supervisor.shell_permit.swap(0, Ordering::AcqRel))
+    })
+}
+
+fn frontend_navigation_active(app: &codeterm_client_shell::app_runtime::AppHandle) -> bool {
+    app.try_state::<ShellSupervisor>()
+        .is_some_and(|supervisor| supervisor.frontend_active.load(Ordering::Acquire))
+}
+
+fn mark_frontend_active(app: &codeterm_client_shell::app_runtime::AppHandle) {
+    if let Some(supervisor) = app.try_state::<ShellSupervisor>() {
+        supervisor.frontend_active.store(true, Ordering::Release);
+    }
+}
+
+fn navigate_main_guarded(
+    window: &WebviewWindow,
+    url: Url,
+    document: GuardedShellDocument,
+) -> Result<(), String> {
+    let main = window.label() == "main";
+    if main {
+        grant_shell_navigation(window.app_handle(), document);
+    }
+    match window.navigate(url) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            if main {
+                take_shell_navigation_permit(window.app_handle());
+            }
+            Err(error.to_string())
+        }
+    }
+}
+
 fn open_external_link(url: &Url, origin: Option<&str>, api_origin: Option<&str>) {
     let Some(url) = external_link(url, origin, api_origin) else {
         return;
@@ -340,6 +471,8 @@ fn initialize_with_preflight(
         view_bootstrap: Default::default(),
         initial_document: Default::default(),
         reconnect: Default::default(),
+        frontend_active: AtomicBool::new(false),
+        shell_permit: AtomicU8::new(0),
     });
     Ok(())
 }
@@ -373,6 +506,8 @@ pub fn window_destroying(app: &codeterm_client_shell::app_runtime::AppHandle) {
         client.release_view();
     }
     let supervisor = app.state::<ShellSupervisor>();
+    supervisor.frontend_active.store(false, Ordering::Release);
+    supervisor.shell_permit.store(0, Ordering::Release);
     let _ = next_generation(&supervisor.navigation);
     let active_view = supervisor.active_view_generation.swap(0, Ordering::AcqRel);
     supervisor.initial_document.retire();
@@ -421,6 +556,8 @@ pub fn create_window(
     let mut window_config = initial_document::window_config(app.config())?;
     configure_window_browser_arguments(app, &mut window_config)?;
     ON_RECOVERY_SURFACE.store(false, Ordering::Release);
+    supervisor.frontend_active.store(false, Ordering::Release);
+    supervisor.shell_permit.store(0, Ordering::Release);
     // Revealed on the first painted interface (or the recovery page), so startup never shows an empty frame.
     window_config.visible = false;
     let origin = bootstrap.as_ref().map(|bootstrap| {
@@ -515,21 +652,27 @@ pub fn create_window(
                 return false;
             }
             let api_origin = current_api_origin(&shell_app);
-            let allowed = navigation_allowed(
+            let decision = shell_navigation_decision(
                 url,
                 origin.as_deref(),
                 api_origin.as_deref(),
                 &unavailable,
                 &fallback,
+                ShellNavigationState {
+                    frontend_active: frontend_navigation_active(&shell_app),
+                    permit: take_shell_navigation_permit(&shell_app),
+                },
             );
             log::debug!(
-                "[frontend-shell] navigation allowed={allowed}: {}",
+                "[frontend-shell] navigation allowed={} external={}: {}",
+                decision.allowed,
+                decision.open_externally,
                 navigation_identity(url)
             );
-            if !allowed {
+            if decision.open_externally {
                 open_external_link(url, origin.as_deref(), api_origin.as_deref());
             }
-            allowed
+            decision.allowed
         })
         .build()
     {
@@ -707,10 +850,16 @@ fn navigate_frontend(
     window: &WebviewWindow,
     url: Url,
 ) -> Result<(), String> {
+    let non_brand = unavailable_url()
+        .ok()
+        .is_none_or(|unavailable| guarded_shell_document(&url, &unavailable).is_none());
     let prepared = prepare_root_navigation(app, url)?;
     if let Err(error) = window.navigate(prepared) {
         app.state::<ShellSupervisor>().root_render.retire();
         return Err(error.to_string());
+    }
+    if non_brand {
+        mark_frontend_active(app);
     }
     ON_RECOVERY_SURFACE.store(false, Ordering::Release);
     crate::host_ports::native_client::startup_reached(
