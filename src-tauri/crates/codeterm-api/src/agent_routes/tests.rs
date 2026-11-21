@@ -688,9 +688,8 @@ async fn outbound_report_snapshot_is_sender_scoped_and_never_consumes_recipient_
     };
     use codeterm_service_core::multiplexer::state::MultiplexerState;
 
-    let (mux, sender) = MultiplexerState::new();
+    let (mut mux, sender) = MultiplexerState::new();
     {
-        let mut mux = mux.write();
         let tab = mux.get_tab_mut(&sender).unwrap();
         tab.agent_session_id = Some("sender-session".into());
         tab.session_binding_nonce = Some("sender-nonce".into());

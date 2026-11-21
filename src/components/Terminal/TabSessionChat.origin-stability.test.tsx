@@ -102,6 +102,7 @@ async function main() {
     addChatSend, ensureChatSendTabHydrated, forgetChatSendsInMemory, observeDeliveryStatus,
     __setChatSendRepositoryForTest,
   } = await import("./chatSendStore");
+  const { clearTranscriptWindows } = await import("./transcriptStore");
   const { MemoryChatSendRepository } = await import("./chatSendRepository.testSupport");
 
   const STABLE_COUNT = 6;
@@ -268,6 +269,10 @@ async function main() {
       system_send: { content: dumasWire, sent_at_ms: baseAt + 2000, segments: dumasSegments, segments_version: 2 },
     };
     const dumasDeliveredStatus = { ...dumasWrittenStatus, state: "delivered" as const, sequence: 2 };
+    const outboundHeldStatus = {
+      tab_id: ritchieTabId, send_id: "outbound-send", correlationId: "outbound-token", state: "held" as const,
+      pending_reason: "held_active_turn" as const, sequence: 1, ledger_id: "ledger", retained_from: 1, error: null,
+    };
     const ritchieTab = {
       id: ritchieTabId, pty_id: null, tab_type: "Terminal", title: "Ritchie", cwd: null,
       agent_type: "claude", agent_session_id: sessionId, session_binding_nonce: bindingNonce,
@@ -291,6 +296,26 @@ async function main() {
       </MuxStateStoreContext.Provider>
     );
 
+    const originalRaf = globalThis.requestAnimationFrame;
+    const originalCancelRaf = globalThis.cancelAnimationFrame;
+    let nextRafId = 1;
+    const cancelledRaf = new Set<number>();
+    Object.defineProperty(globalThis, "requestAnimationFrame", {
+      configurable: true,
+      value: (cb: FrameRequestCallback) => {
+        const id = nextRafId++;
+        queueMicrotask(() => {
+          if (!cancelledRaf.delete(id)) cb(0);
+        });
+        return id;
+      },
+    });
+    Object.defineProperty(globalThis, "cancelAnimationFrame", {
+      configurable: true,
+      value: (id: number) => { cancelledRaf.add(id); },
+    });
+    clearTranscriptWindows();
+
     try {
       chatStartOverride = () => ({
         text: "", offset: 0, messages: [startUser, earlyWork],
@@ -306,6 +331,8 @@ async function main() {
       await act(async () => {
         await observeDeliveryStatus(dumasWrittenStatus);
         addChatSend(ritchieTabId, { id: "outbound-send", correlationId: "outbound-token", content: "owner follow-up", sentAtMs: baseAt + 2500 });
+        await observeDeliveryStatus(outboundHeldStatus);
+        chatSendStatusesOverride = [dumasWrittenStatus, outboundHeldStatus];
         await Promise.resolve();
       });
 
@@ -347,7 +374,7 @@ async function main() {
         text: "", offset: 0, messages: [startUser, earlyWork, dumasEcho, laterAssistant, patchedTool],
         pending: false, source_session_id: sessionId, session_binding_nonce: bindingNonce,
       });
-      chatSendStatusesOverride = [dumasDeliveredStatus];
+      chatSendStatusesOverride = [dumasDeliveredStatus, outboundHeldStatus];
       await act(async () => root.unmount());
       root = createRoot(host);
       await act(async () => root.render(renderChat()));
@@ -377,6 +404,9 @@ async function main() {
       host.remove();
       __setChatSendRepositoryForTest(null);
       forgetChatSendsInMemory();
+      clearTranscriptWindows();
+      Object.defineProperty(globalThis, "requestAnimationFrame", { configurable: true, value: originalRaf });
+      Object.defineProperty(globalThis, "cancelAnimationFrame", { configurable: true, value: originalCancelRaf });
     }
   });
 

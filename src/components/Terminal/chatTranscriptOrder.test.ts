@@ -514,10 +514,16 @@ test("cold host snapshot restores the original startup card once before later un
       position: row.senderPosition,
       descriptor: {
         reportId: row.reportId, recipient: "Elgar", task: row.task, status: row.status, sha: row.sha,
-        message: row.message, kind: row.kind, taskOutcome: null,
+        message: row.message, kind: row.kind,
+        taskOutcome: row.taskOutcome && {
+          persisted: row.taskOutcome.persisted,
+          transitionRejected: row.taskOutcome.transition_rejected,
+          cause: row.taskOutcome.cause ?? null,
+          reportOutcome: row.taskOutcome.report_outcome ?? null,
+        },
       },
     }));
-    assert.equal(reportVerdict(report.status, report.taskOutcome), "sent");
+    assert.equal(reportVerdict(live[0]!.descriptor.status, live[0]!.descriptor.taskOutcome), "sent");
     const state = reduceTranscript(createTranscriptState(), {
       kind: "snapshot", authority, range: null, rows: [prompt, ackRow, workRow, toolRow],
     }).state;

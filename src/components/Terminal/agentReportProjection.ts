@@ -66,14 +66,16 @@ export function outboundReportSnapshotRequest(
   tabId: string,
   authority: OutboundReportSnapshotAuthority,
 ): { path: string; scopeKey: string; headers: Record<string, string> } | null {
-  if (tabId.startsWith("mesh:") || authority.peerId != null || !text(authority.sessionId) || !text(authority.bindingNonce)) return null;
+  const sessionId = text(authority.sessionId);
+  const bindingNonce = text(authority.bindingNonce);
+  if (tabId.startsWith("mesh:") || authority.peerId != null || !sessionId || !bindingNonce) return null;
   return {
     path: `/api/tabs/${encodeURIComponent(tabId)}/reports`,
     scopeKey: JSON.stringify([
       tabId,
       authority.peerId,
-      authority.sessionId,
-      authority.bindingNonce,
+      sessionId,
+      bindingNonce,
       authority.bootGeneration,
       authority.runtimeEpoch,
       authority.requestContext,
@@ -81,8 +83,8 @@ export function outboundReportSnapshotRequest(
     headers: {
       Accept: "application/vnd.domios.agent-reports.outbound+json",
       "X-CodeTerm-Tab-Id": tabId,
-      "X-CodeTerm-Session-Id": authority.sessionId,
-      "X-CodeTerm-Binding-Nonce": authority.bindingNonce,
+      "X-CodeTerm-Session-Id": sessionId,
+      "X-CodeTerm-Binding-Nonce": bindingNonce,
     },
   };
 }

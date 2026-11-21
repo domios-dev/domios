@@ -29,7 +29,7 @@ pub fn sender_position(svc: &ServiceContext, tab_id: &str) -> Option<ReportSende
     };
     Some(ReportSenderPosition {
         source_session_id,
-        message_id,
+        message_id: message_id.to_owned(),
     })
 }
 

@@ -166,6 +166,12 @@
       "to": [
         "src-tauri/crates/codeterm-usage/src/store/tests.rs"
       ]
+    },
+    {
+      "from": "src-tauri/crates/codeterm-agent-model/src/agent/reports.rs",
+      "to": [
+        "src-tauri/crates/codeterm-agent-model/src/agent/reports/tests.rs"
+      ]
     }
   ],
   "entries": [
@@ -6036,7 +6042,7 @@
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-agent-model/src/agent/reports.rs",
+      "file": "src-tauri/crates/codeterm-agent-model/src/agent/reports/tests.rs",
       "token": "codex",
       "count": 4,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",

@@ -107,6 +107,29 @@ impl ReportStore {
             report_outcome,
         )
     }
+    pub fn add_detailed_with_model_identity_and_outcome_and_host_metadata(
+        &mut self,
+        orchestrator_tab_id: &str,
+        from_tab_id: &str,
+        from_title: &str,
+        message: &str,
+        details: ReportDetails,
+        model_identity: Option<ReportModelIdentity>,
+        report_outcome: Option<codeterm_types::agent::ReportOutcomeClass>,
+        host_metadata: AgentReportHostMetadata,
+    ) -> AgentReport {
+        self.0
+            .add_detailed_with_model_identity_and_outcome_and_host_metadata(
+                orchestrator_tab_id,
+                from_tab_id,
+                from_title,
+                message,
+                details,
+                model_identity,
+                report_outcome,
+                host_metadata,
+            )
+    }
     pub fn get(&mut self, orchestrator_tab_id: &str, clear: bool) -> Vec<AgentReport> {
         self.0.get(orchestrator_tab_id, clear)
     }
