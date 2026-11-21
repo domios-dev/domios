@@ -1,6 +1,7 @@
-import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, RuntimeReduction, TurnInput } from "@codeterm/plugin-sdk";
+import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, RuntimeReduction, TokenUsage, TurnInput } from "@codeterm/plugin-sdk";
 import { object, text, reduceTool, validToolCallId } from "./runtimeReduceTools";
-import { planRow, contextUsage } from "./runtimeReducePlan";
+import { planRow, contextUsage, usageFromPayload } from "./runtimeReducePlan";
+import { methods } from "./runtimeProtocol";
 import { commands, sessionSettings } from "./runtimeControls";
 import { copyAccounting, clearEntries, putEntry, removeEntry, mapBytes, mapKeys, utf8Length } from "./runtimeReduceAccounting";
 import { evictedMayInclude, recordEvicted } from "./runtimeReduceSeen";
@@ -13,7 +14,7 @@ const OFFSET_BUDGET=16384;
 const TOOL_ROW_BUDGET=32768;
 interface StreamState {
   epoch:number; nonce:string; sessionId:string; replay:number; prompt:number;
-  turn:number; ordinal:number; seq:number; chunk?:TextCursor & {kind:string; id:string};
+  turn:number; ordinal:number; seq:number; chunk?:TextCursor & {kind:string; id:string}; turnUsage?:TokenUsage;
   items:Record<string,ChatMsg>; offsetById:Record<string,TextCursor>; warnings:Record<string,number>; controls:Record<string,JsonValue>;
   evidenced:string[]; compacted:string[]; seenItems:string[]; evictedMessages?:string; loading:boolean; settled:boolean; started:boolean;
 }
@@ -109,12 +110,12 @@ function initial(ctx:RuntimeContext, raw:JsonValue, cursor:StreamCursor):StreamS
       turn:cursor.prompt || 1,ordinal:0,seq:0,items:Object.create(null),offsetById:Object.create(null),warnings:Object.create(null),controls:Object.create(null),evidenced:[],compacted:[],seenItems:[],loading:cursor.loading,settled:false,started:false};
   const state=previous as unknown as StreamState;
   const copy:StreamState={...state,items:Object.assign(Object.create(null),state.items),offsetById:Object.assign(Object.create(null),state.offsetById),warnings:Object.assign(Object.create(null),state.warnings),controls:{...state.controls},
-    evidenced:[...state.evidenced],compacted:[...state.compacted],seenItems:[...state.seenItems],...(state.chunk ? {chunk:{...state.chunk}} : {})};
+    evidenced:[...state.evidenced],compacted:[...state.compacted],seenItems:[...state.seenItems],...(state.chunk ? {chunk:{...state.chunk}} : {}),...(state.turnUsage ? {turnUsage:{...state.turnUsage}} : {})};
   copyAccounting(state,copy);
   if (copy.replay !== cursor.replay) {
-    copy.replay=cursor.replay;copy.turn=1;copy.ordinal=0;copy.seenItems=[];clearEntries(copy,"offsetById");delete copy.evictedMessages;delete copy.chunk;copy.settled=false;copy.started=false;
+    copy.replay=cursor.replay;copy.turn=1;copy.ordinal=0;copy.seenItems=[];clearEntries(copy,"offsetById");delete copy.evictedMessages;delete copy.chunk;delete copy.turnUsage;copy.settled=false;copy.started=false;
   } else if (copy.prompt !== cursor.prompt) {
-    copy.turn=Math.max(copy.turn+1,cursor.prompt);copy.ordinal=0;copy.seenItems=[];clearEntries(copy,"offsetById");delete copy.evictedMessages;delete copy.chunk;copy.settled=false;copy.started=false;
+    copy.turn=Math.max(copy.turn+1,cursor.prompt);copy.ordinal=0;copy.seenItems=[];clearEntries(copy,"offsetById");delete copy.evictedMessages;delete copy.chunk;delete copy.turnUsage;copy.settled=false;copy.started=false;
   }
   copy.prompt=cursor.prompt;copy.loading=cursor.loading;
   return copy;
@@ -205,6 +206,11 @@ function closeChunk(ctx:RuntimeContext, state:StreamState, events:AgentEvent[]):
   }
   delete state.chunk;
 }
+export function streamTurnUsage(raw:JsonValue):TokenUsage|undefined {
+  const value=object(object(raw).turnUsage);
+  return typeof value.input_tokens === "number" && typeof value.output_tokens === "number"
+    ? value as unknown as TokenUsage : undefined;
+}
 export function settleStream(ctx:RuntimeContext, raw:JsonValue, reason:string):RuntimeReduction {
   const source=object(raw);
   if (!ctx.threadId) return {state:raw,events:[]};
@@ -213,6 +219,7 @@ export function settleStream(ctx:RuntimeContext, raw:JsonValue, reason:string):R
   const state=source as unknown as StreamState;
   if (state.settled) return {state:raw,events:[]};
   const next:StreamState={...state,items:Object.assign(Object.create(null),state.items),offsetById:Object.assign(Object.create(null),state.offsetById),controls:{...state.controls},warnings:Object.assign(Object.create(null),state.warnings),evidenced:[...state.evidenced],settled:true};
+  delete next.turnUsage;
   copyAccounting(state,next);
   const events:AgentEvent[]=[];
   closeChunk(ctx,next,events);
@@ -268,6 +275,16 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
     const params=object(frame.params);
     if (params.sessionId !== ctx.threadId) continue;
     try {
+      if (frame.kind === "notification" && frame.method === methods.extensionUpdate) {
+        const update=object(params.update);
+        if (text(update.sessionUpdate) === "turn_completed") {
+          const context=contextUsage(ctx.threadId,update);
+          if (context) events.push(context);
+          const tokens=usageFromPayload(update);
+          if (tokens && !state.loading && !cursor.unattributed) state.turnUsage=tokens;
+        }
+        continue;
+      }
       if (ownSubmitted && !state.loading && !state.settled) submittedRow(state,events,ownSubmitted,false);
       if (frame.kind === "request" && clientRequest(frame.method)) { if (!cursor.unattributed) startTurn(ctx,state,events);continue; }
       if (frame.kind !== "notification" || frame.method !== "session/update") continue;
@@ -349,9 +366,11 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
         if (kind !== "session_info_update" || !Object.keys(compaction).length) continue;
         const id=text(compaction.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
         if (!state.compacted.includes(id)) {state.compacted.push(id);events.push({kind:"contextCompacted",threadId:ctx.threadId,itemId:id});}
-      } else if (kind === "usage_update") {
+      } else if (kind === "usage_update" || kind === "turn_completed") {
         const mapped=contextUsage(ctx.threadId,update);
         if (mapped) events.push(mapped);
+        const tokens=usageFromPayload(update);
+        if (tokens && !state.loading && !cursor.unattributed) state.turnUsage=tokens;
       } else if (kind === "compaction_update" || kind === "compaction_summary_chunk") {
         const id=text(update.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
         if (!state.compacted.includes(id)) { state.compacted.push(id);events.push({kind:"contextCompacted",threadId:ctx.threadId,itemId:id}); }

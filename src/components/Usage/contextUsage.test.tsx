@@ -96,4 +96,78 @@ describe("the usage bubble for a harness without quota", () => {
     expect(host.querySelector(".ct-usage-bubble")).toBeNull();
     expect(host.textContent).toBe("");
   });
+
+  it("shows ACP session tokens and breakdown even without context fill or API billing mode", async () => {
+    await mount(undefined, {
+      provider: "acp",
+      captured_at: Date.now(),
+      limits_reported: false,
+      runtime_usage: [{
+        tab_id: "acp",
+        thread_id: "t",
+        billing_mode: "unknown",
+        rate_limits: null,
+        token_usage: {
+          captured_at: Date.now(),
+          value: { input_tokens: 25_368, output_tokens: 33, cache_read_tokens: 25_088, cost_micros: 4_523 },
+        },
+      }],
+    } as UsageSnapshot);
+    const bubble = host.querySelector<HTMLButtonElement>(".ct-usage-bubble")!;
+    expect(bubble.textContent).toBe("25,401 tokens · $0.00");
+    expect(bubble.getAttribute("aria-label")).toBe("usage 25,401 tokens · $0.00");
+    await act(async () => bubble.click());
+    const status = document.body.querySelector('[role="status"]');
+    expect(status?.textContent).toContain("Session input: 25368; cached input: 25088; cache write: 0; output: 33; cost: $0.004523");
+  });
+
+  it("shows not reported instead of zero when an ACP runtime snapshot has no token usage", async () => {
+    await mount(undefined, {
+      provider: "acp",
+      captured_at: Date.now(),
+      limits_reported: false,
+      runtime_usage: [{
+        tab_id: "acp",
+        thread_id: "t",
+        billing_mode: "unknown",
+        rate_limits: null,
+        token_usage: null,
+      }],
+    } as UsageSnapshot);
+    const bubble = host.querySelector<HTMLButtonElement>(".ct-usage-bubble")!;
+    expect(bubble.textContent).toBe("—");
+    expect(bubble.getAttribute("aria-label")).toBe("usage not reported");
+    await act(async () => bubble.click());
+    expect(document.body.querySelector('[role="status"]')?.textContent).toBe("Usage not reported");
+  });
+
+  it("shows session tokens and keeps the unavailable reason when a profile reports tokens without context fill", async () => {
+    bridge.listen.mockResolvedValue(() => undefined);
+    bridge.invoke.mockImplementation(async (command: string) => command === "usage_latest" ? ({
+      provider: "acp",
+      limits_reported: false,
+      runtime_usage: [{
+        tab_id: "acp",
+        thread_id: "t",
+        billing_mode: "unknown",
+        rate_limits: null,
+        token_usage: { captured_at: Date.now(), value: { input_tokens: 1_000, output_tokens: 500, cache_read_tokens: 400 } },
+      }],
+    }) : null);
+    const store = createMuxStateStore(() => ({ tabs: { acp: { id: "acp", context: undefined } } } as never));
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => root!.render(<MuxStateStoreContext.Provider value={store}>
+      <UnavailableLimitsBubble reason="Opaque reason" session={{ provider: "acp", tabId: "acp", threadId: "t", context: undefined, label: "Grok" }} />
+    </MuxStateStoreContext.Provider>));
+    await act(async () => { await Promise.resolve(); });
+    const bubble = host.querySelector<HTMLButtonElement>(".ct-usage-bubble")!;
+    expect(bubble.textContent).toBe("1,500 tokens");
+    expect(bubble.getAttribute("aria-label")).toBe("usage 1,500 tokens");
+    await act(async () => bubble.click());
+    const popover = document.body.querySelector('[role="dialog"][aria-label="usage details"]')!;
+    expect(popover.textContent).toContain("Session input: 1000; cached input: 400; cache write: 0; output: 500");
+    expect(popover.textContent).toContain("Opaque reason");
+  });
 });

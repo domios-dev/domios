@@ -8,7 +8,7 @@ import { balanceFailure, balanceLabel, balanceNeedsRead, balanceReading } from "
 import { ContextUsageBubble } from "./ContextUsageBubble";
 import { contextUsage, useClaimContext } from "./contextUsage";
 import { quotaPill, quotaReadDue, quotaReading, unavailablePill } from "./quotaModel";
-import { ownRuntimeUsage } from "./runtimeUsage";
+import { ownRuntimeUsage, runtimeTokenBreakdown, runtimeTokenLabel } from "./runtimeUsage";
 import { UsageGauge } from "./UsageGauge";
 
 function LimitsPill({ label, text, tone, children }: { label: string; text: string; tone?: "quiet" | "warn" | "danger"; children: ReactNode }) {
@@ -41,6 +41,16 @@ export function UnavailableLimitsBubble({ reason, session }: { reason: string; s
   if (session && usage) {
     return <ContextUsageBubble title={`${session.label ?? session.provider} usage`} usage={usage} reason={reason}
       capturedAt={runtime?.token_usage?.captured_at ?? runtime?.captured_at ?? null} />;
+  }
+  if (session && runtime?.token_usage) {
+    const label = runtimeTokenLabel(runtime);
+    return (
+      <LimitsPill label={`usage ${label}`} text={label}>
+        <div className="head"><span className="title">{session.label ?? session.provider} usage</span></div>
+        <div role="status" className="ct-usage-detail">{runtimeTokenBreakdown(runtime)}</div>
+        <p className="ct-usage-detail">{reason}</p>
+      </LimitsPill>
+    );
   }
   const pill = unavailablePill(reason);
   return (

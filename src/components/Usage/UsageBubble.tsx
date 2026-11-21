@@ -93,7 +93,7 @@ export function UsageBubble({
       document.removeEventListener("visibilitychange", refresh);
     };
   }, []);
-  const tokenSession = runtime?.billing_mode === "api" ? runtime : null;
+  const tokenSession = runtime && (runtime.billing_mode === "api" || (runtime.token_usage != null && !hasQuota(active))) ? runtime : null;
   const resetModel = tabId ? resetCreditsForTab(tabId, uid, async (key, creditId) => {
     const result = await invoke<ResetResponse>("agent_runtime_reset_credits", {tabId,request:{action:"redeem",confirmed:true,idempotencyKey:key,...(creditId ? {creditId} : {})}});
     try {
@@ -138,6 +138,7 @@ export function UsageBubble({
   const weeklyState = classify(active.weekly_pct);
   const metrics = visibleUsageMetrics(active);
   const billingLabel = unreportedBillingLabel(active);
+  const usageNotReported = !balance && !tokenSession && !isSpend && metrics.length === 0 && !billingLabel && !active.limits_reported;
   const worst: "neutral" | "warn" | "danger" = isSpend
     ? "neutral"
     : sessionState === "danger" || weeklyState === "danger"
@@ -183,7 +184,9 @@ export function UsageBubble({
         className={bubbleClass}
         aria-label={
           balance ? `${balance.title}, ${balance.amount} left`
-            : tokenSession ? `usage ${runtimeTokenLabel(tokenSession)}` : billingLabel ?? (isSpend
+            : tokenSession ? `usage ${runtimeTokenLabel(tokenSession)}` : billingLabel ?? (usageNotReported
+            ? "usage not reported"
+            : isSpend
             ? `usage ${spendLabel}`
             : usageMetricsAriaLabel(metrics))
         }
@@ -230,7 +233,14 @@ export function UsageBubble({
         />
       )}
 
-      {!tokenSession && !isSpend && (
+      {!tokenSession && !isSpend && usageNotReported && (
+        <div className="ct-usage-popover" role="dialog" aria-label="usage details">
+          <div className="head"><span className="title">{providerLabel ?? provider} usage</span></div>
+          <div role="status" className="ct-usage-detail">Usage not reported</div>
+        </div>
+      )}
+
+      {!tokenSession && !isSpend && !usageNotReported && (
         <UsageDetail
           snapshot={active}
           accountCreditsLabel={accountCreditsLabel}

@@ -4,8 +4,8 @@ import type {
 } from "@codeterm/plugin-sdk";
 import {decodeAuthMethods, agentAuthMethod, type AuthMethod} from "./auth";
 import { methods, protocolVersion } from "./runtimeProtocol";
-import { clientRequest, reduceStream, sessionUpdate, settleStream, type StreamCursor } from "./runtimeReduce";
-import { usage } from "./runtimeReducePlan";
+import { clientRequest, reduceStream, sessionUpdate, settleStream, streamTurnUsage, type StreamCursor } from "./runtimeReduce";
+import { usageFromReply } from "./runtimeReducePlan";
 import { fitTextReduction } from "./runtimeReduceBudget";
 import { runtimePrompt, runtimeAnswer } from "./runtimePrompts";
 import { authentication, sessionSettings, modelOption, effortOption, label, sessionModel, selectedSessionModel, configOptions } from "./runtimeControls";
@@ -505,15 +505,16 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     const turn=typeof object(raw).prompt === "number" ? object(raw).prompt : object(state.projection).turn;
     if (turn !== state.cursor.prompt || !state.inFlight) {
       const queued=state.queued?.find(queued=>queued.prompt === turn);
-      if (queued && !queued.completed) queued.completed={cancelled:value.stopReason === "cancelled",usage:usage(value.usage)};
+      if (queued && !queued.completed) queued.completed={cancelled:value.stopReason === "cancelled",usage:usageFromReply(value)};
       return {kind:"complete",result:{kind:"turnAccepted",threadId:sessionId,sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events:queued ? sessionAuthentication(state) : []};
     }
     state.inFlight=false;
     state.instructions = undefined;
     const projected=reduceStream(ctx,state.projection ?? null,[],state.cursor,{sendId:op.sendId,input:op.input},true);
+    const streamed=streamTurnUsage(projected.state);
     const settled=settleStream(ctx,projected.state,value.stopReason);
     state.projection=settled.state;
-    const mapped=usage(value.usage);
+    const mapped=usageFromReply(value) ?? streamed;
     const events:import("@codeterm/plugin-sdk").AgentEvent[]=[...sessionAuthentication(state),...(mapped ? [{kind:"usage" as const,threadId:sessionId,usage:accountedUsage(mapped,op.sendId)}] : []),...projected.events,...settled.events];
     events.push(...promoteQueued(ctx,state));
     return {kind:"complete", result:{kind:"turnAccepted", threadId:sessionId, sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events};
@@ -527,7 +528,7 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
   const state=negotiated(ctx);
   if (!ctx.threadId || !state || state.sessionId !== ctx.threadId) return {state:raw,events:[]};
   const own=frames.flatMap((frame,index)=>object(frame.params).sessionId === ctx.threadId &&
-    (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method))
+    (frame.kind === "notification" && (frame.method === methods.update || frame.method === methods.extensionUpdate) || frame.kind === "request" && clientRequest(frame.method))
       ? [{frame,index}] : []);
   const prompts=frames.flatMap(frame=>{
     if (frame.kind !== "request") return [];
