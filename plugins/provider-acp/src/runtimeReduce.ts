@@ -494,12 +494,12 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
           const parsedQuota=parseStatusLineQuota(quotaPayload,Date.now());
           if (parsedQuota && parsedQuota.limits.length) {
             const rateLimits=parsedQuota.limits.slice(0,4)
-              .filter(limit=>limit.label.length > 0 && limit.label.length <= 128 && !/\s/.test(limit.label))
               .map(limit=>({
-                window:limit.label,
+                window:limit.label.toLowerCase().replace(/\s+/g,"-"),
                 usedPercent:limit.used_percent,
                 ...(limit.resets_at !== null && limit.resets_at >= 0 ? {resetsAt:limit.resets_at} : {}),
-              }));
+              }))
+              .filter(limit=>limit.window.length > 0 && limit.window.length <= 128);
             if (rateLimits.length) events.push({kind:"rateLimits",threadId:ctx.threadId,rateLimits});
           }
         }

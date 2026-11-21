@@ -70,15 +70,101 @@ fn parse_bucket_reset_at(
     Some(None)
 }
 
+fn is_duration_segment(lower: &str) -> bool {
+    let bytes = lower.as_bytes();
+    bytes.len() >= 2
+        && matches!(bytes[bytes.len() - 1], b's' | b'm' | b'h' | b'd' | b'w')
+        && bytes[..bytes.len() - 1]
+            .iter()
+            .all(u8::is_ascii_digit)
+}
+
+fn format_bucket_label(raw_key: &str) -> String {
+    let parts: Vec<&str> = raw_key
+        .trim()
+        .split(['-', '_'])
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    if parts.is_empty() {
+        return raw_key.trim().to_owned();
+    }
+    parts
+        .into_iter()
+        .enumerate()
+        .map(|(index, part)| {
+            let lower = part.to_ascii_lowercase();
+            if is_duration_segment(&lower) {
+                return lower;
+            }
+            if index > 0
+                && matches!(
+                    lower.as_str(),
+                    "hourly" | "daily" | "weekly" | "monthly" | "session"
+                )
+            {
+                return lower;
+            }
+            if let Some(pos) = part
+                .find(|c: char| !c.is_ascii_digit())
+                .filter(|&pos| pos > 0 && part[pos..].chars().all(|c| c.is_ascii_alphabetic()))
+            {
+                return format!("{}{}", &part[..pos], part[pos..].to_ascii_uppercase());
+            }
+            let mut chars = lower.chars();
+            match chars.next() {
+                Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn bucket_sort_meta(raw_key: &str) -> (u8, String, u8) {
+    let parts: Vec<&str> = raw_key
+        .trim()
+        .split(['-', '_'])
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    let group = parts
+        .first()
+        .copied()
+        .unwrap_or_else(|| raw_key.trim())
+        .to_ascii_lowercase();
+    let digit_group = u8::from(group.as_bytes().first().is_some_and(u8::is_ascii_digit));
+    let last = if parts.len() > 1 {
+        parts[parts.len() - 1].to_ascii_lowercase()
+    } else {
+        String::new()
+    };
+    let last_bytes = last.as_bytes();
+    let window_rank = if matches!(last.as_str(), "session" | "hourly")
+        || (is_duration_segment(&last)
+            && matches!(last_bytes.last().copied(), Some(b's' | b'm' | b'h')))
+    {
+        0
+    } else if last == "daily" || (is_duration_segment(&last) && last_bytes.last() == Some(&b'd')) {
+        1
+    } else if last == "weekly" || (is_duration_segment(&last) && last_bytes.last() == Some(&b'w')) {
+        2
+    } else if last == "monthly" {
+        3
+    } else {
+        4
+    };
+    (digit_group, group, window_rank)
+}
+
 /// Parses documented statusLine quota JSON `{ quota: { [bucketId]: { remaining_fraction?, reset_time?, reset_in_seconds?, disabled? } }, plan_tier? }`.
 pub fn parse_statusline_quota(body: &Value, now_ms: u64) -> Option<Value> {
     let quota = body.get("quota")?.as_object()?;
     if quota.len() > MAX_QUOTA_BUCKETS {
         return None;
     }
-    let mut limits: Vec<(String, f64, Option<i64>)> = Vec::with_capacity(quota.len());
+    let mut limits: Vec<(u8, String, u8, String, f64, Option<i64>)> =
+        Vec::with_capacity(quota.len());
     for (raw_key, raw_entry) in quota {
-        let label = printable_trimmed(raw_key, 128)?;
+        let valid_key = printable_trimmed(raw_key, 128)?;
         let entry = raw_entry.as_object()?;
         if let Some(disabled) = entry.get("disabled") {
             match disabled.as_bool() {
@@ -103,9 +189,17 @@ pub fn parse_statusline_quota(body: &Value, now_ms: u64) -> Option<Value> {
             now_ms,
         )?;
         let used_percent = ((1.0 - fraction) * 1000.0).round() / 10.0;
-        limits.push((label, used_percent, resets_at));
+        let (digit_group, group, window_rank) = bucket_sort_meta(&valid_key);
+        let label = format_bucket_label(&valid_key);
+        limits.push((digit_group, group, window_rank, label, used_percent, resets_at));
     }
-    limits.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    limits.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.2.cmp(&b.2))
+            .then_with(|| b.4.total_cmp(&a.4))
+            .then_with(|| a.3.cmp(&b.3))
+    });
     let tier = body
         .get("plan_tier")
         .and_then(Value::as_str)
@@ -116,7 +210,7 @@ pub fn parse_statusline_quota(body: &Value, now_ms: u64) -> Option<Value> {
     };
     let rows = limits
         .into_iter()
-        .map(|(label, used_percent, resets_at)| {
+        .map(|(_, _, _, label, used_percent, resets_at)| {
             json!({ "label": label, "used_percent": used_percent, "resets_at": resets_at })
         })
         .collect::<Vec<_>>();
