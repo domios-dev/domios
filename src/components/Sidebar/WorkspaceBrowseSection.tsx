@@ -1,4 +1,5 @@
 import { Fragment } from "react";
+import { usePeerPlanSummaries } from "../Canvas/PlansProvider";
 import { remoteViewerIdentity } from "../../lib/remoteTabPortal";
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import type { Tab } from "../../lib/types";
@@ -7,6 +8,7 @@ import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
 import { TabItem } from "./TabItem";
 import { TeamUnit } from "./TeamUnit";
 import { remoteTeamIdentity, remoteTeamName } from "./remoteOwnership";
+import { selectRemoteTeamPlanProjection } from "./teamTaskStatus";
 import { partitionTeamMembers, type TeamTabMember } from "./workspaceTeamModel";
 import { countWorkingTabs } from "./tabStatuses";
 import { planSidePanelStore } from "../Canvas/planSidePanelStore";
@@ -31,6 +33,10 @@ export function WorkspaceBrowseSection({
 }: WorkspaceBrowseSectionProps) {
   const { generals, peerWorkspaces } = usePairedWorkspaceInventory();
   const machines = new Map(generals.map(machine => [machine.peerId, machine]));
+  const viewedMachine = machines.get(peerId);
+  const remotePlans = usePeerPlanSummaries(peerId, {
+    enabled: !viewedMachine || viewedMachine.availability === "online",
+  });
   const verifiedViewers = new Set([
     ...generals.filter(machine => !machine.cached).flatMap(machine => machine.sessions.map(session => session.viewerId)),
     ...(peerWorkspaces ?? []).flatMap(source => source.tabs.filter(session => !session.peerId).map(session => session.viewerId)),
@@ -80,7 +86,17 @@ export function WorkspaceBrowseSection({
       const foreign = remoteTeamIdentity(members[0].tab, generals);
       const hostPeer = foreign ? members[0].tab.ownership?.peer_id ?? peerId : peerId;
       const host = machines.get(hostPeer);
-      const name = remoteTeamName(key, team?.name, foreign?.title, planTitles?.get(key), workspace.name);
+      const remoteProjection = selectRemoteTeamPlanProjection({
+        teamId: team?.id,
+        owningPeerId: hostPeer,
+        viewedPeerId: peerId,
+        plans: remotePlans.plans,
+        available: remotePlans.available,
+        loading: remotePlans.loading,
+        reconnecting: remotePlans.reconnecting,
+        error: remotePlans.error,
+      });
+      const name = remoteTeamName(key, team?.name, foreign?.title, remoteProjection.plan?.title, planTitles?.get(key), workspace.name);
       const { managers, workers, agents, terminals } = partitionTeamMembers(members);
       const section = (items: readonly TeamTabMember[]) => items.map(member => withSurfaces(member, "team", name));
       const working = (items: readonly TeamTabMember[]) => countWorkingTabs(items.map(member => member.tab), statuses);
@@ -94,15 +110,15 @@ export function WorkspaceBrowseSection({
           workspace_id: workspace.id,
           remote_peer_id: hostPeer,
           remote_peer_name: host?.name ?? foreign?.peerName,
-        }} workspaceName={workspace.name} plan={null} tabs={rowsById}
-          onOpenEffort={team ? ({ jump }) => {
+        }} workspaceName={workspace.name} plan={remoteProjection.plan} planCountMeta={remoteProjection.meta} tabs={rowsById}
+          onOpenEffort={team ? ({ jump, planId }) => {
             const remoteTeam = { peerId, teamId: team.id, name: name ?? workspace.name };
             if (jump) {
               planSidePanelStore.close();
               onOpenCanvas?.();
-              openWorkspacePlanCanvas({ remoteTeam, jump });
+              openWorkspacePlanCanvas({ remoteTeam, planId, jump });
             } else {
-              planSidePanelStore.open({ remoteTeam, planId: "" });
+              planSidePanelStore.open({ remoteTeam, planId: planId ?? "" });
             }
           } : undefined}
           managers={section(managers)} managerCount={managers.length} workingManagerCount={working(managers)}

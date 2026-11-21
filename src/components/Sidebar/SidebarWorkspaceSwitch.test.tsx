@@ -21,6 +21,17 @@ const remoteCloseCalls = vi.hoisted(() => ({
   requested: [] as Array<{ peerId: string; workspaceId: string; availability: string; protected: boolean }>,
   confirmed: [] as Array<{ peerId: string; workspaceId: string }>,
 }));
+const remotePlanCalls = vi.hoisted(() => ({
+  peerIds: [] as Array<string | null>,
+  result: {
+    plans: [] as PlanView[],
+    available: false,
+    loading: false,
+    reconnecting: false,
+    error: null as string | null,
+    refetch: async () => {},
+  },
+}));
 vi.mock("../../store/multiplexer/hooks", async () => {
   const { useSyncExternalStore } = await import("react");
   const subscribe = (listener: () => void) => { mux.listeners.add(listener); return () => { mux.listeners.delete(listener); }; };
@@ -32,6 +43,16 @@ vi.mock("../../store/multiplexer/hooks", async () => {
       },
     }),
     useMuxSelector: (select: (state: object) => unknown) => select(useSyncExternalStore(subscribe, () => mux.state)),
+  };
+});
+vi.mock("../Canvas/PlansProvider", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../Canvas/PlansProvider")>();
+  return {
+    ...original,
+    usePeerPlanSummaries: vi.fn((peerId: string | null | undefined) => {
+      remotePlanCalls.peerIds.push(peerId ?? null);
+      return remotePlanCalls.result;
+    }),
   };
 });
 vi.mock("../../hooks/useAgentProviders", () => {
@@ -110,6 +131,10 @@ afterEach(async () => {
   setSidebarMachineFilter("local");
   remoteCloseCalls.requested.length = 0;
   remoteCloseCalls.confirmed.length = 0;
+  remotePlanCalls.peerIds.length = 0;
+  remotePlanCalls.result = {
+    plans: [], available: false, loading: false, reconnecting: false, error: null, refetch: async () => {},
+  };
   localStorage.clear();
   vi.unstubAllGlobals();
 });
@@ -330,6 +355,8 @@ it("keeps one workspace switcher and falls back to one visible workspace when fi
   expect(detail().map(node => node.getAttribute("aria-label"))).toEqual(["Peer home workspace contents"]);
   expect(cards()).toHaveLength(1);
   expect(detail()[0].querySelector('[data-testid="team-name"]')?.textContent).toBe("Peer plan title");
+  expect(detail()[0].querySelector('[data-testid="team-status-unavailable"]')).not.toBeNull();
+  expect(detail()[0].querySelector('[data-testid="team-status-tally"]')).toBeNull();
   expect(row(host, "mesh:blackstar/peer-lead")?.closest("[hidden]")).toBeNull();
   expect(row(host, "mesh:air/other-worker")?.closest("[hidden]")).toBeNull();
   const actions = row(host, "mesh:air/other-worker")!.querySelector<HTMLButtonElement>('button[aria-label="Tab actions"]')!;
@@ -344,6 +371,41 @@ it("keeps one workspace switcher and falls back to one visible workspace when fi
   expect(actions.getAttribute("aria-expanded")).toBe("true");
 
   expect(row(host, "local-worker")).toBeNull();
+});
+
+it("wires the selected peer's authoritative Team summary into the real sidebar card", async () => {
+  vi.stubGlobal("__CODETERM_DEV__", false);
+  vi.stubGlobal("__APP_VERSION__", "test");
+  const localTabs = [worker("local-worker", "Local home")];
+  setMux([workspaceOf("Local home", localTabs)], localTabs, "Local home");
+  const peerId = "blackstar";
+  const remoteId = "Peer home";
+  const lead = manager("peer-lead", remoteId);
+  const hand = worker("other-worker", remoteId);
+  const remotePlan = {
+    ...plan(remoteId),
+    tasks: Array.from({ length: 25 }, (_, index) => ({ id: `loaded-${index}`, status: "done" })) as unknown as PlanView["tasks"],
+    task_counts: { total: 94, pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 94, cancelled: 0 },
+  } as PlanView;
+  remotePlanCalls.result = {
+    plans: [remotePlan], available: true, loading: false, reconnecting: false, error: null, refetch: async () => {},
+  };
+  const { host, root } = mountHost();
+  await act(async () => root.render(<PairedWorkspaceInventoryContext.Provider value={{
+    generals: [{ peerId, name: "BLACKSTAR", availability: "online", sessions: [] }],
+    browse: null,
+    peerWorkspaces: [{
+      peerId, workspace: workspaceOf(remoteId, [lead, hand]), teams: [{ ...team(remoteId), name: null }], planTitles: new Map(),
+      tabs: [{ viewerId: `mesh:${peerId}/${lead.id}`, tab: lead }, { viewerId: `mesh:${peerId}/${hand.id}`, tab: hand }],
+    }],
+  }}><Sidebar config={config} /></PairedWorkspaceInventoryContext.Provider>));
+
+  await act(async () => setSidebarMachineFilter({ id: peerId, name: "BLACKSTAR" }));
+  const detail = host.querySelector('[data-testid="workspace-detail"]');
+  expect(remotePlanCalls.peerIds).toContain(peerId);
+  expect(detail?.querySelector('[data-testid="team-name"]')?.textContent).toBe("Late plan");
+  expect(detail?.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent).toBe("94");
+  expect(detail?.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state")).toBe("verified");
 });
 
 it("closes the selected online remote workspace from its accessible read-only header", async () => {
