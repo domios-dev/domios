@@ -7,8 +7,12 @@ fn role_launch_identity_reaches_the_spawned_agent() {
     let fixture = ServiceFixture::new(mux);
     let _storage = fixture.install_seeded_storage_desk();
     let svc = Arc::new(fixture.service.clone());
+    let clock = codeterm_cron::clock::MockClock::starting_at(1_800_000_000_000);
     let cron: CronState = Arc::new(parking_lot::Mutex::new(
-        super::super::store::CronStore::new_with_path(fixture.temp.path().join("cron.json")),
+        super::super::store::CronStore::new_with_path_and_clock(
+            fixture.temp.path().join("cron.json"),
+            clock.clone(),
+        ),
     ));
     assert!(svc.set_ext(cron.clone()).is_ok());
     let workspace = svc.mux.read().list_workspaces()[0].id.clone();
@@ -18,11 +22,12 @@ fn role_launch_identity_reaches_the_spawned_agent() {
             serde_json::from_value(serde_json::json!({
                 "name":"disposable", "workspace_id":workspace, "schedule":"in 1h",
                 "task":"opaque-fixture", "agent":"mirror:fixture",
-                "cwd":fixture.temp.path(), "enabled":false, "oneshot":true, "jitter_max_ms":0
+                "cwd":fixture.temp.path(), "enabled":true, "oneshot":true, "jitter_max_ms":0
             }))
             .unwrap(),
         )
         .unwrap();
+    clock.set_ms(job.next_run.unwrap());
     let resolved = role_launch_spec(
         &fire_spec(&job),
         crate::service::role_policy::CronLaunch {
@@ -77,8 +82,12 @@ fn process_split_contract_manual_and_scheduled_cron_publish_exact_internal_run()
         let fixture = ServiceFixture::new(mux);
         let _storage = fixture.install_seeded_storage_desk();
         let svc = Arc::new(fixture.service.clone());
+        let clock = codeterm_cron::clock::MockClock::starting_at(1_800_000_000_000);
         let cron: CronState = Arc::new(parking_lot::Mutex::new(
-            super::super::store::CronStore::new_with_path(fixture.temp.path().join("cron.json")),
+            super::super::store::CronStore::new_with_path_and_clock(
+                fixture.temp.path().join("cron.json"),
+                clock.clone(),
+            ),
         ));
         assert!(svc.set_ext(cron.clone()).is_ok());
         let workspace = svc.mux.read().list_workspaces()[0].id.clone();
@@ -88,7 +97,7 @@ fn process_split_contract_manual_and_scheduled_cron_publish_exact_internal_run()
                 serde_json::from_value(serde_json::json!({
                     "name":JOB_NAME, "workspace_id":workspace, "schedule":"in 1h",
                     "task":"opaque-fixture", "agent":"portable-cron-fixture", "model":"fixture",
-                    "cwd":fixture.temp.path(), "enabled":false, "oneshot":true, "jitter_max_ms":0
+                    "cwd":fixture.temp.path(), "enabled":scheduled, "oneshot":true, "jitter_max_ms":0
                 }))
                 .unwrap(),
             )
@@ -113,6 +122,7 @@ fn process_split_contract_manual_and_scheduled_cron_publish_exact_internal_run()
             })
         };
         let run = if scheduled {
+            clock.set_ms(job.next_run.unwrap());
             assert!(matches!(
                 fire_job_with_spawn(&cron, &svc, &fire_spec(&job), spawn),
                 FireStart::Recorded
@@ -121,6 +131,8 @@ fn process_split_contract_manual_and_scheduled_cron_publish_exact_internal_run()
         } else {
             svc.cron_trigger_with_spawn(&cron, &job.id, spawn).unwrap()
         };
+        assert_eq!(run.scheduled_occurrence_at, job.next_occurrence_at);
+        assert_eq!(run.fired_at, Some(run.started_at));
         let tab_id = run.tab_id.as_deref().expect("successful fixture launch");
         assert_eq!(run.status, super::super::store::CronRunStatus::Running);
         {

@@ -604,7 +604,7 @@ fn custom_permissions() {
     assert!(!check_access(&level, &Method::POST, "/api/config"));
 
     let admin = AccessLevel::Custom(vec![Permission::Admin]);
-    assert!(check_access(&admin, &Method::POST, "/api/config"));
+    assert!(check_access(&admin, &Method::PATCH, "/api/config"));
     assert!(check_access(&admin, &Method::DELETE, "/api/crons/123"));
 }
 

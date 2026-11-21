@@ -146,7 +146,12 @@ impl MultiplexerState {
             {
                 tab.shell_command_state.activity = crate::multiplexer::types::ShellActivity::Idle;
             }
-            if tab.agent_type.is_some() {
+            if matches!(tab.backing, TabBacking::ChatBackend { .. }) {
+                tab.agent_state =
+                    Some(tab.provider_signals.access_state().unwrap_or_else(|| {
+                        super::status_view::chat_backend_agent_state(tab, *status)
+                    }));
+            } else if tab.agent_type.is_some() {
                 tab.agent_state = tab.provider_signals.access_state().or_else(|| {
                     Some(super::status_view::agent_state_for_status(
                         tab.agent_state.as_ref(),
@@ -194,7 +199,12 @@ impl MultiplexerState {
                 agent_session_id: tab.and_then(|p| p.agent_session_id.clone()),
                 agent_identity: tab.map(|p| AgentIdentitySnapshot {
                     description_origin: p.description_origin,
-                    agent_runtime_state: p.agent_runtime_state.clone(),
+                    agent_runtime_state: p.agent_runtime_state.clone().map(|mut state| {
+                        if let Some(fields) = state.as_object_mut() {
+                            fields.remove("backgroundProcesses");
+                        }
+                        state
+                    }),
                     agent_runtime_config: p.agent_runtime_config.clone(),
                     agent_runtime_questions: p.agent_runtime_questions.clone(),
                     provisioned_cwd: normalized_snapshot_cwd(p.provisioned_cwd.as_deref()),

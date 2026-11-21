@@ -7,6 +7,12 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
+## [1.21.1]
+
+### Fixed
+
+- Updates no longer fail when one tab's saved state exceeds 64 KiB (desk completion error).
+
 ## [1.17.3]
 
 ### Fixed

@@ -217,6 +217,25 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
     const effectiveOrigin = origin ?? structuredInbound?.origin;
     const inboundKind = structuredInbound?.kind;
 
+    if (effectiveOrigin?.kind === "system" && effectiveOrigin.context === "provider-handoff") {
+      const provider = message.routing?.label ?? message.fromLabel;
+      const model = message.routing?.model ?? message.fromModel;
+      const title = provider ? `Continued on ${[provider, model].filter(Boolean).join(" · ")}` : "Continued on another provider";
+      return (
+        <div className="mb-3 w-full min-w-0 text-xs text-[var(--ct-muted-fg)]">
+          <div role="separator" aria-label={title} className="flex min-w-0 items-center gap-3">
+            <span aria-hidden="true" className="h-px flex-1 bg-[var(--ct-border)]" />
+            <span className="max-w-[70%] text-center">{title}</span>
+            <span aria-hidden="true" className="h-px flex-1 bg-[var(--ct-border)]" />
+          </div>
+          <details className="mt-1">
+            <summary className="cursor-pointer">Details</summary>
+            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{message.content}</pre>
+          </details>
+        </div>
+      );
+    }
+
     if (effectiveOrigin?.kind === "system_prompt" || effectiveOrigin?.kind === "system") {
       const prompt = effectiveOrigin.kind === "system_prompt";
       const curatorStarted = !prompt && effectiveOrigin.context

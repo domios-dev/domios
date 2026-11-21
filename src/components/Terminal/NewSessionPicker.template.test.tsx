@@ -117,7 +117,8 @@ async function choose(labelPrefix: string, option: string) {
   const trigger = dialog().querySelector<HTMLElement>(`[aria-label^="${labelPrefix}"]`);
   expect(trigger).not.toBeNull();
   await act(async () => { trigger!.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true })); });
-  await click(Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]')).find((item) => item.textContent?.trim() === option));
+  await click(Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]'))
+    .find((item) => item.getAttribute("aria-label")?.includes(option) || item.textContent?.trim() === option));
 }
 
 async function renderPicker() {
@@ -916,10 +917,11 @@ describe("Team template start in the session dialog", () => {
     fixture.actions.upsertToast.mockClear();
     await openPlacement();
     expect(dialog().querySelector('[aria-label^="Machine for Researcher"]')).toBeNull();
-    await choose("Machine for this team", "eight");
+    await choose("Where it runs", "eight");
     expect(start().disabled).toBe(true);
     expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.textContent).toContain("Choose a workspace on eight");
     await choose("Workspace on eight", "Research");
+    expect(start().textContent).toMatch(/Team.*eight/i);
     await click(start());
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
     const request = fixture.templates.peerStart.mock.calls[0][0] as PeerStartCall;
@@ -935,7 +937,7 @@ describe("Team template start in the session dialog", () => {
     fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
     fixture.templates.peerStart.mockResolvedValue(exchange.peer_start_finished);
     await openPlacement();
-    await choose("Machine for this team", "eight");
+    await choose("Where it runs", "eight");
     await choose("Workspace on eight", "New workspace");
     await type(dialog().querySelector<HTMLInputElement>('input[aria-label="New workspace name on eight"]')!, "Heat pumps");
     await click(start());
@@ -946,7 +948,7 @@ describe("Team template start in the session dialog", () => {
     root = createRoot(host);
     fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null, needs_project: true });
     await openPlacement();
-    await choose("Machine for this team", "eight");
+    await choose("Where it runs", "eight");
     const trigger = dialog().querySelector<HTMLElement>('[aria-label^="Workspace on eight"]')!;
     await act(async () => { trigger.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true })); });
     const items = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]')).map((item) => item.textContent?.trim());
@@ -961,7 +963,7 @@ describe("Team template start in the session dialog", () => {
       ...exchange.peer_start_finished.outcome, state: "failed", orchestrator_tab_id: undefined, planner_tab_id: undefined, error: "FAILURE-FRAGMENT",
     } });
     await openPlacement();
-    await choose("Machine for this team", "eight");
+    await choose("Where it runs", "eight");
     await choose("Workspace on eight", "Research");
     await click(start());
     expect(dialog().querySelector('[data-testid="picker-start-error"]')?.textContent).toContain("FAILURE-FRAGMENT");

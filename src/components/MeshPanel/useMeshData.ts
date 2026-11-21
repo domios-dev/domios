@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, listen } from "../../lib/bridge";
 import type { MeshStatus, MeshPeersResponse, PairedPeer } from "../../lib/types";
 import { DEV_BUILD } from "../../lib/devBuild";
+import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
+import { TransportError } from "../../lib/transportClient";
 import { notifyMeshPeersLoaded } from "../../lib/localInstanceName";
 import type { Service } from "./types";
 import { buildHash } from "../../lib/buildStamp";
@@ -216,7 +218,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
     refreshFailedRef.current = false;
     setData((d) => ({ ...d, loading: true }));
     try {
-      const localView = await invoke<MeshInventoryView>("mesh_inventory_list");
+      const localView = await invoke<MeshInventoryView>("mesh_inventory_list", { local: true });
       const local: Service[] = localView.resources;
       const status = await invoke<MeshStatus>("mesh_get_status").catch(
         () => null,
@@ -238,18 +240,26 @@ export function useMeshData(refreshKey: number): MeshDataResult {
         }),
       );
 
-      // (stale-flagged) services instead of vanishing (#119/#127).
       const remotePromises = paired
         .map(async (p): Promise<PeerFetchResult> => {
+          const target = { peerId: p.instance_id, peerName: p.name };
+          if (!p.online) return { ...target, view: null };
           try {
-            const view = await invoke<PeerServicesView>(
-              "mesh_peer_services_list",
-              { instanceId: p.instance_id },
-            );
-            return { peerId: p.instance_id, peerName: p.name, view };
+            const inventory = await daemonTransportForPeer(p.instance_id).json<MeshInventoryView>("GET", "/api/mesh/inventory");
+            const { freshness, fetched_at, offline, partial_error } = inventory.provenance;
+            const view: PeerServicesView = {
+              services: inventory.resources,
+              freshness,
+              stale: freshness !== "fresh",
+              fetched_at,
+              peer_online: !offline,
+              error: null,
+              partial_error: partial_error ?? null,
+            };
+            return { ...target, view };
           } catch (e) {
-            if (DEV_BUILD) console.debug(`[mesh] services fetch failed for ${p.name}`, e);
-            return { peerId: p.instance_id, peerName: p.name, view: null };
+            const discardCached = e instanceof TransportError && [401, 403, 404].includes(e.status);
+            return { ...target, view: null, error: e instanceof Error ? e.message : String(e), discardCached };
           }
         });
       const remoteResults = await Promise.all(remotePromises);
@@ -259,14 +269,14 @@ export function useMeshData(refreshKey: number): MeshDataResult {
 
       const previous = dataRef.current;
       const remoteWithCached = remoteResults.map((result) => {
-        if (result.view) return result;
+        if (result.view || result.discardCached) return result;
         const peer = paired.find((candidate) => candidate.instance_id === result.peerId);
         const lastPeer = previous.peers.find((candidate) => candidate.instance_id === result.peerId);
         if (!peer || !lastPeer?.services_loaded) return result;
         const services = previous.services.filter((service) => service.source_peer_id === result.peerId || service.machine_id === result.peerId);
         return { ...result, view: {
           services, stale: true, fetched_at: lastPeer.services_fetched_at ?? null, peer_online: peer.online,
-          error: null, freshness: "stale" as const, partial_error: null,
+          error: null, freshness: peer.online ? "stale" as const : "offline" as const, partial_error: result.error ?? null,
         } };
       });
       const remoteById = new Map(remoteWithCached.map((r) => [r.peerId, r] as const));
@@ -277,7 +287,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           ...p,
           services_loaded: !!r.view,
           services_stale: r.view?.stale ?? true,
-          services_error: r.view?.error ?? r.view?.partial_error ?? (r.view ? null : "services fetch failed"),
+          services_error: r.error ?? r.view?.error ?? r.view?.partial_error ?? (p.online && !r.view ? "services fetch failed" : null),
           services_fetched_at: r.view?.fetched_at ?? null,
         };
       });

@@ -16,7 +16,7 @@ async function main() {
   const API: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "peer", port: 7685, token: "unused-peer-token", cors: true };
   setTokenFor("http://gateway:7685", "gateway-token");
 
-  type Request = { method: string; path: string; body: unknown; target_peer_id?: string };
+  type Request = { method: string; path: string; body: unknown; target_instance_id?: string };
   const requests: Request[] = [];
   const remotePlan = { ...FIXTURE_PLAN, revision: "1", id: "pl_peer", project_path: "/home/peer/project" };
   const index = { plan_id: remotePlan.id, title: remotePlan.title };
@@ -85,7 +85,7 @@ async function main() {
   assert.deepEqual(requests[requests.length - 1]?.body, { title: "Peer title" });
   assert(requests.some((request) => request.path === "/api/plans?view=summary&project=%2Fhome%2Fpeer%2Fproject"));
   assert(requests.some((request) => request.path === "/api/specs/spec%2Fpeer"));
-  assert(requests.every((request) => request.target_peer_id === "ubunta"));
+  assert(requests.every((request) => request.target_instance_id === "ubunta"));
   assert(requests.some((request) => request.path === "/api/teams/team-peer/mission-control/state"));
   assert(requests.some((request) => request.path === "/api/teams/team-peer/mission-control/spend?metric=tokens"));
 

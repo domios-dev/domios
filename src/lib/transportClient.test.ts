@@ -116,7 +116,7 @@ describe("transportClient", () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ ok: false, status: 404, data: { reason: "missing" }, error: "missing" }));
     const client = createTransportClient({ origin, token: () => "local", relayPeerId: "peer", fetch });
     await expect(client.json("GET", "/api/tabs/remote")).rejects.toMatchObject({ status: 404, body: '{"reason":"missing"}' });
-    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({ target_peer_id: "peer", method: "GET", path: "/api/tabs/remote", body: null });
+    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({ target_instance_id: "peer", method: "GET", path: "/api/tabs/remote", body: null });
     expect(new Headers(fetch.mock.calls[0][1]?.headers).get("Authorization")).toBe("Bearer local");
   });
   it("uploads bytes locally without assigning JSON multipart headers", async () => {

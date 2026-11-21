@@ -36,7 +36,7 @@ export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusC
   const purchases = explicitPurchases ?? remotePurchases;
   const { upsertToast } = useMultiplexer();
   const notify = createNoticePublisher({ upsertToast });
-  const { model, signIn, signOut } = useAccount((message) => notify({
+  const { model, signIn, signOut, signingIn, cancelSignIn } = useAccount((message) => notify({
     kind: "toast", id: "account-sign-out-failure", title: "Sign-out status", detail: message,
     severity: "Warning", tabId: null, workspaceId: null,
   }));
@@ -58,7 +58,7 @@ export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusC
   const paidSubscription = desktopBilling.subscription?.paid_subscription;
   const subscriptionPlan = paidSubscription === undefined ? undefined : paidSubscription?.tier ?? null;
   const purchase = usePurchaseIntent({
-    account: { model, signIn },
+    account: { model, signIn, signingIn },
     billing,
     catalog,
     subscriptionPlan,
@@ -80,6 +80,8 @@ export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusC
     retryHint.current = hint;
     if (await join.beforeJoin()) await signIn(hint);
   };
+  const activeHint = retryHint.current ?? ACCOUNT_ENTRY_OPTIONS[0].hint;
+  const cancel = cancelSignIn && <Button size="sm" onClick={() => void cancelSignIn()}>Cancel</Button>;
   return <SettingsPage title="Account">
     <SettingsCard icon={<UserRound size={16} />} title="Domios account">
       {model.kind === "signed_in" ? (() => {
@@ -102,21 +104,20 @@ export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusC
       })() : <div className="flex flex-col items-start gap-3 text-xs">
         {model.kind === "signed_out" && model.sessionRevoked && <p role="status" className={MUTED}>{SESSION_REVOKED_MESSAGE}</p>}
         {model.kind === "signed_out" && !model.sessionRevoked && model.targetMismatch && <p role="status" className={MUTED}>{model.targetMismatch}</p>}
-        {model.kind === "pending"
-          ? <p role="status" className={MUTED}>Finish signing in in your browser.</p>
-          : <p className={MUTED}>Sign in to keep your plan and settings with your account.</p>}
+        <p className={MUTED}>Sign in to keep your plan and settings with your account.</p>
         {model.kind === "error" && !model.failure && <InlineErrorNotice error={model.message} operation="updating your account" blocking />}
         {join.view && join.value && <MachineJoinPreview name={join.view.name} value={join.value} onChange={join.setDraft} />}
         {join.error && retryHint.current && <MachineIdentitySaveError error={join.error} retry={() => { if (retryHint.current) void startSignIn(retryHint.current); }} />}
         <div className="flex flex-wrap items-center gap-2">
           {ACCOUNT_ENTRY_OPTIONS.map((option, index) =>
-            <Button key={option.label} size="sm" variant={index === 0 ? "primary" : "ghost"} disabled={model.kind === "pending"}
-              onClick={() => startSignIn(option.hint)}>{option.label}</Button>)}
+            <Button key={option.label} size="sm" variant={index === 0 ? "primary" : "ghost"} disabled={model.kind === "pending" || signingIn} loading={signingIn && activeHint === option.hint}
+              onClick={() => startSignIn(option.hint)}>{signingIn && activeHint === option.hint ? "Signing in…" : option.label}</Button>)}
+          {cancel}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {SIGN_IN_PROVIDER_OPTIONS.map((option) =>
-            <Button key={option.label} size="sm" variant="ghost" className="gap-2" disabled={model.kind === "pending"}
-              onClick={() => startSignIn(option.hint)}>{option.icon}{option.label}</Button>)}
+            <Button key={option.label} size="sm" variant="ghost" className="gap-2" disabled={model.kind === "pending" || signingIn} loading={signingIn && activeHint === option.hint}
+              onClick={() => startSignIn(option.hint)}>{signingIn && activeHint === option.hint ? "Signing in…" : <>{option.icon}{option.label}</>}</Button>)}
         </div>
       </div>}
     </SettingsCard>
@@ -134,8 +135,9 @@ export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusC
         </div>
         {unverified && <div role="status" className="flex w-full flex-wrap items-center gap-2">
           <p className={MUTED}>{unverified.detail}</p>
-          {billing.plan?.unverified === "sign_in_required" && <Button size="sm" variant="outline" disabled={model.kind === "pending"}
-            onClick={() => startSignIn(ACCOUNT_ENTRY_OPTIONS[0].hint)}>Sign in again</Button>}
+          {billing.plan?.unverified === "sign_in_required" && <Button size="sm" variant="outline" loading={signingIn}
+            onClick={() => startSignIn(ACCOUNT_ENTRY_OPTIONS[0].hint)}>{signingIn ? "Signing in…" : "Sign in again"}</Button>}
+          {signedIn && cancel}
         </div>}
         {billing.plan?.periodEnd && <p className={MUTED}>
           {subscriptionPlan === null ? "Access ends" : billing.plan.cancelAtPeriodEnd ? "Ends" : "Renews"} {new Date(billing.plan.periodEnd * 1000).toLocaleDateString()}

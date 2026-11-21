@@ -1,44 +1,32 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Check, ChevronDown } from "lucide-react";
-import { flushSync } from "react-dom";
+import { ChevronDown, Network } from "lucide-react";
 import { listen } from "../../lib/bridge";
-import { resetWebEvents } from "../../lib/webEvents";
-import { resetOutputStream } from "../../lib/outputStream";
-import { formatLastActiveBadge, rankPeersByLastActive } from "../../lib/peerRanking";
+import { rankPeersByLastActive } from "../../lib/peerRanking";
 import {
-  clearRelayTarget,
   localJson,
-  relayPeerUsable,
-  relayTarget,
-  setRelayTarget,
-  selfHost,
-  invalidateWebRequestContext,
 } from "../../lib/webApi";
+import { useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
+import { setSidebarMachineFilter, useSidebarMachineFilter } from "../Sidebar/sidebarMachineFilter";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { MachineGlyph } from "../shared/MachineGlyph";
-import { machineLabel, type MeshIdentityProjection } from "../../lib/machineIdentity";
+import { MachinePickerRow, MachineThisBadge, machineRowLabel } from "../shared/MachineRow";
+import { cleanMachineName, machineLabel, type MeshIdentityProjection } from "../../lib/machineIdentity";
+import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
 import { menuKeyAction } from "./menuKeyboard";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import { hasLocalInstanceName, localInstanceLabel, onMeshPeersLoaded, rememberLocalInstanceName } from "../../lib/localInstanceName";
 
-let nextPeerSwitchId = 0;
-
 type PairedPeer = Pick<import("../../../gen/PairedPeer").PairedPeer, "instance_id" | "instance_name" | "addresses" | "api_port" | "online" | "relay_protocol_version" | "last_active_ms">;
 type MeshPeers = Omit<Pick<import("../../../gen/MeshPeersResponse").MeshPeersResponse, "paired" | "local_instance_name">, "paired"> & {paired: PairedPeer[]} & MeshIdentityProjection;
 
-/**
- * Web-mirror peer switcher (top-left). Lists the LOCAL daemon's paired mesh
- * peers; selecting one sets a relay target so every request is proxied
- * through the local daemon's mesh relay (the browser stays pointed at its own
- * daemon — no re-point, no peer-scoped token). Selecting the gateway machine
- * clears the target. In-place switch reattaches events and refreshes mux state.
- */
+/** Selects which paired host supplies the Web workspace inventory. */
 export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [peers, setPeers] = useState<PairedPeer[]>([]);
   const [localName, setLocalName] = useState(localInstanceLabel);
   const [open, setOpen] = useState(false);
-  const [displayTarget, setDisplayTarget] = useState(relayTarget);
-  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
+  const target = useWorkspaceBrowseTarget();
+  const filter = useSidebarMachineFilter();
+  const accountNames = useAccountMachineNames();
   const [identities, setIdentities] = useState<MeshIdentityProjection>({});
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -89,17 +77,6 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     };
   }, [refresh]);
 
-  useEffect(() => {
-    const ready = (event: Event) => {
-      const detail = (event as CustomEvent<{ switchId: number; success: boolean }>).detail;
-      if (detail.switchId !== nextPeerSwitchId) return;
-      setDisplayTarget(relayTarget());
-      setSwitchingTo(null);
-    };
-    window.addEventListener("codeterm-peer-switch-ready", ready);
-    return () => window.removeEventListener("codeterm-peer-switch-ready", ready);
-  }, []);
-
   const menuItems = useCallback(
     () => Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? []),
     [],
@@ -128,32 +105,23 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     [closeMenu, menuItems],
   );
 
-  const target = displayTarget;
-  const onSelf = !target;
-  const label = switchingTo ? `Connecting to ${switchingTo}` : onSelf ? localName : target.name;
-  const identity = onSelf ? identities.local_machine_identity : identities.machine_identities?.[target.id];
+  const showAll = filter === "all";
+  const allMachinesLabel = "All machines";
+  const selectedPeer = peers.find(peer => peer.instance_id === target?.id);
+  const label = target ? accountNames.peers.get(target.id) ?? cleanMachineName(selectedPeer?.instance_name ?? target.name, target.id) ?? "Machine" : accountNames.local ?? localName;
+  const identity = target ? identities.machine_identities?.[target.id] : identities.local_machine_identity;
+  const localMachine = { name: accountNames.local ?? localName, identity: identities.local_machine_identity, status: "online", local: true };
+  const pillLabel = showAll ? allMachinesLabel : filter === "local" ? machineRowLabel(localMachine) : machineLabel(label, identity);
 
   const switchTo = useCallback(
-    (peer: PairedPeer | null) => {
-      const switchId = ++nextPeerSwitchId;
-      const nextName = peer?.instance_name ?? localName;
-      setSwitchingTo(nextName);
-      invalidateWebRequestContext();
-      flushSync(() => {
-        window.dispatchEvent(new CustomEvent("codeterm-peer-switch-reset", { detail: { switchId } }));
+    (selection: PairedPeer | "all" | "local") => {
+      setSidebarMachineFilter(typeof selection === "string" ? selection : {
+        id: selection.instance_id,
+        name: accountNames.peers.get(selection.instance_id) ?? cleanMachineName(selection.instance_name, selection.instance_id) ?? "Machine",
       });
-      if (peer) {
-        setRelayTarget(peer.instance_id, peer.instance_name);
-      } else {
-        clearRelayTarget();
-      }
-      invalidateWebRequestContext();
       closeMenu();
-      resetOutputStream();
-      resetWebEvents();
-      window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind", { detail: { switchId } }));
     },
-    [closeMenu, localName],
+    [accountNames, closeMenu],
   );
 
   return (
@@ -162,15 +130,17 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         ref={triggerRef}
         type="button"
         data-testid="peer-picker-button"
-        aria-label={`Switch Domios host, current host ${machineLabel(label, identity)}`}
+        aria-label={`Filter sidebar by machine, ${pillLabel}`}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => (open ? closeMenu() : setOpen(true))}
-        className={`ct-bar-pill ct-machine-switcher ${compact ? "min-w-0 max-w-[126px] sm:max-w-none" : ""}`}
-        title="Switch Domios host"
+        data-filtered={!showAll || undefined}
+        className={`ct-bar-pill ct-machine-switcher ${compact ? "min-w-0 max-w-[min(10rem,40vw)] sm:max-w-none" : ""}`}
+        title="Filter sidebar by machine"
       >
-        <MachineGlyph {...identity} />
-        <span className="max-w-[104px] truncate sm:max-w-none">{label}</span>
+        {showAll ? <Network size={12} className="shrink-0" aria-hidden="true" /> : <MachineGlyph {...identity} />}
+        <span className="min-w-0 truncate">{showAll ? allMachinesLabel : label}</span>
+        {filter === "local" && <MachineThisBadge className="hidden min-[400px]:inline-flex" />}
         <ChevronDown size={12} className="shrink-0 opacity-60" aria-hidden="true" />
       </button>
       <AnchoredPopover open={open} anchor={rootRef} placement={compact ? "bottom-end" : "bottom-start"} onClose={dismissMenu}>
@@ -178,36 +148,29 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
           ref={menuRef}
           data-testid="peer-picker-menu"
           role="menu"
-          aria-label="Domios hosts"
+          aria-label="Machines"
           onKeyDown={onMenuKeyDown}
-          className="ct-menu ct-peer-menu w-[320px]"
+          className="ct-menu ct-menu--opaque ct-peer-menu w-max max-w-[min(24rem,calc(100vw-2rem))]"
         >
-          <button
-            type="button"
-            role="menuitem"
-            data-testid="peer-picker-self"
-            aria-label={machineLabel(localName, identities.local_machine_identity, "online")}
-            title={`${localName} · ${selfHost().replace(/^https?:\/\//, "")}`}
-            aria-current={onSelf ? "true" : undefined}
-            onClick={() => switchTo(null)}
-            className="ct-menu-row ct-machine-menu-row"
-          >
-            <span className="ct-menu-row__icon">
-              <MachineGlyph {...identities.local_machine_identity} size="mark-15" />
+          <button type="button" role="menuitem" data-testid="peer-picker-all"
+            aria-current={showAll ? "true" : undefined}
+            onClick={() => switchTo("all")} className="ct-menu-row ct-machine-menu-row">
+            <span className="flex min-w-0 items-center gap-2">
+              <Network size={15} className="shrink-0" aria-hidden="true" />
+              <span className="truncate">{allMachinesLabel}</span>
             </span>
-            <span className="min-w-0 flex-1 truncate">
-              {localName}
-            </span>
-            <HostStatus status="online" />
-            {onSelf && <Check aria-hidden size={14} className="ct-menu-row__check shrink-0" />}
+          </button>
+          <button type="button" role="menuitem" data-testid="peer-picker-self"
+            aria-current={filter === "local" ? "true" : undefined}
+            aria-label={machineRowLabel(localMachine)} onClick={() => switchTo("local")}
+            className="ct-menu-row ct-machine-menu-row">
+            <MachinePickerRow {...localMachine} />
           </button>
           {peers.map((p) => {
             const active = target?.id === p.instance_id;
-            const badge = formatLastActiveBadge(p.last_active_ms);
+            const name = accountNames.peers.get(p.instance_id) ?? cleanMachineName(p.instance_name, p.instance_id) ?? "Machine";
             const compatible = p.relay_protocol_version === RELAY_PROTOCOL_VERSION;
-            const available = relayPeerUsable(p);
-            const status = p.online && !compatible ? "update required"
-              : badge && badge !== "active now" ? badge : p.online ? "online" : "offline";
+            const status = p.online ? compatible ? "online" : "update required" : "offline";
             const identity = identities.machine_identities?.[p.instance_id];
             const endpoint = p.addresses?.[0]?.ip;
             return (
@@ -217,41 +180,20 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
                 key={p.instance_id}
                 data-testid="peer-picker-item"
                 aria-current={active ? "true" : undefined}
-                aria-label={machineLabel(p.instance_name, identity, status)}
+                aria-label={machineRowLabel({ name, identity, status })}
                 data-peer-id={p.instance_id}
-                data-peer-name={p.instance_name}
+                data-peer-name={name}
                 data-peer-online={String(!!p.online)}
-                disabled={!available}
                 onClick={() => switchTo(p)}
                 className="ct-menu-row ct-machine-menu-row min-h-[44px] sm:min-h-0"
-                title={[p.instance_name, status, endpoint && `${endpoint}:${p.api_port}`].filter(Boolean).join(" · ")}
+                title={[name, status, endpoint && `${endpoint}:${p.api_port}`].filter(Boolean).join(" · ")}
               >
-                <span className="ct-menu-row__icon">
-                  <MachineGlyph {...identity} size="mark-15" />
-                </span>
-                <span className="min-w-0 flex-1 truncate">{p.instance_name}</span>
-                <HostStatus status={status} />
-                {active && <Check aria-hidden size={14} className="ct-menu-row__check shrink-0" />}
+                <MachinePickerRow name={name} identity={identity} status={status} />
               </button>
             );
           })}
-          {peers.length === 0 && (
-            <div className="px-2 py-1.5 text-[10.5px] text-[var(--ct-muted)]">
-              no paired peers
-            </div>
-          )}
         </div>
       </AnchoredPopover>
     </div>
-  );
-}
-
-function HostStatus({ status }: { status: string }) {
-  const tone = status === "online" ? "var(--ct-green)" : status === "update required" ? "var(--ct-yellow)" : "var(--ct-muted)";
-  return (
-    <span className="flex shrink-0 items-center gap-1.5 text-[length:var(--ct-font-size-meta)] text-[var(--ct-muted-fg)]">
-      <span aria-hidden="true" className="size-2 rounded-full" style={{ backgroundColor: tone }} />
-      {status}
-    </span>
   );
 }

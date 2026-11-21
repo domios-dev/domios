@@ -61,7 +61,7 @@ export interface OpencodePart {
   text?: string;
   tool?: string;
   callID?: string;
-  state?: { input?: unknown; output?: unknown; metadata?: unknown; status?: string };
+  state?: { input?: unknown; output?: unknown; content?: unknown; metadata?: unknown; status?: string };
 }
 
 export interface ModelUsageRow {
@@ -644,13 +644,19 @@ export function toolFileDiffs(part: OpencodePart): FileDiff[] {
   const path = String(input.filePath ?? input.file_path ?? input.path ?? "");
   const edits = extractCanonicalEdits(input);
   let metadata = state.metadata && typeof state.metadata === "object" ? state.metadata as Record<string, unknown> : {};
-  const hasFiles = Array.isArray(metadata.files) && metadata.files.length > 0;
-  const hasFileDiff = metadata.filediff !== null && typeof metadata.filediff === "object";
+  const hasFiles = Array.isArray(metadata.files) && metadata.files.some((file) => file && typeof file === "object" && Object.keys(file).length > 0);
+  const hasFileDiff = metadata.filediff !== null && typeof metadata.filediff === "object" && Object.keys(metadata.filediff).length > 0;
   if (part.tool?.toLowerCase() === "apply_patch" && typeof metadata.diff !== "string" && typeof metadata.patch !== "string" && !hasFiles && !hasFileDiff) {
     const patch = typeof input.patch === "string" ? input.patch : typeof input.input === "string" ? input.input : "";
     if (patch) metadata = { ...metadata, patch };
   }
-  const creation = part.tool === "write" && metadata.exists === false && typeof input.content === "string"
+  const content = Array.isArray(state.content) ? state.content[0] : undefined;
+  const contentText = content && typeof content === "object" && !Array.isArray(content)
+    ? (content as Record<string, unknown>).text : undefined;
+  const result = typeof state.output === "string" ? state.output : typeof contentText === "string" ? contentText : "";
+  const creationConfirmed = metadata.exists === false
+    || (metadata.exists === undefined && /^Created file successfully(?::|$)/i.test(result.trim()));
+  const creation = part.tool === "write" && creationConfirmed && typeof input.content === "string"
     ? [{ path, old: "", new: input.content }] : [];
   const diffs = opencodeFileDiffs(path, [...edits, ...creation], metadata);
   if (creation.length) {

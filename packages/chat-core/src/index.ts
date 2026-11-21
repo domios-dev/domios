@@ -142,6 +142,7 @@ export {
   transcriptOffsetKind,
   transcriptRowCount,
   transcriptRows,
+  transcriptSourceRows,
   type TranscriptAuthority,
   type TranscriptBatch,
   type TranscriptBatchKind,

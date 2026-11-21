@@ -8,8 +8,10 @@ const OFFSET_Y = 18;
 const CHASE = 0.22;
 
 interface CursorTooltipProps {
+  as?: "div" | "span";
   content: ReactNode;
   active: boolean;
+  opaque?: boolean;
   children: ReactNode;
   className?: string;
 }
@@ -18,7 +20,7 @@ interface CursorTooltipProps {
  * A tip that trails the pointer. Lives on a wrapper because the control it
  * describes is usually disabled, and a disabled control emits no pointer events.
  */
-export function CursorTooltip({ content, active, children, className }: CursorTooltipProps) {
+export function CursorTooltip({ as: Anchor = "div", content, active, opaque = false, children, className }: CursorTooltipProps) {
   const [open, setOpen] = useState(false);
   const tipRef = useRef<HTMLDivElement>(null);
   const target = useRef({ x: 0, y: 0 });
@@ -65,7 +67,7 @@ export function CursorTooltip({ content, active, children, className }: CursorTo
 
   return (
     <>
-      <div
+      <Anchor
         className={className}
         onPointerEnter={(event) => {
           if (event.pointerType !== "mouse" || !active) return;
@@ -79,13 +81,13 @@ export function CursorTooltip({ content, active, children, className }: CursorTo
         onPointerLeave={() => setOpen(false)}
       >
         {children}
-      </div>
+      </Anchor>
       {open &&
         createPortal(
           <div
             ref={tipRef}
             role="tooltip"
-            className="ct-cursor-tip pointer-events-none fixed left-0 top-0 z-[60] whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[11.5px] leading-none"
+            className={`ct-cursor-tip${opaque ? " ct-cursor-tip--opaque" : ""} pointer-events-none fixed left-0 top-0 z-[60] whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[11.5px] leading-none`}
           >
             {content}
           </div>,

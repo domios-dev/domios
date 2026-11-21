@@ -244,7 +244,7 @@ for (const peerId of [undefined, "eight"]) {
         if (peerId) {
           assert.equal(path, "/api/mesh/relay-to");
           assert.deepEqual(JSON.parse(String(init?.body)), {
-            target_peer_id: peerId, method: "POST", path: "/api/surfaces/88a2dfa7/call",
+            target_instance_id: peerId, method: "POST", path: "/api/surfaces/88a2dfa7/call",
             body: { method: "goto", args: { url: result.url } },
           });
         } else {

@@ -28,6 +28,8 @@ const ROW_TAB_FIELDS = [
   "has_checklist",
   "remote_peer_id",
   "remote_peer_name",
+  "remote_team_id",
+  "team_id",
   "chat_view",
   "pending_prompt",
   "parent_tab_id",
@@ -52,6 +54,7 @@ export function sameRowTab(previous: Tab, next: Tab): boolean {
     && previous.shell_command_state?.last_exit_code === next.shell_command_state?.last_exit_code
     && previous.ownership?.controller_title === next.ownership?.controller_title
     && previous.ownership?.team?.id === next.ownership?.team?.id
+    && previous.ownership?.team?.title === next.ownership?.team?.title
     && previous.agent_runtime_config?.confirmedServiceTier === next.agent_runtime_config?.confirmedServiceTier
     && previous.agent_runtime_config?.launchProfile === next.agent_runtime_config?.launchProfile
     && previous.agent_runtime_state?.state === next.agent_runtime_state?.state

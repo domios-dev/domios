@@ -8,11 +8,11 @@ import {
   localJson,
   relayTarget,
   selfHost,
-  setRelayTarget,
   setTokenFor,
   usableRelayTarget,
   WebApiError,
 } from "../../lib/webApi";
+import { setWorkspaceBrowseTarget, useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 import type { MeshPeersResponse } from "../../lib/types";
 import { releaseBootCover } from "../../lib/bootCover";
 import { installWebHistoryGuard } from "./webHistoryGuard";
@@ -29,6 +29,7 @@ type GateState = "checking" | "need-token" | "ready";
  */
 export function WebGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GateState>(IS_WEB ? "checking" : "ready");
+  const browseTarget = useWorkspaceBrowseTarget();
   useEffect(() => {
     if (state !== "ready" && state !== "checking") releaseBootCover();
   }, [state]);
@@ -73,26 +74,20 @@ export function WebGate({ children }: { children: ReactNode }) {
       const relayPeerId = entry.relay;
       setError(null);
       const bootstrap = async () => {
-        const stored = relayTarget();
-        if (relayPeerId === "self") {
+        const requestedPeer = relayPeerId ?? relayTarget()?.id;
+        if (initial) {
           clearRelayTarget();
-        } else if (relayPeerId) {
+        }
+        if (requestedPeer === "self") {
+          setWorkspaceBrowseTarget(null);
+        } else if (requestedPeer) {
           try {
             const peers = await localJson<MeshPeersResponse>("GET", "/api/mesh/peers");
-            const peer = usableRelayTarget(peers.paired, relayPeerId);
+            const peer = usableRelayTarget(peers.paired, requestedPeer);
             if (!peer) throw new Error("Relay peer cannot serve as a relay target");
-            if (active()) setRelayTarget(peer.id, peer.name);
+            if (active()) setWorkspaceBrowseTarget(peer);
           } catch {
-            if (active()) clearRelayTarget();
-          }
-        } else if (stored) {
-          // A target left in localStorage outlives pairing, presence and protocol;
-          // adopting it unchecked relays every request into a dead peer.
-          try {
-            const peers = await localJson<MeshPeersResponse>("GET", "/api/mesh/peers");
-            if (active() && !usableRelayTarget(peers.paired, stored.id)) clearRelayTarget();
-          } catch {
-            /* local daemon unreachable — validate() reports that, keep the target */
+            if (active()) setWorkspaceBrowseTarget(null);
           }
         }
         if (active()) await validate(active);
@@ -167,11 +162,11 @@ export function WebGate({ children }: { children: ReactNode }) {
           >
             {busy ? "Checking…" : "Connect"}
           </button>
-          {relayTarget() && (
+          {browseTarget && (
             <button
               data-testid="web-token-back-to-self"
               onClick={() => {
-                clearRelayTarget();
+                setWorkspaceBrowseTarget(null);
                 window.location.reload();
               }}
               className="mt-2 w-full min-h-[44px] rounded border border-[var(--ct-border,#30363d)] text-xs opacity-80"

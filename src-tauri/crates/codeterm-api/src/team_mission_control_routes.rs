@@ -2,8 +2,8 @@ use std::cmp::Ordering;
 
 use axum::{
     extract::{Path, Query, State as AxumState},
-    http::{HeaderMap, StatusCode},
-    Json,
+    http::StatusCode,
+    Extension, Json,
 };
 use base64::Engine;
 pub use codeterm_plan::service_plan::team_mission_control::{
@@ -214,10 +214,10 @@ pub(crate) fn project_team_state(
 
 pub async fn state(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    caller: Option<Extension<crate::auth::CallerIdentity>>,
     Path(team_id): Path<String>,
     Query(query): Query<TeamMissionControlQuery>,
-) -> Result<Json<TeamMissionControlState>, (StatusCode, String)> {
+) -> Result<Json<TeamMissionControlResponse>, (StatusCode, String)> {
     let owner = state.clone();
     let target = team_id.clone();
     let team = tokio::task::spawn_blocking(move || {
@@ -251,7 +251,40 @@ pub async fn state(
     })
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
-    Ok(Json(projection))
+    let remote_plan_actions = match caller {
+        Some(Extension(crate::auth::CallerIdentity::Peer { access_level, .. })) => {
+            use codeterm_service_core::api_support::access_policy::allows_full_dispatch;
+            let allowed = allows_full_dispatch(&access_level);
+            Some(RemotePlanActions {
+                protocol_version: allowed.then(|| {
+                    let rpc = codeterm_service_core::ports::socket::bridge();
+                    (rpc.protocol_version)()
+                }),
+                unavailable_reason: (!allowed).then_some(
+                    "The owning machine requires Full mesh access for review and dispatch.",
+                ),
+            })
+        }
+        _ => None,
+    };
+    Ok(Json(TeamMissionControlResponse {
+        projection,
+        remote_plan_actions,
+    }))
+}
+
+#[derive(serde::Serialize)]
+pub struct TeamMissionControlResponse {
+    #[serde(flatten)]
+    projection: TeamMissionControlState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remote_plan_actions: Option<RemotePlanActions>,
+}
+
+#[derive(serde::Serialize)]
+struct RemotePlanActions {
+    protocol_version: Option<u64>,
+    unavailable_reason: Option<&'static str>,
 }
 
 #[cfg(test)]

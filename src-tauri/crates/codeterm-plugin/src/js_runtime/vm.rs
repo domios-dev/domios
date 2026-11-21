@@ -648,6 +648,9 @@ fn call_prepared_blocking<R: serde::de::DeserializeOwned>(
     if !has_method(vm, method) {
         return Err(VmError::MissingFunction(method.to_owned()));
     }
+    if method == "runAgentTask" {
+        operation.contain_exec_jobs();
+    }
     let _operation_scope = operation::Scope::enter(operation.clone());
     let _file_lock_scope = super::host_api::FileLockCallScope::new();
     let registration = vm

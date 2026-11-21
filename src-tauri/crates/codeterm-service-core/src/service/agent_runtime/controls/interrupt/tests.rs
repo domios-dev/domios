@@ -756,3 +756,13 @@ fn a_stop_pending_on_a_busy_gate_sends_no_cancel_to_a_turn_that_started_after_it
         "no cancel reaches the new turn"
     );
 }
+
+#[test]
+fn failed_tool_capture_never_settles_stop_as_stopped() {
+    let failed = || Err::<Option<u8>, _>(RuntimeFailure::Refused("snapshot exceeds 256".into()));
+    let error = tool_settlement(failed(), false).unwrap_err();
+    assert!(error.to_string().contains("snapshot exceeds 256"));
+    assert!(matches!(tool_settlement(failed(), true), Ok(None)));
+    assert!(matches!(tool_settlement(Ok(Some(3u8)), false), Ok(Some(3))));
+    assert!(matches!(tool_settlement(Ok(None::<u8>), false), Ok(None)));
+}

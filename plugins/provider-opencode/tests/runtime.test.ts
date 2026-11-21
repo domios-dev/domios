@@ -8,6 +8,9 @@ import {messageIdentity} from "../src/runtimeProtocol";
 const fixture=JSON.parse(fs.readFileSync(new URL("./fixtures/runtime-contract.json",import.meta.url),"utf8")) as {
   context:RuntimeContext;frames:RuntimeFrame[];expectedKinds:string[];expectedUsage:unknown;providers:unknown;auth:unknown;question:RuntimeFrame;permission:RuntimeFrame;
 };
+const legacyErrors=JSON.parse(fs.readFileSync(new URL("./fixtures/legacy-turn-errors.json",import.meta.url),"utf8")) as Array<{
+  version:string;event:{type:string;properties:{sessionID:string;error:{name:string;data:{message:string;isRetryable:boolean}}}};
+}>;
 const copy=<T>(value:T):T=>JSON.parse(JSON.stringify(value));
 let count=0;
 function check(name:string, run:()=>void) {run();count++;console.log(`  ✓ OpenCode runtime ${name}`);}
@@ -60,6 +63,29 @@ check("unknown, foreign and prewrite user events never confirm sends",()=>{
     assert.equal(events.filter(event=>event.kind === "turnState" && event.state === "working").length,0);
   }
 });
+check("legacy upstream failures reach the provider-error alert and settle the exact turn once",()=>{
+  assert.equal(legacyErrors.length,2);
+  for (const {version,event} of legacyErrors) {
+    const {ctx,message:turnId}=prepared(`upstream-error-${version}`);
+    const upstream=event.properties.error.data.message;
+    const error:RuntimeFrame={kind:"notification",method:"http/event",params:event};
+    const foreign:RuntimeFrame={...error,params:{...event,properties:{...event.properties,sessionID:"ses_foreign"}}};
+    const idle:RuntimeFrame={kind:"notification",method:"http/event",params:{type:"session.idle",properties:{sessionID:ctx.threadId!}}};
+    const failure=runtimeReduce(ctx,null,[foreign,error,idle,error]);
+    assert.deepEqual(failure.events,[
+      {kind:"notice",threadId:ctx.threadId,message:upstream},
+      {kind:"chatItem",threadId:ctx.threadId,item:{id:`${turnId}:error`,seq:1,type:"system",systemSubtype:"api_error",toolFlowId:turnId,content:upstream}},
+      {kind:"turnState",threadId:ctx.threadId,turnId,state:"idle",detail:"failed"},
+    ]);
+  }
+});
+check("legacy interruption settles without a provider-error alert",()=>{
+  const {ctx,message:turnId}=prepared("legacy-interrupted");
+  const frame:RuntimeFrame={kind:"notification",method:"http/event",params:{type:"session.error",properties:{sessionID:ctx.threadId!,error:{name:"MessageAbortedError"}}}};
+  assert.deepEqual(runtimeReduce(ctx,null,[frame]).events,[
+    {kind:"turnState",threadId:ctx.threadId,turnId,state:"idle",detail:"interrupted"},
+  ]);
+});
 check("prompt identity never authorizes replay and acknowledgment is not delivery evidence",()=>{
   const {ctx,op,plan,message}=prepared("fixture-no-replay");
   assert.equal(call(plan).method,"session.prompt");
@@ -76,6 +102,30 @@ check("discovered auth methods preserve supported inputs and explicit unsupporte
   assert.equal(discovered[1].available,false);assert.ok(discovered[1].unavailableReason);
   assert.equal(discovered.at(-1)?.input,"apiKey");
   assert.equal(authEvents(ctx,fixture.providers,fixture.auth)[0].kind,"authentication");
+});
+check("legacy startup requests a compact provider list and keeps selected provider auth",()=>{
+  const ctx={...copy(fixture.context),tabId:"large-provider-list",settings:{model:"opencode/beam-free"}};
+  const op:Operation={kind:"initialize"};
+  const health=runtimePlan(ctx,op);
+  const catalogue=continuation(response(ctx,op,health.state,{healthy:true,version:"1.17.16"}));
+  const wire=call(catalogue);
+  assert.equal(wire.method,"provider.list");
+  assert.deepEqual(wire.params,{responseFields:{all:["id","name"],connected:[]}});
+  const raw={all:[{id:"opencode",name:"OpenCode",models:{"beam-free":{description:"x".repeat(5*1024*1024)}}}],connected:["opencode"]};
+  assert.ok(Buffer.byteLength(JSON.stringify(raw)) > 4*1024*1024);
+  const projected={all:raw.all.map(({id,name})=>({id,name})),connected:raw.connected};
+  const auth=continuation(response(ctx,op,catalogue.state,projected));
+  assert.equal(call(auth).method,"provider.auth");
+  assert.ok(Buffer.byteLength(JSON.stringify(auth.state)) < 1024);
+  const initialized=response(ctx,op,auth.state,{});
+  assert.equal(initialized.kind,"complete");
+  if (initialized.kind === "complete") {
+    assert.equal(initialized.result.kind,"initialized");
+    assert.deepEqual(initialized.events?.find(event=>event.kind === "auth"),{kind:"auth",state:"signedIn"});
+  }
+  assert.deepEqual(runtimeResponse(ctx,op,catalogue.state,{
+    kind:"error",error:{code:-32010,message:"HTTP response exceeded its byte limit",data:{kind:"response_too_large"}},
+  }),{kind:"refused",reason:{code:"size_limit",message:"HTTP response exceeded its byte limit"},beforeAcceptance:false});
 });
 check("API key stays out of continuation state and completes only after connected verification",()=>{
   const ctx=loaded("fixture-api-key"), op:Operation={kind:"control",threadId:ctx.threadId,action:"login",value:{action:"start",methodId:"api:paid",loginId:"host-key-challenge",apiKey:"opaque-key-fixture"}};

@@ -68,7 +68,7 @@ async function main() {
   document.body.append(host);
   const root: Root = createRoot(host);
   const render = async (state: "peer" | null) => {
-    await act(async () => root.render(<ServiceDrawer state={state ? { kind: "peer", id: "Remote" } : null} services={services} peers={[peer]} thisMachineName="Local" onClose={() => void 0} onActionDone={() => void 0} />));
+    await act(async () => root.render(<ServiceDrawer state={state ? { kind: "peer", id: peer.instance_id } : null} services={services} peers={[peer]} thisMachineName="Local" onClose={() => void 0} onActionDone={() => void 0} />));
   };
   await render("peer");
   assert(host.querySelector("[data-testid='mesh-peer-drawer']")?.getAttribute("aria-labelledby") === "mesh-peer-drawer-heading", "peer drawer has a labelled dialog heading");

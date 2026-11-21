@@ -1,4 +1,7 @@
+use codeterm_types::pty::TimelineState;
 use codeterm_update::holders::{BusyTab, HolderProcess, HolderTab};
+
+use crate::multiplexer::types::{ShellActivity, Tab};
 
 mod reservation;
 mod shell_restore;
@@ -43,13 +46,7 @@ impl super::ServiceContext {
                     .and_then(|id| mux.get_workspace(&id))
                     .map(|ws| ws.name.clone())
                     .unwrap_or_else(|| "Unknown workspace".into());
-                let busy = holder_is_busy(
-                    tab.agent_type.is_some(),
-                    tab.agent_state.as_ref().map(|state| state.state),
-                    tab.shell_command_state.activity,
-                ) || tab.utility_command_pending
-                    || tab.pending_delivery.is_some()
-                    || unsettled;
+                let busy = self.update_block_reason(tab, true).is_some() || unsettled;
                 let holder = HolderTab {
                     process,
                     tab_id: tab_id.clone(),
@@ -75,7 +72,11 @@ impl super::ServiceContext {
         Ok(tabs)
     }
 
-    fn require_idle_update(&self, initiating_tab: Option<&str>) -> Result<(), String> {
+    fn require_update_ready(
+        &self,
+        initiating_tab: Option<&str>,
+        require_idle: bool,
+    ) -> Result<(), String> {
         use crate::multiplexer::types::{TabBacking, TabType};
 
         let mux = self.mux.read();
@@ -88,13 +89,11 @@ impl super::ServiceContext {
                 TabBacking::Surface(_) => false,
             })
             .filter(|tab| tab.tab_type == TabType::Terminal)
-            .map(|tab| {
-                let busy = holder_is_busy(
-                    tab.agent_type.is_some(),
-                    tab.agent_state.as_ref().map(|state| state.state),
-                    tab.shell_command_state.activity,
-                ) || tab.utility_command_pending
-                    || tab.pending_delivery.is_some();
+            .filter_map(|tab| {
+                let reason = self.update_block_reason(tab, require_idle);
+                if reason.is_none() && !require_idle {
+                    return None;
+                }
                 let row = BusyTab {
                     tab_id: tab.id.clone(),
                     title: tab.title.clone(),
@@ -103,27 +102,51 @@ impl super::ServiceContext {
                         .and_then(|id| mux.get_workspace(&id))
                         .map(|workspace| workspace.name.clone())
                         .unwrap_or_else(|| "Unknown workspace".into()),
-                    command: self
-                        .running_utility_command(&tab.id)
-                        .or_else(|| {
-                            tab.agent_state
-                                .as_ref()
-                                .and_then(|state| state.status_line.clone())
-                        })
-                        .unwrap_or_else(|| "activity unavailable".into()),
+                    command: tab
+                        .agent_state
+                        .as_ref()
+                        .and_then(|state| state.status_line.clone())
+                        .unwrap_or_default(),
                 };
-                (busy, row)
+                Some((reason, row))
             })
             .collect();
         drop(mux);
-        let busy = candidates.into_iter().filter_map(|(busy, tab)| {
-            (busy
-                || self
-                    .chat_send_ledger
-                    .has_unsettled_update_input(&tab.tab_id))
-            .then_some(tab)
+        let busy = candidates.into_iter().filter_map(|(reason, mut tab)| {
+            let reason = reason.or_else(|| {
+                (require_idle
+                    && self
+                        .chat_send_ledger
+                        .has_unsettled_update_input(&tab.tab_id))
+                .then_some("Input delivery has not settled")
+            })?;
+            tab.command = if tab.command.is_empty() {
+                reason.into()
+            } else {
+                format!("{reason} ({})", tab.command)
+            };
+            Some(tab)
         });
         codeterm_update::holders::refusal(busy).map_or(Ok(()), Err)
+    }
+
+    fn update_block_reason(&self, tab: &Tab, require_idle: bool) -> Option<&'static str> {
+        if require_idle && (tab.utility_command_pending || tab.pending_delivery.is_some()) {
+            return Some("Input delivery has not settled");
+        }
+        if !tab.is_utility_shell() || tab.agent_booting {
+            return (require_idle
+                && tab.agent_state.as_ref().map(|state| state.state) != Some(TimelineState::Idle))
+            .then_some("An idle agent is required by the updater settings");
+        }
+        match tab.shell_command_state.activity {
+            ShellActivity::Running => self
+                .shutdown_shell_command(tab)
+                .is_none()
+                .then_some("The running shell command could not be saved for rerun"),
+            ShellActivity::Unknown if require_idle => Some("Shell activity could not be verified"),
+            _ => None,
+        }
     }
 
     #[cfg(not(windows))]
@@ -158,18 +181,6 @@ impl super::ServiceContext {
                 .find(|tab| tab.pty_id.as_ref() == Some(&id))
                 .map(|tab| tab.id.clone())
         }))
-    }
-}
-
-fn holder_is_busy(
-    agent: bool,
-    state: Option<codeterm_types::pty::TimelineState>,
-    shell: crate::multiplexer::types::ShellActivity,
-) -> bool {
-    if agent {
-        state != Some(codeterm_types::pty::TimelineState::Idle)
-    } else {
-        shell != crate::multiplexer::types::ShellActivity::Idle
     }
 }
 

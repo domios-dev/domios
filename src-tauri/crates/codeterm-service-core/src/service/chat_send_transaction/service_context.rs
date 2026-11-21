@@ -156,10 +156,30 @@ impl crate::service::ServiceContext {
         client_token: Option<String>,
         replay_only: bool,
     ) -> Result<UserReservation, String> {
+        self.reserve_chat_send_for_recipient(tab_id, client_token, replay_only, None)
+    }
+
+    pub fn reserve_chat_send_for_recipient(
+        &self,
+        tab_id: &str,
+        client_token: Option<String>,
+        replay_only: bool,
+        expected: Option<&ExpectedChatRecipient>,
+    ) -> Result<UserReservation, String> {
+        if let Some(expected) = expected {
+            if !self
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .is_some_and(|tab| expected.matches(tab))
+            {
+                return Err("The message recipient changed while preparing the message.".into());
+            }
+        }
         self.prepare_user_send_target(tab_id)?;
         self.chat_send_ledger
             .restore_before_user_admission(tab_id, || self.restore_durable_user_statuses(tab_id))?;
-        let authority = self.user_send_authority(tab_id)?;
+        let authority = self.resolve_user_send_authority(tab_id, true, expected)?;
         self.bind_user_send_owner();
         if let Some(weak) = self.try_ext::<std::sync::Weak<super::super::ServiceContext>>() {
             let weak = weak.clone();

@@ -239,6 +239,11 @@ fn storage_cron_divergence_is_never_manufactured_and_leaves_with_its_definition(
     let before = f.snapshot();
     let identity = |job_id: &str| state_of(&before, job_id).identity.revision;
     let copy = |run_id: &str| CronRunRecord {
+        scheduled_occurrence_at: None,
+        fired_at: None,
+        late_by_ms: None,
+        provider: None,
+        owner_instance_id: None,
         cancel_reason: None,
         run_id: CronRunId::new(run_id).unwrap(),
         started_at: 1,

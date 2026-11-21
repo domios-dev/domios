@@ -18,6 +18,7 @@ import { PlanSidePanel } from "./planView/PlanSidePanel";
 import { usePlanTargetNavigation, type PlanTarget } from "./teamViewNavigation";
 import { usePlanTaskDetail } from "./usePlans";
 import { usePresence, type PresenceMotion } from "./usePresence";
+import { RemoteTeamPlanDrawer } from "./RemoteTeamPlanDrawer";
 
 const PLAN_SIDE_PANEL_MOTION: PresenceMotion = { enter: "ct-plan-side-panel-in", exit: "ct-plan-side-panel-out" };
 
@@ -29,6 +30,7 @@ export interface PlanSidePanelLayerProps {
   onOpenTab?: (tabId: string) => void;
   onOpenPlanTarget: (target: PlanTarget) => void;
   onExited?: () => void;
+  onOpenCanvas?: () => void;
   onReturnTo?: (origin: ReturnTo) => boolean;
 }
 
@@ -37,7 +39,7 @@ function useUnlistedPlan(api: ApiConfig | undefined, planId: string | null) {
   return usePlanProjection(api, planId, "document");
 }
 
-export function PlanSidePanelLayer({ plans, loading = false, api, tabs, onOpenTab, onOpenPlanTarget, onExited, onReturnTo }: PlanSidePanelLayerProps) {
+export function PlanSidePanelLayer({ plans, loading = false, api, tabs, onOpenTab, onOpenPlanTarget, onExited, onReturnTo, onOpenCanvas }: PlanSidePanelLayerProps) {
   const entry = usePlanSidePanelEntry();
   const returnFocusTo = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
@@ -64,14 +66,17 @@ export function PlanSidePanelLayer({ plans, loading = false, api, tabs, onOpenTa
   const listed = target ? plans.find((plan) => plan.id === target.planId) ?? null : null;
   const taskDetail = usePlanTaskDetail(
     api,
-    target?.taskId ? target.planId : null,
-    target?.taskId ?? null,
+    target?.taskId && !target.remoteTeam ? target.planId : null,
+    !target?.remoteTeam ? target?.taskId ?? null : null,
   );
-  const unlisted = useUnlistedPlan(api, target && !target.taskId && (Boolean(api) || !listed) && !target.documentsTabId ? target.planId : null);
+  const unlisted = useUnlistedPlan(api, target && !target.remoteTeam && !target.taskId && (Boolean(api) || !listed) && !target.documentsTabId ? target.planId : null);
   if (!target || !presence.state) return null;
   return (
     <div className="plan-side-panel-layer" data-testid="plan-side-panel-layer">
-      {target.documentsTabId
+      {target.remoteTeam && api
+        ? <RemoteTeamPlanDrawer key={JSON.stringify([target.remoteTeam.peerId, target.remoteTeam.teamId])}
+          api={api} target={{ ...target, remoteTeam: target.remoteTeam }} state={presence.state} panelRef={presence.ref} onClose={dismiss} onOpenCanvas={onOpenCanvas} />
+        : target.documentsTabId
         ? <TabSidePanel key={target.documentsTabId} tabId={target.documentsTabId} view={target.tabView ?? "documents"} cwd={tabs?.[target.documentsTabId]?.cwd} state={presence.state} panelRef={presence.ref} onClose={dismiss} /> : <PlanSidePanel
         target={target}
         plan={target.taskId ? (!api ? listed : null) : api ? unlisted.plan : listed ?? unlisted.plan}
@@ -95,7 +100,7 @@ export function PlanSidePanelLayer({ plans, loading = false, api, tabs, onOpenTa
 
 const selectTabRecord = (state: ExtendedState) => state.tabs;
 
-function OpenPlanSidePanel({ api, onExited }: { api: ApiConfig; onExited: () => void }) {
+function OpenPlanSidePanel({ api, onExited, onOpenCanvas }: { api: ApiConfig; onExited: () => void; onOpenCanvas?: () => void }) {
   const activateReturnTo = useReturnToChat();
   const openPlanTarget = usePlanTargetNavigation();
   const tabs = useMuxSelector(selectTabRecord);
@@ -114,12 +119,13 @@ function OpenPlanSidePanel({ api, onExited }: { api: ApiConfig; onExited: () => 
       onOpenPlanTarget={openPlanTarget}
       onExited={onExited}
       onReturnTo={activateReturnTo}
+      onOpenCanvas={onOpenCanvas}
     />
   );
 }
 
 /** App-level host: one side panel over chat, terminal tabs and the team view alike, mounted until its exit finishes. */
-export function PlanSidePanelHost({ api }: { api: ApiConfig }) {
+export function PlanSidePanelHost({ api, onOpenCanvas }: { api: ApiConfig; onOpenCanvas?: () => void }) {
   usePlanSidePanelContextBinding(useMuxSelector(selectDrawerContextKey), useMuxSelector(selectSelectionSeeds));
   const open = usePlanSidePanelEntry() !== null;
   const [mounted, setMounted] = useState(open);
@@ -137,5 +143,5 @@ export function PlanSidePanelHost({ api }: { api: ApiConfig }) {
     window.addEventListener("codeterm-peer-switch-reset", reset);
     return () => window.removeEventListener("codeterm-peer-switch-reset", reset);
   }, []);
-  return mounted ? <OpenPlanSidePanel api={api} onExited={onExited} /> : null;
+  return mounted ? <OpenPlanSidePanel api={api} onExited={onExited} onOpenCanvas={onOpenCanvas} /> : null;
 }

@@ -21,11 +21,6 @@
   },
   {
     "method": "GET",
-    "path": "/api/mesh/peers/{id}/services",
-    "reason": "Internal UI or transport protocol; use the documented tab, workspace or Mesh controls."
-  },
-  {
-    "method": "GET",
     "path": "/api/mux/state",
     "reason": "Internal web mirror snapshot and recovery protocol; public workspace and tab controls are documented."
   },

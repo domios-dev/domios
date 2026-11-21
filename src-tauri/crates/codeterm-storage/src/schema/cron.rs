@@ -90,6 +90,23 @@ ALTER TABLE cron_last_run_mirrors ADD COLUMN cancel_reason TEXT
         ('user_cancel', 'superseded', 'restart_reconcile', 'timeout', 'owner_closed')));
 "#;
 
+pub(crate) const RUN_IDENTITY_SCHEMA: &str = r#"
+ALTER TABLE cron_runs ADD COLUMN provider TEXT;
+ALTER TABLE cron_runs ADD COLUMN owner_instance_id TEXT;
+ALTER TABLE cron_last_run_mirrors ADD COLUMN provider TEXT;
+ALTER TABLE cron_last_run_mirrors ADD COLUMN owner_instance_id TEXT;
+"#;
+
+pub(crate) const OCCURRENCE_SCHEMA: &str = r#"
+ALTER TABLE cron_jobs ADD COLUMN next_occurrence_at INTEGER CHECK (next_occurrence_at >= 0);
+ALTER TABLE cron_runs ADD COLUMN scheduled_occurrence_at INTEGER CHECK (scheduled_occurrence_at >= 0);
+ALTER TABLE cron_runs ADD COLUMN fired_at INTEGER CHECK (fired_at >= 0);
+ALTER TABLE cron_runs ADD COLUMN late_by_ms INTEGER CHECK (late_by_ms >= 0);
+ALTER TABLE cron_last_run_mirrors ADD COLUMN scheduled_occurrence_at INTEGER CHECK (scheduled_occurrence_at >= 0);
+ALTER TABLE cron_last_run_mirrors ADD COLUMN fired_at INTEGER CHECK (fired_at >= 0);
+ALTER TABLE cron_last_run_mirrors ADD COLUMN late_by_ms INTEGER CHECK (late_by_ms >= 0);
+"#;
+
 #[cfg(feature = "test-support")]
 pub(crate) use seed::seed_before_cron;
 

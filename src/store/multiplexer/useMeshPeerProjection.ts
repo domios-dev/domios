@@ -2,13 +2,21 @@ import { useEffect, type RefObject } from "react";
 import { invoke, listen } from "../../lib/bridge";
 import { updateRemoteChatPeers } from "../../lib/remoteChatStatus";
 import type { MeshPeersResponse } from "../../lib/types";
-import { rememberMachineIdentities } from "../../lib/useMeshMachineIdentities";
+import type { AccountMeshSnapshot } from "../../components/MeshPanel/accountMeshClient";
+import { rememberAccountMachineNames, rememberMachineIdentities } from "../../lib/useMeshMachineIdentities";
+
+export interface PairedRoster {
+  peers: MeshPeersResponse;
+  revision: number;
+}
 
 export function useMeshPeerProjection(
   remoteProjectionActiveRef: RefObject<boolean>,
   hasPairedPeersRef: RefObject<boolean | null>,
   markRemoteChannelsReconnecting: () => void,
   requestRemoteRefresh: () => void,
+  acceptPairedPeers: (roster: PairedRoster) => void,
+  settleInitialRoster: () => void,
 ) {
   useEffect(() => {
     remoteProjectionActiveRef.current = true;
@@ -17,6 +25,25 @@ export function useMeshPeerProjection(
     let identityReadGeneration = 0;
     let meshUnlisten: (() => void) | undefined;
     let identityUnlisten: (() => void) | undefined;
+    const accountUnlisteners: Array<() => void> = [];
+    let accountReadGeneration = 0;
+    const refreshAccountNames = async () => {
+      const generation = ++accountReadGeneration;
+      try {
+        const account = await invoke<AccountMeshSnapshot>("account_mesh_state");
+        if (active && account && generation === accountReadGeneration) rememberAccountMachineNames(account);
+      } catch {}
+    };
+    for (const event of ["account-changed", "account-mesh-changed", "mesh-state-changed"]) {
+      void listen(event, refreshAccountNames).then(stop => {
+        if (active) {
+          accountUnlisteners.push(stop);
+          if (event === "account-mesh-changed") void refreshAccountNames();
+        } else stop();
+      }).catch(() => {
+        if (active && event === "account-mesh-changed") void refreshAccountNames();
+      });
+    }
     let muxUnlisten: (() => void) | undefined;
     const refreshPeers = async (identityOnly = false) => {
       const identityGeneration = ++identityReadGeneration;
@@ -29,10 +56,14 @@ export function useMeshPeerProjection(
           if (!identityOnly) {
             hasPairedPeersRef.current = peers.paired.length > 0;
             updateRemoteChatPeers(peers);
+            acceptPairedPeers({ peers, revision: generation });
           }
         }
       } catch {}
-      if (!identityOnly && active && generation === peerReadGeneration) void requestRemoteRefresh();
+      if (!identityOnly && active && generation === peerReadGeneration) {
+        settleInitialRoster();
+        void requestRemoteRefresh();
+      }
     };
     const onMeshStateChanged = () => {
       markRemoteChannelsReconnecting();
@@ -43,7 +74,7 @@ export function useMeshPeerProjection(
         meshUnlisten = fn;
         void refreshPeers();
       } else fn();
-    });
+    }).catch(() => { if (active) void refreshPeers(); });
     void listen("mesh-identity-changed", () => { void refreshPeers(true); }).then((fn) => {
       if (active) identityUnlisten = fn;
       else fn();
@@ -60,6 +91,7 @@ export function useMeshPeerProjection(
       meshUnlisten?.();
       identityUnlisten?.();
       muxUnlisten?.();
+      accountUnlisteners.forEach(stop => stop());
     };
-  }, [remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh]);
+  }, [remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh, acceptPairedPeers, settleInitialRoster]);
 }

@@ -19,6 +19,8 @@ interface WorkspaceCardGridProps {
   statuses: Record<string, TabStatus | null>;
   workingByWorkspace: Record<string, boolean>;
   sortIds: string[];
+  fullWorkspaceOrder?: string[];
+  localWorkspaceIds?: ReadonlyMap<string, string>;
   onSelect: (workspaceId: string) => void;
   onCreate: () => void;
 }
@@ -54,7 +56,7 @@ export function mergeVisibleOrder(all: readonly string[], visibleOrdered: readon
   return all.map((id) => (visibleSet.has(id) ? visibleOrdered[next++] : id));
 }
 
-export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, workingByWorkspace, sortIds, onSelect, onCreate }: WorkspaceCardGridProps) {
+export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, workingByWorkspace, sortIds, fullWorkspaceOrder, localWorkspaceIds, onSelect, onCreate }: WorkspaceCardGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const [columns, setColumns] = useState(3);
@@ -69,7 +71,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, w
   const shown = visible.map((id) => workspaces.find((workspace) => workspace.id === id)).filter((workspace): workspace is Workspace => workspace != null);
   const visibleSortIds = sortIds.filter((sortId) => visibleSet.has(sortId.slice(WS_PREFIX.length)));
   const overflow = expanded || hidden > 0;
-  const fullOrder = (ordered: string[]) => mergeVisibleOrder(allIds, ordered);
+  const fullOrder = (ordered: string[]) => mergeVisibleOrder(fullWorkspaceOrder ?? allIds, ordered);
 
   const beginEditing = useCallback((workspace: Workspace, anchor: HTMLElement) => {
     const rect = anchor.closest<HTMLElement>('[data-testid="workspace-card"]')?.getBoundingClientRect()
@@ -79,24 +81,24 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, w
       ? right
       : Math.max(8, rect.left - EDITOR_WIDTH - 6);
     const top = Math.max(8, Math.min(rect.top, window.innerHeight - EDITOR_HEIGHT - 8));
-    setDraft(customInitials[workspace.id] ?? defaultWorkspaceInitials(workspace.name));
+    setDraft(customInitials[localWorkspaceIds?.get(workspace.id) ?? workspace.id] ?? defaultWorkspaceInitials(workspace.name));
     setEditorPosition({ left, top });
     setEditingId(workspace.id);
-  }, [customInitials]);
+  }, [customInitials, localWorkspaceIds]);
 
   const closeEditor = useCallback((save: boolean) => {
     if (save && editingId) {
       const initials = normalizeWorkspaceInitials(draft);
       if (initials) {
         setCustomInitials((current) => {
-          const next = { ...current, [editingId]: initials };
+          const next = { ...current, [localWorkspaceIds?.get(editingId) ?? editingId]: initials };
           persistWorkspaceInitials(next);
           return next;
         });
       }
     }
     setEditingId(null);
-  }, [draft, editingId]);
+  }, [draft, editingId, localWorkspaceIds]);
 
   useEffect(() => {
     if (!editingId) return;
@@ -148,6 +150,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, w
               <SortableRow
                 key={workspace.id}
                 id={`${WS_PREFIX}${workspace.id}`}
+                disabled={!sortIds.includes(`${WS_PREFIX}${workspace.id}`)}
                 data={{ group: "workspace", groupKey: "workspaces", fullOrder }}
               >
                 <div
@@ -169,7 +172,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, w
                     onDoubleClick={(event) => beginEditing(workspace, event.currentTarget)}
                   >
                     <span className={`sidebar-workspace-card-initials ${lockedDimClass(lock)}`.trim()}>
-                      {customInitials[workspace.id] ?? defaultWorkspaceInitials(workspace.name)}
+                      {customInitials[localWorkspaceIds?.get(workspace.id) ?? workspace.id] ?? defaultWorkspaceInitials(workspace.name)}
                     </span>
                   </button>
                   {lock.locked && <LockBadge view={lock} className="sidebar-workspace-card-lock" />}

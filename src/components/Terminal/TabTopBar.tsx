@@ -33,6 +33,10 @@ import { ReceiverTargetMarks } from "./ReceiverTargetMark";
 import { BlueprintOwnerCloseDialog } from "../Sidebar/BlueprintOwnerCloseDialog";
 import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
 import { runningBlueprintNamesForOwner } from "../Automation/blueprintOwnerModel";
+import { MachineProvenance } from "../shared/MachineProvenance";
+import { useRemoteViewerConnection } from "./useRemoteViewerConnection";
+import { remoteViewerStatusLabel } from "./remoteViewerStatus";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
 export { TAB_BAR_CONTROL_H };
@@ -63,6 +67,22 @@ interface TabTopBarProps {
   isActive?: boolean;
   workspaceId?: string | null;
   tabMenu?: HeaderTabMenu;
+}
+
+function RemoteViewerPill({ tabId, tab }: { tabId: string; tab?: Tab }) {
+  const viewer = useRemoteViewerConnection(tabId, tab);
+  if (!viewer.peerId) return null;
+  const status = remoteViewerStatusLabel(viewer.connectionState, viewer.observation?.status);
+  return <div
+    data-testid="remote-viewer-pill"
+    role="group"
+    aria-label={`Viewing ${viewer.machine}${status ? `, ${status}` : ""}`}
+    className="ct-bar-pill flex min-w-0 shrink-0 items-center gap-1.5 px-2"
+    style={{ height: TAB_BAR_CONTROL_H, maxWidth: "min(14rem, 46vw)" }}
+  >
+    <span className="min-w-0"><MachineProvenance peerId={viewer.peerId} name={viewer.machine} remote /></span>
+    {status && <span className="shrink-0 whitespace-nowrap text-[var(--ct-muted-fg)]">{status}</span>}
+  </div>;
 }
 
 function TabRenameField({ title, onDone }: { title: string; onDone: (title: string | null) => void }) {
@@ -328,6 +348,7 @@ export function TabTopBar({
             {bubblesOpen ? <ChevronDown size={14} aria-hidden style={{ transform: "rotate(180deg)" }} /> : <>+{hiddenBubbles}<ChevronDown size={12} aria-hidden /></>}
           </button>
         )}
+        {Boolean(parseCompositeTabId(tabId)) && <RemoteViewerPill tabId={tabId} tab={shellTab} />}
         {shellTab && isUtilityShell(shellTab) && <>
           <ShellPurposeIcon purpose={shellTab.purpose} icon={shellTab.icon} running={tabActivity(shellTab).active} />
           <ShellStatus tab={shellTab} />

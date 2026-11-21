@@ -11,11 +11,13 @@ const lockedFg = "var(--ct-bg, #0d1117)";
 export function ComposerActionButton({
   voiceUi,
   sendDisabled,
+  sendUnavailableReason,
   onSend,
   onSchedule,
 }: {
   voiceUi: ComposerVoiceHandle;
   sendDisabled: boolean;
+  sendUnavailableReason?: string | null;
   onSend: () => void;
   onSchedule?: () => void;
 }) {
@@ -46,8 +48,14 @@ export function ComposerActionButton({
         type="button"
         data-testid={mainIsSend ? "composer-send-button" : "composer-voice-button"}
         data-send={mainIsSend ? "true" : "false"}
-        title={mainTitle}
+        title={sendUnavailableReason ?? mainTitle}
+        aria-description={sendUnavailableReason ?? undefined}
+        aria-disabled={sendUnavailableReason ? "true" : undefined}
         onPointerDown={(e) => {
+          if (sendUnavailableReason) {
+            e.preventDefault();
+            return;
+          }
           if (mainIsSend) {
             e.preventDefault();
             return;
@@ -66,14 +74,14 @@ export function ComposerActionButton({
           if (mainIsSend) onSend();
         }}
         onTouchStart={(e) => {
-          if (mainIsSend || isLocked) e.preventDefault();
+          if (mainIsSend || isLocked || sendUnavailableReason) e.preventDefault();
         }}
         onPointerCancel={() => {
           if (voice.recording && voiceMode === "hold") lockFromPointerCancel();
         }}
         onPointerMove={moveVoice}
         onTouchEnd={(e) => {
-          if (mainIsSend || isLocked) e.preventDefault();
+          if (mainIsSend || isLocked || sendUnavailableReason) e.preventDefault();
         }}
         onClick={(e) => {
           e.preventDefault();
@@ -87,7 +95,7 @@ export function ComposerActionButton({
           voiceActive ? "z-30 is-active" : "ct-composer-round-button ct-composer-control"
         } ${isLocked ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/25" : ""} shadow-none disabled:opacity-40`}
         style={actionButtonStyle(voiceActive, mainIsSend, isLocked, bubblePose)}
-        disabled={voiceBusy || (mainIsSend && sendDisabled)}
+        disabled={voiceBusy || (mainIsSend && sendDisabled && !sendUnavailableReason)}
       >
         <ActionButtonIcon
           isLocked={isLocked}

@@ -187,6 +187,7 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
         method: remote.method,
         suffix: remote.suffix,
         body: remote.body,
+        signal: args?.signal,
       });
       return (remote.select ? remote.select(value) : value) as T;
     }

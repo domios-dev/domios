@@ -10700,6 +10700,10 @@
   ],
   "providerOwned": [
     {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/agent_tasks.rs",
+      "reason": "Test-only native/JavaScript parity and bundled provider capability declarations; no core dispatch policy."
+    },
+    {
       "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/external_imports.rs",
       "reason": "Native provider-owned external instruction import fingerprint and prompt projection."
     },

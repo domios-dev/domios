@@ -14,12 +14,25 @@ jobs:
   release-qualification:
     name: Release qualification
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 8
     permissions:
       contents: read
       actions: read
       pull-requests: read
     steps:
+      - name: Verify owner PR and select qualification
+        id: route
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const pr = context.payload.pull_request;
+            if (pr.user.login !== 'rollacode' || pr.head.repo.full_name !== process.env.GITHUB_REPOSITORY)
+              throw new Error('Master requires a same-repository owner PR');
+            const plugin = /^release\/plugin-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(pr.head.ref);
+            const scope = plugin ? 'plugin' : pr.head.ref === 'release/docs' ? 'docs' : 'full';
+            if (scope === 'full' && pr.head.ref !== 'release/next')
+              throw new Error('Use release/next, release/docs or release/plugin-<id>');
+            core.setOutput('scope', scope);
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -29,7 +42,42 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
+      - name: Verify single-plugin diff and whitespace
+        if: steps.route.outputs.scope == 'plugin'
+        id: plugin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: node scripts/plugin-release-scope.mjs
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
+        if: steps.route.outputs.scope == 'plugin'
+        with:
+          version: 10.32.1
+          run_install: false
+      - if: steps.route.outputs.scope == 'plugin'
+        run: pnpm install --frozen-lockfile
+      - name: Require plugin metadata, bundles, types and tests
+        if: steps.route.outputs.scope == 'plugin'
+        env:
+          PLUGIN_ID: ${{ steps.plugin.outputs.id }}
+          PLUGIN_TAG: ${{ steps.plugin.outputs.tag }}
+        run: |
+          node scripts/release-plugin.mjs check "$PLUGIN_TAG"
+          node scripts/check-plugin.mjs "$PLUGIN_ID"
+      - name: Verify README diff, whitespace and local assets
+        if: steps.route.outputs.scope == 'docs'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/release-docs-scope.mjs
+      - name: Check public privacy
+        if: steps.route.outputs.scope == 'docs'
+        run: node scripts/check-public-privacy.mjs
       - name: Verify the exact release push and its retained qualification
+        if: steps.route.outputs.scope == 'full'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
           script: |-

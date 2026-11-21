@@ -77,11 +77,11 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
       () => manageSubscription()));
   };
   const signInEntry = (option: SignInOption): DropdownMenuEntry =>
-    ({ label: option.label, icon: option.icon, disabled: pending, keepOpen: !!join.view, onClick: () => void startSignIn(option.hint) });
+    ({ label: account.signingIn && (retryHint ?? ACCOUNT_ENTRY_OPTIONS[0].hint) === option.hint ? "Signing in…" : option.label, icon: option.icon, disabled: pending || account.signingIn, keepOpen: true, onClick: () => void startSignIn(option.hint) });
   const items: DropdownMenuEntry[] = model.kind === "signed_in" ? [
-    ...(model.signInRequired ? [{ label: "Sign in again", icon: ACCOUNT_ENTRY_OPTIONS[0].icon,
+    ...(model.signInRequired ? [{ label: account.signingIn ? "Signing in…" : "Sign in again", icon: ACCOUNT_ENTRY_OPTIONS[0].icon,
       description: "Your plan is active; this machine needs a fresh sign-in to unlock it.",
-      disabled: pending, onClick: () => void startSignIn(ACCOUNT_ENTRY_OPTIONS[0].hint) }] : []),
+      disabled: pending || account.signingIn, onClick: () => void startSignIn(ACCOUNT_ENTRY_OPTIONS[0].hint) }] : []),
     { label: !subscriptionKnown ? "Checking subscription…"
       : hasPaidSubscription ? billing.pending ? "Opening subscription…" : "Manage subscription" : plansAction("Upgrade"),
       disabled: billing.pending || !subscriptionKnown, onClick: () => { if (hasPaidSubscription) void manageSubscription(); else onOpenPlans(); } },
@@ -96,6 +96,7 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
     { separator: true, key: "account-methods" },
     ...SIGN_IN_PROVIDER_OPTIONS.map(signInEntry),
   ];
+  if (account.cancelSignIn) items.unshift({ label: "Cancel sign-in", onClick: () => void account.cancelSignIn?.() });
   if (model.kind === "signed_in" && enrollmentNotice) items.unshift({ label: enrollmentNotice, disabled: true });
   if (account.model.kind === "signed_in" && account.model.sessionOnly) {
     items.unshift({label: "Signed in for this session only", description: "Secure storage is unavailable. Sign in again after restarting Domios.", disabled: true});

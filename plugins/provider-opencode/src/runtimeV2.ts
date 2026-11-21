@@ -1,5 +1,5 @@
 import type {AgentEvent, Operation, OperationResult, RpcReply, RuntimeContext, RuntimePlan, RuntimeSettings, RuntimeStep} from "@codeterm/plugin-sdk";
-import {attachmentUrl, done, fail, list, messageIdentity, modelParts, next, object, own, refused, request, text} from "./runtimeProtocol";
+import {attachmentUrl, done, fail, httpRefused, list, messageIdentity, modelParts, next, object, own, refused, request, text} from "./runtimeProtocol";
 import {binding, claimed, loaded} from "./runtimeState";
 import {v2AuthEvents, v2LoginPlan, v2LoginResponse, v2Providers} from "./runtimeV2Auth";
 import {v2Answer} from "./runtimeV2Requests";
@@ -56,7 +56,7 @@ export function v2Response(ctx:RuntimeContext, op:Operation, state:Record<string
     if (op.kind === "readHistory" && state.stage === "historyActive") return finishHistory(op,state);
     if (op.kind === "resumeThread" && reply.error.code === 404) return {kind:"refused",reason:{code:"thread_not_found",message:"The exact OpenCode session was not found"},beforeAcceptance:false};
     if (op.kind === "control" && op.action === "login") return done([{kind:"authLogin",login:{status:"failed",loginId:String(object(op.value).loginId),error:`Sign-in request was refused (${reply.error.code})`}}]);
-    return refused(`OpenCode request was refused (${reply.error.code})`);
+    return httpRefused(reply.error);
   }
   const envelope=object(reply.value), body=envelope.body, value=object(body), data=object(value.data);
   switch(op.kind) {

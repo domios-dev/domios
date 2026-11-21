@@ -109,6 +109,10 @@ pub fn archive_rotated_path(plugin_id: &str, session_id: &str) -> PathBuf {
     ))
 }
 
+pub(super) fn handoff_origin_path(plugin_id: &str, session_id: &str) -> PathBuf {
+    archive_path(plugin_id, session_id).with_extension("handoff.json")
+}
+
 /// Past this size a session log rotates once, bounding one session to about twice it.
 pub const ARCHIVE_ROTATE_BYTES: u64 = 32 * 1024 * 1024;
 

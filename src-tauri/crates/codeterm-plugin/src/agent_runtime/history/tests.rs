@@ -1,6 +1,34 @@
 use super::*;
 use serde_json::{json, Value};
 
+#[test]
+fn stdio_history_page_limit_retries_at_same_checkpoint_and_stops_at_one_item() {
+    let reply = RpcReply::Error {
+        error: RpcFailure {
+            code: -32010,
+            message: "Runtime response exceeded the stdio frame limit".into(),
+            data: Some(
+                json!({"kind":"response_too_large","boundary":"stdio_frame","limitBytes":16777216}),
+            ),
+        },
+    };
+    for limit in [16, 8, 4, 2] {
+        let state = json!({"stage":"items","cursor":"older","historyItemLimit":limit});
+        let RpcReply::Error { error } = prepare_history_reply(&state, reply.clone()) else {
+            panic!("expected a smaller-page instruction");
+        };
+        assert_eq!(error.code, HISTORY_PAGE_TOO_LARGE);
+        assert_eq!(error.data.unwrap()["historyPageLimit"], limit / 2);
+    }
+    for state in [
+        json!({"stage":"items","historyItemLimit":1}),
+        json!({"stage":"items","historyItemLimit":16,"offset":1}),
+        json!({"stage":"turns","historyItemLimit":16}),
+    ] {
+        assert_eq!(prepare_history_reply(&state, reply.clone()), reply);
+    }
+}
+
 fn page(items: Value, questions: Value) -> RuntimeResult {
     serde_json::from_value(json!({"kind":"historyPage","threadId":"thread","items":items,"openItems":[],"questions":questions})).unwrap()
 }

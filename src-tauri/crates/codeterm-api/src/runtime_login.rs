@@ -45,7 +45,7 @@ pub(super) async fn stop_background_process(
         codeterm_service_core::service::agent_runtime::background::StopBackgroundProcessRequest,
     >,
 ) -> Result<
-    Json<codeterm_service_core::service::agent_runtime::background::BackgroundProcessSnapshot>,
+    Json<codeterm_service_core::service::agent_runtime::background::BackgroundStopResult>,
     (StatusCode, String),
 > {
     codeterm_service_core::service::agent_runtime::background::stop_for_tab(

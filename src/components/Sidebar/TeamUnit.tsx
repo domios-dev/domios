@@ -30,7 +30,8 @@ import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDiscl
 import { refusalText } from "../../lib/refusalText";
 import { useProviderModelUsage } from "../../hooks/useProviderModelUsage";
 import { formatModelUsage, hasModelUsage, usageForModel } from "../../lib/modelGroups";
-import { MachineProvenance } from "../shared/MachineProvenance";
+import { remoteTeamName } from "./remoteOwnership";
+import { TeamRunMachine } from "./RemoteTabPresentation";
 
 export interface SidebarTeamActions {
   /// `managerTabId` is null when the Team holds no member that can spawn. The
@@ -388,6 +389,7 @@ function TeamMenu({
 export interface TeamUnitProps {
   team: Team;
   plan: Plan | null;
+  workspaceName?: string;
   tabs: Record<string, Tab>;
   managers: ReactNode;
   managerCount: number;
@@ -408,7 +410,7 @@ export interface TeamUnitProps {
   providers: ProviderDescriptor[];
   providersLoading?: boolean;
   onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
-  onOpenEffort: (target: TeamEffortTarget) => void;
+  onOpenEffort?: (target: TeamEffortTarget) => void;
   addableRoles?: readonly TeamMemberRole[];
   onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => void;
@@ -429,6 +431,7 @@ export interface TeamEffortTarget {
 export function TeamUnit({
   team,
   plan,
+  workspaceName,
   tabs,
   managers,
   managerCount,
@@ -458,7 +461,7 @@ export function TeamUnit({
 }: TeamUnitProps) {
   const lock = lockedView("teams", team);
   const onOpenEffort = (target: TeamEffortTarget) => {
-    if (!openLockedPlans(lock)) openEffort(target);
+    if (!openLockedPlans(lock)) openEffort?.(target);
   };
   const initialDisclosure = useMemo(() => loadTeamDisclosureState(team.id), [team.id]);
   const [expanded, setExpanded] = useState(initialDisclosure.expanded);
@@ -475,7 +478,9 @@ export function TeamUnit({
   const teamTabCount = managerCount + workerCount + agentCount + terminalCount;
   const teamAttention = expanded ? null
     : mergeGroupAttention([attention.managers, attention.workers, attention.agents, attention.utilities]);
-  const displayTitle = plan?.title.trim() || team.name?.trim() || "Team";
+  const displayTitle = team.remote_peer_id
+    ? remoteTeamName(team.id, team.name, plan?.title, workspaceName) ?? "Remote workspace"
+    : plan?.title.trim() || team.name?.trim() || "Team";
   const buckets = useMemo(
     () => (plan ? deriveTeamTaskBuckets(plan, tabs) : EMPTY_BUCKETS),
     [plan, tabs],
@@ -593,11 +598,6 @@ export function TeamUnit({
           )}
         </span>
       )}
-      {!editing && team.remote_peer_name && (
-        <div data-testid="team-remote-peer" className="text-[var(--ct-muted-fg)]">
-          <MachineProvenance peerId={team.remote_peer_id} name={team.remote_peer_name} />
-        </div>
-      )}
       <TeamStatusTally
         key={`tally-${planMotion.revision}`}
         data-testid="team-status-tally"
@@ -636,11 +636,12 @@ export function TeamUnit({
         className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}${planMotion.completionSweep ? " sidebar-plan-entry-completion" : ""}`}
         data-menu-dismissed={menuDismissed ? "true" : undefined}
         onClick={(event) => {
-          if (!editing && event.target instanceof Element && event.target.closest(".sidebar-team-title-block")) {
+          if (openEffort && !editing && event.target instanceof Element && event.target.closest(".sidebar-team-title-block")) {
             onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan?.id });
           }
         }}
       >
+        {team.remote_peer_id && <TeamRunMachine peerId={team.remote_peer_id} fallbackName={team.remote_peer_name} />}
         {!editing ? (
           <div
             data-testid="team-card-title-area"
@@ -651,6 +652,7 @@ export function TeamUnit({
             <button
               type="button"
               className="sidebar-team-status-trigger"
+              disabled={!openEffort}
               aria-label={`Open task status for ${displayTitle}`}
               onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan?.id })}
             >
@@ -673,7 +675,7 @@ export function TeamUnit({
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >
-            <button
+            {openEffort && <button
               type="button"
               data-testid="team-board-action"
               className="sidebar-team-board-action"
@@ -682,8 +684,8 @@ export function TeamUnit({
               onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan?.id, jump: { view: "board" } })}
             >
               <ClipboardList size={13} strokeWidth={1.6} aria-hidden="true" />
-            </button>
-            <TeamMenu
+            </button>}
+            {openEffort && <TeamMenu
               teamId={team.id}
               providers={providers}
               providersLoading={providersLoading}
@@ -698,7 +700,7 @@ export function TeamUnit({
               onAddMember={onAddMember}
               onCloseTeam={onCloseTeam ? () => onCloseTeam(team.id) : undefined}
               teamName={displayTitle}
-            />
+            />}
         </span>
       </div>
       {expanded && (

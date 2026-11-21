@@ -2,7 +2,8 @@ import { plainModelId } from "../../../lib/agentModelName";
 import type { PlanSectionView as Section } from "../planProjection";
 import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
 import { RichMarkdown } from "@codeterm/chat-ui/MarkdownBody";
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { DsRenderContext } from "@codeterm/chat-ui";
+import { useContext, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowUpRight, ChevronRight } from "lucide-react";
 import { AgentIcon } from "../../AgentIcon";
 import type { ApiConfig, Tab } from "../../../lib/types";
@@ -52,9 +53,10 @@ function Block({ label, children, testId }: { label: string; children: ReactNode
 }
 
 function Markdown({ text }: { text: string }) {
+  const { proseOnly } = useContext(DsRenderContext);
   return (
     <div data-canvas-scroll-body="1" className="ct-detail__prose">
-      <RichMarkdown text={text} />
+      <RichMarkdown text={text} localArtifacts={!proseOnly} />
     </div>
   );
 }

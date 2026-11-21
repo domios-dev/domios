@@ -56,6 +56,7 @@ import { useStableSet } from "./canvasView/useStableSet";
 import { useCanvasFrameProbe } from "./canvasView/useCanvasFrameProbe";
 import { bumpCanvasChurn } from "./canvasChurn";
 import { PlanViewShell } from "./PlanViewShell";
+import { RemoteTeamPlanCanvas } from "./RemoteTeamPlanCanvas";
 import { usePlanTargetNavigation } from "./teamViewNavigation";
 import { selectCanvasPlans } from "./canvasPlanSelection";
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "./planView/PlanFetchErrorState";
@@ -880,7 +881,17 @@ export interface CanvasViewProps {
   onClose?: () => void;
 }
 
-export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focusTabId, api, onClose }: CanvasViewProps) {
+export function CanvasView(props: CanvasViewProps) {
+  const target = useCanvasWorkspaceTarget();
+  if (props.mode === "workspace" && target?.remoteTeam) {
+    return <RemoteTeamPlanCanvas key={JSON.stringify([target.remoteTeam.peerId, target.remoteTeam.teamId])}
+      api={props.api} target={{ ...target, remoteTeam: target.remoteTeam }}
+      onClose={() => canvasFocusStore.closeWorkspace()} />;
+  }
+  return <LocalCanvasView {...props} />;
+}
+
+function LocalCanvasView({ mode, workspaceId, planId, orchestratorTabId, focusTabId, api, onClose }: CanvasViewProps) {
   useProductViewEvent("canvas_opened");
   const { setFocusedTab, setActiveTab, selectTabByTab, deleteNotification } = useMultiplexer();
   const clearNotifications = useCallback(

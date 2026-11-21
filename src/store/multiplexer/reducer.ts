@@ -1,5 +1,6 @@
 import { updateNotificationAnswer, type AnswerUpdate } from "../../lib/notificationAnswer";
-import { admitBellNotification } from "../../lib/notificationAdmission";
+import { admitBellNotification, isRemoteNotification } from "../../lib/notificationAdmission";
+import { remoteNotificationRoute } from "../../lib/remoteNotifications";
 import { applyShellState, type ShellCommandState } from "../../lib/shellCommandState";
 import { reconcilePageSelection, seededSelection, type PageSelection } from "./pageSelection";
 import { TitleLevel } from "../../lib/types";
@@ -18,6 +19,7 @@ import {
   type ExtendedState,
 } from "./tree";
 import type { RemoteTransportAvailability, RemoteTransportChannel } from "../../lib/remoteTabTransportState";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { shareSnapshotState } from "./structuralShare";
 import { applyStatusDelta, type MuxStatusDelta } from "./statusDelta";
 
@@ -40,6 +42,7 @@ export type Action =
   | { type: "SET_TAB_PTY"; tabId: string; ptyId: string }
   | { type: "ADD_NOTIFICATION"; notification: Notification }
   | { type: "HYDRATE_NOTIFICATIONS"; notifications: Notification[] }
+  | { type: "REPLACE_REMOTE_NOTIFICATION_HISTORY"; peerId: string; notifications: Notification[] }
   | { type: "UPSERT_TOAST"; toast: Notification }
   | { type: "MARK_READ"; id: string }
   | { type: "UPDATE_NOTIFICATION_SUMMARY"; id: string; title: string; body: string }
@@ -59,7 +62,7 @@ export type Action =
   | { type: "RESET_PEER_CONTEXT" }
   | { type: "STORAGE_UNAVAILABLE" }
   | { type: "RESET_GENERATION" }
-  | { type: "SET_REMOTE_TABS"; tabs: Record<string, Tab> }
+  | { type: "SET_REMOTE_TABS"; tabs: Record<string, Tab>; remoteStatuses?: Record<string, TabStatus | null> }
   | { type: "UPDATE_REMOTE_CHANNEL"; tabId: string; channel: RemoteTransportChannel; availability: RemoteTransportAvailability };
 
 /**
@@ -152,7 +155,29 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         Object.entries(state.tabs).filter(([, tab]) => !tab.remote_peer_id),
       );
       const merged = attachRemoteTabs(state.workspaces, localTabs, action.tabs);
-      return shareSnapshotState(state, { ...state, workspaces: merged.workspaces, tabs: merged.tabs });
+      let tabStatuses = state.tabStatuses;
+      const setRemoteStatus = (id: string, status: TabStatus | null) => {
+        const present = Object.prototype.hasOwnProperty.call(tabStatuses, id);
+        if (status === null ? !present : present && tabStatuses[id] === status) return;
+        if (tabStatuses === state.tabStatuses) tabStatuses = { ...state.tabStatuses };
+        if (status === null) delete tabStatuses[id];
+        else tabStatuses[id] = status;
+      };
+      for (const id of Object.keys(state.tabStatuses)) {
+        if (state.tabs[id]?.remote_peer_id && !merged.tabs[id]) setRemoteStatus(id, null);
+      }
+      for (const [id, status] of Object.entries(action.remoteStatuses ?? {})) {
+        const identity = parseCompositeTabId(id);
+        const tab = merged.tabs[id];
+        if (!identity || tab?.remote_peer_id !== identity.peerId || tab.remote_tab_id !== identity.remoteTabId) continue;
+        setRemoteStatus(id, status);
+      }
+      return shareSnapshotState(state, {
+        ...state,
+        workspaces: merged.workspaces,
+        tabs: merged.tabs,
+        tabStatuses,
+      });
     }
     case "RESET_PEER_CONTEXT":
       return {
@@ -609,13 +634,29 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     case "MARK_ALL_READ":
       return {
         ...state,
-        notifications: state.notifications.map((n) => ({ ...n, read: true })),
+        notifications: state.notifications.map((n) => isRemoteNotification(n) || n.read ? n : { ...n, read: true }),
       };
 
     case "HYDRATE_NOTIFICATIONS": {
       const notifications = new Map(action.notifications.map((notification) => [notification.id, notification]));
       for (const notification of state.notifications) notifications.set(notification.id, notification);
       return { ...state, notificationsLoaded: true, notifications: [...notifications.values()].reduce<Notification[]>((records, notification) => admitBellNotification(records, notification, "agent_notification"), []) };
+    }
+
+    case "REPLACE_REMOTE_NOTIFICATION_HISTORY": {
+      const notifications = state.notifications.filter(row => row.remote_origin?.peerId !== action.peerId);
+      const peerRows = action.notifications.filter(row => remoteNotificationRoute(row)?.peerId === action.peerId);
+      if (notifications.length === state.notifications.length && peerRows.length === 0) return state;
+      const pendingAnswers = new Set(state.notifications.filter(
+        row => row.remote_origin?.peerId === action.peerId && row.answer_pending,
+      ).map(row => row.id));
+      return {
+        ...state,
+        notifications: peerRows.reduce((records, row) => {
+          const pending = pendingAnswers.has(row.id) && row.answer && !row.answer.delivered && !row.resolved;
+          return admitBellNotification(records, pending ? { ...row, answer_pending: true } : row, "agent_notification");
+        }, notifications),
+      };
     }
 
     case "DELETE_NOTIFICATION":
@@ -628,7 +669,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     case "CLEAR_NOTIFICATIONS":
       return {
         ...state,
-        notifications: [],
+        notifications: state.notifications.filter(isRemoteNotification),
       };
 
     case "DISMISS_TOAST":

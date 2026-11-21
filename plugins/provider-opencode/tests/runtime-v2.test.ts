@@ -148,6 +148,43 @@ check("returns to working only when the active turn's final prompt settles",()=>
   const ended=runtimeReduce(ctx,asked.state,[frame("session.execution.succeeded"),frame("permission.replied"),frame("form.replied")]);
   assert.deepEqual(ended.events.filter(event=>event.kind === "turnState").map(event=>event.state),["idle"]);
 });
+check("resolves the exact recorded permission request even without a turn id",()=>{
+  const {ctx,frames}=prepared("v2-permission-reply");
+  delete ctx.streamWindow;
+  const asked=frames.find(frame=>frame.kind === "request" && frame.method === "permission.asked");
+  const replied=frames.find(frame=>(frame.params as Record<string,JsonValue>).type === "permission.replied");
+  assert.ok(asked?.kind === "request" && replied);
+  const pending=runtimeReduce(ctx,null,[asked]);
+  const [prompt]=pending.events;
+  assert.ok(prompt.kind === "prompt" && prompt.permission);
+  assert.equal(prompt.requestId,asked.requestId);
+  const settled=runtimeReduce(ctx,pending.state,[replied]);
+  assert.deepEqual(settled.events,[{kind:"promptResolved",threadId:ctx.threadId,requestId:asked.requestId}]);
+  assert.deepEqual(runtimeReduce(ctx,settled.state,[replied]).events,[]);
+});
+check("settles an owned quota error once with a balance notice and API error row",()=>{
+  const {ctx,frames}=prepared("v2-provider-quota");
+  ctx.activeTurnId="quota-turn";
+  const started=copy(frames.find(frame=>(frame.params as Record<string,JsonValue>).type === "session.execution.started")!);
+  const quota=copy(started), params=quota.params as Record<string,JsonValue>;
+  params.id="quota-error";
+  params.type="session.error";
+  const error={type:"provider.quota",status:402,body:{error:{type:"insufficient_balance_error",message:"Insufficient Balance"}}};
+  const working=runtimeReduce(ctx,null,[started]);
+  params.data={sessionID:"foreign-session",error};
+  const foreign=runtimeReduce(ctx,working.state,[quota]);
+  assert.deepEqual(foreign.events,[]);
+  params.data={sessionID:ctx.threadId!,error};
+  const failed=runtimeReduce(ctx,foreign.state,[quota]);
+  assert.deepEqual(failed.events,[
+    {kind:"notice",threadId:ctx.threadId,message:"Provider balance or quota is exhausted — top up or switch model"},
+    {kind:"chatItem",threadId:ctx.threadId,item:{id:"quota-turn:error",seq:(ctx.restoredRowOrdinal ?? 0)+1,type:"system",systemSubtype:"api_error",toolFlowId:"quota-turn",content:"Provider balance or quota is exhausted — top up or switch model"}},
+    {kind:"turnState",threadId:ctx.threadId,turnId:"quota-turn",state:"idle",detail:"failed"},
+  ]);
+  params.id="execution-failed-after-quota";
+  params.type="session.execution.failed";
+  assert.deepEqual(runtimeReduce(ctx,failed.state,[quota]).events,[]);
+});
 check("recorded thinking, shell and text stay reconcilable across an active interrupt",()=>{
   const ctx=loaded("v2-stream-and-stop"), {frames,interrupt}=fixture.streamAndInterrupt;
   const type=(frame:RuntimeFrame)=>(frame.params as Record<string,JsonValue>).type;

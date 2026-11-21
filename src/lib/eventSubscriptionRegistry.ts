@@ -60,6 +60,9 @@ export function createEventSubscriptionRegistry(connect: Connect) {
       if (failures.length) throw failures[0];
     }, {
       raw: true,
+      onStarting: () => {
+        if (valid()) for (const consumer of [...connection.consumers]) consumer.options.onStarting?.();
+      },
       onReady: () => {
         if (!valid() || connection.ready) return;
         connection.ready = true;

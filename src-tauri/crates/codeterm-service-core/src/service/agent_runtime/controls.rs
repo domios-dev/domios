@@ -571,7 +571,7 @@ pub fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String> {
     interrupt::interrupt(svc, tab).map(|outcome| {
         matches!(
             outcome,
-            InterruptOutcome::Stopped | InterruptOutcome::Pending
+            InterruptOutcome::Stopped { .. } | InterruptOutcome::Pending
         )
     })
 }

@@ -41,6 +41,7 @@ export function pair(instanceId: string, name: string, patch: Partial<LocalPairF
 }
 
 export function snapshot(patch: Partial<AccountMeshSnapshot> = {}): AccountMeshSnapshot {
+  const registry = patch.registry === undefined ? { observed_at: NOW, rows: [selfRow, macRow, lenovoRow] } : patch.registry;
   return {
     local_installation_id: selfRow.installation_id,
     account_epoch: 1,
@@ -55,7 +56,8 @@ export function snapshot(patch: Partial<AccountMeshSnapshot> = {}): AccountMeshS
       metadata_revision: selfRow.metadata_revision,
       display_name: selfRow.display_name,
     },
-    registry: { observed_at: NOW, rows: [selfRow, macRow, lenovoRow] },
+    registry,
+    registry_names: registry?.cursor ? [] : registry?.rows ?? [],
     registry_failure: null,
     enrollment: "enrolled",
     last_refusal: null,
@@ -97,7 +99,8 @@ export class FakeAccountMeshClient implements AccountMeshClient {
 
   async snapshot(): Promise<AccountMeshSnapshot> {
     this.snapshotCalls++;
-    return structuredClone(this.state);
+    const { registry } = this.state;
+    return structuredClone({ ...this.state, registry_names: registry?.cursor ? [] : registry?.rows ?? [] });
   }
 
   async list(): Promise<AccountMeshOutcome> {
@@ -137,7 +140,14 @@ export class FakeAccountMeshClient implements AccountMeshClient {
   async renamePeer(instanceId: string, expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome> {
     this.peerRenameCalls.push([instanceId, expectedMetadataRevision, displayName]);
     const result = this.renameOutcomes.shift() ?? { ok: true as const };
-    return result.ok ? { ok: true, result: { display_name: displayName, metadata_revision: expectedMetadataRevision + 1 } } : result;
+    if (!result.ok) return result;
+    const updated = { display_name: displayName, metadata_revision: expectedMetadataRevision + 1 };
+    const id = this.state.pairs.find(pair => pair.instance_id === instanceId)?.installation_id;
+    const registry = this.state.registry;
+    if (registry && id) this.emit({ ...this.state, registry: {
+      ...registry, rows: registry.rows.map(row => row.installation_id === id ? { ...row, ...updated } : row),
+    } });
+    return { ok: true, result: updated };
   }
 
   sessionRevokeCalls: Array<string | undefined> = [];

@@ -32,7 +32,7 @@ it.each([false, true])("opens the terminal for a pre-session PTY prompt with ret
       snapshotReady: attached, hasTranscript: false, chatLoading: !attached, unavailable: null,
       bootView: chatSetupView(tab, attached),
     });
-    expect(composerVisible(view)).toBe(attached);
+    expect(composerVisible(view)).toBe(true);
     await act(async () => root.render(<ChatSetupState tab={tab} view={view} providerName="Fixture" onOpenTerminal={openTerminal} />));
   };
   try {

@@ -89,10 +89,6 @@ pub enum TransportErrorKind {
     /// mid-request. The payload may already have been written and be in
     /// flight on the peer's side, so this is never treated as nothing-sent.
     SubmitUnconfirmed,
-    /// The peer answered the relay POST itself with a non-success status.
-    PeerRejected,
-    /// The peer answered with a success status but the body was unusable.
-    BadResponse,
 }
 
 /// Sender-hop transport failure for `send_relay`, carrying a stable code and a
@@ -139,12 +135,6 @@ impl TransportError {
             TransportErrorKind::SubmitUnconfirmed => {
                 crate::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED
             }
-            TransportErrorKind::PeerRejected => {
-                crate::contract::delivery::MESH_TRANSPORT_PEER_REJECTED
-            }
-            TransportErrorKind::BadResponse => {
-                crate::contract::delivery::MESH_TRANSPORT_BAD_RESPONSE
-            }
         }
     }
 
@@ -153,9 +143,7 @@ impl TransportError {
     pub fn bytes_written(&self) -> Option<bool> {
         match self.kind {
             TransportErrorKind::NothingSent => Some(false),
-            TransportErrorKind::SubmitUnconfirmed
-            | TransportErrorKind::PeerRejected
-            | TransportErrorKind::BadResponse => None,
+            TransportErrorKind::SubmitUnconfirmed => None,
         }
     }
 
@@ -225,6 +213,7 @@ pub enum SyncFailure {
 pub struct PeerClient {
     client: reqwest::Client,
     base_url: String,
+    relay_alternatives: Vec<String>,
     /// Ed25519 signed token for authenticating requests.
     signed_token: Option<String>,
 }
@@ -244,6 +233,15 @@ static PEER_STREAM_HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .unwrap_or_default()
 });
 
+static RELAY_HTTP_CLIENT: LazyLock<Result<reqwest::Client, reqwest::Error>> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .connect_timeout(CLIENT_DEFAULT_TIMEOUT)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .retry(reqwest::retry::never())
+        .build()
+});
+
 pub(super) fn shared_http_client() -> reqwest::Client {
     PEER_HTTP_CLIENT.clone()
 }
@@ -258,6 +256,7 @@ impl PeerClient {
         Self {
             client: shared_http_client(),
             base_url,
+            relay_alternatives: Vec::new(),
             signed_token: Some(signed_token.to_string()),
         }
     }
@@ -272,8 +271,14 @@ impl PeerClient {
         Self {
             client: shared_http_client(),
             base_url: peer_http_origin(address, port),
+            relay_alternatives: Vec::new(),
             signed_token: None,
         }
+    }
+
+    pub(crate) fn with_relay_alternatives(mut self, alternatives: Vec<String>) -> Self {
+        self.relay_alternatives = alternatives;
+        self
     }
 
     fn auth_header(&self) -> Option<(String, String)> {
@@ -421,27 +426,27 @@ impl PeerClient {
         &self,
         cmd: &super::types::RelayCommand,
     ) -> Result<super::types::RelayResponse, TransportError> {
-        let request = self.relay_request(cmd).map_err(|error| {
+        let client = RELAY_HTTP_CLIENT.as_ref().map_err(|error| {
             TransportError::new(TransportErrorKind::NothingSent, error.to_string())
         })?;
-        let resp = self
-            .client
-            .execute(request)
-            .await
-            .map_err(|e| TransportError::from_send_error(&e))?;
-        if resp.status().is_success() {
-            resp.json().await.map_err(|e| {
-                TransportError::new(
-                    TransportErrorKind::BadResponse,
-                    format!("Bad relay response: {}", e),
-                )
-            })
-        } else {
-            let body = resp.text().await.unwrap_or_default();
-            Err(TransportError::new(
-                TransportErrorKind::PeerRejected,
-                format!("Relay failed: {}", body),
-            ))
+        let mut endpoint = &self.base_url;
+        let mut alternatives = self.relay_alternatives.iter();
+        loop {
+            let request = self
+                .relay_request_at(client, endpoint, cmd)
+                .map_err(|error| {
+                    TransportError::new(TransportErrorKind::NothingSent, error.to_string())
+                })?;
+            match client.execute(request).await {
+                Ok(response) => return decode_relay_response(response).await,
+                Err(error) if error.is_connect() => {
+                    let Some(next) = alternatives.next() else {
+                        return Err(TransportError::from_send_error(&error));
+                    };
+                    endpoint = next;
+                }
+                Err(error) => return Err(TransportError::from_send_error(&error)),
+            }
         }
     }
 
@@ -449,8 +454,20 @@ impl PeerClient {
         &self,
         cmd: &super::types::RelayCommand,
     ) -> Result<reqwest::Request, reqwest::Error> {
-        self.build_post("/api/mesh/relay", cmd, Some(RELAY_TIMEOUT))
-            .build()
+        self.relay_request_at(&self.client, &self.base_url, cmd)
+    }
+
+    fn relay_request_at(
+        &self,
+        client: &reqwest::Client,
+        endpoint: &str,
+        cmd: &super::types::RelayCommand,
+    ) -> Result<reqwest::Request, reqwest::Error> {
+        let mut request = client.post(format!("{endpoint}/api/mesh/relay"));
+        if let Some((key, value)) = self.auth_header() {
+            request = request.header(key, value);
+        }
+        request.timeout(RELAY_TIMEOUT).json(cmd).build()
     }
 
     /// Open a signed GET against the peer's real endpoint for byte-pipe relaying
@@ -469,155 +486,45 @@ impl PeerClient {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    async fn read_http_request(socket: &mut tokio::net::TcpStream) -> Vec<u8> {
-        use tokio::io::AsyncReadExt;
-
-        let mut request = Vec::new();
-        let mut chunk = [0; 1024];
-        loop {
-            let count = socket.read(&mut chunk).await.expect("read request");
-            assert_ne!(count, 0, "client closed before sending its request");
-            request.extend_from_slice(&chunk[..count]);
-            let Some(header_end) = request.windows(4).position(|part| part == b"\r\n\r\n") else {
-                continue;
-            };
-            let header_end = header_end + 4;
-            let headers = String::from_utf8_lossy(&request[..header_end]);
-            let content_length = headers
-                .lines()
-                .find_map(|line| {
-                    let (name, value) = line.split_once(':')?;
-                    name.eq_ignore_ascii_case("content-length")
-                        .then(|| value.trim().parse::<usize>().ok())
-                        .flatten()
-                })
-                .expect("request content length");
-            if request.len() >= header_end + content_length {
-                return request;
-            }
+async fn decode_relay_response(
+    response: reqwest::Response,
+) -> Result<super::types::RelayResponse, TransportError> {
+    let status = response.status();
+    let bytes = response.bytes().await.map_err(|error| {
+        TransportError::new(TransportErrorKind::SubmitUnconfirmed, error.to_string())
+    })?;
+    if status.is_success() {
+        let reply =
+            serde_json::from_slice::<super::types::RelayResponse>(&bytes).map_err(|error| {
+                TransportError::new(
+                    TransportErrorKind::SubmitUnconfirmed,
+                    format!("Invalid relay reply: {error}"),
+                )
+            })?;
+        if !(200..=599).contains(&reply.status) || reply.ok != (reply.status < 400) {
+            return Err(TransportError::new(
+                TransportErrorKind::SubmitUnconfirmed,
+                "Inconsistent relay reply status",
+            ));
         }
+        return Ok(reply);
     }
-
-    /// The client default is the floor for trivial control calls. A liveness
-    /// probe has to outlive it, or a peer that is merely loaded gets declared
-    /// dead — which is what painted a 1ms-away machine offline (#319).
-    #[test]
-    fn a_probe_outlives_the_default_control_budget() {
-        assert!(
-            PING_TIMEOUT > CLIENT_DEFAULT_TIMEOUT,
-            "a probe that expires with an ordinary control call cannot tell a slow peer from a dead one"
-        );
-    }
-
-    /// A relayed command carries the peer's actual work, so its budget is about
-    /// patience with a stall — never about how long the work may take.
-    #[test]
-    fn a_relayed_command_outlives_a_probe() {
-        assert!(
-            RELAY_TIMEOUT > PING_TIMEOUT,
-            "relayed work bounded by the probe budget turns a slow peer into a 502"
-        );
-    }
-
-    /// A connection refused before any request bytes are written must classify
-    /// as nothing-sent, never as an undecidable outcome — the caller can safely
-    /// retry. Drives a real `reqwest::Error` rather than fabricating one, so the
-    /// `is_connect()`/`is_timeout()` classification itself is under test.
-    #[tokio::test]
-    async fn connection_refused_before_write_is_nothing_sent() {
-        // Probe loopback port 1 because refusal is synchronous and avoids a bind/drop race.
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .expect("client");
-        let error = client
-            .post("http://127.0.0.1:1/api/mesh/relay")
-            .json(&serde_json::json!({}))
-            .send()
-            .await
-            .expect_err("nothing listens on 127.0.0.1:1");
-        assert!(
-            error.is_connect(),
-            "test setup bug: expected a connect-phase error, got {error:?}"
-        );
-
-        let transport_error = TransportError::from_send_error(&error);
-        assert_eq!(
-            transport_error.code(),
-            crate::contract::delivery::MESH_TRANSPORT_NOTHING_SENT
-        );
-        assert_eq!(
-            transport_error.bytes_written(),
-            Some(false),
-            "bytes_written must survive as a definite false, not silently drop"
-        );
-        assert_ne!(
-            transport_error.code(),
-            crate::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED,
-            "nothing-landed must never be confused with landed-unknown"
-        );
-    }
-
-    /// A timeout after the request was written must classify as landed-unknown
-    /// (`submit_unconfirmed`), never as nothing-sent.
-    #[tokio::test]
-    async fn timeout_after_write_is_submit_unconfirmed() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind ephemeral port");
-        let addr = listener.local_addr().expect("local addr");
-        let (request_tx, request_rx) = tokio::sync::oneshot::channel();
-
-        let peer = tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.expect("relay connection");
-            let request = read_http_request(&mut socket).await;
-            request_tx.send(request).expect("test awaits the request");
-            std::future::pending::<()>().await;
+    if status.is_client_error() && status != reqwest::StatusCode::REQUEST_TIMEOUT {
+        let text = String::from_utf8_lossy(&bytes);
+        let data = serde_json::from_slice(&bytes)
+            .unwrap_or_else(|_| serde_json::Value::String(text.trim().to_owned()));
+        return Ok(super::types::RelayResponse {
+            ok: false,
+            status: status.as_u16(),
+            error: Some(format!("HTTP {status}: {text}")),
+            data: Some(data),
         });
-
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_millis(300))
-            .build()
-            .expect("client");
-        let error = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            client
-                .post(format!("http://{addr}/api/mesh/relay"))
-                .json(&serde_json::json!({}))
-                .send(),
-        )
-        .await
-        .expect("client timeout must finish within the test deadline")
-        .expect_err("the peer never answers, so the client timeout must fire");
-        let request = tokio::time::timeout(std::time::Duration::from_secs(2), request_rx)
-            .await
-            .expect("peer must receive the request within the test deadline")
-            .expect("peer task");
-        assert!(request.starts_with(b"POST /api/mesh/relay HTTP/1.1\r\n"));
-        peer.abort();
-        assert!(
-            error.is_timeout(),
-            "test setup bug: expected a timeout error, got {error:?}"
-        );
-
-        let transport_error = TransportError::from_send_error(&error);
-        assert_eq!(
-            transport_error.code(),
-            crate::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED
-        );
-        assert_eq!(
-            transport_error.bytes_written(),
-            None,
-            "the payload may already be in flight — never claim zero bytes here"
-        );
-        assert_ne!(
-            transport_error.code(),
-            crate::contract::delivery::MESH_TRANSPORT_NOTHING_SENT,
-            "landed-unknown must never be confused with nothing-landed"
-        );
     }
+    Err(TransportError::new(
+        TransportErrorKind::SubmitUnconfirmed,
+        format!("Relay returned HTTP {status} without an authoritative command result"),
+    ))
 }
+
+#[cfg(test)]
+mod tests;

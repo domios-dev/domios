@@ -1,3 +1,4 @@
+use super::leaf_bound::{self, OversizedLayout};
 use super::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
 use codeterm_storage::{
     Committed, Completion, DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields, DeskSnapshot,
@@ -21,6 +22,17 @@ pub struct StorageDeskAdapter {
     storage: Storage,
 }
 
+pub struct LiveDeskProjection {
+    pub snapshot: DeskSnapshot,
+    omitted_tabs: HashSet<String>,
+}
+
+impl LiveDeskProjection {
+    pub fn has_omissions(&self) -> bool {
+        !self.omitted_tabs.is_empty()
+    }
+}
+
 impl StorageDeskAdapter {
     pub fn from_storage(storage: Storage) -> Self {
         StorageDeskAdapter { storage }
@@ -32,7 +44,7 @@ impl StorageDeskAdapter {
         snapshot: &SessionSnapshot,
         identities: Vec<DeskAgentSessionIdentity>,
     ) -> Result<(), String> {
-        let normalized = to_desk_snapshot(snapshot, identities)?;
+        let normalized = project_snapshot(snapshot, identities)?;
         self.import_normalized(normalized)
     }
 
@@ -51,7 +63,7 @@ impl StorageDeskAdapter {
         snapshot: &SessionSnapshot,
         identities: Vec<DeskAgentSessionIdentity>,
     ) -> Result<(), String> {
-        let normalized = to_desk_snapshot(snapshot, identities)?;
+        let normalized = project_snapshot(snapshot, identities)?;
         self.storage
             .desk()
             .additive_restore(normalized)
@@ -243,14 +255,28 @@ impl StorageDeskAdapter {
         expected: Revision,
         intent: super::SaveIntent,
     ) -> Result<Completion<Committed<()>>, String> {
-        let normalized = to_desk_snapshot(snapshot, identities)?;
+        let projection = project_live_snapshot(snapshot, identities)?;
+        Ok(self.commit_live_snapshot(&projection, expected, intent))
+    }
+
+    pub fn commit_live_snapshot(
+        &self,
+        projection: &LiveDeskProjection,
+        expected: Revision,
+        intent: super::SaveIntent,
+    ) -> Completion<Committed<()>> {
         let desk = self.storage.desk();
-        Ok(match intent {
-            super::SaveIntent::PreserveDesk => desk.save_preserving(normalized, expected),
-            super::SaveIntent::AuthorizedReduction => {
-                desk.save_authorized_reduction(normalized, expected)
+        match intent {
+            super::SaveIntent::PreserveDesk => {
+                desk.save_preserving(projection.snapshot.clone(), expected)
             }
-        })
+            super::SaveIntent::AuthorizedReduction => desk
+                .save_authorized_reduction_retaining_tabs(
+                    projection.snapshot.clone(),
+                    expected,
+                    projection.omitted_tabs.clone(),
+                ),
+        }
     }
 
     pub fn flush(&self) -> Result<(), String> {
@@ -265,8 +291,11 @@ impl StorageDeskAdapter {
 fn to_desk_snapshot(
     snapshot: &SessionSnapshot,
     agent_session_identities: Vec<DeskAgentSessionIdentity>,
+    mut omitted_tabs: Option<&mut HashSet<String>>,
 ) -> Result<DeskSnapshot, String> {
-    super::leaf_bound::retain_tabs(snapshot);
+    if omitted_tabs.is_some() {
+        leaf_bound::retain_tabs(snapshot);
+    }
     let workspace_ids = snapshot_workspace_ids(snapshot);
     let workspaces = snapshot
         .workspaces
@@ -283,23 +312,41 @@ fn to_desk_snapshot(
             record.task_key_prefix = workspace.task_keys.prefix.clone();
             record.task_key_next = workspace.task_keys.next;
             record.created_at_ms = Some(workspace.created_at_ms).filter(|ms| *ms > 0);
-            let tabs = workspace
-                .tabs
-                .iter()
-                .map(|tab| {
-                    Ok(DeskTab {
-                        id: tab.id.clone(),
-                        title: tab.title.clone(),
-                        description: tab.description.clone(),
-                        sort_order: tab.sort_order,
-                        layout: to_tab_layout(tab)?,
-                    })
-                })
-                .collect::<Result<Vec<_>, String>>()?;
+            let mut tabs = Vec::with_capacity(workspace.tabs.len());
+            let mut active_tab_id = workspace.active_tab_id.clone();
+            for tab in &workspace.tabs {
+                let layout = match to_layout(&tab.split_tree, tab) {
+                    Ok(layout) => layout,
+                    Err(LayoutProjectionError::Serialization(error)) => {
+                        return Err(error.to_string())
+                    }
+                    Err(LayoutProjectionError::Oversized(error)) => {
+                        let Some(omitted_tabs) = omitted_tabs.as_deref_mut() else {
+                            return Err(format!("tab {}: {error}", tab.id));
+                        };
+                        leaf_bound::report_omission(&tab.id, error);
+                        omitted_tabs.insert(tab.id.clone());
+                        if active_tab_id.as_deref() == Some(tab.id.as_str()) {
+                            active_tab_id = None;
+                        }
+                        continue;
+                    }
+                };
+                if omitted_tabs.is_some() {
+                    leaf_bound::clear_omission(&tab.id);
+                }
+                tabs.push(DeskTab {
+                    id: tab.id.clone(),
+                    title: tab.title.clone(),
+                    description: tab.description.clone(),
+                    sort_order: tab.sort_order,
+                    layout,
+                });
+            }
             Ok(DeskWorkspace {
                 record,
                 sort_order: workspace.sort_order,
-                active_tab_id: workspace.active_tab_id.clone(),
+                active_tab_id,
                 tabs,
             })
         })
@@ -333,7 +380,19 @@ pub fn project_snapshot(
     snapshot: &SessionSnapshot,
     agent_session_identities: Vec<DeskAgentSessionIdentity>,
 ) -> Result<DeskSnapshot, String> {
-    to_desk_snapshot(snapshot, agent_session_identities)
+    to_desk_snapshot(snapshot, agent_session_identities, None)
+}
+
+pub fn project_live_snapshot(
+    snapshot: &SessionSnapshot,
+    agent_session_identities: Vec<DeskAgentSessionIdentity>,
+) -> Result<LiveDeskProjection, String> {
+    let mut omitted_tabs = HashSet::new();
+    let snapshot = to_desk_snapshot(snapshot, agent_session_identities, Some(&mut omitted_tabs))?;
+    Ok(LiveDeskProjection {
+        snapshot,
+        omitted_tabs,
+    })
 }
 
 pub fn prune_orphan_teams(snapshot: &mut SessionSnapshot) -> Vec<codeterm_types::team::Team> {
@@ -364,20 +423,38 @@ pub fn orphan_teams(snapshot: &SessionSnapshot) -> Vec<(String, String)> {
     orphans
 }
 
-fn to_layout(node: &SplitNodeSnapshot) -> Result<DeskLayoutNode, String> {
+enum LayoutProjectionError {
+    Serialization(serde_json::Error),
+    Oversized(OversizedLayout),
+}
+
+fn to_layout(
+    node: &SplitNodeSnapshot,
+    tab: &TabSnapshot,
+) -> Result<DeskLayoutNode, LayoutProjectionError> {
     match node {
         SplitNodeSnapshot::Leaf { tab_id, cwd, .. } => {
-            let mut value = serde_json::to_value(node).map_err(|error| error.to_string())?;
+            let mut value =
+                serde_json::to_value(node).map_err(LayoutProjectionError::Serialization)?;
             let object = value
                 .as_object_mut()
-                .ok_or_else(|| "serialized leaf is not an object".to_string())?;
+                .expect("a tagged leaf serializes to an object");
             object.remove("type");
             object.remove("tab_id");
+            object.insert(
+                "last_active_at_ms".into(),
+                serde_json::json!(tab.last_active_at_ms),
+            );
+            object.insert(
+                "last_opened_at_ms".into(),
+                serde_json::json!(tab.last_opened_at_ms),
+            );
             Ok(DeskLayoutNode::Leaf {
                 tab_id: tab_id.clone(),
                 cwd: cwd.clone(),
                 fields: DeskLeafFields {
-                    values: super::leaf_bound::bound_leaf(tab_id, value),
+                    values: leaf_bound::bound_leaf(value)
+                        .map_err(LayoutProjectionError::Oversized)?,
                 },
             })
         }
@@ -386,15 +463,19 @@ fn to_layout(node: &SplitNodeSnapshot) -> Result<DeskLayoutNode, String> {
             ratio,
             children,
             extra_fields,
-        } => Ok(DeskLayoutNode::Split {
-            orientation: orientation.clone(),
-            ratio: *ratio,
-            fields: extra_fields.clone(),
-            children: children
-                .iter()
-                .map(to_layout)
-                .collect::<Result<Vec<_>, _>>()?,
-        }),
+        } => {
+            leaf_bound::check_size("desk split fields", extra_fields)
+                .map_err(LayoutProjectionError::Oversized)?;
+            Ok(DeskLayoutNode::Split {
+                orientation: orientation.clone(),
+                ratio: *ratio,
+                fields: extra_fields.clone(),
+                children: children
+                    .iter()
+                    .map(|child| to_layout(child, tab))
+                    .collect::<Result<Vec<_>, _>>()?,
+            })
+        }
     }
 }
 
@@ -496,27 +577,6 @@ fn from_layout(node: DeskLayoutNode) -> Result<SplitNodeSnapshot, String> {
     }
 }
 
-fn to_tab_layout(tab: &TabSnapshot) -> Result<DeskLayoutNode, String> {
-    let mut layout = to_layout(&tab.split_tree)?;
-    fn set(node: &mut DeskLayoutNode, activity: Option<u64>, opened: Option<u64>) {
-        match node {
-            DeskLayoutNode::Leaf { fields, .. } => {
-                if let Some(object) = fields.values.as_object_mut() {
-                    object.insert("last_active_at_ms".into(), serde_json::json!(activity));
-                    object.insert("last_opened_at_ms".into(), serde_json::json!(opened));
-                }
-            }
-            DeskLayoutNode::Split { children, .. } => {
-                for child in children {
-                    set(child, activity, opened);
-                }
-            }
-        }
-    }
-    set(&mut layout, tab.last_active_at_ms, tab.last_opened_at_ms);
-    Ok(layout)
-}
-
 fn layout_activity(node: &DeskLayoutNode) -> Option<u64> {
     match node {
         DeskLayoutNode::Leaf { fields, .. } => fields
@@ -547,7 +607,7 @@ mod activity_tests {
         let (mut mux, id) = MultiplexerState::new();
         mux.get_tab_mut(&id).unwrap().last_active_at_ms = Some(98765);
         mux.get_tab_mut(&id).unwrap().last_opened_at_ms = Some(12345);
-        let saved = to_desk_snapshot(&mux.to_session_snapshot(), vec![]).unwrap();
+        let saved = project_snapshot(&mux.to_session_snapshot(), vec![]).unwrap();
         let restored = from_desk_snapshot(saved).unwrap();
         let mux = MultiplexerState::from_session_snapshot(&restored);
         assert_eq!(mux.get_tab(&id).unwrap().last_active_at_ms, Some(98765));

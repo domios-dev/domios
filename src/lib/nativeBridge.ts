@@ -65,7 +65,7 @@ export interface NativeBridge {
   } | undefined;
   readClipboardText(): Promise<string>;
   readClipboard(): Promise<ClipboardItems>;
-  openUrl(url: string): Promise<void>;
+  openUrl(url: string, application?: "tailscale"): Promise<void>;
   openFolder(path: string): Promise<void>;
   revealFile(path: string): Promise<void>;
   autostart: { get(): Promise<boolean>; set(enabled: boolean): Promise<void> } | undefined;
@@ -180,9 +180,9 @@ export function createNativeBridge(native: boolean = typeof window !== "undefine
     resizeEvents: native ? { onStart: resizeStart, onCommit: resizeCommit } : undefined,
     readClipboardText: () => native ? invoke("read_clipboard_text") : clipboard().readText(),
     readClipboard: () => clipboard().read(),
-    async openUrl(url) {
+    async openUrl(url, application) {
       if (handleNeighborLink(url)) return;
-      if (native) return invoke("open_url", { url });
+      if (native) return invoke("open_url", { url, ...(application && { application }) });
       globalThis.window.open(url, "_blank", "noopener,noreferrer");
     },
     async openFolder(path) { if (!native) return unavailable("open folder"); return invoke("open_folder", { path }); },

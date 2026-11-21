@@ -38,7 +38,7 @@ function MachineSpecimen({ mode }: { mode: Mode }) {
   const choices = <MachineIdentityControls value={identity} onChange={setIdentity} />;
 
   if (mode === "palette") return <Palette />;
-  if (mode === "light") return <div className="rounded p-4" style={{ colorScheme: "light", background: "#f6f8fa", color: "#1f2328" }}><Palette /></div>;
+  if (mode === "light") return <div data-ct-theme="light" className="rounded p-4" style={{ colorScheme: "light", background: "#f6f8fa", color: "#1f2328" }}><Palette /></div>;
   if (mode === "menu") return <div role="menu" aria-label="Domios hosts" className="ct-menu w-80">
     {cast.map((machine, index) => <button key={machine.name} type="button" role="menuitem" aria-label={machineLabel(machine.name, machine, machine.status)} aria-current={index === 0 || undefined} disabled={index >= 2} className="ct-menu-row ct-machine-menu-row">
       <span className="ct-menu-row__icon"><MachineGlyph {...machine} size="mark-15" /></span>

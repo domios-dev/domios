@@ -3,6 +3,7 @@
 //! teardown has begun leaves a diagnostic artifact + user-visible signal.
 
 use std::future::Future;
+use std::sync::Arc;
 
 use super::failure_report::{UpdateAbort, UpdateFailureSink};
 
@@ -16,7 +17,7 @@ use super::failure_report::{UpdateAbort, UpdateFailureSink};
 /// `shutdown` returns the tab ids it tore down so the abort artifact can name
 /// them.
 pub async fn install_after_shutdown<P, V, VF, S, SF, I, IF>(
-    verified_bytes: Vec<u8>,
+    verified_bytes: Arc<Vec<u8>>,
     viability: V,
     shutdown: S,
     install: I,
@@ -27,7 +28,7 @@ where
     VF: Future<Output = Result<P, String>>,
     S: FnOnce(P) -> SF,
     SF: Future<Output = Result<Vec<String>, String>>,
-    I: FnOnce(Vec<u8>) -> IF,
+    I: FnOnce(Arc<Vec<u8>>) -> IF,
     IF: Future<Output = Result<(), String>>,
 {
     let prepared = match viability().await {

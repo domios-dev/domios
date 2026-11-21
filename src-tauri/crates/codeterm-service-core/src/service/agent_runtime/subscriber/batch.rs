@@ -295,6 +295,11 @@ pub(super) async fn handle(
             }
         }
     }
+    let refresh_background = reduced
+        .events
+        .iter()
+        .any(super::super::background::changed_by)
+        || lagged;
     *session.hook_state.lock() = reduced.state;
     if let Err(reason) =
         super::apply::publish_live_events(svc, session, epoch, reduced.events, received_at).await
@@ -324,6 +329,9 @@ pub(super) async fn handle(
                     .await
             }
         };
+    }
+    if refresh_background {
+        process.background_changed.notify_one();
     }
     for (id, method, params) in native {
         session.prompts.lock().remove(&id);

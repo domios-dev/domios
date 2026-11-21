@@ -398,6 +398,17 @@ fn commit_reported_session(
         .as_ref()
         .is_some_and(|pending| pending.session_id == session_id);
     if changed {
+        if nonce_verified
+            && tab
+                .restorable_launch
+                .exited_chat_binding
+                .as_ref()
+                .is_some_and(|exit| {
+                    exit.provider_id != provider_id || exit.session_id != session_id
+                })
+        {
+            tab.restorable_launch.exited_chat_binding = None;
+        }
         tab.provider_signals = Default::default();
         tab.context = None;
         if let Some(previous_session_id) = previous.as_deref() {

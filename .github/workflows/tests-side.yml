@@ -2,7 +2,7 @@ name: PR CI
 on:
   pull_request:
     branches: [develop, master]
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
 permissions:
   contents: read
 concurrency:
@@ -10,11 +10,13 @@ concurrency:
   cancel-in-progress: true
 env:
   CI_HOSTED: 'true'
+  DIRECT_RELEASE_PR: ${{ github.base_ref == 'master' && (startsWith(github.head_ref, 'release/plugin-') || github.head_ref == 'release/docs') && github.event.pull_request.user.login == 'rollacode' && github.event.pull_request.head.repo.full_name == github.repository }}
   CODETERM_USE_SCCACHE: '0'
   RUSTC_WRAPPER: ''
 jobs:
   guards:
     name: Repository guards
+    if: ${{ !(github.base_ref == 'master' && (startsWith(github.head_ref, 'release/plugin-') || github.head_ref == 'release/docs') && github.event.pull_request.user.login == 'rollacode' && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     permissions:
@@ -99,6 +101,7 @@ jobs:
         if: ${{ !cancelled() }}
   fmt:
     name: fmt-check
+    if: ${{ !(github.base_ref == 'master' && (startsWith(github.head_ref, 'release/plugin-') || github.head_ref == 'release/docs') && github.event.pull_request.user.login == 'rollacode' && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -246,7 +249,9 @@ jobs:
         run: |
           node --input-type=module - <<'JS'
           const jobs = JSON.parse(process.env.RESULTS);
-          const failed = Object.entries(jobs).filter(([, job]) => job.result !== 'success');
+          // The required Release qualification job owns scoped verification in this route.
+          const expected = process.env.DIRECT_RELEASE_PR === 'true' ? 'skipped' : 'success';
+          const failed = Object.entries(jobs).filter(([, job]) => job.result !== expected);
           for (const [name, job] of failed) console.error(name + ': ' + job.result);
           if (failed.length) process.exit(1);
           JS

@@ -8,6 +8,7 @@ use std::future::Future;
 #[path = "spawn_chatbackend/launch_options.rs"]
 mod launch_options;
 use launch_options::runtime_launch_mode;
+mod role;
 #[path = "spawn_chatbackend/runtime_launch.rs"]
 mod runtime_launch;
 use runtime_launch::ChatBackendRuntimeLaunch;
@@ -20,7 +21,6 @@ use super::ServiceContext;
 use crate::agent::chat_types::{ChatMsg, StructuredChat};
 use crate::agent::reports::ReportDetails;
 use crate::multiplexer::types::{TabBacking, WatcherPolicy, WatcherSpec};
-use crate::service::general_agent::refuse_parenting_under_general_agent;
 use crate::service::messenger::MessageEnvelope;
 use crate::service::watcher::{
     apply_guardrails, build_observation, collect_watch_group, observation_config_from_json,
@@ -57,22 +57,6 @@ fn stamp_chatbackend_launch_identity(
         agent.planned_reasoning_effort.as_deref(),
         agent.reasoning_effort.as_deref(),
     );
-}
-
-fn place_chatbackend_role_kind(
-    mux: &mut crate::multiplexer::state::MultiplexerState,
-    tab_id: &str,
-    role: &str,
-    profile: Option<&str>,
-    parent: Option<&str>,
-    can_spawn: Option<bool>,
-) -> Result<(), String> {
-    let (parsed, profile) = ServiceContext::parse_role_kind(role, profile)?;
-    mux.set_tab_role_kind(tab_id, parsed, profile.as_deref(), parent)?;
-    if let Some(can_spawn) = can_spawn {
-        mux.set_can_spawn(tab_id, can_spawn)?;
-    }
-    Ok(())
 }
 
 fn runtime_resume_thread(
@@ -416,8 +400,7 @@ impl ServiceContext {
                 &tab_id,
                 role,
                 role_profile.as_deref(),
-                spec.parent_tab_id.as_deref(),
-                launch.and_then(|metadata| metadata.params.plan_id.as_deref()),
+                &spec,
                 can_spawn,
                 emit_state_change && runtime_fork.is_none(),
             );
@@ -487,42 +470,6 @@ impl ServiceContext {
                 emit_state_change,
             },
         ))
-    }
-
-    fn assign_chatbackend_spawn_role(
-        &self,
-        tab_id: &str,
-        role: &str,
-        role_profile: Option<&str>,
-        parent: Option<&str>,
-        plan_id: Option<&str>,
-        can_spawn: Option<bool>,
-        emit_state_change: bool,
-    ) -> Result<(), String> {
-        let (_, profile) = Self::parse_role_kind(role, role_profile)?;
-        refuse_parenting_under_general_agent(&self.mux.read(), parent)?;
-        if profile.as_deref() == Some(codeterm_types::agent::role_kind::builtins::PLANNER) {
-            if let Some(plan_id) = plan_id.filter(|id| !id.trim().is_empty()) {
-                self.place_planner_on_plan(tab_id, plan_id, parent, false)?;
-                super::team_roles::stamp_role_label(self, tab_id);
-                return Ok(());
-            }
-        }
-        if emit_state_change {
-            self.set_tab_role_with_profile(tab_id, role, profile.as_deref(), parent, can_spawn)?;
-        } else {
-            let mut mux = self.mux.write();
-            place_chatbackend_role_kind(
-                &mut mux,
-                tab_id,
-                role,
-                profile.as_deref(),
-                parent,
-                can_spawn,
-            )?;
-        }
-        super::team_roles::stamp_role_label(self, tab_id);
-        Ok(())
     }
 
     pub(crate) fn prepare_chatbackend_runtime_launch(

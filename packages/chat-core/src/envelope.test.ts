@@ -25,7 +25,7 @@ const expectedRows: Record<string, number> = {
   "recurring reminder frame": 1, "mesh frame with peer": 1, "three glued frames": 3, "owner text glued to a report frame": 2,
   "pad-substituted body": 1, "owner text with trailing pasted marker": 1, "pasted voice note": 1, "unknown sender kind": 1,
   "opening tag cut before its close": 1, "neighbor question with host tip": 1,
-  "routed file after context with unmatched fence": 1,
+  "routed file after context with unmatched fence": 1, "agent sender with model": 1,
 };
 
 function displayed(segments: readonly MessageSegment[]): string[] {
@@ -58,6 +58,10 @@ assert.deepEqual(envelopeRows(screenshot.segments).map((row) => [row.frame?.attr
 ]);
 const codex = fixtures.find((fixture) => fixture.name === "codex ordinal 527 with trailing newline")!;
 assert.deepEqual(envelopeRows(codex.segments).map((row) => [row.frame?.kind, row.frame?.tip != null]), [["tab", true]]);
+const agentSender = fixtures.find((fixture) => fixture.name === "agent sender with model")!;
+assert.deepEqual(envelopeRows(agentSender.segments).map((row) => [row.frame?.kind, row.frame?.attrs.tab, row.frame?.attrs.model]), [
+  ["tab", "a6e2c711", "gpt-6.1-sol"],
+]);
 const voice = fixtures.find((fixture) => fixture.name === "voice transcript echo")!;
 const contextFile = fixtures.find((fixture) => fixture.name === "routed file after context with unmatched fence")!;
 const contextRows = envelopeRows(contextFile.segments);

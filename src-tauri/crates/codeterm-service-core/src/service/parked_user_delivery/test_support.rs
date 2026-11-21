@@ -7,6 +7,26 @@ use std::time::Duration;
 
 pub(super) const TEST_DEADLINE: Duration = Duration::from_secs(10);
 
+#[cfg(test)]
+pub(super) type AfterUserCarry = Box<dyn FnOnce(&ServiceContext, &UserSendRecord)>;
+
+#[cfg(test)]
+thread_local! {
+    static AFTER_USER_CARRY: std::cell::RefCell<Option<AfterUserCarry>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(super) fn after_next_user_carry(checkpoint: AfterUserCarry) {
+    AFTER_USER_CARRY.with(|slot| assert!(slot.replace(Some(checkpoint)).is_none()));
+}
+
+#[cfg(test)]
+pub(super) fn run_after_user_carry(service: &ServiceContext, head: &UserSendRecord) {
+    if let Some(checkpoint) = AFTER_USER_CARRY.with(|slot| slot.take()) {
+        checkpoint(service, head);
+    }
+}
+
 pub fn note_dispatched_for_test(service: &ServiceContext, tab: &str) {
     let authority = service.user_send_authority(tab).unwrap();
     assert!(service.note_user_launch_dispatched(&authority));

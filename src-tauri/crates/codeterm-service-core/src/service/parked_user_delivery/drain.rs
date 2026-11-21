@@ -1,5 +1,6 @@
-use super::liveness::UserClearingEvent;
+use super::liveness::{UserClearingEvent, UserHeadLaunch};
 use super::*;
+use crate::service::pending_delivery_payloads::user_sends::UserSendEligibility;
 
 impl super::super::ServiceContext {
     pub(crate) fn dispatch_ready_user_send(&self, record: &UserSendRecord) {
@@ -69,15 +70,36 @@ impl super::super::ServiceContext {
                 return Ok(UserDrain::Idle);
             }
             self.chat_send_ledger.restore_user_record(&head);
+            match self.user_head_launch(&head) {
+                UserHeadLaunch::Wait(reason) => {
+                    self.pending_user_send(&head, reason);
+                    return Ok(UserDrain::Idle);
+                }
+                UserHeadLaunch::RecoveryEnded => {
+                    self.settle_ended_user_head(&head)?;
+                    continue;
+                }
+                _ => {}
+            }
             if let Some(carried) = self.carry_held_user_send(&head)? {
                 head = carried;
             }
+            #[cfg(test)]
+            test_support::run_after_user_carry(self, &head);
             if self.settle_degraded_user_send(&head)? {
                 continue;
             }
-            if self.user_authority_is_from_ended_launch(&head.authority) {
-                self.settle_ended_user_head(&head)?;
-                continue;
+            match self.user_head_launch(&head) {
+                UserHeadLaunch::Wait(reason) => {
+                    self.pending_user_send(&head, reason);
+                    return Ok(UserDrain::Idle);
+                }
+                UserHeadLaunch::Carry => continue,
+                UserHeadLaunch::Ended | UserHeadLaunch::RecoveryEnded => {
+                    self.settle_ended_user_head(&head)?;
+                    continue;
+                }
+                UserHeadLaunch::Current => {}
             }
             if head.state != UserSendState::Queued {
                 self.settle_ended_user_head(&head)?;
@@ -140,17 +162,19 @@ impl super::super::ServiceContext {
                 }
                 head = bound;
             }
-            if !store.eligible(&head) {
-                let owner = store.tab(tab_id);
-                if owner.revoked.load(Ordering::Acquire) || owner.failed.load(Ordering::Acquire) {
+            match store.eligibility(&head) {
+                UserSendEligibility::Eligible => {}
+                UserSendEligibility::OwnerUnavailable => {
                     self.pending_user_send(&head, "user_owner_revoked_before_claim");
                     return Ok(UserDrain::Idle);
                 }
-                if store.waiting_for_preparation(&head) {
+                UserSendEligibility::Preparing => {
                     hold!(&head, "owner_preparation_pending", Settlement);
                 }
-                self.settle_ended_user_head(&head)?;
-                continue;
+                UserSendEligibility::Ineligible => {
+                    self.settle_ended_user_head(&head)?;
+                    continue;
+                }
             }
             let ready = self.user_authority_is_ready(&head.authority);
             let first_turn_claimed = !ready && self.claim_lazy_first_turn_user_send(&head);

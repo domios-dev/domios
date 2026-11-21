@@ -176,7 +176,8 @@ impl ProviderSwitchExt for ServiceContext {
             &serde_json::to_string(&messages).map_err(|error| error.to_string())?,
         );
         let archive = pad.write_inbox_body(archive.as_bytes())?;
-        let handoff = self.provider_switch_input(&tab, &messages, &archive)?;
+        let handoff =
+            self.provider_switch_input(&tab, &messages, &archive, target, model.as_deref())?;
         let handoff = prepare_handoff(&handoff)?;
         let full_access = permission.is_some();
         let mut params = SpawnAgentParams {

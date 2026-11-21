@@ -8,6 +8,6 @@ Self-switch is supported from the tab’s current caller identity, including the
 
 REST: `POST /api/tabs/{id}/agent/switch-provider` with `{provider, model?, reasoning_effort?, force?}`. The daemon returns HTTP 202 with `operation_id`, `tab_id`, `provider` and `phase: pending` before retiring any caller. Use `domios agent switch-provider-status OPERATION --tab TAB` or `GET /api/tabs/{id}/agent/switch-provider/{operation}` to read `pending`, `running`, `completed` or `failed` plus `error`. A completed `outcome` includes `session_id`, `previous_provider`, `previous_session_id`, `previous_history_path`, `binding_restored: true` and `handoff_delivered: true`. UI clients can pass `?wait=true` to wait for the completion signal (bounded at 180 seconds); a still-pending result is not a failure or permission to retry. A delivery uncertainty never replays the handoff automatically.
 
-Read a returned handoff archive with `GET /api/tabs/{id}/agent/provider-history?file=PATH`. It accepts only an inbox archive within that tab's own pad and returns transcript message rows. The confirmation dialog exposes it as Previous provider after a successful switch.
+Read a returned handoff archive with `GET /api/tabs/{id}/agent/provider-history?file=PATH`. It accepts only an inbox archive within that tab's own pad and returns transcript message rows. In the app, earlier turns stay visible in the tab's chat.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

@@ -16,6 +16,7 @@ pub(in crate::js_runtime) struct Context {
     cancellation: ConversionCancellation,
     revoked: AtomicBool,
     effect_started: AtomicBool,
+    contain_exec_jobs: AtomicBool,
     jobs: AtomicUsize,
     unawaited: Mutex<HashSet<String>>,
     revoke_hooks: Mutex<Option<Vec<RevokeHook>>>,
@@ -38,6 +39,7 @@ impl Context {
             cancellation,
             revoked: AtomicBool::new(false),
             effect_started: AtomicBool::new(false),
+            contain_exec_jobs: AtomicBool::new(false),
             jobs: AtomicUsize::new(0),
             unawaited: Mutex::new(HashSet::new()),
             revoke_hooks: Mutex::new(Some(Vec::new())),
@@ -67,6 +69,20 @@ impl Context {
         self.check()?;
         self.effect_started.store(true, Ordering::Release);
         Ok(())
+    }
+
+    pub(in crate::js_runtime) fn contain_exec_jobs(&self) {
+        self.contain_exec_jobs.store(true, Ordering::Relaxed);
+    }
+
+    pub(in crate::js_runtime) fn attach_exec_job(&self, plugin: &str, job: &str) {
+        if self.contain_exec_jobs.load(Ordering::Relaxed) {
+            let plugin = plugin.to_owned();
+            let job = job.to_owned();
+            self.on_revoke(Box::new(move || {
+                super::super::host_exec::close(&plugin, &job)
+            }));
+        }
     }
 
     pub(in crate::js_runtime) fn finish_check(&self) -> Result<(), VmError> {

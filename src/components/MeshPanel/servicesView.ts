@@ -1,7 +1,14 @@
 import type { Service } from "./types";
 
-/** Envelope returned by the `mesh_peer_services_list` Tauri command. */
-export type PeerServicesView = Omit<import("../../../gen/PeerServicesView").PeerServicesView, "services"> & {services: Service[]};
+export interface PeerServicesView {
+  services: Service[];
+  stale: boolean;
+  fetched_at: number | null;
+  peer_online: boolean;
+  error: string | null;
+  freshness: import("../../../gen/InventoryFreshness").InventoryFreshness;
+  partial_error: string | null;
+}
 
 export type MeshInventoryView = Omit<import("../../../gen/MeshInventoryView").MeshInventoryView<Service>, "resources"> & { resources: Service[] };
 
@@ -10,6 +17,8 @@ export interface PeerFetchResult {
   peerName: string;
   /** null when the invoke itself failed (peer unpaired mid-poll, etc.). */
   view: PeerServicesView | null;
+  error?: string;
+  discardCached?: boolean;
 }
 
 /**
@@ -24,7 +33,7 @@ export function mergeServicesView(
   const out = [...local];
   for (const r of remote) {
     if (!r.view) continue;
-    for (const s of r.view.services) {
+    for (const s of r.view.stale ? cachedServices(r.view.services) : r.view.services) {
       out.push({
         ...s,
         source_peer_id: r.peerId,
@@ -33,7 +42,7 @@ export function mergeServicesView(
         peer_online: r.view.peer_online,
         machine_id: s.machine_id ?? r.peerId,
         machine_name: s.machine_name ?? r.peerName,
-        provenance: s.provenance ?? {
+        provenance: (!r.view.stale && s.provenance) || {
           freshness: r.view.freshness,
           offline: !r.view.peer_online,
           fetched_at: r.view.fetched_at ?? undefined,
@@ -49,7 +58,8 @@ export function mergeServicesView(
 export function collectPeerErrors(remote: PeerFetchResult[]): string[] {
   const errors: string[] = [];
   for (const r of remote) {
-    if (r.view?.error) errors.push(`${r.peerName}: ${r.view.error}`);
+    const error = r.error ?? r.view?.error;
+    if (error) errors.push(`${r.peerName}: ${error}`);
   }
   return errors;
 }

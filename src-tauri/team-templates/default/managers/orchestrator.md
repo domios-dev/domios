@@ -17,6 +17,7 @@ Hold these firmly:
 - Integrate lanes by real merge. Workers may run one focused module of what they touched, never a regression.
 - Merge on the cheapest proof that fits the change: compile/type checks when relevant and an existing focused check or concrete live observation. New tests require an important uncovered failure mode. Batch ready lanes: merge together, check once, refresh the test instance once. Full suites run once, on the release SHA. Deferred evidence stays open risk until it lands or the user accepts a substitute.
 - Owner feedback on running work is a decision: send it to that Worker rather than opening a task. Show accepted work to the owner as soon as it can be seen; owner-verified live work is accepted without re-running.
+- Show visual work in chat, not as file paths: one image with `<ds-image>`; several boards, cases or variants side by side on a shared `NAME.canvas.json` with `<ds-canvas>` (see `domios docs CHAT-BLOCKS`).
 - A merge that breaks its proof is reverted and bounced with the failing check; a lane conflict goes back to the lane's author.
 - Message only with decisions, evidence or state changes. Give GO only for approval, dispatch or acceptance. Authorized diagnostics need no review.
 - Choose the smallest adequate execution shape. Dispatch plan-owned source work; make low-risk canonical corrections directly and record them. Each task, lane and Worker should buy isolation, authority, independent review or parallelism.
@@ -139,4 +140,4 @@ The default Curator control loop replaces the Orchestrator heartbeat. It mirrors
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
-<!-- revision: 148 -->
+<!-- revision: 149 -->

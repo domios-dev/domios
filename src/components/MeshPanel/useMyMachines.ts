@@ -20,10 +20,13 @@ export interface MachineFailure {
 export interface MyMachinesOptions {
   account: AccountPresence;
   onSignIn: () => void | Promise<void>;
+  signingIn?: boolean;
+  cancelSignIn?: () => void;
   /** Also reported per machine through `failures`. */
   onFailure?: (operation: string, failure: AccountMeshFailure) => void;
   onChanged?: () => void;
   now?: () => number;
+  enabled?: boolean;
 }
 
 export interface MyMachines {
@@ -33,6 +36,7 @@ export interface MyMachines {
   loadFailed: boolean;
   refreshing: boolean;
   signingIn: boolean;
+  cancelSignIn?: () => void;
   busy: string | null;
   failures: ReadonlyMap<string, MachineFailure>;
   load: () => Promise<void>;
@@ -57,7 +61,7 @@ async function settle(run: () => Promise<AccountMeshOutcome>): Promise<AccountMe
 }
 
 /** Account machines with their live snapshot and the actions that change them, shared by the canvas and the list. */
-export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = epochSeconds }: MyMachinesOptions): MyMachines {
+export function useMyMachines({ account, onSignIn, signingIn: pendingLogin, cancelSignIn, onFailure, onChanged, now = epochSeconds, enabled = true }: MyMachinesOptions): MyMachines {
   const client = useAccountMeshClient();
   const [snapshot, setSnapshot] = useState<AccountMeshSnapshot | null>(null);
   const [listFailure, setListFailure] = useState<AccountMeshFailure | null>(null);
@@ -109,16 +113,21 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
   }, [account, client]);
 
   useEffect(() => {
+    if (!enabled) return;
     void load(false);
-    return client.subscribe(() => { void load(false); });
-  }, [client, load, account]);
+    const unsubscribe = client.subscribe(() => { void load(false); });
+    return () => {
+      generation.current++;
+      unsubscribe();
+    };
+  }, [client, load, enabled]);
 
   useEffect(() => {
-    if (account !== "signed_in" || snapshot?.enrollment !== "refused" || snapshot.last_refusal?.reason !== "mesh.machines"
+    if (!enabled || account !== "signed_in" || snapshot?.enrollment !== "refused" || snapshot.last_refusal?.reason !== "mesh.machines"
       || refusedListEpoch.current === snapshot.account_epoch) return;
     refusedListEpoch.current = snapshot.account_epoch;
     void load();
-  }, [account, snapshot, load]);
+  }, [account, snapshot, load, enabled]);
 
   const fail = useCallback((key: string, operation: string, failure: AccountMeshFailure) => {
     setFailures((current) => new Map(current).set(key, { operation, failure, ...(failure.reason === "rate-limited" ? { retryAt: now() + failure.retry_after_seconds } : {}) }));
@@ -221,7 +230,7 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
   const openPlans = useCallback((key: string) => openLockedMachinePlans(snapshot, key), [snapshot]);
 
   return {
-    view, snapshot, listFailure, loadFailed, refreshing, signingIn, busy, failures,
+    view, snapshot, listFailure, loadFailed, refreshing, signingIn: signingIn || !!pendingLogin, cancelSignIn, busy, failures,
     load, signIn, revoke, revokeSession, renameSelf, rename, retryEnrollment, openPlans, dismissFailure,
   };
 }

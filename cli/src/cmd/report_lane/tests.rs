@@ -1,6 +1,7 @@
 use super::*;
 use crate::args::agent::ReportStatusArg;
 use crate::cmd::report_attribution::ReportBase;
+use crate::cmd::report_guard::enrich_ready_report;
 use serde_json::json;
 use std::fs;
 use std::path::Path;
@@ -101,6 +102,77 @@ fn only_explicit_nonrepository_intent_skips_repository_guards() {
     assert!(!nonrepo.requires_repository);
     assert!(malformed.requires_repository);
     assert!(TaskReadinessScope::default().requires_repository);
+}
+
+#[test]
+fn shared_assignment_scope_is_reportable_and_nonrepository_scope_skips_checkout() {
+    let shared = task_readiness_scope_from_task(
+        &json!({
+            "execution_intent": "repository_mutation",
+            "execution_attempts": [{
+                "executor_tab_id": "tab-a",
+                "placement": "shared",
+                "execution_intent": "mutating",
+                "checkout_path": "C:/project",
+                "shared_start_sha": "start"
+            }]
+        }),
+        "tab-a",
+    );
+    assert!(shared.shared);
+    assert!(shared.recorded_checkout);
+    assert!(shared.requires_repository);
+    assert!(enrich_ready_report(
+        Some(&shared),
+        Some(ReportStatusArg::InReview),
+        None,
+        None,
+        ReportBase::default(),
+        None,
+        false,
+    )
+    .is_ok());
+
+    let non_repository =
+        task_readiness_scope_from_task(&json!({ "execution_intent": "non_repository" }), "tab-a");
+    assert!(!non_repository.requires_repository);
+    assert!(non_repository.worktree_path.is_none());
+}
+
+#[test]
+fn plain_assignment_snapshot_reports_only_without_git_metadata() {
+    let project = tempfile::tempdir().unwrap();
+    let task = json!({
+        "files": {"edit": [], "read": []},
+        "execution_intent": "repository_mutation",
+        "execution_attempts": [{
+            "executor_tab_id": "tab-a",
+            "execution_intent": "mutating",
+            "checkout_path": project.path(),
+            "shared_start_files": {}
+        }]
+    });
+    let scope = task_readiness_scope_from_task(&task, "tab-a");
+    assert!(scope.recorded_checkout);
+    assert!(!scope.shared);
+    let report = |sha| {
+        enrich_ready_report(
+            Some(&scope),
+            Some(ReportStatusArg::InReview),
+            None,
+            sha,
+            ReportBase::default(),
+            None,
+            false,
+        )
+    };
+
+    assert_eq!(report(None).unwrap(), (None, None, None));
+    assert!(report(Some("unverified".into())).is_err());
+    run(project.path(), &["init", "--initial-branch", "main"]);
+    assert_eq!(report(None).unwrap(), (None, None, None));
+    project.close().unwrap();
+    assert!(report(None).is_err());
 }
 
 #[test]

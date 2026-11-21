@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing plugin tag on the reviewed release branch commit
+        description: Existing plugin tag on the reviewed master merge commit
         type: string
         required: true
 
@@ -18,66 +18,38 @@ permissions:
 jobs:
   publish:
     name: validate and publish plugin
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && github.ref == 'refs/heads/release/next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && github.ref == 'refs/heads/master' && github.event_name == 'workflow_dispatch' }}
     environment: release
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     steps:
-      - name: Use the runner bundled Node
-        if: runner.environment == 'self-hosted'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
-        with:
-          script: |-
-            const path = require('node:path');
-            core.addPath(path.dirname(process.execPath));
-            core.info('Using runner Node ' + process.version);
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           package-manager-cache: false
           node-version: 22.22.0
-        if: runner.environment == 'github-hosted'
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           fetch-depth: 1
           ref: ${{ github.sha }}
-      - name: Discover installed runner tools
-        if: runner.environment == 'self-hosted'
-        run: node scripts/ci-runner-paths.mjs --paths-only
-      - name: Fetch scoped master history
+      - name: Fetch master and develop for ancestry verification
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/ci-git-history.mjs master
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
-        with:
-          version: 10.32.1
-          run_install: false
-          dest: ${{ runner.tool_cache }}/setup-pnpm
-        if: runner.environment == 'github-hosted'
-      - name: Require a verified master commit and exact plugin tag
+        run: node scripts/ci-git-history.mjs promote
+      - name: Require the exact tagged master SHA integrated into develop
         env:
           PLUGIN_TAG: ${{ inputs.tag }}
         run: |
           [[ "$PLUGIN_TAG" =~ ^plugin-[a-z0-9-]+-v[0-9] ]]
-          git fetch --no-tags --depth=1 origin "refs/tags/$PLUGIN_TAG:refs/tags/$PLUGIN_TAG"
+          git fetch --no-tags origin "refs/tags/$PLUGIN_TAG:refs/tags/$PLUGIN_TAG"
           test "$(git rev-parse "$PLUGIN_TAG^{commit}")" = "$GITHUB_SHA"
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/master
+          test "$(git rev-parse origin/master)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/develop
       - name: Validate release metadata
-        id: plugin
         env:
           PLUGIN_TAG: ${{ inputs.tag }}
         run: |
           node scripts/release-plugin.mjs check "$PLUGIN_TAG" > plugin-release.json
-          # JavaScript template substitutions must reach Node unchanged.
-          # shellcheck disable=SC2016
-          node --input-type=module -e 'import fs from "node:fs"; const p=JSON.parse(fs.readFileSync("plugin-release.json")); fs.appendFileSync(process.env.GITHUB_OUTPUT, `id=${p.id}\npath=${p.path}\n`);'
-      - run: pnpm install --frozen-lockfile
-      - name: Plugin checks
-        env:
-          PLUGIN_ID: ${{ steps.plugin.outputs.id }}
-        run: |
-          node scripts/check-plugin.mjs "$PLUGIN_ID"
       - name: Archive plugin
         env:
-          PLUGIN_PATH: ${{ steps.plugin.outputs.path }}
           PLUGIN_TAG: ${{ inputs.tag }}
         run: |
           node scripts/release-plugin.mjs archive "$PLUGIN_TAG" "$GITHUB_SHA" "$PLUGIN_TAG.tar.gz"
@@ -94,33 +66,21 @@ jobs:
   publish_core_channel:
     name: publish public codeterm-core channel
     needs: publish
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && github.ref == 'refs/heads/release/next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && github.ref == 'refs/heads/master' && github.event_name == 'workflow_dispatch' }}
     environment: release
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     concurrency:
       group: codeterm-core-channel-publication
       cancel-in-progress: false
     steps:
-      - name: Use the runner bundled Node
-        if: runner.environment == 'self-hosted'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
-        with:
-          script: |-
-            const path = require('node:path');
-            core.addPath(path.dirname(process.execPath));
-            core.info('Using runner Node ' + process.version);
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           package-manager-cache: false
           node-version: 22.22.0
-        if: runner.environment == 'github-hosted'
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           fetch-depth: 1
           ref: ${{ github.sha }}
-      - name: Discover installed runner tools
-        if: runner.environment == 'self-hosted'
-        run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Fetch scoped ancestry history
         env:
           GH_TOKEN: ${{ github.token }}

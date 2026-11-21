@@ -28,10 +28,12 @@ impl ServiceContext {
         let runtime = crate::service::agent_runtime::requested_for_tab(self, tab_id);
         let action = {
             let mux = self.mux.read();
-            preparation(
-                mux.get_tab(tab_id).ok_or("user send tab is absent")?,
-                runtime,
-            )
+            let tab = mux.get_tab(tab_id).ok_or("user send tab is absent")?;
+            if super::super::parked_user_delivery::exited_chat_authority(tab).is_some() {
+                Preparation::None
+            } else {
+                preparation(tab, runtime)
+            }
         };
         log::debug!("[chat-send] tab={tab_id} admission_preparation={action:?}");
         match action {

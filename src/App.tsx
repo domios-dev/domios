@@ -90,6 +90,7 @@ import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 import { DEV_BUILD } from "./lib/devBuild";
 import { FreeLimitPlansModal } from "./components/billing/FreeLimitPlansModal";
 import { useSessionRevocationScreen } from "./components/Settings/useSessionRevocationScreen";
+import { useAccount } from "./components/Settings/useAccount";
 import { useAccountMeshLimitNotice } from "./components/MeshPanel/accountMeshLimitNotice";
 import { precheckFreeLimit } from "./components/billing/freeLimitGate";
 import { neighborsEnabled } from "./components/Neighbors/neighborsSwitch";
@@ -288,18 +289,12 @@ function AppInner() {
     if (!interfaceReady) return;
     if (IS_WEB || !("__TAURI_INTERNALS__" in window)) return;
     releaseBootCover();
-    const injectedView = (window as Window & {
-      __CODETERM_CLIENT_VIEW_GENERATION__?: {
-        viewGeneration: number;
-        navigationGeneration: number;
-      };
-    }).__CODETERM_CLIENT_VIEW_GENERATION__;
     const clientUrl = new URL(window.location.href);
     const [viewText, navigationText] =
       clientUrl.searchParams.get("__codeterm_client_view")?.split(":") ?? [];
-    const clientView = injectedView ?? (viewText && navigationText
+    const clientView = viewText && navigationText
       ? { viewGeneration: Number(viewText), navigationGeneration: Number(navigationText) }
-      : undefined);
+      : undefined;
     if (
       clientView &&
       Number.isSafeInteger(clientView.viewGeneration) &&
@@ -362,9 +357,16 @@ function AppInner() {
 
   const navigateToNotificationTab = useCallback(
     (tabId: string, workspaceId: string | null) => {
-      const owner = workspaceId ?? stateRef.current.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id;
-      if (owner) {
-        void selectTabByTab(owner, tabId);
+      const workspaces = stateRef.current.workspaces;
+      const owner = workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id;
+      if (tabId.startsWith("mesh:")) {
+        const viewerWorkspace = owner ?? workspaces.find((workspace) => workspace.protected)?.id;
+        if (viewerWorkspace) void selectTabByTab(viewerWorkspace, tabId);
+        return;
+      }
+      const workspace = workspaceId ?? owner;
+      if (workspace) {
+        void selectTabByTab(workspace, tabId);
         return;
       }
       setFocusedTab(tabId);
@@ -1054,7 +1056,7 @@ function AppInner() {
           ) : mainView === "workspace" ? (
             <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
-          <PlanSidePanelHost api={stableApiConfig} />
+          <PlanSidePanelHost api={stableApiConfig} onOpenCanvas={handleNavigateToTab} />
           </>}
         </main>
         </div>
@@ -1080,8 +1082,11 @@ function AppInner() {
 }
 
 export function App() {
+  const { model } = useAccount();
+  const pairedCacheAccount = model.kind === "signed_in" ? model.identity.uid
+    : model.kind === "pending" ? false : null;
   return (
-    <MultiplexerProvider>
+    <MultiplexerProvider pairedCacheAccount={pairedCacheAccount}>
       <PageDataProvider>
       <UpdateProvider>
         <UpdatePanelProvider><AppInner /></UpdatePanelProvider>

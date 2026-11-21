@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
+import { peerEventRail } from "../../lib/peerEventRail";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { remoteChatFailure, remoteChatState } from "../../lib/remoteChatState";
 import { remoteChatPeer, setRemoteChatFailure } from "../../lib/remoteChatStatus";
@@ -27,6 +28,16 @@ export function useChatSendStatusSubscription(
 ): void {
   useEffect(() => {
     if (!tabId) return;
+    const refresh = reconcile ?? (() => { void reconcileTrackedChatMessages(tabId).catch(() => {}); });
+    const remote = parseCompositeTabId(tabId);
+    if (remote) {
+      const stop = peerEventRail.observe(remote.peerId, event => {
+        if (event.type === "reconcile"
+          || (event.type === "chat-send-status" && event.data.tab_id === remote.remoteTabId)) refresh();
+      });
+      refresh();
+      return stop;
+    }
     let cancelled = false;
     let unlisten: UnlistenFn | undefined;
     void listen<ChatSendStatus>("chat-send-status", ({ payload }) => {
@@ -37,8 +48,7 @@ export function useChatSendStatusSubscription(
         return;
       }
       unlisten = release;
-      if (reconcile) reconcile();
-      else void reconcileTrackedChatMessages(tabId).catch(() => {});
+      refresh();
     }).catch((error: unknown) => {
       console.warn("[chat-send] status subscription failed", error);
     });
@@ -74,9 +84,11 @@ export function reconcileTrackedChatMessages(tabId: string): Promise<ChatSendSta
 
 async function reconcileReadyChatMessages(tabId: string): Promise<ChatSendStatus[]> {
   const requested = readChatSends(tabId);
+  const statusesRead = invoke<ChatSendStatus[]>("chat_send_status", { tabId });
+  const dismissalsRead = invoke<ChatSendDismissal[]>("chat_send_dismissals", { tabId });
   const [statuses, dismissals] = await Promise.all([
-    invoke<ChatSendStatus[]>("chat_send_status", { tabId }),
-    invoke<ChatSendDismissal[]>("chat_send_dismissals", { tabId }).catch(() => []),
+    statusesRead,
+    parseCompositeTabId(tabId) ? dismissalsRead : dismissalsRead.catch(() => []),
   ]);
   if (Array.isArray(dismissals)) for (const receipt of dismissals) if (receipt.send?.id) observeChatSendDismissal(tabId, receipt);
   reconcileDeliveryStatuses(tabId, statuses, requested);
@@ -103,7 +115,7 @@ export async function sendTrackedChatMessage(
   tabId: string,
   messageId: string,
   message: string,
-  startupOverrideNonce?: string | null,
+  target?: import("./chatDeliveryModel").ChatSendTarget,
 ): Promise<import("../../../gen/ChatSendResult").ChatSendResult> {
   if (typeof tabId !== "string" || !tabId.trim() || tabId === "null" || tabId === "undefined") {
     throw new Error("Chat tab is not bound");
@@ -124,7 +136,7 @@ export async function sendTrackedChatMessage(
       tabId,
       text: message,
       clientToken: messageId,
-      ...(startupOverrideNonce ? { startupOverrideNonce } : {}),
+      ...target,
     }).then(status => { observeDeliveryStatus(status); return status; });
     const status = await Promise.race([request, new Promise<never>((_resolve, reject) => {
       deadline = setTimeout(() => reject(new Error("admission_unknown: send request is still unconfirmed")), ADMISSION_DEADLINE_MS);
@@ -132,15 +144,16 @@ export async function sendTrackedChatMessage(
     return status;
   } catch (error) {
     activeAdmissions.delete(key);
-    if (peer) {
+    if (isProvenAdmissionRefusal(error)) {
+      failChatSendRequest(tabId, messageId, error);
+    } else if (peer) {
       const failure = remoteChatFailure(error);
       const state = remoteChatState(undefined, failure)!;
       recordRemoteChatSendFailure(tabId, messageId, { ...failure, raw: failure.raw.slice(0, 4096), state });
       setRemoteChatFailure(tabId, failure);
+      if (!failure.neverWritten) void reconcileTrackedChatMessages(tabId).catch(() => {});
       throw error;
-    }
-    if (isProvenAdmissionRefusal(error)) failChatSendRequest(tabId, messageId, error);
-    else {
+    } else {
       recordChatSendAdmissionFailure(tabId, messageId, hadDaemonResponse(error), error);
       void reconcileTrackedChatMessages(tabId).catch(() => {});
     }
@@ -172,8 +185,7 @@ export function isProvenAdmissionRefusal(error: unknown): boolean {
     "user admission sequence exhausted",
     "user token retention capacity reached",
     "user original exceeds 4 MiB storage bound",
-    "startup override ",
-    "Startup override ",
+    "The message recipient changed while preparing the message.",
   ].some((refusal) => message.includes(refusal));
 }
 

@@ -1,3 +1,4 @@
+import { isConciergeTab } from "../../lib/tabInputPolicy";
 import { createNoticePublisher } from "../../lib/notices";
 import { firstRunLocked, firstRunSelection, firstRunSidebarTabs } from "../../lib/firstRunGate";
 import { FirstRunControls } from "../AgentPicker/FirstRunControls";
@@ -44,6 +45,9 @@ import { SidebarSkeleton } from "./SidebarSkeleton";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
+import { WorkspaceBrowseSection } from "./WorkspaceBrowseSection";
+import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
+import { selectSidebarWorkspaceView, sidebarWorkspaceKey, useSidebarMachineFilter } from "./sidebarMachineFilter";
 import { SidebarCompactRail, type CompactRailGroup } from "./SidebarCompactRail";
 import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
 import type { SidebarTeamActions } from "./TeamUnit";
@@ -53,7 +57,7 @@ import { WorkspaceCloseConfirmDialog } from "./WorkspaceCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 import { openNewSessionPicker } from "../../lib/newSessionChoice";
-import { RemoteTabPicker } from "./RemoteTabPicker";
+import { deskWorkspaceMembership, observedGeneralViewers } from "../../store/multiplexer/pairedWorkspaceProjection";
 import { tabAttentionByTab } from "./tabAttention";
 import { teamCloseResourcesForId, teamCloseResourcesForWorkspace, type TeamCloseResource } from "./teamCloseResources";
 import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
@@ -116,7 +120,7 @@ export const Sidebar = memo(function Sidebar({
   teamActions,
   onCollapsedChange,
   expandRequest = 0,
-  restoring = false,
+  restoring: restoringWorkspace = false,
   firstRunActive = firstRunLocked(config?.general_agent),
 }: SidebarProps) {
   const {
@@ -128,14 +132,16 @@ export const Sidebar = memo(function Sidebar({
     reorderDisplay,
     reorderWorkspaces,
     createTab,
-    attachRemoteTab,
     closeTab,
     setActiveTab,
     renameTab,
     spawnAgentTab,
     upsertToast,
   } = useMultiplexer();
+  const { generals, peerWorkspaces, ready: pairedInventoryReady = true } = usePairedWorkspaceInventory();
+  const restoring = restoringWorkspace || !pairedInventoryReady;
   const backendState = useMuxSelector(selectSidebarState, sidebarStateEqual);
+  const machineFilter = useSidebarMachineFilter();
   const selectedState = firstRunSelection(firstRunActive, { ...backendState, focused_tab_id: null });
   const visibleTabs = useMemo(() => firstRunSidebarTabs(firstRunActive, backendState.tabs), [firstRunActive, backendState.tabs]);
   const state = { ...selectedState, tabs: visibleTabs };
@@ -158,7 +164,6 @@ export const Sidebar = memo(function Sidebar({
     blueprints: string[];
     teams: TeamCloseResource[];
   } | null>(null);
-  const [remotePickerWorkspaceId, setRemotePickerWorkspaceId] = useState<string | null>(null);
   const { providers, loading: providersLoading } = useAgentProviders();
   const { index: planIndex, refetch: refetchPlanIndex } = usePlanIndexOptional();
   const fullPlans = useSidebarPlansOptional();
@@ -559,47 +564,55 @@ export const Sidebar = memo(function Sidebar({
     void finishTeamClose(pending.teamId, pending.workspaceId, () => setPendingTeamClose(null));
   }, [pendingTeamClose, finishTeamClose]);
   const sortedWorkspaces = useMemo(() => sortByOrder(state.workspaces), [state.workspaces]);
-  const { general: generalWorkspace, workspaces: ordinaryWorkspaces } = useMemo(
-    () => partitionSidebarWorkspaces(sortedWorkspaces),
-    [sortedWorkspaces],
-  );
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(() => {
-    const restored = loadSelectedWorkspaceId();
-    if (restored) return restored;
-    const active = state.workspaces.find((workspace) => workspace.id === state.active_workspace_id && !workspace.protected);
-    return active?.id ?? state.workspaces.find((workspace) => !workspace.protected)?.id ?? null;
+  const { general: generalWorkspace, workspaces: ordinaryWorkspaces } = useMemo(() => {
+    const { general, workspaces } = partitionSidebarWorkspaces(sortedWorkspaces);
+    const membership = deskWorkspaceMembership(sortedWorkspaces, state.tabs, state.teams);
+    return { general, workspaces: workspaces.map(workspace => ({
+      ...workspace, tabs: (membership.get(workspace.id) ?? []).map(tab => tab.id),
+    })) };
+  }, [sortedWorkspaces, state.tabs, state.teams]);
+  const [preferredWorkspaceKey, setPreferredWorkspaceKey] = useState<string | null>(() => {
+    const workspaceId = loadSelectedWorkspaceId() ?? state.active_workspace_id;
+    return workspaceId ? sidebarWorkspaceKey(null, workspaceId) : null;
   });
+  const activeWorkspaceId = state.active_workspace_id;
+  const activeOrdinaryWorkspaceId = ordinaryWorkspaces.find(workspace => workspace.id === activeWorkspaceId)?.id;
   useEffect(() => {
-    const active = ordinaryWorkspaces.find((workspace) => workspace.id === state.active_workspace_id);
-    if (active) {
-      setSelectedWorkspaceId(active.id);
-      return;
-    }
-    if (!ordinaryWorkspaces.some((workspace) => workspace.id === selectedWorkspaceId)) {
-      setSelectedWorkspaceId(ordinaryWorkspaces[0]?.id ?? null);
-    }
-  }, [ordinaryWorkspaces, selectedWorkspaceId, state.active_workspace_id]);
-  const contentScrollRef = useSidebarScrollAnchor(state.active_workspace_id, selectedWorkspaceId);
+    if (activeOrdinaryWorkspaceId) setPreferredWorkspaceKey(sidebarWorkspaceKey(null, activeOrdinaryWorkspaceId));
+  }, [activeOrdinaryWorkspaceId]);
+  const localWorkspaceIds = useMemo(() => new Map(ordinaryWorkspaces.map(workspace =>
+    [sidebarWorkspaceKey(null, workspace.id), workspace.id])), [ordinaryWorkspaces]);
+  const workspaceView = useMemo(() => selectSidebarWorkspaceView([
+    ...ordinaryWorkspaces.map(workspace => ({
+      key: sidebarWorkspaceKey(null, workspace.id), peerId: null, workspace, observed: null, selected: workspace.id === activeOrdinaryWorkspaceId,
+    })),
+    ...(peerWorkspaces ?? []).map(observed => ({
+      key: sidebarWorkspaceKey(observed.peerId, observed.workspace.id),
+      peerId: observed.peerId,
+      workspace: { ...observed.workspace, tabs: [...(observed.tabIds ?? observed.tabs.map(tab => tab.viewerId))] },
+      observed,
+      selected: observed.selected,
+    })),
+  ], preferredWorkspaceKey, machineFilter), [ordinaryWorkspaces, peerWorkspaces, preferredWorkspaceKey, machineFilter, activeOrdinaryWorkspaceId]);
+  const selectedWorkspace = workspaceView.selected?.workspace ?? null;
+  const selectedWorkspaceKey = workspaceView.selected?.key ?? null;
+  const observedWorkspace = workspaceView.selected?.observed;
+  const contentScrollRef = useSidebarScrollAnchor(activeWorkspaceId, selectedWorkspaceKey);
   usePrimedWorkspaceGraphs(useMemo(() => ordinaryWorkspaces.map((workspace) => workspace.id), [ordinaryWorkspaces]));
-  const workspaceStatuses = useMemo(() => Object.fromEntries(ordinaryWorkspaces.map((workspace) => [
-    workspace.id,
-    aggregateTabStatuses(
-      tabsInWorkspace(workspace.tabs, state.tabs)
-        .filter(isSidebarTabVisible)
-        .map((tab) => tab.id),
-      state.tabStatuses,
-      state.tabs,
-    ),
-  ])), [ordinaryWorkspaces, state.tabStatuses, state.tabs]);
-  const workingByWorkspace = useMemo(() => Object.fromEntries(ordinaryWorkspaces.map((workspace) => [
-    workspace.id,
-    countWorkingTabs(tabsInWorkspace(workspace.tabs, state.tabs), state.tabStatuses) > 0,
-  ])), [ordinaryWorkspaces, state.tabStatuses, state.tabs]);
-  const workspaceSortIds = useMemo(
-    () => ordinaryWorkspaces.map((ws) => `${WS_PREFIX}${ws.id}`),
-    [ordinaryWorkspaces],
-  );
-  const selectedWorkspace = ordinaryWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null;
+  const workspaceActivity = useMemo(() => Object.fromEntries(workspaceView.visible.map(({ key, workspace, observed }) => {
+    const tabs = observed
+      ? observed.tabs.map(({ viewerId, tab }) => ({ ...tab, id: viewerId })).filter(isSidebarTabVisible)
+      : tabsInWorkspace(workspace.tabs, state.tabs).filter(isSidebarTabVisible);
+    const statuses = observed
+      ? Object.fromEntries(observed.tabs.flatMap(({ viewerId, status }) => status ? [[viewerId, status]] : []))
+      : state.tabStatuses;
+    return [key, {
+      status: aggregateTabStatuses(tabs.map(tab => tab.id), statuses,
+        observed ? Object.fromEntries(tabs.map(tab => [tab.id, tab])) : state.tabs),
+      working: countWorkingTabs(tabs, statuses) > 0,
+    }];
+  })), [workspaceView.visible, state.tabs, state.tabStatuses]);
+  const workspaceSortIds = useMemo(() => [...localWorkspaceIds.keys()].map(key => `${WS_PREFIX}${key}`), [localWorkspaceIds]);
   const orchestratorTabs = useMemo(() => Object.values(state.tabs).filter((tab) => anchorsTeam(tab)), [state.tabs]);
   const closingTabIds = useMemo(() => new Set(closingTabs.keys()), [closingTabs]);
   const workspaceDetailData = useMemo<SidebarWorkspaceDetailData>(() => ({
@@ -638,7 +651,6 @@ export const Sidebar = memo(function Sidebar({
     },
     newSession: handleNewSession,
     newAgent: handleAgentSpawn,
-    openRemoteTab: setRemotePickerWorkspaceId,
     openMap: onOpenWorkspaceMap,
     openAutomation: onOpenWorkspaceAutomation,
     renamePlan: handleRenamePlan,
@@ -649,23 +661,58 @@ export const Sidebar = memo(function Sidebar({
     createTab, handleNewSession, handleAgentSpawn, onOpenWorkspaceMap, onOpenWorkspaceAutomation, handleRenamePlan,
     teamActions?.onRenameTeam, teamActions?.onAddTeamMember, teamActions?.onCloseTeam, requestTeamClose]);
   const dndHandlers = useMemo(
-    () => ({ reorderTabs, reorderDisplay, reorderWorkspaces }),
-    [reorderTabs, reorderDisplay, reorderWorkspaces],
+    () => ({
+      reorderTabs,
+      reorderDisplay,
+      reorderWorkspaces: (keys: string[]) => reorderWorkspaces(keys.flatMap(key => localWorkspaceIds.get(key) ?? [])),
+    }),
+    [reorderTabs, reorderDisplay, reorderWorkspaces, localWorkspaceIds],
   );
   const compactGroups = useMemo<CompactRailGroup[]>(() => {
     if (!isCompact) return [];
     const railGroup = (workspaceId: string, label: string, tabIds: readonly string[], keep: (tab: Tab) => boolean): CompactRailGroup => {
       const workspaceActive = workspaceId === state.active_workspace_id && isWorkspaceMode;
-      const tabs = tabsInWorkspace(tabIds, state.tabs).filter((tab) => isSidebarTabVisible(tab) && !tab.parent_tab_id && keep(tab));
+      const tabs = tabsInWorkspace(tabIds, state.tabs).filter((tab) => isSidebarTabVisible(tab) && !isConciergeTab(tab) && !tab.parent_tab_id && keep(tab));
       const active = tabs.find((tab) => isWorkspaceTabActive(workspaceActive, workspaceCanvasActive, tab.id, state.activeTabIds[workspaceId]));
-      return { workspaceId, label, tabs, activeTabId: active?.id ?? null };
+      const activeTabId = workspaceActive && !workspaceCanvasActive ? state.activeTabIds[workspaceId] ?? active?.id ?? null : active?.id ?? null;
+      return { workspaceId, label, tabs, activeTabId };
     };
     const groups: CompactRailGroup[] = [];
-    if (generalWorkspace) groups.push(railGroup(generalWorkspace.id, generalWorkspace.name, generalWorkspace.tabs, isGeneralSectionTab));
-    const selected = ordinaryWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId);
-    if (selected) groups.push(railGroup(selected.id, selected.name, selected.tabs, (tab) => anchorsTeam(tab)));
+    if (generalWorkspace) {
+      const group = railGroup(generalWorkspace.id, generalWorkspace.name, generalWorkspace.tabs, tab => !tab.remote_peer_id && isGeneralSectionTab(tab));
+      const peers = [...generals].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }) || a.peerId.localeCompare(b.peerId));
+      const viewers = observedGeneralViewers(peers, state.tabs, generalWorkspace.id);
+      group.tabs.push(...viewers.map(({ session, attached }) => attached ?? { ...session.tab, id: session.viewerId }));
+      group.observed = new Map(viewers.map(({ peer, session, attached }) => [session.viewerId, {
+        machine: { peerId: peer.peerId, name: peer.name, availability: peer.availability, cached: peer.cached && !attached },
+        status: session.status,
+      }]));
+      groups.push(group);
+    }
+    if (observedWorkspace && selectedWorkspace) {
+      const { workspace, peerId, tabs } = observedWorkspace;
+      const visible = tabs.filter(({ viewerId, tab }) => !isConciergeTab(tab)
+        && !groups.some(group => group.tabs.some(visibleTab => visibleTab.id === viewerId)));
+      groups.push({
+        workspaceId: workspace.id,
+        label: workspace.name,
+        wholeWorkspace: true,
+        tabs: visible.map(({ viewerId, tab }) => state.tabs[viewerId] ?? { ...tab, id: viewerId }),
+        activeTabId: state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null,
+        observed: new Map(visible.map(({ viewerId, status, peerId: sourcePeer }) => {
+          const machine = generals.find(peer => peer.peerId === (sourcePeer ?? peerId));
+          return [viewerId, {
+            machine: { peerId: sourcePeer ?? peerId, name: machine?.name ?? "Machine", availability: machine?.availability ?? "offline" },
+            status,
+          }];
+        })),
+      });
+    } else if (selectedWorkspace) {
+      groups.push({ ...railGroup(selectedWorkspace.id, selectedWorkspace.name, selectedWorkspace.tabs,
+        (tab) => anchorsTeam(tab) || Boolean(tab.remote_peer_id)), wholeWorkspace: true });
+    }
     return groups;
-  }, [generalWorkspace, isCompact, isWorkspaceMode, ordinaryWorkspaces, selectedWorkspaceId, state.activeTabIds, state.active_workspace_id, state.tabs, workspaceCanvasActive]);
+  }, [generalWorkspace, generals, observedWorkspace, isCompact, isWorkspaceMode, selectedWorkspace, state.activeTabIds, state.active_workspace_id, state.tabs, workspaceCanvasActive]);
 
   return (
     <FirstRunControls locked={firstRunActive}>
@@ -698,6 +745,7 @@ export const Sidebar = memo(function Sidebar({
                   groups={compactGroups}
                   attentionByTab={attention}
                   tabStatuses={state.tabStatuses}
+                  touchMode={touchMode}
                   onActivate={(workspaceId, tabId) => {
                     setActiveTab(workspaceId, tabId);
                     onNavigateToTab?.();
@@ -722,41 +770,52 @@ export const Sidebar = memo(function Sidebar({
               {!isCompact && !restoring && <SidebarStructuralSection label="WORKSPACES" testId="workspaces-section-toggle"
                 firstRunMuted={firstRunActive}
                 expanded={workspacesSectionExpanded} onToggle={toggleWorkspacesSection}>
-                {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (
-                  <>
-                    <WorkspaceCardGrid
-                      workspaces={ordinaryWorkspaces}
-                      selectedWorkspaceId={selectedWorkspaceId}
-                      statuses={workspaceStatuses}
-                      workingByWorkspace={workingByWorkspace}
-                      sortIds={workspaceSortIds}
-                      onSelect={(workspaceId) => {
-                        setSelectedWorkspaceId(workspaceId);
-                        persistSelectedWorkspaceId(workspaceId);
-                        setActiveWorkspace(workspaceId);
-                      }}
-                      onCreate={handleNewWorkspace}
+                {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && <>
+                  <WorkspaceCardGrid
+                    workspaces={workspaceView.visible.map(({ key, workspace }) => ({ ...workspace, id: key }))}
+                    selectedWorkspaceId={selectedWorkspaceKey}
+                    statuses={Object.fromEntries(Object.entries(workspaceActivity).map(([key, activity]) => [key, activity.status]))}
+                    workingByWorkspace={Object.fromEntries(Object.entries(workspaceActivity).map(([key, activity]) => [key, activity.working]))}
+                    sortIds={workspaceSortIds}
+                    fullWorkspaceOrder={[...localWorkspaceIds.keys()]}
+                    localWorkspaceIds={localWorkspaceIds}
+                    onSelect={(key) => {
+                      setPreferredWorkspaceKey(key);
+                      const localId = localWorkspaceIds.get(key);
+                      if (localId) {
+                        persistSelectedWorkspaceId(localId);
+                        setActiveWorkspace(localId);
+                      }
+                    }}
+                    onCreate={handleNewWorkspace}
+                  />
+                  {selectedWorkspace && (
+                    <SidebarWorkspaceDetail
+                      key={selectedWorkspaceKey}
+                      workspace={selectedWorkspace}
+                      status={selectedWorkspaceKey ? workspaceActivity[selectedWorkspaceKey]?.status ?? null : null}
+                      data={workspaceDetailData}
+                      actions={workspaceDetailActions}
+                      observedContent={observedWorkspace && <WorkspaceBrowseSection
+                        workspace={observedWorkspace}
+                        attachedTabs={state.tabs}
+                        touchMode={touchMode}
+                        onOpenCanvas={onNavigateToTab}
+                        onRenameViewer={(tab, title) => {
+                          if (tab.workspace_id) renameTab(tab.workspace_id, tab.id, title);
+                        }}
+                        selectedViewerId={state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null}
+                        onSelectViewer={tabId => {
+                          setActiveTab(generalWorkspace?.id ?? "", tabId);
+                          onNavigateToTab?.();
+                        }}
+                      />}
                     />
-                    {selectedWorkspace && (
-                      <SidebarWorkspaceDetail
-                        key={selectedWorkspace.id}
-                        workspace={selectedWorkspace}
-                        status={workspaceStatuses[selectedWorkspace.id] ?? null}
-                        data={workspaceDetailData}
-                        actions={workspaceDetailActions}
-                      />
-                    )}
-                  </>
-                )}
+                  )}
+                </>}
               </SidebarStructuralSection>}
               </SidebarDnd>
             </div>
-            {remotePickerWorkspaceId && (
-              <RemoteTabPicker
-                onClose={() => setRemotePickerWorkspaceId(null)}
-                onAttach={(peer, tab) => attachRemoteTab?.(remotePickerWorkspaceId, peer, tab)}
-              />
-            )}
             {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} enabled={neighborsSwitch.enabled} activeChat={activeNeighborChat}
               activeTabId={isWorkspaceMode && !workspaceCanvasActive && state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null} />}
             <div

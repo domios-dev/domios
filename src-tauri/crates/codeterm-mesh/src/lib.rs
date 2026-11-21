@@ -12,7 +12,6 @@ pub mod machine_identity;
 pub mod manager;
 pub mod network_transport;
 pub mod paired_resolve;
-pub mod peer_services;
 pub mod peers;
 pub mod ports;
 pub mod presence_notice;

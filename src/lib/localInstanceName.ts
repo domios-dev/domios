@@ -1,10 +1,12 @@
+import { cleanMachineName } from "./machineIdentity";
+
 const UNKNOWN_LOCAL_NAME = "Domios";
 const MESH_PEERS_LOADED = "codeterm-mesh-peers-loaded";
 const STORAGE_KEY = "codeterm-local-instance-name";
 
 function readPersistedName(): string | null {
   try {
-    return localStorage.getItem(STORAGE_KEY)?.trim() || null;
+    return cleanMachineName(localStorage.getItem(STORAGE_KEY)) ?? null;
   } catch {
     return null;
   }
@@ -14,7 +16,7 @@ let knownName: string | null = readPersistedName();
 
 /** Keeps the last name the local daemon reported, so a failed fetch, a remount or a reload never reverts the label. */
 export function rememberLocalInstanceName(name: string | null | undefined): string {
-  const trimmed = name?.trim();
+  const trimmed = cleanMachineName(name);
   if (trimmed) {
     knownName = trimmed;
     try {

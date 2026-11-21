@@ -105,9 +105,9 @@ async function fixture(local = false) {
       return new Response(body);
     }
     const envelope = url.pathname === "/api/mesh/relay-to"
-      ? JSON.parse(String(init?.body)) as { target_peer_id: string; method: string; path: string; body: AppConfig | null }
+      ? JSON.parse(String(init?.body)) as { target_instance_id: string; method: string; path: string; body: AppConfig | null }
       : null;
-    const destination = envelope?.target_peer_id ?? A;
+    const destination = envelope?.target_instance_id ?? A;
     const method = envelope?.method ?? init?.method ?? "GET";
     const path = envelope?.path ?? url.pathname;
     assert.equal(new Headers(init?.headers).get("Authorization"), "Bearer gateway-auth-sentinel");
@@ -187,15 +187,14 @@ async function fixture(local = false) {
   }
   async function click(selector: string) { await act(async () => button(selector).click()); }
   async function switchTo(id: string | null) {
-    await click('[data-testid="peer-picker-button"]');
-    if (id === null) await click('[data-testid="peer-picker-self"]');
-    else {
-      const rows = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="peer-picker-item"]')];
-      const row = rows.find((entry) => entry.dataset.peerName === (id === A ? "eight" : "rollacodebot"));
-      assert(row);
-      assert.equal(row.disabled, false, "peer switch requires an available compatible peer");
-      await act(async () => row.click());
-    }
+    await act(async () => {
+      const switchId = api.invalidateWebRequestContext();
+      if (id === null) api.clearRelayTarget();
+      else api.setRelayTarget(id, stores.get(id)!.mesh.instance_name);
+      window.dispatchEvent(new CustomEvent("codeterm-peer-switch-reset", { detail: { switchId } }));
+      events.resetWebEvents();
+      window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind", { detail: { switchId } }));
+    });
   }
   async function release(request: Request) { await act(async () => request.release()); }
   async function load() {
@@ -255,7 +254,7 @@ async function run(name: string, test: (f: Awaited<ReturnType<typeof fixture>>) 
 }
 
 async function main() {
-  await run("Settings autosave cannot persist A config into B after the real picker switch", async (f) => {
+  await run("Settings autosave cannot persist A config into B after a daemon context rebind", async (f) => {
     await f.load();
     await f.saveToggle();
     const positive = await f.persist();

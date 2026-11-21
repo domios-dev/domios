@@ -12,6 +12,7 @@ mod neighbor;
 pub use neighbor::NeighborAuthority;
 mod restorable_launch;
 pub use managed_tab::ManagedTab;
+pub use restorable_launch::ExitedChatBinding;
 mod turn_resume;
 pub use model_identity::{
     LaunchModelReport, ModelFallbackNotice, ModelIdentityMismatch, PendingModelSwitchObservation,

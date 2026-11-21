@@ -16,6 +16,8 @@
     "providerId": "provider",
     "pluginId": "plugin",
     "peerId": "peer",
+    "sourceId": "notice",
+    "notificationAction": "read",
     "ordinaryTabId": "mesh:peer/tab",
     "ptyId": "pty",
     "clientId": "client",
@@ -346,6 +348,18 @@
         "/api/mesh/relay-to"
       ]
     ],
+    "mesh_peer_notifications_list": [
+      [
+        "POST",
+        "/api/mesh/relay-to"
+      ]
+    ],
+    "mesh_peer_notification_action": [
+      [
+        "POST",
+        "/api/mesh/relay-to"
+      ]
+    ],
     "mesh_peer_workspace_create": [
       [
         "POST",
@@ -356,10 +370,6 @@
       [
         "POST",
         "/api/mesh/relay-to"
-      ],
-      [
-        "GET",
-        "/api/mesh/peers"
       ]
     ],
     "mesh_remote_tab_action": [
@@ -667,48 +677,6 @@
       [
         "GET",
         "/api/mesh/peers"
-      ]
-    ],
-    "mesh_peer_cron_action": [
-      [
-        "POST",
-        "/api/mesh/peers/peer/crons/item/trigger"
-      ]
-    ],
-    "mesh_peer_cron_delete": [
-      [
-        "DELETE",
-        "/api/mesh/peers/peer/crons/item"
-      ]
-    ],
-    "mesh_peer_cron_get": [
-      [
-        "GET",
-        "/api/mesh/peers/peer/crons/item"
-      ]
-    ],
-    "mesh_peer_cron_history": [
-      [
-        "GET",
-        "/api/mesh/peers/peer/crons/item/history"
-      ]
-    ],
-    "mesh_peer_cron_update": [
-      [
-        "PUT",
-        "/api/mesh/peers/peer/crons/item"
-      ]
-    ],
-    "mesh_peer_service_delete": [
-      [
-        "DELETE",
-        "/api/mesh/peers/peer/services/item"
-      ]
-    ],
-    "mesh_peer_services_list": [
-      [
-        "GET",
-        "/api/mesh/peers/peer/services"
       ]
     ],
     "mesh_set_access": [

@@ -5,7 +5,13 @@ use crate::service_plan::NewTask;
 use codeterm_types::agent::ReportStatus;
 
 fn fixture() -> (tempfile::TempDir, PlanStore, String, String) {
+    fixture_with_edit_files(vec!["src/lifecycle.rs".into()])
+}
+
+fn fixture_with_edit_files(edit: Vec<String>) -> (tempfile::TempDir, PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("src")).unwrap();
+    std::fs::write(dir.path().join("src/lifecycle.rs"), "fixture\n").unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut plan = Plan::new(
         "reassignment".into(),
@@ -20,6 +26,10 @@ fn fixture() -> (tempfile::TempDir, PlanStore, String, String) {
             NewTask {
                 name: "lifecycle".into(),
                 kind: "implement".into(),
+                files: crate::plan::TaskFiles {
+                    edit,
+                    ..Default::default()
+                },
                 model: Some("codex:test-model".into()),
                 acceptance_criteria: vec!["binding survives review".into()],
                 test_plan: Some("focused lifecycle oracle".into()),
@@ -73,6 +83,162 @@ fn assignment_attempt_retains_planned_provider_and_model() {
     assert_eq!(attempt.agent_type.as_deref(), Some("codex"));
     assert_eq!(attempt.model.as_deref(), Some("gpt-6-luna"));
     assert_eq!(attempt.reasoning_effort.as_deref(), Some("xhigh"));
+    assert_eq!(attempt.placement, crate::plan::WorkerPlacement::Shared);
+    assert!(attempt
+        .checkout_path
+        .as_deref()
+        .is_some_and(|path| !path.is_empty()));
+    assert!(attempt.shared_start_files.is_some());
+}
+
+#[test]
+fn git_repository_assignment_records_shared_start_commit() {
+    assert_git_assignment_start(vec!["src/lifecycle.rs".into()], WorkerPlacement::Shared);
+}
+
+#[test]
+fn git_assignment_without_edit_files_records_start_commit_only() {
+    assert_git_assignment_start(Vec::new(), WorkerPlacement::default());
+}
+
+fn assert_git_assignment_start(edit: Vec<String>, placement: WorkerPlacement) {
+    let (dir, store, plan, task) = fixture_with_edit_files(edit);
+    let project = dir.path();
+    for args in [
+        &["init", "--initial-branch=main"][..],
+        &["config", "user.email", "test@example.invalid"][..],
+        &["config", "user.name", "Test User"][..],
+    ] {
+        let output = codeterm_util::process_util::git_command()
+            .args(args)
+            .current_dir(project)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+    }
+    for args in [
+        &["add", "src/lifecycle.rs"][..],
+        &["commit", "-m", "initial"][..],
+    ] {
+        let output = codeterm_util::process_util::git_command()
+            .args(args)
+            .current_dir(project)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+    }
+    let expected_head = String::from_utf8(
+        codeterm_util::process_util::git_command()
+            .args(["rev-parse", "HEAD"])
+            .current_dir(project)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+
+    store
+        .assign_task_with_runtime_binding(
+            &plan,
+            &task,
+            "worker",
+            None,
+            None,
+            Some(&binding("worker-session")),
+            None,
+            4,
+        )
+        .unwrap();
+
+    let assigned = store.inspect_task_for_test(&task).unwrap().task;
+    let attempt = assigned.execution_attempts.last().unwrap();
+    assert_eq!(attempt.placement, placement);
+    assert_eq!(
+        attempt.shared_start_sha.as_deref(),
+        Some(expected_head.as_str())
+    );
+    assert!(attempt.checkout_path.is_some());
+    assert!(attempt.shared_start_files.is_none());
+}
+
+#[test]
+fn plain_assignment_without_edit_files_can_report_readiness() {
+    let (dir, store, plan, task) = fixture_with_edit_files(Vec::new());
+    store
+        .assign_task_with_runtime_binding(
+            &plan,
+            &task,
+            "worker",
+            None,
+            None,
+            Some(&binding("worker-session")),
+            None,
+            3,
+        )
+        .unwrap();
+    let assigned = store.inspect_task_for_test(&task).unwrap().task;
+    let attempt = assigned.execution_attempts.last().unwrap();
+    assert_eq!(attempt.placement, WorkerPlacement::default());
+    assert!(codeterm_paths::paths_equal(
+        attempt.checkout_path.as_deref().unwrap(),
+        &dir.path().to_string_lossy()
+    ));
+    assert!(attempt.shared_start_sha.is_none());
+    assert_eq!(attempt.shared_start_files, Some(Default::default()));
+    store
+        .acknowledge_task_attempt(&plan, &task, "worker", &attempt.id, 4)
+        .unwrap();
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                &plan,
+                &task,
+                &AgentRef::from_tab("worker"),
+                report(authority(&assigned, "worker")),
+                5,
+            )
+            .unwrap()
+            .committed_review
+    );
+    assert_eq!(
+        store.inspect_task_for_test(&task).unwrap().task.status,
+        TaskStatus::InReview
+    );
+}
+
+#[test]
+fn non_repository_assignment_preserves_intent_without_checkout_binding() {
+    let (_dir, store, plan, task) = fixture();
+    store
+        .edit_plan_fixture(&plan, 3, |plan| {
+            plan.tasks[0].execution_intent = crate::plan::TaskExecutionIntent::NonRepository;
+            Ok(())
+        })
+        .unwrap();
+
+    store
+        .assign_task_with_runtime_binding(
+            &plan,
+            &task,
+            "worker",
+            None,
+            None,
+            Some(&binding("worker-session")),
+            None,
+            4,
+        )
+        .unwrap();
+
+    let assigned = store.inspect_task_for_test(&task).unwrap().task;
+    let attempt = assigned.execution_attempts.last().unwrap();
+    assert_eq!(
+        attempt.placement,
+        crate::plan::WorkerPlacement::NonRepository
+    );
+    assert!(attempt.checkout_path.is_none());
+    assert!(attempt.execution_intent.is_none());
 }
 
 fn authority(task: &Task, tab: &str) -> TaskMutationAuthority {
@@ -88,14 +254,29 @@ fn report(authority: TaskMutationAuthority) -> BoundWorkerReport {
     BoundWorkerReport {
         message: "owned candidate".into(),
         status: Some(ReportStatus::InReview),
-        sha: Some("123456789abcdef".into()),
-        branch: Some("lane/test".into()),
+        // This lifecycle fixture is a plain folder without Git history.
+        sha: None,
+        branch: None,
         authority: Some(authority),
         ..Default::default()
     }
 }
 
-fn assigned_review(store: &PlanStore, plan: &str, task: &str, authorized: bool) -> String {
+fn worker_edits_declared_file(project: &std::path::Path, revision: &str) {
+    std::fs::write(
+        project.join("src/lifecycle.rs"),
+        format!("worker revision {revision}\n"),
+    )
+    .unwrap();
+}
+
+fn assigned_review(
+    store: &PlanStore,
+    plan: &str,
+    task: &str,
+    project: &std::path::Path,
+    authorized: bool,
+) -> String {
     let owner = TaskMutationAuthority {
         tab_id: "owner".into(),
         session_id: "owner-session".into(),
@@ -123,6 +304,7 @@ fn assigned_review(store: &PlanStore, plan: &str, task: &str, authorized: bool) 
     store
         .acknowledge_task_attempt(plan, task, "worker", &attempt_id, 4)
         .unwrap();
+    worker_edits_declared_file(project, "assigned-review");
     assert!(
         store
             .ingest_bound_worker_report(
@@ -143,8 +325,8 @@ fn assigned_review(store: &PlanStore, plan: &str, task: &str, authorized: bool) 
 }
 
 fn roundtrip(authorized: bool) {
-    let (_dir, store, plan, task) = fixture();
-    let attempt = assigned_review(&store, &plan, &task, authorized);
+    let (dir, store, plan, task) = fixture();
+    let attempt = assigned_review(&store, &plan, &task, dir.path(), authorized);
     let result = store
         .bounce_review(
             &plan,
@@ -213,8 +395,8 @@ fn lifecycle_reassignment_authorized_assign_ack_report_bounce() {
 
 #[test]
 fn lifecycle_reassignment_review_respawn_ack_preserves_history_and_fences_retired() {
-    let (_dir, store, plan, task) = fixture();
-    let previous_id = assigned_review(&store, &plan, &task, true);
+    let (dir, store, plan, task) = fixture();
+    let previous_id = assigned_review(&store, &plan, &task, dir.path(), true);
     store
         .hold_review(
             &plan,
@@ -287,6 +469,7 @@ fn lifecycle_reassignment_review_respawn_ack_preserves_history_and_fences_retire
     assert!(store
         .acknowledge_task_attempt(&plan, &task, "worker", &previous_id, 8)
         .is_err());
+    worker_edits_declared_file(dir.path(), "retired-report");
     assert!(
         !store
             .ingest_bound_worker_report(
@@ -303,6 +486,7 @@ fn lifecycle_reassignment_review_respawn_ack_preserves_history_and_fences_retire
         .acknowledge_task_attempt(&plan, &task, "replacement", &replacement.attempt.id, 9)
         .unwrap();
     assert_eq!(ack.attempt.acknowledged_at, Some(9));
+    worker_edits_declared_file(dir.path(), "respawn-report");
     assert!(
         store
             .ingest_bound_worker_report(
@@ -319,7 +503,7 @@ fn lifecycle_reassignment_review_respawn_ack_preserves_history_and_fences_retire
 
 #[test]
 fn lifecycle_reassignment_replacement_retires_same_tab_epoch() {
-    let (_dir, store, plan, task) = fixture();
+    let (dir, store, plan, task) = fixture();
     store
         .assign_task_with_runtime_binding(
             &plan,
@@ -363,6 +547,7 @@ fn lifecycle_reassignment_replacement_retires_same_tab_epoch() {
     assert!(store
         .acknowledge_task_attempt(&plan, &task, "worker", &old_id, 7)
         .is_err());
+    worker_edits_declared_file(dir.path(), "superseded-report");
     assert!(store
         .ingest_bound_worker_report(
             &plan,
@@ -413,7 +598,7 @@ fn lifecycle_reassignment_invalid_binding_and_remote_binding_do_not_mutate() {
 
 #[test]
 fn lifecycle_reassignment_assignment_cannot_clear_review_or_active_state() {
-    let (_dir, store, plan, task) = fixture();
+    let (dir, store, plan, task) = fixture();
     store
         .assign_task_with_runtime_binding(
             &plan,
@@ -432,6 +617,7 @@ fn lifecycle_reassignment_assignment_cannot_clear_review_or_active_state() {
         .unwrap();
     for in_review in [false, true] {
         if in_review {
+            worker_edits_declared_file(dir.path(), "active-review");
             store
                 .ingest_bound_worker_report(
                     &plan,

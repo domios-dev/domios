@@ -120,7 +120,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
       response = await localFetch("/api/mesh/relay-to", {
         ...init,
         method: "POST", signal: init.signal, headers: init.headers,
-        body: JSON.stringify({ target_peer_id: options.relayPeerId, method: (init.method ?? "GET").toUpperCase(), path, body }),
+        body: JSON.stringify({ target_instance_id: options.relayPeerId, method: (init.method ?? "GET").toUpperCase(), path, body }),
       });
       if (response.ok) {
         const relay = decodeTransportResponse<{ ok: boolean; status: number; data: unknown; error?: string }>(

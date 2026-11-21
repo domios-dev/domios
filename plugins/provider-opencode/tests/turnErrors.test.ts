@@ -19,6 +19,15 @@ describe("OpenCode assistant errors", () => {
     expect(unavailableModelError({ ...error, error: { name: "APIError", data: { statusCode: 400, isRetryable: false, message: "Invalid request" } } })).toBe(false);
     expect(sessionObservations({ ...error, role: "user" })).toBeNull();
   });
+  it("classifies typed insufficient balance errors on assistant messages", () => {
+    const body = { error: { type: "insufficient_balance_error", message: "Insufficient Balance" } };
+    const quota = { role: "assistant", error: { type: "provider.quota", status: 402 } };
+    expect(turnError(quota)).toEqual(quota.error);
+    expect(sessionObservations(quota)?.api_error).toBe("usage_limit");
+    expect(sessionObservations({ ...quota, error: { ...quota.error, body } })?.api_error).toBe("usage_limit");
+    expect(sessionObservations({ ...quota, error: { body } })?.api_error).toBe("usage_limit");
+    expect(sessionObservations({ ...quota, role: "user" })).toBeNull();
+  });
   it("uses the most recent completed outcome for each model", () => {
     const success = { role: "assistant", time: { completed: 50 } };
     expect([...rejectedModelIds([{ model: "opencode/exo-free", message: error }, { model: "opencode/good", message: success }])]).toEqual(["opencode/exo-free"]);

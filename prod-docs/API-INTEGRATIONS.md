@@ -175,6 +175,7 @@ With consent recorded, daemon start and provider plugin reload reconcile a missi
 | POST | `/api/crons/:id/trigger` | — | Manually trigger cron job |
 | POST | `/api/crons/:id/cancel` | — | Stop any currently-running executions of this cron job. Returns `{cancelled: N}` — number of tabs closed. Does NOT delete the job; future scheduled fires continue normally. Running history entries flip status to `Cancelled`. |
 | GET | `/api/crons/:id/history` | — | Get run history for cron job |
+| GET | `/api/crons/:id/history/:run_id` | — | Read a stored run transcript as `{messages, total}`. Returns 404 when the run or its session is unavailable. |
 
 Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*/30 * * * *` (every 30 min), `0 9 * * *` (daily 9am), `0 9 * * 1` (Mondays 9am).
 
@@ -207,4 +208,4 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 Service registration, health, usage, logs, and activity: `domios docs API-SERVICES`. Notifications and webhooks: `domios docs API-TABS`. Secret storage and updates: `domios docs API-STATE`.
 
-<!-- revision: 38 -->
+<!-- revision: 39 -->

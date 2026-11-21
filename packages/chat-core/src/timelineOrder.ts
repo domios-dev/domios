@@ -1,4 +1,5 @@
 import { timestampMs } from "./time";
+import type { SourceRecord } from "./gen/SourceRecord";
 
 /** Identity and ordering fields shared by transcript rows and timestamped host cards. */
 export interface TimelineOrderItem {
@@ -6,6 +7,7 @@ export interface TimelineOrderItem {
   timestamp?: string | number | null;
   sourceMessageId?: string;
   sourceSessionId?: string;
+  sourceRecord?: SourceRecord;
   seq?: number;
 }
 
@@ -13,6 +15,10 @@ interface IndexedItem<T extends TimelineOrderItem> {
   item: T;
   index: number;
   at: number | null;
+}
+
+function hasComparableSequence(item: TimelineOrderItem): boolean {
+  return item.sourceSessionId != null && item.seq != null && item.sourceRecord?.kind !== "jsonl";
 }
 
 function orderTimestampRun<T extends TimelineOrderItem>(items: IndexedItem<T>[]): IndexedItem<T>[] {
@@ -25,14 +31,14 @@ function orderTimestampRun<T extends TimelineOrderItem>(items: IndexedItem<T>[])
     let sequenceStart = timeStart;
     while (sequenceStart < timeEnd) {
       const first = ordered[sequenceStart];
-      if (first.item.sourceSessionId == null || first.item.seq == null) {
+      if (!hasComparableSequence(first.item)) {
         sequenceStart++;
         continue;
       }
       let sequenceEnd = sequenceStart + 1;
       while (sequenceEnd < timeEnd) {
         const next = ordered[sequenceEnd];
-        if (next.item.sourceSessionId !== first.item.sourceSessionId || next.item.seq == null) break;
+        if (next.item.sourceSessionId !== first.item.sourceSessionId || !hasComparableSequence(next.item)) break;
         sequenceEnd++;
       }
       const sequenceRun = ordered.slice(sequenceStart, sequenceEnd).sort((left, right) =>

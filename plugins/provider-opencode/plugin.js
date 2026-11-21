@@ -165,11 +165,90 @@ ${fence}`;
   };
 }
 
+// plugins/provider-opencode/src/runtimeProtocol.ts
+var object2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+var list = (value) => Array.isArray(value) ? value : [];
+var text = (value) => typeof value === "string" && value.length > 0 ? value : void 0;
+var json = (value) => value;
+function fail(code, message) {
+  throw { code, message };
+}
+function refused(message) {
+  return { kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false };
+}
+function httpRefused(error) {
+  if (object2(error.data).kind === "response_too_large") return { kind: "refused", reason: { code: "size_limit", message: error.message }, beforeAcceptance: false };
+  return refused(`OpenCode request was refused (${error.code})`);
+}
+function request(method, params, state = { stage: method }) {
+  return { action: { kind: "request", call: { method, params: json(params) } }, state: json(state) };
+}
+function next(method, params, state) {
+  return { kind: "continue", plan: request(method, params, state) };
+}
+function done(events = []) {
+  return { kind: "complete", result: { kind: "done" }, events };
+}
+function own(ctx, thread) {
+  if (!thread || thread !== ctx.threadId) fail("binding_mismatch", "OpenCode session is outside this runtime binding");
+  return thread;
+}
+function modelParts(model) {
+  if (!model) return void 0;
+  const index = model.indexOf("/");
+  if (index <= 0 || index === model.length - 1) fail("invalid_schema", "OpenCode requires a qualified provider/model selection");
+  return { providerID: model.slice(0, index), modelID: model.slice(index + 1) };
+}
+function messageIdentity(sendId, now, counter) {
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(sendId) || !Number.isSafeInteger(now) || now < 0) fail("invalid_schema", "Invalid prompt identity");
+  const prefix = (BigInt(now) * 0x1000n + BigInt(counter) & 0xffffffffffffn).toString(16).padStart(12, "0");
+  return `msg_${prefix}${sendId.replace(/-/g, "_")}`;
+}
+function attachmentUrl(attachment) {
+  if (attachment.data) return `data:${attachment.mimeType};base64,${attachment.data}`;
+  if (attachment.url) return attachment.url;
+  if (!attachment.path) fail("invalid_schema", "Attachment has no runtime source");
+  const normalized = attachment.path.replace(/\\/g, "/");
+  return `file://${normalized.startsWith("/") ? "" : "/"}${normalized.split("/").map((segment) => encodeURIComponent(segment).replace(/%3A/gi, ":")).join("/")}`;
+}
+function utf8Length(value) {
+  let bytes2 = 0;
+  for (const character of value) {
+    const code = character.codePointAt(0);
+    bytes2 += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
+  }
+  return bytes2;
+}
+
 // plugins/provider-opencode/src/turnErrors.ts
+function isQuotaError(value) {
+  const error = object2(value);
+  return error.type === "provider.quota" || object2(object2(error.body).error).type === "insufficient_balance_error";
+}
+function runtimeErrorMessage(error, fallback) {
+  return text(object2(error.data).message) ?? text(error.message) ?? fallback;
+}
+function runtimeTurnErrorEvents(threadId, turnId, seq, message) {
+  let bytes2 = 0;
+  let content = "";
+  for (const character of message) {
+    bytes2 += utf8Length(character);
+    if (bytes2 > 4096) break;
+    content += character;
+  }
+  const notice = { kind: "notice", threadId, message: content };
+  if (!turnId) return [notice];
+  return [notice, {
+    kind: "chatItem",
+    threadId,
+    item: { id: `${turnId}:error`, seq, type: "system", systemSubtype: "api_error", toolFlowId: turnId, content }
+  }];
+}
 function turnError(value) {
   if (!value || typeof value !== "object") return null;
   const message = value;
-  return message.role === "assistant" && message.error?.name === "APIError" ? message.error : null;
+  const error = message.error;
+  return message.role === "assistant" && error && (error.name === "APIError" || isQuotaError(error)) ? error : null;
 }
 function sessionObservations(value) {
   const error = turnError(value);
@@ -177,10 +256,10 @@ function sessionObservations(value) {
     const message2 = value;
     return message2?.role === "assistant" && !message2.error && typeof message2.time?.completed === "number" ? { api_error: null, permission_mode: null, clears_api_error: true } : null;
   }
-  const status = error.data?.statusCode;
+  const status = error.status ?? error.statusCode ?? error.data?.statusCode;
   const message = value;
   const id = message.modelID?.includes("/") ? message.modelID : message.providerID && message.modelID ? `${message.providerID}/${message.modelID}` : null;
-  return { ...id && unavailableModelError(value) ? { unavailable_model: id } : {}, api_error: status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other", permission_mode: null, clears_api_error: false };
+  return { ...id && unavailableModelError(value) ? { unavailable_model: id } : {}, api_error: isQuotaError(error) ? "usage_limit" : status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other", permission_mode: null, clears_api_error: false };
 }
 function unavailableModelError(value) {
   const error = turnError(value);
@@ -623,6 +702,7 @@ function parsePatch(path, patch) {
     hunk = void 0;
   };
   for (const line of patch.replace(/\r\n/g, "\n").split("\n")) {
+    if (line === "\\ No newline at end of file") continue;
     const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
     if (line.startsWith("diff --git ")) {
       finish();
@@ -1206,13 +1286,17 @@ function toolFileDiffs(part) {
   const path = String(input.filePath ?? input.file_path ?? input.path ?? "");
   const edits = extractCanonicalEdits(input);
   let metadata = state.metadata && typeof state.metadata === "object" ? state.metadata : {};
-  const hasFiles = Array.isArray(metadata.files) && metadata.files.length > 0;
-  const hasFileDiff = metadata.filediff !== null && typeof metadata.filediff === "object";
+  const hasFiles = Array.isArray(metadata.files) && metadata.files.some((file) => file && typeof file === "object" && Object.keys(file).length > 0);
+  const hasFileDiff = metadata.filediff !== null && typeof metadata.filediff === "object" && Object.keys(metadata.filediff).length > 0;
   if (part.tool?.toLowerCase() === "apply_patch" && typeof metadata.diff !== "string" && typeof metadata.patch !== "string" && !hasFiles && !hasFileDiff) {
     const patch = typeof input.patch === "string" ? input.patch : typeof input.input === "string" ? input.input : "";
     if (patch) metadata = { ...metadata, patch };
   }
-  const creation = part.tool === "write" && metadata.exists === false && typeof input.content === "string" ? [{ path, old: "", new: input.content }] : [];
+  const content = Array.isArray(state.content) ? state.content[0] : void 0;
+  const contentText = content && typeof content === "object" && !Array.isArray(content) ? content.text : void 0;
+  const result = typeof state.output === "string" ? state.output : typeof contentText === "string" ? contentText : "";
+  const creationConfirmed = metadata.exists === false || metadata.exists === void 0 && /^Created file successfully(?::|$)/i.test(result.trim());
+  const creation = part.tool === "write" && creationConfirmed && typeof input.content === "string" ? [{ path, old: "", new: input.content }] : [];
   const diffs = opencodeFileDiffs(path, [...edits, ...creation], metadata);
   if (creation.length) {
     if (!diffs.length && path) diffs.push(fileDiffFromEdit(creation[0]));
@@ -1818,58 +1902,8 @@ var decisionModel = {
   }
 };
 
-// plugins/provider-opencode/src/runtimeProtocol.ts
-var object2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
-var list = (value) => Array.isArray(value) ? value : [];
-var text = (value) => typeof value === "string" && value.length > 0 ? value : void 0;
-var json = (value) => value;
-function fail(code, message) {
-  throw { code, message };
-}
-function refused(message) {
-  return { kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false };
-}
-function request(method, params, state = { stage: method }) {
-  return { action: { kind: "request", call: { method, params: json(params) } }, state: json(state) };
-}
-function next(method, params, state) {
-  return { kind: "continue", plan: request(method, params, state) };
-}
-function done(events = []) {
-  return { kind: "complete", result: { kind: "done" }, events };
-}
-function own(ctx, thread) {
-  if (!thread || thread !== ctx.threadId) fail("binding_mismatch", "OpenCode session is outside this runtime binding");
-  return thread;
-}
-function modelParts(model) {
-  if (!model) return void 0;
-  const index = model.indexOf("/");
-  if (index <= 0 || index === model.length - 1) fail("invalid_schema", "OpenCode requires a qualified provider/model selection");
-  return { providerID: model.slice(0, index), modelID: model.slice(index + 1) };
-}
-function messageIdentity(sendId, now, counter) {
-  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(sendId) || !Number.isSafeInteger(now) || now < 0) fail("invalid_schema", "Invalid prompt identity");
-  const prefix = (BigInt(now) * 0x1000n + BigInt(counter) & 0xffffffffffffn).toString(16).padStart(12, "0");
-  return `msg_${prefix}${sendId.replace(/-/g, "_")}`;
-}
-function attachmentUrl(attachment) {
-  if (attachment.data) return `data:${attachment.mimeType};base64,${attachment.data}`;
-  if (attachment.url) return attachment.url;
-  if (!attachment.path) fail("invalid_schema", "Attachment has no runtime source");
-  const normalized = attachment.path.replace(/\\/g, "/");
-  return `file://${normalized.startsWith("/") ? "" : "/"}${normalized.split("/").map((segment) => encodeURIComponent(segment).replace(/%3A/gi, ":")).join("/")}`;
-}
-function utf8Length(value) {
-  let bytes2 = 0;
-  for (const character of value) {
-    const code = character.codePointAt(0);
-    bytes2 += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
-  }
-  return bytes2;
-}
-
 // plugins/provider-opencode/src/runtimeAuth.ts
+var providerListParams = { responseFields: { all: ["id", "name"], connected: [] } };
 function methods(ctx, providers, auth) {
   const provider = modelParts(ctx.settings.model)?.providerID;
   if (!provider) return [];
@@ -1924,7 +1958,7 @@ function loginEvent(loginId, status, error) {
 function loginPlan(ctx, op) {
   const { selection, value } = loginValue(op);
   if (modelParts(ctx.settings.model)?.providerID !== selection.provider) fail("binding_mismatch", "Sign-in method targets another selected provider");
-  if (value.action === "start") return request("provider.list", {}, { stage: "loginProviders" });
+  if (value.action === "start") return request("provider.list", providerListParams, { stage: "loginProviders" });
   if (value.action !== "complete" && value.action !== "code") fail("unsupported", "Unsupported sign-in challenge action");
   if (selection.kind !== "oauth" || selection.index === void 0) fail("invalid_schema", "Sign-in callback requires its discovered OAuth method");
   const code = value.action === "code" ? text(value.code) : void 0;
@@ -1955,7 +1989,7 @@ function loginResponse(ctx, op, state, body) {
     case "loginKey":
     case "loginCallback": {
       if (body !== true) return done([loginEvent(loginId, "failed", "The server did not confirm authentication")]);
-      return next("provider.list", {}, { stage: "loginVerify" });
+      return next("provider.list", providerListParams, { stage: "loginVerify" });
     }
     case "loginVerify":
       return done([loginEvent(loginId, list(object2(body).connected).includes(selection.provider) ? "completed" : "failed", list(object2(body).connected).includes(selection.provider) ? void 0 : "The provider did not confirm a connected account")]);
@@ -2366,6 +2400,7 @@ function v2Content(message, raw, ordinal, seq, ts) {
   const partForDiffs = { type: "tool", tool: name, state: { ...state, input, metadata, status: String(state.status) } };
   const diffs = toolFileDiffs(partForDiffs);
   const result = state.error ? errorText(state.error) : toolContent(state.content);
+  const duration = typeof time.ran === "number" && Number.isSafeInteger(time.ran) && typeof time.completed === "number" && Number.isSafeInteger(time.completed) && time.completed >= time.ran ? time.completed - time.ran : void 0;
   return {
     id: toolId(message, id),
     seq,
@@ -2382,6 +2417,7 @@ function v2Content(message, raw, ordinal, seq, ts) {
     toolStatus: status,
     ...result ? { toolResult: result } : {},
     ...aborted ? { toolInterrupted: true } : failed ? { toolError: true } : state.status === "completed" ? { toolError: false } : {},
+    ...duration !== void 0 ? { toolDurationMs: duration } : {},
     ...typeof time.ran === "number" ? { toolStartedAtMs: time.ran } : {},
     ...typeof time.completed === "number" ? { toolCompletedAtMs: time.completed } : {},
     ...timestamp2
@@ -2478,7 +2514,7 @@ function v2Response(ctx, op, state, reply) {
     if (op.kind === "readHistory" && state.stage === "historyActive") return finishHistory(op, state);
     if (op.kind === "resumeThread" && reply.error.code === 404) return { kind: "refused", reason: { code: "thread_not_found", message: "The exact OpenCode session was not found" }, beforeAcceptance: false };
     if (op.kind === "control" && op.action === "login") return done([{ kind: "authLogin", login: { status: "failed", loginId: String(object2(op.value).loginId), error: `Sign-in request was refused (${reply.error.code})` } }]);
-    return refused(`OpenCode request was refused (${reply.error.code})`);
+    return httpRefused(reply.error);
   }
   const envelope = object2(reply.value), body = envelope.body, value = object2(body), data = object2(value.data);
   switch (op.kind) {
@@ -2646,12 +2682,16 @@ function v2Reduce(ctx, raw, frames) {
       }
       continue;
     }
-    if (["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"].includes(type)) {
+    if (["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted", "session.error"].includes(type)) {
       if (!turn || !state.completed.includes(turn)) {
         if (turn) state.completed.push(turn);
         state.pendingPrompts = [];
-        const detail = type === "session.execution.failed" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : void 0;
-        if (detail === "failed") events.push({ kind: "notice", threadId: ctx.threadId, message: String(object2(data.error).message ?? "OpenCode execution failed").slice(0, 4096) });
+        const detail = type === "session.execution.failed" || type === "session.error" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : void 0;
+        if (detail === "failed") {
+          const error = object2(data.error);
+          const message2 = isQuotaError(error) ? "Provider balance or quota is exhausted \u2014 top up or switch model" : runtimeErrorMessage(error, "OpenCode execution failed");
+          events.push(...runtimeTurnErrorEvents(ctx.threadId, turn, turn ? ++state.seq : state.seq, message2));
+        }
         events.push({ kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "idle", ...detail ? { detail } : {} });
         delete state.turn;
       }
@@ -2774,6 +2814,15 @@ function ownSession(event) {
   const params = object2(event.properties);
   return text(params.sessionID) ?? text(object2(params.part).sessionID) ?? text(object2(params.info).sessionID) ?? (String(event.type).startsWith("session.") ? text(object2(params.info).id) : void 0);
 }
+function currentTurn(ctx, state, index) {
+  const sequence = ctx.streamWindow?.frameSequences?.[index];
+  return state.turn ?? ctx.activeTurnId ?? ctx.streamWindow?.turnRequests?.find((request2) => request2.written && request2.afterSequence !== void 0 && sequence !== void 0 && sequence > request2.afterSequence)?.turnId;
+}
+function completeTurn(state, turn) {
+  state.completed.push(turn);
+  state.completed = state.completed.slice(-256);
+  delete state.turn;
+}
 function evidence(ctx, state, part, sequence, events) {
   const messageId = text(part.messageID), planned = binding(ctx).sends.find((send) => send.messageId === messageId);
   if (!planned || state.evidenced.includes(planned.sendId)) return;
@@ -2862,24 +2911,27 @@ function runtimeReduce(ctx, raw, frames) {
     }
     if (type === "session.status" || type === "session.idle") {
       const status = type === "session.idle" ? "idle" : object2(params.status).type;
-      const sequence = ctx.streamWindow?.frameSequences?.[index];
-      const turn = state.turn ?? ctx.activeTurnId ?? ctx.streamWindow?.turnRequests?.find((request2) => request2.written && request2.afterSequence !== void 0 && sequence !== void 0 && sequence > request2.afterSequence)?.turnId;
+      const turn = currentTurn(ctx, state, index);
       if (status === "busy" || status === "retry") {
         if (!turn || state.completed.includes(turn)) continue;
         state.turn = turn;
         events.push({ kind: "turnState", threadId: ctx.threadId, turnId: turn, state: "working" });
       } else if (status === "idle" && turn && !state.completed.includes(turn)) {
-        state.completed.push(turn);
-        state.completed = state.completed.slice(-256);
+        completeTurn(state, turn);
         events.push({ kind: "turnState", threadId: ctx.threadId, turnId: turn, state: "idle" });
-        delete state.turn;
       }
       continue;
     }
     if (type === "session.error") {
-      const error = object2(params.error), message = text(object2(error.data).message) ?? "OpenCode reported a session error";
-      const turn = state.turn ?? ctx.activeTurnId;
-      events.push({ kind: "notice", threadId: ctx.threadId, message: message.slice(0, 4096) }, { kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "idle", detail: "failed" });
+      const error = object2(params.error), turn = currentTurn(ctx, state, index);
+      if (turn && state.completed.includes(turn)) continue;
+      const interrupted = error.name === "MessageAbortedError";
+      if (!interrupted) {
+        const message = runtimeErrorMessage(error, "OpenCode reported a session error");
+        events.push(...runtimeTurnErrorEvents(ctx.threadId, turn, turn ? ++state.seq : state.seq, message));
+      }
+      if (turn) completeTurn(state, turn);
+      events.push({ kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "idle", detail: interrupted ? "interrupted" : "failed" });
       if (error.name === "ProviderAuthError") events.push({ kind: "auth", state: "signedOut" }, { kind: "authentication", authentication: { state: "needs_auth", methods: binding(ctx).methods } });
     }
   }
@@ -2946,7 +2998,7 @@ function runtimePlan(ctx, op) {
     case "answer":
       return answerPlan(ctx, op);
     case "control": {
-      if (op.action === "auth") return request("provider.list", {}, { stage: "authProviders" });
+      if (op.action === "auth") return request("provider.list", providerListParams, { stage: "authProviders" });
       if (op.action === "login") return loginPlan(ctx, op);
       fail("unsupported", `OpenCode runtime control ${op.action} is unsupported`);
     }
@@ -2976,7 +3028,7 @@ function runtimeResponse(ctx, op, raw, reply) {
   if (reply.kind === "error") {
     if (op.kind === "control" && op.action === "login" && text(object2(op.value).loginId)) return done([{ kind: "authLogin", login: { status: "failed", loginId: String(object2(op.value).loginId), error: `Sign-in request was refused (${reply.error.code})` } }]);
     if (op.kind === "resumeThread" && reply.error.code === 404) return { kind: "refused", reason: { code: "thread_not_found", message: "The exact OpenCode session was not found" }, beforeAcceptance: false };
-    return refused(`OpenCode request was refused (${reply.error.code})`);
+    return httpRefused(reply.error);
   }
   const envelope = object2(reply.value), body = envelope.body;
   switch (op.kind) {
@@ -2987,7 +3039,7 @@ function runtimeResponse(ctx, op, raw, reply) {
         if (!protocol) return refused("OpenCode did not confirm authenticated server health");
         binding(ctx).protocol = protocol;
         if (protocol === "v2") return v2Response(ctx, op, state, reply);
-        return next("provider.list", {}, { stage: "initializeProviders", version: health.version });
+        return next("provider.list", providerListParams, { stage: "initializeProviders", version: health.version });
       }
       if (state.stage === "initializeProviders") return next("provider.auth", {}, { stage: "initializeMethods", version: state.version, providers: providerSummary(body) });
       if (state.stage !== "initializeMethods") return refused("Unexpected initialization response");

@@ -34,10 +34,14 @@ export function v2Content(message:string, raw:unknown, ordinal:number, seq:numbe
   const partForDiffs:OpencodePart={type:"tool",tool:name,state:{...state,input,metadata,status:String(state.status)}};
   const diffs=toolFileDiffs(partForDiffs);
   const result=state.error ? errorText(state.error) : toolContent(state.content);
+  const duration=typeof time.ran === "number" && Number.isSafeInteger(time.ran)
+    && typeof time.completed === "number" && Number.isSafeInteger(time.completed) && time.completed >= time.ran
+    ? time.completed-time.ran : undefined;
   return {id:toolId(message,id),seq,type:"tool_call",content:"",toolName:name,toolId:id,toolKind:canonical.kind,toolSummary:canonical.summary,
     toolDetail:canonical.detail,toolEdits:canonical.edits,fileDiffs:diffs,toolInput:input,toolStatus:status,
     ...(result ? {toolResult:result} : {}),...(aborted ? {toolInterrupted:true} : failed ? {toolError:true} : state.status === "completed" ? {toolError:false} : {}),
-    ...(typeof time.ran === "number" ? {toolStartedAtMs:time.ran} : {}),...(typeof time.completed === "number" ? {toolCompletedAtMs:time.completed} : {}),...timestamp};
+    ...(duration !== undefined ? {toolDurationMs:duration} : {}),...(typeof time.ran === "number" ? {toolStartedAtMs:time.ran} : {}),
+    ...(typeof time.completed === "number" ? {toolCompletedAtMs:time.completed} : {}),...timestamp};
 }
 export function v2History(raw:unknown, order:"asc"|"desc"="desc"):ChatMsg[] {
   const entries=list(raw), rows:ChatMsg[]=[];

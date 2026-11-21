@@ -23,6 +23,7 @@ test("restored utility shell stays stopped on mount and submits one explicit rer
   try {
     await act(async () => root.render(<RestoredShell tab={tab} />));
     assert.deepEqual(calls, []);
+    assert.equal(host.querySelector("pre")?.textContent, "opaque-command");
     const button = host.querySelector<HTMLButtonElement>("button");
     assert.ok(button);
     assert.equal(button.textContent, "Rerun command");

@@ -3,6 +3,7 @@ import { configureRemoteTabTransport } from "./remoteTabTransport";
 import { afterEach, describe, expect, finish, it, vi } from "../test/standaloneTest";
 import {
   onRemoteTabEventSignal, remoteTabEventSubscriptionSnapshot, resumeRemoteTabEvents, subscribeRemoteTabEvent,
+  waitForRemoteTabEventGenerationSettlement,
 } from "./remoteTabEvents";
 import { onRemoteTransportState } from "./remoteTabTransportState";
 
@@ -78,30 +79,6 @@ describe("remote chat event subscription ownership", () => {
     }
   });
 
-  it("forwards peer state changes without local mux events", async () => {
-    const frames = [
-      { boot: "state-boot", seq: 1, event_type: "mux-state-changed", data: {} },
-      { boot: "state-boot", seq: 1, event_type: "mux-state-changed", data: {} },
-      { boot: "state-boot", seq: 2, event_type: "tab-status-changed", data: { tab_id: "other-tab" } },
-    ];
-    vi.stubGlobal("fetch", async () => new Response(new ReadableStream({
-      start(controller) { controller.enqueue(new TextEncoder().encode(frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join(""))); },
-    })));
-    const received: unknown[] = [];
-    let resolve!: () => void;
-    const delivered = new Promise<void>((done) => { resolve = done; });
-    const stop = subscribeRemoteTabEvent("peer-state-changed:mesh:peer/tab", ({ payload }) => {
-      received.push(payload);
-      if (received.length === 2) resolve();
-    });
-    expect(stop).not.toBeNull();
-    await delivered;
-    expect(received.length).toBe(2);
-    resumeRemoteTabEvents();
-    expect(remoteTabEventSubscriptionSnapshot("peer-state-changed:mesh:peer/tab")?.generation).toBe(1);
-    stop!();
-  });
-
   it("resume does not supersede a first-frame-awaiting connection; unsubscribe owns it", async () => {
     // In-flight fetch, no frame delivered yet: resume must leave it alone rather
     // than restart it mid initial replay (the churn race that blanked panes).
@@ -117,15 +94,18 @@ describe("remote chat event subscription ownership", () => {
     vi.unstubAllGlobals();
   });
 
-  it("tracks validated cursor, publishes available, and replacement ownership is isolated", async () => {
+  it("keeps live streams open on resume and restores parked streams from their cursor", async () => {
     vi.stubGlobal("window", new EventTarget());
     const bytes = new TextEncoder().encode(
       'data: {"boot":"boot-a","seq":9,"event_type":"tab-chat-msg-tab","data":{"delta":"x"}}\n\n',
     );
     const requests: string[] = [];
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
     const fetchMock: typeof fetch = async (input) => {
       requests.push(String(input));
-      return new Response(new ReadableStream({ start(controller) { controller.enqueue(bytes); } }));
+      return new Response(new ReadableStream({
+        start(controller) { stream = controller; controller.enqueue(bytes); },
+      }));
     };
     vi.stubGlobal("fetch", fetchMock);
     const available: string[] = [];
@@ -138,6 +118,11 @@ describe("remote chat event subscription ownership", () => {
     expect(remoteTabEventSubscriptionSnapshot(event)?.cursor).toBe("boot-a:9");
     expect(available).toContain("available");
     resumeRemoteTabEvents();
+    expect(requests.length).toBe(1);
+    const ended = waitForRemoteTabEventGenerationSettlement(event, 1);
+    stream.error(new Error("peer stream lost"));
+    await ended;
+    resumeRemoteTabEvents();
     expect(requests[1]).toContain("since=boot-a%3A9");
     const second = subscribeRemoteTabEvent(event, () => undefined)!;
     first();
@@ -145,6 +130,41 @@ describe("remote chat event subscription ownership", () => {
     second();
     stopState();
     vi.unstubAllGlobals();
+  });
+
+  it("signals Chat recovery after a generation change and adopts B's overflow boundary", async () => {
+    vi.stubGlobal("window", new EventTarget());
+    const event = "tab-chat-msg-mesh:peer/tab";
+    const streams: ReadableStreamDefaultController<Uint8Array>[] = [];
+    vi.stubGlobal("fetch", async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) { streams.push(controller); },
+    })));
+    let resolveFrame!: () => void;
+    const frame = new Promise<void>(resolve => { resolveFrame = resolve; });
+    const signals: string[] = [];
+    let resolveResync!: () => void;
+    const nextResync = () => new Promise<void>(resolve => { resolveResync = resolve; });
+    const stopSignals = onRemoteTabEventSignal(event, signal => {
+      signals.push(signal);
+      resolveResync();
+    });
+    const stop = subscribeRemoteTabEvent(event, () => resolveFrame())!;
+    const encode = (value: object) => new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`);
+    try {
+      streams[0].enqueue(encode({ event_type: "tab-chat-msg-tab", data: { tab_id: "tab" }, boot: "old", seq: 1 }));
+      await frame;
+      const reconnect = nextResync();
+      streams[0].close();
+      await reconnect;
+      const reset = nextResync();
+      streams[1].enqueue(encode({ event_type: "overflow", data: { boot: "new", next_seq: 7 } }));
+      await reset;
+      expect(signals).toEqual(["resync", "resync"]);
+      expect(remoteTabEventSubscriptionSnapshot(event)).toMatchObject({ generation: 2, cursor: "new:6" });
+    } finally {
+      stop();
+      stopSignals();
+    }
   });
 
   it("authoritative snapshot then live events delivered", async () => {

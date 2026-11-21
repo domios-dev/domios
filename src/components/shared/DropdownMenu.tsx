@@ -13,7 +13,10 @@ const TRIGGER_FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabin
 
 export interface DropdownMenuItem {
   label: string;
+  "aria-label"?: string;
   labelContent?: ReactNode;
+  /** The custom label lays out its own columns and truncation. */
+  stretchLabelContent?: boolean;
   icon?: ReactNode;
   /** Short chip rendered beside the label (e.g. a model's catalog badge). */
   badge?: string;
@@ -131,6 +134,7 @@ interface DropdownMenuProps {
   header?: ReactNode;
   contextMenuTargetRef?: RefObject<HTMLElement | null>;
   menuLabel?: string;
+  opaque?: boolean;
   menuTestId?: string;
   disabled?: boolean;
   /** Pixel cap on the open menu; content beyond it scrolls internally. */
@@ -154,6 +158,7 @@ export function DropdownMenu({
   header,
   contextMenuTargetRef,
   menuLabel = "Actions",
+  opaque = false,
   menuTestId,
   disabled,
   maxHeight,
@@ -425,7 +430,7 @@ export function DropdownMenu({
             }}
             aria-description={activeSubmenu?.showDescription ? undefined : activeSubmenu?.description}
             aria-describedby={activeSubmenu?.showDescription && activeSubmenu.description ? `${descriptionIdBase}-submenu` : undefined}
-            className={`ct-menu w-max${triggerRef.current?.closest('[aria-modal="true"]') ? " ct-menu--modal" : ""}`}
+            className={`ct-menu w-max${opaque || triggerRef.current?.closest('[aria-modal="true"]') ? " ct-menu--opaque" : ""}`}
             style={{ width: maxWidth ?? (inSubmenu && pageWidth ? pageWidth : undefined), maxHeight, maxWidth }}
           >
             <div key={submenuKey ?? "root"} className="ct-menu-page" data-direction={pageDirection ?? undefined}>
@@ -499,7 +504,7 @@ function DropdownMenuRow({
     <button
       type="button"
       role={menuItemRole(item)}
-      aria-label={item.labelContent === undefined && !item.truncateDescription ? undefined : item.label}
+      aria-label={item["aria-label"] ?? (item.labelContent === undefined && !item.truncateDescription ? undefined : item.label)}
       aria-checked={item.checked ?? item.selected}
       aria-haspopup={item.submenu ? "menu" : undefined}
       aria-expanded={item.submenu ? false : undefined}
@@ -524,7 +529,7 @@ function DropdownMenuRow({
       {item.icon && <span className="ct-menu-row__icon">{item.icon}</span>}
       <span className="min-w-0 flex-1 text-left">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate">{item.labelContent ?? item.label}</span>
+          <span className={item.stretchLabelContent ? "flex min-w-0 flex-1" : "truncate"}>{item.labelContent ?? item.label}</span>
           {item.badge && (
             <span
               data-badge-for={item["data-testid"]}
@@ -551,8 +556,10 @@ function DropdownMenuRow({
 export interface DropdownSelectOption {
   value: string;
   label: string;
+  ariaLabel?: string;
   description?: string;
   disabled?: boolean;
+  unavailable?: boolean;
   /** Native-title suffix appended to the label (e.g. " (not installed)"). */
   suffix?: string;
   /** Short chip rendered beside the option label. */
@@ -562,6 +569,8 @@ export interface DropdownSelectOption {
   group?: string;
   /** Rich row content in the open menu (an icon, a quiet state word); `label` still names it. */
   content?: ReactNode;
+  /** Give rich option content the available row width. */
+  stretchLabelContent?: boolean;
 }
 
 export const TOUCH_SELECT_HEIGHT = "min-h-9 pointer-coarse:min-h-11";
@@ -575,7 +584,7 @@ export const SELECT_TRIGGER = "flex items-center gap-2 w-full min-w-0 px-3 py-1.
  * (escapes transform/overflow-hidden ancestors and layers cleanly above the
  * WebGL xterm canvas), so it replaces native `<select>` without the native
  * popup's compositor flicker over the canvas. The trigger shows the current
- * selection; each option sets its value on click and exposes its checked state.
+ * selection; each option sets its value on click and exposes its selected state.
  */
 export function DropdownSelect({
   options,
@@ -584,6 +593,7 @@ export function DropdownSelect({
   disabled,
   placeholder,
   leading,
+  trailing,
   iconOnly = false,
   prefix,
   "aria-label": ariaLabel,
@@ -592,6 +602,7 @@ export function DropdownSelect({
   className,
   "data-testid": testId,
   focusOnPointerOpen,
+  selectionIndicator = "check",
 }: {
   options: DropdownSelectOption[];
   value: string;
@@ -600,6 +611,7 @@ export function DropdownSelect({
   placeholder?: string;
   /** Leading adornment inside the trigger (e.g. a provider AgentIcon). */
   leading?: ReactNode;
+  trailing?: ReactNode;
   iconOnly?: boolean;
   /** Static label shown before the value so the control names itself, e.g.
    *  "Effort" → "Effort Medium". */
@@ -611,6 +623,8 @@ export function DropdownSelect({
   className?: string;
   "data-testid"?: string;
   focusOnPointerOpen?: boolean;
+  /** Use the selected-row background without a check icon for machine choices. */
+  selectionIndicator?: "check" | "highlight";
 }) {
   const selected = options.find((o) => o.value === value);
   const label = selected?.label ?? placeholder ?? "";
@@ -618,11 +632,16 @@ export function DropdownSelect({
   const badge = selected?.badge;
   const toItem = (o: DropdownSelectOption): DropdownMenuItem => ({
     label: o.suffix ? `${o.label}${o.suffix}` : o.label,
+    "aria-label": o.ariaLabel,
     labelContent: o.content,
+    stretchLabelContent: o.stretchLabelContent,
     description: o.description,
+    unavailable: o.unavailable,
     badge: o.badge,
     disabled: o.disabled,
-    icon: o.value === value ? <Check size={14} /> : <span className="w-3.5 h-3.5" />,
+    icon: selectionIndicator === "check"
+      ? o.value === value ? <Check size={14} /> : <span className="w-3.5 h-3.5" />
+      : undefined,
     selected: o.value === value,
     onClick: () => onChange(o.value),
     "data-testid": testId ? `${testId}-option-${o.value}` : undefined,
@@ -664,6 +683,7 @@ export function DropdownSelect({
             {badge}
           </span>
         )}
+        {trailing}
         <ChevronDown size={12} className="shrink-0 text-[var(--ct-muted-fg)]" />
       </>}
     </button>

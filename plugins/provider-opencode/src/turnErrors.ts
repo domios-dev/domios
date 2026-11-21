@@ -1,14 +1,49 @@
-import type { ProviderSessionObservations } from "@codeterm/plugin-sdk";
+import type { AgentEvent, ProviderSessionObservations } from "@codeterm/plugin-sdk";
+import { object, text, utf8Length } from "./runtimeProtocol";
 
 interface Message {
   role?: string;
-  error?: { name?: string; data?: { message?: string; statusCode?: number; isRetryable?: boolean } };
+  error?: TurnError;
+}
+
+interface TurnError {
+  name?: string;
+  status?: number;
+  statusCode?: number;
+  data?: { message?: string; statusCode?: number; isRetryable?: boolean };
+}
+
+export function isQuotaError(value: unknown): boolean {
+  const error = object(value);
+  return error.type === "provider.quota" ||
+    object(object(error.body).error).type === "insufficient_balance_error";
+}
+
+export function runtimeErrorMessage(error: Record<string, unknown>, fallback: string): string {
+  return text(object(error.data).message) ?? text(error.message) ?? fallback;
+}
+
+export function runtimeTurnErrorEvents(threadId: string, turnId: string | undefined, seq: number, message: string): AgentEvent[] {
+  let bytes = 0;
+  let content = "";
+  for (const character of message) {
+    bytes += utf8Length(character);
+    if (bytes > 4096) break;
+    content += character;
+  }
+  const notice: AgentEvent = { kind: "notice", threadId, message: content };
+  if (!turnId) return [notice];
+  return [notice, {
+    kind: "chatItem", threadId,
+    item: { id: `${turnId}:error`, seq, type: "system", systemSubtype: "api_error", toolFlowId: turnId, content },
+  }];
 }
 
 export function turnError(value: unknown): Message["error"] | null {
   if (!value || typeof value !== "object") return null;
   const message = value as Message;
-  return message.role === "assistant" && message.error?.name === "APIError" ? message.error : null;
+  const error = message.error;
+  return message.role === "assistant" && error && (error.name === "APIError" || isQuotaError(error)) ? error : null;
 }
 
 export function sessionObservations(value: unknown): ProviderSessionObservations | null {
@@ -18,10 +53,10 @@ export function sessionObservations(value: unknown): ProviderSessionObservations
     return message?.role === "assistant" && !message.error && typeof message.time?.completed === "number"
       ? { api_error: null, permission_mode: null, clears_api_error: true } : null;
   }
-  const status = error.data?.statusCode;
+  const status = error.status ?? error.statusCode ?? error.data?.statusCode;
   const message = value as { providerID?: string; modelID?: string };
   const id = message.modelID?.includes("/") ? message.modelID : message.providerID && message.modelID ? `${message.providerID}/${message.modelID}` : null;
-  return { ...(id && unavailableModelError(value) ? { unavailable_model: id } : {}), api_error: status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other", permission_mode: null, clears_api_error: false };
+  return { ...(id && unavailableModelError(value) ? { unavailable_model: id } : {}), api_error: isQuotaError(error) ? "usage_limit" : status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other", permission_mode: null, clears_api_error: false };
 }
 
 export function unavailableModelError(value: unknown): boolean {

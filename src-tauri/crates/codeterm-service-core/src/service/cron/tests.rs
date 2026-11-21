@@ -212,6 +212,18 @@ fn cron_service_mutations_and_run_lifecycle_survive_storage_reopen() {
         FireStart::Recorded,
         "run start must commit before it is considered fired"
     );
+    let started = cron
+        .lock()
+        .get_history(&job.id)
+        .into_iter()
+        .find(|run| run.run_id == run_id)
+        .cloned()
+        .expect("recorded cron run");
+    assert_eq!(started.provider.as_deref(), Some(job.agent.as_str()));
+    assert!(started
+        .owner_instance_id
+        .as_deref()
+        .is_some_and(|id| !id.is_empty()));
     commit(&cron, |store| {
         Ok(store.prepare_set_run_tab(&job.id, run_id, &owner_tab))
     })
@@ -564,6 +576,11 @@ fn started_job(cron: &crate::CronState, oneshot: bool, report_target: Option<&st
         .record_run(
             &job.id,
             CronRunInfo {
+                scheduled_occurrence_at: None,
+                fired_at: None,
+                late_by_ms: None,
+                provider: None,
+                owner_instance_id: None,
                 cancel_reason: None,
                 run_id: "settle-run".into(),
                 started_at: 1,
@@ -703,6 +720,11 @@ fn cron_complete_requires_run_owner() {
             .record_run(
                 &job.id,
                 CronRunInfo {
+                    scheduled_occurrence_at: None,
+                    fired_at: None,
+                    late_by_ms: None,
+                    provider: None,
+                    owner_instance_id: None,
                     cancel_reason: None,
                     run_id: run_id.into(),
                     started_at: 1,
@@ -810,6 +832,11 @@ fn cron_settle_refused_trigger_record_never_dispatches() {
         .wait(Duration::from_secs(30))
         .expect("arm commit fault");
     let run = CronRunInfo {
+        scheduled_occurrence_at: None,
+        fired_at: None,
+        late_by_ms: None,
+        provider: None,
+        owner_instance_id: None,
         cancel_reason: None,
         run_id: "refused-trigger-run".into(),
         started_at: 1,
@@ -857,6 +884,11 @@ fn runtime_cron_owner_binding_is_exact_and_idempotent_before_launch() {
         .record_run(
             &job.id,
             CronRunInfo {
+                scheduled_occurrence_at: None,
+                fired_at: None,
+                late_by_ms: None,
+                provider: None,
+                owner_instance_id: None,
                 cancel_reason: None,
                 run_id: "run-exact".into(),
                 started_at: 1,

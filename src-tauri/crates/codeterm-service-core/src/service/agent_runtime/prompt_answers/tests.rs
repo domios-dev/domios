@@ -52,6 +52,7 @@ fn exact_request_identity_rejects_epoch_binding_and_typed_id_changes() {
         binding: "own".into(),
         thread: context.thread_id.clone(),
         prompt,
+        kind: PromptKind::Structured,
         claimed: false,
     };
     assert!(matching_entry(&entry, &context, &identity));
@@ -148,7 +149,13 @@ fn a_waiting_permission_request_follows_the_switch_to_allow_all_and_ask_leaves_i
                 }),
             },
         );
-        publish(svc, &session, request.clone(), shown);
+        publish(
+            svc,
+            &session,
+            request.clone(),
+            shown,
+            PromptKind::Permission,
+        );
 
         settle_after_policy_change(svc, &tab);
         assert!(
@@ -217,7 +224,13 @@ fn pending_requests_cancelled_before_interrupt_and_prompts_resolved() {
                     permission: None,
                 },
             );
-            publish(&fixture.service, &session, request, shown);
+            publish(
+                &fixture.service,
+                &session,
+                request,
+                shown,
+                PromptKind::Permission,
+            );
         }
         assert!(fixture
             .service

@@ -98,6 +98,47 @@ fn opening_sleeping_chat_and_explicit_retry_keep_its_own_session() {
 }
 
 #[test]
+fn opening_stopped_shell_preserves_restore_state_without_materializing() {
+    for frozen in [false, true] {
+        let (mut mux, id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.protected = false;
+        tab.frozen = frozen;
+        tab.restored_from_snapshot = true;
+        tab.pty_id = None;
+        tab.close_restore = Some(crate::multiplexer::types::CloseRestoreTabState {
+            stopped: true,
+            command: Some("saved command".into()),
+            ..Default::default()
+        });
+        assert!(!wake_on_open_eligible(tab));
+        let fixture = ServiceFixture::new(mux);
+        let _port = test_boundary::Boundary::install(
+            &id,
+            std::sync::Arc::new(|| panic!("stopped shell reached materialization")),
+        );
+
+        fixture
+            .service
+            .record_client_selection(None, Some(&id))
+            .unwrap();
+        fixture.service.wake_tab_on_open(&id).unwrap();
+        fixture.service.wake_frozen_tab(&id).unwrap();
+        fixture.service.wake_tab_on_request(&id).unwrap();
+
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&id).unwrap();
+        let restored = tab.close_restore.as_ref().unwrap();
+        assert!(restored.stopped);
+        assert_eq!(restored.command.as_deref(), Some("saved command"));
+        assert_eq!(tab.frozen, frozen);
+        assert!(tab.pty_id.is_none());
+        assert!(tab.boot_stage.is_none());
+        assert!(tab.boot_failure_reason.is_none());
+    }
+}
+
+#[test]
 fn opening_failed_tabs_preserves_failure_until_explicit_retry() {
     for frozen in [false, true] {
         for (stage, reason) in [

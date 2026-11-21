@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import { formatPlanFetchError } from "../../lib/fetchResilience";
 import { onResync } from "../../lib/resync";
+import { peerEventRail } from "../../lib/peerEventRail";
 import type { ApiConfig } from "../../lib/types";
 import { PlanReadError } from "./plansApi";
 import { comparePlanRevisions, planRevision, type CommittedPlanChange } from "./planProjection";
@@ -15,8 +16,9 @@ export function useScopedPlanRead<T>(
   refreshKey?: number,
   targets?: (change: CommittedPlanChange, snapshot: T | null) => boolean,
 ) {
+  const peerId = api?.peerId;
   const key = api && planId && entityKey
-    ? JSON.stringify([api.host, api.port, api.token, planId, entityKey, contextKey]) : null;
+    ? JSON.stringify([api.host, api.port, api.token, peerId, planId, entityKey, contextKey]) : null;
   const selected = useRef(key);
   selected.current = key;
   const reader = useRef(read);
@@ -82,9 +84,6 @@ export function useScopedPlanRead<T>(
         observedRevision = "0";
         void run();
       };
-      stops.push(onResync((reason) => reason === "epoch_changed" ? reboot() : recover()));
-      window.addEventListener("codeterm-web-boot-changed", reboot);
-      stops.push(() => window.removeEventListener("codeterm-web-boot-changed", reboot));
       const changed = (change: CommittedPlanChange) => {
         if (change.plan_id !== planId) return;
         const revision = planRevision(change);
@@ -95,17 +94,36 @@ export function useScopedPlanRead<T>(
         minimumRevision = revision;
         void run();
       };
-      void Promise.all([
-        listen<CommittedPlanChange>("plan-changed", ({ payload }) => {
-          try { changed(payload); } catch { recover(); }
-        }),
-        listen("plans-loaded", recover),
-      ].map(async (subscription) => {
-        const stop = await subscription;
-        if (active) stops.push(stop); else stop();
-      })).then(() => { if (active) void run(); }).catch((cause: unknown) => {
-        if (active) setState({ key, data: null, loading: false, error: formatPlanFetchError(cause) });
-      });
+      if (peerId) {
+        stops.push(peerEventRail.observe(peerId, (event) => {
+          if (event.type === "invalidate") {
+            controller?.abort();
+            snapshot = null;
+            minimumRevision = observedRevision = "0";
+            setState({ key, data: null, loading: true, error: null });
+          } else if (event.type === "reconcile" || event.type === "plans-loaded") {
+            reboot();
+          } else if (event.type === "plan-changed") {
+            try { changed(event.data); } catch { recover(); }
+          }
+        }));
+        void run();
+      } else {
+        stops.push(onResync((reason) => reason === "epoch_changed" ? reboot() : recover()));
+        window.addEventListener("codeterm-web-boot-changed", reboot);
+        stops.push(() => window.removeEventListener("codeterm-web-boot-changed", reboot));
+        void Promise.all([
+          listen<CommittedPlanChange>("plan-changed", ({ payload }) => {
+            try { changed(payload); } catch { recover(); }
+          }),
+          listen("plans-loaded", recover),
+        ].map(async (subscription) => {
+          const stop = await subscription;
+          if (active) stops.push(stop); else stop();
+        })).then(() => { if (active) void run(); }).catch((cause: unknown) => {
+          if (active) setState({ key, data: null, loading: false, error: formatPlanFetchError(cause) });
+        });
+      }
     }
     return () => {
       active = false;
@@ -113,7 +131,7 @@ export function useScopedPlanRead<T>(
       version.current++;
       for (const stop of stops) stop();
     };
-  }, [key, planId, refreshKey]);
+  }, [key, peerId, planId, refreshKey]);
 
   const current = state.key === key;
   return {

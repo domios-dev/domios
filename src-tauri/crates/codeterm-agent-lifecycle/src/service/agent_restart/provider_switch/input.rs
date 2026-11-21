@@ -14,6 +14,8 @@ pub trait ProviderSwitchInputExt {
         tab: &Tab,
         messages: &[crate::agent::chat_types::ChatMsg],
         archive: &std::path::Path,
+        target: &str,
+        model: Option<&str>,
     ) -> Result<String, String>;
 }
 
@@ -52,6 +54,8 @@ impl ProviderSwitchInputExt for ServiceContext {
         tab: &Tab,
         messages: &[crate::agent::chat_types::ChatMsg],
         archive: &std::path::Path,
+        target: &str,
+        model: Option<&str>,
     ) -> Result<String, String> {
         let pad = self.ensure_agent_pad(&tab.id)?;
         let task = tab
@@ -84,11 +88,24 @@ impl ProviderSwitchInputExt for ServiceContext {
         } else {
             INSTRUCTIONS
         };
+        let provider = self.agent_registry.get(target);
+        let provider_name = provider.as_ref().map(|provider| provider.display_name());
+        let model_name = provider.as_ref().and_then(|provider| {
+            let model = model?;
+            provider
+                .available_models()
+                .into_iter()
+                .find(|entry| entry.id.eq_ignore_ascii_case(model))
+                .map(|entry| entry.display_name)
+        });
         let available = provider_handoff::input::MAX_INPUT_BYTES.saturating_sub(
             instructions.len()
                 + context.len()
                 + 4
-                + provider_handoff::input::system_message_overhead(),
+                + provider_handoff::input::system_message_overhead(
+                    provider_name,
+                    model_name.as_deref(),
+                ),
         );
         let recent = provider_handoff::input::recent_messages(messages);
         let history = provider_handoff::input::select_history_literal(&recent, available);
@@ -98,6 +115,6 @@ impl ProviderSwitchInputExt for ServiceContext {
                 context: &context,
                 history: &history,
             })?;
-        provider_handoff::input::system_message(&payload)
+        provider_handoff::input::system_message(&payload, provider_name, model_name.as_deref())
     }
 }

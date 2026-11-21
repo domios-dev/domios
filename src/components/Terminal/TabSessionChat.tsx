@@ -24,7 +24,7 @@ import { AccountTransitionActions } from "./AccountTransitionActions";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { runtimeResponseDeadlinePending, runtimeSessionUnavailable, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
-import { manualPendingPrompt, promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
+import { liveRuntimePrompt, manualPendingPrompt, promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
 
 import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
@@ -64,6 +64,7 @@ import {
 } from "../../store/multiplexer/selectors";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
+import { resolveModelDisplayName } from "../../lib/agentModelName";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { runtimeStatusLineIdentity, statusLineModelName } from "./statusLinePickerModel";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
@@ -106,7 +107,7 @@ import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, chatRowsPartial,
 import { lazyFirstTurnComposerIsLive } from "../../lib/tabActivity";
 import { firstTurnLocalSends, isLocalSendRow, sendsOfCurrentAttempt } from "./firstTurnLocalRows";
 import { TabRecoveryAction } from "./TabRecoveryAction";
-import { dockedTabFailure } from "../../lib/restoreStageView";
+import { dockedTabFailure, type RestoreStageView } from "../../lib/restoreStageView";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
@@ -114,6 +115,7 @@ import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
 import { BlueprintChatCards } from "./BlueprintChatCards";
 import { useTabChatBlockHost } from "./pinnedBlocks";
 import { interruptAgentArgs } from "../../lib/agentInterrupt";
+import { useStopSettlement, type StopReceipt } from "./useStopSettlement";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { HoldWhileHidden } from "./HoldWhileHidden";
@@ -126,9 +128,12 @@ import { MessageSelectionBar } from "./MessageSelectionBar";
 import { useChatMessageSelection } from "./useChatMessageSelection";
 import { streamingMessageId } from "./streamingMessage";
 import { requestChatMessageReveal } from "../../lib/chatMessageReveal";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { useRemoteViewerConnection, type RemoteViewerConnection } from "./useRemoteViewerConnection";
 
 interface Props {
   inputStatus?: ReactNode;
+  frozenRestore?: RestoreStageView;
   tabId: string;
   api?: ApiConfig;
   onError?: (msg: string) => void;
@@ -166,11 +171,21 @@ const NO_ASKS: readonly Notification[] = [];
 
 
 export function TabSessionChat(props: Props) {
-  return <ComposerIssuesProvider key={props.tabId}><TabSessionChatBody {...props} /></ComposerIssuesProvider>;
+  return parseCompositeTabId(props.tabId)
+    ? <RemoteTabSessionChat {...props} />
+    : <ComposerIssuesProvider key={props.tabId}><TabSessionChatBody {...props} /></ComposerIssuesProvider>;
+}
+
+function RemoteTabSessionChat(props: Props) {
+  const tabSelector = useLatestCallback((state: Parameters<typeof selectTab>[0]) => selectTab(state, props.tabId), [props.tabId]);
+  const tab = useMuxSelector(tabSelector, tabFieldsEqual);
+  const connection = useRemoteViewerConnection(props.tabId, tab);
+  return <ComposerIssuesProvider key={props.tabId}><TabSessionChatBody {...props} remoteConnection={connection} /></ComposerIssuesProvider>;
 }
 
 function TabSessionChatBody({
   inputStatus,
+  frozenRestore,
   tabId,
   api,
   onError,
@@ -179,7 +194,8 @@ function TabSessionChatBody({
   isVisible = true,
   sessionActive,
   chatBackend = false,
-}: Props) {
+  remoteConnection,
+}: Props & { remoteConnection?: RemoteViewerConnection }) {
   if (isCodeTermFrontendTestMode()) {
     const counts = (window.__renderCounts ??= {});
     counts[tabId] = (counts[tabId] ?? 0) + 1;
@@ -199,7 +215,7 @@ function TabSessionChatBody({
   const openPlanTarget = usePlanTargetNavigation();
   const tabSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
-  const remoteChat = useRemoteChatNotice(tabId, tab, deliverySends);
+  const remoteChat = useRemoteChatNotice(tabId, tab, deliverySends, remoteConnection);
   const tabLock = useTabLock(tab);
   const readOnly = isInputBlockedTab(tab, tabLock);
   const workspaceSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => s.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? s.tabs[tabId]?.workspace_id ?? null, [tabId]);
@@ -230,14 +246,15 @@ function TabSessionChatBody({
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const watcherSpec = tab?.watcher ?? null;
   const isWatcherTab = watcherSpec != null;
-  const promptLifecycle = useProviderPromptLifecycle(tab);
-  const pendingPrompt: PendingPrompt | null = manualPendingPrompt(promptLifecycle.tab);
-  const composerActivity = promptLifecycle.resolved
+  const runtimePrompt = liveRuntimePrompt(tab);
+  const promptLifecycle = useProviderPromptLifecycle(runtimePrompt ? null : tab);
+  const pendingPrompt: PendingPrompt | null = runtimePrompt ?? manualPendingPrompt(promptLifecycle.tab);
+  const { activity: composerActivity, confirm: confirmStop } = useStopSettlement(tabId, tab, runtime.state, promptLifecycle.resolved
     ? tabActivity(promptLifecycle.tab, agentActivity.status === "Waiting" ? null : agentActivity.status)
-    : agentActivity;
+    : agentActivity);
   const descriptor = getAgentDescriptor(tabProvider);
   const promptAnswers = !readOnly && descriptor?.supports_prompt_answers === true;
-  const structuredPrompts = descriptor?.supports_structured_prompts === true;
+  const structuredPrompts = runtimePrompt !== null || descriptor?.supports_structured_prompts === true;
   const isActive = isVisible;
   const transcriptMounted = sessionActive ?? isActive;
   const resolvePeerName = useMeshPeerNameResolver(isActive);
@@ -311,7 +328,7 @@ function TabSessionChatBody({
       return;
     }
     try {
-      observeChatSendStatus(await sendTrackedChatMessage(tabId, send.correlationId ?? send.id, content));
+      observeChatSendStatus(await sendTrackedChatMessage(tabId, send.correlationId ?? send.id, content, send.target));
     } catch {
       void invoke<import("./chatSendStatus").ChatSendStatus[]>("chat_send_status", { tabId })
         .then((statuses) => statuses.forEach(observeChatSendStatus)).catch(() => {});
@@ -352,9 +369,9 @@ function TabSessionChatBody({
   const signInState = signIn ? runtime.state : null;
   const launchedFailure = dockedTabFailure(tab && { ...tab, agent_runtime_state: runtime.state ?? undefined });
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
-  const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
-  const chatChannelLoading = !firstTurnReady && !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
-  const chatLoading = !showRemoteState && chatChannelLoading;
+  const remoteChatReconnecting = remoteChat.connectionState === "reconnecting";
+  const chatChannelLoading = !firstTurnReady && !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering);
+  const chatLoading = !showRemoteState && !remoteChatReconnecting && chatChannelLoading;
   const restoreLoadRefused = runtimeSessionUnavailable(runtime.state);
   const undelivered = useMemo(() => sendsOfCurrentAttempt(undeliveredSends(deliverySends), tab?.pty_id, tab?.session_binding_nonce),
     [deliverySends, tab?.pty_id, tab?.session_binding_nonce]);
@@ -464,7 +481,7 @@ function TabSessionChatBody({
   useEffect(() => {
     if (!sessionBindingSurface.showRecoveryAction) setBindingRecoveryOpen(false);
   }, [sessionBindingSurface.showRecoveryAction]);
-  const promptPart = promptMessagePart(descriptor, pendingPrompt, answeredPromptQuestion);
+  const promptPart = promptMessagePart(descriptor, pendingPrompt, answeredPromptQuestion, runtimePrompt);
 
   useEffect(() => {
     if (!pendingPrompt) setAnsweredPromptQuestion(null);
@@ -478,7 +495,7 @@ function TabSessionChatBody({
       if (pendingPrompt && !structuredPrompts) setAnsweredPromptQuestion(pendingPrompt.question);
       try {
         await invoke("mux_respond_prompt", promptResponseArgs(tabId, value, pendingPrompt, tab?.pending_prompt_kind ?? "structured"));
-        promptLifecycle.resolve(promptLifecycle.key);
+        if (!runtimePrompt) promptLifecycle.resolve(promptLifecycle.key);
         composerErrorNotice.recover();
       } catch (error) {
         setAnsweredPromptQuestion(null);
@@ -488,7 +505,7 @@ function TabSessionChatBody({
         promptResponseInFlight.current = false;
       }
     },
-    [pendingPrompt, structuredPrompts, tabId, tab?.pending_prompt_kind, showComposerError, promptLifecycle.key, promptLifecycle.resolve, composerErrorNotice],
+    [pendingPrompt, runtimePrompt, structuredPrompts, tabId, tab?.pending_prompt_kind, showComposerError, promptLifecycle.key, promptLifecycle.resolve, composerErrorNotice],
   );
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useLatestCallback((command: string) => {
@@ -523,10 +540,13 @@ function TabSessionChatBody({
       return;
     }
     lastStopAtRef.current = now;
-    void invoke("interrupt_agent", args).then(composerErrorNotice.recover).catch((e) =>
+    void invoke<StopReceipt>("interrupt_agent", args).then(receipt => {
+      confirmStop(interruptTarget.id, receipt);
+      composerErrorNotice.recover();
+    }).catch((e) =>
       showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [interruptTarget, showComposerError, composerErrorNotice]);
+  }, [interruptTarget, showComposerError, composerErrorNotice, confirmStop]);
 
   const openJobs = useLatestCallback(() => {
     window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:jobs" } }));
@@ -781,12 +801,18 @@ function TabSessionChatBody({
       const fullId = Object.keys(tabAgentTypes).find((id) => id.startsWith(idShort));
       if (!fullId) continue;
       const providerId = tabAgentTypes[fullId] ?? "";
-      const key = `${fullId}:${providerId}`;
+      const descriptor = getAgentDescriptor(providerId);
+      const model = origin.model && providerId
+        ? resolveModelDisplayName(descriptor ? [descriptor] : [], providerId, origin.model)
+        : origin.model;
+      const resolvedOrigin = model === origin.model ? origin : { ...origin, model };
+      const key = `${fullId}:${providerId}:${model ?? ""}`;
       const prev = cache.get(msg.id);
       const entry: OriginProps = prev && prev.key === key
         ? prev
         : {
             key,
+            origin: resolvedOrigin,
             onOriginClick: () => {
               const workspaceId = planNav.workspaces.find((workspace) => workspace.tabs.includes(fullId))?.id;
               if (workspaceId) void selectTabByTab(workspaceId, fullId);
@@ -845,6 +871,7 @@ function TabSessionChatBody({
 
   const setupState = (<ChatSetupState
           visible={isActive}
+          frozenRestore={frozenRestore}
           waitingMessages={heldMessagesForLaunch(deliverySends)}
           workspace={planNav.workspaces.find(workspace => workspace.id === workspaceId)}
           tab={tab}
@@ -887,7 +914,8 @@ function TabSessionChatBody({
       data-chat-ready={!showRemoteState && !tabLock.locked && (snapshotReady || firstTurnReady) && !chatChannelLoading && setupView.kind === "none"}
       role="region"
       aria-label={`Tab chat: ${tab?.title ?? tabId}`}
-      aria-busy={!showRemoteState && setupView.kind !== "failed" && setupView.kind !== "launch_failed" && ((!snapshotReady && !firstTurnReady) || chatChannelLoading)}
+      aria-busy={!showRemoteState && setupView.kind !== "failed" && setupView.kind !== "launch_failed" && setupView.kind !== "exited"
+        && ((!snapshotReady && !firstTurnReady) || chatChannelLoading)}
       style={{
         ...chatLayoutTokens().variables,
         background: "var(--ct-bg, #0d1117)",
@@ -973,7 +1001,8 @@ function TabSessionChatBody({
         )}
         {backfillNotice === "stalled_cursor"
           ? <InlineErrorNotice error="Older history could not be read." operation="loading older messages" />
-          : backfillNotice && <p role="status" className="text-center text-xs text-[var(--ct-muted-fg)]">
+          : railsVisible && snapshotReady && attachmentState === "attached" && !backfillLoading
+            && hiddenMessageCount === 0 && !canBackfillOlder && <p role="status" className="text-center text-xs text-[var(--ct-muted-fg)]">
             No earlier messages.
           </p>}
         {isActive && (reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
@@ -1074,6 +1103,7 @@ function TabSessionChatBody({
       </div>
       <ComposerBackgroundWorkProvider tabId={tabId} messages={allMessages}>
       <ChatComposerSurface tab={tab} lock={tabLock} view={setupView} providerId={tabProvider ?? undefined} tabId={tabId}>
+        {remoteChatReconnecting && !remoteChat.state && <span className="sr-only" role="status" aria-live="polite">Reconnecting</span>}
       {isWatcherTab && watcherSpec ? (
         <WatcherReadOnlyBar
           watcher={watcherSpec}
@@ -1130,8 +1160,6 @@ function TabSessionChatBody({
           idlePlaceholder={signInState ? "Sign in to start" : undefined}
           tabId={tabId}
           tabProvider={tabProvider}
-          currentPtyId={currentPtyId}
-          chatBackend={effectiveChatBackend}
           isActive={isActive}
           pendingPrompt={pendingPrompt}
           attachments={attachments}
@@ -1148,7 +1176,7 @@ function TabSessionChatBody({
           updateOptimistic={updateOptimistic}
           observeChatSendStatus={observeChatSendStatus}
           showComposerError={showComposerError}
-          onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
+          sendUnavailableReason={remoteChat.sendUnavailableReason}
         />}
       </>
       )}

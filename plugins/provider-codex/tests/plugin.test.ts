@@ -229,9 +229,10 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
     "detectActiveSession", "enumerateSessions", "findSession", "folderTrustAnswered", "checkForUpdate", "isDirectoryTrusted", "detectSessionModel", "detectSessionReasoningEffort", "parseSessionMessages", "parseSessionObservations", "classifyTabState",
     "detectLaunchSession", "releaseTabLaunchArtifacts", "sweepLaunchArtifacts", "classifiedPromptAutoResponse",
     "updatePromptSafeChoice", "providerSelfUpdateCapability", "runtimePlan", "runtimeResponse", "runtimeReduce", "runtimeStoredHistory", "runtimeStoredHistoryAvailable", "runtimeStoredRecords",
+    "runAgentTask", "abortAgentTask",
     "openSession", "sendMessage", "poll", "closeSession", "viewCall", "discoverRemoteTask",
   ].sort();
-  eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin split preserves the exported API surface");
+  eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin exposes the supported API surface");
   eq(loadHostPlugin().sessionResume(), { exact: true }, "exact session resume is explicitly declared");
 }
 

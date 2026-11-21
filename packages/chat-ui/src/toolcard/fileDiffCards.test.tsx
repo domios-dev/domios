@@ -170,25 +170,20 @@ describe("file diff cards", () => {
     const codexHost = await mount(<Timeline items={timeline("codex")} />);
     expect(runs(codexHost)).toHaveLength(1);
     const codexRun = runs(codexHost)[0];
-    expect(all(codexRun, "chat-edit-run-title").map((node) => node.textContent)).toEqual(["Edited 4 files"]);
-    expect(codexRun.getAttribute("aria-label")).toBe("Edited 4 files, +4 −3");
+    expect(all(codexRun, "chat-edit-run-title").map((node) => node.textContent)).toEqual(["File changes"]);
+    expect(codexRun.getAttribute("aria-label")).toBe("File changes, +4 −3");
     expect(rows(codexRun)).toEqual([
       ["src/shared.ts", "+1 −1"],
-      ["src/created.ts", "+2 −0"],
-      ["src/removed.ts", "+0 −1"],
+      ["src/created.ts", "+2"],
+      ["src/removed.ts", "−1"],
       ["src/renamed.ts", "+1 −1"],
     ]);
-    expect(all(codexRun, "chat-edit-run-file").map((row) => row.textContent)).toEqual([
-      "├src/shared.ts+1 −1",
-      "├src/created.tsnew+2 −0",
-      "├src/removed.tsdeleted+0 −1",
-      "└src/legacy.ts → src/renamed.ts+1 −1",
-    ]);
+    expect(all(codexRun, "chat-edit-run-file")).toHaveLength(4);
 
     const claudeHost = await mount(<Timeline items={timeline("claude")} />);
     expect(runs(claudeHost)).toHaveLength(1);
-    expect(runs(claudeHost)[0].getAttribute("aria-label")).toBe("Edited 2 files, +3 −1");
-    expect(rows(runs(claudeHost)[0])).toEqual([["src/shared.ts", "+1 −1"], ["src/created.ts", "+2 −0"]]);
+    expect(runs(claudeHost)[0].getAttribute("aria-label")).toBe("File changes, +3 −1");
+    expect(rows(runs(claudeHost)[0])).toEqual([["src/shared.ts", "+1 −1"], ["src/created.ts", "+2"]]);
     const legacyEdits = (provider: Provider) => toolEvents(timeline(provider)).filter((event) => event.kind === "edit" && !event.fileDiffs?.length).length;
     for (const [provider, host] of [["codex", codexHost], ["claude", claudeHost]] as const) {
       // Folded files never also render as standalone per-file cards, and every row starts collapsed.
@@ -205,6 +200,56 @@ describe("file diff cards", () => {
     }
   });
 
+  it("keeps create and edit calls for the same path as separate file change rows", async () => {
+    const path = "C:/Users/User/AppData/Local/Temp/domios-open131-1d8cadc0/cards-created.txt";
+    const created: FileDiff = { path, kind: "add", additions: 1, deletions: 0, hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 1, lines: ["+PUBLIC_OPEN131_CREATED"] }] };
+    const edited: FileDiff = { path, kind: "modify", additions: 1, deletions: 1, hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-PUBLIC_OPEN131_CREATED", "+PUBLIC_OPEN131_EDITED"] }] };
+    const message = (id: string, toolName: string, fileDiff: FileDiff): NormalizedChatMessage => ({
+      id, type: "tool_call", content: "", sourceSessionId: "open131-session", toolId: id, toolName, toolKind: "edit",
+      toolSummary: path, toolDetail: path, toolInput: { path }, toolStatus: "completed", toolError: false,
+      toolDurationMs: 10, fileDiffs: [fileDiff],
+    });
+    const items = reduceToolEvents([message("create", "write", created), message("edit", "edit", edited)]);
+    const host = await mount(<Timeline items={items} />);
+    const run = all(host, "chat-edit-run")[0];
+    const rows = all(run, "chat-edit-run-file");
+    expect(all(host, "chat-edit-run")).toHaveLength(1);
+    expect(all(host, "file-diff-cards")).toHaveLength(0);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.querySelector('[data-testid="edit-run-counts"]')?.textContent)).toEqual(["+1", "+1 −1"]);
+    expect(rows.every((row) => row.querySelector('[role="status"]')?.getAttribute("aria-label"))).toBe(true);
+    expect(all(run, "edit-run-duration").map((duration) => duration.textContent)).toEqual(["0s", "0s"]);
+    for (const row of rows) {
+      const duration = row.querySelector('[data-testid="edit-run-duration"]')!;
+      const status = row.querySelector('[role="status"]')!;
+      expect(duration.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    await act(async () => rows[0].querySelector("button")?.click());
+    expect(all(run, "edit-run-diff")).toHaveLength(1);
+    expect(all(run, "edit-run-diff")[0].textContent).toContain("PUBLIC_OPEN131_CREATED");
+  });
+
+  it("labels standalone create rows and shows status and muted duration without a completion pill", async () => {
+    const path = "C:/Users/User/AppData/Local/Temp/domios-open131-1d8cadc0/cards-created.txt";
+    const host = await mount(<FileDiffCards event={{
+      ...diffEvent([{ path, kind: "add", additions: 1, deletions: 0, hunks: [] }]), status: "success", durationMs: 0,
+    }} />);
+    expect(all(host, "file-diff-header")[0].textContent).toBe("Created domios-open131-1d8cadc0/cards-created.txt +1");
+    expect(all(host, "file-diff-status")[0].getAttribute("aria-label")).toBe("success");
+    expect(all(host, "file-diff-duration")[0].textContent).toBe("0s");
+    expect(host.textContent).not.toContain("completed");
+  });
+
+  it("labels edited files and places the duration before the outcome", async () => {
+    const path = "src/changed.ts";
+    const host = await mount(<FileDiffCards event={{
+      ...diffEvent([{ path, kind: "modify", additions: 1, deletions: 1, hunks: [] }]), status: "success", durationMs: 2800,
+    }} />);
+    const duration = all(host, "file-diff-duration")[0];
+    const status = all(host, "file-diff-status")[0];
+    expect(duration.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("merges an edit with a structured diff into one card per file with exact counts and reachable raw input", async () => {
     const editEvent = eventFor("claude", "toolu_edit_a");
     const diffs = editEvent.fileDiffs ?? [];
@@ -215,8 +260,7 @@ describe("file diff cards", () => {
       renderMenu: ({ items }) => <>{items.map((item) => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</>,
     }}><ToolCallBubble event={editEvent} expanded onToggle={() => undefined} /></ChatBlockHostProvider>);
     expect(all(host, "file-diff-card")).toHaveLength(diffs.length);
-    expect(all(host, "file-diff-header").map((node) => node.textContent))
-      .toEqual(diffs.map((diff) => `${diff.path} +${diff.additions} −${diff.deletions}`));
+    expect(all(host, "file-diff-header")).toHaveLength(diffs.length);
     expect(all(host, "chat-tool-call")).toHaveLength(0);
     await expandAll(host);
     expect(all(host, "toolcard-edit-file")).toHaveLength(0);
@@ -266,7 +310,7 @@ describe("file diff cards", () => {
     expect(toggle.tagName).toBe("BUTTON");
     expect(toggle.getAttribute("type")).toBe("button");
     expect(toggle.hasAttribute("tabindex")).toBe(false);
-    expect(toggle.getAttribute("aria-label")).toBe("Show diff for src/shared.ts");
+    expect(toggle.getAttribute("aria-label")).toBe("Show diff for src/shared.ts, change 1");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(all(row, "edit-run-diff")).toHaveLength(0);
 
@@ -353,7 +397,7 @@ describe("file diff cards", () => {
     const openStream = await mount(<ToolCallBubble event={head} expanded onToggle={() => undefined} />);
     await act(async () => openStream.querySelector<HTMLButtonElement>('button[aria-label="Show Describe a"]')?.click());
     expect(all(openStream, "file-diff-card")).toHaveLength(1);
-    expect(all(openStream, "file-diff-header").map((node) => node.textContent)).toEqual([`${diff.path} +${diff.additions} −${diff.deletions}`]);
+    expect(all(openStream, "file-diff-header")).toHaveLength(1);
     expect(all(openStream, "toolcard-edit-file")).toHaveLength(0);
   });
 

@@ -5,6 +5,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { AppConfig, Tab, Team, Workspace } from "../../lib/types";
 import type { PlanView } from "../Canvas/planProjection";
 import { Sidebar } from "./Sidebar";
+import { setSidebarMachineFilter } from "./sidebarMachineFilter";
+import { PairedWorkspaceInventoryContext } from "../../store/multiplexer/context";
 import { SidebarDnd } from "./sortable";
 import { SidebarWorkspaceDetail, type SidebarWorkspaceDetailActions, type SidebarWorkspaceDetailData } from "./SidebarWorkspaceDetail";
 import { useMuxSelector } from "../../store/multiplexer/hooks";
@@ -70,6 +72,7 @@ function mountHost() {
 }
 afterEach(async () => {
   for (const close of hosts.splice(0)) await close();
+  setSidebarMachineFilter("local");
   localStorage.clear();
   vi.unstubAllGlobals();
 });
@@ -85,7 +88,7 @@ function detailData(tabs: readonly Tab[], teams: Team[], plans: PlanView[]): Sid
 const detailActions = {
   activateWorkspace: () => undefined, activateTab: () => undefined, closeTab: () => undefined, renameTab: () => undefined,
   renameWorkspace: () => undefined, closeWorkspace: () => undefined, newTerminal: () => undefined, newSession: () => undefined,
-  newAgent: () => undefined, openRemoteTab: () => undefined, openAutomation: () => undefined, closeTeam: () => undefined,
+  newAgent: () => undefined, openAutomation: () => undefined, closeTeam: () => undefined,
 } satisfies SidebarWorkspaceDetailActions;
 const row = (host: Element, tabId: string) => host.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`);
 
@@ -258,4 +261,50 @@ it.each([null, "owned-pty"])("selecting a failed tab never restarts it or change
       }
     }
   } finally { vi.mocked(invoke).mockResolvedValue([]); }
+});
+
+it("keeps one workspace switcher and falls back to one visible workspace when filtering", async () => {
+  vi.stubGlobal("__CODETERM_DEV__", false);
+  vi.stubGlobal("__APP_VERSION__", "test");
+  const here = [worker("local-worker", "Local home")];
+  setMux([workspaceOf("Local home", here)], here, "Local home");
+  const remoteId = "Peer home";
+  const lead = manager("peer-lead", remoteId);
+  const hand = worker("other-worker", remoteId);
+  const { host, root } = mountHost();
+  await act(async () => root.render(<PairedWorkspaceInventoryContext.Provider value={{
+    generals: [], browse: null, peerWorkspaces: [{
+      peerId: "blackstar", workspace: workspaceOf(remoteId, [lead, hand]), teams: [{ ...team(remoteId), name: null }],
+      planTitles: new Map([[team(remoteId).id, "Peer plan title"]]),
+      tabs: [{ viewerId: "mesh:blackstar/peer-lead", tab: lead }, { viewerId: "mesh:air/other-worker", tab: hand, peerId: "air" }],
+    }],
+  }}><Sidebar config={config} /></PairedWorkspaceInventoryContext.Provider>));
+  const grid = host.querySelector('[data-testid="workspace-card-grid"]');
+  const detail = () => [...host.querySelectorAll('[data-testid="workspace-detail"]')];
+  const cards = () => [...host.querySelectorAll('[data-testid="workspace-card"]')];
+  expect(cards()).toHaveLength(1);
+  expect(detail().map(node => node.getAttribute("aria-label"))).toEqual(["Local home workspace contents"]);
+
+  await act(async () => setSidebarMachineFilter("all"));
+  expect(cards()).toHaveLength(2);
+  expect(detail()).toHaveLength(1);
+  await act(async () => setSidebarMachineFilter({ id: "blackstar", name: "BLACKSTAR" }));
+  expect(host.querySelector('[data-testid="workspace-card-grid"]')).toBe(grid);
+  expect(detail().map(node => node.getAttribute("aria-label"))).toEqual(["Peer home workspace contents"]);
+  expect(cards()).toHaveLength(1);
+  expect(detail()[0].querySelector('[data-testid="team-name"]')?.textContent).toBe("Peer plan title");
+  expect(row(host, "mesh:blackstar/peer-lead")?.closest("[hidden]")).toBeNull();
+  expect(row(host, "mesh:air/other-worker")?.closest("[hidden]")).toBeNull();
+  const actions = row(host, "mesh:air/other-worker")!.querySelector<HTMLButtonElement>('button[aria-label="Tab actions"]')!;
+  await act(async () => actions.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  const menu = document.getElementById(actions.getAttribute("aria-controls")!)!;
+  const rename = menu.querySelector<HTMLButtonElement>('[data-testid="tab-menu-rename"]')!;
+  const close = menu.querySelector<HTMLButtonElement>('[data-testid="tab-menu-close"]')!;
+  expect(rename.getAttribute("aria-disabled")).toBe("true");
+  expect(close.getAttribute("aria-disabled")).toBe("true");
+  expect(document.getElementById(rename.getAttribute("aria-describedby")!)?.textContent).toBeTruthy();
+  await act(async () => rename.click());
+  expect(actions.getAttribute("aria-expanded")).toBe("true");
+
+  expect(row(host, "local-worker")).toBeNull();
 });

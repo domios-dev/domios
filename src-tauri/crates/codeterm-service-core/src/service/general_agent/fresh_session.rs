@@ -8,9 +8,9 @@ use crate::service::{ServiceContext, SpawnAgentParams};
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FreshGeneralSessionRequest {
-    pub workspace_id: String,
-    pub provider_id: String,
-    pub cwd: String,
+    pub workspace_id: Option<String>,
+    pub provider_id: Option<String>,
+    pub cwd: Option<String>,
     pub role: String,
     pub intent: String,
     pub model: Option<String>,
@@ -19,7 +19,48 @@ pub struct FreshGeneralSessionRequest {
     pub account_id: Option<String>,
 }
 
+struct ResolvedFreshGeneralSessionRequest {
+    workspace_id: String,
+    provider_id: String,
+    cwd: String,
+    role: String,
+    intent: String,
+    model: Option<String>,
+    reasoning_effort: Option<String>,
+    preset: Option<String>,
+    account_id: Option<String>,
+}
+
 impl FreshGeneralSessionRequest {
+    fn resolve(
+        self,
+        mux: &MultiplexerState,
+        config: &crate::config::schema::GeneralAgentConfig,
+    ) -> Result<ResolvedFreshGeneralSessionRequest, String> {
+        Ok(ResolvedFreshGeneralSessionRequest {
+            workspace_id: self
+                .workspace_id
+                .or_else(|| super::general_workspace_id(mux))
+                .ok_or("General workspace is unavailable")?,
+            provider_id: self
+                .provider_id
+                .unwrap_or_else(|| config.agent_provider.clone()),
+            cwd: self
+                .cwd
+                .unwrap_or_else(|| super::general_dir().to_string_lossy().to_string()),
+            role: self.role,
+            intent: self.intent,
+            model: self.model.or_else(|| config.model.clone()),
+            reasoning_effort: self
+                .reasoning_effort
+                .or_else(|| config.reasoning_effort.clone()),
+            preset: self.preset,
+            account_id: self.account_id,
+        })
+    }
+}
+
+impl ResolvedFreshGeneralSessionRequest {
     fn account_launch_params(&self) -> SpawnAgentParams {
         SpawnAgentParams {
             agent: Some(self.provider_id.clone()),
@@ -33,7 +74,7 @@ impl FreshGeneralSessionRequest {
 fn validate_request(
     mux: &MultiplexerState,
     config: &crate::config::schema::GeneralAgentConfig,
-    request: &FreshGeneralSessionRequest,
+    request: &ResolvedFreshGeneralSessionRequest,
 ) -> Result<(), String> {
     if !config.enabled || !config.first_run_complete {
         return Err("Finish Get started before creating another General session".into());
@@ -108,12 +149,15 @@ impl ServiceContext {
         request: FreshGeneralSessionRequest,
     ) -> Result<AtomicSpawn<serde_json::Value>, String> {
         let general = config.lock().general_agent.clone();
+        let mux = self.mux.read();
+        let request = request.resolve(&mux, &general)?;
         let mut selection = super::session_contract::FreshLaunchSelection {
             model: request.model.clone(),
             reasoning_effort: request.reasoning_effort.clone(),
             ..Default::default()
         };
-        validate_request(&self.mux.read(), &general, &request)?;
+        validate_request(&mux, &general, &request)?;
+        drop(mux);
         crate::service::execution_sandbox::enforce_delegation_ceiling(
             self,
             &crate::service::SpawnAgentParams::default(),

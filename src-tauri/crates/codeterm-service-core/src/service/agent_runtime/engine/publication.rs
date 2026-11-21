@@ -174,6 +174,9 @@ fn publish_state(svc: &ServiceContext, tab: &str, session: &Session, lifecycle: 
                 target.frozen = true;
             }
         }
+        if let Some(previous) = &target.agent_runtime_state {
+            super::super::background::preserve_projection(previous, &mut value, &context);
+        }
         target.agent_runtime_state = Some(value.clone());
         if lifecycle {
             target.agent_booting = value["state"] == "loading";

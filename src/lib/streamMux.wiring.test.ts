@@ -286,24 +286,29 @@ describe("one multiplexed stream per origin", () => {
 
   it("N peers x M remote tabs plus a local terminal hold exactly one long-lived connection", async () => {
     const { daemon, remoteEvents, output } = await boot();
+    const { peerEventRail } = await import("./peerEventRail");
     const stops: Array<() => void> = [];
     const chat: unknown[] = [];
     for (let peer = 0; peer < PEERS; peer++) {
+      stops.push(peerEventRail.subscribe(peerId(peer), "paired-link", () => {}));
       for (let tab = 0; tab < TABS_PER_PEER; tab++) {
         const id = remoteTab(peer, tab);
         stops.push(remoteEvents.subscribeRemoteTabEvent(`tab-chat-msg-${id}`, ({ payload }) => { chat.push(payload); })!);
         stops.push(remoteEvents.subscribeRemoteTabEvent(`agent-runtime-state:${id}`, () => {})!);
         stops.push(remoteEvents.subscribeRemoteTabEvent(`pty-resize-owner-changed:${id}`, () => {})!);
-        stops.push(remoteEvents.subscribeRemoteTabEvent(`peer-state-changed:${id}`, () => {})!);
         stops.push(output.subscribeTabOutput(id, { onOutput() {}, onTruncated() {}, onEnded() {} }));
       }
     }
     const localOutput = vi.fn();
     stops.push(output.subscribeTabOutput("local-tab", { onOutput: localOutput, onTruncated() {}, onEnded() {} }, {}, "local-tab"));
 
-    const remoteChannels = PEERS * TABS_PER_PEER * 2;
+    const remoteChannels = PEERS * (TABS_PER_PEER * 2 + 1);
     await vi.waitFor(() => expect(daemon.opened.length).toBe(remoteChannels + 1));
     expect(daemon.longLived.map(({ path }) => new URL(path, ORIGIN).pathname)).toEqual(["/api/stream-mux"]);
+    expect(daemon.opened.filter(({ path }) => {
+      const params = new URL(path, ORIGIN).searchParams;
+      return params.get("scope") === "peer" && !params.has("tab");
+    })).toHaveLength(PEERS);
 
     const target = remoteTab(1, 2);
     const eventsChannel = channelFor(daemon.opened, (url) => url.searchParams.get("tab") === target

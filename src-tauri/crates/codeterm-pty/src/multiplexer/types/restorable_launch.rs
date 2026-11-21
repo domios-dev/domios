@@ -72,6 +72,9 @@ pub struct RestorableLaunchParameters {
     #[ts(optional)]
     pub failed_provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub exited_chat_binding: Option<ExitedChatBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub structured_runtime_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -150,6 +153,7 @@ impl RestorableLaunchParameters {
             && self.execution_mode.is_none()
             && self.execution_sandbox.is_none()
             && self.failed_provider.is_none()
+            && self.exited_chat_binding.is_none()
             && self.structured_runtime_mode.is_none()
             && self.context_files.is_none()
             && self.context_skills.is_none()
@@ -166,6 +170,42 @@ impl RestorableLaunchParameters {
             && self.runtime_launch_options.is_none()
             && self.host_approval_choice.is_none()
             && self.selected_session_mode.is_none()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExitedChatBinding {
+    pub provider_id: String,
+    pub nonce: String,
+    pub session_id: String,
+}
+
+impl super::Tab {
+    pub fn exited_chat_recipient(&self) -> Option<&ExitedChatBinding> {
+        if !matches!(self.backing, super::TabBacking::Pty) || self.agent_type.is_some() {
+            return None;
+        }
+        self.restorable_launch.exited_chat_binding.as_ref()
+    }
+
+    pub fn exited_chat_resume_target(&self) -> Option<&ExitedChatBinding> {
+        let exit = self.restorable_launch.exited_chat_binding.as_ref()?;
+        let resume = self.prior_session_binding_nonces.last()?;
+        (self.agent_type.as_ref() == Some(&exit.provider_id)
+            && self.session_binding_nonce.as_ref() == Some(&resume.nonce)
+            && resume.resume_target_session_id.as_ref() == Some(&exit.session_id)
+            && self
+                .agent_session_id
+                .as_ref()
+                .is_none_or(|session| session == &exit.session_id))
+        .then_some(exit)
+    }
+
+    pub fn resuming_exited_chat_recipient(&self) -> Option<&ExitedChatBinding> {
+        self.exited_chat_resume_target().filter(|_| {
+            !self.launch_session_authenticated()
+                && self.boot_stage != Some(codeterm_types::pty::BootStage::SpawnFailed)
+        })
     }
 }
 

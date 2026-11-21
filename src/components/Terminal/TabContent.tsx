@@ -6,6 +6,8 @@ import { RestoreStatePanel } from "./RestoreStatePanel";
 import { DeferredPresence } from "../shared/DeferredPresence";
 import { dockedTabFailure, restoreActivityVisible, restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "../../lib/restoreStageView";
 import { useCurrentTabUiMode } from "../../hooks/useCurrentTabUiMode";
+import { getClientTabUiMode, resolveInitialTabUiMode } from "../../lib/clientTabUiMode";
+import { hasExitedChatRecipient } from "../../lib/tabActivity";
 import { runtimeSessionUnavailable } from "../../lib/agentRuntimeState";
 import { useWakeOnOpen } from "./useWakeOnOpen";
 import { useRemoteChatStatus } from "../../lib/remoteChatStatus";
@@ -31,7 +33,7 @@ import { usageTrackingEnabled, tabUsageSource } from "./usageTracking";
 import { configureRemoteTabTransport } from "../../lib/remoteTabTransport";
 import { useHeaderTabMenu } from "./useHeaderTabMenu";
 import { SurfaceTabHost } from "./SurfaceTabHost";
-import { RemoteTaskTab } from "./RemoteTaskTab";
+import { RemoteTaskTab, RemoteTaskUnavailable } from "./RemoteTaskTab";
 import { surfaceBacking } from "../../lib/surfaceTab";
 import { hasSleepingTranscript } from "../../lib/tabSleep";
 import { usePanelInputBoundary } from "./usePanelInputBoundary";
@@ -111,9 +113,11 @@ export function TabContent({
   </TabWrapper>;
   const sleepingTranscript = (hasSleepingTranscript(tab) || hasCachedTranscript) && restore.phase !== "ready";
   const loadRefused = runtimeSessionUnavailable(tab.agent_runtime_state);
-  const chatOwnsStartup = (tab.backing?.kind === "chat_backend" || uiMode === "chat")
-    && (!tab.frozen || restore.phase === "failed" || Boolean(remoteChat.state));
-  const dockedFailure = tab.backing?.kind === "chat_backend" || uiMode === "chat" ? dockedTabFailure(tab, wake) : null;
+  const chatCapable = hasExitedChatRecipient(tab)
+    || (descriptor?.supports_chat_ui ?? Boolean(providerId && getClientTabUiMode(tab.id) === "chat"));
+  const chatOwnsStartup = tab.backing?.kind === "chat_backend"
+    || (uiMode ?? resolveInitialTabUiMode(tab.id, { chatCapable })) === "chat";
+  const dockedFailure = chatOwnsStartup ? dockedTabFailure(tab, wake) : null;
   const restoreOwnsBody = !chatOwnsStartup && !loadRefused && !dockedFailure && !sleepingTranscript && !hasCachedTranscript && (restorePanelOwnsBody(tab, wake, restore) || initialBody.current.waiting);
   const showRestore = restoreOwnsBody && !bodyPainted;
   const restoreInline = restoreOwnsBody && bodyPainted;
@@ -140,7 +144,7 @@ export function TabContent({
 
   const chatBacking = tab.backing?.kind === "chat_backend" ? tab.backing : null;
   const isChatBackend = chatBacking !== null;
-  const showSwitch = !isChatBackend && descriptor?.supports_chat_ui === true;
+  const showSwitch = !isChatBackend && (descriptor?.supports_chat_ui === true || hasExitedChatRecipient(tab));
   const usageVisible = usageSource ? usageTrackingEnabled(
     trackingDescriptor?.settings_schema ?? [],
     usageEnabledByProvider?.[usageSource.trackingProvider],
@@ -153,14 +157,16 @@ export function TabContent({
   const cwd = tab.cwd ?? workspaceCwd ?? null;
 
   const body = tab.frozen && !chatOwnsStartup && !sleepingTranscript && !bodyPainted && (tab.agent_type || isChatBackend) ? null : tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : chatBacking && descriptor?.remote_task && isRemoteTaskTab(tab, descriptor.remote_task) ? (
-    tab.remote_peer_id ? <div role="status">Remote task controls are unavailable through this mesh tab.</div> :
+    tab.remote_peer_id ? <RemoteTaskUnavailable /> :
     <RemoteTaskTab key={chatBacking.session_id} tabId={tab.id} pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} capability={descriptor.remote_task} />
   ) : isChatBackend ? (
-    <TabSessionChat tabId={tab.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
+    <TabSessionChat tabId={tab.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible}
+      frozenRestore={tab.frozen ? restore : undefined} />
   ) : (
     <TerminalTab
       key={tab.id}
       wakingTranscript={sleepingTranscript}
+      frozenRestore={tab.frozen && chatOwnsStartup ? restore : undefined}
       tabId={tab.id}
       ptyId={tab.pty_id}
       isFocused={isFocused}

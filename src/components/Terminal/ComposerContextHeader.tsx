@@ -218,7 +218,8 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   const open = requested && kinds.includes(requested) ? requested : null;
 
   const hasPluginError = removedChatPluginId(pluginError ?? null) !== null;
-  if (!hasGoal && !hasPluginError && !plan && kinds.length === 0 && heartbeats.length === 0) return null;
+  const hasContext = hasGoal || hasPluginError || plan !== null || kinds.length > 0 || heartbeats.length > 0;
+  if (!hasContext && !backgroundWork.stopWarning) return null;
 
   const toggle = (kind: ContextKind) => {
     setRequested(open === kind ? null : kind);
@@ -391,10 +392,10 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
 
   return (
     <div className="ct-ctx" data-testid="composer-context-header" data-open-kind={open ?? undefined} data-phone={phone || undefined}>
-      <div className="ct-ctx__head ct-ctx__compact">
+      {hasContext && <div className="ct-ctx__head ct-ctx__compact">
         {phone ? pill : plan ? <PlanTitle plan={plan} /> : fallbackTitle()}
         {!phone && linkedChips}
-      </div>
+      </div>}
       {phone && linkedChips}
       {heartbeat && <SystemHeartbeatDetail message={heartbeat} busy={false} onClose={() => setHeartbeatId(null)} />}
       {open && (phone ? (
@@ -402,6 +403,11 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
           <div className="ct-ctx__reveal-inner">{body}</div>
         </div>
       ) : body)}
+      {backgroundWork.stopWarning && <InlineErrorNotice
+        description={{ title: "Background stop unconfirmed", cause: backgroundWork.stopWarning, actions: [], raw: "" }}
+        role="alert"
+        actions={[{ label: "Dismiss", onClick: backgroundWork.dismissStopWarning }]}
+      />}
       {error && !confirming && <InlineErrorNotice error={error} operation="updating the composer context" blocking />}
       {confirming && (() => {
         const copy = deleteJobConfirmation(confirming);

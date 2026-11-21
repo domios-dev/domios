@@ -1,6 +1,6 @@
 import type {AgentEvent, JsonValue, Operation, RpcReply, RuntimeContext, RuntimePlan, RuntimeStep} from "@codeterm/plugin-sdk";
-import {authEvents, loginPlan, loginResponse, methods, providerSummary} from "./runtimeAuth";
-import {attachmentUrl, done, fail, messageIdentity, modelParts, next, object, own, refused, request, text} from "./runtimeProtocol";
+import {authEvents, loginPlan, loginResponse, methods, providerListParams, providerSummary} from "./runtimeAuth";
+import {attachmentUrl, done, fail, httpRefused, messageIdentity, modelParts, next, object, own, refused, request, text} from "./runtimeProtocol";
 import {historyRows} from "./runtimeProjection";
 import {answerPlan} from "./runtimeRequests";
 import {binding, claimed, loaded} from "./runtimeState";
@@ -54,7 +54,7 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
     }
     case "answer": return answerPlan(ctx,op);
     case "control": {
-      if (op.action === "auth") return request("provider.list",{}, {stage:"authProviders"});
+      if (op.action === "auth") return request("provider.list",providerListParams, {stage:"authProviders"});
       if (op.action === "login") return loginPlan(ctx,op);
       fail("unsupported",`OpenCode runtime control ${op.action} is unsupported`);
     }
@@ -85,7 +85,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
   if (reply.kind === "error") {
     if (op.kind === "control" && op.action === "login" && text(object(op.value).loginId)) return done([{kind:"authLogin",login:{status:"failed",loginId:String(object(op.value).loginId),error:`Sign-in request was refused (${reply.error.code})`}}]);
     if (op.kind === "resumeThread" && reply.error.code === 404) return {kind:"refused",reason:{code:"thread_not_found",message:"The exact OpenCode session was not found"},beforeAcceptance:false};
-    return refused(`OpenCode request was refused (${reply.error.code})`);
+    return httpRefused(reply.error);
   }
   const envelope=object(reply.value), body=envelope.body;
   switch (op.kind) {
@@ -96,7 +96,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
         if (!protocol) return refused("OpenCode did not confirm authenticated server health");
         binding(ctx).protocol=protocol;
         if (protocol === "v2") return v2Response(ctx,op,state,reply);
-        return next("provider.list",{}, {stage:"initializeProviders",version:health.version});
+        return next("provider.list",providerListParams, {stage:"initializeProviders",version:health.version});
       }
       if (state.stage === "initializeProviders") return next("provider.auth",{}, {stage:"initializeMethods",version:state.version,providers:providerSummary(body)});
       if (state.stage !== "initializeMethods") return refused("Unexpected initialization response");

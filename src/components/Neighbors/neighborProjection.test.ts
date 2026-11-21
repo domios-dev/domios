@@ -36,7 +36,7 @@ async function main() {
     assert.equal(String(input), "http://gateway:7685/api/mesh/relay-to");
     assert.equal(init?.method, "POST");
     assert.equal(new Headers(init?.headers).get("Authorization"), "Bearer owner-sentinel");
-    assert.deepEqual(JSON.parse(String(init?.body)), { target_peer_id: "blackstar", method: "GET", path: "/api/neighbors/sidebar", body: null });
+    assert.deepEqual(JSON.parse(String(init?.body)), { target_instance_id: "blackstar", method: "GET", path: "/api/neighbors/sidebar", body: null });
     count++;
     if (count === 2) return new Promise<Response>(resolve => { accept = resolve; entered(); });
     return Response.json({ ok: true, status: 200, data: blackstar });

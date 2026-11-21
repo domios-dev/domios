@@ -31,6 +31,8 @@ export function NetworkTab({ triggerRefresh }: Props) {
             <MyMachines
               account={account.presence}
               onSignIn={account.signIn}
+              signingIn={account.signingIn}
+              cancelSignIn={account.cancelSignIn}
               onFailure={onFailure}
               onChanged={triggerRefresh}
             />

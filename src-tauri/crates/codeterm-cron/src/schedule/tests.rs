@@ -40,16 +40,6 @@ fn jitter_explicit_max_respected() {
 }
 
 #[test]
-fn backoff_grows_exponentially_capped_at_hour() {
-    let base = 60_000u64;
-    let b1 = compute_backoff(1, base);
-    let b2 = compute_backoff(2, base);
-    let b5 = compute_backoff(5, base);
-    assert!(b1 < b2);
-    assert!(b5 <= 3_600_000 + (3_600_000 / 4));
-}
-
-#[test]
 fn test_next_run_computation() {
     let next = compute_next_run("*/30 * * * *").unwrap();
     assert!(next.is_some());
@@ -212,10 +202,50 @@ fn tz_invalid_via_jittered_errors() {
 }
 
 #[test]
-fn stale_fire_window_applies_only_to_recurring_jobs() {
-    let slot = 1_700_000_000_000;
-    assert!(!is_stale_fire(slot, slot + STALE_FIRE_MS, false));
-    assert!(is_stale_fire(slot, slot + STALE_FIRE_MS + 1, false));
-    assert!(!is_stale_fire(slot, slot + STALE_FIRE_MS * 6, true));
-    assert!(!is_stale_fire(slot + 5, slot, false));
+fn riga_minute_32_keeps_its_occurrence_across_midnight() {
+    use crate::clock::{Clock, MockClock};
+    use chrono::{TimeZone, Utc};
+
+    for (month, utc_hour) in [(1, 21), (7, 20)] {
+        let at = |day, hour, minute| {
+            Utc.with_ymd_and_hms(2026, month, day, hour, minute, 0)
+                .unwrap()
+                .timestamp_millis() as u64
+        };
+        let clock = MockClock::starting_at(at(19, utc_hour, 52));
+        for hour in [utc_hour + 1, utc_hour + 2] {
+            let occurrence =
+                next_occurrence_at("32 * * * *", Some(0), Some("Europe/Riga"), clock.now_ms())
+                    .unwrap()
+                    .unwrap();
+            assert_eq!(occurrence.scheduled_at, at(19, hour, 32));
+            assert_eq!(occurrence.due_at, occurrence.scheduled_at);
+            clock.set_ms(occurrence.scheduled_at + 20 * 60_000);
+        }
+    }
+}
+
+#[test]
+fn restoring_a_pending_deadline_recovers_jitter_and_rejects_off_grid_times() {
+    let scheduled_at = 1_795_102_320_000; // 2026-11-19 15:32 UTC
+    let tz = Some("Europe/Riga");
+    let due_at = scheduled_at + 12_000;
+    assert_eq!(
+        restore_occurrence_at("32 * * * *", Some(15_000), tz, due_at).unwrap(),
+        Some(Occurrence {
+            scheduled_at,
+            due_at
+        }),
+    );
+    assert_eq!(
+        restore_occurrence_at("32 * * * *", Some(0), tz, scheduled_at).unwrap(),
+        Some(Occurrence {
+            scheduled_at,
+            due_at: scheduled_at
+        }),
+    );
+    assert_eq!(
+        restore_occurrence_at("32 * * * *", Some(0), tz, due_at).unwrap(),
+        None
+    );
 }
