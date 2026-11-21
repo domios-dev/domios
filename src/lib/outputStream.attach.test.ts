@@ -11,6 +11,57 @@ function pending<T>() {
   return { promise, resolve };
 }
 
+interface OutputSseConnection {
+  controller: ReadableStreamDefaultController<Uint8Array>;
+  signal: AbortSignal;
+}
+
+function createOutputSseTransport() {
+  const connections: OutputSseConnection[] = [];
+  const waiters = new Map<number, Array<(connection: OutputSseConnection) => void>>();
+  const client = createTransportClient({
+    origin: "http://daemon.test",
+    token: "fixture-token",
+    fetch: async (_input, init) => {
+      let controller!: ReadableStreamDefaultController<Uint8Array>;
+      const signal = init?.signal as AbortSignal;
+      const body = new ReadableStream<Uint8Array>({
+        start(value) { controller = value; },
+      });
+      const connection = { controller, signal };
+      const index = connections.push(connection) - 1;
+      for (const resolve of waiters.get(index) ?? []) resolve(connection);
+      waiters.delete(index);
+      signal.addEventListener("abort", () => {
+        try { controller.close(); } catch {}
+      }, { once: true });
+      return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
+    },
+  });
+  return {
+    client,
+    waitForConnection(index: number): Promise<OutputSseConnection> {
+      const connection = connections[index];
+      if (connection) return Promise.resolve(connection);
+      return new Promise(resolve => {
+        const pending = waiters.get(index) ?? [];
+        pending.push(resolve);
+        waiters.set(index, pending);
+      });
+    },
+    send(connection: OutputSseConnection, frame: unknown): void {
+      connection.controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`));
+    },
+  };
+}
+
+function outputFrame(tabId: string, ptyId: string, offset: number, bytes: Uint8Array, boot = "boot") {
+  return {
+    tab_id: tabId, pty_id: ptyId, boot, offset,
+    b64: btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""),
+  };
+}
+
 it("bounds no-progress capacity resumes and resets the budget after output progress", async () => {
   vi.useFakeTimers(); vi.resetModules(); sessionStorage.setItem("codeterm-web-output-boot", "boot");
   const output = await import("./outputStream");
@@ -89,26 +140,186 @@ it("lists mounted tabs for replay priority while omitting unmounted rings", asyn
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("aggregate terminal attachment", () => {
-  it("resets render ACK state on a new boot and suppresses the old write completion", async () => {
+  it("lets another exact PTY render while a write is held and ACKs ordered offsets only after completion", async () => {
     vi.resetModules(); localStorage.clear();
     sessionStorage.setItem("codeterm-web-output-boot", "boot");
     const output = await import("./outputStream");
-    let receive!: (name: string, frame: unknown) => void | Promise<void>;
-    output.bindOutputStreamTransport({ origin: () => "http://daemon.test", subscribe: (_path, handler) => {
-      receive = handler; return () => {};
-    } } as import("./transportClient").TransportClient);
-    const write = pending<void>(), rendered = vi.fn(), reset = vi.fn();
-    const stop = output.subscribeTabOutput("tab", { onOutput: () => write.promise, onRendered: rendered, onReset: reset, onTruncated() {}, onEnded() {} }, {}, "pty");
+    const transport = createOutputSseTransport();
+    output.bindOutputStreamTransport(transport.client);
+    const firstWrite = pending<void>(), secondWrite = pending<void>();
+    const firstStarted = pending<void>(), secondStarted = pending<void>();
+    const secondRendered = pending<void>(), otherRendered = pending<void>();
+    const aWrites: number[][] = [], aRendered: number[] = [], bBytes: number[] = [], bRendered: number[] = [];
+    const terminalA = {}, terminalB = {};
+    const stopA = output.subscribeTabOutput("a", {
+      onOutput() { throw new Error("Expected bytes"); },
+      onBytes(bytes) {
+        aWrites.push([...bytes]);
+        if (aWrites.length === 1) { firstStarted.resolve(); return firstWrite.promise; }
+        if (aWrites.length === 2) { secondStarted.resolve(); return secondWrite.promise; }
+      },
+      onRendered(offset) { aRendered.push(offset); if (offset === 3) secondRendered.resolve(); },
+      onTruncated() {}, onEnded() {},
+    }, terminalA, "pty-a");
+    const stopB = output.subscribeTabOutput("b", {
+      onOutput() { throw new Error("Expected bytes"); },
+      onBytes(bytes) { bBytes.push(...bytes); },
+      onRendered(offset) { bRendered.push(offset); otherRendered.resolve(); },
+      onTruncated() {}, onEnded() {},
+    }, terminalB, "pty-b");
     try {
-      const old = receive("message", { tab_id: "tab", pty_id: "pty", boot: "boot", offset: 1000000, b64: "QQ" });
-      await receive("message", { boot_changed: true, boot: "next-boot" });
-      expect(reset).toHaveBeenCalledOnce();
-      write.resolve(); await old;
-      expect(rendered).not.toHaveBeenCalled();
-      await receive("message", { tab_id: "tab", pty_id: "pty", boot: "next-boot", offset: 1, b64: "Qg" });
-      expect(rendered).toHaveBeenCalledExactlyOnceWith(1);
+      const connection = await transport.waitForConnection(0);
+      transport.send(connection, outputFrame("a", "pty-a", 1, Uint8Array.of(65)));
+      transport.send(connection, outputFrame("b", "pty-b", 1, Uint8Array.of(66)));
+      await firstStarted.promise;
+      await otherRendered.promise;
+      expect(aRendered).toEqual([]);
+      expect(bBytes).toEqual([66]);
+      expect(bRendered).toEqual([1]);
+
+      transport.send(connection, outputFrame("a", "pty-a", 3, Uint8Array.of(67, 68)));
+      firstWrite.resolve();
+      await secondStarted.promise;
+      expect(aWrites).toEqual([[65], [67, 68]]);
+      expect(aRendered).toEqual([1]);
+      secondWrite.resolve();
+      await secondRendered.promise;
+      expect(aRendered).toEqual([1, 3]);
+    } finally { stopB(); stopA(); output.resetOutputStream(); }
+  });
+
+  it("bounds one PTY's render backlog and catches it up in exact order after capacity returns", async () => {
+    vi.resetModules(); localStorage.clear();
+    sessionStorage.setItem("codeterm-web-output-boot", "boot");
+    const output = await import("./outputStream");
+    const transport = createOutputSseTransport();
+    output.bindOutputStreamTransport(transport.client);
+    const firstWrite = pending<void>(), firstStarted = pending<void>();
+    const firstBRendered = pending<void>(), capacityReached = pending<void>();
+    const lastAcknowledge = pending<void>(), secondBRendered = pending<void>();
+    const aBytes: number[] = [], aRendered: number[] = [], bRendered: number[] = [];
+    let seenFrames = 0;
+    window.__outputStreamPerf = {
+      get frames() { return seenFrames; },
+      set frames(value: number) { seenFrames = value; if (value === 18) capacityReached.resolve(); },
+      bytes: 0, batches: 0, lastFrameAt: 0,
+    };
+    const stopA = output.subscribeTabOutput("a", {
+      onOutput() { throw new Error("Expected bytes"); },
+      onBytes(bytes) {
+        aBytes.push(...bytes);
+        if (aBytes.length === 1) { firstStarted.resolve(); return firstWrite.promise; }
+      },
+      onRendered(offset) { aRendered.push(offset); if (offset === 17) lastAcknowledge.resolve(); },
+      onTruncated() {}, onEnded() {},
+    }, {}, "pty-a");
+    const stopB = output.subscribeTabOutput("b", {
+      onOutput() { throw new Error("Expected bytes"); },
+      onBytes() {},
+      onRendered(offset) {
+        bRendered.push(offset);
+        if (offset === 1) firstBRendered.resolve();
+        if (offset === 2) secondBRendered.resolve();
+      },
+      onTruncated() {}, onEnded() {},
+    }, {}, "pty-b");
+    try {
+      const connection = await transport.waitForConnection(0);
+      transport.send(connection, outputFrame("a", "pty-a", 1, Uint8Array.of(1)));
+      transport.send(connection, outputFrame("b", "pty-b", 1, Uint8Array.of(100)));
+      await firstStarted.promise;
+      await firstBRendered.promise;
+      expect(bRendered).toEqual([1]);
+
+      for (let offset = 2; offset <= 17; offset++) {
+        transport.send(connection, outputFrame("a", "pty-a", offset, Uint8Array.of(offset)));
+      }
+      transport.send(connection, outputFrame("b", "pty-b", 2, Uint8Array.of(101)));
+      await capacityReached.promise;
+      expect(aBytes).toEqual([1]);
+      expect(bRendered).toEqual([1]);
+
+      firstWrite.resolve();
+      await lastAcknowledge.promise;
+      await secondBRendered.promise;
+      expect(aBytes).toEqual(Array.from({ length: 17 }, (_, index) => index + 1));
+      expect(aRendered).toEqual(Array.from({ length: 17 }, (_, index) => index + 1));
+      expect(bRendered).toEqual([1, 2]);
+    } finally {
+      stopB(); stopA(); output.resetOutputStream(); delete window.__outputStreamPerf;
+    }
+  });
+
+  it("does not let a detached held write advance the replacement terminal cursor", async () => {
+    vi.resetModules(); localStorage.clear();
+    sessionStorage.setItem("codeterm-web-output-boot", "boot");
+    const output = await import("./outputStream");
+    const transport = createOutputSseTransport();
+    output.bindOutputStreamTransport(transport.client);
+    const heldWrite = pending<void>(), heldStarted = pending<void>(), heldFinished = pending<void>();
+    const terminal = {};
+    const staleRendered = vi.fn(), replacementRendered = pending<void>();
+    let replacementStop = () => {};
+    const stale = output.subscribeTabOutput("a", {
+      onOutput() { throw new Error("Expected bytes"); },
+      onBytes() { heldStarted.resolve(); return heldWrite.promise.then(() => heldFinished.resolve()); },
+      onRendered: staleRendered, onTruncated() {}, onEnded() {},
+    }, terminal, "pty-a");
+    try {
+      const connection = await transport.waitForConnection(0);
+      transport.send(connection, outputFrame("a", "pty-a", 1, Uint8Array.of(65)));
+      await heldStarted.promise;
+      stale();
+      const replacementWrites: number[] = [];
+      replacementStop = output.subscribeTabOutput("a", {
+        onOutput() { throw new Error("Expected bytes"); },
+        onBytes(bytes) { replacementWrites.push(...bytes); },
+        onRendered(offset) { if (offset === 1) replacementRendered.resolve(); },
+        onTruncated() {}, onEnded() {},
+      }, terminal, "pty-a");
+      await replacementRendered.promise;
+      expect(replacementWrites).toEqual([65]);
+      heldWrite.resolve();
+      await heldFinished.promise;
+      expect(staleRendered).not.toHaveBeenCalled();
+    } finally { replacementStop(); stale(); output.resetOutputStream(); }
+  });
+
+  it("suppresses an old boot's held render ACK across the actual SSE parser", async () => {
+    vi.resetModules(); localStorage.clear();
+    sessionStorage.setItem("codeterm-web-output-boot", "boot");
+    const output = await import("./outputStream");
+    const transport = createOutputSseTransport();
+    output.bindOutputStreamTransport(transport.client);
+    const oldWrite = pending<void>(), oldStarted = pending<void>(), oldFinished = pending<void>();
+    const newRendered = pending<void>();
+    const oldBytes: number[] = [], newBytes: number[] = [], rendered: number[] = [], resets = vi.fn();
+    const stop = output.subscribeTabOutput("a", {
+      onOutput() { throw new Error("Expected bytes"); },
+      onBytes(bytes) {
+        if (bytes[0] === 65) { oldBytes.push(...bytes); oldStarted.resolve(); return oldWrite.promise.then(() => oldFinished.resolve()); }
+        newBytes.push(...bytes);
+      },
+      onRendered(offset) { rendered.push(offset); if (offset === 1 && resets.mock.calls.length > 0) newRendered.resolve(); },
+      onReset: resets, onTruncated() {}, onEnded() {},
+    }, {}, "pty-a");
+    try {
+      const oldConnection = await transport.waitForConnection(0);
+      transport.send(oldConnection, outputFrame("a", "pty-a", 1, Uint8Array.of(65)));
+      await oldStarted.promise;
+      transport.send(oldConnection, { boot_changed: true, boot: "next-boot" });
+      const nextConnection = await transport.waitForConnection(1);
+      expect(resets).toHaveBeenCalledOnce();
+      transport.send(nextConnection, outputFrame("a", "pty-a", 1, Uint8Array.of(66), "next-boot"));
+      await newRendered.promise;
+      expect(oldBytes).toEqual([65]);
+      expect(newBytes).toEqual([66]);
+      oldWrite.resolve();
+      await oldFinished.promise;
+      expect(rendered).toEqual([1]);
     } finally { stop(); output.resetOutputStream(); }
   });
+
   it("acknowledges only completed xterm writes and disconnects even on capacity recovery", async () => {
     vi.resetModules();
     localStorage.clear();

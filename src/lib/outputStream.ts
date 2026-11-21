@@ -15,7 +15,7 @@ import {
   type RemoteChannelRecovery, type StreamEndReason,
 } from "./remoteChannelRecovery";
 import { createTransportClient, type TransportClient } from "./transportClient";
-import { TerminalOutputReplay } from "./outputReplay";
+import { planOutputReplay, TerminalOutputReplay, type OutputCursor } from "./outputReplay";
 import { planOutputResync } from "./outputResync";
 import { DEV_BUILD } from "./devBuild";
 import { acceptsTerminalOutput } from "./terminalFrameGate";
@@ -85,6 +85,57 @@ const sinks = new Map<string, Set<TabOutputSink>>();
 const offsets = new Map<string, number>();
 const rings = new Map<string, { boot: string; ptyId?: string }>();
 const completedReplays = new Map<string, OutputFrame>();
+interface SinkSubscription {
+  cancelled: Promise<void>;
+  cancel(): void;
+}
+
+function createSinkSubscription(): SinkSubscription {
+  let resolveCancelled!: () => void;
+  let cancelled = false;
+  const promise = new Promise<void>(resolve => { resolveCancelled = resolve; });
+  return {
+    cancelled: promise,
+    cancel() {
+      if (cancelled) return;
+      cancelled = true;
+      resolveCancelled();
+    },
+  };
+}
+
+const sinkSubscriptions = new WeakMap<TabOutputSink, SinkSubscription>();
+const renderedCursors = new WeakMap<object, Map<string, OutputCursor>>();
+
+interface AggregateRenderJob {
+  kind: "output" | "replay_complete" | "truncated" | "catchup" | "ended";
+  tabId: string;
+  boot: string;
+  ptyId: string;
+  frame: OutputFrame;
+  bytes?: Uint8Array;
+  size: number;
+}
+
+interface AggregateRenderQueue {
+  key: string;
+  tabId: string;
+  boot: string;
+  ptyId: string;
+  outputGeneration: number;
+  jobs: AggregateRenderJob[];
+  cursors: Map<object, OutputCursor>;
+  pendingBytes: number;
+  pendingFrames: number;
+  active: boolean;
+  running: boolean;
+  blocked: Array<{ job: AggregateRenderJob; resolve: () => void }>;
+}
+
+const aggregateRenderQueues = new Map<string, AggregateRenderQueue>();
+const MAX_AGGREGATE_RENDER_BYTES = 256 * 1024;
+const MAX_AGGREGATE_RENDER_FRAMES = 16;
+const MAX_AGGREGATE_RENDER_ADMISSIONS = 2;
 
 let boot: string | null = readBoot();
 let streamAbort: AbortController | null = null;
@@ -151,11 +202,229 @@ function accountOutputFrame(bytes?: Uint8Array) {
   return perf;
 }
 
+function aggregateRenderKey(tabId: string, bootId: string, ptyId: string): string {
+  return JSON.stringify([tabId, bootId, ptyId]);
+}
+
+function renderedCursor(terminal: object, tabId: string, bootId: string, ptyId: string): OutputCursor | undefined {
+  const cursor = renderedCursors.get(terminal)?.get(tabId);
+  return cursor?.boot === bootId && cursor.ptyId === ptyId ? cursor : undefined;
+}
+
+function saveRenderedCursor(terminal: object, tabId: string, cursor: OutputCursor): void {
+  let tabs = renderedCursors.get(terminal);
+  if (!tabs) {
+    tabs = new Map();
+    renderedCursors.set(terminal, tabs);
+  }
+  tabs.set(tabId, cursor);
+}
+
+function isCurrentAggregateRenderQueue(queue: AggregateRenderQueue): boolean {
+  return queue.active && queue.outputGeneration === outputGeneration && aggregateRenderQueues.get(queue.key) === queue;
+}
+
+function invalidateAggregateRenderQueue(queue: AggregateRenderQueue): void {
+  queue.active = false;
+  queue.jobs = [];
+  queue.pendingBytes = 0;
+  queue.pendingFrames = 0;
+  for (const blocked of queue.blocked) {
+    blocked.resolve();
+  }
+  queue.blocked = [];
+  if (aggregateRenderQueues.get(queue.key) === queue) aggregateRenderQueues.delete(queue.key);
+}
+
+function invalidateAggregateRenderQueues(tabId?: string): void {
+  for (const queue of aggregateRenderQueues.values()) {
+    if (tabId === undefined || queue.tabId === tabId) invalidateAggregateRenderQueue(queue);
+  }
+}
+
+function aggregateRenderQueue(tabId: string, bootId: string, ptyId: string): AggregateRenderQueue {
+  const key = aggregateRenderKey(tabId, bootId, ptyId);
+  for (const queue of aggregateRenderQueues.values()) {
+    if (queue.tabId === tabId && queue.key !== key) invalidateAggregateRenderQueue(queue);
+  }
+  let queue = aggregateRenderQueues.get(key);
+  if (!queue) {
+    queue = {
+      key, tabId, boot: bootId, ptyId, outputGeneration,
+      jobs: [], cursors: new Map(), pendingBytes: 0, pendingFrames: 0,
+      active: true, running: false, blocked: [],
+    };
+    aggregateRenderQueues.set(key, queue);
+  }
+  return queue;
+}
+
+function aggregateRenderHasCapacity(queue: AggregateRenderQueue, job: AggregateRenderJob): boolean {
+  return queue.pendingFrames < MAX_AGGREGATE_RENDER_FRAMES
+    && (queue.pendingFrames === 0 || queue.pendingBytes + job.size <= MAX_AGGREGATE_RENDER_BYTES);
+}
+
+function admitBlockedAggregateRender(queue: AggregateRenderQueue): void {
+  while (isCurrentAggregateRenderQueue(queue) && queue.blocked.length > 0
+    && aggregateRenderHasCapacity(queue, queue.blocked[0].job)) {
+    const blocked = queue.blocked.shift()!;
+    queue.pendingBytes += blocked.job.size;
+    queue.pendingFrames++;
+    queue.jobs.push(blocked.job);
+    blocked.resolve();
+  }
+}
+
+async function enqueueAggregateRender(tabId: string, frame: OutputFrame, kind: AggregateRenderJob["kind"], bytes?: Uint8Array): Promise<void> {
+  const ptyId = frame.pty_id ?? rings.get(tabId)?.ptyId
+    ?? [...(sinks.get(tabId) ?? [])].map(sink => sinkIdentities.get(sink)?.boundPtyId).find(Boolean)
+    ?? tabId;
+  const queue = aggregateRenderQueue(tabId, frame.boot ?? boot ?? "", ptyId);
+  const job: AggregateRenderJob = {
+    kind, tabId, boot: frame.boot ?? boot ?? "", ptyId, frame, bytes,
+    size: Math.max(1, bytes?.length ?? 0),
+  };
+  if (!isCurrentAggregateRenderQueue(queue)) return;
+  if (queue.blocked.length === 0 && aggregateRenderHasCapacity(queue, job)) {
+    queue.pendingBytes += job.size;
+    queue.pendingFrames++;
+    queue.jobs.push(job);
+    void drainAggregateRenderQueue(queue);
+    return;
+  }
+  if (queue.blocked.length >= MAX_AGGREGATE_RENDER_ADMISSIONS) {
+    throw new Error("Aggregate output render admission exceeded its bounded handoff");
+  }
+  const admitted = new Promise<void>((resolve) => { queue.blocked.push({ job, resolve }); });
+  void drainAggregateRenderQueue(queue);
+  await admitted;
+}
+
+function activeAggregateSink(queue: AggregateRenderQueue, sink: TabOutputSink, subscription: object | undefined): boolean {
+  return isCurrentAggregateRenderQueue(queue) && subscription !== undefined
+    && sinkSubscriptions.get(sink) === subscription && sinks.get(queue.tabId)?.has(sink) === true;
+}
+
+async function deliverAggregateOutput(queue: AggregateRenderQueue, sink: TabOutputSink, job: AggregateRenderJob): Promise<void> {
+  if (!job.bytes || !acceptsSinkOutput(job.tabId, sink, job.frame)) return;
+  const subscription = sinkSubscriptions.get(sink);
+  if (!subscription) return;
+  const identity = sinkIdentities.get(sink) ?? { terminal: sink, ptyId: queue.ptyId };
+  const previous = queue.cursors.get(identity.terminal)
+    ?? renderedCursor(identity.terminal, job.tabId, queue.boot, queue.ptyId);
+  const result = planOutputReplay(previous, {
+    boot: queue.boot, ptyId: queue.ptyId,
+    offset: job.frame.offset ?? job.bytes.length, bytes: job.bytes,
+  });
+  if (result.bytes.length === 0) return;
+  queue.cursors.set(identity.terminal, result.cursor);
+  await Promise.race([Promise.resolve(writeSinkBytes(sink, result.bytes)), subscription.cancelled]);
+  if (!activeAggregateSink(queue, sink, subscription)) {
+    if (isCurrentAggregateRenderQueue(queue) && queue.cursors.get(identity.terminal) === result.cursor) {
+      if (previous) queue.cursors.set(identity.terminal, previous);
+      else queue.cursors.delete(identity.terminal);
+    }
+    return;
+  }
+  saveRenderedCursor(identity.terminal, job.tabId, result.cursor);
+  if (typeof job.frame.offset === "number") sink.onRendered?.(job.frame.offset);
+}
+
+async function deliverAggregateReplayComplete(queue: AggregateRenderQueue, sink: TabOutputSink, job: AggregateRenderJob): Promise<void> {
+  if (!acceptsSinkOutput(job.tabId, sink, job.frame)) return;
+  const subscription = sinkSubscriptions.get(sink);
+  if (!subscription) return;
+  const identity = sinkIdentities.get(sink) ?? { terminal: sink, ptyId: queue.ptyId };
+  await Promise.race([Promise.resolve(sink.onReplayComplete?.()), subscription.cancelled]);
+  if (!activeAggregateSink(queue, sink, subscription) || typeof job.frame.offset !== "number") return;
+  const previous = queue.cursors.get(identity.terminal)
+    ?? renderedCursor(identity.terminal, job.tabId, queue.boot, queue.ptyId);
+  const cursor = {
+    boot: queue.boot, ptyId: queue.ptyId,
+    offset: Math.max(previous?.offset ?? 0, job.frame.offset),
+  };
+  queue.cursors.set(identity.terminal, cursor);
+  saveRenderedCursor(identity.terminal, job.tabId, cursor);
+  sink.onRendered?.(cursor.offset);
+}
+
+function deliverAggregateTruncation(queue: AggregateRenderQueue, sink: TabOutputSink, job: AggregateRenderJob): void {
+  if (typeof job.frame.from !== "number" || !acceptsSinkOutput(job.tabId, sink, job.frame)) return;
+  const subscription = sinkSubscriptions.get(sink);
+  if (!subscription) return;
+  const identity = sinkIdentities.get(sink) ?? { terminal: sink, ptyId: queue.ptyId };
+  const previous = queue.cursors.get(identity.terminal)
+    ?? renderedCursor(identity.terminal, job.tabId, queue.boot, queue.ptyId);
+  const result = job.frame.reset
+    ? { offset: job.frame.from, reportGap: true }
+    : planOutputResync(previous?.offset, job.frame.from);
+  if (!result.reportGap) return;
+  const cursor = { boot: queue.boot, ptyId: queue.ptyId, offset: result.offset };
+  queue.cursors.set(identity.terminal, cursor);
+  sink.onTruncated(job.frame.from);
+  if (activeAggregateSink(queue, sink, subscription)) {
+    saveRenderedCursor(identity.terminal, job.tabId, cursor);
+  } else if (isCurrentAggregateRenderQueue(queue) && queue.cursors.get(identity.terminal) === cursor) {
+    if (previous) queue.cursors.set(identity.terminal, previous);
+    else queue.cursors.delete(identity.terminal);
+  }
+}
+
+async function deliverAggregateRenderJob(queue: AggregateRenderQueue, job: AggregateRenderJob): Promise<void> {
+  const targets = [...(sinks.get(job.tabId) ?? [])].filter(sink => acceptsSinkOutput(job.tabId, sink, job.frame));
+  await Promise.all(targets.map(async sink => {
+    if (!isCurrentAggregateRenderQueue(queue) || !sinks.get(job.tabId)?.has(sink)) return;
+    if (job.kind === "output") return deliverAggregateOutput(queue, sink, job);
+    if (job.kind === "replay_complete") return deliverAggregateReplayComplete(queue, sink, job);
+    if (job.kind === "truncated") return deliverAggregateTruncation(queue, sink, job);
+    if (job.kind === "catchup") {
+      deliverAggregateTruncation(queue, sink, { ...job, kind: "truncated" });
+      return deliverAggregateOutput(queue, sink, { ...job, kind: "output" });
+    }
+    sink.onEnded();
+  }));
+}
+
+function reportAggregateRenderFailure(queue: AggregateRenderQueue, error: unknown): void {
+  const failure = error instanceof Error ? error : new Error(String(error));
+  for (const sink of sinks.get(queue.tabId) ?? []) {
+    try { sink.onStreamError?.(failure); } catch {}
+  }
+}
+
+async function drainAggregateRenderQueue(queue: AggregateRenderQueue): Promise<void> {
+  if (queue.running || !isCurrentAggregateRenderQueue(queue)) return;
+  queue.running = true;
+  try {
+    while (isCurrentAggregateRenderQueue(queue) && queue.jobs.length > 0) {
+      const job = queue.jobs.shift()!;
+      try {
+        await deliverAggregateRenderJob(queue, job);
+      } catch (error) {
+        if (isCurrentAggregateRenderQueue(queue)) reportAggregateRenderFailure(queue, error);
+        invalidateAggregateRenderQueue(queue);
+      } finally {
+        if (isCurrentAggregateRenderQueue(queue)) {
+          queue.pendingBytes -= job.size;
+          queue.pendingFrames--;
+          admitBlockedAggregateRender(queue);
+        }
+      }
+    }
+  } finally {
+    queue.running = false;
+    if (isCurrentAggregateRenderQueue(queue) && queue.jobs.length === 0 && queue.blocked.length === 0) {
+      aggregateRenderQueues.delete(queue.key);
+    }
+  }
+}
+
 async function handleFrame(msg: OutputFrame): Promise<void> {
   const bytes = typeof msg.b64 === "string" ? decodeOutputBytes(msg.b64) : undefined;
   const perf = accountOutputFrame(bytes);
   if (msg.boot_changed && msg.boot) {
     outputGeneration++;
+    invalidateAggregateRenderQueues();
     for (const set of sinks.values()) for (const sink of set) sink.onReset?.();
     // boot-scoped offsets and reconnect — the boot-matched cursor full-replays.
     saveBoot(msg.boot);
@@ -176,7 +445,7 @@ async function handleFrame(msg: OutputFrame): Promise<void> {
   if (msg.replay_complete) {
     if (set && ![...set].some(sink => acceptsSinkOutput(tab, sink, msg))) return;
     completedReplays.set(tab, msg);
-    if (set) await Promise.all([...set].map((sink) => deliverReplayComplete(tab, sink, msg)));
+    if (set) await enqueueAggregateRender(tab, msg, "replay_complete");
     return;
   }
   if (bytes && set && ![...set].some(sink => acceptsSinkOutput(tab, sink, msg))) return;
@@ -184,6 +453,7 @@ async function handleFrame(msg: OutputFrame): Promise<void> {
     const ring = { boot: msg.boot ?? boot ?? "", ptyId: msg.pty_id };
     const previous = rings.get(tab);
     const sameRing = previous?.boot === ring.boot && previous.ptyId === ring.ptyId;
+    if (!sameRing) invalidateAggregateRenderQueues(tab);
     offsets.set(tab, sameRing ? Math.max(offsets.get(tab) ?? 0, msg.offset) : msg.offset);
     rings.set(tab, ring);
     retainedOutput.append(tab, {
@@ -192,7 +462,7 @@ async function handleFrame(msg: OutputFrame): Promise<void> {
     });
     if (set) {
       perf && (perf.batches += 1);
-      await Promise.all([...set].map((sink) => deliverOutput(tab, sink, msg, bytes)));
+      await enqueueAggregateRender(tab, msg, "output", bytes);
     }
     return;
   }
@@ -200,14 +470,15 @@ async function handleFrame(msg: OutputFrame): Promise<void> {
     if (msg.reset && set && ![...set].some(sink => acceptsSinkOutput(tab, sink, msg))) return;
     offsets.set(tab, msg.reset ? msg.from : planOutputResync(offsets.get(tab), msg.from).offset);
     if (msg.reset) {
+      invalidateAggregateRenderQueues(tab);
       rings.set(tab, { boot: msg.boot ?? boot ?? "", ptyId: msg.pty_id });
       retainedOutput.delete(tab); completedReplays.delete(tab);
     }
-    if (set) for (const sink of set) deliverTruncation(tab, sink, msg.from, boot ?? "", msg.reset);
+    if (set) await enqueueAggregateRender(tab, msg, "truncated");
     return;
   }
   if (msg.ended) {
-    if (set) for (const s of set) s.onEnded();
+    if (set) await enqueueAggregateRender(tab, msg, "ended");
   }
 }
 
@@ -335,8 +606,19 @@ function ensureStarted(): void {
 
 export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal: object = sink, ptyId?: string): () => void {
   sinkIdentities.set(sink, { terminal, ptyId: ptyId ?? tabId, boundPtyId: ptyId });
+  sinkSubscriptions.get(sink)?.cancel();
+  const subscription = createSinkSubscription();
+  sinkSubscriptions.set(sink, subscription);
   const route = tabOutputRoute(tabId, selectedRelayTarget()?.id ?? null);
-  if (route) return subscribeRemoteTabOutput(`mesh:${route.peerId}/${route.tabId}`, route.peerId, sink);
+  if (route) {
+    const unsubscribe = subscribeRemoteTabOutput(`mesh:${route.peerId}/${route.tabId}`, route.peerId, sink);
+    return () => {
+      if (sinkSubscriptions.get(sink) !== subscription) return;
+      sinkSubscriptions.delete(sink);
+      subscription.cancel();
+      unsubscribe();
+    };
+  }
   let set = sinks.get(tabId);
   if (!set) {
     set = new Set();
@@ -344,22 +626,42 @@ export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal:
   }
   set.add(sink);
   if (aggregateStarting) sink.onStarting?.();
-  const cached = retainedOutput.snapshot(tabId, replay.cursor(terminal, tabId));
+  const retained = retainedOutput.snapshot(tabId);
+  const cached = retainedOutput.snapshot(tabId, renderedCursor(
+    terminal, tabId, retained?.boot ?? boot ?? "", retained?.ptyId ?? ptyId ?? tabId,
+  ));
+  const subscriptionGeneration = outputGeneration;
+  let catchup = Promise.resolve();
   if (cached && (ptyId === undefined || cached.ptyId === ptyId)) {
     const from = cached.offset - cached.bytes.length;
-    deliverTruncation(tabId, sink, from, cached.boot);
-    replay.deliver(terminal, tabId, cached, (bytes) => writeSinkBytes(sink, bytes));
-    sink.onReady?.();
+    const frame = { tab_id: tabId, pty_id: cached.ptyId, boot: cached.boot, from, offset: cached.offset };
+    catchup = enqueueAggregateRender(tabId, frame, "catchup", cached.bytes)
+      .then(() => {
+        if (sinkSubscriptions.get(sink) === subscription && outputGeneration === subscriptionGeneration) sink.onReady?.();
+      });
   }
   const completed = completedReplays.get(tabId);
-  if (completed) deliverReplayComplete(tabId, sink, completed);
+  if (completed) catchup = catchup.then(async () => {
+    if (sinkSubscriptions.get(sink) === subscription && outputGeneration === subscriptionGeneration) {
+      await enqueueAggregateRender(tabId, completed, "replay_complete");
+    }
+  });
+  void catchup.catch(error => {
+    if (sinkSubscriptions.get(sink) === subscription) sink.onStreamError?.(error instanceof Error ? error : new Error(String(error)));
+  });
   // Attaching a terminal is an activation: it revives a parked aggregate connection.
   if (started) recoverOutputStream();
   else ensureStarted();
   verifyStreamMuxes();
   return () => {
+    if (sinkSubscriptions.get(sink) !== subscription) return;
+    sinkSubscriptions.delete(sink);
+    subscription.cancel();
     set!.delete(sink);
-    if (set!.size === 0) sinks.delete(tabId);
+    if (set!.size === 0) {
+      sinks.delete(tabId);
+      invalidateAggregateRenderQueues(tabId);
+    }
   };
 }
 
@@ -612,6 +914,8 @@ onResync(() => pokeOutputStream());
 
 /** Tear down (peer switch) — next subscription reconnects to the current host. */
 export function resetOutputStream(): void {
+  outputGeneration++;
+  invalidateAggregateRenderQueues();
   clearCapacityRetry();
   completedReplays.clear();
   started = false;
