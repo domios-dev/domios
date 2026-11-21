@@ -30,7 +30,9 @@ export function ToolOutcomeFacts({ event }: { event: ToolEvent }) {
 
 function outcomeFacts(event: ToolEvent): ReactElement[] {
   const facts: ReactElement[] = [];
-  if (event.message.toolStatus) facts.push(<ToolCallProgress key="progress" message={event.message} />);
+  if (event.message.toolStatus && !(event.status === "success" && event.message.toolStatus === "completed")) {
+    facts.push(<ToolCallProgress key="progress" message={event.message} />);
+  }
   if (event.exitCode !== undefined) {
     facts.push(
       <span key="exit" data-testid="toolcard-exit-code" aria-label={`Exit code ${event.exitCode}`} title={`Exit code ${event.exitCode}`}>

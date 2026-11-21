@@ -2,7 +2,7 @@ import { modelSwitchModeSupported } from "../../lib/modelSwitch";
 import type { PendingPrompt } from "../../lib/types";
 
 export function approvalHotkey(prompt: PendingPrompt, code: string): string | undefined {
-  if (prompt.multi_select || prompt.sections?.length || !/^Digit[1-9]$/.test(code)) return undefined;
+  if (prompt.multi_select || prompt.sections?.length || prompt.elicitation?.mode === "form" || !/^Digit[1-9]$/.test(code)) return undefined;
   return prompt.options[Number(code.slice(5)) - 1]?.value;
 }
 
@@ -24,15 +24,59 @@ export function swapStash(draft: string, stashed: string): { draft: string; stas
   return { draft: stashed, stashed: draft };
 }
 
+export type ApprovalTone = "primary" | "ghost" | "danger";
+
 export function approvalActions(prompt: PendingPrompt) {
-  const known: Record<string, { label: string; rank: number }> = {
-    accept: { label: "Approve", rank: 0 }, once: { label: "Approve", rank: 0 },
-    decline: { label: "Decline", rank: 1 }, reject: { label: "Decline", rank: 1 },
-    acceptForSession: { label: "Accept for session", rank: 2 }, always: { label: "Accept for session", rank: 2 },
-    cancel: { label: "Cancel", rank: 3 },
+  const known: Record<string, { label: string; rank: number; tone: ApprovalTone }> = {
+    allow_once: { label: "Allow once", rank: 0, tone: "primary" },
+    accept: { label: "Allow once", rank: 0, tone: "primary" },
+    once: { label: "Allow once", rank: 0, tone: "primary" },
+    allow_always: { label: "Always allow", rank: 1, tone: "ghost" },
+    acceptForSession: { label: "Always allow", rank: 1, tone: "ghost" },
+    always: { label: "Always allow", rank: 1, tone: "ghost" },
+    reject_once: { label: "Reject", rank: 2, tone: "danger" },
+    reject: { label: "Reject", rank: 2, tone: "danger" },
+    decline: { label: "Decline", rank: 2, tone: "danger" },
+    reject_always: { label: "Always reject", rank: 3, tone: "danger" },
+    cancel: { label: "Cancel", rank: 3, tone: "ghost" },
   };
-  return prompt.options.map((option, index) => ({ ...option, label: known[option.value]?.label ?? option.label,
-    rank: known[option.value]?.rank ?? index, hotkey: index + 1 })).sort((a, b) => a.rank - b.rank);
+  return prompt.options.map((option, index) => {
+    const match = known[option.value];
+    const lowerLabel = option.label.trim().toLowerCase();
+    const inferredTone: ApprovalTone = match?.tone
+      ?? (/reject|deny|decline|block/.test(lowerLabel) ? "danger" : index === 0 ? "primary" : "ghost");
+    const inferredRank = match?.rank
+      ?? (/allow once|approve|yes/.test(lowerLabel) ? 0 : /always allow|session/.test(lowerLabel) ? 1 : /reject|deny|decline/.test(lowerLabel) ? 2 : index + 3);
+    const label = match && option.label.trim().toLowerCase() === option.value.toLowerCase()
+      ? match.label
+      : option.label.trim() || match?.label || option.value;
+    return { ...option, label, rank: inferredRank, tone: inferredTone, hotkey: index + 1 };
+  }).sort((a, b) => a.rank - b.rank);
+}
+
+export function mergeRuntimePromptDetail(
+  prompt: PendingPrompt | null | undefined,
+  detail: import("../../lib/agentRuntimeState").AgentRuntimeState["pendingPromptDetail"],
+): PendingPrompt | null {
+  if (!prompt) return null;
+  if (!detail || (detail.requestId && prompt.request_id && detail.requestId !== prompt.request_id)) return prompt;
+  return {
+    ...prompt,
+    ...(detail.fileDiffs?.length ? { file_diffs: detail.fileDiffs } : {}),
+    ...(detail.elicitation ? { elicitation: detail.elicitation } : {}),
+  };
+}
+
+export function permissionHeaderTitle(prompt: PendingPrompt): string {
+  const lines = prompt.question
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => Boolean(line) && !/^Writes\s+.+\(\+\d+\/-\d+\s+lines\)$/.test(line) && !/^(Kind|Path|Diff):/i.test(line) && line !== "Allow this tool call?");
+  const first = lines[0] ?? "";
+  if (!first || /^request_permission$/i.test(first)) {
+    return prompt.file_diffs?.length ? "Apply file edit" : "Permission requested";
+  }
+  return first;
 }
 
 export interface RecallPosition { index: number; draft: string }

@@ -65,6 +65,9 @@ fn publish_state(svc: &ServiceContext, tab: &str, session: &Session, lifecycle: 
             serde_json::to_value(history).unwrap_or(Value::Null),
         );
         snapshot.insert("historyPages".into(), Value::from(pages));
+        if let Some(detail) = session.state.lock().pending_prompt_detail.clone() {
+            snapshot.insert("pendingPromptDetail".into(), detail);
+        }
         let adapter = session.adapter.lock().clone();
         if let Some(adapter) = adapter {
             if matches!(session.state.lock().phase, RuntimePhase::LoginPending)

@@ -16,7 +16,9 @@ export type RuntimeAuthentication = Omit<import("./gen/RuntimeAuthentication").R
 export type RuntimeSettings = Omit<{[K in keyof import("./gen/RuntimeSettings").RuntimeSettings]?: Readonly<import("./gen/RuntimeSettings").RuntimeSettings[K]>}, "configOptions"> & {configOptions?: readonly RuntimeConfigOption[]};
 export type TurnInput = Omit<import("./gen/TurnInput").TurnInput, "attachments"> & {attachments: Readonly<import("./gen/TurnInput").TurnInput["attachments"]>};
 export type PromptAnswer = import("./gen/PromptAnswer").PromptAnswer;
-export type PendingPrompt = Omit<OptionalWireFields<import("./gen/PendingPrompt").PendingPrompt, "sections" | "multi_select" | "submit_available" | "selected_values">, "options" | "sections" | "selected_values"> & {options: Readonly<import("./gen/PendingPrompt").PendingPrompt["options"]>; sections?: Readonly<import("./gen/PendingPrompt").PendingPrompt["sections"]>; selected_values?: Readonly<import("./gen/PendingPrompt").PendingPrompt["selected_values"]>};
+export type PendingPrompt = Omit<OptionalWireFields<import("./gen/PendingPrompt").PendingPrompt, "sections" | "multi_select" | "submit_available" | "selected_values">, "options" | "sections" | "selected_values"> & {options: Readonly<import("./gen/PendingPrompt").PendingPrompt["options"]>; sections?: Readonly<import("./gen/PendingPrompt").PendingPrompt["sections"]>; selected_values?: Readonly<import("./gen/PendingPrompt").PendingPrompt["selected_values"]>; file_diffs?: readonly JsonValue[]; elicitation?: JsonValue};
+export type RuntimeSessionCapabilities = {fork?: boolean; list?: boolean; close?: boolean};
+export type RuntimeListedSession = {sessionId: string; cwd: string; title?: string; updatedAt?: string};
 /** What an agent permission request would do; the host answers it from the tab's launch policy. */
 export type RuntimePermissionAction = import("./gen/RuntimePermissionAction").RuntimePermissionAction;
 export type RuntimePermissionDecision = import("./gen/RuntimePermissionDecision").RuntimePermissionDecision;
@@ -38,9 +40,14 @@ export type RpcCall = OptionalWireFields<import("./gen/RpcCall").RpcCall, "targe
 export type RuntimeAction = RuntimeAuthoringView<import("./gen/RuntimeAction").RuntimeAction>;
 export type RuntimePlan = Omit<import("./gen/RuntimePlan").RuntimePlan, "action"> & {action: RuntimeAction};
 export type RuntimeGoalAction = import("./gen/RuntimeGoalAction").RuntimeGoalAction;
-export type OperationResult = RuntimeAuthoringView<import("./gen/RuntimeResult").RuntimeResult>;
+export type OperationResult =
+  | Exclude<RuntimeAuthoringView<import("./gen/RuntimeResult").RuntimeResult>, {kind: "initialized"}>
+  | (Extract<RuntimeAuthoringView<import("./gen/RuntimeResult").RuntimeResult>, {kind: "initialized"}> & {sessionCapabilities?: RuntimeSessionCapabilities})
+  | {kind: "sessionsListed"; sessions: readonly RuntimeListedSession[]; nextCursor?: string};
 export type RuntimeStep = (Omit<Extract<import("./gen/RuntimeStep").RuntimeStep, {kind: "continue"}>, "beforeAcceptance" | "history" | "plan"> & {plan: RuntimePlan; beforeAcceptance?: boolean; history?: Extract<OperationResult, {kind: "historyPage"}>}) | (Omit<Extract<import("./gen/RuntimeStep").RuntimeStep, {kind: "complete"}>, "result" | "events"> & {result: OperationResult; events?: readonly AgentEvent[]}) | Extract<import("./gen/RuntimeStep").RuntimeStep, {kind: "refused"}>;
-export type AgentEvent = RuntimeAuthoringView<import("./gen/AgentRuntimeEvent").AgentRuntimeEvent>;
+export type AgentEvent =
+  | Exclude<RuntimeAuthoringView<import("./gen/AgentRuntimeEvent").AgentRuntimeEvent>, {kind: "prompt"}>
+  | (Extract<RuntimeAuthoringView<import("./gen/AgentRuntimeEvent").AgentRuntimeEvent>, {kind: "prompt"}> & {fileDiffs?: readonly JsonValue[]; elicitation?: JsonValue});
 export type ResetCredit = OptionalWireFields<import("./gen/ResetCredit").ResetCredit, "title" | "description">;
 export type ResetCredits = Omit<import("./gen/ResetCredits").ResetCredits, "credits"> & {credits: Readonly<import("./gen/ResetCredits").ResetCredits["credits"]>};
 export type RuntimeAccountCredits = import("./gen/RuntimeAccountCredits").RuntimeAccountCredits;

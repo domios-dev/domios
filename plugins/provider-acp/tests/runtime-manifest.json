@@ -117,6 +117,9 @@
         "session/set_model",
         "session/set_mode"
       ],
+      "forkThread": [
+        "session/fork"
+      ],
       "submitTurn": [
         "session/prompt",
         "_session/steering"
@@ -129,7 +132,9 @@
         "authenticate",
         "session/set_mode",
         "session/set_config_option",
-        "session/set_model"
+        "session/set_model",
+        "session/list",
+        "session/close"
       ],
       "answer": []
     },
@@ -153,7 +158,8 @@
       "methods": [
         "session/new",
         "session/load",
-        "session/resume"
+        "session/resume",
+        "session/fork"
       ]
     }
   },

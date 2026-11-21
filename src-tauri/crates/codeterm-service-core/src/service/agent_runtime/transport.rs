@@ -107,23 +107,34 @@ fn turn_input(text: &str) -> TurnInput {
         for segment in segments {
             match segment {
                 MessageSegment::Attachment { kind, path, .. }
-                    if kind == "image" && !path.is_empty() =>
+                    if (kind == "image" || kind == "voice") && !path.is_empty() =>
                 {
                     if attachments
                         .iter()
-                        .any(|image| image.path.as_ref() == Some(&path))
+                        .any(|item| item.path.as_ref() == Some(&path))
                     {
                         continue;
                     }
                     let extension = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-                    let mime_type = match extension.as_str() {
-                        "jpg" | "jpeg" => "image/jpeg",
-                        "gif" => "image/gif",
-                        "webp" => "image/webp",
-                        "bmp" => "image/bmp",
-                        "avif" => "image/avif",
-                        "svg" => "image/svg+xml",
-                        _ => "image/png",
+                    let mime_type = if kind == "voice" {
+                        match extension.as_str() {
+                            "mp3" => "audio/mpeg",
+                            "wav" => "audio/wav",
+                            "ogg" | "oga" => "audio/ogg",
+                            "m4a" | "mp4" => "audio/mp4",
+                            "flac" => "audio/flac",
+                            _ => "audio/webm",
+                        }
+                    } else {
+                        match extension.as_str() {
+                            "jpg" | "jpeg" => "image/jpeg",
+                            "gif" => "image/gif",
+                            "webp" => "image/webp",
+                            "bmp" => "image/bmp",
+                            "avif" => "image/avif",
+                            "svg" => "image/svg+xml",
+                            _ => "image/png",
+                        }
                     };
                     attachments.push(ChatAttachment {
                         id: format!("attachment:{path}"),
@@ -180,14 +191,21 @@ fn prepare_image_input(
         MAX_RUNTIME_VALUE_BYTES as u64
     };
     for attachment in &mut input.attachments {
-        if attachment.data.is_some() || !attachment.mime_type.starts_with("image/") {
+        let is_media = attachment.mime_type.starts_with("image/")
+            || attachment.mime_type.starts_with("audio/");
+        if attachment.data.is_some() || !is_media {
             continue;
         }
+        let label = if attachment.mime_type.starts_with("audio/") {
+            "Audio"
+        } else {
+            "Image"
+        };
         let path = attachment.path.as_deref().ok_or_else(|| {
-            RuntimeFailure::Refused("Image attachment path is unavailable".into())
+            RuntimeFailure::Refused(format!("{label} attachment path is unavailable"))
         })?;
         let path = std::path::Path::new(path);
-        let fail = |reason| RuntimeFailure::Refused(format!("Image was not sent: {reason}"));
+        let fail = |reason| RuntimeFailure::Refused(format!("{label} was not sent: {reason}"));
         if local_paths {
             let size = crate::attachments::validate_complete_file(path, remaining).map_err(fail)?;
             remaining = remaining.saturating_sub(size);

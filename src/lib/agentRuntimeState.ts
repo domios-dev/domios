@@ -29,6 +29,12 @@ export interface AgentRuntimeState {
   history?: RuntimeHistoryState;
   historyPages?: number;
   historyError?: string;
+  sessionCapabilities?: { fork?: boolean; list?: boolean; close?: boolean };
+  pendingPromptDetail?: {
+    requestId?: string;
+    fileDiffs?: readonly import("@codeterm/chat-core").FileDiff[];
+    elicitation?: import("./types").PromptElicitation;
+  } | null;
 }
 
 export function withoutLiveBackgroundProcesses<T extends { agent_runtime_state?: AgentRuntimeState | null }>(tab: T): T {

@@ -16,6 +16,20 @@ export function CommandCard({ event, expanded, onToggle, children, primaryConten
   const preview = shellFileOperationPreview(event);
   const expandable = event.status === "pending" || Boolean(event.result) || Boolean(event.fileDiffs?.length) || toolCommandShape(event).kind !== "single";
   return <ToolCardFrame event={event} expandable={expandable} minHeight={36} primaryContent={preview ? <>{primaryContent}{preview}</> : primaryContent} expanded={expanded} onToggle={onToggle} title={event.title || toolKindVisual[event.kind].label} summary={event.description || toolCommandLabel(event)} disclosureLabel="full command" tail={tail && <span data-testid="toolcard-result-tail" className="max-w-[34%] truncate font-mono text-[10px]" style={{ color: "var(--ct-muted-fg)" }}>→ {tail}</span>}>
-    {children ?? (event.status === "pending" ? <div data-testid="toolcard-spinner" style={{ color: "var(--ct-muted-fg)" }}>Running…</div> : event.result && <div data-testid="toolcard-result"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>)}
+    {children ?? (
+      <>
+        {event.status === "pending" && (
+          <div data-testid="toolcard-spinner" className="flex items-center gap-1.5 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
+            <span aria-hidden="true" className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--ct-accent)" }} />
+            <span>Running…</span>
+          </div>
+        )}
+        {event.result && (
+          <div data-testid="toolcard-result" className={event.status === "pending" ? "mt-1.5" : undefined}>
+            <ToolOutputContent text={event.result} maxHeight="12rem" />
+          </div>
+        )}
+      </>
+    )}
   </ToolCardFrame>;
 }

@@ -21,6 +21,32 @@ export const canonicalJson = (value:JsonValue):string => JSON.stringify(value, (
 const MAX_DIFF_LINES=4096;
 const MAX_DIFF_CELLS=40000;
 const MAX_CONTENT_PARTS=64;
+const MAX_LOCATIONS=8;
+const MAX_INLINE_IMAGE_BYTES=262144;
+
+export interface ToolLocationItem {
+  path: string;
+  line?: number;
+}
+
+export function fileUriToPath(uri:string):string|undefined {
+  if (!uri.startsWith("file://")) return undefined;
+  let rest=uri.slice(7);
+  if (rest.startsWith("localhost/")) rest=rest.slice(9);
+  const hash=rest.indexOf("#");
+  if (hash >= 0) rest=rest.slice(0,hash);
+  const query=rest.indexOf("?");
+  if (query >= 0) rest=rest.slice(0,query);
+  try { rest=decodeURIComponent(rest); } catch { /* keep raw percent sequence */ }
+  if (/^\/[A-Za-z]:[\\/]/.test(rest)) rest=rest.slice(1);
+  return rest.trim() ? rest : undefined;
+}
+
+export function pathToFileUri(rawPath:string):string {
+  const normalized=rawPath.replace(/\\/g,"/");
+  const prefixed=/^[A-Za-z]:\//.test(normalized) ? `/${normalized}` : normalized.startsWith("/") ? normalized : `/${normalized}`;
+  return `file://${encodeURI(prefixed).replace(/#/g,"%23").replace(/\?/g,"%3F")}`;
+}
 
 function lines(value:string):string[] {
   if (!value) return [];
@@ -29,7 +55,7 @@ function lines(value:string):string[] {
   return result;
 }
 
-function diff(content:Record<string,JsonValue>):{value:JsonValue;omitted:boolean}|undefined {
+export function diff(content:Record<string,JsonValue>):{value:JsonValue;omitted:boolean}|undefined {
   if (typeof content.path !== "string" || !content.path.trim() || typeof content.newText !== "string"
     || content.oldText !== null && typeof content.oldText !== "string") return undefined;
   const oldLines=content.oldText === null ? [] : lines(content.oldText);
@@ -80,6 +106,23 @@ function diff(content:Record<string,JsonValue>):{value:JsonValue;omitted:boolean
       newStart:newCount ? prefix+1 : prefix,newLines:newCount,lines:changed}]},omitted:false};
 }
 
+export function extractToolLocations(value:JsonValue):ToolLocationItem[] {
+  if (!Array.isArray(value)) return [];
+  const result:ToolLocationItem[]=[];
+  const seen=new Set<string>();
+  for (const raw of value) {
+    const location=object(raw);
+    if (typeof location.path !== "string" || !location.path.trim()) continue;
+    const line=typeof location.line === "number" && Number.isSafeInteger(location.line) && location.line > 0 ? location.line : undefined;
+    const key=line !== undefined ? `${location.path}:${line}` : location.path;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(line !== undefined ? {path:location.path,line} : {path:location.path});
+    if (result.length >= MAX_LOCATIONS) break;
+  }
+  return result;
+}
+
 function locationSummary(value:JsonValue):string {
   if (!Array.isArray(value)) return "";
   const locations:string[]=[];
@@ -88,12 +131,36 @@ function locationSummary(value:JsonValue):string {
     const location=object(raw);
     if (typeof location.path !== "string" || !location.path.trim()) continue;
     count++;
-    if (locations.length<8) locations.push(typeof location.line === "number" && Number.isSafeInteger(location.line) && location.line > 0
+    if (locations.length<MAX_LOCATIONS) locations.push(typeof location.line === "number" && Number.isSafeInteger(location.line) && location.line > 0
       ? `${location.path}:${location.line}` : location.path);
   }
   if (count>locations.length) locations.push(`+${count-locations.length} more locations`);
   return locations.join(", ");
 }
+
+function pushLocation(list:ToolLocationItem[], path:string, line?:number):void {
+  if (list.length >= MAX_LOCATIONS || !path.trim()) return;
+  if (list.some(entry=>entry.path === path && entry.line === line)) return;
+  list.push(line !== undefined ? {path,line} : {path});
+}
+
+function imageDataUrl(mimeType:unknown, data:unknown):string|undefined {
+  if (typeof mimeType !== "string" || !/^image\/[a-zA-Z0-9.+-]+$/.test(mimeType)
+    || typeof data !== "string" || !data.length || data.length > MAX_INLINE_IMAGE_BYTES) return undefined;
+  return `data:${mimeType};base64,${data}`;
+}
+
+const TOOL_KINDS:Record<string,string> = {
+  execute:"command",
+  edit:"edit",
+  delete:"edit",
+  move:"edit",
+  read:"read",
+  search:"search",
+  fetch:"fetch",
+  think:"generic",
+  switch_mode:"generic",
+};
 
 export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|undefined, seq:number):ChatMsg|undefined {
   const id = validToolCallId(update.toolCallId);
@@ -102,8 +169,7 @@ export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|und
   if (typeof update.title === "string") { row.toolTitle=update.title;row.toolName=update.title; }
   if (typeof update.name === "string") row.toolName=update.name;
   if (typeof update.kind === "string") {
-    const kinds:Record<string,string>={execute:"command",edit:"edit",read:"read",search:"search"};
-    row.toolKind=Object.prototype.hasOwnProperty.call(kinds,update.kind) ? kinds[update.kind] : "generic";
+    row.toolKind=Object.prototype.hasOwnProperty.call(TOOL_KINDS,update.kind) ? TOOL_KINDS[update.kind] : "generic";
   }
   if (update.rawInput !== undefined && update.rawInput !== null) {
     row.toolInput=update.rawInput as Record<string,unknown>;
@@ -116,16 +182,66 @@ export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|und
   const hasRawOutput=update.rawOutput !== undefined && update.rawOutput !== null;
   if (hasRawOutput)
     row.toolResult=typeof update.rawOutput === "string" ? update.rawOutput : canonicalJson(update.rawOutput);
-  if (Array.isArray(update.locations)) row.toolSummary=locationSummary(update.locations);
+  let locations:ToolLocationItem[]|undefined;
+  if (Array.isArray(update.locations)) {
+    row.toolSummary=locationSummary(update.locations);
+    locations=extractToolLocations(update.locations);
+  }
   if (Array.isArray(update.content)) {
     const results:string[]=[];
     const diffs:JsonValue[]=[];
     let omitted=update.content.length > MAX_CONTENT_PARTS;
     for (const raw of update.content.slice(0,MAX_CONTENT_PARTS)) {
       const part=object(raw);
-      const block=object(part.content);
-      if (part.type === "content" && block.type === "text" && typeof block.text === "string") results.push(block.text);
-      if (part.type === "diff") {
+      if (part.type === "content") {
+        const block=object(part.content);
+        if (block.type === "text" && typeof block.text === "string") results.push(block.text);
+        else if (block.type === "image") {
+          const url=imageDataUrl(block.mimeType,block.data);
+          if (url) results.push(url);
+          else omitted=true;
+        } else if (block.type === "resource_link") {
+          const uri=text(block.uri);
+          if (uri) {
+            const label=text(block.title) ?? text(block.name);
+            const filePath=fileUriToPath(uri);
+            if (filePath) {
+              locations ??= [];
+              pushLocation(locations,filePath);
+            }
+            results.push(label ? `${label} (${filePath ?? uri})` : (filePath ?? uri));
+          }
+        } else if (block.type === "resource") {
+          const resource=object(block.resource);
+          const uri=text(resource.uri);
+          const filePath=uri ? fileUriToPath(uri) : undefined;
+          if (filePath) {
+            locations ??= [];
+            pushLocation(locations,filePath);
+          }
+          if (typeof resource.text === "string" && resource.text.length) results.push(resource.text);
+          else if (typeof resource.blob === "string") {
+            const url=imageDataUrl(resource.mimeType,resource.blob);
+            if (url) results.push(url);
+            else if (uri) results.push(filePath ?? uri);
+          } else if (uri) results.push(filePath ?? uri);
+        } else if (block.type === "audio") {
+          const mime=text(block.mimeType) ?? "audio";
+          results.push(`[Audio content (${mime})]`);
+        }
+      } else if (part.type === "terminal") {
+        const terminalId=validToolCallId(part.terminalId);
+        if (terminalId) {
+          row.toolBackgroundTaskId=terminalId;
+          if (!row.toolKind) row.toolKind="command";
+        }
+        if (typeof part.output === "string" && part.output.length) results.push(part.output);
+        const exitStatus=object(part.exitStatus);
+        const exitCode=typeof exitStatus.exitCode === "number" && Number.isSafeInteger(exitStatus.exitCode)
+          ? exitStatus.exitCode
+          : typeof part.exitCode === "number" && Number.isSafeInteger(part.exitCode) ? part.exitCode : undefined;
+        if (exitCode !== undefined) row.toolExitCode=exitCode;
+      } else if (part.type === "diff") {
         const mapped=diff(part);
         if (mapped?.omitted) omitted=true;
         else if (mapped) diffs.push(mapped.value);
@@ -136,6 +252,10 @@ export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|und
     else if (!hasRawOutput && (explicitEmpty || previous?.toolResult !== undefined)) row.toolResult="";
     if (diffs.length) row.fileDiffs=diffs;
     else if (explicitEmpty || previous?.fileDiffs !== undefined) row.fileDiffs=[];
+  }
+  if (locations !== undefined) {
+    if (locations.length) (row as Record<string,unknown>).toolLocations=locations;
+    else if (previous && (previous as Record<string,unknown>).toolLocations !== undefined) (row as Record<string,unknown>).toolLocations=[];
   }
   return row;
 }

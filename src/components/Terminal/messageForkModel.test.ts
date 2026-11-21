@@ -27,3 +27,14 @@ test("unbound rows do not gain fork actions and interleaved rows keep the actual
   ], true)], ["later-answer", "answer"]);
   assert.deepEqual([...forkableTurnEnds([], true)], []);
 });
+
+test("ACP turn-scoped row ids resolve inclusive turn ends without toolFlowId", () => {
+  const acpRows = [
+    { id: "sess-1:turn:1:item:1" },
+    { id: "sess-1:turn:1:item:2" },
+    { id: "sess-1:turn:2:item:1" },
+    { id: "sess-1:turn:2:item:2" },
+  ];
+  assert.deepEqual([...forkableTurnEnds(acpRows, true)], ["sess-1:turn:2:item:2", "sess-1:turn:1:item:2"]);
+  assert.deepEqual([...forkableTurnEnds(acpRows, false)], []);
+});

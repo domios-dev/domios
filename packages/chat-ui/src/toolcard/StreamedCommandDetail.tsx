@@ -17,7 +17,13 @@ export function StreamedCommandDetail({ event, ...navigation }: CodetermNavigati
   const result = event.result && <div data-testid="toolcard-result"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>;
   if (shape.kind === "codeterm") return isSend(shape.invocation) ? null
     : <CodetermActionDetail event={event} invocation={shape.invocation} fallback={result} {...navigation} />;
-  return event.status === "pending"
-    ? <div data-testid="toolcard-spinner" style={{ color: "var(--ct-muted-fg)" }}>Running…</div>
-    : result;
+  return event.status === "pending" ? (
+    <>
+      <div data-testid="toolcard-spinner" className="flex items-center gap-1.5 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
+        <span aria-hidden="true" className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--ct-accent)" }} />
+        <span>Running…</span>
+      </div>
+      {result && <div className="mt-1.5">{result}</div>}
+    </>
+  ) : result;
 }

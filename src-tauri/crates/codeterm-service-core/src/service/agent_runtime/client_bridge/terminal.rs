@@ -143,10 +143,21 @@ impl Terminal {
 
     pub fn spawn_with_notify(
         spec: &Command,
+        cwd: &Path,
+        directory: std::fs::File,
+        env: &BTreeMap<String, String>,
+        on_exit: Option<Arc<tokio::sync::Notify>>,
+    ) -> Result<Arc<Self>, String> {
+        Self::spawn_with_callbacks(spec, cwd, directory, env, on_exit, None)
+    }
+
+    pub fn spawn_with_callbacks(
+        spec: &Command,
         _cwd: &Path,
         directory: std::fs::File,
         env: &BTreeMap<String, String>,
         on_exit: Option<Arc<tokio::sync::Notify>>,
+        on_output: Option<Arc<dyn Fn(String) + Send + Sync>>,
     ) -> Result<Arc<Self>, String> {
         #[cfg(windows)]
         let resolved_program = windows::program(
@@ -232,15 +243,25 @@ impl Terminal {
                     (false, Ok(0) | Err(_)) => stderr_open = false,
                     (is_stdout, Ok(count)) => {
                         let bytes = if is_stdout { &a[..count] } else { &b[..count] };
-                        let mut held = out.lock();
-                        held.extend_from_slice(bytes);
-                        if held.len() > limit {
-                            let excess = held.len() - limit;
-                            held.drain(..excess);
-                            while held.first().is_some_and(|byte| byte & 0xc0 == 0x80) {
-                                held.remove(0);
+                        let tail = {
+                            let mut held = out.lock();
+                            held.extend_from_slice(bytes);
+                            if held.len() > limit {
+                                let excess = held.len() - limit;
+                                held.drain(..excess);
+                                while held.first().is_some_and(|byte| byte & 0xc0 == 0x80) {
+                                    held.remove(0);
+                                }
+                                *clipped.lock() = true;
                             }
-                            *clipped.lock() = true;
+                            on_output.as_ref().map(|_| {
+                                const LIVE_TAIL_BYTES: usize = 8192;
+                                let start = held.len().saturating_sub(LIVE_TAIL_BYTES);
+                                String::from_utf8_lossy(&held[start..]).into_owned()
+                            })
+                        };
+                        if let (Some(emit), Some(text)) = (&on_output, tail) {
+                            emit(text);
                         }
                         #[cfg(test)]
                         changed.send_replace(());

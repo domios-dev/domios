@@ -56,6 +56,8 @@ pub enum RuntimeEvent {
         response: Option<RuntimeQuestionResponse>,
         prompt: Option<PendingPrompt>,
         permission: Option<RuntimePermission>,
+        file_diffs: Option<serde_json::Value>,
+        elicitation: Option<serde_json::Value>,
         resolved: bool,
     },
     EvidenceUpdated {
@@ -362,6 +364,8 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             response: Some(response.clone()),
             prompt: None,
             permission: None,
+            file_diffs: None,
+            elicitation: None,
             resolved: false,
         },
         AgentRuntimeEvent::RateLimits {
@@ -432,6 +436,8 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             request_id,
             prompt,
             permission,
+            file_diffs,
+            elicitation,
         } => RuntimeEvent::RequestUpdated {
             thread_id: thread_id.clone(),
             request_id: Some(request_id.clone()),
@@ -440,6 +446,8 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             response: None,
             prompt: Some(prompt.clone()),
             permission: permission.clone(),
+            file_diffs: file_diffs.clone(),
+            elicitation: elicitation.clone(),
             resolved: false,
         },
         AgentRuntimeEvent::PromptResolved {
@@ -453,6 +461,8 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             response: None,
             prompt: None,
             permission: None,
+            file_diffs: None,
+            elicitation: None,
             resolved: true,
         },
         AgentRuntimeEvent::ControlsConfirmed {

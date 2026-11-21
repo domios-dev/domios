@@ -4,7 +4,30 @@ export type { AgentRole } from "../../gen/AgentRole";
 export type { PromptOption } from "../../gen/PromptOption";
 export type { PromptSection } from "../../gen/PromptSection";
 export type { AutoConfirmedPrompt } from "../../gen/AutoConfirmedPrompt";
-export type { PendingPrompt } from "../../gen/PendingPrompt";
+export interface PromptElicitationField {
+  name: string;
+  type: "string" | "number" | "integer" | "boolean";
+  title?: string;
+  description?: string;
+  required?: boolean;
+  enum?: readonly string[];
+  enumNames?: readonly string[];
+  format?: string;
+  minLength?: number;
+  maxLength?: number;
+  minimum?: number;
+  maximum?: number;
+  default?: unknown;
+}
+
+export type PromptElicitation =
+  | { mode: "form"; message: string; fields: readonly PromptElicitationField[]; required?: readonly string[] }
+  | { mode: "url"; message: string; url: string; host: string };
+
+export type PendingPrompt = import("../../gen/PendingPrompt").PendingPrompt & {
+  file_diffs?: readonly import("@codeterm/chat-core").FileDiff[];
+  elicitation?: PromptElicitation;
+};
 export type { BootStage } from "../../gen/BootStage";
 export type { ProvisionalLaunch } from "../../gen/ProvisionalLaunch";
 export type { RemoteOwnership } from "../../gen/RemoteOwnership";

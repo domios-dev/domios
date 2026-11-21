@@ -20,7 +20,7 @@ export { configureHtmlFileLoader } from "./htmlFileLoader";
 export { configureCanvasFilePort, type CanvasFilePort, type CanvasFileWatch, type CanvasWriteResult } from "./blocks/canvasFilePort";
 export type { HtmlFileLoader } from "./htmlFileLoader";
 export { configureLocalArtifactLoader, configureLocalArtifactOpener, openLocalArtifact } from "./localArtifactLoader";
-export { FileDiffCards } from "./toolcard/FileDiffCards";
+export { FileDiffCards, FileDiffPreview } from "./toolcard/FileDiffCards";
 export type { LocalArtifactLoader, LocalArtifactKind, LocalPreviewFile } from "./localArtifactLoader";
 export { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, sanitizeStyleValue } from "./htmlSanitize";
 export { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";

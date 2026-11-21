@@ -197,20 +197,66 @@ pub async fn search_sessions_api(
             .map(|s| s.to_string())
             .filter(|s| !s.is_empty())
             .collect();
+    let provider_filter = q.provider.filter(|p| p != "all" && !p.is_empty());
+    let project_filter = q.project.clone();
+    let limit = q.limit.unwrap_or(10);
     let opts = codeterm_service_core::agent::registry::SessionSearchOpts {
-        terms,
+        terms: terms.clone(),
         match_mode: codeterm_service_core::agent::registry::SessionMatchMode::AllTerms,
-        provider: q.provider.filter(|p| p != "all" && !p.is_empty()),
+        provider: provider_filter.clone(),
         project_path: q.project,
-        limit: q.limit.unwrap_or(10),
+        limit,
         max_snippets: q.max_snippets.unwrap_or(3),
         max_file_bytes: 0,
     };
     let registry = state.svc.agent_registry.clone();
-    let result = tokio::task::spawn_blocking(move || registry.search_sessions(&opts))
+    let mut result = tokio::task::spawn_blocking(move || registry.search_sessions(&opts))
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let live_sessions =
+        codeterm_service_core::service::agent_runtime::session_list::list_live_sessions(
+            &state.svc,
+            project_filter.as_deref(),
+            provider_filter.as_deref(),
+        )
+        .await;
+    let lowered_terms: Vec<String> = terms.iter().map(|t| t.to_ascii_lowercase()).collect();
+    for meta in live_sessions {
+        if result
+            .hits
+            .iter()
+            .any(|hit| hit.meta.session_id == meta.session_id && hit.meta.provider == meta.provider)
+        {
+            continue;
+        }
+        let haystack = format!(
+            "{} {} {}",
+            meta.title.as_deref().unwrap_or_default(),
+            meta.project_path.as_deref().unwrap_or_default(),
+            meta.session_id
+        )
+        .to_ascii_lowercase();
+        if !lowered_terms.iter().all(|term| haystack.contains(term)) {
+            continue;
+        }
+        result
+            .hits
+            .push(codeterm_service_core::agent::registry::SessionSearchHit {
+                meta,
+                snippets: Vec::new(),
+                match_count: lowered_terms.len().max(1),
+            });
+    }
+    result.hits.sort_by(|a, b| {
+        b.meta
+            .modified_ts
+            .unwrap_or(0)
+            .cmp(&a.meta.modified_ts.unwrap_or(0))
+    });
+    if limit > 0 && result.hits.len() > limit {
+        result.hits.truncate(limit);
+    }
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))
 }
 
@@ -221,10 +267,22 @@ async fn find_session_off_runtime(
     session_id: &str,
 ) -> Result<Option<codeterm_service_core::agent::provider::SessionMetadata>, (StatusCode, String)> {
     let registry = state.svc.agent_registry.clone();
-    let session_id = session_id.to_string();
-    tokio::task::spawn_blocking(move || registry.find_session(&session_id))
+    let session_key = session_id.to_string();
+    let found = tokio::task::spawn_blocking(move || registry.find_session(&session_key))
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?;
+    if found.is_some() {
+        return Ok(found);
+    }
+    let live = codeterm_service_core::service::agent_runtime::session_list::list_live_sessions(
+        &state.svc,
+        None,
+        None,
+    )
+    .await;
+    Ok(live
+        .into_iter()
+        .find(|meta| meta.session_id == session_id))
 }
 
 /// Resolve a session id to its metadata across all providers.

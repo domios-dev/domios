@@ -263,6 +263,16 @@ it("offers a session fork only for a declaring provider and a bound local tab", 
   expect(buildTabMenu(forkInput).some(entry=>entry.id==="fork")).toBe(true);
   expect(buildTabMenu({...forkInput,descriptor:CURRENT}).some(entry=>entry.id==="fork")).toBe(false);
   expect(buildTabMenu({...forkInput,tab:tab({agent_session_id:null})}).some(entry=>entry.id==="fork")).toBe(false);
+  expect(buildTabMenu({
+    ...forkInput,
+    descriptor: CURRENT,
+    tab: tab({ agent_session_id: "acp-sess", agent_runtime_state: { state: "loaded", epoch: 1, sessionCapabilities: { fork: true } } }),
+  }).some(entry => entry.id === "fork")).toBe(true);
+  expect(buildTabMenu({
+    ...forkInput,
+    descriptor: CURRENT,
+    tab: tab({ agent_session_id: "acp-sess", agent_runtime_state: { state: "loaded", epoch: 1, sessionCapabilities: { list: true } } }),
+  }).some(entry => entry.id === "fork")).toBe(false);
 });
 
 for (const surface of SURFACES) {

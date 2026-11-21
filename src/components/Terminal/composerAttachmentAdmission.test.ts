@@ -33,5 +33,7 @@ describe("composer attachment capabilities", () => {
     expect(composerAttachmentError(inline, "opaque\n".repeat(500), ["a.webm"], ["a.webm"], {})).toBeNull();
     expect(composerAttachmentError(inline, "opaque", ["a.webm"], [], {})).toContain("file");
     expect(composerAttachmentError(undefined, "plain", [], [], {})).toBeNull();
+    expect(composerAttachmentError({ ...inline, audioPaths: true }, "listen", ["clip.mp3"], [], {})).toBeNull();
+    expect(composerAttachmentError(inline, "listen", ["clip.mp3"], [], {})).toContain("audio");
   });
 });

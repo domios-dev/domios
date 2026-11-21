@@ -345,6 +345,11 @@ pub struct ChatMsg {
     #[ts(type = "unknown")]
     #[ts(optional)]
     pub file_diffs: Option<serde_json::Value>,
+    /// Structured file/line locations reported by the tool call source.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
+    #[ts(type = "unknown")]
+    pub tool_locations: Option<serde_json::Value>,
     /// Provider-neutral web or image result metadata (query, result count, local path), passed through verbatim.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[ts(optional)]

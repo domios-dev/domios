@@ -28,6 +28,7 @@ import {
 import { probeProviderInstallMap } from "../../lib/providerInstallStatus";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
 import { ModeCards } from "./NewSessionPickerParts";
+import { ResumeSessionSection } from "./ResumeSessionSection";
 import { useAnimatedHeight } from "../shared/useAnimatedHeight";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Button } from "../shared/Button";
@@ -633,6 +634,28 @@ export function NewSessionPicker({
               )}
               {choice.mode === "single" && section !== "general" && <MachinePlacement choices={machineInventory.choices}
                 value={machineId} onChange={setMachineId} disabled={busy} testId="session-machine-placement" />}
+              {choice.mode === "single" && !remoteMachineId && location === "local" && (
+                <ResumeSessionSection
+                  workspaceId={workspaceId}
+                  cwd={section === "general" ? workspaceCwd ?? selectedWorkspace?.cwd : selectedWorkspace?.cwd ?? workspaceCwd}
+                  disabled={busy}
+                  providerLabel={(id) => visibleProviders.find((provider) => provider.id === id)?.display_name ?? id}
+                  onResumed={(result) => {
+                    if (result.tabId) void selectTabByTab(result.workspaceId, result.tabId).catch(() => {});
+                    onClose();
+                  }}
+                  onError={(error) => {
+                    createNoticePublisher({ upsertToast })({
+                      kind: "toast",
+                      tabId: null,
+                      workspaceId,
+                      title: "Session could not resume",
+                      detail: error instanceof Error ? error.message : String(error),
+                      severity: "Error",
+                    });
+                  }}
+                />
+              )}
             </div>
           </div>
         </div>
