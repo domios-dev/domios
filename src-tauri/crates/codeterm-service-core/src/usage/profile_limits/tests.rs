@@ -189,40 +189,46 @@ fn a_tab_read_names_why_the_balance_could_not_be_read() {
     assert!(seen.lock().is_empty(), "no key means no request");
 }
 
-/// Seeds a registry-installed Gemini owner profile for one test, exercising `registryDefaults.gemini`
-/// now that `gemini-cli` is no longer bundled in `plugin.json`.
-struct RegisteredGeminiProfile(Option<RuntimeLaunchProfile>);
+/// Seeds a registry-installed Gemini owner profile in an isolated temp data dir for one test,
+/// exercising `registryDefaults.gemini` now that `gemini-cli` is no longer bundled in `plugin.json`.
+struct RegisteredGeminiProfile {
+    previous_data_dir: Option<std::ffi::OsString>,
+    _temp_dir: tempfile::TempDir,
+}
 
 impl RegisteredGeminiProfile {
     fn install() -> Self {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let previous_data_dir = std::env::var_os("CODETERM_DATA_DIR");
+        std::env::set_var("CODETERM_DATA_DIR", temp_dir.path());
         let entry = profile(json!({
             "binary": "npx",
             "args": ["@google/gemini-cli@0.67.0", "--acp"],
+            "install": {
+                "package": "@google/gemini-cli@0.67.0",
+                "registry": "https://registry.npmjs.org"
+            },
             "ownerConfigured": true,
             "registryId": "gemini"
         }));
-        let previous = codeterm_plugin::agent_runtime::owner_profiles::update("acp", |profiles| {
-            Ok(profiles.insert("gemini-cli".into(), entry))
+        codeterm_plugin::agent_runtime::owner_profiles::update("acp", |profiles| {
+            profiles.insert("gemini-cli".into(), entry);
+            Ok(())
         })
         .unwrap();
-        Self(previous)
+        Self {
+            previous_data_dir,
+            _temp_dir: temp_dir,
+        }
     }
 }
 
 impl Drop for RegisteredGeminiProfile {
     fn drop(&mut self) {
-        let previous = self.0.take();
-        let _ = codeterm_plugin::agent_runtime::owner_profiles::update("acp", |profiles| {
-            match previous {
-                Some(entry) => {
-                    profiles.insert("gemini-cli".into(), entry);
-                }
-                None => {
-                    profiles.remove("gemini-cli");
-                }
-            }
-            Ok(())
-        });
+        match &self.previous_data_dir {
+            Some(prev) => std::env::set_var("CODETERM_DATA_DIR", prev),
+            None => std::env::remove_var("CODETERM_DATA_DIR"),
+        }
     }
 }
 

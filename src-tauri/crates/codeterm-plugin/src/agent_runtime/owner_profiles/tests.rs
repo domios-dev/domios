@@ -87,10 +87,16 @@ fn derived_owner_profiles_show_the_sanitized_bundle_icon_their_base_declares() {
     assert_eq!(profiles["derived"].icon_svg.as_deref(), Some(bundled));
     assert!(profiles["undeclared"].icon_svg.is_none());
     let colliding: Profiles = serde_json::from_value(json!({
-        "base":{"binary":"derived-agent","args":[],"ownerConfigured":true}
+        "base":{"binary":"derived-agent","args":[],"ownerConfigured":true},
+        "custom":{"binary":"custom-agent","args":[],"ownerConfigured":true}
     }))
     .unwrap();
-    assert!(overlay_with(capability, colliding).is_err());
+    let merged = overlay_with(capability, colliding)
+        .unwrap()
+        .launch_profiles
+        .unwrap();
+    assert_eq!(merged["base"].binary, "base-agent");
+    assert_eq!(merged["custom"].binary, "custom-agent");
 }
 
 #[test]

@@ -318,7 +318,12 @@ fn run_command_probe(
     };
     drop(pair.slave);
 
-    let drain_tx = tx;
+    let mut killer = child.clone_killer();
+    let exit_tx = tx;
+    let wait_handle = std::thread::spawn(move || {
+        let _ = child.wait();
+        let _ = exit_tx.send(ProbeSignal::Exited);
+    });
     let drain_handle = match pair.master.try_clone_reader() {
         Ok(mut reader) => Some(std::thread::spawn(move || {
             let mut sink = [0u8; 4096];
@@ -328,7 +333,6 @@ fn run_command_probe(
                     Ok(_) => {}
                 }
             }
-            let _ = drain_tx.send(ProbeSignal::Exited);
         })),
         Err(_) => None,
     };
@@ -373,9 +377,8 @@ fn run_command_probe(
         }
     };
 
-    let _ = child.kill();
-    let _ = child.wait();
-    drop(child);
+    let _ = killer.kill();
+    let _ = wait_handle.join();
     drop(pair.master);
     if let Some(handle) = drain_handle {
         let _ = handle.join();

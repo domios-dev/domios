@@ -225,7 +225,10 @@ pub fn overlay_with(
             .collect();
         for (id, mut profile) in owner {
             if profiles.contains_key(&id) {
-                return Err("Owner profile collides with a built-in profile".into());
+                log::warn!(
+                    "[agent-runtime] ignoring owner launch profile '{id}' shadowed by a built-in profile"
+                );
+                continue;
             }
             if let Some(bundled) = profile
                 .icon
