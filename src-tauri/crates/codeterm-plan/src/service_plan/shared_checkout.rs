@@ -41,12 +41,15 @@ pub fn has_exact_confirmed_executor_termination(attempt: &TaskExecutionAttempt) 
     attempt.mesh_peer.is_none()
         && !attempt.id.trim().is_empty()
         && !attempt.executor_tab_id.trim().is_empty()
-        && attempt.executor_termination.as_ref().is_some_and(|receipt| {
-            receipt.attempt_id == attempt.id
-                && receipt.executor_tab_id == attempt.executor_tab_id
-                && receipt.session_id == attempt.session_id
-                && receipt.session_binding_nonce == attempt.session_binding_nonce
-        })
+        && attempt
+            .executor_termination
+            .as_ref()
+            .is_some_and(|receipt| {
+                receipt.attempt_id == attempt.id
+                    && receipt.executor_tab_id == attempt.executor_tab_id
+                    && receipt.session_id == attempt.session_id
+                    && receipt.session_binding_nonce == attempt.session_binding_nonce
+            })
 }
 
 pub fn attempt_reserves_checkout_writer(task: &Task, attempt: &TaskExecutionAttempt) -> bool {

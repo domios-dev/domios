@@ -121,6 +121,26 @@
   },
   {
     "method": "POST",
+    "path": "/api/dictation/start",
+    "reason": "Internal UI dictation stream lifecycle; voice transcription is driven by the desktop/web composer."
+  },
+  {
+    "method": "POST",
+    "path": "/api/dictation/{session}/frame/{sequence}",
+    "reason": "Internal UI dictation stream lifecycle; voice transcription is driven by the desktop/web composer."
+  },
+  {
+    "method": "POST",
+    "path": "/api/dictation/{session}/finish/{sequence}",
+    "reason": "Internal UI dictation stream lifecycle; voice transcription is driven by the desktop/web composer."
+  },
+  {
+    "method": "POST",
+    "path": "/api/dictation/{session}/cancel",
+    "reason": "Internal UI dictation stream lifecycle; voice transcription is driven by the desktop/web composer."
+  },
+  {
+    "method": "POST",
     "path": "/api/workspaces/{id}/tabs/{tab_id}/close",
     "reason": "Internal UI or transport protocol; use the documented tab, workspace or Mesh controls."
   },

@@ -16,7 +16,7 @@ fn hidden_agent_session_build_releases_pty_and_mux_before_register_and_link() {
     let worker_service = service.clone();
     let worker_tab = tab_id.clone();
     let worker = std::thread::spawn(move || {
-        worker_service.link_hidden_agent_pty_with_builder(&worker_tab, move |_| {
+        worker_service.link_hidden_agent_cron_pty_with_builder(&worker_tab, None, move |_| {
             started_tx.send(()).unwrap();
             release_rx
                 .recv_timeout(Duration::from_secs(5))

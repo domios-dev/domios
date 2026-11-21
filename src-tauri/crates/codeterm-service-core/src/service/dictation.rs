@@ -83,12 +83,27 @@ impl DictationSessions {
         }
         let (cancel, cancellation) = watch::channel(false);
         let (tx, frames) = mpsc::channel(1);
-        *slot = Some(Recording { lease: session.into(), client: client.into(), frames: tx, cancel });
-        Ok(Claim { slot: self.0.clone(), session: session.into(), cancellation, frames })
+        *slot = Some(Recording {
+            lease: session.into(),
+            client: client.into(),
+            frames: tx,
+            cancel,
+        });
+        Ok(Claim {
+            slot: self.0.clone(),
+            session: session.into(),
+            cancellation,
+            frames,
+        })
     }
 
     pub fn cancel(&self, client: &str, session: &str) {
-        if let Some(recording) = self.0.lock().as_ref().filter(|recording| recording.matches(client, session)) {
+        if let Some(recording) = self
+            .0
+            .lock()
+            .as_ref()
+            .filter(|recording| recording.matches(client, session))
+        {
             recording.cancel.send_replace(true);
         }
     }
@@ -101,22 +116,37 @@ impl DictationSessions {
         pcm: Vec<u8>,
         finish: bool,
     ) -> ClientResult {
-        if sequence == 0 || sequence > MAX_FRAMES || pcm.is_empty() != finish
-            || pcm.len() > MAX_PCM_BYTES || pcm.len() % 2 != 0 {
+        if sequence == 0
+            || sequence > MAX_FRAMES
+            || pcm.is_empty() != finish
+            || pcm.len() > MAX_PCM_BYTES
+            || pcm.len() % 2 != 0
+        {
             return Err("Invalid dictation frame.".into());
         }
         let (response, result) = oneshot::channel();
         {
             let slot = self.0.lock();
-            let recording = slot.as_ref().filter(|recording| recording.matches(client, session))
+            let recording = slot
+                .as_ref()
+                .filter(|recording| recording.matches(client, session))
                 .ok_or("The dictation session has ended.")?;
             if *recording.cancel.borrow() {
                 return Err("The dictation session was cancelled.".into());
             }
-            recording.frames.try_send(Frame { sequence, pcm, finish, response })
+            recording
+                .frames
+                .try_send(Frame {
+                    sequence,
+                    pcm,
+                    finish,
+                    response,
+                })
                 .map_err(|_| "The dictation worker cannot accept another frame.")?;
         }
-        result.await.map_err(|_| "The dictation session has ended.")?
+        result
+            .await
+            .map_err(|_| "The dictation session has ended.")?
     }
 }
 
@@ -127,40 +157,66 @@ impl Recording {
 }
 
 impl ServiceContext {
-    pub async fn start_dictation(self: &Arc<Self>, client: &str, request: DictationStart) -> DictationStartResult {
+    pub async fn start_dictation(
+        self: &Arc<Self>,
+        client: &str,
+        request: DictationStart,
+    ) -> DictationStartResult {
         let unavailable = |reason: String| DictationStartResult::Unavailable { reason };
         let Some(tab) = TabIdentity::read(self, &request.tab_id) else {
             return unavailable("The dictation composer is no longer open.".into());
         };
-        let mut claim = match self.ext::<DictationSessions>().claim(client, &request.session) {
+        let mut claim = match self
+            .ext::<DictationSessions>()
+            .claim(client, &request.session)
+        {
             Ok(claim) => claim,
             Err(error) => return unavailable(error),
         };
         let registry = self.ext::<Arc<TranscribeRegistry>>().clone();
         let preferred = self.configuration().integrations.voice_transcribe.active;
-        let selected = registry.registered(&preferred)
+        let selected = registry
+            .registered(&preferred)
             .filter(|(plugin, _)| plugin.supports_dictation())
             .or_else(|| {
                 let mut ids = registry.ids();
                 ids.sort_unstable();
-                ids.into_iter().filter_map(|id| registry.registered(&id))
+                ids.into_iter()
+                    .filter_map(|id| registry.registered(&id))
                     .find(|(plugin, _)| plugin.supports_dictation())
             });
         let Some((backend, registration)) = selected else {
-            return DictationStartResult::Setup { reason: "A live dictation plugin is needed on this device.".into() };
+            return DictationStartResult::Setup {
+                reason: "A live dictation plugin is needed on this device.".into(),
+            };
         };
-        let authority = Authority { svc: Arc::downgrade(self), registry, tab, tab_id: request.tab_id,
-            plugin: backend.id().to_owned(), registration };
+        let authority = Authority {
+            svc: Arc::downgrade(self),
+            registry,
+            tab,
+            tab_id: request.tab_id,
+            plugin: backend.id().to_owned(),
+            registration,
+        };
         let (reply, started) = oneshot::channel();
         tokio::spawn(async move {
             let admission = backend.start_dictation().await;
             drop(backend);
             let mut engine = match admission {
                 DictationAdmission::Ready(engine) => engine,
-                DictationAdmission::Setup(reason) => { let _ = reply.send(DictationStartResult::Setup { reason }); return; }
-                DictationAdmission::Unavailable(reason) => { let _ = reply.send(unavailable(reason)); return; }
+                DictationAdmission::Setup(reason) => {
+                    let _ = reply.send(DictationStartResult::Setup { reason });
+                    return;
+                }
+                DictationAdmission::Unavailable(reason) => {
+                    let _ = reply.send(unavailable(reason));
+                    return;
+                }
             };
-            if *claim.cancellation.borrow() || !authority.current() || reply.send(DictationStartResult::Ready).is_err() {
+            if *claim.cancellation.borrow()
+                || !authority.current()
+                || reply.send(DictationStartResult::Ready).is_err()
+            {
                 engine.close().await;
                 return;
             }
@@ -169,10 +225,16 @@ impl ServiceContext {
             let current = !*claim.cancellation.borrow() && authority.current();
             drop(claim);
             if let Some((reply, result)) = terminal {
-                let _ = reply.send(if current { result } else { Err("The dictation session ended.".into()) });
+                let _ = reply.send(if current {
+                    result
+                } else {
+                    Err("The dictation session ended.".into())
+                });
             }
         });
-        started.await.unwrap_or_else(|_| unavailable("The dictation worker did not start.".into()))
+        started
+            .await
+            .unwrap_or_else(|_| unavailable("The dictation worker did not start.".into()))
     }
 }
 
@@ -188,7 +250,9 @@ struct Authority {
 impl Authority {
     fn current(&self) -> bool {
         self.registry.registration_id(&self.plugin).as_ref() == Some(&self.registration)
-            && self.svc.upgrade().is_some_and(|svc| TabIdentity::read(&svc, &self.tab_id).as_ref() == Some(&self.tab))
+            && self.svc.upgrade().is_some_and(|svc| {
+                TabIdentity::read(&svc, &self.tab_id).as_ref() == Some(&self.tab)
+            })
     }
 }
 
@@ -209,16 +273,22 @@ async fn run(
             frame = claim.frames.recv() => frame?,
         };
         if frame.sequence != next {
-            let _ = frame.response.send(Err("The dictation frame is out of order.".into()));
+            let _ = frame
+                .response
+                .send(Err("The dictation frame is out of order.".into()));
             continue;
         }
         if !authority.current() {
-            let _ = frame.response.send(Err("The dictation composer or plugin changed.".into()));
+            let _ = frame
+                .response
+                .send(Err("The dictation composer or plugin changed.".into()));
             return None;
         }
         bytes += frame.pcm.len();
         if bytes > MAX_AUDIO_BYTES {
-            let _ = frame.response.send(Err("The dictation audio limit was reached.".into()));
+            let _ = frame
+                .response
+                .send(Err("The dictation audio limit was reached.".into()));
             return None;
         }
         let segment = tokio::select! {
@@ -237,8 +307,13 @@ async fn run(
             if segment.committed.len() + segment.provisional.len() > MAX_UPDATE_BYTES {
                 return Err("The dictation worker exceeded its transcript limit.".into());
             }
-            Ok(DictationUpdate { session: claim.session.clone(), sequence: next, committed: segment.committed,
-                provisional: segment.provisional, is_final: frame.finish })
+            Ok(DictationUpdate {
+                session: claim.session.clone(),
+                sequence: next,
+                committed: segment.committed,
+                provisional: segment.provisional,
+                is_final: frame.finish,
+            })
         });
         if result.is_err() || frame.finish {
             return Some((frame.response, result));

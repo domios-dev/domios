@@ -1,7 +1,6 @@
 use super::*;
 use crate::plan::{
-    ExecutionIntent, TaskExecutionAttempt, TaskExecutionIntent, TaskExecutorTermination,
-    TaskStatus,
+    ExecutionIntent, TaskExecutionAttempt, TaskExecutionIntent, TaskExecutorTermination, TaskStatus,
 };
 use crate::service_plan::store_db::hot_write::tests::fixtures;
 use crate::service_plan::store_db::read_projections::take_metrics;
@@ -340,12 +339,8 @@ fn checkout_projection_excludes_readonly_nonrepository_and_confirmed_cancelled_w
     assert_eq!(peers.len(), 1);
     assert_eq!(peers[0].id, peer_plan.id);
     assert!(
-        crate::service_plan::shared_checkout::validate_exclusive_checkout(
-            &peers,
-            &plan,
-            "task_ro"
-        )
-        .unwrap_err()
-        .contains("task_alias_writer")
+        crate::service_plan::shared_checkout::validate_exclusive_checkout(&peers, &plan, "task_ro")
+            .unwrap_err()
+            .contains("task_alias_writer")
     );
 }

@@ -261,10 +261,17 @@ async fn inbox_retirement_cancels_preparation_without_retry_or_cloud_admission()
     struct NoCalls;
     #[async_trait]
     impl NeighborTransport for NoCalls {
-        async fn send(&self, _: &crate::wire::SignedEnvelope) -> Result<crate::wire::DeliveryStatus> {
+        async fn send(
+            &self,
+            _: &crate::wire::SignedEnvelope,
+        ) -> Result<crate::wire::DeliveryStatus> {
             panic!("No transport admission")
         }
-        async fn listen_from_cursor(&self, _: &str, _: Option<&Cursor>) -> Result<Box<dyn crate::receive::InboxListener>> {
+        async fn listen_from_cursor(
+            &self,
+            _: &str,
+            _: Option<&Cursor>,
+        ) -> Result<Box<dyn crate::receive::InboxListener>> {
             panic!("No transport admission")
         }
         async fn ack(&self, _: &str, _: &str) -> Result<crate::wire::DeliveryResult> {

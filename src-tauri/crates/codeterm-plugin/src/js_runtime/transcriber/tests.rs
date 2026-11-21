@@ -2,15 +2,22 @@ use super::*;
 
 #[tokio::test]
 async fn live_dictation_requires_the_declared_js_capability() {
-    let vm = vm_with(r#"module.exports.default = {
+    let vm = vm_with(
+        r#"module.exports.default = {
       dictationLaunch() { return {state:"setup", reason:"missing fixture model"}; }
-    }"#);
+    }"#,
+    );
     let clip_only = JsTranscriber::new(vm.clone(), "test");
     assert!(!clip_only.supports_dictation());
-    assert!(matches!(clip_only.start_dictation().await, DictationAdmission::Unavailable(_)));
+    assert!(matches!(
+        clip_only.start_dictation().await,
+        DictationAdmission::Unavailable(_)
+    ));
     let live = JsTranscriber::new(vm, "test").with_dictation(true);
     assert!(live.supports_dictation());
-    assert!(matches!(live.start_dictation().await, DictationAdmission::Setup(reason) if reason == "missing fixture model"));
+    assert!(
+        matches!(live.start_dictation().await, DictationAdmission::Setup(reason) if reason == "missing fixture model")
+    );
 }
 
 #[test]
@@ -37,7 +44,11 @@ async fn dictation_glance_gets_the_loaded_bundle_and_keeps_legacy_argument_posit
     let directory = tempfile::tempdir().unwrap();
     let entry = directory.path().join("plugin.js");
     for has_dictation in [false, true] {
-        let declaration = if has_dictation { "dictationLaunch() {}," } else { "" };
+        let declaration = if has_dictation {
+            "dictationLaunch() {},"
+        } else {
+            ""
+        };
         std::fs::write(&entry, format!(r#"module.exports.default = {{
           {declaration}
           renderGlance(ctx, own) {{
@@ -53,8 +64,22 @@ async fn dictation_glance_gets_the_loaded_bundle_and_keeps_legacy_argument_posit
         let expected = has_dictation.then(|| directory.path().to_string_lossy().into_owned());
         let render = provider.render(ctx.clone()).await.unwrap();
         let action = provider.action("activate", ctx).await.unwrap();
-        assert_eq!(render.title, Some(json!(["scope", expected, if has_dictation {2} else {1}]).to_string()));
-        assert_eq!(action.title, Some(json!(["activate", "scope", expected, if has_dictation {3} else {2}]).to_string()));
+        assert_eq!(
+            render.title,
+            Some(json!(["scope", expected, if has_dictation { 2 } else { 1 }]).to_string())
+        );
+        assert_eq!(
+            action.title,
+            Some(
+                json!([
+                    "activate",
+                    "scope",
+                    expected,
+                    if has_dictation { 3 } else { 2 }
+                ])
+                .to_string()
+            )
+        );
     }
 }
 

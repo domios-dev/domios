@@ -17,12 +17,12 @@ use crate::service::{
 use codeterm_plugin::agent_runtime::*;
 use codeterm_types::agent::chat_types::ChatMsg;
 use parking_lot::Mutex;
+#[cfg(debug_assertions)]
+use std::time::Instant;
 use std::{
     collections::HashMap,
     sync::{atomic::Ordering, Arc, LazyLock},
 };
-#[cfg(debug_assertions)]
-use std::time::Instant;
 
 /// Agents truncate long tool output, and truncation would lose a message counted as delivered.
 const TOOL_BUDGET_BYTES: usize = 32 * 1024;

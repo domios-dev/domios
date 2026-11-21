@@ -85,9 +85,9 @@ export class DictationSessionModel {
     const before = this.visible[this.start - 1];
     const after = this.visible[this.end];
     const fixed = committed && joinsWords(before, committed[0]) ? " " + committed : committed;
-    const preview = pending && joinsWords(fixed.at(-1) ?? before, pending[0]) ? " " + pending : pending;
+    const preview = pending && joinsWords(fixed[fixed.length - 1] ?? before, pending[0]) ? " " + pending : pending;
     const phrase = fixed + preview;
-    const spacer = joinsWords(phrase.at(-1) ?? (this.hasCommitted ? before : undefined), after) ? " " : "";
+    const spacer = joinsWords(phrase[phrase.length - 1] ?? (this.hasCommitted ? before : undefined), after) ? " " : "";
     const text = phrase || this.hasCommitted ? phrase + spacer : this.original;
     const edit = { start: this.start, end: this.end, text };
     const changed = this.visible.slice(edit.start, edit.end) !== edit.text;

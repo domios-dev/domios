@@ -15,9 +15,15 @@ fn client(headers: &HeaderMap, session: &str) -> Result<String, Refusal> {
     let valid = |input: &str| {
         uuid::Uuid::parse_str(input).is_ok_and(|id| id.hyphenated().to_string() == input)
     };
-    match headers.get("x-codeterm-client-id").and_then(|value| value.to_str().ok()) {
+    match headers
+        .get("x-codeterm-client-id")
+        .and_then(|value| value.to_str().ok())
+    {
         Some(client) if valid(client) && valid(session) => Ok(client.into()),
-        _ => Err((StatusCode::BAD_REQUEST, "Invalid dictation session or frontend identity.".into())),
+        _ => Err((
+            StatusCode::BAD_REQUEST,
+            "Invalid dictation session or frontend identity.".into(),
+        )),
     }
 }
 
@@ -36,8 +42,15 @@ pub async fn frame(
     headers: HeaderMap,
     audio: Bytes,
 ) -> Result<Json<DictationUpdate>, Refusal> {
-    if headers.get(header::CONTENT_TYPE).and_then(|value| value.to_str().ok()) != Some("application/octet-stream") {
-        return Err((StatusCode::UNSUPPORTED_MEDIA_TYPE, "Expected little-endian 16-bit PCM.".into()));
+    if headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        != Some("application/octet-stream")
+    {
+        return Err((
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "Expected little-endian 16-bit PCM.".into(),
+        ));
     }
     submit(&state, &headers, &session, sequence, audio.to_vec(), false).await
 }
@@ -59,8 +72,13 @@ async fn submit(
     finish: bool,
 ) -> Result<Json<DictationUpdate>, Refusal> {
     let client = client(headers, session)?;
-    state.svc.ext::<DictationSessions>().frame(&client, session, sequence, pcm, finish).await
-        .map(Json).map_err(|reason| (StatusCode::CONFLICT, reason))
+    state
+        .svc
+        .ext::<DictationSessions>()
+        .frame(&client, session, sequence, pcm, finish)
+        .await
+        .map(Json)
+        .map_err(|reason| (StatusCode::CONFLICT, reason))
 }
 
 pub async fn cancel(
@@ -69,7 +87,10 @@ pub async fn cancel(
     headers: HeaderMap,
 ) -> Result<StatusCode, Refusal> {
     let client = client(&headers, &session)?;
-    state.svc.ext::<DictationSessions>().cancel(&client, &session);
+    state
+        .svc
+        .ext::<DictationSessions>()
+        .cancel(&client, &session);
     Ok(StatusCode::NO_CONTENT)
 }
 

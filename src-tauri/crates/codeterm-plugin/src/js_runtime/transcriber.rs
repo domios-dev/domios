@@ -7,7 +7,9 @@ use serde_json::json;
 
 use super::call_deadline::LongCall;
 use super::vm::{call_json_async, call_json_async_until, has_method, PluginVm, VmError};
-use crate::transcribe::{DictationAdmission, TranscribeError, Transcriber, TranscriberStatus, Transcript};
+use crate::transcribe::{
+    DictationAdmission, TranscribeError, Transcriber, TranscriberStatus, Transcript,
+};
 
 mod session;
 
@@ -19,7 +21,11 @@ pub struct JsTranscriber {
 
 impl JsTranscriber {
     pub fn new(vm: Arc<PluginVm>, id: impl Into<String>) -> Self {
-        Self { vm, id: id.into(), dictation: false }
+        Self {
+            vm,
+            id: id.into(),
+            dictation: false,
+        }
     }
 
     pub(super) fn with_dictation(mut self, enabled: bool) -> Self {
@@ -56,7 +62,9 @@ impl Transcriber for JsTranscriber {
 
     async fn start_dictation(&self) -> DictationAdmission {
         if !self.supports_dictation() {
-            return DictationAdmission::Unavailable("No live dictation process is declared.".into());
+            return DictationAdmission::Unavailable(
+                "No live dictation process is declared.".into(),
+            );
         }
         session::start(self.vm.clone()).await
     }

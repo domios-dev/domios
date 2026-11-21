@@ -418,8 +418,9 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route(
             "/api/dictation/{session}/frame/{sequence}",
-            plugin_host_action_routes::owner_post(web_routes::dictation::frame)
-                .layer(axum::extract::DefaultBodyLimit::max(codeterm_types::dictation::MAX_PCM_BYTES)),
+            plugin_host_action_routes::owner_post(web_routes::dictation::frame).layer(
+                axum::extract::DefaultBodyLimit::max(codeterm_types::dictation::MAX_PCM_BYTES),
+            ),
         )
         .route(
             "/api/dictation/{session}/finish/{sequence}",

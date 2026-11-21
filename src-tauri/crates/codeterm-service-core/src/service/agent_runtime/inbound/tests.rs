@@ -601,7 +601,11 @@ fn persist_trace(
         sink.append(&event).unwrap();
     }
     drop(sink);
-    codeterm_types::trace::select(&codeterm_types::trace::read(dir.path()).unwrap(), send_id, 0)
+    codeterm_types::trace::select(
+        &codeterm_types::trace::read(dir.path()).unwrap(),
+        send_id,
+        0,
+    )
 }
 
 #[test]

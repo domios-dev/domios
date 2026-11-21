@@ -520,7 +520,8 @@ impl PluginVm {
     }
 
     pub(super) fn dictation_generation(&self) -> u64 {
-        self.dictation_generation.load(std::sync::atomic::Ordering::Acquire)
+        self.dictation_generation
+            .load(std::sync::atomic::Ordering::Acquire)
     }
 
     pub(super) fn dictation_bundle(&self) -> Option<&Path> {
@@ -537,14 +538,22 @@ impl PluginVm {
             return Err("The transcriber's process is outside its subprocess grant.".into());
         }
         let _reader = self.bundle_access.try_read().map_err(str::to_owned)?;
-        let root = self.dictation_bundle().ok_or("The transcriber has no bundle path.")?
-            .canonicalize().map_err(|error| error.to_string())?;
+        let root = self
+            .dictation_bundle()
+            .ok_or("The transcriber has no bundle path.")?
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
         if script.as_os_str().is_empty()
-            || script.components().any(|part| !matches!(part, std::path::Component::Normal(_)))
+            || script
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
         {
             return Err("Use a relative worker file in the transcriber bundle.".into());
         }
-        let entry = root.join(script).canonicalize().map_err(|error| error.to_string())?;
+        let entry = root
+            .join(script)
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
         if !entry.starts_with(&root) || !entry.is_file() || !self.can_read_path(&entry) {
             return Err("The dictation worker is outside its bundle grant.".into());
         }

@@ -16,7 +16,7 @@ fn summary_status(service: &crate::service::ServiceContext, tab_id: &str) -> Str
 fn compact_status_and_summary_conserve_boot_failure_and_missing_binding() {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
-    tab.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
+    tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
     tab.agent_booting = true;
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     for (stage, booting, expected) in [

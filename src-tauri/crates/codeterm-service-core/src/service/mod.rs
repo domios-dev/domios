@@ -13,8 +13,8 @@
 //! - `notification` — create notification with OS toast
 
 pub mod cli_local_admission;
-pub mod dictation;
 mod construct;
+pub mod dictation;
 mod provider_refresh;
 pub use construct::build_service_context;
 pub mod activity;

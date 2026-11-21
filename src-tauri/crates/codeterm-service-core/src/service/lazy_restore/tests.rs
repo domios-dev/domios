@@ -15,7 +15,7 @@ fn captured_failed_launch_survives_real_initialization_and_startup_admission() {
             let general = super::super::general_agent::general_workspace_id(&mux).unwrap();
             let id = mux.create_tab(&general).unwrap();
             let tab = mux.get_tab_mut(&id).unwrap();
-            tab.role = Some(AgentRole::Orchestrator);
+            tab.role = Some(AgentRole::Manager);
             tab.role_profile = Some("orchestrator".into());
             tab.team_id = Some("captured-team".into());
             tab.parent_tab_id = Some("captured-parent".into());

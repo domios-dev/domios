@@ -138,15 +138,17 @@ fn live_canonical_writer_excludes_readonly_nonrepository_and_confirmed_cancelled
     assert_eq!(live_canonical_writer(&plan), None);
 
     let mut cancelled_live = base_task("task_cl", TaskStatus::Cancelled);
-    cancelled_live.execution_attempts.push(TaskExecutionAttempt {
-        id: "attempt_cl".into(),
-        executor_tab_id: "tab-cl".into(),
-        session_id: Some("sess-cl".into()),
-        session_binding_nonce: Some("nonce-cl".into()),
-        placement: WorkerPlacement::CanonicalWriter,
-        execution_intent: Some(ExecutionIntent::Mutating),
-        ..Default::default()
-    });
+    cancelled_live
+        .execution_attempts
+        .push(TaskExecutionAttempt {
+            id: "attempt_cl".into(),
+            executor_tab_id: "tab-cl".into(),
+            session_id: Some("sess-cl".into()),
+            session_binding_nonce: Some("nonce-cl".into()),
+            placement: WorkerPlacement::CanonicalWriter,
+            execution_intent: Some(ExecutionIntent::Mutating),
+            ..Default::default()
+        });
     plan.tasks.push(cancelled_live);
     assert_eq!(
         live_canonical_writer(&plan),
@@ -154,27 +156,21 @@ fn live_canonical_writer_excludes_readonly_nonrepository_and_confirmed_cancelled
         "status-only cancellation must not release a live mutating canonical writer"
     );
 
-    plan.tasks
-        .last_mut()
-        .unwrap()
-        .execution_attempts[0]
-        .executor_termination = Some(TaskExecutorTermination {
-        attempt_id: "attempt_cl".into(),
-        executor_tab_id: "tab-cl".into(),
-        session_id: Some("sess-cl".into()),
-        session_binding_nonce: Some("wrong-nonce".into()),
-        confirmed_at: 43,
-    });
+    plan.tasks.last_mut().unwrap().execution_attempts[0].executor_termination =
+        Some(TaskExecutorTermination {
+            attempt_id: "attempt_cl".into(),
+            executor_tab_id: "tab-cl".into(),
+            session_id: Some("sess-cl".into()),
+            session_binding_nonce: Some("wrong-nonce".into()),
+            confirmed_at: 43,
+        });
     assert_eq!(
         live_canonical_writer(&plan),
         Some(("task_cl", "attempt_cl")),
         "mismatched termination proof must not release a live mutating canonical writer"
     );
 
-    plan.tasks
-        .last_mut()
-        .unwrap()
-        .execution_attempts[0]
+    plan.tasks.last_mut().unwrap().execution_attempts[0]
         .executor_termination
         .as_mut()
         .unwrap()

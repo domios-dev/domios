@@ -432,8 +432,7 @@ fn missing_report_commit_is_a_git_failure_not_false_ancestry() {
 #[test]
 fn cancel_before_exit_retires_once_on_confirmed_termination_and_survives_reopen() {
     use crate::plan::{
-        ExecutionIntent, TaskExecutionIntent, TaskExecutorTermination, TaskLaneMetadata,
-        TaskStatus,
+        ExecutionIntent, TaskExecutionIntent, TaskExecutorTermination, TaskLaneMetadata, TaskStatus,
     };
     use crate::service_plan::task_attempts::ExecutorSourceFields;
 
@@ -633,9 +632,7 @@ fn cancel_before_exit_retires_once_on_confirmed_termination_and_survives_reopen(
 
 #[test]
 fn supported_same_status_cancel_recovery_preserves_receipt_and_history_separately() {
-    use crate::plan::{
-        ExecutionIntent, TaskExecutionIntent, TaskExecutorTermination, TaskStatus,
-    };
+    use crate::plan::{ExecutionIntent, TaskExecutionIntent, TaskExecutorTermination, TaskStatus};
 
     let root = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(root.path());
@@ -725,15 +722,17 @@ fn termination_confirmation_races_cleanly_with_review_admission_via_barrier() {
     let mut cancelled_writer = task("writer", &[], false);
     cancelled_writer.status = TaskStatus::Cancelled;
     cancelled_writer.assigned_tab_id = Some("tab-w".into());
-    cancelled_writer.execution_attempts.push(TaskExecutionAttempt {
-        id: "attempt-w".into(),
-        executor_tab_id: "tab-w".into(),
-        session_id: Some("sess-w".into()),
-        session_binding_nonce: Some("nonce-w".into()),
-        placement: WorkerPlacement::CanonicalWriter,
-        execution_intent: Some(ExecutionIntent::Mutating),
-        ..Default::default()
-    });
+    cancelled_writer
+        .execution_attempts
+        .push(TaskExecutionAttempt {
+            id: "attempt-w".into(),
+            executor_tab_id: "tab-w".into(),
+            session_id: Some("sess-w".into()),
+            session_binding_nonce: Some("nonce-w".into()),
+            placement: WorkerPlacement::CanonicalWriter,
+            execution_intent: Some(ExecutionIntent::Mutating),
+            ..Default::default()
+        });
     let mut lane_task = task("lane", &["src/a.rs"], false);
     lane_task.lane.worktree_path = Some(dirty_lane.display().to_string());
     plan.tasks = vec![cancelled_writer, lane_task];

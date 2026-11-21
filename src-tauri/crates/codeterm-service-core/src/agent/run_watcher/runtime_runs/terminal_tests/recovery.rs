@@ -694,7 +694,7 @@ pub(super) fn staged_cron_replacement_refusal_preserves_original_and_replacement
                         svc.run_watcher
                             .register_runtime(
                                 svc,
-                                current.id.clone(),
+                                &current.id,
                                 AgentRunKind::MemWorker {
                                     worker_id: "replacement-worker".into(),
                                 },

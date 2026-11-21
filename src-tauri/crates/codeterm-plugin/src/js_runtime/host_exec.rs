@@ -54,7 +54,8 @@ pub(super) fn spawn_dictation_child(
             command.env(key, value);
         }
     }
-    child::Owned::spawn(&mut command).map_err(|error| format!("Cannot start the dictation worker: {error}"))
+    child::Owned::spawn(&mut command)
+        .map_err(|error| format!("Cannot start the dictation worker: {error}"))
 }
 
 pub(super) struct HostExecEnvGuard;

@@ -58,7 +58,9 @@ struct Session {
 
 impl Session {
     fn current(&self) -> bool {
-        self.vm.upgrade().is_some_and(|vm| vm.dictation_generation() == self.generation)
+        self.vm
+            .upgrade()
+            .is_some_and(|vm| vm.dictation_generation() == self.generation)
     }
 
     fn terminate(&self) {
@@ -84,8 +86,12 @@ impl DictationSession for Session {
             return Err("Invalid dictation audio frame.".into());
         }
         let (reply, result) = oneshot::channel();
-        self.tx.try_send(Request { pcm, reply }).map_err(|_| "The dictation worker is unavailable.")?;
-        let segment = result.await.map_err(|_| "The dictation worker stopped.")??;
+        self.tx
+            .try_send(Request { pcm, reply })
+            .map_err(|_| "The dictation worker is unavailable.")?;
+        let segment = result
+            .await
+            .map_err(|_| "The dictation worker stopped.")??;
         if !self.current() {
             return Err("The dictation model or plugin changed.".into());
         }
@@ -110,15 +116,29 @@ pub(super) async fn start(vm: Arc<PluginVm>) -> DictationAdmission {
         "dictationLaunch",
         Vec::new(),
         (Default::default(), deadline),
-    ).await {
+    )
+    .await
+    {
         Ok(Launch::Ready { bin, script, args }) => (bin, script, args),
         Ok(Launch::Setup { reason }) => return DictationAdmission::Setup(bounded_reason(reason)),
-        Ok(Launch::Unavailable { reason }) => return DictationAdmission::Unavailable(bounded_reason(reason)),
-        Err(err) => return DictationAdmission::Unavailable(format!("Cannot prepare the dictation plugin: {err}")),
+        Ok(Launch::Unavailable { reason }) => {
+            return DictationAdmission::Unavailable(bounded_reason(reason))
+        }
+        Err(err) => {
+            return DictationAdmission::Unavailable(format!(
+                "Cannot prepare the dictation plugin: {err}"
+            ))
+        }
     };
-    if generation != vm.dictation_generation() || bin.is_empty() || bin.len() > 4096
-        || args.len() > 12 || args.iter().any(|arg| arg.len() > 4096) {
-        return DictationAdmission::Unavailable("The dictation launch configuration changed or is invalid.".into());
+    if generation != vm.dictation_generation()
+        || bin.is_empty()
+        || bin.len() > 4096
+        || args.len() > 12
+        || args.iter().any(|arg| arg.len() > 4096)
+    {
+        return DictationAdmission::Unavailable(
+            "The dictation launch configuration changed or is invalid.".into(),
+        );
     }
     let (tx, mut rx) = mpsc::channel::<Request>(1);
     let (started, ready) = oneshot::channel::<Result<(), String>>();
@@ -128,7 +148,10 @@ pub(super) async fn start(vm: Arc<PluginVm>) -> DictationAdmission {
     let worker = tokio::task::spawn_blocking(move || {
         let mut child = match vm.dictation_child(&bin, &script, &args) {
             Ok(child) => child,
-            Err(error) => { let _ = started.send(Err(error)); return; }
+            Err(error) => {
+                let _ = started.send(Err(error));
+                return;
+            }
         };
         drop(vm);
         let (Some(mut input), Some(output)) = (child.stdin.take(), child.stdout.take()) else {
@@ -151,7 +174,13 @@ pub(super) async fn start(vm: Arc<PluginVm>) -> DictationAdmission {
             target.terminate();
         }
     });
-    let session = Session { tx, target, worker: Some(worker), vm: vm_ref, generation };
+    let session = Session {
+        tx,
+        target,
+        worker: Some(worker),
+        vm: vm_ref,
+        generation,
+    };
     match ready.await {
         Ok(Ok(())) => DictationAdmission::Ready(Box::new(session)),
         Ok(Err(error)) => DictationAdmission::Unavailable(bounded_reason(error)),
@@ -168,7 +197,8 @@ pub(super) fn exchange(
     output: &mut impl BufRead,
     pcm: &[u8],
 ) -> Result<DictationSegment, String> {
-    input.write_all(&(pcm.len() as u32).to_le_bytes())
+    input
+        .write_all(&(pcm.len() as u32).to_le_bytes())
         .and_then(|_| input.write_all(pcm))
         .and_then(|_| input.flush())
         .map_err(|_| "Could not write microphone audio to the dictation worker.")?;
@@ -179,7 +209,9 @@ pub(super) fn exchange(
     if !line.ends_with(b"\n") {
         return Err("The dictation worker closed or exceeded its response limit.".into());
     }
-    match serde_json::from_slice(&line).map_err(|_| "The dictation worker sent an invalid response.")? {
+    match serde_json::from_slice(&line)
+        .map_err(|_| "The dictation worker sent an invalid response.")?
+    {
         Reply::Segment(segment) => Ok(segment),
         Reply::Error { error } => Err(bounded_reason(error)),
     }

@@ -13,7 +13,7 @@ fn observed_target(
     let expected = {
         let mut mux = fixture.service.mux.write();
         let source = mux.get_tab(source_id).unwrap().clone();
-        let workspace = mux.workspaces[0].id.clone();
+        let workspace = mux.list_workspaces()[0].id.clone();
         let id = mux.create_tab(&workspace).unwrap();
         let tab = mux.get_tab_mut(&id).unwrap();
         tab.agent_type = source.agent_type.clone();

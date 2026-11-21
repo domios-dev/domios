@@ -79,15 +79,17 @@ impl PlanStore {
                     .iter_mut()
                     .find(|attempt| same_executor(attempt, source))
                     .ok_or_else(|| PlanError::Io("executor termination identity changed".into()))?;
-                let already_confirmed = attempt.executor_termination.as_ref().is_some_and(
-                    |receipt| {
-                        receipt.attempt_id == source.id
-                            && receipt.executor_tab_id == source.executor_tab_id
-                            && receipt.session_id.as_deref() == source.session_id
-                            && receipt.session_binding_nonce.as_deref()
-                                == source.session_binding_nonce
-                    },
-                );
+                let already_confirmed =
+                    attempt
+                        .executor_termination
+                        .as_ref()
+                        .is_some_and(|receipt| {
+                            receipt.attempt_id == source.id
+                                && receipt.executor_tab_id == source.executor_tab_id
+                                && receipt.session_id.as_deref() == source.session_id
+                                && receipt.session_binding_nonce.as_deref()
+                                    == source.session_binding_nonce
+                        });
                 if !already_confirmed {
                     attempt.executor_termination = Some(TaskExecutorTermination {
                         attempt_id: source.id.into(),
