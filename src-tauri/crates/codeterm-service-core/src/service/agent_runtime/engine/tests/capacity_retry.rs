@@ -341,7 +341,8 @@ async fn turn_scoped_quota_error_schedules_delayed_continue_at_exact_reset_and_s
         }
     };
 
-    let (_, written) = run_submit(&fixture.service, &session, &process, submit("quota-reset")).await;
+    let (_, written) =
+        run_submit(&fixture.service, &session, &process, submit("quota-reset")).await;
     assert!(written);
     wait_turn(&session, "own-thread:turn:quota-reset").await;
     assert!(session.context.lock().active_turn_id.is_none());
@@ -365,8 +366,13 @@ async fn turn_scoped_quota_error_schedules_delayed_continue_at_exact_reset_and_s
     super::super::super::capacity_retry::cancel(&fixture.service, &tab).unwrap();
     assert!(queue.list(Some(&tab)).is_empty());
 
-    let (_, written) =
-        run_submit(&fixture.service, &session, &process, submit("quota-no-reset")).await;
+    let (_, written) = run_submit(
+        &fixture.service,
+        &session,
+        &process,
+        submit("quota-no-reset"),
+    )
+    .await;
     assert!(written);
     wait_turn(&session, "own-thread:turn:quota-no-reset").await;
     assert!(queue.list(Some(&tab)).is_empty());

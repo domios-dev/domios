@@ -194,7 +194,11 @@ mod state_machine_tests {
         }
 
         fn emit_input_event(&self, event: SelectedInputEvent) {
-            let cb = self.sub_callback.lock().clone().expect("active sub callback");
+            let cb = self
+                .sub_callback
+                .lock()
+                .clone()
+                .expect("active sub callback");
             cb(event);
         }
 
@@ -300,11 +304,9 @@ mod state_machine_tests {
         });
         let capture_events = Arc::new(AtomicUsize::new(0));
         let capture_counter = capture_events.clone();
-        let capture_listener = fixture
-            .ui
-            .listen("local-recording-capture", move |_event| {
-                capture_counter.fetch_add(1, Ordering::AcqRel);
-            });
+        let capture_listener = fixture.ui.listen("local-recording-capture", move |_event| {
+            capture_counter.fetch_add(1, Ordering::AcqRel);
+        });
 
         let adapter = HotplugFixtureAdapter::new(vec![hid_candidate(PORT_A, "Col01")]);
         let (_, done) = service

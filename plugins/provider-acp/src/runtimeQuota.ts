@@ -1,4 +1,4 @@
-import type { JsonValue, RpcFailure, RuntimeErrorSignal } from "@codeterm/plugin-sdk";
+import type { JsonValue, RpcError, RuntimeErrorSignal } from "@codeterm/plugin-sdk";
 
 export const TEXT_RESET_SAFETY_MARGIN_MS = 5_000;
 export const MAX_RETRY_WINDOW_MS = 31 * 24 * 60 * 60 * 1000;
@@ -456,7 +456,7 @@ function extractTextResetMs(
  * an exact reset timestamp or duration. Never guesses reset times.
  */
 export function classifyPromptQuotaError(
-  error: RpcFailure,
+  error: RpcError,
   nowMs: number = Date.now(),
 ): RuntimeErrorSignal | null {
   const now = Math.trunc(nowMs);

@@ -478,8 +478,7 @@ fn local_input_declaration_refuses_keyboard_and_mouse_registration() {
 #[test]
 fn local_input_windows_arrival_matches_declared_trigger_only() {
     let trigger = declaration();
-    let matching =
-        r"\\?\HID#VID_3547&PID_0008&MI_00&Col01#8&newport&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+    let matching = r"\\?\HID#VID_3547&PID_0008&MI_00&Col01#8&newport&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
     assert!(arrival::arrival_matches_trigger(&trigger, matching));
 
     for foreign in [

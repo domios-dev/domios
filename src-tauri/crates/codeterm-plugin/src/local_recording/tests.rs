@@ -487,7 +487,10 @@ fn rebind_selected_devices_allocates_fresh_generation_and_refuses_stale_or_disab
         .rebind_selected_devices_if_eligible("own", gen_before, devices("port-b"), || Ok(()))
         .unwrap();
     assert!(gen_after > gen_before);
-    assert_eq!(registry.selected_devices("own").unwrap().0, devices("port-b"));
+    assert_eq!(
+        registry.selected_devices("own").unwrap().0,
+        devices("port-b")
+    );
 
     assert_eq!(
         registry

@@ -108,13 +108,7 @@ impl WindowsArrivalWatcher {
         let thread = thread::Builder::new()
             .name("local-recording-arrival".into())
             .spawn(move || {
-                run_arrival_listener(
-                    thread_control,
-                    trigger,
-                    callback,
-                    startup_tx,
-                    completion_tx,
-                )
+                run_arrival_listener(thread_control, trigger, callback, startup_tx, completion_tx)
             })
             .map_err(|error| {
                 LISTENER_CLAIMED.store(false, Ordering::Release);
@@ -144,9 +138,7 @@ impl Drop for WindowsArrivalWatcher {
 }
 
 impl WindowsArrivalPendingWatch {
-    pub fn wait_until_ready(
-        mut self,
-    ) -> Result<WindowsArrivalWatcher, WindowsArrivalSetupFailure> {
+    pub fn wait_until_ready(mut self) -> Result<WindowsArrivalWatcher, WindowsArrivalSetupFailure> {
         let result = self
             .startup
             .as_ref()

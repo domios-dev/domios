@@ -227,14 +227,16 @@ impl ServiceContext {
             "local-recording-status",
             serde_json::to_value(&status).unwrap_or_default(),
         );
-        let completion = (enabled && status.granted && status.devices_selected && !status.available)
-            .then(|| {
-                self.schedule_local_recording_reconcile(
-                    plugin_id.into(),
-                    adapter,
-                    hotplug::ReconcileMode::AttachOrWatch,
-                )
-            });
+        let completion =
+            (enabled && status.granted && status.devices_selected && !status.available).then(
+                || {
+                    self.schedule_local_recording_reconcile(
+                        plugin_id.into(),
+                        adapter,
+                        hotplug::ReconcileMode::AttachOrWatch,
+                    )
+                },
+            );
         Ok((status, completion))
     }
 

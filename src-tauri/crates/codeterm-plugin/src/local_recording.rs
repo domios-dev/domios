@@ -367,7 +367,9 @@ impl LocalRecordingRegistry {
         if !entry.enabled {
             return Err("trigger_disabled".into());
         }
-        if entry.available || entry.reservation_id.is_some() || entry.generation != expected_generation
+        if entry.available
+            || entry.reservation_id.is_some()
+            || entry.generation != expected_generation
         {
             return Err("subscription_stale".into());
         }

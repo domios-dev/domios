@@ -63,10 +63,7 @@ impl RecordingSelectionStore {
             .with_private_permissions()
             .with_validator(|raw| parse_enabled(raw).map(|_| ()));
         let (enabled, enabled_readable) = match enabled_file.load(parse_enabled) {
-            Loaded::Parsed(enabled)
-            | Loaded::Recovered {
-                value: enabled, ..
-            } => (enabled, true),
+            Loaded::Parsed(enabled) | Loaded::Recovered { value: enabled, .. } => (enabled, true),
             Loaded::Missing => (EnabledPreferences::new(), enabled_file.held().is_none()),
             Loaded::Unrecoverable { .. } => (EnabledPreferences::new(), false),
         };

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import type { AgentEvent, Operation, RpcFailure, RuntimeContext, RuntimeFrame } from "@codeterm/plugin-sdk";
+import type { AgentEvent, Operation, RpcError, RuntimeContext, RuntimeFrame } from "@codeterm/plugin-sdk";
 import {
   classifyPromptQuotaError,
   parseExactDurationMs,
@@ -253,7 +253,7 @@ function openSession(tabId: string): RuntimeContext {
 
 // 3. Strict negative cases: non-quota errors, quota without reset time, invalid/absurd/past/auth errors
 {
-  const rejected: [string, RpcFailure][] = [
+  const rejected: [string, RpcError][] = [
     ["non-quota with duration", { code: -32603, message: "Build failed; resets in 51m16s." }],
     ["timeout with try again", { code: -32603, message: "Upstream connection timed out. Try again in 45s." }],
     ["busy refusal", { code: -32602, message: "Invalid params: a prompt is already in flight for this session" }],

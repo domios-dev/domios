@@ -761,11 +761,12 @@ function streamTurnUsage(raw) {
   const value = object(object(raw).turnUsage);
   return typeof value.input_tokens === "number" && typeof value.output_tokens === "number" ? value : void 0;
 }
-function settleStream(ctx, raw, reason) {
+function settleStream(ctx, raw, reason, apiError) {
   const source = object(raw);
   if (!ctx.threadId) return { state: raw, events: [] };
+  const detail = reason === "cancelled" ? { detail: "interrupted" } : reason === "failed" ? { detail: "failed" } : {};
   if (source.sessionId !== ctx.threadId || source.epoch !== ctx.epoch || source.nonce !== ctx.bindingNonce)
-    return { state: raw, events: [{ kind: "turnState", threadId: ctx.threadId, state: "idle", ...reason === "cancelled" ? { detail: "interrupted" } : {} }] };
+    return { state: raw, events: [{ kind: "turnState", threadId: ctx.threadId, state: "idle", ...detail }] };
   const state = source;
   if (state.settled) return { state: raw, events: [] };
   const next = { ...state, items: Object.assign(/* @__PURE__ */ Object.create(null), state.items), offsetById: Object.assign(/* @__PURE__ */ Object.create(null), state.offsetById), controls: { ...state.controls }, warnings: Object.assign(/* @__PURE__ */ Object.create(null), state.warnings), evidenced: [...state.evidenced], settled: true };
@@ -775,7 +776,19 @@ function settleStream(ctx, raw, reason) {
   closeChunk(ctx, next, events);
   for (const row of Object.values(next.items)) if (row.toolStatus === "running")
     emit(next, events, { id: row.id, seq: row.seq, type: row.type, content: "", ...row.toolId ? { toolId: row.toolId } : {}, toolStatus: "interrupted", toolInterrupted: true }, true);
-  events.push({ kind: "turnState", threadId: ctx.threadId, turnId: `${state.sessionId}:turn:${state.turn}`, state: "idle", ...reason === "cancelled" ? { detail: "interrupted" } : {} });
+  const turnId = `${state.sessionId}:turn:${state.turn}`;
+  if (apiError) {
+    emit(next, events, {
+      id: `${turnId}:error`,
+      seq: 0,
+      type: "system",
+      systemSubtype: "api_error",
+      toolFlowId: turnId,
+      content: boundedText(apiError.content || "Provider request failed", 4096).value,
+      toolInput: apiError.toolInput
+    });
+  }
+  events.push({ kind: "turnState", threadId: ctx.threadId, turnId, state: "idle", ...detail });
   boundState(next);
   return { state: json(next), events };
 }
@@ -1226,6 +1239,460 @@ function launchSelection(requested, reported, attempted) {
   return { kind: "complete" };
 }
 
+// plugins/provider-acp/src/runtimeQuota.ts
+var TEXT_RESET_SAFETY_MARGIN_MS = 5e3;
+var MAX_RETRY_WINDOW_MS = 31 * 24 * 60 * 60 * 1e3;
+var MAX_SAFE_MS = 9007199254740991;
+var MAX_DATA_DEPTH = 4;
+var MAX_ARRAY_ITEMS = 32;
+var MAX_JSON_STRING_BYTES = 16384;
+var MAX_TEXT_SCAN_CHARS = 8192;
+var AUTH_OR_CLIENT_HTTP = /* @__PURE__ */ new Set([400, 401, 403, 404, 405, 422]);
+var AUTH_TOKENS = /* @__PURE__ */ new Set([
+  "unauthenticated",
+  "permission_denied",
+  "permissiondenied",
+  "authentication_error",
+  "authenticationerror",
+  "authentication_required",
+  "authenticationrequired",
+  "unauthorized",
+  "forbidden",
+  "auth_required",
+  "authrequired",
+  "auth_expired",
+  "authexpired",
+  "auth_expiry",
+  "authexpiry",
+  "token_expired",
+  "tokenexpired"
+]);
+var QUOTA_TOKENS = /* @__PURE__ */ new Set([
+  "429",
+  "resource_exhausted",
+  "resourceexhausted",
+  "rate_limit",
+  "ratelimit",
+  "rate_limited",
+  "ratelimited",
+  "rate_limit_exceeded",
+  "ratelimitexceeded",
+  "rate_limit_error",
+  "ratelimiterror",
+  "rate_limited_until",
+  "ratelimiteduntil",
+  "too_many_requests",
+  "toomanyrequests",
+  "quota",
+  "quota_exceeded",
+  "quotaexceeded",
+  "quota_reached",
+  "quotareached",
+  "quota_exhausted",
+  "quotaexhausted",
+  "insufficient_quota",
+  "insufficientquota",
+  "usage_limit",
+  "usagelimit",
+  "usage_limit_exceeded",
+  "usagelimitexceeded"
+]);
+var CLASSIFIER_KEYS = [
+  "status",
+  "code",
+  "type",
+  "reason",
+  "errorCode",
+  "error_code",
+  "kind",
+  "class",
+  "name",
+  "error"
+];
+var HTTP_STATUS_KEYS = [
+  "status",
+  "statusCode",
+  "status_code",
+  "httpStatusCode",
+  "http_status",
+  "code"
+];
+var EPOCH_MS_KEYS = [
+  "resetsAtMs",
+  "resetAtMs",
+  "retryAtMs",
+  "resets_at_ms",
+  "reset_at_ms",
+  "retry_at_ms"
+];
+var TIMESTAMP_KEYS = [
+  "resetsAt",
+  "resetAt",
+  "resetTime",
+  "resets_at",
+  "reset_at",
+  "reset_time",
+  "quotaResetTime",
+  "quota_reset_time"
+];
+var DELAY_MS_KEYS = [
+  "retryAfterMs",
+  "retry_after_ms",
+  "quotaResetDelayMs",
+  "quota_reset_delay_ms",
+  "resetInMs",
+  "reset_in_ms"
+];
+var DELAY_SECONDS_KEYS = [
+  "retryAfterSeconds",
+  "retry_after_secs",
+  "retryAfterSecs",
+  "retry_after_seconds"
+];
+var RETRY_AFTER_KEYS = [
+  "retryAfter",
+  "retry_after",
+  "Retry-After",
+  "retry-after"
+];
+var RETRY_DELAY_KEYS = [
+  "retryDelay",
+  "retry_delay",
+  "quotaResetDelay",
+  "quota_reset_delay"
+];
+var MESSAGE_KEYS = ["message", "detail", "errorMessage", "description"];
+var STRICT_ISO_8601 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:?\d{2})$/;
+var HTTP_DATE = /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+\d{2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+GMT$/;
+var EXPLICIT_QUOTA_TEXT = /\b(?:quota(?:\s+(?:reached|exceeded|exhausted|limit))?|rate[\s_-]*limit(?:ed|s|\s+exceeded|\s+reached)?|usage\s+limit(?:\s+(?:reached|exceeded))?|too\s+many\s+requests|resource[_\s-]*exhausted|capacity\s+limit(?:\s+(?:reached|exceeded))?|limit\s+reached)\b/i;
+var TEXT_ISO_CUE = /\b(?:resets?|retry|try\s+again|available(?:\s+again)?)\s+(?:at|after)\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:?\d{2}))(?=$|[\s.,;)\]])/i;
+var TEXT_DURATION_CUE = /\b(?:resets?|retry|try\s+again|available(?:\s+again)?|wait)\s+(?:in|after)\s+([0-9]+(?:\.[0-9]+)?\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)(?:(?:\s*,?\s*|\s+and\s+)[0-9]+(?:\.[0-9]+)?\s*(?:hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s))*)(?=$|[.,;)\]]|\s+(?![0-9]+[a-z]))/i;
+var UNIT_MS = {
+  d: { rank: 4, ms: 864e5 },
+  day: { rank: 4, ms: 864e5 },
+  days: { rank: 4, ms: 864e5 },
+  h: { rank: 3, ms: 36e5 },
+  hr: { rank: 3, ms: 36e5 },
+  hrs: { rank: 3, ms: 36e5 },
+  hour: { rank: 3, ms: 36e5 },
+  hours: { rank: 3, ms: 36e5 },
+  m: { rank: 2, ms: 6e4 },
+  min: { rank: 2, ms: 6e4 },
+  mins: { rank: 2, ms: 6e4 },
+  minute: { rank: 2, ms: 6e4 },
+  minutes: { rank: 2, ms: 6e4 },
+  s: { rank: 1, ms: 1e3 },
+  sec: { rank: 1, ms: 1e3 },
+  secs: { rank: 1, ms: 1e3 },
+  second: { rank: 1, ms: 1e3 },
+  seconds: { rank: 1, ms: 1e3 },
+  ms: { rank: 0, ms: 1 }
+};
+function isObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function ownValue(entry, key) {
+  return Object.prototype.hasOwnProperty.call(entry, key) ? entry[key] : void 0;
+}
+function normalizeToken(value) {
+  return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+function parseFiniteNonNegNumber(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!/^\d+(?:\.\d+)?$/.test(trimmed)) return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  }
+  return null;
+}
+function parsePositiveInt(value) {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!/^\d+$/.test(trimmed)) return null;
+    const parsed = Number(trimmed);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+  }
+  return null;
+}
+function validFutureTimestamp(ms, nowMs) {
+  if (!Number.isSafeInteger(ms) || ms <= nowMs || ms > MAX_SAFE_MS) return null;
+  if (ms - nowMs > MAX_RETRY_WINDOW_MS) return null;
+  return ms;
+}
+function parseEpochOrIsoMs(value, nowMs, allowHttpDate = false) {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value <= 0) return null;
+    const ms = value >= 1e12 ? Math.trunc(value) : value >= 1e9 ? Math.trunc(value * 1e3) : NaN;
+    return Number.isFinite(ms) ? validFutureTimestamp(ms, nowMs) : null;
+  }
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 128) return null;
+  if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+    const numeric = Number(trimmed);
+    if (!Number.isFinite(numeric) || numeric <= 0) return null;
+    const ms = numeric >= 1e12 ? Math.trunc(numeric) : numeric >= 1e9 ? Math.trunc(numeric * 1e3) : NaN;
+    return Number.isFinite(ms) ? validFutureTimestamp(ms, nowMs) : null;
+  }
+  if (STRICT_ISO_8601.test(trimmed) || allowHttpDate && HTTP_DATE.test(trimmed)) {
+    const parsed = Date.parse(trimmed);
+    return Number.isFinite(parsed) ? validFutureTimestamp(Math.trunc(parsed), nowMs) : null;
+  }
+  return null;
+}
+function parseExactDurationMs(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.length > 128) return null;
+  const tokenPattern = /([0-9]+(?:\.[0-9]+)?)\s*(days?|d|hours?|hrs?|h|minutes?|mins?|ms|m|seconds?|secs?|s)(?![A-Za-z])/gi;
+  let totalMs = 0;
+  let lastRank = 99;
+  let cursor = 0;
+  let count2 = 0;
+  for (; ; ) {
+    const match = tokenPattern.exec(trimmed);
+    if (!match) break;
+    const gap = trimmed.slice(cursor, match.index);
+    if (cursor === 0) {
+      if (gap.length !== 0) return null;
+    } else if (!/^(?:(?:\s*,?\s*)|\s+and\s+)$/i.test(gap)) {
+      return null;
+    }
+    const amount = Number(match[1]);
+    const unitKey = match[2].toLowerCase();
+    const spec = Object.prototype.hasOwnProperty.call(UNIT_MS, unitKey) ? UNIT_MS[unitKey] : void 0;
+    if (!spec || !Number.isFinite(amount) || amount < 0 || spec.rank >= lastRank) return null;
+    lastRank = spec.rank;
+    totalMs += amount * spec.ms;
+    if (!Number.isFinite(totalMs) || totalMs > MAX_RETRY_WINDOW_MS) return null;
+    cursor = match.index + match[0].length;
+    count2++;
+  }
+  if (count2 === 0 || cursor !== trimmed.length) return null;
+  const rounded = Math.ceil(totalMs);
+  if (!Number.isSafeInteger(rounded) || rounded <= 0 || rounded > MAX_RETRY_WINDOW_MS) return null;
+  return rounded;
+}
+function parseProtoDurationMs(value) {
+  if (typeof value === "string") return parseExactDurationMs(value);
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value <= 0) return null;
+    const ms2 = Math.ceil(value * 1e3);
+    return Number.isSafeInteger(ms2) && ms2 > 0 && ms2 <= MAX_RETRY_WINDOW_MS ? ms2 : null;
+  }
+  if (!isObject(value)) return null;
+  const seconds = parseFiniteNonNegNumber(ownValue(value, "seconds"));
+  const nanosRaw = ownValue(value, "nanos");
+  const nanos = nanosRaw === void 0 ? 0 : parseFiniteNonNegNumber(nanosRaw);
+  if (seconds === null || nanos === null || nanos >= 1e9) return null;
+  const ms = Math.ceil(seconds * 1e3 + nanos / 1e6);
+  return Number.isSafeInteger(ms) && ms > 0 && ms <= MAX_RETRY_WINDOW_MS ? ms : null;
+}
+function collectObjects(root) {
+  const objects = [];
+  let stringData;
+  let initial2 = root;
+  if (typeof root === "string") {
+    const trimmed = root.trim();
+    if (trimmed.startsWith("{") && trimmed.length <= MAX_JSON_STRING_BYTES) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (isObject(parsed) || Array.isArray(parsed)) initial2 = parsed;
+        else stringData = root;
+      } catch {
+        stringData = root;
+      }
+    } else {
+      stringData = root;
+    }
+  }
+  const visit = (value, depth) => {
+    if (depth > MAX_DATA_DEPTH || value === null || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      const limit = Math.min(value.length, MAX_ARRAY_ITEMS);
+      for (let i = 0; i < limit; i++) visit(value[i], depth + 1);
+      return;
+    }
+    const obj = value;
+    objects.push(obj);
+    const keys = Object.keys(obj);
+    for (let i = 0; i < keys.length; i++) {
+      const child = obj[keys[i]];
+      if (child !== null && typeof child === "object") visit(child, depth + 1);
+    }
+  };
+  visit(initial2, 0);
+  return { objects, stringData };
+}
+function isDisqualifiedByAuthOrClientError(objects) {
+  for (let i = 0; i < objects.length; i++) {
+    const entry = objects[i];
+    for (let k = 0; k < HTTP_STATUS_KEYS.length; k++) {
+      const status = parsePositiveInt(ownValue(entry, HTTP_STATUS_KEYS[k]));
+      if (status !== null && AUTH_OR_CLIENT_HTTP.has(status)) return true;
+    }
+    for (let k = 0; k < CLASSIFIER_KEYS.length; k++) {
+      const raw = ownValue(entry, CLASSIFIER_KEYS[k]);
+      if (typeof raw === "string" && AUTH_TOKENS.has(normalizeToken(raw))) return true;
+    }
+  }
+  return false;
+}
+function hasStructuredQuotaIndicator(code, objects) {
+  if (code === 429) return true;
+  for (let i = 0; i < objects.length; i++) {
+    const entry = objects[i];
+    for (let k = 0; k < HTTP_STATUS_KEYS.length; k++) {
+      if (parsePositiveInt(ownValue(entry, HTTP_STATUS_KEYS[k])) === 429) return true;
+    }
+    for (let k = 0; k < CLASSIFIER_KEYS.length; k++) {
+      const raw = ownValue(entry, CLASSIFIER_KEYS[k]);
+      if (typeof raw === "string" && QUOTA_TOKENS.has(normalizeToken(raw))) return true;
+    }
+    const typeTag = ownValue(entry, "@type");
+    if (typeof typeTag === "string" && typeTag.indexOf("RetryInfo") !== -1) return true;
+  }
+  return false;
+}
+function extractStructuredResetMs(objects, nowMs) {
+  for (let i = 0; i < objects.length; i++) {
+    const entry = objects[i];
+    for (let k = 0; k < EPOCH_MS_KEYS.length; k++) {
+      const parsed = parsePositiveInt(ownValue(entry, EPOCH_MS_KEYS[k]));
+      if (parsed !== null) {
+        const valid = validFutureTimestamp(parsed, nowMs);
+        if (valid !== null) return valid;
+      }
+    }
+  }
+  for (let i = 0; i < objects.length; i++) {
+    const entry = objects[i];
+    for (let k = 0; k < TIMESTAMP_KEYS.length; k++) {
+      const valid = parseEpochOrIsoMs(ownValue(entry, TIMESTAMP_KEYS[k]), nowMs);
+      if (valid !== null) return valid;
+    }
+  }
+  for (let i = 0; i < objects.length; i++) {
+    const entry = objects[i];
+    for (let k = 0; k < DELAY_MS_KEYS.length; k++) {
+      const raw = parseFiniteNonNegNumber(ownValue(entry, DELAY_MS_KEYS[k]));
+      if (raw !== null && raw > 0) {
+        const delayMs = Math.ceil(raw);
+        if (delayMs > 0 && delayMs <= MAX_RETRY_WINDOW_MS) {
+          const valid = validFutureTimestamp(nowMs + delayMs, nowMs);
+          if (valid !== null) return valid;
+        }
+      }
+    }
+  }
+  for (let i = 0; i < objects.length; i++) {
+    const entry = objects[i];
+    for (let k = 0; k < DELAY_SECONDS_KEYS.length; k++) {
+      const secs = parseFiniteNonNegNumber(ownValue(entry, DELAY_SECONDS_KEYS[k]));
+      if (secs !== null && secs > 0) {
+        const delayMs = Math.ceil(secs * 1e3);
+        if (delayMs > 0 && delayMs <= MAX_RETRY_WINDOW_MS) {
+          const valid = validFutureTimestamp(nowMs + delayMs, nowMs);
+          if (valid !== null) return valid;
+        }
+      }
+    }
+    for (let k = 0; k < RETRY_AFTER_KEYS.length; k++) {
+      const raw = ownValue(entry, RETRY_AFTER_KEYS[k]);
+      if (raw === void 0 || raw === null) continue;
+      const secs = parseFiniteNonNegNumber(raw);
+      if (secs !== null && secs > 0) {
+        const delayMs = Math.ceil(secs * 1e3);
+        if (delayMs > 0 && delayMs <= MAX_RETRY_WINDOW_MS) {
+          const valid = validFutureTimestamp(nowMs + delayMs, nowMs);
+          if (valid !== null) return valid;
+        }
+      } else if (typeof raw === "string") {
+        const durationMs = parseExactDurationMs(raw);
+        if (durationMs !== null) {
+          const valid = validFutureTimestamp(nowMs + durationMs, nowMs);
+          if (valid !== null) return valid;
+        }
+        const timestamp = parseEpochOrIsoMs(raw, nowMs, true);
+        if (timestamp !== null) return timestamp;
+      }
+    }
+    for (let k = 0; k < RETRY_DELAY_KEYS.length; k++) {
+      const raw = ownValue(entry, RETRY_DELAY_KEYS[k]);
+      if (raw === void 0 || raw === null) continue;
+      const delayMs = parseProtoDurationMs(raw);
+      if (delayMs !== null) {
+        const valid = validFutureTimestamp(nowMs + delayMs, nowMs);
+        if (valid !== null) return valid;
+      }
+    }
+  }
+  return null;
+}
+function extractTextResetMs(candidates, structuredQuota, nowMs) {
+  for (let i = 0; i < candidates.length; i++) {
+    const text2 = candidates[i].slice(0, MAX_TEXT_SCAN_CHARS);
+    if (!structuredQuota && !EXPLICIT_QUOTA_TEXT.test(text2)) continue;
+    const isoMatch = TEXT_ISO_CUE.exec(text2);
+    if (isoMatch) {
+      const parsed = Date.parse(isoMatch[1]);
+      if (Number.isFinite(parsed)) {
+        const valid = validFutureTimestamp(Math.trunc(parsed), nowMs);
+        if (valid !== null) return valid;
+      }
+    }
+    const durationMatch = TEXT_DURATION_CUE.exec(text2);
+    if (durationMatch) {
+      const durationMs = parseExactDurationMs(durationMatch[1]);
+      if (durationMs !== null) {
+        const valid = validFutureTimestamp(nowMs + durationMs + TEXT_RESET_SAFETY_MARGIN_MS, nowMs);
+        if (valid !== null) return valid;
+      }
+    }
+  }
+  return null;
+}
+function classifyPromptQuotaError(error, nowMs = Date.now()) {
+  const now = Math.trunc(nowMs);
+  if (!Number.isSafeInteger(now) || now < 0) return null;
+  if (error.code === -32e3) return null;
+  const { objects, stringData } = collectObjects(error.data);
+  if (isDisqualifiedByAuthOrClientError(objects)) return null;
+  const structuredResetMs = extractStructuredResetMs(objects, now);
+  if (structuredResetMs !== null) {
+    return {
+      retryable: false,
+      retryableKind: "rate_limited_until",
+      retryAtMs: structuredResetMs
+    };
+  }
+  const structuredQuota = hasStructuredQuotaIndicator(error.code, objects);
+  const candidates = [];
+  if (typeof error.message === "string" && error.message) candidates.push(error.message);
+  if (stringData) candidates.push(stringData);
+  for (let i = 0; i < objects.length; i++) {
+    for (let k = 0; k < MESSAGE_KEYS.length; k++) {
+      const text2 = ownValue(objects[i], MESSAGE_KEYS[k]);
+      if (typeof text2 === "string" && text2) candidates.push(text2);
+    }
+  }
+  const textResetMs = extractTextResetMs(candidates, structuredQuota, now);
+  if (textResetMs !== null) {
+    return {
+      retryable: false,
+      retryableKind: "rate_limited_until",
+      retryAtMs: textResetMs
+    };
+  }
+  return null;
+}
+
 // plugins/provider-acp/src/runtime.ts
 var epochs = /* @__PURE__ */ new Map();
 var object4 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -1554,8 +2021,26 @@ function runtimeResponse(ctx, op, raw, reply) {
       const turn = object4(raw).prompt;
       state2.queued = state2.queued?.filter((queued) => queued.prompt !== turn || queued.sendId !== op.sendId);
       if (state2.cursor.prompt === turn && state2.promptSend?.sendId === op.sendId) {
+        const quotaSignal = classifyPromptQuotaError(reply.error);
         state2.inFlight = false;
         delete state2.promptSend;
+        if (quotaSignal) {
+          const sessionId = ownSession(ctx, state2);
+          const turnId = `${sessionId}:turn:${turn}`;
+          const projected2 = reduceStream(ctx, state2.projection ?? null, [], state2.cursor);
+          const settled = settleStream(ctx, projected2.state, "failed", {
+            content: reply.error.message || "Rate limit reached",
+            toolInput: quotaSignal
+          });
+          state2.projection = settled.state;
+          const events = [
+            ...sessionAuthentication(state2),
+            ...projected2.events,
+            ...settled.events,
+            ...promoteQueued(ctx, state2)
+          ];
+          return { kind: "complete", result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId, turnId }, events };
+        }
         const projected = reduceStream(ctx, state2.projection ?? null, [], state2.cursor).state;
         state2.projection = settleStream(ctx, projected, "error").state;
         promoteQueued(ctx, state2);

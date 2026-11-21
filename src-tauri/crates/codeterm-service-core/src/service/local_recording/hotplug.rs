@@ -320,8 +320,7 @@ impl LocalRecordingHotplug {
                             self.remove_stopped_watcher(plugin_id, generation);
                             return Ok(());
                         }
-                        SubscriptionTeardownWait::Pending
-                        | SubscriptionTeardownWait::Failed(_) => {
+                        SubscriptionTeardownWait::Pending | SubscriptionTeardownWait::Failed(_) => {
                             return Err("arrival_watch_cleanup_pending");
                         }
                     }
@@ -333,8 +332,7 @@ impl LocalRecordingHotplug {
                             self.remove_stopped_watcher(plugin_id, generation);
                             return Ok(());
                         }
-                        SubscriptionTeardownWait::Pending
-                        | SubscriptionTeardownWait::Failed(_) => {
+                        SubscriptionTeardownWait::Pending | SubscriptionTeardownWait::Failed(_) => {
                             return Err("arrival_watch_cleanup_pending");
                         }
                     }
@@ -412,19 +410,15 @@ fn should_watch_after_subscribe_error(error: &str) -> bool {
 impl ServiceContext {
     pub fn restore_local_recording_plugins(&self) {
         let _ = self.install_local_recording_invalidation_observer();
-        let ids = self
-            .ext::<LocalRecordingRegistryHandle>()
-            .plugin_ids();
+        let ids = self.ext::<LocalRecordingRegistryHandle>().plugin_ids();
         for id in ids {
             self.restore_local_recording_plugin(&id);
         }
     }
 
     pub(crate) fn restore_local_recording_plugin(&self, plugin_id: &str) {
-        let _ = self.restore_local_recording_plugin_with_adapter(
-            plugin_id,
-            platform::production_adapter(),
-        );
+        let _ = self
+            .restore_local_recording_plugin_with_adapter(plugin_id, platform::production_adapter());
     }
 
     pub(crate) fn restore_local_recording_plugin_with_adapter(
@@ -603,10 +597,9 @@ impl ServiceContext {
         };
         let enum_adapter = adapter.clone();
         let enum_decl = declaration.clone();
-        let enumerated = crate::async_runtime::spawn_blocking(move || {
-            enum_adapter.enumerate_inputs(&enum_decl)
-        })
-        .await;
+        let enumerated =
+            crate::async_runtime::spawn_blocking(move || enum_adapter.enumerate_inputs(&enum_decl))
+                .await;
         match enumerated {
             Ok(Ok(Some(candidates))) => {
                 match resolve_candidate(&declaration, &persisted, &candidates) {
@@ -705,7 +698,10 @@ impl ServiceContext {
         if already_active {
             return;
         }
-        if stop_watcher_async(hotplug.clone(), plugin_id).await.is_err() {
+        if stop_watcher_async(hotplug.clone(), plugin_id)
+            .await
+            .is_err()
+        {
             return;
         }
         let Some((declaration, persisted, generation)) = self.eligible_attach_inputs(plugin_id)
@@ -778,7 +774,8 @@ impl ServiceContext {
                                 )
                                 && eligible_now =>
                         {
-                            let prev = std::mem::replace(&mut entry.phase, WatcherPhase::Active(watch));
+                            let prev =
+                                std::mem::replace(&mut entry.phase, WatcherPhase::Active(watch));
                             let waiters = match prev {
                                 WatcherPhase::Starting { done_waiters, .. } => done_waiters,
                                 _ => Vec::new(),
@@ -808,10 +805,11 @@ impl ServiceContext {
                 if recheck_gap {
                     let check_adapter = adapter.clone();
                     let check_decl = declaration.clone();
-                    if let Ok(Ok(Some(candidates))) = crate::async_runtime::spawn_blocking(move || {
-                        check_adapter.enumerate_inputs(&check_decl)
-                    })
-                    .await
+                    if let Ok(Ok(Some(candidates))) =
+                        crate::async_runtime::spawn_blocking(move || {
+                            check_adapter.enumerate_inputs(&check_decl)
+                        })
+                        .await
                     {
                         if matches!(
                             resolve_candidate(&declaration, &persisted, &candidates),
