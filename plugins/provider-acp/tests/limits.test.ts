@@ -138,7 +138,8 @@ assert.match(quotaFailure([loaded, {status: 200, body: JSON.stringify({buckets: 
 
 const manifest = JSON.parse(fs.readFileSync(new URL("../plugin.json", import.meta.url), "utf8"));
 const runtime = manifest.capabilities.agentRuntime;
-assert.deepEqual(runtime.launchProfiles["gemini-cli"].limitsSource, quotaSource);
+assert.equal(runtime.launchProfiles["gemini-cli"], undefined, "obsolete gemini-cli is not bundled in launchProfiles");
+assert.equal(manifest.permissions.subprocess.allow.includes("gemini"), false, "unused gemini binary is removed from subprocess allowlist");
 assert.deepEqual(runtime.registryDefaults.gemini.limitsSource, quotaSource);
 assert.ok(manifest.permissions.network.allow.includes("cloudcode-pa.googleapis.com"), "the reader's host is declared");
 const declared = Object.fromEntries(manifest.credentials.map((entry: {id: string}) => [entry.id, entry]));
@@ -161,6 +162,7 @@ assert.equal(/[\u0000-\u001f\u007f]/.test(antigravity.limitsSource.reason), fals
 assert.ok(manifest.permissions.subprocess.allow.includes("agy"), "Antigravity launch binary is allowlisted");
 
 const runtimeFiles = fs.readFileSync(new URL("../runtime-files.txt", import.meta.url), "utf8").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+assert.equal(runtimeFiles.includes("gemini-color.svg"), false, "unused gemini-color.svg is removed from runtime-files.txt");
 assert.ok(runtimeFiles.includes(antigravity.icon), "Antigravity icon is registered in runtime-files.txt");
 const iconBytes = fs.readFileSync(new URL(`../${antigravity.icon}`, import.meta.url));
 assert.ok(iconBytes.length > 0 && iconBytes.length <= 8 * 1024, "Antigravity icon fits host SVG size bound");
@@ -172,8 +174,30 @@ const referencedIds = [...iconSvg.matchAll(/url\(#([A-Za-z_][A-Za-z0-9_-]*)\)/g)
 assert.ok(definedIds.size > 0 && referencedIds.length > 0, "Antigravity color mark uses local gradients");
 for (const id of referencedIds) assert.ok(definedIds.has(id), `local gradient reference #${id} must be defined`);
 
+for (const [id, pkg, args] of [
+  ["grok-build", "@xai-official/grok@1.0.93", ["@xai-official/grok@1.0.93", "agent", "stdio"]],
+  ["github-copilot-cli", "@github/copilot@1.0.114", ["@github/copilot@1.0.114", "--acp"]],
+  ["cline", "cline@3.0.75", ["cline@3.0.75", "--acp"]],
+  ["qwen-code", "@qwen-code/qwen-code@0.28.3", ["@qwen-code/qwen-code@0.28.3", "--acp", "--experimental-skills"]],
+  ["kimi-code", "@moonshot-ai/kimi-code@2.7.2", ["@moonshot-ai/kimi-code@2.7.2", "acp"]],
+  ["kilo", "@kilocode/cli@7.8.32", ["@kilocode/cli@7.8.32", "acp"]],
+] as const) {
+  const entry = runtime.launchProfiles[id];
+  assert.ok(entry, `bundled profile ${id} must be declared`);
+  assert.equal(entry.binary, "npx", `${id} uses npx`);
+  assert.deepEqual(entry.args, args, `${id} args match registry`);
+  assert.deepEqual(entry.install, {package: pkg, registry: "https://registry.npmjs.org"}, `${id} install pins package`);
+  assert.equal(entry.icon, `${id}.svg`, `${id} references bundled svg icon`);
+  assert.ok(runtimeFiles.includes(entry.icon), `${id} icon is listed in runtime-files.txt`);
+  const svgBytes = fs.readFileSync(new URL(`../${entry.icon}`, import.meta.url));
+  assert.ok(svgBytes.length > 0 && svgBytes.length <= 8 * 1024, `${id} icon fits host SVG size bound`);
+  const svg = svgBytes.toString("utf8");
+  assert.match(svg, /^<svg\b[^>]*viewBox="[^"]+"[^>]*>/, `${id} icon has root svg with viewBox`);
+  assert.equal(/<(mask|filter|script|style|title|foreignObject)\b|\b(on[a-z]+|href|xlink:href|data-name)=|url\(/i.test(svg), false, `${id} icon is sanitizer-safe`);
+}
+
 const runtimeManifest = JSON.parse(fs.readFileSync(new URL("./runtime-manifest.json", import.meta.url), "utf8"));
-assert.deepEqual(runtimeManifest.agentRuntime.launchProfiles.antigravity, antigravity, "runtime-manifest.json stays in sync with plugin.json");
+assert.deepEqual(runtimeManifest.agentRuntime.launchProfiles, runtime.launchProfiles, "runtime-manifest.json stays in sync with plugin.json");
 
 const antigravityPort = port({status: 200, body});
 const antigravityReply = readProfileLimits(antigravityPort.ports, {profile: "antigravity", source: antigravity.limitsSource}, NOW);

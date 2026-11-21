@@ -1,6 +1,7 @@
 import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { BackPill } from "../shared/BackPill";
+import { Chip } from "../shared/Chip";
 /**
  * Extensions — a VS Code-like plugin manager (list + marketplace on the left, detail
  * on the right). Catalog merge/filter logic lives in `pluginCatalog.ts` (pure, tested);
@@ -354,18 +355,9 @@ function ChannelDetailPanel({
               <div style={{ fontSize: 17, fontWeight: 640, letterSpacing: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{channel.name}</div>
               <div style={{ color: "var(--ct-muted)", fontSize: 12.5, marginTop: 3 }}>{channel.system ? "Official channel" : "Custom channel"}</div>
             </div>
-            <span style={{
-              flex: "none",
-              fontSize: 10,
-              textTransform: "uppercase",
-              borderRadius: 4,
-              padding: "2px 6px",
-              color: "var(--ct-muted)",
-              border: "1px solid var(--ct-border-default)",
-              background: channel.system ? "var(--ct-bg-active)" : "transparent",
-            }}>
+            <Chip variant={channel.system ? "default" : "muted"} className="flex-none">
               {channel.system ? "Official" : "Custom"}
-            </span>
+            </Chip>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }} data-testid="extensions-channel-attributes">
             <Attribute label="URL" value={channel.url} wide />
@@ -381,7 +373,7 @@ function ChannelDetailPanel({
           No channel selected.
         </div>
       )}
-      <div style={{ marginTop: "auto", borderTop: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.06))", paddingTop: 14 }}>
+      <div className="mt-auto border-t border-[var(--ct-border-subtle)] pt-3.5">
         <ChannelAddForm testIdPrefix="extensions-channel" nameRequired busy={busy !== null} open={addOpen} onOpenChange={onAddOpenChange} onAdd={onAdd} />
       </div>
     </div>
@@ -392,18 +384,11 @@ function Attribute({ label, value, wide = false }: { label: string; value: strin
   if (value === null || value === undefined || value === "") return null;
   return (
     <div style={{ minWidth: 0, gridColumn: wide ? "1 / -1" : undefined }}>
-      <div style={{ color: "var(--ct-muted)", fontSize: 10.5, textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
-      <div style={{
-        color: "var(--ct-fg)",
-        fontSize: 12.5,
-        border: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.06))",
-        background: "var(--ct-bg-elev, rgba(255,255,255,0.025))",
-        borderRadius: 7,
-        padding: "7px 8px",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-      }} title={String(value)}>
+      <div className="mb-1 text-[11px] font-medium text-[var(--ct-muted-fg)]">{label}</div>
+      <div
+        className="truncate rounded-lg border border-[var(--ct-border-subtle)] bg-[color-mix(in_srgb,var(--ct-fg)_2.5%,var(--ct-bg))] px-2.5 py-1.5 text-xs text-[var(--ct-fg)]"
+        title={String(value)}
+      >
         {value}
       </div>
     </div>

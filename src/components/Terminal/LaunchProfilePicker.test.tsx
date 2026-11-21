@@ -81,34 +81,34 @@ it("waits for the install response without a client spinner deadline",async()=>{
 });
 
 
-it("renders the selected Gemini profile asset for an ACP tab and spawn picker", async () => {
+it("renders the selected Antigravity profile asset for an ACP tab and spawn picker", async () => {
   const {setAgentDescriptors} = await import("../../lib/agentDescriptorCache");
   const {AgentIcon} = await import("../AgentIcon");
   const {TabStatusLineModelPicker} = await import("./StatusLineModelPicker");
   const {readFileSync} = await import("node:fs");
   const manifest = JSON.parse(readFileSync("plugins/provider-acp/plugin.json", "utf8"));
   const profiles = manifest.capabilities.agentRuntime.launchProfiles;
-  profiles["gemini-cli"].iconSvg = readFileSync(`plugins/provider-acp/${profiles["gemini-cli"].icon}`, "utf8");
+  profiles["antigravity"].iconSvg = readFileSync(`plugins/provider-acp/${profiles["antigravity"].icon}`, "utf8");
   const provider = {id:"acp",display_name:"ACP",available_models:[],icon_svg:'<svg viewBox="0 0 24 24"><path d="M0 0"/></svg>',agent_runtime:{launchProfiles:profiles}} as unknown as ProviderDescriptor;
   setAgentDescriptors([provider]);
   const host = document.createElement("div"); const root = createRoot(host);
-  const tab = {id:"gemini",title:"Gemini",tab_type:"Terminal",pty_id:null,cwd:null,agent_type:"acp",agent_runtime_config:{launchProfile:"gemini-cli"},agent_runtime_state:{state:"loaded",epoch:1,agentName:"Gemini CLI",binaryVersion:"1.2.3"}} as const;
+  const tab = {id:"antigravity",title:"Antigravity",tab_type:"Terminal",pty_id:null,cwd:null,agent_type:"acp",agent_runtime_config:{launchProfile:"antigravity"},agent_runtime_state:{state:"loaded",epoch:1,agentName:"Antigravity",binaryVersion:"1.2.3"}} as const;
   try {
-    await act(async()=>root.render(<><AgentIcon tab={tab} providerId="acp"/><LaunchProfilePicker provider={provider} profiles={[]} selected="gemini-cli" onSelect={()=>{}} onRefresh={()=>{}} error={null}/><TabStatusLineModelPicker tab={tab} label="Gemini CLI"/></>));
-    const logo = host.querySelector('[role="img"][aria-label="Gemini CLI · 1.2.3"]');
+    await act(async()=>root.render(<><AgentIcon tab={tab} providerId="acp"/><LaunchProfilePicker provider={provider} profiles={[]} selected="antigravity" onSelect={()=>{}} onRefresh={()=>{}} error={null}/><TabStatusLineModelPicker tab={tab} label="Antigravity"/></>));
+    const logo = host.querySelector('[role="img"][aria-label="Antigravity · 1.2.3"]');
     expect(logo?.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 24 24");
-    expect(logo?.querySelectorAll("linearGradient").length).toBe(3);
-    const ids = [...host.querySelectorAll("linearGradient")].map(gradient => gradient.id);
+    expect(logo?.querySelectorAll("radialGradient").length).toBe(3);
+    const ids = [...host.querySelectorAll("radialGradient")].map(gradient => gradient.id);
     expect(new Set(ids).size).toBe(9);
     for (const svg of host.querySelectorAll("svg")) {
       for (const path of svg.querySelectorAll('path[fill^="url("]')) {
         const id = path.getAttribute("fill")!.slice(5,-1);
-        expect([...svg.querySelectorAll("linearGradient")].some(gradient => gradient.id === id)).toBe(true);
+        expect([...svg.querySelectorAll("radialGradient")].some(gradient => gradient.id === id)).toBe(true);
       }
     }
     expect(logo?.querySelector("svg")?.outerHTML).toContain('fill="#3186FF"');
     expect(host.querySelector('[data-testid="status-harness-glyph"] svg')?.outerHTML).toContain('fill="#3186FF"');
-    expect(host.querySelector('[role="img"][aria-label="gemini-cli"] svg')?.outerHTML).toContain('fill="#3186FF"');
+    expect(host.querySelector('[role="img"][aria-label="antigravity"] svg')?.outerHTML).toContain('fill="#3186FF"');
   } finally {await act(async()=>root.unmount());setAgentDescriptors([]);}
 });
 

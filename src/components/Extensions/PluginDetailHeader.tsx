@@ -57,9 +57,9 @@ export function PluginDetailHeader({
     <>
       <header
         data-testid="extensions-plugin-header"
-        className="mb-4 flex min-w-0 flex-wrap items-center gap-3"
+        className="flex min-w-0 flex-wrap items-center gap-3"
       >
-        <div className="flex h-11 w-11 flex-none items-center justify-center rounded-[10px] border border-[var(--ct-border-subtle)] bg-[var(--ct-bg-elev)]">
+        <div className="flex h-11 w-11 flex-none items-center justify-center rounded-[12px] border border-[var(--ct-border-subtle)] bg-[color-mix(in_srgb,var(--ct-fg)_3%,var(--ct-bg))]">
           <PluginIcon plugin={iconOf(entry)} size={22} />
         </div>
         <div className="min-w-0 flex-[1_1_140px]">
@@ -67,7 +67,7 @@ export function PluginDetailHeader({
             <h2
               data-testid="extensions-plugin-name"
               title={entry.displayName}
-              className="m-0 min-w-0 truncate text-[17px] font-[640] text-[var(--ct-fg)]"
+              className="m-0 min-w-0 truncate text-[17px] font-semibold tracking-[-0.01em] text-[var(--ct-fg)]"
             >
               {entry.displayName}
             </h2>
@@ -81,7 +81,7 @@ export function PluginDetailHeader({
           <div
             data-testid="extensions-plugin-metadata"
             title={`${entry.id} · ${metadata}`}
-            className="mt-0.5 truncate text-[11px] text-[var(--ct-muted)]"
+            className="mt-0.5 truncate text-xs text-[var(--ct-muted-fg)]"
           >
             {metadata}
           </div>

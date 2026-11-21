@@ -162,20 +162,10 @@ export function SecretBackendDetail({
     [base, headers, backendId, refresh],
   );
 
-  const inputStyle: React.CSSProperties = {
-    width: "100%",
-    background: "var(--ct-bg-elev, rgba(255,255,255,0.03))",
-    border: "1px solid var(--ct-border-default, rgba(255,255,255,0.12))",
-    borderRadius: 6,
-    padding: "6px 9px",
-    color: "var(--ct-fg)",
-    fontSize: 12.5,
-  };
-
   const st = status?.status.status;
 
   return (
-    <div data-testid="extensions-secret-backend-detail" data-plugin-id={entry.id}>
+    <div className="flex flex-col gap-4" data-testid="extensions-secret-backend-detail" data-plugin-id={entry.id}>
       <PluginDetailHeader
         entry={entry}
         busy={actionBusy}
@@ -185,16 +175,10 @@ export function SecretBackendDetail({
       />
 
       <label
+        className="ct-card ct-card--static flex items-start gap-2.5 px-3.5 py-3"
         style={{
-          display: "flex",
-          alignItems: "flex-start",
-          gap: 10,
           cursor: busy ? "default" : "pointer",
-          padding: "12px 14px",
-          borderRadius: 8,
-          border: "1px solid var(--ct-border-default, rgba(255,255,255,0.1))",
-          background: isActive ? "rgba(91,140,255,0.08)" : "transparent",
-          marginBottom: 18,
+          background: isActive ? "color-mix(in srgb, var(--ct-accent) 8%, var(--ct-bg))" : undefined,
         }}
       >
         <input
@@ -203,11 +187,11 @@ export function SecretBackendDetail({
           checked={isActive}
           disabled={busy}
           onChange={(e) => void switchBackend(e.target.checked)}
-          style={{ marginTop: 2 }}
+          className="mt-0.5"
         />
         <div>
-          <div style={{ fontSize: 13, fontWeight: 560 }}>Use as your default secret store</div>
-          <div style={{ fontSize: 11.5, color: "var(--ct-muted)", marginTop: 2 }}>
+          <div className="text-[13px] font-medium text-[var(--ct-fg)]">Use as your default secret store</div>
+          <div className="mt-0.5 text-xs leading-relaxed text-[var(--ct-muted-fg)]">
             When on, this plugin handles all <code>codeterm mem secret</code> reads and writes. Off falls back to the
             built-in local file store.
           </div>
@@ -216,51 +200,55 @@ export function SecretBackendDetail({
 
       {isActive && (
         <>
-          <div style={{ marginBottom: 18 }}>
+          <div>
             <PluginView pluginId={entry.id} api={config.api} embedded />
           </div>
           {st === "unlocked" && (
-            <>
-              <GroupLabel>Default organization</GroupLabel>
-              <select
-                data-testid="extensions-secret-default-org"
-                style={{ ...inputStyle, marginBottom: 14 }}
-                value={defaultOrg}
-                onChange={(e) => {
-                  setDefaultOrg(e.target.value);
-                  setDefaultColl("");
-                  void saveDefaults(e.target.value, "");
-                }}
-              >
-                <option value="">Personal vault</option>
-                {orgs.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
-              <GroupLabel>Default collection</GroupLabel>
-              <select
-                data-testid="extensions-secret-default-collection"
-                style={inputStyle}
-                value={defaultColl}
-                onChange={(e) => {
-                  setDefaultColl(e.target.value);
-                  void saveDefaults(defaultOrg, e.target.value);
-                }}
-              >
-                <option value="">None</option>
-                {colls.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              <div style={{ fontSize: 11, color: "var(--ct-muted)", marginTop: 4 }}>
-                New secrets are filed here by default.
+            <div className="ct-card ct-card--static space-y-3 p-4">
+              <div>
+                <GroupLabel className="mb-1.5 text-xs">Default organization</GroupLabel>
+                <select
+                  data-testid="extensions-secret-default-org"
+                  className="ct-input ct-input--compact w-full"
+                  value={defaultOrg}
+                  onChange={(e) => {
+                    setDefaultOrg(e.target.value);
+                    setDefaultColl("");
+                    void saveDefaults(e.target.value, "");
+                  }}
+                >
+                  <option value="">Personal vault</option>
+                  {orgs.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <GroupLabel className="mb-1.5 text-xs">Default collection</GroupLabel>
+                <select
+                  data-testid="extensions-secret-default-collection"
+                  className="ct-input ct-input--compact w-full"
+                  value={defaultColl}
+                  onChange={(e) => {
+                    setDefaultColl(e.target.value);
+                    void saveDefaults(defaultOrg, e.target.value);
+                  }}
+                >
+                  <option value="">None</option>
+                  {colls.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-1 text-[11px] text-[var(--ct-muted-fg)]">
+                  New secrets are filed here by default.
+                </div>
               </div>
               {scopeError && <div data-testid="extensions-secret-scope-error"><InlineErrorNotice error={scopeError} operation="updating the secret store" /></div>}
-            </>
+            </div>
           )}
         </>
       )}

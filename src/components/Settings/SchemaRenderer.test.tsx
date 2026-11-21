@@ -251,6 +251,100 @@ test("presets array-of-objects renders and serializes expected config shape", as
   await act(async () => root.unmount());
 });
 
+test("two-field text array renders sleek inline pair editor with empty state, headers, add and remove", async () => {
+  const dictSchema: SettingField[] = [
+    {
+      kind: "array",
+      key: "customDictionary",
+      label: "Custom dictionary",
+      description: "Fix misheard words before text is inserted.",
+      item_label: "Entry",
+      item: {
+        kind: "object",
+        fields: [
+          { key: "from", label: "Heard", kind: "text", placeholder: "domi os" },
+          { key: "to", label: "Replace with", kind: "text", placeholder: "Domios" },
+        ],
+      },
+    },
+  ];
+  let values: ProviderConfig = { customDictionary: [] };
+  const patches: Partial<ProviderConfig>[] = [];
+  const onChange = (_providerId: string, patch: Partial<ProviderConfig>) => {
+    patches.push(patch);
+    values = { ...values, ...patch };
+  };
+
+  const { host, root } = await render(
+    <SchemaRenderer
+      schema={dictSchema}
+      providerId="transcriber"
+      config={config}
+      values={values}
+      onChange={onChange}
+    />,
+  );
+  const rerender = async () => {
+    await act(async () => {
+      root.render(
+        <SchemaRenderer
+          schema={dictSchema}
+          providerId="transcriber"
+          config={config}
+          values={values}
+          onChange={onChange}
+        />,
+      );
+    });
+  };
+
+  assert(host.querySelector('[data-testid="settings-schema-array-empty"]'), "empty state should render when pair array is empty");
+  assert(host.querySelector('[data-testid="settings-schema-array-pairs"]') === null, "pair table should not render when empty");
+
+  const addBtn = host.querySelector('[data-testid="settings-schema-array-add"][data-settings-field="customDictionary"]');
+  assert(addBtn instanceof HTMLButtonElement, "add entry button should render");
+  await act(async () => { addBtn.click(); });
+  await rerender();
+
+  assert(host.querySelector('[data-testid="settings-schema-array-empty"]') === null, "empty state should hide once an entry exists");
+  const pairs = host.querySelector('[data-testid="settings-schema-array-pairs"]');
+  assert(pairs, "2-field text array should render in compact inline pair mode");
+  assert(pairs.textContent?.includes("Heard") && pairs.textContent?.includes("Replace with"), "column headers should render above pair rows");
+
+  const fromInput = host.querySelector('[data-testid="settings-schema-array-input"][data-settings-field="customDictionary.0.from"]');
+  const toInput = host.querySelector('[data-testid="settings-schema-array-input"][data-settings-field="customDictionary.0.to"]');
+  assert(fromInput instanceof HTMLInputElement && toInput instanceof HTMLInputElement, "pair inputs should render");
+  assert(fromInput.getAttribute("aria-label") === "Heard (entry 1)", `expected accessible label, got ${fromInput.getAttribute("aria-label")}`);
+  assert(toInput.getAttribute("aria-label") === "Replace with (entry 1)", `expected accessible label, got ${toInput.getAttribute("aria-label")}`);
+
+  await act(async () => {
+    setNativeValue(fromInput, "domi os");
+    dispatchFormChange(fromInput);
+  });
+  await rerender();
+  await act(async () => {
+    setNativeValue(toInput, "Domios");
+    dispatchFormChange(toInput);
+  });
+  await rerender();
+
+  assert(
+    JSON.stringify(patches[patches.length - 1]) === JSON.stringify({ customDictionary: [{ from: "domi os", to: "Domios" }] }),
+    `expected pair values to serialize cleanly, got ${JSON.stringify(patches[patches.length - 1])}`,
+  );
+
+  const removeBtn = host.querySelector('[data-testid="settings-schema-array-remove"][data-settings-field="customDictionary.0"]');
+  assert(removeBtn instanceof HTMLButtonElement, "remove icon button should render");
+  assert(removeBtn.getAttribute("aria-label") === "Remove entry 1", "remove button should expose accessible label");
+  await act(async () => { removeBtn.click(); });
+  await rerender();
+
+  assert(JSON.stringify(values.customDictionary) === "[]", "removing the row should empty the array");
+  assert(host.querySelector('[data-testid="settings-schema-array-empty"]'), "empty state should reappear after removing last entry");
+
+  await act(async () => root.unmount());
+});
+
 async function main() {
   const started = performance.now();
   let failed = 0;

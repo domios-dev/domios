@@ -189,8 +189,47 @@ fn a_tab_read_names_why_the_balance_could_not_be_read() {
     assert!(seen.lock().is_empty(), "no key means no request");
 }
 
+/// Seeds a registry-installed Gemini owner profile for one test, exercising `registryDefaults.gemini`
+/// now that `gemini-cli` is no longer bundled in `plugin.json`.
+struct RegisteredGeminiProfile(Option<RuntimeLaunchProfile>);
+
+impl RegisteredGeminiProfile {
+    fn install() -> Self {
+        let entry = profile(json!({
+            "binary": "npx",
+            "args": ["@google/gemini-cli@0.67.0", "--acp"],
+            "ownerConfigured": true,
+            "registryId": "gemini"
+        }));
+        let previous = codeterm_plugin::agent_runtime::owner_profiles::update("acp", |profiles| {
+            Ok(profiles.insert("gemini-cli".into(), entry))
+        })
+        .unwrap();
+        Self(previous)
+    }
+}
+
+impl Drop for RegisteredGeminiProfile {
+    fn drop(&mut self) {
+        let previous = self.0.take();
+        let _ = codeterm_plugin::agent_runtime::owner_profiles::update("acp", |profiles| {
+            match previous {
+                Some(entry) => {
+                    profiles.insert("gemini-cli".into(), entry);
+                }
+                None => {
+                    profiles.remove("gemini-cli");
+                }
+            }
+            Ok(())
+        });
+    }
+}
+
 #[test]
 fn a_tab_on_a_quota_profile_reports_the_quota_through_the_tab_read() {
+    let _serial = SHARED_FETCH_PORT.lock();
+    let _gemini = RegisteredGeminiProfile::install();
     let acp = shipped_acp(None);
     let raw = json!({"provider":"forged","account_id":"forged","captured_at_ms":7,"billing_mode":"subscription","limits_reported":true,
         "session_pct":null,"session_resets_at_ms":null,"weekly_pct":null,"weekly_resets_at_ms":null,"raw_text":"",
@@ -405,6 +444,7 @@ fn the_shipped_plugin_reads_gemini_quota_only_for_a_google_sign_in_with_a_host_f
     use codeterm_plugin::js_runtime::fetch_test_port::{install, FetchReply};
     const FIXTURE_TOKEN: &str = "fixture-google-token";
     let _serial = SHARED_FETCH_PORT.lock();
+    let _gemini = RegisteredGeminiProfile::install();
     let home = GeminiHome::new();
     let expiry = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

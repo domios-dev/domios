@@ -23,7 +23,7 @@ const declarations = [
     id,mode:entry.fullAccessMode,recording:Object.values(recordings).find(recording=>recording.launchProfiles?.includes(id)),
   })),
 ].filter((declaration):declaration is {id:string;mode:string;recording:Recording|undefined} => declaration.mode !== undefined);
-assert.ok(declarations.length >= 4,"every declared full-access mode is checked");
+assert.ok(declarations.length >= 3,"every declared full-access mode is checked");
 
 const base = {
   epoch:1,cwd:"/work/project",hostVersion:"1.19.1",bindingNonce:"nonce-fixture",

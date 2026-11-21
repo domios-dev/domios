@@ -112,53 +112,74 @@ export function PluginNetworkAccess({
   };
 
   return (
-    <details data-testid="extensions-allowed-hosts" style={{ marginBottom: 18 }}>
-      <summary style={{ cursor: "pointer", fontSize: 12, color: "var(--ct-muted)" }}>Network access (advanced)</summary>
-      <p style={{ fontSize: 11.5, color: "var(--ct-muted)", margin: "0 0 8px" }}>
-        Lets this plugin reach extra servers beyond the ones it declares.
-      </p>
-      <GroupLabel>Declared servers</GroupLabel>
-      <ul aria-label="Declared servers">
-        {(entry.declaredNetworkAllow ?? []).map((host) => <li key={host}><code>{host}</code></li>)}
-        {!entry.declaredNetworkAllow?.length && <li>No servers declared.</li>}
-      </ul>
-      {missingBaseHost && (
-        <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, marginBottom: 8 }}>
-          <span>Configured base URL host {missingBaseHost} is not allowed.</span>
-          <Button variant="accent" size="sm" aria-label={`Allow ${missingBaseHost}`} onClick={() => onChange(missingBaseHost, true)} disabled={busy}>
-            Allow {missingBaseHost}
+    <details
+      data-testid="extensions-allowed-hosts"
+      className="ct-card ct-card--static px-4 py-3"
+    >
+      <summary className="cursor-pointer text-xs font-medium text-[var(--ct-muted-fg)] select-none hover:text-[var(--ct-fg)]">
+        Network access (advanced)
+      </summary>
+      <div className="mt-3 space-y-3">
+        <p className="m-0 text-xs leading-relaxed text-[var(--ct-muted-fg)]">
+          Lets this plugin reach extra servers beyond the ones it declares.
+        </p>
+        <div>
+          <GroupLabel className="mb-1.5 text-xs">Declared servers</GroupLabel>
+          <ul aria-label="Declared servers" className="m-0 flex list-none flex-wrap gap-1.5 p-0 text-xs text-[var(--ct-fg)]">
+            {(entry.declaredNetworkAllow ?? []).map((host) => (
+              <li key={host}>
+                <code className="ct-text-mono rounded bg-[color-mix(in_srgb,var(--ct-fg)_5%,transparent)] px-1.5 py-0.5 text-[11px]">
+                  {host}
+                </code>
+              </li>
+            ))}
+            {!entry.declaredNetworkAllow?.length && (
+              <li className="text-xs text-[var(--ct-muted-fg)]">No servers declared.</li>
+            )}
+          </ul>
+        </div>
+        {missingBaseHost && (
+          <div role="status" className="flex flex-wrap items-center gap-2 text-xs text-[var(--ct-fg)]">
+            <span>Configured base URL host {missingBaseHost} is not allowed.</span>
+            <Button variant="accent" size="sm" aria-label={`Allow ${missingBaseHost}`} onClick={() => onChange(missingBaseHost, true)} disabled={busy}>
+              Allow {missingBaseHost}
+            </Button>
+          </div>
+        )}
+        <ul aria-label="Current allowed hosts" className="m-0 flex list-none flex-col gap-1.5 p-0">
+          {allowed.map((host) => (
+            <li key={host} className="flex items-center justify-between gap-2 text-xs">
+              <code className="ct-text-mono text-[var(--ct-fg)]">{host}</code>
+              <Button variant="ghost" size="sm" aria-label={`Remove ${host}`} onClick={() => onChange(host, false)} disabled={busy}>
+                Remove
+              </Button>
+            </li>
+          ))}
+          {allowed.length === 0 && <li className="text-xs text-[var(--ct-muted-fg)]">No user-granted hosts.</li>}
+        </ul>
+        <div className="flex gap-2">
+          <label htmlFor={`allowed-host-${entry.id}`} className="sr-only">Host or host:port</label>
+          <input
+            id={`allowed-host-${entry.id}`}
+            aria-label="Host or host:port"
+            className="ct-input ct-input--compact ct-input--mono ct-text-mono min-w-0 flex-1"
+            value={draft}
+            onChange={(event) => { setDraft(event.currentTarget.value); setError(null); }}
+            onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }}
+            placeholder="api.example.com:8443"
+            autoComplete="off"
+            disabled={busy}
+          />
+          <Button variant="accent" size="sm" aria-label="Allow host" onClick={add} disabled={busy || !draft.trim()}>
+            Allow host
           </Button>
         </div>
-      )}
-      <ul aria-label="Current allowed hosts" style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 5 }}>
-        {allowed.map((host) => (
-          <li key={host} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-            <code>{host}</code>
-            <Button variant="ghost" size="sm" aria-label={`Remove ${host}`} onClick={() => onChange(host, false)} disabled={busy}>
-              Remove
-            </Button>
-          </li>
-        ))}
-        {allowed.length === 0 && <li style={{ fontSize: 12, color: "var(--ct-muted)" }}>No user-granted hosts.</li>}
-      </ul>
-      <div style={{ display: "flex", gap: 8, marginTop: 9 }}>
-        <label htmlFor={`allowed-host-${entry.id}`} className="sr-only">Host or host:port</label>
-        <input
-          id={`allowed-host-${entry.id}`}
-          aria-label="Host or host:port"
-          className="ct-input ct-input--compact ct-input--mono ct-text-mono min-w-0 flex-1"
-          value={draft}
-          onChange={(event) => { setDraft(event.currentTarget.value); setError(null); }}
-          onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }}
-          placeholder="api.example.com:8443"
-          autoComplete="off"
-          disabled={busy}
-        />
-        <Button variant="accent" size="sm" aria-label="Allow host" onClick={add} disabled={busy || !draft.trim()}>
-          Allow host
-        </Button>
+        {error && (
+          <p role="alert" aria-label="Allowed host validation error" className="m-0 text-xs text-[var(--ct-red)]">
+            {error}
+          </p>
+        )}
       </div>
-      {error && <p role="alert" aria-label="Allowed host validation error" style={{ fontSize: 11.5, color: "var(--ct-red)", margin: "6px 0 0" }}>{error}</p>}
     </details>
   );
 }

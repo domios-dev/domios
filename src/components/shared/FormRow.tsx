@@ -23,21 +23,21 @@ export function FormRow({
   return (
     <div
       {...rest}
-      className={`flex flex-col gap-1 ${className ?? ""}`}
+      className={`flex flex-col gap-1.5 ${className ?? ""}`}
       data-testid={testId}
     >
       <label
         htmlFor={htmlFor}
-        className="text-[11px] font-medium text-[var(--ct-muted-fg)] uppercase tracking-wide select-none"
+        className="text-xs font-medium text-[var(--ct-fg)] select-none"
       >
         {label}
       </label>
       {children}
       {hint && !error ? (
-        <span className="text-[10px] text-[var(--ct-muted)]">{hint}</span>
+        <span className="text-[11px] leading-relaxed text-[var(--ct-muted-fg)]">{hint}</span>
       ) : null}
       {error ? (
-        <span className="text-[10px] text-[var(--ct-red)]" role="alert">
+        <span className="text-[11px] text-[var(--ct-red)]" role="alert">
           {error}
         </span>
       ) : null}
