@@ -134,3 +134,23 @@ fn report_body_appends_doc_under_its_path_header() {
         "a doc-only report must not lead with a blank separator"
     );
 }
+
+#[test]
+fn attachment_paths_resolve_relative_entries_against_caller_cwd() {
+    let cwd = std::env::temp_dir().join("domios-report-cwd");
+    let absolute = cwd.join("already-abs.png");
+    let resolved = super::resolve_attachment_paths(
+        vec![
+            "screenshots/proof.png".into(),
+            absolute.to_string_lossy().into_owned(),
+        ],
+        Some(&cwd),
+    );
+    assert_eq!(
+        resolved[0],
+        cwd.join("screenshots/proof.png")
+            .to_string_lossy()
+            .into_owned()
+    );
+    assert_eq!(resolved[1], absolute.to_string_lossy().into_owned());
+}

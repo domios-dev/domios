@@ -87,3 +87,30 @@ fn invalid_report_attachment_does_not_publish_a_plan_reference() {
         .attachments
         .is_empty());
 }
+
+#[test]
+fn missing_or_empty_attachment_source_names_the_failing_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("missing-dir").join("proof.png");
+    let err = super::attachments::validate_attachment_source(&missing)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("proof.png"),
+        "missing attachment error must name path: {err}"
+    );
+
+    let empty = dir.path().join("empty.txt");
+    std::fs::write(&empty, []).unwrap();
+    let err = super::attachments::validate_attachment_source(&empty)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("empty.txt"),
+        "empty attachment error must name path: {err}"
+    );
+
+    let valid = dir.path().join("proof.txt");
+    std::fs::write(&valid, "ok").unwrap();
+    super::attachments::validate_attachment_source(&valid).unwrap();
+}

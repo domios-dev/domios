@@ -751,6 +751,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(sk) = skipped {
                 body["skipped"] = serde_json::json!(sk);
             }
+            let attachments = crate::cmd::report_body::resolve_report_attachments(attachments);
             if !attachments.is_empty() {
                 body["attachments"] = serde_json::json!(attachments);
             }

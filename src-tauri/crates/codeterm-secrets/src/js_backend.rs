@@ -100,6 +100,77 @@ impl JsSecretBackend {
             .await
             .map(|_| ())
     }
+
+    async fn verify_uncertain_save(
+        &self,
+        req: &SaveRequest,
+        original: SecretError,
+    ) -> Result<SecretRef, SecretError> {
+        match self.get(&req.name).await {
+            Ok(found) if matches_saved_secret(req, &found) => {
+                return Ok(verified_secret_ref(&found, req));
+            }
+            Ok(_) | Err(SecretError::NotFound) if self.plugin.has_method("secretSync") => {
+                if self.sync().await.is_ok() {
+                    if let Ok(found) = self.get(&req.name).await {
+                        if matches_saved_secret(req, &found) {
+                            return Ok(verified_secret_ref(&found, req));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        Err(uncertain_save_error(&original))
+    }
+}
+
+fn is_uncertain_save_error(err: &SecretError) -> bool {
+    matches!(
+        err,
+        SecretError::Backend { .. } | SecretError::WriteUncertain { .. }
+    )
+}
+
+fn matches_saved_secret(req: &SaveRequest, found: &SecretValue) -> bool {
+    found.name.eq_ignore_ascii_case(&req.name)
+        && found.value.expose_secret() == req.value.expose_secret()
+        && req
+            .notes
+            .as_ref()
+            .is_none_or(|notes| found.notes.as_deref() == Some(notes.as_str()))
+}
+
+fn verified_secret_ref(found: &SecretValue, req: &SaveRequest) -> SecretRef {
+    SecretRef {
+        item_id: found.item_id.clone(),
+        name: found.name.clone(),
+        folder: req.folder.clone(),
+        organization: req.organization.clone(),
+        collection: req.collection.clone(),
+        last_modified: None,
+    }
+}
+
+fn uncertain_save_error(original: &SecretError) -> SecretError {
+    let detail = match original {
+        SecretError::Backend { message } | SecretError::WriteUncertain { message } => {
+            crate::redact::bounded_reason(message)
+        }
+        _ => String::new(),
+    };
+    let suffix = " — verify with domios mem secret get before retrying";
+    let message = if detail.is_empty()
+        || detail == crate::redact::WITHHELD
+        || detail.chars().count() + suffix.chars().count() > 130
+    {
+        format!("remote save outcome is uncertain{suffix}")
+    } else {
+        format!("save uncertain ({detail}){suffix}")
+    };
+    SecretError::WriteUncertain {
+        message: crate::redact::bounded_reason(&message),
+    }
 }
 
 fn vm_error_kind(e: &VmError) -> &'static str {
@@ -227,8 +298,17 @@ impl SecretStore for JsSecretBackend {
             "collection": req.collection,
             "overwrite": req.overwrite,
         })];
-        let saved = self.call_value("secretSave", args).await?;
-        crate::redact::metadata_only(&saved).ok_or_else(|| unexpected_shape("secretSave"))
+        let save_err = match self.call_value("secretSave", args).await {
+            Ok(saved) => match crate::redact::metadata_only(&saved) {
+                Some(item) => return Ok(item),
+                None => unexpected_shape("secretSave"),
+            },
+            Err(err) => err,
+        };
+        if !is_uncertain_save_error(&save_err) {
+            return Err(save_err);
+        }
+        self.verify_uncertain_save(&req, save_err).await
     }
 
     async fn get(&self, name_or_id: &str) -> Result<SecretValue, SecretError> {

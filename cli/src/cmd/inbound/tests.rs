@@ -222,6 +222,45 @@ fn a_partial_write_stays_unsettled_because_returning_it_could_deliver_it_twice()
 }
 
 #[test]
+fn non_interactive_and_piped_stdout_never_probe_stdin_terminal() {
+    let mut stdin_probed = false;
+    for (name, json, daemon, tab, runtime, stdout_tty) in [
+        ("piped stdout", false, true, true, true, false),
+        ("json mode", true, true, true, true, true),
+        ("no daemon", false, false, true, true, true),
+        ("no tab identity", false, true, false, true, true),
+        ("non-runtime shell", false, true, true, false, true),
+    ] {
+        let carries = should_carry_messages(
+            json,
+            daemon,
+            tab,
+            runtime,
+            || stdout_tty,
+            || {
+                stdin_probed = true;
+                true
+            },
+        );
+        assert!(!carries, "{name} must not carry messages");
+        assert!(!stdin_probed, "{name} must never probe stdin");
+    }
+    let carries = should_carry_messages(
+        false,
+        true,
+        true,
+        true,
+        || true,
+        || {
+            stdin_probed = true;
+            true
+        },
+    );
+    assert!(carries);
+    assert!(stdin_probed);
+}
+
+#[test]
 fn a_failed_final_flush_stays_unsettled() {
     let bytes = Rc::new(RefCell::new(Vec::new()));
     let mut port = port(&bytes);

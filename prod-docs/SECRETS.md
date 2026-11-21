@@ -73,6 +73,12 @@ Avoid `--password`: command-line arguments may be visible to other processes. A 
 - **Logout** removes the session, any remembered master password, API credentials, and login email.
 - Default organization and collection settings apply when `save` omits `--org` or `--collection`.
 
+### Save latency and uncertain remote writes
+
+Each Bitwarden `save` executes sequential `bw` CLI calls: an existence lookup (`bw list items --search`), optional folder lookup/creation (`bw list folders` / `bw create folder`), the remote write (`bw create item` or `bw edit item`), and a vault sync (`bw sync`). On Windows and remote/Tailnet vaults, cold-starting `bw` takes ~3–4 s per call, so a single `domios mem secret save` normally takes **~12–15 s** (and longer when creating a new folder or auto-unlocking from a locked state). Allow adequate command timeouts when scripting batch saves.
+
+If a remote backend `save` fails after mutation may have started (timeout, unconfirmed I/O, or a transient backend failure), Domios does not blindly replay the write. Instead, it verifies via read-only readback (`get`, plus one `sync` + `get` retry if the local cache has not caught up). If readback confirms the requested name, value, and notes in the vault, `save` succeeds idempotently. Otherwise it fails with error kind `write_uncertain` (HTTP `503`, CLI exit code `6`) — check the entry with `domios mem secret get --name NAME` before retrying.
+
 ## The auto-unlock contract
 
 One statement, binding on the CLI, the Settings UI, the `/api/secrets/status` fields, and every
@@ -147,4 +153,4 @@ Bitwarden owns vault encryption. Domios passes the master password and session t
 
 A process running as the same OS user can read that file. The mock backend has no security guarantees.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->
