@@ -3,6 +3,7 @@ import { countAdded, countRemoved } from "@codeterm/chat-core";
 import { DiffView } from "../MarkdownBody";
 import { languageForEdits } from "../codeLanguage";
 import { ToolOutputContent } from "../ToolOutputContent";
+import { uniqueToolTexts } from "./FileDiffCards";
 import { ToolCardFrame } from "./ToolCardFrame";
 
 function groupedEdits(edits: ToolEdit[]) {
@@ -21,19 +22,6 @@ function agentPadRelativePath(path: string): string | null {
   const remainder = normalized.slice(markerIndex + marker.length);
   const separator = remainder.indexOf("/");
   return separator >= 0 && separator < remainder.length - 1 ? remainder.slice(separator + 1) : null;
-}
-
-function uniqueToolTexts(event: ToolEvent): string[] {
-  const seen = new Set<string>();
-  const texts: string[] = [];
-  for (const value of [event.detail, event.result]) {
-    if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (!trimmed || seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    texts.push(value);
-  }
-  return texts;
 }
 
 export function EditCard({ event, expanded, onToggle }: { event: ToolEvent; expanded: boolean; onToggle: () => void }) {
