@@ -354,8 +354,12 @@ pub fn admit_restored_pty(
         .read()
         .resolve_tab_id(tab_id)
         .ok_or_else(|| format!("Tab {tab_id} not found or has no PTY"))?;
-    if let Some(reason) = service.mux.read().get_tab(&resolved)
-        .and_then(super::lazy_restore::automatic_restore_refusal) {
+    if let Some(reason) = service
+        .mux
+        .read()
+        .get_tab(&resolved)
+        .and_then(super::lazy_restore::automatic_restore_refusal)
+    {
         return Err(reason.into());
     }
     if let Some(refusal) = service.tab_write_lock(&resolved) {
@@ -370,8 +374,12 @@ pub fn admit_restored_pty(
     let pty_id = {
         crate::startup::boot_timing::mark(&resolved, None, "pty_claim_enter");
         let claim = service.pty_ownership.acquire(&resolved)?;
-        if let Some(reason) = service.mux.read().get_tab(&resolved)
-            .and_then(super::lazy_restore::automatic_restore_refusal) {
+        if let Some(reason) = service
+            .mux
+            .read()
+            .get_tab(&resolved)
+            .and_then(super::lazy_restore::automatic_restore_refusal)
+        {
             return Err(reason.into());
         }
         crate::startup::boot_timing::mark(&resolved, None, "pty_claim_acquired");
@@ -422,7 +430,8 @@ fn schedule_preparation(
             };
             let matches = service.mux.read().get_tab(&resolved).is_some_and(|tab| {
                 preparation_matches(
-                    tab.restored_from_snapshot && !tab.agent_booting
+                    tab.restored_from_snapshot
+                        && !tab.agent_booting
                         && super::lazy_restore::automatic_restore_refusal(tab).is_none(),
                     tab.pty_id.as_deref(),
                     pty_id.as_deref(),

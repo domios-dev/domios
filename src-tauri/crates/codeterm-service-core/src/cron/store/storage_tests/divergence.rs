@@ -57,13 +57,19 @@ fn storage_cron_terminal_mirror_conserves_cancel_or_report_against_running_histo
         mirror["status"] = serde_json::json!(if cancelled { "Cancelled" } else { "Success" });
         mirror["finished_at"] = serde_json::json!(25);
         mirror["summary"] = serde_json::json!("mirror summary");
-        if cancelled { mirror["cancel_reason"] = serde_json::json!("user_cancel"); }
-        else { mirror["report_delivery"] = serde_json::json!("delivered"); }
+        if cancelled {
+            mirror["cancel_reason"] = serde_json::json!("user_cancel");
+        } else {
+            mirror["report_delivery"] = serde_json::json!("delivered");
+        }
         let imported = decode_legacy_cron_file(original.to_string().as_bytes()).unwrap();
         f.storage.crons().import(imported).wait(DEADLINE).unwrap();
         *f.cron.lock() = f.rehydrated();
         let before = f.snapshot();
-        let result = commit(&f.cron, |store| Ok(store.prepare_set_run_report(STALE, "r1", "late summary", "late delivery"))).unwrap();
+        let result = commit(&f.cron, |store| {
+            Ok(store.prepare_set_run_report(STALE, "r1", "late summary", "late delivery"))
+        })
+        .unwrap();
         assert!(result.receipt.is_none());
         assert_eq!(f.snapshot(), before);
         f.assert_cache_is_committed();
@@ -73,9 +79,17 @@ fn storage_cron_terminal_mirror_conserves_cancel_or_report_against_running_histo
         assert_eq!(retained.finished_at, Some(25));
         if cancelled {
             assert_eq!(retained.status, CronRunStatus::Cancelled);
-            assert_eq!(retained.cancel_reason, Some(crate::cron::store::CronCancelReason::UserCancel));
-        } else { assert_eq!(retained.report_delivery.as_deref(), Some("delivered")); }
-        assert_eq!(reopened.get_history(STALE)[1].status, CronRunStatus::Running);
+            assert_eq!(
+                retained.cancel_reason,
+                Some(crate::cron::store::CronCancelReason::UserCancel)
+            );
+        } else {
+            assert_eq!(retained.report_delivery.as_deref(), Some("delivered"));
+        }
+        assert_eq!(
+            reopened.get_history(STALE)[1].status,
+            CronRunStatus::Running
+        );
     }
 }
 

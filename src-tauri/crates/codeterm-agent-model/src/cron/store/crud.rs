@@ -123,19 +123,28 @@ pub(super) struct RunEdit {
 impl RunEdit {
     fn copies(&self) -> impl Iterator<Item = &CronRunInfo> {
         self.entry.iter().chain(self.job.iter().filter_map(|job| {
-            job.last_run.as_ref().filter(|run| run.run_id == self.run_id)
+            job.last_run
+                .as_ref()
+                .filter(|run| run.run_id == self.run_id)
         }))
     }
 
     fn current(&self) -> Option<&CronRunInfo> {
         self.entry.as_ref().or_else(|| {
-            self.job.as_ref()?.last_run.as_ref().filter(|run| run.run_id == self.run_id)
+            self.job
+                .as_ref()?
+                .last_run
+                .as_ref()
+                .filter(|run| run.run_id == self.run_id)
         })
     }
 
     fn terminal(&self) -> bool {
         self.entry.as_ref().is_some_and(|run| !is_active_run(run))
-            || self.job.as_ref().and_then(|job| job.last_run.as_ref())
+            || self
+                .job
+                .as_ref()
+                .and_then(|job| job.last_run.as_ref())
                 .is_some_and(|run| run.run_id == self.run_id && !is_active_run(run))
     }
 
@@ -183,7 +192,10 @@ impl RunEdit {
 impl CronStore {
     pub fn run_receipt(&self, job_id: &str, run_id: &str) -> Option<&CronRunInfo> {
         self.history_entry(job_id, run_id).or_else(|| {
-            self.get(job_id)?.last_run.as_ref().filter(|run| run.run_id == run_id)
+            self.get(job_id)?
+                .last_run
+                .as_ref()
+                .filter(|run| run.run_id == run_id)
         })
     }
 
@@ -193,21 +205,39 @@ impl CronStore {
     }
 
     pub(super) fn run_copies(&self, job: &str, run: &str) -> [Option<&CronRunInfo>; 2] {
-        [self.history_entry(job, run), self.get(job).and_then(|job| job.last_run.as_ref()).filter(|receipt| receipt.run_id == run)]
+        [
+            self.history_entry(job, run),
+            self.get(job)
+                .and_then(|job| job.last_run.as_ref())
+                .filter(|receipt| receipt.run_id == run),
+        ]
     }
 
     pub fn run_is_cancelled(&self, job: &str, run: &str) -> bool {
-        self.run_copies(job, run).into_iter().flatten().any(|run| run.status == CronRunStatus::Cancelled)
+        self.run_copies(job, run)
+            .into_iter()
+            .flatten()
+            .any(|run| run.status == CronRunStatus::Cancelled)
     }
 
     pub fn retained_run_report(&self, job_id: &str, run_id: &str) -> Option<String> {
-        self.run_copies(job_id, run_id).into_iter().flatten().find_map(|run| run.report_delivery.clone())
+        self.run_copies(job_id, run_id)
+            .into_iter()
+            .flatten()
+            .find_map(|run| run.report_delivery.clone())
     }
 
     pub fn register_active_tab(&mut self, tab: &str, job: &str, run: &str) -> bool {
         if !self.run_is_active(job, run)
-            || self.run_copies(job, run).into_iter().flatten().any(|receipt| receipt.tab_id.as_deref() != Some(tab))
-            || self.tab_owners.get(tab).is_some_and(|owner| owner != &(job.to_string(), run.to_string()))
+            || self
+                .run_copies(job, run)
+                .into_iter()
+                .flatten()
+                .any(|receipt| receipt.tab_id.as_deref() != Some(tab))
+            || self
+                .tab_owners
+                .get(tab)
+                .is_some_and(|owner| owner != &(job.to_string(), run.to_string()))
         {
             return false;
         }
@@ -218,7 +248,9 @@ impl CronStore {
     pub fn prepare_bind_run_tab(&self, job: &str, run: &str, tab: &str) -> Prepared<bool> {
         let mut edit = self.edit_run(job, run);
         if !self.run_is_active(job, run)
-            || edit.copies().any(|receipt| receipt.tab_id.as_deref().is_some_and(|own| own != tab))
+            || edit
+                .copies()
+                .any(|receipt| receipt.tab_id.as_deref().is_some_and(|own| own != tab))
         {
             return Prepared::unchanged(false);
         }
@@ -271,7 +303,11 @@ impl CronStore {
                     runs.push((job.id.clone(), run.clone()));
                 }
             }
-            if let Some(run) = job.last_run.as_ref().filter(|run| self.run_is_active(&job.id, &run.run_id)) {
+            if let Some(run) = job
+                .last_run
+                .as_ref()
+                .filter(|run| self.run_is_active(&job.id, &run.run_id))
+            {
                 if seen.insert(run.run_id.clone()) {
                     runs.push((job.id.clone(), run.clone()));
                 }
@@ -284,13 +320,22 @@ impl CronStore {
     /// up front — used to distinguish "no such run" from "run already
     /// finalized" when its tab ownership has already been unregistered.
     pub fn find_run_by_id(&self, run_id: &str) -> Option<(&str, &CronRunInfo)> {
-        self.file.history.iter().find_map(|(job_id, runs)| {
-            runs.iter()
-                .find(|r| r.run_id == run_id)
-                .map(|r| (job_id.as_str(), r))
-        }).or_else(|| self.file.jobs.iter().find_map(|job| {
-            job.last_run.as_ref().filter(|run| run.run_id == run_id).map(|run| (job.id.as_str(), run))
-        }))
+        self.file
+            .history
+            .iter()
+            .find_map(|(job_id, runs)| {
+                runs.iter()
+                    .find(|r| r.run_id == run_id)
+                    .map(|r| (job_id.as_str(), r))
+            })
+            .or_else(|| {
+                self.file.jobs.iter().find_map(|job| {
+                    job.last_run
+                        .as_ref()
+                        .filter(|run| run.run_id == run_id)
+                        .map(|run| (job.id.as_str(), run))
+                })
+            })
     }
 
     pub(super) fn history_entry(&self, job_id: &str, run_id: &str) -> Option<&CronRunInfo> {
@@ -675,8 +720,13 @@ impl CronStore {
     }
 
     pub fn job_has_active_run(&self, job: &CronJob) -> bool {
-        self.tab_owners.values().any(|(own_job, run)| own_job == &job.id && self.run_is_active(&job.id, run))
-            || job.last_run.as_ref().is_some_and(|run| self.run_is_active(&job.id, &run.run_id))
+        self.tab_owners
+            .values()
+            .any(|(own_job, run)| own_job == &job.id && self.run_is_active(&job.id, run))
+            || job
+                .last_run
+                .as_ref()
+                .is_some_and(|run| self.run_is_active(&job.id, &run.run_id))
     }
 
     pub fn prepare_scheduled_run(
@@ -783,7 +833,10 @@ impl CronStore {
             return Err("Cancelled cron runs require a typed cancel reason".into());
         }
         let now = self.now_ms();
-        let fresh = matches!(status, CronRunStatus::Success | CronRunStatus::Failed | CronRunStatus::Cancelled);
+        let fresh = matches!(
+            status,
+            CronRunStatus::Success | CronRunStatus::Failed | CronRunStatus::Cancelled
+        );
         if let Some(session) = session {
             edit.each(|run| set_session(run, session));
         }
@@ -835,7 +888,10 @@ impl CronStore {
         delivery: &str,
     ) -> Prepared<()> {
         let mut edit = self.edit_run(job_id, run_id);
-        if edit.copies().any(|run| run.status == CronRunStatus::Cancelled || run.report_delivery.is_some()) {
+        if edit
+            .copies()
+            .any(|run| run.status == CronRunStatus::Cancelled || run.report_delivery.is_some())
+        {
             return Prepared::unchanged(());
         }
         edit.each(|run| {
@@ -863,19 +919,32 @@ impl CronStore {
         now_ms: u64,
         reason: super::CronCancelReason,
     ) -> Result<Prepared<Vec<(String, u64)>>, String> {
-        let runs: Vec<_> = self.active_runs().into_iter().filter(|(job, _)| job == job_id).map(|(_, run)| run.run_id).collect();
+        let runs: Vec<_> = self
+            .active_runs()
+            .into_iter()
+            .filter(|(job, _)| job == job_id)
+            .map(|(_, run)| run.run_id)
+            .collect();
         self.prepare_cancel_runs(job_id, &runs, now_ms, reason)
     }
 
-    pub fn prepare_cancel_runs(&self, job_id: &str, runs: &[String], now_ms: u64, reason: super::CronCancelReason) -> Result<Prepared<Vec<(String, u64)>>, String> {
+    pub fn prepare_cancel_runs(
+        &self,
+        job_id: &str,
+        runs: &[String],
+        now_ms: u64,
+        reason: super::CronCancelReason,
+    ) -> Result<Prepared<Vec<(String, u64)>>, String> {
         let original = self
             .get(job_id)
             .ok_or_else(|| format!("Cron job not found: {}", job_id))?;
         let unfinished = |run: &CronRunInfo| {
-            runs.contains(&run.run_id) && self.run_is_active(job_id, &run.run_id) && matches!(
-                run.status,
-                CronRunStatus::Running | CronRunStatus::AwaitingOwnerPrompt
-            )
+            runs.contains(&run.run_id)
+                && self.run_is_active(job_id, &run.run_id)
+                && matches!(
+                    run.status,
+                    CronRunStatus::Running | CronRunStatus::AwaitingOwnerPrompt
+                )
         };
         let cancel = |run: &mut CronRunInfo| {
             run.status = CronRunStatus::Cancelled;

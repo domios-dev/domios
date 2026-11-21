@@ -119,31 +119,54 @@ impl ServiceContext {
         let expected = authority.snapshot();
         let identity = {
             let mut mux = self.mux.write();
-            let current = mux.get_tab_mut(&expected.id)
+            let current = mux
+                .get_tab_mut(&expected.id)
                 .filter(|current| authority.matches_retired(current))
                 .ok_or("provider_switch_superseded: source authority changed during retirement")?;
             self.revoke_tab_credential(&expected.id);
             if let Some(pty) = current.pty_id.as_deref() {
-                if let Some(gate) = self.pty.lock().guarded_input_gate(pty) { gate.invalidate(); }
+                if let Some(gate) = self.pty.lock().guarded_input_gate(pty) {
+                    gate.invalidate();
+                }
             }
             let identity = clear_exited_agent_identity(current);
             if detach_pty {
                 current.pty_id = None;
-                crate::service::boot_stage::apply_boot_stage(current, codeterm_types::pty::BootStage::PtyStarting, None);
+                crate::service::boot_stage::apply_boot_stage(
+                    current,
+                    codeterm_types::pty::BootStage::PtyStarting,
+                    None,
+                );
             }
             identity
         };
-        if let Some(prompt) = identity.prompt_identity { self.resolve_prompt_notifications(&expected.id, &prompt); }
+        if let Some(prompt) = identity.prompt_identity {
+            self.resolve_prompt_notifications(&expected.id, &prompt);
+        }
         if let (Some(pty), Some(nonce)) = (&expected.pty_id, &expected.session_binding_nonce) {
-            crate::service::launch_readiness::retire_attempt(&crate::service::launch_readiness::LaunchAttempt {
-                tab_id: expected.id.clone(), pty_id: pty.clone(), binding_nonce: nonce.clone(),
-            });
+            crate::service::launch_readiness::retire_attempt(
+                &crate::service::launch_readiness::LaunchAttempt {
+                    tab_id: expected.id.clone(),
+                    pty_id: pty.clone(),
+                    binding_nonce: nonce.clone(),
+                },
+            );
             crate::service::pty_io::submit_transaction::notify_submit_cycle_provider_exit(pty);
         }
-        if let (Some(epoch), Some(operation)) = (expected.lifecycle_epoch, &expected.lifecycle_operation_id) {
-            crate::service::tab_lifecycle::append(&self.lifecycle_journal, crate::session::lifecycle::LifecycleKey {
-                tab_id: expected.id.clone(), epoch: crate::session::lifecycle::LifecycleEpoch(epoch), operation_id: operation.clone(),
-            }, crate::session::lifecycle::LifecycleTransition::RolledBack { reason: "provider switch retired the exact source".into() });
+        if let (Some(epoch), Some(operation)) =
+            (expected.lifecycle_epoch, &expected.lifecycle_operation_id)
+        {
+            crate::service::tab_lifecycle::append(
+                &self.lifecycle_journal,
+                crate::session::lifecycle::LifecycleKey {
+                    tab_id: expected.id.clone(),
+                    epoch: crate::session::lifecycle::LifecycleEpoch(epoch),
+                    operation_id: operation.clone(),
+                },
+                crate::session::lifecycle::LifecycleTransition::RolledBack {
+                    reason: "provider switch retired the exact source".into(),
+                },
+            );
         }
         self.schedule_session_persist_debounced();
         self.emit_state_changed(MuxEmitCause::AgentIdentity);

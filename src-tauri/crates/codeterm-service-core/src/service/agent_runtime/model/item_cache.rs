@@ -288,7 +288,11 @@ impl ItemCache {
     pub(crate) fn terminal_evidence(&self) -> (String, bool) {
         use serde::Serialize;
         if self.items.len() <= TERMINAL_ROWS {
-            let mut budget = TerminalBudget { scalars: TERMINAL_BYTES, nodes: TERMINAL_BYTES, depth: 0 };
+            let mut budget = TerminalBudget {
+                scalars: TERMINAL_BYTES,
+                nodes: TERMINAL_BYTES,
+                depth: 0,
+            };
             if self.items.serialize(&mut budget).is_ok() {
                 let mut output = TerminalWriter(Vec::new());
                 if serde_json::to_writer(&mut output, &self.items).is_ok() {
@@ -299,17 +303,24 @@ impl ItemCache {
         let mut remaining = TERMINAL_BYTES - PARTIAL_TERMINAL.len();
         let mut pieces = Vec::new();
         for row in self.items.iter().rev().take(TERMINAL_ROWS) {
-            if remaining <= 1 { break; }
+            if remaining <= 1 {
+                break;
+            }
             let take = remaining.saturating_sub(1).min(row.content.len());
             let mut start = row.content.len() - take;
-            while !row.content.is_char_boundary(start) { start += 1; }
+            while !row.content.is_char_boundary(start) {
+                start += 1;
+            }
             let part = &row.content[start..];
             remaining -= part.len() + 1;
             pieces.push(part);
         }
         let mut output = String::with_capacity(TERMINAL_BYTES);
         output.push_str(PARTIAL_TERMINAL);
-        for part in pieces.into_iter().rev() { output.push_str(part); output.push('\n'); }
+        for part in pieces.into_iter().rev() {
+            output.push_str(part);
+            output.push('\n');
+        }
         (output, false)
     }
 
@@ -367,20 +378,32 @@ const PARTIAL_TERMINAL: &str = "PARTIAL recent content projection; metadata omit
 struct TerminalWriter(Vec<u8>);
 impl std::io::Write for TerminalWriter {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        if bytes.len() > TERMINAL_BYTES.saturating_sub(self.0.len()) { return Err(std::io::Error::other("terminal evidence byte cap")); }
+        if bytes.len() > TERMINAL_BYTES.saturating_sub(self.0.len()) {
+            return Err(std::io::Error::other("terminal evidence byte cap"));
+        }
         self.0.extend_from_slice(bytes);
         Ok(bytes.len())
     }
-    fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 // Admission only: reject large scalars/containers before the JSON escaper can traverse them.
-struct TerminalBudget { scalars: usize, nodes: usize, depth: usize }
+struct TerminalBudget {
+    scalars: usize,
+    nodes: usize,
+    depth: usize,
+}
 struct TerminalFields<'a>(&'a mut TerminalBudget);
 impl TerminalFields<'_> {
-    fn visit<T: ?Sized + serde::Serialize>(&mut self, value: &T) -> Result<(), serde_json::Error> { value.serialize(&mut *self.0) }
+    fn visit<T: ?Sized + serde::Serialize>(&mut self, value: &T) -> Result<(), serde_json::Error> {
+        value.serialize(&mut *self.0)
+    }
 }
-fn terminal_limit() -> serde_json::Error { <serde_json::Error as serde::ser::Error>::custom("terminal evidence traversal cap") }
+fn terminal_limit() -> serde_json::Error {
+    <serde_json::Error as serde::ser::Error>::custom("terminal evidence traversal cap")
+}
 impl TerminalBudget {
     fn node(&mut self) -> Result<(), serde_json::Error> {
         self.nodes = self.nodes.checked_sub(1).ok_or_else(terminal_limit)?;
@@ -392,12 +415,18 @@ impl TerminalBudget {
     }
     fn fields(&mut self) -> Result<TerminalFields<'_>, serde_json::Error> {
         self.node()?;
-        if self.depth >= TERMINAL_DEPTH { return Err(terminal_limit()); }
+        if self.depth >= TERMINAL_DEPTH {
+            return Err(terminal_limit());
+        }
         self.depth += 1;
         Ok(TerminalFields(self))
     }
 }
-impl Drop for TerminalFields<'_> { fn drop(&mut self) { self.0.depth -= 1; } }
+impl Drop for TerminalFields<'_> {
+    fn drop(&mut self) {
+        self.0.depth -= 1;
+    }
+}
 
 macro_rules! terminal_primitive {
     ($($method:ident: $kind:ty),* $(,)?) => { $(fn $method(self, _: $kind) -> Result<(), Self::Error> { self.node() })* };
@@ -414,30 +443,113 @@ impl<'a> serde::Serializer for &'a mut TerminalBudget {
     type SerializeStructVariant = TerminalFields<'a>;
     terminal_primitive!(serialize_bool:bool, serialize_i8:i8, serialize_i16:i16, serialize_i32:i32, serialize_i64:i64, serialize_i128:i128,
         serialize_u8:u8, serialize_u16:u16, serialize_u32:u32, serialize_u64:u64, serialize_u128:u128, serialize_f32:f32, serialize_f64:f64, serialize_char:char);
-    fn serialize_str(self, value: &str) -> Result<(), Self::Error> { self.scalar(value.len()) }
-    fn serialize_bytes(self, value: &[u8]) -> Result<(), Self::Error> { self.scalar(value.len()) }
-    fn serialize_none(self) -> Result<(), Self::Error> { self.node() }
-    fn serialize_some<T: ?Sized + serde::Serialize>(self, value: &T) -> Result<(), Self::Error> { self.node()?; value.serialize(self) }
-    fn serialize_unit(self) -> Result<(), Self::Error> { self.node() }
-    fn serialize_unit_struct(self, _: &'static str) -> Result<(), Self::Error> { self.node() }
-    fn serialize_unit_variant(self, _: &'static str, _: u32, variant: &'static str) -> Result<(), Self::Error> { self.scalar(variant.len()) }
-    fn serialize_newtype_struct<T: ?Sized + serde::Serialize>(self, _: &'static str, value: &T) -> Result<(), Self::Error> { let mut fields = self.fields()?; fields.visit(value) }
-    fn serialize_newtype_variant<T: ?Sized + serde::Serialize>(self, _: &'static str, _: u32, variant: &'static str, value: &T) -> Result<(), Self::Error> { self.scalar(variant.len())?; let mut fields = self.fields()?; fields.visit(value) }
-    fn serialize_seq(self, _: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> { self.fields() }
-    fn serialize_tuple(self, _: usize) -> Result<Self::SerializeTuple, Self::Error> { self.fields() }
-    fn serialize_tuple_struct(self, _: &'static str, _: usize) -> Result<Self::SerializeTupleStruct, Self::Error> { self.fields() }
-    fn serialize_tuple_variant(self, _: &'static str, _: u32, variant: &'static str, _: usize) -> Result<Self::SerializeTupleVariant, Self::Error> { self.scalar(variant.len())?; self.fields() }
-    fn serialize_map(self, _: Option<usize>) -> Result<Self::SerializeMap, Self::Error> { self.fields() }
-    fn serialize_struct(self, _: &'static str, _: usize) -> Result<Self::SerializeStruct, Self::Error> { self.fields() }
-    fn serialize_struct_variant(self, _: &'static str, _: u32, variant: &'static str, _: usize) -> Result<Self::SerializeStructVariant, Self::Error> { self.scalar(variant.len())?; self.fields() }
-    fn collect_str<T: ?Sized + std::fmt::Display>(self, _: &T) -> Result<(), Self::Error> { Err(terminal_limit()) }
+    fn serialize_str(self, value: &str) -> Result<(), Self::Error> {
+        self.scalar(value.len())
+    }
+    fn serialize_bytes(self, value: &[u8]) -> Result<(), Self::Error> {
+        self.scalar(value.len())
+    }
+    fn serialize_none(self) -> Result<(), Self::Error> {
+        self.node()
+    }
+    fn serialize_some<T: ?Sized + serde::Serialize>(self, value: &T) -> Result<(), Self::Error> {
+        self.node()?;
+        value.serialize(self)
+    }
+    fn serialize_unit(self) -> Result<(), Self::Error> {
+        self.node()
+    }
+    fn serialize_unit_struct(self, _: &'static str) -> Result<(), Self::Error> {
+        self.node()
+    }
+    fn serialize_unit_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        variant: &'static str,
+    ) -> Result<(), Self::Error> {
+        self.scalar(variant.len())
+    }
+    fn serialize_newtype_struct<T: ?Sized + serde::Serialize>(
+        self,
+        _: &'static str,
+        value: &T,
+    ) -> Result<(), Self::Error> {
+        let mut fields = self.fields()?;
+        fields.visit(value)
+    }
+    fn serialize_newtype_variant<T: ?Sized + serde::Serialize>(
+        self,
+        _: &'static str,
+        _: u32,
+        variant: &'static str,
+        value: &T,
+    ) -> Result<(), Self::Error> {
+        self.scalar(variant.len())?;
+        let mut fields = self.fields()?;
+        fields.visit(value)
+    }
+    fn serialize_seq(self, _: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+        self.fields()
+    }
+    fn serialize_tuple(self, _: usize) -> Result<Self::SerializeTuple, Self::Error> {
+        self.fields()
+    }
+    fn serialize_tuple_struct(
+        self,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeTupleStruct, Self::Error> {
+        self.fields()
+    }
+    fn serialize_tuple_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        variant: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeTupleVariant, Self::Error> {
+        self.scalar(variant.len())?;
+        self.fields()
+    }
+    fn serialize_map(self, _: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+        self.fields()
+    }
+    fn serialize_struct(
+        self,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeStruct, Self::Error> {
+        self.fields()
+    }
+    fn serialize_struct_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        variant: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeStructVariant, Self::Error> {
+        self.scalar(variant.len())?;
+        self.fields()
+    }
+    fn collect_str<T: ?Sized + std::fmt::Display>(self, _: &T) -> Result<(), Self::Error> {
+        Err(terminal_limit())
+    }
 }
 macro_rules! terminal_sequence {
     ($trait:ident, $method:ident) => {
         impl serde::ser::$trait for TerminalFields<'_> {
-            type Ok = (); type Error = serde_json::Error;
-            fn $method<T: ?Sized + serde::Serialize>(&mut self, value: &T) -> Result<(), Self::Error> { value.serialize(&mut *self.0) }
-            fn end(self) -> Result<(), Self::Error> { Ok(()) }
+            type Ok = ();
+            type Error = serde_json::Error;
+            fn $method<T: ?Sized + serde::Serialize>(
+                &mut self,
+                value: &T,
+            ) -> Result<(), Self::Error> {
+                value.serialize(&mut *self.0)
+            }
+            fn end(self) -> Result<(), Self::Error> {
+                Ok(())
+            }
         }
     };
 }
@@ -446,17 +558,40 @@ terminal_sequence!(SerializeTuple, serialize_element);
 terminal_sequence!(SerializeTupleStruct, serialize_field);
 terminal_sequence!(SerializeTupleVariant, serialize_field);
 impl serde::ser::SerializeMap for TerminalFields<'_> {
-    type Ok = (); type Error = serde_json::Error;
-    fn serialize_key<T: ?Sized + serde::Serialize>(&mut self, value: &T) -> Result<(), Self::Error> { value.serialize(&mut *self.0) }
-    fn serialize_value<T: ?Sized + serde::Serialize>(&mut self, value: &T) -> Result<(), Self::Error> { value.serialize(&mut *self.0) }
-    fn end(self) -> Result<(), Self::Error> { Ok(()) }
+    type Ok = ();
+    type Error = serde_json::Error;
+    fn serialize_key<T: ?Sized + serde::Serialize>(
+        &mut self,
+        value: &T,
+    ) -> Result<(), Self::Error> {
+        value.serialize(&mut *self.0)
+    }
+    fn serialize_value<T: ?Sized + serde::Serialize>(
+        &mut self,
+        value: &T,
+    ) -> Result<(), Self::Error> {
+        value.serialize(&mut *self.0)
+    }
+    fn end(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 macro_rules! terminal_struct {
     ($trait:ident) => {
         impl serde::ser::$trait for TerminalFields<'_> {
-            type Ok = (); type Error = serde_json::Error;
-            fn serialize_field<T: ?Sized + serde::Serialize>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error> { self.0.scalar(key.len())?; value.serialize(&mut *self.0) }
-            fn end(self) -> Result<(), Self::Error> { Ok(()) }
+            type Ok = ();
+            type Error = serde_json::Error;
+            fn serialize_field<T: ?Sized + serde::Serialize>(
+                &mut self,
+                key: &'static str,
+                value: &T,
+            ) -> Result<(), Self::Error> {
+                self.0.scalar(key.len())?;
+                value.serialize(&mut *self.0)
+            }
+            fn end(self) -> Result<(), Self::Error> {
+                Ok(())
+            }
         }
     };
 }

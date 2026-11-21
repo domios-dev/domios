@@ -59,17 +59,27 @@ fn named_claude_without_hooks_binds_the_shell_child_on_input_attach() {
     let mut receipt = provider_accounts::test_support::work_receipt(svc);
     let job = provider_accounts::provisioning::start(svc, move || {
         entered.send(()).unwrap();
-        blocked.recv_timeout(Duration::from_secs(10)).map_err(|_| "fixture provisioning was not released".to_owned())?;
+        blocked
+            .recv_timeout(Duration::from_secs(10))
+            .map_err(|_| "fixture provisioning was not released".to_owned())?;
         Ok(None)
-    }).unwrap();
+    })
+    .unwrap();
     observed.recv_timeout(Duration::from_secs(10)).unwrap();
-    assert!(svc.prepare_launch_session_hook(&tab_id, "named-nonce", &invocation).unwrap_err().starts_with("account_provisioning_busy:"));
-    assert_eq!(fs::read_to_string(home.join("settings.json")).unwrap(), settings);
+    assert!(svc
+        .prepare_launch_session_hook(&tab_id, "named-nonce", &invocation)
+        .unwrap_err()
+        .starts_with("account_provisioning_busy:"));
+    assert_eq!(
+        fs::read_to_string(home.join("settings.json")).unwrap(),
+        settings
+    );
     drop(job);
     assert_eq!(provider_accounts::provisioning::retained_count(svc), 1);
     release.send(()).unwrap();
     crate::async_runtime::block_on(provider_accounts::test_support::settled(&mut receipt)).unwrap();
-    svc.prepare_launch_session_hook(&tab_id, "named-nonce", &invocation).unwrap();
+    svc.prepare_launch_session_hook(&tab_id, "named-nonce", &invocation)
+        .unwrap();
 
     let start = chrono::DateTime::parse_from_rfc3339("2026-11-18T14:01:51.000789Z")
         .unwrap()

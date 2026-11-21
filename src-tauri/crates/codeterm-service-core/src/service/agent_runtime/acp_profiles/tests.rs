@@ -405,12 +405,7 @@ fn management_requires_owner_or_live_orchestrator_credentials() {
     let orchestrator = mux.create_tab(&workspace).unwrap();
     mux.set_orchestrator_role(&orchestrator).unwrap();
     mux.resolve_or_mint_team_for_parent(&orchestrator).unwrap();
-    let team_id = mux
-        .get_tab(&orchestrator)
-        .unwrap()
-        .team_id
-        .clone()
-        .unwrap();
+    let team_id = mux.get_tab(&orchestrator).unwrap().team_id.clone().unwrap();
     let worker = mux.create_tab(&workspace).unwrap();
     {
         let tab = mux.get_tab_mut(&worker).unwrap();
@@ -465,11 +460,7 @@ fn management_requires_owner_or_live_orchestrator_credentials() {
     for token in [&ordinary_token, &worker_token, &forged_general_token] {
         assert_eq!(authorize(svc, token).unwrap_err(), refusal);
         assert!(svc
-            .bind_local_rpc(
-                token,
-                "agent.acp",
-                &mut Some(json!({"operation":"list"}))
-            )
+            .bind_local_rpc(token, "agent.acp", &mut Some(json!({"operation":"list"})))
             .is_err());
     }
     assert_eq!(authorize(svc, &general_token).unwrap_err(), refusal);
@@ -493,10 +484,7 @@ fn management_requires_owner_or_live_orchestrator_credentials() {
         .unwrap();
     let bound = general_params.unwrap();
     assert_eq!(bound["caller_tab_id"].as_str(), Some(general.as_str()));
-    assert_eq!(
-        bound["session_binding_nonce"].as_str(),
-        Some(general_nonce)
-    );
+    assert_eq!(bound["session_binding_nonce"].as_str(), Some(general_nonce));
 
     assert!(svc
         .bind_local_rpc(
@@ -584,7 +572,10 @@ fn management_requires_owner_or_live_orchestrator_credentials() {
         replacement
     };
     assert_ne!(general, replacement_general);
-    assert_eq!(authorize(svc, &replaced_general_token).unwrap_err(), refusal);
+    assert_eq!(
+        authorize(svc, &replaced_general_token).unwrap_err(),
+        refusal
+    );
     assert!(svc
         .bind_local_rpc(
             &replaced_general_token,

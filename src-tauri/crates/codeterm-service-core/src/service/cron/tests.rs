@@ -16,14 +16,44 @@ use crate::cron::store::{
 use crate::service::test_fixture::ServiceFixture;
 use crate::storage::{Fault, Storage, StorageConfig};
 
-fn admit_fixture_run(fixture: &ServiceFixture, cron: &crate::CronState, tab: &str, job: &str, run: &str, nonce: &str) {
-    if let Some(current) = fixture.service.try_ext::<crate::CronState>() { assert!(Arc::ptr_eq(current, cron)); }
-    else { assert!(fixture.service.set_ext(cron.clone()).is_ok()); }
-    assert!(fixture.service.mux.read().get_tab(tab).unwrap().pty_id.is_none());
-    let linkage = crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id: job.into(), run_id: run.into() };
-    fixture.service.run_watcher.reserve_cron_slot(&fixture.service, cron, job, run).unwrap();
-    fixture.service.reserve_cron_launch(cron, &linkage, tab, nonce, None).unwrap();
-    fixture.service.bind_cron_spawn(cron, tab, job, run, Some(nonce.into()), None).unwrap();
+fn admit_fixture_run(
+    fixture: &ServiceFixture,
+    cron: &crate::CronState,
+    tab: &str,
+    job: &str,
+    run: &str,
+    nonce: &str,
+) {
+    if let Some(current) = fixture.service.try_ext::<crate::CronState>() {
+        assert!(Arc::ptr_eq(current, cron));
+    } else {
+        assert!(fixture.service.set_ext(cron.clone()).is_ok());
+    }
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(tab)
+        .unwrap()
+        .pty_id
+        .is_none());
+    let linkage = crate::service::spawn::RuntimeOwnerLinkage::CronRun {
+        job_id: job.into(),
+        run_id: run.into(),
+    };
+    fixture
+        .service
+        .run_watcher
+        .reserve_cron_slot(&fixture.service, cron, job, run)
+        .unwrap();
+    fixture
+        .service
+        .reserve_cron_launch(cron, &linkage, tab, nonce, None)
+        .unwrap();
+    fixture
+        .service
+        .bind_cron_spawn(cron, tab, job, run, Some(nonce.into()), None)
+        .unwrap();
 }
 
 #[test]
@@ -238,7 +268,14 @@ fn cron_service_mutations_and_run_lifecycle_survive_storage_reopen() {
         Ok(store.prepare_set_run_tab(&job.id, run_id, &owner_tab))
     })
     .expect("persist run owner");
-    admit_fixture_run(&fixture, &cron, &owner_tab, &job.id, run_id, "storage-owner-nonce");
+    admit_fixture_run(
+        &fixture,
+        &cron,
+        &owner_tab,
+        &job.id,
+        run_id,
+        "storage-owner-nonce",
+    );
     let completion = fixture
         .service
         .cron_complete(
@@ -253,11 +290,15 @@ fn cron_service_mutations_and_run_lifecycle_survive_storage_reopen() {
         .expect("finish run through service completion")
         .expect("owned run schedules its after-response completion");
     let (ended, settled) = std::sync::mpsc::channel();
-    fixture.ui.listen("cron-run-finished", move |_| { let _ = ended.send(()); });
+    fixture.ui.listen("cron-run-finished", move |_| {
+        let _ = ended.send(());
+    });
     completion.finish().unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     while cron.lock().retained_run_report(&job.id, run_id).is_none() {
-        settled.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())).unwrap();
+        settled
+            .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+            .unwrap();
     }
 
     storage
@@ -1025,7 +1066,16 @@ fn cron_update_report_target_sets_clears_and_rejects_missing_tabs_without_losing
 #[test]
 fn completion_rejects_raw_mapping_and_replacement_nonce_without_cancelling_the_replacement() {
     let (fixture, cron, wake, _) = fixture();
-    let tab = fixture.service.mux.read().snapshot().tabs.keys().next().unwrap().clone();
+    let tab = fixture
+        .service
+        .mux
+        .read()
+        .snapshot()
+        .tabs
+        .keys()
+        .next()
+        .unwrap()
+        .clone();
     let nonce = fixture.service.ensure_session_binding_nonce(&tab);
     let mut params = create_params("replacement authority", None);
     params.enabled = Some(true);
@@ -1033,17 +1083,69 @@ fn completion_rejects_raw_mapping_and_replacement_nonce_without_cancelling_the_r
     let run = "replacement-owned-run";
     let receipt: CronRunInfo = serde_json::from_value(serde_json::json!({
         "run_id":run, "started_at":1, "status":"Running", "tab_id":tab,
-    })).unwrap();
+    }))
+    .unwrap();
     cron.lock().record_run(&job.id, receipt).unwrap();
     cron.lock().register_tab(&tab, &job.id, run);
-    assert!(fixture.service.cron_complete(&cron, &wake, run, Some("raw map"), Some(&tab), Some(&nonce), false).is_err());
+    assert!(fixture
+        .service
+        .cron_complete(
+            &cron,
+            &wake,
+            run,
+            Some("raw map"),
+            Some(&tab),
+            Some(&nonce),
+            false
+        )
+        .is_err());
     admit_fixture_run(&fixture, &cron, &tab, &job.id, run, &nonce);
     let next = cron.lock().get(&job.id).unwrap().next_run;
-    fixture.service.mux.write().get_tab_mut(&tab).unwrap().session_binding_nonce = Some("replacement-nonce".into());
-    assert!(fixture.service.cron_complete(&cron, &wake, run, Some("replacement report"), Some(&tab), Some("replacement-nonce"), false).is_err());
-    assert_eq!(cron.lock().run_receipt(&job.id, run).unwrap().status, CronRunStatus::Running);
-    assert_eq!(fixture.service.cron_cancel_running(&cron, &job.id, crate::cron::store::CronCancelReason::UserCancel).unwrap(), 1);
-    assert_eq!(fixture.service.mux.read().get_tab(&tab).unwrap().session_binding_nonce.as_deref(), Some("replacement-nonce"));
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .session_binding_nonce = Some("replacement-nonce".into());
+    assert!(fixture
+        .service
+        .cron_complete(
+            &cron,
+            &wake,
+            run,
+            Some("replacement report"),
+            Some(&tab),
+            Some("replacement-nonce"),
+            false
+        )
+        .is_err());
+    assert_eq!(
+        cron.lock().run_receipt(&job.id, run).unwrap().status,
+        CronRunStatus::Running
+    );
+    assert_eq!(
+        fixture
+            .service
+            .cron_cancel_running(
+                &cron,
+                &job.id,
+                crate::cron::store::CronCancelReason::UserCancel
+            )
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab)
+            .unwrap()
+            .session_binding_nonce
+            .as_deref(),
+        Some("replacement-nonce")
+    );
     assert!(cron.lock().get_tab_owner(&tab).is_none());
     assert_eq!(cron.lock().get(&job.id).unwrap().next_run, next);
 }

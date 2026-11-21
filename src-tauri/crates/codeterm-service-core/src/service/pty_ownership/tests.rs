@@ -400,13 +400,32 @@ fn refused_admission_reaps_only_the_new_candidate_and_keeps_prior_claim() {
     for prior in [false, true] {
         let ownership = PtyOwnership::default();
         let claim = ownership.acquire("refused").unwrap();
-        if prior { ownership.launch_claims.lock().insert("refused".into(), "replacement".into()); }
+        if prior {
+            ownership
+                .launch_claims
+                .lock()
+                .insert("refused".into(), "replacement".into());
+        }
         let mut killed = Vec::new();
         let mut ready = false;
-        let selected = claim.settle("candidate".into(), true, |_| true, |_| LinkOutcome::Refused, |id| killed.push(id.to_string()), |_| ready = true);
+        let selected = claim.settle(
+            "candidate".into(),
+            true,
+            |_| true,
+            |_| LinkOutcome::Refused,
+            |id| killed.push(id.to_string()),
+            |_| ready = true,
+        );
         assert!(!selected.linked);
         assert!(!ready);
         assert_eq!(killed, vec!["candidate"]);
-        assert_eq!(ownership.launch_claims.lock().get("refused").map(String::as_str), if prior { Some("replacement") } else { None });
+        assert_eq!(
+            ownership
+                .launch_claims
+                .lock()
+                .get("refused")
+                .map(String::as_str),
+            if prior { Some("replacement") } else { None }
+        );
     }
 }

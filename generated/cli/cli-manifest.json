@@ -708,13 +708,13 @@
         },
         {
           "name": "acp",
-          "about": "Manage local ACP launch profiles (local owner or Orchestrator only)",
+          "about": "Manage local ACP launch profiles (local owner, authenticated local General Agent, or live local Orchestrator)",
           "aliases": [],
           "args": [],
           "subcommands": [
             {
               "name": "add",
-              "about": "Add an owner-configured installed ACP command (local owner or Orchestrator only)",
+              "about": "Add an owner-configured installed ACP command (local owner, authenticated local General Agent, or live local Orchestrator)",
               "aliases": [],
               "args": [
                 {

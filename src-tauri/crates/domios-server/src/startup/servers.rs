@@ -164,9 +164,10 @@ fn restored_backend_tab_ids(service_state: &ServiceState) -> Vec<String> {
         .into_values()
         .filter(|tab| {
             service::lazy_restore::automatic_restore_refusal(tab).is_none()
-                && !tab.close_restore
-                .as_ref()
-                .is_some_and(|closed| closed.stopped)
+                && !tab
+                    .close_restore
+                    .as_ref()
+                    .is_some_and(|closed| closed.stopped)
                 && should_materialize_restored_backend(
                     tab.restored_from_snapshot,
                     tab.protected,

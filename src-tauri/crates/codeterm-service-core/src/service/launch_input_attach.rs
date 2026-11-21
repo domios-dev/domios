@@ -243,14 +243,25 @@ impl ServiceContext {
         nonce: &str,
         invocation: &codeterm_plugin::provider_account::InvocationContext,
     ) -> Result<(), String> {
-        let expected = self.mux.read().get_tab(tab_id).cloned().filter(|tab| tab.session_binding_nonce.as_deref() == Some(nonce))
+        let expected = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .cloned()
+            .filter(|tab| tab.session_binding_nonce.as_deref() == Some(nonce))
             .ok_or("launch_hook_superseded: original launch unavailable")?;
         let available = super::provider_accounts::prepare_named_session_hook(self, invocation)?;
         let mux = self.mux.read();
-        if !mux.get_tab(tab_id).is_some_and(|current| super::messenger::switch_handoff::same_binding(&expected, current)) {
-            return Err("launch_hook_superseded: launch authority changed during provisioning".into());
+        if !mux.get_tab(tab_id).is_some_and(|current| {
+            super::messenger::switch_handoff::same_binding(&expected, current)
+        }) {
+            return Err(
+                "launch_hook_superseded: launch authority changed during provisioning".into(),
+            );
         }
-        if let Some(available) = available { self.store_launch_session_hook(tab_id, nonce, available); }
+        if let Some(available) = available {
+            self.store_launch_session_hook(tab_id, nonce, available);
+        }
         Ok(())
     }
 

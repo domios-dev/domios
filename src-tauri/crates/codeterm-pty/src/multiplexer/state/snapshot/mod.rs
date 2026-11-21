@@ -675,12 +675,14 @@ fn install_leaf(
         && ownership.is_none();
     let restored_boot_stage = if failed_launch {
         Some(codeterm_types::pty::BootStage::SpawnFailed)
-    } else { restored_agent_type
-        .as_ref()
-        .map(|_| match &restored_backing {
-            TabBacking::ChatBackend { .. } => codeterm_types::pty::BootStage::AgentLaunching,
-            _ => codeterm_types::pty::BootStage::PtyStarting,
-        }) };
+    } else {
+        restored_agent_type
+            .as_ref()
+            .map(|_| match &restored_backing {
+                TabBacking::ChatBackend { .. } => codeterm_types::pty::BootStage::AgentLaunching,
+                _ => codeterm_types::pty::BootStage::PtyStarting,
+            })
+    };
     let restored_locked = *agent_type_locked || restored_agent_type.is_some();
     tabs.insert(
         tab_id.clone(),
@@ -824,13 +826,18 @@ fn install_leaf(
             pending_scrollback_tail: None,
             pending_greeting: None,
             boot_stage: restored_boot_stage,
-            boot_failure_reason: agent_identity.as_ref().filter(|_| failed_launch)
+            boot_failure_reason: agent_identity
+                .as_ref()
+                .filter(|_| failed_launch)
                 .and_then(|identity| identity.boot_failure_reason.clone()),
             provisional_launch: None,
         },
     );
     if failed_launch {
-        if let Some(tab) = tabs.get_mut(tab_id).filter(|tab| tab.reported_session_binding_nonce.is_some()) {
+        if let Some(tab) = tabs
+            .get_mut(tab_id)
+            .filter(|tab| tab.reported_session_binding_nonce.is_some())
+        {
             tab.remember_superseded_binding_nonce();
             tab.session_binding_nonce = None;
         }

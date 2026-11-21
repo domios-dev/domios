@@ -6,14 +6,28 @@ use std::time::Duration;
 #[test]
 fn retired_resume_is_unbound_until_the_current_launch_authenticates() {
     let (fixture, id) = super::relaunch_supervision::retired_resume_fixture();
-    let (account, nonce) = super::super::account_supervision::prepare(&fixture.service, &id,
-        "resume-provider", Some("exact-session")).unwrap();
-    account.resolve_with(&fixture.service, &id, || Ok(None)).unwrap();
+    let (account, nonce) = super::super::account_supervision::prepare(
+        &fixture.service,
+        &id,
+        "resume-provider",
+        Some("exact-session"),
+    )
+    .unwrap();
+    account
+        .resolve_with(&fixture.service, &id, || Ok(None))
+        .unwrap();
     fixture.service.mux.write().get_tab_mut(&id).unwrap().pty_id = Some("resume-pty".into());
     let mut launch = LaunchGeneration::begin(&id, "resume-pty".into());
-    launch.capture_binding_nonce(&fixture.service, None, None,
-        crate::service::launch_diagnostics::AgentLaunchOrigin::Resume,
-        Some("exact-session"), nonce).unwrap();
+    launch
+        .capture_binding_nonce(
+            &fixture.service,
+            None,
+            None,
+            crate::service::launch_diagnostics::AgentLaunchOrigin::Resume,
+            Some("exact-session"),
+            nonce,
+        )
+        .unwrap();
     assert!(!launch.reconcile_authenticated_binding(&fixture.service));
     {
         let mut mux = fixture.service.mux.write();
@@ -22,16 +36,29 @@ fn retired_resume_is_unbound_until_the_current_launch_authenticates() {
         tab.agent_session_id = Some("exact-session".into());
         tab.reported_session_binding_nonce = launch.binding_nonce.clone();
     }
-    super::super::startup_readiness::emit_agent_ready(&mut launch, &fixture.service, LaunchSettlement::Ready).unwrap();
+    super::super::startup_readiness::emit_agent_ready(
+        &mut launch,
+        &fixture.service,
+        LaunchSettlement::Ready,
+    )
+    .unwrap();
     let current = fixture.service.mux.read().get_tab(&id).unwrap().clone();
     assert!(current.launch_session_authenticated());
     assert_eq!(current.boot_stage, Some(BootStage::AgentReady));
-    assert!(!account.fail_if_current(&launch, &fixture.service,
-        LaunchFailure::SessionBindingNotObserved("observer expired".into())));
-    assert_eq!(fixture.service.mux.read().get_tab(&id).unwrap().boot_stage, Some(BootStage::AgentReady));
+    assert!(!account.fail_if_current(
+        &launch,
+        &fixture.service,
+        LaunchFailure::SessionBindingNotObserved("observer expired".into())
+    ));
+    assert_eq!(
+        fixture.service.mux.read().get_tab(&id).unwrap().boot_stage,
+        Some(BootStage::AgentReady)
+    );
     let mut gone = LaunchGeneration::begin(&id, "resume-pty".into());
     gone.binding_nonce = current.session_binding_nonce;
-    LAUNCH_REGISTRY.lock().bind_provider_session(&gone, gone.binding_nonce.clone().unwrap());
+    LAUNCH_REGISTRY
+        .lock()
+        .bind_provider_session(&gone, gone.binding_nonce.clone().unwrap());
     assert!(account.fail_if_current(&gone, &fixture.service, LaunchFailure::PtyEof));
     let current = fixture.service.mux.read().get_tab(&id).unwrap().clone();
     assert_eq!(current.boot_stage, Some(BootStage::SpawnFailed));

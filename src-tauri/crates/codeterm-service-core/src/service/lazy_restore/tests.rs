@@ -5,7 +5,9 @@ use crate::service::test_fixture::ServiceFixture;
 #[test]
 fn captured_failed_launch_survives_real_initialization_and_startup_admission() {
     use crate::multiplexer::types::AgentRole;
-    use crate::service::restore_admission::{admit_restored_pty, Admission, AdmissionPermit, Priority};
+    use crate::service::restore_admission::{
+        admit_restored_pty, Admission, AdmissionPermit, Priority,
+    };
     for historical in [false, true] {
         for continuing in [Ok(false), Ok(true), Err("plan unavailable".to_owned())] {
             let (mut mux, _) = MultiplexerState::new();
@@ -24,25 +26,44 @@ fn captured_failed_launch_survives_real_initialization_and_startup_admission() {
                 tab.agent_type = Some("uninstalled-historical-provider".into());
                 tab.agent_session_id = Some("historical-session".into());
                 tab.session_binding_nonce = Some("historical-nonce".into());
-                crate::multiplexer::types::observe_turn(&mut tab.turn_resume, Some("historical-session"), "prior-turn");
+                crate::multiplexer::types::observe_turn(
+                    &mut tab.turn_resume,
+                    Some("historical-session"),
+                    "prior-turn",
+                );
             }
             let restored = MultiplexerState::from_session_snapshot(&mux.to_session_snapshot());
             let fixture = ServiceFixture::new(restored);
-            let before = serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
+            let before =
+                serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
             let failed_projection_read = std::cell::Cell::new(false);
             initialize_with_continuing(&fixture.service, 48, |candidate| {
-                if candidate == id { failed_projection_read.set(true); }
+                if candidate == id {
+                    failed_projection_read.set(true);
+                }
                 continuing.clone()
             });
             assert!(!failed_projection_read.get());
             assert!(fixture.service.mux.read().get_tab(&id).unwrap().frozen);
-            let result = admit_restored_pty(&fixture.service, &id,
-                Admission { priority: Priority::Focused, permit: AdmissionPermit::Ungated });
-            assert!(result.unwrap_err().starts_with("restored_failed_launch_preserved:"));
+            let result = admit_restored_pty(
+                &fixture.service,
+                &id,
+                Admission {
+                    priority: Priority::Focused,
+                    permit: AdmissionPermit::Ungated,
+                },
+            );
+            assert!(result
+                .unwrap_err()
+                .starts_with("restored_failed_launch_preserved:"));
             assert!(fixture.service.wake_frozen_tab(&id).is_err());
             fixture.service.wake_tab_on_open(&id).unwrap();
-            let after = serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
-            assert_eq!(after, before, "initialization/admission must conserve actual failed evidence");
+            let after =
+                serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
+            assert_eq!(
+                after, before,
+                "initialization/admission must conserve actual failed evidence"
+            );
         }
     }
 }
@@ -58,13 +79,21 @@ fn contradictory_restored_failure_refuses_admission_without_becoming_a_passive_s
     let fixture = ServiceFixture::new(mux);
     initialize_with_continuing(&fixture.service, 48, |_| Ok(true));
     let before = serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap();
-    let result = crate::service::restore_admission::admit_restored_pty(&fixture.service, &id,
+    let result = crate::service::restore_admission::admit_restored_pty(
+        &fixture.service,
+        &id,
         crate::service::restore_admission::Admission {
             priority: crate::service::restore_admission::Priority::Focused,
             permit: crate::service::restore_admission::AdmissionPermit::Ungated,
-        });
-    assert!(result.unwrap_err().starts_with("restored_failed_launch_refused:"));
-    assert_eq!(serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap(), before);
+        },
+    );
+    assert!(result
+        .unwrap_err()
+        .starts_with("restored_failed_launch_refused:"));
+    assert_eq!(
+        serde_json::to_value(fixture.service.mux.read().get_tab(&id).unwrap()).unwrap(),
+        before
+    );
 }
 
 #[test]
@@ -74,11 +103,16 @@ fn ordinary_shell_failure_keeps_ordinary_recent_activity_restore_policy() {
     tab.boot_stage = Some(BootStage::SpawnFailed);
     tab.boot_failure_reason = Some("shell process exited".into());
     tab.last_active_at_ms = Some(u64::MAX);
-    let fixture = ServiceFixture::new(MultiplexerState::from_session_snapshot(&mux.to_session_snapshot()));
+    let fixture = ServiceFixture::new(MultiplexerState::from_session_snapshot(
+        &mux.to_session_snapshot(),
+    ));
     initialize(&fixture.service, 48);
-    let mux = fixture.service.mux.read(); let tab = mux.get_tab(&id).unwrap();
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&id).unwrap();
     assert!(automatic_restore_refusal(tab).is_none());
-    assert!(!tab.frozen); assert!(tab.agent_type.is_none()); assert!(tab.agent_session_id.is_none());
+    assert!(!tab.frozen);
+    assert!(tab.agent_type.is_none());
+    assert!(tab.agent_session_id.is_none());
 }
 
 #[test]

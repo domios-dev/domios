@@ -505,7 +505,15 @@ pub(crate) fn launch_fork(
     )
 }
 
-pub(crate) fn launch_with_boundary(svc: &ServiceContext, provider: &str, tab: &str, config: Value, fork: Option<(&str, &str)>, boundary: Option<&std::sync::atomic::AtomicBool>, cron_owner: Option<&crate::agent::run_watcher::runtime_runs::CronRunAuthority>) -> Result<(), String> {
+pub(crate) fn launch_with_boundary(
+    svc: &ServiceContext,
+    provider: &str,
+    tab: &str,
+    config: Value,
+    fork: Option<(&str, &str)>,
+    boundary: Option<&std::sync::atomic::AtomicBool>,
+    cron_owner: Option<&crate::agent::run_watcher::runtime_runs::CronRunAuthority>,
+) -> Result<(), String> {
     launch_with_fork(svc, provider, tab, config, fork, boundary, cron_owner)
 }
 
@@ -520,7 +528,10 @@ fn launch_with_fork(
 ) -> Result<(), String> {
     let nonce = if let Some(owner) = cron_owner {
         svc.capture_cron_pad(owner)?;
-        owner.nonce().ok_or("Original cron runtime nonce is absent")?.to_string()
+        owner
+            .nonce()
+            .ok_or("Original cron runtime nonce is absent")?
+            .to_string()
     } else {
         svc.ensure_agent_pad(tab)?;
         svc.ensure_session_binding_nonce(tab)
@@ -528,9 +539,20 @@ fn launch_with_fork(
     let original = {
         let mut mux = svc.mux.write();
         if let Some(owner) = cron_owner {
-            if owner.tab_id() != tab || !owner.matches(&mux) || !mux.get_tab(tab).is_some_and(|target| target.agent_type.as_deref() == Some(provider)) { return Err("Original cron runtime configuration authority changed".into()); }
-            let cron = svc.try_ext::<crate::CronState>().ok_or("Cron runtime state absent")?;
-            if !cron.lock().run_is_active(owner.job_id(), owner.run_id()) { return Err("Original cron run ended before runtime configuration".into()); }
+            if owner.tab_id() != tab
+                || !owner.matches(&mux)
+                || !mux
+                    .get_tab(tab)
+                    .is_some_and(|target| target.agent_type.as_deref() == Some(provider))
+            {
+                return Err("Original cron runtime configuration authority changed".into());
+            }
+            let cron = svc
+                .try_ext::<crate::CronState>()
+                .ok_or("Cron runtime state absent")?;
+            if !cron.lock().run_is_active(owner.job_id(), owner.run_id()) {
+                return Err("Original cron run ended before runtime configuration".into());
+            }
         }
         let target = mux.get_tab_mut(tab).ok_or("Runtime tab absent")?;
         target.agent_type = Some(provider.into());
@@ -541,24 +563,37 @@ fn launch_with_fork(
     };
     super::authority::record_spawn(svc, tab, provider, &nonce)?;
     let run_owner = svc.run_watcher.runtime_start_owner(tab, &nonce);
-    let retained_cron = cron_owner.and_then(|owner| svc.run_watcher.capture_cron_runtime_start(svc, owner, &original));
-    if let Some(boundary) = boundary { boundary.store(true, std::sync::atomic::Ordering::Release); }
+    let retained_cron = cron_owner.and_then(|owner| {
+        svc.run_watcher
+            .capture_cron_runtime_start(svc, owner, &original)
+    });
+    if let Some(boundary) = boundary {
+        boundary.store(true, std::sync::atomic::Ordering::Release);
+    }
     let result = if cron_owner.is_some() {
-        let outcome = crate::async_runtime::block_on(engine::ensure_expected_observed(svc, tab, &nonce, fork));
+        let outcome = crate::async_runtime::block_on(engine::ensure_expected_observed(
+            svc, tab, &nonce, fork,
+        ));
         match retained_cron {
-            Some(retained) => svc.run_watcher.runtime_rejected_before_acquisition(svc, retained, &original, fork, outcome),
+            Some(retained) => svc
+                .run_watcher
+                .runtime_rejected_before_acquisition(svc, retained, &original, fork, outcome),
             None => outcome.into_result(),
         }
     } else {
         crate::async_runtime::block_on(async {
             match fork {
-                Some((source_thread_id, turn_id)) => engine::ensure_fork(svc, tab, source_thread_id, turn_id).await,
+                Some((source_thread_id, turn_id)) => {
+                    engine::ensure_fork(svc, tab, source_thread_id, turn_id).await
+                }
                 None => engine::ensure(svc, tab).await,
             }
         })
     }
     .or_else(|error| match fork {
-        None if cron_owner.is_none_or(|owner| owner.matches(&svc.mux.read())) => engine::login_pending_session(svc, tab, error),
+        None if cron_owner.is_none_or(|owner| owner.matches(&svc.mux.read())) => {
+            engine::login_pending_session(svc, tab, error)
+        }
         None => Err(error),
         Some(_) => Err(error),
     })
@@ -571,9 +606,13 @@ fn launch_with_fork(
     .map(|_| ())
     .map_err(|error| {
         if let Some(owner) = cron_owner {
-            let _ = svc.run_watcher.runtime_ended_start_result(svc, owner, &original, &error);
+            let _ = svc
+                .run_watcher
+                .runtime_ended_start_result(svc, owner, &original, &error);
         } else if let Some(kind) = run_owner.as_ref() {
-            let _ = svc.run_watcher.runtime_start_result(svc, tab, &nonce, kind, &error);
+            let _ = svc
+                .run_watcher
+                .runtime_start_result(svc, tab, &nonce, kind, &error);
         }
         format!("Runtime tab {tab} degraded: {error}")
     });

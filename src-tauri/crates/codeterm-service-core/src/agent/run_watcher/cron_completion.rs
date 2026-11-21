@@ -72,7 +72,11 @@ impl RunWatcherRegistry {
         let (provider, cwd, session, nonce) = {
             let mux = svc.mux.read();
             let tab = mux.get_tab(tab_id).ok_or("cron tab closed")?;
-            if tab.pty_id.as_deref() != Some(state.pty_id.as_str()) || tab.session_binding_nonce != state.binding_nonce { return Err("cron completion launch changed".into()); }
+            if tab.pty_id.as_deref() != Some(state.pty_id.as_str())
+                || tab.session_binding_nonce != state.binding_nonce
+            {
+                return Err("cron completion launch changed".into());
+            }
             (
                 tab.agent_type.clone().ok_or("cron provider missing")?,
                 tab.cwd.clone().unwrap_or_default(),
@@ -134,8 +138,18 @@ impl RunWatcherRegistry {
         }
         let mux = svc.mux.read();
         let cron = svc.try_ext::<crate::CronState>().map(|cron| cron.lock());
-        if !mux.get_tab(tab_id).is_some_and(|tab| tab.pty_id.as_deref() == Some(state.pty_id.as_str()) && tab.session_binding_nonce == state.binding_nonce) || !self.pty_cron_registration_allowed(cron.as_deref(), &mux, &state)
-            || !self.runs.lock().get(&state.pty_id).is_some_and(|current| std::sync::Arc::ptr_eq(current, &state)) { return Err("cron completion lost its original watcher".into()); }
+        if !mux.get_tab(tab_id).is_some_and(|tab| {
+            tab.pty_id.as_deref() == Some(state.pty_id.as_str())
+                && tab.session_binding_nonce == state.binding_nonce
+        }) || !self.pty_cron_registration_allowed(cron.as_deref(), &mux, &state)
+            || !self
+                .runs
+                .lock()
+                .get(&state.pty_id)
+                .is_some_and(|current| std::sync::Arc::ptr_eq(current, &state))
+        {
+            return Err("cron completion lost its original watcher".into());
+        }
         *state.cron_completion.lock() = Some(PendingCompletion {
             barrier: CompletionBarrier {
                 stopped: false,
@@ -171,39 +185,89 @@ impl RunWatcherRegistry {
         {
             let mux = svc.mux.read();
             let runs = self.runs.lock();
-            if let Some(state) = runs.values().find(|state| state.tab_id == tab_id && matches!(&state.kind, AgentRunKind::StepRun { run_id: own } if own == run_id)) {
-                if !mux.get_tab(tab_id).is_some_and(|tab| tab.pty_id.as_deref() == Some(state.pty_id.as_str()) && tab.session_binding_nonce == state.binding_nonce) {
+            if let Some(state) = runs.values().find(|state| {
+                state.tab_id == tab_id
+                    && matches!(&state.kind, AgentRunKind::StepRun { run_id: own } if own == run_id)
+            }) {
+                if !mux.get_tab(tab_id).is_some_and(|tab| {
+                    tab.pty_id.as_deref() == Some(state.pty_id.as_str())
+                        && tab.session_binding_nonce == state.binding_nonce
+                }) {
                     return Err("step run launch ownership changed".into());
                 }
                 return Ok(state.clone());
             }
         }
         let (owner, timeout, existing) = self.cron_pty_authority(svc, tab_id, run_id)?;
-        if let Some(existing) = existing { return Ok(existing); }
+        if let Some(existing) = existing {
+            return Ok(existing);
+        }
         self.register_cron(svc.clone(), &owner, timeout, None)?;
         let (current, _, registered) = self.cron_pty_authority(svc, tab_id, run_id)?;
-        if current != owner { return Err("cron launch changed during watcher registration".into()); }
+        if current != owner {
+            return Err("cron launch changed during watcher registration".into());
+        }
         registered.ok_or_else(|| "cron watcher registration ended".into())
     }
 
-    fn cron_pty_authority(&self, svc: &ServiceContext, tab: &str, run: &str) -> Result<(super::runtime_runs::CronRunAuthority, u64, Option<std::sync::Arc<super::RunState>>), String> {
+    fn cron_pty_authority(
+        &self,
+        svc: &ServiceContext,
+        tab: &str,
+        run: &str,
+    ) -> Result<
+        (
+            super::runtime_runs::CronRunAuthority,
+            u64,
+            Option<std::sync::Arc<super::RunState>>,
+        ),
+        String,
+    > {
         let fallback = svc.configuration().memory.worker_timeout_seconds;
         let mux = svc.mux.read();
-        let cron = svc.try_ext::<crate::CronState>().ok_or("cron unavailable")?.lock();
-        let (job, owned_run) = cron.get_tab_owner(tab).ok_or("cron tab has no active run")?;
-        if owned_run != run { return Err("cron run ownership changed".into()); }
-        if !cron.run_is_active(job, run) { return Err("cron run already ended".into()); }
-        let owner = self.cron_binding(tab, job, run).ok_or("cron launch has no original witness")?;
-        if !owner.matches(&mux) { return Err("cron launch generation changed".into()); }
-        let pty = owner.pty_id.as_ref().ok_or("cron launch has no owned PTY")?;
+        let cron = svc
+            .try_ext::<crate::CronState>()
+            .ok_or("cron unavailable")?
+            .lock();
+        let (job, owned_run) = cron
+            .get_tab_owner(tab)
+            .ok_or("cron tab has no active run")?;
+        if owned_run != run {
+            return Err("cron run ownership changed".into());
+        }
+        if !cron.run_is_active(job, run) {
+            return Err("cron run already ended".into());
+        }
+        let owner = self
+            .cron_binding(tab, job, run)
+            .ok_or("cron launch has no original witness")?;
+        if !owner.matches(&mux) {
+            return Err("cron launch generation changed".into());
+        }
+        let pty = owner
+            .pty_id
+            .as_ref()
+            .ok_or("cron launch has no owned PTY")?;
         let runs = self.runs.lock();
         let state = match runs.get(pty) {
-            Some(state) if state.tab_id == tab && state.binding_nonce == owner.binding_nonce
-                && state.kind == (AgentRunKind::Cron { job_id: job.clone(), run_id: run.into() }) => Some(state.clone()),
+            Some(state)
+                if state.tab_id == tab
+                    && state.binding_nonce == owner.binding_nonce
+                    && state.kind
+                        == (AgentRunKind::Cron {
+                            job_id: job.clone(),
+                            run_id: run.into(),
+                        }) =>
+            {
+                Some(state.clone())
+            }
             Some(_) => return Err("cron PTY watcher belongs to another launch".into()),
             None => None,
         };
-        let timeout = cron.get(job).and_then(|job| job.timeout_seconds).unwrap_or(fallback);
+        let timeout = cron
+            .get(job)
+            .and_then(|job| job.timeout_seconds)
+            .unwrap_or(fallback);
         Ok((owner, timeout, state))
     }
     pub(super) fn stop_pending_cron(&self, svc: &ServiceContext, tab_id: &str) -> bool {

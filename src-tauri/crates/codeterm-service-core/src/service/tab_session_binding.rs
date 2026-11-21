@@ -7,10 +7,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::session_model::clear_runtime_model_evidence;
 use super::ServiceContext;
 
-pub(crate) struct MintedGeneration<'a> { tab: &'a crate::multiplexer::types::Tab, restored: bool }
+pub(crate) struct MintedGeneration<'a> {
+    tab: &'a crate::multiplexer::types::Tab,
+    restored: bool,
+}
 impl MintedGeneration<'_> {
-    pub(crate) fn tab(&self) -> &crate::multiplexer::types::Tab { self.tab }
-    pub(crate) fn restored(&self) -> bool { self.restored }
+    pub(crate) fn tab(&self) -> &crate::multiplexer::types::Tab {
+        self.tab
+    }
+    pub(crate) fn restored(&self) -> bool {
+        self.restored
+    }
 }
 
 fn epoch_ms() -> u64 {
@@ -26,23 +33,47 @@ fn rotate_tab_nonce(
     resume_target: Option<&str>,
     launch_starting: bool,
 ) -> Option<codeterm_types::pty::PromptIdentity> {
-    let prompt = (tab.is_chat_backend() && tab.pending_prompt.as_ref().is_some_and(|prompt| prompt.request_id.is_some()))
-        .then(|| tab.prompt_identity()).flatten();
-    if prompt.is_some() { tab.pending_prompt = None; tab.pending_prompt_kind = None; }
+    let prompt = (tab.is_chat_backend()
+        && tab
+            .pending_prompt
+            .as_ref()
+            .is_some_and(|prompt| prompt.request_id.is_some()))
+    .then(|| tab.prompt_identity())
+    .flatten();
+    if prompt.is_some() {
+        tab.pending_prompt = None;
+        tab.pending_prompt_kind = None;
+    }
     tab.remember_superseded_binding_nonce();
     tab.session_binding_nonce = Some(nonce.into());
     tab.reported_session_binding_nonce = None;
     tab.provider_signals = Default::default();
     if launch_starting {
-        if tab.restorable_launch.exited_chat_binding.as_ref().is_some_and(|exit| {
-            resume_target != Some(exit.session_id.as_str())
-                || tab.agent_type.as_ref().is_some_and(|provider| provider != &exit.provider_id)
-        }) { tab.restorable_launch.exited_chat_binding = None; }
+        if tab
+            .restorable_launch
+            .exited_chat_binding
+            .as_ref()
+            .is_some_and(|exit| {
+                resume_target != Some(exit.session_id.as_str())
+                    || tab
+                        .agent_type
+                        .as_ref()
+                        .is_some_and(|provider| provider != &exit.provider_id)
+            })
+        {
+            tab.restorable_launch.exited_chat_binding = None;
+        }
         tab.restored_from_snapshot = false;
         tab.agent_booting = true;
-        crate::service::boot_stage::apply_boot_stage(tab, codeterm_types::pty::BootStage::PtyStarting, None);
+        crate::service::boot_stage::apply_boot_stage(
+            tab,
+            codeterm_types::pty::BootStage::PtyStarting,
+            None,
+        );
     }
-    if let Some(session) = resume_target { tab.remember_resume_binding_nonce(session); }
+    if let Some(session) = resume_target {
+        tab.remember_resume_binding_nonce(session);
+    }
     prompt
 }
 
@@ -182,12 +213,17 @@ impl ServiceContext {
         owned_pty_transition: Option<&str>,
     ) -> Result<(Option<String>, crate::multiplexer::types::Tab), String> {
         use crate::session::lifecycle::{LifecycleKey, LifecycleTransition};
-        let key = LifecycleKey::new(&expected.id,
-            self.lifecycle_journal.next_epoch_for_tab(&expected.id), uuid::Uuid::new_v4().to_string());
+        let key = LifecycleKey::new(
+            &expected.id,
+            self.lifecycle_journal.next_epoch_for_tab(&expected.id),
+            uuid::Uuid::new_v4().to_string(),
+        );
         let nonce = uuid::Uuid::new_v4().to_string();
         let authority = {
             let mut mux = self.mux.write();
-            let current = mux.get_tab_mut(&expected.id).ok_or("launch_account_source_unavailable")?;
+            let current = mux
+                .get_tab_mut(&expected.id)
+                .ok_or("launch_account_source_unavailable")?;
             if current.agent_type != expected.agent_type
                 || current.agent_session_id != expected.agent_session_id
                 || current.session_binding_nonce != expected.session_binding_nonce
@@ -195,22 +231,36 @@ impl ServiceContext {
                 || current.lifecycle_epoch != expected.lifecycle_epoch
                 || current.lifecycle_operation_id != expected.lifecycle_operation_id
                 || current.restorable_launch.account_id != expected.restorable_launch.account_id
-                || current.restorable_launch.account_namespace != expected.restorable_launch.account_namespace
+                || current.restorable_launch.account_namespace
+                    != expected.restorable_launch.account_namespace
                 || current.prior_session_binding_nonces != expected.prior_session_binding_nonces
-                || current.restorable_launch.exited_chat_binding != expected.restorable_launch.exited_chat_binding
-                || current.role != expected.role || current.role_profile != expected.role_profile
-                || current.team_id != expected.team_id || current.parent_tab_id != expected.parent_tab_id
-                || current.task_binding != expected.task_binding || current.cwd != expected.cwd
-                || current.can_spawn != expected.can_spawn || current.depth != expected.depth
+                || current.restorable_launch.exited_chat_binding
+                    != expected.restorable_launch.exited_chat_binding
+                || current.role != expected.role
+                || current.role_profile != expected.role_profile
+                || current.team_id != expected.team_id
+                || current.parent_tab_id != expected.parent_tab_id
+                || current.task_binding != expected.task_binding
+                || current.cwd != expected.cwd
+                || current.can_spawn != expected.can_spawn
+                || current.depth != expected.depth
                 || current.report_target_tab_id != expected.report_target_tab_id
                 || current.report_target_mesh_peer != expected.report_target_mesh_peer
                 || current.spawned_by_tab_id != expected.spawned_by_tab_id
                 || current.neighbor_authority != expected.neighbor_authority
                 || current.pty_id.as_deref() != owned_pty_transition.or(expected.pty_id.as_deref())
                 || current.backing != expected.backing
-                || current.frozen != expected.frozen || current.ownership != expected.ownership
+                || current.frozen != expected.frozen
+                || current.ownership != expected.ownership
                 || current.protected != expected.protected
-                || current.close_restore.as_ref().is_some_and(|closed| closed.stopped) != expected.close_restore.as_ref().is_some_and(|closed| closed.stopped)
+                || current
+                    .close_restore
+                    .as_ref()
+                    .is_some_and(|closed| closed.stopped)
+                    != expected
+                        .close_restore
+                        .as_ref()
+                        .is_some_and(|closed| closed.stopped)
             {
                 return Err("launch_account_source_changed: reservation authority changed".into());
             }
@@ -220,22 +270,49 @@ impl ServiceContext {
             self.revoke_tab_credential(&expected.id);
             if let Some(pty) = current.pty_id.as_deref() {
                 let gate = self.pty.lock().guarded_input_gate(pty);
-                if let Some(gate) = gate { gate.invalidate(); }
+                if let Some(gate) = gate {
+                    gate.invalidate();
+                }
             }
             current.lifecycle_epoch = Some(key.epoch.0);
             current.lifecycle_operation_id = Some(key.operation_id.clone());
             let restored = current.restored_from_snapshot;
             let _ = rotate_tab_nonce(current, &nonce, resume_target, true);
-            super::agent_runtime::authority::seed_generation(self, MintedGeneration { tab: current, restored });
-            (current.role.map(|role| format!("{role:?}")), current.role_profile.clone(),
-                current.can_spawn, current.depth, current.team_id.clone(), current.parent_tab_id.clone(), current.clone())
+            super::agent_runtime::authority::seed_generation(
+                self,
+                MintedGeneration {
+                    tab: current,
+                    restored,
+                },
+            );
+            (
+                current.role.map(|role| format!("{role:?}")),
+                current.role_profile.clone(),
+                current.can_spawn,
+                current.depth,
+                current.team_id.clone(),
+                current.parent_tab_id.clone(),
+                current.clone(),
+            )
         };
-        let append = |transition| crate::service::tab_lifecycle::append(&self.lifecycle_journal, key.clone(), transition);
+        let append = |transition| {
+            crate::service::tab_lifecycle::append(&self.lifecycle_journal, key.clone(), transition)
+        };
         append(LifecycleTransition::EpochOpened);
-        append(LifecycleTransition::RoleBinding {role: authority.0, role_profile: authority.1, can_spawn: authority.2, depth: authority.3});
-        append(LifecycleTransition::TeamBinding {team_id: authority.4, parent_tab_id: authority.5});
+        append(LifecycleTransition::RoleBinding {
+            role: authority.0,
+            role_profile: authority.1,
+            can_spawn: authority.2,
+            depth: authority.3,
+        });
+        append(LifecycleTransition::TeamBinding {
+            team_id: authority.4,
+            parent_tab_id: authority.5,
+        });
         if let Some(session) = resume_target {
-            append(LifecycleTransition::ResumeTargetRecorded {session_id: session.into()});
+            append(LifecycleTransition::ResumeTargetRecorded {
+                session_id: session.into(),
+            });
         }
         crate::service::provider_signals::refresh_auth(self, &expected.id);
         Ok((Some(nonce), authority.6))
@@ -254,7 +331,10 @@ impl ServiceContext {
         let retired_prompt = self.mux.write().get_tab_mut(tab_id).and_then(|tab| {
             let restored = tab.restored_from_snapshot;
             let prompt = rotate_tab_nonce(tab, &nonce, resume_target, launch_starting);
-            super::agent_runtime::authority::seed_generation(self, MintedGeneration { tab, restored });
+            super::agent_runtime::authority::seed_generation(
+                self,
+                MintedGeneration { tab, restored },
+            );
             prompt
         });
         if let Some(identity) = retired_prompt {
@@ -284,7 +364,13 @@ impl ServiceContext {
                         let nonce = uuid::Uuid::new_v4().to_string();
                         tab.session_binding_nonce = Some(nonce.clone());
                         tab.reported_session_binding_nonce = None;
-                        super::agent_runtime::authority::seed_generation(self, MintedGeneration { restored: tab.restored_from_snapshot, tab });
+                        super::agent_runtime::authority::seed_generation(
+                            self,
+                            MintedGeneration {
+                                restored: tab.restored_from_snapshot,
+                                tab,
+                            },
+                        );
                         (nonce, true)
                     }
                 },

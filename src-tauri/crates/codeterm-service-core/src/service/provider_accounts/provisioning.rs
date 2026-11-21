@@ -1,7 +1,10 @@
 use super::{InvocationContext, ProvisionError, State};
 use crate::service::ServiceContext;
 use parking_lot::{Condvar, Mutex};
-use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 type ResultContext = Result<Option<Arc<InvocationContext>>, String>;
@@ -18,7 +21,9 @@ thread_local! {
 }
 struct Scope(Option<usize>);
 impl Drop for Scope {
-    fn drop(&mut self) { OWNED.with(|owned| owned.set(self.0)); }
+    fn drop(&mut self) {
+        OWNED.with(|owned| owned.set(self.0));
+    }
 }
 
 fn owns(svc: &ServiceContext) -> bool {
@@ -45,8 +50,15 @@ struct Retained {
 
 impl Drop for Retained {
     fn drop(&mut self) {
-        let mut slot = self.service.ext_or_init::<State>(State::default).provisioning_job.lock();
-        if slot.as_ref().is_some_and(|owner| Arc::ptr_eq(owner, &self.owner)) {
+        let mut slot = self
+            .service
+            .ext_or_init::<State>(State::default)
+            .provisioning_job
+            .lock();
+        if slot
+            .as_ref()
+            .is_some_and(|owner| Arc::ptr_eq(owner, &self.owner))
+        {
             *slot = None;
         }
     }
@@ -59,8 +71,13 @@ pub(crate) fn start(
     start_job(svc, move || provision().map(Provisioned::Invocation))
 }
 
-pub(super) fn invocation(svc: &ServiceContext, provision: impl FnOnce() -> ResultContext + Send + 'static) -> ResultContext {
-    if owns(svc) { return provision(); }
+pub(super) fn invocation(
+    svc: &ServiceContext,
+    provision: impl FnOnce() -> ResultContext + Send + 'static,
+) -> ResultContext {
+    if owns(svc) {
+        return provision();
+    }
     start(svc, provision)?.wait_blocking(Duration::from_secs(60))
 }
 
@@ -68,7 +85,9 @@ pub(super) fn typed_invocation(
     svc: &ServiceContext,
     provision: impl FnOnce() -> Result<Option<Arc<InvocationContext>>, ProvisionError> + Send + 'static,
 ) -> Result<Option<Arc<InvocationContext>>, ProvisionError> {
-    if owns(svc) { return provision(); }
+    if owns(svc) {
+        return provision();
+    }
     let observation = start_job(svc, move || Ok(Provisioned::TypedInvocation(provision())))?;
     match observation.wait_raw_blocking(Duration::from_secs(60))? {
         Provisioned::TypedInvocation(result) => result,
@@ -77,47 +96,70 @@ pub(super) fn typed_invocation(
 }
 
 pub(super) fn hook(
-    svc: &ServiceContext, prepare: impl FnOnce() -> Result<Option<bool>, String> + Send + 'static,
+    svc: &ServiceContext,
+    prepare: impl FnOnce() -> Result<Option<bool>, String> + Send + 'static,
 ) -> Result<Option<bool>, String> {
-    if owns(svc) { return prepare(); }
-    match start_job(svc, move || prepare().map(Provisioned::Hook))?.wait_raw_blocking(Duration::from_secs(60))? {
+    if owns(svc) {
+        return prepare();
+    }
+    match start_job(svc, move || prepare().map(Provisioned::Hook))?
+        .wait_raw_blocking(Duration::from_secs(60))?
+    {
         Provisioned::Hook(available) => Ok(available),
         _ => Err("account_provisioning_refused: unexpected job result".into()),
     }
 }
 
 fn start_job(
-    svc: &ServiceContext, provision: impl FnOnce() -> JobResult + Send + 'static,
+    svc: &ServiceContext,
+    provision: impl FnOnce() -> JobResult + Send + 'static,
 ) -> Result<Observation, String> {
     if crate::crash::shutdown::is_shutting_down() {
         return Err("account_provisioning_refused: service is shutting down".into());
     }
     let state = svc.ext_or_init::<State>(State::default);
     let owner = Arc::new(Owner {
-        cancelled: AtomicBool::new(false), finished: AtomicBool::new(false), result: Mutex::new(None),
-        changed: Condvar::new(), notified: tokio::sync::Notify::new(), handle: Mutex::new(None),
+        cancelled: AtomicBool::new(false),
+        finished: AtomicBool::new(false),
+        result: Mutex::new(None),
+        changed: Condvar::new(),
+        notified: tokio::sync::Notify::new(),
+        handle: Mutex::new(None),
     });
     {
         let mut slot = state.provisioning_job.lock();
         if slot.is_some() {
-            return Err("account_provisioning_busy: a retained provisioning job is still running".into());
+            return Err(
+                "account_provisioning_busy: a retained provisioning job is still running".into(),
+            );
         }
         *slot = Some(owner.clone());
     }
-    let retained = Retained { service: svc.clone(), owner: owner.clone(), _receipt: super::work::Receipt::capture(svc) };
+    let retained = Retained {
+        service: svc.clone(),
+        owner: owner.clone(),
+        _receipt: super::work::Receipt::capture(svc),
+    };
     let job = owner.clone();
     let identity = state as *const State as usize;
     let handle = svc.rt.spawn_blocking(move || {
         let _scope = Scope(OWNED.with(|owned| owned.replace(Some(identity))));
-        let result = if job.cancelled.load(Ordering::Acquire) || crate::crash::shutdown::is_shutting_down() {
+        let result = if job.cancelled.load(Ordering::Acquire)
+            || crate::crash::shutdown::is_shutting_down()
+        {
             Err(UNCONFIRMED.into())
         } else {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(provision))
-                .unwrap_or_else(|_| Err("account_provisioning_refused: retained job exited unexpectedly".into()))
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(provision)).unwrap_or_else(|_| {
+                Err("account_provisioning_refused: retained job exited unexpectedly".into())
+            })
         };
-        let result = if job.cancelled.load(Ordering::Acquire) || crate::crash::shutdown::is_shutting_down() {
+        let result = if job.cancelled.load(Ordering::Acquire)
+            || crate::crash::shutdown::is_shutting_down()
+        {
             Err(UNCONFIRMED.into())
-        } else { result };
+        } else {
+            result
+        };
         drop(retained);
         let mut stored = job.result.lock();
         *stored = Some(result);
@@ -133,13 +175,18 @@ fn start_job(
 impl Observation {
     pub(crate) fn observed_completed_refusal(&self) -> bool {
         let _result = self.0.result.lock();
-        self.1.load(Ordering::Relaxed) && self.0.finished.load(Ordering::Acquire)
+        self.1.load(Ordering::Relaxed)
+            && self.0.finished.load(Ordering::Acquire)
             && !self.0.cancelled.load(Ordering::Acquire)
     }
 
     fn take_settled(&self, result: &mut Option<JobResult>) -> Option<JobResult> {
-        if self.0.cancelled.load(Ordering::Acquire) { return Some(Err(UNCONFIRMED.into())); }
-        if !self.0.finished.load(Ordering::Acquire) { return None; }
+        if self.0.cancelled.load(Ordering::Acquire) {
+            return Some(Err(UNCONFIRMED.into()));
+        }
+        if !self.0.finished.load(Ordering::Acquire) {
+            return None;
+        }
         let value = result.take()?;
         self.1.store(value.is_err(), Ordering::Relaxed);
         Some(value)
@@ -155,7 +202,9 @@ impl Observation {
         let deadline = Instant::now() + timeout;
         let mut result = self.0.result.lock();
         loop {
-            if let Some(result) = self.take_settled(&mut result) { return result; }
+            if let Some(result) = self.take_settled(&mut result) {
+                return result;
+            }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 self.0.cancelled.store(true, Ordering::Release);
@@ -172,10 +221,13 @@ impl Observation {
                 tokio::pin!(changed);
                 changed.as_mut().enable();
                 let result = self.take_settled(&mut self.0.result.lock());
-                if let Some(result) = result { return result; }
+                if let Some(result) = result {
+                    return result;
+                }
                 changed.await;
             }
-        }).await;
+        })
+        .await;
         match result.unwrap_or_else(|_| {
             let _result = self.0.result.lock();
             self.0.cancelled.store(true, Ordering::Release);
@@ -196,5 +248,10 @@ impl Drop for Observation {
 
 #[cfg(test)]
 pub(crate) fn retained_count(svc: &ServiceContext) -> usize {
-    usize::from(svc.ext_or_init::<State>(State::default).provisioning_job.lock().is_some())
+    usize::from(
+        svc.ext_or_init::<State>(State::default)
+            .provisioning_job
+            .lock()
+            .is_some(),
+    )
 }

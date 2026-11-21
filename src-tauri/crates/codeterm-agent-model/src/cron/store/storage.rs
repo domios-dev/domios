@@ -9,8 +9,8 @@ use std::sync::{mpsc, Arc};
 use std::task::{Context, Poll, Wake, Waker};
 use std::time::{Duration, Instant};
 
-use super::crud::{CronChange, Prepared, RunSession};
 pub use super::crud::{log_finished, RunFinished};
+use super::crud::{CronChange, Prepared, RunSession};
 use super::{CronFile, CronJob, CronRunInfo, CronRunStatus, CronStore};
 use crate::cron::clock::SharedClock;
 use crate::cron::CronState;

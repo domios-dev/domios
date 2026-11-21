@@ -44,7 +44,8 @@ impl Drop for Scene {
             let _ = run.cancelled.send(true);
         }
         for (_, run) in self.fixture.service.run_watcher.runs.lock().drain() {
-            run.completed.store(true, std::sync::atomic::Ordering::Release);
+            run.completed
+                .store(true, std::sync::atomic::Ordering::Release);
         }
         let tabs = self.fixture.service.mux.read().snapshot().tabs;
         for tab in tabs.keys() {

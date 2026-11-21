@@ -127,12 +127,23 @@ pub(super) fn start(
         if let Err(error) = svc.prepare_launch_session_hook(&tab_id, &nonce, &invocation) {
             let failed = {
                 let mut mux = mux.write();
-                mux.get_tab_mut(&tab_id).filter(|current| expected.as_ref().is_some_and(|expected| {
-                    crate::service::messenger::switch_handoff::same_binding(expected, current)
-                })).map(|current| {
-                    current.agent_booting = false;
-                    crate::service::boot_stage::apply_boot_stage(current, BootStage::SpawnFailed, Some(&error));
-                }).is_some()
+                mux.get_tab_mut(&tab_id)
+                    .filter(|current| {
+                        expected.as_ref().is_some_and(|expected| {
+                            crate::service::messenger::switch_handoff::same_binding(
+                                expected, current,
+                            )
+                        })
+                    })
+                    .map(|current| {
+                        current.agent_booting = false;
+                        crate::service::boot_stage::apply_boot_stage(
+                            current,
+                            BootStage::SpawnFailed,
+                            Some(&error),
+                        );
+                    })
+                    .is_some()
             };
             if failed {
                 crate::service::boot_wait::notify_boot_changed();

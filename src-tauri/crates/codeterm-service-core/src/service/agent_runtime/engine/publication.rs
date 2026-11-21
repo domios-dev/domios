@@ -129,7 +129,12 @@ fn publish_state(svc: &ServiceContext, tab: &str, session: &Session, lifecycle: 
         let Some(target) = mux.get_tab_mut(tab) else {
             return;
         };
-        if switch_launch.as_ref().is_some_and(|authority| !authority.matches(target)) { return; }
+        if switch_launch
+            .as_ref()
+            .is_some_and(|authority| !authority.matches(target))
+        {
+            return;
+        }
         if crate::service::provider_accounts::selected_account(target) != account
             || target.agent_type.as_deref() != Some(session.provider.as_str())
             || target.session_binding_nonce.as_deref() != Some(context.binding_nonce.as_str())

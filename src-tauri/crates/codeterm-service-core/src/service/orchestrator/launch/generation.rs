@@ -41,7 +41,6 @@ pub fn supersede_tab_launch(tab_id: &str) {
     log::debug!("[launch] tab={tab_id} superseded before restart teardown");
 }
 
-
 pub(super) fn command_with_binding_nonce_for_shell(
     command: &str,
     binding_nonce: &str,

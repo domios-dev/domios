@@ -33,7 +33,10 @@ fn compact_status_and_summary_conserve_boot_failure_and_missing_binding() {
             tab.boot_stage = stage;
             tab.agent_booting = booting;
         }
-        assert_eq!(fixture.service.get_tab_status(&id).unwrap().status, expected);
+        assert_eq!(
+            fixture.service.get_tab_status(&id).unwrap().status,
+            expected
+        );
         assert_eq!(summary_status(&fixture.service, &id), expected);
     }
 }

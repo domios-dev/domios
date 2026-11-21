@@ -217,11 +217,11 @@ Acknowledge receipt and ownership of the assigned task
 
 #### `domios agent acp`
 
-Manage local ACP launch profiles (local owner or Orchestrator only)
+Manage local ACP launch profiles (local owner, authenticated local General Agent, or live local Orchestrator)
 
 #### `domios agent acp add`
 
-Add an owner-configured installed ACP command (local owner or Orchestrator only)
+Add an owner-configured installed ACP command (local owner, authenticated local General Agent, or live local Orchestrator)
 
 - `--arg`
 - `--auth-env` — Optional sign-in secrets as KEY=secret-name:method
