@@ -42,16 +42,11 @@ pub(crate) async fn ingest(
         {
             update(&state.svc, &tab_id, session_id, nonce, None)
         } else {
-            context
-                .is_some_and(|context| apply(&state.svc, &tab_id, session_id, nonce, context))
+            context.is_some_and(|context| apply(&state.svc, &tab_id, session_id, nonce, context))
         };
         let quota_changed = body.get("quota").is_some()
             && codeterm_service_core::service::agent_runtime::projections::ingest_statusline_quota(
-                &state.svc,
-                &tab_id,
-                session_id,
-                nonce,
-                &body,
+                &state.svc, &tab_id, session_id, nonce, &body,
             );
         Ok(Json(json!({"ok":true,"changed":changed || quota_changed})))
     })

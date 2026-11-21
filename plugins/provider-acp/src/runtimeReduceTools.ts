@@ -206,7 +206,7 @@ export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|und
             const label=text(block.title) ?? text(block.name);
             const filePath=fileUriToPath(uri);
             if (filePath) {
-              locations ??= [];
+              if (!locations) locations = [];
               pushLocation(locations,filePath);
             }
             results.push(label ? `${label} (${filePath ?? uri})` : (filePath ?? uri));
@@ -216,7 +216,7 @@ export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|und
           const uri=text(resource.uri);
           const filePath=uri ? fileUriToPath(uri) : undefined;
           if (filePath) {
-            locations ??= [];
+            if (!locations) locations = [];
             pushLocation(locations,filePath);
           }
           if (typeof resource.text === "string" && resource.text.length) results.push(resource.text);

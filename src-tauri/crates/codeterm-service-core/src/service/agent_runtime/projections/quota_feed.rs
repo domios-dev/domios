@@ -3,7 +3,7 @@ use crate::service::{agent_runtime::launch_profile, ServiceContext};
 use codeterm_plugin::agent_runtime::{
     limits_source, RuntimeErrorSignal, RuntimeRetryableErrorKind,
 };
-use codeterm_usage::contract::{BillingMode, UsageSnapshotRow, UsageSnapshotEvent};
+use codeterm_usage::contract::{BillingMode, UsageSnapshotEvent, UsageSnapshotRow};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::{collections::HashMap, sync::LazyLock};
@@ -280,7 +280,10 @@ pub fn observe_rate_limit_reset(
         .collect::<Vec<_>>()
         .join(" ");
     let reason = printable_trimmed(
-        &normalized.chars().take(MAX_REASON_CHARS).collect::<String>(),
+        &normalized
+            .chars()
+            .take(MAX_REASON_CHARS)
+            .collect::<String>(),
         MAX_REASON_CHARS,
     );
     store_quota_reset(

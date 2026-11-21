@@ -170,7 +170,15 @@ pub async fn operate(
     };
     match request.action {
         RuntimeThreadHistoryAction::Fork => {
-            fork(svc, &session, current, request, source, capability.is_some()).await
+            fork(
+                svc,
+                &session,
+                current,
+                request,
+                source,
+                capability.is_some(),
+            )
+            .await
         }
         RuntimeThreadHistoryAction::Revert => revert(svc, tab_id, &session, current, request).await,
     }

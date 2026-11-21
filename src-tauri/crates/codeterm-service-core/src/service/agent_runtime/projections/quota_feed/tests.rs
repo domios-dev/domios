@@ -51,7 +51,10 @@ fn parses_documented_statusline_quota_and_fails_closed_on_malformed() {
         json!({"quota": {"b": {"remaining_fraction": 0.5, "disabled": "yes"}}}),
         json!({"quota": {"bad\nkey": {"remaining_fraction": 0.5}}}),
     ] {
-        assert!(parse_statusline_quota(&bad, now).is_none(), "must reject {bad}");
+        assert!(
+            parse_statusline_quota(&bad, now).is_none(),
+            "must reject {bad}"
+        );
     }
 }
 
@@ -93,9 +96,11 @@ fn observed_quota_reset_scopes_to_profile_and_expires_automatically() {
         "Individual quota reached. Resets in 5m."
     );
     let other_key = limits_source::balance_account_key("other-profile");
-    assert!(super::super::latest(svc, &session.provider, Some(&other_key))
-        .unwrap()
-        .is_null());
+    assert!(
+        super::super::latest(svc, &session.provider, Some(&other_key))
+            .unwrap()
+            .is_null()
+    );
     assert!(active_quota_reset(&session.provider, Some(&key), resets_at).is_none());
     clear_quota_reset(&session.provider, Some(&key));
 }
@@ -150,7 +155,16 @@ fn statusline_quota_ingestion_requires_exact_tab_binding_and_persists_under_prof
     let key = limits_source::balance_account_key(profile);
     let latest = super::super::latest(svc, &provider, Some(&key)).unwrap();
     assert_eq!(latest["parsed_ok"], true);
-    assert_eq!(latest["usage_details"]["quota"]["title"], "Account quota (Ultra)");
-    assert_eq!(latest["usage_details"]["quota"]["limits"][0]["label"], "group-a");
-    assert_eq!(latest["usage_details"]["quota"]["limits"][0]["used_percent"], 40.0);
+    assert_eq!(
+        latest["usage_details"]["quota"]["title"],
+        "Account quota (Ultra)"
+    );
+    assert_eq!(
+        latest["usage_details"]["quota"]["limits"][0]["label"],
+        "group-a"
+    );
+    assert_eq!(
+        latest["usage_details"]["quota"]["limits"][0]["used_percent"],
+        40.0
+    );
 }

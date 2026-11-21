@@ -10,7 +10,11 @@ fn parse_iso_unix_secs(raw: Option<&str>) -> Option<i64> {
         return None;
     }
     if let Ok(ts) = raw.parse::<i64>() {
-        return Some(if ts > 1_000_000_000_000 { ts / 1000 } else { ts });
+        return Some(if ts > 1_000_000_000_000 {
+            ts / 1000
+        } else {
+            ts
+        });
     }
     chrono::DateTime::parse_from_rfc3339(raw)
         .ok()

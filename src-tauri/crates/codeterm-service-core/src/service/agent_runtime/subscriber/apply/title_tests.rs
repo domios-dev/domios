@@ -39,7 +39,13 @@ fn session_auto_title_renames_unpinned_tab_without_overwriting_manual_rename() {
         .unwrap();
     apply_session_auto_title(&fixture.service, &agent_tab, "Later auto title");
     assert_eq!(
-        fixture.service.mux.read().get_tab(&agent_tab).unwrap().title,
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&agent_tab)
+            .unwrap()
+            .title,
         "My Custom Name"
     );
 

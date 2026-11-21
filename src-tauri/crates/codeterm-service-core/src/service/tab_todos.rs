@@ -98,7 +98,9 @@ impl ServiceContext {
         };
         let present = !snapshot.entries.is_empty();
         let stored_meta = self.optional_todo_store().and_then(|store| {
-            crate::async_runtime::block_on(store.get(tab_id.to_owned())).ok().flatten()
+            crate::async_runtime::block_on(store.get(tab_id.to_owned()))
+                .ok()
+                .flatten()
         });
         let stored_has_items = stored_meta
             .as_ref()

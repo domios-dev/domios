@@ -92,7 +92,9 @@ pub async fn select(
                 options.iter().any(|option| {
                     option.id == request.id
                         && if option.kind
-                            == Some(codeterm_plugin::agent_runtime::RuntimeConfigOptionKind::Boolean)
+                            == Some(
+                                codeterm_plugin::agent_runtime::RuntimeConfigOptionKind::Boolean,
+                            )
                         {
                             matches!(request.value.as_str(), "true" | "false")
                         } else {

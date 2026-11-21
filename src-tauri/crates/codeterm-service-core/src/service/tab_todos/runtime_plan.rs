@@ -226,7 +226,9 @@ fn plan_todo_item(
         id: format!("runtime-plan-{index}"),
         position,
         title: entry.title,
-        description: entry.priority.map(|priority| format!("Priority: {priority}")),
+        description: entry
+            .priority
+            .map(|priority| format!("Priority: {priority}")),
         state: entry.state,
         revision,
         link: None,

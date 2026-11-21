@@ -60,6 +60,10 @@ toolExitCode?: number, toolDurationMs?: number, toolStatus?: string, toolStarted
  */
 fileDiffs?: unknown,
 /**
+ * Structured file/line locations reported by the tool call source.
+ */
+toolLocations?: unknown,
+/**
  * Provider-neutral web or image result metadata (query, result count, local path), passed through verbatim.
  */
 toolRichResult?: unknown, toolName?: string,

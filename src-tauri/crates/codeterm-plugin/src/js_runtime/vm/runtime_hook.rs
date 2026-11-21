@@ -228,7 +228,8 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
                         .pointer_mut(path)
                         .and_then(serde_json::Value::as_object_mut)
                     {
-                        params.retain(|_, value| !descriptors.iter().any(|allowed| allowed == value));
+                        params
+                            .retain(|_, value| !descriptors.iter().any(|allowed| allowed == value));
                     }
                 }
                 if contains_credential(&protected, token) {

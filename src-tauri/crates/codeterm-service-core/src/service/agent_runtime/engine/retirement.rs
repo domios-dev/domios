@@ -140,7 +140,9 @@ async fn stop_session_scoped(
             .as_ref()
             .is_some_and(|caps| caps.close);
         let thread_id = session.context.lock().thread_id.clone();
-        if let (true, Some(thread_id), Some(live_process)) = (should_close, thread_id, process.as_ref()) {
+        if let (true, Some(thread_id), Some(live_process)) =
+            (should_close, thread_id, process.as_ref())
+        {
             let _ = tokio::time::timeout(
                 Duration::from_secs(3),
                 run(
