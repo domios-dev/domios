@@ -5,11 +5,14 @@ import { useLatestCallback } from "../../../hooks/useLatestCallback";
 import { claimCaptureOwnership, releaseCaptureOwnership } from "./localRecordingCaptureModel";
 import type { DictationUpdate } from "./dictationSessionModel";
 import { clearDictationSetupHandoff } from "./DictationSetupPrompt";
+import { createDictationLevelChannel } from "./dictationLevelModel";
 import { microphoneErrorMessage } from "./audio";
 
 const QUEUE_LIMIT = 12;
+const LEVEL_SAMPLES = 1120;
 const WORKLET = `
 const FRAME_BYTES = ${DICTATION_PCM_BYTES};
+const LEVEL_SAMPLES = ${LEVEL_SAMPLES};
 class DictationCapture extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -17,6 +20,8 @@ class DictationCapture extends AudioWorkletProcessor {
     this.samples = new DataView(this.frame);
     this.length = 0;
     this.sent = 0;
+    this.levelSum = 0;
+    this.levelCount = 0;
     this.active = true;
     this.port.onmessage = ({data}) => {
       if (data === "ack") this.sent--;
@@ -41,6 +46,12 @@ class DictationCapture extends AudioWorkletProcessor {
     const audio = inputs[0]?.[0];
     if (!audio) return true;
     for (const sample of audio) {
+      this.levelSum += sample * sample;
+      if (++this.levelCount >= LEVEL_SAMPLES) {
+        this.port.postMessage(Math.sqrt(this.levelSum / this.levelCount));
+        this.levelSum = 0;
+        this.levelCount = 0;
+      }
       this.samples.setInt16(this.length++ * 2, Math.round(Math.max(-1, Math.min(1, sample)) * 32767), true);
       if (this.length * 2 === this.frame.byteLength) {
         this.send(this.frame);
@@ -103,6 +114,7 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [setup, setSetup] = useState<string | null>(null);
+  const levelChannel = useRef(createDictationLevelChannel()).current;
   const owned = useRef<Capture | null>(null);
   const updates = useRef<DictationUpdate[]>([]);
   const deferredIdentity = useRef<string | null>(null);
@@ -139,6 +151,7 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     afterComposition.current = undefined;
     if (port.current.composing()) rollback.current = true;
     else port.current.cancel();
+    levelChannel.reset();
     setPhase("idle");
     if (reason) setError(reason);
   }, []);
@@ -176,6 +189,7 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     publish(capture, await capture.transport.finish(++capture.sequence, signal));
     if (owned.current !== capture) return;
     owned.current = null;
+    levelChannel.reset();
     setPhase("idle");
     if (enabledRef.current && capture.afterFinish) {
       if (port.current.composing()) afterComposition.current = { identity: capture.identity, callback: capture.afterFinish };
@@ -188,10 +202,12 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     if (!capture || capture.stopping) return;
     if (!capture.worklet) {
       capture.stopping = true;
+      levelChannel.reset();
       setPhase("finishing");
       return;
     }
     capture.stopping = true;
+    levelChannel.reset();
     setPhase("finishing");
     try {
       const flushed = new Promise<void>(resolve => { capture.finish = resolve; });
@@ -258,6 +274,10 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
       capture.worklet = worklet;
       worklet.port.onmessage = ({ data }: MessageEvent<unknown>) => {
         if (owned.current !== capture) return;
+        if (typeof data === "number") {
+          if (!capture.stopping) levelChannel.pushRms(data);
+          return;
+        }
         if (data === "finished") { capture.finish?.(); return; }
         if (!(data instanceof ArrayBuffer) || capture.waiting === QUEUE_LIMIT) {
           fail(capture, new Error("Dictation could not keep up. Try a shorter recording."));
@@ -285,6 +305,8 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
   }
 
   return { phase, error, setup, start, stop, compositionEnded,
+    readLevel: levelChannel.read,
+    subscribeLevel: levelChannel.subscribe,
     finishThen(after: () => void) {
       const capture = owned.current;
       if (!capture || capture.afterFinish) return;

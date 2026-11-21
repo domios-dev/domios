@@ -67,7 +67,7 @@ import { ComposerMentions, type ComposerMentionsHandle } from "./ComposerMention
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { ReplyQuote } from "@codeterm/chat-ui";
-import type { ComposerReply } from "./composerReply";
+import { inlineReplyText, replyMarker, type ComposerReply } from "./composerReply";
 import { useComposerReply } from "./useComposerReply";
 import { useStartupSend } from "./useStartupSend";
 import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
@@ -284,6 +284,7 @@ function ChatComposerImpl({
     [showComposerError],
   );
   const provider = useAgentDescriptor(tabProvider);
+  const keepReplyInline = Boolean(tabProvider && provider?.attachments && !provider.attachments.filePaths && provider.attachments.inlineText);
   const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError,
     keepTextInline: Boolean(tabProvider && !provider?.attachments?.filePaths) });
   useChatDeliveryComposer(tabId, text => {
@@ -319,7 +320,7 @@ function ChatComposerImpl({
   }, []);
 
   useComposerInsertions(tabId, capsules.insertContext);
-  const reply = useComposerReply(tabId, flagComposerError, refocusComposer);
+  const reply = useComposerReply(tabId, flagComposerError, refocusComposer, keepReplyInline);
   const mentionPicker = useRef<ComposerMentionsHandle>(null);
   function pickMention(mention: ComposerMention, query: MentionQuery) {
     if (mention.id !== DICTATION_ACTION) { mentionTokens.insert(mention, query); return; }
@@ -436,6 +437,7 @@ function ChatComposerImpl({
       composerAttachmentHandoff,
       capsules.registryRef.current,
       quoted,
+      keepReplyInline,
     );
   }
 
@@ -467,10 +469,14 @@ function ChatComposerImpl({
     pendingDraftsRef.current.add(dupKey);
     onWillSendMessage(text);
     const voicePendingContent = recordedVoiceAttachments.map(path => formatAttachmentMarker(path, "voice", "voice")).join("\n");
+    const replyPreview = quoted
+      ? (keepReplyInline || !quoted.path ? inlineReplyText(quoted) : replyMarker(quoted))
+      : "";
     const optimisticId = addOptimistic(recordedVoiceAttachments.length > 0
-      ? voicePendingContent : portable || allAttachments.join(" "));
+      ? voicePendingContent : portable || allAttachments.join(" ") || replyPreview);
     const deliveryDraft = { text, attachments: allAttachments, recordedVoiceAttachments,
-      ...(recordedVoiceAttachments.length ? { voiceTranscribing: true } : {}), capsules: registry, reply: quoted };
+      ...(recordedVoiceAttachments.length ? { voiceTranscribing: true } : {}),
+      capsules: registry, reply: quoted, ...(keepReplyInline ? { inlineReply: true } : {}) };
     setChatSendDraft(tabId, optimisticId, deliveryDraft, target);
     setComposerInvalid(false);
     refocusComposer();

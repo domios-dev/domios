@@ -21,7 +21,12 @@ export function composerAttachmentError(
   if (!kinds.length) return null;
   if (!capabilities) return "Attachment support is unavailable for this harness. Remove attachments before sending.";
   for (const kind of kinds) {
-    if (kind === "image" ? capabilities.imagePaths : capabilities.filePaths) continue;
+    const allowed = kind === "image"
+      ? capabilities.imagePaths
+      : kind === "quote"
+        ? capabilities.filePaths || capabilities.inlineText
+        : capabilities.filePaths;
+    if (allowed) continue;
     const suggestion = capabilities.inlineText ? " Paste text directly into the message instead." : "";
     return `This harness cannot read ${kind === "image" ? "image" : "file"} attachments. Remove the attachment before sending.${suggestion}`;
   }

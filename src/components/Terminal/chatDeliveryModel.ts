@@ -15,6 +15,7 @@ export interface DeliveryDraft {
   voiceTranscribing?: boolean;
   capsules: CapsuleRegistry;
   reply: ComposerReply | null;
+  inlineReply?: boolean;
 }
 export interface ChatSendTarget {
   expectedRecipient?: ExpectedChatRecipient;

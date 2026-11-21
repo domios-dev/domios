@@ -6,12 +6,14 @@ import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 
 export function ComposerInputShell({
   voiceUi,
+  dictationPhase,
   children,
   header,
   footer,
   actions,
 }: {
   voiceUi: ComposerVoiceHandle;
+  dictationPhase?: "idle" | "starting" | "listening" | "finishing";
   children: ReactNode;
   header?: ReactNode;
   footer?: ReactNode;
@@ -33,6 +35,7 @@ export function ComposerInputShell({
 
   return (
     <ComposerCard ref={shellRef}
+      dictating={!composerHidden && dictationPhase && dictationPhase !== "idle" ? dictationPhase : undefined}
       header={!composerHidden ? header : undefined}
       footer={!composerHidden && footer ? <div className="flex flex-wrap items-center gap-1">{footer}</div> : undefined}
       actions={!composerHidden && actions && <div className="ct-composer-inner-actions flex shrink-0 items-center gap-1">{actions}</div>}
