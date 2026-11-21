@@ -57,6 +57,7 @@ pub trait ProviderSwitchExt {
         target: &str,
         requested_model: Option<String>,
         effort: Option<String>,
+        launch_profile: Option<String>,
         force: bool,
     ) -> Result<ProviderSwitchOutcome, String>;
     fn retire_provider_switch_input(&self, tab: &str) -> Result<(), String>;
@@ -87,6 +88,7 @@ impl ProviderSwitchExt for ServiceContext {
         target: &str,
         requested_model: Option<String>,
         effort: Option<String>,
+        launch_profile: Option<String>,
         force: bool,
     ) -> Result<ProviderSwitchOutcome, String> {
         if let Some(refusal) = self.tab_write_lock(tab_id) {
@@ -124,17 +126,37 @@ impl ProviderSwitchExt for ServiceContext {
         )?;
         self.require_background_work_safe(&tab.id, force)
             .map_err(|error| switch_restart_error("provider_switch_background_work", error))?;
+        let declares_launch_profiles = self
+            .agent_registry
+            .with_provider(target, |provider| {
+                provider
+                    .agent_runtime()
+                    .is_some_and(|capability| capability.launch_profiles.is_some())
+            })
+            .unwrap_or(false);
+        self.validate_launch_profile(target, launch_profile.as_deref())
+            .map_err(|error| error.to_string())?;
+        let mut profile_selection = SpawnAgentParams {
+            agent: Some(target.into()),
+            launch_profile: launch_profile.clone(),
+            model: requested_model.clone(),
+            reasoning_effort: effort.clone(),
+            ..Default::default()
+        };
+        self.resolve_spawn_profile_options(target, &mut profile_selection)?;
+        let selected_model = profile_selection.model;
+        let selected_effort = profile_selection.reasoning_effort;
         crate::service::spawn::validate_agent_model(
             &self.agent_registry,
             target,
-            requested_model.as_deref(),
+            selected_model.as_deref(),
         )
         .map_err(|error| error.to_string())?;
         let resolved = crate::service::spawn::resolve_fresh_agent_model_with_notice(
             &self.configuration(),
             &self.agent_registry,
             target,
-            requested_model.clone(),
+            selected_model,
             None,
         );
         let model = resolved.model;
@@ -142,19 +164,21 @@ impl ProviderSwitchExt for ServiceContext {
             &self.agent_registry,
             target,
             model.as_deref(),
-            effort.as_deref(),
+            selected_effort.as_deref(),
         )?;
         let permission = crate::service::permission_policy::configured_permission_bypass_for(
             self,
             &self.agent_registry,
             target,
         )?;
-        crate::service::spawn::provider_launch_preflight(
-            &self.agent_registry,
-            target,
-            permission.is_some(),
-        )
-        .map_err(switch_preflight_error)?;
+        if !declares_launch_profiles {
+            crate::service::spawn::provider_launch_preflight(
+                &self.agent_registry,
+                target,
+                permission.is_some(),
+            )
+            .map_err(switch_preflight_error)?;
+        }
         self.provider_switch_auth_preflight(target)?;
         let _claim = self
             .claim_provider_switch(&tab.id)
@@ -190,7 +214,8 @@ impl ProviderSwitchExt for ServiceContext {
             agent: Some(target.into()),
             cwd: tab.cwd.clone(),
             model: model.clone(),
-            reasoning_effort: effort.clone(),
+            launch_profile,
+            reasoning_effort: selected_effort.clone(),
             role: tab.role.map(|role| role.label().into()),
             role_profile: tab.role_profile.clone(),
             skip_permissions: Some(permission.is_some()),
@@ -214,8 +239,8 @@ impl ProviderSwitchExt for ServiceContext {
                 captured: true,
                 requested_model,
                 model,
-                requested_reasoning_effort: effort.clone(),
-                resolved_reasoning_effort: effort,
+                requested_reasoning_effort: effort,
+                resolved_reasoning_effort: selected_effort,
                 permission_bypass_requested: full_access,
                 ..Default::default()
             },
@@ -317,6 +342,14 @@ impl ProviderSwitchExt for ServiceContext {
                 );
             }
             model::reset_for_target(current, target, route.target, &input.launch_parameters);
+            if route.target == TargetRoute::Runtime {
+                if let Some(profile) = input.params.launch_profile.as_ref() {
+                    current
+                        .agent_runtime_config
+                        .get_or_insert_with(|| serde_json::json!({}))["launchProfile"] =
+                        serde_json::json!(profile);
+                }
+            }
             current.agent_type_locked = true;
             current.clone()
         };
@@ -380,6 +413,29 @@ impl ProviderSwitchExt for ServiceContext {
                 "provider_switch_superseded: target changed before handoff; input was not sent"
                     .into(),
             );
+        }
+        if route.target == TargetRoute::Runtime
+            && (input.launch_parameters.requested_model.is_some()
+                || input.launch_parameters.requested_reasoning_effort.is_some())
+        {
+            let mut mux = self.mux.write();
+            if let Some(current) = mux.get_tab_mut(&tab.id) {
+                if current.agent_type.as_deref() == Some(target)
+                    && current.agent_session_id.as_deref() == Some(session_id.as_str())
+                {
+                    if let Some(requested) = input.launch_parameters.requested_model.as_ref() {
+                        current.agent_requested_model = Some(requested.clone());
+                        current.restorable_launch.requested_model = Some(requested.clone());
+                    }
+                    if let Some(requested) =
+                        input.launch_parameters.requested_reasoning_effort.as_ref()
+                    {
+                        current.reasoning_effort_identity.requested = Some(requested.clone());
+                        current.restorable_launch.requested_reasoning_effort =
+                            Some(requested.clone());
+                    }
+                }
+            }
         }
         self.persist_general_provider_switch(&tab, target, &input.launch_parameters, &session_id)?;
         let authority = source_authority.ready_target(&ready_target)?;

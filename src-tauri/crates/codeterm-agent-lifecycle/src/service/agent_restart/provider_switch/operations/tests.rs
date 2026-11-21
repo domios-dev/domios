@@ -109,6 +109,7 @@ fn stale_self_identity_refuses_and_a_disconnected_response_does_not_cancel_accep
             ProviderSwitchRequest {
                 provider: "target".into(),
                 model: None,
+                launch_profile: None,
                 reasoning_effort: None,
                 force: false
             },
@@ -222,7 +223,7 @@ fn in_place_switch_cannot_adopt_reparented_source_after_operation_preflight() {
                     }
                 }
                 let before = serde_json::to_value(svc.mux.read().get_tab(tab).unwrap()).unwrap();
-                let result = svc.switch_provider_in_place(tab, target, None, None, own);
+                let result = svc.switch_provider_in_place(tab, target, None, None, None, own);
                 assert!(matches!(result.as_ref(), Err(error) if error.starts_with("provider_switch_superseded:")), "{changed}");
                 assert_eq!(serde_json::to_value(svc.mux.read().get_tab(tab).unwrap()).unwrap(), before);
                 result
