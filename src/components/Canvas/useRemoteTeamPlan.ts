@@ -3,7 +3,6 @@ import { formatPlanFetchError } from "../../lib/fetchResilience";
 import { peerEventRail } from "../../lib/peerEventRail";
 import type { ApiConfig } from "../../lib/types";
 import type { TeamMissionControlState } from "./missionControl/missionControlState";
-import { PlanReadError } from "./plansApi";
 import { readRemoteTeamPlan, remotePlanApi, teamPlanLookupChanged, type RemoteTeamPlanTarget } from "./remoteTeamPlanModel";
 
 export function useRemoteTeamPlan(api: ApiConfig, target: RemoteTeamPlanTarget) {
@@ -33,8 +32,7 @@ export function useRemoteTeamPlan(api: ApiConfig, target: RemoteTeamPlanTarget) 
         if (current.signal.aborted) return;
         activePlanId = undefined;
         setPlan(null);
-        setError(cause instanceof PlanReadError ? formatPlanFetchError(cause)
-          : cause instanceof Error ? cause.message : String(cause));
+        setError(formatPlanFetchError(cause));
       }).finally(() => {
         if (controller !== current) return;
         controller = null;

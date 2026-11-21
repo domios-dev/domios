@@ -35,10 +35,33 @@ test("non-gateway 5xx and 4xx are not transient (surface real error, no silent r
   assert(!isTransientFetchError(new Error("plans list failed: 401 unauthorized")), "401 is a real error");
 });
 
-test("formatPlanFetchError passes through status-prefixed messages verbatim", () => {
+test("formatPlanFetchError passes through status-prefixed messages and keeps bounded non-HTTP detail", () => {
   assert(formatPlanFetchError(new Error("500 internal error")).includes("500"), "keeps 500 code");
   const generic = formatPlanFetchError(new Error("boom"));
-  assert(generic.includes("Try again"), "unknown non-transient error gets generic copy");
+  assert(generic.includes("Try again"), "unknown non-transient error keeps actionable copy");
+  assert(generic.includes("boom"), "non-HTTP error preserves diagnostic detail");
+  const parse = formatPlanFetchError(new SyntaxError("Unexpected end of JSON input"));
+  assert(parse.includes("Unexpected end of JSON input"), "JSON parse failure detail survives");
+  const mismatch = formatPlanFetchError(new Error("Mission Control response did not match the selected plan."));
+  assert(mismatch.includes("did not match the selected plan"), "selected-plan identity mismatch survives");
+});
+
+test("formatPlanFetchError redacts secrets, drops stack frames, and bounds length", () => {
+  const withSecrets = formatPlanFetchError(
+    new Error(
+      "plan decode failed: Bearer eyJhbGci.secret.token https://user:pw@host/api?token=abc123 api_key=sk-live-999\n    at parseJson (src/plansApi.ts:99:12)",
+    ),
+  );
+  assert(!withSecrets.includes("eyJhbGci"), "bearer token redacted");
+  assert(!withSecrets.includes("user:pw"), "URL credentials redacted");
+  assert(!withSecrets.includes("abc123"), "query token redacted");
+  assert(!withSecrets.includes("sk-live-999"), "api_key redacted");
+  assert(!withSecrets.includes("at parseJson"), "stack trace dropped");
+  assert(withSecrets.includes("[redacted]"), "redaction marker present");
+
+  const huge = formatPlanFetchError(new Error(`invalid payload: ${"x".repeat(600)}`));
+  assert(huge.length <= 280, `error detail stays bounded (got ${huge.length})`);
+  assert(huge.endsWith("…)"), "truncated non-HTTP error marks truncation");
 });
 
 test("empty/unknown error is treated as transient (reconnect, not hard error)", () => {

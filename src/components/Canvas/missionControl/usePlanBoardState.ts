@@ -62,11 +62,18 @@ export function usePlanBoardState(
   revision: number,
   includeEvents = true,
 ): PlanBoardStateResult {
-  const query = useScopedPlanRead(api, planId, "mission-control", undefined, async (signal) => {
-    const snapshot = await fetchPlanBoardState(api!, planId!, signal, undefined, includeEvents);
-    if (snapshot.plan_id !== planId) throw new Error("Mission Control response did not match the selected plan.");
-    return snapshot;
-  }, revision * 2 + Number(includeEvents));
+  const query = useScopedPlanRead(
+    api,
+    planId,
+    includeEvents ? "mission-control" : "mission-control-summary",
+    undefined,
+    async (signal) => {
+      const snapshot = await fetchPlanBoardState(api!, planId!, signal, undefined, includeEvents);
+      if (snapshot.plan_id !== planId) throw new Error("Mission Control response did not match the selected plan.");
+      return snapshot;
+    },
+    revision,
+  );
   const refresh = query.refetch;
 
   useEffect(() => {
