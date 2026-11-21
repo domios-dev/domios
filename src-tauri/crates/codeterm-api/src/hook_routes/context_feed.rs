@@ -30,33 +30,30 @@ pub(crate) async fn ingest(
                 .with_provider(provider, |provider| provider.parse_context_usage(&body))
                 .flatten()
         });
+        let session_id = body
+            .get("session_id")
+            .or_else(|| body.get("conversation_id"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let nonce = super::header_str(&headers, "x-codeterm-binding-nonce").unwrap_or_default();
         let changed = if body
             .pointer("/context_window/current_usage")
             .is_some_and(Value::is_null)
         {
-            update(
+            update(&state.svc, &tab_id, session_id, nonce, None)
+        } else {
+            context
+                .is_some_and(|context| apply(&state.svc, &tab_id, session_id, nonce, context))
+        };
+        let quota_changed = body.get("quota").is_some()
+            && codeterm_service_core::service::agent_runtime::projections::ingest_statusline_quota(
                 &state.svc,
                 &tab_id,
-                body.get("session_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default(),
-                super::header_str(&headers, "x-codeterm-binding-nonce").unwrap_or_default(),
-                None,
-            )
-        } else {
-            context.is_some_and(|context| {
-                apply(
-                    &state.svc,
-                    &tab_id,
-                    body.get("session_id")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default(),
-                    super::header_str(&headers, "x-codeterm-binding-nonce").unwrap_or_default(),
-                    context,
-                )
-            })
-        };
-        Ok(Json(json!({"ok":true,"changed":changed})))
+                session_id,
+                nonce,
+                &body,
+            );
+        Ok(Json(json!({"ok":true,"changed":changed || quota_changed})))
     })
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?

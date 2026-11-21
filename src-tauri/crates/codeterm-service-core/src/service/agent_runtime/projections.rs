@@ -10,7 +10,9 @@ use std::{
 };
 
 mod limits;
+pub mod quota_feed;
 mod tab_usage;
+pub use quota_feed::{ingest_statusline_quota, observe_rate_limit_reset};
 pub use tab_usage::{for_tab, read_for_tab};
 
 use codeterm_plugin::api_contracts::Reading;
@@ -492,7 +494,13 @@ pub fn latest(
         .and_then(codeterm_plugin::agent_runtime::limits_source::profile_from_balance_account_key)
         .is_some()
     {
-        let row = svc.usage_store.get_latest_or_failure(provider, account)?;
+        let now_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
+        let row = quota_feed::apply_quota_reset(
+            svc.usage_store.get_latest_or_failure(provider, account)?,
+            provider,
+            account,
+            now_ms,
+        );
         return enrich_latest(row, provider, vec![]);
     }
     let row = svc

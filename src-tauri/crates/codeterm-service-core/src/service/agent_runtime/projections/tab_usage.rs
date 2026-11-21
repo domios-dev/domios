@@ -260,8 +260,9 @@ fn has_reading(source: &TabLimitsSource, view: &Value) -> bool {
     }
     match source {
         TabLimitsSource::Balance { .. } => view["usage_details"]["balance"].is_object(),
-        TabLimitsSource::Quota { .. } => view["usage_details"]["quota"].is_object(),
-        TabLimitsSource::Unavailable { .. } => false,
+        TabLimitsSource::Quota { .. } | TabLimitsSource::Unavailable { .. } => {
+            view["usage_details"]["quota"].is_object()
+        }
         TabLimitsSource::Meter { .. } | TabLimitsSource::Account { .. } => {
             view["limits_reported"] == true
                 || ["session_pct", "weekly_pct", "spend_cents"]
@@ -335,7 +336,14 @@ pub fn for_tab(svc: &ServiceContext, tab_id: &str) -> Result<Value, String> {
                 tab_id,
                 facts.thread_id.as_deref(),
             ),
-            TabLimitsSource::Unavailable { .. } => Value::Null,
+            TabLimitsSource::Unavailable { provider, .. } => match facts.profile.as_deref() {
+                Some(profile) => latest(
+                    svc,
+                    provider,
+                    Some(limits_source::balance_account_key(profile).as_str()),
+                )?,
+                None => Value::Null,
+            },
         }
     };
     let mut result = if view.is_null() {

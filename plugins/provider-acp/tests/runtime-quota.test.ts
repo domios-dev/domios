@@ -447,7 +447,55 @@ function openSession(tabId: string): RuntimeContext {
   console.log("✓ ACP non-quota, unparseable quota, and auth errors remain refused without scheduling retry");
 }
 
-// 7. QuickJS ES2020 static safety guard for runtimeQuota.ts
+// 7. ACP usage_update / quota_update extension quota payload maps to rateLimits fail-closed
+{
+  const bound = openSession("quota-extension-update");
+  const isoReset = "2026-11-22T05:00:00Z";
+  const goodFrame: RuntimeFrame = {
+    kind: "notification",
+    method: "session/update",
+    params: {
+      sessionId: SESSION,
+      update: {
+        sessionUpdate: "usage_update",
+        used: 1200,
+        size: 100000,
+        _meta: {
+          quota: {
+            "gemini-pro": { remaining_fraction: 0.4, reset_time: isoReset },
+            "disabled-bucket": { remaining_fraction: 0.1, disabled: true },
+          },
+        },
+      },
+    },
+  };
+  const reduced = runtimeJson(runtimeReduce(bound, null, [goodFrame]), "runtimeReduce");
+  const rateEvent = reduced.events.find((event) => event.kind === "rateLimits");
+  assert.ok(rateEvent && rateEvent.kind === "rateLimits", "valid _meta.quota emits rateLimits");
+  assert.deepEqual(rateEvent.rateLimits, [
+    { window: "gemini-pro", usedPercent: 60, resetsAt: Date.parse(isoReset) },
+  ]);
+
+  const badFrame: RuntimeFrame = {
+    kind: "notification",
+    method: "session/update",
+    params: {
+      sessionId: SESSION,
+      update: {
+        sessionUpdate: "usage_update",
+        used: 1500,
+        size: 100000,
+        quota: { "gemini-pro": { remaining_fraction: 2.5 } },
+      },
+    },
+  };
+  const badReduced = runtimeJson(runtimeReduce(bound, reduced.state, [badFrame]), "runtimeReduce");
+  assert.equal(badReduced.events.some((event) => event.kind === "rateLimits"), false, "malformed quota fails closed without dropping context usage");
+  assert.equal(badReduced.events.some((event) => event.kind === "context"), true);
+  console.log("✓ ACP usage_update quota extension projects valid buckets to rateLimits and fails closed on malformed");
+}
+
+// 8. QuickJS ES2020 static safety guard for runtimeQuota.ts
 {
   const source = fs.readFileSync(new URL("../src/runtimeQuota.ts", import.meta.url), "utf8");
   for (const forbidden of [".at(", "Object.hasOwn(", ".replaceAll(", "console."]) {

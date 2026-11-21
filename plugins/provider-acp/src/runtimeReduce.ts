@@ -1,6 +1,7 @@
 import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, RuntimeReduction, TokenUsage, TurnInput } from "@codeterm/plugin-sdk";
 import { object, text, reduceTool, validToolCallId } from "./runtimeReduceTools";
 import { planRow, contextUsage, usageFromPayload } from "./runtimeReducePlan";
+import { parseStatusLineQuota } from "./limits";
 import { methods } from "./runtimeProtocol";
 import { commands, sessionSettings } from "./runtimeControls";
 import { copyAccounting, clearEntries, putEntry, removeEntry, mapBytes, mapKeys, utf8Length } from "./runtimeReduceAccounting";
@@ -384,11 +385,25 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
         if (kind !== "session_info_update" || !Object.keys(compaction).length) continue;
         const id=text(compaction.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
         if (!state.compacted.includes(id)) {state.compacted.push(id);events.push({kind:"contextCompacted",threadId:ctx.threadId,itemId:id});}
-      } else if (kind === "usage_update" || kind === "turn_completed") {
+      } else if (kind === "usage_update" || kind === "turn_completed" || kind === "quota_update") {
         const mapped=contextUsage(ctx.threadId,update);
         if (mapped) events.push(mapped);
         const tokens=usageFromPayload(update);
         if (tokens && !state.loading && !cursor.unattributed) state.turnUsage=tokens;
+        const quotaPayload=update.quota !== undefined ? update : object(update._meta).quota !== undefined ? object(update._meta) : null;
+        if (quotaPayload) {
+          const parsedQuota=parseStatusLineQuota(quotaPayload,Date.now());
+          if (parsedQuota && parsedQuota.limits.length) {
+            const rateLimits=parsedQuota.limits.slice(0,4)
+              .filter(limit=>limit.label.length > 0 && limit.label.length <= 128 && !/\s/.test(limit.label))
+              .map(limit=>({
+                window:limit.label,
+                usedPercent:limit.used_percent,
+                ...(limit.resets_at !== null && limit.resets_at >= 0 ? {resetsAt:limit.resets_at} : {}),
+              }));
+            if (rateLimits.length) events.push({kind:"rateLimits",threadId:ctx.threadId,rateLimits});
+          }
+        }
       } else if (kind === "compaction_update" || kind === "compaction_summary_chunk") {
         const id=text(update.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
         if (!state.compacted.includes(id)) { state.compacted.push(id);events.push({kind:"contextCompacted",threadId:ctx.threadId,itemId:id}); }

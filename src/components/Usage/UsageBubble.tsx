@@ -21,6 +21,8 @@ import { formatAge } from "../../lib/timeLabels";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { contextUsage, hasQuota, useClaimContext } from "./contextUsage";
 import { ContextUsageBubble } from "./ContextUsageBubble";
+import { QuotaReadingPill, QuotaResetPill, useQuotaResetTick } from "./ProfileLimitsBubble";
+import { activeQuotaReset, quotaReading } from "./quotaModel";
 
 interface UsageBubbleProps {
   /** Provider id — required, no default. The component is hosted by a
@@ -46,6 +48,8 @@ interface UsageBubbleProps {
   providerLabel?: string;
   /// The tab borrows `provider`'s account limits: show the account's view, never this tab's runtime readings.
   borrowedAccount?: boolean;
+  /// The tab's launch-profile quota account key (`profile:<id>`), used for profile-level quota resets and pushed quota.
+  profileAccountId?: string | null;
 }
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -63,6 +67,7 @@ export function UsageBubble({
   context,
   providerLabel,
   borrowedAccount = false,
+  profileAccountId = null,
 }: UsageBubbleProps) {
   const { usage: modelUsage, refresh: refreshModelUsage } = useProviderModelUsageState(
     provider,
@@ -76,6 +81,11 @@ export function UsageBubble({
     [provider, groupUsage],
   );
   const { snapshot, refresh, refetch } = useUsageSnapshot({ provider, accountId, enabled: trackingEnabled });
+  const { snapshot: profileSnapshot } = useUsageSnapshot({
+    provider,
+    accountId: profileAccountId,
+    enabled: trackingEnabled && Boolean(profileAccountId) && !borrowedAccount,
+  });
   const runtime = borrowedAccount || balance ? null : ownRuntimeUsage(snapshot,tabId,threadId);
   const active = balance ? groupSnapshot : borrowedAccount ? accountUsageSnapshot(snapshot)
     : (!chatBackend && !snapshot?.runtime_usage ? groupSnapshot : null) ?? latestUsageSnapshot(snapshot, tabId, threadId);
@@ -109,10 +119,21 @@ export function UsageBubble({
   const [historyOpen, setHistoryOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const closeDetail = useCallback(() => setOpen(false), []);
+  const resetNow = Date.now();
+  const profileQuota = trackingEnabled && !balance && !hasQuota(active) ? quotaReading(profileSnapshot) : null;
+  const profileReset = trackingEnabled && !balance && !hasQuota(active) && !profileQuota ? activeQuotaReset(profileSnapshot, resetNow) : null;
+  useQuotaResetTick(profileReset?.resetsAt ?? null, resetNow);
   // A harness that reports its context fill but no quota (an ACP agent): the fill is the bubble value.
   const contextReading = contextUsage(context, runtime);
-  const contextMode = trackingEnabled && !balance && contextReading != null && !hasQuota(active);
+  const contextMode = trackingEnabled && !balance && !profileQuota && !profileReset && contextReading != null && !hasQuota(active);
   useClaimContext(tabId, contextMode);
+
+  if (profileQuota) {
+    return <QuotaReadingPill reading={profileQuota} failure={null} capturedAt={profileSnapshot?.captured_at} />;
+  }
+  if (profileReset) {
+    return <QuotaResetPill title={`${providerLabel ?? provider} quota`} reset={profileReset} now={resetNow} />;
+  }
 
   if (contextMode && contextReading) {
     return (

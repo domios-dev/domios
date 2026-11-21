@@ -14,9 +14,14 @@ interface BalanceReader {
   parse(body:string): {available:boolean; amounts:BalanceAmount[]} | null;
 }
 interface QuotaLimit {label:string; used_percent:number; resets_at:number | null}
+export interface ParsedQuotaReading {title:string; limits:QuotaLimit[]}
 
 const decimal = /^-?\d{1,15}(?:\.\d{1,8})?$/;
 const currency = /^[A-Z]{3}$/;
+const MAX_QUOTA_BUCKETS = 128;
+const MAX_QUOTA_RESET_SECONDS = 31 * 24 * 60 * 60;
+const STRICT_ISO_8601 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:?\d{2})$/;
+const PRINTABLE_LABEL = /^[^\u0000-\u001f\u007f]+$/;
 
 function deepseekBalance(body:string): {available:boolean; amounts:BalanceAmount[]} | null {
   const value = JSON.parse(body) as {is_available?:unknown; balance_infos?:unknown};
@@ -112,9 +117,96 @@ function geminiCodeAssistQuota({fetch, credentialPublic}:LimitsPorts, nowMs:numb
   });
 }
 
+function isPlainObject(value:unknown): value is Record<string,unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function validBucketLabel(label:string): string | null {
+  const trimmed = label.trim();
+  if (!trimmed || trimmed.length > 128 || !PRINTABLE_LABEL.test(trimmed)) return null;
+  return trimmed;
+}
+
+function parseBucketResetAt(resetTime:unknown, resetInSeconds:unknown, nowMs:number): {ok:true; value:number | null} | {ok:false} {
+  if (resetTime !== undefined && resetTime !== null) {
+    if (typeof resetTime !== "string") return {ok:false};
+    const trimmed = resetTime.trim();
+    if (trimmed) {
+      if (trimmed.length > 128 || !STRICT_ISO_8601.test(trimmed)) return {ok:false};
+      const parsed = Date.parse(trimmed);
+      if (!Number.isFinite(parsed)) return {ok:false};
+      return {ok:true, value:Math.trunc(parsed)};
+    }
+  }
+  if (resetInSeconds !== undefined && resetInSeconds !== null) {
+    if (typeof resetInSeconds !== "number" || !Number.isFinite(resetInSeconds) || resetInSeconds < 0 || resetInSeconds > MAX_QUOTA_RESET_SECONDS) {
+      return {ok:false};
+    }
+    if (resetInSeconds === 0) return {ok:true, value:null};
+    return {ok:true, value:Math.trunc(nowMs + Math.round(resetInSeconds * 1000))};
+  }
+  return {ok:true, value:null};
+}
+
+/** Parses documented statusLine quota JSON `{ quota: { [bucketId]: { remaining_fraction?, reset_time?, reset_in_seconds?, disabled? } }, plan_tier? }`. */
+export function parseStatusLineQuota(raw:unknown, nowMs:number): ParsedQuotaReading | null {
+  if (!Number.isFinite(nowMs) || nowMs < 0) return null;
+  let root:unknown = raw;
+  if (typeof raw === "string") {
+    if (!raw || raw.length > 64 * 1024) return null;
+    try {
+      root = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!isPlainObject(root)) return null;
+  const quota = root.quota;
+  if (!isPlainObject(quota)) return null;
+  const keys = Object.keys(quota);
+  if (keys.length > MAX_QUOTA_BUCKETS) return null;
+  const limits:QuotaLimit[] = [];
+  for (let i = 0; i < keys.length; i++) {
+    const rawKey = keys[i];
+    const label = validBucketLabel(rawKey);
+    if (!label) return null;
+    const entry = quota[rawKey];
+    if (!isPlainObject(entry)) return null;
+    if (entry.disabled !== undefined && typeof entry.disabled !== "boolean") return null;
+    if (entry.disabled === true) continue;
+    const fraction = entry.remaining_fraction;
+    if (fraction === undefined || fraction === null) continue;
+    if (typeof fraction !== "number" || !Number.isFinite(fraction) || fraction < 0 || fraction > 1) return null;
+    const reset = parseBucketResetAt(entry.reset_time, entry.reset_in_seconds, nowMs);
+    if (!reset.ok) return null;
+    limits.push({
+      label,
+      used_percent:Math.round((1 - fraction) * 1000) / 10,
+      resets_at:reset.value,
+    });
+  }
+  limits.sort((a, b) => b.used_percent - a.used_percent || a.label.localeCompare(b.label));
+  const rawTier = root.plan_tier;
+  const tier = typeof rawTier === "string" && rawTier.trim().length > 0 && rawTier.trim().length <= 64 && PRINTABLE_LABEL.test(rawTier.trim())
+    ? rawTier.trim() : null;
+  return {title:tier ? `Account quota (${tier})` : "Account quota", limits};
+}
+
+export function statusLineQuotaSnapshot(raw:unknown, nowMs:number): ProfileLimitsReply {
+  const parsed = parseStatusLineQuota(raw, nowMs);
+  if (!parsed) return {error:"Status line quota response has an unexpected format"};
+  if (!parsed.limits.length) return {error:"Status line reported no active model quota"};
+  return snapshot("subscription", {quota:parsed}, nowMs);
+}
+
+function statusLinePushQuota(): ProfileLimitsReply {
+  return {error:"Status line quota updates arrive from the agent hook"};
+}
+
 /** Quota protocols this plugin implements, named by a profile's declared `reader`. */
 const quotaReaders:Readonly<Record<string,(ports:LimitsPorts, nowMs:number) => ProfileLimitsReply>> = {
   "gemini-code-assist": geminiCodeAssistQuota,
+  "statusline-quota": statusLinePushQuota,
 };
 
 const own = <T>(table:Readonly<Record<string,T>>, key:string):T | undefined =>
