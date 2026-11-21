@@ -30,6 +30,8 @@ interface DictationGesture {
 export function ComposerActionButton({
   voiceUi,
   dictation,
+  spaceArming = false,
+  spacePop = false,
   sendDisabled,
   sendUnavailableReason,
   onSend,
@@ -37,6 +39,8 @@ export function ComposerActionButton({
 }: {
   voiceUi: ComposerVoiceHandle;
   dictation?: LiveDictation;
+  spaceArming?: boolean;
+  spacePop?: boolean;
   sendDisabled: boolean;
   sendUnavailableReason?: string | null;
   onSend: () => void;
@@ -195,6 +199,8 @@ export function ComposerActionButton({
         type="button"
         data-testid={effectiveSend ? "composer-send-button" : "composer-voice-button"}
         data-send={effectiveSend ? "true" : "false"}
+        data-space-arming={spaceArming && !effectiveSend && !effectiveBubbleActive ? "true" : undefined}
+        data-space-pop={spacePop && !effectiveSend ? "true" : undefined}
         aria-label={effectiveAriaLabel}
         aria-pressed={useDictation && !effectiveSend ? dictationActive : undefined}
         title={effectiveTitle}
@@ -277,7 +283,9 @@ export function ComposerActionButton({
         }}
         className={`${COMPOSER_BUTTON_BASE} ct-composer-voice-bubble absolute left-1/2 top-1/2 rounded-full border ${
           effectiveBubbleActive ? "z-30 is-active" : "ct-composer-round-button ct-composer-control"
-        } ${effectiveLocked ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/25" : ""} shadow-none disabled:opacity-40`}
+        } ${effectiveLocked ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/25" : ""} ${
+          spaceArming && !effectiveSend && !effectiveBubbleActive ? "ct-voice-space-arming" : ""
+        } ${spacePop && !effectiveSend ? "ct-voice-space-pop" : ""} shadow-none disabled:opacity-40`}
         style={actionButtonStyle(effectiveBubbleActive, effectiveSend, effectiveLocked, effectivePose)}
         disabled={voiceBusy || dictationFinishing || (effectiveSend && sendDisabled && !sendUnavailableReason)}
       >

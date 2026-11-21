@@ -283,7 +283,34 @@ textarea[data-dictating="true"] {
   caret-color: var(--ct-accent) !important;
 }
 
+.ct-voice-space-arming {
+  border-color: color-mix(in srgb, var(--ct-accent) 65%, var(--ct-border)) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ct-accent) 18%, transparent);
+  animation: ct-voice-space-charge 300ms linear both;
+}
+
+@keyframes ct-voice-space-charge {
+  0% { transform: var(--ct-liquid-base-transform) scale(1); }
+  20% { transform: var(--ct-liquid-base-transform) translate(-0.8px, 0) scale(0.97); }
+  40% { transform: var(--ct-liquid-base-transform) translate(0.9px, -0.4px) scale(0.99); }
+  60% { transform: var(--ct-liquid-base-transform) translate(-1px, 0.4px) scale(1.02); }
+  80% { transform: var(--ct-liquid-base-transform) translate(1px, -0.5px) scale(1.04); }
+  100% { transform: var(--ct-liquid-base-transform) scale(1.06); }
+}
+
+.ct-voice-space-pop {
+  animation: ct-voice-space-pop 260ms var(--ct-ease-liquid-settle) both;
+}
+
+@keyframes ct-voice-space-pop {
+  0% { transform: var(--ct-liquid-base-transform) scale(0.92); }
+  45% { transform: var(--ct-liquid-base-transform) scale(1.18); }
+  75% { transform: var(--ct-liquid-base-transform) scale(0.98); }
+  100% { transform: var(--ct-liquid-base-transform) scale(1); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ct-dictation-bar, .ct-dictation-cancel { transition: none; }
   .ct-dictation-waveform[data-silent="true"] .ct-dictation-bar { animation: none; }
+  .ct-voice-space-arming, .ct-voice-space-pop { animation: none; }
 }

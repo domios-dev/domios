@@ -73,7 +73,7 @@ function dictationHandle(overrides: Partial<LiveDictation> = {}): LiveDictation 
 
 async function renderButton(
   voiceUi: ComposerVoiceHandle,
-  props: { dictation?: LiveDictation; sendDisabled?: boolean; onSend?: () => void; onSchedule?: () => void } = {},
+  props: { dictation?: LiveDictation; spaceArming?: boolean; spacePop?: boolean; sendDisabled?: boolean; onSend?: () => void; onSchedule?: () => void } = {},
 ): Promise<{ button: HTMLButtonElement; host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -83,6 +83,8 @@ async function renderButton(
       <ComposerActionButton
         voiceUi={voiceUi}
         dictation={props.dictation}
+        spaceArming={props.spaceArming}
+        spacePop={props.spacePop}
         sendDisabled={props.sendDisabled ?? false}
         onSend={props.onSend ?? (() => undefined)}
         onSchedule={props.onSchedule}
@@ -293,6 +295,22 @@ test("dictation hold stops on release, drag-up locks, and drag-left cancels", as
     button.dispatchEvent(pointerEvent("pointerup", { clientX: 50, clientY: 100 }, 3200));
   });
   assert(starts === 3 && stops === 1 && cancels === 1, "dragging left must cancel dictation");
+});
+
+test("space-hold arming and ignition pop classes apply on the round mic button", async () => {
+  const { button: armingBtn } = await renderButton(voiceHandle({ mainIsSend: false }), {
+    dictation: dictationHandle(),
+    spaceArming: true,
+  });
+  assert(armingBtn.classList.contains("ct-voice-space-arming"), "arming class missing");
+  assert(armingBtn.dataset.spaceArming === "true", "arming data attribute missing");
+
+  const { button: popBtn } = await renderButton(voiceHandle({ mainIsSend: false }), {
+    dictation: dictationHandle({ phase: "listening", active: () => true }),
+    spacePop: true,
+  });
+  assert(popBtn.classList.contains("ct-voice-space-pop"), "ignition pop class missing");
+  assert(popBtn.dataset.spacePop === "true", "ignition pop data attribute missing");
 });
 
 async function main() {

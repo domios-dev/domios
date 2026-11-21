@@ -73,6 +73,7 @@ import { useStartupSend } from "./useStartupSend";
 import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
 import { useDictationDraft, useDictationSelection } from "./voice/dictationDraft";
 import { useLiveDictation } from "./voice/useLiveDictation";
+import { createSpaceDictationHold, SPACE_DICTATION_POP_MS } from "./voice/spaceDictationHold";
 import { DICTATION_ACTION } from "../../lib/mentionSources/actions";
 import { canonicalMentionSlice, replaceMentionRange } from "./composerMentionTokens";
 import type { ComposerMention, MentionQuery } from "../../lib/composerMentions";
@@ -263,6 +264,56 @@ function ChatComposerImpl({
     cancel: () => dictationDraft.cancel(mentionTokens.draft),
     composing: () => compositionGate.active,
   });
+  const dictationRef = useRef(dictation);
+  dictationRef.current = dictation;
+  const [spaceArming, setSpaceArming] = useState(false);
+  const [spacePop, setSpacePop] = useState(false);
+  const spacePopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const spaceHold = useRef<ReturnType<typeof createSpaceDictationHold> | null>(null);
+  if (!spaceHold.current) {
+    spaceHold.current = createSpaceDictationHold({
+      onPhaseChange: (phase) => setSpaceArming(phase === "arming"),
+      onStartDictation: () => { void dictationRef.current.start(); },
+      onStopDictation: () => { void dictationRef.current.stop(); },
+      onInsertSpace: () => {
+        const editor = textareaRef.current;
+        if (editor && document.activeElement === editor) {
+          replaceTextareaRange(editor, editor.selectionStart, editor.selectionEnd, " ");
+        }
+      },
+      onPop: () => {
+        if (spacePopTimerRef.current !== null) clearTimeout(spacePopTimerRef.current);
+        setSpacePop(true);
+        spacePopTimerRef.current = setTimeout(() => {
+          spacePopTimerRef.current = null;
+          setSpacePop(false);
+        }, SPACE_DICTATION_POP_MS);
+      },
+    });
+  }
+  useEffect(() => {
+    if (dictation.phase === "idle") spaceHold.current?.resetIfDictationEnded();
+  }, [dictation.phase]);
+  useEffect(() => {
+    if (!isActive || replacement) {
+      spaceHold.current?.dispose();
+      if (spacePopTimerRef.current !== null) { clearTimeout(spacePopTimerRef.current); spacePopTimerRef.current = null; }
+      setSpacePop(false);
+      return;
+    }
+    const onKeyUp = (event: KeyboardEvent) => {
+      spaceHold.current?.onKeyUp(event.code, document.activeElement === textareaRef.current);
+    };
+    const onBlur = () => spaceHold.current?.onBlur();
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+      spaceHold.current?.dispose();
+      if (spacePopTimerRef.current !== null) { clearTimeout(spacePopTimerRef.current); spacePopTimerRef.current = null; }
+    };
+  }, [isActive, replacement]);
   const shellRef = useRef<HTMLDivElement>(null);
   const { layout: composerLayout, measure: measureComposer } = useComposerLayout(input, textareaRef, shellRef, compositionGate, !replacement, expandedEditor);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
@@ -621,6 +672,8 @@ function ChatComposerImpl({
       sendDisabled={!sendPolicy.allowed || (!input.trim() && attachments.length === 0 && !reply.reply)}
       sendUnavailableReason={sendUnavailableReason}
       dictation={dictation}
+      spaceArming={spaceArming}
+      spacePop={spacePop}
       hasText={input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
       cardHeader={(reply.reply || attachments.length > 0) && <>
         {reply.reply && <ReplyQuote label={reply.reply.label} excerpt={reply.reply.excerpt} onRemove={() => { reply.clear(); refocusComposer(); }} />}
@@ -678,6 +731,23 @@ function ChatComposerImpl({
               e.preventDefault();
               e.stopPropagation();
               dictation.cancel();
+              return;
+            }
+            if (spaceHold.current?.onKeyDown({
+              code: e.code,
+              repeat: e.repeat,
+              shiftKey: e.shiftKey,
+              ctrlKey: e.ctrlKey,
+              metaKey: e.metaKey,
+              altKey: e.altKey,
+              isComposing: e.nativeEvent.isComposing,
+            }, {
+              empty: input.length === 0 && attachments.length === 0 && !reply.reply,
+              dictating: dictation.active(),
+              pickerOpen,
+              composing: compositionGate.active,
+            })) {
+              e.preventDefault();
               return;
             }
             let enterIntent = composerEnterIntent(composerDevice, {
