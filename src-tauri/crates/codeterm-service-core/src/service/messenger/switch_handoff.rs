@@ -1,6 +1,6 @@
 use super::AgentInput;
 use crate::multiplexer::types::{Tab, TabBacking, TaskBinding};
-use crate::service::{agent_runtime::model::RuntimeFailure, agent_lifecycle::RestartBindingAuthority, ServiceContext};
+use crate::service::{agent_runtime::model::RuntimeFailure, agent_lifecycle::worker_binding::RestartBindingAuthority, ServiceContext};
 use parking_lot::Mutex;
 use std::{collections::HashMap, sync::{atomic::{AtomicBool, AtomicU8, Ordering}, Arc, Weak}};
 const CLAIMED: u8 = 1;
@@ -196,7 +196,7 @@ impl SwitchHandoffAuthority {
         if !mux.get_tab(&self.target.id).is_some_and(|tab| self.matches_current(tab)) {
             return Err(if self.was_claimed() { RuntimeFailure::WrittenAwaitingEvidence } else { RuntimeFailure::Superseded });
         }
-        self.claim_state.fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| (state == 0).then_some(CLAIMED))
+        self.claim_state.try_update(Ordering::AcqRel, Ordering::Acquire, |state| (state == 0).then_some(CLAIMED))
             .map_err(|state| if state & CLAIMED != 0 { RuntimeFailure::WrittenAwaitingEvidence } else { RuntimeFailure::Superseded })?;
         Ok(())
         }).unwrap_or_else(|| Err(if self.was_claimed() { RuntimeFailure::WrittenAwaitingEvidence } else { RuntimeFailure::Superseded }))

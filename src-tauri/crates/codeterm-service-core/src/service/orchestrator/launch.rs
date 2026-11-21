@@ -17,6 +17,7 @@ pub(crate) use crate::agent::registry::AgentRegistry;
 pub use command::prepare_agent_command_for_service;
 mod credentials;
 mod account_supervision;
+#[cfg(test)]
 pub(crate) use account_supervision::reserve_launch_binding_nonce;
 pub use account_supervision::mark_tab_agent_launch_started;
 mod generation_registry;
