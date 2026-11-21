@@ -67,6 +67,7 @@ function dictationHandle(overrides: Partial<LiveDictation> = {}): LiveDictation 
     finishThen: () => undefined,
     compositionEnded: () => undefined,
     dismissSetup: () => undefined,
+    dismissError: () => undefined,
     active: () => active,
     readLevel: () => QUIET_DICTATION_SAMPLE,
     subscribeLevel: () => () => undefined,

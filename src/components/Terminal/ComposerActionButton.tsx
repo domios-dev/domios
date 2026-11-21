@@ -3,6 +3,8 @@ import { ChevronUp, Lock, Mic, Square, X } from "lucide-react";
 import { bubblePoseFromPointer, type BubblePose } from "./composerBubble";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 import type { LiveDictation } from "./voice/useLiveDictation";
+import { DictationSetupPrompt } from "./voice/DictationSetupPrompt";
+import { DictationStatus } from "./voice/DictationStatus";
 import { isCancelGesture, isDragUpGesture } from "./voice/voiceFsm";
 import { SendIcon } from "../Icons";
 import { COMPOSER_BUTTON_BASE } from "./composerButton";
@@ -194,6 +196,12 @@ export function ComposerActionButton({
   return (
     <div className="ct-composer-action-shell ct-composer-control relative shrink-0">
       {effectiveHold && <VoiceLockPill />}
+      {!effectiveHold && !voiceActive && dictation?.setup && (
+        <DictationSetupPrompt reason={dictation.setup} onDismiss={dictation.dismissSetup} />
+      )}
+      {!effectiveHold && !voiceActive && !dictation?.setup && dictation?.error && (
+        <DictationStatus dictation={dictation} />
+      )}
       <button
         ref={buttonRef}
         type="button"

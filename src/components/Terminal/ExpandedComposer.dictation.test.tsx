@@ -21,6 +21,7 @@ function makeDictation(phase: LiveDictation["phase"], cancel = vi.fn()): LiveDic
     finishThen: () => {},
     compositionEnded: () => {},
     dismissSetup: () => {},
+    dismissError: () => {},
     active: () => phase !== "idle",
     readLevel: channel.read,
     subscribeLevel: channel.subscribe,

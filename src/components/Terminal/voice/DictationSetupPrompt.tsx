@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { Button } from "../../shared/Button";
 import { askGeneralAgent, focusTab, generalAgentTab } from "../../../lib/generalAgent";
 import { useMuxStateStore } from "../../../store/multiplexer/selectorStore";
@@ -11,9 +12,35 @@ export function clearDictationSetupHandoff() {
 
 export function DictationSetupPrompt({ reason, onDismiss }: { reason: string; onDismiss(): void }) {
   const store = useMuxStateStore();
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
   const issued = useRef(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== "Escape" && event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      dismissRef.current();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      const shell = bubbleRef.current?.closest(".ct-composer-action-shell");
+      if (bubbleRef.current?.contains(target) || shell?.contains(target)) return;
+      dismissRef.current();
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, []);
+
   async function install() {
     if (issued.current) return;
     issued.current = true;
@@ -38,12 +65,35 @@ export function DictationSetupPrompt({ reason, onDismiss }: { reason: string; on
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally { setPending(false); }
   }
-  return <div className="ct-dictation-setup" role="group" aria-label="Install dictation">
-    <div><strong>Install dictation?</strong><div>{reason} General can guide the local model download.</div></div>
-    <div className="flex flex-wrap gap-1">
-      <Button type="button" variant="primary" loading={pending} disabled={pending} onClick={() => void install()}>Set up with General</Button>
-      <Button type="button" variant="ghost" disabled={pending} onClick={onDismiss}>Not now</Button>
+
+  return (
+    <div
+      ref={bubbleRef}
+      className="ct-dictation-bubble ct-dictation-setup"
+      data-testid="dictation-setup-bubble"
+      role="group"
+      aria-label="Install dictation"
+    >
+      <div className="ct-dictation-bubble__head">
+        <strong>Install dictation?</strong>
+        <button
+          type="button"
+          className="ct-dictation-bubble__close"
+          aria-label="Dismiss dictation setup"
+          title="Dismiss"
+          disabled={pending}
+          onClick={onDismiss}
+        >
+          <X size={14} strokeWidth={2.2} aria-hidden="true" />
+        </button>
+      </div>
+      <p className="ct-dictation-bubble__body">{reason} General can guide the local model download.</p>
+      <div className="ct-dictation-bubble__actions">
+        <Button type="button" variant="primary" size="sm" loading={pending} disabled={pending} onClick={() => void install()}>
+          Set up with General
+        </Button>
+      </div>
+      {error && <div role="alert" className="ct-dictation-bubble__alert">{error}</div>}
     </div>
-    {error && <div role="alert">{error}</div>}
-  </div>;
+  );
 }

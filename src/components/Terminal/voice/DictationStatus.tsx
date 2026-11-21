@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { X } from "lucide-react";
 import { COMPOSER_BUTTON_BASE } from "../composerButton";
 import {
@@ -67,9 +67,55 @@ export function DictationPresence({ dictation }: { dictation: LiveDictation }) {
   );
 }
 
+/** Compact floating glass error bubble anchored to the round mic button. */
 export function DictationStatus({ dictation }: { dictation: LiveDictation }) {
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const dismissRef = useRef(dictation.dismissError);
+  dismissRef.current = dictation.dismissError;
+  const hasError = Boolean(dictation.error);
+
+  useEffect(() => {
+    if (!hasError) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== "Escape" && event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      dismissRef.current?.();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      const shell = bubbleRef.current?.closest(".ct-composer-action-shell");
+      if (bubbleRef.current?.contains(target) || shell?.contains(target)) return;
+      dismissRef.current?.();
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, [hasError]);
+
   if (!dictation.error) return null;
-  return <span role="alert" className="ct-dictation-error">{dictation.error}</span>;
+  return (
+    <div ref={bubbleRef} className="ct-dictation-bubble ct-dictation-bubble--error" data-testid="dictation-error-bubble">
+      <div className="ct-dictation-bubble__head">
+        <span role="alert" className="ct-dictation-error">{dictation.error}</span>
+        {dictation.dismissError && (
+          <button
+            type="button"
+            className="ct-dictation-bubble__close"
+            aria-label="Dismiss dictation error"
+            title="Dismiss"
+            onClick={dictation.dismissError}
+          >
+            <X size={14} strokeWidth={2.2} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /** Calm dot + word header status shown in the expanded composer's top bar while dictation is active. */
