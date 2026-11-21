@@ -12,6 +12,8 @@ mod role;
 #[path = "spawn_chatbackend/runtime_launch.rs"]
 mod runtime_launch;
 use runtime_launch::ChatBackendRuntimeLaunch;
+#[cfg(test)]
+use runtime_launch::{runtime_initial_payload, runtime_pending_payload, RuntimeFirstTurn};
 #[path = "spawn_chatbackend/watcher.rs"]
 mod watcher;
 use watcher::*;
@@ -70,59 +72,6 @@ fn runtime_resume_thread(
         (Some(thread), _) | (None, Some(thread)) => Ok(Some(thread.into())),
         (None, None) => Ok(None),
     }
-}
-
-/// What the first runtime turn carries: a system-prompt-capable provider already
-/// holds the brief in its instructions, so it only receives the assigned-task starter.
-#[derive(Debug, PartialEq, Eq)]
-enum RuntimeFirstTurn {
-    Starter(String),
-    Task(String),
-}
-
-fn runtime_pending_payload(
-    existing: Option<&crate::multiplexer::types::PendingDeliveryRecord>,
-    agent: &super::spawn::AgentSpawnSpec,
-    provider: Option<&dyn crate::agent::provider::AgentProvider>,
-) -> Option<RuntimeFirstTurn> {
-    if existing.is_some() {
-        None
-    } else {
-        runtime_initial_payload(agent, provider)
-    }
-}
-
-fn runtime_initial_payload(
-    agent: &super::spawn::AgentSpawnSpec,
-    provider: Option<&dyn crate::agent::provider::AgentProvider>,
-) -> Option<RuntimeFirstTurn> {
-    let task = agent
-        .task
-        .as_deref()
-        .filter(|task| !task.trim().is_empty())?;
-    let instructions_capable = provider.is_some_and(|provider| {
-        matches!(
-            super::launch_delivery::mode_for_descriptor(&provider.system_prompt_delivery()),
-            super::launch_delivery::LaunchDeliveryMode::SystemPrompt
-        )
-    });
-    if instructions_capable {
-        let prompt = crate::agent::provider::StarterPrompt::AssignedTask;
-        let text = super::launch_delivery::assigned_task_starter(
-            provider
-                .and_then(|provider| provider.starter_prompt_text(prompt))
-                .as_deref(),
-        );
-        return Some(RuntimeFirstTurn::Starter(
-            super::launch_delivery::mark_starter_prompt(prompt, text),
-        ));
-    }
-    Some(RuntimeFirstTurn::Task(
-        match agent.task_preamble.as_deref() {
-            Some(preamble) => format!("{preamble}{task}"),
-            None => task.into(),
-        },
-    ))
 }
 
 impl ServiceContext {

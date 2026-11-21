@@ -658,3 +658,293 @@ fn dispatch_profile_creation_preserves_title_and_startup_owner_before_readiness(
             .contains("profile startup identity inspected before readiness"));
     }
 }
+
+#[test]
+fn socket_plan_task_respawn_runtime_persists_binding_before_spawn_and_reaches_worker_ack() {
+    let (harness, owner, workspace) = fixture_with_profiles(Some(json!({
+        "selected": {"binary": "node", "args": [format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs", codeterm_service_core::test_support::fixture_manifest_dir().display())]}
+    })));
+    let svc = &harness.fixture.service;
+    let team = svc
+        .mux
+        .read()
+        .get_tab(&owner)
+        .unwrap()
+        .team_id
+        .clone()
+        .unwrap();
+    let mut plan = svc
+        .plan_store
+        .create_plan_for_team(
+            "runtime respawn".into(),
+            harness.fixture.temp.path().display().to_string(),
+            OrchestratorRef {
+                tab_id: Some(owner.clone()),
+                session_id: Some("owner-session".into()),
+                title: None,
+            },
+            team,
+            vec![],
+            1,
+        )
+        .unwrap();
+    plan.mode = PlanMode::Approved;
+    plan.planning_state = codeterm_service_core::plan::PlanningState::Approved;
+    svc.plan_store.save(&mut plan, 2).unwrap();
+    let added = crate::server::plan_task_rpc::dispatch(
+        "plan.task.add",
+        &Some(json!({
+            "plan_id": plan.id, "name": "Runtime respawn task", "personality": "Beacon",
+            "executor_role": "Probe", "role_guidance": "opaque-role", "body": "opaque-task",
+            "execution_intent": "non_repository", "acceptance_criteria": ["opaque-result"],
+            "test_plan": "opaque-verification", "caller_tab_id": owner,
+            "session_id": "owner-session", "session_binding_nonce": "owner-nonce"
+        })),
+        &Arc::new(svc.clone()),
+        3,
+    )
+    .unwrap();
+    let task = added["task_id"].as_str().unwrap().to_owned();
+    let (changed_tx, changed) = std::sync::mpsc::channel();
+    harness.fixture.ui.listen("plan-changed", move |_| {
+        let _ = changed_tx.send(());
+    });
+    let working_dir = harness.fixture.temp.path().join("respawn-cwd");
+    std::fs::create_dir(&working_dir).unwrap();
+    let dispatched = super::super::dispatch(
+        &Some(json!({
+            "plan_id": plan.id, "task_id": task, "agent": PROVIDER, "launch_profile": "selected",
+            "caller_tab_id": owner, "parent_tab_id": owner, "workspace_id": workspace,
+            "session_id": "owner-session", "session_binding_nonce": "owner-nonce",
+            "execution_intent": "read_only", "authorized_gates": ["opaque-gate"],
+            "cwd": working_dir
+        })),
+        &Arc::new(svc.clone()),
+        10,
+    )
+    .unwrap();
+    let source_tab = dispatched["tab_id"].as_str().unwrap().to_owned();
+    let source_attempt = dispatched["attempt_id"].as_str().unwrap().to_owned();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while svc
+        .plan_store
+        .inspect_task_for_test(&task)
+        .unwrap()
+        .task
+        .execution_attempts
+        .last()
+        .and_then(|attempt| attempt.session_binding_nonce.clone())
+        .is_none()
+    {
+        changed
+            .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+            .expect("initial dispatch startup did not commit binding");
+    }
+    svc.plan_store
+        .acknowledge_task_attempt(&plan.id, &task, &source_tab, &source_attempt, 11)
+        .unwrap();
+    let owner_epoch = svc
+        .plan_store
+        .inspect_task_for_test(&task)
+        .unwrap()
+        .task
+        .interruption
+        .owner_epoch;
+    assert_eq!(owner_epoch, 1);
+
+    let respawned = crate::server::plan_task_rpc::dispatch(
+        "plan.task.respawn",
+        &Some(json!({
+            "plan_id": plan.id, "task_id": task, "attempt_id": source_attempt,
+            "provider": PROVIDER, "launch_profile": "selected",
+            "caller_tab_id": owner, "parent_tab_id": owner, "workspace_id": workspace,
+            "session_id": "owner-session", "session_binding_nonce": "owner-nonce",
+            "owner_epoch": owner_epoch
+        })),
+        &Arc::new(svc.clone()),
+        20,
+    )
+    .unwrap();
+    let respawn_tab = respawned["tab_id"].as_str().unwrap().to_owned();
+    let respawn_attempt = respawned["attempt"]["id"].as_str().unwrap().to_owned();
+    assert_ne!(respawn_tab, source_tab);
+    assert_ne!(respawn_attempt, source_attempt);
+    assert!(svc.mux.read().get_tab(&source_tab).is_none());
+
+    // Immediately upon respawn return, tab.task_binding must already be non-null.
+    let immediate_binding = svc
+        .mux
+        .read()
+        .get_tab(&respawn_tab)
+        .unwrap()
+        .task_binding
+        .clone()
+        .expect("respawned ChatBackend tab must never have null task_binding");
+    assert_eq!(immediate_binding.plan_id.as_deref(), Some(plan.id.as_str()));
+    assert_eq!(immediate_binding.task_id.as_deref(), Some(task.as_str()));
+    assert_eq!(
+        immediate_binding.attempt_id.as_deref(),
+        Some(respawn_attempt.as_str())
+    );
+
+    let respawn_deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while svc
+        .plan_store
+        .inspect_task_for_test(&task)
+        .unwrap()
+        .task
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == respawn_attempt)
+        .and_then(|attempt| attempt.session_binding_nonce.clone())
+        .is_none()
+    {
+        changed
+            .recv_timeout(respawn_deadline.saturating_duration_since(std::time::Instant::now()))
+            .expect("respawn startup did not commit session and nonce");
+    }
+
+    let tab = svc.mux.read().get_tab(&respawn_tab).unwrap().clone();
+    assert!(matches!(
+        tab.backing,
+        codeterm_service_core::multiplexer::types::TabBacking::ChatBackend { .. }
+    ));
+    let session_id = tab
+        .agent_session_id
+        .clone()
+        .expect("respawned ChatBackend tab must bind a non-null session");
+    let nonce = tab
+        .session_binding_nonce
+        .clone()
+        .expect("respawned ChatBackend tab must bind a non-null nonce");
+    assert_eq!(tab.reported_session_binding_nonce.as_deref(), Some(nonce.as_str()));
+
+    let persisted = svc.plan_store.inspect_task_for_test(&task).unwrap().task;
+    assert_eq!(persisted.execution_attempts.len(), 2);
+    assert!(persisted.execution_attempts[0].retired_at.is_some());
+    assert!(persisted.execution_attempts[0].closed_at.is_some());
+    let attempt = &persisted.execution_attempts[1];
+    assert_eq!(attempt.id, respawn_attempt);
+    assert_eq!(attempt.executor_tab_id, respawn_tab);
+    assert_eq!(attempt.launch_profile.as_deref(), Some("selected"));
+    assert_eq!(
+        attempt.execution_intent,
+        Some(codeterm_service_core::plan::ExecutionIntent::ReadOnly)
+    );
+    assert_eq!(
+        attempt.authorized_gates.as_deref(),
+        Some(&["opaque-gate".into()][..])
+    );
+    assert_eq!(attempt.session_id.as_deref(), Some(session_id.as_str()));
+    assert_eq!(
+        attempt.session_binding_nonce.as_deref(),
+        Some(nonce.as_str())
+    );
+
+    let ack = svc
+        .plan_store
+        .acknowledge_live_task_attempt_for_tab_with_runtime_binding(
+            &respawn_tab,
+            Some(&plan.id),
+            Some(&task),
+            Some((&session_id, &nonce)),
+            25,
+        )
+        .unwrap();
+    assert_eq!(ack.attempt.id, respawn_attempt);
+    assert_eq!(ack.attempt.acknowledged_at, Some(25));
+    let acked = svc.plan_store.inspect_task_for_test(&task).unwrap().task;
+    assert_eq!(acked.status, TaskStatus::InProgress);
+    assert_eq!(acked.status_label.as_deref(), Some("acknowledged"));
+}
+
+#[test]
+fn socket_plan_task_respawn_spawn_failure_rolls_back_attempt_and_closes_reserved_tab() {
+    let (harness, owner, workspace) = fixture_with_profiles(Some(json!({
+        "selected": {"binary": "node", "args": [format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs", codeterm_service_core::test_support::fixture_manifest_dir().display())]}
+    })));
+    let svc = &harness.fixture.service;
+    let team = svc
+        .mux
+        .read()
+        .get_tab(&owner)
+        .unwrap()
+        .team_id
+        .clone()
+        .unwrap();
+    let mut plan = svc
+        .plan_store
+        .create_plan_for_team(
+            "respawn rollback".into(),
+            harness.fixture.temp.path().display().to_string(),
+            OrchestratorRef {
+                tab_id: Some(owner.clone()),
+                session_id: Some("owner-session".into()),
+                title: None,
+            },
+            team,
+            vec![],
+            1,
+        )
+        .unwrap();
+    plan.mode = PlanMode::Approved;
+    plan.planning_state = codeterm_service_core::plan::PlanningState::Approved;
+    svc.plan_store.save(&mut plan, 2).unwrap();
+    let task = svc
+        .plan_store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Rollback task".into(),
+                execution_intent: codeterm_service_core::plan::TaskExecutionIntent::NonRepository,
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    svc.plan_store
+        .assign_task(&plan.id, &task, "source-worker", None, 4)
+        .unwrap();
+    svc.plan_store
+        .edit_plan_fixture(&plan.id, 5, |plan| {
+            let entry = plan.tasks.iter_mut().find(|t| t.id == task).unwrap();
+            entry.status = TaskStatus::InProgress;
+            entry.interruption.execution_intent =
+                codeterm_service_core::plan::ExecutionIntent::ReadOnly;
+            entry.execution_attempts[0].execution_intent =
+                Some(codeterm_service_core::plan::ExecutionIntent::ReadOnly);
+            Ok(())
+        })
+        .unwrap();
+    let source_attempt = svc.plan_store.list_task_attempts(&plan.id, &task).unwrap()[0]
+        .attempt
+        .clone();
+    svc.plan_store
+        .record_task_executor_termination(&plan.id, &task, &source_attempt, 6)
+        .unwrap();
+    let source = source_attempt.id;
+    let tabs_before = svc.mux.read().snapshot().tabs.len();
+
+    let error = crate::server::plan_task_rpc::dispatch(
+        "plan.task.respawn",
+        &Some(json!({
+            "plan_id": plan.id, "task_id": task, "attempt_id": source,
+            "provider": PROVIDER, "launch_profile": "selected",
+            "speed": "unsupported-opaque-tier",
+            "caller_tab_id": owner, "parent_tab_id": owner, "workspace_id": workspace,
+            "session_id": "owner-session", "session_binding_nonce": "owner-nonce"
+        })),
+        &Arc::new(svc.clone()),
+        10,
+    )
+    .unwrap_err();
+    assert_eq!(error.code, -32603);
+    assert!(error.message.contains("Unsupported service tier"));
+    assert_eq!(svc.mux.read().snapshot().tabs.len(), tabs_before);
+    let restored = svc.plan_store.inspect_task_for_test(&task).unwrap().task;
+    assert_eq!(restored.status, TaskStatus::InProgress);
+    assert_eq!(restored.assigned_tab_id.as_deref(), Some("source-worker"));
+    assert_eq!(restored.execution_attempts[0].retired_at, None);
+    assert_eq!(restored.execution_attempts[0].closed_at, None);
+    assert_eq!(restored.execution_attempts[1].closed_at, Some(10));
+}
