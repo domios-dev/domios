@@ -37,6 +37,7 @@ const root = createRoot(host);
 async function run() {
   const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
   assert.deepEqual(visibleWorkspaceIds(ids.slice(0, 5), null, 3, false), { visible: ["a", "b", "c", "d", "e"], hidden: 0 }, "everything plus create fits in two rows");
+  assert.deepEqual(visibleWorkspaceIds(ids.slice(0, 6), null, 3, false, false), { visible: ["a", "b", "c", "d", "e", "f"], hidden: 0 }, "remote rows use the full two-row capacity without a local create card");
   assert.deepEqual(visibleWorkspaceIds(ids, null, 3, false), { visible: ["a", "b", "c", "d", "e"], hidden: 3 }, "two rows: five cards and a +N cell, no horizontal overflow");
   assert.deepEqual(visibleWorkspaceIds(ids, "h", 3, false).visible, ["a", "b", "c", "d", "h"], "the selected workspace stays visible when collapsed");
   assert.deepEqual(visibleWorkspaceIds(ids, null, 3, true), { visible: ids, hidden: 0 }, "expanded shows every workspace");
@@ -83,6 +84,29 @@ async function run() {
   assert(!dialog.querySelector('[role="radiogroup"]'), "editor has no per-workspace color controls");
   await act(async () => (dialog.querySelector(".sidebar-workspace-card-popover-done") as HTMLButtonElement).click());
   assert(!document.querySelector('[role="dialog"][aria-label="Edit CodeTerm workspace card"]'), "Done closes the portal editor");
+
+  await act(async () => root.render(
+    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderDisplay: () => {}, reorderWorkspaces: () => {} }}>
+      <WorkspaceCardGrid
+        workspaces={[workspace("[\"peer-b\",\"one\"]", "Remote project")]}
+        selectedWorkspaceId='["peer-b","one"]'
+        statuses={{}}
+        workingByWorkspace={{}}
+        sortIds={[]}
+        machinePeerId="peer-b"
+        machineName="Desk B"
+        machineStatus="online"
+        showMachineHeader
+        showCreate={false}
+        onSelect={() => {}}
+        onCreate={() => { creates += 1; }}
+      />
+    </SidebarDnd>,
+  ));
+  const machineSection = host.querySelector('[data-testid="workspace-machine-section"][data-peer-id="peer-b"]');
+  assert(machineSection?.getAttribute("aria-label")?.includes("Desk B"), "remote section identifies its machine");
+  assert.equal(machineSection?.querySelector('[aria-label="Create workspace"]'), null, "remote sections expose no local create action");
+  assert.equal(machineSection?.querySelector('[aria-label="Select workspace Remote project"]')?.getAttribute("aria-pressed"), "true");
 
   await act(async () => root.unmount());
   console.log("workspace card grid tests: passed");

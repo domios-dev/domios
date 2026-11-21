@@ -5,6 +5,10 @@ import { ActivityDots } from "../shared/ActivityDots";
 import { LockBadge } from "../billing/LockBadge";
 import { lockedDimClass, lockedView } from "../billing/freeLimitModel";
 import type { TabStatus, Workspace } from "../../lib/types";
+import { cleanMachineName } from "../../lib/machineIdentity";
+import { localInstanceLabel } from "../../lib/localInstanceName";
+import { useMeshMachineIdentity } from "../../lib/useMeshMachineIdentities";
+import { MachinePickerRow, machineRowLabel } from "../shared/MachineRow";
 import { SortableContext, SortableRow, WS_PREFIX, rectSortingStrategy } from "./sortable";
 import {
   defaultWorkspaceInitials,
@@ -21,6 +25,13 @@ interface WorkspaceCardGridProps {
   sortIds: string[];
   fullWorkspaceOrder?: string[];
   localWorkspaceIds?: ReadonlyMap<string, string>;
+  machinePeerId?: string | null;
+  machineName?: string;
+  machineStatus?: string;
+  showMachineHeader?: boolean;
+  showCreate?: boolean;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
   onSelect: (workspaceId: string) => void;
   onCreate: () => void;
 }
@@ -33,17 +44,19 @@ const EDITOR_HEIGHT = 82;
 const COLLAPSED_ROWS = 2;
 
 /**
- * Collapsed, two rows hold the cards plus one trailing control (create, or "+N" when
- * more are hidden); the selected workspace always stays visible. Expanded shows all.
+ * Collapsed, two rows reserve a trailing cell for create or "+N" when needed;
+ * selected workspaces always stay visible. Expanded shows all.
  */
 export function visibleWorkspaceIds(
   ids: readonly string[],
   selectedId: string | null,
   columns: number,
   expanded: boolean,
+  showCreate = true,
 ): { visible: string[]; hidden: number } {
-  const capacity = Math.max(1, columns * COLLAPSED_ROWS - 1);
-  if (expanded || ids.length <= capacity) return { visible: [...ids], hidden: 0 };
+  const rowCapacity = Math.max(1, columns * COLLAPSED_ROWS);
+  if (expanded || ids.length <= rowCapacity - Number(showCreate)) return { visible: [...ids], hidden: 0 };
+  const capacity = Math.max(1, rowCapacity - 1);
   const visible = ids.slice(0, capacity);
   if (selectedId && ids.includes(selectedId) && !visible.includes(selectedId)) visible[capacity - 1] = selectedId;
   return { visible, hidden: ids.length - visible.length };
@@ -56,7 +69,9 @@ export function mergeVisibleOrder(all: readonly string[], visibleOrdered: readon
   return all.map((id) => (visibleSet.has(id) ? visibleOrdered[next++] : id));
 }
 
-export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, workingByWorkspace, sortIds, fullWorkspaceOrder, localWorkspaceIds, onSelect, onCreate }: WorkspaceCardGridProps) {
+export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, workingByWorkspace, sortIds, fullWorkspaceOrder, localWorkspaceIds,
+  machinePeerId = null, machineName, machineStatus = "offline", showMachineHeader = false, showCreate = true, expanded: expandedProp,
+  onExpandedChange, onSelect, onCreate }: WorkspaceCardGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const [columns, setColumns] = useState(3);
@@ -64,9 +79,16 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, w
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editorPosition, setEditorPosition] = useState({ left: 0, top: 0 });
   const [draft, setDraft] = useState("");
-  const [expanded, setExpanded] = useState(false);
+  const [internalExpanded, setInternalExpanded] = useState(false);
+  const expanded = expandedProp ?? internalExpanded;
+  const setExpanded = onExpandedChange ?? setInternalExpanded;
+  const machineIdentity = useMeshMachineIdentity(machinePeerId, showMachineHeader);
+  const resolvedMachineName = machinePeerId
+    ? cleanMachineName(machineName, machinePeerId) ?? "Machine"
+    : cleanMachineName(machineName) ?? localInstanceLabel();
+  const status = machinePeerId ? machineStatus : "online";
   const allIds = workspaces.map((workspace) => workspace.id);
-  const { visible, hidden } = visibleWorkspaceIds(allIds, selectedWorkspaceId, columns, expanded);
+  const { visible, hidden } = visibleWorkspaceIds(allIds, selectedWorkspaceId, columns, expanded, showCreate);
   const visibleSet = new Set(visible);
   const shown = visible.map((id) => workspaces.find((workspace) => workspace.id === id)).filter((workspace): workspace is Workspace => workspace != null);
   const visibleSortIds = sortIds.filter((sortId) => visibleSet.has(sortId.slice(WS_PREFIX.length)));
@@ -131,8 +153,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, w
 
   const editingWorkspace = workspaces.find((workspace) => workspace.id === editingId) ?? null;
 
-  return <>
-    <div ref={scrollRef} className="sidebar-workspace-card-scroll" data-testid="workspace-card-scroll" role="region" aria-label="Workspace cards">
+  const grid = <div ref={scrollRef} className="sidebar-workspace-card-scroll" data-testid="workspace-card-scroll" role="region" aria-label="Workspace cards">
       <SortableContext items={visibleSortIds} strategy={rectSortingStrategy}>
         <div
           className="sidebar-workspace-card-grid"
@@ -209,7 +230,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, w
             >
               +{hidden}
             </button>
-          ) : (
+          ) : showCreate ? (
             <button
               type="button"
               data-testid="workspace-card-create"
@@ -220,7 +241,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, w
             >
               <Plus size={17} strokeWidth={1.5} />
             </button>
-          )}
+          ) : null}
           {expanded && overflow && (
             <button
               type="button"
@@ -236,6 +257,24 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, w
           )}
         </div>
       </SortableContext>
+    </div>;
+
+  return <>
+    <div
+      className={showMachineHeader ? "sidebar-workspace-machine-section" : undefined}
+      data-testid={showMachineHeader ? "workspace-machine-section" : undefined}
+      data-peer-id={showMachineHeader ? (machinePeerId ?? undefined) : undefined}
+      role={showMachineHeader ? "region" : undefined}
+      aria-label={showMachineHeader
+        ? machineRowLabel({ name: resolvedMachineName, identity: machineIdentity, status: status ?? "online", local: !machinePeerId })
+        : undefined}
+    >
+      {showMachineHeader && (
+        <h3 className="sidebar-workspace-machine-heading">
+          <MachinePickerRow name={resolvedMachineName} identity={machineIdentity} status={status ?? "online"} local={!machinePeerId} />
+        </h3>
+      )}
+      {grid}
     </div>
     {editingWorkspace && createPortal(
       <div

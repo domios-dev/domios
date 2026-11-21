@@ -340,3 +340,172 @@ fn relay_paths_with_dot_segments_or_backslashes_are_rejected() {
     assert!(validate_relay_path("/api/tabs/a/send?note=../x").is_ok());
     assert!(validate_relay_path("/api/tabs/a.b/send").is_ok());
 }
+
+#[tokio::test]
+async fn workspace_close_preview_relay_enforces_owner_origin_and_workspace_authority_without_mutation()
+{
+    use codeterm_service_core::mesh::types::Permission;
+
+    for path in [
+        "/api/workspaces/ws_remote/close-preview",
+        "/api/workspaces/ws_remote/close-preview?refresh=1",
+    ] {
+        for access in [
+            AccessLevel::Full,
+            AccessLevel::Custom(vec![Permission::ManageWorkspaces]),
+        ] {
+            assert_eq!(
+                authorize_peer_relay(
+                    "signed-peer",
+                    &access,
+                    &Method::GET,
+                    path,
+                    &serde_json::Value::Null,
+                    |_| None,
+                ),
+                PeerRelayAuthorization::WorkspaceClosePreview {
+                    peer_id: "signed-peer",
+                    workspace_id: "ws_remote",
+                },
+                "{access:?} {path}"
+            );
+        }
+        for access in [
+            AccessLevel::ReadOnly,
+            AccessLevel::AgentIsolated,
+            AccessLevel::Custom(vec![Permission::ReadTabs]),
+        ] {
+            assert_eq!(
+                authorize_peer_relay(
+                    "signed-peer",
+                    &access,
+                    &Method::GET,
+                    path,
+                    &serde_json::Value::Null,
+                    |_| None,
+                ),
+                PeerRelayAuthorization::Rejected,
+                "{access:?} {path}"
+            );
+        }
+    }
+
+    let (mut mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let protected_ws = mux.snapshot().workspaces[0].id.clone();
+    mux.get_workspace_mut(&protected_ws).unwrap().protected = true;
+    let target_ws = mux.create_workspace("Disposable Remote".into(), None).id;
+    let agent_tab = mux.create_tab(&target_ws).unwrap();
+    mux.get_tab_mut(&agent_tab).unwrap().agent_type = Some("fixture-provider".into());
+    mux.get_tab_mut(&agent_tab).unwrap().title = "WorkerOne".into();
+
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
+    let storage = codeterm_storage::Storage::open(
+        fixture.temp.path().join("storage"),
+        Default::default(),
+    )
+    .unwrap();
+    let store = codeterm_sentinel_host::store::Store::with_storage(
+        &storage,
+        codeterm_service_core::cron::clock::MockClock::starting_at(1000),
+    );
+    let handle =
+        codeterm_sentinel_host::scheduler::fixture_handle_with_ui(store, fixture.service.ui.clone());
+    codeterm_sentinel_host::manage_fixture_ports(&fixture.service, &handle);
+
+    let state = app_state(&fixture);
+    let mut full_peer = isolated_peer();
+    full_peer.instance_id = "peer-full".into();
+    full_peer.instance_name = "Full".into();
+    full_peer.access_level = AccessLevel::Full;
+    state.mesh.lock().insert_account_peer_for_test(full_peer);
+
+    let cmd = RelayCommand {
+        method: "GET".into(),
+        path: format!("/api/workspaces/{target_ws}/close-preview"),
+        body: serde_json::Value::Null,
+        delivery_id: None,
+    };
+
+    for origin in [
+        crate::auth::AuthenticatedOrigin::Agent,
+        crate::auth::AuthenticatedOrigin::Mesh,
+    ] {
+        let refused = perform_relay(&state, "peer-full", &cmd, origin, None, None)
+            .await
+            .expect_err("non-owner origin must be refused");
+        assert_eq!(refused.0, StatusCode::FORBIDDEN);
+    }
+
+    let isolated = perform_relay(
+        &state,
+        ISOLATED_PEER,
+        &cmd,
+        crate::auth::AuthenticatedOrigin::Owner,
+        None,
+        None,
+    )
+    .await
+    .expect("isolated refusal is a relay response");
+    assert!(!isolated.ok);
+    assert_eq!(isolated.status, StatusCode::FORBIDDEN.as_u16());
+
+    let before = serde_json::to_value(fixture.service.mux.read().snapshot()).unwrap();
+    let ok = perform_relay(
+        &state,
+        "peer-full",
+        &cmd,
+        crate::auth::AuthenticatedOrigin::Owner,
+        None,
+        None,
+    )
+    .await
+    .expect("owner-origin authorized peer preview succeeds");
+    assert!(ok.ok);
+    assert_eq!(ok.status, StatusCode::OK.as_u16());
+    let preview: codeterm_types::workspace_close_preview::WorkspaceClosePreview =
+        serde_json::from_value(ok.data.expect("preview payload")).unwrap();
+    assert_eq!(preview.installation_id, "relay-owner-gate");
+    assert_eq!(preview.workspace_id, target_ws);
+    assert_eq!(preview.workspace_name, "Disposable Remote");
+    assert!(!preview.protected);
+    assert_eq!(preview.agent_tabs.len(), 1);
+    assert_eq!(preview.agent_tabs[0].title, "WorkerOne");
+    let after = serde_json::to_value(fixture.service.mux.read().snapshot()).unwrap();
+    assert_eq!(after, before, "close-preview must not mutate multiplexer state");
+
+    let missing = perform_relay(
+        &state,
+        "peer-full",
+        &RelayCommand {
+            method: "GET".into(),
+            path: "/api/workspaces/missing-ws/close-preview".into(),
+            body: serde_json::Value::Null,
+            delivery_id: None,
+        },
+        crate::auth::AuthenticatedOrigin::Owner,
+        None,
+        None,
+    )
+    .await
+    .expect("missing workspace returns structured relay 404");
+    assert!(!missing.ok);
+    assert_eq!(missing.status, StatusCode::NOT_FOUND.as_u16());
+
+    let protected = perform_relay(
+        &state,
+        "peer-full",
+        &RelayCommand {
+            method: "GET".into(),
+            path: format!("/api/workspaces/{protected_ws}/close-preview"),
+            body: serde_json::Value::Null,
+            delivery_id: None,
+        },
+        crate::auth::AuthenticatedOrigin::Owner,
+        None,
+        None,
+    )
+    .await
+    .expect("protected workspace returns structured relay 409");
+    assert!(!protected.ok);
+    assert_eq!(protected.status, StatusCode::CONFLICT.as_u16());
+}

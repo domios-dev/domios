@@ -214,6 +214,10 @@ pub(super) fn create_router_with_preview_admission(
             post(workspace_routes::close_workspace),
         )
         .route(
+            "/api/workspaces/{id}/close-preview",
+            get(workspace_routes::close_preview),
+        )
+        .route(
             "/api/workspaces/{id}/recently-closed",
             get(workspace_routes::list_recently_closed),
         )

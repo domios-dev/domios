@@ -791,7 +791,11 @@ async fn perform_relay_unredacted(
             return Ok(grant_refusal());
         }
         if !origin.owner_trusted()
-            && matches!(authorization, PeerRelayAuthorization::WorkspaceClose { .. })
+            && matches!(
+                authorization,
+                PeerRelayAuthorization::WorkspaceClose { .. }
+                    | PeerRelayAuthorization::WorkspaceClosePreview { .. }
+            )
         {
             return Err((
                 StatusCode::FORBIDDEN,
@@ -816,6 +820,15 @@ async fn perform_relay_unredacted(
                 force,
             } => {
                 return close_workspace_from_mesh_peer(state, peer_id, workspace_id, force).await;
+            }
+            PeerRelayAuthorization::WorkspaceClosePreview {
+                workspace_id, ..
+            } => {
+                let response = workspace_close_preview_from_mesh_peer(state, workspace_id).await?;
+                if !grant.current(&state.mesh.lock()) {
+                    return Ok(grant_refusal());
+                }
+                return Ok(response);
             }
             PeerRelayAuthorization::MeshRpc { peer_id } => {
                 return mesh_rpc_from_mesh_peer(state, peer_id, &cmd.body, origin, agent).await;
@@ -1075,7 +1088,7 @@ mod peer_resolution;
 use path_guard::validate_relay_path;
 use peer_authorization::{
     authorize_peer_relay, close_workspace_from_mesh_peer, mesh_rpc_from_mesh_peer,
-    PeerRelayAuthorization,
+    workspace_close_preview_from_mesh_peer, PeerRelayAuthorization,
 };
 use peer_resolution::{
     peer_not_paired_error, peer_unroutable_error, resolve_exact_relay_peer, resolve_relay_peer,

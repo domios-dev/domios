@@ -139,6 +139,7 @@
   "src/lib/scrollActivity.test.ts",
   "src/components/Sidebar/GroupCloseConfirmDialog.closeInventory.test.tsx",
   "src/components/Sidebar/WorkspaceCloseConfirmDialog.test.tsx",
+  "src/components/Sidebar/useRemoteWorkspaceClose.test.tsx",
   "src/lib/closeFlow.contract.test.ts",
   "src/components/Canvas/missionControl/teamMissionControlState.test.ts",
   "src/components/AgentRun/toolActivityStream.test.tsx",
