@@ -52,7 +52,8 @@ export function FormDialog({ titleId, descriptionId, onCancel, onSubmit, childre
   const cancel = useRef(onCancel);
   cancel.current = onCancel;
   useBackDismissal(true, onCancel);
-  const top = useStableTop(dialog, !fullscreen);
+  const explicitlyAnchored = style?.bottom !== undefined || style?.top !== undefined;
+  const top = useStableTop(dialog, !fullscreen && !explicitlyAnchored);
   const anchored = top === null ? style : { ...style, marginTop: top, maxHeight: `calc(100dvh - ${top}px - 2rem)` };
   return createPortal(
     <div className={`fixed inset-0 z-[1000] grid ${top === null ? "place-items-center" : "items-start justify-items-center"} ${stacked ? STACKED_SCRIM : SCRIM} ${fullscreen ? "" : "p-4"}`} data-stacked={stacked || undefined}

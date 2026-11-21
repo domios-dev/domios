@@ -16,9 +16,11 @@ export function useComposerLayout(input: string, textareaRef: RefObject<HTMLText
     if (!textarea || !shell || compositionDefersAutosize(gate)) return;
     if (expanded) {
       textarea.style.height = "min(56dvh, calc(var(--ct-visual-height, 100dvh) - 12rem), 32rem)";
+      textarea.style.maxHeight = "100%";
       textarea.style.overflowY = "auto";
       return;
     }
+    textarea.style.maxHeight = "";
     const panel = shell.closest<HTMLElement>('[data-testid="terminal-tab"], [data-testid="tab-session-chat"]') ?? shell.ownerDocument.documentElement;
     if (!panel) return;
     const bounds = panel.getBoundingClientRect();

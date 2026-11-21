@@ -104,11 +104,18 @@ function ComposerActionsBody({
           {dictation && <DictationStatus dictation={dictation} />}
           {cardHeader}
         </> : cardHeader} footer={cardFooter}
-          actions={dictationActive && dictation
-            ? <DictationPresence dictation={dictation} />
-            : (!expanded && scheduleVisible && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />)}>
+          actions={!expanded
+            ? (dictationActive && dictation
+              ? <DictationPresence dictation={dictation} />
+              : (scheduleVisible && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />))
+            : undefined}>
           {children}
         </ComposerInputShell>
+        {expanded && dictationActive && dictation && (
+          <div className="ct-expanded-composer__dictation">
+            <DictationPresence dictation={dictation} />
+          </div>
+        )}
         {expanded && scheduleVisible && onSchedule && <div className="ct-expanded-composer__schedule"><ComposerScheduleButton onSchedule={onSchedule} /></div>}
         {!voiceUi.isPreview && (
           <ComposerActionButton
