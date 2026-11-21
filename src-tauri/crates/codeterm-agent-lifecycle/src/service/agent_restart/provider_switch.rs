@@ -24,10 +24,14 @@ struct SwitchBindingCleanup<'a> {
     service: &'a ServiceContext,
     tab_id: &'a str,
     interrupt_on_failure: bool,
+    preserve: bool,
 }
 
 impl Drop for SwitchBindingCleanup<'_> {
     fn drop(&mut self) {
+        if self.preserve || !operations::owns_target(self.service, self.tab_id) {
+            return;
+        }
         self.service.clear_runtime_restart_binding(self.tab_id);
         if self.interrupt_on_failure {
             if let Err(error) = self.service.signal_worker_interruption(
@@ -252,6 +256,7 @@ impl ProviderSwitchExt for ServiceContext {
             false,
         )?;
         self.validate_provider_switch_binding(&tab.id, carry.as_ref())?;
+        operations::progress(self, &tab.id, "source_retirement");
         self.retire_provider_switch_input(&tab.id)?;
         crate::service::orchestrator::supersede_tab_launch(&tab.id);
         let carry_required = carry.is_some();
@@ -260,6 +265,7 @@ impl ProviderSwitchExt for ServiceContext {
             service: self,
             tab_id: &tab.id,
             interrupt_on_failure: carry_required,
+            preserve: false,
         };
         match route.source {
             TargetRoute::Runtime => {
@@ -309,7 +315,7 @@ impl ProviderSwitchExt for ServiceContext {
             force,
         );
         if result.is_err() {
-            self.clear_runtime_restart_binding(&tab.id);
+            binding_cleanup.preserve = result.as_ref().err().is_some_and(|error| error.starts_with("provider_switch_readiness_unconfirmed:") || error.starts_with("provider_switch_superseded:"));
             if let Err(reason) = &result {
                 log::debug!(
                     "[provider-switch] tab={} target={} launch failed: {}",
@@ -317,24 +323,30 @@ impl ProviderSwitchExt for ServiceContext {
                     target,
                     reason
                 );
-                let mut mux = self.mux.write();
-                if let Some(current) = mux.get_tab_mut(&tab.id) {
+                if !binding_cleanup.preserve && !reason.starts_with("provider_switch_superseded:") && operations::owns_target(self, &tab.id) {
+                  let mut mux = self.mux.write();
+                  if let Some(current) = mux.get_tab_mut(&tab.id) {
                     current.agent_booting = false;
-                    if !agent_runtime::engine::has_live_bound_session(current) {
+                    if !current.launch_session_authenticated() {
                         crate::service::boot_stage::apply_boot_stage(
                             current,
                             codeterm_types::pty::BootStage::SpawnFailed,
                             Some(reason),
                         );
                     }
+                  }
                 }
             }
             self.schedule_session_persist_debounced();
             self.emit_state_changed(crate::service::MuxEmitCause::AgentRestart);
         }
-        let session_id = result?;
+        let session_id = result.map_err(|reason| format!("{reason}; source {} session {} retired; transcript {} retained; target {} in tab {} is recoverable only by exact current binding", source, tab.agent_session_id.as_deref().unwrap_or("unknown"), archive.display(), target, tab.id))?;
         binding_cleanup.interrupt_on_failure = false;
+        if !operations::owns_target(self, &tab.id) {
+            return Err("provider_switch_superseded: target changed before handoff; input was not sent".into());
+        }
         self.persist_general_provider_switch(&tab, target, &input.launch_parameters, &session_id)?;
+        operations::progress(self, &tab.id, "handoff");
         self.send_text(&tab.id, &handoff).map_err(|error| format!("provider_switch_handoff_unconfirmed: target session {session_id} is running; input will not be replayed: {error}"))?;
         self.schedule_session_persist_debounced();
         self.emit_state_changed(crate::service::MuxEmitCause::AgentRestart);
@@ -426,9 +438,13 @@ impl ProviderSwitchExt for ServiceContext {
             .as_deref()
             .ok_or("provider switch target absent")?;
         let mut outcome = RestartOutcome::accepted(snap, false, force);
+        operations::progress(self, &snap.tab_id, "target_launch");
+        let binding;
         match route {
             TargetRoute::Runtime => {
-                self.ensure_session_binding_nonce(&snap.tab_id);
+                let nonce = self.ensure_session_binding_nonce(&snap.tab_id);
+                binding = operations::TargetBinding::capture(self, &snap.tab_id, target, &nonce)?;
+                operations::target_launched(&binding);
                 if let Some(prompt) = input.launch_parameters.identity_instructions.as_ref() {
                     if let Some(tab) = self.mux.write().get_tab_mut(&snap.tab_id) {
                         tab.agent_runtime_config
@@ -445,10 +461,9 @@ impl ProviderSwitchExt for ServiceContext {
                     .and_then(|tab| tab.agent_runtime_config.clone())
                     .unwrap_or_default();
                 agent_runtime::transport::launch(self, target, &snap.tab_id, config)?;
-                outcome.agent_ready = true;
             }
             TargetRoute::Pty => {
-                crate::service::orchestrator::launch_agent_in_background_with_env(
+                let nonce = crate::service::orchestrator::launch_agent_in_background_with_env(
                     self.clone(),
                     snap.tab_id.clone(),
                     prepared.ok_or("target command unavailable")?,
@@ -462,26 +477,22 @@ impl ProviderSwitchExt for ServiceContext {
                     None,
                     None,
                     None,
-                );
-                outcome = self
-                    .finish_observed_restart(
-                        outcome,
-                        (!snap.pty_id.is_empty()).then_some(snap.pty_id.as_str()),
-                        std::time::Duration::from_secs(super::RESTART_READY_TIMEOUT_SECS),
-                    )
-                    .map_err(|error| {
-                        switch_attempt_error("provider_switch_launch_failed", error)
-                    })?;
+                ).ok_or("provider_switch_launch_failed: target did not reserve a launch")?;
+                binding = operations::TargetBinding::capture(self, &snap.tab_id, target, &nonce)?;
+                operations::target_launched(&binding);
             }
         }
+        let session = operations::await_target_binding(self, &snap.tab_id, &binding, std::time::Duration::from_secs(super::RESTART_READY_TIMEOUT_SECS))?;
+        operations::progress(self, &snap.tab_id, "target_ready");
+        outcome.agent_ready = true;
+        outcome.new_pty_id = self.mux.read().get_tab(&snap.tab_id).and_then(|tab| tab.pty_id.clone());
         let outcome = self
             .settle_restored_binding(outcome, snap, carry_required)
             .map_err(|error| switch_attempt_error("provider_switch_binding_failed", error))?;
-        self.mux
-            .read()
-            .get_tab(&outcome.tab_id)
-            .and_then(|tab| tab.agent_session_id.clone())
-            .ok_or("provider_switch_binding_failed: target session unavailable".into())
+        let mux = self.mux.read();
+        let current = mux.get_tab(&outcome.tab_id).filter(|tab| binding.matches(tab) && tab.agent_session_id.as_deref() == Some(session.as_str()) && tab.launch_session_authenticated())
+            .ok_or("provider_switch_superseded: target binding changed during settlement")?;
+        current.agent_session_id.clone().ok_or("provider_switch_binding_failed: target session unavailable".into())
     }
 
     fn provider_switch_route(

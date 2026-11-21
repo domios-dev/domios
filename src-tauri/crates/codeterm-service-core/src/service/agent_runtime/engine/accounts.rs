@@ -17,13 +17,22 @@ pub(super) async fn ensure(
     }
     let owner = svc.clone();
     let target = tab.to_owned();
-    let invocation = codeterm_plugin::js_runtime::spawn_blocking(move || {
+    let invocation = await_account_supervision(codeterm_plugin::js_runtime::spawn_blocking(move || {
         crate::service::provider_accounts::for_tab(&owner, &target)
-    })
-    .await
+    }), std::time::Duration::from_secs(60))
+    .await?
     .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
     .map_err(RuntimeFailure::Refused)?;
     codeterm_plugin::provider_account::scope(invocation, ensure_scoped(svc, tab, fork)).await
+}
+
+pub(super) async fn await_account_supervision<T>(
+    provision: impl std::future::Future<Output = T>,
+    deadline: std::time::Duration,
+) -> Result<T, RuntimeFailure> {
+    tokio::time::timeout(deadline, provision)
+        .await
+        .map_err(|_| RuntimeFailure::Deadline)
 }
 
 pub async fn ensure_with_invocation(

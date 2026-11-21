@@ -97,6 +97,24 @@ export function capturedUnavailable(document, tab) {
     && ['degraded', 'refused', 'unavailable'].includes(runtime?.state) ? runtime : null;
 }
 
+export function capturedFailedLaunch(document, tab) {
+  const history = document.histories.find(row => row.tab_id === tab.tab_id);
+  const evidence = history?.transcript?.failed_launch;
+  const identity = tab.agent_identity;
+  if (history?.transcript?.status !== 'failed_launch' || !evidence
+    || history.transcript.reason != null
+    || Object.keys(history.transcript).some(key => !['status', 'backing_kind', 'provider', 'reason', 'failed_launch'].includes(key))
+    || Object.keys(evidence).some(key => !['boot_stage', 'boot_failure_reason'].includes(key))
+    || (evidence.boot_failure_reason != null && typeof evidence.boot_failure_reason !== 'string')
+    || identity?.boot_stage !== 'spawn_failed' || evidence.boot_stage !== 'spawn_failed'
+    || (evidence.boot_failure_reason ?? null) !== (identity.boot_failure_reason ?? null)
+    || history.shape.length || history.transcript.backing_kind !== 'pty'
+    || history.transcript.provider !== (tab.agent_type ?? null)
+    || tab.chatbackend_plugin_id || tab.surface || identity.agent_runtime_state
+    || (!tab.role && !tab.agent_type && !identity.restorable_launch?.failed_provider)) return null;
+  return evidence;
+}
+
 export function requireBackings(document) {
   const tabs = validateCapture(document);
   const ids = new Set(tabs.map(tab => tab.tab_id));
@@ -105,6 +123,10 @@ export function requireBackings(document) {
   }
   for (const tab of tabs) {
     const transcript = document.histories.find(row => row.tab_id === tab.tab_id)?.transcript;
+    if (transcript?.status === 'failed_launch') {
+      if (!capturedFailedLaunch(document, tab)) throw new Error(`tab=${tab.tab_id}: failed launch evidence changed or incomplete`);
+      continue;
+    }
     if (transcript?.status === 'unavailable' && !capturedUnavailable(document, tab)) {
       throw new Error(`tab=${tab.tab_id}: transcript unavailable (backing=${transcript.backing_kind}, provider=${transcript.provider ?? 'none'})`);
     }

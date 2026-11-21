@@ -80,6 +80,26 @@ struct HistoryShape {
     image_bytes: usize,
 }
 
+#[derive(serde::Serialize)]
+struct FailedLaunchEvidence {
+    boot_stage: codeterm_types::pty::BootStage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    boot_failure_reason: Option<String>,
+}
+
+fn failed_launch_evidence(node: &SplitNodeSnapshot) -> Option<FailedLaunchEvidence> {
+    let SplitNodeSnapshot::Leaf {agent_identity, agent_type, role, chatbackend_plugin_id, surface, ..} = node else { return None };
+    let identity = agent_identity.as_ref()?;
+    (identity.boot_stage == Some(codeterm_types::pty::BootStage::SpawnFailed)
+        && identity.agent_runtime_state.is_none()
+        && chatbackend_plugin_id.is_none() && surface.is_none()
+        && (role.is_some() || agent_type.is_some() || identity.restorable_launch.failed_provider.is_some()))
+        .then(|| FailedLaunchEvidence {
+            boot_stage: codeterm_types::pty::BootStage::SpawnFailed,
+            boot_failure_reason: identity.boot_failure_reason.clone(),
+        })
+}
+
 /// Replay synthesizes text from these sizes, so the export grows with message count, not history bytes.
 fn history_shape(messages: &[codeterm_types::agent::chat_types::ChatMsg]) -> HistoryShape {
     let mut groups = std::collections::HashMap::new();
@@ -168,8 +188,11 @@ fn capture_snapshot(
             "pty"
         };
         let provider = chatbackend_plugin_id.as_deref().or(agent_type.as_deref());
+        let failed_launch = failed_launch_evidence(node);
         let (messages, status, reason) =
-            if node.agent_session().is_some() || chatbackend_plugin_id.is_some() {
+            if failed_launch.is_some() {
+                (Vec::new(), "failed_launch", None)
+            } else if node.agent_session().is_some() || chatbackend_plugin_id.is_some() {
                 match capture(node) {
                     Ok(messages) => (messages, "captured", None),
                     Err(error) => (Vec::new(), "unavailable", Some(sanitize::filler(&error))),
@@ -190,8 +213,12 @@ fn capture_snapshot(
             "prompt_bytes":prompt.len(),"identity_bytes":identity.len(),"history_bytes":history_bytes.0,
             "history_pages":messages.len().div_ceil(PAGE_SIZE),"history_items":messages.len(),
             "normalized_turn_groups":shape.groups,"image_items":shape.image_items,"image_bytes":shape.image_bytes}));
+        let mut transcript = json!({"status":status,"backing_kind":backing,"provider":provider,"reason":reason});
+        if let Some(evidence) = failed_launch {
+            transcript["failed_launch"] = serde_json::to_value(evidence).map_err(|error| error.to_string())?;
+        }
         histories.push(json!({"tab_id":tab_id,"page_size":PAGE_SIZE,"shape":shape.rows,
-            "transcript":{"status":status,"backing_kind":backing,"provider":provider,"reason":reason}}));
+            "transcript":transcript}));
     }
     let safe_snapshot =
         sanitize::sanitize(&serde_json::to_value(&snapshot).map_err(|e| e.to_string())?)?;

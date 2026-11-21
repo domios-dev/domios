@@ -5,6 +5,20 @@ use super::sync_send::{
 use super::*;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+#[tokio::test]
+async fn account_supervision_deadline_cannot_continue_a_cancelled_launch() {
+    let (release, provision) = tokio::sync::oneshot::channel::<()>();
+    assert!(matches!(
+        accounts::await_account_supervision(provision, Duration::ZERO).await,
+        Err(RuntimeFailure::Deadline)
+    ));
+    assert!(release.send(()).is_err());
+    assert_eq!(
+        accounts::await_account_supervision(std::future::ready(7), Duration::ZERO).await.unwrap(),
+        7
+    );
+}
+
 #[test]
 fn fresh_runtime_history_is_empty_before_rollout_and_readable_when_ready() {
     assert_fresh_history_ready(RuntimeAuthState::SignedIn, true);

@@ -5,7 +5,7 @@ import {worstCases} from './fixtures.mjs';
 import {leaves, validateCapture, requireBackings, verdict, failureReason, measurements, requireRestart, historyMatches,
   synthesizeHistory} from './model.mjs';
 import {peer} from './fake-peer.mjs';
-import {unavailableVerdict} from './unavailable.mjs';
+import {unavailableVerdict, failedLaunchVerdict} from './unavailable.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const fixture = () => worstCases(root, '/isolated-fixture-project');
@@ -97,6 +97,45 @@ test('captured unavailable state has a separate passive oracle and rejects activ
     assert.equal(unavailableVerdict(document, tab, changed, []).preserved, false);
   }
   assert.equal(unavailableVerdict(document, tab, actual, [{thread_id: tab.agent_session_id}]).preserved, false);
+});
+
+test('failed role-bearing PTY conserves failure and hierarchy without utility or runtime authority', () => {
+  const document = fixture();
+  const tab = leaves(document)[0];
+  tab.agent_type = null;
+  delete tab.agent_session_id;
+  delete tab.claude_session_id;
+  delete tab.agent_identity.agent_runtime_state;
+  delete tab.agent_identity.session_binding_nonce;
+  delete tab.agent_identity.reported_session_binding_nonce;
+  delete tab.agent_identity.task_binding;
+  tab.agent_identity.boot_stage = 'spawn_failed';
+  tab.agent_identity.boot_failure_reason = 'xxxxxxxx: xxxxxxxx';
+  const history = document.histories[0];
+  history.shape = [];
+  history.transcript = {status: 'failed_launch', backing_kind: 'pty', provider: null,
+    failed_launch: {boot_stage: 'spawn_failed', boot_failure_reason: 'xxxxxxxx: xxxxxxxx'}};
+  document.measurements = measurements(document.snapshot, document.histories);
+  assert.equal(requireBackings(document).length, 6);
+  const actual = {...tab, ...tab.agent_identity, backing: {kind: 'pty'}, frozen: true,
+    pty_id: null, agent_booting: false, agent_state: null, agent_runtime_state: null};
+  assert.deepEqual(failedLaunchVerdict(document, tab, actual, []), {
+    tab_id: tab.tab_id, bucket: 'preserved-failed-launch', preserved: true,
+    reason: 'captured launch failure and hierarchy preserved without activation'});
+  assert.equal(unavailableVerdict(document, tab, actual, []).preserved, false);
+  assert.equal(verdict(tab, actual).ready, false);
+  for (const changed of [{...actual, role: null}, {...actual, boot_failure_reason: null},
+    {...actual, boot_stage: 'shell_ready'}, {...actual, agent_type: 'claude'},
+    {...actual, agent_session_id: 'invented'}, {...actual, reported_session_binding_nonce: 'invented'},
+    {...actual, frozen: false}, {...actual, pty_id: 'activated'},
+    {...actual, backing: {kind: 'surface'}}, {...actual, agent_runtime_state: {state: 'loaded'}}]) {
+    assert.equal(failedLaunchVerdict(document, tab, changed, []).preserved, false);
+  }
+  assert.equal(failedLaunchVerdict(document, tab, actual, [{tab_id: tab.tab_id}]).preserved, false);
+  history.transcript.failed_launch.boot_failure_reason = 'changed';
+  assert.throws(() => requireBackings(document), /failed launch evidence changed/);
+  history.transcript = {status: 'not_applicable', backing_kind: 'pty', provider: null};
+  assert.throws(() => requireBackings(document), /unsupported utility backing evidence/);
 });
 
 test('capture refuses missing plan backing for a legacy plan/task-only Worker', () => {

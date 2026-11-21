@@ -2,6 +2,35 @@ use super::*;
 use crate::multiplexer::types::TabBacking;
 
 #[test]
+fn compact_lifecycle_never_turns_missing_readiness_or_failure_into_idle() {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    assert_eq!(tab_status_label(tab, None), "unknown");
+    tab.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
+    tab.agent_booting = true;
+    assert_eq!(tab_status_label(tab, Some(TabStatus::Idle)), "starting");
+    tab.agent_booting = false;
+    tab.boot_stage = Some(BootStage::LaunchBindingUnconfirmed);
+    assert_eq!(tab_status_label(tab, Some(TabStatus::Idle)), "unknown");
+    tab.boot_stage = Some(BootStage::SpawnFailed);
+    tab.boot_failure_reason = Some("opaque-supervision-failure".into());
+    assert_eq!(tab_status_label(tab, Some(TabStatus::Idle)), "error");
+    assert_eq!(effective_tab_status(tab, Some(TabStatus::Idle)), TabStatus::Error);
+    assert_eq!(resolved_tab_status(tab, &TabStatusTracker::new(), |_, raw| raw), Some(TabStatus::Error));
+    tab.boot_stage = Some(BootStage::ShellReady);
+    assert_eq!(tab_status_label(tab, Some(TabStatus::Idle)), "unknown");
+    tab.agent_type = Some("opaque-provider".into());
+    tab.boot_stage = Some(BootStage::AgentReady);
+    assert_eq!(tab_status_label(tab, Some(TabStatus::Idle)), "unknown");
+    tab.agent_session_id = Some("current-session".into());
+    tab.session_binding_nonce = Some("current-nonce".into());
+    tab.reported_session_binding_nonce = Some("current-nonce".into());
+    assert_eq!(tab_status_label(tab, Some(TabStatus::Idle)), "idle");
+    tab.agent_runtime_state = Some(serde_json::json!({"state":"degraded","reason":"opaque"}));
+    assert_eq!(tab_status_label(tab, Some(TabStatus::Idle)), "error");
+}
+
+#[test]
 fn chat_backend_turn_state_is_published_without_a_pty() {
     let (mut mux, tab_id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();

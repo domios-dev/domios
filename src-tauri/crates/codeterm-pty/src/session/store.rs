@@ -84,6 +84,8 @@ pub struct AgentIdentitySnapshot {
     pub turn_resume: Option<crate::multiplexer::types::TurnResumeMark>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub boot_stage: Option<codeterm_types::pty::BootStage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boot_failure_reason: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "crate::multiplexer::types::ReasoningEffortIdentity::is_empty"
