@@ -2,6 +2,7 @@ import type { TeamCloseResource } from "./teamCloseResources";
 
 export function WorkspaceCloseConfirmDialog({
   workspaceName,
+  machineName,
   agentTitles,
   blueprints = [],
   teams,
@@ -9,6 +10,7 @@ export function WorkspaceCloseConfirmDialog({
   onCancel,
 }: {
   workspaceName: string;
+  machineName?: string;
   agentTitles: string[];
   blueprints?: readonly string[];
   teams: readonly TeamCloseResource[];
@@ -21,12 +23,13 @@ export function WorkspaceCloseConfirmDialog({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`Close ${workspaceName}`}
+        aria-label={`Close ${workspaceName}${machineName ? ` on ${machineName}` : ""}`}
         className="fixed z-50 top-1/2 left-1/2 w-[min(480px,calc(100vw-2rem))] max-h-[80vh] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-[var(--ct-border)] bg-[var(--ct-surface)] shadow-2xl"
       >
         <div className="px-4 pt-4 pb-2 text-[13px] font-medium text-[var(--ct-fg)]">
           Close workspace?
         </div>
+        {machineName && <div className="px-4 pb-2 text-[12px] text-[var(--ct-muted-fg)]">{workspaceName} · {machineName}</div>}
         <div className="max-h-[60vh] overflow-y-auto px-4 py-1 text-[12px] text-[var(--ct-muted-fg)]">
           <div>Teams ({teams.length})</div>
           {teams.map((team) => (

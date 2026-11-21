@@ -44,4 +44,29 @@ describe("workspace close confirmation", () => {
       host.remove();
     }
   });
+
+  it("names both the workspace and machine for a remote close", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(
+          <WorkspaceCloseConfirmDialog
+            workspaceName="Project"
+            machineName="Desk · 1234abcd"
+            agentTitles={[]}
+            teams={[]}
+            onConfirm={() => {}}
+            onCancel={() => {}}
+          />,
+        );
+      });
+      expect(host.querySelector('[role="dialog"][aria-label="Close Project on Desk · 1234abcd"]')).not.toBeNull();
+      expect(host.textContent).toContain("Project · Desk · 1234abcd");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
 });

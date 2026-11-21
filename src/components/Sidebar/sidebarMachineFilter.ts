@@ -45,6 +45,21 @@ export function sidebarWorkspaceKey(peerId: string | null, workspaceId: string):
   return JSON.stringify([peerId, workspaceId]);
 }
 
+export function groupSidebarWorkspaceMachines<T extends { peerId: string | null }>(
+  workspaces: readonly T[],
+  peerIds: readonly (string | null)[] = [],
+) {
+  const groups = new Map<string | null, T[]>();
+  for (const workspace of workspaces) {
+    const entries = groups.get(workspace.peerId) ?? [];
+    entries.push(workspace);
+    groups.set(workspace.peerId, entries);
+  }
+  for (const peerId of peerIds) if (!groups.has(peerId)) groups.set(peerId, []);
+  return [...groups].sort(([left], [right]) => left === null ? -1 : right === null ? 1 : left < right ? -1 : left > right ? 1 : 0)
+    .map(([peerId, entries]) => ({ peerId, workspaces: entries }));
+}
+
 export function selectSidebarWorkspaceView<T extends { key: string; peerId: string | null; selected?: boolean }>(
   workspaces: readonly T[],
   selectedKey: string | null,
