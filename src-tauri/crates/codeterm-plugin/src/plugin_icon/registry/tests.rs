@@ -112,3 +112,86 @@ fn raster_types_need_matching_signatures_and_use_data_only() {
     }
     assert!(sanitize("image/webp", b"RIFF").is_none());
 }
+
+#[test]
+fn redirect_policy_and_mime_caps_bound_https_svg_fetches() {
+    assert!(redirect_allowed("https://cdn.example.test/icon.svg", 0));
+    assert!(redirect_allowed("https://cdn.example.test/icon.svg", MAX_REDIRECTS - 1));
+    assert!(!redirect_allowed("https://cdn.example.test/icon.svg", MAX_REDIRECTS));
+    assert!(!redirect_allowed("http://cdn.example.test/icon.svg", 0));
+    assert!(!redirect_allowed("file:///tmp/icon.svg", 0));
+    assert!(!redirect_allowed("https://user@cdn.example.test/icon.svg", 0));
+    assert_eq!(
+        max_bytes_for_mime("image/svg+xml; charset=utf-8"),
+        Some(crate::plugin_icon::MAX_PLUGIN_ICON_BYTES)
+    );
+    assert_eq!(max_bytes_for_mime("image/png"), Some(MAX_BYTES));
+    assert!(max_bytes_for_mime("text/html").is_none());
+    assert!(max_bytes_for_mime("application/javascript").is_none());
+}
+
+#[tokio::test]
+async fn resolve_caches_valid_svg_rejects_bad_payloads_and_falls_back_offline() {
+    let root = tempfile::tempdir().unwrap();
+    let url = "https://cdn.example.test/brand.svg";
+    let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M1 1h22v22H1z\"/></svg>";
+
+    let fetched = resolve_with(root.path().to_path_buf(), url, 1_000, |_| async {
+        FetchOutcome::Ok {
+            mime: "image/svg+xml; charset=utf-8".into(),
+            bytes: svg.to_vec(),
+        }
+    })
+    .await
+    .expect("valid fetched SVG");
+    assert!(fetched.contains("<path"));
+    assert_eq!(read_cached(root.path(), url).as_deref(), Some(fetched.as_str()));
+
+    let mut called = false;
+    let cached_hit = resolve_with(root.path().to_path_buf(), url, 1_001, |_| {
+        called = true;
+        async { FetchOutcome::Unavailable }
+    })
+    .await;
+    assert!(!called, "fresh cache must not hit network");
+    assert_eq!(cached_hit.as_deref(), Some(fetched.as_str()));
+
+    let offline = resolve_with(
+        root.path().to_path_buf(),
+        url,
+        1_000 + TTL.as_secs() + 10,
+        |_| async { FetchOutcome::Unavailable },
+    )
+    .await;
+    assert_eq!(
+        offline.as_deref(),
+        Some(fetched.as_str()),
+        "offline refresh reuses revalidated cached icon"
+    );
+
+    let bad_url = "https://cdn.example.test/malicious.svg";
+    for bad in [
+        b"<svg><script>alert(1)</script></svg>".to_vec(),
+        b"<svg><mask id=\"m\"/><foreignObject/></svg>".to_vec(),
+        vec![b'a'; crate::plugin_icon::MAX_PLUGIN_ICON_BYTES + 1],
+    ] {
+        assert!(resolve_with(root.path().to_path_buf(), bad_url, 2_000, |_| async {
+            FetchOutcome::Ok {
+                mime: "image/svg+xml".into(),
+                bytes: bad,
+            }
+        })
+        .await
+        .is_none());
+        assert!(read_cached(root.path(), bad_url).is_none());
+    }
+
+    let missing_url = "https://cdn.example.test/offline.svg";
+    assert!(
+        resolve_with(root.path().to_path_buf(), missing_url, 2_000, |_| async {
+            FetchOutcome::Unavailable
+        })
+        .await
+        .is_none()
+    );
+}

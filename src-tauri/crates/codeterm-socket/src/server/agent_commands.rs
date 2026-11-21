@@ -120,7 +120,7 @@ pub(super) fn dispatch(
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     let svc = &**svc;
-    let (id, _) = parse_method(method).ok_or_else(|| JsonRpcError {
+    let (id, verb) = parse_method(method).ok_or_else(|| JsonRpcError {
         code: -32600,
         message: format!("malformed plugin command method: {method} (expected plugin:<id>.<verb>)"),
         data: None,
@@ -146,11 +146,12 @@ pub(super) fn dispatch(
         params,
         scope.as_deref(),
     )?;
-    if result
+    let catalogue_changed = result
         .get("catalogue_changed")
         .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
+        .unwrap_or(false);
+    let succeeded = result.get("error").is_none();
+    if catalogue_changed {
         log::debug!(
             "[agent_command] refresh trigger source=command provider={} method={}",
             id,
@@ -165,6 +166,24 @@ pub(super) fn dispatch(
         } else if svc.chatbackend_registry.get(&id).is_some() {
             let _ = svc.chatbackend_registry.refresh_provider(&id);
         }
+    }
+    if succeeded
+        && (catalogue_changed || verb == "registry-refresh")
+        && svc.agent_registry.with_provider(&id, |provider| {
+            provider
+                .agent_runtime()
+                .is_some_and(|runtime| runtime.launch_profiles.is_some())
+        }) == Some(true)
+    {
+        let service = svc.clone();
+        let provider_id = id.clone();
+        codeterm_service_core::async_runtime::spawn(async move {
+            let _ = codeterm_service_core::service::agent_runtime::refresh_provider_profile_icons(
+                &service,
+                &provider_id,
+            )
+            .await;
+        });
     }
     if let Some(object) = result.as_object_mut() {
         object.remove("catalogue_changed");

@@ -109,4 +109,5 @@ pub async fn answer_question(
         .map_err(|reason| reason.to_string())?
 }
 
+pub use engine::refresh_provider_profile_icons;
 pub use restore::tab as restore_tab;

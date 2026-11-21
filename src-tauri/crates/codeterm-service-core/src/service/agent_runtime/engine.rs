@@ -94,6 +94,7 @@ pub fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bool {
 pub(super) mod backfill;
 
 mod icons;
+pub use icons::refresh_provider_profile_icons;
 #[path = "engine/launch.rs"]
 mod launch;
 mod resume;

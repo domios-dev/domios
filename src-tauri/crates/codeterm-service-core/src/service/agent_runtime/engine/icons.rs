@@ -58,22 +58,32 @@ pub(super) fn start(svc: &ServiceContext, session: &Arc<Session>) {
         .as_ref()
         .and_then(|adapter| adapter.agent_runtime())
         .and_then(|runtime| runtime.launch_profiles?.get(profile.as_deref()?).cloned());
+    let has_local_icon = declaration
+        .as_ref()
+        .is_some_and(|profile| profile.icon.is_some());
     if let Some(icon) = declaration
         .as_ref()
         .and_then(|profile| profile.icon_svg.clone())
         .filter(|icon| !icon.trim().is_empty())
     {
         publish_icon(&svc, &session, &context.tab_id, epoch, Some(icon));
-        if declaration
-            .as_ref()
-            .and_then(|profile| profile.icon_url.as_ref())
-            .is_none()
+        if has_local_icon
+            || declaration
+                .as_ref()
+                .and_then(|profile| profile.icon_url.as_ref())
+                .is_none()
         {
             return;
         }
     }
+    if has_local_icon {
+        return;
+    }
     crate::async_runtime::spawn(async move {
         let root = crate::paths::data_dir_path().join(&session.provider);
+        let cache_dir =
+            codeterm_plugin::agent_runtime::owner_profiles::icon_cache_dir(&session.provider)
+                .unwrap_or_else(|_| root.join("cache/icons"));
         let lookup_root = root.clone();
         let registry_id = declaration
             .as_ref()
@@ -91,8 +101,7 @@ pub(super) fn start(svc: &ServiceContext, session: &Arc<Session>) {
         let Some(url) = url else {
             return;
         };
-        let icon =
-            codeterm_plugin::plugin_icon::registry::resolve(root.join("cache/icons"), &url).await;
+        let icon = codeterm_plugin::plugin_icon::registry::resolve(cache_dir, &url).await;
         if let Some(icon) = icon.as_ref() {
             let provider = session.provider.clone();
             let url = url.clone();
@@ -116,6 +125,97 @@ pub(super) fn start(svc: &ServiceContext, session: &Arc<Session>) {
         }
         publish_icon(&svc, &session, &context.tab_id, epoch, icon);
     });
+}
+
+fn resolve_profile_icon_url(
+    registry_root: &std::path::Path,
+    profile: &RuntimeLaunchProfile,
+) -> Option<String> {
+    if profile.icon.is_some() {
+        return None;
+    }
+    profile
+        .registry_id
+        .as_deref()
+        .and_then(|id| registry_url(registry_root, None, Some(id)))
+        .filter(|url| codeterm_plugin::plugin_icon::registry::valid_url(url))
+        .or_else(|| {
+            profile
+                .icon_url
+                .clone()
+                .filter(|url| codeterm_plugin::plugin_icon::registry::valid_url(url))
+        })
+}
+
+pub async fn refresh_provider_profile_icons(svc: &ServiceContext, provider: &str) -> usize {
+    let has_profiles = svc
+        .agent_registry
+        .with_provider(provider, |p| {
+            p.agent_runtime()
+                .is_some_and(|runtime| runtime.launch_profiles.is_some())
+        })
+        .unwrap_or(false);
+    if !has_profiles {
+        return 0;
+    }
+    let provider_name = provider.to_owned();
+    let root = crate::paths::data_dir_path().join(provider);
+    let lookup_root = root.clone();
+    let Ok(Ok(targets)) = tokio::task::spawn_blocking(move || {
+        codeterm_plugin::agent_runtime::owner_profiles::load(&provider_name).map(|profiles| {
+            profiles
+                .into_iter()
+                .filter_map(|(id, profile)| {
+                    let url = resolve_profile_icon_url(&lookup_root, &profile)?;
+                    Some((id, url))
+                })
+                .collect::<Vec<_>>()
+        })
+    })
+    .await
+    else {
+        return 0;
+    };
+    let cache_dir = codeterm_plugin::agent_runtime::owner_profiles::icon_cache_dir(provider)
+        .unwrap_or_else(|_| root.join("cache/icons"));
+    let mut refreshed = 0;
+    for (profile_id, url) in targets {
+        let Some(icon) =
+            codeterm_plugin::plugin_icon::registry::resolve(cache_dir.clone(), &url).await
+        else {
+            continue;
+        };
+        let provider_name = provider.to_owned();
+        let sync_url = url.clone();
+        let sync_icon = icon.clone();
+        let updated = tokio::task::spawn_blocking(move || {
+            let _ = codeterm_plugin::agent_runtime::owner_profiles::sync_registry_icon_url(
+                &provider_name,
+                &profile_id,
+                &sync_url,
+            );
+            codeterm_plugin::agent_runtime::owner_profiles::refresh_icon(
+                &provider_name,
+                &sync_url,
+                &sync_icon,
+            )
+        })
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or(false);
+        if updated {
+            refreshed += 1;
+        }
+    }
+    if refreshed > 0 {
+        svc.provider_registry.recheck_profiles(provider);
+        svc.events
+            .publish(codeterm_events::SystemEvent::ContributionsChanged {
+                kind: "agent_provider".into(),
+            });
+    }
+    refreshed
 }
 
 fn publish_icon(

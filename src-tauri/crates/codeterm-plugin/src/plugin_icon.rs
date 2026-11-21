@@ -207,9 +207,9 @@ fn allowed_attribute(element: &str, attribute: &str) -> bool {
         return gradient::attribute(element, attribute);
     }
     match attribute {
-        "fill" | "stroke" | "fill-rule" | "stroke-width" | "stroke-linecap" | "stroke-linejoin" => {
-            true
-        }
+        "fill" | "stroke" | "fill-rule" | "clip-rule" | "opacity" | "fill-opacity"
+        | "stroke-opacity" | "stroke-width" | "stroke-linecap" | "stroke-linejoin"
+        | "stroke-miterlimit" => true,
         "viewBox" | "xmlns" => element == "svg",
         "d" => element == "path",
         "cx" | "cy" => matches!(element, "circle" | "ellipse"),
@@ -240,10 +240,13 @@ fn allowed_attribute_value(attribute: &str, value: &str) -> bool {
         return false;
     }
     match attribute {
-        "fill-rule" => matches!(value, "evenodd" | "nonzero"),
+        "fill-rule" | "clip-rule" => matches!(value, "evenodd" | "nonzero"),
         "stroke-linecap" => matches!(value, "butt" | "round" | "square"),
         "stroke-linejoin" => matches!(value, "miter" | "round" | "bevel"),
-        "stroke-width" | "r" | "rx" | "ry" | "width" | "height" => nonnegative_number(value),
+        "opacity" | "fill-opacity" | "stroke-opacity" => unit_interval(value),
+        "stroke-width" | "stroke-miterlimit" | "r" | "rx" | "ry" | "width" | "height" => {
+            nonnegative_number(value)
+        }
         "cx" | "cy" | "x" | "y" | "x1" | "y1" | "x2" | "y2" => finite_number(value),
         "points" => value
             .split(|c: char| c == ',' || c.is_whitespace())
@@ -269,6 +272,13 @@ fn nonnegative_number(value: &str) -> bool {
         .parse::<f64>()
         .ok()
         .is_some_and(|v| v.is_finite() && v >= 0.0)
+}
+
+fn unit_interval(value: &str) -> bool {
+    value
+        .parse::<f64>()
+        .ok()
+        .is_some_and(|v| v.is_finite() && (0.0..=1.0).contains(&v))
 }
 
 #[cfg(test)]
