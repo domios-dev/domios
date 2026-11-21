@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 use codeterm_service_core::{
     agent::chat_types::ChatMsg,
     multiplexer::state::MultiplexerState,

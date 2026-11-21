@@ -17,6 +17,12 @@ import type { OutboundReportEntry } from "./ChatTranscriptRow";
 import { outboundReportRows, type LiveOutboundReport } from "./outboundReportRows";
 import { mergeAccountNoticeRows } from "./accountNoticeRows";
 import { reportVerdict } from "@codeterm/chat-ui";
+import {
+  ingestAgentReport,
+  readAgentReportProjection,
+  resetAgentReportProjection,
+  type AgentReportEventPayload,
+} from "./agentReportProjection";
 
 // A long-running agent tab: three days of turns, each with the same report tool
 // call, read newest page first and paged back the way the Chat view pages it.
@@ -365,4 +371,77 @@ test("timestamped startup status stays anchored above later untimed ACP rows, to
 
   const withForeign = renderedColumn({ state, visible: 20, live: [readyCard, foreignCard] });
   assert.deepEqual(withForeign.map(item => item.key), ["prompt-0", "ack-0", "report-ready", "work-1", "tool-1", "report-foreign"]);
+});
+
+test("actual emitted startup agent-report envelope projects one neutral anchored card across tool patches and reentry", () => {
+  resetAgentReportProjection();
+  try {
+    const startAt = START;
+    const prompt: NormalizedChatMessage = { id: "prompt-0", type: "user", content: "assigned task", timestamp: iso(startAt) };
+    const ackRow: NormalizedChatMessage = { id: "ack-0", type: "assistant", content: "acknowledging" };
+    const workRow: NormalizedChatMessage = { id: "work-1", type: "assistant", content: "working" };
+    const toolRow: NormalizedChatMessage = { id: "tool-1", type: "tool_call", content: "running", toolName: "Bash", toolKind: "command", toolId: "t-1" };
+    const emitted: AgentReportEventPayload = {
+      target_tab_id: "elgar001",
+      from_tab_id: "order001",
+      from_title: "Order",
+      message: "Agent Order (acp) is ready for task task_uw3aw9, attempt attempt_l33cqd.",
+      kind: "dispatch_ready",
+      sender_position: { source_session_id: authority.sourceSessionId, message_id: "ack-0" },
+      report: {
+        id: "rep-emitted-ready",
+        from_tab_id: "order001",
+        from_title: "Order",
+        message: "Agent Order (acp) is ready for task task_uw3aw9, attempt attempt_l33cqd.",
+        timestamp: Math.floor((startAt + 5_000) / 1000),
+        plan_id: "pl_7lsisa",
+        task_id: "task_uw3aw9",
+      },
+    };
+    assert.equal(ingestAgentReport(emitted), true);
+    assert.equal(ingestAgentReport(emitted), false, "duplicate startup report id is ignored");
+    const projectedLive = (): LiveOutboundReport[] => readAgentReportProjection("order001").outbound.map((report) => ({
+      targetTabId: report.targetTabId,
+      at: report.timestamp,
+      position: report.senderPosition,
+      descriptor: {
+        reportId: report.reportId,
+        recipient: "Elgar",
+        task: report.task,
+        status: report.status,
+        sha: report.sha,
+        message: report.message,
+        ...(report.kind ? { kind: report.kind } : {}),
+        taskOutcome: null,
+      },
+    }));
+    const live = projectedLive();
+    assert.equal(live.length, 1);
+    assert.equal(live[0].descriptor.kind, "dispatch_ready");
+    assert.equal(live[0].descriptor.status, null);
+    assert.equal(reportVerdict(live[0].descriptor.status, live[0].descriptor.taskOutcome), "sent");
+
+    let state = reduceTranscript(createTranscriptState(), {
+      kind: "snapshot", authority, range: null, rows: [prompt, ackRow, workRow, toolRow],
+    }).state;
+    const beforePatch = renderedColumn({ state, visible: 20, live });
+    assert.deepEqual(beforePatch.map(item => item.key), ["prompt-0", "ack-0", "report-emitted-ready", "work-1", "tool-1"]);
+
+    state = reduceTranscript(state, {
+      kind: "delta", authority, range: null, rows: [{ ...toolRow, content: "patched" }],
+    }).state;
+    const afterPatch = renderedColumn({ state, visible: 20, live: projectedLive() });
+    assert.deepEqual(afterPatch.map(item => item.key), ["prompt-0", "ack-0", "report-emitted-ready", "work-1", "tool-1"]);
+
+    const reentry = renderedColumn({
+      state: reduceTranscript(createTranscriptState(), {
+        kind: "snapshot", authority, range: null, rows: [prompt, ackRow, workRow, { ...toolRow, content: "patched" }],
+      }).state,
+      visible: 20,
+      live: projectedLive(),
+    });
+    assert.deepEqual(reentry.map(item => item.key), afterPatch.map(item => item.key));
+  } finally {
+    resetAgentReportProjection();
+  }
 });
