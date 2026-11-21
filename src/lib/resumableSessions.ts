@@ -40,13 +40,24 @@ export function formatSessionAge(updatedAtSec: number | undefined, nowMs = Date.
   return `${days}d ago`;
 }
 
+export function normalizeProjectPath(rawPath: string): string {
+  let normalized = rawPath.trim().replace(/\\/g, "/");
+  if (/^\/[A-Za-z]:(?:\/|$)/.test(normalized)) normalized = normalized.slice(1);
+  if (/^[a-z]:(?:\/|$)/.test(normalized)) normalized = normalized[0].toUpperCase() + normalized.slice(1);
+  while (normalized.length > 1 && normalized.endsWith("/") && !/^[A-Za-z]:\/$/.test(normalized)) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
 export async function listResumableSessions(
   cwd: string,
   limit = 5,
   transport: ResumableSessionsTransport = selectedDaemonTransport,
 ): Promise<ResumableSessionItem[]> {
-  if (!cwd.trim()) return [];
-  const query = new URLSearchParams({ q: "", project: cwd, limit: String(limit) });
+  const normalizedCwd = normalizeProjectPath(cwd);
+  if (!normalizedCwd) return [];
+  const query = new URLSearchParams({ q: "", project: normalizedCwd, limit: String(limit) });
   const response = await transport.json<SessionSearchResponseWire>("GET", `/api/sessions/search?${query.toString()}`);
   const items: ResumableSessionItem[] = [];
   for (const hit of response.hits ?? []) {

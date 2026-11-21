@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { ResumeSessionSection } from "./ResumeSessionSection";
-import type { ResumableSessionsTransport } from "../../lib/resumableSessions";
+import { listResumableSessions, normalizeProjectPath, type ResumableSessionsTransport } from "../../lib/resumableSessions";
 
 test("ResumeSessionSection stays hidden when no resumable sessions exist for cwd", async () => {
   const transport: ResumableSessionsTransport = {
@@ -81,4 +81,25 @@ test("ResumeSessionSection lists unified Claude/Codex and ACP sessions and resum
     await act(async () => root.unmount());
     host.remove();
   }
+});
+
+test("listResumableSessions normalizes Windows forward-slash, backslash, and leading-slash drive paths identically", async () => {
+  const paths: string[] = [];
+  const transport: ResumableSessionsTransport = {
+    json: async (_method, path) => {
+      paths.push(path);
+      return { hits: [] } as never;
+    },
+  };
+  for (const cwd of [
+    "C:/Developer/codeterm/codeterm",
+    "C:\\Developer\\codeterm\\codeterm",
+    "/C:/Developer/codeterm/codeterm",
+    "/c:/Developer/codeterm/codeterm/",
+  ]) {
+    assert.equal(normalizeProjectPath(cwd), "C:/Developer/codeterm/codeterm");
+    await listResumableSessions(cwd, 5, transport);
+  }
+  assert.equal(new Set(paths).size, 1);
+  assert.equal(paths[0], "/api/sessions/search?q=&project=C%3A%2FDeveloper%2Fcodeterm%2Fcodeterm&limit=5");
 });

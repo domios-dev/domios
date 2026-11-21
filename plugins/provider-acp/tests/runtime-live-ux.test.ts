@@ -299,13 +299,15 @@ test("capability-gated session/fork, session/list, and session/close honor agent
     value: {
       sessions: [
         { sessionId: "acp-s1", cwd: "/work/project", title: "Fix auth", updatedAt: "2026-11-21T20:00:00Z" },
+        { sessionId: "acp-win-1", cwd: "/c:\\Developer\\codeterm\\codeterm\\", title: "Windows URI cwd", updatedAt: "2026-11-21T21:00:00Z" },
       ],
     },
   });
   assert.equal(listStep.kind, "complete");
   if (listStep.kind === "complete" && listStep.result.kind === "sessionsListed") {
-    assert.equal(listStep.result.sessions.length, 1);
+    assert.equal(listStep.result.sessions.length, 2);
     assert.equal(listStep.result.sessions[0].title, "Fix auth");
+    assert.equal(listStep.result.sessions[1].cwd, "C:/Developer/codeterm/codeterm");
   }
 
   const forkPlan = runtimePlan(advertised, { kind: "forkThread", sourceThreadId: "acp-s1", turnId: "acp-s1:turn:1" });

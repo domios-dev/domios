@@ -198,13 +198,17 @@ pub async fn search_sessions_api(
             .filter(|s| !s.is_empty())
             .collect();
     let provider_filter = q.provider.filter(|p| p != "all" && !p.is_empty());
-    let project_filter = q.project.clone();
+    let project_filter = q
+        .project
+        .as_deref()
+        .map(codeterm_service_core::service::agent_runtime::session_list::normalize_workspace_path)
+        .filter(|path| !path.is_empty());
     let limit = q.limit.unwrap_or(10);
     let opts = codeterm_service_core::agent::registry::SessionSearchOpts {
         terms: terms.clone(),
         match_mode: codeterm_service_core::agent::registry::SessionMatchMode::AllTerms,
         provider: provider_filter.clone(),
-        project_path: q.project,
+        project_path: project_filter.clone(),
         limit,
         max_snippets: q.max_snippets.unwrap_or(3),
         max_file_bytes: 0,
@@ -275,14 +279,10 @@ async fn find_session_off_runtime(
         return Ok(found);
     }
     let live = codeterm_service_core::service::agent_runtime::session_list::list_live_sessions(
-        &state.svc,
-        None,
-        None,
+        &state.svc, None, None,
     )
     .await;
-    Ok(live
-        .into_iter()
-        .find(|meta| meta.session_id == session_id))
+    Ok(live.into_iter().find(|meta| meta.session_id == session_id))
 }
 
 /// Resolve a session id to its metadata across all providers.
