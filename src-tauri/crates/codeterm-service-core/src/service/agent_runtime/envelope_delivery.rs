@@ -52,7 +52,7 @@ pub(super) fn send(
     // During automatic recovery the envelope is held for the relaunch, not refused by the transient degrade.
     if !svc.runtime_recovery_owns_sends(tab) {
         crate::async_runtime::block_on(super::engine::ensure(svc, tab))
-            .map_err(|reason| reason.to_string())?;
+            .map_err(|reason| super::transport::before_write(tab, reason).ledger_message())?;
     }
     let reservation = svc.reserve_user_send(tab, Some(token))?;
     if reservation.wait_existing()? {
@@ -209,5 +209,32 @@ mod tests {
             outcome(late).unwrap(),
             Delivery::Unconfirmed { .. }
         ));
+    }
+
+    #[test]
+    fn preflight_sign_in_required_classifies_as_zero_write_refusal_not_transport_error() {
+        let message = crate::service::agent_runtime::transport::before_write(
+            "tab",
+            crate::service::agent_runtime::model::RuntimeFailure::SignInRequired,
+        )
+        .ledger_message();
+        let gateway = crate::service::message_gateway::classify("tab", message);
+        assert!(
+            matches!(
+                gateway,
+                crate::service::message_gateway::DeliveryError::BusyRefused { .. }
+            ),
+            "unexpected gateway classification: {gateway:?}"
+        );
+        let rendered = gateway.to_string();
+        assert!(!rendered.starts_with("transport error:"));
+        let structured =
+            crate::service::delivery_error::DeliveryError::from_opaque("tab", rendered);
+        assert!(matches!(
+            structured,
+            crate::service::delivery_error::DeliveryError::TabBusyRefused { .. }
+        ));
+        assert!(!structured.bytes_written());
+        assert_eq!(structured.status(), axum::http::StatusCode::CONFLICT);
     }
 }

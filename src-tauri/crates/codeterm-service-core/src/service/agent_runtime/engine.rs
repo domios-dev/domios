@@ -22,6 +22,7 @@ use std::{
 };
 
 mod accounts;
+mod credential_stamp;
 mod retirement;
 use retirement::stop_session;
 pub use retirement::stop_switch_source_blocking;
@@ -454,6 +455,7 @@ async fn ensure_scoped(
                     cache: Mutex::new(ItemCache::default()),
                     auth: Mutex::new(RuntimeAuthState::Unknown),
                     login: Mutex::new(Default::default()),
+                    credential_stamp: Mutex::new(None),
                     thread_loaded: std::sync::atomic::AtomicBool::new(false),
                     stream_progress: tokio::sync::watch::channel(0).0,
                     turn_requests: Mutex::new(HashMap::new()),
@@ -601,232 +603,261 @@ pub async fn ensure_locked(
         }
     }
     crate::startup::boot_timing::mark(tab, None, "runtime_options_ready");
-    let process = if live {
-        old.ok_or(RuntimeFailure::Superseded)?
-    } else {
-        if let Some(old) = old {
-            let cancelled = super::client_bridge::cancel_all(svc, session, &old, true).await;
-            old.finish().await?;
-            cancelled?;
-        }
-        super::turn_requests::end_for_lifecycle(
-            svc,
-            session,
-            "Runtime epoch replaced before the turn completion reply",
-        )
-        .await;
-        let epoch = {
-            let mut state = session.state.lock();
-            state.binary_version = None;
-            state.agent_name = None;
-            state.icon_svg = None;
-            state.begin()
-        };
-        session
-            .provider_operation_failures
-            .store(0, std::sync::atomic::Ordering::Relaxed);
-        session
-            .bookkeeping_warning_emitted
-            .store(false, std::sync::atomic::Ordering::Relaxed);
-        {
-            let mut context = session.context.lock();
-            context.epoch = epoch;
-            context.client_bridges = None;
-            context.host_mcp = None;
-            context.claimed_sends.clear();
-            context.pending_request = None;
-            context.active_turn_id = None;
-            context.active_turns.clear();
-            context.thread_parents.clear();
-        }
-        session.stream_progress.send_replace(0);
-        super::declared_controls::reset(session, epoch);
-        session
-            .thread_loaded
-            .store(false, std::sync::atomic::Ordering::Release);
-        *session.completions.lock() = Default::default();
-        session.initialization.reset();
-        super::login::forget(session);
-        *session.login.lock() = Default::default();
-        *session.auth.lock() = RuntimeAuthState::Unknown;
-        publish(svc, tab, session);
-        let adapter = svc
-            .agent_registry
-            .provider_arc(provider)
-            .ok_or(RuntimeFailure::Superseded)?;
-        let capability = adapter.agent_runtime().ok_or(RuntimeFailure::Superseded)?;
-        *session.adapter.lock() = Some(adapter.clone());
-        let owner = svc.clone();
-        let provider_id = provider.to_string();
-        let cli_context = session.context.lock().clone();
-        let restricted_cli = codeterm_plugin::js_runtime::spawn_blocking(move || {
-            super::cli_exception::prepare(&owner, &provider_id, &cli_context)
-        })
-        .await
-        .map_err(|_| RuntimeFailure::Superseded)?
-        .map_err(RuntimeFailure::Refused)?;
-        session.context.lock().restricted_cli = restricted_cli;
-        let context = session.context.lock().clone();
-        let restricted_cli = context.restricted_cli.is_some();
-        plan(session, &context, &RuntimeOperation::Initialize).await?;
-        let owner = svc.clone();
-        let target = tab.to_string();
-        let provider_id = provider.to_string();
-        let launch_nonce = context.binding_nonce.clone();
-        let switch_launch = crate::service::messenger::switch_handoff::launch_authority(svc, tab);
-        let (process, host_mcp, declared_bridges) =
-            codeterm_plugin::js_runtime::spawn_blocking(move || {
-                let nonce = launch_nonce;
-                let authority = LaunchAuthority::verify(
-                    &owner,
-                    RuntimeLaunchBinding {
-                        tab_id: target.clone(),
-                        provider_id: provider_id.clone(),
-                        binding_nonce: nonce.clone(),
-                    },
-                )
-                .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
-                let launch = super::launch_profile::resolve(
-                    &owner,
-                    &target,
-                    &authority,
-                    adapter.as_ref(),
-                    &capability,
-                )?;
-                let cwd = owner
-                    .mux
-                    .read()
-                    .get_tab(&target)
-                    .and_then(|tab| tab.cwd.clone())
-                    .ok_or_else(|| RuntimeFailure::SpawnFailed {
-                        reason: "Runtime cwd missing".into(),
-                    })?;
-                let mut env = super::environment::compose(&owner, &target, &provider_id, &nonce)
-                    .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
-                env.extend(
-                    owner
-                        .model_provider_launch_env(&provider_id)
-                        .map_err(|error| RuntimeFailure::SpawnFailed {
-                            reason: error.to_string(),
-                        })?,
-                );
-                super::environment::prepare_spawn(
-                    &owner,
-                    &target,
-                    &launch,
-                    &mut env,
-                    restricted_cli,
-                )
-                .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
-                if !super::authority::verifies(&owner, &target, &provider_id, &nonce)
-                    || !launch.verifies(&owner, &target)
-                {
-                    return Err(RuntimeFailure::Superseded);
-                }
-                let minted_local = super::host_mcp::minted_local(
-                    &env,
-                    &crate::service::tab_credentials::TabCaller {
-                        tab_id: target.clone(),
-                        binding_nonce: nonce.clone(),
-                    },
-                    |token| owner.identify_tab_credential(token),
-                );
-                let host_mcp = super::host_mcp::descriptor(
-                    capability.host_mcp.is_some(),
-                    minted_local,
-                    &target,
-                    &nonce,
-                    crate::service::instance_env::instance_cli_binary_path(),
-                    &env,
-                );
-                if let Some(authority) = &switch_launch {
-                    authority
-                        .validate(&owner)
-                        .map_err(|_| RuntimeFailure::Superseded)?;
-                }
-                super::process::spawn(&launch, &cwd, env, &target).map(|process| {
-                    (
-                        Arc::new(process),
-                        host_mcp,
-                        launch.capability.client_bridges.clone(),
-                    )
-                })
+    let mut force_respawn = false;
+    let (process, initialized_ms) = loop {
+        let old = session.process.lock().clone();
+        let live = !force_respawn
+            && session.adapter.lock().is_some()
+            && old.as_ref().is_some_and(|process| {
+                process.ended.borrow().is_none() && process.client.ended().borrow().is_none()
+            });
+        let process = if live {
+            old.ok_or(RuntimeFailure::Superseded)?
+        } else {
+            if let Some(old) = old {
+                let cancelled = super::client_bridge::cancel_all(svc, session, &old, true).await;
+                old.finish().await?;
+                cancelled?;
+            }
+            super::turn_requests::end_for_lifecycle(
+                svc,
+                session,
+                "Runtime epoch replaced before the turn completion reply",
+            )
+            .await;
+            let epoch = {
+                let mut state = session.state.lock();
+                state.binary_version = None;
+                state.agent_name = None;
+                state.icon_svg = None;
+                state.begin()
+            };
+            session
+                .provider_operation_failures
+                .store(0, std::sync::atomic::Ordering::Relaxed);
+            session
+                .bookkeeping_warning_emitted
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+            {
+                let mut context = session.context.lock();
+                context.epoch = epoch;
+                context.client_bridges = None;
+                context.host_mcp = None;
+                context.claimed_sends.clear();
+                context.pending_request = None;
+                context.active_turn_id = None;
+                context.active_turns.clear();
+                context.thread_parents.clear();
+            }
+            session.stream_progress.send_replace(0);
+            super::declared_controls::reset(session, epoch);
+            session
+                .thread_loaded
+                .store(false, std::sync::atomic::Ordering::Release);
+            *session.completions.lock() = Default::default();
+            session.initialization.reset();
+            super::login::forget(session);
+            *session.login.lock() = Default::default();
+            *session.auth.lock() = RuntimeAuthState::Unknown;
+            *session.credential_stamp.lock() = None;
+            publish(svc, tab, session);
+            let adapter = svc
+                .agent_registry
+                .provider_arc(provider)
+                .ok_or(RuntimeFailure::Superseded)?;
+            let capability = adapter.agent_runtime().ok_or(RuntimeFailure::Superseded)?;
+            *session.adapter.lock() = Some(adapter.clone());
+            let owner = svc.clone();
+            let provider_id = provider.to_string();
+            let cli_context = session.context.lock().clone();
+            let restricted_cli = codeterm_plugin::js_runtime::spawn_blocking(move || {
+                super::cli_exception::prepare(&owner, &provider_id, &cli_context)
             })
             .await
-            .map_err(|error| RuntimeFailure::SpawnFailed {
-                reason: error.to_string(),
-            })??;
-        if !session
-            .process
-            .install(process.clone(), |process| process.stop())
-        {
-            process.finish().await?;
-            return Err(RuntimeFailure::Superseded);
-        }
-        session.context.lock().host_mcp = host_mcp;
-        let bridge_context = session.context.lock().clone();
-        let installed = codeterm_plugin::js_runtime::spawn_blocking(move || {
-            super::client_bridge::install(&bridge_context, declared_bridges)
-        })
-        .await
-        .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))
-        .and_then(|result| result.map_err(RuntimeFailure::Refused));
-        match installed {
-            Ok(installed) => session.context.lock().client_bridges = installed,
-            Err(error) => {
+            .map_err(|_| RuntimeFailure::Superseded)?
+            .map_err(RuntimeFailure::Refused)?;
+            session.context.lock().restricted_cli = restricted_cli;
+            let context = session.context.lock().clone();
+            let restricted_cli = context.restricted_cli.is_some();
+            plan(session, &context, &RuntimeOperation::Initialize).await?;
+            let owner = svc.clone();
+            let target = tab.to_string();
+            let provider_id = provider.to_string();
+            let launch_nonce = context.binding_nonce.clone();
+            let spawn_invocation = session.invocation.lock().clone();
+            let switch_launch =
+                crate::service::messenger::switch_handoff::launch_authority(svc, tab);
+            let (process, host_mcp, declared_bridges, stamp) =
+                codeterm_plugin::js_runtime::spawn_blocking(move || {
+                    let nonce = launch_nonce;
+                    let authority = LaunchAuthority::verify(
+                        &owner,
+                        RuntimeLaunchBinding {
+                            tab_id: target.clone(),
+                            provider_id: provider_id.clone(),
+                            binding_nonce: nonce.clone(),
+                        },
+                    )
+                    .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
+                    let launch = super::launch_profile::resolve(
+                        &owner,
+                        &target,
+                        &authority,
+                        adapter.as_ref(),
+                        &capability,
+                    )?;
+                    let cwd = owner
+                        .mux
+                        .read()
+                        .get_tab(&target)
+                        .and_then(|tab| tab.cwd.clone())
+                        .ok_or_else(|| RuntimeFailure::SpawnFailed {
+                            reason: "Runtime cwd missing".into(),
+                        })?;
+                    let mut env =
+                        super::environment::compose(&owner, &target, &provider_id, &nonce)
+                            .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
+                    env.extend(
+                        owner
+                            .model_provider_launch_env(&provider_id)
+                            .map_err(|error| RuntimeFailure::SpawnFailed {
+                                reason: error.to_string(),
+                            })?,
+                    );
+                    super::environment::prepare_spawn(
+                        &owner,
+                        &target,
+                        &launch,
+                        &mut env,
+                        restricted_cli,
+                    )
+                    .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
+                    if !super::authority::verifies(&owner, &target, &provider_id, &nonce)
+                        || !launch.verifies(&owner, &target)
+                    {
+                        return Err(RuntimeFailure::Superseded);
+                    }
+                    let minted_local = super::host_mcp::minted_local(
+                        &env,
+                        &crate::service::tab_credentials::TabCaller {
+                            tab_id: target.clone(),
+                            binding_nonce: nonce.clone(),
+                        },
+                        |token| owner.identify_tab_credential(token),
+                    );
+                    let host_mcp = super::host_mcp::descriptor(
+                        capability.host_mcp.is_some(),
+                        minted_local,
+                        &target,
+                        &nonce,
+                        crate::service::instance_env::instance_cli_binary_path(),
+                        &env,
+                    );
+                    if let Some(authority) = &switch_launch {
+                        authority
+                            .validate(&owner)
+                            .map_err(|_| RuntimeFailure::Superseded)?;
+                    }
+                    let stamp = credential_stamp::capture(
+                        &owner,
+                        &provider_id,
+                        spawn_invocation.as_deref(),
+                    );
+                    super::process::spawn(&launch, &cwd, env, &target).map(|process| {
+                        (
+                            Arc::new(process),
+                            host_mcp,
+                            launch.capability.client_bridges.clone(),
+                            stamp,
+                        )
+                    })
+                })
+                .await
+                .map_err(|error| RuntimeFailure::SpawnFailed {
+                    reason: error.to_string(),
+                })??;
+            if !session
+                .process
+                .install(process.clone(), |process| process.stop())
+            {
                 process.finish().await?;
-                return Err(error);
+                return Err(RuntimeFailure::Superseded);
             }
-        }
-        crate::startup::boot_timing::mark(tab, None, "runtime_spawned");
-        spawned_ms = Some(started.elapsed().as_millis());
-        *session.hook_state.lock() = Value::Null;
-        session.prompts.lock().clear();
-        super::subscriber::start(
-            svc.clone(),
-            provider.into(),
-            session.clone(),
-            process.clone(),
-        );
-        process
-    };
-    session
-        .initialization
-        .ensure(|| async {
-            super::transcript::restore(session).await?;
-            let result = run(
+            *session.credential_stamp.lock() = stamp;
+            session.context.lock().host_mcp = host_mcp;
+            let bridge_context = session.context.lock().clone();
+            let installed = codeterm_plugin::js_runtime::spawn_blocking(move || {
+                super::client_bridge::install(&bridge_context, declared_bridges)
+            })
+            .await
+            .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))
+            .and_then(|result| result.map_err(RuntimeFailure::Refused));
+            match installed {
+                Ok(installed) => session.context.lock().client_bridges = installed,
+                Err(error) => {
+                    process.finish().await?;
+                    return Err(error);
+                }
+            }
+            crate::startup::boot_timing::mark(tab, None, "runtime_spawned");
+            spawned_ms = Some(started.elapsed().as_millis());
+            *session.hook_state.lock() = Value::Null;
+            session.prompts.lock().clear();
+            super::subscriber::start(
+                svc.clone(),
+                provider.into(),
+                session.clone(),
+                process.clone(),
+            );
+            process
+        };
+        session
+            .initialization
+            .ensure(|| async {
+                super::transcript::restore(session).await?;
+                let result = run(
+                    svc,
+                    provider,
+                    session,
+                    &process,
+                    RuntimeOperation::Initialize,
+                )
+                .await?;
+                session.state.lock().record_initialized(result)?;
+                icons::start(svc, session);
+                Ok(())
+            })
+            .await?;
+        crate::startup::boot_timing::mark(tab, None, "runtime_initialized");
+        let initialized_ms = started.elapsed().as_millis();
+        if matches!(*session.auth.lock(), RuntimeAuthState::SignedOut) {
+            let thread_id = session.context.lock().thread_id.clone();
+            run(
                 svc,
                 provider,
                 session,
                 &process,
-                RuntimeOperation::Initialize,
+                RuntimeOperation::Control {
+                    thread_id,
+                    action: "auth".into(),
+                    value: Value::Null,
+                },
             )
             .await?;
-            session.state.lock().record_initialized(result)?;
-            icons::start(svc, session);
-            Ok(())
-        })
-        .await?;
-    crate::startup::boot_timing::mark(tab, None, "runtime_initialized");
-    let initialized_ms = started.elapsed().as_millis();
-    if matches!(*session.auth.lock(), RuntimeAuthState::SignedOut) {
-        let thread_id = session.context.lock().thread_id.clone();
-        run(
-            svc,
-            provider,
-            session,
-            &process,
-            RuntimeOperation::Control {
-                thread_id,
-                action: "auth".into(),
-                value: Value::Null,
-            },
-        )
-        .await?;
-        if matches!(*session.auth.lock(), RuntimeAuthState::SignedOut) {
-            return Err(RuntimeFailure::SignInRequired);
+            if matches!(*session.auth.lock(), RuntimeAuthState::SignedOut) {
+                if live
+                    && !force_respawn
+                    && !super::login::has_live_pending(session)
+                    && credential_stamp::changed(svc, session).await
+                {
+                    force_respawn = true;
+                    continue;
+                }
+                return Err(RuntimeFailure::SignInRequired);
+            }
         }
-    }
+        break (process, initialized_ms);
+    };
     let context = session.context.lock().clone();
     if context.thread_id.is_none()
         && svc
@@ -1079,72 +1110,12 @@ pub(crate) fn record_completed_turn(session: &Session, thread: &str, turn: Optio
 }
 
 mod binding;
+use binding::bind;
+#[cfg(test)]
+use binding::commit_runtime_binding;
 pub use binding::validate_binding;
 pub(super) use binding::validate_restart_binding;
 pub use binding::{conversation_unavailable, session_load_refused};
-
-fn bind(
-    svc: &ServiceContext,
-    session: &Session,
-    thread: &str,
-    fresh: bool,
-) -> Result<(), RuntimeFailure> {
-    let context = session.context.lock().clone();
-    let mut mux = svc.mux.write();
-    let tab = mux
-        .get_tab_mut(&context.tab_id)
-        .ok_or(RuntimeFailure::Superseded)?;
-    if crate::service::messenger::switch_handoff::launch_authority(svc, &context.tab_id)
-        .is_some_and(|authority| !authority.matches(tab))
-    {
-        return Err(RuntimeFailure::Superseded);
-    }
-    commit_runtime_binding(tab, &context.binding_nonce, thread, fresh, |tab| {
-        svc.publish_boot_stage_transition(
-            &context.tab_id,
-            tab,
-            codeterm_types::pty::BootStage::AgentReady,
-            None,
-        );
-    })
-}
-
-fn commit_runtime_binding(
-    tab: &mut crate::multiplexer::types::Tab,
-    nonce: &str,
-    thread: &str,
-    fresh: bool,
-    publish: impl FnOnce(&crate::multiplexer::types::Tab),
-) -> Result<(), RuntimeFailure> {
-    if tab.session_binding_nonce.as_deref() != Some(nonce)
-        || tab
-            .agent_session_id
-            .as_deref()
-            .is_some_and(|bound| bound != thread)
-    {
-        return Err(RuntimeFailure::Superseded);
-    }
-    tab.agent_session_id = Some(thread.into());
-    tab.reported_session_binding_nonce = Some(nonce.into());
-    if fresh {
-        let config = tab
-            .agent_runtime_config
-            .get_or_insert_with(|| serde_json::json!({}));
-        config["unusedThreadId"] = Value::String(thread.into());
-    }
-    tab.agent_booting = false;
-    crate::service::boot_stage::apply_boot_stage(
-        tab,
-        codeterm_types::pty::BootStage::AgentReady,
-        None,
-    );
-    if let crate::multiplexer::types::TabBacking::ChatBackend { session_id, .. } = &mut tab.backing
-    {
-        *session_id = thread.into();
-    }
-    publish(tab);
-    Ok(())
-}
 
 pub(super) fn snapshot(session: &Session) -> model::RuntimeSnapshot {
     let mut snapshot = session.state.lock().snapshot();

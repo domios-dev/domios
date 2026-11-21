@@ -17,7 +17,7 @@ pub(crate) fn rejected_before_write(error: &DeliveryError) -> bool {
     matches!(error, DeliveryError::TabBusyRefused { detail, .. } if detail.starts_with(REJECTED_BEFORE_WRITE))
 }
 
-fn before_write(tab: &str, error: RuntimeFailure) -> DeliveryError {
+pub(super) fn before_write(tab: &str, error: RuntimeFailure) -> DeliveryError {
     DeliveryError::TabBusyRefused {
         tab: tab.into(),
         detail: format!("runtime_preflight_before_write: {error}"),
