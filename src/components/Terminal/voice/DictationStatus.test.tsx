@@ -456,7 +456,7 @@ describe("DictationSetupPrompt General handoff", () => {
       expect(sends).toHaveLength(1);
       expect(remountedButton.disabled).toBe(true);
 
-      await act(async () => gates[0].resolve(undefined));
+      await act(async () => gates[0].resolve({ send_id: "s1", tab_id: "general-1", state: "written", error: null, ledger_id: "l1", sequence: 1, retained_from: 1 }));
       expect(focusEvents).toEqual([{ tabId: "general-1", workspaceId: "ws-general" }]);
       expect(dismissMount1).not.toHaveBeenCalled();
       expect(dismissMount2).toHaveBeenCalledTimes(1);
@@ -465,7 +465,7 @@ describe("DictationSetupPrompt General handoff", () => {
       await act(async () => getByRole(document.body, "button", "Set up with General").click());
       expect(sends).toHaveLength(2);
       await act(async () => root2.unmount());
-      await act(async () => gates[1].resolve(undefined));
+      await act(async () => gates[1].resolve({ send_id: "s2", tab_id: "general-1", state: "delivered", error: null, ledger_id: "l1", sequence: 2, retained_from: 1 }));
       expect(focusEvents).toHaveLength(1);
       expect(dismissMount3).not.toHaveBeenCalled();
     } finally {
@@ -559,11 +559,14 @@ describe("DictationSetupPrompt General handoff", () => {
     }
   });
 
-  it("keeps refusal, failed delivery, and uncertain delivery truthful without automatic replay or dismissal", async () => {
+  it("keeps refusal, failed delivery, and unconfirmed or malformed receipts truthful without automatic replay or dismissal", async () => {
     const outcomes: Array<() => Promise<unknown>> = [
       () => Promise.reject(new Error("General refused input")),
       () => Promise.resolve({ send_id: "s1", tab_id: "general-1", state: "failed", error: "General session unavailable", ledger_id: "l1", sequence: 1, retained_from: 1 }),
       () => Promise.resolve({ send_id: "s2", tab_id: "general-1", state: "submit_unconfirmed", error: null, ledger_id: "l1", sequence: 2, retained_from: 1 }),
+      () => Promise.resolve(undefined),
+      () => Promise.resolve({}),
+      () => Promise.resolve({ send_id: "s3", tab_id: "general-1", state: "unexpected_state", error: null, ledger_id: "l1", sequence: 3, retained_from: 1 }),
     ];
     let calls = 0;
     __setInvokeForTest(async (cmd) => {
@@ -598,11 +601,15 @@ describe("DictationSetupPrompt General handoff", () => {
       expect(dismissSetup).not.toHaveBeenCalled();
       expect(focusEvents).toHaveLength(0);
 
-      await act(async () => getByRole(document.body, "button", "Set up with General").click());
-      expect(calls).toBe(3);
-      expect(document.querySelector('[role="alert"]')?.textContent).toContain("unconfirmed");
-      expect(dismissSetup).not.toHaveBeenCalled();
-      expect(focusEvents).toHaveLength(0);
+      for (const expectedCall of [3, 4, 5, 6]) {
+        await act(async () => getByRole(document.body, "button", "Set up with General").click());
+        expect(calls).toBe(expectedCall);
+        const alertText = document.querySelector('[role="alert"]')?.textContent ?? "";
+        expect(alertText).toMatch(/unconfirmed|could not be confirmed/i);
+        expect(alertText).toContain("may have reached General");
+        expect(dismissSetup).not.toHaveBeenCalled();
+        expect(focusEvents).toHaveLength(0);
+      }
     } finally {
       window.removeEventListener("codeterm:focus-tab", onFocus);
       await act(async () => root.unmount());

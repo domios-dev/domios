@@ -81,13 +81,22 @@ function sameGeneralAuthority(origin: GeneralAuthority, current: GeneralAuthorit
   return true;
 }
 
-function classifySendResult(result: ChatSendResult | void | null): HandoffOutcome {
-  if (!result || typeof result !== "object" || !("state" in result)) return { status: "accepted" };
-  if (result.state === "failed") {
-    throw new Error(result.error?.trim() || "Could not deliver the setup request to General.");
+const UNCONFIRMED_RECEIPT_MESSAGE =
+  "Setup delivery to General could not be confirmed; it may have reached General. Check General before retrying.";
+
+function classifySendResult(result: unknown): HandoffOutcome {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return { status: "uncertain", message: UNCONFIRMED_RECEIPT_MESSAGE };
   }
-  if (result.state === "submit_unconfirmed") {
-    const detail = result.error?.trim();
+  const receipt = result as Partial<ChatSendResult> & { state?: unknown; error?: unknown };
+  const detail = typeof receipt.error === "string" ? receipt.error.trim() : "";
+  if (receipt.state === "held" || receipt.state === "written" || receipt.state === "delivered") {
+    return { status: "accepted" };
+  }
+  if (receipt.state === "failed") {
+    throw new Error(detail || "Could not deliver the setup request to General.");
+  }
+  if (receipt.state === "submit_unconfirmed") {
     return {
       status: "uncertain",
       message: detail
@@ -95,7 +104,7 @@ function classifySendResult(result: ChatSendResult | void | null): HandoffOutcom
         : "Setup delivery to General is unconfirmed; it may have reached General. Check General before retrying.",
     };
   }
-  return { status: "accepted" };
+  return { status: "uncertain", message: UNCONFIRMED_RECEIPT_MESSAGE };
 }
 
 function requestGeneralSetup(authority: GeneralAuthority): InFlightHandoff {
@@ -108,9 +117,9 @@ function requestGeneralSetup(authority: GeneralAuthority): InFlightHandoff {
     cancelled: false,
     promise: Promise.resolve({ status: "accepted" }),
   };
-  let raw: Promise<ChatSendResult | void>;
+  let raw: Promise<unknown>;
   try {
-    raw = Promise.resolve(invoke<ChatSendResult | void>("chat_send_text", {
+    raw = Promise.resolve(invoke<ChatSendResult>("chat_send_text", {
       tabId: authority.tabId,
       text: DICTATION_SETUP_REQUEST,
     }));
