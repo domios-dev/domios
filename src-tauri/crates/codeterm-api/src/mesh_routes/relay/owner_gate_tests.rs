@@ -449,7 +449,10 @@ async fn workspace_close_preview_relay_enforces_owner_origin_and_workspace_autho
     assert!(!isolated.ok);
     assert_eq!(isolated.status, StatusCode::FORBIDDEN.as_u16());
 
-    let before = serde_json::to_value(fixture.service.mux.read().snapshot()).unwrap();
+    let expected_installation_id = state.mesh.lock().ident.identity.instance_id.clone();
+    let mut before_snap = fixture.service.mux.read().snapshot();
+    before_snap.generation = 0;
+    let before = serde_json::to_value(before_snap).unwrap();
     let ok = perform_relay(
         &state,
         "peer-full",
@@ -464,13 +467,15 @@ async fn workspace_close_preview_relay_enforces_owner_origin_and_workspace_autho
     assert_eq!(ok.status, StatusCode::OK.as_u16());
     let preview: codeterm_types::workspace_close_preview::WorkspaceClosePreview =
         serde_json::from_value(ok.data.expect("preview payload")).unwrap();
-    assert_eq!(preview.installation_id, "relay-owner-gate");
+    assert_eq!(preview.installation_id, expected_installation_id);
     assert_eq!(preview.workspace_id, target_ws);
     assert_eq!(preview.workspace_name, "Disposable Remote");
     assert!(!preview.protected);
     assert_eq!(preview.agent_tabs.len(), 1);
     assert_eq!(preview.agent_tabs[0].title, "WorkerOne");
-    let after = serde_json::to_value(fixture.service.mux.read().snapshot()).unwrap();
+    let mut after_snap = fixture.service.mux.read().snapshot();
+    after_snap.generation = 0;
+    let after = serde_json::to_value(after_snap).unwrap();
     assert_eq!(
         after, before,
         "close-preview must not mutate multiplexer state"

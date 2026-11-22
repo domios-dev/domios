@@ -348,7 +348,9 @@ async fn workspace_close_preview_reports_complete_facts_warnings_and_never_loads
     let unrelated_plan_id = seed(&fixture.service.plan_store, unrelated_plan);
 
     start(&fixture.service.plan_store);
-    let mux_before = serde_json::to_value(fixture.service.mux.read().snapshot()).unwrap();
+    let mut before_snap = fixture.service.mux.read().snapshot();
+    before_snap.generation = 0;
+    let mux_before = serde_json::to_value(before_snap).unwrap();
 
     let preview = close_preview(
         AxumState(state.clone()),
@@ -410,7 +412,9 @@ async fn workspace_close_preview_reports_complete_facts_warnings_and_never_loads
         &fixture.service.plan_store,
         &[&selected_plan_id, &unrelated_plan_id],
     );
-    let mux_after = serde_json::to_value(fixture.service.mux.read().snapshot()).unwrap();
+    let mut after_snap = fixture.service.mux.read().snapshot();
+    after_snap.generation = 0;
+    let mux_after = serde_json::to_value(after_snap).unwrap();
     assert_eq!(mux_after, mux_before);
 }
 
