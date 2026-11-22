@@ -182,6 +182,8 @@ pub fn apply_boot_stage(tab: &mut Tab, stage: BootStage, reason: Option<&str>) {
         tab.agent_booting = false;
         tab.slept_at_ms = None;
         tab.sleep_reason = None;
+    } else if stage.carries_reason() {
+        tab.agent_booting = false;
     }
     tab.boot_stage = Some(stage);
     tab.boot_failure_reason = stage
@@ -338,6 +340,26 @@ impl BootStageSink for ServiceContext {
 }
 
 impl ServiceContext {
+    /// True while a launch readiness observation or owner prompt is still active
+    /// for this tab's current launch attempt, so recovery must not race it.
+    pub fn tab_has_armed_launch(&self, tab: &Tab) -> bool {
+        if super::launch_readiness::owner_prompt_is_active(&tab.id) {
+            return true;
+        }
+        let Some(pty_id) = tab.pty_id.as_deref() else {
+            return false;
+        };
+        let Some(binding_nonce) = tab.session_binding_nonce.as_deref() else {
+            return false;
+        };
+        let attempt = super::launch_readiness::LaunchAttempt {
+            tab_id: tab.id.clone(),
+            pty_id: pty_id.to_string(),
+            binding_nonce: binding_nonce.to_string(),
+        };
+        super::launch_readiness::attempt_is_armed(&attempt)
+    }
+
     pub(crate) fn record_startup_failure_reason(
         &self,
         authority: &crate::service::startup_lease::StartupAuthority,
