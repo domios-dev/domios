@@ -13,6 +13,29 @@ mod policy;
 mod read_failure_tests;
 mod user_send;
 
+pub fn automatic_restore_refusal(tab: &Tab) -> Option<&'static str> {
+    let agent_launch = tab.role.is_some()
+        || tab.agent_type.is_some()
+        || tab.restorable_launch.failed_provider.is_some();
+    if !agent_launch
+        || !tab.restored_from_snapshot
+        || tab.boot_stage != Some(BootStage::SpawnFailed)
+    {
+        return None;
+    }
+    let passive = matches!(tab.backing, TabBacking::Pty)
+        && tab.agent_runtime_state.is_none()
+        && tab.agent_state.is_none()
+        && tab.reported_session_binding_nonce.is_none()
+        && tab.pty_id.is_none()
+        && !tab.agent_booting;
+    Some(if passive {
+        "restored_failed_launch_preserved: explicit lifecycle recovery is required"
+    } else {
+        "restored_failed_launch_refused: contradictory launch evidence"
+    })
+}
+
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_boundary;
 
@@ -103,12 +126,13 @@ fn initialize_with_continuing(
         .tabs
         .values()
         .map(|tab| {
-            let read =
-                if tab.agent_type.is_none() && tab.role.is_none() && tab.task_binding.is_none() {
-                    Ok(false)
-                } else {
-                    read(&tab.id)
-                };
+            let read = if automatic_restore_refusal(tab).is_some()
+                || tab.agent_type.is_none() && tab.role.is_none() && tab.task_binding.is_none()
+            {
+                Ok(false)
+            } else {
+                read(&tab.id)
+            };
             (tab.id.clone(), read)
         })
         .collect::<std::collections::HashMap<_, _>>();
@@ -124,6 +148,10 @@ fn initialize_with_continuing(
     for workspace in &snapshot.workspaces {
         for id in &workspace.tabs {
             if let Some(tab) = mux.get_tab_mut(id) {
+                if automatic_restore_refusal(tab).is_some() {
+                    tab.frozen = true;
+                    continue;
+                }
                 let is_continuing = match continuing.get(id) {
                     Some(Ok(continuing)) => *continuing,
                     Some(Err(_)) => {
@@ -218,6 +246,25 @@ fn wake_with(
     wake_with_intent(svc, tab_id, allow_failed, WakeIntent::Resume, materialize)
 }
 
+fn wake_automatic_refusal(
+    tab: &Tab,
+    allow_failed: bool,
+    intent: WakeIntent,
+) -> Option<Result<(), String>> {
+    if intent == WakeIntent::Restart
+        || allow_failed
+        || !wake_eligible_for_intent(tab, allow_failed, intent)
+    {
+        return None;
+    }
+    let reason = automatic_restore_refusal(tab)?;
+    Some(if intent == WakeIntent::Open {
+        Ok(())
+    } else {
+        Err(reason.into())
+    })
+}
+
 fn wake_with_intent(
     svc: &ServiceContext,
     tab_id: &str,
@@ -230,6 +277,12 @@ fn wake_with_intent(
         let resolved = mux
             .resolve_tab_id(tab_id)
             .ok_or_else(|| format!("Tab {tab_id} not found"))?;
+        if let Some(outcome) = mux
+            .get_tab(&resolved)
+            .and_then(|tab| wake_automatic_refusal(tab, allow_failed, intent))
+        {
+            return outcome;
+        }
         if intent == WakeIntent::Open
             && !mux
                 .get_tab(&resolved)
@@ -254,10 +307,13 @@ fn wake_with_intent(
         let id = mux
             .resolve_tab_id(tab_id)
             .ok_or_else(|| format!("Tab {tab_id} not found"))?;
-        if !mux
-            .get_tab(&id)
-            .is_some_and(|tab| wake_eligible_for_intent(tab, allow_failed, intent))
-        {
+        let Some(tab) = mux.get_tab(&id) else {
+            return Ok(());
+        };
+        if let Some(outcome) = wake_automatic_refusal(tab, allow_failed, intent) {
+            return outcome;
+        }
+        if !wake_eligible_for_intent(tab, allow_failed, intent) {
             return Ok(());
         }
         id
@@ -299,6 +355,9 @@ fn wake_with_intent(
     let (retry_started_agent, retained_pty_progress) = {
         let mut mux = svc.mux.write();
         let tab = mux.get_tab_mut(&id).ok_or("Sleeping tab closed")?;
+        if let Some(outcome) = wake_automatic_refusal(tab, allow_failed, intent) {
+            return outcome;
+        }
         if !wake_eligible_for_intent(tab, allow_failed, intent) {
             return Ok(());
         }

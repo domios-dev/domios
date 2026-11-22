@@ -20,17 +20,24 @@ pub fn authorize(svc: &ServiceContext, credential: &str) -> Result<(), String> {
     };
     let mux = svc.mux.read();
     let allowed = mux.get_tab(&caller.tab_id).is_some_and(|tab| {
-        tab.session_binding_nonce.as_deref() == Some(caller.binding_nonce.as_str())
+        let current_nonce =
+            tab.session_binding_nonce.as_deref() == Some(caller.binding_nonce.as_str());
+        let general = current_nonce
+            && tab.agent_session_id.is_some()
+            && tab.reported_session_binding_nonce.as_deref() == Some(caller.binding_nonce.as_str())
+            && crate::service::general_agent::session_contract::owns_main(&mux, tab);
+        let orchestrator = current_nonce
             && tab.anchors_team()
             && tab
                 .team_id
                 .as_deref()
-                .is_some_and(|id| mux.get_team(id).is_some())
+                .is_some_and(|id| mux.get_team(id).is_some());
+        general || orchestrator
     });
     if allowed {
         Ok(())
     } else {
-        Err("ACP profile management requires the local owner or a live Orchestrator".into())
+        Err("ACP profile management requires the local owner, an authenticated local General Agent, or a live Orchestrator".into())
     }
 }
 
@@ -300,12 +307,17 @@ fn name_conflict(id: &str, owner_added: bool) -> String {
     }
 }
 
-fn changed() -> Result<(), String> {
+fn changed(svc: &ServiceContext) -> Result<(), String> {
     crate::provider::invalidate_profile_readiness(&installer::profile_root(PROVIDER)?);
+    svc.provider_registry.recheck_profiles(PROVIDER);
+    svc.events
+        .publish(codeterm_events::SystemEvent::ContributionsChanged {
+            kind: "agent_provider".into(),
+        });
     Ok(())
 }
 
-fn save(id: &str, profile: RuntimeLaunchProfile) -> Result<Value, String> {
+fn save(svc: &ServiceContext, id: &str, profile: RuntimeLaunchProfile) -> Result<Value, String> {
     owner_profiles::update(PROVIDER, |profiles| {
         if profiles
             .keys()
@@ -317,7 +329,7 @@ fn save(id: &str, profile: RuntimeLaunchProfile) -> Result<Value, String> {
         Ok(())
     })?;
     super::launch_profile_setup::forget_finished(PROVIDER, id);
-    changed()?;
+    changed(svc)?;
     Ok(json!({"id":id}))
 }
 
@@ -394,16 +406,30 @@ pub fn remove(svc: &ServiceContext, id: &str) -> Result<Value, String> {
             Ok(())
         })
         .map_err(|restore| format!("{reason}; {restore}"))?;
-        changed()?;
+        changed(svc)?;
         return Err(reason);
     }
     super::launch_profile_setup::forget_finished(PROVIDER, id);
-    changed()?;
+    changed(svc)?;
     Ok(json!({"id":id}))
 }
 
 pub fn registry_search(query: &str) -> Result<Value, String> {
     registry::search(query)
+}
+
+fn finalize_registry_install(
+    svc: &ServiceContext,
+    id: &str,
+    mut profile: RuntimeLaunchProfile,
+    resolve_icon: impl FnOnce(&str) -> Option<String>,
+) -> Result<Value, String> {
+    if profile.icon.is_none() {
+        if let Some(url) = profile.icon_url.as_deref() {
+            profile.icon_svg = resolve_icon(url);
+        }
+    }
+    save(svc, id, profile)
 }
 
 fn install_registry(
@@ -421,16 +447,12 @@ fn install_registry(
         &profile,
         true,
     ))?;
-    if let Some(url) = &profile.icon_url {
-        profile.icon_svg =
-            crate::async_runtime::block_on(codeterm_plugin::plugin_icon::registry::resolve(
-                crate::paths::data_dir_path()
-                    .join(PROVIDER)
-                    .join("cache/icons"),
-                url,
-            ));
-    }
-    save(id, profile)
+    let cache_dir = owner_profiles::icon_cache_dir(PROVIDER)?;
+    finalize_registry_install(svc, id, profile, |url| {
+        crate::async_runtime::block_on(codeterm_plugin::plugin_icon::registry::resolve(
+            cache_dir, url,
+        ))
+    })
 }
 
 pub fn begin_registry_install(
@@ -525,7 +547,7 @@ pub fn execute(svc: &ServiceContext, params: &Value) -> Result<Value, String> {
                 },
                 true,
             )?;
-            save(&id, profile)
+            save(svc, &id, profile)
         }
         "remove" => remove(svc, text("name")?),
         "registry_search" => registry_search(text("query")?),

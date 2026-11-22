@@ -12,6 +12,10 @@ pub(super) enum PeerRelayAuthorization<'a> {
         workspace_id: &'a str,
         force: bool,
     },
+    WorkspaceClosePreview {
+        peer_id: &'a str,
+        workspace_id: &'a str,
+    },
     MeshRpc {
         peer_id: &'a str,
     },
@@ -49,6 +53,12 @@ pub(super) fn authorize_peer_relay<'a>(
                 return PeerRelayAuthorization::TabClose { peer_id, tab_id };
             }
         }
+    }
+    if let Some(workspace_id) = workspace_close_preview_target(method, path) {
+        return PeerRelayAuthorization::WorkspaceClosePreview {
+            peer_id,
+            workspace_id,
+        };
     }
     match workspace_close_target(method, path) {
         Some(workspace_id) => PeerRelayAuthorization::WorkspaceClose {
@@ -144,6 +154,40 @@ fn workspace_close_target<'a>(method: &Method, path: &'a str) -> Option<&'a str>
         .strip_prefix("/api/workspaces/")?
         .strip_suffix("/close")?;
     (!workspace_id.is_empty() && !workspace_id.contains('/')).then_some(workspace_id)
+}
+
+fn workspace_close_preview_target<'a>(method: &Method, path: &'a str) -> Option<&'a str> {
+    if *method != Method::GET {
+        return None;
+    }
+    let workspace_id = path
+        .strip_prefix("/api/workspaces/")?
+        .strip_suffix("/close-preview")?;
+    (!workspace_id.is_empty() && !workspace_id.contains('/')).then_some(workspace_id)
+}
+
+pub(super) async fn workspace_close_preview_from_mesh_peer(
+    state: &AppState,
+    workspace_id: &str,
+) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
+    match crate::workspace_routes::close_preview_for_mesh_peer(state, workspace_id).await {
+        Ok(preview) => {
+            let data = serde_json::to_value(preview)
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+            Ok(codeterm_service_core::mesh::types::RelayResponse {
+                ok: true,
+                status: StatusCode::OK.as_u16(),
+                data: Some(data),
+                error: None,
+            })
+        }
+        Err((status, message)) => Ok(codeterm_service_core::mesh::types::RelayResponse {
+            ok: false,
+            status: status.as_u16(),
+            data: None,
+            error: Some(message),
+        }),
+    }
 }
 
 pub(super) async fn close_workspace_from_mesh_peer(

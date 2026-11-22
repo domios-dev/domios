@@ -524,3 +524,130 @@ fn runtime_context_requires_declared_usage_and_exact_current_binding() {
         original.context
     );
 }
+
+#[test]
+fn runtime_turn_usage_accumulates_distinct_responses_and_resets_on_thread_change() {
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+
+    let (fixture, tab, _peer, _cleanup) = super::super::engine::test_support::runtime_fixture();
+    let session = super::super::engine::for_tab(&tab).unwrap();
+    let manifest = PluginManifest::from_json_str(
+        &serde_json::json!({
+            "id": session.provider,
+            "version": "1.0.0",
+            "displayName": "Fixture",
+            "capabilities": {
+                "agentProvider": true,
+                "chatBackend": { "spawnable": true, "sessionConfig": true, "agentTasks": true },
+                "agentRuntime": {
+                    "runtime": "stdio-jsonrpc",
+                    "usage": true,
+                    "command": { "binary": "fixture-cli", "args": [] },
+                    "requestMethods": { "initialize": ["initialize"] },
+                    "notificationMethods": []
+                }
+            },
+            "permissions": { "subprocess": { "allow": ["fixture-cli"] } }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(JsProvider::new(
+            manifest,
+            std::sync::Arc::new(
+                PluginVm::from_source(
+                    &session.provider,
+                    "module.exports = { usageAccounting() { return 'runtime_turn'; } };".into(),
+                )
+                .unwrap(),
+            ),
+        )));
+
+    usage(
+        &fixture.service,
+        &session,
+        TokenUsage {
+            response_id: Some("turn-1".into()),
+            cost_micros: Some(1_500),
+            input_tokens: 1_000,
+            output_tokens: 200,
+            cache_read_tokens: Some(400),
+            cache_write_tokens: Some(100),
+            used_tokens: None,
+            window_tokens: None,
+        },
+        10,
+    );
+    usage(
+        &fixture.service,
+        &session,
+        TokenUsage {
+            response_id: Some("turn-1".into()),
+            cost_micros: Some(2_000),
+            input_tokens: 1_000,
+            output_tokens: 250,
+            cache_read_tokens: Some(400),
+            cache_write_tokens: Some(100),
+            used_tokens: None,
+            window_tokens: None,
+        },
+        11,
+    );
+    usage(
+        &fixture.service,
+        &session,
+        TokenUsage {
+            response_id: Some("turn-2".into()),
+            cost_micros: Some(4_000),
+            input_tokens: 3_000,
+            output_tokens: 500,
+            cache_read_tokens: Some(1_200),
+            cache_write_tokens: None,
+            used_tokens: None,
+            window_tokens: None,
+        },
+        12,
+    );
+    let accumulated = USAGE.lock()[&tab]
+        .token_usage
+        .as_ref()
+        .unwrap()
+        .value
+        .clone();
+    assert_eq!(accumulated.input_tokens, 4_000);
+    assert_eq!(accumulated.output_tokens, 750);
+    assert_eq!(accumulated.cache_read_tokens, Some(1_600));
+    assert_eq!(accumulated.cache_write_tokens, Some(100));
+    assert_eq!(accumulated.cost_micros, Some(6_000));
+
+    session.context.lock().thread_id = Some("next-thread".into());
+    usage(
+        &fixture.service,
+        &session,
+        TokenUsage {
+            response_id: Some("turn-3".into()),
+            cost_micros: None,
+            input_tokens: 500,
+            output_tokens: 50,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            used_tokens: None,
+            window_tokens: None,
+        },
+        13,
+    );
+    let reset = USAGE.lock()[&tab]
+        .token_usage
+        .as_ref()
+        .unwrap()
+        .value
+        .clone();
+    assert_eq!(reset.input_tokens, 500);
+    assert_eq!(reset.output_tokens, 50);
+    assert_eq!(reset.cache_read_tokens, None);
+    assert_eq!(reset.cache_write_tokens, None);
+    assert_eq!(reset.cost_micros, None);
+}

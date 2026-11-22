@@ -114,8 +114,14 @@ impl ServiceContext {
     }
 
     pub(crate) fn settle_closed_durable_deliveries(&self, target: &str) -> Result<(), String> {
-        let _claim = self.pty_ownership.acquire(target)?;
         let owner = &self.pending_delivery_payloads.agent_deliveries;
+        let has_pending = owner.records(target)?.iter().any(|record| {
+            record.state == AgentDeliveryState::Pending && record.durable_delivery.is_some()
+        });
+        if !has_pending {
+            return Ok(());
+        }
+        let _claim = self.pty_ownership.acquire(target)?;
         for record in owner.records(target)? {
             if record.state != AgentDeliveryState::Pending || record.durable_delivery.is_none() {
                 continue;

@@ -287,6 +287,7 @@ pub(super) fn persist_local_task_report(
     milestone_kind: Option<&str>,
     now_ms: u64,
 ) -> Result<(), ReportPersistenceFailure> {
+    validate_report_attachments(&details.attachments)?;
     let binding = store
         .assigned_task_binding_projection(tab_id)
         .map_err(|error| plan_failure(tab_id, plan_id, task_id, error))?;
@@ -428,6 +429,22 @@ fn persist_explicit_report(
     .map_err(|cause| incident_failure(tab_id, plan_id, task_id, &cause))
 }
 
+fn validate_report_attachments(attachments: &[String]) -> Result<(), ReportPersistenceFailure> {
+    for path in attachments {
+        codeterm_service_core::service::plan::attachments::validate_attachment_source(Path::new(
+            path,
+        ))
+        .map_err(|error| ReportPersistenceFailure {
+            cause: format!(
+                "report attachment rejected: {error}\nWorker next step: fix the --attach path \
+                 (or omit --attach) and report again."
+            ),
+            report_outcome: ReportOutcomeClass::TransitionRejected,
+        })?;
+    }
+    Ok(())
+}
+
 fn attach_files(
     store: &PlanStore,
     plan_id: &str,
@@ -439,7 +456,12 @@ fn attach_files(
     for path in attachments {
         store
             .attach_to_milestone(plan_id, task_id, milestone_id, Path::new(path), now_ms)
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                format!(
+                    "report milestone '{milestone_id}' was persisted, but attachment '{path}' \
+                     failed: {error}"
+                )
+            })?;
     }
     Ok(())
 }

@@ -19,6 +19,8 @@ fn provider_switch_parses_target_selection_and_requires_a_provider() {
         "target-token",
         "--tab",
         "tab-token",
+        "--profile",
+        "profile-token",
         "--model",
         "model-token",
         "--reasoning-effort",
@@ -27,11 +29,73 @@ fn provider_switch_parses_target_selection_and_requires_a_provider() {
     ])
     .unwrap();
     assert!(
-        matches!(parsed.action, AgentAction::SwitchProvider { provider, tab: Some(tab), model: Some(model), reasoning_effort: Some(effort), force: true } if provider == "target-token" && tab == "tab-token" && model == "model-token" && effort == "effort-token")
+        matches!(parsed.action, AgentAction::SwitchProvider { provider, tab: Some(tab), launch_profile: Some(profile), model: Some(model), reasoning_effort: Some(effort), force: true } if provider == "target-token" && tab == "tab-token" && profile == "profile-token" && model == "model-token" && effort == "effort-token")
     );
+    let without_profile = AgentOnly::try_parse_from([
+        "codeterm",
+        "switch-provider",
+        "target-token",
+        "--tab",
+        "tab-token",
+    ])
+    .unwrap();
+    assert!(matches!(
+        without_profile.action,
+        AgentAction::SwitchProvider {
+            launch_profile: None,
+            force: false,
+            ..
+        }
+    ));
     assert!(
         AgentOnly::try_parse_from(["codeterm", "switch-provider", "--tab", "tab-token"]).is_err()
     );
+}
+
+#[test]
+fn provider_switch_mesh_api_map_forwards_launch_profile() {
+    let parsed = crate::Cli::try_parse_from([
+        "domios",
+        "agent",
+        "switch-provider",
+        "target-token",
+        "--tab",
+        "tab-token",
+        "--profile",
+        "profile-token",
+        "--model",
+        "model-token",
+        "--reasoning-effort",
+        "effort-token",
+        "--force",
+    ])
+    .unwrap();
+    let (method, path, body) = crate::mesh_cli::api_map::cli_command_to_api(&parsed.command);
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/tabs/tab-token/agent/switch-provider");
+    let body: serde_json::Value = serde_json::from_str(&body.unwrap()).unwrap();
+    assert_eq!(body["provider"], "target-token");
+    assert_eq!(body["launch_profile"], "profile-token");
+    assert_eq!(body["model"], "model-token");
+    assert_eq!(body["reasoning_effort"], "effort-token");
+    assert_eq!(body["force"], true);
+
+    let parsed_without_profile = crate::Cli::try_parse_from([
+        "domios",
+        "agent",
+        "switch-provider",
+        "target-token",
+        "--tab",
+        "tab-token",
+    ])
+    .unwrap();
+    let (method, path, body) =
+        crate::mesh_cli::api_map::cli_command_to_api(&parsed_without_profile.command);
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/tabs/tab-token/agent/switch-provider");
+    let body: serde_json::Value = serde_json::from_str(&body.unwrap()).unwrap();
+    assert_eq!(body["provider"], "target-token");
+    assert!(body.get("launch_profile").is_none());
 }
 
 #[test]

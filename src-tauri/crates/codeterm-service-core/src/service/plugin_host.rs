@@ -698,6 +698,10 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     fn local_recording_enabled_json(&self, plugin_id: &str, enabled: bool) -> String {
         super::local_recording::host_json(self.local_recording_set_enabled(plugin_id, enabled))
     }
+
+    fn local_recording_plugin_registered(&self, plugin_id: &str) {
+        self.restore_local_recording_plugin(plugin_id);
+    }
 }
 
 fn stored_supporter_token(plugin_id: &str, token_dir: &std::path::Path) -> Option<String> {

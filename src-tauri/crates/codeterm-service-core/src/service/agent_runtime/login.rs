@@ -158,6 +158,13 @@ fn claim_refusal(
         format!("A sign-in for this provider is already pending in tab {owner_tab}. Finish or cancel it there before trying again.")
     })
 }
+pub(super) fn has_live_pending(session: &Session) -> bool {
+    let now = now_ms();
+    session.login.lock().login.as_ref().is_some_and(|login| {
+        login.status == RuntimeLoginStatus::Pending
+            && login.expires_at_ms.is_none_or(|expiry| expiry > now)
+    })
+}
 fn claim(session: &Arc<Session>, tab: &str) -> Result<(), String> {
     let key = (session.provider.clone(), session.account.lock().clone());
     let mut owners = OWNERS.lock();

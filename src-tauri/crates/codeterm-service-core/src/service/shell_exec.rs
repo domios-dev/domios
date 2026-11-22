@@ -9,12 +9,14 @@ use tokio::sync::oneshot;
 pub enum ExecCompletion {
     CommandFinished { exit_code: Option<i32> },
     ShellExited { exit_code: Option<i32> },
+    TargetRestarting,
 }
 
 impl ExecCompletion {
     pub fn exit_code(self) -> Option<i32> {
         match self {
             Self::CommandFinished { exit_code } | Self::ShellExited { exit_code } => exit_code,
+            Self::TargetRestarting => None,
         }
     }
 
@@ -22,8 +24,37 @@ impl ExecCompletion {
         match self {
             Self::CommandFinished { .. } => "command_finished",
             Self::ShellExited { .. } => "shell_exited",
+            Self::TargetRestarting => "target_restarting",
         }
     }
+
+    pub fn outcome(self) -> &'static str {
+        match self {
+            Self::CommandFinished { exit_code: Some(_) }
+            | Self::ShellExited { exit_code: Some(_) } => {
+                codeterm_mesh::contract::delivery::OUTCOME_COMPLETED
+            }
+            Self::CommandFinished { exit_code: None }
+            | Self::ShellExited { exit_code: None }
+            | Self::TargetRestarting => codeterm_mesh::contract::delivery::OUTCOME_UNKNOWN,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ShellExecSubmission {
+    Started(ExecWaiter),
+    Unconfirmed {
+        completion: Option<ExecCompletion>,
+        detail: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShellExecError {
+    BusyRefused(String),
+    PtyUnavailable(String),
+    PreparationRefused(String),
 }
 
 #[derive(Default)]
@@ -65,6 +96,7 @@ struct PendingExec {
     correlation: CommandCorrelation,
     tx: oneshot::Sender<ExecCompletion>,
     started: Arc<AtomicBool>,
+    terminated: Arc<AtomicBool>,
 }
 
 type Waiters = HashMap<String, Vec<PendingExec>>;
@@ -72,11 +104,13 @@ type Waiters = HashMap<String, Vec<PendingExec>>;
 static WAITERS: LazyLock<Mutex<Waiters>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 static NEXT_WAITER: AtomicU64 = AtomicU64::new(1);
 
+#[derive(Debug)]
 pub struct ExecWaiter {
     pty_id: String,
     id: u64,
     rx: oneshot::Receiver<ExecCompletion>,
     started: Arc<AtomicBool>,
+    terminated: Arc<AtomicBool>,
 }
 
 impl ExecWaiter {
@@ -92,6 +126,7 @@ impl ExecWaiter {
         let id = NEXT_WAITER.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         let started = Arc::new(AtomicBool::new(false));
+        let terminated = Arc::new(AtomicBool::new(false));
         WAITERS
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -105,17 +140,27 @@ impl ExecWaiter {
                 },
                 tx,
                 started: started.clone(),
+                terminated: terminated.clone(),
             });
         Self {
             pty_id: pty_id.to_string(),
             id,
             rx,
             started,
+            terminated,
         }
     }
 
     pub(crate) fn started(&self) -> bool {
         self.started.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn terminated(&self) -> bool {
+        self.terminated.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn try_completion(&mut self) -> Option<ExecCompletion> {
+        self.rx.try_recv().ok()
     }
 
     /// `None` when `deadline` elapsed first; elapsed time is a failure, never a completion.
@@ -142,7 +187,18 @@ impl Drop for ExecWaiter {
 }
 
 pub fn publish(pty_id: &str, completion: ExecCompletion) {
-    if !matches!(completion, ExecCompletion::ShellExited { .. }) {
+    publish_with_shutdown(
+        pty_id,
+        completion,
+        crate::crash::shutdown::is_shutting_down(),
+    );
+}
+
+pub(crate) fn publish_with_shutdown(pty_id: &str, completion: ExecCompletion, shutting_down: bool) {
+    if !matches!(
+        completion,
+        ExecCompletion::ShellExited { .. } | ExecCompletion::TargetRestarting
+    ) {
         return;
     }
     let waiting = WAITERS
@@ -151,12 +207,40 @@ pub fn publish(pty_id: &str, completion: ExecCompletion) {
         .remove(pty_id)
         .unwrap_or_default();
     for pending in waiting {
-        let completion = if pending.correlation.expected.is_some() && !pending.correlation.started {
+        let completion = if shutting_down || matches!(completion, ExecCompletion::TargetRestarting)
+        {
+            ExecCompletion::TargetRestarting
+        } else if pending.correlation.expected.is_some() && !pending.correlation.started {
             ExecCompletion::ShellExited { exit_code: None }
         } else {
             completion
         };
+        pending.terminated.store(true, Ordering::Release);
         let _ = pending.tx.send(completion);
+    }
+    crate::service::pty_io::submit_transaction::wake_submit_cycle(pty_id);
+}
+
+pub fn publish_target_restarting_for(pty_ids: &[String]) {
+    let drained: Vec<(String, Vec<PendingExec>)> = {
+        let mut waiters = WAITERS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        pty_ids
+            .iter()
+            .filter_map(|pty_id| {
+                waiters
+                    .remove(pty_id)
+                    .map(|waiting| (pty_id.clone(), waiting))
+            })
+            .collect()
+    };
+    for (pty_id, waiting) in drained {
+        for pending in waiting {
+            pending.terminated.store(true, Ordering::Release);
+            let _ = pending.tx.send(ExecCompletion::TargetRestarting);
+        }
+        crate::service::pty_io::submit_transaction::wake_submit_cycle(&pty_id);
     }
 }
 
@@ -175,6 +259,7 @@ pub(crate) fn observe_command(
                 pending.started.store(true, Ordering::Release);
             }
             if let Some(completion) = completion {
+                pending.terminated.store(true, Ordering::Release);
                 let _ = pending.tx.send(completion);
             } else {
                 retained.push(pending);

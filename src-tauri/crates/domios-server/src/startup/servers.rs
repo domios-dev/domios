@@ -122,6 +122,9 @@ fn start_restored_pty_backends(
 
 fn publish_backend_materialization_failure(service: &ServiceState, tab_id: &str, reason: &str) {
     if let Some(tab) = service.mux.write().get_tab_mut(tab_id) {
+        if service::lazy_restore::automatic_restore_refusal(tab).is_some() {
+            return;
+        }
         tab.agent_booting = false;
     }
     service.emit_boot_stage(
@@ -160,9 +163,11 @@ fn restored_backend_tab_ids(service_state: &ServiceState) -> Vec<String> {
         .tabs
         .into_values()
         .filter(|tab| {
-            !tab.close_restore
-                .as_ref()
-                .is_some_and(|closed| closed.stopped)
+            service::lazy_restore::automatic_restore_refusal(tab).is_none()
+                && !tab
+                    .close_restore
+                    .as_ref()
+                    .is_some_and(|closed| closed.stopped)
                 && should_materialize_restored_backend(
                     tab.restored_from_snapshot,
                     tab.protected,

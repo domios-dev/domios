@@ -405,11 +405,44 @@ fn management_requires_owner_or_live_orchestrator_credentials() {
     let orchestrator = mux.create_tab(&workspace).unwrap();
     mux.set_orchestrator_role(&orchestrator).unwrap();
     mux.resolve_or_mint_team_for_parent(&orchestrator).unwrap();
+    let team_id = mux.get_tab(&orchestrator).unwrap().team_id.clone().unwrap();
+    let worker = mux.create_tab(&workspace).unwrap();
+    {
+        let tab = mux.get_tab_mut(&worker).unwrap();
+        tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+        tab.team_id = Some(team_id);
+        tab.parent_tab_id = Some(orchestrator.clone());
+    }
+    let forged_general = mux.create_tab(&workspace).unwrap();
+    {
+        let tab = mux.get_tab_mut(&forged_general).unwrap();
+        tab.title = crate::service::general_agent::GENERAL_TAB_TITLE.into();
+        tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
+    }
+    crate::service::general_agent::ensure_general_workspace(&mut mux, false);
+    let general = mux
+        .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
+        .unwrap();
+    let general_workspace = mux.find_workspace_for_tab(&general).unwrap();
+    let general_nonce = "general-current-nonce";
+    mux.get_tab_mut(&general).unwrap().session_binding_nonce = Some(general_nonce.into());
     let fixture = ServiceFixture::new(mux);
     let svc = &fixture.service;
+    let refusal =
+        "ACP profile management requires the local owner, an authenticated local General Agent, or a live Orchestrator";
     svc.ext::<crate::config::ConfigState>().lock().api.token = Some("owner-fixture".into());
     let ordinary_token = svc
         .frontend_pty_env(Some(&ordinary))
+        .unwrap()
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    let worker_token = svc
+        .frontend_pty_env(Some(&worker))
+        .unwrap()
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    let forged_general_token = svc
+        .frontend_pty_env(Some(&forged_general))
         .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
@@ -418,9 +451,41 @@ fn management_requires_owner_or_live_orchestrator_credentials() {
         .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
+    let general_token = svc
+        .mint_tab_credential(&general, general_nonce)
+        .expect("General launch credential");
+
     assert!(authorize(svc, "owner-fixture").is_ok());
     assert!(authorize(svc, &orchestrator_token).is_ok());
-    assert!(authorize(svc, &ordinary_token).is_err());
+    for token in [&ordinary_token, &worker_token, &forged_general_token] {
+        assert_eq!(authorize(svc, token).unwrap_err(), refusal);
+        assert!(svc
+            .bind_local_rpc(token, "agent.acp", &mut Some(json!({"operation":"list"})))
+            .is_err());
+    }
+    assert_eq!(authorize(svc, &general_token).unwrap_err(), refusal);
+    assert!(svc
+        .bind_local_rpc(
+            &general_token,
+            "agent.acp",
+            &mut Some(json!({"operation":"list"}))
+        )
+        .is_err());
+
+    {
+        let mut mux = svc.mux.write();
+        let tab = mux.get_tab_mut(&general).unwrap();
+        tab.agent_session_id = Some("general-session".into());
+        tab.reported_session_binding_nonce = Some(general_nonce.into());
+    }
+    assert!(authorize(svc, &general_token).is_ok());
+    let mut general_params = Some(json!({"operation":"list"}));
+    svc.bind_local_rpc(&general_token, "agent.acp", &mut general_params)
+        .unwrap();
+    let bound = general_params.unwrap();
+    assert_eq!(bound["caller_tab_id"].as_str(), Some(general.as_str()));
+    assert_eq!(bound["session_binding_nonce"].as_str(), Some(general_nonce));
+
     assert!(svc
         .bind_local_rpc(
             &ordinary_token,
@@ -435,6 +500,90 @@ fn management_requires_owner_or_live_orchestrator_credentials() {
             &mut Some(json!({"operation":"list"}))
         )
         .is_ok());
+
+    {
+        let mut mux = svc.mux.write();
+        mux.get_tab_mut(&general)
+            .unwrap()
+            .reported_session_binding_nonce = Some("prior-general-nonce".into());
+    }
+    assert_eq!(authorize(svc, &general_token).unwrap_err(), refusal);
+    assert!(svc
+        .bind_local_rpc(
+            &general_token,
+            "agent.acp",
+            &mut Some(json!({"operation":"list"}))
+        )
+        .is_err());
+    svc.mux
+        .write()
+        .get_tab_mut(&general)
+        .unwrap()
+        .reported_session_binding_nonce = Some(general_nonce.into());
+
+    let stale_nonce = "replacement-general-nonce";
+    {
+        let mut mux = svc.mux.write();
+        let tab = mux.get_tab_mut(&general).unwrap();
+        tab.session_binding_nonce = Some(stale_nonce.into());
+        tab.agent_session_id = Some("replacement-general-session".into());
+        tab.reported_session_binding_nonce = Some(stale_nonce.into());
+    }
+    assert!(authorize(svc, &general_token).is_err());
+    assert!(svc
+        .bind_local_rpc(
+            &general_token,
+            "agent.acp",
+            &mut Some(json!({"operation":"list"}))
+        )
+        .is_err());
+
+    let current_general_token = svc
+        .mint_tab_credential(&general, stale_nonce)
+        .expect("replacement General launch credential");
+    assert!(authorize(svc, &current_general_token).is_ok());
+    svc.revoke_tab_credential(&general);
+    assert!(authorize(svc, &current_general_token).is_err());
+    assert!(svc
+        .bind_local_rpc(
+            &current_general_token,
+            "agent.acp",
+            &mut Some(json!({"operation":"list"}))
+        )
+        .is_err());
+
+    let replaced_general_token = svc
+        .mint_tab_credential(&general, stale_nonce)
+        .expect("General credential after explicit revocation");
+    let replacement_general = {
+        let mut mux = svc.mux.write();
+        let replacement = mux.create_tab(&general_workspace).unwrap();
+        let tab = mux.get_tab_mut(&replacement).unwrap();
+        crate::service::general_agent::identity::apply_general_agent_kind(tab);
+        tab.provisioned_cwd = Some(
+            crate::service::general_agent::general_dir()
+                .to_string_lossy()
+                .into_owned(),
+        );
+        tab.agent_session_id = Some("new-main-session".into());
+        tab.session_binding_nonce = Some("new-main-nonce".into());
+        tab.reported_session_binding_nonce = Some("new-main-nonce".into());
+        mux.register_alias(crate::service::general_agent::GENERAL_ALIAS, &replacement);
+        replacement
+    };
+    assert_ne!(general, replacement_general);
+    assert_eq!(
+        authorize(svc, &replaced_general_token).unwrap_err(),
+        refusal
+    );
+    assert!(svc
+        .bind_local_rpc(
+            &replaced_general_token,
+            "agent.acp",
+            &mut Some(json!({"operation":"list"}))
+        )
+        .is_err());
+
     assert!(execute(
         svc,
         &json!({"operation":"list","authenticated_mesh_peer_id":"fixture-peer"})
@@ -443,4 +592,118 @@ fn management_requires_owner_or_live_orchestrator_credentials() {
     assert!(authorize(svc, "forged").is_err());
     svc.revoke_tab_credential(&orchestrator);
     assert!(authorize(svc, &orchestrator_token).is_err());
+}
+
+#[test]
+fn registry_install_exposes_sanitized_icon_and_isolates_invalid_or_offline_icons() {
+    let (fixture, _, _serial) = fixture();
+    let svc = &fixture.service;
+    let mut events = svc.events.subscribe();
+
+    let registry_profile = |icon_url: &str| -> RuntimeLaunchProfile {
+        serde_json::from_value(json!({
+            "binary":"npx",
+            "args":["@fixture/agent@1.0.0"],
+            "ownerConfigured":true,
+            "registryId":"fixture-agent",
+            "iconUrl":icon_url,
+            "install":{"distribution":"npx","package":"@fixture/agent@1.0.0"}
+        }))
+        .unwrap()
+    };
+
+    let valid_svg = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M2 2h20v20H2z"/></svg>"#;
+    let expected = codeterm_plugin::plugin_icon::registry::sanitize("image/svg+xml", valid_svg)
+        .expect("valid icon");
+    finalize_registry_install(
+        svc,
+        "icon-valid",
+        registry_profile("https://cdn.example.test/valid.svg"),
+        |_| codeterm_plugin::plugin_icon::registry::sanitize("image/svg+xml", valid_svg),
+    )
+    .unwrap();
+    let saved = owner_profiles::load(PROVIDER).unwrap();
+    assert_eq!(
+        saved["icon-valid"].icon_svg.as_deref(),
+        Some(expected.as_str())
+    );
+    let mut saw_contributions_changed = false;
+    while let Ok(envelope) = events.try_recv() {
+        if matches!(
+            envelope.event,
+            codeterm_events::SystemEvent::ContributionsChanged { ref kind } if kind == "agent_provider"
+        ) {
+            saw_contributions_changed = true;
+        }
+    }
+    assert!(
+        saw_contributions_changed,
+        "saving a registry profile must notify agent_provider consumers"
+    );
+
+    finalize_registry_install(
+        svc,
+        "icon-malicious",
+        registry_profile("https://cdn.example.test/malicious.svg"),
+        |_| {
+            codeterm_plugin::plugin_icon::registry::sanitize(
+                "image/svg+xml",
+                b"<svg><script>alert(1)</script></svg>",
+            )
+        },
+    )
+    .unwrap();
+    assert!(owner_profiles::load(PROVIDER).unwrap()["icon-malicious"]
+        .icon_svg
+        .is_none());
+
+    finalize_registry_install(
+        svc,
+        "icon-oversized",
+        registry_profile("https://cdn.example.test/oversized.svg"),
+        |_| {
+            codeterm_plugin::plugin_icon::registry::sanitize(
+                "image/svg+xml",
+                &vec![b'x'; codeterm_plugin::plugin_icon::MAX_PLUGIN_ICON_BYTES + 1],
+            )
+        },
+    )
+    .unwrap();
+    assert!(owner_profiles::load(PROVIDER).unwrap()["icon-oversized"]
+        .icon_svg
+        .is_none());
+
+    finalize_registry_install(
+        svc,
+        "icon-offline",
+        registry_profile("https://cdn.example.test/offline.svg"),
+        |_| None,
+    )
+    .unwrap();
+    assert!(owner_profiles::load(PROVIDER).unwrap()["icon-offline"]
+        .icon_svg
+        .is_none());
+
+    let mut local_override = registry_profile("https://cdn.example.test/ignored.svg");
+    local_override.icon = Some("local-color.svg".into());
+    let mut fetched_for_local = false;
+    finalize_registry_install(svc, "icon-local-override", local_override, |_| {
+        fetched_for_local = true;
+        Some(expected.clone())
+    })
+    .unwrap();
+    assert!(
+        !fetched_for_local,
+        "explicit local icon override must not be replaced by a remote registry icon"
+    );
+
+    for id in [
+        "icon-valid",
+        "icon-malicious",
+        "icon-oversized",
+        "icon-offline",
+        "icon-local-override",
+    ] {
+        remove(svc, id).unwrap();
+    }
 }

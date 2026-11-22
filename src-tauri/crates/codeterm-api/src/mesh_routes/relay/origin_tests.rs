@@ -678,3 +678,52 @@ async fn grant_change_fences_already_buffered_peer_events_and_isolated_resume_fi
     let frame: Value = serde_json::from_slice(live.strip_prefix(b"data: ").unwrap()).unwrap();
     assert_eq!(frame["data"]["tab_id"], own_tab);
 }
+
+#[test]
+fn single_pass_signed_mesh_auth_enforces_origin_agent_binding_and_replay() {
+    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let source = state(&fixture, "source");
+    let target = state(&fixture, "target");
+    pair(&target, &source);
+
+    let owner_token = origin::sign(&source, AuthenticatedOrigin::Owner, None).unwrap();
+    let (peer_id, parsed_origin, agent) =
+        origin::authenticate_signed_mesh_request(&target, &headers(&owner_token)).unwrap();
+    assert_eq!(peer_id, "source");
+    assert_eq!(parsed_origin, AuthenticatedOrigin::Owner);
+    assert!(agent.is_none());
+    let replay = origin::authenticate_signed_mesh_request(&target, &headers(&owner_token));
+    assert_eq!(replay.unwrap_err().0, StatusCode::UNAUTHORIZED);
+
+    let claimed = codeterm_service_core::mesh::crown::AuthenticatedAgent {
+        instance_id: "source".into(),
+        tab_id: "tab-1".into(),
+        can_spawn: false,
+    };
+    let agent_token = origin::sign(&source, AuthenticatedOrigin::Agent, Some(&claimed)).unwrap();
+    let (peer_id, parsed_origin, agent) =
+        origin::authenticate_signed_mesh_request(&target, &headers(&agent_token)).unwrap();
+    assert_eq!(peer_id, "source");
+    assert_eq!(parsed_origin, AuthenticatedOrigin::Agent);
+    assert_eq!(agent, Some(claimed));
+
+    let spoofed = codeterm_service_core::mesh::crown::AuthenticatedAgent {
+        instance_id: "other".into(),
+        tab_id: "tab-1".into(),
+        can_spawn: false,
+    };
+    let spoofed_token = origin::sign(&source, AuthenticatedOrigin::Agent, Some(&spoofed)).unwrap();
+    assert_eq!(
+        origin::authenticate_signed_mesh_request(&target, &headers(&spoofed_token))
+            .unwrap_err()
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+
+    let local_token = origin::sign(&target, AuthenticatedOrigin::Owner, None).unwrap();
+    let (local_id, local_origin, local_agent) =
+        origin::authenticate_signed_mesh_request(&target, &headers(&local_token)).unwrap();
+    assert_eq!(local_id, "local");
+    assert_eq!(local_origin, AuthenticatedOrigin::Owner);
+    assert!(local_agent.is_none());
+}

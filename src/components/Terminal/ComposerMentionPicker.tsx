@@ -1,5 +1,5 @@
 import { useEffect, useRef, type CSSProperties, type RefObject } from "react";
-import { CheckSquare, File, Layers, Terminal, Workflow, X } from "lucide-react";
+import { CheckSquare, File, Layers, Mic, Terminal, Workflow, X } from "lucide-react";
 import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
 import { MENTION_PICKER_LAYOUT, type ComposerMention } from "../../lib/composerMentions";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
@@ -56,7 +56,7 @@ export function ComposerMentionPicker({ active = true, listboxId = "composer-men
             </>}
           </div>
           {group.rows.map(({ row: mention, index }) => {
-            const Icon = mention.kind === "task" ? CheckSquare : mention.kind === "plan" ? Layers : mention.kind === "blueprint" ? Workflow : mention.kind === "file" ? File : Terminal;
+            const Icon = mention.kind === "task" ? CheckSquare : mention.kind === "plan" ? Layers : mention.kind === "blueprint" ? Workflow : mention.kind === "file" ? File : mention.kind === "action" ? Mic : Terminal;
             return <div key={mention.id} id={optionId(mention)} role="option" aria-selected={index === highlighted} aria-label={mention.label} aria-describedby={`${optionId(mention)}-description`}
               onPointerDown={(event) => event.preventDefault()} onMouseDown={(event) => event.preventDefault()}
               onMouseEnter={() => onHighlight(index)} onClick={() => onPick(mention)} className="ct-menu-row composer-mention-row" title={mention.description}>

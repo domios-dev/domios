@@ -123,11 +123,34 @@ pub async fn operate(
         .as_ref()
         .and_then(|provider| provider.agent_runtime())
         .and_then(|capability| capability.thread_history);
-    let Some(capability) = capability else {
-        return Err("Thread history actions unsupported by provider".into());
+    let session_fork_advertised = request.action == RuntimeThreadHistoryAction::Fork
+        && session
+            .state
+            .lock()
+            .session_capabilities
+            .as_ref()
+            .is_some_and(|caps| caps.fork);
+    let effective_capability = match capability.clone() {
+        Some(cap) => cap,
+        None if session_fork_advertised => {
+            codeterm_plugin::agent_runtime::RuntimeThreadHistoryCapability {
+                actions: vec![RuntimeThreadHistoryAction::Fork],
+            }
+        }
+        None => return Err("Thread history actions unsupported by provider".into()),
     };
-    authorize(&request, &capability, &current)?;
-    if !session.cache.lock().has_turn(&request.turn_id) {
+    authorize(&request, &effective_capability, &current)?;
+    let turn_visible = {
+        let cache = session.cache.lock();
+        cache.has_turn(&request.turn_id)
+            || (session_fork_advertised
+                && (request.turn_id == "latest"
+                    || cache
+                        .snapshot()
+                        .iter()
+                        .any(|row| row.id.starts_with(&request.turn_id))))
+    };
+    if !turn_visible {
         return Err("Selected turn is no longer in the visible transcript".into());
     }
     let source = {
@@ -146,9 +169,66 @@ pub async fn operate(
         (tab, workspace)
     };
     match request.action {
-        RuntimeThreadHistoryAction::Fork => fork(svc, &session, current, request, source).await,
+        RuntimeThreadHistoryAction::Fork => {
+            fork(
+                svc,
+                &session,
+                current,
+                request,
+                source,
+                capability.is_some(),
+            )
+            .await
+        }
         RuntimeThreadHistoryAction::Revert => revert(svc, tab_id, &session, current, request).await,
     }
+}
+
+pub fn supports_session_fork(tab_id: &str) -> bool {
+    engine::for_tab(tab_id).is_some_and(|session| {
+        session
+            .state
+            .lock()
+            .session_capabilities
+            .as_ref()
+            .is_some_and(|caps| caps.fork)
+    })
+}
+
+pub fn fork_live_session_blocking(
+    svc: &ServiceContext,
+    tab_id: &str,
+) -> Result<crate::service::agent_fork::ForkResult, String> {
+    let session = engine::for_tab(tab_id).ok_or("Runtime session unavailable")?;
+    let current = binding(&session.context.lock())?;
+    let source_thread_id = current.thread_id.clone();
+    let owner = svc.clone();
+    let tab = tab_id.to_string();
+    let value = super::blocking::task(async move {
+        operate(
+            &owner,
+            &tab,
+            ThreadHistoryRequest {
+                action: RuntimeThreadHistoryAction::Fork,
+                turn_id: "latest".into(),
+                confirmed: false,
+                binding: Some(current),
+            },
+        )
+        .await
+    })??;
+    let forked_tab_id = value["tabId"]
+        .as_str()
+        .ok_or("Fork did not return a tab id")?
+        .to_string();
+    let forked_thread_id = value["threadId"].as_str().map(str::to_string);
+    Ok(crate::service::agent_fork::ForkResult {
+        tab_id: forked_tab_id,
+        source_tab_id: tab_id.to_string(),
+        source_session_id: source_thread_id,
+        binding_pending: forked_thread_id.is_none(),
+        session_id: forked_thread_id,
+    })
 }
 
 async fn fork(
@@ -157,6 +237,7 @@ async fn fork(
     source_binding: ThreadHistoryBinding,
     request: ThreadHistoryRequest,
     source: (crate::multiplexer::types::Tab, String),
+    verify_cutoff: bool,
 ) -> Result<Value, String> {
     let (source_tab, workspace_id) = source;
     let cwd = source_tab.cwd.clone().ok_or("Source cwd unavailable")?;
@@ -212,8 +293,8 @@ async fn fork(
         close_fork_tab(svc, &spawned.tab_id).await;
         return Err(error.to_string());
     }
-    let cutoff_verified =
-        fork_history_ends_at(&fork_session.cache.lock().snapshot(), &request.turn_id);
+    let cutoff_verified = !verify_cutoff
+        || fork_history_ends_at(&fork_session.cache.lock().snapshot(), &request.turn_id);
     if !cutoff_verified {
         log::debug!(
             "[thread-history] fork={} rejected cutoff={}",

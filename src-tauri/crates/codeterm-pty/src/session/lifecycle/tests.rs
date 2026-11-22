@@ -92,6 +92,7 @@ fn identity(epoch: Option<u64>, operation: Option<&str>) -> AgentIdentitySnapsho
         agent_state: None,
         turn_resume: None,
         boot_stage: None,
+        boot_failure_reason: None,
         reasoning_effort: Default::default(),
         restorable_launch: Default::default(),
         context_epochs: vec![],

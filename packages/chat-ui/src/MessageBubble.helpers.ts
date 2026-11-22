@@ -36,6 +36,9 @@ export function structuredInboundFromMessage(message: ChatMessage): StructuredIn
   if (message.inboundKind === "system") {
     return { kind: "system", origin: { kind: "system", ...(message.fromContext ? { context: message.fromContext } : {}) } };
   }
+  if ((message.inboundKind as string | undefined) === "cli") {
+    return { kind: "system", origin: { kind: "system", context: "CLI" } };
+  }
   if (message.inboundKind === "plugin" || message.fromPlugin) {
     const pluginId = message.fromPlugin?.trim();
     if (pluginId) {

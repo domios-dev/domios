@@ -440,7 +440,7 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
     if (submenu) entries.push(submenu);
   }
   entries.push(...sessionItems(input, session), ...autoConfirmEntries(input));
-  if (session.sessionId && input.descriptor?.supports_session_fork === true && !tab.remote_peer_id) {
+  if (session.sessionId && (input.descriptor?.supports_session_fork === true || tab.agent_runtime_state?.sessionCapabilities?.fork === true) && !tab.remote_peer_id) {
     entries.push({kind:"item",id:"fork",label:"Fork session",icon:"fork",action:{type:"fork"}});
   }
   const plugins = pluginsSubmenu(input);

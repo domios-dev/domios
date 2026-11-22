@@ -15,6 +15,14 @@ pub(crate) fn is_send_relay(method: &str, path: &str) -> bool {
     method.eq_ignore_ascii_case("POST") && path.split('?').next().unwrap_or(path).ends_with("/send")
 }
 
+pub(crate) fn is_exec_relay(method: &str, path: &str) -> bool {
+    method.eq_ignore_ascii_case("POST") && path.split('?').next().unwrap_or(path).ends_with("/exec")
+}
+
+pub(crate) fn is_delivery_relay(method: &str, path: &str) -> bool {
+    is_send_relay(method, path) || is_exec_relay(method, path)
+}
+
 /// The stable delivery id for a logical send: an explicit env override (so a
 /// caller can pin one across retries) else a fresh v4 UUID per invocation.
 #[cfg(test)]
@@ -110,6 +118,9 @@ pub(crate) struct MeshSpawnFailure {
     /// Whether an identical retry can ever succeed; `None` when never classified.
     pub(crate) class: Option<RefusalClass>,
     pub(crate) peer_id: Option<String>,
+    pub(crate) outcome: Option<String>,
+    pub(crate) output: Option<String>,
+    pub(crate) output_truncated: bool,
 }
 
 impl MeshSpawnFailure {
@@ -122,6 +133,9 @@ impl MeshSpawnFailure {
             bytes_written: None,
             class: None,
             peer_id: None,
+            outcome: None,
+            output: None,
+            output_truncated: false,
         }
     }
 
@@ -135,6 +149,7 @@ impl MeshSpawnFailure {
         let mut failure =
             Self::new(peer, reason, retry_hint).with_delivery(Some(code.to_string()), Some(false));
         failure.class = Some(RefusalClass::Deterministic);
+        failure.outcome = Some(codeterm_mesh::contract::delivery::OUTCOME_REFUSED.into());
         failure
     }
 
@@ -147,6 +162,18 @@ impl MeshSpawnFailure {
     fn with_delivery(mut self, code: Option<String>, bytes_written: Option<bool>) -> Self {
         self.code = code;
         self.bytes_written = bytes_written;
+        self
+    }
+
+    fn with_exec_observation(
+        mut self,
+        outcome: Option<String>,
+        output: Option<String>,
+        output_truncated: bool,
+    ) -> Self {
+        self.outcome = outcome;
+        self.output = output;
+        self.output_truncated = output_truncated;
         self
     }
 
@@ -175,6 +202,15 @@ impl MeshSpawnFailure {
         if let Some(peer_id) = &self.peer_id {
             error["peer_id"] = serde_json::json!(peer_id);
         }
+        if let Some(outcome) = &self.outcome {
+            error["outcome"] = serde_json::json!(outcome);
+        }
+        if let Some(output) = &self.output {
+            error["output"] = serde_json::json!(output);
+        }
+        if self.output_truncated {
+            error["output_truncated"] = serde_json::json!(true);
+        }
         serde_json::json!({ "ok": false, "error": error })
     }
 
@@ -184,10 +220,21 @@ impl MeshSpawnFailure {
         if json_mode {
             println!("{}", crate::cmd::output::encode(&self.to_json()).unwrap());
         } else {
-            eprintln!(
-                "Error: mesh request to '{}' failed: {}\nhint: {}",
-                self.peer, self.reason, self.retry_hint
-            );
+            if let Some(output) = self.output.as_deref().filter(|s| !s.is_empty()) {
+                print!("{output}");
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+            }
+            if let Some(outcome) = self.outcome.as_deref() {
+                eprintln!(
+                    "Error: mesh request to '{}' failed [{}]: {}\nhint: {}",
+                    self.peer, outcome, self.reason, self.retry_hint
+                );
+            } else {
+                eprintln!(
+                    "Error: mesh request to '{}' failed: {}\nhint: {}",
+                    self.peer, self.reason, self.retry_hint
+                );
+            }
         }
         std::process::exit(1);
     }
@@ -218,11 +265,24 @@ pub(crate) fn perform_mesh_relay_call(
         .json(&relay)
         .send()
         .map_err(|e| {
-            MeshSpawnFailure::new(
+            let unknown = is_delivery_relay(method, path) && !e.is_connect();
+            let mut failure = MeshSpawnFailure::new(
                 peer_name,
                 format!("transport error: {e}"),
-                "the peer may be down or unreachable — retry once, then check `domios mesh peers`",
-            )
+                if unknown {
+                    "the delivery outcome is unknown — confirm on the target before resending; a blind retry may deliver it twice"
+                } else {
+                    "the peer may be down or unreachable — retry once, then check `domios mesh peers`"
+                },
+            );
+            if unknown {
+                failure.code = Some(
+                    codeterm_mesh::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED.into(),
+                );
+                failure.class = Some(RefusalClass::Unknown);
+                failure.outcome = Some(codeterm_mesh::contract::delivery::OUTCOME_UNKNOWN.into());
+            }
+            failure
         })?;
     let status = resp.status();
     let bytes = resp.bytes().unwrap_or_default();
@@ -261,11 +321,24 @@ pub(crate) fn mesh_relay_invoke_answered(
         .json(&peer_relay_envelope(target, method, path, body))
         .send()
         .map_err(|error| {
-            MeshSpawnFailure::new(
+            let unknown = is_delivery_relay(method, path);
+            let mut failure = MeshSpawnFailure::new(
                 target,
                 format!("local relay failed: {error}"),
-                "check `domios mesh peers`, then retry",
-            )
+                if unknown {
+                    "the delivery outcome is unknown — confirm on the target before resending; a blind retry may deliver it twice"
+                } else {
+                    "check `domios mesh peers`, then retry"
+                },
+            );
+            if unknown {
+                failure.code = Some(
+                    codeterm_mesh::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED.into(),
+                );
+                failure.class = Some(RefusalClass::Unknown);
+                failure.outcome = Some(codeterm_mesh::contract::delivery::OUTCOME_UNKNOWN.into());
+            }
+            failure
         })?;
     let status = response.status();
     let bytes = response.bytes().unwrap_or_default();
@@ -895,5 +968,36 @@ mod mesh_spawn_failure_tests {
             "a mesh spawn that never produced a live remote Tab must leave \
              zero residual task/lane bindings on the origin"
         );
+    }
+
+    #[test]
+    fn dying_peer_mid_exec_classifies_as_unknown_without_retry_hint() {
+        let peer_url = spawn_dying_peer();
+        let http = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .expect("build test http client");
+
+        let failure = perform_mesh_relay_call(
+            &http,
+            &peer_url,
+            "signed-test-token",
+            "ubunta",
+            "POST",
+            "/api/tabs/shell-1/exec",
+            Some(r#"{"command":"domios update install --auto --no-continue --json"}"#),
+        )
+        .expect_err("a peer restarting mid-exec must fail as unknown");
+        assert_eq!(
+            failure.code.as_deref(),
+            Some(codeterm_mesh::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED)
+        );
+        assert_eq!(
+            failure.outcome.as_deref(),
+            Some(codeterm_mesh::contract::delivery::OUTCOME_UNKNOWN)
+        );
+        assert_eq!(failure.class, Some(RefusalClass::Unknown));
+        assert_eq!(failure.bytes_written, None);
+        assert!(!failure.retry_hint.contains("retry once"));
     }
 }

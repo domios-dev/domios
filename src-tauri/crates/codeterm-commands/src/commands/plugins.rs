@@ -3,6 +3,7 @@ mod cli;
 mod diff_cache;
 mod host_action;
 mod permissions;
+mod settings;
 mod snapshot;
 mod view;
 

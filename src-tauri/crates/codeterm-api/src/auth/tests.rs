@@ -778,3 +778,24 @@ fn presence_notice_auth_exemption_is_exact_and_post_only() {
     assert!(!is_custom_auth(&Method::GET, "/api/mesh/account-presence"));
     assert!(!tailnet_exempt(&Method::GET, "/api/mesh/account-presence"));
 }
+
+#[test]
+fn only_agent_isolated_peers_narrow_the_tab_listing() {
+    let peer = |access_level| CallerIdentity::Peer {
+        instance_id: "peer".into(),
+        access_level,
+        relay_protocol_version: codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
+    };
+    assert_eq!(
+        isolated_peer_id(&peer(AccessLevel::AgentIsolated)).as_deref(),
+        Some("peer")
+    );
+    for identity in [
+        peer(AccessLevel::Full),
+        peer(AccessLevel::ReadOnly),
+        CallerIdentity::Local,
+        CallerIdentity::Relayed,
+    ] {
+        assert_eq!(isolated_peer_id(&identity), None);
+    }
+}

@@ -12,10 +12,21 @@ import {
 import { placeChatRails } from "./chatBodyVisibility";
 import { deliveryProjectionSends, type DeliverySend } from "./chatDeliveryModel";
 import { createDeliveryProjectionMemory, queuedDeliveryIds, stableDeliveryEntries, type DeliveryProjectionMemory } from "./chatDeliveryProjection";
+import { decodeChatSend, encodeChatSend } from "./chatSendDurableModel";
 import { conversationEntries } from "./chatPagingModel";
 import type { OutboundReportEntry } from "./ChatTranscriptRow";
 import { outboundReportRows, type LiveOutboundReport } from "./outboundReportRows";
 import { mergeAccountNoticeRows } from "./accountNoticeRows";
+import { reportVerdict } from "@codeterm/chat-ui";
+import { __setListenForTest } from "../../lib/bridge";
+import {
+  hydrateOutboundAgentReportSnapshot,
+  ingestAgentReport,
+  outboundReportSnapshotRequest,
+  readAgentReportProjection,
+  resetAgentReportProjection,
+  type AgentReportEventPayload,
+} from "./agentReportProjection";
 
 // A long-running agent tab: three days of turns, each with the same report tool
 // call, read newest page first and paged back the way the Chat view pages it.
@@ -105,7 +116,7 @@ function renderedColumn({ state, visible, live = FULL_STORE, hostRows = [], send
   const liveSends = deliveryProjectionSends(sends, null, queuedDeliveryIds(sends, turnRunning, projectionMemory));
   const projection = projectTranscript(state, liveSends);
   const transcript = mergeAccountNoticeRows(projection.rows, hostRows);
-  const entries = stableDeliveryEntries(conversationEntries(transcript), liveSends, projection.echoes, projectionMemory);
+  const entries = stableDeliveryEntries(conversationEntries(transcript), liveSends, projection.echoes, projectionMemory, projection.outside);
   const start = Math.max(0, entries.length - visible);
   const window = entries.slice(start);
   const cards = outboundReportRows({ rows: window, transcript, live, recipient: (tab) => tab ?? "parent" });
@@ -119,7 +130,7 @@ function renderedColumn({ state, visible, live = FULL_STORE, hostRows = [], send
     reportPositions: {
       sourceMessageIds: transcript.map(msg => msg.sourceMessageId ?? msg.id),
       messageId: ({ msg }) => msg.sourceMessageId ?? msg.id,
-      reportMessageIds: cards.rail.map(report => report.position?.message_id ?? null),
+      reportMessageIds: cards.rail.map(report => report.position?.source_session_id === authority.sourceSessionId ? report.position.message_id : null),
     },
     askTimes: [],
   });
@@ -295,4 +306,417 @@ test("a send that fails while queued moves to its send time once", () => {
   const failed = view([send("queued", sentAt, "failed")]);
   assert.deepEqual(neighbours(failed, "queued"), [`report-${TURNS - 1}`, `reply-${TURNS - 1}`]);
   assert.deepEqual(view([send("queued", sentAt, "failed")]), failed, "the failed bubble stays where it was sent");
+});
+
+test("timestamped startup status stays anchored above later untimed ACP rows, tool patches, and reentry", () => {
+  const startAt = START;
+  const prompt: NormalizedChatMessage = { id: "prompt-0", type: "user", content: "assigned task", timestamp: iso(startAt) };
+  const ackRow: NormalizedChatMessage = { id: "ack-0", type: "assistant", content: "acknowledging" };
+  const workRow: NormalizedChatMessage = { id: "work-1", type: "assistant", content: "working" };
+  const toolRow: NormalizedChatMessage = { id: "tool-1", type: "tool_call", content: "running", toolName: "Bash", toolKind: "command", toolId: "t-1" };
+  const readyCard: LiveOutboundReport = {
+    targetTabId: "elgar001",
+    at: startAt + 5_000,
+    position: { source_session_id: authority.sourceSessionId, message_id: "ack-0" },
+    descriptor: {
+      reportId: "rep-ready",
+      recipient: "Elgar",
+      task: "pl_7lsisa/task_uw3aw9",
+      status: null,
+      sha: null,
+      message: "opaque startup notice",
+      taskOutcome: null,
+    },
+  };
+  const foreignCard: LiveOutboundReport = {
+    ...readyCard,
+    at: startAt + 6_000,
+    position: { source_session_id: "other-session", message_id: "ack-0" },
+    descriptor: { ...readyCard.descriptor, reportId: "rep-foreign" },
+  };
+  const finalReport: LiveOutboundReport = {
+    targetTabId: "elgar001",
+    at: startAt + 14 * 60_000,
+    position: { source_session_id: authority.sourceSessionId, message_id: "tool-1" },
+    descriptor: {
+      reportId: "rep-final",
+      recipient: "Elgar",
+      task: "pl_7lsisa/task_uw3aw9",
+      status: "in_review",
+      sha: "4f5d23dff5",
+      message: "opaque final report",
+      taskOutcome: { persisted: true, transitionRejected: false, cause: null, reportOutcome: null },
+    },
+  };
+
+  assert.equal(reportVerdict(readyCard.descriptor.status, readyCard.descriptor.taskOutcome), "sent");
+  assert.equal(reportVerdict(finalReport.descriptor.status, finalReport.descriptor.taskOutcome), "in_review");
+
+  let state = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot", authority, range: null, rows: [prompt, ackRow, workRow, toolRow],
+  }).state;
+  const liveBeforePatch = renderedColumn({ state, visible: 20, live: [readyCard, readyCard] });
+  assert.deepEqual(liveBeforePatch.map(item => item.key), ["prompt-0", "ack-0", "report-ready", "work-1", "tool-1"]);
+
+  state = reduceTranscript(state, {
+    kind: "delta", authority, range: null, rows: [{ ...toolRow, content: "completed" }],
+  }).state;
+  const liveAfterPatch = renderedColumn({ state, visible: 20, live: [readyCard, finalReport] });
+  assert.deepEqual(liveAfterPatch.map(item => item.key), ["prompt-0", "ack-0", "report-ready", "work-1", "tool-1", "report-final"]);
+
+  const reentry = renderedColumn({
+    state: reduceTranscript(createTranscriptState(), {
+      kind: "snapshot", authority, range: null, rows: [prompt, ackRow, workRow, { ...toolRow, content: "completed" }],
+    }).state,
+    visible: 20,
+    live: [readyCard, finalReport],
+  });
+  assert.deepEqual(reentry.map(item => item.key), liveAfterPatch.map(item => item.key));
+
+  const withForeign = renderedColumn({ state, visible: 20, live: [readyCard, foreignCard] });
+  assert.deepEqual(withForeign.map(item => item.key), ["prompt-0", "ack-0", "report-ready", "work-1", "tool-1", "report-foreign"]);
+});
+
+test("actual emitted startup agent-report envelope projects one neutral anchored card across tool patches and reentry", () => {
+  resetAgentReportProjection();
+  try {
+    const startAt = START;
+    const prompt: NormalizedChatMessage = { id: "prompt-0", type: "user", content: "assigned task", timestamp: iso(startAt) };
+    const ackRow: NormalizedChatMessage = { id: "ack-0", type: "assistant", content: "acknowledging" };
+    const workRow: NormalizedChatMessage = { id: "work-1", type: "assistant", content: "working" };
+    const toolRow: NormalizedChatMessage = { id: "tool-1", type: "tool_call", content: "running", toolName: "Bash", toolKind: "command", toolId: "t-1" };
+    const emitted: AgentReportEventPayload = {
+      target_tab_id: "elgar001",
+      from_tab_id: "order001",
+      from_title: "Order",
+      message: "Agent Order (acp) is ready for task task_uw3aw9, attempt attempt_l33cqd.",
+      kind: "dispatch_ready",
+      sender_position: { source_session_id: authority.sourceSessionId, message_id: "ack-0" },
+      report: {
+        id: "rep-emitted-ready",
+        from_tab_id: "order001",
+        from_title: "Order",
+        message: "Agent Order (acp) is ready for task task_uw3aw9, attempt attempt_l33cqd.",
+        timestamp: Math.floor((startAt + 5_000) / 1000),
+        plan_id: "pl_7lsisa",
+        task_id: "task_uw3aw9",
+      },
+    };
+    assert.equal(ingestAgentReport(emitted), true);
+    assert.equal(ingestAgentReport(emitted), false, "duplicate startup report id is ignored");
+    const projectedLive = (): LiveOutboundReport[] => readAgentReportProjection("order001").outbound.map((report) => ({
+      targetTabId: report.targetTabId,
+      at: report.timestamp,
+      position: report.senderPosition,
+      descriptor: {
+        reportId: report.reportId,
+        recipient: "Elgar",
+        task: report.task,
+        status: report.status,
+        sha: report.sha,
+        message: report.message,
+        ...(report.kind ? { kind: report.kind } : {}),
+        taskOutcome: null,
+      },
+    }));
+    const live = projectedLive();
+    assert.equal(live.length, 1);
+    assert.equal(live[0].descriptor.kind, "dispatch_ready");
+    assert.equal(live[0].descriptor.status, null);
+    assert.equal(reportVerdict(live[0].descriptor.status, live[0].descriptor.taskOutcome), "sent");
+
+    let state = reduceTranscript(createTranscriptState(), {
+      kind: "snapshot", authority, range: null, rows: [prompt, ackRow, workRow, toolRow],
+    }).state;
+    const beforePatch = renderedColumn({ state, visible: 20, live });
+    assert.deepEqual(beforePatch.map(item => item.key), ["prompt-0", "ack-0", "report-emitted-ready", "work-1", "tool-1"]);
+
+    state = reduceTranscript(state, {
+      kind: "delta", authority, range: null, rows: [{ ...toolRow, content: "patched" }],
+    }).state;
+    const afterPatch = renderedColumn({ state, visible: 20, live: projectedLive() });
+    assert.deepEqual(afterPatch.map(item => item.key), ["prompt-0", "ack-0", "report-emitted-ready", "work-1", "tool-1"]);
+
+    const reentry = renderedColumn({
+      state: reduceTranscript(createTranscriptState(), {
+        kind: "snapshot", authority, range: null, rows: [prompt, ackRow, workRow, { ...toolRow, content: "patched" }],
+      }).state,
+      visible: 20,
+      live: projectedLive(),
+    });
+    assert.deepEqual(reentry.map(item => item.key), afterPatch.map(item => item.key));
+  } finally {
+    resetAgentReportProjection();
+  }
+});
+
+test("cold host snapshot restores the original startup card once before later untimed rows", async () => {
+  resetAgentReportProjection();
+  let subscribed = false;
+  let receive: ((event: { payload: AgentReportEventPayload }) => void) | null = null;
+  __setListenForTest(<T>(event: string, handler: (value: { payload: T }) => void) => {
+    assert.equal(event, "agent-report");
+    receive = handler as (value: { payload: AgentReportEventPayload }) => void;
+    subscribed = true;
+    return Promise.resolve(() => { subscribed = false; });
+  });
+  try {
+    const request = outboundReportSnapshotRequest("order001", {
+      peerId: null, sessionId: "session", bindingNonce: "launch", bootGeneration: 2, runtimeEpoch: 7, requestContext: 3,
+    });
+    assert.ok(request);
+    assert.equal(request.path, "/api/tabs/order001/reports");
+    assert.equal(request.headers["X-CodeTerm-Session-Id"], "session");
+    assert.equal(request.headers["X-CodeTerm-Binding-Nonce"], "launch");
+    assert.equal(outboundReportSnapshotRequest("mesh:peer/order001", {
+      peerId: "peer", sessionId: "session", bindingNonce: "launch", bootGeneration: 2, runtimeEpoch: 7, requestContext: 3,
+    }), null, "remote tabs cannot read a local sender index");
+    assert.equal(outboundReportSnapshotRequest("order001", {
+      peerId: null, sessionId: "session", bindingNonce: null, bootGeneration: 2, runtimeEpoch: 7, requestContext: 3,
+    }), null, "a missing binding nonce cannot authorize a read");
+
+    const startAt = START;
+    const prompt: NormalizedChatMessage = { id: "prompt-0", type: "user", content: "assigned task", timestamp: iso(startAt) };
+    const ackRow: NormalizedChatMessage = { id: "ack-0", type: "assistant", content: "acknowledging" };
+    const workRow: NormalizedChatMessage = { id: "work-1", type: "assistant", content: "working" };
+    const toolRow: NormalizedChatMessage = { id: "tool-1", type: "tool_call", content: "patched", toolName: "Bash", toolKind: "command", toolId: "tool-1" };
+    const event: AgentReportEventPayload = {
+      target_tab_id: "elgar001", from_tab_id: "order001", from_title: "Order", message: "opaque ready",
+      report: { id: "rep-cold-ready", from_tab_id: "order001", from_title: "Order", message: "opaque ready",
+        timestamp: Math.floor((startAt + 5_000) / 1000), status: null },
+    };
+    const snapshot = [{
+      target_tab_id: "elgar001",
+      report: {
+        ...event.report,
+        kind: "dispatch_ready",
+        sender_position: { source_session_id: "session", message_id: "ack-0" },
+      },
+    }];
+    const hydrated = await hydrateOutboundAgentReportSnapshot("order001", request.scopeKey, async () => {
+      assert.equal(subscribed, true, "the event listener is installed before the snapshot read");
+      assert.ok(receive);
+      receive!({ payload: event });
+      return snapshot;
+    }, new AbortController().signal);
+    assert.equal(hydrated, true);
+    const report = readAgentReportProjection("order001").outbound[0];
+    assert.ok(report);
+    assert.equal(report.reportId, "rep-cold-ready");
+    assert.equal(report.timestamp, startAt + 5_000);
+    assert.equal(report.status, null);
+    assert.equal(report.kind, "dispatch_ready");
+    assert.deepEqual(report.senderPosition, { source_session_id: "session", message_id: "ack-0" });
+    assert.equal(readAgentReportProjection("order001").outbound.length, 1, "event/read overlap merges by the original id");
+
+    const live: LiveOutboundReport[] = [report].map((row) => ({
+      targetTabId: row.targetTabId,
+      at: row.timestamp,
+      position: row.senderPosition,
+      descriptor: {
+        reportId: row.reportId, recipient: "Elgar", task: row.task, status: row.status, sha: row.sha,
+        message: row.message, kind: row.kind,
+        taskOutcome: row.taskOutcome && {
+          persisted: row.taskOutcome.persisted,
+          transitionRejected: row.taskOutcome.transition_rejected,
+          cause: row.taskOutcome.cause ?? null,
+          reportOutcome: row.taskOutcome.report_outcome ?? null,
+        },
+      },
+    }));
+    assert.equal(reportVerdict(live[0]!.descriptor.status, live[0]!.descriptor.taskOutcome), "sent");
+    const state = reduceTranscript(createTranscriptState(), {
+      kind: "snapshot", authority, range: null, rows: [prompt, ackRow, workRow, toolRow],
+    }).state;
+    const column = renderedColumn({ state, visible: 20, live });
+    assert.deepEqual(column.map((item) => item.key), ["prompt-0", "ack-0", "report-cold-ready", "work-1", "tool-1"]);
+
+    resetAgentReportProjection();
+    const coldReloaded = await hydrateOutboundAgentReportSnapshot("order001", request.scopeKey, async () => snapshot,
+      new AbortController().signal);
+    assert.equal(coldReloaded, true);
+    const coldReport = readAgentReportProjection("order001").outbound[0];
+    assert.ok(coldReport);
+    assert.deepEqual({
+      id: coldReport.reportId,
+      timestamp: coldReport.timestamp,
+      status: coldReport.status,
+      position: coldReport.senderPosition,
+      kind: coldReport.kind,
+    }, {
+      id: report.reportId,
+      timestamp: report.timestamp,
+      status: report.status,
+      position: report.senderPosition,
+      kind: report.kind,
+    }, "a cold projection reload keeps the original report metadata");
+    const coldColumn = renderedColumn({
+      state,
+      visible: 20,
+      live: [{ ...live[0]!, at: coldReport.timestamp, position: coldReport.senderPosition }],
+    });
+    assert.deepEqual(coldColumn.map((item) => item.key), column.map((item) => item.key));
+  } finally {
+    resetAgentReportProjection();
+    __setListenForTest(null);
+  }
+});
+
+test("snapshot generation fences late reads after session, nonce, peer, boot, epoch, or relay context changes", async () => {
+  __setListenForTest(async () => () => {});
+  const base = { peerId: null, sessionId: "session", bindingNonce: "nonce", bootGeneration: 8, runtimeEpoch: 2, requestContext: 4 };
+  const original = outboundReportSnapshotRequest("order001", base)!;
+  for (const authority of [
+    { ...base, sessionId: "replacement-session" },
+    { ...base, bindingNonce: "replacement-nonce" },
+    { ...base, peerId: "peer" },
+    { ...base, bootGeneration: 9 },
+    { ...base, runtimeEpoch: 3 },
+    { ...base, requestContext: 5 },
+  ]) {
+    const changed = outboundReportSnapshotRequest("order001", authority);
+    assert.ok(!changed || changed.scopeKey !== original.scopeKey, "every authority generation has a distinct read scope");
+  }
+
+  resetAgentReportProjection();
+  let resolveOld: ((snapshot: unknown) => void) | null = null;
+  let started!: () => void;
+  const readStarted = new Promise<void>((resolve) => { started = resolve; });
+  const controller = new AbortController();
+  const oldRead = hydrateOutboundAgentReportSnapshot("order001", original.scopeKey, () => {
+    started();
+    return new Promise((resolve) => { resolveOld = resolve; });
+  }, controller.signal);
+  await readStarted;
+  const next = outboundReportSnapshotRequest("order001", { ...base, bindingNonce: "replacement-nonce" })!;
+  assert.equal(await hydrateOutboundAgentReportSnapshot("order001", next.scopeKey, async () => [], new AbortController().signal), true,
+    "an empty supported snapshot is a successful empty result");
+  resolveOld!([{
+    target_tab_id: "foreign-target",
+    report: { id: "rep-stale", from_tab_id: "order001", timestamp: Math.floor(START / 1000) },
+  }]);
+  assert.equal(await oldRead, false, "late snapshots from a replaced binding are ignored");
+  assert.equal(readAgentReportProjection("order001").outbound.length, 0);
+  await assert.rejects(hydrateOutboundAgentReportSnapshot("order001", next.scopeKey, async () => {
+    throw new Error("read refused");
+  }, new AbortController().signal), /read refused/);
+  assert.equal(readAgentReportProjection("order001").outbound.length, 0, "refused reads do not fabricate cards");
+  resetAgentReportProjection();
+  __setListenForTest(null);
+});
+
+test("mixed timed user/CLI seq=0/126 + untimed ACP seq=1..125/127..1480 keeps chronological order across live tail, cold reload, and backfill", () => {
+  const session = "qa-heavy-session";
+  const heavyAuthority = { sourceSessionId: session, sessionBindingNonce: "heavy-launch" };
+  const phase1At = Date.parse("2026-11-21T14:45:56.490Z");
+  const phase2At = Date.parse("2026-11-21T14:45:57.864Z");
+  const cliWire = (body: string) => `<domios from="cli">${body}</domios>`;
+  const rustCliSegments = (body: string) => [{
+    type: "unknown_frame" as const,
+    raw: cliWire(body),
+    attrs: { from: "cli" },
+    body,
+  }];
+  const persistedRows: NormalizedChatMessage[] = [
+    { id: "phase1-id", type: "user", content: "PHASE1_SMALL_A", inboundKind: "cli" as NormalizedChatMessage["inboundKind"],
+      segments: rustCliSegments("PHASE1_SMALL_A"), timestamp: "2026-11-21T14:45:56.490185600+00:00", seq: 0, sourceSessionId: session },
+    ...Array.from({ length: 125 }, (_, i): NormalizedChatMessage => ({
+      id: `p1-row-${i + 1}`, type: "assistant", content: `SYNTH_A_PHASE1_${i + 1}`, seq: i + 1, sourceSessionId: session,
+    })),
+    { id: "phase2-id", type: "user", content: "PHASE2_GROWTH_A", inboundKind: "cli" as NormalizedChatMessage["inboundKind"],
+      segments: rustCliSegments("PHASE2_GROWTH_A"), timestamp: "2026-11-21T14:45:57.864548800+00:00", seq: 126, sourceSessionId: session },
+    ...Array.from({ length: 1354 }, (_, i): NormalizedChatMessage => ({
+      id: `p2-row-${i + 127}`, type: "assistant",
+      content: i === 1353 ? "SYNTH_A_PHASE2_GROWTH_A_C0450" : `SYNTH_A_PHASE2_${i + 127}`,
+      seq: i + 127, sourceSessionId: session,
+    })),
+  ];
+  const makeDeliveredCliSend = (id: string, body: string, sentAtMs: number): DeliverySend => ({
+    id,
+    correlationId: id,
+    content: cliWire(body),
+    sentAtMs,
+    matchedRow: {
+      source: { source_session_id: session, record: { kind: "structured", thread_id: session, item_id: id } },
+      ordinal: 1,
+    },
+    status: {
+      tab_id: "heavy-tab",
+      send_id: id,
+      correlationId: id,
+      state: "delivered",
+      sequence: 2,
+      ledger_id: "ledger",
+      retained_from: 1,
+      error: null,
+      matched_row: {
+        source: { source_session_id: session, record: { kind: "structured", thread_id: session, item_id: id } },
+        ordinal: 1,
+      },
+      system_send: { content: cliWire(body), sent_at_ms: sentAtMs, segments: rustCliSegments(body), segments_version: 2 },
+    },
+  });
+  const liveSends = [
+    makeDeliveredCliSend("phase1-id", "PHASE1_SMALL_A", phase1At),
+    makeDeliveredCliSend("phase2-id", "PHASE2_GROWTH_A", phase2At),
+  ];
+  const reloadedSends = liveSends.map(item => decodeChatSend(encodeChatSend("heavy-tab", item))!);
+  const legacyReloadedSends = liveSends.map(item => ({
+    ...item,
+    status: {
+      ...item.status!,
+      system_send: { content: item.content, sent_at_ms: item.sentAtMs },
+    },
+  }));
+
+  // 1) Partial tail window (last 200 untimed ACP rows, start=1281..1481): neither PHASE1 nor PHASE2 strands after C0450.
+  const tailState = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot",
+    authority: heavyAuthority,
+    range: { unit: "items", start: 1281, end: 1481 },
+    rows: persistedRows.slice(1281),
+  }).state;
+  for (const [label, sends] of [["live", liveSends], ["cold-reload", reloadedSends], ["legacy-cold-reload", legacyReloadedSends]] as const) {
+    const projected = deliveryProjectionSends(sends);
+    const result = projectTranscript(tailState, projected);
+    const entries = stableDeliveryEntries(conversationEntries(result.rows), projected, result.echoes, memory(), result.outside);
+    assert.deepEqual(result.pending, [], `${label}: older delivered sends are not pending at tail`);
+    assert.deepEqual([...result.outside], ["phase1-id", "phase2-id"], `${label}: older delivered sends stay in unloaded history`);
+    assert.equal(entries[entries.length - 1]?.msg.content, "SYNTH_A_PHASE2_GROWTH_A_C0450", `${label}: C0450 stays last`);
+    assert.equal(entries.some(entry => entry.msg.id === "phase1-id" || entry.msg.id === "phase2-id"), false, `${label}: no stranded user bubble at tail`);
+  }
+
+  // 2) Full/backfilled 1,481-row transcript: PHASE1 at seq=0 before seq=1..125, PHASE2 at seq=126 before seq=127..1480.
+  const fullState = reduceTranscript(tailState, {
+    kind: "backfill",
+    authority: heavyAuthority,
+    range: { unit: "items", start: 0, end: 1281 },
+    rows: persistedRows.slice(0, 1281),
+  }).state;
+  for (const [label, sends] of [["live", liveSends], ["cold-reload", reloadedSends], ["legacy-cold-reload", legacyReloadedSends]] as const) {
+    const projected = deliveryProjectionSends(sends);
+    const result = projectTranscript(fullState, projected);
+    const entries = stableDeliveryEntries(conversationEntries(result.rows), projected, result.echoes, memory(), result.outside);
+    assert.equal(entries.length, 1481, `${label}: all 1,481 rows render once`);
+    assert.equal(entries[0]?.msg.id, "phase1-id", `${label}: PHASE1_SMALL_A stays at idx=0`);
+    assert.equal(entries[0]?.msg.content, "PHASE1_SMALL_A", `${label}: PHASE1_SMALL_A body clean`);
+    assert.deepEqual(entries[0]?.origin, { kind: "system", context: "CLI" }, `${label}: PHASE1_SMALL_A origin is System · CLI`);
+    assert.equal(entries[126]?.msg.id, "phase2-id", `${label}: PHASE2_GROWTH_A stays at idx=126`);
+    assert.equal(entries[126]?.msg.content, "PHASE2_GROWTH_A", `${label}: PHASE2_GROWTH_A body clean`);
+    assert.deepEqual(entries[126]?.origin, { kind: "system", context: "CLI" }, `${label}: PHASE2_GROWTH_A origin is System · CLI`);
+    assert.equal(entries[1480]?.msg.content, "SYNTH_A_PHASE2_GROWTH_A_C0450", `${label}: C0450 stays last`);
+  }
+
+  // 3) Live system_send before echo vs cold-reload (both preserved and stripped segments) render identically for <domios from="cli">.
+  const emptyState = { ...createTranscriptState(), authority: heavyAuthority };
+  const livePending = conversationEntries(projectTranscript(emptyState, deliveryProjectionSends([liveSends[0]])).rows);
+  const reloadedPending = conversationEntries(projectTranscript(emptyState, deliveryProjectionSends([reloadedSends[0]])).rows);
+  const legacyPending = conversationEntries(projectTranscript(emptyState, deliveryProjectionSends([legacyReloadedSends[0]])).rows);
+  const committed = conversationEntries([persistedRows[0]]);
+  for (const entries of [livePending, reloadedPending, legacyPending, committed]) {
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].msg.content, "PHASE1_SMALL_A");
+    assert.deepEqual(entries[0].origin, { kind: "system", context: "CLI" });
+    assert.equal(entries[0].msg.routing?.kind, "cli");
+  }
 });

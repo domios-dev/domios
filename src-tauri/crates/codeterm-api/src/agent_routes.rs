@@ -730,14 +730,58 @@ pub struct ReportsQuery {
 
 pub async fn get_reports(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Query(query): Query<ReportsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let outbound = headers
+        .get(axum::http::header::ACCEPT)
+        .and_then(|value| value.to_str().ok())
+        == Some("application/vnd.domios.agent-reports.outbound+json");
+    if outbound && query.clear == Some(true) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Outbound report snapshots are non-consuming".into(),
+        ));
+    }
+    if outbound {
+        let caller_tab_id = headers
+            .get("x-codeterm-tab-id")
+            .and_then(|value| value.to_str().ok());
+        let caller_session_id = headers
+            .get("x-codeterm-session-id")
+            .and_then(|value| value.to_str().ok());
+        let caller_binding_nonce = headers
+            .get("x-codeterm-binding-nonce")
+            .and_then(|value| value.to_str().ok());
+        let current_binding_matches = state.svc.mux.read().get_tab(&id).is_some_and(|tab| {
+            tab.ownership.is_none()
+                && tab.agent_session_id.as_deref() == caller_session_id
+                && tab.session_binding_nonce.as_deref() == caller_binding_nonce
+                && caller_session_id.is_some_and(|session| !session.is_empty())
+                && caller_binding_nonce.is_some_and(|nonce| !nonce.is_empty())
+        });
+        if id.starts_with("mesh:") || caller_tab_id != Some(id.as_str()) || !current_binding_matches
+        {
+            return Err((
+                StatusCode::FORBIDDEN,
+                "Outbound reports require the exact current local sender binding".into(),
+            ));
+        }
+    }
     tokio::task::spawn_blocking(move || {
-        let clear = query.clear.unwrap_or(false);
-        let reports = state.svc.report_store.lock().get(&id, clear);
-        Json(serde_json::to_value(&reports).unwrap_or_default())
+        let reports = if outbound {
+            serde_json::to_value(state.svc.report_store.lock().outbound_for_sender(&id))
+        } else {
+            serde_json::to_value(
+                state
+                    .svc
+                    .report_store
+                    .lock()
+                    .get(&id, query.clear.unwrap_or(false)),
+            )
+        };
+        Json(reports.unwrap_or_default())
     })
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))

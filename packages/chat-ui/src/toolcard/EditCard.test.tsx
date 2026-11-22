@@ -1,10 +1,22 @@
 import React from "react";
 import { EditCard } from "./EditCard";
-import { assertThemeTokens, event, render } from "./cardTestSetup";
+import { act, assertThemeTokens, event, render } from "./cardTestSetup";
 
 const host = await render(<EditCard event={event({ kind: "edit", status: "success", edits: [{ path: "src/a.ts", old: "old", new: "new" }, { path: "src/b.ts", old: "x", new: "y\nz" }] })} expanded onToggle={() => {}} />);
 const unknownHost = await render(<EditCard event={event({kind:"edit", edits:[]})} expanded onToggle={() => {}} />);
+const missingHost = await render(<EditCard event={event({kind:"edit", status:"success", edits:[]})} expanded onToggle={() => {}} />);
+const outputHost = await render(<EditCard event={event({kind:"edit", status:"success", detail:"Provider supplied edit output", result:"Provider supplied edit output  "})} expanded onToggle={() => {}} />);
+const collapsedErrorHost = await render(<EditCard event={event({kind:"edit", status:"error", result:"permission refused"})} expanded={false} onToggle={() => {}} />);
 if (unknownHost.querySelector('[data-testid="toolcard-edit-summary"]')) throw new Error("unknown edits must not claim zero line counts");
+if (!unknownHost.textContent?.includes("Waiting for edit details.") || !missingHost.textContent?.includes("Edit details unavailable.")) throw new Error("edit cards must explain absent details");
+if (outputHost.querySelectorAll('[data-testid="toolcard-result"]').length !== 1 || !outputHost.textContent?.includes("Provider supplied edit output")) throw new Error("successful edit output must remain inspectable without duplication");
+if (collapsedErrorHost.querySelector('[data-testid="toolcard-result"]')) throw new Error("collapsed edit card keeps details hidden until expanded or opened fullscreen");
+const openFullscreen = collapsedErrorHost.querySelector<HTMLButtonElement>('button[aria-label^="Open full screen:"]');
+if (!openFullscreen) throw new Error("collapsed edit card must expose fullscreen reader control");
+await act(async () => openFullscreen.click());
+if (!collapsedErrorHost.querySelector('[data-testid="toolcard-result"]')?.textContent?.includes("permission refused")) throw new Error("collapsed edit error must remain inspectable in fullscreen reader");
+const closeFullscreen = collapsedErrorHost.querySelector<HTMLButtonElement>('button[aria-label="Close fullscreen viewer"]');
+if (closeFullscreen) await act(async () => closeFullscreen.click());
 if (host.querySelectorAll('[data-testid="toolcard-edit-file"]').length !== 2 || !host.textContent?.includes("src/a.ts +1 -1") || !host.textContent.includes("+ new")) throw new Error("edit card regression");
 const padHost = await render(<EditCard event={event({ kind: "edit", status: "success", edits: [{ path: "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\166df18d\\message.md", old: "", new: "hello" }] })} expanded onToggle={() => {}} />);
 if (!padHost.textContent?.includes("AgentPad") || !padHost.textContent.includes("message.md") || padHost.textContent.includes("C:\\Users") || padHost.textContent.includes("166df18d")) throw new Error("AgentPad edits must hide runtime paths");

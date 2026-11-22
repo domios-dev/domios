@@ -1,7 +1,7 @@
 use super::{AgentRuntimeCapability, RuntimeLaunchProfile};
 use parking_lot::Mutex;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::Read,
     path::{Path, PathBuf},
     sync::OnceLock,
@@ -21,6 +21,25 @@ pub fn path(provider: &str) -> Result<PathBuf, String> {
         .join("providers")
         .join(provider)
         .join("profiles/owner-profiles.json"))
+}
+
+pub fn icon_cache_dir(provider: &str) -> Result<PathBuf, String> {
+    valid_name(provider)?;
+    Ok(codeterm_paths::data_dir()
+        .join(provider)
+        .join("cache/icons"))
+}
+
+fn icon_cache_dir_for_store(path: &Path) -> Option<PathBuf> {
+    let provider = path
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::file_name)?;
+    Some(
+        codeterm_paths::data_dir()
+            .join(provider)
+            .join("cache/icons"),
+    )
 }
 
 pub fn valid_name(name: &str) -> Result<(), String> {
@@ -44,6 +63,11 @@ pub fn names_the_store(name: &str) -> bool {
 }
 
 pub fn read(path: &Path) -> Result<Profiles, String> {
+    let cache_dir = icon_cache_dir_for_store(path);
+    read_with_icon_cache(path, cache_dir.as_deref())
+}
+
+pub fn read_with_icon_cache(path: &Path, icon_cache: Option<&Path>) -> Result<Profiles, String> {
     let file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
@@ -66,15 +90,10 @@ pub fn read(path: &Path) -> Result<Profiles, String> {
         if !profile.owner_configured {
             return Err("Invalid owner profile authority".into());
         }
-        if let Some(url) = &profile.icon_url {
-            let provider_root = path
-                .parent()
-                .and_then(Path::parent)
-                .and_then(Path::file_name)
-                .map(|name| codeterm_paths::data_dir().join(name));
-            profile.icon_svg = provider_root.and_then(|root| {
-                crate::plugin_icon::registry::read_cached(&root.join("cache/icons"), url)
-            });
+        if profile.icon.is_none() {
+            if let (Some(url), Some(cache_dir)) = (&profile.icon_url, icon_cache) {
+                profile.icon_svg = crate::plugin_icon::registry::read_cached(cache_dir, url);
+            }
         }
     }
     Ok(profiles)
@@ -102,12 +121,49 @@ fn refresh_icon_at(path: &Path, url: &str, icon: &str) -> Result<bool, String> {
         .map_err(|error| error.clone())?;
     let mut changed = false;
     for profile in profiles.values_mut() {
-        if profile.icon_url.as_deref() == Some(url) && profile.icon_svg.as_deref() != Some(icon) {
+        if profile.icon.is_none()
+            && profile.icon_url.as_deref() == Some(url)
+            && profile.icon_svg.as_deref() != Some(icon)
+        {
             profile.icon_svg = Some(icon.to_owned());
             changed = true;
         }
     }
     Ok(changed)
+}
+
+pub fn sync_registry_icon_url(provider: &str, profile_id: &str, url: &str) -> Result<bool, String> {
+    sync_registry_icon_url_at(&path(provider)?, profile_id, url)
+}
+
+fn sync_registry_icon_url_at(path: &Path, profile_id: &str, url: &str) -> Result<bool, String> {
+    if !crate::plugin_icon::registry::valid_url(url) {
+        return Ok(false);
+    }
+    let needs_update = {
+        let mut cache = cache().lock();
+        let profiles = cache
+            .entry(path.to_owned())
+            .or_insert_with(|| read(path))
+            .as_ref()
+            .map_err(|error| error.clone())?;
+        profiles.get(profile_id).is_some_and(|profile| {
+            profile.icon.is_none() && profile.icon_url.as_deref() != Some(url)
+        })
+    };
+    if !needs_update {
+        return Ok(false);
+    }
+    update_at(path, |profiles| {
+        let Some(profile) = profiles.get_mut(profile_id) else {
+            return Ok(false);
+        };
+        if profile.icon.is_some() || profile.icon_url.as_deref() == Some(url) {
+            return Ok(false);
+        }
+        profile.icon_url = Some(url.to_owned());
+        Ok(true)
+    })
 }
 
 pub fn update<T>(
@@ -151,10 +207,29 @@ pub fn overlay(
     provider: &str,
     capability: AgentRuntimeCapability,
 ) -> Result<AgentRuntimeCapability, String> {
-    if capability.launch_profiles.is_none() {
+    let Some(builtins) = &capability.launch_profiles else {
         return Ok(capability);
+    };
+    let owner = load(provider)?;
+    for id in owner.keys().filter(|id| builtins.contains_key(*id)) {
+        warn_shadowed_once(provider, id);
     }
-    overlay_with(capability, load(provider)?)
+    overlay_with(capability, owner)
+}
+
+/// Capability reads repeat on every provider poll; a standing collision is reported once per process.
+fn warn_shadowed_once(provider: &str, id: &str) {
+    const MAX_REPORTED: usize = 256;
+    static REPORTED: OnceLock<Mutex<BTreeSet<(String, String)>>> = OnceLock::new();
+    let mut reported = REPORTED.get_or_init(Default::default).lock();
+    let key = (provider.to_owned(), id.to_owned());
+    if reported.len() >= MAX_REPORTED || reported.contains(&key) {
+        return;
+    }
+    reported.insert(key);
+    log::warn!(
+        "[agent-runtime] ignoring {provider} owner launch profile '{id}' shadowed by a built-in profile"
+    );
 }
 
 pub fn overlay_with(
@@ -169,13 +244,14 @@ pub fn overlay_with(
             .collect();
         for (id, mut profile) in owner {
             if profiles.contains_key(&id) {
-                return Err("Owner profile collides with a built-in profile".into());
+                continue;
             }
-            if profile.icon_svg.is_none() {
-                profile.icon_svg = profile
-                    .icon
-                    .as_ref()
-                    .and_then(|icon| bundle_icons.get(icon).cloned());
+            if let Some(bundled) = profile
+                .icon
+                .as_ref()
+                .and_then(|icon| bundle_icons.get(icon).cloned())
+            {
+                profile.icon_svg = Some(bundled);
             }
             profiles.insert(id, profile);
         }

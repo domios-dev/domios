@@ -24,6 +24,7 @@ use crate::storage::{
 
 mod concurrency;
 mod divergence;
+mod terminal;
 
 /// Failure bound around event waits only; elapsed time never signals readiness.
 const DEADLINE: Duration = Duration::from_secs(30);
@@ -674,7 +675,7 @@ fn storage_cron_deleted_job_history_is_a_retired_identity() {
     commit(&f.cron, |store| {
         Ok(store.prepare_set_run_session(&job.id, "r1", late))
     })
-    .expect("a retired run still records its session");
+    .expect("late binding is a no-op for a terminal run");
     assert!(
         !finish_run(&f.cron, &job.id, "r1", CronRunStatus::Success, None).unwrap(),
         "no definition is left to account"
@@ -683,7 +684,7 @@ fn storage_cron_deleted_job_history_is_a_retired_identity() {
     assert!(fresh.get(&job.id).is_none());
     let history = fresh.get_history(&job.id);
     assert_eq!(history.len(), 1);
-    assert_eq!(history[0].session_id.as_deref(), Some("late-session"));
+    assert_eq!(history[0].session_id, None);
     let snapshot = f.snapshot();
     let retired = state_of(&snapshot, &job.id);
     assert!(retired.identity.retired && retired.job.is_none());

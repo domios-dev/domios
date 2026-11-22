@@ -167,6 +167,14 @@ pub struct RuntimeState {
     /// Declared by this process at initialize: input may join its running turn.
     #[serde(skip)]
     pub mid_turn_input: bool,
+    #[serde(
+        default,
+        rename = "sessionCapabilities",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub session_capabilities: Option<codeterm_plugin::agent_runtime::RuntimeSessionCapabilities>,
+    #[serde(skip)]
+    pub pending_prompt_detail: Option<serde_json::Value>,
     pub thread_id: Option<String>,
     pub phase: RuntimePhase,
     pub active_turn_started_at_ms: Option<u64>,
@@ -201,6 +209,12 @@ pub struct RuntimeSnapshot {
         skip_serializing_if = "Option::is_none"
     )]
     pub access_failure: Option<String>,
+    #[serde(
+        default,
+        rename = "sessionCapabilities",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub session_capabilities: Option<codeterm_plugin::agent_runtime::RuntimeSessionCapabilities>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -267,6 +281,7 @@ impl RuntimeState {
             icon_svg: self.icon_svg.clone(),
             notice: self.notice.clone(),
             access_failure: self.access_failure.clone(),
+            session_capabilities: self.session_capabilities.clone(),
             history: None,
             history_pages: None,
             history_error: None,
@@ -289,6 +304,8 @@ impl RuntimeState {
             access_failure: None,
             pending_load_notice: None,
             mid_turn_input: false,
+            session_capabilities: None,
+            pending_prompt_detail: None,
             thread_id,
             phase: RuntimePhase::Unloaded { reason: None },
             active_turn_started_at_ms: None,
@@ -303,6 +320,7 @@ impl RuntimeState {
             binary_version,
             agent_name,
             mid_turn_input,
+            session_capabilities,
         } = result
         else {
             return Err(RuntimeFailure::HookFailed(
@@ -312,6 +330,7 @@ impl RuntimeState {
         self.binary_version = binary_version;
         self.agent_name = agent_name;
         self.mid_turn_input = mid_turn_input;
+        self.session_capabilities = session_capabilities.filter(|caps| !caps.is_empty());
         Ok(())
     }
 

@@ -3,13 +3,56 @@ use crate::prelude::*;
 use crate::service::MuxEmitCause;
 use std::time::Duration;
 
+#[cfg(test)]
+pub(crate) struct SwitchRetirementBoundary(pub std::sync::Arc<dyn Fn() + Send + Sync>);
+
 pub trait RestartShutdownExt {
     fn request_graceful_exit(&self, snap: &TabRestartSnapshot, force: bool, grace: Duration);
     fn idle_restart_termination_allowed(&self, snap: &TabRestartSnapshot) -> bool;
     fn tear_down_restart_pty(&self, snap: &TabRestartSnapshot) -> Result<(), String>;
+    fn tear_down_switch_pty(
+        &self,
+        snap: &TabRestartSnapshot,
+        source: &crate::service::messenger::switch_handoff::SwitchSourceAuthority,
+    ) -> Result<(), String>;
 }
 
 impl RestartShutdownExt for ServiceContext {
+    fn tear_down_switch_pty(
+        &self,
+        snap: &TabRestartSnapshot,
+        source: &crate::service::messenger::switch_handoff::SwitchSourceAuthority,
+    ) -> Result<(), String> {
+        if !self
+            .mux
+            .read()
+            .get_tab(&snap.tab_id)
+            .is_some_and(|tab| source.matches_retired(tab))
+        {
+            return Err(
+                "provider_switch_superseded: source authority changed before PTY retirement".into(),
+            );
+        }
+        self.pty_ownership.release_pty(&snap.pty_id);
+        let reaper = {
+            let mut manager = self.pty.lock();
+            match manager.begin_kill(&snap.pty_id) {
+                Ok(reaper) => Some(reaper),
+                Err(_) if manager.get_session(&snap.pty_id).is_none() => None,
+                Err(error) => return Err(error),
+            }
+        };
+        if let Some(reaper) = reaper {
+            reaper.wait_for_termination_bounded(Duration::from_secs(5))?;
+        }
+        #[cfg(test)]
+        if let Some(boundary) = self.try_ext::<SwitchRetirementBoundary>() {
+            (boundary.0)();
+        }
+        self.screen_state.remove(&snap.pty_id);
+        self.finish_provider_switch_source_exit(source, true)
+    }
+
     fn request_graceful_exit(&self, snap: &TabRestartSnapshot, force: bool, grace: Duration) {
         if force {
             return;

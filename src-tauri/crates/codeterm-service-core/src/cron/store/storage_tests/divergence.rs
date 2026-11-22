@@ -45,6 +45,54 @@ const DIVERGENT_FILE: &str = r#"{
   }
 }"#;
 
+#[test]
+fn storage_cron_terminal_mirror_conserves_cancel_or_report_against_running_history() {
+    for cancelled in [true, false] {
+        let f = fixture();
+        let mut original: serde_json::Value = serde_json::from_str(DIVERGENT_FILE).unwrap();
+        original["history"][STALE][1]["status"] = serde_json::json!("Running");
+        original["history"][STALE][1]["finished_at"] = serde_json::Value::Null;
+        original["history"][STALE][1]["summary"] = serde_json::Value::Null;
+        let mirror = &mut original["jobs"][0]["last_run"];
+        mirror["status"] = serde_json::json!(if cancelled { "Cancelled" } else { "Success" });
+        mirror["finished_at"] = serde_json::json!(25);
+        mirror["summary"] = serde_json::json!("mirror summary");
+        if cancelled {
+            mirror["cancel_reason"] = serde_json::json!("user_cancel");
+        } else {
+            mirror["report_delivery"] = serde_json::json!("delivered");
+        }
+        let imported = decode_legacy_cron_file(original.to_string().as_bytes()).unwrap();
+        f.storage.crons().import(imported).wait(DEADLINE).unwrap();
+        *f.cron.lock() = f.rehydrated();
+        let before = f.snapshot();
+        let result = commit(&f.cron, |store| {
+            Ok(store.prepare_set_run_report(STALE, "r1", "late summary", "late delivery"))
+        })
+        .unwrap();
+        assert!(result.receipt.is_none());
+        assert_eq!(f.snapshot(), before);
+        f.assert_cache_is_committed();
+        let reopened = f.rehydrated();
+        let retained = reopened.get(STALE).unwrap().last_run.as_ref().unwrap();
+        assert_eq!(retained.summary.as_deref(), Some("mirror summary"));
+        assert_eq!(retained.finished_at, Some(25));
+        if cancelled {
+            assert_eq!(retained.status, CronRunStatus::Cancelled);
+            assert_eq!(
+                retained.cancel_reason,
+                Some(crate::cron::store::CronCancelReason::UserCancel)
+            );
+        } else {
+            assert_eq!(retained.report_delivery.as_deref(), Some("delivered"));
+        }
+        assert_eq!(
+            reopened.get_history(STALE)[1].status,
+            CronRunStatus::Running
+        );
+    }
+}
+
 /// Imports the original into the fixture and returns the original's path.
 fn import_divergent(f: &Fixture) -> PathBuf {
     let originals = f.temp.path().join("originals");
@@ -154,14 +202,15 @@ fn storage_cron_divergent_last_run_evolves_like_the_legacy_file() {
         cwd: Some("/late"),
     };
     legacy.set_run_session(STALE, "r1", "late-session", Some("/late"));
-    let bound = rows(
-        commit(&f.cron, |store| {
-            Ok(store.prepare_set_run_session(STALE, "r1", session))
-        })
-        .unwrap(),
-    );
+    let bound = commit(&f.cron, |store| {
+        Ok(store.prepare_set_run_session(STALE, "r1", session))
+    })
+    .unwrap();
     assert_same_as(&legacy, &f);
-    assert_eq!(bound, 3, "history row, divergent copy and identity");
+    assert!(
+        bound.receipt.is_none(),
+        "a terminal history row conserves both copies"
+    );
 
     for store in [&mut legacy, &mut *f.cron.lock()] {
         store.register_tab("tab-r1", STALE, "r1");

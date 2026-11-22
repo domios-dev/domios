@@ -188,6 +188,8 @@ pub struct PluginVm {
     plugin_id: String,
     runtime_identity: String,
     cli_binary: Option<String>,
+    bundle_dir: Option<std::path::PathBuf>,
+    dictation_generation: std::sync::atomic::AtomicU64,
 }
 
 struct Inner {
@@ -219,7 +221,9 @@ impl PluginVm {
             path: plugin_js_path.display().to_string(),
             source: e,
         })?;
-        Self::from_source(plugin_id, source)
+        let mut vm = Self::from_source(plugin_id, source)?;
+        vm.bundle_dir = plugin_js_path.parent().map(Path::to_path_buf);
+        Ok(vm)
     }
 
     /// Like `load_with_manifest` but with an explicit sandbox policy. Used by
@@ -237,7 +241,9 @@ impl PluginVm {
             path: plugin_js_path.display().to_string(),
             source: e,
         })?;
-        Self::from_source_sandboxed(plugin_id, source, Some(manifest_json), sandbox)
+        let mut vm = Self::from_source_sandboxed(plugin_id, source, Some(manifest_json), sandbox)?;
+        vm.bundle_dir = plugin_js_path.parent().map(Path::to_path_buf);
+        Ok(vm)
     }
 
     /// Same as `load` but with the manifest JSON also installed so the
@@ -253,7 +259,9 @@ impl PluginVm {
             path: plugin_js_path.display().to_string(),
             source: e,
         })?;
-        Self::from_source_with(plugin_id, source, Some(manifest_json))
+        let mut vm = Self::from_source_with(plugin_id, source, Some(manifest_json))?;
+        vm.bundle_dir = plugin_js_path.parent().map(Path::to_path_buf);
+        Ok(vm)
     }
 
     /// Same as `load` but takes the source string directly — used in
@@ -358,6 +366,8 @@ impl PluginVm {
             plugin_id: plugin_id.to_string(),
             runtime_identity: uuid::Uuid::new_v4().simple().to_string(),
             cli_binary,
+            bundle_dir: None,
+            dictation_generation: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -438,6 +448,8 @@ impl PluginVm {
     /// VM, so a config-only reload preserves in-memory state (open chatBackend sessions).
     pub fn reload_settings(&self, settings_json: String) {
         self.sandbox.set_settings(settings_json);
+        self.dictation_generation
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
     }
 
     /// Re-load the plugin from a fresh source string. Used by the
@@ -482,6 +494,8 @@ impl PluginVm {
         inner.bundle_source = new_source;
         super::host_transfer::reload(&self.sandbox);
         *self.methods.write() = methods;
+        self.dictation_generation
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         drop(inner);
         *self.runtime_inner.lock() = None;
         super::host_api::sqlite::drop_plugin_connections(self.sandbox.plugin_id());
@@ -503,6 +517,47 @@ impl Drop for PluginVm {
 impl PluginVm {
     pub(crate) fn runtime_identity(&self) -> &str {
         &self.runtime_identity
+    }
+
+    pub(super) fn dictation_generation(&self) -> u64 {
+        self.dictation_generation
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    pub(super) fn dictation_bundle(&self) -> Option<&Path> {
+        self.bundle_dir.as_deref()
+    }
+
+    pub(super) fn dictation_child(
+        &self,
+        bin: &str,
+        script: &Path,
+        args: &[String],
+    ) -> Result<super::host_exec::child::Owned, String> {
+        if !self.sandbox.can_exec(bin) {
+            return Err("The transcriber's process is outside its subprocess grant.".into());
+        }
+        let _reader = self.bundle_access.try_read().map_err(str::to_owned)?;
+        let root = self
+            .dictation_bundle()
+            .ok_or("The transcriber has no bundle path.")?
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        if script.as_os_str().is_empty()
+            || script
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        {
+            return Err("Use a relative worker file in the transcriber bundle.".into());
+        }
+        let entry = root
+            .join(script)
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        if !entry.starts_with(&root) || !entry.is_file() || !self.can_read_path(&entry) {
+            return Err("The dictation worker is outside its bundle grant.".into());
+        }
+        super::host_exec::spawn_dictation_child(bin, &entry, args)
     }
 }
 

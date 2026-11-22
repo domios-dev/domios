@@ -3,7 +3,9 @@ use std::time::Instant;
 use windows_sys::Win32::{Foundation::*, System::Threading::*};
 
 mod descendants;
-pub(super) use descendants::{capture as descendants, of as descendants_of, tree, Descendant};
+pub(super) use descendants::{
+    capture as descendants, of as descendants_of, parents, tree, Descendant,
+};
 
 pub(super) fn ids(boundary: &Boundary) -> Result<Vec<u32>, String> {
     boundary
@@ -18,7 +20,7 @@ pub(super) fn terminate(boundary: &Boundary) -> Result<(), String> {
         .map_err(|reason| format!("TerminateJobObject: {reason}"))
 }
 
-pub(super) struct Member {
+pub(in crate::service::agent_runtime) struct Member {
     handle: usize,
     born: u128,
 }
@@ -67,6 +69,9 @@ impl Member {
     }
     pub(super) fn token(&self) -> u128 {
         self.born
+    }
+    pub(super) fn raw_handle(&self) -> HANDLE {
+        self.handle as HANDLE
     }
     pub(super) fn validate_identity(&self, boundary: &Boundary) -> Result<(), String> {
         if self.exited()? || unsafe { boundary.job.contains_process(self.handle as HANDLE) }? {

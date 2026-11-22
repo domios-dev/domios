@@ -147,3 +147,112 @@ fn roleless_resume_reports_exact_promotion_and_relink_actions() {
         "domios agent link --parent-tab <orchestrator-tab> --tab tab-resumed"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn search_sessions_api_matches_windows_leading_slash_and_backslash_project_paths() {
+    use codeterm_service_core::agent::provider::{
+        AgentLaunchParams, AgentProvider, ReadinessStrategy, SessionContent, SessionContentQuery,
+        SessionContentSource, SessionMessage, SessionMetadata, TaskDelivery,
+    };
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+
+    struct WindowsPathStub;
+    impl AgentProvider for WindowsPathStub {
+        fn id(&self) -> &str {
+            "win-path-stub"
+        }
+        fn display_name(&self) -> &str {
+            "Windows Path Stub"
+        }
+        fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
+            String::new()
+        }
+        fn readiness_strategy(&self) -> ReadinessStrategy {
+            ReadinessStrategy::FixedDelay {
+                duration: std::time::Duration::from_secs(0),
+            }
+        }
+        fn task_delivery(&self) -> TaskDelivery {
+            TaskDelivery::PtyInput
+        }
+        fn detect_from_title(&self, _: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _: &str) -> bool {
+            false
+        }
+        fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
+            None
+        }
+        fn detect_session_id(
+            &self,
+            _: &str,
+            _: &[String],
+            _: Option<std::time::Duration>,
+        ) -> Option<String> {
+            None
+        }
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+            None
+        }
+        fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
+            vec![SessionMetadata {
+                session_id: "acp-win-session".into(),
+                provider: self.id().into(),
+                project_path: Some("/C:/Developer/codeterm/codeterm".into()),
+                title: Some("Windows ACP session".into()),
+                summary: None,
+                file_path: String::new(),
+                transcript_path: None,
+                created_ts: Some(1_700_000_000),
+                modified_ts: Some(1_700_000_000),
+            }]
+        }
+        fn session_content_source(&self) -> SessionContentSource {
+            SessionContentSource::SharedStore
+        }
+        fn read_session_content(&self, _: &str, _: &SessionContentQuery) -> Option<SessionContent> {
+            Some(SessionContent {
+                messages: vec![SessionMessage {
+                    role: "user".into(),
+                    text: "windows path normalization needle".into(),
+                    ts: Some(1_700_000_000),
+                    is_meta: false,
+                }],
+                truncated: false,
+            })
+        }
+    }
+
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(WindowsPathStub));
+    let state = crate::test_support::app_state(&fixture);
+
+    for project in [
+        "C:/Developer/codeterm/codeterm",
+        r"C:\Developer\codeterm\codeterm",
+        "/C:/Developer/codeterm/codeterm",
+    ] {
+        let Json(body) = search_sessions_api(
+            AxumState(state.clone()),
+            HeaderMap::new(),
+            axum::extract::Query(SearchSessionsQuery {
+                q: "needle".into(),
+                provider: Some("win-path-stub".into()),
+                project: Some(project.into()),
+                limit: Some(5),
+                max_snippets: Some(3),
+            }),
+        )
+        .await
+        .expect("search_sessions_api should succeed");
+        let hits = body["hits"].as_array().expect("hits array");
+        assert_eq!(hits.len(), 1, "expected hit for project={project}");
+        assert_eq!(hits[0]["meta"]["session_id"], "acp-win-session");
+    }
+}

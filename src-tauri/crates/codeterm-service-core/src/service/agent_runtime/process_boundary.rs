@@ -18,8 +18,16 @@ use unix as native;
 mod background;
 #[cfg(any(windows, test))]
 mod orphans;
+mod os_background;
 #[cfg(any(windows, test))]
 mod selective;
+
+pub(in crate::service::agent_runtime) type NativeMember = native::Member;
+
+pub(in crate::service::agent_runtime) use os_background::{
+    format_os_process_id, parse_os_process_id, wait_for_any_exit, ExitWaitCancel, HostMcpFilter,
+    OsBackgroundSnapshot, SelectedBackgroundProcess,
+};
 
 /// The runtime process tree retained before a Stop, so tools it orphans can still be ended.
 pub(super) struct ToolTree {
@@ -37,6 +45,12 @@ pub(super) struct Member {
     argv: Vec<String>,
     cwd: Option<PathBuf>,
     native: native::Member,
+}
+
+impl Member {
+    pub(super) fn token(&self) -> u128 {
+        self.native.token()
+    }
 }
 
 #[cfg(test)]
@@ -325,6 +339,17 @@ fn process_command(system: &sysinfo::System, pid: u32) -> Option<(Vec<String>, O
     Some((argv, process.cwd().map(std::path::Path::to_path_buf)))
 }
 
+#[cfg(unix)]
+fn process_command_with_parent(
+    system: &sysinfo::System,
+    pid: u32,
+) -> Option<(Vec<String>, Option<PathBuf>, u32)> {
+    let process = system.process(sysinfo::Pid::from_u32(pid))?;
+    let (argv, cwd) = process_command(system, pid)?;
+    let parent = process.parent().map(sysinfo::Pid::as_u32).unwrap_or(0);
+    Some((argv, cwd, parent))
+}
+
 #[cfg(windows)]
 fn terminate_retained(
     processes: &std::collections::BTreeMap<u32, &native::Member>,
@@ -350,16 +375,26 @@ fn retirement_confirmed(termination_requested: bool, all_observed_exited: bool) 
     termination_requested && all_observed_exited
 }
 
+fn strip_exe_suffix(name: &str) -> &str {
+    let Some(start) = name.len().checked_sub(4) else {
+        return name;
+    };
+    if name.is_char_boundary(start) && name[start..].eq_ignore_ascii_case(".exe") {
+        &name[..start]
+    } else {
+        name
+    }
+}
+
 fn executable(value: &str) -> String {
+    let name = strip_exe_suffix(value.rsplit(['/', '\\']).next().unwrap_or(value));
     #[cfg(windows)]
     {
-        let name = value.rsplit(['/', '\\']).next().unwrap_or(value);
-        let name = name.to_lowercase();
-        name.strip_suffix(".exe").unwrap_or(&name).to_owned()
+        name.to_lowercase()
     }
     #[cfg(not(windows))]
     {
-        value.rsplit('/').next().unwrap_or(value).to_owned()
+        name.to_owned()
     }
 }
 
@@ -425,7 +460,7 @@ fn command_matches(
 }
 
 fn shell_command(argv: &[String]) -> Option<&str> {
-    let shell_name = executable(argv.first()?);
+    let shell_name = executable(argv.first()?).to_ascii_lowercase();
     let switch = argv.get(argv.len().saturating_sub(2)).map(String::as_str);
     let command_switch = match shell_name.as_str() {
         "sh" | "bash" | "zsh" | "dash" => {
@@ -434,7 +469,6 @@ fn shell_command(argv: &[String]) -> Option<&str> {
         "pwsh" | "powershell" => switch.is_some_and(|value| {
             value.eq_ignore_ascii_case("-command") || value.eq_ignore_ascii_case("-c")
         }),
-        #[cfg(windows)]
         "cmd" => switch.is_some_and(|value| value.eq_ignore_ascii_case("/c")),
         _ => false,
     };

@@ -214,6 +214,10 @@ pub(super) fn create_router_with_preview_admission(
             post(workspace_routes::close_workspace),
         )
         .route(
+            "/api/workspaces/{id}/close-preview",
+            get(workspace_routes::close_preview),
+        )
+        .route(
             "/api/workspaces/{id}/recently-closed",
             get(workspace_routes::list_recently_closed),
         )
@@ -411,6 +415,25 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/output/stream", get(output_stream::output_stream))
         .merge(stream_mux::router())
         .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
+        .route(
+            "/api/dictation/start",
+            plugin_host_action_routes::owner_post(web_routes::dictation::start)
+                .layer(axum::extract::DefaultBodyLimit::max(1024)),
+        )
+        .route(
+            "/api/dictation/{session}/frame/{sequence}",
+            plugin_host_action_routes::owner_post(web_routes::dictation::frame).layer(
+                axum::extract::DefaultBodyLimit::max(codeterm_types::dictation::MAX_PCM_BYTES),
+            ),
+        )
+        .route(
+            "/api/dictation/{session}/finish/{sequence}",
+            plugin_host_action_routes::owner_post(web_routes::dictation::finish),
+        )
+        .route(
+            "/api/dictation/{session}/cancel",
+            plugin_host_action_routes::owner_post(web_routes::dictation::cancel),
+        )
         .route(
             "/api/tabs/{id}/chat-raw/start",
             post(blocking_json(web_routes::chat_raw_start)),

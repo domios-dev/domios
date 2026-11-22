@@ -61,5 +61,37 @@ pub fn read_report_body(
     })
 }
 
+/// Resolve relative `--attach` paths against the caller's cwd because the daemon runs elsewhere.
+pub fn resolve_attachment_paths(
+    attachments: Vec<String>,
+    caller_cwd: Option<&std::path::Path>,
+) -> Vec<String> {
+    attachments
+        .into_iter()
+        .map(|raw| {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return raw;
+            }
+            let path = std::path::Path::new(trimmed);
+            if path.is_absolute() {
+                trimmed.to_string()
+            } else if let Some(cwd) = caller_cwd {
+                cwd.join(path).to_string_lossy().into_owned()
+            } else {
+                trimmed.to_string()
+            }
+        })
+        .collect()
+}
+
+pub fn resolve_report_attachments(attachments: Vec<String>) -> Vec<String> {
+    if attachments.is_empty() {
+        return attachments;
+    }
+    let caller_cwd = std::env::current_dir().ok();
+    resolve_attachment_paths(attachments, caller_cwd.as_deref())
+}
+
 #[cfg(test)]
 mod tests;

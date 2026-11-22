@@ -59,6 +59,7 @@ impl MeshManager {
     }
 
     pub fn bind_account_authority(&mut self, authority: Arc<dyn AccountMeshAuthority>) {
+        self.endpoint_records.records.clear();
         self.account_authority = Some(authority);
     }
 

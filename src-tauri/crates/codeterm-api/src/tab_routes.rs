@@ -115,29 +115,46 @@ pub async fn list_tabs(
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list Tabs")
             }
         })?;
-    let mut local = tokio::task::spawn_blocking(move || result.into_json())
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Tabs projection worker failed",
-            )
-        })?;
-    if let crate::auth::CallerIdentity::Tab(caller) = crate::auth::caller_identity(&state, &headers)
-        .map_err(|_| (StatusCode::FORBIDDEN, "Invalid caller credential"))?
-    {
+    let identity_state = state.clone();
+    let identity_headers = headers.clone();
+    let (mut local, caller) = tokio::task::spawn_blocking(move || {
+        (
+            result.into_json(),
+            crate::auth::caller_identity(&identity_state, &identity_headers),
+        )
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Tabs projection worker failed",
+        )
+    })?;
+    let caller = caller.map_err(|_| (StatusCode::FORBIDDEN, "Invalid caller credential"))?;
+    if let crate::auth::CallerIdentity::Tab(caller) = &caller {
         if state
             .svc
-            .filter_neighbor_tab_listing(&caller, &mut local)
+            .filter_neighbor_tab_listing(caller, &mut local)
             .await
             .map_err(|_| (StatusCode::FORBIDDEN, "neighbor_capability_denied"))?
         {
             return Ok(Json(local));
         }
     }
-    let isolated_peer = crate::auth::isolated_caller_peer_id(&state, &headers);
-    if let Some(peer_id) = isolated_peer.as_deref() {
-        retain_peer_owned_tab_rows(&state, peer_id, &mut local);
+    let isolated_peer = crate::auth::isolated_peer_id(&caller);
+    if let Some(peer_id) = isolated_peer.clone() {
+        let rows_state = state.clone();
+        local = tokio::task::spawn_blocking(move || {
+            retain_peer_owned_tab_rows(&rows_state, &peer_id, &mut local);
+            local
+        })
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Tabs scope worker failed",
+            )
+        })?;
     }
     if query.local_only || isolated_peer.is_some() {
         return Ok(Json(local));

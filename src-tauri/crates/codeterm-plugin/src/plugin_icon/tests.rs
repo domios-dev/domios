@@ -127,12 +127,42 @@ fn plugin_icon_svg_accepts_shipped_color_marks_and_local_gradients() {
     for bytes in [
         include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../../plugins/provider-acp/gemini-color.svg"
+            "/../../../plugins/provider-acp/antigravity-color.svg"
         ))
         .as_slice(),
         include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../../plugins/provider-acp/deepseek-color.svg"
+        ))
+        .as_slice(),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-acp/grok-build.svg"
+        ))
+        .as_slice(),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-acp/github-copilot-cli.svg"
+        ))
+        .as_slice(),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-acp/cline.svg"
+        ))
+        .as_slice(),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-acp/qwen-code.svg"
+        ))
+        .as_slice(),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-acp/kimi-code.svg"
+        ))
+        .as_slice(),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-acp/kilo.svg"
         ))
         .as_slice(),
     ] {
@@ -159,5 +189,22 @@ fn plugin_icon_svg_refuses_external_missing_duplicate_and_inherited_gradients() 
         r##"<svg><path fill-rule="url(#paint)"/></svg>"##,
     ] {
         assert!(sanitize_plugin_icon_svg(svg.as_bytes()).is_none(), "{svg}");
+    }
+}
+
+#[test]
+fn plugin_icon_svg_accepts_static_paint_attributes_and_refuses_unsafe_values() {
+    let valid = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g opacity="0.9"><path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" fill-opacity="0.5" stroke="#3186FF" stroke-opacity="1" stroke-miterlimit="4" d="M0 0h24v24H0z"/></g></svg>"##;
+    assert!(sanitize_plugin_icon_svg(valid).is_some());
+    for bad in [
+        r##"<svg><path clip-rule="url(#x)" d="M0 0"/></svg>"##,
+        r##"<svg><path opacity="2" d="M0 0"/></svg>"##,
+        r##"<svg><path fill-opacity="-0.1" d="M0 0"/></svg>"##,
+        r##"<svg><path stroke-opacity="NaN" d="M0 0"/></svg>"##,
+        r##"<svg><path stroke-miterlimit="-1" d="M0 0"/></svg>"##,
+        r##"<svg><mask id="m"><rect width="1" height="1"/></mask></svg>"##,
+        r##"<svg><filter id="f"/></svg>"##,
+    ] {
+        assert!(sanitize_plugin_icon_svg(bad.as_bytes()).is_none(), "{bad}");
     }
 }

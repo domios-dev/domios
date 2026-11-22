@@ -19,10 +19,40 @@ pub struct CheckoutTaskRead {
     pub execution_attempts: Vec<CheckoutAttemptRead>,
 }
 
+pub(in crate::service_plan::store_db) const LIVE_CHECKOUT_WRITER_PREDICATE: &str = "a.open
+    AND coalesce(json_extract(t.row_json,'$.execution_intent'),'repository_mutation')='repository_mutation'
+    AND coalesce(json_extract(a.row_json,'$.execution_intent'),'unspecified')<>'read_only'
+    AND CASE
+        WHEN json_type(a.row_json,'$.placement') IS NULL THEN 0
+        WHEN json_type(a.row_json,'$.placement')='text' THEN
+            CASE json_extract(a.row_json,'$.placement')
+                WHEN 'canonical_writer' THEN 1
+                WHEN 'shared' THEN 1
+                WHEN 'isolated_lane' THEN 0
+                WHEN 'read_only' THEN 0
+                WHEN 'non_repository' THEN 0
+                ELSE json('invalid worker placement')
+            END
+        ELSE json('invalid worker placement')
+    END
+    AND NOT (
+        json_extract(t.row_json,'$.status') IS 'cancelled'
+        AND json_extract(a.row_json,'$.mesh_peer') IS NULL
+        AND trim(coalesce(json_extract(a.row_json,'$.id'),''))<>''
+        AND trim(coalesce(a.executor_tab_id,''))<>''
+        AND json_type(a.row_json,'$.executor_termination.confirmed_at') IS 'integer'
+        AND json_extract(a.row_json,'$.executor_termination.attempt_id') IS json_extract(a.row_json,'$.id')
+        AND json_extract(a.row_json,'$.executor_termination.executor_tab_id') IS a.executor_tab_id
+        AND json_extract(a.row_json,'$.executor_termination.session_id') IS a.session_id
+        AND json_extract(a.row_json,'$.executor_termination.session_binding_nonce') IS a.session_binding_nonce
+    )";
+
 #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct CheckoutAttemptRead {
     pub id: String,
     pub placement: WorkerPlacement,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkout_path: Option<String>,
 }
 
 #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -44,14 +74,16 @@ impl PlanStore {
     }
     pub fn checkout_peer_facts(&self, checkout: &str) -> Result<Vec<CheckoutPeerRead>, PlanError> {
         let roots = self.database.checkout_roots()?;
-        let checkout = super::super::super::shared_checkout::canonical_path(checkout);
-        let ids = roots
+        let checkout = super::super::super::shared_checkout::resolved_checkout_target(checkout);
+        let mut ids = roots
             .iter()
             .filter(|(_, root)| {
-                super::super::super::shared_checkout::canonical_path(root) == checkout
+                super::super::super::shared_checkout::resolved_checkout_target(root) == checkout
             })
             .map(|(id, _)| id.clone())
             .collect::<Vec<_>>();
+        ids.sort();
+        ids.dedup();
         self.database.checkout_peer_facts(&roots, &ids)
     }
 
@@ -59,15 +91,20 @@ impl PlanStore {
         &self,
         canonical_checkout: &str,
     ) -> Result<Vec<String>, PlanError> {
-        Ok(self
+        let target =
+            super::super::super::shared_checkout::resolved_checkout_target(canonical_checkout);
+        let mut ids = self
             .database
             .checkout_roots()?
             .into_iter()
             .filter(|(_, root)| {
-                super::super::super::shared_checkout::canonical_path(root) == canonical_checkout
+                super::super::super::shared_checkout::resolved_checkout_target(root) == target
             })
             .map(|(id, _)| id)
-            .collect())
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids.dedup();
+        Ok(ids)
     }
 }
 
@@ -159,11 +196,11 @@ impl PlanDatabase {
             "{selected} SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1),
                 (SELECT json_object('id',t.task_id,'checkout',{root},'files',json(CASE WHEN json_type(t.row_json,'$.files') IS NULL THEN '{{}}' ELSE t.row_json->'$.files' END),
                     'live_shared',json(CASE WHEN EXISTS(SELECT 1 FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id
-                        AND json_extract(a.row_json,'$.closed_at') IS NULL AND json_extract(a.row_json,'$.retired_at') IS NULL
-                        AND json_extract(a.row_json,'$.placement')='shared') THEN 'true' ELSE 'false' END))
+                        AND {writer} AND json_extract(a.row_json,'$.placement')='shared') THEN 'true' ELSE 'false' END))
                  FROM selected_task t JOIN plans p ON p.id=t.plan_id WHERE NOT ?3 OR t.task_id=?2)",
             selected=super::super::task_authority_queries::SELECTED_TASK_IN_PLAN,
-            root="CASE WHEN trim(coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),?4)='' THEN p.project_path ELSE json_extract(p.header_json,'$.canonical_project_path') END"
+            root="CASE WHEN trim(coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),?4)='' THEN p.project_path ELSE json_extract(p.header_json,'$.canonical_project_path') END",
+            writer=LIVE_CHECKOUT_WRITER_PREDICATE,
         ),params![plan,task,exact,super::super::status_queries::WHITESPACE],|row| Ok((column(row,0)?,column(row,1)?))).map_err(db_error)?;
         if !exists {
             return Err(PlanError::NotFound);
@@ -191,21 +228,27 @@ impl PlanDatabase {
         record_query();
         let mut statement = tx.prepare(&format!(
             "WITH admitted AS (SELECT p.id FROM plans p WHERE p.id IN (SELECT value FROM json_each(?1))
-                AND EXISTS(SELECT 1 FROM plan_task_attempts a WHERE a.plan_id=p.id AND a.open
-                    AND json_extract(a.row_json,'$.placement') IN ('shared','canonical_writer')))
+                AND EXISTS(SELECT 1 FROM plan_tasks t JOIN plan_task_attempts a
+                    ON a.plan_id=t.plan_id AND a.task_id=t.task_id
+                    WHERE t.plan_id=p.id AND {writer}))
             SELECT p.id,{root},json_object('id',p.id,'checkout',{root},'tasks',json((SELECT json_group_array(json(task)) FROM (
                 SELECT json_object('id',t.task_id,'files',json(CASE WHEN json_type(t.row_json,'$.files') IS NULL THEN '{{}}' ELSE t.row_json->'$.files' END),
                     'execution_attempts',json((SELECT json_group_array(json(attempt)) FROM (
-                        SELECT json_object('id',json_extract(a.row_json,'$.id'),
-                            'placement',CASE WHEN json_type(a.row_json,'$.placement') IS NULL THEN 'isolated_lane' ELSE json_extract(a.row_json,'$.placement') END) AS attempt
+                        SELECT json_object(
+                            'id',json_extract(a.row_json,'$.id'),
+                            'placement',json_extract(a.row_json,'$.placement'),
+                            'checkout_path',CASE
+                                WHEN trim(coalesce(json_extract(a.row_json,'$.checkout_path'),''))<>'' THEN json_extract(a.row_json,'$.checkout_path')
+                                WHEN trim(coalesce(json_extract(a.row_json,'$.worktree_path'),''))<>'' THEN json_extract(a.row_json,'$.worktree_path')
+                            END) AS attempt
                         FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id
-                            AND json_extract(a.row_json,'$.closed_at') IS NULL AND json_extract(a.row_json,'$.retired_at') IS NULL
+                            AND {writer}
                         ORDER BY a.position)))) AS task
                 FROM plan_tasks t WHERE t.plan_id=p.id AND EXISTS(SELECT 1 FROM plan_task_attempts a
-                    WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id AND json_extract(a.row_json,'$.closed_at') IS NULL
-                        AND json_extract(a.row_json,'$.retired_at') IS NULL) ORDER BY t.position))))
+                    WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id AND {writer}) ORDER BY t.position))))
             FROM plans p JOIN admitted ON admitted.id=p.id ORDER BY p.updated_at DESC,p.id",
-            root=super::super::match_queries::ROOT
+            root=super::super::match_queries::ROOT,
+            writer=LIVE_CHECKOUT_WRITER_PREDICATE,
         )).map_err(db_error)?;
         let rows = statement
             .query_map(params![ids], |row| {
@@ -228,8 +271,20 @@ fn checkout_roots(connection: &rusqlite::Connection) -> Result<Vec<(String, Stri
     record_query();
     let mut statement = connection
         .prepare(&format!(
-            "SELECT id,{} FROM plans ORDER BY id",
-            super::super::match_queries::ROOT
+            "SELECT id,{root} FROM plans
+             UNION
+             SELECT a.plan_id, CASE
+                 WHEN trim(coalesce(json_extract(a.row_json,'$.checkout_path'),''))<>'' THEN json_extract(a.row_json,'$.checkout_path')
+                 ELSE json_extract(a.row_json,'$.worktree_path')
+             END
+             FROM plan_task_attempts a
+             JOIN plan_tasks t ON t.plan_id=a.plan_id AND t.task_id=a.task_id
+             WHERE {writer}
+                AND (trim(coalesce(json_extract(a.row_json,'$.checkout_path'),''))<>''
+                    OR trim(coalesce(json_extract(a.row_json,'$.worktree_path'),''))<>'')
+             ORDER BY 1, 2",
+            root=super::super::match_queries::ROOT,
+            writer=LIVE_CHECKOUT_WRITER_PREDICATE,
         ))
         .map_err(db_error)?;
     let rows = statement

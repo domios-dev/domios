@@ -101,6 +101,25 @@
   background: var(--ct-accent);
 }
 
+.ct-bar-meter-track {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 4px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--ct-fg) 10%, transparent);
+  overflow: hidden;
+  flex: none;
+}
+
+.ct-bar-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ct-bar-meter-fill, var(--ct-accent));
+  transition: width var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+
 .ct-bar-pill--tinted {
   color: var(--ct-bar-pill-tone);
 }
@@ -166,7 +185,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ct-bar-pill {
+  .ct-bar-pill,
+  .ct-bar-meter-fill {
     transition: none;
   }
 

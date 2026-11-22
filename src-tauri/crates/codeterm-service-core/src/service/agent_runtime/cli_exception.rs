@@ -526,12 +526,54 @@ pub(super) async fn validate_before_operation(
         .map_err(RuntimeFailure::Refused)
 }
 
+pub(super) struct OwnedLease(Lease);
+
+pub(super) fn take_owned(
+    provider: &str,
+    context: &RuntimeContext,
+) -> Result<Option<OwnedLease>, String> {
+    // Detach only the memory owner here; delayed filesystem cleanup takes POLICY_IO.
+    let mut leases = LEASES.lock();
+    let Some(lease) = leases.get(&context.tab_id) else {
+        return if context.restricted_cli.is_none() {
+            Ok(None)
+        } else {
+            Err(DENIED.into())
+        };
+    };
+    if lease.provider != provider
+        || !binding_matches(&lease.policy, context)
+        || context.restricted_cli.as_ref() != Some(&lease.policy)
+    {
+        return Err(DENIED.into());
+    }
+    Ok(leases.remove(&context.tab_id).map(OwnedLease))
+}
+
+pub(super) fn revoke_owned(owned: OwnedLease) -> Result<(), String> {
+    let _policy_io = POLICY_IO.lock();
+    let directory = paths(&owned.0.policy).0;
+    if LEASES.lock().values().any(|lease| {
+        codeterm_paths::paths_equal(
+            &paths(&lease.policy).0.to_string_lossy(),
+            &directory.to_string_lossy(),
+        )
+    }) {
+        return Ok(());
+    }
+    cleanup_lease(owned.0)
+}
+
 pub(super) fn revoke(tab: &str) -> Result<(), String> {
     let _policy_io = POLICY_IO.lock();
     let lease = LEASES.lock().remove(tab);
     let Some(lease) = lease else {
         return Ok(());
     };
+    cleanup_lease(lease)
+}
+
+fn cleanup_lease(lease: Lease) -> Result<(), String> {
     remove_owned(&lease.policy);
     let (directory, _, _) = paths(&lease.policy);
     let removed = fs::symlink_metadata(directory)
@@ -539,7 +581,7 @@ pub(super) fn revoke(tab: &str) -> Result<(), String> {
     #[cfg(debug_assertions)]
     log::debug!(
         "[runtime-policy] phase=cli_exception_revoke tab={} epoch={} removed={}",
-        tab,
+        lease.policy.tab_id,
         lease.policy.epoch,
         removed
     );

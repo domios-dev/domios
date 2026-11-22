@@ -36,6 +36,8 @@ pub(crate) fn refusal_class(code: Option<&str>, status: u16) -> RefusalClass {
             | delivery::PEER_RELAY_PROTOCOL_MISMATCH
             | delivery::PAYLOAD_TOO_LARGE
             | delivery::TAB_NOT_REACHABLE_ON_PEER
+            | delivery::EXEC_AGENT_TAB_REFUSED
+            | delivery::SHELL_EXITED_REFUSED
             | PEER_LACKS_DELAYED_RECURRENCE,
         ) => RefusalClass::Deterministic,
         Some(
@@ -45,6 +47,12 @@ pub(crate) fn refusal_class(code: Option<&str>, status: u16) -> RefusalClass {
             | delivery::PEER_UNREACHABLE
             | delivery::MESH_TRANSPORT_NOTHING_SENT,
         ) => RefusalClass::Transient,
+        Some(
+            delivery::SUBMIT_UNCONFIRMED
+            | delivery::TARGET_RESTARTING
+            | delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED
+            | delivery::RELAY_DELIVERY_DEADLINE_EXCEEDED,
+        ) => RefusalClass::Unknown,
         _ => match status {
             429 | 502..=504 => RefusalClass::Transient,
             400..=499 => RefusalClass::Deterministic,
@@ -137,15 +145,65 @@ struct PeerVerdict {
     /// Three-valued: absent means unknown, never zero.
     bytes_written: Option<bool>,
     message: Option<String>,
+    outcome: Option<String>,
+    output: Option<String>,
+    output_truncated: bool,
 }
 
 fn peer_delivery_verdict(data: &serde_json::Value) -> PeerVerdict {
     let error = data.get("error").filter(|e| !e.is_null()).unwrap_or(data);
     let text = |key: &str| error.get(key).and_then(|v| v.as_str()).map(str::to_string);
+    let outcome = data
+        .get("outcome")
+        .and_then(|v| v.as_str())
+        .or_else(|| error.get("outcome").and_then(|v| v.as_str()))
+        .map(str::to_string);
     PeerVerdict {
         code: text("code"),
-        bytes_written: error.get("bytes_written").and_then(|v| v.as_bool()),
+        bytes_written: error
+            .get("bytes_written")
+            .or_else(|| data.get("bytes_written"))
+            .and_then(|v| v.as_bool()),
         message: text("message").or_else(|| error.as_str().map(str::to_string)),
+        outcome,
+        output: data
+            .get("output")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        output_truncated: data.get("output_truncated").and_then(|v| v.as_bool()) == Some(true),
+    }
+}
+
+fn delivery_outcome(
+    relayed: (&str, &str),
+    explicit: Option<String>,
+    code: Option<&str>,
+    bytes_written: Option<bool>,
+) -> Option<String> {
+    if explicit.is_some() {
+        return explicit;
+    }
+    if code == Some(delivery::SUBMIT_UNCONFIRMED) {
+        return Some(delivery::OUTCOME_SUBMIT_UNCONFIRMED.into());
+    }
+    if !super::is_delivery_relay(relayed.0, relayed.1) && code.is_none() {
+        return None;
+    }
+    match (code, bytes_written) {
+        (_, Some(false)) => Some(delivery::OUTCOME_REFUSED.into()),
+        (
+            Some(
+                delivery::TARGET_RESTARTING
+                | delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED
+                | delivery::RELAY_DELIVERY_DEADLINE_EXCEEDED,
+            ),
+            _,
+        ) => Some(delivery::OUTCOME_UNKNOWN.into()),
+        (_, Some(true)) => Some(delivery::OUTCOME_UNKNOWN.into()),
+        _ if super::is_delivery_relay(relayed.0, relayed.1) => {
+            Some(delivery::OUTCOME_UNKNOWN.into())
+        }
+        _ => None,
     }
 }
 
@@ -179,6 +237,8 @@ fn relay_retry_hint(relayed: (&str, &str), status: u16) -> String {
     let path = relayed.1.split('?').next().unwrap_or(relayed.1);
     if status == 404 && relayed.0.eq_ignore_ascii_case("GET") && path.ends_with("/text") {
         "the tab has no PTY; choose a PTY-backed tab".to_string()
+    } else if super::is_delivery_relay(relayed.0, relayed.1) && matches!(status, 500..=599) {
+        "the delivery outcome is unknown — confirm on the target before resending; a blind retry may deliver it twice".to_string()
     } else {
         generic_retry_hint(status)
     }
@@ -201,7 +261,7 @@ fn route_retry_hint(
     if code == Some(PEER_LACKS_DELAYED_RECURRENCE) {
         return "update the peer or send a one-shot explicitly".to_string();
     }
-    if !super::is_send_relay(relayed.0, relayed.1)
+    if !super::is_delivery_relay(relayed.0, relayed.1)
         || (code.is_none() && data.get("error").is_none())
     {
         relay_retry_hint(relayed, status)
@@ -250,7 +310,8 @@ pub(crate) fn classify_relay_answer(
                     .to_string(),
                 RefusalClass::Transient,
             )
-            .with_delivery(Some(delivery::PEER_UNREACHABLE.to_string()), Some(false)));
+            .with_delivery(Some(delivery::PEER_UNREACHABLE.to_string()), Some(false))
+            .with_exec_observation(Some(delivery::OUTCOME_REFUSED.into()), None, false));
         }
         if val.get("code").and_then(serde_json::Value::as_str)
             == Some(delivery::PEER_RELAY_PROTOCOL_MISMATCH)
@@ -293,10 +354,13 @@ pub(crate) fn classify_relay_answer(
                 RefusalClass::Deterministic,
             )
         } else {
-            (
-                relay_retry_hint(relayed, status.as_u16()),
-                refusal_class(None, status.as_u16()),
-            )
+            let class = if super::is_delivery_relay(relayed.0, relayed.1) && status.as_u16() >= 500
+            {
+                RefusalClass::Unknown
+            } else {
+                refusal_class(None, status.as_u16())
+            };
+            (relay_retry_hint(relayed, status.as_u16()), class)
         };
         if status.as_u16() >= 500 {
             if let Some(ts) = tailscale_unreachable_hint(&preview) {
@@ -304,7 +368,15 @@ pub(crate) fn classify_relay_answer(
                 retry.push_str(&ts);
             }
         }
-        return Err(failure_of(peer_name, peer.as_ref(), reason, retry, class));
+        let outcome = if peer_offline || ambiguous {
+            Some(delivery::OUTCOME_REFUSED.into())
+        } else if super::is_delivery_relay(relayed.0, relayed.1) && status.as_u16() >= 500 {
+            Some(delivery::OUTCOME_UNKNOWN.into())
+        } else {
+            None
+        };
+        return Err(failure_of(peer_name, peer.as_ref(), reason, retry, class)
+            .with_exec_observation(outcome, None, false));
     }
 
     let data = val.get("data").cloned().unwrap_or(serde_json::Value::Null);
@@ -312,11 +384,15 @@ pub(crate) fn classify_relay_answer(
         code,
         bytes_written,
         message,
+        outcome,
+        output,
+        output_truncated,
     } = peer_delivery_verdict(&data);
     let envelope_status = val
         .get("status")
         .and_then(|v| v.as_u64())
         .unwrap_or(status.as_u16() as u64) as u16;
+    let outcome = delivery_outcome(relayed, outcome, code.as_deref(), bytes_written);
 
     // Relay returns 200+ok:false on auth/HTTP failures inside the envelope.
     if val.get("ok").and_then(|v| v.as_bool()) == Some(false) {
@@ -345,9 +421,18 @@ pub(crate) fn classify_relay_answer(
             bytes_written,
             envelope_status,
         );
-        let class = refusal_class(code.as_deref(), envelope_status);
+        let class = if super::is_delivery_relay(relayed.0, relayed.1)
+            && bytes_written != Some(false)
+            && code.is_none()
+            && envelope_status >= 500
+        {
+            RefusalClass::Unknown
+        } else {
+            refusal_class(code.as_deref(), envelope_status)
+        };
         return Err(failure_of(peer_name, peer.as_ref(), reason, hint, class)
-            .with_delivery(code, bytes_written));
+            .with_delivery(code, bytes_written)
+            .with_exec_observation(outcome, output, output_truncated));
     }
 
     let peer_refused = data.get("ok").and_then(|v| v.as_bool()) == Some(false);
@@ -369,7 +454,8 @@ pub(crate) fn classify_relay_answer(
         );
         let class = refusal_class(code.as_deref(), envelope_status);
         return Err(failure_of(peer_name, peer.as_ref(), reason, hint, class)
-            .with_delivery(code, bytes_written));
+            .with_delivery(code, bytes_written)
+            .with_exec_observation(outcome, output, output_truncated));
     }
 
     Ok(RelayAnswer { data, peer })

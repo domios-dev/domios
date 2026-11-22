@@ -253,10 +253,18 @@ impl PeerClient {
     }
 
     pub fn new_signed_url(base_url: String, signed_token: &str) -> Self {
+        Self::new_signed_route(base_url, Vec::new(), signed_token)
+    }
+
+    pub fn new_signed_route(
+        base_url: String,
+        relay_alternatives: Vec<String>,
+        signed_token: &str,
+    ) -> Self {
         Self {
             client: shared_http_client(),
             base_url,
-            relay_alternatives: Vec::new(),
+            relay_alternatives,
             signed_token: Some(signed_token.to_string()),
         }
     }
@@ -276,6 +284,7 @@ impl PeerClient {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn with_relay_alternatives(mut self, alternatives: Vec<String>) -> Self {
         self.relay_alternatives = alternatives;
         self
@@ -486,6 +495,8 @@ impl PeerClient {
     }
 }
 
+const RELAY_DECODE_OFFLOAD_BYTES: usize = 16 * 1024;
+
 async fn decode_relay_response(
     response: reqwest::Response,
 ) -> Result<super::types::RelayResponse, TransportError> {
@@ -493,9 +504,23 @@ async fn decode_relay_response(
     let bytes = response.bytes().await.map_err(|error| {
         TransportError::new(TransportErrorKind::SubmitUnconfirmed, error.to_string())
     })?;
+    if bytes.len() > RELAY_DECODE_OFFLOAD_BYTES {
+        return tokio::task::spawn_blocking(move || decode_relay_response_bytes(status, &bytes))
+            .await
+            .map_err(|error| {
+                TransportError::new(TransportErrorKind::SubmitUnconfirmed, error.to_string())
+            })?;
+    }
+    decode_relay_response_bytes(status, &bytes)
+}
+
+fn decode_relay_response_bytes(
+    status: reqwest::StatusCode,
+    bytes: &[u8],
+) -> Result<super::types::RelayResponse, TransportError> {
     if status.is_success() {
         let reply =
-            serde_json::from_slice::<super::types::RelayResponse>(&bytes).map_err(|error| {
+            serde_json::from_slice::<super::types::RelayResponse>(bytes).map_err(|error| {
                 TransportError::new(
                     TransportErrorKind::SubmitUnconfirmed,
                     format!("Invalid relay reply: {error}"),
@@ -510,8 +535,8 @@ async fn decode_relay_response(
         return Ok(reply);
     }
     if status.is_client_error() && status != reqwest::StatusCode::REQUEST_TIMEOUT {
-        let text = String::from_utf8_lossy(&bytes);
-        let data = serde_json::from_slice(&bytes)
+        let text = String::from_utf8_lossy(bytes);
+        let data = serde_json::from_slice(bytes)
             .unwrap_or_else(|_| serde_json::Value::String(text.trim().to_owned()));
         return Ok(super::types::RelayResponse {
             ok: false,

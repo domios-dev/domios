@@ -1,5 +1,4 @@
 use crate::service::MuxEmitCause;
-use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +8,7 @@ use crate::agent::registry::AgentRegistry;
 
 #[cfg(test)]
 pub(crate) use crate::service::startup_turn::visible_spawn_starter_prompt;
+pub(crate) mod cron_launch;
 #[path = "spawn_warnings.rs"]
 mod spawn_warnings;
 pub use spawn_warnings::merge as merge_spawn_warnings;
@@ -811,8 +811,22 @@ impl ServiceContext {
             .or(ws_cwd)
             .map(|cwd| ServiceContext::normalize_resolved_agent_cwd(&cwd));
 
+        let allocation = if let Some(RuntimeOwnerLinkage::CronRun { job_id, run_id }) = spec
+            .chatbackend_launch
+            .as_ref()
+            .and_then(|launch| launch.owner_linkage.as_ref())
+        {
+            let cron = self
+                .try_ext::<crate::CronState>()
+                .ok_or("Cron state unavailable before hidden provisional allocation")?;
+            self.run_watcher
+                .reserve_cron_slot(self, cron, job_id, run_id)?;
+            Some(cron_launch::CronAllocation::claim(self, job_id, run_id)?)
+        } else {
+            None
+        };
         let gate = self.limit_gate();
-        let tab_id = {
+        let (tab_id, original) = {
             let mut mux = self.mux.write();
             let result = create_cleared_agent_tab(&mut mux, &ws_id, &clearance, &gate)?;
             spec.apply_pty_agent_identity(&mut mux, &result, agent.agent_name.as_deref());
@@ -859,8 +873,31 @@ impl ServiceContext {
                     }
                 }
             }
-            result
+            let original = spec
+                .chatbackend_launch
+                .as_ref()
+                .and_then(|launch| launch.owner_linkage.as_ref())
+                .and_then(|linkage| {
+                    if !matches!(
+                        linkage,
+                        crate::service::spawn::RuntimeOwnerLinkage::CronRun { .. }
+                    ) {
+                        return None;
+                    }
+                    Some((mux.get_tab(&result)?.clone(), linkage.clone()))
+                });
+            (result, original)
         };
+        let provisional = allocation
+            .zip(original)
+            .map(|(allocation, (expected, linkage))| {
+                self.capture_allocated_cron_generation(&expected, &linkage)
+                    .map(|owner| allocation.captured(owner))
+            })
+            .transpose()?;
+        if let Some(provisional) = &provisional {
+            provisional.prepare()?;
+        }
 
         self.set_and_lock_tab_agent_type_from(
             &tab_id,
@@ -888,13 +925,19 @@ impl ServiceContext {
 
         let mut env_vars = self.tab_env(&tab_id)?;
         env_vars.insert("CODETERM_TAB_ID".into(), tab_id.clone());
+        if let Some(provisional) = &provisional {
+            provisional.pad()?;
+        }
         let agent_pad = self.ensure_agent_pad(&tab_id).inspect_err(|_| {
-            self.rollback_provisional_tab(&ws_id, &tab_id);
+            if provisional.is_none() {
+                self.rollback_provisional_tab(&ws_id, &tab_id);
+            }
         })?;
         env_vars.insert("CODETERM_PAD_DIR".into(), agent_pad.env_value());
+        let binding_nonce = self.ensure_session_binding_nonce(&tab_id);
         env_vars.insert(
             "CODETERM_SESSION_BINDING_NONCE".into(),
-            self.ensure_session_binding_nonce(&tab_id),
+            binding_nonce.clone(),
         );
         if let Some(ref wid) = agent.worker_id {
             env_vars.insert("CODETERM_WORKER_ID".into(), wid.clone());
@@ -918,11 +961,19 @@ impl ServiceContext {
             &env_vars,
         );
 
-        let pty_id = match self.link_hidden_agent_pty(&tab_id, resolved_cwd, env_vars) {
+        let original_cron = provisional.as_ref().map(|owner| owner.owner().clone());
+        let pty_id = match self.link_hidden_agent_cron_pty(
+            &tab_id,
+            resolved_cwd,
+            env_vars,
+            original_cron.as_ref(),
+        ) {
             Ok(pty_id) => pty_id,
             Err(error) => {
-                let _ = self.revoke_agent_pad(&tab_id);
-                self.rollback_provisional_tab(&ws_id, &tab_id);
+                if provisional.is_none() {
+                    let _ = self.revoke_agent_pad(&tab_id);
+                    self.rollback_provisional_tab(&ws_id, &tab_id);
+                }
                 return Err(error);
             }
         };
@@ -1021,6 +1072,9 @@ impl ServiceContext {
                 )
             })
             .flatten();
+        if let Some(provisional) = provisional {
+            provisional.transfer();
+        }
         super::spawn_hidden_launch::start(
             svc_outer,
             super::spawn_hidden_launch::HiddenLaunch {
@@ -1051,39 +1105,6 @@ impl ServiceContext {
             model_fallback: model_resolution.fallback_notice,
             budget_notice,
         })
-    }
-
-    pub fn link_hidden_agent_pty(
-        &self,
-        tab_id: &str,
-        cwd: Option<String>,
-        env_vars: HashMap<String, String>,
-    ) -> Result<String, String> {
-        self.link_hidden_agent_pty_with_builder(tab_id, |gate| {
-            crate::pty::manager::build_session(gate, None, cwd, 120, 40, env_vars)
-        })
-    }
-
-    fn link_hidden_agent_pty_with_builder(
-        &self,
-        tab_id: &str,
-        build: impl FnOnce(
-            crate::pty::manager::PtySpawnGate,
-        ) -> Result<crate::pty::manager::BuiltSession, String>,
-    ) -> Result<String, String> {
-        let pty_claim = self.pty_ownership.acquire(tab_id)?;
-        let gate = self.pty.lock().spawn_gate();
-        let built = build(gate)?;
-        let candidate = self.pty.lock().register_session(None, built).0;
-        super::pty_resize::resize(&self.pty, &self.screen_state, &candidate, None)?;
-        let selection = self.link_pty_with_claim(&pty_claim, tab_id, candidate, true);
-        if !selection.linked {
-            return Err(format!("Tab {tab_id} closed before PTY link"));
-        }
-        self.agent_run_pty_map
-            .lock()
-            .insert(tab_id.to_string(), selection.pty_id.clone());
-        Ok(selection.pty_id)
     }
 }
 

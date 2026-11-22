@@ -6,6 +6,23 @@
   max-height: 165px;
 }
 
+.sidebar-workspace-machine-section + .sidebar-workspace-machine-section {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--ct-fg) 8%, transparent);
+}
+
+.sidebar-workspace-machine-heading {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  margin: 0 0 4px;
+  padding: 0 8px;
+  color: var(--ct-muted-fg);
+  font-size: var(--ct-font-size-meta);
+  font-weight: 500;
+}
+
 @media (max-width: 640px) {
   .ct-sidebar-panel[data-collapsed="false"] {
     display: block;

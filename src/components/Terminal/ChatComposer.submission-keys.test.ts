@@ -1,6 +1,6 @@
 // The composition gate must distinguish IME confirmation from provider submit because WebKit reports Enter after compositionend.
 import assert from "node:assert/strict";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 
 import { classifyComposerDevice, composerEnterIntent, type ComposerDevice, type ComposerKey } from "./composerKeyboard";
 import {
@@ -10,6 +10,7 @@ import {
   endComposition,
   isImeKeyEvent,
 } from "./composerComposition";
+import { createSpaceDictationHold, SPACE_DICTATION_HOLD_MS, type SpaceDictationPhase } from "./voice/spaceDictationHold";
 
 test("Chromium commit-Enter (isComposing=true, before compositionend) is an IME key", () => {
   const gate = createCompositionGate();
@@ -77,3 +78,106 @@ for (const device of devices) {
     }
   });
 }
+
+const plainSpace = (repeat = false) => ({
+  code: "Space", repeat, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, isComposing: false,
+});
+const emptyCtx = { empty: true, dictating: false, pickerOpen: false, composing: false };
+
+test("hold-Space push-to-talk: quick tap <300ms inserts a space without starting dictation", () => {
+  vi.useFakeTimers();
+  try {
+    const phases: SpaceDictationPhase[] = [];
+    let starts = 0, stops = 0, spaces = 0, pops = 0;
+    const hold = createSpaceDictationHold({
+      onPhaseChange: (phase) => phases.push(phase),
+      onStartDictation: () => { starts++; },
+      onStopDictation: () => { stops++; },
+      onInsertSpace: () => { spaces++; },
+      onPop: () => { pops++; },
+    });
+
+    assert.equal(hold.onKeyDown(plainSpace(false), emptyCtx), true);
+    assert.equal(hold.phase(), "arming");
+    vi.advanceTimersByTime(SPACE_DICTATION_HOLD_MS - 50);
+    hold.onKeyUp("Space", true);
+    vi.advanceTimersByTime(SPACE_DICTATION_HOLD_MS);
+
+    assert.equal(starts, 0);
+    assert.equal(stops, 0);
+    assert.equal(pops, 0);
+    assert.equal(spaces, 1);
+    assert.deepEqual(phases, ["arming", "idle"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("hold-Space push-to-talk: >=300ms ignores repeats, pops and starts dictation, and keyup stops it", () => {
+  vi.useFakeTimers();
+  try {
+    const phases: SpaceDictationPhase[] = [];
+    let starts = 0, stops = 0, spaces = 0, pops = 0;
+    const hold = createSpaceDictationHold({
+      onPhaseChange: (phase) => phases.push(phase),
+      onStartDictation: () => { starts++; },
+      onStopDictation: () => { stops++; },
+      onInsertSpace: () => { spaces++; },
+      onPop: () => { pops++; },
+    });
+
+    assert.equal(hold.onKeyDown(plainSpace(false), emptyCtx), true);
+    assert.equal(hold.onKeyDown(plainSpace(true), emptyCtx), true, "OS repeats must be swallowed while arming");
+    vi.advanceTimersByTime(SPACE_DICTATION_HOLD_MS);
+    assert.equal(hold.phase(), "recording");
+    assert.equal(starts, 1);
+    assert.equal(pops, 1);
+    assert.equal(hold.onKeyDown(plainSpace(true), { ...emptyCtx, dictating: true }), true, "OS repeats must be swallowed while recording");
+
+    hold.onKeyUp("Space", true);
+    assert.equal(hold.phase(), "idle");
+    assert.equal(stops, 1);
+    assert.equal(spaces, 0);
+    assert.deepEqual(phases, ["arming", "recording", "idle"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("hold-Space push-to-talk: non-empty input and blur behave cleanly", () => {
+  vi.useFakeTimers();
+  try {
+    let starts = 0, stops = 0, spaces = 0;
+    const hold = createSpaceDictationHold({
+      onPhaseChange: () => {},
+      onStartDictation: () => { starts++; },
+      onStopDictation: () => { stops++; },
+      onInsertSpace: () => { spaces++; },
+      onPop: () => {},
+    });
+
+    assert.equal(hold.onKeyDown(plainSpace(false), { ...emptyCtx, empty: false }), false);
+    assert.equal(hold.phase(), "idle");
+    vi.advanceTimersByTime(SPACE_DICTATION_HOLD_MS * 2);
+    assert.equal(starts, 0);
+
+    // Blur while arming cancels without opening mic or inserting space.
+    assert.equal(hold.onKeyDown(plainSpace(false), emptyCtx), true);
+    vi.advanceTimersByTime(100);
+    hold.onBlur();
+    vi.advanceTimersByTime(SPACE_DICTATION_HOLD_MS);
+    assert.equal(hold.phase(), "idle");
+    assert.equal(starts, 0);
+    assert.equal(spaces, 0);
+
+    // Blur while recording stops cleanly so spoken words commit.
+    assert.equal(hold.onKeyDown(plainSpace(false), emptyCtx), true);
+    vi.advanceTimersByTime(SPACE_DICTATION_HOLD_MS);
+    assert.equal(starts, 1);
+    hold.onBlur();
+    assert.equal(stops, 1);
+    assert.equal(hold.phase(), "idle");
+  } finally {
+    vi.useRealTimers();
+  }
+});

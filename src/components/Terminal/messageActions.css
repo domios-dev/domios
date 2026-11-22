@@ -544,7 +544,7 @@
 }
 
 .ct-msg-sheet-wrap {
-  z-index: 1000;
+  z-index: 1500;
   --ct-menu-sheet-max-height: calc(var(--ct-visual-height, 100dvh) - 24px);
 }
 

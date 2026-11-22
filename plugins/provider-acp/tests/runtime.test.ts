@@ -74,17 +74,12 @@ const descriptor = JSON.parse(fs.readFileSync(new URL("./runtime-manifest.json",
 const declaration = JSON.parse(fs.readFileSync(new URL("../plugin.json",import.meta.url),"utf8"));
 assert.equal(declaration.capabilities.agentRuntime.envelope,"jsonrpc2");
 assert.deepEqual(descriptor.agentRuntime, declaration.capabilities.agentRuntime);
-assert.deepEqual(declaration.capabilities.agentRuntime.launchProfiles["gemini-cli"].clientCapabilities,{fs:{readTextFile:false}});
-// Gemini CLI prunes unresumable chats of its process directory on each start and loads
-// system settings only from admin-owned paths, so its process runs from a host-owned directory.
-assert.equal(declaration.capabilities.agentRuntime.launchProfiles["gemini-cli"].hostWorkingDirectory,true);
-assert.equal(declaration.capabilities.agentRuntime.launchProfiles["gemini-cli"].settingsFiles,undefined);
+assert.equal(declaration.capabilities.agentRuntime.launchProfiles["gemini-cli"],undefined);
 // dsh pins workspace-write + ask into each session and offers no permission control over ACP, so it
 // asks only to escalate past that sandbox. Re-read its permission model when this package moves.
 assert.equal(declaration.capabilities.agentRuntime.launchProfiles["deepseek-harness"].askScope,"outsideWorkspace");
-assert.equal(declaration.capabilities.agentRuntime.launchProfiles["gemini-cli"].askScope,undefined);
-for (const [id,profile] of Object.entries(declaration.capabilities.agentRuntime.launchProfiles)) {
-  if (id !== "gemini-cli") assert.equal((profile as {clientCapabilities?:unknown}).clientCapabilities,undefined);
+for (const [,profile] of Object.entries(declaration.capabilities.agentRuntime.launchProfiles)) {
+  assert.equal((profile as {clientCapabilities?:unknown}).clientCapabilities,undefined);
 }
 const root = new URL("./fixtures/runtime/",import.meta.url);
 const names = fs.readdirSync(root).filter(name=>name.endsWith(".json")).sort();

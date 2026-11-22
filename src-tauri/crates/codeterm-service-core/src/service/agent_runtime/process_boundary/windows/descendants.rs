@@ -96,7 +96,8 @@ fn below(
     }
     Ok(retained.into_values().collect())
 }
-fn parents() -> Result<HashMap<u32, u32>, String> {
+pub(in crate::service::agent_runtime::process_boundary) fn parents(
+) -> Result<HashMap<u32, u32>, String> {
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
         return Err(std::io::Error::last_os_error().to_string());

@@ -1,4 +1,4 @@
-import { tabActivity, type TabActivity } from "../../lib/tabActivity";
+import { backgroundWorkLabel, tabActivity, type TabActivity } from "../../lib/tabActivity";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
@@ -190,6 +190,21 @@ function TabWorkingActivity({ activity, label }: { activity: TabActivity; label?
   );
 }
 
+function TabBackgroundActivity({ count, label }: { count: number; label: string }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      data-testid="tab-background-activity"
+      role="img"
+      aria-label={label}
+      title={label}
+      className="inline-flex items-center shrink-0"
+    >
+      <ActivityDots size="small" tone="accent" rhythm="work" active />
+    </span>
+  );
+}
+
 export const GeneralListMachineContext = createContext<string | null>(null);
 
 function TabSubline({ role, generalAgent, machine }: { role: string | null; generalAgent: boolean; machine?: string | null }) {
@@ -324,9 +339,15 @@ function TabItemInner({
   const accessibleRowLabel = remoteLabel ?? accessibleTitle;
   const showActivityMarkers = !remoteStateLabel;
   const rowAttention = attention ?? tabAttention(tab, status, [], isActive);
+  const backgroundActive = Boolean(hasAgent) && tabState.kind === "idle" && tabState.backgroundTasks > 0;
+  const backgroundLabel = backgroundActive ? backgroundWorkLabel(tabState.backgroundTasks) : null;
   // A Team worker reads as name and role label; its description stays in the row's tooltip.
   const labelledWorker = tab.role === "Worker" && Boolean(tab.role_label?.trim());
-  const activityDescription = hasAgent && tabState.phase === "compacting" ? tabState.label : labelledWorker ? null : description;
+  const activityDescription = hasAgent && tabState.phase === "compacting"
+    ? tabState.label
+    : backgroundLabel
+      ? backgroundLabel
+      : labelledWorker ? null : description;
   const rowText = tabRowText({ title: displayTitle, description: activityDescription, typeLabel: generalMachine ? accessibleTitle : roleShield });
   const isSubTab =
     !anchorsTeam(tab) && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
@@ -409,13 +430,14 @@ function TabItemInner({
     />
   ) : null;
 
+  const iconStatusLabel = tabState.label || backgroundLabel;
   const harnessIcon = provider ? (
             <ProviderGlyph
               iconSvg={provider.iconSvg} fallbackIconSvg={provider.fallbackIconSvg}
               iconColor={provider.iconColor}
               iconHint={provider.iconHint}
               className={`leading-none ${touchMode ? "text-[15px]" : isSubTab ? "text-[10px]" : "text-[12px]"}`}
-              title={remote ? undefined : tabState.label ? `${providerName} · ${tabState.label}` : providerName}
+              title={remote ? undefined : iconStatusLabel ? `${providerName} · ${iconStatusLabel}` : providerName}
             />
           ) : surfaceBacking(tab) ? (
             ownerBadgeTab ? (
@@ -446,6 +468,7 @@ function TabItemInner({
       data-testid="tab-item"
       data-tab-id={tab.id}
       data-tab-activity={tabState.kind}
+      data-background-work={backgroundActive ? "true" : undefined}
       data-entering={isAppearing && !isClosing ? "true" : undefined}
       data-tab-no-task-bubble="true"
       title={[displayTitle, provider?.displayName, description].filter(Boolean).join("\n")}
@@ -531,7 +554,9 @@ function TabItemInner({
           </span>
           {showActivityMarkers && <TabAttentionMark title={accessibleTitle} attention={rowAttention} active={isActive} placement="title" remote={Boolean(remote)} />}
           {showActivityMarkers && hasAgent && (
-            <TabWorkingActivity activity={tabState} label={tabState.label} />
+            tabState.active
+              ? <TabWorkingActivity activity={tabState} label={tabState.label} />
+              : backgroundLabel && <TabBackgroundActivity count={tabState.backgroundTasks} label={backgroundLabel} />
           )}
           {showActivityMarkers && shellRunning && <TabWorkingActivity activity={tabState} label={`${displayTitle} working`} />}
         </span>
@@ -584,9 +609,9 @@ function TabItemInner({
         role="status"
         aria-live="polite"
         aria-atomic="true"
-        aria-label={`${accessibleTitle} tab status ${tabState.phase === "compacting" ? tabState.label : tabState.status}`}
+        aria-label={`${accessibleTitle} tab status ${tabState.phase === "compacting" ? tabState.label : backgroundLabel ?? tabState.status}`}
       >
-        {accessibleTitle} tab status {tabState.phase === "compacting" ? tabState.label : tabState.status}
+        {accessibleTitle} tab status {tabState.phase === "compacting" ? tabState.label : backgroundLabel ?? tabState.status}
       </span>}
       <div className={`shrink-0 relative z-[1] flex items-center justify-end ${touchMode ? "" : `sidebar-tab-end ${tabText}`}`}>
         {checklistToggle && <ChecklistToggleButton toggle={checklistToggle} title={displayTitle} />}

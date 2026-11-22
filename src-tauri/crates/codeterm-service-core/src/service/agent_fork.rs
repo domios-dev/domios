@@ -68,6 +68,11 @@ impl ServiceContext {
             .with_provider(provider, |provider| provider.fork_session_args().is_some())
             .unwrap_or(false);
         if !supported {
+            if super::agent_runtime::thread_history::supports_session_fork(&source.id) {
+                return super::agent_runtime::thread_history::fork_live_session_blocking(
+                    self, &source.id,
+                );
+            }
             return Err(
                 "session_fork_unsupported: this provider does not declare session forks".into(),
             );

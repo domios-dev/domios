@@ -584,43 +584,64 @@ fn worker_ack_transitions_exact_pending_task_to_in_progress() {
     lane.cleanup().unwrap();
 }
 
+fn starting_worker_task(
+    store: &PlanStore,
+    project: &str,
+    plan_name: &str,
+    task_name: &str,
+    tab_id: &str,
+    title: &str,
+    base: u64,
+) -> (String, String, String) {
+    let plan = store
+        .create_plan_for_team(
+            plan_name.to_string(),
+            project.to_string(),
+            OrchestratorRef::from_tab("orch"),
+            "team".into(),
+            vec![],
+            base,
+        )
+        .unwrap();
+    let mut approved = store.get(&plan.id).unwrap();
+    approved.mode = PlanMode::Approved;
+    store.save(&mut approved, base + 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: task_name.to_string(),
+                ..Default::default()
+            },
+            base + 2,
+        )
+        .unwrap();
+    let lane = store.inspect_task_for_test(&task_id).unwrap().task.lane;
+    let attempt_id = store
+        .begin_task_dispatch(&plan.id, &task_id, tab_id, title, lane, base + 3)
+        .unwrap();
+    (plan.id, task_id, attempt_id)
+}
+
 #[test]
 fn plan_store_acknowledges_live_attempt_without_saved_session_binding() {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().display().to_string();
     let store = PlanStore::new_for_test(root.path());
-    let plan = store
-        .create_plan_for_team(
-            "Unbound attempt".into(),
-            project,
-            OrchestratorRef::from_tab("orch"),
-            "team".into(),
-            vec![],
-            1,
-        )
-        .unwrap();
-    let mut approved = store.get(&plan.id).unwrap();
-    approved.mode = PlanMode::Approved;
-    store.save(&mut approved, 2).unwrap();
-    let task_id = store
-        .add_task(
-            &plan.id,
-            NewTask {
-                name: "worker without saved binding".into(),
-                ..Default::default()
-            },
-            3,
-        )
-        .unwrap();
-    let lane = store.inspect_task_for_test(&task_id).unwrap().task.lane;
-    let attempt_id = store
-        .begin_task_dispatch(&plan.id, &task_id, "tab-worker", "Worker", lane, 4)
-        .unwrap();
+    let (plan_id, task_id, attempt_id) = starting_worker_task(
+        &store,
+        &project,
+        "Unbound attempt",
+        "worker without saved binding",
+        "tab-worker",
+        "Worker",
+        1,
+    );
     let pending = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(pending.execution_attempts[0].id, attempt_id);
     assert_eq!(pending.execution_attempts[0].session_id, None);
     let acknowledged = store
-        .acknowledge_live_task_attempt_for_tab("tab-worker", Some(&plan.id), Some(&task_id), 5)
+        .acknowledge_live_task_attempt_for_tab("tab-worker", Some(&plan_id), Some(&task_id), 5)
         .expect("a live attempt can be acknowledged before a session id is saved");
 
     assert_eq!(acknowledged.attempt.acknowledged_at, Some(5));
@@ -807,35 +828,18 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
 #[test]
 fn worker_ack_final_deadline_finalizes_attempt_for_redispatch() {
     let root = tempfile::tempdir().unwrap();
+    let project = root.path().display().to_string();
     let store = PlanStore::new_for_test(root.path());
-    let plan = store
-        .create_plan_for_team(
-            "Dispatch".into(),
-            root.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-            "team".into(),
-            vec![],
-            1,
-        )
-        .unwrap();
-    let mut approved = store.get(&plan.id).unwrap();
-    approved.mode = PlanMode::Approved;
-    store.save(&mut approved, 2).unwrap();
-    let task_id = store
-        .add_task(
-            &plan.id,
-            NewTask {
-                name: "worker".into(),
-                ..Default::default()
-            },
-            3,
-        )
-        .unwrap();
-    let lane = store.inspect_task_for_test(&task_id).unwrap().task.lane;
-    let attempt_id = store
-        .begin_task_dispatch(&plan.id, &task_id, "tab-worker", "Ada", lane, 4)
-        .unwrap();
-    let mut with_older_attempt = store.get(&plan.id).unwrap();
+    let (plan_id, task_id, attempt_id) = starting_worker_task(
+        &store,
+        &project,
+        "Dispatch",
+        "worker",
+        "tab-worker",
+        "Ada",
+        1,
+    );
+    let mut with_older_attempt = store.get(&plan_id).unwrap();
     let task = with_older_attempt
         .tasks
         .iter_mut()
@@ -847,7 +851,7 @@ fn worker_ack_final_deadline_finalizes_attempt_for_redispatch() {
     store.save(&mut with_older_attempt, 5).unwrap();
 
     assert!(store
-        .mark_worker_startup_deadline(&plan.id, &task_id, "tab-worker", &attempt_id, false, 6,)
+        .mark_worker_startup_deadline(&plan_id, &task_id, "tab-worker", &attempt_id, false, 6,)
         .unwrap());
     assert_eq!(
         store
@@ -859,10 +863,10 @@ fn worker_ack_final_deadline_finalizes_attempt_for_redispatch() {
         Some("startup_unbound")
     );
     assert!(store
-        .mark_worker_startup_deadline(&plan.id, &task_id, "tab-worker", &attempt_id, true, 7,)
+        .mark_worker_startup_deadline(&plan_id, &task_id, "tab-worker", &attempt_id, true, 7,)
         .unwrap());
     assert!(!store
-        .mark_worker_startup_deadline(&plan.id, &task_id, "tab-worker", &attempt_id, true, 8,)
+        .mark_worker_startup_deadline(&plan_id, &task_id, "tab-worker", &attempt_id, true, 8,)
         .unwrap());
     let failed = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(failed.status_label.as_deref(), Some("startup_failed"));
@@ -871,7 +875,7 @@ fn worker_ack_final_deadline_finalizes_attempt_for_redispatch() {
     assert_eq!(failed.execution_attempts[0].closed_at, None);
     assert_eq!(failed.execution_attempts[1].closed_at, Some(7));
     let event = worker_ack_timeout_event(
-        &plan.id,
+        &plan_id,
         &task_id,
         "tab-worker",
         &attempt_id,
@@ -887,13 +891,13 @@ fn worker_ack_final_deadline_finalizes_attempt_for_redispatch() {
     );
     let replacement_attempt = store
         .begin_task_dispatch_with_observation(
-            &plan.id,
+            &plan_id,
             &task_id,
             "tab-worker",
             "Ada",
             failed.lane.clone(),
             store
-                .dispatch_startup_owner_candidate(&plan.id, &task_id)
+                .dispatch_startup_owner_candidate(&plan_id, &task_id)
                 .unwrap(),
             false,
             9,
@@ -911,35 +915,18 @@ fn worker_ack_final_deadline_finalizes_attempt_for_redispatch() {
 #[test]
 fn blocked_before_worker_ack_deadline_receives_no_startup_mutation() {
     let root = tempfile::tempdir().unwrap();
+    let project = root.path().display().to_string();
     let store = PlanStore::new_for_test(root.path());
-    let plan = store
-        .create_plan_for_team(
-            "Dispatch".into(),
-            root.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-            "team".into(),
-            vec![],
-            1,
-        )
-        .unwrap();
-    let mut approved = store.get(&plan.id).unwrap();
-    approved.mode = PlanMode::Approved;
-    store.save(&mut approved, 2).unwrap();
-    let task_id = store
-        .add_task(
-            &plan.id,
-            NewTask {
-                name: "worker".into(),
-                ..Default::default()
-            },
-            3,
-        )
-        .unwrap();
-    let lane = store.inspect_task_for_test(&task_id).unwrap().task.lane;
-    let attempt_id = store
-        .begin_task_dispatch(&plan.id, &task_id, "tab-worker", "Ada", lane, 4)
-        .unwrap();
-    let mut blocked_plan = store.get(&plan.id).unwrap();
+    let (plan_id, task_id, attempt_id) = starting_worker_task(
+        &store,
+        &project,
+        "Dispatch",
+        "worker",
+        "tab-worker",
+        "Ada",
+        1,
+    );
+    let mut blocked_plan = store.get(&plan_id).unwrap();
     let blocked = blocked_plan
         .tasks
         .iter_mut()
@@ -950,10 +937,10 @@ fn blocked_before_worker_ack_deadline_receives_no_startup_mutation() {
     store.save(&mut blocked_plan, 5).unwrap();
 
     assert!(!store
-        .mark_worker_startup_deadline(&plan.id, &task_id, "tab-worker", &attempt_id, false, 6,)
+        .mark_worker_startup_deadline(&plan_id, &task_id, "tab-worker", &attempt_id, false, 6,)
         .unwrap());
     assert!(!store
-        .mark_worker_startup_deadline(&plan.id, &task_id, "tab-worker", &attempt_id, true, 7,)
+        .mark_worker_startup_deadline(&plan_id, &task_id, "tab-worker", &attempt_id, true, 7,)
         .unwrap());
     let unchanged = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(unchanged.status, TaskStatus::Blocked);
@@ -1126,4 +1113,84 @@ fn competition_ack_reminder_and_cleanup_use_exact_attempt_authority() {
     assert_eq!(task.execution_attempts[0].closed_at, None);
     assert_eq!(task.execution_attempts[1].closed_at, None);
     assert_eq!(task.execution_attempts[2].closed_at, Some(25));
+}
+
+#[test]
+fn respawned_attempt_ack_enforces_exact_runtime_session_and_nonce() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().display().to_string();
+    let store = PlanStore::new_for_test(root.path());
+    let (plan_id, task_id, source_attempt_id) =
+        dispatched_worker_task(&store, &project, "respawn-runtime-ack", "tab-source", 1);
+    let draft = store
+        .build_task_respawn_draft(
+            &plan_id,
+            &task_id,
+            codeterm_service_core::service::plan::task_attempts::TaskRespawnRequest {
+                attempt_id: source_attempt_id,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let (created, _) = store
+        .record_task_respawn_attempt_with_undo(
+            &plan_id,
+            &task_id,
+            "tab-respawn-reserved",
+            &draft,
+            Some("worker"),
+            10,
+        )
+        .unwrap();
+    let lane = store.inspect_task_for_test(&task_id).unwrap().task.lane;
+    store
+        .finish_task_dispatch(
+            &plan_id,
+            &task_id,
+            "tab-respawn-reserved",
+            &created.attempt.id,
+            "session-respawn-exact",
+            "nonce-respawn-exact",
+            lane,
+            11,
+        )
+        .unwrap();
+
+    assert!(store
+        .acknowledge_live_task_attempt_for_tab_with_runtime_binding(
+            "tab-respawn-reserved",
+            Some(&plan_id),
+            Some(&task_id),
+            Some(("session-respawn-exact", "nonce-wrong")),
+            12,
+        )
+        .is_err());
+    assert!(store
+        .acknowledge_live_task_attempt_for_tab_with_runtime_binding(
+            "tab-source",
+            Some(&plan_id),
+            Some(&task_id),
+            Some(("session-tab-source", "nonce-tab-source")),
+            12,
+        )
+        .is_err());
+    let ack = store
+        .acknowledge_live_task_attempt_for_tab_with_runtime_binding(
+            "tab-respawn-reserved",
+            Some(&plan_id),
+            Some(&task_id),
+            Some(("session-respawn-exact", "nonce-respawn-exact")),
+            13,
+        )
+        .unwrap();
+    assert_eq!(ack.attempt.id, created.attempt.id);
+    assert_eq!(
+        ack.attempt.session_id.as_deref(),
+        Some("session-respawn-exact")
+    );
+    assert_eq!(
+        ack.attempt.session_binding_nonce.as_deref(),
+        Some("nonce-respawn-exact")
+    );
+    assert_eq!(ack.attempt.acknowledged_at, Some(13));
 }

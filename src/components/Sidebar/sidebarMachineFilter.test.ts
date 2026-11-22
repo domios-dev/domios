@@ -2,7 +2,7 @@ import { expect, finish, it } from "../../test/standaloneTest";
 import type { MultiplexerState, Tab, Team, Workspace } from "../../lib/types";
 import { deskWorkspaceMembership, projectBrowsedWorkspaces } from "../../store/multiplexer/pairedWorkspaceProjection";
 import { browsedWorkspaceRows } from "./browsedWorkspaceRows";
-import { selectSidebarWorkspaceView, sidebarWorkspaceKey, wholeSidebarTeam } from "./sidebarMachineFilter";
+import { groupSidebarWorkspaceMachines, selectSidebarWorkspaceView, sidebarWorkspaceKey, wholeSidebarTeam } from "./sidebarMachineFilter";
 
 it("shows every Team member when any member runs on the chosen machine", () => {
   const members = [{ id: "manager", peer: null }, { id: "worker", peer: "blackstar" }];
@@ -60,6 +60,18 @@ it("mirrors the selected desk with scoped chips, exact Team ownership and surfac
   expect(selectSidebarWorkspaceView(candidates, bKey, { peerId: "b" }).selected?.workspace.id).toBe(bC9.id);
   expect(selectSidebarWorkspaceView(candidates, bKey, "all").visible.filter(entry => entry.workspace.name === "Same name")
     .map(entry => entry.key)).toEqual([aKey, bKey]);
+  expect(groupSidebarWorkspaceMachines(candidates.map(({ key, peerId }) => ({ key, peerId })))
+    .map(group => [group.peerId, group.workspaces.map(entry => entry.key)])).toEqual([
+      [null, [aKey, sidebarWorkspaceKey(null, aTeam.id)]],
+      ["b", [bKey, sidebarWorkspaceKey("b", bBoreal.id), sidebarWorkspaceKey("b", bSnake.id), sidebarWorkspaceKey("b", bEmpty.id)]],
+    ]);
+  expect(groupSidebarWorkspaceMachines([
+    { peerId: "peer-z", id: "z" }, { peerId: "peer-a", id: "a" }, { peerId: null, id: "local" },
+  ]).map(group => group.peerId)).toEqual([null, "peer-a", "peer-z"]);
+  expect(groupSidebarWorkspaceMachines([{ peerId: "peer-a", id: "a" }], [null, "peer-b"])
+    .map(group => [group.peerId, group.workspaces.map(entry => entry.id)])).toEqual([
+      [null, []], ["peer-a", ["a"]], ["peer-b", []],
+    ]);
   expect(peer[0].tabs.map(({ tab }) => tab.id)).toEqual(["attempt"]);
   expect(peer[0].tabIds?.length).toBe(1);
   const boreal = browsedWorkspaceRows(peer[1].tabs);

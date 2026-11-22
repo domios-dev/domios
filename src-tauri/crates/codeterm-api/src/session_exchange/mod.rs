@@ -80,6 +80,63 @@ struct HistoryShape {
     image_bytes: usize,
 }
 
+#[derive(serde::Serialize)]
+struct FailedLaunchEvidence {
+    boot_stage: codeterm_types::pty::BootStage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    boot_failure_reason: Option<String>,
+}
+
+fn failed_launch_evidence(node: &SplitNodeSnapshot) -> Option<FailedLaunchEvidence> {
+    let SplitNodeSnapshot::Leaf {
+        agent_identity,
+        agent_type,
+        role,
+        chatbackend_plugin_id,
+        surface,
+        ..
+    } = node
+    else {
+        return None;
+    };
+    let identity = agent_identity.as_ref()?;
+    (identity.boot_stage == Some(codeterm_types::pty::BootStage::SpawnFailed)
+        && identity.agent_runtime_state.is_none()
+        && identity.reported_session_binding_nonce.is_none()
+        && chatbackend_plugin_id.is_none()
+        && surface.is_none()
+        && (role.is_some()
+            || agent_type.is_some()
+            || identity.restorable_launch.failed_provider.is_some()))
+    .then(|| FailedLaunchEvidence {
+        boot_stage: codeterm_types::pty::BootStage::SpawnFailed,
+        boot_failure_reason: identity.boot_failure_reason.clone(),
+    })
+}
+
+fn validate_failed_launch_snapshot(snapshot: &SessionSnapshot) -> Result<(), String> {
+    let mut nodes = Vec::new();
+    for workspace in &snapshot.workspaces {
+        for tab in &workspace.tabs {
+            leaves(&tab.split_tree, &mut nodes);
+        }
+    }
+    for node in nodes {
+        if let SplitNodeSnapshot::Leaf {
+            agent_identity: Some(identity),
+            ..
+        } = node
+        {
+            if identity.boot_stage == Some(codeterm_types::pty::BootStage::SpawnFailed)
+                && identity.reported_session_binding_nonce.is_some()
+            {
+                return Err("Failed launch contradicts reported session binding; passive import/export refused".into());
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Replay synthesizes text from these sizes, so the export grows with message count, not history bytes.
 fn history_shape(messages: &[codeterm_types::agent::chat_types::ChatMsg]) -> HistoryShape {
     let mut groups = std::collections::HashMap::new();
@@ -132,6 +189,7 @@ fn capture_snapshot(
         &SplitNodeSnapshot,
     ) -> Result<Vec<codeterm_types::agent::chat_types::ChatMsg>, String>,
 ) -> Result<(Value, Value, Vec<Value>), String> {
+    validate_failed_launch_snapshot(snapshot)?;
     let mut measurements = Vec::new();
     let mut histories = Vec::new();
     let mut all = Vec::new();
@@ -168,21 +226,23 @@ fn capture_snapshot(
             "pty"
         };
         let provider = chatbackend_plugin_id.as_deref().or(agent_type.as_deref());
-        let (messages, status, reason) =
-            if node.agent_session().is_some() || chatbackend_plugin_id.is_some() {
-                match capture(node) {
-                    Ok(messages) => (messages, "captured", None),
-                    Err(error) => (Vec::new(), "unavailable", Some(sanitize::filler(&error))),
-                }
-            } else if agent_type.is_some() {
-                (
-                    Vec::new(),
-                    "unavailable",
-                    Some("Session identity unavailable".into()),
-                )
-            } else {
-                (Vec::new(), "not_applicable", None)
-            };
+        let failed_launch = failed_launch_evidence(node);
+        let (messages, status, reason) = if failed_launch.is_some() {
+            (Vec::new(), "failed_launch", None)
+        } else if node.agent_session().is_some() || chatbackend_plugin_id.is_some() {
+            match capture(node) {
+                Ok(messages) => (messages, "captured", None),
+                Err(error) => (Vec::new(), "unavailable", Some(sanitize::filler(&error))),
+            }
+        } else if agent_type.is_some() {
+            (
+                Vec::new(),
+                "unavailable",
+                Some("Session identity unavailable".into()),
+            )
+        } else {
+            (Vec::new(), "not_applicable", None)
+        };
         let shape = history_shape(&messages);
         let mut history_bytes = ByteCount(0);
         serde_json::to_writer(&mut history_bytes, &messages).map_err(|e| e.to_string())?;
@@ -190,8 +250,16 @@ fn capture_snapshot(
             "prompt_bytes":prompt.len(),"identity_bytes":identity.len(),"history_bytes":history_bytes.0,
             "history_pages":messages.len().div_ceil(PAGE_SIZE),"history_items":messages.len(),
             "normalized_turn_groups":shape.groups,"image_items":shape.image_items,"image_bytes":shape.image_bytes}));
-        histories.push(json!({"tab_id":tab_id,"page_size":PAGE_SIZE,"shape":shape.rows,
-            "transcript":{"status":status,"backing_kind":backing,"provider":provider,"reason":reason}}));
+        let mut transcript =
+            json!({"status":status,"backing_kind":backing,"provider":provider,"reason":reason});
+        if let Some(evidence) = failed_launch {
+            transcript["failed_launch"] =
+                serde_json::to_value(evidence).map_err(|error| error.to_string())?;
+        }
+        histories.push(
+            json!({"tab_id":tab_id,"page_size":PAGE_SIZE,"shape":shape.rows,
+            "transcript":transcript}),
+        );
     }
     let safe_snapshot =
         sanitize::sanitize(&serde_json::to_value(&snapshot).map_err(|e| e.to_string())?)?;
@@ -276,6 +344,7 @@ pub async fn import(
         ));
     }
     let (mut snapshot, mut plans) = import_stream::receive(body).await.map_err(failure)?;
+    validate_failed_launch_snapshot(&snapshot).map_err(failure)?;
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
         let fixture_cwd = codeterm_paths::data_dir().join("upgrade-restore-project");
@@ -322,9 +391,11 @@ pub async fn import(
 fn fixture_document(
     document: &Value,
 ) -> Result<(SessionSnapshot, Vec<codeterm_types::plan::Plan>), String> {
-    import_stream::decode(std::io::Cursor::new(
+    let decoded = import_stream::decode(std::io::Cursor::new(
         serde_json::to_vec(document).map_err(|error| error.to_string())?,
-    ))
+    ))?;
+    validate_failed_launch_snapshot(&decoded.0)?;
+    Ok(decoded)
 }
 
 #[cfg(test)]

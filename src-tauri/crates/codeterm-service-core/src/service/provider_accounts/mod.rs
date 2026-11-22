@@ -12,6 +12,7 @@ mod scheduler;
 mod sign_in;
 mod storage;
 pub(crate) use storage::ProvisionError;
+pub(crate) mod provisioning;
 pub mod switching;
 mod work;
 pub use scheduler::{
@@ -34,6 +35,7 @@ pub(crate) struct State {
     work: tokio::sync::watch::Sender<usize>,
     root: std::path::PathBuf,
     provisioning: parking_lot::Mutex<()>,
+    provisioning_job: parking_lot::Mutex<Option<Arc<provisioning::Owner>>>,
     observations:
         parking_lot::Mutex<std::collections::BTreeMap<(String, String), roster::Observation>>,
     operations: parking_lot::Mutex<
@@ -56,6 +58,7 @@ impl Default for State {
             work: tokio::sync::watch::channel(0).0,
             root: crate::paths::data_dir_path(),
             provisioning: Default::default(),
+            provisioning_job: Default::default(),
             observations: Default::default(),
             operations: Default::default(),
             sign_ins: Default::default(),
@@ -492,7 +495,19 @@ pub(crate) fn invocation_at(
     account: Option<&str>,
     namespace: Option<&str>,
 ) -> Result<Option<Arc<InvocationContext>>, String> {
-    invocation_at_typed(svc, provider, account, namespace).map_err(|error| error.to_string())
+    if account.unwrap_or(IMPLICIT_ACCOUNT) == IMPLICIT_ACCOUNT {
+        provisioning::require_idle(svc)?;
+        return invocation_at_typed(svc, provider, account, namespace)
+            .map_err(|error| error.to_string());
+    }
+    let owner = svc.clone();
+    let provider = provider.to_owned();
+    let account = account.map(str::to_owned);
+    let namespace = namespace.map(str::to_owned);
+    provisioning::invocation(svc, move || {
+        invocation_at_typed(&owner, &provider, account.as_deref(), namespace.as_deref())
+            .map_err(|error| error.to_string())
+    })
 }
 
 pub(crate) fn login_invocation(
@@ -501,7 +516,12 @@ pub(crate) fn login_invocation(
     account: &str,
 ) -> Result<Option<Arc<InvocationContext>>, ProvisionError> {
     let namespace = credential_namespace(svc, provider, Some(account), None)?;
-    invocation_at_typed(svc, provider, Some(account), namespace.as_deref())
+    let owner = svc.clone();
+    let provider = provider.to_owned();
+    let account = account.to_owned();
+    provisioning::typed_invocation(svc, move || {
+        invocation_at_typed(&owner, &provider, Some(&account), namespace.as_deref())
+    })
 }
 
 fn invocation_at_typed(
@@ -525,7 +545,9 @@ fn invocation_at_typed(
         return Err("The selected harness account no longer exists".into());
     }
     let state = svc.ext_or_init::<State>(State::default);
-    let _provisioning = state.provisioning.lock();
+    let _provisioning = state.provisioning.try_lock().ok_or(
+        "account_provisioning_busy: credential provisioning is still owned by another operation",
+    )?;
     let usual = storage::usual_home(&capability)?;
     let invocation = storage::provision_namespace(
         &state.root,
@@ -541,30 +563,39 @@ fn invocation_at_typed(
 pub(crate) fn prepare_named_session_hook(
     svc: &super::ServiceContext,
     invocation: &InvocationContext,
-) -> Option<bool> {
-    let provider = invocation.provider();
-    let _integration_write = codeterm_notifications::provider_hooks::lock_integration_changes();
-    let consent = super::provider_hooks::integration_consent(svc, provider);
-    if consent == Some(false) {
-        return Some(false);
-    }
-    let capability = capability(svc, provider)?;
-    let home = invocation
+) -> Result<Option<bool>, String> {
+    let provider = invocation.provider().to_owned();
+    let Some(capability) = capability(svc, &provider) else {
+        return Ok(None);
+    };
+    let Some(home) = invocation
         .environment_entries()
         .find(|(key, _)| *key == capability.home_environment)
-        .and_then(|(_, value)| value)?;
-    let repair = consent == Some(true);
-    let state = svc.ext_or_init::<State>(State::default);
-    let _provisioning = state.provisioning.lock();
-    match svc.agent_registry.with_provider(provider, |provider| {
-        provider.named_account_session_hook(std::path::Path::new(home), repair)
-    })? {
-        Ok(available) => available,
-        Err(error) => {
-            log::debug!("[provider-accounts] {provider} named session hook unavailable: {error}");
-            Some(false)
+        .and_then(|(_, value)| value)
+        .map(str::to_owned)
+    else {
+        return Ok(None);
+    };
+    let owner = svc.clone();
+    provisioning::hook(svc, move || {
+        let _integration_write = codeterm_notifications::provider_hooks::lock_integration_changes();
+        let consent = super::provider_hooks::integration_consent(&owner, &provider);
+        if consent == Some(false) {
+            return Ok(Some(false));
         }
-    }
+        let state = owner.ext_or_init::<State>(State::default);
+        let _provisioning = state.provisioning.try_lock()
+            .ok_or("account_provisioning_busy: credential provisioning is still owned by another operation")?;
+        owner
+            .agent_registry
+            .with_provider(&provider, |provider| {
+                provider
+                    .named_account_session_hook(std::path::Path::new(&home), consent == Some(true))
+            })
+            .transpose()
+            .map(Option::flatten)
+            .map_err(|error| error.to_string())
+    })
 }
 
 pub(super) fn uninstall_named_integrations(

@@ -14,14 +14,14 @@ vi.mock("../../lib/clientTabUiMode", () => ({ getCurrentTabUiMode: () => "chat",
 const item = (label: string, kind?: ChatCardMenuItem["kind"]): ChatCardMenuItem => ({ label, kind, onSelect: () => {} });
 
 describe("the shared message menu model", () => {
-  it("merges a card into its message once, in one order, with the card's Copy and Ask", () => {
-    const message = [item("Copy", "copy"), item("Ask about this", "ask"), item("Select", "select"), item("Delete", "delete")];
+  it("merges a card into its message once, in one order, keeping Reply first ahead of Copy and card Ask", () => {
+    const message = [item("Reply", "reply"), item("Copy", "copy"), item("Select", "select"), item("Delete", "delete")];
     const cardAsk = item("Ask about this", "ask");
     const card = [item("Open full screen", "open"), item("Copy command"), item("Copy output", "copy"), cardAsk, item("Details", "details")];
     const merged = mergeMessageMenu(message, card);
-    expect(merged.map((entry) => entry.label)).toEqual(["Open full screen", "Copy", "Copy command", "Ask about this", "Details", "Select", "Delete"]);
+    expect(merged.map((entry) => entry.label)).toEqual(["Reply", "Open full screen", "Copy", "Copy command", "Ask about this", "Details", "Select", "Delete"]);
     expect(merged.find((entry) => entry.kind === "ask")).toBe(cardAsk);
-    expect(mergeMessageMenu(message, []).map((entry) => entry.label)).toEqual(["Copy", "Ask about this", "Select", "Delete"]);
+    expect(mergeMessageMenu(message, []).map((entry) => entry.label)).toEqual(["Reply", "Copy", "Select", "Delete"]);
   });
 });
 
@@ -78,7 +78,7 @@ describe("one menu per tool row", () => {
     await act(async () => row.focus());
     await act(async () => dot()!.click());
     const items = labels();
-    expect(items).toEqual(["Open full screen", "Copy", "Ask about this", "Details", "Select"]);
+    expect(items).toEqual(["Reply", "Open full screen", "Copy", "Ask about this", "Details", "Select"]);
     expect(new Set(items).size).toBe(items.length);
   });
 
@@ -87,7 +87,7 @@ describe("one menu per tool row", () => {
     expect(dot()).toBeNull();
     await act(async () => cardKebab()!.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
     const items = labels();
-    expect(items).toEqual(["Open full screen", "Copy", "Ask about this", "Details", "Select"]);
+    expect(items).toEqual(["Reply", "Open full screen", "Copy", "Ask about this", "Details", "Select"]);
     expect(new Set(items).size).toBe(items.length);
   });
 });

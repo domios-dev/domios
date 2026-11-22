@@ -61,7 +61,8 @@ impl ServiceContext {
     }
 
     pub(super) fn sync_checklist_presence(&self, tab_id: &str, present: bool) {
-        if self.mux.write().set_tab_has_checklist(tab_id, present) {
+        let effective = present || super::runtime_plan::has_items(tab_id);
+        if self.mux.write().set_tab_has_checklist(tab_id, effective) {
             self.emit_state_changed(MuxEmitCause::TabMetadata);
         }
     }

@@ -5,7 +5,7 @@ mod children;
 mod declarations;
 pub use children::*;
 mod host_mcp;
-pub use host_mcp::{RuntimeHostMcp, RuntimeHostMcpDeclaration};
+pub use host_mcp::{RuntimeHostMcp, RuntimeHostMcpDeclaration, RuntimeHostMcpHttp};
 mod history;
 pub use history::*;
 mod background;

@@ -60,6 +60,15 @@ pub use codeterm_plugin::local_recording::{
     LocalInputSetupError, LocalInputSubscription, SubscriptionTeardown,
 };
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeviceArrivalEvent {
+    pub input_id: String,
+}
+
+pub trait LocalInputArrivalWatch: Send {
+    fn request_stop(&mut self) -> SubscriptionTeardown;
+}
+
 pub trait LocalInputAdapter: Send + Sync {
     fn subscribe(
         &self,
@@ -68,6 +77,24 @@ pub trait LocalInputAdapter: Send + Sync {
         generation: u64,
         callback: std::sync::Arc<dyn Fn(SelectedInputEvent) + Send + Sync>,
     ) -> Result<Box<dyn LocalInputSubscription>, LocalInputSetupError>;
+
+    fn enumerate_inputs(
+        &self,
+        _declaration: &LocalRecordingTrigger,
+    ) -> Result<Option<Vec<RecordingInputDevice>>, String> {
+        Ok(None)
+    }
+
+    fn watch_arrivals(
+        &self,
+        _declaration: &LocalRecordingTrigger,
+        _callback: std::sync::Arc<dyn Fn(DeviceArrivalEvent) + Send + Sync>,
+    ) -> Result<Box<dyn LocalInputArrivalWatch>, LocalInputSetupError> {
+        Err(LocalInputSetupError {
+            reason: "local_recording_arrival_watch_unsupported".into(),
+            teardown: None,
+        })
+    }
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
@@ -111,6 +138,9 @@ struct WindowsInputAdapter;
 struct WindowsInputSubscription(Option<windows::WindowsInputSubscription>);
 
 #[cfg(windows)]
+struct WindowsArrivalWatch(Option<windows::WindowsArrivalWatcher>);
+
+#[cfg(windows)]
 impl LocalInputAdapter for WindowsInputAdapter {
     fn subscribe(
         &self,
@@ -144,6 +174,60 @@ impl LocalInputAdapter for WindowsInputAdapter {
                 teardown: Some(windows_teardown(failure.teardown)),
             }),
         }
+    }
+
+    fn enumerate_inputs(
+        &self,
+        trigger: &LocalRecordingTrigger,
+    ) -> Result<Option<Vec<RecordingInputDevice>>, String> {
+        input_devices(trigger).map(Some)
+    }
+
+    fn watch_arrivals(
+        &self,
+        trigger: &LocalRecordingTrigger,
+        callback: Arc<dyn Fn(DeviceArrivalEvent) + Send + Sync>,
+    ) -> Result<Box<dyn LocalInputArrivalWatch>, LocalInputSetupError> {
+        if !windows::supports_trigger(trigger) {
+            return Err(LocalInputSetupError {
+                reason: "local_input_descriptor_unsupported".into(),
+                teardown: None,
+            });
+        }
+        let native_callback = move |event: windows::WindowsArrivalEvent| {
+            callback(DeviceArrivalEvent {
+                input_id: event.input_id,
+            })
+        };
+        let pending =
+            windows::WindowsArrivalWatcher::start_pending(trigger.clone(), native_callback)
+                .map_err(|reason| LocalInputSetupError {
+                    reason,
+                    teardown: None,
+                })?;
+        match pending.wait_until_ready() {
+            Ok(watch) => Ok(Box::new(WindowsArrivalWatch(Some(watch)))),
+            Err(failure) => Err(LocalInputSetupError {
+                reason: windows_setup_reason(failure.reason).into(),
+                teardown: Some(windows_teardown(failure.teardown)),
+            }),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl LocalInputArrivalWatch for WindowsArrivalWatch {
+    fn request_stop(&mut self) -> SubscriptionTeardown {
+        self.0
+            .take()
+            .map(|watch| windows_teardown(watch.request_stop()))
+            .unwrap_or_else(|| {
+                SubscriptionTeardown::with_waiter(|_| {
+                    codeterm_plugin::local_recording::SubscriptionTeardownWait::Failed(
+                        "windows_arrival_teardown_handle_missing".into(),
+                    )
+                })
+            })
     }
 }
 
@@ -222,6 +306,9 @@ struct MacInputAdapter;
 struct MacInputSubscription(Option<macos::MacInputSubscription>);
 
 #[cfg(target_os = "macos")]
+struct MacArrivalWatch(Option<macos::MacArrivalWatcher>);
+
+#[cfg(target_os = "macos")]
 impl LocalInputAdapter for MacInputAdapter {
     fn subscribe(
         &self,
@@ -245,6 +332,47 @@ impl LocalInputAdapter for MacInputAdapter {
             .map_err(|failure| LocalInputSetupError {
                 reason: failure.reason,
                 teardown: failure.teardown.map(macos_teardown),
+            })
+    }
+
+    fn watch_arrivals(
+        &self,
+        declaration: &LocalRecordingTrigger,
+        callback: Arc<dyn Fn(DeviceArrivalEvent) + Send + Sync>,
+    ) -> Result<Box<dyn LocalInputArrivalWatch>, LocalInputSetupError> {
+        let filter = macos::MacArrivalFilter {
+            vendor_id: declaration.vendor_id,
+            product_id: declaration.product_id,
+            collection_usage_page: declaration.usage_page,
+            collection_usage: declaration.usage,
+        };
+        let native_callback = Arc::new(move |event: macos::MacArrivalEvent| {
+            callback(DeviceArrivalEvent {
+                input_id: event.input_id,
+            })
+        });
+        macos::watch_arrivals(filter, native_callback)
+            .map(|watch| Box::new(MacArrivalWatch(Some(watch))) as _)
+            .map_err(|failure| LocalInputSetupError {
+                reason: failure.reason,
+                teardown: failure.teardown.map(macos_teardown),
+            })
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl LocalInputArrivalWatch for MacArrivalWatch {
+    fn request_stop(&mut self) -> SubscriptionTeardown {
+        self.0
+            .as_mut()
+            .and_then(macos::MacArrivalWatcher::request_stop)
+            .map(macos_teardown)
+            .unwrap_or_else(|| {
+                SubscriptionTeardown::with_waiter(|_| {
+                    codeterm_plugin::local_recording::SubscriptionTeardownWait::Failed(
+                        "macos_arrival_teardown_handle_missing".into(),
+                    )
+                })
             })
     }
 }

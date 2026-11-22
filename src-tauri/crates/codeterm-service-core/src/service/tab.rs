@@ -177,6 +177,10 @@ impl ServiceContext {
     }
 
     pub(crate) fn finish_tab_close(&self, tab_id: &str) -> Result<(), String> {
+        self.finish_tab_close_with_pad(tab_id, true)
+    }
+
+    fn finish_tab_close_with_pad(&self, tab_id: &str, retire_pad: bool) -> Result<(), String> {
         self.revoke_tab_credential(tab_id);
         super::supporter_tab_state::forget_observations(tab_id);
         self.release_managed_tabs(tab_id);
@@ -187,7 +191,11 @@ impl ServiceContext {
         }
         super::task_files::release_tab(self, tab_id);
         self.cancel_agent_startup_supervision(tab_id);
-        let pad_result = self.revoke_agent_pad(tab_id);
+        let pad_result = if retire_pad {
+            self.revoke_agent_pad(tab_id)
+        } else {
+            Ok(())
+        };
         self.orchestration().clear_dead_planner_binding(tab_id);
         self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
         self.settle_lanes_held_by_closed_tab(tab_id);
@@ -361,6 +369,28 @@ impl ServiceContext {
             &str,
         ) -> Result<(), String>,
     ) -> Result<(), String> {
+        self.close_tab_with_teardown_and_pad(
+            tab_id,
+            reason,
+            validate,
+            teardown,
+            validate_commit,
+            true,
+        )
+    }
+
+    pub(crate) fn close_tab_with_teardown_and_pad(
+        &self,
+        tab_id: &str,
+        reason: TabCloseReason,
+        validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
+        teardown: impl FnOnce() -> Result<(), String>,
+        validate_commit: impl FnOnce(
+            &mut crate::multiplexer::state::MultiplexerState,
+            &str,
+        ) -> Result<(), String>,
+        retire_pad: bool,
+    ) -> Result<(), String> {
         let (pre_focus, reservation, provider_id, canonical_tab_id, session_id) = {
             let mut mux = self.mux.write();
             let canonical_tab_id = mux
@@ -445,7 +475,7 @@ impl ServiceContext {
         if let Some(provider_id) = provider_id {
             self.release_tab_launch_artifacts(&canonical_tab_id, &provider_id);
         }
-        self.finish_tab_close(&canonical_tab_id)?;
+        self.finish_tab_close_with_pad(&canonical_tab_id, retire_pad)?;
         self.retire_public_send_launch(&canonical_tab_id);
         self.reap_orphaned_startup_teams();
         self.retire_closed_tab_notifications(&canonical_tab_id);
@@ -585,34 +615,13 @@ impl ServiceContext {
         pty_id: String,
         launch_owned: bool,
     ) -> crate::service::pty_ownership::PtySelection {
-        claim.settle(
+        self.link_pty_with_admission(
+            claim,
+            tab_id,
             pty_id,
             launch_owned,
-            |candidate| self.pty.lock().get_session(candidate).is_some(),
-            |selected| {
-                self.seed_pending_scrollback_before_link(tab_id, selected);
-                let mut mux = self.mux.write();
-                if mux.get_tab(tab_id).is_none() {
-                    crate::service::pty_ownership::LinkOutcome::TabMissing
-                } else {
-                    crate::service::pty_ownership::LinkOutcome::Linked(
-                        mux.link_pty(tab_id, selected.to_string()),
-                    )
-                }
-            },
-            |orphan| {
-                log::warn!(
-                    "[link_pty] Tab {} rejected orphan pty {}",
-                    tab_id,
-                    &orphan[..orphan.len().min(8)]
-                );
-                self.kill_ptys(&[orphan.to_string()]);
-            },
-            |selected| {
-                self.observe_shell_ready(selected, None);
-                crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
-                self.emit_state_changed(MuxEmitCause::TabLifecycle);
-            },
+            |selected| self.seed_pending_scrollback_before_link(tab_id, selected),
+            |_, _| Ok(()),
         )
     }
 

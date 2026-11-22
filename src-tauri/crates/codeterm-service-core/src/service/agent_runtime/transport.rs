@@ -17,7 +17,7 @@ pub(crate) fn rejected_before_write(error: &DeliveryError) -> bool {
     matches!(error, DeliveryError::TabBusyRefused { detail, .. } if detail.starts_with(REJECTED_BEFORE_WRITE))
 }
 
-fn before_write(tab: &str, error: RuntimeFailure) -> DeliveryError {
+pub(super) fn before_write(tab: &str, error: RuntimeFailure) -> DeliveryError {
     DeliveryError::TabBusyRefused {
         tab: tab.into(),
         detail: format!("runtime_preflight_before_write: {error}"),
@@ -107,23 +107,34 @@ fn turn_input(text: &str) -> TurnInput {
         for segment in segments {
             match segment {
                 MessageSegment::Attachment { kind, path, .. }
-                    if kind == "image" && !path.is_empty() =>
+                    if (kind == "image" || kind == "voice") && !path.is_empty() =>
                 {
                     if attachments
                         .iter()
-                        .any(|image| image.path.as_ref() == Some(&path))
+                        .any(|item| item.path.as_ref() == Some(&path))
                     {
                         continue;
                     }
                     let extension = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-                    let mime_type = match extension.as_str() {
-                        "jpg" | "jpeg" => "image/jpeg",
-                        "gif" => "image/gif",
-                        "webp" => "image/webp",
-                        "bmp" => "image/bmp",
-                        "avif" => "image/avif",
-                        "svg" => "image/svg+xml",
-                        _ => "image/png",
+                    let mime_type = if kind == "voice" {
+                        match extension.as_str() {
+                            "mp3" => "audio/mpeg",
+                            "wav" => "audio/wav",
+                            "ogg" | "oga" => "audio/ogg",
+                            "m4a" | "mp4" => "audio/mp4",
+                            "flac" => "audio/flac",
+                            _ => "audio/webm",
+                        }
+                    } else {
+                        match extension.as_str() {
+                            "jpg" | "jpeg" => "image/jpeg",
+                            "gif" => "image/gif",
+                            "webp" => "image/webp",
+                            "bmp" => "image/bmp",
+                            "avif" => "image/avif",
+                            "svg" => "image/svg+xml",
+                            _ => "image/png",
+                        }
                     };
                     attachments.push(ChatAttachment {
                         id: format!("attachment:{path}"),
@@ -180,14 +191,21 @@ fn prepare_image_input(
         MAX_RUNTIME_VALUE_BYTES as u64
     };
     for attachment in &mut input.attachments {
-        if attachment.data.is_some() || !attachment.mime_type.starts_with("image/") {
+        let is_media = attachment.mime_type.starts_with("image/")
+            || attachment.mime_type.starts_with("audio/");
+        if attachment.data.is_some() || !is_media {
             continue;
         }
+        let label = if attachment.mime_type.starts_with("audio/") {
+            "Audio"
+        } else {
+            "Image"
+        };
         let path = attachment.path.as_deref().ok_or_else(|| {
-            RuntimeFailure::Refused("Image attachment path is unavailable".into())
+            RuntimeFailure::Refused(format!("{label} attachment path is unavailable"))
         })?;
         let path = std::path::Path::new(path);
-        let fail = |reason| RuntimeFailure::Refused(format!("Image was not sent: {reason}"));
+        let fail = |reason| RuntimeFailure::Refused(format!("{label} was not sent: {reason}"));
         if local_paths {
             let size = crate::attachments::validate_complete_file(path, remaining).map_err(fail)?;
             remaining = remaining.saturating_sub(size);
@@ -483,7 +501,7 @@ pub fn launch(
     tab: &str,
     config: Value,
 ) -> Result<(), String> {
-    launch_with_fork(svc, provider, tab, config, None)
+    launch_with_fork(svc, provider, tab, config, None, None, None)
 }
 
 pub(crate) fn launch_fork(
@@ -500,7 +518,21 @@ pub(crate) fn launch_fork(
         tab,
         config,
         Some((source_thread_id, turn_id)),
+        None,
+        None,
     )
+}
+
+pub(crate) fn launch_with_boundary(
+    svc: &ServiceContext,
+    provider: &str,
+    tab: &str,
+    config: Value,
+    fork: Option<(&str, &str)>,
+    boundary: Option<&std::sync::atomic::AtomicBool>,
+    cron_owner: Option<&crate::agent::run_watcher::runtime_runs::CronRunAuthority>,
+) -> Result<(), String> {
+    launch_with_fork(svc, provider, tab, config, fork, boundary, cron_owner)
 }
 
 fn launch_with_fork(
@@ -509,32 +541,99 @@ fn launch_with_fork(
     tab: &str,
     config: Value,
     fork: Option<(&str, &str)>,
+    boundary: Option<&std::sync::atomic::AtomicBool>,
+    cron_owner: Option<&crate::agent::run_watcher::runtime_runs::CronRunAuthority>,
 ) -> Result<(), String> {
-    svc.ensure_agent_pad(tab)?;
-    let nonce = svc.ensure_session_binding_nonce(tab);
-    {
+    let nonce = if let Some(owner) = cron_owner {
+        svc.capture_cron_pad(owner)?;
+        owner
+            .nonce()
+            .ok_or("Original cron runtime nonce is absent")?
+            .to_string()
+    } else {
+        svc.ensure_agent_pad(tab)?;
+        svc.ensure_session_binding_nonce(tab)
+    };
+    let original = {
         let mut mux = svc.mux.write();
+        if let Some(owner) = cron_owner {
+            if owner.tab_id() != tab
+                || !owner.matches(&mux)
+                || !mux
+                    .get_tab(tab)
+                    .is_some_and(|target| target.agent_type.as_deref() == Some(provider))
+            {
+                return Err("Original cron runtime configuration authority changed".into());
+            }
+            let cron = svc
+                .try_ext::<crate::CronState>()
+                .ok_or("Cron runtime state absent")?;
+            if !cron.lock().run_is_active(owner.job_id(), owner.run_id()) {
+                return Err("Original cron run ended before runtime configuration".into());
+            }
+        }
         let target = mux.get_tab_mut(tab).ok_or("Runtime tab absent")?;
         target.agent_type = Some(provider.into());
         target.agent_runtime_config = Some(config);
         target.session_binding_nonce = Some(nonce.clone());
         target.chat_view = true;
-    }
+        target.clone()
+    };
     super::authority::record_spawn(svc, tab, provider, &nonce)?;
-    let result = crate::async_runtime::block_on(async {
-        match fork {
-            Some((source_thread_id, turn_id)) => {
-                engine::ensure_fork(svc, tab, source_thread_id, turn_id).await
-            }
-            None => engine::ensure(svc, tab).await,
+    let run_owner = svc.run_watcher.runtime_start_owner(tab, &nonce);
+    let retained_cron = cron_owner.and_then(|owner| {
+        svc.run_watcher
+            .capture_cron_runtime_start(svc, owner, &original)
+    });
+    if let Some(boundary) = boundary {
+        boundary.store(true, std::sync::atomic::Ordering::Release);
+    }
+    let result = if cron_owner.is_some() {
+        let outcome = crate::async_runtime::block_on(engine::ensure_expected_observed(
+            svc, tab, &nonce, fork,
+        ));
+        match retained_cron {
+            Some(retained) => svc
+                .run_watcher
+                .runtime_rejected_before_acquisition(svc, retained, &original, fork, outcome),
+            None => outcome.into_result(),
         }
-    })
+    } else {
+        crate::async_runtime::block_on(async {
+            match fork {
+                Some((source_thread_id, turn_id)) => {
+                    engine::ensure_fork(svc, tab, source_thread_id, turn_id).await
+                }
+                None => engine::ensure(svc, tab).await,
+            }
+        })
+    }
     .or_else(|error| match fork {
-        None => engine::login_pending_session(svc, tab, error),
+        None if cron_owner.is_none_or(|owner| owner.matches(&svc.mux.read())) => {
+            engine::login_pending_session(svc, tab, error)
+        }
+        None => Err(error),
         Some(_) => Err(error),
     })
+    .and_then(|session| {
+        if cron_owner.is_some() && session.context.lock().binding_nonce != nonce {
+            return Err(RuntimeFailure::Superseded);
+        }
+        Ok(session)
+    })
     .map(|_| ())
-    .map_err(|error| format!("Runtime tab {tab} degraded: {error}"));
+    .map_err(|error| {
+        if let Some(owner) = cron_owner {
+            let _ = svc
+                .run_watcher
+                .runtime_ended_start_result(svc, owner, &original, &error);
+        } else if let Some(kind) = run_owner.as_ref() {
+            let _ = svc
+                .run_watcher
+                .runtime_start_result(svc, tab, &nonce, kind, &error);
+        }
+        format!("Runtime tab {tab} degraded: {error}")
+    });
     if fork.is_none() {
         svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     }

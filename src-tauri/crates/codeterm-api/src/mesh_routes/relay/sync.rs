@@ -30,13 +30,15 @@ pub async fn mesh_sync(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     log::debug!("[mesh/sync] Incoming sync: {} peers", payload.peers.len());
 
-    let access = crate::auth::caller_access_level(&state, &headers)
-        .map_err(|(status, message)| (status, message))?;
-    let full_access = access == codeterm_service_core::mesh::types::AccessLevel::Full;
-
-    // Re-verify sender token here only to recover authoritative sender_id for peer bookkeeping.
-    // If parsing fails, fail soft so new token formats don't disrupt gossip.
-    let sender_id = sender_id_from_headers(&state, &headers);
+    let (full_access, sender_id) = crate::auth::off_runtime(&state, &headers, |state, headers| {
+        let access = crate::auth::caller_access_level(state, headers)?;
+        let full_access = access == codeterm_service_core::mesh::types::AccessLevel::Full;
+        // Re-verify sender token here only to recover authoritative sender_id for peer bookkeeping.
+        // If parsing fails, fail soft so new token formats don't disrupt gossip.
+        let sender_id = sender_id_from_headers(state, headers);
+        Ok((full_access, sender_id))
+    })
+    .await?;
 
     // Sync only refreshes metadata of already-paired peers; it never discovers new ones.
     if sender_id.is_some() {
@@ -46,23 +48,28 @@ pub async fn mesh_sync(
         )
         .await;
     }
-    let mut mesh = state.mesh.lock();
-    if let Some(voucher) = sender_id.as_deref() {
-        mesh.apply_machine_identity_sync(voucher, &payload.peers);
-        for info in sync_input_for_access(full_access, Some(voucher), &payload.peers) {
-            mesh.apply_gossip_peer_info(info);
+    let mesh_state = state.mesh.clone();
+    let peers = payload.peers;
+    let our_payload = tokio::task::spawn_blocking(move || {
+        let mut mesh = mesh_state.lock();
+        if let Some(voucher) = sender_id.as_deref() {
+            mesh.apply_machine_identity_sync(voucher, &peers);
+            for info in sync_input_for_access(full_access, Some(voucher), &peers) {
+                mesh.apply_gossip_peer_info(info);
+            }
         }
-    }
-    drop(mesh);
-
-    let mut mesh = state.mesh.lock();
-    let our_id = mesh.ident.identity.instance_id.clone();
-    let our_payload = sync_output_for_access(full_access, &our_id, mesh.build_sync_payload());
+        let our_id = mesh.ident.identity.instance_id.clone();
+        let our_payload = sync_output_for_access(full_access, &our_id, mesh.build_sync_payload());
+        drop(mesh);
+        serde_json::to_value(our_payload).unwrap()
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     state
         .svc
         .ui
         .emit("mesh-state-changed", serde_json::Value::Null);
-    Ok(Json(serde_json::to_value(our_payload).unwrap()))
+    Ok(Json(our_payload))
 }
 
 /// Decode the Authorization bearer token and return the signed sender's
@@ -75,10 +82,6 @@ fn sender_id_from_headers(state: &AppState, headers: &HeaderMap) -> Option<Strin
     if token.is_empty() {
         return None;
     }
-    let mesh = state.mesh.lock();
-    let mut known_keys = mesh.known_public_keys();
-    if let Some(ref pk) = mesh.ident.identity.public_key {
-        known_keys.insert(mesh.ident.identity.instance_id.clone(), pk.clone());
-    }
+    let (known_keys, _) = crate::auth::mesh_keys(state);
     codeterm_service_core::mesh::crown::verify_signed_request(token, &known_keys).ok()
 }

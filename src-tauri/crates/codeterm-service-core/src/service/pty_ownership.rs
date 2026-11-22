@@ -41,9 +41,24 @@ impl PtySelection {
     }
 }
 
+pub(crate) struct ClaimedPty<'a> {
+    claim: &'a crate::service::pty_ownership::TabPtyClaim,
+    pty_id: &'a str,
+}
+
+impl ClaimedPty<'_> {
+    pub(crate) fn tab_id(&self) -> &str {
+        self.claim.tab_id()
+    }
+    pub(crate) fn pty_id(&self) -> &str {
+        self.pty_id
+    }
+}
+
 pub enum LinkOutcome {
     Linked(Option<String>),
     TabMissing,
+    Refused,
 }
 
 impl PtyOwnership {
@@ -191,6 +206,13 @@ impl TabPtyClaim {
                 kill(&selected);
                 false
             }
+            LinkOutcome::Refused => {
+                if retained_candidate {
+                    self.ownership.release_pty(&candidate_pty_id);
+                    kill(&candidate_pty_id);
+                }
+                false
+            }
         };
         if linked {
             ready(&selected);
@@ -220,3 +242,59 @@ impl TabPtyClaim {
 
 #[cfg(test)]
 mod tests;
+
+impl crate::service::ServiceContext {
+    pub(crate) fn link_pty_with_admission(
+        &self,
+        claim: &crate::service::pty_ownership::TabPtyClaim,
+        tab_id: &str,
+        pty_id: String,
+        launch_owned: bool,
+        mut before_link: impl FnMut(&str),
+        mut admit: impl FnMut(
+            &crate::multiplexer::state::MultiplexerState,
+            &ClaimedPty<'_>,
+        ) -> Result<(), String>,
+    ) -> crate::service::pty_ownership::PtySelection {
+        claim.settle(
+            pty_id,
+            launch_owned,
+            |candidate| self.pty.lock().get_session(candidate).is_some(),
+            |selected| {
+                before_link(selected);
+                let mut mux = self.mux.write();
+                if claim.tab_id() != tab_id
+                    || admit(
+                        &mux,
+                        &ClaimedPty {
+                            claim,
+                            pty_id: selected,
+                        },
+                    )
+                    .is_err()
+                {
+                    crate::service::pty_ownership::LinkOutcome::Refused
+                } else if mux.get_tab(tab_id).is_none() {
+                    crate::service::pty_ownership::LinkOutcome::TabMissing
+                } else {
+                    crate::service::pty_ownership::LinkOutcome::Linked(
+                        mux.link_pty(tab_id, selected.to_string()),
+                    )
+                }
+            },
+            |orphan| {
+                log::warn!(
+                    "[link_pty] Tab {} rejected orphan pty {}",
+                    tab_id,
+                    &orphan[..orphan.len().min(8)]
+                );
+                self.kill_ptys(&[orphan.to_string()]);
+            },
+            |selected| {
+                self.observe_shell_ready(selected, None);
+                crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
+                self.emit_state_changed(crate::service::MuxEmitCause::TabLifecycle);
+            },
+        )
+    }
+}

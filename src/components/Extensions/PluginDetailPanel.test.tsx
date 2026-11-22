@@ -97,3 +97,34 @@ it("opens a plugin interface through the host surface navigation", async () => {
     host.remove();
   }
 });
+
+it("renders human sentence-case capability chips through the shared Chip primitive", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<PluginDetailPanel
+      entry={{
+        ...entry,
+        capabilities: { glance_view: true, transcriber: true, view: true },
+        grantedPermissions: ["subprocess", "network"],
+      }}
+      config={null} busy={null}
+      onAction={() => {}} onHostGrant={() => {}} onSave={async () => {}}
+      onUpdateFullConfig={() => {}} onGone={() => {}} activityDisplayMap={new Map()} />));
+    const chips = Array.from(host.querySelectorAll('[data-testid="extensions-capability-chip"]'));
+    expect(chips.map((chip) => chip.textContent)).toEqual([
+      "Glance panel",
+      "Live transcription",
+      "Plugin view",
+      "Local tools",
+      "Network access",
+    ]);
+    for (const chip of chips) {
+      expect(chip.className).toContain("ct-small-pill");
+    }
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

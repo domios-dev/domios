@@ -201,7 +201,10 @@ impl MeshManager {
     }
 
     pub fn check_and_record_nonce(&mut self, token: &str) -> Result<(), String> {
-        let nonce = crown::nonce_from_token(token)?;
+        self.check_and_record_nonce_id(crown::nonce_from_token(token)?)
+    }
+
+    pub fn check_and_record_nonce_id(&mut self, nonce: String) -> Result<(), String> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -213,6 +216,13 @@ impl MeshManager {
         self.seen_nonces
             .retain(|_, &mut ts| now.saturating_sub(ts) <= 310);
         Ok(())
+    }
+
+    pub fn signing_credentials(&self) -> Option<(String, String)> {
+        Some((
+            self.ident.identity.instance_id.clone(),
+            self.ident.identity.private_key.clone()?,
+        ))
     }
 
     pub fn sign_request(&self) -> Result<String, String> {
@@ -391,24 +401,21 @@ impl MeshManager {
             .collect()
     }
 
-    pub fn client_for(&self, peer_id: &str) -> Option<transport::PeerClient> {
+    pub fn peer_route_endpoints(&self, peer_id: &str) -> Option<(String, Vec<String>)> {
         if !self.traffic_open(peer_id) {
             return None;
         }
         let peer = self.paired_peers.get(peer_id)?;
-        let token = self.sign_request().ok()?;
-        if let Some(installation) = self
+        if let Some(record) = self
             .link_record(peer_id)
             .and_then(|link| link.installation_id())
+            .and_then(|installation| self.verified_endpoint_record(installation))
         {
-            if self.has_endpoint_record(installation) {
-                let endpoint = self.endpoint_target(installation)?;
-                return Some(transport::PeerClient::new_signed(
-                    &endpoint.ip,
-                    endpoint.api_port,
-                    &token,
-                ));
-            }
+            let endpoint = record.claim.endpoint.as_ref()?;
+            return Some((
+                transport::peer_http_origin(&endpoint.tailnet_ip, endpoint.api_port),
+                Vec::new(),
+            ));
         }
         let mut addresses = types::sanitize_addresses(&peer.addresses);
         addresses.sort_by_key(types::address_tier);
@@ -422,10 +429,17 @@ impl MeshManager {
                 alternatives.push(endpoint);
             }
         }
-        Some(
-            transport::PeerClient::new_signed_url(primary, &token)
-                .with_relay_alternatives(alternatives),
-        )
+        Some((primary, alternatives))
+    }
+
+    pub fn client_for(&self, peer_id: &str) -> Option<transport::PeerClient> {
+        let (primary, alternatives) = self.peer_route_endpoints(peer_id)?;
+        let token = self.sign_request().ok()?;
+        Some(transport::PeerClient::new_signed_route(
+            primary,
+            alternatives,
+            &token,
+        ))
     }
 }
 

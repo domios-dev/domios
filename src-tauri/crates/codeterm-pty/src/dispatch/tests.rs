@@ -287,13 +287,17 @@ fn tab_summary_waits_for_read_lock() {
 #[test]
 fn tab_summary_status_uses_the_resolved_tab_status() {
     use crate::multiplexer::state::MultiplexerState;
-    use codeterm_types::pty::{TabStatus, TabStatusTracker, TabVerdict, TimelineState};
+    use codeterm_types::pty::{BootStage, TabStatus, TabStatusTracker, TabVerdict, TimelineState};
 
     let (mut state, tab_id) = MultiplexerState::new();
     {
         let tab = state.get_tab_mut(&tab_id).unwrap();
         tab.pty_id = Some("pty-streaming".into());
         tab.agent_type = Some("opaque-provider".into());
+        tab.agent_session_id = Some("current-session".into());
+        tab.session_binding_nonce = Some("current-nonce".into());
+        tab.reported_session_binding_nonce = Some("current-nonce".into());
+        tab.boot_stage = Some(BootStage::AgentReady);
         tab.agent_state = Some(
             TabVerdict {
                 state: TimelineState::Idle,

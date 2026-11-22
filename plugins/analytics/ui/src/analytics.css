@@ -189,6 +189,10 @@ body {
   font-weight: 600;
 }
 
+.analytics-breakdown .mc-board-swatch {
+  margin-right: var(--mc-space-2);
+}
+
 .analytics-row-toggle {
   margin-left: var(--mc-space-2);
 }

@@ -293,6 +293,17 @@ impl MultiplexerState {
             .collect()
     }
 
+    /// Bounded child enumeration for read-only scoped projections. Returning
+    /// one extra ID lets callers refuse without materializing an unbounded list.
+    pub fn get_children_ids_bounded(&self, tab_id: &str, max_rows: usize) -> Vec<String> {
+        self.tabs
+            .values()
+            .filter(|p| p.parent_tab_id.as_deref() == Some(tab_id))
+            .take(max_rows.saturating_add(1))
+            .map(|p| p.id.clone())
+            .collect()
+    }
+
     /// Remove role/parent from all children that point to the given tab.
     pub(super) fn orphan_children(&mut self, tab_id: &str) {
         let child_ids: Vec<String> = self.get_children_ids(tab_id);

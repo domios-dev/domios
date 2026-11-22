@@ -1,7 +1,7 @@
 {
   "license": "AGPL-3.0-only",
   "name": "@codeterm/chat-ui",
-  "version": "1.21.0",
+  "version": "1.21.1",
   "private": true,
   "type": "module",
   "description": "Shared React chat rendering primitives for CodeTerm providers.",
@@ -10,6 +10,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./Button": "./src/Button.tsx",
+    "./FileDiffCards": "./src/toolcard/FileDiffCards.tsx",
     "./MessageBubble": "./src/MessageBubble.tsx",
     "./renderability": "./src/renderability.ts",
     "./dsTasksBlock": "./src/codeterm/dsTasksBlock.ts",
@@ -21,7 +22,8 @@
     "./syntaxTheme": "./src/syntaxTheme.ts",
     "./MarkdownBody": "./src/MarkdownBody.tsx",
     "./MarkdownLink": "./src/MarkdownLink.tsx",
-    "./GuideDirective": "./src/GuideDirective.tsx"
+    "./GuideDirective": "./src/GuideDirective.tsx",
+    "./localArtifactLoader": "./src/localArtifactLoader.ts"
   },
   "dependencies": {
     "@codeterm/canvas-camera": "workspace:*",

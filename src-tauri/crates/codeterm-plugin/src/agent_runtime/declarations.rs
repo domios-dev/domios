@@ -9,6 +9,9 @@ fn invalid() -> RuntimeFailure {
 fn text(value: &str) -> bool {
     !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
 }
+fn description_text(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 512 && !value.chars().any(char::is_control)
+}
 fn unique<'a>(values: impl Iterator<Item = &'a str>) -> bool {
     let mut seen = HashSet::new();
     values
@@ -33,10 +36,22 @@ pub(super) fn validate_settings(settings: &RuntimeSettings) -> Result<(), Runtim
             || options.iter().any(|v| {
                 !text(&v.name)
                     || v.category.as_ref().is_some_and(|value| !text(value))
+                    || v.description
+                        .as_ref()
+                        .is_some_and(|value| !description_text(value))
                     || !text(&v.current_value)
+                    || (v.kind == Some(RuntimeConfigOptionKind::Boolean)
+                        && (!matches!(v.current_value.as_str(), "true" | "false")
+                            || !v.options.is_empty()))
                     || v.options.len() > 128
                     || !unique(v.options.iter().map(|v| v.value.as_str()))
-                    || v.options.iter().any(|v| !text(&v.name))
+                    || v.options.iter().any(|v| {
+                        !text(&v.name)
+                            || v.description
+                                .as_ref()
+                                .is_some_and(|value| !description_text(value))
+                            || v.group.as_ref().is_some_and(|value| !text(value))
+                    })
             })
         {
             return Err(invalid());

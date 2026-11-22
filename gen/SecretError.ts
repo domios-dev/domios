@@ -4,4 +4,4 @@
  * Errors a backend can surface. Adapters map their native error vocabulary
  * to these variants so the UI / CLI behaves consistently.
  */
-export type SecretError = { "kind": "logged_out" } | { "kind": "locked" } | { "kind": "not_found" } | { "kind": "ambiguous", candidates: Array<string>, } | { "kind": "already_exists" } | { "kind": "bad_request", message: string, } | { "kind": "backend", message: string, };
+export type SecretError = { "kind": "logged_out" } | { "kind": "locked" } | { "kind": "not_found" } | { "kind": "ambiguous", candidates: Array<string>, } | { "kind": "already_exists" } | { "kind": "bad_request", message: string, } | { "kind": "backend", message: string, } | { "kind": "write_uncertain", message: string, };

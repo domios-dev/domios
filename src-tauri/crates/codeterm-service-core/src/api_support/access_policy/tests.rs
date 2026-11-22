@@ -45,6 +45,10 @@ fn local_only_paths_are_denied_at_every_peer_access_level() {
         "/api/mesh/debug/sign",
         "/api/supporter/token",
         "/api/analytics/usage",
+        "/api/dictation/start",
+        "/api/dictation/opaque/frame/1",
+        "/api/dictation/opaque/finish/2",
+        "/api/dictation/opaque/cancel",
         "/api/agents/reparent",
         "/api/teams/team/adopt-remote",
         "/api/account/status",
@@ -384,4 +388,52 @@ fn cron_run_history_has_a_distinct_resource_scope() {
     assert!(scope.allowed(&AccessLevel::Custom(vec![Permission::ManageCrons])));
     assert!(!scope.allowed(&AccessLevel::Custom(vec![Permission::ReadOutput])));
     assert!(!scope.allowed(&AccessLevel::AgentIsolated));
+}
+
+#[test]
+fn workspace_close_preview_matches_workspace_close_authority() {
+    for path in [
+        "/api/workspaces/ws-1/close-preview",
+        "/api/workspaces/ws-1/close-preview?refresh=1",
+    ] {
+        let scope = request_scope(&Method::GET, path).unwrap();
+        assert_eq!(
+            scope,
+            PeerScope::new(
+                PeerOperation::ReadWorkspaceClosePreview,
+                PeerResource::Workspace("ws-1"),
+            ),
+            "{path}"
+        );
+        assert!(scope.allowed(&AccessLevel::Full), "{path}");
+        assert!(
+            scope.allowed(&AccessLevel::Custom(vec![Permission::ManageWorkspaces])),
+            "{path}"
+        );
+        assert!(
+            scope.allowed(&AccessLevel::Custom(vec![Permission::Admin])),
+            "{path}"
+        );
+        assert!(!scope.allowed(&AccessLevel::ReadOnly), "{path}");
+        assert!(!scope.allowed(&AccessLevel::AgentIsolated), "{path}");
+        assert!(
+            !scope.allowed(&AccessLevel::Custom(vec![Permission::ReadTabs])),
+            "{path}"
+        );
+        assert!(
+            !scope.allowed(&AccessLevel::Custom(vec![Permission::ReadOutput])),
+            "{path}"
+        );
+    }
+    assert!(request_scope(&Method::GET, "/api/workspaces/ws-1/close-preview/extra").is_none());
+    assert!(request_scope(&Method::GET, "/api/workspaces//close-preview").is_none());
+    let close_scope = request_scope(&Method::POST, "/api/workspaces/ws-1/close").unwrap();
+    assert_eq!(
+        close_scope,
+        PeerScope::new(PeerOperation::ManageWorkspace, PeerResource::Host)
+    );
+    assert!(close_scope.allowed(&AccessLevel::Full));
+    assert!(close_scope.allowed(&AccessLevel::Custom(vec![Permission::ManageWorkspaces])));
+    assert!(!close_scope.allowed(&AccessLevel::ReadOnly));
+    assert!(!close_scope.allowed(&AccessLevel::AgentIsolated));
 }

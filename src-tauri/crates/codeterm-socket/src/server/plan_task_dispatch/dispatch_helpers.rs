@@ -87,6 +87,10 @@ pub(in crate::server) fn respawn_worker_params(
         role_profile: draft.role_profile.clone(),
         execution_intent: Some(draft.execution_intent.clone()),
         parent_tab_id: Some(parent_tab_id.to_string()),
+        plan_id: Some(draft.plan_id.clone()),
+        task_id: Some(draft.task_id.clone()),
+        plan_skill_manifest: Some(draft.plan_skill_manifest.clone()),
+        authorized_gates: draft.authorized_gates.clone().unwrap_or_default(),
         task: Some(super::canonical_writer::compose_dispatch_brief(
             draft.task_prompt.clone(),
             draft.source_attempt.placement,
@@ -205,8 +209,13 @@ mod tests {
             cwd: ".".into(),
             task_prompt: "opaque-task".into(),
             report_command: "opaque-report".into(),
-            plan_skill_manifest: vec![],
-            authorized_gates: None,
+            plan_skill_manifest: vec![codeterm_service_core::plan::PlanSkillManifestEntry {
+                slug: "opaque-skill".into(),
+                title: "Opaque".into(),
+                purpose: "opaque".into(),
+                content_digest: "sha256:opaque".into(),
+            }],
+            authorized_gates: Some(vec!["opaque-gate".into()]),
         };
 
         let params = respawn_worker_params(&draft, "opaque task", None, "tab_parent");
@@ -214,6 +223,10 @@ mod tests {
         assert_eq!(params.launch_profile.as_deref(), Some("selected"));
         assert_eq!(params.role_profile.as_deref(), Some("reviewer"));
         assert_eq!(params.role.as_deref(), Some("Worker"));
+        assert_eq!(params.plan_id.as_deref(), Some("pl_opaque"));
+        assert_eq!(params.task_id.as_deref(), Some("task_opaque"));
+        assert_eq!(params.authorized_gates, vec!["opaque-gate"]);
+        assert_eq!(params.plan_skill_manifest.as_ref().map(Vec::len), Some(1));
         assert_eq!(params.speed.as_deref(), Some("opaque-tier"));
         assert_eq!(params.execution_intent, Some(ExecutionIntent::Mutating));
         assert_eq!(params.agent.as_deref(), Some("fixture-agent"));

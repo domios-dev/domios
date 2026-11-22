@@ -1,10 +1,13 @@
 use super::*;
 use std::mem::size_of;
 use std::ptr::null_mut;
-use windows_sys::Win32::Security::Authorization::{GRANT_ACCESS, TRUSTEE_IS_GROUP};
+use windows_sys::Win32::Security::Authorization::{
+    GetNamedSecurityInfoW, GRANT_ACCESS, SE_FILE_OBJECT, TRUSTEE_IS_GROUP,
+};
 use windows_sys::Win32::Security::{
-    CreateWellKnownSid, GetAce, IsWellKnownSid, WinBuiltinAdministratorsSid, WinWorldSid,
-    ACCESS_ALLOWED_ACE, SUB_CONTAINERS_AND_OBJECTS_INHERIT, WELL_KNOWN_SID_TYPE,
+    CreateWellKnownSid, EqualSid, GetAce, IsWellKnownSid, WinBuiltinAdministratorsSid, WinWorldSid,
+    ACCESS_ALLOWED_ACE, OWNER_SECURITY_INFORMATION, SUB_CONTAINERS_AND_OBJECTS_INHERIT,
+    WELL_KNOWN_SID_TYPE,
 };
 
 fn grant(path: &Path, kind: WELL_KNOWN_SID_TYPE) {
@@ -140,4 +143,73 @@ fn private_directory_tightening_preserves_explicit_grants_and_removes_broad_acce
     restrict_dir(&path).unwrap();
     assert_eq!(masks(&path, WinBuiltinAdministratorsSid), explicit);
     assert!(masks(&path, WinWorldSid).is_empty());
+}
+
+fn assert_token_default_owner(path: &Path) {
+    let user = windows::CurrentUser::open().unwrap();
+    let wide = windows::wide_path(path);
+    let mut owner = null_mut();
+    let mut descriptor = null_mut();
+    let result = unsafe {
+        GetNamedSecurityInfoW(
+            wide.as_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            &mut owner,
+            null_mut(),
+            null_mut(),
+            null_mut(),
+            &mut descriptor,
+        )
+    };
+    assert_eq!(result, 0);
+    let _guard = windows::LocalAllocation(descriptor);
+    assert!(!owner.is_null());
+    let matches_token_owner =
+        unsafe { EqualSid(owner, user.sid()) != 0 || EqualSid(owner, user.owner_sid()) != 0 };
+    assert!(matches_token_owner);
+}
+
+#[test]
+fn private_file_operations_enforce_dacl_without_reassigning_owner() {
+    let root = tempfile::tempdir().unwrap();
+    grant(root.path(), WinWorldSid);
+
+    let dir = root.path().join("private-dir");
+    create_dir_owner_only(&dir).unwrap();
+    assert!(open_directory_owner_only(&dir).is_ok());
+    assert!(masks(&dir, WinWorldSid).is_empty());
+    assert_token_default_owner(&dir);
+
+    let atomic = dir.join("credentials.json");
+    write_atomic(&atomic, b"initial").unwrap();
+    assert!(owner_only(&atomic).unwrap());
+    assert!(masks(&atomic, WinWorldSid).is_empty());
+    assert_token_default_owner(&atomic);
+
+    grant(&atomic, WinWorldSid);
+    write_atomic(&atomic, b"replaced").unwrap();
+    assert!(masks(&atomic, WinWorldSid).is_empty());
+    assert_token_default_owner(&atomic);
+
+    let tightened = root.path().join("tightened.json");
+    fs::write(&tightened, b"secret").unwrap();
+    grant(&tightened, WinWorldSid);
+    restrict(&tightened).unwrap();
+    assert!(masks(&tightened, WinWorldSid).is_empty());
+    assert_token_default_owner(&tightened);
+
+    let tightened_dir = root.path().join("tightened-dir");
+    fs::create_dir(&tightened_dir).unwrap();
+    grant(&tightened_dir, WinWorldSid);
+    restrict_dir(&tightened_dir).unwrap();
+    assert!(masks(&tightened_dir, WinWorldSid).is_empty());
+    assert_token_default_owner(&tightened_dir);
+
+    let exclusive = root.path().join("exclusive.json");
+    let file = create_new_owner_only(&exclusive).unwrap();
+    drop(file);
+    assert!(owner_only(&exclusive).unwrap());
+    assert!(masks(&exclusive, WinWorldSid).is_empty());
+    assert_token_default_owner(&exclusive);
 }

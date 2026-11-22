@@ -40,6 +40,9 @@ pub(super) fn continuing_tabs(plans: &[Plan]) -> HashSet<String> {
 }
 
 pub(super) fn decision(tab: &Tab, continuing: bool, shell: RestoreDecision) -> RestoreDecision {
+    if super::automatic_restore_refusal(tab).is_some() {
+        return RestoreDecision::Freeze;
+    }
     if tab.pty_id.is_some() {
         return RestoreDecision::Start;
     }

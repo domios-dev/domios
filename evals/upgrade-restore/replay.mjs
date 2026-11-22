@@ -3,8 +3,8 @@ import {existsSync, readFileSync, realpathSync, writeFileSync} from 'node:fs';
 import {resolve, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
-import {requireBackings, verdict, failureReason, requireRestart, historyMatches, synthesizeHistory, capturedUnavailable} from './model.mjs';
-import {unavailableVerdict} from './unavailable.mjs';
+import {requireBackings, verdict, failureReason, requireRestart, historyMatches, synthesizeHistory, capturedUnavailable, capturedFailedLaunch} from './model.mjs';
+import {unavailableVerdict, failedLaunchVerdict} from './unavailable.mjs';
 import {cliResult} from './cli-result.mjs';
 import {CONNECT_SCRIPT, devApi, isolatedConnection} from './transport.mjs';
 import {Events} from '../core-journeys/lib/env.mjs';
@@ -20,6 +20,9 @@ const fixtureBytes = readFileSync(file);
 const fixtureDigest = createHash('sha256').update(fixtureBytes).digest('hex');
 const document = JSON.parse(fixtureBytes);
 const expected = requireBackings(document);
+const active = expected.filter(tab => !capturedUnavailable(document, tab) && !capturedFailedLaunch(document, tab));
+const passive = expected.filter(tab => capturedUnavailable(document, tab));
+const failedLaunches = expected.filter(tab => capturedFailedLaunch(document, tab));
 const benchLib = fileURLToPath(new URL('../_lib/lib.sh', import.meta.url));
 const deadline = performance.now() + deadlineSeconds * 1000;
 async function dc(...args) {
@@ -36,7 +39,7 @@ const currentHealth = await daemon.health();
 if (currentHealth.instance?.name !== dev.instance) throw new Error('Daemon instance differs from the resolved DEV instance');
 if (currentHealth.build_sha !== expectedBuild) throw new Error('Running full build SHA differs from required replay SHA');
 const providers = await daemon.providers();
-for (const providerId of new Set(expected.filter(tab => tab.agent_type).map(tab => tab.agent_type))) {
+for (const providerId of new Set(expected.filter(tab => !capturedFailedLaunch(document, tab) && tab.agent_type).map(tab => tab.agent_type))) {
   const provider = providers.find(row => row.id === providerId);
   const resolvedBinary = provider?.cli_status?.resolved_path;
   const executable = process.platform === 'win32' ? `${providerId}.cmd` : providerId;
@@ -61,8 +64,6 @@ if (mode === 'stage') {
 if (mode !== 'verify') throw new Error('Unknown replay mode');
 requireRestart(JSON.parse(readFileSync(join(root, 'stage-result.json'), 'utf8')),
   currentHealth.boot_id, fixtureDigest);
-const active = expected.filter(tab => !capturedUnavailable(document, tab));
-const passive = expected.filter(tab => capturedUnavailable(document, tab));
 const results = await Promise.all(active.map(async tab => {
   const events = new Events(dev, AbortSignal.timeout(Math.max(1, Math.ceil(deadline - performance.now()))));
   try {
@@ -151,10 +152,26 @@ const preservedUnavailable = await Promise.all(passive.map(async tab => {
     return {tab_id: tab.tab_id, bucket: 'preserved-unavailable', preserved: false, reason: failureReason(error)};
   }
 }));
+const preservedFailedLaunches = await Promise.all(failedLaunches.map(async tab => {
+  try {
+    const actual = await daemon.inspect(tab.tab_id);
+    const result = failedLaunchVerdict(document, tab, actual, [...trace, ...claudeTrace, ...shellTrace]);
+    const live = document.live_tab_metadata.find(row => row.tab_id === tab.tab_id);
+    if (live && (live.hidden !== actual?.hidden || live.show_in_tabbar !== actual?.show_in_tabbar)) {
+      return {...result, preserved: false, reason: 'hidden/tabbar visibility changed after restore'};
+    }
+    return result;
+  } catch (error) {
+    return {tab_id: tab.tab_id, bucket: 'preserved-failed-launch', preserved: false, reason: failureReason(error)};
+  }
+}));
 const record = {build: expectedBuild, boot_id: currentHealth.boot_id, fixture_sha256: fixtureDigest,
   deadline_seconds: deadlineSeconds, tabs: results, preserved_unavailable: preservedUnavailable,
-  passed: results.every(row => row.ready) && preservedUnavailable.every(row => row.preserved)};
+  preserved_failed_launch: preservedFailedLaunches,
+  passed: results.every(row => row.ready) && preservedUnavailable.every(row => row.preserved)
+    && preservedFailedLaunches.every(row => row.preserved)};
 writeFileSync(join(root, 'replay-result.json'), JSON.stringify(record, null, 2));
 for (const row of results) console.log(`${row.ready ? 'PASS' : 'FAIL'} tab=${row.tab_id}: ${row.reason}`);
 for (const row of preservedUnavailable) console.log(`${row.preserved ? 'PRESERVED' : 'FAIL'} tab=${row.tab_id} [preserved-unavailable]: ${row.reason}`);
+for (const row of preservedFailedLaunches) console.log(`${row.preserved ? 'PRESERVED' : 'FAIL'} tab=${row.tab_id} [preserved-failed-launch]: ${row.reason}`);
 if (!record.passed) process.exitCode = 1;

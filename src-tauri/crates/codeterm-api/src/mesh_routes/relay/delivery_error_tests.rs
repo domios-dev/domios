@@ -91,3 +91,72 @@ fn shared_delivery_constants_match_the_delivery_error_taxonomy() {
         delivery::SUBMIT_UNCONFIRMED
     );
 }
+
+#[test]
+fn exec_relay_keeps_delivery_budget_dedupe_and_classified_restart_outcomes() {
+    use codeterm_mesh::contract::delivery;
+
+    assert_eq!(
+        local_forward_deadline("POST", "/api/tabs/shell-1/exec"),
+        SEND_FORWARD_DEADLINE
+    );
+    assert!(is_tab_delivery("POST", "/api/tabs/shell-1/exec"));
+    assert!(relay_send_delivery_id("POST", "/api/tabs/shell-1/exec").is_some());
+
+    let unconfirmed = relay_failure(
+        409,
+        delivery::SUBMIT_UNCONFIRMED,
+        Some(true),
+        "command queued; execution not confirmed".into(),
+    );
+    assert!(outcome_holds_dedupe(&unconfirmed));
+    assert_eq!(
+        unconfirmed.data.as_ref().unwrap()["outcome"],
+        delivery::OUTCOME_SUBMIT_UNCONFIRMED
+    );
+    assert!(unconfirmed
+        .error
+        .as_deref()
+        .unwrap()
+        .starts_with(delivery::SUBMIT_UNCONFIRMED));
+
+    let restarting = relay_failure(
+        503,
+        delivery::TARGET_RESTARTING,
+        Some(true),
+        "target restarted mid-exec".into(),
+    );
+    assert!(outcome_holds_dedupe(&restarting));
+    assert_eq!(
+        restarting.data.as_ref().unwrap()["outcome"],
+        delivery::OUTCOME_UNKNOWN
+    );
+
+    let dropped = forward_failure_response(false, false, "connection reset".into());
+    assert!(outcome_holds_dedupe(&dropped));
+    assert_eq!(
+        dropped.data.as_ref().unwrap()["outcome"],
+        delivery::OUTCOME_UNKNOWN
+    );
+    assert_eq!(
+        dropped.data.as_ref().unwrap()["error"]["code"],
+        delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED
+    );
+    assert!(dropped.data.as_ref().unwrap()["error"]
+        .get("bytes_written")
+        .is_none());
+
+    for code in [
+        delivery::TAB_BUSY_REFUSED,
+        delivery::SHELL_EXITED_REFUSED,
+        delivery::EXEC_AGENT_TAB_REFUSED,
+    ] {
+        let refused = relay_failure(409, code, Some(false), "pre-write refusal".into());
+        assert!(!outcome_holds_dedupe(&refused));
+        assert_eq!(
+            refused.data.as_ref().unwrap()["outcome"],
+            delivery::OUTCOME_REFUSED
+        );
+        assert!(refused.error.as_deref().unwrap().starts_with(code));
+    }
+}

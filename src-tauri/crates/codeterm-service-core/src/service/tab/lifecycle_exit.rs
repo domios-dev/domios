@@ -111,6 +111,68 @@ fn clear_exited_agent_identity(tab: &mut crate::multiplexer::types::Tab) -> Clea
 }
 
 impl ServiceContext {
+    pub fn finish_provider_switch_source_exit(
+        &self,
+        authority: &crate::service::messenger::switch_handoff::SwitchSourceAuthority,
+        detach_pty: bool,
+    ) -> Result<(), String> {
+        let expected = authority.snapshot();
+        let identity = {
+            let mut mux = self.mux.write();
+            let current = mux
+                .get_tab_mut(&expected.id)
+                .filter(|current| authority.matches_retired(current))
+                .ok_or("provider_switch_superseded: source authority changed during retirement")?;
+            self.revoke_tab_credential(&expected.id);
+            if let Some(pty) = current.pty_id.as_deref() {
+                if let Some(gate) = self.pty.lock().guarded_input_gate(pty) {
+                    gate.invalidate();
+                }
+            }
+            let identity = clear_exited_agent_identity(current);
+            if detach_pty {
+                current.pty_id = None;
+                crate::service::boot_stage::apply_boot_stage(
+                    current,
+                    codeterm_types::pty::BootStage::PtyStarting,
+                    None,
+                );
+            }
+            identity
+        };
+        if let Some(prompt) = identity.prompt_identity {
+            self.resolve_prompt_notifications(&expected.id, &prompt);
+        }
+        if let (Some(pty), Some(nonce)) = (&expected.pty_id, &expected.session_binding_nonce) {
+            crate::service::launch_readiness::retire_attempt(
+                &crate::service::launch_readiness::LaunchAttempt {
+                    tab_id: expected.id.clone(),
+                    pty_id: pty.clone(),
+                    binding_nonce: nonce.clone(),
+                },
+            );
+            crate::service::pty_io::submit_transaction::notify_submit_cycle_provider_exit(pty);
+        }
+        if let (Some(epoch), Some(operation)) =
+            (expected.lifecycle_epoch, &expected.lifecycle_operation_id)
+        {
+            crate::service::tab_lifecycle::append(
+                &self.lifecycle_journal,
+                crate::session::lifecycle::LifecycleKey {
+                    tab_id: expected.id.clone(),
+                    epoch: crate::session::lifecycle::LifecycleEpoch(epoch),
+                    operation_id: operation.clone(),
+                },
+                crate::session::lifecycle::LifecycleTransition::RolledBack {
+                    reason: "provider switch retired the exact source".into(),
+                },
+            );
+        }
+        self.schedule_session_persist_debounced();
+        self.emit_state_changed(MuxEmitCause::AgentIdentity);
+        Ok(())
+    }
+
     pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit_with_cause(
         &self,
         tab_id: &str,

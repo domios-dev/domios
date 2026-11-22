@@ -106,6 +106,8 @@ interface MessageBubbleProps {
   onOpenJobs?: () => void;
   /** Scroll to a quoted message; a user bubble's reply block calls it with the quoted id. */
   onJumpToMessage?: (messageId: string) => void;
+  /** Continue a turn that stopped at an output or turn limit. */
+  onContinueTurn?: () => void;
 }
 
 const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
@@ -127,7 +129,7 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, streaming, onContentLayout, userFooter, noticeStatus, userProgress, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
+const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, streaming, onContentLayout, userFooter, noticeStatus, userProgress, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage, onContinueTurn }: MessageBubbleProps) {
   const dsScope = useContext(DsRenderContext);
   const sourceIdentity = `${dsScope.authority}:${message.sourceSessionId ?? ""}:${message.sourceMessageId ?? message.id}:${message.contextEpoch ?? 0}`;
   const source = useMemo(() => ({ authority: sourceIdentity, text: message.content }), [sourceIdentity, message.content]);
@@ -195,6 +197,13 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
   }
 
   if (message.type === "image") {
+    if (message.imageData && message.imageMimeType) {
+      return (
+        <div className="mb-1.5 w-full min-w-0">
+          <ToolOutputContent text={`data:${message.imageMimeType};base64,${message.imageData}`} />
+        </div>
+      );
+    }
     return (
       <div className="mb-1.5 w-full min-w-0">
         <ImageBadge />
@@ -455,6 +464,49 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
   if (message.type === "system" || message.type === "local_command") {
     if (message.systemSubtype === "api_error") {
       return <div role="alert" aria-label="Provider API error" className="mb-2 w-full rounded-md border p-3 text-sm" style={{ color: "var(--ct-red)", borderColor: "var(--ct-red)" }}><BoundedNoticeText text={message.content} /></div>;
+    }
+    if (message.systemSubtype === "turn_stop_reason") {
+      const rawReason = message.toolInput && typeof message.toolInput === "object" && "stopReason" in message.toolInput
+        ? (message.toolInput as { stopReason?: unknown }).stopReason
+        : undefined;
+      const reason = typeof rawReason === "string" ? rawReason : undefined;
+      const isRefusal = reason === "refusal";
+      const label = reason === "max_tokens"
+        ? "Stopped at output limit"
+        : reason === "max_turn_requests"
+          ? "Stopped at turn limit"
+          : isRefusal
+            ? "Agent refused this request"
+            : message.content || "Stopped early";
+      const dotColor = isRefusal
+        ? "color-mix(in srgb, var(--ct-red, #f85149) 78%, var(--ct-muted-fg))"
+        : "color-mix(in srgb, var(--ct-yellow, #d29922) 78%, var(--ct-muted-fg))";
+      const continuable = reason === "max_tokens" || reason === "max_turn_requests";
+      return (
+        <div
+          role="status"
+          data-testid="chat-turn-stop-reason"
+          data-stop-reason={reason ?? "unknown"}
+          className="mb-2 flex w-full min-w-0 items-center gap-2 text-xs"
+          style={{ color: "var(--ct-muted-fg)" }}
+        >
+          <span
+            aria-hidden="true"
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ background: dotColor }}
+          />
+          <span className="min-w-0 truncate">{label}</span>
+          {continuable && onContinueTurn && (
+            <button
+              type="button"
+              className="ct-btn ct-btn-ghost ct-btn-compact"
+              onClick={onContinueTurn}
+            >
+              Continue
+            </button>
+          )}
+        </div>
+      );
     }
     if (message.systemSubtype === "archived_session_unavailable") {
       // The owner reads one calm line; the daemon's code and error chain stay in Details for diagnosis.

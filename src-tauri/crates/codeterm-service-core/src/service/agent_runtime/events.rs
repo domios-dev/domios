@@ -56,6 +56,8 @@ pub enum RuntimeEvent {
         response: Option<RuntimeQuestionResponse>,
         prompt: Option<PendingPrompt>,
         permission: Option<RuntimePermission>,
+        file_diffs: Option<serde_json::Value>,
+        elicitation: Option<serde_json::Value>,
         resolved: bool,
     },
     EvidenceUpdated {
@@ -86,6 +88,10 @@ pub enum RuntimeEvent {
     },
     ThreadReverted {
         thread_id: String,
+    },
+    SessionTitleUpdated {
+        thread_id: String,
+        title: String,
     },
     Warning {
         id: String,
@@ -362,6 +368,8 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             response: Some(response.clone()),
             prompt: None,
             permission: None,
+            file_diffs: None,
+            elicitation: None,
             resolved: false,
         },
         AgentRuntimeEvent::RateLimits {
@@ -432,6 +440,8 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             request_id,
             prompt,
             permission,
+            file_diffs,
+            elicitation,
         } => RuntimeEvent::RequestUpdated {
             thread_id: thread_id.clone(),
             request_id: Some(request_id.clone()),
@@ -440,6 +450,8 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             response: None,
             prompt: Some(prompt.clone()),
             permission: permission.clone(),
+            file_diffs: file_diffs.clone(),
+            elicitation: elicitation.clone(),
             resolved: false,
         },
         AgentRuntimeEvent::PromptResolved {
@@ -453,6 +465,8 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             response: None,
             prompt: None,
             permission: None,
+            file_diffs: None,
+            elicitation: None,
             resolved: true,
         },
         AgentRuntimeEvent::ControlsConfirmed {
@@ -471,6 +485,10 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
         }
         AgentRuntimeEvent::ThreadReverted { thread_id } => RuntimeEvent::ThreadReverted {
             thread_id: thread_id.clone(),
+        },
+        AgentRuntimeEvent::SessionTitle { thread_id, title } => RuntimeEvent::SessionTitleUpdated {
+            thread_id: thread_id.clone(),
+            title: title.clone(),
         },
     }
 }
@@ -571,7 +589,7 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
             item.kind = "compaction".into();
             upsert_item(maps, thread_id, item);
         }
-        RuntimeEvent::ThreadReverted { .. } => {}
+        RuntimeEvent::ThreadReverted { .. } | RuntimeEvent::SessionTitleUpdated { .. } => {}
         RuntimeEvent::Warning { id, message } => {
             let mut item = ChatMsg::default();
             item.id = id.clone();

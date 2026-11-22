@@ -1,5 +1,7 @@
 use super::*;
-use crate::plan::{TaskExecutionAttempt, TaskStatus};
+use crate::plan::{
+    ExecutionIntent, TaskExecutionAttempt, TaskExecutionIntent, TaskExecutorTermination, TaskStatus,
+};
 use crate::service_plan::store_db::hot_write::tests::fixtures;
 use crate::service_plan::store_db::read_projections::take_metrics;
 
@@ -40,7 +42,7 @@ fn checkout_projection_preserves_plan_admission_live_attempt_order_and_exact_tas
             .iter()
             .map(|attempt| attempt.id.as_str())
             .collect::<Vec<_>>(),
-        vec!["read-only", "exclusive"]
+        vec!["exclusive"]
     );
     assert!(
         crate::service_plan::shared_checkout::validate_exclusive_checkout(
@@ -186,4 +188,159 @@ fn extend_task_edit_files_fixture_selects_authority_without_serialization_or_wri
 #[test]
 fn record_task_respawn_attempt_fixture_selects_shared_files_without_serialization_or_writes() {
     fixture("record_task_respawn_attempt");
+}
+
+#[test]
+fn checkout_projection_excludes_readonly_nonrepository_and_confirmed_cancelled_writers() {
+    let directory = tempfile::tempdir().unwrap();
+    let checkout = directory.path().display().to_string();
+    let alias = directory.path().join(".").display().to_string();
+    let store = PlanStore::new_for_test(directory.path());
+
+    let mut plan = crate::plan::Plan::new(
+        "Authority".into(),
+        checkout.clone(),
+        crate::plan::OrchestratorRef::from_tab("owner"),
+    );
+    let mut readonly_task =
+        crate::service_plan::load_audit::task("task_ro", TaskStatus::InProgress, Some("tab-ro"));
+    readonly_task.execution_attempts.push(TaskExecutionAttempt {
+        id: "attempt_ro".into(),
+        executor_tab_id: "tab-ro".into(),
+        placement: WorkerPlacement::ReadOnly,
+        execution_intent: Some(ExecutionIntent::ReadOnly),
+        ..Default::default()
+    });
+    let mut nonrepo_task =
+        crate::service_plan::load_audit::task("task_nr", TaskStatus::InProgress, Some("tab-nr"));
+    nonrepo_task.execution_intent = TaskExecutionIntent::NonRepository;
+    nonrepo_task.execution_attempts.push(TaskExecutionAttempt {
+        id: "attempt_nr".into(),
+        executor_tab_id: "tab-nr".into(),
+        placement: WorkerPlacement::Shared,
+        execution_intent: Some(ExecutionIntent::Mutating),
+        ..Default::default()
+    });
+    let mut ro_intent_writer = crate::service_plan::load_audit::task(
+        "task_ro_intent",
+        TaskStatus::InProgress,
+        Some("tab-ro-intent"),
+    );
+    ro_intent_writer
+        .execution_attempts
+        .push(TaskExecutionAttempt {
+            id: "attempt_ro_intent".into(),
+            executor_tab_id: "tab-ro-intent".into(),
+            placement: WorkerPlacement::CanonicalWriter,
+            execution_intent: Some(ExecutionIntent::ReadOnly),
+            ..Default::default()
+        });
+    let mut cancelled_confirmed = crate::service_plan::load_audit::task(
+        "task_cancelled_confirmed",
+        TaskStatus::Cancelled,
+        Some("tab-cc"),
+    );
+    cancelled_confirmed
+        .execution_attempts
+        .push(TaskExecutionAttempt {
+            id: "attempt_cc".into(),
+            executor_tab_id: "tab-cc".into(),
+            session_id: Some("sess-cc".into()),
+            session_binding_nonce: Some("nonce-cc".into()),
+            placement: WorkerPlacement::CanonicalWriter,
+            execution_intent: Some(ExecutionIntent::Mutating),
+            executor_termination: Some(TaskExecutorTermination {
+                attempt_id: "attempt_cc".into(),
+                executor_tab_id: "tab-cc".into(),
+                session_id: Some("sess-cc".into()),
+                session_binding_nonce: Some("nonce-cc".into()),
+                confirmed_at: 10,
+            }),
+            ..Default::default()
+        });
+    plan.tasks = vec![
+        readonly_task,
+        nonrepo_task,
+        ro_intent_writer,
+        cancelled_confirmed,
+    ];
+    store.save(&mut plan, 1).unwrap();
+
+    assert!(store.checkout_peer_facts(&checkout).unwrap().is_empty());
+    assert!(
+        !store
+            .task_checkout_projection(&plan.id, "task_nr", true)
+            .unwrap()
+            .live_shared
+    );
+
+    let mut cancelled_unconfirmed = crate::service_plan::load_audit::task(
+        "task_cancelled_live",
+        TaskStatus::Cancelled,
+        Some("tab-cl"),
+    );
+    cancelled_unconfirmed
+        .execution_attempts
+        .push(TaskExecutionAttempt {
+            id: "attempt_cl".into(),
+            executor_tab_id: "tab-cl".into(),
+            session_id: Some("sess-cl".into()),
+            session_binding_nonce: Some("nonce-cl".into()),
+            placement: WorkerPlacement::CanonicalWriter,
+            execution_intent: Some(ExecutionIntent::Mutating),
+            ..Default::default()
+        });
+    plan.tasks.push(cancelled_unconfirmed);
+    store.save(&mut plan, 2).unwrap();
+    let peers = store.checkout_peer_facts(&checkout).unwrap();
+    assert_eq!(peers.len(), 1);
+    assert_eq!(peers[0].tasks.len(), 1);
+    assert_eq!(peers[0].tasks[0].id, "task_cancelled_live");
+
+    plan.tasks[4].execution_attempts[0].executor_termination = Some(TaskExecutorTermination {
+        attempt_id: "attempt_cl".into(),
+        executor_tab_id: "tab-cl".into(),
+        session_id: Some("sess-cl".into()),
+        session_binding_nonce: Some("wrong-nonce".into()),
+        confirmed_at: 11,
+    });
+    store.save(&mut plan, 3).unwrap();
+    assert_eq!(store.checkout_peer_facts(&checkout).unwrap().len(), 1);
+
+    plan.tasks[4].execution_attempts[0]
+        .executor_termination
+        .as_mut()
+        .unwrap()
+        .session_binding_nonce = Some("nonce-cl".into());
+    store.save(&mut plan, 4).unwrap();
+    assert!(store.checkout_peer_facts(&checkout).unwrap().is_empty());
+
+    let mut peer_plan = crate::plan::Plan::new(
+        "Alias".into(),
+        alias,
+        crate::plan::OrchestratorRef::from_tab("owner-2"),
+    );
+    let mut live_writer = crate::service_plan::load_audit::task(
+        "task_alias_writer",
+        TaskStatus::InProgress,
+        Some("tab-alias"),
+    );
+    live_writer.execution_attempts.push(TaskExecutionAttempt {
+        id: "attempt_alias".into(),
+        executor_tab_id: "tab-alias".into(),
+        placement: WorkerPlacement::CanonicalWriter,
+        execution_intent: Some(ExecutionIntent::Mutating),
+        ..Default::default()
+    });
+    peer_plan.tasks.push(live_writer);
+    store.save(&mut peer_plan, 5).unwrap();
+
+    let peers = store.checkout_peer_facts(&checkout).unwrap();
+    assert_eq!(peers.len(), 1);
+    assert_eq!(peers[0].id, peer_plan.id);
+    assert!(
+        crate::service_plan::shared_checkout::validate_exclusive_checkout(&peers, &plan, "task_ro")
+            .unwrap_err()
+            .contains("task_alias_writer")
+    );
 }

@@ -37,6 +37,7 @@ interface WorkspaceItemProps {
   newSessionDisabled?: boolean;
   onNewAgent: (agentId: string) => void;
   canClose: boolean;
+  allowReadOnlyClose?: boolean;
   readOnly?: boolean;
   status: TabStatus | null;
   showDisclosure?: boolean;
@@ -60,7 +61,8 @@ function WorkspaceItemInner({
   onOpenAutomation,
   newSessionDisabled = false,
   onNewAgent,
-  canClose: _canClose,
+  canClose,
+  allowReadOnlyClose = false,
   readOnly = false,
   status: _status,
   showDisclosure = true,
@@ -104,8 +106,19 @@ function WorkspaceItemInner({
   const workspaceText = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   const workspaceTouchText = pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"]);
   const workspaceCountText = pickUiFontScaleValue(uiFontScale, ["text-[9px]", "text-[10px]", "text-[11px]", "text-xs"]);
+  const canCloseObservedWorkspace = readOnly && allowReadOnlyClose && canClose && !workspace.protected;
 
   const menuItems: DropdownMenuItem[] = useMemo(() => {
+    if (readOnly) {
+      return canCloseObservedWorkspace
+        ? [{
+          label: "Close Workspace",
+          icon: <X size={11} strokeWidth={2} />,
+          onClick: onClose,
+          danger: true,
+        }]
+        : [];
+    }
     const quickProviders = [
       { id: "codex", label: "Codex" },
       { id: "claude", label: "Claude Code" },
@@ -181,7 +194,7 @@ function WorkspaceItemInner({
         },
       });
     }
-    if (!workspace.protected) {
+    if (canClose && !workspace.protected) {
       items.push({
         label: "Close Workspace",
         icon: <X size={11} strokeWidth={2} />,
@@ -190,7 +203,7 @@ function WorkspaceItemInner({
       });
     }
     return workspace.cwd_missing ? items.filter((item) => !["New session", "Quick spawn", "New Terminal"].includes(item.label ?? "")) : items;
-  }, [onNewTerminal, onNewSession, newSessionDisabled, onNewAgent, onClose, workspace.id, workspace.protected, workspace.cwd, workspace.cwd_missing, agentsConfig, providers, profiles, refreshShells, shellsLoading, shellsError, accounts.providers, accounts.choose]);
+  }, [readOnly, canCloseObservedWorkspace, canClose, onNewTerminal, onNewSession, newSessionDisabled, onNewAgent, onClose, workspace.id, workspace.protected, workspace.cwd, workspace.cwd_missing, agentsConfig, providers, profiles, refreshShells, shellsLoading, shellsError, accounts.providers, accounts.choose]);
 
   return <>
     <div
@@ -279,7 +292,7 @@ function WorkspaceItemInner({
         </span>
       </div>
       {/* 3-dot menu — visible on hover */}
-      {!readOnly && <div className="flex shrink-0 items-center gap-0.5">
+      {(!readOnly || canCloseObservedWorkspace) && menuItems.length > 0 && <div className="flex shrink-0 items-center gap-0.5">
         <DropdownMenu
           items={menuItems}
           header={accounts.error ? <InlineErrorNotice error={accounts.error} operation="choosing a workspace account" /> : undefined}
@@ -304,6 +317,7 @@ function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps)
     prev.isExpanded === next.isExpanded &&
     prev.status === next.status &&
     prev.canClose === next.canClose &&
+    prev.allowReadOnlyClose === next.allowReadOnlyClose &&
     prev.readOnly === next.readOnly &&
     prev.showDisclosure === next.showDisclosure &&
     prev.detailHeader === next.detailHeader &&

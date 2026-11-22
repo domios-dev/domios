@@ -27,10 +27,61 @@ struct GuardedInputState {
     writer: Mutex<()>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct GuardedInputPermit {
     epoch: u64,
     gate: Arc<GuardedInputState>,
+    prewrite_claim: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    submit_key_claim: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    submit_key: Option<Vec<u8>>,
+    exact_frame: Option<Vec<u8>>,
+}
+
+impl std::fmt::Debug for GuardedInputPermit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GuardedInputPermit")
+            .field("epoch", &self.epoch)
+            .finish_non_exhaustive()
+    }
+}
+
+impl GuardedInputPermit {
+    pub fn with_prewrite_claim(mut self, claim: Arc<dyn Fn() -> bool + Send + Sync>) -> Self {
+        if self.exact_frame.is_some() {
+            return self;
+        }
+        self.prewrite_claim = Some(claim);
+        self
+    }
+
+    pub fn with_submit_key_claim(
+        mut self,
+        key: &[u8],
+        claim: Arc<dyn Fn() -> bool + Send + Sync>,
+    ) -> Self {
+        if self.exact_frame.is_some() {
+            return self;
+        }
+        self.submit_key = Some(key.to_vec());
+        self.submit_key_claim = Some(claim);
+        self
+    }
+
+    pub fn for_submit_key(&self, key: &[u8]) -> Self {
+        let Some(claim) = &self.submit_key_claim else {
+            return self.clone();
+        };
+        let mut permit = self.clone();
+        let allowed = self.submit_key.as_deref() == Some(key);
+        let used = Arc::new(AtomicBool::new(false));
+        let claim = claim.clone();
+        permit.prewrite_claim = Some(Arc::new(move || {
+            allowed && !used.swap(true, Ordering::AcqRel) && claim()
+        }));
+        permit.exact_frame = Some(key.to_vec());
+        permit.submit_key_claim = None;
+        permit
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -57,6 +108,10 @@ impl GuardedInputGate {
             GuardedInputPermit {
                 epoch,
                 gate: self.state.clone(),
+                prewrite_claim: None,
+                submit_key_claim: None,
+                submit_key: None,
+                exact_frame: None,
             }
         })
     }
@@ -225,6 +280,16 @@ impl WriteQueue {
                     .map_err(|error| error.to_string())
             };
             let result = match request.permit.as_ref() {
+                Some(permit)
+                    if permit.exact_frame.as_ref().is_some_and(|key| {
+                        request.frames.len() != 1 || request.frames[0] != *key
+                    }) =>
+                {
+                    Err(STALE_AGENT_INPUT.into())
+                }
+                Some(permit) if permit.prewrite_claim.as_ref().is_some_and(|claim| !claim()) => {
+                    Err(STALE_AGENT_INPUT.into())
+                }
                 Some(permit) => match permit.gate.writer.lock() {
                     Ok(_guard) if permit.gate.epoch.load(Ordering::Acquire) == permit.epoch => {
                         write(&mut writer)

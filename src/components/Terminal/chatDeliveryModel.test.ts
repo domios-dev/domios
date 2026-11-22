@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { applyDeliveryStatus, canDeleteChatSend, canEditChatSend, canRetryChatSend, deliveryState, deliveryPresentation, queuedBehindTurn, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, undeliveredSends, unownedHeldSends, visibleDeliveryRows, type DeliverySend } from "./chatDeliveryModel";
 import { createTranscriptState, reduceTranscript, projectTranscript } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
-import type { NormalizedChatMessage } from "@codeterm/chat-core";
+import type { MessageSegment, NormalizedChatMessage } from "@codeterm/chat-core";
 
 const send = (): DeliverySend => ({ id: "bubble", correlationId: "token", content: "opaque", sentAtMs: 1000 });
 const status = (state: ChatSendStatus["state"], sequence: number): ChatSendStatus => ({
@@ -461,4 +461,52 @@ test("a merged record hides only the dismissed send's segment and keeps the kept
   assert.deepEqual(visibleDeliveryRows([unsplit], [first, second]), [unsplit], "unsplittable text stays whole rather than losing the kept send");
   const local = { id: "first", type: "user" as const, content: "opaque-a", sourceSessionId: "own", sourceRecord: record };
   assert.deepEqual(visibleDeliveryRows([local], [first, second]), [], "a dismissed local bubble belongs to its send alone");
+});
+
+test("same-sequence host-segment enrichment updates system_send and survives later plain status", () => {
+  const wire = '<domios from="tab" label="Dumas" tab="duma0001">opaque body</domios>';
+  const segments: MessageSegment[] = [{
+    type: "frame", kind: "tab", from: "tab",
+    attrs: { from: "tab", label: "Dumas", tab: "duma0001" }, body: "opaque body", tip: null,
+  }];
+  const base: DeliverySend = { id: "dumas", correlationId: "token", content: wire, sentAtMs: 1000 };
+
+  const bare = applyDeliveryStatus(base, status("written", 1));
+  const upgradedFromBare = applyDeliveryStatus(bare, {
+    ...status("written", 1),
+    system_send: { content: wire, sent_at_ms: 1000, segments, segments_version: 2 },
+  });
+  assert.notEqual(upgradedFromBare, bare);
+  assert.deepEqual(upgradedFromBare.status?.system_send?.segments, segments);
+
+  const initial = applyDeliveryStatus(base, {
+    ...status("written", 1),
+    system_send: { content: wire, sent_at_ms: 1000 },
+  });
+  assert.equal(initial.status?.system_send?.segments, undefined);
+
+  const enriched = applyDeliveryStatus(initial, {
+    ...status("written", 1),
+    system_send: { content: wire, sent_at_ms: 1000, segments, segments_version: 2 },
+  });
+  assert.notEqual(enriched, initial);
+  assert.deepEqual(enriched.status?.system_send?.segments, segments);
+  assert.equal(enriched.status?.system_send?.segments_version, 2);
+
+  const sameAgain = applyDeliveryStatus(enriched, {
+    ...status("written", 1),
+    system_send: { content: wire, sent_at_ms: 1000, segments: structuredClone(segments), segments_version: 2 },
+  });
+  assert.equal(sameAgain, enriched, "identical system_send preserves referential stability");
+
+  const deliveredPlain = applyDeliveryStatus(enriched, {
+    ...status("delivered", 2),
+    system_send: { content: wire, sent_at_ms: 1000 },
+  });
+  assert.equal(deliveredPlain.status?.state, "delivered");
+  assert.deepEqual(deliveredPlain.status?.system_send?.segments, segments);
+  assert.equal(deliveredPlain.status?.system_send?.segments_version, 2);
+
+  const deliveredWithoutSystemSend = applyDeliveryStatus(enriched, status("delivered", 2));
+  assert.deepEqual(deliveredWithoutSystemSend.status?.system_send?.segments, segments);
 });

@@ -11,7 +11,7 @@ mod actor;
 pub(crate) mod peer_grant;
 use peer_grant::PeerGrant;
 mod relay_agent;
-pub(crate) use relay_agent::{authenticated_agent, remote_agent};
+pub(crate) use relay_agent::{authenticated_agent, authenticated_agent_for_origin, remote_agent};
 mod credential_kind;
 pub(crate) mod remote;
 pub use actor::{ActorHeaders, AgentHeaders, RequestActor};
@@ -326,7 +326,7 @@ fn authenticate_caller(
     }
 }
 
-fn mesh_keys(state: &AppState) -> (std::collections::HashMap<String, String>, String) {
+pub(crate) fn mesh_keys(state: &AppState) -> (std::collections::HashMap<String, String>, String) {
     let mesh = state.mesh.lock();
     let mut known_keys = mesh.known_public_keys();
     let own_id = mesh.ident.identity.instance_id.clone();
@@ -357,6 +357,20 @@ pub(crate) fn caller_identity(
     headers: &axum::http::HeaderMap,
 ) -> Result<CallerIdentity, (StatusCode, String)> {
     authenticated_request(state, headers).map(|(identity, _)| identity)
+}
+
+/// Handler re-authentication verifies signatures and may scan service tokens, so it never runs on a runtime worker.
+pub(crate) async fn off_runtime<T: Send + 'static>(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    work: impl FnOnce(&AppState, &axum::http::HeaderMap) -> Result<T, (StatusCode, String)>
+        + Send
+        + 'static,
+) -> Result<T, (StatusCode, String)> {
+    let (state, headers) = (state.clone(), headers.clone());
+    tokio::task::spawn_blocking(move || work(&state, &headers))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 pub(crate) fn authenticated_request(
@@ -411,20 +425,13 @@ fn ownership_release_is_local(caller: CallerIdentity) -> bool {
     matches!(caller, CallerIdentity::Local | CallerIdentity::Tab(_))
 }
 
-pub(crate) fn isolated_caller_peer_id(
-    state: &AppState,
-    headers: &axum::http::HeaderMap,
-) -> Option<String> {
-    let auth = headers
-        .get("authorization")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
-    match identify_caller(state, auth).ok()? {
+pub(crate) fn isolated_peer_id(identity: &CallerIdentity) -> Option<String> {
+    match identity {
         CallerIdentity::Peer {
             instance_id,
             access_level: AccessLevel::AgentIsolated,
             ..
-        } => Some(instance_id),
+        } => Some(instance_id.clone()),
         _ => None,
     }
 }

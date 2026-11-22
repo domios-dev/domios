@@ -88,16 +88,23 @@ impl PlanStore {
                 attempt.provider = Some(draft.provider.clone());
                 attempt.agent_type = Some(draft.provider.clone());
                 attempt.model = draft.model.clone();
+                if draft.model.is_some() {
+                    attempt.requested_model = draft.model.clone();
+                }
                 attempt.launch_profile = draft.launch_profile.clone();
                 attempt.role_profile = draft.role_profile.clone();
                 attempt.provider_resolved_model = draft.model.clone();
                 attempt.reasoning_effort = draft.reasoning_effort.clone();
-                attempt.executor_title = draft.title.clone();
+                attempt.executor_title = draft.title.clone().or_else(|| Some("Worker".into()));
                 attempt.parent_tab_id = draft.parent_tab_id.clone();
                 attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
                 attempt.authorized_gates = draft.authorized_gates.clone();
                 attempt.placement = draft.source_attempt.placement;
-                attempt.execution_intent = draft.source_attempt.execution_intent.clone();
+                attempt.execution_intent =
+                    draft.source_attempt.execution_intent.clone().or_else(|| {
+                        (draft.execution_intent != crate::plan::ExecutionIntent::Unspecified)
+                            .then(|| draft.execution_intent.clone())
+                    });
                 attempt.checkout_path = draft.source_attempt.checkout_path.clone();
                 attempt.shared_start_sha = draft.source_attempt.shared_start_sha.clone();
                 attempt.shared_start_files = draft.source_attempt.shared_start_files.clone();
@@ -121,5 +128,64 @@ impl PlanStore {
             },
             undo.expect("undo captured before successful respawn"),
         ))
+    }
+
+    /// Update post-spawn resolved launch identity on a live respawn attempt
+    /// without touching `session_id` or `session_binding_nonce`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_respawn_attempt_launch_identity(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        provider: &str,
+        provider_resolved_model: Option<String>,
+        title: &str,
+        now_ms: u64,
+    ) -> Result<Option<TaskExecutionAttempt>, PlanError> {
+        let provider = provider.trim();
+        let title = title.trim();
+        self.change_attempt(
+            plan_id,
+            task_id,
+            AttemptTarget {
+                tab: tab_id,
+                id: Some(attempt_id),
+                unretired: true,
+                ..Default::default()
+            },
+            now_ms,
+            |attempt| {
+                let attempt = attempt
+                    .filter(|attempt| attempt.closed_at.is_none() && attempt.retired_at.is_none())
+                    .ok_or(PlanError::TaskNotFound)?;
+                let mut changed = false;
+                if !provider.is_empty() && attempt.provider.as_deref() != Some(provider) {
+                    attempt.provider = Some(provider.to_owned());
+                    attempt.agent_type = Some(provider.to_owned());
+                    changed = true;
+                }
+                if let Some(model) = provider_resolved_model
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|model| !model.is_empty())
+                {
+                    if attempt.model.as_deref() != Some(model) {
+                        attempt.model = Some(model.to_owned());
+                        changed = true;
+                    }
+                    if attempt.provider_resolved_model.as_deref() != Some(model) {
+                        attempt.provider_resolved_model = Some(model.to_owned());
+                        changed = true;
+                    }
+                }
+                if !title.is_empty() && attempt.executor_title.as_deref() != Some(title) {
+                    attempt.executor_title = Some(title.to_owned());
+                    changed = true;
+                }
+                Ok(changed.then(|| attempt.clone()))
+            },
+        )
     }
 }

@@ -2,15 +2,22 @@ import { describe, expect, it } from "vitest";
 import { BULK_CREDIT_STEP, bulkCreditDue, decodeMuxFrame, isDirectDaemonPath, isMuxStreamPath, muxSessionRefused, transitionCarrierLiveness } from "./streamMuxModel";
 
 describe("carrier liveness after a wake", () => {
-  it("probes a suspect carrier once and replaces it only when the bound passes without proof", () => {
-    expect(transitionCarrierLiveness("trusted", "suspect")).toEqual({ state: "proving", action: "probe" });
+  it("distinguishes a locally queued unsent probe from a dispatched proof deadline", () => {
+    expect(transitionCarrierLiveness("trusted", "suspect")).toEqual({ state: "queued", action: "probe" });
+    expect(transitionCarrierLiveness("queued", "suspect")).toEqual({ state: "queued", action: "none" });
+    expect(transitionCarrierLiveness("queued", "deadline")).toEqual({ state: "queued", action: "none" });
+    expect(transitionCarrierLiveness("queued", "dispatched")).toEqual({ state: "proving", action: "arm" });
     expect(transitionCarrierLiveness("proving", "suspect")).toEqual({ state: "proving", action: "none" });
+    expect(transitionCarrierLiveness("proving", "dispatched")).toEqual({ state: "proving", action: "none" });
     expect(transitionCarrierLiveness("proving", "deadline")).toEqual({ state: "trusted", action: "replace" });
   });
 
-  it("a delivered response or a closed carrier ends the suspicion without replacement", () => {
+  it("a delivered response, local unsent cancellation, or closed carrier ends suspicion without replacement", () => {
+    expect(transitionCarrierLiveness("queued", "unsent")).toEqual({ state: "trusted", action: "none" });
+    expect(transitionCarrierLiveness("queued", "closed")).toEqual({ state: "trusted", action: "none" });
     expect(transitionCarrierLiveness("proving", "proven")).toEqual({ state: "trusted", action: "none" });
     expect(transitionCarrierLiveness("proving", "closed")).toEqual({ state: "trusted", action: "none" });
+    expect(transitionCarrierLiveness("proving", "unsent")).toEqual({ state: "proving", action: "none" });
     expect(transitionCarrierLiveness("trusted", "deadline")).toEqual({ state: "trusted", action: "none" });
   });
 });

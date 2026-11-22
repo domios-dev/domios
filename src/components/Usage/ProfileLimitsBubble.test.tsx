@@ -41,6 +41,65 @@ async function main() {
   assert.ok(document.body.textContent?.includes("Opaque reason"), "and the popover keeps the reason");
   await act(async () => { button()?.click(); });
 
+  const futureReset = Date.now() + 25 * 60_000 + 30_000;
+  snapshot = {
+    provider: "fixture-acp",
+    account_id: "profile:fixture-acp",
+    captured_at: Date.now(),
+    parsed_ok: true,
+    usage_details: {
+      limits: [],
+      dollar_credits: [],
+      extra_usage: null,
+      quota_reset: { resets_at: futureReset, observed_at: Date.now(), reason: "Individual quota reached." },
+    },
+  } as unknown as UsageSnapshot;
+  const profileSession = { ...session, profileAccountId: "profile:fixture-acp" };
+  await act(async () => root.render(<UnavailableLimitsBubble key="quota-reset" reason="Opaque reason" session={profileSession} />));
+  assert.equal(button()?.textContent, "Quota · resets in 25m", "observed profile quota reset renders countdown pill");
+  assert.equal(button()?.getAttribute("aria-label"), "quota limit reached, resets in 25m");
+  await act(async () => { button()?.click(); });
+  assert.ok(document.body.textContent?.includes("Quota limit"), "popover reuses UsageGauge for quota limit");
+  assert.ok(document.body.textContent?.includes("Individual quota reached."), "popover includes observed reason");
+  await act(async () => { button()?.click(); });
+
+  snapshot = {
+    provider: "fixture-acp",
+    account_id: "profile:fixture-acp",
+    captured_at: Date.now(),
+    parsed_ok: true,
+    usage_details: {
+      limits: [],
+      dollar_credits: [],
+      extra_usage: null,
+      quota: {
+        title: "Account quota (Pro)",
+        limits: [{ label: "fixture-tier", used_percent: 18, resets_at: futureReset }],
+      },
+    },
+  } as unknown as UsageSnapshot;
+  await act(async () => { for (const listener of listeners) listener({ payload: { provider: "fixture-acp", account_id: "profile:fixture-acp", snapshot_id: 9 } }); });
+  assert.equal(button()?.textContent, "18%", "live pushed statusLine quota upgrades unavailable profile to real percentage pill");
+  await act(async () => { button()?.click(); });
+  assert.ok(document.body.textContent?.includes("Account quota (Pro)"));
+  assert.ok(document.body.textContent?.includes("fixture-tier"));
+  await act(async () => { button()?.click(); });
+
+  snapshot = {
+    provider: "fixture-acp",
+    account_id: "profile:fixture-acp",
+    captured_at: Date.now(),
+    parsed_ok: true,
+    usage_details: {
+      limits: [],
+      dollar_credits: [],
+      extra_usage: null,
+      quota_reset: { resets_at: Date.now() - 1_000, observed_at: Date.now() - 60_000, reason: "Expired" },
+    },
+  } as unknown as UsageSnapshot;
+  await act(async () => { for (const listener of listeners) listener({ payload: { provider: "fixture-acp", account_id: "profile:fixture-acp", snapshot_id: 10 } }); });
+  assert.equal(button()?.getAttribute("aria-label"), "context 25% of window", "expired quota reset clears back to context pill");
+
   calls.length = 0;
   snapshot = null;
   await act(async () => root.render(<QuotaBubble key="quota-off" provider="fixture-acp" accountId="profile:quota" trackingEnabled={false} />));

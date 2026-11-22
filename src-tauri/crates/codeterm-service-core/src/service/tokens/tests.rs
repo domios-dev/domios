@@ -48,6 +48,22 @@ fn lookup_service_id_by_token() {
 }
 
 #[test]
+fn lookup_matches_only_generated_token_shapes() {
+    let dir = tempdir().unwrap();
+    let store = TokenStore::new_with_root(dir.path().to_path_buf());
+    let generated = store.generate("svc_generated").unwrap();
+    let foreign = "opaque.signed-credential";
+    codeterm_util::private_file::write_atomic(&store.token_path("svc_foreign"), foreign.as_bytes())
+        .unwrap();
+    assert_eq!(store.lookup_service_id(foreign).unwrap(), None);
+    assert_eq!(store.lookup_service_id("").unwrap(), None);
+    assert_eq!(
+        store.lookup_service_id(&generated).unwrap(),
+        Some("svc_generated".to_string())
+    );
+}
+
+#[test]
 fn delete_removes_token_dir() {
     let dir = tempdir().unwrap();
     let store = TokenStore::new_with_root(dir.path().to_path_buf());

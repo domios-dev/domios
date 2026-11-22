@@ -1,6 +1,7 @@
 use super::{RuntimeFailure, ServiceContext, Session};
 
 use codeterm_plugin::agent_runtime::RuntimeFailureCode;
+use serde_json::Value;
 
 pub(super) fn matches_launch(
     tab: &crate::multiplexer::types::Tab,
@@ -88,4 +89,67 @@ fn validate_binding_inner(
     } else {
         Err(RuntimeFailure::Superseded)
     }
+}
+
+pub(super) fn bind(
+    svc: &ServiceContext,
+    session: &Session,
+    thread: &str,
+    fresh: bool,
+) -> Result<(), RuntimeFailure> {
+    let context = session.context.lock().clone();
+    let mut mux = svc.mux.write();
+    let tab = mux
+        .get_tab_mut(&context.tab_id)
+        .ok_or(RuntimeFailure::Superseded)?;
+    if crate::service::messenger::switch_handoff::launch_authority(svc, &context.tab_id)
+        .is_some_and(|authority| !authority.matches(tab))
+    {
+        return Err(RuntimeFailure::Superseded);
+    }
+    commit_runtime_binding(tab, &context.binding_nonce, thread, fresh, |tab| {
+        svc.publish_boot_stage_transition(
+            &context.tab_id,
+            tab,
+            codeterm_types::pty::BootStage::AgentReady,
+            None,
+        );
+    })
+}
+
+pub(super) fn commit_runtime_binding(
+    tab: &mut crate::multiplexer::types::Tab,
+    nonce: &str,
+    thread: &str,
+    fresh: bool,
+    publish: impl FnOnce(&crate::multiplexer::types::Tab),
+) -> Result<(), RuntimeFailure> {
+    if tab.session_binding_nonce.as_deref() != Some(nonce)
+        || tab
+            .agent_session_id
+            .as_deref()
+            .is_some_and(|bound| bound != thread)
+    {
+        return Err(RuntimeFailure::Superseded);
+    }
+    tab.agent_session_id = Some(thread.into());
+    tab.reported_session_binding_nonce = Some(nonce.into());
+    if fresh {
+        let config = tab
+            .agent_runtime_config
+            .get_or_insert_with(|| serde_json::json!({}));
+        config["unusedThreadId"] = Value::String(thread.into());
+    }
+    tab.agent_booting = false;
+    crate::service::boot_stage::apply_boot_stage(
+        tab,
+        codeterm_types::pty::BootStage::AgentReady,
+        None,
+    );
+    if let crate::multiplexer::types::TabBacking::ChatBackend { session_id, .. } = &mut tab.backing
+    {
+        *session_id = thread.into();
+    }
+    publish(tab);
+    Ok(())
 }

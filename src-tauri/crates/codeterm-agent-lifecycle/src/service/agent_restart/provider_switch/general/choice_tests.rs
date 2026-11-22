@@ -28,7 +28,7 @@ fn rejected_general_choices_leave_configuration_and_source_session_untouched() {
     .starts_with("general_agent_provider_ineligible:"));
     assert!(fixture
         .service
-        .switch_provider_in_place(&tab_id, "opaque-adapter", None, None, false)
+        .switch_provider_in_place(&tab_id, "opaque-adapter", None, None, None, false)
         .err()
         .expect("switch to an ineligible provider must refuse")
         .starts_with("general_agent_provider_ineligible:"));

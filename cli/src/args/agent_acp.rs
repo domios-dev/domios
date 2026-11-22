@@ -4,7 +4,7 @@ use clap::Subcommand;
 pub enum AcpAction {
     /// List configured ACP profiles and their installation and authentication state
     List,
-    /// Add an owner-configured installed ACP command (local owner or Orchestrator only)
+    /// Add an owner-configured installed ACP command (local owner, authenticated local General Agent, or live local Orchestrator)
     Add {
         name: String,
         #[arg(long)]

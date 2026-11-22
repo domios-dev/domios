@@ -13,11 +13,18 @@ use codeterm_plugins::{PluginAction, PluginChannelAction, PluginCtx};
 /// caller invokes it from inside `spawn_blocking`, so it stays off the async
 /// runtime exactly as the subprocess did.
 pub(super) fn run_plugin_cli(args: &[impl AsRef<str>]) -> Result<Value, String> {
-    let ctx = PluginCtx {
+    run_with_lifecycle(
+        args,
+        plugin_ctx(),
+        std::sync::Arc::new(DaemonInstallLifecycle),
+    )
+}
+
+pub(super) fn plugin_ctx() -> PluginCtx {
+    PluginCtx {
         data_root: codeterm_service_core::paths::data_dir(),
         version: codeterm_build_info::installed_version().map(str::to_string),
-    };
-    run_with_lifecycle(args, ctx, std::sync::Arc::new(DaemonInstallLifecycle))
+    }
 }
 
 pub(super) fn run_with_lifecycle(

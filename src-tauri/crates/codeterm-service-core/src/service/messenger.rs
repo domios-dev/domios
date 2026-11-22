@@ -1,6 +1,7 @@
 mod input;
 mod neighbor;
 pub use neighbor::NeighborMessage;
+pub mod switch_handoff;
 mod turn_resume;
 pub use input::{
     AgentInput, FramedDelivery, HumanInput, HumanKeys, InputProvenance, LaunchBootstrap,

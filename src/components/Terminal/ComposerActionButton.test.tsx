@@ -7,12 +7,17 @@ import { ComposerActionButton } from "./ComposerActionButton";
 import { ComposerAttachButton } from "./ComposerAttachButton";
 import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
+import type { LiveDictation } from "./voice/useLiveDictation";
+import { QUIET_DICTATION_SAMPLE } from "./voice/dictationLevelModel";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
 function test(name: string, fn: TestFn) { tests.push([name, fn]); }
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
+}
+function assertEq<T>(actual: T, expected: T, message: string): void {
+  if (actual !== expected) throw new Error(`${message} (got ${String(actual)}, expected ${String(expected)})`);
 }
 
 function setupDom() {
@@ -50,10 +55,30 @@ function voiceHandle(overrides: Partial<ComposerVoiceHandle> = {}): ComposerVoic
   } as unknown as ComposerVoiceHandle;
 }
 
+function dictationHandle(overrides: Partial<LiveDictation> = {}): LiveDictation {
+  let active = (overrides.phase ?? "idle") !== "idle";
+  return {
+    phase: "idle",
+    error: null,
+    setup: null,
+    start: async () => { active = true; },
+    stop: async () => { active = false; },
+    cancel: () => { active = false; },
+    finishThen: () => undefined,
+    compositionEnded: () => undefined,
+    dismissSetup: () => undefined,
+    dismissError: () => undefined,
+    active: () => active,
+    readLevel: () => QUIET_DICTATION_SAMPLE,
+    subscribeLevel: () => () => undefined,
+    ...overrides,
+  };
+}
+
 async function renderButton(
   voiceUi: ComposerVoiceHandle,
-  props: { sendDisabled?: boolean; onSend?: () => void; onSchedule?: () => void } = {},
-): Promise<{ button: HTMLButtonElement; root: Root }> {
+  props: { dictation?: LiveDictation; spaceArming?: boolean; spacePop?: boolean; sendDisabled?: boolean; onSend?: () => void; onSchedule?: () => void } = {},
+): Promise<{ button: HTMLButtonElement; host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -61,13 +86,16 @@ async function renderButton(
     root.render(
       <ComposerActionButton
         voiceUi={voiceUi}
+        dictation={props.dictation}
+        spaceArming={props.spaceArming}
+        spacePop={props.spacePop}
         sendDisabled={props.sendDisabled ?? false}
         onSend={props.onSend ?? (() => undefined)}
         onSchedule={props.onSchedule}
       />,
     );
   });
-  return { button: host.querySelector("button") as HTMLButtonElement, root };
+  return { button: host.querySelector("button") as HTMLButtonElement, host, root };
 }
 
 async function renderAttachButton(props: { uploading?: boolean; onClick?: () => void } = {}): Promise<{ button: HTMLButtonElement; root: Root }> {
@@ -192,6 +220,103 @@ test("recording pointer cancellation keeps the lock callback", async () => {
   }));
   await act(async () => button.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true })));
   assert(locks === 1, "recording pointer cancel did not lock");
+});
+
+function pointerEvent(type: string, init: Record<string, unknown>, timeStamp: number) {
+  const event = new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, pointerId: 1, isPrimary: true, ...init });
+  Object.defineProperty(event, "timeStamp", { value: timeStamp });
+  return event;
+}
+
+test("idle dictation button keeps round chrome, bloom glyphs, and tap-to-toggle without triggering send", async () => {
+  const counts = { starts: 0, stops: 0, sends: 0 };
+  const dictation = dictationHandle({
+    start: async () => { counts.starts++; },
+    stop: async () => { counts.stops++; },
+  });
+  const { button } = await renderButton(voiceHandle({ mainIsSend: false }), { dictation, onSend: () => { counts.sends++; } });
+  assert(button.classList.contains("ct-composer-round-button"), "idle dictation button must keep round chrome");
+  assert(button.classList.contains("ct-composer-voice-bubble"), "idle dictation button must keep voice bubble class");
+  assert(button.querySelector(".ct-send-bloom"), "Mic <-> Send bloom missing");
+  assert(button.dataset.testid === "composer-voice-button", "voice testid missing");
+  assert(button.getAttribute("aria-pressed") === "false", "idle aria-pressed must be false");
+
+  await act(async () => {
+    button.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 1000));
+    button.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 100 }, 1100));
+  });
+  assertEq(counts.starts, 1, "quick tap must start dictation");
+  assertEq(counts.stops, 0, "quick tap must stay active (tap-to-toggle)");
+
+  const activeDictation = dictationHandle({
+    phase: "listening",
+    active: () => true,
+    stop: async () => { counts.stops++; },
+  });
+  const { button: activeButton } = await renderButton(voiceHandle({ mainIsSend: true }), {
+    dictation: activeDictation,
+    onSend: () => { counts.sends++; },
+  });
+  assert(activeButton.dataset.testid === "composer-voice-button", "active dictation must stay voice stop button even with text");
+  assert(activeButton.getAttribute("aria-pressed") === "true", "active dictation aria-pressed must be true");
+  await act(async () => {
+    activeButton.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 2000));
+    activeButton.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 100 }, 2050));
+  });
+  assertEq(counts.stops, 1, "tapping active dictation button must stop dictation");
+  assertEq(counts.sends, 0, "stopping dictation must not accidentally trigger send");
+});
+
+test("dictation hold stops on release, drag-up locks, and drag-left cancels", async () => {
+  const counts = { starts: 0, stops: 0, cancels: 0 };
+  const dictation = dictationHandle({
+    start: async () => { counts.starts++; },
+    stop: async () => { counts.stops++; },
+    cancel: () => { counts.cancels++; },
+  });
+  const { button } = await renderButton(voiceHandle({ mainIsSend: false }), { dictation });
+
+  await act(async () => {
+    button.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 1000));
+    button.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 100 }, 1400));
+  });
+  assertEq(counts.starts, 1, "hold must start dictation");
+  assertEq(counts.stops, 1, "holding >220ms must stop on release");
+  assertEq(counts.cancels, 0, "hold release must not cancel");
+
+  await act(async () => {
+    button.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 2000));
+    button.dispatchEvent(pointerEvent("pointermove", { clientX: 100, clientY: 30 }, 2150));
+    button.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 30 }, 2500));
+  });
+  assertEq(counts.starts, 2, "drag-up must start dictation");
+  assertEq(counts.stops, 1, "dragging up must lock hands-free");
+  assertEq(counts.cancels, 0, "dragging up must not cancel");
+
+  await act(async () => {
+    button.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 3000));
+    button.dispatchEvent(pointerEvent("pointermove", { clientX: 50, clientY: 100 }, 3150));
+    button.dispatchEvent(pointerEvent("pointerup", { clientX: 50, clientY: 100 }, 3200));
+  });
+  assertEq(counts.starts, 3, "drag-left must start dictation");
+  assertEq(counts.stops, 1, "dragging left must not stop");
+  assertEq(counts.cancels, 1, "dragging left must cancel dictation");
+});
+
+test("space-hold arming and ignition pop classes apply on the round mic button", async () => {
+  const { button: armingBtn } = await renderButton(voiceHandle({ mainIsSend: false }), {
+    dictation: dictationHandle(),
+    spaceArming: true,
+  });
+  assert(armingBtn.classList.contains("ct-voice-space-arming"), "arming class missing");
+  assert(armingBtn.dataset.spaceArming === "true", "arming data attribute missing");
+
+  const { button: popBtn } = await renderButton(voiceHandle({ mainIsSend: false }), {
+    dictation: dictationHandle({ phase: "listening", active: () => true }),
+    spacePop: true,
+  });
+  assert(popBtn.classList.contains("ct-voice-space-pop"), "ignition pop class missing");
+  assert(popBtn.dataset.spacePop === "true", "ignition pop data attribute missing");
 });
 
 async function main() {

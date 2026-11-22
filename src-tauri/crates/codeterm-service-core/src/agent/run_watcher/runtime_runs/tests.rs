@@ -9,12 +9,20 @@ use serde_json::json;
 use std::sync::{mpsc, Arc};
 
 const PROVIDER: &str = "run-end-fixture";
+#[path = "terminal_tests.rs"]
+mod terminal;
 const SOURCE: &str = r#"
 module.exports = {
-  runtimePlan(ctx, op) { return {action:{kind:'request',call:{method:op.kind,params:op}},state:null}; },
+  runtimePlan(ctx, op) {
+    if (op.kind === 'forkThread') {
+      return {action:{kind:'request',call:{method:'thread/fork',params:{threadId:op.sourceThreadId,lastTurnId:op.turnId}}},state:null};
+    }
+    return {action:{kind:'request',call:{method:op.kind,params:op}},state:null};
+  },
   runtimeResponse(ctx, op) {
     let result = {kind:'done'}, events = [];
     if (op.kind === 'initialize') result = {kind:'initialized'};
+    if (op.kind === 'forkThread') result = {kind:'threadForked',sourceThreadId:op.sourceThreadId,threadId:ctx.bindingNonce,turnId:op.turnId};
     if (op.kind === 'resumeThread' || op.kind === 'openThread')
       result = {kind:'threadLoaded',threadId:op.threadId || ctx.bindingNonce,settings:op.settings};
     if (op.kind === 'readHistory') {
@@ -37,6 +45,13 @@ struct Scene {
 }
 impl Drop for Scene {
     fn drop(&mut self) {
+        for (_, run) in self.fixture.service.run_watcher.runtime_runs.lock().drain() {
+            let _ = run.cancelled.send(true);
+        }
+        for (_, run) in self.fixture.service.run_watcher.runs.lock().drain() {
+            run.completed
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
         let tabs = self.fixture.service.mux.read().snapshot().tabs;
         for tab in tabs.keys() {
             engine::stop_blocking(&self.fixture.service, tab).unwrap();
@@ -61,20 +76,21 @@ impl Scene {
         assert!(fixture.service.set_ext(cron.clone()).is_ok());
         assert!(fixture.service.set_ext(wake.clone()).is_ok());
         let methods = [
-            "initialize",
-            "resumeThread",
-            "openThread",
-            "readHistory",
-            "submitTurn",
-            "control",
+            ("initialize", "initialize"),
+            ("resumeThread", "resumeThread"),
+            ("openThread", "openThread"),
+            ("forkThread", "thread/fork"),
+            ("readHistory", "readHistory"),
+            ("submitTurn", "submitTurn"),
+            ("control", "control"),
         ]
         .into_iter()
-        .map(|method| (method.to_string(), json!([method])))
+        .map(|(op, method)| (op.to_string(), json!([method])))
         .collect::<serde_json::Map<String, serde_json::Value>>();
         let manifest = PluginManifest::from_json_str(&json!({
             "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
             "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-                "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",crate::test_support::fixture_manifest_dir().display())]},"requestMethods":methods,"notificationMethods":[]}},
+                "agentRuntime":{"runtime":"stdio-jsonrpc","threadHistory":{"actions":["fork"]},"command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",crate::test_support::fixture_manifest_dir().display())]},"requestMethods":methods,"notificationMethods":[]}},
             "permissions":{"subprocess":{"allow":["node"]}}
         }).to_string()).unwrap();
         fixture

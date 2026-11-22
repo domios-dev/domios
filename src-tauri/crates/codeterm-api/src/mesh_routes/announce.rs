@@ -66,11 +66,12 @@ pub async fn mesh_announce_inbound(
     headers: HeaderMap,
     Json(ann): Json<codeterm_service_core::mesh::types::PeerAnnounce>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let auth = headers
+    let token = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    let token = auth.strip_prefix("Bearer ").unwrap_or("");
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or("")
+        .to_owned();
     super::require_current_peer_version(&headers)?;
     if !codeterm_service_core::mesh::types::is_supported_relay_protocol(ann.relay_protocol_version)
     {
@@ -83,52 +84,56 @@ pub async fn mesh_announce_inbound(
         .get(codeterm_service_core::mesh::account_mesh::protocol::MEMBERSHIP_HEADER)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
-    let identity_keys = state.mesh.lock().paired_identity_keys();
-
-    let sender_id =
-        codeterm_service_core::mesh::crown::verify_signed_request(token, &identity_keys)
-            .map_err(|e| (StatusCode::UNAUTHORIZED, format!("Unauthorized: {}", e)))?;
-
-    if sender_id != ann.instance_id {
-        return Err((StatusCode::FORBIDDEN, "Announce sender mismatch".into()));
-    }
-    let mut mesh = state.mesh.lock();
-    if mesh.account_peer_revoked(&sender_id) {
-        return Err((StatusCode::FORBIDDEN, "Peer is removed".into()));
-    }
-    mesh.check_and_record_nonce(token)
-        .map_err(|error| (StatusCode::UNAUTHORIZED, error))?;
-    let membership_changed = membership
-        .as_deref()
-        .is_some_and(|membership| mesh.refresh_peer_membership(&sender_id, membership));
-    if !mesh.traffic_open(&sender_id) {
-        let reason = format!("{:?}", mesh.traffic_decision(&sender_id));
-        return Err((StatusCode::FORBIDDEN, reason));
-    }
-    match mesh.apply_announce(&sender_id, &ann) {
-        Ok(change) if change.changed() || membership_changed => {
-            drop(mesh);
-            if change.identity_changed {
-                state
-                    .svc
-                    .ui
-                    .emit("mesh-identity-changed", serde_json::Value::Null);
-            }
-            if membership_changed
-                || change.metadata_changed
-                || change.addresses_changed
-                || change.online_changed
-                || change.web_ui_changed
-            {
-                state
-                    .svc
-                    .ui
-                    .emit("mesh-state-changed", serde_json::Value::Null);
-            }
-            Ok(Json(serde_json::json!({ "ok": true, "changed": true })))
+    let mesh_state = state.mesh.clone();
+    let (change, membership_changed) = tokio::task::spawn_blocking(move || {
+        let identity_keys = mesh_state.lock().paired_identity_keys();
+        let sender_id =
+            codeterm_service_core::mesh::crown::verify_signed_request(&token, &identity_keys)
+                .map_err(|e| (StatusCode::UNAUTHORIZED, format!("Unauthorized: {}", e)))?;
+        if sender_id != ann.instance_id {
+            return Err((StatusCode::FORBIDDEN, "Announce sender mismatch".into()));
         }
-        Ok(_) => Ok(Json(serde_json::json!({ "ok": true, "changed": false }))),
-        Err(e) => Err((StatusCode::FORBIDDEN, e)),
+        let mut mesh = mesh_state.lock();
+        if mesh.account_peer_revoked(&sender_id) {
+            return Err((StatusCode::FORBIDDEN, "Peer is removed".into()));
+        }
+        mesh.check_and_record_nonce(&token)
+            .map_err(|error| (StatusCode::UNAUTHORIZED, error))?;
+        let membership_changed = membership
+            .as_deref()
+            .is_some_and(|membership| mesh.refresh_peer_membership(&sender_id, membership));
+        if !mesh.traffic_open(&sender_id) {
+            let reason = format!("{:?}", mesh.traffic_decision(&sender_id));
+            return Err((StatusCode::FORBIDDEN, reason));
+        }
+        let change = mesh
+            .apply_announce(&sender_id, &ann)
+            .map_err(|e| (StatusCode::FORBIDDEN, e))?;
+        Ok((change, membership_changed))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
+    if change.changed() || membership_changed {
+        if change.identity_changed {
+            state
+                .svc
+                .ui
+                .emit("mesh-identity-changed", serde_json::Value::Null);
+        }
+        if membership_changed
+            || change.metadata_changed
+            || change.addresses_changed
+            || change.online_changed
+            || change.web_ui_changed
+        {
+            state
+                .svc
+                .ui
+                .emit("mesh-state-changed", serde_json::Value::Null);
+        }
+        Ok(Json(serde_json::json!({ "ok": true, "changed": true })))
+    } else {
+        Ok(Json(serde_json::json!({ "ok": true, "changed": false })))
     }
 }
 

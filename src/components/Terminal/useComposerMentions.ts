@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { activeMentionQuery, applyComposerMention, mentionDismissed, type ComposerMention, type MentionQuery, type MentionDismissal, type MentionScope, type createMentionRegistry } from "../../lib/composerMentions";
+import { composerActionQuery, composerActions } from "../../lib/mentionSources/actions";
 
 export function useComposerMentions(input: string, setInput: (next: string) => void, onPicked: () => void,
   textarea: RefObject<HTMLTextAreaElement | null>, registry: ReturnType<typeof createMentionRegistry>, scope: MentionScope | (() => MentionScope),
@@ -14,7 +15,8 @@ export function useComposerMentions(input: string, setInput: (next: string) => v
   const [dismissed, setDismissed] = useState<MentionDismissal | null>(null);
   const [result, setResult] = useState<{ session: string; key: string; registry: typeof registry; rows: ComposerMention[]; loading?: boolean; error?: boolean } | null>(null);
   const pendingCaret = useRef<number | null>(null);
-  const candidate = activeMentionQuery(input, selection.start, selection.end);
+  const candidate = activeMentionQuery(input, selection.start, selection.end)
+    ?? (onInsert ? composerActionQuery(input, selection.start, selection.end) : null);
   const query = candidate && !tokens?.some(token => token.start < candidate.end && token.end > candidate.start) ? candidate : null;
   const partial = query ? input.slice(query.start + 1, query.end) : undefined;
   const queryStart = query?.start;
@@ -23,7 +25,8 @@ export function useComposerMentions(input: string, setInput: (next: string) => v
   const key = session ? JSON.stringify([session, partial]) : "";
   const active = !!key;
   const compatible = result?.session === session && result.registry === registry;
-  const mentions = active && compatible ? result.rows : [];
+  const actions = active && onInsert ? composerActions(partial ?? "") : [];
+  const mentions = actions.concat(active && compatible ? result.rows : []);
   const highlighted = Math.max(0, mentions.findIndex((row) => selected?.session === session && row.id === selected.id));
   const loading = active && (!compatible || result.key !== key || result.loading === true);
   const error = compatible && result.key === key && result.error === true;
@@ -97,7 +100,7 @@ export function useComposerMentions(input: string, setInput: (next: string) => v
     const editor = textarea.current;
     if (editor && (editor.value !== input || editor.selectionStart !== selection.start || editor.selectionEnd !== selection.end)) return;
     if (onInsert) {
-      onInsert(mention, query);
+      onInsert(mention, mention.kind === "action" ? { ...query, end: selection.start } : query);
       if (editor) syncSelection(editor);
     } else {
       pendingCaret.current = query.start + mention.insertText.length + 1;

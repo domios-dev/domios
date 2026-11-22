@@ -373,13 +373,13 @@ fn runtime_task_without_instructions_keeps_preamble() {
         ..Default::default()
     };
     assert_eq!(
-        super::runtime_initial_payload(&agent, None),
+        super::runtime_initial_payload(&agent, None, None),
         Some(super::RuntimeFirstTurn::Task(
             "opaque-prefixopaque-task".into()
         ))
     );
     agent.task = Some("  ".into());
-    assert!(super::runtime_initial_payload(&agent, None).is_none());
+    assert!(super::runtime_initial_payload(&agent, None, None).is_none());
 }
 
 #[test]
@@ -391,7 +391,7 @@ fn runtime_brief_rides_instructions_when_manifest_declares_system_prompt() {
     let provider =
         crate::agent::test_provider::MockProvider::with_system_prompt_flag("opaque", "--opaque");
     let Some(super::RuntimeFirstTurn::Starter(turn)) =
-        super::runtime_initial_payload(&agent, Some(&provider))
+        super::runtime_initial_payload(&agent, Some(&provider), None)
     else {
         panic!("system-prompt provider must receive the starter only");
     };
@@ -757,7 +757,7 @@ fn runtime_fresh_brief_survives_launch_ensure_for_every_role_and_system_channel(
                 ..Default::default()
             };
             let Some(super::RuntimeFirstTurn::Starter(turn)) =
-                super::runtime_initial_payload(&agent, Some(provider))
+                super::runtime_initial_payload(&agent, Some(provider), None)
             else {
                 panic!("system channel must carry the brief before the starter");
             };
@@ -910,13 +910,136 @@ fn runtime_pending_initial_claim_is_retained_without_replacement() {
         crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
     )
     .with_send_id("original-send".into());
-    assert!(super::runtime_pending_payload(Some(&record), &agent, None).is_none());
+    assert!(super::runtime_pending_payload(Some(&record), &agent, None, None).is_none());
     assert_eq!(record.send_id(), Some("original-send"));
     assert_eq!(record.content_digest, "original-digest");
     assert_eq!(
-        super::runtime_pending_payload(None, &agent, None),
+        super::runtime_pending_payload(None, &agent, None, None),
         Some(super::RuntimeFirstTurn::Task("new-task".into()))
     );
+}
+
+#[test]
+fn chatbackend_only_session_config_provider_emits_starter_not_duplicate_task() {
+    use crate::agent::provider::{StarterPrompt, SystemPromptDelivery};
+    use crate::chatbackend::{ChatBackendError, ChatBackendProvider};
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryRecord};
+    use crate::service::test_fixture::ServiceFixture;
+
+    struct SessionConfigTestBackend {
+        id: &'static str,
+        session_config: bool,
+    }
+
+    impl ChatBackendProvider for SessionConfigTestBackend {
+        fn id(&self) -> &str {
+            self.id
+        }
+        fn spawnable(&self) -> bool {
+            true
+        }
+        fn supports_session_config(&self) -> bool {
+            self.session_config
+        }
+        fn open_session(&self, _: serde_json::Value) -> Result<String, ChatBackendError> {
+            Ok("session".into())
+        }
+        fn send_message(&self, _: &str, _: &str) -> Result<(), ChatBackendError> {
+            Ok(())
+        }
+        fn poll(&self, _: &str, _: Option<&str>) -> Result<StructuredChat, ChatBackendError> {
+            Ok(StructuredChat::default())
+        }
+        fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
+            Ok(())
+        }
+        fn list_models(&self) -> Result<Vec<crate::agent::provider::ModelInfo>, ChatBackendError> {
+            Ok(Vec::new())
+        }
+    }
+
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    const SESSION_CONFIG_ID: &str = "opaque-chatbackend-session-config";
+    const EXTERNAL_ID: &str = "opaque-chatbackend-external";
+    const HYBRID_ID: &str = "opaque-chatbackend-hybrid";
+    svc.chatbackend_registry.register(
+        SESSION_CONFIG_ID,
+        std::sync::Arc::new(SessionConfigTestBackend {
+            id: SESSION_CONFIG_ID,
+            session_config: true,
+        }),
+    );
+    svc.chatbackend_registry.register(
+        EXTERNAL_ID,
+        std::sync::Arc::new(SessionConfigTestBackend {
+            id: EXTERNAL_ID,
+            session_config: false,
+        }),
+    );
+    svc.chatbackend_registry.register(
+        HYBRID_ID,
+        std::sync::Arc::new(SessionConfigTestBackend {
+            id: HYBRID_ID,
+            session_config: true,
+        }),
+    );
+    svc.agent_registry
+        .register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            HYBRID_ID,
+        )));
+
+    assert!(svc.agent_registry.provider_arc(SESSION_CONFIG_ID).is_none());
+    assert!(svc.agent_registry.provider_arc(EXTERNAL_ID).is_none());
+
+    let agent = crate::service::spawn::AgentSpawnSpec {
+        provider: SESSION_CONFIG_ID.into(),
+        task: Some("opaque-worker-brief-fragment".into()),
+        ..Default::default()
+    };
+    let delivery = svc.runtime_system_prompt_delivery(SESSION_CONFIG_ID, None);
+    assert_eq!(delivery, Some(SystemPromptDelivery::SessionConfig));
+    let Some(super::RuntimeFirstTurn::Starter(turn)) =
+        super::runtime_pending_payload(None, &agent, None, delivery.as_ref())
+    else {
+        panic!("chatBackend-only sessionConfig provider must emit AssignedTask starter");
+    };
+    assert!(!turn.contains("opaque-worker-brief-fragment"));
+    let prefix = StarterPrompt::AssignedTask
+        .system_prefix()
+        .expect("assigned-task starter is system-framed");
+    assert!(turn.starts_with(prefix.as_str()));
+    let existing = PendingDeliveryRecord::new(
+        "existing-digest".into(),
+        PendingDeliveryChannel::InteractiveInput,
+    );
+    assert!(
+        super::runtime_pending_payload(Some(&existing), &agent, None, delivery.as_ref()).is_none()
+    );
+
+    let external_delivery = svc.runtime_system_prompt_delivery(EXTERNAL_ID, None);
+    assert_eq!(external_delivery, Some(SystemPromptDelivery::External));
+    assert_eq!(
+        super::runtime_pending_payload(None, &agent, None, external_delivery.as_ref()),
+        Some(super::RuntimeFirstTurn::Task(
+            "opaque-worker-brief-fragment".into()
+        ))
+    );
+
+    let hybrid_provider = svc.agent_registry.provider_arc(HYBRID_ID);
+    let hybrid_delivery = svc.runtime_system_prompt_delivery(HYBRID_ID, hybrid_provider.as_deref());
+    assert_eq!(hybrid_delivery, Some(SystemPromptDelivery::SessionConfig));
+    assert!(matches!(
+        super::runtime_pending_payload(
+            None,
+            &agent,
+            hybrid_provider.as_deref(),
+            hybrid_delivery.as_ref(),
+        ),
+        Some(super::RuntimeFirstTurn::Starter(_))
+    ));
 }
 
 #[test]

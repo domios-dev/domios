@@ -172,6 +172,7 @@ fn cron_run_start_finish_and_history_round_trip_expected_pass() {
             assert_eq!(history[0].status, CronRunStatus::Running);
             assert!(history[0].tab_id.is_none());
 
+            let run_id = history[0].run_id.clone();
             let mut mux = service.mux.write();
             let tab_id = mux.create_tab(&workspace_id)?;
             let pty_id = format!("fixture-{tab_id}");
@@ -180,6 +181,15 @@ fn cron_run_start_finish_and_history_round_trip_expected_pass() {
             tab.hidden = true;
             tab.agent_type = Some(AGENT.into());
             tab.cwd = spec.cwd;
+            drop(mux);
+            service.ensure_session_binding_nonce(&tab_id);
+            service.run_watcher.bind_cron_witness_for_test(
+                service,
+                pty_id.clone(),
+                tab_id.clone(),
+                created.id.clone(),
+                run_id,
+            )?;
             Ok(TabHandle {
                 command_submission: None,
                 tab_id,

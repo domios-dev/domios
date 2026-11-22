@@ -22,7 +22,7 @@ export function MarkdownDescription({ markdown }: { markdown: string }) {
           h3: ({ children }) => <h4 style={{ fontSize: 13.5, fontWeight: 600, margin: "12px 0 6px" }}>{children}</h4>,
           p: ({ children }) => <p style={{ margin: "0 0 10px" }}>{children}</p>,
           a: ({ href, children }) => (
-            <MarkdownLink href={href} style={{ color: "var(--ct-accent, #818cf8)" }}>
+            <MarkdownLink href={href} style={{ color: "var(--ct-accent)" }}>
               {children}
             </MarkdownLink>
           ),
@@ -37,12 +37,12 @@ export function MarkdownDescription({ markdown }: { markdown: string }) {
             </div>
           ),
           thead: ({ children }) => (
-            <thead style={{ background: "var(--ct-bg-elev, rgba(255,255,255,0.06))" }}>{children}</thead>
+            <thead style={{ background: "color-mix(in srgb, var(--ct-fg) 4%, var(--ct-bg))" }}>{children}</thead>
           ),
           th: ({ children }) => (
             <th
               style={{
-                border: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.12))",
+                border: "1px solid var(--ct-border-subtle)",
                 padding: "5px 9px",
                 textAlign: "left",
                 fontWeight: 600,
@@ -54,7 +54,7 @@ export function MarkdownDescription({ markdown }: { markdown: string }) {
           td: ({ children }) => (
             <td
               style={{
-                border: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.08))",
+                border: "1px solid var(--ct-border-subtle)",
                 padding: "5px 9px",
                 verticalAlign: "top",
               }}
@@ -65,9 +65,9 @@ export function MarkdownDescription({ markdown }: { markdown: string }) {
           code: ({ children }) => (
             <code
               style={{
-                fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                fontFamily: "var(--ct-font-mono)",
                 fontSize: 12,
-                background: "var(--ct-bg-elev, rgba(255,255,255,0.06))",
+                background: "color-mix(in srgb, var(--ct-fg) 5%, var(--ct-bg))",
                 borderRadius: 4,
                 padding: "1px 5px",
               }}
@@ -78,8 +78,8 @@ export function MarkdownDescription({ markdown }: { markdown: string }) {
           pre: ({ children }) => (
             <pre
               style={{
-                background: "var(--ct-bg-elev, rgba(255,255,255,0.05))",
-                border: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.08))",
+                background: "color-mix(in srgb, var(--ct-fg) 4%, var(--ct-bg))",
+                border: "1px solid var(--ct-border-subtle)",
                 borderRadius: 8,
                 padding: "10px 12px",
                 overflowX: "auto",
@@ -93,10 +93,10 @@ export function MarkdownDescription({ markdown }: { markdown: string }) {
           blockquote: ({ children }) => (
             <blockquote
               style={{
-                borderLeft: "3px solid var(--ct-border-default, rgba(255,255,255,0.15))",
+                borderLeft: "3px solid var(--ct-border)",
                 margin: "0 0 10px",
                 padding: "2px 0 2px 12px",
-                color: "var(--ct-muted)",
+                color: "var(--ct-muted-fg)",
               }}
             >
               {children}

@@ -364,3 +364,175 @@ fn mesh_send_every_refuses_peer_without_recurrence_capability() {
         "update the peer or send a one-shot explicitly"
     );
 }
+
+#[test]
+fn mesh_exec_classifies_409_variants_and_preserves_observed_output() {
+    const EXEC: (&str, &str) = ("POST", "/api/tabs/shell-1/exec");
+
+    let unconfirmed = classify(
+        EXEC,
+        serde_json::json!({
+            "ok": false,
+            "status": 409,
+            "error": "submit_unconfirmed: command queued; execution not confirmed; do not resend (bytes reached the target PTY)",
+            "data": {
+                "ok": false,
+                "outcome": delivery::OUTCOME_SUBMIT_UNCONFIRMED,
+                "bytes_written": true,
+                "output": "{\"status\":\"updating\"}\n",
+                "output_truncated": true,
+                "completion": "submit_unconfirmed",
+                "error": {
+                    "code": delivery::SUBMIT_UNCONFIRMED,
+                    "outcome": delivery::OUTCOME_SUBMIT_UNCONFIRMED,
+                    "bytes_written": true,
+                    "message": "command queued; execution not confirmed; do not resend",
+                    "retry_hint": "the command already reached the target PTY — never replay blindly"
+                }
+            }
+        }),
+    )
+    .expect_err("submit_unconfirmed must exit nonzero");
+    assert_eq!(
+        unconfirmed.code.as_deref(),
+        Some(delivery::SUBMIT_UNCONFIRMED)
+    );
+    assert_eq!(
+        unconfirmed.outcome.as_deref(),
+        Some(delivery::OUTCOME_SUBMIT_UNCONFIRMED)
+    );
+    assert_eq!(unconfirmed.bytes_written, Some(true));
+    assert_eq!(unconfirmed.class, Some(RefusalClass::Unknown));
+    assert_eq!(
+        unconfirmed.output.as_deref(),
+        Some("{\"status\":\"updating\"}\n")
+    );
+    assert!(unconfirmed.output_truncated);
+    let json = unconfirmed.to_json();
+    assert_eq!(
+        json["error"]["outcome"],
+        delivery::OUTCOME_SUBMIT_UNCONFIRMED
+    );
+    assert_eq!(json["error"]["output"], "{\"status\":\"updating\"}\n");
+    assert_eq!(json["error"]["output_truncated"], true);
+    assert_eq!(json["error"]["bytes_written"], true);
+    assert_ne!(unconfirmed.reason, "HTTP 409");
+
+    for (code, expected_class) in [
+        (delivery::TAB_BUSY_REFUSED, RefusalClass::Transient),
+        (delivery::SHELL_EXITED_REFUSED, RefusalClass::Deterministic),
+        (
+            delivery::EXEC_AGENT_TAB_REFUSED,
+            RefusalClass::Deterministic,
+        ),
+    ] {
+        let refused = classify(
+            EXEC,
+            serde_json::json!({
+                "ok": false,
+                "status": 409,
+                "error": format!("{code}: refused (nothing written to the target PTY)"),
+                "data": {
+                    "ok": false,
+                    "outcome": delivery::OUTCOME_REFUSED,
+                    "bytes_written": false,
+                    "error": {
+                        "code": code,
+                        "outcome": delivery::OUTCOME_REFUSED,
+                        "bytes_written": false,
+                        "message": "refused before write"
+                    }
+                }
+            }),
+        )
+        .expect_err("pre-write 409 refusal must fail");
+        assert_eq!(refused.code.as_deref(), Some(code));
+        assert_eq!(refused.outcome.as_deref(), Some(delivery::OUTCOME_REFUSED));
+        assert_eq!(refused.bytes_written, Some(false));
+        assert_eq!(refused.class, Some(expected_class));
+    }
+}
+
+#[test]
+fn mesh_exec_target_restart_and_transport_drop_are_unknown_never_safe_retry() {
+    const EXEC: (&str, &str) = ("POST", "/api/tabs/shell-1/exec");
+
+    let restarting = classify(
+        EXEC,
+        serde_json::json!({
+            "ok": false,
+            "status": 503,
+            "error": "target_restarting: target daemon restarted mid-exec (bytes reached the target PTY)",
+            "data": {
+                "ok": false,
+                "outcome": delivery::OUTCOME_UNKNOWN,
+                "bytes_written": true,
+                "output": "{\"status\":\"updating\"}\n",
+                "completion": "target_restarting",
+                "error": {
+                    "code": delivery::TARGET_RESTARTING,
+                    "outcome": delivery::OUTCOME_UNKNOWN,
+                    "bytes_written": true,
+                    "message": "target daemon restarted mid-exec after command delivery; completion is unknown; do not resend"
+                }
+            }
+        }),
+    )
+    .expect_err("target_restarting must fail");
+    assert_eq!(
+        restarting.code.as_deref(),
+        Some(delivery::TARGET_RESTARTING)
+    );
+    assert_eq!(
+        restarting.outcome.as_deref(),
+        Some(delivery::OUTCOME_UNKNOWN)
+    );
+    assert_eq!(restarting.bytes_written, Some(true));
+    assert_eq!(restarting.class, Some(RefusalClass::Unknown));
+    assert_eq!(
+        restarting.output.as_deref(),
+        Some("{\"status\":\"updating\"}\n")
+    );
+
+    let dropped = classify(
+        EXEC,
+        serde_json::json!({
+            "ok": false,
+            "status": 504,
+            "error": "mesh_transport_submit_unconfirmed: connection reset",
+            "data": {
+                "ok": false,
+                "outcome": delivery::OUTCOME_UNKNOWN,
+                "error": {
+                    "code": delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED,
+                    "outcome": delivery::OUTCOME_UNKNOWN,
+                    "message": "connection reset mid-request"
+                }
+            }
+        }),
+    )
+    .expect_err("mid-exec transport drop must fail");
+    assert_eq!(
+        dropped.code.as_deref(),
+        Some(delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED)
+    );
+    assert_eq!(dropped.outcome.as_deref(), Some(delivery::OUTCOME_UNKNOWN));
+    assert_eq!(dropped.bytes_written, None);
+    assert_eq!(dropped.class, Some(RefusalClass::Unknown));
+    assert!(
+        !dropped.retry_hint.contains("retry once"),
+        "a dropped mid-exec transport must never invite a blind retry: {}",
+        dropped.retry_hint
+    );
+
+    let raw_502 = classify_relay_response(
+        "ubunta",
+        EXEC,
+        reqwest::StatusCode::BAD_GATEWAY,
+        b"upstream closed",
+    )
+    .expect_err("raw 502 on exec must fail");
+    assert_eq!(raw_502.class, Some(RefusalClass::Unknown));
+    assert_eq!(raw_502.outcome.as_deref(), Some(delivery::OUTCOME_UNKNOWN));
+    assert!(!raw_502.retry_hint.contains("retry once"));
+}

@@ -4,18 +4,139 @@ use codeterm_plugin::agent_runtime::{
     RuntimeAccountCredits, RuntimeContext, RuntimeRateLimit, RuntimeSettings, TokenUsage,
 };
 use parking_lot::Mutex;
-use std::{collections::HashMap, sync::LazyLock};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::LazyLock,
+};
 
 mod limits;
+pub mod quota_feed;
 mod tab_usage;
+pub use quota_feed::{ingest_statusline_quota, observe_rate_limit_reset};
 pub use tab_usage::{for_tab, read_for_tab};
 
 use codeterm_plugin::api_contracts::Reading;
 
 use codeterm_plugin::api_contracts::UsageProjection;
 
+const MAX_RECENT_TURNS: usize = 64;
+
+struct TurnUsageTotals {
+    provider: String,
+    account_id: Option<String>,
+    nonce: String,
+    thread_id: Option<String>,
+    settled: Option<TokenUsage>,
+    recent: VecDeque<(String, TokenUsage)>,
+}
+
 static USAGE: LazyLock<Mutex<HashMap<String, UsageProjection>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static TURN_USAGE: LazyLock<Mutex<HashMap<String, TurnUsageTotals>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn max_opt(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (a, b) => a.or(b),
+    }
+}
+
+fn add_opt(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.saturating_add(b)),
+        (a, b) => a.or(b),
+    }
+}
+
+fn max_token_usage(held: &TokenUsage, next: &TokenUsage) -> TokenUsage {
+    TokenUsage {
+        response_id: next
+            .response_id
+            .clone()
+            .or_else(|| held.response_id.clone()),
+        cost_micros: max_opt(held.cost_micros, next.cost_micros),
+        input_tokens: held.input_tokens.max(next.input_tokens),
+        output_tokens: held.output_tokens.max(next.output_tokens),
+        cache_read_tokens: max_opt(held.cache_read_tokens, next.cache_read_tokens),
+        cache_write_tokens: max_opt(held.cache_write_tokens, next.cache_write_tokens),
+        used_tokens: next.used_tokens.or(held.used_tokens),
+        window_tokens: next.window_tokens.or(held.window_tokens),
+    }
+}
+
+fn sum_token_usage(base: &TokenUsage, add: &TokenUsage) -> TokenUsage {
+    TokenUsage {
+        response_id: add.response_id.clone().or_else(|| base.response_id.clone()),
+        cost_micros: add_opt(base.cost_micros, add.cost_micros),
+        input_tokens: base.input_tokens.saturating_add(add.input_tokens),
+        output_tokens: base.output_tokens.saturating_add(add.output_tokens),
+        cache_read_tokens: add_opt(base.cache_read_tokens, add.cache_read_tokens),
+        cache_write_tokens: add_opt(base.cache_write_tokens, add.cache_write_tokens),
+        used_tokens: add.used_tokens.or(base.used_tokens),
+        window_tokens: add.window_tokens.or(base.window_tokens),
+    }
+}
+
+fn accumulate_runtime_turn_usage(
+    provider: &str,
+    context: &RuntimeContext,
+    account: Option<&str>,
+    usage: TokenUsage,
+) -> TokenUsage {
+    let Some(response_id) = usage
+        .response_id
+        .as_deref()
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+    else {
+        return usage;
+    };
+    let mut totals = TURN_USAGE.lock();
+    let entry = totals
+        .entry(context.tab_id.clone())
+        .or_insert_with(|| TurnUsageTotals {
+            provider: provider.into(),
+            account_id: account.map(str::to_owned),
+            nonce: context.binding_nonce.clone(),
+            thread_id: context.thread_id.clone(),
+            settled: None,
+            recent: VecDeque::new(),
+        });
+    if entry.provider != provider
+        || entry.account_id.as_deref() != account
+        || entry.nonce != context.binding_nonce
+        || entry.thread_id != context.thread_id
+    {
+        entry.provider = provider.into();
+        entry.account_id = account.map(str::to_owned);
+        entry.nonce = context.binding_nonce.clone();
+        entry.thread_id = context.thread_id.clone();
+        entry.settled = None;
+        entry.recent.clear();
+    }
+    if let Some((_, existing)) = entry.recent.iter_mut().find(|(id, _)| id == &response_id) {
+        *existing = max_token_usage(existing, &usage);
+    } else {
+        if entry.recent.len() >= MAX_RECENT_TURNS {
+            if let Some((_, oldest)) = entry.recent.pop_front() {
+                entry.settled = Some(match &entry.settled {
+                    Some(base) => sum_token_usage(base, &oldest),
+                    None => oldest,
+                });
+            }
+        }
+        entry.recent.push_back((response_id, usage));
+    }
+    let mut total = entry.settled.clone();
+    for (_, item) in &entry.recent {
+        total = Some(match total {
+            Some(base) => sum_token_usage(&base, item),
+            None => item.clone(),
+        });
+    }
+    total.expect("at least one turn usage entry was inserted")
+}
 
 pub fn controls(svc: &ServiceContext, session: &Session, settings: RuntimeSettings) {
     let context = session.context.lock().clone();
@@ -150,6 +271,9 @@ pub fn billing(
         reading.token_usage = None;
     }
     drop(readings);
+    if mode == codeterm_usage::contract::BillingMode::Unknown {
+        TURN_USAGE.lock().remove(&context.tab_id);
+    }
     svc.notify_event(
         "usage-snapshot-updated",
         serde_json::json!(codeterm_usage::contract::UsageSnapshotEvent::Billing {
@@ -210,6 +334,15 @@ pub fn usage(svc: &ServiceContext, session: &Session, usage: TokenUsage, at: u64
         return;
     }
     let account = selected_account(session);
+    let runtime_turn = svc
+        .agent_registry
+        .with_provider(&session.provider, |provider| provider.usage_accounting())
+        == Some(codeterm_plugin::token_usage::UsageAccounting::RuntimeTurn);
+    let projected = if runtime_turn {
+        accumulate_runtime_turn_usage(&session.provider, &context, account.as_deref(), usage)
+    } else {
+        usage
+    };
     let mut readings = USAGE.lock();
     let reading = projection(
         &mut readings,
@@ -220,7 +353,7 @@ pub fn usage(svc: &ServiceContext, session: &Session, usage: TokenUsage, at: u64
     reading.captured_at = at;
     reading.token_usage = Some(Reading {
         captured_at: at,
-        value: usage,
+        value: projected,
     });
     drop(readings);
     svc.notify_event(
@@ -361,7 +494,13 @@ pub fn latest(
         .and_then(codeterm_plugin::agent_runtime::limits_source::profile_from_balance_account_key)
         .is_some()
     {
-        let row = svc.usage_store.get_latest_or_failure(provider, account)?;
+        let now_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
+        let row = quota_feed::apply_quota_reset(
+            svc.usage_store.get_latest_or_failure(provider, account)?,
+            provider,
+            account,
+            now_ms,
+        );
         return enrich_latest(row, provider, vec![]);
     }
     let row = svc
@@ -410,6 +549,9 @@ pub fn latest(
         })
         .collect::<Vec<_>>();
     drop(readings);
+    TURN_USAGE
+        .lock()
+        .retain(|tab, _| mux.get_tab(tab).is_some());
     drop(mux);
     current.sort_by(|a, b| a.tab_id.cmp(&b.tab_id));
     enrich_latest(row, provider, current)

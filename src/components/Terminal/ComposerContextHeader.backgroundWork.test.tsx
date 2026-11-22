@@ -277,3 +277,34 @@ it("renders each live task as one bubble with its state inside and a readable na
     await act(async () => view.root.unmount());
   }
 });
+
+it("surfaces OS-observed runtime background commands above the composer on an idle turn without protocol capability and clears on completion", async () => {
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));
+  setAgentDescriptors([{ id: "fixture-runtime", display_name: "Fixture Runtime", agent_runtime: {} }] as ProviderDescriptor[]);
+  const process = {
+    threadId: authority.rootThreadId,
+    processId: "os:5000:100",
+    itemId: "os-bg:5000:100",
+    command: "cargo nextest run -p codeterm-service-core",
+    cwd: "/work",
+    osPid: 5000,
+  };
+  const view = harness([], vi.fn(), undefined, [process]);
+  try {
+    await act(async () => view.render());
+    const linked = view.host.querySelector('[role="group"][aria-label="Linked to this tab"]');
+    const bubble = linked?.querySelector<HTMLButtonElement>('button[aria-label="1 background work"]');
+    expect(bubble).not.toBeNull();
+    await act(async () => bubble!.click());
+    const panel = view.host.querySelector<HTMLElement>('[role="group"][aria-label="Background work"]');
+    expect(panel).not.toBeNull();
+    const details = panel?.querySelector<HTMLButtonElement>('button[aria-label^="Details for "]');
+    expect(details).not.toBeNull();
+    await act(async () => details!.click());
+    expect(panel?.querySelector("code")?.textContent).toBe(process.command);
+    await act(async () => view.setProcesses([]));
+    expect(view.host.querySelector('button[aria-label="1 background work"]')).toBeNull();
+  } finally {
+    await act(async () => view.root.unmount());
+  }
+});

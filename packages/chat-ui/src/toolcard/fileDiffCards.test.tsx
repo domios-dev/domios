@@ -424,6 +424,45 @@ describe("file diff cards", () => {
     expect(host.textContent).toContain("after");
   });
 
+  it("discloses deduplicated detail and result once across successful multi-file diff cards when expanded", async () => {
+    const notice = "ACP tool details were shortened to fit the display budget.";
+    const first: FileDiff = {
+      path: "src/first.ts", kind: "modify", additions: 1, deletions: 1,
+      hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-oldA", "+newA"] }],
+    };
+    const second: FileDiff = {
+      path: "src/second.ts", kind: "modify", additions: 1, deletions: 1,
+      hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-oldB", "+newB"] }],
+    };
+    const multiHost = await mount(<FileDiffCards event={{
+      ...diffEvent([first, second]), status: "success", detail: notice, result: "Edited both files.",
+    }} />);
+    expect(all(multiHost, "toolcard-result")).toHaveLength(0);
+    const toggles = all(multiHost, "file-diff-toggle");
+    expect(toggles).toHaveLength(2);
+    for (const toggle of toggles) {
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      const region = multiHost.querySelector(`[id="${toggle.getAttribute("aria-controls")}"]`);
+      expect(region?.getAttribute("role")).toBe("region");
+      expect(region?.hasAttribute("hidden")).toBe(true);
+    }
+    await expandAll(multiHost);
+    const cards = all(multiHost, "file-diff-card");
+    expect(all(multiHost, "toolcard-result")).toHaveLength(1);
+    expect(all(cards[0], "toolcard-result")).toHaveLength(1);
+    expect(all(cards[1], "toolcard-result")).toHaveLength(0);
+    expect(all(cards[0], "toolcard-result")[0].textContent).toContain(notice);
+    expect(all(cards[0], "toolcard-result")[0].textContent).toContain("Edited both files.");
+
+    const dedupHost = await mount(<FileDiffCards event={{
+      ...diffEvent([first]), status: "success", detail: notice, result: `${notice}  `,
+    }} />);
+    await expandAll(dedupHost);
+    const results = all(dedupHost, "toolcard-result");
+    expect(results).toHaveLength(1);
+    expect((results[0].textContent ?? "").split(notice).length - 1).toBe(1);
+  });
+
   it("uses CodeTerm theme tokens with no right borders or motion", async () => {
     const host = await mount(<FileDiffCards event={diffEvent(diffsOf("codex"))} />);
     await expandAll(host);

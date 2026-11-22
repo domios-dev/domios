@@ -40,6 +40,45 @@ impl ScanTally {
     }
 }
 
+fn is_windows_drive_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+}
+
+fn normalize_project_path(path: &str) -> String {
+    let mut normalized = path.trim().replace('\\', "/");
+    if normalized.len() >= 3 {
+        let bytes = normalized.as_bytes();
+        if bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':' {
+            normalized.remove(0);
+        }
+    }
+    if is_windows_drive_path(&normalized) {
+        let drive = normalized.as_bytes()[0].to_ascii_uppercase() as char;
+        normalized.replace_range(0..1, &drive.to_string());
+    }
+    while normalized.len() > 1
+        && normalized.ends_with('/')
+        && !(normalized.len() == 3 && is_windows_drive_path(&normalized))
+    {
+        normalized.pop();
+    }
+    normalized
+}
+
+fn project_paths_match(candidate: Option<&str>, expected: &str) -> bool {
+    let Some(candidate) = candidate else {
+        return false;
+    };
+    let left = normalize_project_path(candidate);
+    let right = normalize_project_path(expected);
+    if is_windows_drive_path(&left) && is_windows_drive_path(&right) {
+        left.eq_ignore_ascii_case(&right)
+    } else {
+        left == right
+    }
+}
+
 pub(super) fn scan_provider(provider: &dyn AgentProvider, ctx: &ScanCtx) -> ProviderScan {
     let started = Instant::now();
     let source = provider.session_content_source();
@@ -48,7 +87,7 @@ pub(super) fn scan_provider(provider: &dyn AgentProvider, ctx: &ScanCtx) -> Prov
         .into_iter()
         .filter(|meta| {
             ctx.project_path.as_deref().is_none_or(|project| {
-                meta.project_path.as_deref() == Some(project)
+                project_paths_match(meta.project_path.as_deref(), project)
                     || (source == SessionContentSource::SessionFile && meta.project_path.is_none())
             })
         })
@@ -154,11 +193,16 @@ fn scan_session_files(
                 FileProbe::Parse => {
                     let mut candidate = meta.clone();
                     let mut described = false;
-                    if ctx.project_path.is_some() && candidate.project_path.is_none() {
-                        candidate = provider.describe_session_for_search(&candidate);
-                        described = true;
-                        if candidate.project_path.as_deref() != ctx.project_path.as_deref() {
-                            continue;
+                    if let Some(expected_project) = ctx.project_path.as_deref() {
+                        if candidate.project_path.is_none() {
+                            candidate = provider.describe_session_for_search(&candidate);
+                            described = true;
+                            if !project_paths_match(
+                                candidate.project_path.as_deref(),
+                                expected_project,
+                            ) {
+                                continue;
+                            }
                         }
                     }
                     tally.parsed += 1;

@@ -139,6 +139,7 @@
   "src/lib/scrollActivity.test.ts",
   "src/components/Sidebar/GroupCloseConfirmDialog.closeInventory.test.tsx",
   "src/components/Sidebar/WorkspaceCloseConfirmDialog.test.tsx",
+  "src/components/Sidebar/useRemoteWorkspaceClose.test.tsx",
   "src/lib/closeFlow.contract.test.ts",
   "src/components/Canvas/missionControl/teamMissionControlState.test.ts",
   "src/components/AgentRun/toolActivityStream.test.tsx",
@@ -452,6 +453,9 @@
   "src/components/Jobs/TeamJobsUnit.test.tsx",
   "src/components/Jobs/workspaceGraphReads.test.ts",
   "src/components/Terminal/voice/TranscriberSetupAction.test.tsx",
+  "src/components/Terminal/voice/DictationStatus.test.tsx",
+  "src/components/Terminal/ExpandedComposer.dictation.test.tsx",
   "src/components/Terminal/composerDropSurface.test.tsx",
-  "src/lib/teamTemplates/peerStartOutcome.test.ts"
+  "src/lib/teamTemplates/peerStartOutcome.test.ts",
+  "src/components/Terminal/useChatActivationReconcile.test.tsx"
 ]

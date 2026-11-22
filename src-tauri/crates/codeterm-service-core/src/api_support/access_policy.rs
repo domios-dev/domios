@@ -24,6 +24,7 @@ pub enum PeerOperation {
     WriteOwnedTab,
     SpawnAgent,
     ManageWorkspace,
+    ReadWorkspaceClosePreview,
     WorkspacePath,
     ManageCron,
     FullAccess,
@@ -38,6 +39,7 @@ pub enum PeerResource<'a> {
     Cron(&'a str),
     CronRun { cron_id: &'a str, run_id: &'a str },
     Service(&'a str),
+    Workspace(&'a str),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,6 +105,7 @@ impl<'a> PeerScope<'a> {
                         WriteTab | WriteOwnedTab => perms.contains(&Permission::WriteTabs),
                         SpawnAgent => perms.contains(&Permission::SpawnAgents),
                         ManageWorkspace => perms.contains(&Permission::ManageWorkspaces),
+                        ReadWorkspaceClosePreview => perms.contains(&Permission::ManageWorkspaces),
                         WorkspacePath => {
                             perms.contains(&Permission::ManageWorkspaces)
                                 || perms.contains(&Permission::SpawnAgents)
@@ -188,6 +191,13 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
         (&Method::GET, "/api/plans") => PeerScope::new(ReadPlan, Host),
         (&Method::POST, "/api/workspaces" | "/api/workspaces/reorder") => {
             PeerScope::new(ManageWorkspace, Host)
+        }
+        (&Method::GET, path)
+            if scoped_path(path, "/api/workspaces/")
+                .is_some_and(|(_, action)| action == "close-preview") =>
+        {
+            let (id, _) = scoped_path(path, "/api/workspaces/")?;
+            PeerScope::new(ReadWorkspaceClosePreview, Workspace(id))
         }
         (&Method::GET, "/api/fs/list-dir") | (&Method::POST, "/api/fs/mkdir") => {
             PeerScope::new(WorkspacePath, Host)
@@ -402,6 +412,7 @@ pub fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
 pub fn is_local_only_path(path: &str) -> bool {
     let path = request_path(path);
     path.starts_with("/api/analytics/")
+        || path.starts_with("/api/dictation/")
         || path.starts_with("/api/secrets/")
         || path.starts_with("/api/account/")
         || path == "/api/mesh/debug/sign"

@@ -112,12 +112,15 @@ pub(super) fn peer_name_ambiguous_error(
     )
 }
 
+#[cfg(test)]
 pub(super) type ResolvedRelayPeer = (
     codeterm_service_core::mesh::transport::PeerClient,
     String,
     String,
     Option<String>,
 );
+
+pub(super) type ResolvedRelayRoute = ((String, Vec<String>), String, String, Option<String>);
 
 /// A relay answer that names the peer instance that produced it, so a caller
 /// addressing by name learns which machine actually answered.
@@ -134,15 +137,11 @@ pub(crate) struct AnsweringPeer {
     pub(super) instance_name: String,
 }
 
-/// Resolve a paired target while preserving missing, incompatible, and
-/// currently-unroutable refusal states. Name resolution over duplicate
-/// records sharing an `instance_name` prefers the online, highest-protocol
-/// record deterministically (codeterm#434) — see
-/// [`codeterm_service_core::mesh::paired_resolve::resolve_paired_by_name`].
-pub(super) fn resolve_relay_peer(
+/// Resolve a paired target's route endpoints without signing under the mesh lock.
+pub(super) fn resolve_relay_peer_route(
     mesh: &codeterm_service_core::mesh::MeshManager,
     target: &str,
-) -> Result<ResolvedRelayPeer, (StatusCode, String)> {
+) -> Result<ResolvedRelayRoute, (StatusCode, String)> {
     let peer = codeterm_service_core::mesh::paired_resolve::resolve_paired_by_name(
         &mesh.paired_peers,
         target,
@@ -164,13 +163,13 @@ pub(super) fn resolve_relay_peer(
             candidates,
         } => peer_name_ambiguous_error(&name, &candidates),
     })?;
-    relay_peer_client(mesh, peer)
+    relay_peer_route(mesh, peer)
 }
 
-pub(super) fn resolve_exact_relay_peer(
+pub(super) fn resolve_exact_relay_peer_route(
     mesh: &codeterm_service_core::mesh::MeshManager,
     instance_id: &str,
-) -> Result<ResolvedRelayPeer, (StatusCode, String)> {
+) -> Result<ResolvedRelayRoute, (StatusCode, String)> {
     let peer = mesh.paired_peers.get(instance_id).ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -182,13 +181,49 @@ pub(super) fn resolve_exact_relay_peer(
             .to_string(),
         )
     })?;
-    relay_peer_client(mesh, peer)
+    relay_peer_route(mesh, peer)
 }
 
-fn relay_peer_client(
+#[cfg(test)]
+pub(super) fn resolve_relay_peer(
+    mesh: &codeterm_service_core::mesh::MeshManager,
+    target: &str,
+) -> Result<ResolvedRelayPeer, (StatusCode, String)> {
+    let ((primary, alternatives), instance_id, name, version) =
+        resolve_relay_peer_route(mesh, target)?;
+    let token = mesh
+        .sign_request()
+        .map_err(|_| peer_unroutable_error(&name))?;
+    let client = codeterm_service_core::mesh::transport::PeerClient::new_signed_route(
+        primary,
+        alternatives,
+        &token,
+    );
+    Ok((client, instance_id, name, version))
+}
+
+#[cfg(test)]
+pub(super) fn resolve_exact_relay_peer(
+    mesh: &codeterm_service_core::mesh::MeshManager,
+    instance_id: &str,
+) -> Result<ResolvedRelayPeer, (StatusCode, String)> {
+    let ((primary, alternatives), instance_id, name, version) =
+        resolve_exact_relay_peer_route(mesh, instance_id)?;
+    let token = mesh
+        .sign_request()
+        .map_err(|_| peer_unroutable_error(&name))?;
+    let client = codeterm_service_core::mesh::transport::PeerClient::new_signed_route(
+        primary,
+        alternatives,
+        &token,
+    );
+    Ok((client, instance_id, name, version))
+}
+
+fn relay_peer_route(
     mesh: &codeterm_service_core::mesh::MeshManager,
     peer: &codeterm_service_core::mesh::types::PairedPeer,
-) -> Result<ResolvedRelayPeer, (StatusCode, String)> {
+) -> Result<ResolvedRelayRoute, (StatusCode, String)> {
     if !codeterm_service_core::mesh::types::is_supported_relay_protocol(peer.relay_protocol_version)
     {
         return Err(super::origin::protocol_refusal(
@@ -199,8 +234,8 @@ fn relay_peer_client(
     let name = peer.instance_name.clone();
     let version = peer.domios_version.clone();
     let instance_id = peer.instance_id.clone();
-    let client = mesh
-        .client_for(&instance_id)
+    let endpoints = mesh
+        .peer_route_endpoints(&instance_id)
         .ok_or_else(|| peer_unroutable_error(&name))?;
-    Ok((client, instance_id, name, version))
+    Ok((endpoints, instance_id, name, version))
 }
