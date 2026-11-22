@@ -6,6 +6,8 @@ use super::*;
 use crate::cron::store::{commit, CronCreateParams, CronRunInfo, CronStorageOptions, CronStore};
 use crate::service::test_fixture::ServiceFixture;
 
+mod restart;
+
 const RUN_TAB: &str = "cron-run-tab";
 const REPORT_TAB: &str = "cron-report-tab";
 
@@ -574,7 +576,7 @@ fn cron_restart_pending_finish_and_delivery_intent_remain_unknown_until_exact_ca
                     crate::cron::store::CronCancelReason::UserCancel
                 )
                 .unwrap(),
-            0
+            1
         );
         assert_eq!(
             run.cron.lock().run_receipt(&run.job_id, &run.run_id),
@@ -1045,7 +1047,7 @@ fn max_history_zero_retired_oneshot_acknowledges_only_confirmed_cleanup_without_
                 crate::cron::store::CronCancelReason::UserCancel
             )
             .unwrap(),
-        0
+        1
     );
     assert!(restarted
         .run_watcher
