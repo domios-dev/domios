@@ -338,42 +338,35 @@ fn run_command_probe(
     };
 
     let deadline = Instant::now() + timeout;
-    let outcome = loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            break Err((
-                UsageFailureKind::Timeout,
-                String::from("Status line quota probe timed out before receiving quota"),
-            ));
-        }
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    let outcome = if remaining.is_zero() {
+        Err((
+            UsageFailureKind::Timeout,
+            String::from("Status line quota probe timed out before receiving quota"),
+        ))
+    } else {
         match rx.recv_timeout(remaining) {
-            Ok(ProbeSignal::Quota(quota)) => break Ok(quota),
+            Ok(ProbeSignal::Quota(quota)) => Ok(quota),
             Ok(ProbeSignal::Exited) => {
-                let grace = remaining.min(EXIT_GRACE);
+                let grace = deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(EXIT_GRACE);
                 match rx.recv_timeout(grace) {
-                    Ok(ProbeSignal::Quota(quota)) => break Ok(quota),
-                    _ => {
-                        break Err((
-                            UsageFailureKind::FetchError,
-                            String::from(
-                                "Status line quota probe exited before reporting model quota",
-                            ),
-                        ));
-                    }
+                    Ok(ProbeSignal::Quota(quota)) => Ok(quota),
+                    _ => Err((
+                        UsageFailureKind::FetchError,
+                        String::from("Status line quota probe exited before reporting model quota"),
+                    )),
                 }
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                break Err((
-                    UsageFailureKind::Timeout,
-                    String::from("Status line quota probe timed out before receiving quota"),
-                ));
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                break Err((
-                    UsageFailureKind::FetchError,
-                    String::from("Status line quota probe ended without reporting model quota"),
-                ));
-            }
+            Err(mpsc::RecvTimeoutError::Timeout) => Err((
+                UsageFailureKind::Timeout,
+                String::from("Status line quota probe timed out before receiving quota"),
+            )),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err((
+                UsageFailureKind::FetchError,
+                String::from("Status line quota probe ended without reporting model quota"),
+            )),
         }
     };
 
