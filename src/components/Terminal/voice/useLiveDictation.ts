@@ -88,6 +88,7 @@ interface Capture {
   permissionPending: boolean;
   claimed: boolean;
   stopping: boolean;
+  startupDone: Promise<void>;
   finish: (() => void) | null;
   tail: Promise<void>;
   waiting: number;
@@ -154,7 +155,7 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     levelChannel.reset();
     setPhase("idle");
     if (reason) setError(reason);
-    return cancelled;
+    return Promise.all([cancelled, capture.startupDone]).then(() => undefined);
   }, []);
   function fail(capture: Capture, failure: unknown) {
     discard(capture, microphoneErrorMessage(failure));
@@ -231,14 +232,16 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     try { transport = createDictationTransport(session, tabId); }
     catch (failure) { setError(String(failure instanceof Error ? failure.message : failure)); return; }
     if (!prepare(session)) return;
+    let resolveStartup!: () => void;
+    const startupDone = new Promise<void>(resolve => { resolveStartup = resolve; });
     const capture: Capture = { identity, transport, controller: new AbortController(), permissionPending: false, claimed: false,
-      stopping: false, finish: null, tail: Promise.resolve(), waiting: 0, sequence: 0 };
+      stopping: false, startupDone, finish: null, tail: Promise.resolve(), waiting: 0, sequence: 0 };
     owned.current = capture;
     pending.current = true;
     setPhase("starting");
     try {
       const result = await transport.start();
-      if (owned.current !== capture) { if (result.state === "ready") void transport.cancel().catch(() => {}); return; }
+      if (owned.current !== capture) { if (result.state === "ready") await transport.cancel().catch(() => {}); return; }
       if (!enabledRef.current || identityRef.current !== capture.identity) { discard(capture); return; }
       if (result.state !== "ready") {
         discard(capture);
@@ -302,7 +305,10 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     } catch (failure) {
       if (owned.current !== capture) release(capture);
       else fail(capture, failure);
-    } finally { pending.current = false; }
+    } finally {
+      pending.current = false;
+      resolveStartup();
+    }
   }
 
   return { phase, error, setup, start, stop, compositionEnded,
