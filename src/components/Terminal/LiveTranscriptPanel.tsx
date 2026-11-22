@@ -168,7 +168,10 @@ export function LiveTranscriptPanel({ api, owner, openCount, capture, autoResume
         onAutoResume={onAutoResume} scoutUnavailable={scoutUnavailable} />}
       {useGeneral && <div className="ct-live-callout">
         <button type="button" disabled={view.busy} onClick={() => void view.mutate(() => askGeneralAgent(store.getState(),
-          "Install and configure Live Transcript in Domios automatically right now (clicking Set up with General is my explicit consent to download and install the official Transcriber plugin 0.5.1+, the ~487 MB Parakeet TDT 0.6B v3 model, and its local Python runtime). Check GET /api/live-transcript/readiness for ASR, Scout and Concierge, run `domios plugin transcriber dictation-install --consent`, track `dictation-progress` until complete, verify with `dictation-test`, and report once ready. Keep existing voice-note settings and drafts intact."))}>Set up with General</button>
+          "Set up Live Transcript automatically in a few direct commands (clicking Set up with General is my explicit consent to install the official Transcriber plugin 0.5.1+, the ~487 MB Parakeet TDT 0.6B v3 model, and its local Python runtime — do not pause to ask or send me to Extensions). Run directly without exploratory checks:\n" +
+          "1. Ensure Transcriber >= 0.5.1: `domios plugin update transcriber` (or `domios plugin install transcriber` if missing/local).\n" +
+          "2. Check `domios plugin transcriber dictation-status`. If not ready, run `domios plugin transcriber dictation-install parakeet-tdt-0.6b-v3-int8 --consent`, track `domios plugin transcriber dictation-progress` until complete, then run `domios plugin transcriber dictation-select parakeet-tdt-0.6b-v3-int8` and `domios plugin transcriber dictation-test parakeet-tdt-0.6b-v3-int8`.\n" +
+          "3. Reply with one short confirmation once ready (or the exact error if a step failed). Keep existing voice-note settings and drafts untouched."))}>Set up with General</button>
       </div>}
       {scoutUnavailable && <div className="ct-live-callout" role="status">
         Scout is unavailable. Choose Wake word, Direct batch, or Manual to route speech.

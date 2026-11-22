@@ -10,7 +10,11 @@ import type { ExtendedState } from "../../../store/multiplexer/tree";
 import { useMuxStateStore } from "../../../store/multiplexer/selectorStore";
 
 const DICTATION_SETUP_REQUEST =
-  "Install and configure local live dictation in Domios automatically right now (clicking Set up with General is my explicit consent to download and install the ~487 MB Parakeet TDT 0.6B v3 model and its local Python runtime). Install or update the official Transcriber plugin (0.5.1+), run `domios plugin transcriber dictation-install --consent`, track `dictation-progress` until complete, select/verify with `dictation-test`, and report once ready (or any real error). Keep my existing voice-note transcription settings and composer draft intact.";
+  "Set up local live dictation automatically in a few direct commands (clicking Set up with General is my explicit consent to download the ~487 MB Parakeet TDT 0.6B v3 model and its local Python runtime — do not pause to ask or send me to Extensions). Run directly without exploratory checks:\n" +
+  "1. Ensure the official Transcriber plugin (>= 0.5.1) is installed and current: `domios plugin update transcriber` (if not installed or if a local copy blocks update, run `domios plugin install transcriber`).\n" +
+  "2. Check `domios plugin transcriber dictation-status`. If `ready` is already true, skip to step 4.\n" +
+  "3. Run `domios plugin transcriber dictation-install parakeet-tdt-0.6b-v3-int8 --consent`, monitor completion with `domios plugin transcriber dictation-progress` (bounded checks until finished), then select/verify with `domios plugin transcriber dictation-select parakeet-tdt-0.6b-v3-int8` and `domios plugin transcriber dictation-test parakeet-tdt-0.6b-v3-int8`.\n" +
+  "4. Reply with one short ready confirmation (or the exact error if a step failed). Keep existing voice-note settings and my draft untouched.";
 
 interface GeneralAuthority {
   tabId: string;
