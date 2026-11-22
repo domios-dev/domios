@@ -67,6 +67,21 @@ impl Record {
             )
     }
 
+    /// The launch captured its tab but never began a terminal commit, so no
+    /// receipt proof, report or retirement can be owed by this owner.
+    fn interrupted_before_terminal(&self) -> bool {
+        let phase = if self.phase == Phase::Unknown {
+            self.unknown_at
+        } else {
+            Some(self.phase)
+        };
+        phase == Some(Phase::Provisional)
+            && self.owner.is_some()
+            && self.proof.is_none()
+            && self.intent.is_none()
+            && self.delivery.is_none()
+    }
+
     fn acknowledged_uncaptured_allocation(&self) -> bool {
         self.phase == Phase::Adjudicated
             && self.unknown_at == Some(Phase::Allocating)
@@ -492,6 +507,9 @@ impl super::super::RunWatcherRegistry {
                     svc.log_system_notice("Cron uncaptured allocation remains owned".into(), Some(format!("job={} run={}; effects were acknowledged, original tab identity was not durably captured; its per-job admission barrier and global capacity remain reserved and no resource close is authorized", record.job, record.run)), Some("error"));
                     continue;
                 }
+                if self.release_interrupted_cron_owner(svc, cron, &record)? {
+                    continue;
+                }
                 if record.phase == Phase::Unknown {
                     svc.log_system_notice("Cron continuation remains unknown".into(), Some(format!("job={} run={}; original evidence retained for exact cron.cancel adjudication without replay", record.job, record.run)), Some("error"));
                     continue;
@@ -569,6 +587,45 @@ impl super::super::RunWatcherRegistry {
         recovery.restoring = false;
         recovery.restored = result.is_ok();
         result
+    }
+
+    /// Releases a launch interrupted before terminal evidence once its run is no
+    /// longer active and its receipt is Cancelled or its original tab is gone.
+    fn release_interrupted_cron_owner(
+        &self,
+        svc: &ServiceContext,
+        cron: &crate::CronState,
+        record: &Record,
+    ) -> Result<bool, String> {
+        let Some(owner) = record
+            .owner
+            .as_ref()
+            .filter(|_| record.interrupted_before_terminal())
+        else {
+            return Ok(false);
+        };
+        let (active, cancelled) = {
+            let store = cron.lock();
+            (
+                store.run_is_active(&record.job, &record.run),
+                store.run_is_cancelled(&record.job, &record.run),
+            )
+        };
+        let tab_present = svc.mux.read().get_tab(&owner.tab).is_some();
+        if active || !cancelled && tab_present {
+            return Ok(false);
+        }
+        let Some(captured) = self.restore_journal_owner(svc, cron, record, false)? else {
+            return Ok(false);
+        };
+        svc.settle_owned_cron_cleanup(&captured, TabCloseReason::AgentRunEnded)?;
+        self.archive_cron_record(cron, &record.job, &record.run, true)?;
+        svc.log_system_notice(
+            "Interrupted cron owner released".into(),
+            Some(format!("job={} run={}; the launch ended before terminal evidence and its run is no longer active; original evidence archived without replay", record.job, record.run)),
+            Some("info"),
+        );
+        Ok(true)
     }
 
     pub(crate) fn reserve_cron_slot(
@@ -839,11 +896,15 @@ impl super::super::RunWatcherRegistry {
                 .get(&record.job)
                 .and_then(|job| job.last_run.as_ref())
                 .filter(|receipt| receipt.run_id == record.run);
-            receipt.is_some()
-                && [receipt, mirror]
+            match receipt {
+                Some(_) => [receipt, mirror]
                     .into_iter()
                     .flatten()
-                    .all(|receipt| receipt.tab_id.as_deref().is_none_or(|tab| tab == owner.tab))
+                    .all(|receipt| receipt.tab_id.as_deref().is_none_or(|tab| tab == owner.tab)),
+                // History pruning may drop an inactive receipt; the journal alone owns a
+                // launch that never began terminal commit.
+                None => record.interrupted_before_terminal(),
+            }
         };
         if !valid {
             return Err("Cron journal has no matching authoritative run receipt".into());
@@ -929,8 +990,13 @@ impl super::super::RunWatcherRegistry {
         cron: &crate::CronState,
         snapshot: CancellationSnapshot,
         live: &[CronRunAuthority],
-    ) -> Result<(), String> {
+        requested: &[String],
+    ) -> Result<Vec<String>, String> {
+        let mut released = Vec::new();
         for record in snapshot.records {
+            // A reservation never ran, and an active run is counted by its own cancellation.
+            let retained = record.phase != Phase::Planned
+                && (record.phase == Phase::Unknown || !requested.contains(&record.run));
             if cron.lock().run_is_active(&record.job, &record.run) {
                 return Err("Cron cancellation has not established terminal authority for the retained occurrence; original owner remains".into());
             }
@@ -941,6 +1007,9 @@ impl super::super::RunWatcherRegistry {
                 && current.cleanup_was_confirmed()
             {
                 self.archive_cron_record(cron, &record.job, &record.run, true)?;
+                if retained {
+                    released.push(record.run);
+                }
                 continue;
             }
             let owner = live
@@ -988,8 +1057,11 @@ impl super::super::RunWatcherRegistry {
             if let Some(owner) = owner {
                 self.forget_adjudicated_finalizer(&owner);
             }
+            if retained {
+                released.push(record.run);
+            }
         }
-        Ok(())
+        Ok(released)
     }
 
     pub(crate) fn cron_allocation_pending(&self, job: &str, run: &str) -> bool {

@@ -486,7 +486,7 @@ pub(super) fn restart_known_report_with_replacement_requires_adjudication_and_pr
         restarted
             .cron_cancel_running(&scene.cron, job_id, CronCancelReason::UserCancel)
             .unwrap(),
-        0
+        1
     );
     assert_eq!(scene.cron.lock().run_receipt(job_id, &run), Some(&original));
     assert_eq!(
