@@ -12,7 +12,8 @@
   color: var(--ct-fg);
   font-family: var(--ct-font-ui);
   font-size: var(--ct-font-size-sm);
-  background: var(--ct-glass-sheen), var(--ct-surface);
+  background-color: var(--ct-bg);
+  background-image: var(--ct-glass-sheen), linear-gradient(var(--ct-surface), var(--ct-surface));
   border: 1px solid var(--ct-live-hairline);
   box-shadow: var(--ct-glass-edge), var(--ct-shadow-xl);
 }
@@ -712,7 +713,8 @@
   font-size: var(--ct-font-size-meta);
   font-weight: 600;
   white-space: nowrap;
-  background: var(--ct-glass-sheen), var(--ct-surface);
+  background-color: var(--ct-bg);
+  background-image: var(--ct-glass-sheen), linear-gradient(var(--ct-surface), var(--ct-surface));
   border: 1px solid color-mix(in srgb, var(--ct-accent) 32%, transparent);
   border-radius: 999px;
   box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
@@ -738,7 +740,8 @@
 }
 
 .ct-voice-lock-pill.ct-voice-lock-pill--live {
-  background: var(--ct-glass-sheen), var(--ct-surface);
+  background-color: var(--ct-bg);
+  background-image: var(--ct-glass-sheen), linear-gradient(var(--ct-surface), var(--ct-surface));
   border-color: color-mix(in srgb, var(--ct-accent) 40%, transparent);
   box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
   color: var(--ct-muted-fg);
