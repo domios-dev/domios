@@ -2,7 +2,7 @@ import { isConciergeTab } from "../../lib/tabInputPolicy";
 import { createNoticePublisher } from "../../lib/notices";
 import { firstRunLocked, firstRunSelection, firstRunSidebarTabs } from "../../lib/firstRunGate";
 import { FirstRunControls } from "../AgentPicker/FirstRunControls";
-import { useTeamClose } from "./useTeamClose";
+import { useTeamClose, useTeamClosePreview } from "./useTeamClose";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
 import { precheckFreeLimit } from "../billing/freeLimitGate";
 import { isFreeLimitRefusal } from "../billing/freeLimitModel";
@@ -18,7 +18,7 @@ import { shareRecord } from "../../lib/sameJson";
 import { selectSidebarState, sidebarStateEqual } from "./sidebarState";
 import { getPlugin } from "../../lib/plugins/registry";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
-import type { AppConfig, CronJob, Tab } from "../../lib/types";
+import type { AppConfig, Tab } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
 import { MemoryGraphIcon, MeshIcon, NeighborsIcon, SidebarNavButton } from "./SidebarNavButton";
 import { SidebarStructuralSection } from "./SidebarStructuralSection";
@@ -55,12 +55,11 @@ import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
 import { BlueprintOwnerCloseDialog } from "./BlueprintOwnerCloseDialog";
 import { WorkspaceCloseConfirmDialog } from "./WorkspaceCloseConfirmDialog";
 import { useRemoteWorkspaceClose } from "./useRemoteWorkspaceClose";
-import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 import { openNewSessionPicker } from "../../lib/newSessionChoice";
 import { deskWorkspaceMembership, observedGeneralViewers } from "../../store/multiplexer/pairedWorkspaceProjection";
 import { tabAttentionByTab } from "./tabAttention";
-import { teamCloseResourcesForId, teamCloseResourcesForWorkspace, type TeamCloseResource } from "./teamCloseResources";
+import type { TeamCloseResource } from "./teamCloseResources";
 import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
 import { runningBlueprintNamesForOwner } from "../Automation/blueprintOwnerModel";
 import {
@@ -235,46 +234,17 @@ export const Sidebar = memo(function Sidebar({
   const requestLocalWorkspaceClose = useCallback(async (workspaceId: string) => {
     const workspace = state.workspaces.find((workspace) => workspace.id === workspaceId);
     if (!workspace) return;
-    let crons: CronJob[] = [];
     try {
-      crons = await invoke<CronJob[]>("cron_list", {});
+      const inventory = await readTeamClosePlanMetadata(workspaceId, null);
+      setPendingWorkspaceClose({ id: workspaceId, name: workspace.name, ...inventory });
     } catch (error) {
       createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
-        workspaceId: workspaceId,
+        workspaceId,
         title: "Close inventory unavailable",
         detail: error instanceof Error ? error.message : String(error),
         severity: "Error" });
     }
-    let inventoryPlans = fullPlans.plans;
-    let blueprintSnapshots: Awaited<ReturnType<typeof readWorkspaceBlueprints>>;
-    try {
-      blueprintSnapshots = await readWorkspaceBlueprints(workspaceId);
-      if (planApi) inventoryPlans = await readTeamClosePlanMetadata(planApi,fullPlans.plans);
-    } catch (error) {
-      createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
-        workspaceId: workspaceId,
-        title: "Close inventory unavailable",
-        detail: error instanceof Error ? error.message : String(error),
-        severity: "Error" });
-      return;
-    }
-    const teams = teamCloseResourcesForWorkspace(
-      workspace,
-      state.tabs,
-      state.teams ?? [],
-      crons,
-      inventoryPlans,
-      blueprintSnapshots,
-    );
-    const teamMemberIds = new Set(teams.flatMap((team) => team.members.map((member) => member.tabId)));
-    const workspaceTabs = flattenSidebarTabs(workspace.tabs, state.tabs);
-    const agentTitles = workspaceTabs
-      .filter((tab) => tab.agent_type && !teamMemberIds.has(tab.id))
-      .map((tab) => tab.title);
-    const workspaceTabIds = new Set(workspaceTabs.map((tab) => tab.id));
-    const blueprints = blueprintSnapshots.filter((blueprint) => blueprint.state === "running" && blueprint.owner?.kind === "tab" && blueprint.owner.tab_id !== null && workspaceTabIds.has(blueprint.owner.tab_id) && !teamMemberIds.has(blueprint.owner.tab_id)).map((blueprint) => blueprint.name ?? blueprint.id);
-    setPendingWorkspaceClose({ id: workspaceId, name: workspace.name, agentTitles, blueprints, teams });
-  }, [upsertToast, fullPlans.plans, state.tabs, state.teams, state.workspaces, planApi?.host, planApi?.port, planApi?.token]);
+  }, [upsertToast, state.workspaces]);
 
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => initialSidebarExpanded(state.workspaces, state.active_workspace_id),
@@ -460,15 +430,7 @@ export const Sidebar = memo(function Sidebar({
   const isPeeking = isSidebarCollapsed && peeking && !touchMode;
   const peekWidth = sidebarWidth >= SIDEBAR_COMPACT_SNAP ? sidebarWidth : 240;
   const [closingTabs, setClosingTabs] = useState<Map<string, { wsId: string }>>(new Map());
-  const [pendingTeamClose, setPendingTeamClose] = useState<{
-    teamId: string;
-    workspaceId: string;
-    teamName: string;
-    members: OrchestrationGroupMember[];
-    crons: string[];
-    blueprints: string[];
-    lanes: string[];
-  } | null>(null);
+  const { pending: pendingTeamClose, request: readTeamClosePreview, dismiss: dismissTeamClose } = useTeamClosePreview();
   const [pendingTabClose, setPendingTabClose] = useState<{ workspaceId: string; tabId: string; title: string; blueprints: string[] } | null>(null);
 
   const performCloseTab = useCallback((wsId: string, tabId: string) => {
@@ -509,62 +471,26 @@ export const Sidebar = memo(function Sidebar({
     })();
   }, [upsertToast, performCloseTab, state.tabs]);
 
-  const requestTeamClose = useCallback(async (wsId: string, teamId: string) => {
-    const ws = state.workspaces.find((workspace) => workspace.id === wsId);
-    if (!ws) return;
-    let crons: CronJob[] = [];
-    try {
-      crons = await invoke<CronJob[]>("cron_list", {});
-    } catch (error) {
-      createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
-        workspaceId: wsId,
-        title: "Close inventory unavailable",
-        detail: error instanceof Error ? error.message : String(error),
-        severity: "Error" });
-    }
-    let inventoryPlans = fullPlans.plans;
-    let blueprintSnapshots: Awaited<ReturnType<typeof readWorkspaceBlueprints>>;
-    try {
-      blueprintSnapshots = await readWorkspaceBlueprints(wsId);
-      if (planApi) inventoryPlans = await readTeamClosePlanMetadata(planApi,fullPlans.plans);
-    } catch (error) {
-      createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
-        workspaceId: wsId,
-        title: "Close inventory unavailable",
-        detail: error instanceof Error ? error.message : String(error),
-        severity: "Error" });
-      return;
-    }
-    const resources = teamCloseResourcesForId(
-      teamCloseResourcesForWorkspace(ws, state.tabs, state.teams ?? [], crons, inventoryPlans, blueprintSnapshots),
-      teamId,
-    );
-    const teamTabs = flattenSidebarTabs(ws.tabs, state.tabs).filter((tab) => tab.team_id === teamId);
+  const requestTeamClose = useCallback(async (workspaceId: string, teamId: string) => {
+    const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId);
+    if (!workspace) return;
     const team = state.teams.find((candidate) => candidate.id === teamId);
-    setPendingTeamClose({
-      teamId,
-      workspaceId: wsId,
-      teamName: team?.name?.trim() || "Team",
-      members: resources?.members ?? teamTabs.map((tab) => {
-        return {
-          tabId: tab.id,
-          title: tab.title || "Tab",
-          role: tab.role ?? null,
-          roleProfile: tab.role_profile ?? null,
-        };
-      }),
-      crons: resources?.crons ?? [],
-      blueprints: resources?.blueprints ?? runningBlueprintNamesForOwner(blueprintSnapshots, "team", teamId),
-      lanes: resources?.lanes ?? [],
-    });
-  }, [upsertToast, fullPlans.plans, state.tabs, state.teams, state.workspaces, planApi?.host, planApi?.port, planApi?.token]);
+    const members = flattenSidebarTabs(workspace.tabs, state.tabs)
+      .filter((tab) => tab.team_id === teamId)
+      .map((tab) => ({
+        tabId: tab.id,
+        title: tab.title || "Tab",
+        role: tab.role ?? null,
+        roleProfile: tab.role_profile ?? null,
+      }));
+    await readTeamClosePreview({ id: teamId, workspaceId, name: team?.name?.trim() || "Team", members });
+  }, [readTeamClosePreview, state.tabs, state.teams, state.workspaces]);
 
   const { closingTeamIds, closeTeam: finishTeamClose } = useTeamClose(teamActions?.onCloseTeam, createNoticePublisher({ upsertToast }));
   const confirmTeamClose = useCallback(() => {
-    const pending = pendingTeamClose;
-    if (!pending) return;
-    void finishTeamClose(pending.teamId, pending.workspaceId, () => setPendingTeamClose(null));
-  }, [pendingTeamClose, finishTeamClose]);
+    if (pendingTeamClose?.phase !== "ready") return;
+    void finishTeamClose(pendingTeamClose.id, pendingTeamClose.workspaceId, dismissTeamClose);
+  }, [pendingTeamClose, finishTeamClose, dismissTeamClose]);
   const sortedWorkspaces = useMemo(() => sortByOrder(state.workspaces), [state.workspaces]);
   const { general: generalWorkspace, workspaces: ordinaryWorkspaces } = useMemo(() => {
     const { general, workspaces } = partitionSidebarWorkspaces(sortedWorkspaces);
@@ -1036,12 +962,15 @@ export const Sidebar = memo(function Sidebar({
       {pendingTeamClose && (
         <GroupCloseConfirmDialog
           mode="team"
-          orchestratorTitle={pendingTeamClose.teamName}
+          orchestratorTitle={pendingTeamClose.name}
           members={pendingTeamClose.members}
-          crons={pendingTeamClose.crons}
-          blueprints={pendingTeamClose.blueprints}
-          lanes={pendingTeamClose.lanes}
-          onCancel={() => setPendingTeamClose(null)}
+          crons={pendingTeamClose.phase === "ready" ? pendingTeamClose.crons : undefined}
+          blueprints={pendingTeamClose.phase === "ready" ? pendingTeamClose.blueprints : undefined}
+          lanes={pendingTeamClose.phase === "ready" ? pendingTeamClose.lanes : undefined}
+          loading={pendingTeamClose.phase === "loading"}
+          error={pendingTeamClose.phase === "error" ? pendingTeamClose.error : undefined}
+          onRetry={() => { void requestTeamClose(pendingTeamClose.workspaceId, pendingTeamClose.id); }}
+          onCancel={dismissTeamClose}
           onConfirm={() => { void confirmTeamClose(); }}
         />
       )}

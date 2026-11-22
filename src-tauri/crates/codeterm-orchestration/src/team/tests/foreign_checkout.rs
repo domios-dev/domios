@@ -172,7 +172,7 @@ fn team_close_never_removes_a_foreign_checkout_and_still_cleans_domios_lanes() {
     )];
     lanes.extend(scene.foreign_lanes());
 
-    let inventory = finish_team_lane_cleanup(&scene.store, &lanes, 10).unwrap();
+    let inventory = finish_team_lane_cleanup(&scene.store, &lanes, 10, &[]).unwrap();
 
     assert_eq!(inventory.removed.len(), 1, "{inventory:?}");
     assert_eq!(

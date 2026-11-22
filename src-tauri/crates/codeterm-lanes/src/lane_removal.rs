@@ -2,7 +2,9 @@ use std::path::Path;
 use std::process::Command;
 
 use codeterm_plan::plan::LaneOwnership;
-use codeterm_plan::service_plan::lane_ownership::{strictest_ownership, unmanaged_lane_reason_git};
+use codeterm_plan::service_plan::lane_ownership::{
+    strictest_ownership, unmanaged_lane_reason, unmanaged_lane_reason_listed,
+};
 use codeterm_plan::service_plan::{PlanStore, TaskLaneUpdate};
 
 /// One live tab as the removal preflight sees it: the shell cwd decides
@@ -136,7 +138,18 @@ pub fn remove_lane(
     request: &LaneRemovalRequest,
     live_tabs: &[LiveTabCwd],
 ) -> Result<LaneRemovalOutcome, String> {
-    remove_lane_with_policy(request, live_tabs, false)
+    remove_lane_with_policy(request, live_tabs, false, None)
+}
+
+pub fn remove_lane_with_worktree_inventory(
+    request: &LaneRemovalRequest,
+    live_tabs: &[LiveTabCwd],
+    worktrees: &str,
+) -> Result<LaneRemovalOutcome, String> {
+    if request.branch.is_some() || request.force || request.canonical_cwd.is_none() {
+        return Err("inventory-backed removal requires non-forced worktree-only cleanup with a canonical checkout".into());
+    }
+    remove_lane_with_policy(request, live_tabs, false, Some(worktrees))
 }
 
 pub fn remove_cancelled_worktree(
@@ -146,13 +159,14 @@ pub fn remove_cancelled_worktree(
     if request.branch.is_some() || request.force {
         return Err("cancelled cleanup must retain the branch and protect dirty worktrees".into());
     }
-    remove_lane_with_policy(request, live_tabs, true)
+    remove_lane_with_policy(request, live_tabs, true, None)
 }
 
 fn remove_lane_with_policy(
     request: &LaneRemovalRequest,
     live_tabs: &[LiveTabCwd],
     cancelled: bool,
+    worktrees: Option<&str>,
 ) -> Result<LaneRemovalOutcome, String> {
     let worktree = strip_verbatim(request.worktree_path.trim());
     let worktree = worktree.as_str();
@@ -196,16 +210,48 @@ fn remove_lane_with_policy(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let registered = worktree_registered(&canonical, worktree)?;
+    let registered = match worktrees {
+        Some(worktrees) => lists_worktree(worktrees, worktree),
+        None => worktree_registered(&canonical, worktree)?,
+    };
     let branch_exists = branch
         .map(|branch| branch_exists(&canonical, branch))
         .transpose()?
         .unwrap_or(false);
     // Ownership guards deletion; a lane already gone has nothing left to delete.
     if worktree_exists || registered || branch_exists {
-        if let Some(reason) =
-            unmanaged_lane_reason_git(request.ownership, &canonical, Some(worktree), branch)
-        {
+        let unmanaged = if worktrees.is_some() && worktree_exists {
+            unmanaged_lane_reason(
+                request.ownership,
+                &canonical,
+                Some(worktree),
+                branch,
+                |path| {
+                    if !registered {
+                        return Ok(None);
+                    }
+                    let output = git_output(path, ["symbolic-ref", "--quiet", "--short", "HEAD"])?;
+                    if output.status.success() {
+                        Ok(Some(Some(
+                            String::from_utf8_lossy(&output.stdout).trim().into(),
+                        )))
+                    } else if output.status.code() == Some(1) {
+                        Ok(Some(None))
+                    } else {
+                        Err(codeterm_util::process_util::git_diagnostics(&output.stderr))
+                    }
+                },
+            )
+        } else {
+            unmanaged_lane_reason_listed(
+                request.ownership,
+                &canonical,
+                Some(worktree),
+                branch,
+                worktrees,
+            )
+        };
+        if let Some(reason) = unmanaged {
             return Err(format!(
                 "✗ lane removal refused for '{worktree}': {reason}. Nothing was removed."
             ));
@@ -235,18 +281,20 @@ fn remove_lane_with_policy(
                 return Err(format!("lane '{worktree}' has commits not merged into canonical '{canonical}'; worktree retained"));
             }
         }
-        let status = git_output(worktree, ["status", "--porcelain", "--untracked-files=all"])?;
-        if !status.status.success() || !status.stdout.is_empty() {
-            return Err(format!(
-                "lane removal failed for '{worktree}': dirty or unreadable lane protected"
-            ));
+        if request.force {
+            let status = git_output(worktree, ["status", "--porcelain", "--untracked-files=all"])?;
+            if !status.status.success() || !status.stdout.is_empty() {
+                return Err(format!(
+                    "lane removal failed for '{worktree}': dirty or unreadable lane protected"
+                ));
+            }
         }
         remove_lane_worktree(&canonical, worktree, request.force)?;
     } else if registered {
         remove_stale_worktree_registration(&canonical, worktree).map_err(|error| {
             format!("stale lane registration for '{worktree}' could not be removed: {error}")
         })?;
-        if worktree_registered(&canonical, worktree)? {
+        if worktrees.is_none() && worktree_registered(&canonical, worktree)? {
             return Err(format!(
                 "stale lane registration for '{worktree}' remains after targeted cleanup"
             ));
@@ -333,11 +381,18 @@ fn worktree_registered(canonical_cwd: &str, worktree_path: &str) -> Result<bool,
             codeterm_util::process_util::git_diagnostics(&output.stderr)
         ));
     }
+    Ok(lists_worktree(
+        &String::from_utf8_lossy(&output.stdout),
+        worktree_path,
+    ))
+}
+
+fn lists_worktree(worktrees: &str, worktree_path: &str) -> bool {
     let expected = comparable_path(worktree_path);
-    Ok(String::from_utf8_lossy(&output.stdout)
+    worktrees
         .lines()
         .filter_map(|line| line.strip_prefix("worktree "))
-        .any(|path| comparable_path(path) == expected))
+        .any(|path| comparable_path(path) == expected)
 }
 
 fn remove_stale_worktree_registration(
