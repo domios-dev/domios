@@ -104,7 +104,7 @@ async function mount(autoResume = false) {
 }
 
 describe("live transcript microphone ownership", () => {
-  it("releases tracks on blur before draining queued audio, then waits for a manual resume", async () => {
+  it("keeps the default lease on blur and drains queued audio on explicit pause", async () => {
     const { media, track } = stream();
     const inFlight = deferred<LiveCaptureUpdate>();
     const finishing = deferred<LiveCaptureUpdate>();
@@ -122,8 +122,11 @@ describe("live transcript microphone ownership", () => {
       await act(async () => {
         hasFocus = false;
         window.dispatchEvent(new Event("blur"));
-        expect(track.stop).toHaveBeenCalledOnce();
       });
+      expect(track.stop).not.toHaveBeenCalled();
+      expect(harness.render().phase).toBe("recording");
+      await act(async () => { void harness.render().pause(); });
+      expect(track.stop).toHaveBeenCalledOnce();
       expect(harness.render().phase).toBe("pausing");
       expect(transport.pause).not.toHaveBeenCalled();
       await act(async () => {
@@ -132,7 +135,7 @@ describe("live transcript microphone ownership", () => {
       expect(transport.frame.mock.calls.map(([lease, sequence, bytes]) => [lease, sequence, bytes])).toEqual([
         ["first", 1, frame], ["first", 2, tail],
       ]);
-      expect(transport.pause).toHaveBeenCalledExactlyOnceWith("first", 3, "focusLost", expect.any(AbortSignal));
+      expect(transport.pause).toHaveBeenCalledExactlyOnceWith("first", 3, "manual", expect.any(AbortSignal));
       expect(harness.render().provisional).toBe("");
       await act(async () => {
         hasFocus = true;
@@ -153,7 +156,7 @@ describe("live transcript microphone ownership", () => {
     }
   });
 
-  it("pauses a hidden lease while permission is pending and stops every late track", async () => {
+  it("pauses an exiting page lease while permission is pending and stops every late track", async () => {
     const permission = deferred<MediaStream>();
     const entered = deferred<void>();
     const late = stream();
@@ -170,7 +173,7 @@ describe("live transcript microphone ownership", () => {
       });
       await act(async () => {
         visibility = "hidden";
-        document.dispatchEvent(new Event("visibilitychange"));
+        window.dispatchEvent(new Event("pagehide"));
       });
       expect(transport.pause).toHaveBeenCalledExactlyOnceWith("first", 1, "hidden", expect.any(AbortSignal));
       expect(harness.render().phase).toBe("paused");

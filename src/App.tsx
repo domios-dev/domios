@@ -24,6 +24,8 @@ import { Sidebar } from "./components/Sidebar/Sidebar";
 import { SidebarDrawer } from "./components/Sidebar/SidebarDrawer";
 import { NewSessionPickerHost } from "./components/Terminal/NewSessionPickerHost";
 import { TabContent } from "./components/Terminal/TabContent";
+import { LiveTranscriptHost } from "./components/Terminal/LiveTranscriptPanel";
+import { useLiveTranscriptHost } from "./components/Terminal/useLiveTranscriptPanel";
 import { LocalRecordingCaptureStatus } from "./components/Terminal/voice/LocalRecordingCaptureStatus";
 import { LocalRecordingSetup } from "./components/Terminal/voice/LocalRecordingSetup";
 import { useLocalRecordingCapture } from "./components/Terminal/voice/useLocalRecordingCapture";
@@ -161,6 +163,7 @@ function AppInner() {
   });
   const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
   const backendState = useMuxSelector(selectWholeState, appShellStateEqual);
+  const transcriptOwner = useLiveTranscriptHost()?.ownerId;
   const { config, updateConfig, theme, loading: configLoading } = useConfig();
   const locked = firstRunLocked(configLoading ? undefined : config.general_agent);
   const state = firstRunSelection(locked, backendState);
@@ -1019,7 +1022,7 @@ function AppInner() {
                 // lazy — mount it on boot so its chat/SSE state is live.
                 const isMainTab =
                   ws.protected === true && tab.protected === true;
-                const shouldMountTab = isActiveTab || isMainTab || prewarmTabIds.has(tabId);
+                const shouldMountTab = isActiveTab || isMainTab || prewarmTabIds.has(tabId) || transcriptOwner === tabId;
                 if (!shouldMountTab) return null;
                 const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab && !workspaceCanvasVisible;
                 return (
@@ -1089,7 +1092,7 @@ export function App() {
     <MultiplexerProvider pairedCacheAccount={pairedCacheAccount}>
       <PageDataProvider>
       <UpdateProvider>
-        <UpdatePanelProvider><AppInner /></UpdatePanelProvider>
+        <UpdatePanelProvider><LiveTranscriptHost><AppInner /></LiveTranscriptHost></UpdatePanelProvider>
       </UpdateProvider>
       </PageDataProvider>
     </MultiplexerProvider>
