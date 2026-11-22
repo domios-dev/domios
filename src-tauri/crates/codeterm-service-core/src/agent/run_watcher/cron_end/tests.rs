@@ -28,6 +28,14 @@ fn oneshot_run_in(
     report_target: Option<&str>,
     store: impl FnOnce(&ServiceFixture) -> CronStore,
 ) -> OneshotRun {
+    oneshot_run_with_history(report_target, None, store)
+}
+
+fn oneshot_run_with_history(
+    report_target: Option<&str>,
+    max_history: Option<usize>,
+    store: impl FnOnce(&ServiceFixture) -> CronStore,
+) -> OneshotRun {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let cron: crate::CronState = Arc::new(Mutex::new(store(&fixture)));
@@ -54,7 +62,7 @@ fn oneshot_run_in(
         creator_tab_id: None,
         report_target_tab_id: report_target.map(str::to_string),
         enabled: Some(true),
-        max_history: None,
+        max_history,
         oneshot: Some(true),
         jitter_max_ms: Some(0),
         tz: None,
@@ -900,7 +908,7 @@ fn cron_uncaptured_allocation_acknowledgment_preserves_job_and_global_resource_b
             .reserve_cron_slot(&owner, &run.cron, &run.job_id, "future-after-ack")
             .is_err());
         let params: CronCreateParams = serde_json::from_value(serde_json::json!({
-            "name":"unrelated", "workspace_id":"workspace", "schedule":"in 1h", "task":"opaque", "jitter_max_ms":0,
+            "name":"unrelated", "workspace_id":"workspace", "schedule":"in 1h", "oneshot":true, "task":"opaque", "jitter_max_ms":0,
         })).unwrap();
         let unrelated = commit(&run.cron, |store| store.prepare_create(params.clone()))
             .unwrap()
@@ -971,7 +979,7 @@ fn cron_uncaptured_allocation_acknowledgment_preserves_job_and_global_resource_b
 #[test]
 fn max_history_zero_retired_oneshot_acknowledges_only_confirmed_cleanup_without_replay() {
     let opened = std::sync::OnceLock::new();
-    let run = oneshot_run_in(Some(REPORT_TAB), |fixture| {
+    let run = oneshot_run_with_history(Some(REPORT_TAB), Some(0), |fixture| {
         let root = fixture.temp.path().join("instance");
         crate::storage::test_support::seed_empty_root(&root);
         let storage =
@@ -987,12 +995,6 @@ fn max_history_zero_retired_oneshot_acknowledges_only_confirmed_cleanup_without_
         opened.set(storage).ok().unwrap();
         store
     });
-    let change: crate::cron::store::CronUpdateParams =
-        serde_json::from_value(serde_json::json!({"max_history":0})).unwrap();
-    commit(&run.cron, |store| {
-        store.prepare_update(&run.job_id, change.clone())
-    })
-    .unwrap();
     let journal = run
         .cron
         .lock()

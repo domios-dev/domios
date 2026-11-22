@@ -64,6 +64,16 @@ fn session_owned_access_loss_ends_visible_round_and_rearms_its_cron() {
     .unwrap();
     cron.lock().register_tab(&tab, &job_id, "access-loss-run");
     service
+        .run_watcher
+        .bind_cron_witness_for_test(
+            service,
+            "curator-visible-pty".into(),
+            tab.clone(),
+            job_id.clone(),
+            "access-loss-run".into(),
+        )
+        .unwrap();
+    service
         .plan_store
         .edit_plan_fixture(&id, NOW, |plan| {
             plan.control_loop.running = Some(codeterm_service_core::plan::CuratorRun {

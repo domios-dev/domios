@@ -133,11 +133,32 @@ fn process_split_contract_manual_and_scheduled_cron_publish_exact_internal_run()
             let tab_id = mux.create_tab(&workspace)?;
             spec.apply_pty_agent_identity(&mut mux, &tab_id, None);
             drop(mux);
-            reserve_fixture_cron(&svc, &cron, &spec, &tab_id, None)?;
+            let Some(linkage) = spec
+                .chatbackend_launch
+                .as_ref()
+                .and_then(|metadata| metadata.owner_linkage.as_ref())
+            else {
+                return Err("Fixture spawn lacks its production cron owner".into());
+            };
+            let nonce = svc.ensure_session_binding_nonce(&tab_id);
+            let original = svc
+                .run_watcher
+                .capture_cron_launch(&svc, linkage, &tab_id, &nonce, None)?;
+            let pty =
+                svc.link_hidden_agent_cron_pty_with_builder(&tab_id, Some(&original), |gate| {
+                    crate::pty::manager::build_session(
+                        gate,
+                        None,
+                        None,
+                        120,
+                        40,
+                        Default::default(),
+                    )
+                })?;
             Ok(crate::service::spawn::TabHandle {
                 command_submission: None,
                 tab_id,
-                pty_id: None,
+                pty_id: Some(pty),
                 workspace_id: workspace.clone(),
                 description: spec.description,
                 worker_id: None,

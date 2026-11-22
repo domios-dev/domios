@@ -198,7 +198,12 @@ pub(super) fn runtime_cancellation_wins_between_durable_tab_prepare_and_owner_ad
         .is_err());
     release.send(()).unwrap();
     assert!(admitting.join().unwrap().is_err());
-    ended.recv_timeout(Duration::from_secs(5)).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while svc.run_watcher.cron_job_finalizing(job_id) {
+        ended
+            .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+            .unwrap();
+    }
     assert!(!svc.run_watcher.cron_allocation_pending(job_id, &run));
     assert!(!svc.run_watcher.cron_job_finalizing(job_id));
     assert!(scene.cron.lock().get_tab_owner(&tab).is_none());
@@ -1030,7 +1035,7 @@ pub(super) fn runtime_cron_completion_materializes_bounded_nonrereadable_cache_e
             for _ in 0..24 {
                 deep = json!([deep]);
             }
-            let row: ChatMsg = serde_json::from_value(json!({"id":"recent-large", "type":"assistant", "content":"🙂".repeat(1024 * 1024), "tool_input":deep, "seq":194})).unwrap();
+            let row: ChatMsg = serde_json::from_value(json!({"id":"recent-large", "type":"assistant", "content":"🙂".repeat(1024 * 1024), "toolInput":deep, "seq":194})).unwrap();
             session.cache.lock().reconcile(row);
         }
         let before = session.cache.lock().retained();
@@ -1101,7 +1106,7 @@ pub(super) fn runtime_completion_projection_bounds_scalar_escaping_depth_and_utf
             value = json!([value]);
         }
         let row: ChatMsg = serde_json::from_value(
-            json!({"id":"recent", "type":"assistant", "content":content, "tool_input":value}),
+            json!({"id":"recent", "type":"assistant", "content":content, "toolInput":value}),
         )
         .unwrap();
         cache.reconcile(row);
