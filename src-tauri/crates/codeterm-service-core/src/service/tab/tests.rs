@@ -171,6 +171,67 @@ fn assert_opencode_identity(fixture: &ServiceFixture, tab_id: &str) {
         .is_some_and(|tab| tab.agent_type.as_deref() == Some("opencode")));
 }
 
+fn restored_provider_fixture(
+    provider_id: &str,
+) -> (
+    ServiceFixture,
+    String,
+    String,
+    LaunchAttempt,
+    ProviderTreeKey,
+) {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "restored-provider-tree-pty".to_string();
+    mux.link_pty(&tab_id, pty_id.clone());
+    {
+        let tab = mux.get_tab_mut(&tab_id).expect("seeded tab");
+        tab.agent_type = Some(provider_id.into());
+        tab.agent_session_id = Some("restored-provider-session".into());
+        tab.session_binding_nonce = Some("restored-provider-nonce".into());
+        tab.shell_integration_nonce = Some("restored-provider-shell".into());
+        tab.restored_from_snapshot = true;
+        tab.agent_booting = true;
+        tab.boot_stage = Some(codeterm_types::pty::BootStage::LaunchWritten);
+    }
+    let fixture = ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new(provider_id).with_launch_binary(provider_id),
+    ));
+    {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.clone()), built)
+            },
+        )
+    }
+    .expect("spawn the tab's PTY shell");
+    let attempt = LaunchAttempt {
+        tab_id: tab_id.clone(),
+        pty_id: pty_id.clone(),
+        binding_nonce: "restored-provider-nonce".into(),
+    };
+    launch_readiness::arm(attempt.clone());
+    let key = fixture
+        .service
+        .provider_tree_key_for_tab(&tab_id, &pty_id)
+        .expect("provider capability supplies the process name");
+    (fixture, tab_id, pty_id, attempt, key)
+}
+
+fn assert_provider_identity(fixture: &ServiceFixture, tab_id: &str, provider_id: &str) {
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .is_some_and(|tab| tab.agent_type.as_deref() == Some(provider_id)));
+}
+
 #[test]
 fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
     let (mut mux, orchestrator) = crate::multiplexer::state::MultiplexerState::new();
@@ -584,7 +645,7 @@ fn powershell_restore_prompt_cannot_settle_a_held_provider_write() {
     use std::sync::mpsc::{self, TryRecvError};
     use std::time::Duration;
 
-    let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
+    let (fixture, tab_id, pty_id, attempt, key) = restored_provider_fixture("fixture-provider");
     fixture
         .service
         .mux
@@ -627,10 +688,10 @@ fn powershell_restore_prompt_cannot_settle_a_held_provider_write() {
 
     fixture.service.process_pty_output(
         &pty_id,
-        b"\x1b]633;E;;restored-opencode-shell\x07\x1b]633;D\x07\x1b]633;A\x07",
+        b"\x1b]633;E;;restored-provider-shell\x07\x1b]633;D\x07\x1b]633;A\x07",
     );
     assert_eq!(written.try_recv(), Err(TryRecvError::Empty));
-    assert_opencode_identity(&fixture, &tab_id);
+    assert_provider_identity(&fixture, &tab_id, "fixture-provider");
     assert_eq!(
         LaunchAttempt::current(&fixture.service.mux, &tab_id, &pty_id),
         Some(attempt.clone())
@@ -646,16 +707,16 @@ fn powershell_restore_prompt_cannot_settle_a_held_provider_write() {
     for stale in ["", "opaque-provider-launch-prior"] {
         fixture.service.process_pty_output(
             &pty_id,
-            format!("\x1b]633;E;{stale};restored-opencode-shell\x07\x1b]633;D;7\x07").as_bytes(),
+            format!("\x1b]633;E;{stale};restored-provider-shell\x07\x1b]633;D;7\x07").as_bytes(),
         );
     }
     assert!(launch_readiness::take_published_failure(&attempt).is_none());
-    assert_opencode_identity(&fixture, &tab_id);
+    assert_provider_identity(&fixture, &tab_id, "fixture-provider");
 
     witnesses.script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
     fixture.service.process_pty_output(
         &pty_id,
-        format!("\x1b]633;E;{command};restored-opencode-shell\x07\x1b]633;D;0\x07").as_bytes(),
+        format!("\x1b]633;E;{command};restored-provider-shell\x07\x1b]633;D;0\x07").as_bytes(),
     );
     assert!(launch_readiness::take_published_failure(&attempt)
         .is_some_and(|reason| reason.contains("exit_code=0")));
@@ -713,13 +774,13 @@ fn live_authenticated_launch_releases_frame_wait_without_a_tui() {
     use crate::agent::provider::ProviderReadinessStrategy;
     use std::time::Duration;
 
-    let (fixture, tab_id, pty_id, attempt, _) = restored_opencode_fixture();
+    let (fixture, tab_id, pty_id, attempt, _) = restored_provider_fixture("fixture-provider");
     let strategy = ProviderReadinessStrategy::TuiFrame {
         timeout: Duration::ZERO,
     };
     assert!(!fixture.service.await_provider_readiness_on_screen(
         &attempt,
-        "opencode",
+        "fixture-provider",
         strategy.clone()
     ));
 
@@ -734,19 +795,21 @@ fn live_authenticated_launch_releases_frame_wait_without_a_tui() {
     stale.binding_nonce = "stale-boot-attempt".into();
     assert!(!fixture.service.await_provider_readiness_on_screen(
         &stale,
-        "opencode",
+        "fixture-provider",
         strategy.clone()
     ));
     assert!(fixture.service.await_provider_readiness_on_screen(
         &attempt,
-        "opencode",
+        "fixture-provider",
         strategy.clone()
     ));
 
     fixture.service.pty.lock().kill(&pty_id).unwrap();
-    assert!(!fixture
-        .service
-        .await_provider_readiness_on_screen(&attempt, "opencode", strategy));
+    assert!(!fixture.service.await_provider_readiness_on_screen(
+        &attempt,
+        "fixture-provider",
+        strategy
+    ));
     launch_readiness::retire_attempt(&attempt);
 }
 
