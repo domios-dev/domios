@@ -58,26 +58,10 @@ pub(super) fn dispatch_complete(
             data: None,
         })?;
     let after_response = completion.map(|completion| {
-        let svc = svc.clone();
         Box::new(move || {
-            let _ = svc.close_tab_with_reason(
-                &completion.tab_id,
-                codeterm_service_core::multiplexer::types::TabCloseReason::AgentRunEnded,
-            );
-            let svc = svc.clone();
-            std::thread::spawn(move || {
-                svc.cron_settle_run_end(
-                    &completion.cron,
-                    Some(&completion.wake),
-                    codeterm_service_core::service::cron::CronRunEnd {
-                        job_id: &completion.job_id,
-                        run_id: &completion.run_id,
-                        status: codeterm_service_core::cron::store::CronRunStatus::Success,
-                        summary: &completion.summary,
-                    },
-                );
-                svc.ui.emit("cron-run-finished", serde_json::Value::Null);
-            });
+            if let Err(error) = completion.finish() {
+                log::error!("Cron after-response cleanup retained: {error}");
+            }
         }) as PostResponseAction
     });
     Ok((serde_json::json!({"ok": true}), after_response))

@@ -29,6 +29,16 @@ state, frozen state and launch nonce must persist, with no PTY or provider trace
 for the session. They never count as restored-history passes. Unavailable history
 without captured failure state still refuses replay.
 
+A failed PTY launch has its own typed `failed_launch` transcript descriptor,
+matching the snapshot's `spawn_failed` stage and optional masked failure reason.
+It preserves the captured role, hierarchy, backing and exact optional identity.
+Replay reports `preserved-failed-launch` only when that evidence survives frozen,
+without a PTY, current binding proof, runtime activation or provider trace. This
+bucket proves preservation; it claims neither readiness nor restored history.
+Role-bearing failed leaves never use the utility or unavailable-runtime rules.
+Older captures missing this evidence still refuse replay; qualification requires
+a new candidate's truthful product export and restore path.
+
 Histories carry shape, never transcript bytes, so their export size follows the
 message count rather than history volume. The Plan store can still make a desk
 larger than 64 MiB. CLI export streams the authenticated HTTP response to a local

@@ -257,6 +257,8 @@ pub enum SecretError {
     BadRequest { message: String },
     /// Backend itself is unavailable — bw not on PATH, network down, etc.
     Backend { message: String },
+    /// A write may have mutated the remote vault, and readback could not confirm the result.
+    WriteUncertain { message: String },
 }
 
 impl fmt::Display for SecretError {
@@ -273,6 +275,9 @@ impl fmt::Display for SecretError {
             SecretError::AlreadyExists => write!(f, "secret store: already exists"),
             SecretError::BadRequest { message } => write!(f, "secret store: {}", message),
             SecretError::Backend { message } => write!(f, "secret store backend: {}", message),
+            SecretError::WriteUncertain { message } => {
+                write!(f, "secret store write uncertain: {}", message)
+            }
         }
     }
 }

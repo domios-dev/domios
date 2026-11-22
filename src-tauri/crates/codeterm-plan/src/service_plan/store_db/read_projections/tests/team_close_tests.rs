@@ -166,3 +166,139 @@ fn team_close_headers_and_selected_task_facts_share_one_snapshot() {
     }
     writer.join().unwrap();
 }
+
+#[test]
+fn team_close_projection_bounded_ignores_unrelated_plans_and_history_and_loads_open_attempts() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(directory.path());
+    let mut selected_task =
+        crate::service_plan::load_audit::task("task-open", TaskStatus::InProgress, Some("member"));
+    selected_task.name = "Active work".into();
+    selected_task.body = "b".repeat(16_384);
+    let local_open = crate::service_plan::load_audit::attempt("att-local", "member");
+    let mut remote_open = crate::service_plan::load_audit::attempt("att-remote", "remote-tab");
+    remote_open.remote_worktree_path = Some("/remote/worktree".into());
+    selected_task.execution_attempts.push(local_open);
+    selected_task.execution_attempts.push(remote_open);
+    for index in 0..256 {
+        let mut closed =
+            crate::service_plan::load_audit::attempt(&format!("closed-{index}"), "member");
+        closed.closed_at = Some(index as u64 + 1);
+        selected_task.execution_attempts.push(closed);
+    }
+    let mut tasks = vec![selected_task];
+    for index in 0..256 {
+        let mut done = crate::service_plan::load_audit::task(
+            &format!("done-{index}"),
+            TaskStatus::Done,
+            Some("member"),
+        );
+        done.body = "h".repeat(1024);
+        tasks.push(done);
+    }
+    let mut closing = crate::service_plan::load_audit::execution_plan(
+        directory.path(),
+        "Closing Plan Title",
+        "owner",
+        tasks,
+    );
+    closing.team_id = Some("closing".into());
+    let closing_id = crate::service_plan::load_audit::seed(&store, closing);
+
+    let unrelated_tasks = (0..128)
+        .map(|index| {
+            crate::service_plan::load_audit::task(
+                &format!("other-{index}"),
+                TaskStatus::InProgress,
+                Some("other-member"),
+            )
+        })
+        .collect();
+    let mut unrelated = crate::service_plan::load_audit::execution_plan(
+        directory.path(),
+        "Unrelated Plan",
+        "other-owner",
+        unrelated_tasks,
+    );
+    unrelated.team_id = Some("other-team".into());
+    let unrelated_id = crate::service_plan::load_audit::seed(&store, unrelated);
+
+    crate::service_plan::load_audit::start(&store);
+    take_metrics();
+    super::super::super::super::store_sync::take_decoded_row_bytes();
+    let rows = store
+        .team_close_projection_bounded("closing", &["member".into()], 32)
+        .unwrap();
+    let metrics = take_metrics();
+    let decoded = super::super::super::super::store_sync::take_decoded_row_bytes();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, closing_id);
+    assert_eq!(rows[0].title, "Closing Plan Title");
+    assert_eq!(rows[0].tasks.len(), 1);
+    assert_eq!(rows[0].tasks[0].id, "task-open");
+    assert_eq!(rows[0].tasks[0].open_attempts.len(), 2);
+    assert_eq!(rows[0].tasks[0].open_attempts[0].id, "att-local");
+    assert!(!rows[0].tasks[0].open_attempts[0].remote);
+    assert_eq!(rows[0].tasks[0].open_attempts[1].id, "att-remote");
+    assert!(rows[0].tasks[0].open_attempts[1].remote);
+    assert_eq!(metrics.queries, 3);
+    assert!(decoded < 8192);
+    crate::service_plan::load_audit::assert_never_loaded(&store, &[&closing_id, &unrelated_id]);
+}
+
+#[test]
+fn team_close_projection_bounded_refuses_atomically_when_selected_rows_exceed_cap() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(directory.path());
+    let tasks = (0..5)
+        .map(|index| {
+            let mut task = crate::service_plan::load_audit::task(
+                &format!("t-{index}"),
+                TaskStatus::InProgress,
+                Some("member"),
+            );
+            task.execution_attempts
+                .push(crate::service_plan::load_audit::attempt(
+                    &format!("a-{index}-1"),
+                    "member",
+                ));
+            task.execution_attempts
+                .push(crate::service_plan::load_audit::attempt(
+                    &format!("a-{index}-2"),
+                    "member",
+                ));
+            task
+        })
+        .collect();
+    let mut plan = crate::service_plan::load_audit::execution_plan(
+        directory.path(),
+        "Bounded Plan",
+        "owner",
+        tasks,
+    );
+    plan.team_id = Some("closing".into());
+    crate::service_plan::load_audit::seed(&store, plan);
+
+    for cap in [0, 4, 10, 15] {
+        assert!(
+            matches!(
+                store.team_close_projection_bounded("closing", &["member".into()], cap),
+                Err(crate::service_plan::TeamCloseProjectionError::TooLarge)
+            ),
+            "cap {cap} must refuse atomically"
+        );
+    }
+    let exact = store
+        .team_close_projection_bounded("closing", &["member".into()], 16)
+        .unwrap();
+    assert_eq!(exact.len(), 1);
+    assert_eq!(exact[0].tasks.len(), 5);
+    assert_eq!(
+        exact[0]
+            .tasks
+            .iter()
+            .map(|task| task.open_attempts.len())
+            .sum::<usize>(),
+        10
+    );
+}

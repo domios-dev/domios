@@ -54,22 +54,21 @@
   display: none;
 }
 
+.sidebar-remote-tab-icon {
+  position: relative;
+  display: inline-flex;
+}
+
+.sidebar-remote-tab-icon__badge {
+  display: inline-flex;
+  line-height: 1;
+  background: var(--ct-bg);
+  border-radius: 50%;
+}
+
 .sidebar-tab-end {
   align-self: flex-start;
   min-height: 1lh;
-}
-
-.sidebar-mesh-dot {
-  display: inline-flex;
-  width: 16px;
-  height: 16px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--ct-accent) 32%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--ct-accent) 12%, transparent);
-  color: color-mix(in srgb, var(--ct-accent) 85%, var(--ct-fg));
 }
 
 .sidebar-checklist-toggle {

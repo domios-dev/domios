@@ -1,7 +1,7 @@
 import { formatAttachmentMarker, parseMarker } from "@codeterm/chat-core";
 import { classifyTabTarget, type TabTarget } from "../../lib/remoteTabTransport";
 import { planComposerAttachments, type ComposerAttachmentPlan } from "./composerAttachmentPlan";
-import { replyMarker, withReplyMarker, type ComposerReply } from "./composerReply";
+import { inlineReplyText, replyMarker, withInlineReply, withReplyMarker, type ComposerReply } from "./composerReply";
 import {
   capsuleMarker,
   capsulesInDraft,
@@ -86,13 +86,17 @@ export async function composeAttachmentDraft(
   deps: AttachmentHandoffDeps,
   capsules: CapsuleRegistry = EMPTY_CAPSULES,
   reply: ComposerReply | null = null,
+  inlineReply = false,
 ): Promise<AttachmentDraft> {
   requireCapsulePaths(text, capsules);
   const target = attachmentHostTarget(tabId, deps.relayPeerId());
   const inline = capsulesInDraft(text, capsules);
   const markers = await resolveCapsuleMarkers(target, inline, deps);
   const typed = serializeCapsuleDraft(text, capsules, (capsule) => markers.get(capsule.label) ?? capsuleMarker(capsule));
-  const body = reply ? withReplyMarker(await resolveReplyMarker(target, reply, deps), typed) : typed;
+  const useInlineReply = Boolean(reply && (inlineReply || !reply.path));
+  const body = reply
+    ? (useInlineReply ? withInlineReply(inlineReplyText(reply), typed) : withReplyMarker(await resolveReplyMarker(target, reply, deps), typed))
+    : typed;
   const { parts, transcribeFailed } = await resolveAttachmentParts(
     target,
     planComposerAttachments(attachments, recordedVoiceAttachments),
@@ -100,7 +104,7 @@ export async function composeAttachmentDraft(
   );
   const pathLines = parts.join(" ");
   const composed = body && pathLines ? `${body} ${pathLines}` : body || pathLines;
-  const sourcePaths = [...attachments, ...inline.map((capsule) => capsule.path), ...(reply ? [reply.path] : [])];
+  const sourcePaths = [...attachments, ...inline.map((capsule) => capsule.path), ...(reply && !useInlineReply ? [reply.path] : [])];
   assertNoSourceAttachmentPaths(target, composed, sourcePaths, deps.quote);
   return { composed, transcribeFailed };
 }

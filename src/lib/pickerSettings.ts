@@ -8,9 +8,10 @@ export type HostApprovalsValue = "ask" | "allow_all";
 export interface PickerSection {
   id: string;
   label: string;
+  description?: string;
   category?: PickerCategory;
-  kind: "select";
-  options: readonly { value: string; label: string; disabled?: boolean }[];
+  kind: "select" | "boolean";
+  options: readonly { value: string; label: string; description?: string; group?: string; disabled?: boolean }[];
   current: string;
   applyTarget: PickerApplyTarget;
 }
@@ -114,9 +115,20 @@ export function pickerSections({ descriptor, controls, model, effort, runtimeMod
   const extras: PickerSection[] = [];
   for (const option of controls?.configOptions ?? []) {
     const category = option.category ? CATEGORIES.get(option.category) : undefined;
+    const isBoolean = option.kind === "boolean";
     const section: PickerSection = {
-      id: option.id, label: option.name, category, kind: "select", current: option.currentValue,
-      options: option.options.map(value => ({ value: value.value, label: value.name })),
+      id: option.id,
+      label: option.name,
+      ...(option.description ? { description: option.description } : {}),
+      category,
+      kind: isBoolean ? "boolean" : "select",
+      current: isBoolean ? (option.currentValue === "true" ? "true" : "false") : option.currentValue,
+      options: isBoolean ? [] : option.options.map(value => ({
+        value: value.value,
+        label: value.name,
+        ...(value.description ? { description: value.description } : {}),
+        ...(value.group ? { group: value.group } : {}),
+      })),
       applyTarget: { kind: "config", id: option.id },
     };
     if (category) {
@@ -171,6 +183,8 @@ export function pickerDescriptor(descriptor: ProviderDescriptor, sections: reado
     ? { ...descriptor, model_switch: "live" } : descriptor;
   return { ...descriptor, model_switch: "live", available_models: model.options.map(option => ({
     id: option.value, display_name: option.label,
+    ...(option.group ? { group: option.group } : {}),
+    ...(option.description ? { description: option.description } : {}),
     reasoning_efforts: effort?.options.map(value => ({ id: value.value, display_name: value.label })),
   })) };
 }

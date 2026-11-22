@@ -3,29 +3,29 @@ import type { ChatCardMenuItem, MessageMenuKind } from "./blocks/ChatBlockHost";
 
 /**
  * One menu per chat row. A tool card's own items (Copy output, Details, Open full screen…) and its message's
- * items (Copy, Ask about this, Select…) merge into one list. On desktop the message's side-dot menu shows it
+ * items (Reply, Copy, Select…) merge into one list. On desktop the message's side-dot menu shows it
  * and the card draws no ⋮. On a compact touch surface the card's ⋮ shows it and the row draws no dot.
  */
 
-type Group = "view" | "copy" | "ask" | "act";
+type Group = "reply" | "view" | "copy" | "ask" | "act";
 const GROUP: Record<MessageMenuKind, Group> = {
-  open: "view", copy: "copy", "copy-markdown": "copy", ask: "ask", details: "ask", select: "act", fork: "act", revert: "act", delete: "act",
+  reply: "reply", open: "view", copy: "copy", "copy-markdown": "copy", ask: "ask", details: "ask", select: "act", fork: "act", revert: "act", delete: "act",
 };
-const GROUPS: Group[] = ["view", "copy", "ask", "act"];
-const ORDER: MessageMenuKind[] = ["open", "copy", "copy-markdown", "ask", "details", "select", "fork", "revert", "delete"];
+const GROUPS: Group[] = ["reply", "view", "copy", "ask", "act"];
+const ORDER: MessageMenuKind[] = ["reply", "open", "copy", "copy-markdown", "ask", "details", "select", "fork", "revert", "delete"];
 
 export function messageMenuGroup(item: ChatCardMenuItem): Group {
   return item.kind ? GROUP[item.kind] : "copy";
 }
 
 /**
- * Merges a card's items into its message's items. The card's version wins where both offer the same action:
- * its output is the card's Copy, and its Ask carries the output. Items without a kind are the card's own
- * (Copy command, View changes…) and sit with the copy actions.
+ * Merges a card's items into its message's items. Reply stays first; the card's version wins where both offer
+ * the same kind (its output is the card's Copy). Items without a kind are the card's own (Copy command,
+ * View changes…) and sit with the copy actions.
  */
 export function mergeMessageMenu(message: readonly ChatCardMenuItem[], card: readonly ChatCardMenuItem[]): ChatCardMenuItem[] {
   const cardKinds = new Set(card.map((item) => item.kind).filter(Boolean));
-  const rank = (item: ChatCardMenuItem) => GROUPS.indexOf(messageMenuGroup(item)) * 100 + (item.kind ? ORDER.indexOf(item.kind) : 1.5);
+  const rank = (item: ChatCardMenuItem) => GROUPS.indexOf(messageMenuGroup(item)) * 100 + (item.kind ? ORDER.indexOf(item.kind) : ORDER.indexOf("copy") + 0.5);
   const merged = [
     ...card.map((item) => item.kind === "copy" ? { ...item, label: "Copy" } : item),
     ...message.filter((item) => !item.kind || !cardKinds.has(item.kind)),

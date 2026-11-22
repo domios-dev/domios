@@ -14,12 +14,43 @@ use windows as native;
 mod unix;
 #[cfg(unix)]
 use unix as native;
+#[cfg(windows)]
+mod background;
+#[cfg(any(windows, test))]
+mod orphans;
+mod os_background;
+#[cfg(any(windows, test))]
+mod selective;
+
+pub(in crate::service::agent_runtime) type NativeMember = native::Member;
+
+pub(in crate::service::agent_runtime) use os_background::{
+    format_os_process_id, parse_os_process_id, wait_for_any_exit, ExitWaitCancel, HostMcpFilter,
+    OsBackgroundSnapshot, SelectedBackgroundProcess,
+};
+
+/// The runtime process tree retained before a Stop, so tools it orphans can still be ended.
+pub(super) struct ToolTree {
+    #[cfg(windows)]
+    nodes: Vec<native::Descendant>,
+}
+
+#[cfg(windows)]
+pub(super) struct BackgroundTree {
+    tree: ToolTree,
+}
 
 pub(super) struct Member {
     pub pid: u32,
     argv: Vec<String>,
     cwd: Option<PathBuf>,
     native: native::Member,
+}
+
+impl Member {
+    pub(super) fn token(&self) -> u128 {
+        self.native.token()
+    }
 }
 
 #[cfg(test)]
@@ -87,42 +118,73 @@ impl Boundary {
 
     pub(super) fn observe(&self) -> Result<Vec<Member>, RuntimeFailure> {
         let mut members = self.snapshot()?;
-        let pids: Vec<_> = members
-            .iter()
-            .map(|member| sysinfo::Pid::from_u32(member.pid))
-            .collect();
-        let mut system = sysinfo::System::new();
-        system.refresh_processes_specifics(
-            sysinfo::ProcessesToUpdate::Some(&pids),
-            true,
-            sysinfo::ProcessRefreshKind::nothing()
-                .without_tasks()
-                .with_cmd(sysinfo::UpdateKind::Always)
-                .with_cwd(sysinfo::UpdateKind::Always),
-        );
+        let system = process_commands(members.iter().map(|member| member.pid));
         for member in &mut members {
-            if let Some(process) = system.process(sysinfo::Pid::from_u32(member.pid)) {
-                member.argv = process
-                    .cmd()
-                    .iter()
-                    .map(|arg| arg.to_str().map(str::to_owned))
-                    .collect::<Option<Vec<_>>>()
-                    .unwrap_or_default();
-                member.cwd = process.cwd().map(std::path::Path::to_path_buf);
-            }
+            (member.argv, member.cwd) = process_command(&system, member.pid).unwrap_or_default();
             member.native.validate_identity(self).map_err(failure)?;
         }
         Ok(members)
     }
 
     fn infrastructure(&self, member: &Member) -> bool {
-        member.pid == self.pid
-            || self
-                .infrastructure
-                .get(&member.pid)
-                .is_some_and(|original| {
-                    original.token() == member.native.token() && !original.exited().unwrap_or(true)
+        self.infrastructure_process(member.pid, &member.native)
+    }
+
+    fn infrastructure_process(&self, pid: u32, native: &native::Member) -> bool {
+        pid == self.pid
+            || self.infrastructure.get(&pid).is_some_and(|original| {
+                original.token() == native.token() && !original.exited().unwrap_or(true)
+            })
+    }
+
+    /// Retains the whole runtime process tree before a Stop, including tools outside the owned Job.
+    pub(super) fn capture_tools(&self) -> Result<ToolTree, RuntimeFailure> {
+        #[cfg(windows)]
+        let tree = ToolTree {
+            nodes: native::tree(self).map_err(failure)?,
+        };
+        // Unix has no parent-linked capture yet; a tool that leaves the owned group stays a known gap.
+        #[cfg(unix)]
+        let tree = ToolTree {};
+        Ok(tree)
+    }
+
+    /// Ends tool processes the Stop orphaned and confirms their exit; returns the reaped pids.
+    pub(super) fn reap_orphans(&self, tree: &ToolTree) -> Result<Vec<u32>, RuntimeFailure> {
+        #[cfg(windows)]
+        {
+            let nodes = tree
+                .nodes
+                .iter()
+                .map(|node| {
+                    Ok(orphans::Node {
+                        pid: node.pid,
+                        parent: node.parent,
+                        infrastructure: self.infrastructure_process(node.pid, &node.member),
+                        exited: node.member.exited()?,
+                    })
                 })
+                .collect::<Result<Vec<_>, String>>()
+                .map_err(failure)?;
+            let orphaned = orphans::orphaned(&nodes);
+            let selected = orphaned.iter().map(|&position| &tree.nodes[position]);
+            let late = native::descendants_of(selected.clone()).map_err(failure)?;
+            let reaped: std::collections::BTreeMap<u32, &native::Member> = orphaned
+                .iter()
+                .map(|&position| &tree.nodes[position])
+                .chain(&late)
+                .map(|node| (node.pid, &node.member))
+                .collect();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let survivors = terminate_retained(&reaped, deadline)?;
+            orphans::confirm_reaped(&survivors).map_err(failure)?;
+            Ok(reaped.into_keys().collect())
+        }
+        #[cfg(unix)]
+        {
+            let ToolTree {} = tree;
+            Ok(Vec::new())
+        }
     }
 
     pub(super) fn verify_interrupt(
@@ -252,19 +314,87 @@ impl Boundary {
     }
 }
 
+fn process_commands(pids: impl Iterator<Item = u32>) -> sysinfo::System {
+    let pids: Vec<_> = pids.map(sysinfo::Pid::from_u32).collect();
+    let mut system = sysinfo::System::new();
+    system.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::Some(&pids),
+        true,
+        sysinfo::ProcessRefreshKind::nothing()
+            .without_tasks()
+            .with_cmd(sysinfo::UpdateKind::Always)
+            .with_cwd(sysinfo::UpdateKind::Always),
+    );
+    system
+}
+
+fn process_command(system: &sysinfo::System, pid: u32) -> Option<(Vec<String>, Option<PathBuf>)> {
+    let process = system.process(sysinfo::Pid::from_u32(pid))?;
+    let argv = process
+        .cmd()
+        .iter()
+        .map(|arg| arg.to_str().map(str::to_owned))
+        .collect::<Option<Vec<_>>>()
+        .unwrap_or_default();
+    Some((argv, process.cwd().map(std::path::Path::to_path_buf)))
+}
+
+#[cfg(unix)]
+fn process_command_with_parent(
+    system: &sysinfo::System,
+    pid: u32,
+) -> Option<(Vec<String>, Option<PathBuf>, u32)> {
+    let process = system.process(sysinfo::Pid::from_u32(pid))?;
+    let (argv, cwd) = process_command(system, pid)?;
+    let parent = process.parent().map(sysinfo::Pid::as_u32).unwrap_or(0);
+    Some((argv, cwd, parent))
+}
+
+#[cfg(windows)]
+fn terminate_retained(
+    processes: &std::collections::BTreeMap<u32, &native::Member>,
+    deadline: Instant,
+) -> Result<Vec<u32>, RuntimeFailure> {
+    let errors: Vec<_> = processes
+        .values()
+        .filter_map(|member| member.terminate_retained().err())
+        .collect();
+    let survivors = processes
+        .iter()
+        .filter(|(_, member)| member.wait(deadline).is_err())
+        .map(|(pid, _)| *pid)
+        .collect();
+    if errors.is_empty() {
+        Ok(survivors)
+    } else {
+        Err(failure(errors.join(", ")))
+    }
+}
+
 fn retirement_confirmed(termination_requested: bool, all_observed_exited: bool) -> bool {
     termination_requested && all_observed_exited
 }
 
+fn strip_exe_suffix(name: &str) -> &str {
+    let Some(start) = name.len().checked_sub(4) else {
+        return name;
+    };
+    if name.is_char_boundary(start) && name[start..].eq_ignore_ascii_case(".exe") {
+        &name[..start]
+    } else {
+        name
+    }
+}
+
 fn executable(value: &str) -> String {
-    let name = value.rsplit(['/', '\\']).next().unwrap_or(value);
+    let name = strip_exe_suffix(value.rsplit(['/', '\\']).next().unwrap_or(value));
     #[cfg(windows)]
     {
-        name.trim_end_matches(".exe").to_lowercase()
+        name.to_lowercase()
     }
     #[cfg(not(windows))]
     {
-        name.to_string()
+        name.to_owned()
     }
 }
 
@@ -287,15 +417,27 @@ fn matches_command(member: &Member, process: &RuntimeBackgroundProcess) -> bool 
     )
 }
 
-fn normalized_path(path: &std::path::Path) -> String {
-    let Some(path) = path.to_str() else {
-        return String::new();
-    };
+#[cfg(windows)]
+fn normalized_windows_path(path: &str) -> String {
     let path = path.replace('\\', "/");
     path.strip_prefix("//?/")
         .unwrap_or(&path)
         .trim_end_matches('/')
         .to_string()
+}
+
+fn same_cwd(actual: &std::path::Path, expected: &std::path::Path) -> bool {
+    let (Some(actual), Some(expected)) = (actual.to_str(), expected.to_str()) else {
+        return false;
+    };
+    #[cfg(windows)]
+    {
+        normalized_windows_path(actual) == normalized_windows_path(expected)
+    }
+    #[cfg(not(windows))]
+    {
+        std::path::Path::new(actual) == std::path::Path::new(expected)
+    }
 }
 
 fn command_matches(
@@ -305,39 +447,32 @@ fn command_matches(
     expected_cwd: &std::path::Path,
     raw: &str,
 ) -> bool {
-    if cwd.to_str().is_none()
-        || expected_cwd.to_str().is_none()
-        || normalized_path(cwd) != normalized_path(expected_cwd)
-        || argv.is_empty()
-        || expected.is_empty()
-    {
+    if !same_cwd(cwd, expected_cwd) || argv.is_empty() || expected.is_empty() {
         return false;
     }
-    let program = if expected[0].contains(['/', '\\']) {
+    let program = if expected[0].contains('/') || (cfg!(windows) && expected[0].contains('\\')) {
         expected[0] == argv[0]
     } else {
         executable(&expected[0]) == executable(&argv[0])
     };
     let direct = program && expected[1..] == argv[1..];
-    let shell_name = executable(&argv[0]);
-    let switch = argv
-        .get(argv.len().saturating_sub(2))
-        .map(|value| value.to_ascii_lowercase());
+    direct || shell_command(argv).is_some_and(|command| command == raw)
+}
+
+fn shell_command(argv: &[String]) -> Option<&str> {
+    let shell_name = executable(argv.first()?).to_ascii_lowercase();
+    let switch = argv.get(argv.len().saturating_sub(2)).map(String::as_str);
     let command_switch = match shell_name.as_str() {
         "sh" | "bash" | "zsh" | "dash" => {
-            argv.len() == 3
-                && switch
-                    .as_deref()
-                    .is_some_and(|value| ["-c", "-lc", "-cl"].contains(&value))
+            argv.len() == 3 && switch.is_some_and(|value| ["-c", "-lc", "-cl"].contains(&value))
         }
-        "pwsh" | "powershell" => switch
-            .as_deref()
-            .is_some_and(|value| ["-command", "-c"].contains(&value)),
-        "cmd" => switch.as_deref() == Some("/c"),
+        "pwsh" | "powershell" => switch.is_some_and(|value| {
+            value.eq_ignore_ascii_case("-command") || value.eq_ignore_ascii_case("-c")
+        }),
+        "cmd" => switch.is_some_and(|value| value.eq_ignore_ascii_case("/c")),
         _ => false,
     };
-    let shell = command_switch && argv.last().map(String::as_str) == Some(raw);
-    direct || shell
+    command_switch.then_some(argv.last()?.as_str())
 }
 
 #[cfg(test)]

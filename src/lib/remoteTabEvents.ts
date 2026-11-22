@@ -3,6 +3,28 @@ import { createRemoteChannelRecovery, createSilenceDeadline, streamResponseFailu
 import { classifyTabTarget, onRemoteTransportCredentials, parseCompositeTabId, remoteTabTransportHttp, } from "./remoteTabTransport";
 import { publishRemoteTransportState } from "./remoteTabTransportState";
 let eventClient: TransportClient | undefined;
+export type RemoteTabEventSignal = "ready" | "resync" | "lost";
+const lifecycleListeners = new Map<string, Set<(signal: RemoteTabEventSignal) => void>>();
+
+export function onRemoteTabEventSignal(
+    event: string,
+    handler: (signal: RemoteTabEventSignal) => void,
+): () => void {
+    const listeners = lifecycleListeners.get(event) ?? new Set();
+    listeners.add(handler);
+    lifecycleListeners.set(event, listeners);
+    return () => {
+        listeners.delete(handler);
+        if (!listeners.size)
+            lifecycleListeners.delete(event);
+    };
+}
+
+function signalRemoteTabEvent(event: string, signal: RemoteTabEventSignal): void {
+    for (const handler of lifecycleListeners.get(event) ?? [])
+        handler(signal);
+}
+
 export function bindRemoteTabEventsTransport(client: TransportClient): void {
     eventClient = client;
     for (const record of subscriptions.values())
@@ -16,7 +38,7 @@ interface ChatCursor {
 const chatCursorAdvanced = (prev: ChatCursor | null, next: ChatCursor): boolean => prev === null || next.boot !== prev.boot || next.seq > prev.seq;
 interface SubscriptionRecord {
     event: string;
-    kind: "chat" | "resize-owner" | "state" | "runtime" | "preview";
+    kind: "chat" | "resize-owner" | "runtime" | "preview" | "provider-switch-status";
     ordinaryTabId: string;
     peerId: string;
     remoteTabId: string;
@@ -66,15 +88,29 @@ function connect(record: SubscriptionRecord): void {
             boot?: string;
             seq?: number;
         };
+        if (record.kind === "chat" && message.event_type === "overflow") {
+            const reset = message.data;
+            if (typeof reset?.boot === "string" && typeof reset.next_seq === "number") {
+                record.recovery.noteProgress(generation, { boot: reset.boot, seq: reset.next_seq - 1 });
+            }
+            signalRemoteTabEvent(record.event, "resync");
+            return;
+        }
         let progressed = true;
         if (message.boot && typeof message.seq === "number") {
+            const previous = record.recovery.currentCursor();
             progressed = record.recovery.noteProgress(generation, { boot: message.boot, seq: message.seq });
+            if (record.kind === "chat" && previous && previous.boot !== message.boot)
+                signalRemoteTabEvent(record.event, "resync");
         }
+        if (record.kind === "provider-switch-status" && message.event_type === "overflow")
+            signalRemoteTabEvent(record.event, "resync");
         if (progressed && message.data && message.event_type === `preview-index-state-${record.remoteTabId}`) {
             for (const handler of previewHandlers.get(record.ordinaryTabId) ?? []) handler({ payload: message.data });
         }
         if (progressed && message.data && record.kind === "chat"
-            && message.event_type === `tab-chat-msg-${record.remoteTabId}`) {
+            && message.event_type === `tab-chat-msg-${record.remoteTabId}`
+            && (message.data.tab_id == null || message.data.tab_id === record.remoteTabId)) {
             publishRemoteTransportState(record.ordinaryTabId, "chat", "available");
             record.handler({ payload: { ...message.data, tab_id: record.ordinaryTabId } });
         }
@@ -92,12 +128,18 @@ function connect(record: SubscriptionRecord): void {
             && message.event_type === "agent-runtime-state" && message.data.tab_id === record.remoteTabId) {
             record.handler({ payload: { ...message.data, tab_id: record.ordinaryTabId } });
         }
-        else if (progressed && record.kind === "state"
-            && (message.event_type === "mux-state-changed" || message.event_type === "tab-status-changed")) {
-            record.handler({ payload: { event_type: message.event_type, peer_id: record.peerId } });
+        else if (progressed && message.data && record.kind === "provider-switch-status"
+            && message.event_type === "provider-switch-status" && message.data.tab_id === record.remoteTabId) {
+            record.handler({ payload: { ...message.data, tab_id: record.ordinaryTabId } });
         }
     }, {
-        signal: controller.signal, raw: true, onStarting: () => deadline.clear(), onReady: () => deadline.arm(), onActivity: () => deadline.arm(),
+        signal: controller.signal, raw: true, onStarting: () => deadline.clear(), onReady: () => {
+            deadline.arm();
+            if (record.kind === "provider-switch-status")
+                signalRemoteTabEvent(record.event, "ready");
+            if (record.kind === "chat" && generation > 1)
+                signalRemoteTabEvent(record.event, "resync");
+        }, onActivity: () => deadline.arm(),
         onEnd(end) {
             const reason: StreamEndReason = end.reason === "http" ? streamResponseFailureReason(end.status ?? 500)
                 : end.reason === "eof" ? "eof" : "error";
@@ -108,6 +150,8 @@ function connect(record: SubscriptionRecord): void {
             const settled = record.settlements.get(generation);
             record.settlements.delete(generation);
             settled?.resolve();
+            if (ownsGeneration && !record.disposed && record.kind === "provider-switch-status")
+                signalRemoteTabEvent(record.event, "lost");
             if (controller.signal.aborted)
                 return;
             const decision = record.recovery.handleStreamEnd(generation, reason);
@@ -125,15 +169,14 @@ export function subscribeRemoteTabEvent<T>(event: string, handler: (value: {
     const runtimePrefix = "agent-runtime-state:";
     const chatPrefix = "tab-chat-msg-";
     const ownerPrefix = "pty-resize-owner-changed:";
-    const statePrefix = "peer-state-changed:";
     const previewPrefix = "preview-index-state-";
+    const providerSwitchPrefix = "provider-switch-status:";
     const kind = event.startsWith(runtimePrefix) ? "runtime" : event.startsWith(chatPrefix) ? "chat"
         : event.startsWith(previewPrefix) ? "preview" : event.startsWith(ownerPrefix) ? "resize-owner"
-            : event.startsWith(statePrefix) ? "state"
-                : null;
+            : event.startsWith(providerSwitchPrefix) ? "provider-switch-status" : null;
     if (!kind)
         return null;
-    const eventTarget = event.slice(kind === "runtime" ? runtimePrefix.length : kind === "chat" ? chatPrefix.length : kind === "preview" ? previewPrefix.length : kind === "state" ? statePrefix.length : ownerPrefix.length);
+    const eventTarget = event.slice(kind === "runtime" ? runtimePrefix.length : kind === "chat" ? chatPrefix.length : kind === "preview" ? previewPrefix.length : kind === "provider-switch-status" ? providerSwitchPrefix.length : ownerPrefix.length);
     if (classifyTabTarget(eventTarget).kind === "invalid-remote") {
         throw new Error(`Invalid remote tab id "${eventTarget}"; local event fallback is forbidden`);
     }
@@ -178,13 +221,10 @@ export function subscribeRemoteTabEvent<T>(event: string, handler: (value: {
             subscriptions.delete(event);
     };
 }
-onRemoteTransportCredentials(() => resumeRemoteTabEvents(true));
-export function resumeRemoteTabEvents(credentialsChanged = false): void {
+onRemoteTransportCredentials(() => resumeRemoteTabEvents());
+export function resumeRemoteTabEvents(): void {
     for (const record of subscriptions.values()) {
-        if (record.kind === "state" && !credentialsChanged && !record.recovery.isAwaitingSignal())
-            continue;
-        // Never supersede a connection still awaiting its first frame (the generation- churn race that blanked remote panes).
-        if (record.recovery.currentCursor() == null && !record.recovery.isAwaitingSignal())
+        if (!record.recovery.isAwaitingSignal())
             continue;
         record.recovery.signal();
         connect(record);

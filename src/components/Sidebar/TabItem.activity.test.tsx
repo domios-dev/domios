@@ -3,14 +3,56 @@ import { createRoot } from "react-dom/client";
 import { expect, it } from "vitest";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { AgentStateIndicator } from "../Terminal/AgentStateIndicator";
+import { RestoredShell } from "../Terminal/RestoredShell";
 import { TabRecoveryAction } from "../Terminal/TabRecoveryAction";
 import { StatusLineModelPicker } from "../Terminal/StatusLineModelPicker";
 import { runtimeStatusLineIdentity } from "../Terminal/statusLinePickerModel";
+import { useWakeOnOpen } from "../Terminal/useWakeOnOpen";
+import { ShellStatus } from "../shared/ShellStatus";
 import { tabActivity } from "../../lib/tabActivity";
 import type { ProviderDescriptor, Tab } from "../../lib/types";
 import { TabItem } from "./TabItem";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+it("opens a stopped restored shell with Rerun available and no launch failure status", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const calls: string[] = [];
+  __setInvokeForTest(async <T,>(command: string) => { calls.push(command); return {} as T; });
+  const tab: Tab = {
+    id: "stopped-restore", title: "Build", tab_type: "Terminal", pty_id: null, cwd: null,
+    backing: { kind: "pty" }, frozen: true,
+    close_restore: { command: "saved command", stopped: true, record_id: null, exact_session: false },
+  };
+  function OpenedShell() {
+    useWakeOnOpen(tab, true);
+    return <>
+      <TabItem tab={tab} hasAgent={false} status="Idle" index={0} isActive
+        onClick={() => undefined} onClose={() => undefined} canClose workspaceId="fixture" />
+      <ShellStatus tab={tab} />
+      <RestoredShell tab={tab} />
+    </>;
+  }
+  try {
+    await act(async () => root.render(<OpenedShell />));
+    expect(calls).not.toContain("wake_tab");
+    expect(host.querySelector('button[aria-label="Open tab shell, Build"]')).not.toBeNull();
+    expect(host.querySelector('[role="status"][aria-label^="shell, Build:"]')).not.toBeNull();
+    expect(host.querySelector('[title="Launch failed"], [aria-label*="launch failed" i]')).toBeNull();
+    expect(host.textContent).not.toContain("Launch failed");
+    const stopped = host.querySelector('[aria-label="Restored shell"]');
+    expect(stopped?.textContent).toContain("saved command");
+    const rerun = stopped?.querySelector<HTMLButtonElement>("button");
+    expect(rerun?.textContent).toBe("Rerun command");
+    expect(rerun?.disabled).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+  }
+});
 
 it.each(["Polish the sidebar", undefined])("temporarily shows compaction in the description slot (description: %s)", async normalDescription => {
   const host = document.createElement("div");
@@ -124,6 +166,93 @@ it.each([false,true,undefined])("names a runtime agent by its declared model, ne
     expect(status).not.toBeNull();
     expect(status?.textContent).toContain(identity);
     expect(status?.textContent).not.toContain("Unknown model");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+it("shows non-idle background activity while preserving idle turn state and clears when finished", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const base: Tab = {
+    id: "rt-bg",
+    title: "Pulse",
+    tab_type: "Terminal",
+    pty_id: null,
+    cwd: "/work",
+    agent_type: "fixture-runtime",
+    agent_session_id: "root-session",
+    session_binding_nonce: "nonce-1",
+    description: "Inspect background work",
+    backing: { kind: "chat_backend", plugin_id: "fixture-runtime", session_id: "root-session" },
+    boot_stage: "agent_ready",
+    agent_state: { state: "idle" },
+    agent_runtime_state: {
+      state: "loaded",
+      epoch: 1,
+      backgroundProcesses: {
+        rootThreadId: "root-session",
+        bindingNonce: "nonce-1",
+        epoch: 1,
+        processes: [{
+          threadId: "root-session",
+          processId: "os:5000:100",
+          itemId: "os-bg:5000:100",
+          command: "cargo nextest run",
+          cwd: "/work",
+          osPid: 5000,
+        }],
+      },
+    },
+  };
+  try {
+    await act(async () => root.render(<TabItem tab={base} hasAgent status="Idle" index={0} isActive={false}
+      onClick={() => undefined} onClose={() => undefined} canClose workspaceId="fixture" />));
+    const item = host.querySelector('[data-testid="tab-item"]');
+    expect(item?.getAttribute("data-tab-activity")).toBe("idle");
+    expect(item?.getAttribute("data-background-work")).toBe("true");
+    const indicator = host.querySelector('[data-testid="tab-background-activity"]');
+    expect(indicator?.getAttribute("aria-label")).toBe("Running background task");
+    expect(host.querySelector('[data-testid="tab-description-subtitle"]')?.textContent).toBe("Running background task");
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("Pulse tab status Running background task");
+
+    const twoTasks: Tab = {
+      ...base,
+      agent_runtime_state: {
+        ...base.agent_runtime_state!,
+        backgroundProcesses: {
+          ...base.agent_runtime_state!.backgroundProcesses!,
+          processes: [
+            ...base.agent_runtime_state!.backgroundProcesses!.processes,
+            {
+              threadId: "root-session",
+              processId: "os:5001:101",
+              itemId: "os-bg:5001:101",
+              command: "node watch.mjs",
+              cwd: "/work",
+              osPid: 5001,
+            },
+          ],
+        },
+      },
+    };
+    await act(async () => root.render(<TabItem tab={twoTasks} hasAgent status="Idle" index={0} isActive={false}
+      onClick={() => undefined} onClose={() => undefined} canClose workspaceId="fixture" />));
+    expect(host.querySelector('[data-testid="tab-background-activity"]')?.getAttribute("aria-label")).toBe("Running 2 background tasks");
+    expect(host.querySelector('[data-testid="tab-description-subtitle"]')?.textContent).toBe("Running 2 background tasks");
+
+    const cleared: Tab = {
+      ...base,
+      agent_runtime_state: { state: "loaded", epoch: 1 },
+    };
+    await act(async () => root.render(<TabItem tab={cleared} hasAgent status="Idle" index={0} isActive={false}
+      onClick={() => undefined} onClose={() => undefined} canClose workspaceId="fixture" />));
+    expect(host.querySelector('[data-testid="tab-background-activity"]')).toBeNull();
+    expect(host.querySelector('[data-testid="tab-item"]')?.getAttribute("data-background-work")).toBeNull();
+    expect(host.querySelector('[data-testid="tab-description-subtitle"]')?.textContent).toBe("Inspect background work");
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("Pulse tab status Idle");
   } finally {
     await act(async () => root.unmount());
     host.remove();

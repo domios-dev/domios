@@ -137,3 +137,58 @@ fn sacrificial_paste_space_does_not_change_command_identity() {
         Some(ExecCompletion::CommandFinished { exit_code: Some(0) })
     );
 }
+
+#[tokio::test]
+async fn shell_exit_during_daemon_shutdown_classifies_as_target_restarting() {
+    let pty = "exec-shutdown-exit";
+    let waiter = ExecWaiter::for_command(pty, "domios update install");
+    observe_command(pty, &start(Some("domios update install")));
+    publish_with_shutdown(
+        pty,
+        ExecCompletion::ShellExited { exit_code: Some(0) },
+        true,
+    );
+    assert!(waiter.terminated());
+    let completion = waiter.wait(Duration::ZERO).await;
+    assert_eq!(completion, Some(ExecCompletion::TargetRestarting));
+    assert_eq!(completion.unwrap().exit_code(), None);
+    assert_eq!(completion.unwrap().label(), "target_restarting");
+    assert_eq!(completion.unwrap().outcome(), "unknown");
+}
+
+#[tokio::test]
+async fn publish_target_restarting_wakes_only_owned_ptys_without_claiming_completion() {
+    let owned = "exec-restart-owned".to_string();
+    let other = "exec-restart-unrelated".to_string();
+    let owned_waiter = ExecWaiter::for_command(&owned, "target");
+    let mut other_waiter = ExecWaiter::for_command(&other, "target");
+    publish_target_restarting_for(&[owned]);
+    assert!(owned_waiter.terminated());
+    assert_eq!(
+        owned_waiter.wait(Duration::ZERO).await,
+        Some(ExecCompletion::TargetRestarting)
+    );
+    assert!(!other_waiter.terminated());
+    assert_eq!(other_waiter.try_completion(), None);
+}
+
+#[test]
+fn completion_outcomes_separate_confirmed_exit_codes_from_unknown() {
+    assert_eq!(
+        ExecCompletion::CommandFinished { exit_code: Some(0) }.outcome(),
+        "completed"
+    );
+    assert_eq!(
+        ExecCompletion::ShellExited { exit_code: Some(2) }.outcome(),
+        "completed"
+    );
+    assert_eq!(
+        ExecCompletion::CommandFinished { exit_code: None }.outcome(),
+        "unknown"
+    );
+    assert_eq!(
+        ExecCompletion::ShellExited { exit_code: None }.outcome(),
+        "unknown"
+    );
+    assert_eq!(ExecCompletion::TargetRestarting.outcome(), "unknown");
+}

@@ -153,6 +153,36 @@ fn endpoint_gossip_three_peers_converge_and_withdrawals_fence_old_records() {
     assert!(!b.mesh.lock().has_endpoint_record(&a.installation_id));
 }
 
+#[tokio::test]
+async fn endpoint_routing_caches_verified_records_and_rechecks_live_state() {
+    let clock = clock();
+    let (a, b) = (machine(1, &clock), machine(2, &clock));
+    enroll_all(&[&a, &b]);
+    a.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
+    b.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
+    let transport = Loopback::new(&[&a, &b]);
+    crate::account_mesh::link::link_installation_with(&a.mesh, &transport, &b.installation_id)
+        .await
+        .unwrap();
+    let signed = record(&b, 1);
+    a.authority.possession_checks.store(0, Ordering::SeqCst);
+    a.mesh.lock().receive_endpoint_record(signed).unwrap();
+    assert_eq!(a.authority.possession_checks.load(Ordering::SeqCst), 1);
+
+    a.authority.possession_checks.store(0, Ordering::SeqCst);
+    assert!(a.mesh.lock().client_for(&b.id()).is_some());
+    assert!(a.mesh.lock().has_endpoint_record(&b.installation_id));
+    assert!(a.mesh.lock().endpoint_target(&b.installation_id).is_some());
+    assert_eq!(a.mesh.lock().endpoint_records().len(), 1);
+    assert_eq!(a.authority.possession_checks.load(Ordering::SeqCst), 0);
+
+    a.mesh
+        .lock()
+        .bind_account_authority(FakeAuthority::new(&a.installation_id));
+    assert!(!a.mesh.lock().has_endpoint_record(&b.installation_id));
+    assert!(a.mesh.lock().endpoint_target(&b.installation_id).is_none());
+}
+
 #[test]
 fn endpoint_gossip_membership_revocation_and_key_changes_invalidate_cached_targets() {
     let clock = clock();

@@ -9,6 +9,17 @@
       "args": []
     },
     "launchProfiles": {
+      "antigravity": {
+        "binary": "agy",
+        "args": [
+          "acp"
+        ],
+        "icon": "antigravity-color.svg",
+        "limitsSource": {
+          "kind": "quota",
+          "reader": "statusline-quota"
+        }
+      },
       "deepseek-harness": {
         "binary": "npx",
         "args": [
@@ -31,34 +42,79 @@
           "credentialEnv": "DEEPSEEK_API_KEY"
         }
       },
-      "gemini-cli": {
-        "binary": "gemini",
+      "grok-build": {
+        "binary": "npx",
         "args": [
+          "@xai-official/grok@1.0.93",
+          "agent",
+          "stdio"
+        ],
+        "install": {
+          "package": "@xai-official/grok@1.0.93",
+          "registry": "https://registry.npmjs.org"
+        },
+        "icon": "grok-build.svg"
+      },
+      "github-copilot-cli": {
+        "binary": "npx",
+        "args": [
+          "@github/copilot@1.0.114",
           "--acp"
         ],
-        "env": {
-          "GEMINI_CLI_TRUST_WORKSPACE": "true"
+        "install": {
+          "package": "@github/copilot@1.0.114",
+          "registry": "https://registry.npmjs.org"
         },
-        "hostWorkingDirectory": true,
-        "authEnv": {
-          "GEMINI_API_KEY": {
-            "secret": "domios:provider:acp:gemini-api-key",
-            "methods": [
-              "gemini-api-key"
-            ]
-          }
+        "icon": "github-copilot-cli.svg"
+      },
+      "cline": {
+        "binary": "npx",
+        "args": [
+          "cline@3.0.75",
+          "--acp"
+        ],
+        "install": {
+          "package": "cline@3.0.75",
+          "registry": "https://registry.npmjs.org"
         },
-        "icon": "gemini-color.svg",
-        "fullAccessMode": "yolo",
-        "clientCapabilities": {
-          "fs": {
-            "readTextFile": false
-          }
+        "icon": "cline.svg"
+      },
+      "qwen-code": {
+        "binary": "npx",
+        "args": [
+          "@qwen-code/qwen-code@0.28.3",
+          "--acp",
+          "--experimental-skills"
+        ],
+        "install": {
+          "package": "@qwen-code/qwen-code@0.28.3",
+          "registry": "https://registry.npmjs.org"
         },
-        "limitsSource": {
-          "kind": "quota",
-          "reader": "gemini-code-assist"
-        }
+        "icon": "qwen-code.svg"
+      },
+      "kimi-code": {
+        "binary": "npx",
+        "args": [
+          "@moonshot-ai/kimi-code@2.7.2",
+          "acp"
+        ],
+        "install": {
+          "package": "@moonshot-ai/kimi-code@2.7.2",
+          "registry": "https://registry.npmjs.org"
+        },
+        "icon": "kimi-code.svg"
+      },
+      "kilo": {
+        "binary": "npx",
+        "args": [
+          "@kilocode/cli@7.8.32",
+          "acp"
+        ],
+        "install": {
+          "package": "@kilocode/cli@7.8.32",
+          "registry": "https://registry.npmjs.org"
+        },
+        "icon": "kilo.svg"
       },
       "local": {
         "binary": "local-acp-command",
@@ -106,6 +162,9 @@
         "session/set_model",
         "session/set_mode"
       ],
+      "forkThread": [
+        "session/fork"
+      ],
       "submitTurn": [
         "session/prompt",
         "_session/steering"
@@ -118,12 +177,15 @@
         "authenticate",
         "session/set_mode",
         "session/set_config_option",
-        "session/set_model"
+        "session/set_model",
+        "session/list",
+        "session/close"
       ],
       "answer": []
     },
     "notificationMethods": [
-      "session/update"
+      "session/update",
+      "_x.ai/session/update"
     ],
     "clientBridges": {
       "fsRead": true,
@@ -141,7 +203,8 @@
       "methods": [
         "session/new",
         "session/load",
-        "session/resume"
+        "session/resume",
+        "session/fork"
       ]
     }
   },
@@ -149,7 +212,7 @@
     "enabled": true,
     "spawnable": true,
     "sessionConfig": true,
-    "agentTasks": true
+    "agentTasks": false
   },
   "scenarios": [
     "cancel-mid-tool.json",
@@ -225,6 +288,7 @@
     "prompt-images-undeclared.json",
     "prompt-image-bytes-missing.json",
     "prompt-resource-refused.json",
-    "prompt-images-echo.json"
+    "prompt-images-echo.json",
+    "turn-usage-accounting.json"
   ]
 }

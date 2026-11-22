@@ -106,6 +106,7 @@ export interface DaemonApiConfig {
   host?: string | null;
   port?: number | null;
   token?: string | null;
+  peerId?: string;
 }
 
 /**
@@ -121,7 +122,11 @@ export function daemonAuthToken(_api?: DaemonApiConfig): string {
   return baseDaemonTransport().currentToken() ?? "";
 }
 
-export function daemonFetch(_api: DaemonApiConfig, path: string, init: RequestInit = {}): Promise<Response> {
+export function daemonFetch(api: DaemonApiConfig, path: string, init: RequestInit = {}): Promise<Response> {
+  if (api.peerId !== undefined) {
+    if (!api.peerId.trim()) return Promise.reject(new Error("An exact peer installation id is required"));
+    return daemonTransportForPeer(api.peerId).request!(path, init);
+  }
   return webFetch(path, init);
 }
 

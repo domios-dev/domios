@@ -1,6 +1,11 @@
 import type { PlanView as Plan } from "../Canvas/planProjection";
 export type { TeamTaskBucket } from "./teamTaskStatus";
-import { EMPTY_BUCKETS, deriveCardStatusCounts, deriveTeamTaskBuckets, type TeamTaskBucket } from "./teamTaskStatus";
+import {
+  EMPTY_BUCKETS,
+  resolveTeamPlanStatus,
+  type TeamPlanCountMeta,
+  type TeamTaskBucket,
+} from "./teamTaskStatus";
 import { createNoticePublisher } from "../../lib/notices";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { describeError } from "../../lib/describeError";
@@ -25,11 +30,12 @@ import { TeamStatusTally } from "./TeamStatusTally";
 import { LockBadge } from "../billing/LockBadge";
 import { openLockedPlans } from "../billing/freeLimitGate";
 import { lockedDimClass, lockedView } from "../billing/freeLimitModel";
-import type { PlanStatusCounts } from "../shared/PlanStatusBreakdown";
 import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDisclosureState";
 import { refusalText } from "../../lib/refusalText";
 import { useProviderModelUsage } from "../../hooks/useProviderModelUsage";
 import { formatModelUsage, hasModelUsage, usageForModel } from "../../lib/modelGroups";
+import { remoteTeamName } from "./remoteOwnership";
+import { TeamRunMachine } from "./RemoteTabPresentation";
 
 export interface SidebarTeamActions {
   /// `managerTabId` is null when the Team holds no member that can spawn. The
@@ -46,23 +52,31 @@ export interface SidebarTeamActions {
   onCloseTeam?: (teamId: string) => Promise<TeamCloseInventory>;
 }
 
-export function useTeamPlanMotion(buckets: TeamTaskBucket[]) {
+export function useTeamPlanMotion(buckets: TeamTaskBucket[], trackMotion = true) {
   const signature = buckets.map((bucket) => bucket.count).join(":");
   const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
   const complete = total > 0 && buckets.find((bucket) => bucket.key === "done")?.count === total;
-  const previous = useRef({ signature, complete, total });
+  const previous = useRef({ signature, complete, total, tracked: trackMotion });
   const [revision, setRevision] = useState(0);
   const [reacting, setReacting] = useState(false);
   const [completionSweep, setCompletionSweep] = useState(false);
 
   useEffect(() => {
+    if (!trackMotion) {
+      previous.current = { signature, complete, total, tracked: false };
+      return;
+    }
+    if (!previous.current.tracked) {
+      previous.current = { signature, complete, total, tracked: true };
+      return;
+    }
     if (signature === previous.current.signature) return;
     const shouldSweep = previous.current.total > 0 && !previous.current.complete && complete;
-    previous.current = { signature, complete, total };
+    previous.current = { signature, complete, total, tracked: true };
     setRevision((current) => current + 1);
     setReacting(true);
     setCompletionSweep(shouldSweep);
-  }, [complete, signature, total]);
+  }, [complete, signature, total, trackMotion]);
 
   const onAnimationEnd = useCallback((event: ReactAnimationEvent<HTMLElement>) => {
     if (
@@ -387,6 +401,8 @@ function TeamMenu({
 export interface TeamUnitProps {
   team: Team;
   plan: Plan | null;
+  planCountMeta?: TeamPlanCountMeta;
+  workspaceName?: string;
   tabs: Record<string, Tab>;
   managers: ReactNode;
   managerCount: number;
@@ -407,7 +423,7 @@ export interface TeamUnitProps {
   providers: ProviderDescriptor[];
   providersLoading?: boolean;
   onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
-  onOpenEffort: (target: TeamEffortTarget) => void;
+  onOpenEffort?: (target: TeamEffortTarget) => void;
   addableRoles?: readonly TeamMemberRole[];
   onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => void;
@@ -428,6 +444,8 @@ export interface TeamEffortTarget {
 export function TeamUnit({
   team,
   plan,
+  planCountMeta,
+  workspaceName,
   tabs,
   managers,
   managerCount,
@@ -457,7 +475,7 @@ export function TeamUnit({
 }: TeamUnitProps) {
   const lock = lockedView("teams", team);
   const onOpenEffort = (target: TeamEffortTarget) => {
-    if (!openLockedPlans(lock)) openEffort(target);
+    if (!openLockedPlans(lock)) openEffort?.(target);
   };
   const initialDisclosure = useMemo(() => loadTeamDisclosureState(team.id), [team.id]);
   const [expanded, setExpanded] = useState(initialDisclosure.expanded);
@@ -474,16 +492,15 @@ export function TeamUnit({
   const teamTabCount = managerCount + workerCount + agentCount + terminalCount;
   const teamAttention = expanded ? null
     : mergeGroupAttention([attention.managers, attention.workers, attention.agents, attention.utilities]);
-  const displayTitle = plan?.title.trim() || team.name?.trim() || "Team";
-  const buckets = useMemo(
-    () => (plan ? deriveTeamTaskBuckets(plan, tabs) : EMPTY_BUCKETS),
-    [plan, tabs],
+  const displayTitle = team.remote_peer_id
+    ? remoteTeamName(team.id, team.name, plan?.title, workspaceName) ?? "Remote workspace"
+    : plan?.title.trim() || team.name?.trim() || "Team";
+  const planStatus = useMemo(
+    () => resolveTeamPlanStatus(plan, tabs, planCountMeta),
+    [plan, tabs, planCountMeta],
   );
-  const statusCounts = useMemo<PlanStatusCounts>(
-    () => deriveCardStatusCounts(buckets),
-    [buckets],
-  );
-  const planMotion = useTeamPlanMotion(buckets);
+  const buckets = planStatus.state === "unavailable" ? EMPTY_BUCKETS : planStatus.buckets;
+  const planMotion = useTeamPlanMotion(buckets, planStatus.state === "verified");
 
   useEffect(() => setName(team.name?.trim() || "Team"), [team.name]);
 
@@ -581,11 +598,6 @@ export function TeamUnit({
         <span className="sidebar-team-title-row">
           <span data-testid="team-name" className={`sidebar-team-name ${lockedDimClass(lock)}`.trim()}>{displayTitle}</span>
           <LockBadge view={lock} />
-          {team.remote_peer_name && (
-            <span data-testid="team-remote-peer" className="sidebar-team-remote-peer text-[10px] text-[var(--ct-muted-fg)]">
-              @{team.remote_peer_name}
-            </span>
-          )}
           {closing && <span role="status" aria-label={`Closing ${displayTitle}`} aria-busy="true">Closing…</span>}
           {workingWorkerCount > 0 && (
             <span
@@ -597,16 +609,35 @@ export function TeamUnit({
           )}
         </span>
       )}
-      <TeamStatusTally
-        key={`tally-${planMotion.revision}`}
-        data-testid="team-status-tally"
-        data-team-card-region="status-tally"
-        data-team-card-hit-target="team-card-activation"
-        className={`sidebar-team-readout${planMotion.completionSweep ? " sidebar-plan-entry-count-completion" : ""}`}
-        counts={statusCounts}
-        tone="muted"
-        itemTestIdPrefix="team-status"
-      />
+      {planStatus.state === "unavailable" ? (
+        <span
+          data-testid="team-status-unavailable"
+          data-team-card-region="status-tally"
+          data-team-card-hit-target="team-card-activation"
+          data-status-state={planStatus.loading ? "loading" : "unavailable"}
+          role="status"
+          className="sidebar-team-readout"
+        >
+          {planStatus.totalTasks !== null && planStatus.totalTasks > 0
+            ? `${planStatus.totalTasks} ${planStatus.totalTasks === 1 ? "task" : "tasks"} · ${planStatus.loading ? "loading counts…" : "counts unavailable"}`
+            : planStatus.loading
+              ? "Loading plan…"
+              : "Plan counts unavailable"}
+        </span>
+      ) : (
+        <TeamStatusTally
+          key={`tally-${planMotion.revision}`}
+          data-testid="team-status-tally"
+          data-team-card-region="status-tally"
+          data-team-card-hit-target="team-card-activation"
+          data-status-state={planStatus.state === "verified" ? (planStatus.stale ? "stale" : "verified") : "absent"}
+          data-status-freshness={planStatus.state === "verified" && planStatus.stale ? "stale" : undefined}
+          className={`sidebar-team-readout${planMotion.completionSweep ? " sidebar-plan-entry-count-completion" : ""}`}
+          counts={planStatus.counts}
+          tone="muted"
+          itemTestIdPrefix="team-status"
+        />
+      )}
       {renameError && <div data-testid="team-rename-error"><InlineErrorNotice error={renameError} operation="updating this Team" blocking /></div>}
     </div>
   </>;
@@ -635,11 +666,12 @@ export function TeamUnit({
         className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}${planMotion.completionSweep ? " sidebar-plan-entry-completion" : ""}`}
         data-menu-dismissed={menuDismissed ? "true" : undefined}
         onClick={(event) => {
-          if (!editing && event.target instanceof Element && event.target.closest(".sidebar-team-title-block")) {
+          if (openEffort && !editing && event.target instanceof Element && event.target.closest(".sidebar-team-title-block")) {
             onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan?.id });
           }
         }}
       >
+        {team.remote_peer_id && <TeamRunMachine peerId={team.remote_peer_id} fallbackName={team.remote_peer_name} />}
         {!editing ? (
           <div
             data-testid="team-card-title-area"
@@ -650,6 +682,7 @@ export function TeamUnit({
             <button
               type="button"
               className="sidebar-team-status-trigger"
+              disabled={!openEffort}
               aria-label={`Open task status for ${displayTitle}`}
               onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan?.id })}
             >
@@ -672,7 +705,7 @@ export function TeamUnit({
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >
-            <button
+            {openEffort && <button
               type="button"
               data-testid="team-board-action"
               className="sidebar-team-board-action"
@@ -681,8 +714,8 @@ export function TeamUnit({
               onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan?.id, jump: { view: "board" } })}
             >
               <ClipboardList size={13} strokeWidth={1.6} aria-hidden="true" />
-            </button>
-            <TeamMenu
+            </button>}
+            {openEffort && <TeamMenu
               teamId={team.id}
               providers={providers}
               providersLoading={providersLoading}
@@ -697,7 +730,7 @@ export function TeamUnit({
               onAddMember={onAddMember}
               onCloseTeam={onCloseTeam ? () => onCloseTeam(team.id) : undefined}
               teamName={displayTitle}
-            />
+            />}
         </span>
       </div>
       {expanded && (

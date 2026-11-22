@@ -9,7 +9,7 @@ export async function prepareChatDelivery(tabId: string, send: DeliverySend, exp
   if (!draft) return send.content;
   try {
     const result = await composeAttachmentDraft(tabId, draft.text, draft.attachments,
-      draft.recordedVoiceAttachments, composerAttachmentHandoff, draft.capsules, draft.reply);
+      draft.recordedVoiceAttachments, composerAttachmentHandoff, draft.capsules, draft.reply, draft.inlineReply);
     if (result.transcribeFailed) throw new Error("Voice transcription failed");
     const expansion = await expand(result.composed);
     if (expansion.kind === "error") throw new Error(expansion.message);

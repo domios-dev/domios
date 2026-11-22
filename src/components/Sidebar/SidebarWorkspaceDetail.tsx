@@ -1,5 +1,5 @@
 import type { PlanView as Plan } from "../Canvas/planProjection";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import type { ProviderDescriptor, Tab, TabStatus, Team, Workspace } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { JobsTarget } from "../Jobs/JobsView";
@@ -9,6 +9,7 @@ import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import type { TabAttention } from "./tabAttention";
 import { tabsInWorkspace } from "./workspaceTabs";
 import { useAppearingTabs } from "./useAppearingTabs";
+import { SidebarWholeWorkspace } from "./sidebarMachineFilter";
 
 /** Sidebar-wide data every workspace detail reads; built once per sidebar render. */
 export interface SidebarWorkspaceDetailData {
@@ -45,7 +46,6 @@ export interface SidebarWorkspaceDetailActions {
   newTerminal: (workspaceId: string, shell?: string) => void;
   newSession: (workspaceId: string, cwd: string | null) => void;
   newAgent: (agentId: string, workspaceId: string, cwd: string | null) => void;
-  openRemoteTab: (workspaceId: string) => void;
   openMap?: (workspaceId: string) => void;
   openAutomation?: (workspaceId: string, target?: JobsTarget) => void;
   renamePlan?: (planId: string, title: string) => Promise<void>;
@@ -61,7 +61,6 @@ export function useWorkspaceTabActions(workspaceId: string, cwd: string | null, 
   const closeTab = useCallback((tabId: string) => actions.closeTab(workspaceId, tabId), [actions, workspaceId]);
   const renameTab = useCallback((tabId: string, title: string) => actions.renameTab(workspaceId, tabId, title), [actions, workspaceId]);
   const newSession = useCallback(() => actions.newSession(workspaceId, cwd), [actions, workspaceId, cwd]);
-  const openRemoteTab = useCallback(() => actions.openRemoteTab(workspaceId), [actions, workspaceId]);
   const { openAutomation, closeTeam } = actions;
   const openSentinelJob = useMemo(
     () => (openAutomation ? (target: JobsTarget) => openAutomation(workspaceId, target) : undefined),
@@ -71,22 +70,26 @@ export function useWorkspaceTabActions(workspaceId: string, cwd: string | null, 
     () => (closeTeam ? (teamId: string) => closeTeam(workspaceId, teamId) : undefined),
     [closeTeam, workspaceId],
   );
-  return { activate, activateTab, closeTab, renameTab, newSession, openRemoteTab, openSentinelJob, closeTeam: closeTeamInWorkspace };
+  return { activate, activateTab, closeTab, renameTab, newSession, openSentinelJob, closeTeam: closeTeamInWorkspace };
 }
 
 /** The selected workspace's header and tab tree. */
-export function SidebarWorkspaceDetail({ workspace, status, data, actions }: {
+export function SidebarWorkspaceDetail({ workspace, status, data, actions, observedContent, allowObservedWorkspaceClose }: {
   workspace: Workspace;
   status: TabStatus | null;
   data: SidebarWorkspaceDetailData;
   actions: SidebarWorkspaceDetailActions;
+  observedContent?: ReactNode;
+  allowObservedWorkspaceClose?: boolean;
 }) {
+  const readOnly = observedContent != null;
   const workspaceId = workspace.id;
+  const canCloseObservedWorkspace = Boolean(readOnly && allowObservedWorkspaceClose && !workspace.protected);
   const cwd = workspace.cwd ?? null;
-  const isActiveVisual = workspaceId === data.activeWorkspaceId && data.isWorkspaceMode;
+  const isActiveVisual = !readOnly && workspaceId === data.activeWorkspaceId && data.isWorkspaceMode;
   const sortedTabs = useMemo(() => tabsInWorkspace(workspace.tabs, data.tabs), [workspace.tabs, data.tabs]);
   const appearingTabIds = useAppearingTabs(workspace.tabs);
-  const { activate, activateTab, closeTab, renameTab, newSession, openRemoteTab, openSentinelJob, closeTeam } =
+  const { activate, activateTab, closeTab, renameTab, newSession, openSentinelJob, closeTeam } =
     useWorkspaceTabActions(workspaceId, cwd, actions);
   const { openMap, openAutomation } = actions;
   const openWorkspaceMap = useCallback(() => openMap?.(workspaceId), [openMap, workspaceId]);
@@ -98,17 +101,19 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions }: {
         workspace={workspace}
         isActive={isActiveVisual}
         isExpanded
-        onClick={activate}
+        onClick={readOnly ? () => undefined : activate}
         onToggleExpand={() => {}}
         onClose={() => actions.closeWorkspace(workspaceId)}
         onRename={(name) => actions.renameWorkspace(workspaceId, name)}
         onNewTerminal={(shell) => actions.newTerminal(workspaceId, shell)}
         onNewSession={newSession}
-        onOpenMap={openWorkspaceMap}
-        onOpenAutomation={openWorkspaceAutomation}
+        onOpenMap={readOnly ? undefined : openWorkspaceMap}
+        onOpenAutomation={readOnly ? undefined : openWorkspaceAutomation}
         newSessionDisabled={data.newSessionDisabled}
         onNewAgent={(agentId) => actions.newAgent(agentId, workspaceId, cwd)}
-        canClose={true}
+        canClose={!readOnly || canCloseObservedWorkspace}
+        allowReadOnlyClose={canCloseObservedWorkspace}
+        readOnly={readOnly}
         status={status}
         showDisclosure={false}
         detailHeader
@@ -116,7 +121,8 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions }: {
         countActiveJobs
         uiFontScale={data.uiFontScale}
       />
-      <SidebarWorkspaceTabs
+      <SidebarWholeWorkspace.Provider value>
+      {readOnly ? observedContent : <SidebarWorkspaceTabs
         workspace={workspace}
         activeTabId={data.activeTabIds[workspaceId] ?? null}
         sortedTabs={sortedTabs}
@@ -142,7 +148,6 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions }: {
         onCloseTab={closeTab}
         onRenameTab={renameTab}
         onNewSession={newSession}
-        onOpenRemoteTab={openRemoteTab}
         newSessionDisabled={data.newSessionDisabled}
         onRenameTeam={actions.renameTeam}
         onRenamePlan={actions.renamePlan}
@@ -150,7 +155,8 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions }: {
         closingTeamIds={data.closingTeamIds}
         onCloseTeam={closeTeam}
         onOpenSentinelJob={openSentinelJob}
-      />
+      />}
+      </SidebarWholeWorkspace.Provider>
     </div>
   );
 }

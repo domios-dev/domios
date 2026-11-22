@@ -1,6 +1,8 @@
+import { isConciergeTab } from "../../lib/tabInputPolicy";
 import type { PlanView as Plan } from "../Canvas/planProjection";
+import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
 import { countWorkingTabs } from "./tabStatuses";
-import { useMemo, type ReactNode } from "react";
+import { useContext, useMemo, type ReactNode } from "react";
 import { MonitorUp, Plus } from "lucide-react";
 import type {
   Tab,
@@ -11,6 +13,7 @@ import type {
 } from "../../lib/types";
 import { selectTeamStaffingManager, type TeamMemberRole } from "../../lib/teamActions";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
+import { usePlanProjectionStatusOptional } from "../Canvas/PlansProvider";
 import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
 import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
 import { SortableContext, SortableRow, verticalListSortingStrategy, TAB_PREFIX, TEAM_PREFIX } from "./sortable";
@@ -29,6 +32,7 @@ import { curatorTabAttention, groupAttention, tabAttention } from "./tabAttentio
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import { SidebarCronRow } from "./SidebarResourceRow";
 import { SidebarShellRow, SidebarOwnerTabRow, SidebarSortableBlock } from "./SidebarShellRow";
+import { matchesSidebarMachine, SidebarWholeTeam, SidebarWholeWorkspace, useSidebarMachineFilter, wholeSidebarTeam } from "./sidebarMachineFilter";
 import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
 import { AgentChecklistDisclosure, type ChecklistToggle } from "./AgentChecklist";
 import { showsChecklist } from "./agentChecklistModel";
@@ -44,8 +48,17 @@ import {
 } from "./workspaceTeamModel";
 export type { TeamTabMember } from "./workspaceTeamModel";
 
+import type { TeamPlanCountMeta } from "./teamTaskStatus";
+
 type TeamPlan = Plan & { team_id?: string | null };
 type TeamSection = { teamId: string; index: number };
+interface TeamPlanProjection {
+  plan: Plan;
+  indexOnly: boolean;
+  indexTaskCount: number | null;
+  indexOpenTaskCount: number | null;
+  indexUpdatedAt: number | null;
+}
 
 function indexedPlan(entry: PlanIndexEntry): Plan {
   return {
@@ -62,6 +75,18 @@ function indexedPlan(entry: PlanIndexEntry): Plan {
     loops: [],
     elements: [],
     tasks: [],
+    ...(entry.task_count === 0 ? {
+      task_counts: {
+        total: 0,
+        pending: 0,
+        in_progress: 0,
+        in_review: 0,
+        blocked: 0,
+        paused: 0,
+        done: 0,
+        cancelled: 0,
+      },
+    } : {}),
     canvas: { viewport: null },
     owner_history: [],
   };
@@ -70,21 +95,54 @@ function indexedPlan(entry: PlanIndexEntry): Plan {
 function newestActivePlansByTeam(
   plans: readonly TeamPlan[],
   planIndex: readonly PlanIndexEntry[],
-): Map<string, Plan> {
+): Map<string, TeamPlanProjection> {
   const fullById = new Map(plans.map((plan) => [plan.id, plan]));
-  const grouped = new Map<string, Plan>();
+  const grouped = new Map<string, TeamPlanProjection>();
   const indexedIds = new Set(planIndex.map((entry) => entry.plan_id));
-  const candidates = [
-    ...planIndex.map((entry) => fullById.get(entry.plan_id) ?? indexedPlan(entry)),
-    ...plans.filter((plan) => !indexedIds.has(plan.id)),
+  const candidates: TeamPlanProjection[] = [
+    ...planIndex.map((entry): TeamPlanProjection => {
+      const full = fullById.get(entry.plan_id);
+      if (!full) {
+        return {
+          plan: indexedPlan(entry),
+          indexOnly: true,
+          indexTaskCount: entry.task_count ?? null,
+          indexOpenTaskCount: entry.open_task_count ?? null,
+          indexUpdatedAt: entry.updated_at,
+        };
+      }
+      const preferIndexTitle = Boolean(entry.title.trim())
+        && (entry.updated_at >= (full.updated_at ?? 0) || !full.title.trim());
+      const mergedStatus = entry.updated_at > (full.updated_at ?? 0) ? entry.status : full.status;
+      const plan = preferIndexTitle || mergedStatus !== full.status
+        ? { ...full, title: preferIndexTitle ? entry.title : full.title, status: mergedStatus }
+        : full;
+      return {
+        plan,
+        indexOnly: false,
+        indexTaskCount: entry.task_count ?? null,
+        indexOpenTaskCount: entry.open_task_count ?? null,
+        indexUpdatedAt: entry.updated_at,
+      };
+    }),
+    ...plans
+      .filter((plan) => !indexedIds.has(plan.id))
+      .map((plan): TeamPlanProjection => ({
+        plan,
+        indexOnly: false,
+        indexTaskCount: null,
+        indexOpenTaskCount: null,
+        indexUpdatedAt: null,
+      })),
   ];
-  for (const plan of candidates) {
+  for (const candidate of candidates) {
+    const { plan } = candidate;
     if (!plan.team_id || plan.status !== "active") continue;
     const current = grouped.get(plan.team_id);
-    const currentUpdatedAt = current?.updated_at ?? current?.created_at ?? 0;
-    const updatedAt = plan.updated_at ?? plan.created_at ?? 0;
-    if (!current || updatedAt > currentUpdatedAt || (updatedAt === currentUpdatedAt && plan.id > current.id)) {
-      grouped.set(plan.team_id, plan);
+    const currentUpdatedAt = Math.max(current?.plan.updated_at ?? current?.plan.created_at ?? 0, current?.indexUpdatedAt ?? 0);
+    const updatedAt = Math.max(plan.updated_at ?? plan.created_at ?? 0, candidate.indexUpdatedAt ?? 0);
+    if (!current || updatedAt > currentUpdatedAt || (updatedAt === currentUpdatedAt && plan.id > current.plan.id)) {
+      grouped.set(plan.team_id, candidate);
     }
   }
   return grouped;
@@ -117,6 +175,7 @@ export interface SidebarWorkspaceTabsProps {
   onRenameTab: (tabId: string, title: string) => void;
   onNewSession?: () => void;
   onOpenRemoteTab?: () => void;
+  newGeneralSessionMenu?: ReactNode;
   newSessionDisabled?: boolean;
   onRenameTeam?: (teamId: string, name: string, managerTabId: string | null) => void | Promise<void>;
   onRenamePlan?: (planId: string, title: string) => Promise<void>;
@@ -130,6 +189,7 @@ export interface SidebarWorkspaceTabsProps {
   onCloseTeam?: (teamId: string) => void;
   closingTeamIds?: ReadonlySet<string>;
   onOpenSentinelJob?: (target: JobsTarget) => void;
+  observedRows?: ReactNode;
 }
 
 export function SidebarWorkspaceTabs({
@@ -159,6 +219,7 @@ export function SidebarWorkspaceTabs({
   onRenameTab,
   onNewSession,
   onOpenRemoteTab,
+  newGeneralSessionMenu,
   newSessionDisabled = false,
   onRenameTeam,
   onRenamePlan,
@@ -166,12 +227,15 @@ export function SidebarWorkspaceTabs({
   onCloseTeam,
   closingTeamIds,
   onOpenSentinelJob,
+  observedRows,
 }: SidebarWorkspaceTabsProps) {
+  const configuredFilter = useSidebarMachineFilter();
+  const filter = useContext(SidebarWholeWorkspace) ? "all" : configuredFilter;
   const { jobs: workspaceCrons, refresh: refreshCrons } = useWorkspaceCrons(ws.id);
   const conciergeIds = useNeighborGatewayIds();
   // A tab bound to a Neighbor lives under that Neighbor, wherever it was created.
   const sortedTabs = useMemo(
-    () => visibleWorkspaceTabs(allSortedTabs, tabs).filter((tab) => !conciergeIds.has(tab.id)),
+    () => visibleWorkspaceTabs(allSortedTabs, tabs).filter((tab) => !isConciergeTab(tab) && !conciergeIds.has(tab.id)),
     [allSortedTabs, tabs, conciergeIds],
   );
   const membersByTeam = useMemo(() => groupWorkspaceTeamMembers(sortedTabs), [sortedTabs]);
@@ -182,36 +246,52 @@ export function SidebarWorkspaceTabs({
     [sortedTabs, attachmentsByOwner],
   );
   const { attachedIds, looseTabs, looseChildIds } = dragModel;
+  const visibleTree = useMemo(() => {
+    if (filter === "all") return null;
+    const visible = new Set<string>();
+    for (const member of sortedTabs) {
+      if (!matchesSidebarMachine(filter, member.remote_peer_id)) continue;
+      let tab: Tab | undefined = member;
+      while (tab && !visible.has(tab.id)) {
+        visible.add(tab.id);
+        tab = tab.parent_tab_id ? tabs[tab.parent_tab_id] : undefined;
+      }
+    }
+    return visible;
+  }, [filter, sortedTabs, tabs]);
 
+  const { generals } = usePairedWorkspaceInventory();
   const remoteTeams = useMemo(() => {
     const map = new Map<string, Team>();
     for (const tab of sortedTabs) {
-      const identity = remoteTeamIdentity(tab);
+      const identity = remoteTeamIdentity(tab, generals);
       if (identity && !map.has(identity.id)) {
         map.set(identity.id, {
           id: identity.id,
-          name: identity.title,
+          name: identity.title ?? null,
           lifecycle: "active",
           created_at: 0,
           workspace_id: ws.id,
           remote_peer_name: identity.peerName,
+          remote_peer_id: tab.ownership?.peer_id,
         });
       }
     }
     return map;
-  }, [sortedTabs, ws.id]);
+  }, [sortedTabs, ws.id, generals]);
 
   const teamById = useMemo(
     () => new Map(teams.filter((team) => team.workspace_id === ws.id).map((team) => [team.id, team])),
     [teams, ws.id],
   );
+  const planProjectionStatus = usePlanProjectionStatusOptional();
   const plansByTeam = useMemo(
     () => newestActivePlansByTeam(plans as TeamPlan[], planIndex),
     [plans, planIndex],
   );
   const displayedAttention = useMemo(() => Object.fromEntries(sortedTabs.map(tab => {
     const attention = tabAttentionByTab?.[tab.id] ?? tabAttention(tab, tabStatuses[tab.id], []);
-    const loop = tab.team_id ? plansByTeam.get(tab.team_id)?.control_loop : undefined;
+    const loop = tab.team_id ? plansByTeam.get(tab.team_id)?.plan.control_loop : undefined;
     return [tab.id, tab.role_profile === "curator" ? curatorTabAttention(attention, loop) : attention];
   })), [sortedTabs, tabAttentionByTab, tabStatuses, plansByTeam]);
 
@@ -305,7 +385,7 @@ export function SidebarWorkspaceTabs({
       />
     );
     return (
-      <SidebarSortableBlock key={tab.id} tab={tab} group={group} groupKey={groupKey} pinnedIds={pinnedIds}
+      <SidebarSortableBlock key={tab.id} hidden={visibleTree !== null && !visibleTree.has(tab.id)} tab={tab} group={group} groupKey={groupKey} pinnedIds={pinnedIds}
         toWorkspaceOrder={toWorkspaceOrder} className="sidebar-tab-tree-row">
         <AgentChecklistDisclosure plans={plans} tabId={tab.id} title={tab.title}>
           {(toggle, detail) => <>{renderOwner(showsChecklist(tab) ? toggle : undefined)}{showsChecklist(tab) && detail}</>}
@@ -348,20 +428,55 @@ export function SidebarWorkspaceTabs({
       workspace_id: ws.id,
     };
     const managerTabId = selectTeamStaffingManager(managers.map((member) => member.tab));
-    const plan = plansByTeam.get(teamId) ?? null;
+    const planEntry = plansByTeam.get(teamId) ?? null;
+    const plan = planEntry?.plan ?? null;
+    const planCountMeta: TeamPlanCountMeta | undefined = team.remote_peer_id && !plan
+      ? { unavailable: true, loading: false }
+      : planEntry || planProjectionStatus
+      ? {
+          indexOnly: planEntry?.indexOnly ?? false,
+          indexTaskCount: planEntry?.indexTaskCount ?? null,
+          indexOpenTaskCount: planEntry?.indexOpenTaskCount ?? null,
+          indexUpdatedAt: planEntry?.indexUpdatedAt ?? null,
+          loading: Boolean(
+            planProjectionStatus && (
+              !planProjectionStatus.ready
+              || planProjectionStatus.indexLoading
+              || (planProjectionStatus.summariesActive && planProjectionStatus.summariesLoading)
+            ),
+          ),
+          unavailable: Boolean(
+            planProjectionStatus && (
+              !planProjectionStatus.ready
+              || Boolean(planProjectionStatus.indexError)
+              || (planProjectionStatus.summariesActive && Boolean(planProjectionStatus.summariesError))
+            ),
+          ),
+          stale: Boolean(
+            planProjectionStatus && (
+              planProjectionStatus.indexReconnecting
+              || (planProjectionStatus.summariesActive && planProjectionStatus.summariesReconnecting)
+            ),
+          ),
+        }
+      : undefined;
     const teamCrons = workspaceCrons.filter((job) => job.team_id === teamId);
 
     rows.push(
       <SortableRow
+        hidden={!wholeSidebarTeam(filter, membersByTeam.get(teamId) ?? members, ({ tab }) => tab.remote_peer_id).length}
         key={teamId}
         id={`${TEAM_PREFIX}${teamId}`}
         data={{ group: "tab", groupKey: ws.id, pinnedIds: pinnedLooseItems, toWorkspaceOrder: reorderUnits }}
       >
+      <SidebarWholeTeam.Provider value>
       <TeamJobsUnit
         sentinelScope={onOpenSentinelJob && teamById.has(teamId) ? { workspace_id: ws.id, team_id: teamId } : undefined}
         onOpenSentinel={onOpenSentinelJob ? (scenarioId) => onOpenSentinelJob({ teamId, scenarioId }) : undefined}
         team={team}
+        workspaceName={ws.name}
         plan={plan}
+        planCountMeta={planCountMeta}
         tabs={tabs}
         workingManagerCount={countWorkingTabs(managers.map((member) => member.tab), tabStatuses)}
         workingAgentCount={countWorkingTabs(agents.map((member) => member.tab), tabStatuses)}
@@ -421,6 +536,7 @@ export function SidebarWorkspaceTabs({
           utilities: sectionAttention(terminals),
         }}
       />
+      </SidebarWholeTeam.Provider>
       </SortableRow>,
     );
   }
@@ -429,8 +545,9 @@ export function SidebarWorkspaceTabs({
     <>
       <SortableContext items={unitItems} strategy={verticalListSortingStrategy}>
         {rows}
+        {observedRows}
       </SortableContext>
-      <div className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
+      <div hidden={typeof filter === "object"} className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
         {onNewSession && !ws.cwd_missing && <CursorTooltip
           active={newSessionDisabled}
           content="Finish Get started first"
@@ -455,11 +572,11 @@ export function SidebarWorkspaceTabs({
             <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
           </button>
         </CursorTooltip>}
-        {onOpenRemoteTab && (
-          <button type="button" onClick={onOpenRemoteTab} aria-label="Open remote Tab" title="Open remote Tab" className={`flex shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)] ${touchMode ? "h-11 w-11" : "h-6 w-6"}`}>
+        {newGeneralSessionMenu ?? (onOpenRemoteTab && (
+          <button type="button" onClick={onOpenRemoteTab} aria-label="New session on another machine" title="New session on another machine" className={`flex shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)] ${touchMode ? "h-11 w-11" : "h-6 w-6"}`}>
             <MonitorUp size={12} strokeWidth={1.5} />
           </button>
-        )}
+        ))}
       </div>
     </>
   );

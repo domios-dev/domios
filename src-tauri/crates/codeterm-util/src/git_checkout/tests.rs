@@ -83,8 +83,16 @@ fn git_checkout_paths_canonicalize_relative_common_directory() {
 #[test]
 fn git_checkout_command_uses_portable_flags() {
     let command = command(Path::new("repo"));
-    assert_eq!(
-        command.get_args().collect::<Vec<_>>(),
-        ["rev-parse", "--git-dir", "--git-common-dir"]
-    );
+    let expected = if cfg!(windows) {
+        vec![
+            "-c",
+            "core.longpaths=true",
+            "rev-parse",
+            "--git-dir",
+            "--git-common-dir",
+        ]
+    } else {
+        vec!["rev-parse", "--git-dir", "--git-common-dir"]
+    };
+    assert_eq!(command.get_args().collect::<Vec<_>>(), expected);
 }

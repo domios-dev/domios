@@ -42,3 +42,41 @@ fn identity_lookup_requires_exact_unambiguous_registry_evidence() {
         Some("https://example.org/b.svg")
     );
 }
+
+#[test]
+fn profile_icon_resolution_prefers_refreshed_registry_url_and_preserves_local_overrides() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("cache")).unwrap();
+    std::fs::write(
+        root.path().join("cache/registry-v1.json"),
+        r#"{"version":"1.0.0","agents":[{"id":"fixture","name":"Fixture","icon":"https://cdn.example.test/v2.svg"},{"id":"bad","name":"Bad","icon":"http://cdn.example.test/bad.svg"}]}"#,
+    )
+    .unwrap();
+
+    let registry_profile: RuntimeLaunchProfile = serde_json::from_value(serde_json::json!({
+        "binary":"fixture-bin","args":[],"ownerConfigured":true,
+        "registryId":"fixture","iconUrl":"https://cdn.example.test/v1.svg"
+    }))
+    .unwrap();
+    assert_eq!(
+        resolve_profile_icon_url(root.path(), &registry_profile).as_deref(),
+        Some("https://cdn.example.test/v2.svg")
+    );
+
+    let local_override: RuntimeLaunchProfile = serde_json::from_value(serde_json::json!({
+        "binary":"fixture-bin","args":[],"ownerConfigured":true,
+        "icon":"bundled-color.svg","registryId":"fixture","iconUrl":"https://cdn.example.test/v1.svg"
+    }))
+    .unwrap();
+    assert!(resolve_profile_icon_url(root.path(), &local_override).is_none());
+
+    let insecure_refresh: RuntimeLaunchProfile = serde_json::from_value(serde_json::json!({
+        "binary":"fixture-bin","args":[],"ownerConfigured":true,
+        "registryId":"bad","iconUrl":"https://cdn.example.test/safe-fallback.svg"
+    }))
+    .unwrap();
+    assert_eq!(
+        resolve_profile_icon_url(root.path(), &insecure_refresh).as_deref(),
+        Some("https://cdn.example.test/safe-fallback.svg")
+    );
+}

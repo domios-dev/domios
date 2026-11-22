@@ -59,6 +59,7 @@ export interface SidebarTabItemRowProps {
   attachmentToggle?: AttachmentToggle | null;
   checklistToggle?: ChecklistToggle | null;
   startedBy?: TabStartedBy | null;
+  readOnly?: boolean;
   onActivateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onRenameTab: (tabId: string, title: string) => void;
@@ -92,6 +93,7 @@ function tabItemState({
   attachmentToggle,
   checklistToggle,
   startedBy,
+  readOnly,
 }: SidebarTabItemRowProps): TabItemState {
   return {
     tab,
@@ -120,6 +122,7 @@ function tabItemState({
     attachmentToggle,
     checklistToggle,
     startedBy,
+    readOnly,
   };
 }
 

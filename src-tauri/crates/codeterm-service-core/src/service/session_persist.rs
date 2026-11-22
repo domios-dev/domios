@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::multiplexer::commands::MuxState;
-use crate::session::store::{SaveIntent, SaveOutcome};
+use crate::session::store::{LiveDeskProjection, SaveIntent, SaveOutcome};
 
 mod fixture_import;
 use fixture_import::FixtureOperation;
@@ -442,18 +442,24 @@ fn run_worker(
                     Ok(last_outcome.clone())
                 } else {
                     match &projected {
-                        Ok(Some(desk)) => {
-                            let mut desk = desk.clone();
+                        Ok(Some(projection)) => {
+                            let mut desk = projection.snapshot.clone();
                             desk.timestamp = 0;
-                            if !retry_after_error
+                            if !projection.has_omissions()
+                                && !retry_after_error
                                 && committed_desk.as_ref() == Some(&(latest.intent, desk))
                             {
                                 Ok(SaveOutcome::Saved)
                             } else {
-                                commit_request(context.as_ref(), &mut backend, latest)
+                                commit_request(
+                                    context.as_ref(),
+                                    &mut backend,
+                                    latest,
+                                    Some(projection),
+                                )
                             }
                         }
-                        Ok(None) => commit_request(context.as_ref(), &mut backend, latest),
+                        Ok(None) => commit_request(context.as_ref(), &mut backend, latest, None),
                         Err(error) => Err(error.clone()),
                     }
                 };
@@ -463,12 +469,15 @@ fn run_worker(
                         last_outcome = SaveOutcome::Saved;
                         last_error = None;
                         retry_after_error = false;
-                        if let Some(mut desk) =
-                            projected.as_ref().ok().and_then(|desk| desk.clone())
-                        {
-                            desk.timestamp = 0;
-                            committed_desk = Some((latest.intent, desk));
-                        }
+                        committed_desk = projected
+                            .ok()
+                            .flatten()
+                            .filter(|projection| !projection.has_omissions())
+                            .map(|projection| {
+                                let mut desk = projection.snapshot;
+                                desk.timestamp = 0;
+                                (latest.intent, desk)
+                            });
                     }
                     Ok(outcome @ SaveOutcome::RefusedReduction(_)) => {
                         last_outcome = outcome.clone();
@@ -577,11 +586,11 @@ fn defer_persist(deferred: &mut VecDeque<WorkerMessage>, mut request: PersistReq
 fn project_request_desk(
     backend: &PersistenceBackend,
     request: &PersistRequest,
-) -> Result<Option<codeterm_storage::DeskSnapshot>, String> {
+) -> Result<Option<LiveDeskProjection>, String> {
     let PersistenceBackend::Storage { .. } = backend else {
         return Ok(None);
     };
-    crate::session::store::project_snapshot(
+    crate::session::store::project_live_snapshot(
         &request.snapshot,
         desk_agent_session_identities(&request.snapshot),
     )
@@ -592,10 +601,12 @@ fn commit_request(
     context: Option<&PersistenceContext>,
     backend: &mut PersistenceBackend,
     request: &PersistRequest,
+    projected: Option<&LiveDeskProjection>,
 ) -> Result<SaveOutcome, String> {
     match backend {
         PersistenceBackend::Storage { adapter, revision } => {
-            commit_storage_snapshot(adapter, revision, request, context)
+            let projected = projected.ok_or("Storage desk projection is missing")?;
+            commit_storage_snapshot(adapter, revision, projected, request.intent, context)
         }
         PersistenceBackend::Pending => Err("Storage desk backend is not initialized".to_string()),
         PersistenceBackend::Unavailable(reason) => Err(reason.clone()),
@@ -664,18 +675,13 @@ fn merge_live_agent_identities(
 fn commit_storage_snapshot(
     adapter: &crate::session::store::StorageDeskAdapter,
     revision: &mut codeterm_storage::Revision,
-    request: &PersistRequest,
+    projected: &LiveDeskProjection,
+    intent: SaveIntent,
     context: Option<&PersistenceContext>,
 ) -> Result<SaveOutcome, String> {
-    let identities = desk_agent_session_identities(&request.snapshot);
     let mut rebases = 0;
     loop {
-        let completion = adapter.delta_snapshot(
-            &request.snapshot,
-            identities.clone(),
-            *revision,
-            request.intent,
-        )?;
+        let completion = adapter.commit_live_snapshot(projected, *revision, intent);
         match completion.wait(PERSISTENCE_DEADLINE) {
             Ok(committed) => {
                 *revision = committed.receipt.revision;

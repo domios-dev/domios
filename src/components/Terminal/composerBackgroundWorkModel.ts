@@ -4,15 +4,13 @@ import type { BackgroundProcessEntry } from "../../lib/backgroundProcesses";
 import type { ChildTranscriptAuthority } from "../../lib/childTranscript";
 import { activityLabel } from "../../../packages/plugin-sdk/src/activityLabel";
 
-export const LONG_RUNNING_WORK_MS = 15_000;
-
 export interface ComposerBackgroundWorkItem {
   id: string;
   kind: "agent" | "terminal" | "shell";
   name: string;
   threadId: string;
   transcriptThreadId?: string;
-  startedAtMs: number;
+  startedAtMs?: number;
   elapsed: string;
   prompt?: string;
   model?: string;
@@ -86,7 +84,7 @@ export function backgroundWorkElapsed(elapsedMs: number): string {
   return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
-function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: string, nowMs: number, minDurationMs: number, authority?: ChildTranscriptAuthority): ComposerBackgroundWorkItem[] {
+function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: string, nowMs: number, authority?: ChildTranscriptAuthority): ComposerBackgroundWorkItem[] {
   const latest = new Map<string, { item: ComposerBackgroundWorkItem; order: number }>();
   messages.forEach((message, order) => {
     if (message.timelineMarker?.kind === "context_compaction" && (!message.sourceSessionId || message.sourceSessionId === rootThreadId)) {
@@ -138,30 +136,29 @@ function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: str
   return [...latest.values()]
     .sort((a, b) => a.order - b.order)
     .map(({ item }) => item)
-    .filter((item) => (item.status === "started" || item.status === "running" || item.status === "unknown")
-      && nowMs - item.startedAtMs >= minDurationMs);
+    .filter((item) => item.status === "started" || item.status === "running" || item.status === "unknown");
 }
 
 export function composerBackgroundWorkItems(
   messages: readonly NormalizedChatMessage[],
   terminals: readonly BackgroundProcessEntry[],
   nowMs: number,
-  options: { minDurationMs?: number; subagentsVisible?: boolean; rootThreadId?: string; authority?: ChildTranscriptAuthority } = {},
+  options: { subagentsVisible?: boolean; rootThreadId?: string; authority?: ChildTranscriptAuthority } = {},
 ): ComposerBackgroundWorkItem[] {
-  const { minDurationMs = LONG_RUNNING_WORK_MS, subagentsVisible = false, rootThreadId } = options;
+  const { subagentsVisible = false, rootThreadId } = options;
   const messagesById = new Map(messages.map((message) => [message.id, message]));
   const uniqueTerminals = new Map(terminals.map(terminal => [JSON.stringify([terminal.threadId,terminal.processId]),terminal]));
-  const terminalItems = [...uniqueTerminals.values()].flatMap((terminal): ComposerBackgroundWorkItem[] => {
-    const sourceMessage = messagesById.get(terminal.itemId);
+  const terminalItems = [...uniqueTerminals.values()].map((terminal): ComposerBackgroundWorkItem => {
+    const message = messagesById.get(terminal.itemId);
+    const sourceMessage = !message?.sourceSessionId || message.sourceSessionId === terminal.threadId ? message : undefined;
     const startedAtMs = timestampMs(sourceMessage?.timestamp);
-    if (startedAtMs === undefined || nowMs - startedAtMs < minDurationMs) return [];
-    return [{
+    return {
       id: `terminal:${terminal.threadId}:${terminal.processId}`,
       kind: "terminal",
       name: backgroundCommandName(terminal.command),
       threadId: terminal.threadId,
       startedAtMs,
-      elapsed: backgroundWorkElapsed(nowMs - startedAtMs),
+      elapsed: startedAtMs === undefined ? "" : backgroundWorkElapsed(nowMs - startedAtMs),
       command: terminal.command,
       outputTail: messageOutput(sourceMessage),
       processId: terminal.processId,
@@ -169,10 +166,10 @@ export function composerBackgroundWorkItems(
       status: "running",
       cwd: terminal.cwd,
       osPid: terminal.osPid,
-    }];
+    };
   });
-  return [...terminalItems, ...(subagentsVisible && rootThreadId ? agentWork(messages, rootThreadId, nowMs, minDurationMs, options.authority) : [])]
-    .sort((a, b) => a.startedAtMs - b.startedAtMs);
+  return [...terminalItems, ...(subagentsVisible && rootThreadId ? agentWork(messages, rootThreadId, nowMs, options.authority) : [])]
+    .sort((a, b) => (a.startedAtMs ?? Infinity) - (b.startedAtMs ?? Infinity));
 }
 
 export function isRunningWork(item: ComposerBackgroundWorkItem): boolean {

@@ -1,6 +1,9 @@
 use ts_rs::{Config, TS};
 
 pub(super) fn export_api(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+    codeterm_types::dictation::DictationStart::export_all(config)?;
+    codeterm_types::dictation::DictationStartResult::export_all(config)?;
+    codeterm_types::dictation::DictationUpdate::export_all(config)?;
     codeterm_team_package::contracts::export_typescript(config)?;
     codeterm_usage::contract::UsageSnapshotRow::export_all(config)?;
     codeterm_wire::api_contracts::LocalPreviewFile::export_all(config)?;
@@ -32,6 +35,7 @@ pub(super) fn export_api(config: &Config) -> Result<(), Box<dyn std::error::Erro
     codeterm_types::agent::chat_types::RichMessage::export_all(config)?;
     codeterm_types::api_contracts::ChatStartResult::export_all(config)?;
     codeterm_types::api_contracts::ChatBackfillResult::export_all(config)?;
+    codeterm_types::workspace_close_preview::WorkspaceClosePreview::export_all(config)?;
     codeterm_wire::api_contracts::TabFailure::export_all(config)?;
     codeterm_wire::api_contracts::TeamCloseLaneRecord::export_all(config)?;
     codeterm_wire::api_contracts::TeamCloseInventory::export_all(config)?;
@@ -64,7 +68,6 @@ pub(super) fn export_api(config: &Config) -> Result<(), Box<dyn std::error::Erro
     codeterm_mesh::contract::inventory::InventoryProvenance::export_all(config)?;
     codeterm_worker_services::store::HealthSnapshot::export_all(config)?;
     codeterm_worker_services::store::Service::export_all(config)?;
-    codeterm_mesh::peer_services::PeerServicesView::export_all(config)?;
     codeterm_mesh::serve_setup::ServeResult::export_all(config)?;
     codeterm_mesh::contract::inventory::InventoryFreshness::export_all(config)?;
     codeterm_mesh::manager::ConnectionPhase::export_all(config)?;

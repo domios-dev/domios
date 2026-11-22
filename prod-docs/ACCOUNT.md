@@ -121,7 +121,7 @@ Standard envelope fields (separate from event properties):
 - **Resource:** `workspaces`, `teams`, `agent_tabs`, `mesh_machines`, `memory_items`, `neighbors`
 - **UpgradeSource:** `limit_dialog`, `account_settings`
 - **CheckoutOutcome:** `opened`, `returned`, `failed`
-- **SettingsSection:** `root`, `account`, `privacy`, `general`, `notifications`, `agents`, `secrets`, `jobs`, `logs`, `guide`, `about`, `agent_provider`
+- **SettingsSection:** `root`, `account`, `privacy`, `general`, `mesh`, `notifications`, `agents`, `secrets`, `jobs`, `logs`, `guide`, `about`, `agent_provider`
 - **ProviderChangeOutcome:** `applied`, `pending`
 - **ModelChangeMode:** `live`, `restart`, `next_turn`
 - **ModelChangeOutcome:** `observed`, `pending`
@@ -142,7 +142,8 @@ Local callers only.
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/account/status` | — | Account identity, effective provider and pending flag |
-| POST | `/api/account/login` | — | Browser sign-in; optional provider=google/facebook/email and mode=signin/signup query hints |
+| POST | `/api/account/login` | — | Start browser sign-in and return `202 {attempt_id}`; optional provider=google/facebook/email and mode=signin/signup query hints |
+| POST | `/api/account/login/{id}/cancel` | — | Cancel the exact pending browser sign-in attempt without signing out |
 | POST | `/api/account/login/paste` | — | Start browserless sign-in; returns `{login_id,url}` with no-store caching |
 | GET | `/api/account/login/paste` | — | Return the pending browserless login ID and URL without starting another flow |
 | PUT | `/api/account/login/paste` | `{login_id,url}` | Complete browserless sign-in from the whole redirected callback URL, retaining state and PKCE verifier validation; waits for settled sign-in status |
@@ -165,4 +166,6 @@ Authenticated server refusals with `UNAUTHENTICATED` and `details: {"reason":"se
 
 Headless sign-in: `domios account login --no-browser` prints an authorization URL. Open it on another machine, then paste the whole redirected callback URL into stdin; it must include both code and state. A failed loopback navigation still leaves that URL in the browser's address bar. Bare codes are refused. EOF on stdin leaves the flow pending in the daemon until its normal timeout. In a Domios tab, `domios account login --no-browser --code-from-pad callback.txt` completes that pending flow from the calling tab's pad without replacing its state/verifier. Keep callback values out of logs and shell history. The existing timeout and single-use checks apply.
 
-<!-- revision: 28 -->
+Browser sign-in progress and completion arrive through the `account-sign-in` event with `attempt_id`. Account status reports `pending` and `login_attempt_id`, so a reconnect can recover the current attempt.
+
+<!-- revision: 30 -->

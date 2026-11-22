@@ -51,6 +51,13 @@ impl ItemCache {
     pub fn retained(&self) -> (usize, usize) {
         (self.items.len(), self.cached_bytes)
     }
+    pub(crate) fn handoff_origin(
+        &self,
+    ) -> Option<crate::service::tab_chat::runtime_stored::handoff_origin::HandoffOrigin> {
+        self.items.iter().find_map(
+            crate::service::tab_chat::runtime_stored::handoff_origin::HandoffOrigin::recorded,
+        )
+    }
     fn row_bytes(row: &ChatMsg) -> usize {
         serde_json::to_vec(row).map_or(usize::MAX, |bytes| bytes.len())
     }
@@ -152,7 +159,17 @@ impl ItemCache {
             {
                 continue;
             }
-            if self.live_during_backfill.contains(&item.id) {
+            let provider_terminal_tool = item.kind == "tool_call"
+                && item.tool_completed_at_ms.is_some()
+                && item
+                    .tool_status
+                    .as_deref()
+                    .is_some_and(|status| status != "running")
+                && self.get(&item.id).is_some_and(|current| {
+                    current.tool_status.as_deref() == Some("interrupted")
+                        && current.tool_result.is_none()
+                });
+            if self.live_during_backfill.contains(&item.id) && !provider_terminal_tool {
                 continue;
             }
             item.runtime_source_item_id = None;
@@ -186,8 +203,20 @@ impl ItemCache {
         if self.backfill != HistoryBackfill::Complete {
             self.live_during_backfill.insert(item.id.clone());
         }
+        if item.timestamp.is_none() {
+            item.timestamp = self
+                .index(&item.id)
+                .and_then(|index| self.items[index].timestamp.clone());
+        }
         if let Some(status) = item.tool_status.as_deref() {
             let previous = self.index(&item.id).map(|index| &self.items[index]);
+            if let Some(previous) = previous
+                .filter(|previous| item.kind == "tool_call" && previous.tool_id == item.tool_id)
+            {
+                item.tool_kind = item.tool_kind.or_else(|| previous.tool_kind.clone());
+                item.tool_name = item.tool_name.or_else(|| previous.tool_name.clone());
+                item.tool_input = item.tool_input.or_else(|| previous.tool_input.clone());
+            }
             item.tool_started_at_ms = item
                 .tool_started_at_ms
                 .or_else(|| previous.and_then(|row| row.tool_started_at_ms))
@@ -240,6 +269,19 @@ impl ItemCache {
             .back()
             .map_or(0, |row| row.seq.saturating_add(1).max(0) as u64)
     }
+    pub fn patch_terminal_output(&mut self, terminal_id: &str, output: String) -> Option<ChatMsg> {
+        let index = self.items.iter().rposition(|row| {
+            row.kind == "tool_call"
+                && row.tool_status.as_deref() == Some("running")
+                && row.tool_background_task_id.as_deref() == Some(terminal_id)
+        })?;
+        if self.items[index].tool_result.as_deref() == Some(output.as_str()) {
+            return None;
+        }
+        let mut updated = self.items[index].clone();
+        updated.tool_result = Some(output);
+        Some(self.reconcile(updated))
+    }
     pub fn restore_transcript(&mut self, rows: Vec<ChatMsg>) {
         for row in rows {
             if self.positions.contains_key(&row.id) {
@@ -255,6 +297,46 @@ impl ItemCache {
             }
         }
     }
+    /// Completion evidence borrows a bounded recent window; it never clones transcript rows.
+    pub(crate) fn terminal_evidence(&self) -> (String, bool) {
+        use serde::Serialize;
+        if self.items.len() <= TERMINAL_ROWS {
+            let mut budget = TerminalBudget {
+                scalars: TERMINAL_BYTES,
+                nodes: TERMINAL_BYTES,
+                depth: 0,
+            };
+            if self.items.serialize(&mut budget).is_ok() {
+                let mut output = TerminalWriter(Vec::new());
+                if serde_json::to_writer(&mut output, &self.items).is_ok() {
+                    return (String::from_utf8(output.0).expect("JSON is UTF8"), true);
+                }
+            }
+        }
+        let mut remaining = TERMINAL_BYTES - PARTIAL_TERMINAL.len();
+        let mut pieces = Vec::new();
+        for row in self.items.iter().rev().take(TERMINAL_ROWS) {
+            if remaining <= 1 {
+                break;
+            }
+            let take = remaining.saturating_sub(1).min(row.content.len());
+            let mut start = row.content.len() - take;
+            while !row.content.is_char_boundary(start) {
+                start += 1;
+            }
+            let part = &row.content[start..];
+            remaining -= part.len() + 1;
+            pieces.push(part);
+        }
+        let mut output = String::with_capacity(TERMINAL_BYTES);
+        output.push_str(PARTIAL_TERMINAL);
+        for part in pieces.into_iter().rev() {
+            output.push_str(part);
+            output.push('\n');
+        }
+        (output, false)
+    }
+
     pub fn snapshot(&self) -> Vec<ChatMsg> {
         self.items.iter().cloned().collect()
     }
@@ -300,3 +382,246 @@ impl ItemCache {
             .collect()
     }
 }
+
+const TERMINAL_ROWS: usize = 32;
+const TERMINAL_BYTES: usize = 8 * 1024;
+const TERMINAL_DEPTH: usize = 8;
+const PARTIAL_TERMINAL: &str = "PARTIAL recent content projection; metadata omitted; full transcript bytecount/digest unavailable\n";
+
+struct TerminalWriter(Vec<u8>);
+impl std::io::Write for TerminalWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if bytes.len() > TERMINAL_BYTES.saturating_sub(self.0.len()) {
+            return Err(std::io::Error::other("terminal evidence byte cap"));
+        }
+        self.0.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+// Admission only: reject large scalars/containers before the JSON escaper can traverse them.
+struct TerminalBudget {
+    scalars: usize,
+    nodes: usize,
+    depth: usize,
+}
+struct TerminalFields<'a>(&'a mut TerminalBudget);
+impl TerminalFields<'_> {
+    fn visit<T: ?Sized + serde::Serialize>(&mut self, value: &T) -> Result<(), serde_json::Error> {
+        value.serialize(&mut *self.0)
+    }
+}
+fn terminal_limit() -> serde_json::Error {
+    <serde_json::Error as serde::ser::Error>::custom("terminal evidence traversal cap")
+}
+impl TerminalBudget {
+    fn node(&mut self) -> Result<(), serde_json::Error> {
+        self.nodes = self.nodes.checked_sub(1).ok_or_else(terminal_limit)?;
+        Ok(())
+    }
+    fn scalar(&mut self, bytes: usize) -> Result<(), serde_json::Error> {
+        self.scalars = self.scalars.checked_sub(bytes).ok_or_else(terminal_limit)?;
+        self.node()
+    }
+    fn fields(&mut self) -> Result<TerminalFields<'_>, serde_json::Error> {
+        self.node()?;
+        if self.depth >= TERMINAL_DEPTH {
+            return Err(terminal_limit());
+        }
+        self.depth += 1;
+        Ok(TerminalFields(self))
+    }
+}
+impl Drop for TerminalFields<'_> {
+    fn drop(&mut self) {
+        self.0.depth -= 1;
+    }
+}
+
+macro_rules! terminal_primitive {
+    ($($method:ident: $kind:ty),* $(,)?) => { $(fn $method(self, _: $kind) -> Result<(), Self::Error> { self.node() })* };
+}
+impl<'a> serde::Serializer for &'a mut TerminalBudget {
+    type Ok = ();
+    type Error = serde_json::Error;
+    type SerializeSeq = TerminalFields<'a>;
+    type SerializeTuple = TerminalFields<'a>;
+    type SerializeTupleStruct = TerminalFields<'a>;
+    type SerializeTupleVariant = TerminalFields<'a>;
+    type SerializeMap = TerminalFields<'a>;
+    type SerializeStruct = TerminalFields<'a>;
+    type SerializeStructVariant = TerminalFields<'a>;
+    terminal_primitive!(serialize_bool:bool, serialize_i8:i8, serialize_i16:i16, serialize_i32:i32, serialize_i64:i64, serialize_i128:i128,
+        serialize_u8:u8, serialize_u16:u16, serialize_u32:u32, serialize_u64:u64, serialize_u128:u128, serialize_f32:f32, serialize_f64:f64, serialize_char:char);
+    fn serialize_str(self, value: &str) -> Result<(), Self::Error> {
+        self.scalar(value.len())?;
+        let escaped_extra: usize = value
+            .bytes()
+            .map(|byte| match byte {
+                b'"' | b'\\' | b'\x08' | b'\x0c' | b'\n' | b'\r' | b'\t' => 1,
+                0x00..=0x1f => 5,
+                _ => 0,
+            })
+            .sum();
+        if escaped_extra > 0 {
+            self.scalars = self
+                .scalars
+                .checked_sub(escaped_extra)
+                .ok_or_else(terminal_limit)?;
+        }
+        Ok(())
+    }
+    fn serialize_bytes(self, value: &[u8]) -> Result<(), Self::Error> {
+        self.scalar(value.len())
+    }
+    fn serialize_none(self) -> Result<(), Self::Error> {
+        self.node()
+    }
+    fn serialize_some<T: ?Sized + serde::Serialize>(self, value: &T) -> Result<(), Self::Error> {
+        self.node()?;
+        value.serialize(self)
+    }
+    fn serialize_unit(self) -> Result<(), Self::Error> {
+        self.node()
+    }
+    fn serialize_unit_struct(self, _: &'static str) -> Result<(), Self::Error> {
+        self.node()
+    }
+    fn serialize_unit_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        variant: &'static str,
+    ) -> Result<(), Self::Error> {
+        self.scalar(variant.len())
+    }
+    fn serialize_newtype_struct<T: ?Sized + serde::Serialize>(
+        self,
+        _: &'static str,
+        value: &T,
+    ) -> Result<(), Self::Error> {
+        let mut fields = self.fields()?;
+        fields.visit(value)
+    }
+    fn serialize_newtype_variant<T: ?Sized + serde::Serialize>(
+        self,
+        _: &'static str,
+        _: u32,
+        variant: &'static str,
+        value: &T,
+    ) -> Result<(), Self::Error> {
+        self.scalar(variant.len())?;
+        let mut fields = self.fields()?;
+        fields.visit(value)
+    }
+    fn serialize_seq(self, _: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+        self.fields()
+    }
+    fn serialize_tuple(self, _: usize) -> Result<Self::SerializeTuple, Self::Error> {
+        self.fields()
+    }
+    fn serialize_tuple_struct(
+        self,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeTupleStruct, Self::Error> {
+        self.fields()
+    }
+    fn serialize_tuple_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        variant: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeTupleVariant, Self::Error> {
+        self.scalar(variant.len())?;
+        self.fields()
+    }
+    fn serialize_map(self, _: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+        self.fields()
+    }
+    fn serialize_struct(
+        self,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeStruct, Self::Error> {
+        self.fields()
+    }
+    fn serialize_struct_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        variant: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeStructVariant, Self::Error> {
+        self.scalar(variant.len())?;
+        self.fields()
+    }
+    fn collect_str<T: ?Sized + std::fmt::Display>(self, _: &T) -> Result<(), Self::Error> {
+        Err(terminal_limit())
+    }
+}
+macro_rules! terminal_sequence {
+    ($trait:ident, $method:ident) => {
+        impl serde::ser::$trait for TerminalFields<'_> {
+            type Ok = ();
+            type Error = serde_json::Error;
+            fn $method<T: ?Sized + serde::Serialize>(
+                &mut self,
+                value: &T,
+            ) -> Result<(), Self::Error> {
+                value.serialize(&mut *self.0)
+            }
+            fn end(self) -> Result<(), Self::Error> {
+                Ok(())
+            }
+        }
+    };
+}
+terminal_sequence!(SerializeSeq, serialize_element);
+terminal_sequence!(SerializeTuple, serialize_element);
+terminal_sequence!(SerializeTupleStruct, serialize_field);
+terminal_sequence!(SerializeTupleVariant, serialize_field);
+impl serde::ser::SerializeMap for TerminalFields<'_> {
+    type Ok = ();
+    type Error = serde_json::Error;
+    fn serialize_key<T: ?Sized + serde::Serialize>(
+        &mut self,
+        value: &T,
+    ) -> Result<(), Self::Error> {
+        value.serialize(&mut *self.0)
+    }
+    fn serialize_value<T: ?Sized + serde::Serialize>(
+        &mut self,
+        value: &T,
+    ) -> Result<(), Self::Error> {
+        value.serialize(&mut *self.0)
+    }
+    fn end(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+macro_rules! terminal_struct {
+    ($trait:ident) => {
+        impl serde::ser::$trait for TerminalFields<'_> {
+            type Ok = ();
+            type Error = serde_json::Error;
+            fn serialize_field<T: ?Sized + serde::Serialize>(
+                &mut self,
+                key: &'static str,
+                value: &T,
+            ) -> Result<(), Self::Error> {
+                self.0.scalar(key.len())?;
+                value.serialize(&mut *self.0)
+            }
+            fn end(self) -> Result<(), Self::Error> {
+                Ok(())
+            }
+        }
+    };
+}
+terminal_struct!(SerializeStruct);
+terminal_struct!(SerializeStructVariant);

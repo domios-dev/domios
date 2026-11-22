@@ -229,6 +229,8 @@ pub trait PluginHostCtx: Send + Sync {
     fn local_recording_enabled_json(&self, _plugin_id: &str, _enabled: bool) -> String {
         r#"{"error":"local_recording_unavailable"}"#.into()
     }
+
+    fn local_recording_plugin_registered(&self, _plugin_id: &str) {}
 }
 
 const RECEIVER_TARGET_UNAVAILABLE: &str = r#"{"error":"receiver_target_unavailable"}"#;

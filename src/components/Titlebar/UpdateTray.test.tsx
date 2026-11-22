@@ -13,12 +13,17 @@ const fake = vi.hoisted(() => ({
   native: {
     phase: "idle" as "idle" | "checking" | "downloading" | "applying" | "success" | "error",
     installing: false,
+    error: null as string | null,
     downloadedBytes: 0,
     downloadTotalBytes: null as number | null,
   },
 }));
 vi.mock("../../lib/updateAvailability", () => ({ checkUpdateAvailability: fake.check }));
-vi.mock("../../hooks/useUpdate", () => ({ useUpdate: () => ({ ...fake.native, error: null, applyUpdate: fake.install, captureFailureBoundary: () => ({ frontendRevision: 0, nativeRevision: null }) }) }));
+vi.mock("../../hooks/useUpdate", () => ({ useUpdate: () => ({
+  ...fake.native, blocking: fake.native.phase === "applying" || fake.native.phase === "success",
+  status: fake.native.phase === "success" ? "restarting" : fake.native.phase,
+  applyUpdate: fake.install, captureFailureBoundary: () => ({ frontendRevision: 0, nativeRevision: null }),
+}) }));
 vi.mock("../../lib/pluginSnapshotStore", () => ({ runPluginSnapshotAction: fake.plugin, ensurePluginSnapshot: async () => ({}), usePluginSnapshotStore: () => ({ snapshot: { plugins: [], marketplace: [] } }) }));
 vi.mock("../../lib/frontendUpdate/browser", () => ({
   acceptFrontendUpdate: fake.accept, setFrontendUpdateHeld: fake.hold,
@@ -34,6 +39,7 @@ vi.mock("../../lib/bridge", () => ({ listen: async (_event: string, handler: typ
 import { UpdatePanelProvider } from "../../hooks/useUpdatePanel";
 import { UpdateTray } from "./UpdateTray";
 import { UpdatePanel } from "../UpdatePanel";
+import { UpdateProgressLayer } from "../UpdateProgressLayer";
 import { classifyUpdateStatus } from "../../lib/updateStatusModel";
 
 const testActions = { upsertToast: vi.fn() } as unknown as MultiplexerActionsContextType;
@@ -54,6 +60,7 @@ afterEach(() => {
   fake.summary = null;
   fake.native.phase = "idle";
   fake.native.installing = false;
+  fake.native.error = null;
   fake.native.downloadedBytes = 0;
   fake.native.downloadTotalBytes = null;
   vi.clearAllMocks();
@@ -199,6 +206,50 @@ it("announces native app phases and shows determinate progress only for known va
     await render();
     expect(trigger.getAttribute("aria-description")).toContain("restart");
     expect(trigger.querySelector('[role="progressbar"]')).toBeNull();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it.each([false, true])("shows the native refusal after applying when the Updates tray was dismissed (%s)", async dismissed => {
+  fake.check.mockResolvedValue(snapshot);
+  fake.install.mockResolvedValue({ status: "updating" });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const render = () => act(async () => root.render(<UpdatePanelProvider>
+    <MultiplexerActionsContext.Provider value={testActions}>
+      <UpdateTray />
+      <UpdateProgressLayer />
+    </MultiplexerActionsContext.Provider>
+  </UpdatePanelProvider>));
+  const dialog = () => document.querySelector('[role="dialog"][aria-label="Updates"]');
+  try {
+    await render();
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
+    await act(async () => trigger.click());
+    await act(async () => dialog()!.querySelector<HTMLButtonElement>('button[aria-label="Update Domios"]')!.click());
+    expect(fake.install).toHaveBeenCalledOnce();
+    if (dismissed) await act(async () => trigger.click());
+
+    Object.assign(fake.native, { phase: "applying", installing: true });
+    await render();
+    const overlay = host.querySelector('[data-testid="update-screen"]')!;
+    await act(async () => overlay.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    expect(Boolean(dialog())).toBe(!dismissed);
+
+    Object.assign(fake.native, {
+      phase: "error", installing: false,
+      error: 'Update blocked by busy tabs: Build in Project\n[update-blocking-tabs][{"tab_id":"tab-1","title":"Build","workspace":"Project","command":"Waiting for the agent to become idle"}]',
+    });
+    await render();
+    expect(host.querySelector('[data-testid="update-screen"]')).toBeNull();
+    expect(dialog()?.querySelector('[role="alert"]')?.textContent).toContain("Update blocked by busy tabs");
+    const blocker = dialog()?.querySelector('[aria-label="Tabs blocking the update"]');
+    expect(blocker?.textContent).toContain("Build");
+    expect(blocker?.textContent).toContain("Project");
+    expect(blocker?.textContent).toContain("Waiting for the agent to become idle");
+
+    await act(async () => trigger.click());
+    await render();
+    expect(dialog()).toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 

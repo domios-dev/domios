@@ -11,12 +11,16 @@ export type RuntimeFrame = import("./gen/RuntimeFrame").RuntimeFrame;
 export type RuntimeServiceTier = OptionalWireFields<import("./gen/RuntimeServiceTier").RuntimeServiceTier, "unavailableReason">;
 export type RuntimeServiceTierSelection = import("./gen/RuntimeServiceTierSelection").RuntimeServiceTierSelection;
 export type RuntimeCommand = OptionalWireFields<import("./gen/RuntimeCommand").RuntimeCommand, "argumentHint">;
-export type RuntimeConfigOption = Omit<import("./gen/RuntimeConfigOption").RuntimeConfigOption, "options"> & {options: Readonly<import("./gen/RuntimeConfigOption").RuntimeConfigOption["options"]>};
+export type RuntimeConfigOptionKind = import("./gen/RuntimeConfigOptionKind").RuntimeConfigOptionKind;
+export type RuntimeConfigValue = import("./gen/RuntimeConfigValue").RuntimeConfigValue;
+export type RuntimeConfigOption = Omit<import("./gen/RuntimeConfigOption").RuntimeConfigOption, "options"> & {options: readonly RuntimeConfigValue[]};
 export type RuntimeAuthentication = Omit<import("./gen/RuntimeAuthentication").RuntimeAuthentication, "methods"> & {methods: Readonly<import("./gen/RuntimeAuthentication").RuntimeAuthentication["methods"]>};
 export type RuntimeSettings = Omit<{[K in keyof import("./gen/RuntimeSettings").RuntimeSettings]?: Readonly<import("./gen/RuntimeSettings").RuntimeSettings[K]>}, "configOptions"> & {configOptions?: readonly RuntimeConfigOption[]};
 export type TurnInput = Omit<import("./gen/TurnInput").TurnInput, "attachments"> & {attachments: Readonly<import("./gen/TurnInput").TurnInput["attachments"]>};
 export type PromptAnswer = import("./gen/PromptAnswer").PromptAnswer;
-export type PendingPrompt = Omit<OptionalWireFields<import("./gen/PendingPrompt").PendingPrompt, "sections" | "multi_select" | "submit_available" | "selected_values">, "options" | "sections" | "selected_values"> & {options: Readonly<import("./gen/PendingPrompt").PendingPrompt["options"]>; sections?: Readonly<import("./gen/PendingPrompt").PendingPrompt["sections"]>; selected_values?: Readonly<import("./gen/PendingPrompt").PendingPrompt["selected_values"]>};
+export type PendingPrompt = Omit<OptionalWireFields<import("./gen/PendingPrompt").PendingPrompt, "sections" | "multi_select" | "submit_available" | "selected_values">, "options" | "sections" | "selected_values"> & {options: Readonly<import("./gen/PendingPrompt").PendingPrompt["options"]>; sections?: Readonly<import("./gen/PendingPrompt").PendingPrompt["sections"]>; selected_values?: Readonly<import("./gen/PendingPrompt").PendingPrompt["selected_values"]>; file_diffs?: readonly JsonValue[]; elicitation?: JsonValue};
+export type RuntimeSessionCapabilities = OptionalWireFields<import("./gen/RuntimeSessionCapabilities").RuntimeSessionCapabilities, "fork" | "list" | "close">;
+export type RuntimeListedSession = import("./gen/RuntimeListedSession").RuntimeListedSession;
 /** What an agent permission request would do; the host answers it from the tab's launch policy. */
 export type RuntimePermissionAction = import("./gen/RuntimePermissionAction").RuntimePermissionAction;
 export type RuntimePermissionDecision = import("./gen/RuntimePermissionDecision").RuntimePermissionDecision;
@@ -26,9 +30,13 @@ export type OpenItem = import("./gen/OpenItem").OpenItem;
 export type RuntimeFailureCode = import("./gen/RuntimeFailureCode").RuntimeFailureCode;
 export type RuntimeFailure = import("./gen/RuntimeFailure").RuntimeFailure;
 export type RuntimeClientBridges = import("./gen/RuntimeClientBridges").RuntimeClientBridges;
-export type RuntimeHostMcp = Omit<OptionalWireFields<import("./gen/RuntimeHostMcp").RuntimeHostMcp, "env">, "args"> & {args: Readonly<import("./gen/RuntimeHostMcp").RuntimeHostMcp["args"]>};
+export type RuntimeHostMcpHttp = Omit<import("./gen/RuntimeHostMcpHttp").RuntimeHostMcpHttp, "headers"> & { headers?: Readonly<Record<string, string>> };
+export type RuntimeHostMcp = Omit<OptionalWireFields<import("./gen/RuntimeHostMcp").RuntimeHostMcp, "env">, "args" | "http"> & {
+  args: Readonly<import("./gen/RuntimeHostMcp").RuntimeHostMcp["args"]>;
+  http?: RuntimeHostMcpHttp;
+};
 export type RuntimeStreamWindow = Omit<OptionalWireFields<import("./gen/RuntimeStreamWindow").RuntimeStreamWindow, "frameSequences" | "turnRequests">, "frameSequences" | "turnRequests"> & {frameSequences?: Readonly<import("./gen/RuntimeStreamWindow").RuntimeStreamWindow["frameSequences"]>; turnRequests?: Readonly<import("./gen/RuntimeStreamWindow").RuntimeStreamWindow["turnRequests"]>};
-export type RuntimeContext = Omit<OptionalWireFields<import("./gen/RuntimeContext").RuntimeContext, "restoredRowOrdinal" | "streamWindow" | "hostMcp" | "clientBridges" | "restrictedCli" | "hostOwned" | "threadId" | "activeTurnId" | "pendingRequest">, "settings"> & {settings: RuntimeSettings};
+export type RuntimeContext = Omit<OptionalWireFields<import("./gen/RuntimeContext").RuntimeContext, "restoredRowOrdinal" | "streamWindow" | "hostMcp" | "clientBridges" | "restrictedCli" | "hostOwned" | "threadId" | "activeTurnId" | "pendingRequest">, "settings" | "hostMcp"> & {settings: RuntimeSettings; hostMcp?: RuntimeHostMcp};
 export type RestrictedCliPolicy = import("./gen/RestrictedCliPolicy").RestrictedCliPolicy;
 export type HistoryOrder = import("./gen/HistoryOrder").HistoryOrder;
 export type RuntimeBackgroundProcess = import("./gen/RuntimeBackgroundProcess").RuntimeBackgroundProcess;
@@ -38,9 +46,13 @@ export type RpcCall = OptionalWireFields<import("./gen/RpcCall").RpcCall, "targe
 export type RuntimeAction = RuntimeAuthoringView<import("./gen/RuntimeAction").RuntimeAction>;
 export type RuntimePlan = Omit<import("./gen/RuntimePlan").RuntimePlan, "action"> & {action: RuntimeAction};
 export type RuntimeGoalAction = import("./gen/RuntimeGoalAction").RuntimeGoalAction;
-export type OperationResult = RuntimeAuthoringView<import("./gen/RuntimeResult").RuntimeResult>;
+export type OperationResult =
+  | Exclude<RuntimeAuthoringView<import("./gen/RuntimeResult").RuntimeResult>, {kind: "initialized"}>
+  | (Omit<Extract<RuntimeAuthoringView<import("./gen/RuntimeResult").RuntimeResult>, {kind: "initialized"}>, "sessionCapabilities"> & {sessionCapabilities?: RuntimeSessionCapabilities});
 export type RuntimeStep = (Omit<Extract<import("./gen/RuntimeStep").RuntimeStep, {kind: "continue"}>, "beforeAcceptance" | "history" | "plan"> & {plan: RuntimePlan; beforeAcceptance?: boolean; history?: Extract<OperationResult, {kind: "historyPage"}>}) | (Omit<Extract<import("./gen/RuntimeStep").RuntimeStep, {kind: "complete"}>, "result" | "events"> & {result: OperationResult; events?: readonly AgentEvent[]}) | Extract<import("./gen/RuntimeStep").RuntimeStep, {kind: "refused"}>;
-export type AgentEvent = RuntimeAuthoringView<import("./gen/AgentRuntimeEvent").AgentRuntimeEvent>;
+export type AgentEvent =
+  | Exclude<RuntimeAuthoringView<import("./gen/AgentRuntimeEvent").AgentRuntimeEvent>, {kind: "prompt"}>
+  | (Omit<Extract<RuntimeAuthoringView<import("./gen/AgentRuntimeEvent").AgentRuntimeEvent>, {kind: "prompt"}>, "fileDiffs" | "elicitation"> & {fileDiffs?: readonly JsonValue[]; elicitation?: JsonValue});
 export type ResetCredit = OptionalWireFields<import("./gen/ResetCredit").ResetCredit, "title" | "description">;
 export type ResetCredits = Omit<import("./gen/ResetCredits").ResetCredits, "credits"> & {credits: Readonly<import("./gen/ResetCredits").ResetCredits["credits"]>};
 export type RuntimeAccountCredits = import("./gen/RuntimeAccountCredits").RuntimeAccountCredits;

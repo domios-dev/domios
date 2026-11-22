@@ -124,18 +124,43 @@ pub(crate) fn mark_daemon_reached() {
     DAEMON_REACHED.store(true, Ordering::Relaxed);
 }
 
+fn should_carry_messages(
+    json: bool,
+    daemon_reached: bool,
+    tab_identity: bool,
+    runtime_agent: bool,
+    stdout_terminal: impl FnOnce() -> bool,
+    stdin_terminal: impl FnOnce() -> bool,
+) -> bool {
+    if json || !daemon_reached || !tab_identity || !runtime_agent {
+        return false;
+    }
+    // Check stdout first: probing stdin on Windows can block in npfs.sys on an inherited open pipe.
+    let stdout_terminal = stdout_terminal();
+    if !stdout_terminal {
+        return false;
+    }
+    carries_messages(&Surface {
+        json,
+        stdout_terminal,
+        stdin_terminal: stdin_terminal(),
+        daemon_reached,
+        tab_identity,
+        runtime_agent,
+    })
+}
+
 /// Runs after a command finished normally. A command that exits with a failure carries nothing.
 pub(crate) fn after_command() {
     let (tab_identity, runtime_agent) = launch_identity(|key| std::env::var(key).ok());
-    let surface = Surface {
-        json: crate::cmd::error_contract::json_mode(),
-        stdout_terminal: std::io::stdout().is_terminal(),
-        stdin_terminal: std::io::stdin().is_terminal(),
-        daemon_reached: DAEMON_REACHED.load(Ordering::Relaxed),
+    if !should_carry_messages(
+        crate::cmd::error_contract::json_mode(),
+        DAEMON_REACHED.load(Ordering::Relaxed),
         tab_identity,
         runtime_agent,
-    };
-    if !carries_messages(&surface) {
+        || std::io::stdout().is_terminal(),
+        || std::io::stdin().is_terminal(),
+    ) {
         return;
     }
     let Some(tab) = crate::nonempty_env("CODETERM_TAB_ID") else {

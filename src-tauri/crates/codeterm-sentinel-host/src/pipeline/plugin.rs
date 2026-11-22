@@ -101,7 +101,11 @@ pub(super) fn run(
     let bound = step.execution.as_ref().is_some_and(|execution| {
         execution.input_binding.is_some() || !execution.input_bindings.is_empty()
     });
-    let inputs = match inputs(&registered, input, bound) {
+    let named = step
+        .execution
+        .as_ref()
+        .is_some_and(|contract| !contract.input_bindings.is_empty());
+    let inputs = match inputs(&registered, input, bound, named) {
         Ok(inputs) => inputs,
         Err(_) => return Ok(held("plugin_step_input_unavailable")),
     };
@@ -174,6 +178,7 @@ pub(super) fn inputs(
     registered: &RegisteredStep,
     input: &ExecutionEnvelope,
     bound: bool,
+    named: bool,
 ) -> Result<PortValues, String> {
     let descriptor = &registered.descriptor;
     let values = if descriptor.inputs.is_empty()
@@ -182,6 +187,34 @@ pub(super) fn inputs(
         Default::default()
     } else if let Ok(values) = serde_json::from_value::<PortValues>(input.value.clone()) {
         values
+    } else if named {
+        input
+            .value
+            .as_object()
+            .ok_or("named plugin inputs must be an object")?
+            .iter()
+            .map(|(name, value)| {
+                let port = descriptor.inputs.get(name).ok_or("undeclared port")?;
+                let items =
+                    if let Ok(items) = serde_json::from_value::<Vec<PortValue>>(value.clone()) {
+                        items
+                    } else {
+                        vec![match port.kind {
+                            PortKind::Text => PortValue::Text {
+                                text: value
+                                    .as_str()
+                                    .ok_or("plugin text input must be a string")?
+                                    .into(),
+                            },
+                            PortKind::Json => PortValue::Json {
+                                value: value.clone(),
+                            },
+                            _ => return Err("plugin media input requires a typed port binding"),
+                        }]
+                    };
+                Ok((name.clone(), items))
+            })
+            .collect::<Result<PortValues, &str>>()?
     } else if descriptor.inputs.len() == 1 {
         let (name, port) = descriptor
             .inputs

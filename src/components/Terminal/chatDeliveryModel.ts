@@ -5,6 +5,7 @@ import type { TabActivity } from "../../lib/tabActivity";
 import type { CapsuleRegistry } from "./composerCapsules";
 import type { ComposerReply } from "./composerReply";
 import type { RemoteChatFailure, RemoteChatState } from "../../lib/remoteChatState";
+import type { ExpectedChatRecipient } from "../../lib/types";
 
 export type DeliveryState = "sending" | "written" | "queued" | "uncertain" | "delivered" | "failed";
 export interface DeliveryDraft {
@@ -14,8 +15,12 @@ export interface DeliveryDraft {
   voiceTranscribing?: boolean;
   capsules: CapsuleRegistry;
   reply: ComposerReply | null;
+  inlineReply?: boolean;
 }
-export type DeliverySend = ChatSend & { localAttempt?: { ptyId: string; bindingNonce: string }; droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestError?: string; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft;
+export interface ChatSendTarget {
+  expectedRecipient?: ExpectedChatRecipient;
+}
+export type DeliverySend = ChatSend & { target?: ChatSendTarget; localAttempt?: { ptyId: string; bindingNonce: string }; droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestError?: string; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft;
   wasHeld?: boolean; remoteFailure?: RemoteChatFailure & { state: RemoteChatState } };
 
 export function chatSendFailureReason(reason?: unknown): string {
@@ -39,6 +44,31 @@ function sameMatchedRow(left: ChatSendStatus["matched_row"], right: ChatSendStat
     ? a.thread_id === b.thread_id && a.item_id === b.item_id
     : a.kind === "jsonl" && b.kind === "jsonl"
       && a.incarnation === b.incarnation && a.record_start === b.record_start && a.record_row === b.record_row;
+}
+
+function sameSystemSend(left: ChatSendStatus["system_send"], right: ChatSendStatus["system_send"]): boolean {
+  if (left == null || right == null) return left === right;
+  if (left.content !== right.content || left.sent_at_ms !== right.sent_at_ms
+    || (left.segments_version ?? undefined) !== (right.segments_version ?? undefined)) return false;
+  if (left.segments === right.segments) return true;
+  if (!left.segments || !right.segments || left.segments.length !== right.segments.length) return false;
+  return JSON.stringify(left.segments) === JSON.stringify(right.segments);
+}
+
+function mergeSystemSend(
+  prior: ChatSendStatus["system_send"],
+  incoming: ChatSendStatus["system_send"],
+  sameSend: boolean,
+): ChatSendStatus["system_send"] {
+  if (!incoming) return sameSend ? prior : undefined;
+  if (!sameSend || !prior || prior.content !== incoming.content) return incoming;
+  const incomingSegments = incoming.segments?.length ? incoming.segments : undefined;
+  const priorSegments = prior.segments?.length ? prior.segments : undefined;
+  if (incomingSegments) {
+    if (!priorSegments || (incoming.segments_version ?? 0) >= (prior.segments_version ?? 0)) return incoming;
+    return { ...incoming, segments: prior.segments, segments_version: prior.segments_version };
+  }
+  return priorSegments ? { ...incoming, segments: prior.segments, segments_version: prior.segments_version } : incoming;
 }
 
 export function deliveryState(send: DeliverySend): DeliveryState {
@@ -99,21 +129,24 @@ export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus):
     if ((send.status.state === "written" || send.status.state === "submit_unconfirmed") && status.state === "held") return send;
     if (send.status.state === "submit_unconfirmed" && status.state === "written") return send;
   }
-  if (send.status?.ledger_id === status.ledger_id && send.status.sequence === status.sequence
-    && send.status.send_id === status.send_id && send.status.state === status.state
-    && send.status.pending_reason === status.pending_reason && send.status.error === status.error
-    && sameMatchedRow(send.status.matched_row, status.matched_row)) return send;
+  const mergedSystemSend = mergeSystemSend(send.status?.system_send, status.system_send, send.status?.send_id === status.send_id);
+  const nextStatus = mergedSystemSend === status.system_send ? status : { ...status, system_send: mergedSystemSend };
+  if (send.status?.ledger_id === nextStatus.ledger_id && send.status.sequence === nextStatus.sequence
+    && send.status.send_id === nextStatus.send_id && send.status.state === nextStatus.state
+    && send.status.pending_reason === nextStatus.pending_reason && send.status.error === nextStatus.error
+    && sameMatchedRow(send.status.matched_row, nextStatus.matched_row)
+    && sameSystemSend(send.status.system_send, nextStatus.system_send)) return send;
   return {
     ...send,
-    ...(send.wasHeld || status.state === "held" ? { wasHeld: true } : {}),
-    matchedRow: status.matched_row ?? send.matchedRow,
-    status,
+    ...(send.wasHeld || nextStatus.state === "held" ? { wasHeld: true } : {}),
+    matchedRow: nextStatus.matched_row ?? send.matchedRow,
+    status: nextStatus,
     requestFailed: false,
-    ...(send.requestError !== undefined || status.state === "failed"
-      ? { requestError: status.state === "failed" ? chatSendFailureReason(status.error || send.requestError) : undefined } : {}),
+    ...(send.requestError !== undefined || nextStatus.state === "failed"
+      ? { requestError: nextStatus.state === "failed" ? chatSendFailureReason(nextStatus.error || send.requestError) : undefined } : {}),
     requestUncertain: false,
     remoteFailure: undefined,
-    echo: status.state === "failed" ? undefined : send.echo,
+    echo: nextStatus.state === "failed" ? undefined : send.echo,
   };
 }
 
@@ -198,7 +231,7 @@ export function deliveryProjectionSends(
       return {
         ...send,
         segments: send.status?.system_send?.segments?.length ? send.status.system_send.segments
-          : frame ? [{ type: "frame" as const, kind: frame.attrs.from as FrameKind, from: frame.attrs.from, attrs: frame.attrs, body: frame.body,
+          : frame ? [{ type: "frame" as const, kind: (frame.attrs.from === "cli" ? "system" : frame.attrs.from) as FrameKind, from: frame.attrs.from, attrs: frame.attrs, body: frame.body,
             tip: frame.content.slice(frame.body.length).match(/<tip>([\s\S]*?)<\/tip>/)?.[1] ?? null }] : send.segments,
         echoEligible: deliveryState(send) !== "failed",
         neverWritten: deliveryState(send) === "queued",

@@ -17,6 +17,8 @@ use crate::service::{
 use codeterm_plugin::agent_runtime::*;
 use codeterm_types::agent::chat_types::ChatMsg;
 use parking_lot::Mutex;
+#[cfg(debug_assertions)]
+use std::time::Instant;
 use std::{
     collections::HashMap,
     sync::{atomic::Ordering, Arc, LazyLock},
@@ -36,6 +38,8 @@ struct ToolClaim {
     turn: String,
     records: Vec<UserSendRecord>,
     settled: bool,
+    #[cfg(debug_assertions)]
+    claimed_at: Instant,
 }
 
 static TOOL_CLAIMS: LazyLock<Mutex<HashMap<String, Vec<ToolClaim>>>> =
@@ -239,6 +243,8 @@ impl ServiceContext {
         if owner.revoked.load(Ordering::Acquire) || owner.failed.load(Ordering::Acquire) {
             return Ok(None);
         }
+        #[cfg(debug_assertions)]
+        let started = Instant::now();
         let binding = SendLiveBinding {
             session_id: Some(thread.clone()),
             binding_nonce: Some(context.binding_nonce.clone()),
@@ -272,6 +278,14 @@ impl ServiceContext {
             return Ok(None);
         }
         for (record, text) in &entries {
+            crate::flow_trace::record(
+                &record.send_id,
+                "send.claimed",
+                tab,
+                &record.authority.provider_id,
+                "tool_result",
+                None,
+            );
             let Ok(input) = user_delivery::restore_input(record, text) else {
                 continue;
             };
@@ -298,6 +312,12 @@ impl ServiceContext {
             "[inbound] tab={tab} claim={claim_id} turn={turn} messages={} claimed for a tool result",
             entries.len()
         );
+        #[cfg(debug_assertions)]
+        log::debug!(
+            "[delivery-stage] tab={tab} claim={claim_id} turn={turn} stage=claimed channel=tool_result count={} claim_us={}",
+            entries.len(),
+            started.elapsed().as_micros()
+        );
         TOOL_CLAIMS
             .lock()
             .entry(tab.into())
@@ -310,6 +330,8 @@ impl ServiceContext {
                 turn,
                 records: entries.into_iter().map(|(record, _)| record).collect(),
                 settled: false,
+                #[cfg(debug_assertions)]
+                claimed_at: Instant::now(),
             });
         Ok(Some(text))
     }
@@ -346,6 +368,8 @@ impl ServiceContext {
 }
 
 fn deliver_tool_claim(svc: &ServiceContext, tab: &str, claim: &ToolClaim) {
+    #[cfg(debug_assertions)]
+    let settle_started = Instant::now();
     for record in &claim.records {
         if !claim.settled {
             retire_claim(svc, tab, record);
@@ -386,6 +410,16 @@ fn deliver_tool_claim(svc: &ServiceContext, tab: &str, claim: &ToolClaim) {
             record.send_id
         );
     }
+    #[cfg(debug_assertions)]
+    log::debug!(
+        "[delivery-stage] tab={tab} claim={} turn={} stage=delivered channel=tool_result count={} live_session={} held_in_claim_us={} settle_us={}",
+        claim.id,
+        claim.turn,
+        claim.records.len(),
+        session.is_some(),
+        claim.claimed_at.elapsed().as_micros(),
+        settle_started.elapsed().as_micros(),
+    );
 }
 
 fn release_tool_claim(svc: &ServiceContext, tab: &str, claim: &ToolClaim) {
@@ -395,8 +429,23 @@ fn release_tool_claim(svc: &ServiceContext, tab: &str, claim: &ToolClaim) {
         binding_nonce: Some(claim.nonce.clone()),
     };
     for record in &claim.records {
+        crate::flow_trace::record(
+            &record.send_id,
+            "send.released",
+            tab,
+            &record.authority.provider_id,
+            "zero_write_tool_result",
+            None,
+        );
         release_handoff(svc, tab, store, record, &binding);
     }
+    #[cfg(debug_assertions)]
+    log::debug!(
+        "[delivery-stage] tab={tab} claim={} stage=released channel=tool_result count={} held_in_claim_us={}",
+        claim.id,
+        claim.records.len(),
+        claim.claimed_at.elapsed().as_micros(),
+    );
     if let Some(session) = engine::for_tab(tab) {
         session
             .context
@@ -459,8 +508,20 @@ pub(super) fn settle_abandoned_tool_claims(svc: &ServiceContext, tab: &str) {
         }
     }
     for record in abandoned {
+        crate::flow_trace::record(
+            &record.send_id,
+            "send.uncertain",
+            tab,
+            &record.authority.provider_id,
+            "abandoned_tool_claim",
+            None,
+        );
         log::warn!(
             "[inbound] tab={tab} send_id={} tool claim unconfirmed; not replayed",
+            record.send_id
+        );
+        log::debug!(
+            "[delivery-stage] tab={tab} send_id={} stage=uncertain channel=tool_result reason=abandoned_tool_claim",
             record.send_id
         );
         retire_claim(svc, tab, &record);
@@ -478,6 +539,8 @@ pub(super) struct Digest {
     nonce: String,
     epoch: u64,
     members: Vec<(UserSendRecord, String)>,
+    #[cfg(debug_assertions)]
+    started: Instant,
 }
 
 fn own_row(record: &UserSendRecord, text: &str) -> Option<ChatMsg> {
@@ -556,6 +619,18 @@ pub(super) fn begin_digest(
     if members.is_empty() {
         return None;
     }
+    #[cfg(debug_assertions)]
+    let started = Instant::now();
+    for (record, _) in &members {
+        crate::flow_trace::record(
+            &record.send_id,
+            "send.claimed",
+            tab,
+            &record.authority.provider_id,
+            "digest_member",
+            None,
+        );
+    }
     let row = own_row(head, head_text);
     {
         let mut maps = session.maps.lock();
@@ -577,6 +652,12 @@ pub(super) fn begin_digest(
         head.send_id,
         members.len()
     );
+    #[cfg(debug_assertions)]
+    log::debug!(
+        "[delivery-stage] tab={tab} head={} stage=claimed channel=digest members={} bytes={bytes}",
+        head.send_id,
+        members.len()
+    );
     Some(Digest {
         input: AgentInput::Framed(
             Messenger::from(MessageEnvelope::codeterm_reminder(DIGEST_CONTEXT))
@@ -587,6 +668,8 @@ pub(super) fn begin_digest(
         nonce: context.binding_nonce.clone(),
         epoch: context.epoch,
         members,
+        #[cfg(debug_assertions)]
+        started,
     })
 }
 
@@ -607,8 +690,23 @@ pub(super) fn finish_digest(
             binding_nonce: Some(digest.nonce.clone()),
         };
         for (record, _) in &digest.members {
+            crate::flow_trace::record(
+                &record.send_id,
+                "send.released",
+                tab,
+                &record.authority.provider_id,
+                "zero_write_digest",
+                None,
+            );
             release_handoff(svc, tab, store, record, &binding);
         }
+        #[cfg(debug_assertions)]
+        log::debug!(
+            "[delivery-stage] tab={tab} head={} stage=released channel=digest members={} digest_us={}",
+            digest.head,
+            digest.members.len(),
+            digest.started.elapsed().as_micros()
+        );
         return;
     }
     let mut rows = Vec::with_capacity(digest.members.len());
@@ -616,7 +714,17 @@ pub(super) fn finish_digest(
         retire_claim(svc, tab, record);
         let status = match &outcome {
             Ok(()) => svc.chat_send_ledger.mark_rpc_accepted(&record.send_id),
-            Err(_) => svc.chat_send_ledger.mark_rpc_uncertain(&record.send_id),
+            Err(_) => {
+                crate::flow_trace::record(
+                    &record.send_id,
+                    "send.uncertain",
+                    tab,
+                    &record.authority.provider_id,
+                    "postwrite_digest",
+                    None,
+                );
+                svc.chat_send_ledger.mark_rpc_uncertain(&record.send_id)
+            }
         };
         if let Some(status) = status {
             emit_status(svc, status);
@@ -635,6 +743,14 @@ pub(super) fn finish_digest(
             });
         }
     }
+    #[cfg(debug_assertions)]
+    log::debug!(
+        "[delivery-stage] tab={tab} head={} stage=settled channel=digest members={} ok={} digest_us={}",
+        digest.head,
+        digest.members.len(),
+        outcome.is_ok(),
+        digest.started.elapsed().as_micros()
+    );
     if let Err(reason) = crate::async_runtime::block_on(subscriber::publish_events(
         svc,
         session,
@@ -663,8 +779,19 @@ pub(super) async fn confirm_digest_members(
     let Some(thread) = context.thread_id.as_deref().filter(|_| delivered) else {
         return;
     };
+    let active_turn = session.context.lock().active_turn_id.clone();
     let members = session.maps.lock().take_digest(head);
     for member in members {
+        if let Some(turn) = active_turn.as_deref() {
+            svc.chat_send_ledger.trace_rpc_turn(
+                &context.tab_id,
+                thread,
+                &context.binding_nonce,
+                &member,
+                turn,
+                &session.provider,
+            );
+        }
         if let Some(status) = svc.chat_send_ledger.confirm_rpc_send(
             &context.tab_id,
             thread,
@@ -673,6 +800,10 @@ pub(super) async fn confirm_digest_members(
             None,
         ) {
             emit_status(svc, status);
+            log::debug!(
+                "[delivery-stage] tab={} head={head} send_id={member} stage=delivered channel=digest",
+                context.tab_id
+            );
         }
         let owner = svc.clone();
         if let Err(reason) =

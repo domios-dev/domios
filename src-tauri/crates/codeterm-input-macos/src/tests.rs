@@ -383,3 +383,63 @@ fn lark_input_macos_missing_loop_entry_retires_untransferred_owner_once() {
     ));
     assert_eq!(run_loop_events(&events), ["stop", "wake", "release"]);
 }
+
+#[test]
+fn local_input_macos_arrival_filter_rejects_invalid_and_keyboard_mouse_usages() {
+    let valid = MacArrivalFilter {
+        vendor_id: 0x1234,
+        product_id: 0x5678,
+        collection_usage_page: 0x000c,
+        collection_usage: 0x0001,
+    };
+    assert!(arrival_filter_valid(&valid));
+    for invalid in [
+        MacArrivalFilter {
+            vendor_id: 0,
+            ..valid.clone()
+        },
+        MacArrivalFilter {
+            product_id: 0,
+            ..valid.clone()
+        },
+        MacArrivalFilter {
+            collection_usage_page: 0,
+            ..valid.clone()
+        },
+        MacArrivalFilter {
+            collection_usage: 0,
+            ..valid.clone()
+        },
+        MacArrivalFilter {
+            collection_usage_page: 7,
+            collection_usage: 1,
+            ..valid.clone()
+        },
+        MacArrivalFilter {
+            collection_usage_page: 1,
+            collection_usage: 6,
+            ..valid.clone()
+        },
+        MacArrivalFilter {
+            collection_usage_page: 1,
+            collection_usage: 2,
+            ..valid
+        },
+    ] {
+        assert!(!arrival_filter_valid(&invalid));
+    }
+}
+
+#[test]
+fn local_input_macos_arrival_tracker_ignores_initial_devices_and_rearms_after_removal() {
+    let mut tracker = ArrivalTracker::new(2);
+    let first = device_id(0x1111, 1);
+    let second = device_id(0x2222, 2);
+    tracker.seed(first.clone());
+    assert!(!tracker.observe_arrival(String::new()));
+    assert!(!tracker.observe_arrival(first.clone()));
+    assert!(tracker.observe_arrival(second.clone()));
+    assert!(!tracker.observe_arrival(second.clone()));
+    tracker.observe_removal(&first);
+    assert!(tracker.observe_arrival(first));
+}

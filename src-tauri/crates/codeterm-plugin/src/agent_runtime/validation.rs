@@ -301,6 +301,7 @@ pub fn validate_runtime_plan(
             .thread_history
             .as_ref()
             .is_some_and(|history| history.actions.contains(&RuntimeThreadHistoryAction::Fork))
+        && !cap.permits_method(op, "session/fork")
     {
         return Err(mismatch("fork thread history capability absent"));
     }
@@ -381,6 +382,7 @@ pub fn validate_runtime_call(
                     params["threadId"].as_str() == Some(source_thread_id)
                         && params["lastTurnId"].as_str() == Some(turn_id)
                 }
+                "session/fork" => params["sessionId"].as_str() == Some(source_thread_id),
                 _ => false,
             };
         if !valid {
@@ -717,6 +719,20 @@ fn validate_runtime_result(
         (RuntimeOperation::Control { action, .. }, RuntimeResult::ResetCreditConsumed { .. }) => {
             action == "redeemResetCredit"
         }
+        (
+            RuntimeOperation::Control { action, .. },
+            RuntimeResult::SessionsListed {
+                sessions,
+                next_cursor,
+            },
+        ) => {
+            action == "listSessions"
+                && sessions.len() <= 100
+                && sessions
+                    .iter()
+                    .all(|session| identifier(&session.session_id) && !session.cwd.is_empty())
+                && next_cursor.as_ref().is_none_or(|cursor| identifier(cursor))
+        }
         _ => false,
     };
     if valid {
@@ -937,7 +953,8 @@ pub fn validate_runtime_reduction(
             | AgentRuntimeEvent::ControlsConfirmed { thread_id, .. }
             | AgentRuntimeEvent::Question { thread_id, .. }
             | AgentRuntimeEvent::ContextCompacted { thread_id, .. }
-            | AgentRuntimeEvent::ThreadReverted { thread_id } => thread_id,
+            | AgentRuntimeEvent::ThreadReverted { thread_id }
+            | AgentRuntimeEvent::SessionTitle { thread_id, .. } => thread_id,
             AgentRuntimeEvent::SendEvidence {
                 item_id,
                 thread_id,
@@ -973,6 +990,11 @@ pub fn validate_runtime_reduction(
                 if !rpc_id(request_id) =>
             {
                 return Err(invalid("invalid prompt request id"));
+            }
+            AgentRuntimeEvent::SessionTitle { title, .. }
+                if title.is_empty() || title.len() > 256 || title.chars().any(char::is_control) =>
+            {
+                return Err(invalid("invalid session title"));
             }
             _ => {}
         }

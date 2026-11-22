@@ -251,8 +251,8 @@ fn inspect_directory_with_server(
                     tab.process.pid == holder.holder.pid && tab.process.created == created
                 }) {
                     holder.holder.owned_tab = Some(format!(
-                        "{} in {}: {} (domios tab close --tab {})",
-                        tab.title, tab.workspace, tab.command, tab.tab_id
+                        "{} in {}: {}",
+                        tab.title, tab.workspace, tab.command
                     ));
                     holder.disposition = HolderDisposition::OwnedTab;
                 } else if server.is_some_and(|server| {

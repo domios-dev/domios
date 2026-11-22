@@ -34,8 +34,8 @@ impl MeshManager {
             })
         }) {
             self.paired_peers.clear();
+            self.peer_machine_identities.clear();
             self.links.clear();
-            self.peer_services.clear();
         }
         if matches!(state.presence, AccountPresence::SignedOut) {
             self.remote_access_epoch = self.remote_access_epoch.wrapping_add(1);
@@ -59,6 +59,7 @@ impl MeshManager {
     }
 
     pub fn bind_account_authority(&mut self, authority: Arc<dyn AccountMeshAuthority>) {
+        self.endpoint_records.records.clear();
         self.account_authority = Some(authority);
     }
 
@@ -118,6 +119,29 @@ impl MeshManager {
             &self.account,
             self.now(),
         )
+    }
+
+    pub fn peer_grant_epoch(&self, peer_id: &str) -> u64 {
+        self.peer_grant_epochs
+            .get(peer_id)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub fn set_peer_access(&mut self, peer_id: &str, access: crate::types::AccessLevel) -> bool {
+        let Some(peer) = self.paired_peers.get_mut(peer_id) else {
+            return false;
+        };
+        if peer.access_level != access {
+            peer.access_level = access;
+            let epoch = self
+                .peer_grant_epochs
+                .entry(peer_id.to_owned())
+                .or_default();
+            *epoch = epoch.wrapping_add(1);
+            self.bump_gate();
+        }
+        true
     }
 
     pub fn traffic_open(&self, peer_id: &str) -> bool {

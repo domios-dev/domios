@@ -1,15 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
-import { Loader } from "../shared/Loader";
+import { BusyState } from "../shared/BusyState";
+import { Button } from "../shared/Button";
 import { SettingsPill } from "../Settings/shared";
 import { LockBadge } from "../billing/LockBadge";
 import { meshMachineLockedView } from "../billing/lockSurfaces";
 import { plansAction } from "../billing/purchaseSwitch";
+import { DuplicateMachineNameHint } from "./DuplicateMachineNameHint";
 import { MachineSessionControls } from "./MachineSessionControls";
 import { useMyMachines, type MyMachines as MachinesController, type MyMachinesOptions } from "./useMyMachines";
-import { failureMessage, type SelfRowView } from "./accountMachines";
+import { failureMessage, type SelfRowView, type MachineRowView } from "./accountMachines";
 import type { AccountMeshFailure } from "./accountMeshClient";
+import { MachineGlyph } from "../shared/MachineGlyph";
+import { machineLabel } from "../../lib/machineIdentity";
+import { useMeshMachineIdentity } from "../../lib/useMeshMachineIdentities";
+import { MachineJoinPreview, MachineIdentitySaveError } from "./MachineIdentityControls";
+import { useMachineJoin } from "./MachineIdentityEditor";
 
 export interface MyMachinesProps extends MyMachinesOptions { onFailure: (operation: string, failure: AccountMeshFailure) => void }
 const ACTION_BTN = `${UI_BUTTON.ghost} ${UI_BUTTON.compact}`;
@@ -21,10 +28,10 @@ export function MachineManagement({ machines }: { machines: MachinesController }
   const { view } = machines;
   if (view.kind === "loading") return machines.loadFailed
     ? <p role="status">Your machines could not be loaded.</p>
-    : <Loader variant="compact" label="Loading your machines" />;
+    : <BusyState inline label="Checking machine status" phase="work" />;
   if (view.kind === "sign_in") return <section aria-label="My machines">
     <p role="status">{view.headline}</p>
-    <button type="button" disabled={machines.signingIn} className={PRIMARY_BTN} onClick={() => void machines.signIn()}>Sign in</button>
+    <MachineJoinAction signingIn={machines.signingIn} onSignIn={machines.signIn} onCancel={machines.cancelSignIn} />
   </section>;
   return <section aria-label="My machines" className="flex flex-col gap-3">
     <button type="button" disabled={machines.refreshing} className={ACTION_BTN} onClick={() => void machines.load()}>Refresh</button>
@@ -34,14 +41,19 @@ export function MachineManagement({ machines }: { machines: MachinesController }
       {view.machines.length === 0 && <li>No other machines yet. Sign in with this account on another machine to connect automatically.</li>}
       {view.machines.map(row => {
         const failure = machines.failures.get(row.key);
-        return <li key={row.key} className="p-3 flex flex-col gap-2" aria-label={row.name}>
-          <span>{row.name}</span><p role="status" className={UI_TEXT.meta}>{row.detail}</p>
+        const rename = row.online && row.target && row.pairInstanceId
+          ? { displayName: row.displayName, save: (name: string) => machines.rename(row, name) } : undefined;
+        return <PeerMachineListRow key={row.key} row={row}>
+          <p role="status" className={UI_TEXT.meta}>{row.detail}</p>
+          <DuplicateMachineNameHint name={row.name} others={row.sameNameOthers} peerId={row.pairInstanceId ?? undefined} rename={rename} />
           {row.controls.plans && <button type="button" className={ACTION_BTN} onClick={() => machines.openPlans(row.key)}>{plansAction("See plans")}</button>}
-          {(row.canSignOut || row.controls.revoke) && <MachineSessionControls name={row.name} busy={machines.busy === row.key}
+          {(row.canSignOut || row.controls.revoke || row.sameNameOthers) && <MachineSessionControls name={row.name} sameNameOthers={row.sameNameOthers} busy={machines.busy === row.key}
             onSignOut={row.canSignOut ? () => machines.revokeSession(row) : undefined}
-            onRemove={row.controls.revoke ? alsoSignOut => machines.revoke(row, row.controls.revoke!, alsoSignOut) : undefined} />}
+            onRemove={row.controls.revoke ? alsoSignOut => machines.revoke(row, row.controls.revoke!, alsoSignOut) : undefined}
+            identityPeer={row.online && row.target ? row.pairInstanceId ?? undefined : undefined}
+            rename={rename} />}
           {failure && <InlineErrorNotice role="alert" description={{ title: `Could not ${failure.operation}`, cause: failureMessage(failure.failure), raw: JSON.stringify(failure.failure), actions: [] }} />}
-        </li>;
+        </PeerMachineListRow>;
       })}
     </ul>
     {view.notes.map(note => <p key={note} role="status" className={UI_TEXT.metaMuted}>{note}</p>)}
@@ -49,11 +61,44 @@ export function MachineManagement({ machines }: { machines: MachinesController }
   </section>;
 }
 
+export function MachineJoinAction({ signingIn, onSignIn, onCancel, compact = false }: {
+  signingIn: boolean;
+  onSignIn: () => void | Promise<void>;
+  onCancel?: () => void;
+  compact?: boolean;
+}) {
+  const join = useMachineJoin(true);
+  const [joining, setJoining] = useState(false);
+  async function proceed() {
+    setJoining(true);
+    try { if (await join.beforeJoin()) await onSignIn(); }
+    finally { setJoining(false); }
+  }
+  return <div className="grid gap-2">
+    {!compact && join.view && join.value && <MachineJoinPreview name={join.view.name} value={join.value} onChange={join.setDraft} />}
+    {join.error && <MachineIdentitySaveError error={join.error} retry={() => void proceed()} />}
+    <div className={compact ? "relative" : "flex items-center gap-2"}>
+      <Button size="sm" variant="primary" autoFocus={compact && !signingIn} loading={joining || signingIn}
+        onClick={() => void proceed()}>{signingIn ? "Signing in…" : !compact && join.view ? "Join" : "Sign in"}</Button>
+      {onCancel && <Button size="sm" className={compact ? "absolute left-full top-0 ml-1" : undefined} onClick={onCancel}>Cancel</Button>}
+    </div>
+  </div>;
+}
+
+function PeerMachineListRow({ row, children }: { row: MachineRowView; children: React.ReactNode }) {
+  const identity = useMeshMachineIdentity(row.pairInstanceId, Boolean(row.pairInstanceId));
+  return <li className="p-3 flex flex-col gap-2" aria-label={machineLabel(row.name, identity, row.online ? "online" : row.detail)}>
+    <div className="flex min-w-0 items-center gap-2"><MachineGlyph {...identity} size="tile" /><span className="truncate" title={row.name}>{row.name}</span></div>
+    {children}
+  </li>;
+}
+
 function SelfRow({ self, onRename, onPlans }: {
   self: SelfRowView;
   onRename: (name: string) => Promise<boolean>;
   onPlans: () => void;
 }) {
+  const identity = useMeshMachineIdentity();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
@@ -89,10 +134,10 @@ function SelfRow({ self, onRename, onPlans }: {
     }
   };
   return (
-    <div role="group" aria-label={`This machine: ${self.name}`} className="ct-card ct-card--quiet p-3 flex flex-col gap-2">
+    <div role="group" aria-label={machineLabel(self.name, identity, "this machine")} className="ct-card ct-card--quiet p-3 flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="w-2 h-2 rounded-full bg-[var(--ct-green)] flex-shrink-0" aria-hidden="true" />
+          <MachineGlyph {...identity} size="tile" />
           <span className="font-medium text-[var(--ct-fg)] truncate">{self.name}</span>
           <SettingsPill tone="accent">This machine</SettingsPill>
           {self.planLimited && <>
@@ -110,7 +155,9 @@ function SelfRow({ self, onRename, onPlans }: {
             Rename this machine
           </button>
         )}
+        <MachineSessionControls name={self.name} busy={saving} identityPeer={null} sameNameOthers={self.sameNameOthers} rename={self.readOnly ? undefined : { displayName: self.displayName, save: onRename }} />
       </div>
+      <DuplicateMachineNameHint name={self.name} others={self.sameNameOthers} rename={self.readOnly ? undefined : { displayName: self.displayName, save: onRename }} />
       {self.planLimited && <div className="flex items-center justify-between gap-2">
         <span className={UI_TEXT.metaMuted}>This machine is outside your plan's machine limit.</span>
         <button type="button" aria-label={`${plansAction("See plans")} for this machine`} onClick={onPlans} className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}>{plansAction("See plans")}</button>

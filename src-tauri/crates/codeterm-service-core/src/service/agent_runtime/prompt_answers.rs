@@ -18,7 +18,20 @@ struct Entry {
     binding: String,
     thread: Option<String>,
     prompt: PendingPrompt,
+    kind: PromptKind,
     claimed: bool,
+}
+
+impl Entry {
+    fn belongs_to(&self, context: &RuntimeContext) -> bool {
+        self.epoch == context.epoch
+            && self.binding == context.binding_nonce
+            && self.thread == context.thread_id
+    }
+
+    fn identity(&self) -> PromptIdentity {
+        PromptIdentity::new(self.kind, &self.prompt)
+    }
 }
 
 static PROMPTS: LazyLock<Mutex<HashMap<String, VecDeque<Entry>>>> =
@@ -28,33 +41,78 @@ fn request_token(context: &RuntimeContext, request: &RpcId) -> String {
     serde_json::json!([context.epoch, context.binding_nonce, request]).to_string()
 }
 
-pub fn publish(svc: &ServiceContext, session: &Session, request: RpcId, mut prompt: PendingPrompt) {
+pub fn publish(
+    svc: &ServiceContext,
+    session: &Session,
+    request: RpcId,
+    prompt: PendingPrompt,
+    kind: PromptKind,
+) {
+    publish_with_detail(svc, session, request, prompt, kind, None, None);
+}
+
+pub fn publish_with_detail(
+    svc: &ServiceContext,
+    session: &Session,
+    request: RpcId,
+    mut prompt: PendingPrompt,
+    kind: PromptKind,
+    file_diffs: Option<serde_json::Value>,
+    elicitation: Option<serde_json::Value>,
+) {
     let context = session.context.lock().clone();
     super::client_bridge::approvals::remember(&context, &request);
-    prompt.request_id = Some(request_token(&context, &request));
-    let visible = {
+    let token = request_token(&context, &request);
+    prompt.request_id = Some(token.clone());
+    let detail = if file_diffs.is_some() || elicitation.is_some() {
+        Some(serde_json::json!({
+            "requestId": token,
+            "fileDiffs": file_diffs,
+            "elicitation": elicitation,
+        }))
+    } else {
+        None
+    };
+    let changed = {
         let mut prompts = PROMPTS.lock();
+        if !session.prompts.lock().contains_key(&request) {
+            return;
+        }
+        let mut mux = svc.mux.write();
+        let Some(tab) = mux
+            .get_tab_mut(&context.tab_id)
+            .filter(|tab| bound(tab, &context))
+        else {
+            return;
+        };
+        let kind = if tab.is_chat_backend() {
+            kind
+        } else {
+            PromptKind::Structured
+        };
         let queue = prompts.entry(context.tab_id.clone()).or_default();
-        queue.retain(|entry| {
-            entry.epoch == context.epoch
-                && entry.binding == context.binding_nonce
-                && entry.thread == context.thread_id
-        });
+        queue.retain(|entry| entry.belongs_to(&context));
         if let Some(entry) = queue.iter_mut().find(|entry| entry.request == request) {
             entry.prompt = prompt;
+            entry.kind = kind;
         } else {
             queue.push_back(Entry {
                 request,
                 epoch: context.epoch,
                 binding: context.binding_nonce,
-                thread: context.thread_id,
+                thread: context.thread_id.clone(),
                 prompt,
+                kind,
                 claimed: false,
             });
         }
-        queue.front().map(|entry| entry.prompt.clone())
+        set_visible(tab, queue.front())
     };
-    svc.push_structured_prompt(&context.tab_id, visible);
+    if detail.is_some() {
+        session.state.lock().pending_prompt_detail = detail;
+        engine::publish_controls(svc, &context.tab_id, session);
+    }
+    emit_visible(svc, &context.tab_id, changed);
     svc.mark_agent_waiting(&context.tab_id);
     auto_confirm_bridge(svc, &context.tab_id);
 }
@@ -68,51 +126,89 @@ pub fn clear(svc: &ServiceContext, context: &RuntimeContext) {
     remove(svc, context, None);
 }
 
+pub(super) fn expire(svc: &ServiceContext, session: &Session, context: &RuntimeContext) {
+    session
+        .prompts
+        .lock()
+        .retain(|_, request| request.prompt.is_none());
+    clear(svc, context);
+}
+
+fn bound(tab: &crate::multiplexer::types::Tab, context: &RuntimeContext) -> bool {
+    tab.session_binding_nonce.as_deref() == Some(context.binding_nonce.as_str())
+        && tab.agent_session_id == context.thread_id
+}
+
+fn set_visible(
+    tab: &mut crate::multiplexer::types::Tab,
+    entry: Option<&Entry>,
+) -> Option<(Option<PendingPrompt>, Option<PromptKind>)> {
+    let prompt = entry.map(|entry| entry.prompt.clone());
+    let kind = entry.map(|entry| entry.kind);
+    if tab.pending_prompt == prompt && tab.pending_prompt_kind == kind {
+        return None;
+    }
+    tab.pending_prompt = prompt.clone();
+    tab.pending_prompt_kind = kind;
+    Some((prompt, kind))
+}
+
+fn emit_visible(
+    svc: &ServiceContext,
+    tab: &str,
+    changed: Option<(Option<PendingPrompt>, Option<PromptKind>)>,
+) {
+    if let Some((prompt, kind)) = changed {
+        svc.emit_structured_prompt(tab, prompt.as_ref(), kind.unwrap_or(PromptKind::Structured));
+    }
+}
+
 fn remove(svc: &ServiceContext, context: &RuntimeContext, request: Option<&RpcId>) {
     super::client_bridge::approvals::forget(context, request);
-    let (removed, next) = {
+    let (removed, changed) = {
         let mut prompts = PROMPTS.lock();
         let Some(queue) = prompts.get_mut(&context.tab_id) else {
             return;
         };
-        let before = queue.front().map(|entry| entry.prompt.clone());
+        let before = queue
+            .front()
+            .filter(|entry| entry.belongs_to(context))
+            .map(Entry::identity);
         queue.retain(|entry| {
-            !(entry.epoch == context.epoch
-                && entry.binding == context.binding_nonce
-                && entry.thread == context.thread_id
-                && request.is_none_or(|request| &entry.request == request))
+            !(entry.belongs_to(context) && request.is_none_or(|request| &entry.request == request))
         });
-        let next = queue.front().map(|entry| entry.prompt.clone());
+        let next = queue.front().filter(|entry| entry.belongs_to(context));
+        let changed = if before.is_some() && before != next.map(Entry::identity) {
+            let mut mux = svc.mux.write();
+            mux.get_tab_mut(&context.tab_id)
+                .filter(|tab| bound(tab, context) && tab.prompt_identity() == before)
+                .and_then(|tab| set_visible(tab, next))
+        } else {
+            None
+        };
         if queue.is_empty() {
             prompts.remove(&context.tab_id);
         }
-        (before, next)
+        (before.filter(|_| changed.is_some()), changed)
     };
-    let current = svc
-        .mux
-        .read()
-        .get_tab(&context.tab_id)
-        .and_then(|tab| tab.pending_prompt.clone());
-    if removed != next && current == removed {
-        if let Some(prompt) = removed.as_ref() {
-            svc.resolve_prompt_notifications(
-                &context.tab_id,
-                &PromptIdentity::new(PromptKind::Structured, prompt),
-            );
+    if let Some(identity) = removed {
+        if let Some(session) = engine::for_tab(&context.tab_id) {
+            if session.state.lock().pending_prompt_detail.take().is_some() {
+                engine::publish_controls(svc, &context.tab_id, &session);
+            }
         }
-        svc.push_structured_prompt(&context.tab_id, next);
+        svc.resolve_prompt_notifications(&context.tab_id, &identity);
+        emit_visible(svc, &context.tab_id, changed);
         auto_confirm_bridge(svc, &context.tab_id);
     }
 }
 
 fn matching_entry(entry: &Entry, context: &RuntimeContext, expected: &PromptIdentity) -> bool {
     !entry.claimed
-        && entry.epoch == context.epoch
-        && entry.binding == context.binding_nonce
-        && entry.thread == context.thread_id
+        && entry.belongs_to(context)
         && entry.prompt.request_id.as_deref()
             == Some(request_token(context, &entry.request).as_str())
-        && PromptIdentity::new(PromptKind::Structured, &entry.prompt) == *expected
+        && entry.identity() == *expected
 }
 
 fn current_prompt_matches(
@@ -216,7 +312,7 @@ pub(crate) fn auto_confirm_bridge(svc: &ServiceContext, tab: &str) {
     if !super::client_bridge::pending(&context, &entry.request) {
         return;
     }
-    let identity = PromptIdentity::new(PromptKind::Structured, &entry.prompt);
+    let identity = entry.identity();
     let owner = svc.clone();
     let tab = tab.to_owned();
     crate::async_runtime::spawn(async move {
@@ -283,7 +379,7 @@ async fn respond_inner(
             let Some(entry) = entry else {
                 return Ok(RespondPromptOutcome::StalePrompt);
             };
-            let snapshot_identity = PromptIdentity::new(PromptKind::Structured, &entry.prompt);
+            let snapshot_identity = entry.identity();
             let expected = expected.unwrap_or(&snapshot_identity);
             if !matching_entry(&entry, &captured, expected)
                 || !current_prompt_matches(svc, tab, &captured, expected)
@@ -335,6 +431,11 @@ async fn respond_inner(
             if bridged {
                 return Ok(RespondPromptOutcome::Structured);
             }
+            log::debug!(
+                "[runtime-prompt] tab={tab} epoch={} request={:?} caller=prompt_response",
+                captured.epoch,
+                entry.request
+            );
             let result = engine::run(
                 svc,
                 &session.provider,

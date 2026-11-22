@@ -163,6 +163,7 @@ async fn publish_with_origin(
             .await?;
         }
         events::observe(&mut session.context.lock(), &runtime);
+        super::super::projections::observe_rate_limit_reset(svc, session, &runtime, at);
         let retry = super::super::capacity_retry::observe(svc, session, &runtime, at).await;
         super::super::controls::observe_event(session, &runtime);
         let send_id = match &runtime {
@@ -379,6 +380,14 @@ fn apply(
         }
         RuntimeEvent::ItemUpdated { thread_id, item } if owned(&thread_id) => {
             super::super::turn_requests::observe_item(session, &context, &item);
+            if item.tool_name.as_deref() == Some("update_plan") {
+                let owner = svc.clone();
+                let tab = context.tab_id.clone();
+                let plan_item = item.clone();
+                crate::async_runtime::spawn_blocking(move || {
+                    owner.update_runtime_plan_checklist(&tab, &plan_item);
+                });
+            }
             if live {
                 if let Some(outcome) =
                     crate::service::worker_ack::ack_failure::ack_tool_outcome(&item)
@@ -498,6 +507,13 @@ fn apply(
             ) {
                 return;
             }
+            let approval = detail == Some(RuntimeTurnDetail::AwaitingApproval);
+            let chat_backend = (approval || matches!(state, RuntimeTurnState::Idle))
+                && svc
+                    .mux
+                    .read()
+                    .get_tab(&context.tab_id)
+                    .is_some_and(|tab| tab.is_chat_backend());
             match state {
                 RuntimeTurnState::Working => {
                     if let Some(turn) = turn_id.as_deref() {
@@ -520,6 +536,9 @@ fn apply(
                     )
                 }
                 RuntimeTurnState::Idle => {
+                    if chat_backend {
+                        super::super::prompt_answers::expire(svc, session, &context);
+                    }
                     super::super::turn_requests::retire_refused_claims(
                         session,
                         &context,
@@ -530,13 +549,27 @@ fn apply(
                 }
                 RuntimeTurnState::NeedsInput => {}
             }
-            let live = crate::agent::state_verdict::live_state_for_runtime(
-                &state,
-                detail,
-                status_line
-                    .as_deref()
-                    .filter(|_| !matches!(state, RuntimeTurnState::Idle)),
-            );
+            let live = if chat_backend && approval {
+                let running =
+                    turn_id.is_some() || session.state.lock().active_turn_started_at_ms.is_some();
+                crate::agent::state_verdict::live_state_for_runtime(
+                    &if running {
+                        RuntimeTurnState::Working
+                    } else {
+                        RuntimeTurnState::Idle
+                    },
+                    None,
+                    None,
+                )
+            } else {
+                crate::agent::state_verdict::live_state_for_runtime(
+                    &state,
+                    detail,
+                    status_line
+                        .as_deref()
+                        .filter(|_| !matches!(state, RuntimeTurnState::Idle)),
+                )
+            };
             crate::agent::state_verdict::apply_live(&svc.mux, &context.tab_id, &thread_id, live);
             svc.record_turn_resume_edge(&context.tab_id);
             session.context.lock().active_turn_id = match state {
@@ -550,6 +583,9 @@ fn apply(
             };
             engine::publish(svc, &context.tab_id, session);
             if matches!(state, RuntimeTurnState::Idle) {
+                if let Some(process) = session.process.lock().clone() {
+                    process.background_changed.notify_one();
+                }
                 svc.staged_model_turn_completed(
                     &context.tab_id,
                     &thread_id,
@@ -564,6 +600,8 @@ fn apply(
             request_id: Some(request_id),
             prompt: Some(prompt),
             permission,
+            file_diffs,
+            elicitation,
             resolved: false,
             ..
         } if owned(&thread_id) => {
@@ -586,7 +624,20 @@ fn apply(
                     permission.as_ref(),
                 )
             {
-                super::super::prompt_answers::publish(svc, session, request_id, prompt);
+                let kind = if permission.is_some() {
+                    codeterm_types::pty::PromptKind::Permission
+                } else {
+                    codeterm_types::pty::PromptKind::Structured
+                };
+                super::super::prompt_answers::publish_with_detail(
+                    svc,
+                    session,
+                    request_id,
+                    prompt,
+                    kind,
+                    file_diffs,
+                    elicitation,
+                );
             }
         }
         RuntimeEvent::RequestUpdated {
@@ -628,6 +679,9 @@ fn apply(
             let _ = super::compaction::schedule(svc, session, epoch, &thread_id, &item_id);
         }
         RuntimeEvent::ThreadReverted { .. } => {}
+        RuntimeEvent::SessionTitleUpdated { thread_id, title } if owned(&thread_id) => {
+            apply_session_auto_title(svc, &context.tab_id, &title);
+        }
         _ => {}
     }
     if !matches!(session.state.lock().phase, RuntimePhase::Loading) {
@@ -639,6 +693,55 @@ fn apply(
 #[path = "apply/neighbor_tests.rs"]
 mod neighbor_tests;
 
+fn apply_session_auto_title(svc: &ServiceContext, tab_id: &str, raw_title: &str) {
+    let cleaned: String = raw_title
+        .chars()
+        .map(|character| {
+            if character.is_control() || matches!(character, '\u{2028}' | '\u{2029}') {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect();
+    let title: String = cleaned
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(crate::service::tab::MAX_TAB_TITLE_CHARS)
+        .collect();
+    if title.is_empty() {
+        return;
+    }
+    let renamed = {
+        let mut mux = svc.mux.write();
+        let Some(tab) = mux.get_tab(tab_id) else {
+            return;
+        };
+        if tab.protected
+            || tab.task_binding.is_some()
+            || tab.title_level >= crate::multiplexer::types::TitleLevel::User
+            || tab.title == title
+        {
+            return;
+        }
+        mux.rename_tab_at_level(tab_id, &title, crate::multiplexer::types::TitleLevel::Agent)
+            .is_ok()
+    };
+    if renamed {
+        svc.emit_state_changed(MuxEmitCause::Title);
+        let _ = crate::service::session_persist::persist_session_after_mutation(
+            svc,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        );
+    }
+}
+
 #[cfg(test)]
 #[path = "apply/kpi_tests.rs"]
 mod kpi_tests;
+
+#[cfg(test)]
+#[path = "apply/title_tests.rs"]
+mod title_tests;

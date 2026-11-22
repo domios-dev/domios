@@ -14,6 +14,7 @@
 
 pub mod cli_local_admission;
 mod construct;
+pub mod dictation;
 mod provider_refresh;
 pub use construct::build_service_context;
 pub mod activity;
@@ -193,7 +194,7 @@ pub mod session_model;
 pub mod session_persist;
 mod session_resume;
 pub(crate) mod shell_exec;
-pub use shell_exec::ExecWaiter;
+pub use shell_exec::{ExecCompletion, ExecWaiter, ShellExecError, ShellExecSubmission};
 mod shell_restart;
 pub use shell_restart::{ShellCommandSubmission, ShellRestartOutcome};
 pub mod smart_add;
@@ -235,6 +236,7 @@ pub use status_reconciliation::SNAPSHOT_BUSY_ERROR;
 pub mod blocking;
 pub use blocking::run as blocking_run;
 pub mod launch_credentials;
+mod machine_identity;
 pub mod restored_launch;
 pub mod role_sync;
 pub mod store;

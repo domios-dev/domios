@@ -52,7 +52,7 @@ impl TokenStore {
     }
 
     pub fn lookup_service_id(&self, token: &str) -> std::io::Result<Option<String>> {
-        if !self.root.exists() {
+        if !is_service_token_shape(token) || !self.root.exists() {
             return Ok(None);
         }
         for entry in fs::read_dir(&self.root)? {
@@ -83,6 +83,11 @@ pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         diff |= x ^ y;
     }
     diff == 0
+}
+
+/// Every caller credential reaches the push check, so non-hex mesh and tab tokens skip the token-file scan.
+fn is_service_token_shape(token: &str) -> bool {
+    !token.is_empty() && token.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 /// Non-leaking token fingerprint for diagnostics: byte length + a short

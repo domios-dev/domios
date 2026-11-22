@@ -1,15 +1,117 @@
 import assert from "node:assert/strict";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { beforeEach, test, vi } from "vitest";
 
 import { applyDeliveryStatus, canDeleteChatSend, deliveryState, type DeliverySend } from "./chatDeliveryModel";
 import { encodeChatSend } from "./chatSendDurableModel";
 import { __setInvokeForTest } from "../../lib/bridge";
-import { deleteTrackedChatMessage, isProvenAdmissionRefusal, reconcileTrackedChatMessages, sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
+import { createPeerEventRail, peerEventRail } from "../../lib/peerEventRail";
+import type { TransportClient } from "../../lib/transportClient";
+import { deleteTrackedChatMessage, isProvenAdmissionRefusal, reconcileTrackedChatMessages, sendTrackedChatMessage, useChatSendStatusSubscription, type ChatSendStatus } from "./chatSendStatus";
 import { addChatSend, beginChatSendRetry, forgetChatSendsInMemory, observeDeliveryStatus, readChatSends,
   __setChatSendRepositoryForTest, ensureChatSendTabHydrated, chatSendTabHydrationState } from "./chatSendStore";
 import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 
 beforeEach(() => __setChatSendRepositoryForTest(new MemoryChatSendRepository()));
+
+test("a quiet composite Chat recovers its one send from B across remount and rail overflow", async () => {
+  const tabId = "mesh:peer-b/tab-1";
+  const bubble = { id: "bubble", correlationId: "original-token", content: "opaque", sentAtMs: 1 };
+  const written: ChatSendStatus = { ...heldStatus(), tab_id: tabId, correlationId: bubble.correlationId, state: "written" };
+  const delivered: ChatSendStatus = { ...written, sequence: 2, state: "delivered" };
+  const connections: Parameters<TransportClient["subscribe"]>[] = [];
+  const subscribe: TransportClient["subscribe"] = (...args) => { connections.push(args); return () => {}; };
+  const rail = createPeerEventRail(() => ({ subscribe }) as TransportClient);
+  const observe = vi.spyOn(peerEventRail, "observe").mockImplementation(rail.observe);
+  const stopB = rail.subscribe("peer-b", "link-b", () => {});
+  const stopOther = rail.subscribe("other-peer", "link-other", () => {});
+  const frame = (connection: number, event_type: string, data: unknown, boot: string, seq: number) =>
+    connections[connection][1]("message", { event_type, data, boot, seq });
+  let writes = 0;
+  let statuses: ChatSendStatus[] = [];
+  let dismissals: Array<{ send_id: string; send: typeof bubble }> = [];
+  const admissionQueries: unknown[] = [];
+  __setInvokeForTest(async <T>(command: string, args?: Record<string, unknown>) => {
+    assert.equal(args?.tabId, tabId);
+    if (command === "chat_send_text") {
+      writes++;
+      throw new TypeError("response lost");
+    }
+    if (command === "chat_send_admissions") {
+      admissionQueries.push(args?.clientTokens);
+      return [{ correlationId: bubble.correlationId, evidence: "present" }] as T;
+    }
+    if (command === "chat_send_status") return statuses as T;
+    if (command === "chat_send_dismissals") return dismissals as T;
+    throw new Error(command);
+  });
+  let refreshes: Promise<ChatSendStatus[]>[] = [];
+  const reconcile = () => { refreshes.push(reconcileTrackedChatMessages(tabId)); };
+  function Chat() {
+    useChatSendStatusSubscription(tabId, observeDeliveryStatus, reconcile);
+    return null;
+  }
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  try {
+    addChatSend(tabId, bubble);
+    await assert.rejects(sendTrackedChatMessage(tabId, bubble.correlationId, bubble.content), /response lost/);
+    await act(async () => root.render(createElement(Chat)));
+    await Promise.all(refreshes);
+    assert.ok(admissionQueries.length > 0);
+    for (const tokens of admissionQueries) assert.deepEqual(tokens, [bubble.correlationId]);
+    assert.equal(deliveryState(readChatSends(tabId)[0]), "uncertain");
+    assert.equal(beginChatSendRetry(tabId, bubble.id), undefined);
+
+    frame(0, "peer-replay-complete", null, "b", 1);
+    frame(1, "peer-replay-complete", null, "other", 1);
+    await Promise.all(refreshes);
+    refreshes = [];
+    statuses = [written];
+    frame(0, "chat-send-status", { tab_id: "another-tab" }, "b", 2);
+    frame(1, "chat-send-status", { tab_id: "tab-1" }, "other", 2);
+    assert.equal(refreshes.length, 0);
+    frame(0, "chat-send-status", { tab_id: "tab-1" }, "b", 3);
+    assert.equal(refreshes.length, 1);
+    await Promise.all(refreshes);
+    assert.equal(readChatSends(tabId)[0].status?.state, "written");
+
+    await act(async () => root.render(null));
+    forgetChatSendsInMemory();
+    connections[0][2]?.onEnd?.({ reason: "eof" });
+    assert.equal(new URL(connections[2][0], "http://local").searchParams.get("since"), "b:3");
+    await act(async () => root.render(createElement(Chat)));
+    await Promise.all(refreshes);
+    assert.equal(beginChatSendRetry(tabId, bubble.id), undefined);
+    statuses = [delivered];
+    dismissals = [{ send_id: written.send_id, send: bubble }];
+    refreshes = [];
+    frame(2, "overflow", { boot: "new-boot", next_seq: 8 }, "new-boot", 8);
+    frame(2, "chat-send-status", { tab_id: "tab-1" }, "new-boot", 8);
+    assert.equal(refreshes.length, 0);
+    frame(2, "peer-replay-complete", null, "new-boot", 8);
+    await Promise.all(refreshes);
+    assert.deepEqual(readChatSends(tabId).map(send => [send.id, send.status?.state, send.dismissed]), [
+      [bubble.id, "delivered", true],
+    ]);
+    statuses = [written];
+    frame(2, "chat-send-status", { tab_id: "tab-1" }, "new-boot", 9);
+    await Promise.all(refreshes);
+    assert.equal(readChatSends(tabId)[0].status?.state, "delivered");
+    assert.equal(readChatSends(tabId)[0].dismissed, true);
+    assert.equal(beginChatSendRetry(tabId, bubble.id), undefined);
+    assert.equal(writes, 1);
+  } finally {
+    await act(async () => root.unmount());
+    vi.unstubAllGlobals();
+    observe.mockRestore();
+    stopOther();
+    stopB();
+    __setInvokeForTest(null);
+  }
+});
 
 test("a stalled admission reaches uncertainty without replay and still accepts its late result", async () => {
   vi.useFakeTimers();
@@ -267,9 +369,8 @@ test("request rejection is logged and rethrown without a UI status channel", asy
 
 test("only proven pre-admission refusal allows Retry", () => {
   assert.equal(isProvenAdmissionRefusal(new Error("user send capacity: 32 unsettled admissions")), true);
-  assert.equal(isProvenAdmissionRefusal(new Error("startup override requires the provider launch command to be written")), true);
-  assert.equal(isProvenAdmissionRefusal(new Error("Startup override requires authenticated owner authority")), true);
-  assert.equal(isProvenAdmissionRefusal(new Error("admission_unknown: startup override response lost")), false);
+  assert.equal(isProvenAdmissionRefusal(new Error("The message recipient changed while preparing the message.")), true);
+  assert.equal(isProvenAdmissionRefusal(new Error("admission_unknown: recipient response lost")), false);
   assert.equal(isProvenAdmissionRefusal(new Error("admission_unknown: durability could not be qualified")), false);
   assert.equal(isProvenAdmissionRefusal(new TypeError("Failed to fetch")), false);
   assert.equal(isProvenAdmissionRefusal(new Error("connection reset")), false);
@@ -311,18 +412,36 @@ test("a send request that hit its deadline resolves to Retry once durable absenc
   assert.notEqual(beginChatSendRetry(tabId, "deadline-bubble"), undefined);
 });
 
-test("reconnect leaves an ambiguous response uncertain even when no admission is retained", async () => {
+test("a lost slash response stays uncertain even when no admission is retained", async () => {
   const tabId = "ambiguous-admission";
-  addChatSend(tabId, { id: "ambiguous-bubble", correlationId: "ambiguous-token", content: "opaque", sentAtMs: 1 });
+  addChatSend(tabId, { id: "ambiguous-bubble", correlationId: "ambiguous-token", content: "/help", sentAtMs: 1 });
   __setInvokeForTest(async <T>(command: string) => {
     if (command === "chat_send_text") throw new Error("opaque-ambiguous-response");
     if (command === "chat_send_status") return [] as T;
     return [{ correlationId: "ambiguous-token", evidence: "absent" }] as T;
   });
-  await assert.rejects(sendTrackedChatMessage(tabId, "ambiguous-token", "opaque"));
+  await assert.rejects(sendTrackedChatMessage(tabId, "ambiguous-token", "/help"));
   await reconcileTrackedChatMessages(tabId);
   assert.equal(deliveryState(readChatSends(tabId)[0]), "uncertain");
   assert.equal(beginChatSendRetry(tabId, "ambiguous-bubble"), undefined);
+});
+
+test("a changed recipient makes the existing send bubble retryable without querying the ledger", async () => {
+  const tabId = "changed-recipient";
+  const reason = "The message recipient changed while preparing the message.";
+  const calls: string[] = [];
+  addChatSend(tabId, { id: "own-bubble", correlationId: "original-send", content: "opaque", sentAtMs: 1 });
+  __setInvokeForTest(async (command: string) => {
+    calls.push(command);
+    throw new Error(reason);
+  });
+  await assert.rejects(sendTrackedChatMessage(tabId, "original-send", "opaque"), /recipient changed/);
+  const [send] = readChatSends(tabId);
+  assert.equal(send?.id, "own-bubble");
+  assert.equal(send?.requestError, reason);
+  assert.equal(deliveryState(send), "failed");
+  assert.notEqual(beginChatSendRetry(tabId, "own-bubble"), undefined);
+  assert.deepEqual(calls, ["chat_send_text"]);
 });
 
 

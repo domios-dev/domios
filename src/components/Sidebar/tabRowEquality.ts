@@ -1,4 +1,5 @@
 import type { Tab } from "../../lib/types";
+import { runtimeBackgroundProcesses } from "../../lib/tabActivity";
 
 /** Top-level tab fields a sidebar row shows or hands to its menu; a change to any of them re-renders the row. */
 const ROW_TAB_FIELDS = [
@@ -28,6 +29,8 @@ const ROW_TAB_FIELDS = [
   "has_checklist",
   "remote_peer_id",
   "remote_peer_name",
+  "remote_team_id",
+  "team_id",
   "chat_view",
   "pending_prompt",
   "parent_tab_id",
@@ -52,6 +55,7 @@ export function sameRowTab(previous: Tab, next: Tab): boolean {
     && previous.shell_command_state?.last_exit_code === next.shell_command_state?.last_exit_code
     && previous.ownership?.controller_title === next.ownership?.controller_title
     && previous.ownership?.team?.id === next.ownership?.team?.id
+    && previous.ownership?.team?.title === next.ownership?.team?.title
     && previous.agent_runtime_config?.confirmedServiceTier === next.agent_runtime_config?.confirmedServiceTier
     && previous.agent_runtime_config?.launchProfile === next.agent_runtime_config?.launchProfile
     && previous.agent_runtime_state?.state === next.agent_runtime_state?.state
@@ -64,6 +68,7 @@ export function sameRowTab(previous: Tab, next: Tab): boolean {
     && previous.agent_state?.phase === next.agent_state?.phase
     && previous.agent_state?.subtype === next.agent_state?.subtype
     && JSON.stringify(previous.provider_signals?.background?.running) === JSON.stringify(next.provider_signals?.background?.running)
+    && JSON.stringify(runtimeBackgroundProcesses(previous)) === JSON.stringify(runtimeBackgroundProcesses(next))
     && JSON.stringify(previous.remote_channels) === JSON.stringify(next.remote_channels)
     && JSON.stringify(previous.connected_services) === JSON.stringify(next.connected_services);
 }

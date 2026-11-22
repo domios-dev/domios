@@ -701,3 +701,40 @@ fn shell_initialization_captures_diagnostics_before_any_view_and_refuses_recaptu
     assert!(initialize_with_preflight(app.handle(), |_| panic!("second evaluation")).is_err());
     assert_eq!(evaluations.get(), 1);
 }
+
+#[test]
+fn frontend_shell_contract_clean_reload_gets_a_fresh_document_generation() {
+    let latch = ClientRootRenderLatch::default();
+    let clean = Url::parse("http://127.0.0.1:7686/index.html?keep=1#tab").unwrap();
+    let origin = clean.origin().ascii_serialization();
+    let prior = ClientViewGeneration {
+        view: 7,
+        navigation: 11,
+    };
+    latch.arm(prior, origin.clone());
+    let stale = with_root_generation(&clean, prior);
+    assert_eq!(prepared_root_generation(&latch, &stale, 7), Some(prior));
+    assert!(latch.acknowledge(prior, &origin));
+    assert_eq!(prepared_root_generation(&latch, &clean, 7), None);
+    assert_eq!(prepared_root_generation(&latch, &stale, 7), None);
+
+    let next = ClientViewGeneration {
+        view: 7,
+        navigation: 12,
+    };
+    latch.arm(next, origin.clone());
+    let prepared = with_root_generation(&clean, next);
+    assert_eq!(prepared.fragment(), clean.fragment());
+    assert_eq!(
+        prepared
+            .query_pairs()
+            .find(|(key, _)| key == "keep")
+            .unwrap()
+            .1,
+        "1"
+    );
+    assert_eq!(prepared_root_generation(&latch, &prepared, 7), Some(next));
+    assert_eq!(prepared_root_generation(&latch, &prepared, 8), None);
+    assert!(!latch.acknowledge(prior, &origin));
+    assert!(latch.acknowledge(next, &origin));
+}

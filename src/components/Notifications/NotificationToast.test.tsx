@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { NotificationToastContainer } from "./NotificationToast";
 import type { Notification } from "../../lib/types";
+import { rememberMachineIdentities } from "../../lib/useMeshMachineIdentities";
 
 type TestFn = () => void | Promise<void>;
 
@@ -71,6 +72,39 @@ test("host shows at most three notifications newest first", async () => {
 
   assert(host.textContent?.includes("New status"), "newest toast should be visible");
   assert(Array.from(host.querySelectorAll("[data-notification-id]")).map((node) => node.getAttribute("data-notification-id")).join() === "new,middle,old", "three newest entries render in reverse arrival order");
+  await act(async () => root.unmount());
+});
+
+test("remote toast origin uses the exact installation glyph when machine names collide", async () => {
+  setupDom();
+  rememberMachineIdentities({
+    machine_identities: {
+      "install-a": { kind: "laptop", color: "blue" },
+      "install-b": { kind: "server", color: "pink" },
+    },
+    paired: [
+      { instance_id: "install-a", instance_name: "Same name" },
+      { instance_id: "install-b", instance_name: "Same name" },
+    ],
+  } as unknown as Parameters<typeof rememberMachineIdentities>[0]);
+  const item: Notification = {
+    ...notification("remote-notification/install-a/source", "Waiting", 2),
+    peer_name: "Same name",
+    remote_origin: { peerId: "install-a", sourceId: "source", peerName: "Same name" },
+    tab_id: "mesh:install-a/main",
+  };
+  const { host, root } = await render(<NotificationToastContainer toasts={[item]} onDismiss={() => undefined} />);
+  const collapsedOrigin = host.querySelector<HTMLElement>('[title="Same name, laptop"]');
+  assert(
+    collapsedOrigin?.textContent?.includes(", laptop") && collapsedOrigin.querySelector("svg"),
+    "collapsed toast uses the installation-qualified machine identity",
+  );
+  await act(async () => (host.querySelector('[aria-label="Show notification: Waiting"]') as HTMLButtonElement).click());
+  const expandedOrigin = document.querySelector<HTMLElement>('[data-testid="notification-toast-expanded"] [title="Same name, laptop"]');
+  assert(
+    expandedOrigin?.textContent?.includes(", laptop") && expandedOrigin.querySelector("svg"),
+    "expanded toast preserves the exact machine identity",
+  );
   await act(async () => root.unmount());
 });
 

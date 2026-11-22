@@ -264,6 +264,7 @@ fn default_capabilities() -> Capabilities {
         context_attach: None,
         secret_backend: SecretBackendCap::default(),
         transcriber: false,
+        dictation: false,
         graph_nodes: GraphNodesCap::default(),
         decision_model: Default::default(),
         glance_view: false,

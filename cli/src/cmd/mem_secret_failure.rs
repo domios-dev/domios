@@ -56,6 +56,9 @@ pub fn secret_failure(status: u16, body: &serde_json::Value) -> Option<(i32, Cli
         "locked" => "secret store: vault locked — run `domios mem secret unlock`",
         "not_found" => "secret store: not found",
         "already_exists" => "secret store: already exists (use --overwrite to replace)",
+        "write_uncertain" => {
+            "secret store: write outcome uncertain — verify with `domios mem secret get` before retrying"
+        }
         _ if error.is_none() => "",
         _ => WITHHELD,
     };

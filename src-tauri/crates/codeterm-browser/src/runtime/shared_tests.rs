@@ -172,7 +172,7 @@ async fn acquire(
     launches: Arc<AtomicUsize>,
 ) -> ProfileLease {
     let launch_dir = dir.clone();
-    ProfileLease::acquire_with(dir, move || async move {
+    ProfileLease::acquire_with(dir, false, move || async move {
         launches.fetch_add(1, Ordering::SeqCst);
         Ok(SharedBrowser {
             client: CdpClient::from_connection(connection),

@@ -13,6 +13,7 @@ import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
 import { canRetryChatSend, canDeleteChatSend, canEditChatSend, deliveryError, resendsWithCli, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
 import { editChatDelivery } from "./chatDeliveryComposer";
+import { messageTurnId } from "./messageForkModel";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 
 type MessageBubbleProps = React.ComponentProps<typeof MessageBubble>;
@@ -21,6 +22,7 @@ export interface OutboundReportEntry {
   targetTabId: string;
   at: number | null;
   descriptor: OutboundReportDescriptor;
+  position?: { source_session_id: string; message_id: string } | null;
 }
 
 export interface OriginRowProps {
@@ -53,6 +55,7 @@ export interface ChatTranscriptRowContext {
   retrySend: (sendId: string) => void;
   forkFrom: (turnId: string) => void;
   revertTo: (turnId: string) => void;
+  onContinueTurn?: () => void;
 }
 
 export interface ChatTranscriptRowProps {
@@ -72,6 +75,7 @@ export interface ChatTranscriptRowProps {
   cursor: boolean;
   streaming: boolean;
   latestFailedToolCall: boolean;
+  canContinueTurn?: boolean;
   forkable: boolean;
   revertible: boolean;
   ariaLabel: string;
@@ -128,7 +132,7 @@ function sameRowProps(left: ChatTranscriptRowProps, right: ChatTranscriptRowProp
 /** One transcript row; it renders again only when its own message, rails, delivery or selection change. */
 export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySeparator, originProps, reports, asks, liveActivityLabel,
   deliverySend, deliveryView, deliveryBehindTurn, sourceOrdinal, selected, joinNext, selecting, cursor, streaming, latestFailedToolCall,
-  forkable, revertible, ariaLabel, context }: ChatTranscriptRowProps) {
+  canContinueTurn, forkable, revertible, ariaLabel, context }: ChatTranscriptRowProps) {
   const { msg, item, origin } = entry;
   const pendingDelivery = deliverySend && deliveryView && deliveryView !== "delivered";
   const remoteFailure = deliverySend?.remoteFailure;
@@ -139,7 +143,7 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
   const onEdit = !remoteFailure && deliverySend && canEditChatSend(deliverySend) ? () => editChatDelivery(context.tabId, deliverySend) : undefined;
   const resendWithCli = Boolean(deliverySend && resendsWithCli(deliverySend));
   const message = useMemo(() => context.promptAnswers ? msg : { ...msg, interactive: [] }, [msg, context.promptAnswers]);
-  const turnId = msg.toolFlowId;
+  const turnId = messageTurnId(msg);
   if(msg.systemSubtype==="account_transition")return <ChatWindowRow message={msg}><ChatDaySeparator label={daySeparator}/><AccountContinuationNoticeCard message={msg}/></ChatWindowRow>;
   return (
     <ChatWindowRow message={msg} liveActivityLabel={liveActivityLabel}>
@@ -195,6 +199,7 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
             onOriginClick={originProps?.onOriginClick}
             onFocusTab={context.onFocusTab}
             onJumpToMessage={context.onJumpToMessage}
+            onContinueTurn={canContinueTurn ? context.onContinueTurn : undefined}
           />
         </ChatMessageRow>
       </ChatHighlightRow>

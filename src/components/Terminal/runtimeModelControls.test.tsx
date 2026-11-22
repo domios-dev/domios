@@ -247,3 +247,58 @@ it("stages Advanced controls until Apply and discards them on Cancel", async () 
   expect(bridge.invoke).not.toHaveBeenCalled();
   expect(switchModel).not.toHaveBeenCalled();
 });
+
+it("renders ACP boolean toggles, grouped selects, and descriptions inside Advanced using ct-menu rows", async () => {
+  const richControls: RuntimeSettings = {
+    configOptions: [
+      { id: "model", name: "Model", category: "model", currentValue: "gemini-pro", options: [{ value: "gemini-pro", name: "Gemini Pro" }] },
+      { id: "web_search", name: "Web search", kind: "boolean", description: "Allow live web queries", currentValue: "false", options: [] },
+      {
+        id: "sandbox",
+        name: "Sandbox",
+        description: "Execution boundary",
+        currentValue: "workspace",
+        options: [
+          { value: "workspace", name: "Workspace only", description: "Confine writes to repo", group: "Local" },
+          { value: "full", name: "Full access", description: "Unrestricted tools", group: "Elevated" },
+        ],
+      },
+    ],
+  };
+  await mount(richControls);
+  await act(async () => trigger().click());
+
+  // Main model list must stay uncluttered: boolean & extra config options live only inside Advanced.
+  const modelList = row().querySelector(".ct-model-picker__list")!;
+  expect(modelList.textContent).not.toContain("Web search");
+  expect(modelList.textContent).not.toContain("Sandbox");
+
+  const advanced = row().querySelector("details")!;
+  expect(advanced.open).toBe(false);
+  await act(async () => advanced.querySelector("summary")!.click());
+
+  const checkbox = advanced.querySelector<HTMLButtonElement>('button[role="checkbox"]')!;
+  expect(checkbox).not.toBeNull();
+  expect(checkbox.className).toContain("ct-menu-row");
+  expect(checkbox.getAttribute("aria-checked")).toBe("false");
+  expect(checkbox.textContent).toContain("Web search");
+  expect(checkbox.textContent).toContain("Allow live web queries");
+
+  // Toggle boolean option ON and pick a grouped select option.
+  await act(async () => checkbox.click());
+  expect(checkbox.getAttribute("aria-checked")).toBe("true");
+  const sandbox = advanced.querySelector<HTMLButtonElement>('button[aria-label="Sandbox: Workspace only"]')!;
+  expect(sandbox).not.toBeNull();
+  await act(async () => sandbox.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
+  const groupLabels = [...document.body.querySelectorAll(".ct-menu-group-label")].map(el => el.textContent?.trim());
+  expect(groupLabels).toEqual(["Local", "Elevated"]);
+  const fullChoice = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.includes("Full access"))!;
+  expect(fullChoice.textContent).toContain("Unrestricted tools");
+  await act(async () => fullChoice.click());
+
+  await apply();
+  expect(bridge.invoke.mock.calls).toEqual([
+    ["agent_runtime_controls", { tabId: "acp", request: { threadId: "acp-session", bindingNonce: "acp-nonce", epoch: 7, id: "web_search", value: "true", mode: false } }],
+    ["agent_runtime_controls", { tabId: "acp", request: { threadId: "acp-session", bindingNonce: "acp-nonce", epoch: 7, id: "sandbox", value: "full", mode: false } }],
+  ]);
+});

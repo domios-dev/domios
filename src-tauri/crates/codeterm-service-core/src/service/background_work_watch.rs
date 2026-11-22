@@ -25,14 +25,21 @@ pub(crate) fn cancel(svc: &ServiceContext, tab: &str) {
 pub(crate) fn ensure(svc: &ServiceContext, tab: &str) {
     let target = {
         let mux = svc.mux.read();
-        mux.get_tab(tab).and_then(|tab| {
-            Some((
-                tab.agent_type.clone()?,
-                tab.cwd.clone()?,
-                tab.agent_session_id.clone()?,
-                tab.session_binding_nonce.clone()?,
-            ))
-        })
+        mux.get_tab(tab)
+            .filter(|tab| {
+                !matches!(
+                    tab.backing,
+                    crate::multiplexer::types::TabBacking::ChatBackend { .. }
+                )
+            })
+            .and_then(|tab| {
+                Some((
+                    tab.agent_type.clone()?,
+                    tab.cwd.clone()?,
+                    tab.agent_session_id.clone()?,
+                    tab.session_binding_nonce.clone()?,
+                ))
+            })
     };
     let Some((provider, cwd, session, nonce)) = target else {
         cancel(svc, tab);

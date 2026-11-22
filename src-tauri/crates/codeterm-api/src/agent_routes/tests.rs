@@ -681,6 +681,179 @@ async fn agent_routes_host_mcp_cannot_send_or_report_as_foreign_tab() {
     }
 }
 
+#[tokio::test]
+async fn outbound_report_snapshot_is_sender_scoped_and_never_consumes_recipient_receipts() {
+    use codeterm_service_core::agent::reports::{
+        AgentReportHostMetadata, ReportDetails, ReportSenderPosition,
+    };
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+
+    let (mut mux, sender) = MultiplexerState::new();
+    {
+        let tab = mux.get_tab_mut(&sender).unwrap();
+        tab.agent_session_id = Some("sender-session".into());
+        tab.session_binding_nonce = Some("sender-nonce".into());
+    }
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
+    let state = crate::test_support::app_state(&fixture);
+    let recipient = "recipient-tab";
+    let report = state
+        .svc
+        .report_store
+        .lock()
+        .add_detailed_with_host_metadata(
+            recipient,
+            &sender,
+            "Sender",
+            "opaque lifecycle notice",
+            ReportDetails::default(),
+            None,
+            AgentReportHostMetadata {
+                sender_position: Some(ReportSenderPosition {
+                    source_session_id: "source-session".into(),
+                    message_id: "ack-row".into(),
+                }),
+                kind: Some("dispatch_ready".into()),
+            },
+        );
+
+    let mut sender_headers = HeaderMap::new();
+    sender_headers.insert("x-codeterm-tab-id", sender.parse().unwrap());
+    sender_headers.insert("x-codeterm-session-id", "sender-session".parse().unwrap());
+    sender_headers.insert("x-codeterm-binding-nonce", "sender-nonce".parse().unwrap());
+    sender_headers.insert(
+        "accept",
+        "application/vnd.domios.agent-reports.outbound+json"
+            .parse()
+            .unwrap(),
+    );
+    let snapshot = super::get_reports(
+        AxumState(state.clone()),
+        sender_headers.clone(),
+        Path(sender.clone()),
+        Query(ReportsQuery { clear: None }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(snapshot.as_array().unwrap().len(), 1);
+    assert_eq!(snapshot[0]["target_tab_id"], recipient);
+    assert_eq!(snapshot[0]["report"]["id"], report.id);
+    assert_eq!(snapshot[0]["report"]["timestamp"], report.timestamp);
+    assert_eq!(
+        snapshot[0]["report"]["sender_position"]["message_id"],
+        "ack-row"
+    );
+    assert_eq!(snapshot[0]["report"]["kind"], "dispatch_ready");
+
+    let repeated = super::get_reports(
+        AxumState(state.clone()),
+        sender_headers.clone(),
+        Path(sender.clone()),
+        Query(ReportsQuery { clear: None }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(repeated, snapshot, "outbound reads are non-consuming");
+
+    let received = super::get_reports(
+        AxumState(state.clone()),
+        HeaderMap::new(),
+        Path(recipient.into()),
+        Query(ReportsQuery { clear: Some(false) }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(received[0]["from_tab_id"], sender);
+    assert_eq!(received[0]["id"], report.id);
+
+    let mut foreign_headers = HeaderMap::new();
+    foreign_headers.insert("x-codeterm-tab-id", "other-tab".parse().unwrap());
+    foreign_headers.insert(
+        "accept",
+        "application/vnd.domios.agent-reports.outbound+json"
+            .parse()
+            .unwrap(),
+    );
+    let refused = super::get_reports(
+        AxumState(state.clone()),
+        foreign_headers,
+        Path(sender.clone()),
+        Query(ReportsQuery { clear: None }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refused.0, StatusCode::FORBIDDEN);
+
+    let mut remote_headers = HeaderMap::new();
+    remote_headers.insert("x-codeterm-tab-id", "mesh:peer/remote-tab".parse().unwrap());
+    remote_headers.insert("x-codeterm-session-id", "remote-session".parse().unwrap());
+    remote_headers.insert("x-codeterm-binding-nonce", "remote-nonce".parse().unwrap());
+    remote_headers.insert(
+        "accept",
+        "application/vnd.domios.agent-reports.outbound+json"
+            .parse()
+            .unwrap(),
+    );
+    let remote_read = super::get_reports(
+        AxumState(state.clone()),
+        remote_headers,
+        Path("mesh:peer/remote-tab".into()),
+        Query(ReportsQuery { clear: None }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(remote_read.0, StatusCode::FORBIDDEN);
+
+    let mut stale_binding_headers = sender_headers.clone();
+    stale_binding_headers.insert(
+        "x-codeterm-binding-nonce",
+        "replaced-nonce".parse().unwrap(),
+    );
+    let stale_binding = super::get_reports(
+        AxumState(state.clone()),
+        stale_binding_headers,
+        Path(sender.clone()),
+        Query(ReportsQuery { clear: None }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(stale_binding.0, StatusCode::FORBIDDEN);
+
+    let consuming_outbound = super::get_reports(
+        AxumState(state.clone()),
+        sender_headers.clone(),
+        Path(sender.clone()),
+        Query(ReportsQuery { clear: Some(true) }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(consuming_outbound.0, StatusCode::BAD_REQUEST);
+
+    let cleared_recipient = super::get_reports(
+        AxumState(state.clone()),
+        HeaderMap::new(),
+        Path(recipient.into()),
+        Query(ReportsQuery { clear: Some(true) }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(cleared_recipient[0]["id"], report.id);
+    let still_outbound = super::get_reports(
+        AxumState(state),
+        sender_headers,
+        Path(sender.clone()),
+        Query(ReportsQuery { clear: None }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(still_outbound, snapshot);
+}
+
 #[test]
 fn sandbox_spawn_refusal_preserves_typed_rest_code_and_human_message() {
     let rejection = SpawnRejection::from(

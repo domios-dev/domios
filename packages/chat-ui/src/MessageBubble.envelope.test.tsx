@@ -8,8 +8,8 @@ import { enrichTimelineItems } from "../../../src/components/Terminal/chatEnrich
 import { MessageBubble } from "./MessageBubble";
 import fixtureData from "../../../tests/fixtures/message-envelope.json";
 
-for (const kind of ["tab", "report", "mesh", "system", "telegram", "curator"] as const) {
-  test(`${kind} queued and echoed host message renders sender metadata and a collapsed reply tip`, async () => {
+for (const kind of ["tab"] as const) {
+  test("queued and echoed routed tab message preserves its card header", async () => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     const attrs = { from: kind, label: "Weaver", tab: "8494e5c7", model: "opaque-model", user: "123", peer: "peer" };
     const wire = `<domios from="${kind}" label="Weaver" tab="8494e5c7" model="opaque-model">**Opaque body**<tip>Opaque reply command</tip></domios>`;
@@ -19,7 +19,7 @@ for (const kind of ["tab", "report", "mesh", "system", "telegram", "curator"] as
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
-    let focused = "";
+    let focused = false;
     try {
       for (const state of ["held", "delivered"] as const) {
         const send: DeliverySend = { id: "host", correlationId: "token", content: wire, sentAtMs: 1000,
@@ -29,23 +29,24 @@ for (const kind of ["tab", "report", "mesh", "system", "telegram", "curator"] as
         const messages = state === "held" ? [{ id: "host", type: "user" as const, content: wire, segments: sends[0].segments }]
           : projectTranscriptParts([{ id: "echo", type: "user", content: wire, correlationId: "token", segments: [{ type: "text", text: wire }] }], sends);
         const [entry] = enrichTimelineItems(messages.map(message => ({ kind: "message" as const, message })), new WeakMap());
-        await act(async () => root.render(<MessageBubble key={state} message={entry.msg} origin={entry.origin} onFocusTab={tab => { focused = tab; }} />));
-        const details = host.querySelector<HTMLDetailsElement>("details")!;
-        expect(details).not.toBeNull();
-        expect(details.open).toBe(false);
-        expect(details.querySelector("summary")?.textContent).toBe("Reply details");
-        expect(host.querySelector('[aria-label="Routing details"]')?.textContent).toContain(`${kind} · Weaver · opaque-model`);
+        await act(async () => root.render(<MessageBubble key={state} message={entry.msg} origin={entry.origin} onOriginClick={() => { focused = true; }} />));
+        const card = host.querySelector<HTMLElement>('[data-testid="chat-inbound-message"]');
+        expect(card?.textContent).toContain("Received from Weaver");
+        expect(card?.textContent).toContain("opaque-model");
+        expect(host.textContent).not.toContain("Reply details");
+        expect(host.textContent).not.toContain("Open sender tab");
+        expect(host.textContent).not.toContain(`${kind} · Weaver · opaque-model`);
         expect(host.textContent).not.toContain("<domios");
         expect(host.textContent).not.toContain("<tip>");
+        expect(host.textContent).not.toContain("Opaque reply command");
         const opener = host.querySelector<HTMLButtonElement>('button[aria-label="Expand tool details"]');
         if (opener) await act(async () => opener.click());
         const notice = host.querySelector<HTMLButtonElement>('button[aria-expanded="false"]');
         if (!host.querySelector("strong") && notice) await act(async () => notice.click());
         expect(host.querySelector("strong")?.textContent).toBe("Opaque body");
-        await act(async () => Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Open sender tab")!.click());
-        expect(focused).toBe("8494e5c7");
-        await act(async () => { details.open = true; details.dispatchEvent(new Event("toggle")); });
-        expect(details.textContent).toContain("Opaque reply command");
+        focused = false;
+        await act(async () => card?.querySelector<HTMLButtonElement>('button[title="Show Tab"]')?.click());
+        expect(focused).toBe(true);
       }
     } finally {
       await act(async () => root.unmount());
@@ -89,6 +90,28 @@ test("routed card renders Rust attachment segments beside its body", async () =>
     expect(host.textContent).toContain("done");
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+test("agent sender fixture renders its model and message-specific controls", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const fixture = (fixtureData as Array<{ name: string; raw: string; segments: MessageSegment[] }>).find((entry) => entry.name === "agent sender with model")!;
+  const [entry] = enrichTimelineItems([{ kind: "message", message: { id: "agent-sender", type: "user", content: fixture.raw, segments: fixture.segments } }], new WeakMap());
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<MessageBubble message={entry.msg} origin={entry.origin} onOriginClick={() => {}} />));
+    expect(host.querySelector('[role="group"][aria-label="Received from AGENT"]')?.textContent).toContain("gpt-6.1-sol");
+    expect(host.querySelector('button[aria-label="Show tab AGENT"]')).not.toBeNull();
+    const collapseControls = [...host.querySelectorAll<HTMLButtonElement>('button[aria-label="Collapse message"]')];
+    expect(collapseControls).toHaveLength(2);
+    expect(collapseControls.filter((button) => button.tabIndex >= 0)).toHaveLength(1);
+    await act(async () => collapseControls.find((button) => button.tabIndex >= 0)?.click());
+    expect(host.querySelector('button[aria-label="Expand message"]')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
   }
 });
 

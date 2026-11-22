@@ -12,6 +12,8 @@ interface DurableEcho {
 interface DurableSystemSend {
   body: BodyRef;
   sent_at_ms: number;
+  segments?: NonNullable<ChatSendStatus["system_send"]>["segments"];
+  segments_version?: number;
 }
 
 type DurableStatus = Omit<ChatSendStatus, "tab_id" | "system_send"> & {
@@ -25,9 +27,11 @@ interface DurableDraft {
   voiceTranscribing?: boolean;
   capsules: DeliveryDraft["capsules"];
   reply: DeliveryDraft["reply"];
+  inlineReply?: boolean;
 }
 
 interface DurableSend {
+  target?: DeliverySend["target"];
   localAttempt?: DeliverySend["localAttempt"];
   id: string;
   content: BodyRef;
@@ -108,6 +112,7 @@ export function encodeChatSend(tabId: string, send: DeliverySend, revision = 0, 
     id: send.id,
     content: body(send.content),
     sentAtMs: send.sentAtMs,
+    ...(send.target !== undefined ? { target: send.target } : {}),
     ...(send.correlationId !== undefined ? { correlationId: send.correlationId } : {}),
     ...(send.echo !== undefined ? { echo: { body: body(send.echo.content), timestampMs: send.echo.timestampMs } } : {}),
     ...(!matchedRowInStatus && send.matchedRow !== undefined ? { matchedRow: send.matchedRow } : {}),
@@ -131,6 +136,7 @@ export function encodeChatSend(tabId: string, send: DeliverySend, revision = 0, 
       ...(draft.voiceTranscribing !== undefined ? { voiceTranscribing: draft.voiceTranscribing } : {}),
       capsules: draft.capsules as DurableDraft["capsules"],
       reply: draft.reply as DurableDraft["reply"],
+      ...(draft.inlineReply !== undefined ? { inlineReply: draft.inlineReply } : {}),
     } } : {}),
   };
   return { format: "codeterm.chat-send", version: 1, tabId, sendId: send.id, revision, order,
@@ -290,6 +296,7 @@ export function decodeChatSend(record: ChatSendDurableRecord): DeliverySend | nu
       id: value.id,
       content,
       sentAtMs: value.sentAtMs,
+      ...(value.target !== undefined ? { target: value.target } : {}),
       ...(value.correlationId !== undefined ? { correlationId: value.correlationId } : {}),
       ...(value.echo !== undefined ? { echo: { content: readRequiredBody(record, value.echo.body), timestampMs: value.echo.timestampMs } } : {}),
       ...(matchedRow !== undefined ? { matchedRow } : {}),
@@ -312,6 +319,7 @@ export function decodeChatSend(record: ChatSendDurableRecord): DeliverySend | nu
         ...(value.draft.voiceTranscribing !== undefined ? { voiceTranscribing: value.draft.voiceTranscribing } : {}),
         capsules: value.draft.capsules,
         reply: value.draft.reply,
+        ...(value.draft.inlineReply !== undefined ? { inlineReply: value.draft.inlineReply } : {}),
       } } : {}),
     };
   } catch {
@@ -351,7 +359,7 @@ export function mergeChatSendRecord(
     if (previous && !sameValue(current[key], previous[key])) return;
     (merged as DeliverySend)[key] = next[key] as DeliverySend[K];
   };
-  for (const key of ["content", "sentAtMs", "echoBoundary", "localAttempt", "droppedUploads", "remoteFailure", "requestFailed", "requestError", "requestUncertain", "requestHadResponse", "admissionSettled", "wasHeld", "draft"] as const) patch(key);
+  for (const key of ["content", "sentAtMs", "target", "echoBoundary", "localAttempt", "droppedUploads", "remoteFailure", "requestFailed", "requestError", "requestUncertain", "requestHadResponse", "admissionSettled", "wasHeld", "draft"] as const) patch(key);
   if (!retry) patch("correlationId");
   if (!retry) patch("matchedRow");
   if (current.echo == null && next.echo != null && deliveryState(current) !== "failed"
@@ -417,7 +425,12 @@ function encodeStatus(status: ChatSendStatus, body: (value: string) => BodyRef):
   const { tab_id: _tabId, system_send: systemSend, ...fields } = status;
   return {
     ...fields,
-    ...(systemSend !== undefined ? { system_send: { body: body(systemSend.content), sent_at_ms: systemSend.sent_at_ms } } : {}),
+    ...(systemSend !== undefined ? { system_send: {
+      body: body(systemSend.content),
+      sent_at_ms: systemSend.sent_at_ms,
+      ...(systemSend.segments?.length ? { segments: systemSend.segments } : {}),
+      ...(systemSend.segments_version !== undefined ? { segments_version: systemSend.segments_version } : {}),
+    } } : {}),
   };
 }
 
@@ -426,7 +439,12 @@ function decodeStatus(tabId: string, record: ChatSendDurableRecord, status: Dura
   return {
     ...fields,
     tab_id: tabId,
-    ...(systemSend !== undefined ? { system_send: { content: readRequiredBody(record, systemSend.body), sent_at_ms: systemSend.sent_at_ms } } : {}),
+    ...(systemSend !== undefined ? { system_send: {
+      content: readRequiredBody(record, systemSend.body),
+      sent_at_ms: systemSend.sent_at_ms,
+      ...(systemSend.segments?.length ? { segments: systemSend.segments } : {}),
+      ...(systemSend.segments_version !== undefined ? { segments_version: systemSend.segments_version } : {}),
+    } } : {}),
   };
 }
 

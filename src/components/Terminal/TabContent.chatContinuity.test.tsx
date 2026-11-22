@@ -258,7 +258,7 @@ async function main(): Promise<void> {
     if (String(input).endsWith("/api/mesh/relay-to")) {
       markPeerCatalogRequested();
       const call = JSON.parse(String(init?.body));
-      assert(call.target_peer_id === "owning-peer", "catalog requested from wrong peer");
+      assert(call.target_instance_id === "owning-peer", "catalog requested from wrong peer");
       assert(call.path === "/api/agents/providers", "catalog used wrong relay route");
       return Response.json({ ok: true, status: 200, data: [descriptor], error: null });
     }

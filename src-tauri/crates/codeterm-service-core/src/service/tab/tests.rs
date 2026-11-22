@@ -768,3 +768,220 @@ fn tab_cwd_updates_store_plain_windows_paths() {
         );
     }
 }
+
+#[test]
+fn cron_claim_captures_before_build_and_refuses_cancelled_or_replaced_launch() {
+    use crate::cron::store::{CronCancelReason, CronRunStatus, CronStore};
+    use crate::service::spawn::RuntimeOwnerLinkage;
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+    for case in [
+        "active",
+        "cancelled",
+        "replacement",
+        "pre-reservation",
+        "cancelled-assembly",
+    ] {
+        let (mux, tab) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let svc = &fixture.service;
+        let nonce = svc.ensure_session_binding_nonce(&tab);
+        let mut store = CronStore::new_with_path(fixture.temp.path().join("cron.json"));
+        let job = store.create(serde_json::from_value(serde_json::json!({
+            "name":"Claim authority", "workspace_id":"fixture", "schedule":"0 * * * *", "task":"opaque", "jitter_max_ms":0,
+        })).unwrap()).unwrap();
+        store
+            .record_run(
+                &job.id,
+                serde_json::from_value(
+                    serde_json::json!({"run_id":"claim-run", "started_at":1,"status":"Running"}),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let cron: crate::CronState = Arc::new(parking_lot::Mutex::new(store));
+        assert!(svc.set_ext(cron.clone()).is_ok());
+        let linkage = RuntimeOwnerLinkage::CronRun {
+            job_id: job.id.clone(),
+            run_id: "claim-run".into(),
+        };
+        svc.run_watcher
+            .reserve_cron_slot(svc, &cron, &job.id, "claim-run")
+            .unwrap();
+        let original = svc
+            .run_watcher
+            .capture_cron_launch(svc, &linkage, &tab, &nonce, None)
+            .unwrap();
+        if case == "pre-reservation" {
+            let provisional = crate::service::spawn::cron_launch::CronAllocation::claim(
+                svc,
+                &job.id,
+                "claim-run",
+            )
+            .unwrap()
+            .captured(original.clone());
+            provisional.prepare().unwrap();
+            provisional.pad().unwrap();
+            let pad = svc.ensure_agent_pad(&tab).unwrap().path().to_path_buf();
+            let (ended, terminal) = mpsc::channel();
+            fixture.ui.listen("cron-run-finished", move |_| {
+                let _ = ended.send(());
+            });
+            crate::cron::store::commit(&cron, |store| {
+                store.prepare_cancel_running(&job.id, store.now_ms(), CronCancelReason::UserCancel)
+            })
+            .unwrap();
+            let receipt = cron
+                .lock()
+                .run_receipt(&job.id, "claim-run")
+                .unwrap()
+                .clone();
+            assert!(svc.reserve_captured_cron_launch(&cron, &original).is_err());
+            drop(provisional);
+            terminal.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(svc.mux.read().get_tab(&tab).is_none());
+            assert!(!pad.exists());
+            assert_eq!(
+                cron.lock().run_receipt(&job.id, "claim-run"),
+                Some(&receipt)
+            );
+            continue;
+        }
+        let assembly = if case == "cancelled-assembly" {
+            let guard = crate::service::spawn::cron_launch::CronAllocation::claim(
+                svc,
+                &job.id,
+                "claim-run",
+            )
+            .unwrap()
+            .captured(original.clone());
+            guard.prepare().unwrap();
+            guard.pad().unwrap();
+            Some(guard)
+        } else {
+            None
+        };
+        let (ended, terminal) = mpsc::channel();
+        fixture.ui.listen("cron-run-finished", move |_| {
+            let _ = ended.send(());
+        });
+        let (entered, built) = mpsc::channel();
+        let (release, resume) = mpsc::channel();
+        let worker = svc.clone();
+        let own_tab = tab.clone();
+        let owner = original.clone();
+        let linking = std::thread::spawn(move || {
+            worker.link_hidden_agent_cron_pty_with_builder(&own_tab, Some(&owner), |gate| {
+                let session = crate::pty::manager::build_session(
+                    gate,
+                    None,
+                    None,
+                    120,
+                    40,
+                    Default::default(),
+                )?;
+                entered.send(session.session.clone()).unwrap();
+                resume.recv_timeout(Duration::from_secs(5)).unwrap();
+                Ok(session)
+            })
+        });
+        let candidate = built.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(svc.mux.try_read().is_some());
+        assert!(svc.pty.try_lock().is_some());
+        if case == "replacement" {
+            let mut mux = svc.mux.write();
+            let current = mux.get_tab_mut(&tab).unwrap();
+            current.session_binding_nonce = Some("replacement-nonce".into());
+            current.pty_id = Some("replacement-pty".into());
+        }
+        if matches!(case, "cancelled" | "cancelled-assembly") {
+            assert_eq!(
+                svc.cron_cancel_running(&cron, &job.id, CronCancelReason::UserCancel)
+                    .unwrap(),
+                0
+            );
+            if assembly.is_some() {
+                assert!(svc
+                    .run_watcher
+                    .cron_allocation_pending(&job.id, "claim-run"));
+                assert!(svc.run_watcher.cron_job_finalizing(&job.id));
+                assert!(svc
+                    .run_watcher
+                    .reserve_cron_slot(svc, &cron, &job.id, "future-before-reap")
+                    .is_err());
+            }
+        }
+        release.send(()).unwrap();
+        let result = linking.join().unwrap();
+        if case == "active" {
+            let pty = result.unwrap();
+            assert!(Arc::ptr_eq(
+                &svc.pty.lock().get_session(&pty).unwrap(),
+                &candidate
+            ));
+            let owner = svc
+                .run_watcher
+                .cron_binding(&tab, &job.id, "claim-run")
+                .unwrap();
+            assert_eq!(owner.nonce(), Some(nonce.as_str()));
+            assert_eq!(owner.pty_id(), Some(pty.as_str()));
+            svc.bind_cron_spawn(&cron, &tab, &job.id, "claim-run", Some(nonce), Some(pty))
+                .unwrap();
+            assert_eq!(
+                svc.cron_cancel_running(&cron, &job.id, CronCancelReason::UserCancel)
+                    .unwrap(),
+                1
+            );
+        } else {
+            assert!(result.is_err());
+            if let Some(assembly) = assembly {
+                drop(assembly);
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                while svc.run_watcher.cron_job_finalizing(&job.id) {
+                    terminal
+                        .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                        .unwrap();
+                }
+                assert!(!svc
+                    .run_watcher
+                    .cron_allocation_pending(&job.id, "claim-run"));
+                assert!(!svc.run_watcher.cron_job_finalizing(&job.id));
+            } else {
+                svc.close_owned_cron_launch(
+                    &original,
+                    crate::multiplexer::types::TabCloseReason::SpawnRollback,
+                );
+            }
+            assert!(svc
+                .run_watcher
+                .cron_binding(&tab, &job.id, "claim-run")
+                .is_none());
+            assert!(cron.lock().get_tab_owner(&tab).is_none());
+            candidate
+                .teardown
+                .wait_for_completion(std::time::Instant::now() + Duration::from_secs(5))
+                .expect("the rejected candidate process is reaped");
+            if case == "replacement" {
+                assert_eq!(
+                    svc.mux.read().get_tab(&tab).unwrap().pty_id.as_deref(),
+                    Some("replacement-pty")
+                );
+                assert_eq!(
+                    cron.lock()
+                        .run_receipt(&job.id, "claim-run")
+                        .unwrap()
+                        .status,
+                    CronRunStatus::Running
+                );
+            } else {
+                assert_eq!(
+                    cron.lock()
+                        .run_receipt(&job.id, "claim-run")
+                        .unwrap()
+                        .status,
+                    CronRunStatus::Cancelled
+                );
+            }
+        }
+    }
+}

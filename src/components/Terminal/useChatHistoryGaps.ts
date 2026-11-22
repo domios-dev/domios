@@ -13,11 +13,11 @@ interface GapPage {
 const EMPTY_PAGES = new Map<string, GapPage>();
 
 export function useChatHistoryGaps(windowKey: string,
-  loadPage?: (message: NormalizedChatMessage) => Promise<NormalizedChatMessage[] | null>,
+  loadPage?: (message: NormalizedChatMessage, signal: AbortSignal) => Promise<NormalizedChatMessage[] | null>,
 ) {
   const [snapshot, setSnapshot] = useState({ key: windowKey, pages: new Map<string, GapPage>() });
   const pages = snapshot.key === windowKey ? snapshot.pages : EMPTY_PAGES;
-  const inFlight = useRef(new Set<string>());
+  const inFlight = useRef(new Map<string, AbortSignal>());
   const currentKey = useRef(windowKey);
   currentKey.current = windowKey;
   const label = useCallback((message: NormalizedChatMessage) => {
@@ -30,9 +30,9 @@ export function useChatHistoryGaps(windowKey: string,
     const visible = page.entries.slice(-page.revealed);
     return page.revealed < page.entries.length || page.next ? [entry, ...visible] : visible;
   }), [pages]);
-  const load = async (message: NormalizedChatMessage): Promise<number> => {
-    if (!loadPage || inFlight.current.has(message.id)) return 0;
-    inFlight.current.add(message.id);
+  const load = async (message: NormalizedChatMessage, signal: AbortSignal): Promise<number> => {
+    if (!loadPage || signal.aborted || inFlight.current.get(message.id) === signal) return 0;
+    inFlight.current.set(message.id, signal);
     try {
       const previous = pages.get(message.id);
       let page: GapPage = previous ?? { rows: [], entries: [], revealed: 0, next: message };
@@ -40,8 +40,8 @@ export function useChatHistoryGaps(windowKey: string,
       let consumed = 0;
       for (let request = 0; page.entries.length < target && page.next && request < 8 && consumed < 2 * 1024 * 1024; request++) {
         const before = page.next.timelineMarker;
-        const rows = await loadPage(page.next);
-        if (currentKey.current !== windowKey || rows == null) return 0;
+        const rows = await loadPage(page.next, signal);
+        if (signal.aborted || currentKey.current !== windowKey || rows == null) return 0;
         const next = rows.find(row => row.timelineMarker?.kind === "history_gap") ?? null;
         const after = next?.timelineMarker;
         if (before?.kind === "history_gap" && after?.kind === "history_gap") {
@@ -56,7 +56,7 @@ export function useChatHistoryGaps(windowKey: string,
         .set(message.id, { ...page, revealed }) }));
       return revealed - page.revealed;
     } finally {
-      inFlight.current.delete(message.id);
+      if (inFlight.current.get(message.id) === signal) inFlight.current.delete(message.id);
     }
   };
   return { project, label, load };

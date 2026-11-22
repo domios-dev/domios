@@ -91,10 +91,18 @@ pub async fn select(
             .is_some_and(|options| {
                 options.iter().any(|option| {
                     option.id == request.id
-                        && option
-                            .options
-                            .iter()
-                            .any(|value| value.value == request.value)
+                        && if option.kind
+                            == Some(
+                                codeterm_plugin::agent_runtime::RuntimeConfigOptionKind::Boolean,
+                            )
+                        {
+                            matches!(request.value.as_str(), "true" | "false")
+                        } else {
+                            option
+                                .options
+                                .iter()
+                                .any(|value| value.value == request.value)
+                        }
                 })
             })
     };

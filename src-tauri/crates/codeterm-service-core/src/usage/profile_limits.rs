@@ -16,6 +16,8 @@ use super::store::{UsageFailureKind, UsageStoreHandle};
 use crate::agent::usage_parser::UsageSnapshot;
 use crate::service::ServiceContext;
 
+mod statusline_probe;
+
 fn in_flight() -> &'static Mutex<BTreeSet<(String, String)>> {
     static IN_FLIGHT: OnceLock<Mutex<BTreeSet<(String, String)>>> = OnceLock::new();
     IN_FLIGHT.get_or_init(Default::default)
@@ -101,13 +103,28 @@ fn read(
     provider: &str,
     profile: &str,
 ) -> Result<UsageSnapshot, (UsageFailureKind, String)> {
-    let source = declared(svc, provider, profile)
-        .and_then(|declaration| declaration.limits_source)
+    let declaration = declared(svc, provider, profile).ok_or((
+        UsageFailureKind::SourceUnavailable,
+        String::from("Profile declares no plugin-read limits source"),
+    ))?;
+    let source = declaration
+        .limits_source
         .filter(RuntimeProfileLimitsSource::plugin_read)
         .ok_or((
             UsageFailureKind::SourceUnavailable,
             String::from("Profile declares no plugin-read limits source"),
         ))?;
+    if matches!(
+        &source,
+        RuntimeProfileLimitsSource::Quota { reader } if reader == statusline_probe::READER_ID
+    ) {
+        return statusline_probe::read_profile(
+            provider,
+            profile,
+            &declaration.binary,
+            &declaration.env,
+        );
+    }
     let raw = svc
         .agent_registry
         .with_provider(provider, |p| p.read_profile_limits(profile, &source))

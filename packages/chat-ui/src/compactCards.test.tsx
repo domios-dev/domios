@@ -1,12 +1,13 @@
 import React, { act, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ToolEvent } from "@codeterm/chat-core";
+import type { FileDiff, ToolEvent } from "@codeterm/chat-core";
 import { renderChatCardMenu } from "../../../src/components/Terminal/ChatCardMenu";
 import { ChatBlockHostProvider } from "./blocks/ChatBlockHost";
 import { ChatBlockFrame } from "./blocks/ChatBlockFrame";
 import { toolCommandShape } from "./codeterm/commandShape";
 import { CommandGroupCard } from "./toolcard/CommandGroupCard";
+import { EditRunCard } from "./toolcard/EditRunCard";
 import { SearchCard } from "./toolcard/SearchCard";
 import { ThoughtLine } from "./toolcard/ThoughtLine";
 import { CompactToolRowsProvider } from "./useCompactToolRow";
@@ -133,5 +134,97 @@ describe("chat boxes on desktop are unchanged", () => {
     expect(host.querySelector('[data-testid="toolcard-duration"]')?.textContent).toBe("1.8s");
     expect(host.querySelector('[data-testid="toolcard-search-counts"]')?.textContent).toBe("10 matches · 2 files");
     expect(await menu("Actions for Inspect the repo")).toEqual(["Open full screen", "Details"]);
+  });
+});
+
+function modifyDiff(path: string, before: string, after: string): FileDiff {
+  return {
+    path, kind: "modify", additions: 1, deletions: 1,
+    hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [`-${before}`, `+${after}`] }],
+  };
+}
+
+function editMember(id: string, fileDiffs: FileDiff[], overrides: Partial<ToolEvent> = {}): ToolEvent {
+  return {
+    id, toolId: id, phase: "call", status: "success", kind: "edit", summary: fileDiffs[0]?.path ?? "", fileDiffs,
+    message: { id, type: "tool_call", content: "", toolId: id, toolKind: "edit" },
+    ...overrides,
+  };
+}
+
+describe("grouped edit run cards", () => {
+  it("keeps distinct operations sharing a path while reporting the distinct file count in the heading", async () => {
+    const shared = "src/module_shared.ts";
+    const members: ToolEvent[] = [
+      editMember("op-1", [modifyDiff(shared, "v1", "v2")], { result: "first edit ok" }),
+      editMember("op-2", [modifyDiff(shared, "v2", "v3")], { result: "second edit ok" }),
+      editMember("op-3", [modifyDiff("src/module_b.ts", "b1", "b2")], { result: "third edit ok" }),
+      editMember("op-4", [modifyDiff("src/module_c.ts", "c1", "c2")], { result: "fourth edit ok" }),
+      editMember("op-5", [modifyDiff("src/module_d.ts", "d1", "d2")], { result: "fifth edit ok" }),
+    ];
+    const runEvent: ToolEvent = { ...members[0], id: "run-shared", editRun: members };
+    await mount(false, <EditRunCard event={runEvent} expanded={false} onToggle={() => {}} />);
+
+    const card = host.querySelector('[data-testid="chat-edit-run"]')!;
+    expect(card.getAttribute("aria-label")).toBe("Edited 4 files, +5 −5");
+    expect(host.querySelector('[data-testid="chat-edit-run-title"]')?.textContent).toBe("Edited 4 files");
+    expect(host.querySelector('[data-testid="chat-edit-run-files"]')?.getAttribute("aria-label")).toBe("5 file changes");
+    expect(host.querySelector('[data-testid="chat-edit-run-more"]')?.textContent).toContain("Show all 2 remaining files");
+    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(0);
+
+    await act(async () => root!.render(<Surface><ChatBlockHostProvider value={{ renderMenu: renderChatCardMenu, askAbout: () => {} }}><EditRunCard event={runEvent} expanded onToggle={() => {}} /></ChatBlockHostProvider></Surface>));
+    expect(host.querySelector('[data-testid="chat-edit-run-title"]')?.textContent).toBe("Edited 4 files");
+    expect(host.querySelectorAll('[data-testid="chat-edit-run-file"]')).toHaveLength(5);
+  });
+
+  it("discloses deduplicated successful detail/result once per operation when expanded without duplicating across multi-file diffs or inventing missing output", async () => {
+    const notice = "ACP tool details were shortened to fit the display budget.";
+    const members: ToolEvent[] = [
+      editMember("multi-op", [modifyDiff("src/a.ts", "a1", "a2"), modifyDiff("src/b.ts", "b1", "b2")], {
+        detail: notice, result: "multi-file edit succeeded",
+      }),
+      editMember("dedup-op", [modifyDiff("src/c.ts", "c1", "c2")], {
+        detail: notice, result: `${notice}  `,
+      }),
+      editMember("empty-op", [modifyDiff("src/d.ts", "d1", "d2")]),
+      editMember("err-op", [modifyDiff("src/e.ts", "e1", "e2")], {
+        status: "error", result: "permission refused",
+      }),
+    ];
+    const runEvent: ToolEvent = { ...members[0], id: "run-results", status: "error", editRun: members };
+
+    await mount(false, <EditRunCard event={runEvent} expanded={false} onToggle={() => {}} />);
+    const collapsedButtons = [...host.querySelectorAll<HTMLButtonElement>('[data-testid="chat-edit-run-file"] > div > button')];
+    expect(collapsedButtons).toHaveLength(3);
+
+    // Expanding file 0 of multi-op discloses its detail + result once; expanding file 1 does not duplicate them.
+    await act(async () => collapsedButtons[0].click());
+    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(1);
+    expect(host.querySelector('[data-testid="toolcard-result"]')?.textContent).toContain(notice);
+    expect(host.querySelector('[data-testid="toolcard-result"]')?.textContent).toContain("multi-file edit succeeded");
+
+    await act(async () => collapsedButtons[1].click());
+    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(0);
+
+    // A member with identical detail/result renders that text once.
+    await act(async () => collapsedButtons[2].click());
+    const dedupResults = host.querySelectorAll('[data-testid="toolcard-result"]');
+    expect(dedupResults).toHaveLength(1);
+    expect((dedupResults[0].textContent ?? "").split(notice).length - 1).toBe(1);
+
+    // Expanded group shows all 5 rows and discloses each member's detail/result once (never duplicating the inline-open member).
+    await act(async () => root!.render(<Surface><ChatBlockHostProvider value={{ renderMenu: renderChatCardMenu, askAbout: () => {} }}><EditRunCard event={runEvent} expanded onToggle={() => {}} /></ChatBlockHostProvider></Surface>));
+    const expandedButtons = [...host.querySelectorAll<HTMLButtonElement>('[data-testid="chat-edit-run-file"] > div > button')];
+    expect(expandedButtons).toHaveLength(5);
+    const allText = [...host.querySelectorAll('[data-testid="toolcard-result"]')].map((node) => node.textContent ?? "").join("\n");
+    expect(allText.split("multi-file edit succeeded").length - 1).toBe(1);
+    expect(allText.split("permission refused").length - 1).toBe(1);
+    expect(allText.split(notice).length - 1).toBe(2);
+
+    // Opening empty-op (index 3) renders no inline toolcard-result box beside its diff.
+    await act(async () => expandedButtons[3].click());
+    const emptyRow = host.querySelectorAll('[data-testid="chat-edit-run-file"]')[3];
+    expect(emptyRow.querySelector('[data-testid="edit-run-diff"]')).not.toBeNull();
+    expect(emptyRow.querySelector('[data-testid="toolcard-result"]')).toBeNull();
   });
 });

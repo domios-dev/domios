@@ -130,7 +130,10 @@ fn prepare_destination(destination: &Path) -> Result<(), StorageError> {
 }
 
 /// One step copies every page under a single read snapshot of the source.
-fn copy_database(source: &Connection, target: &mut Connection) -> Result<(), StorageError> {
+pub(crate) fn copy_database(
+    source: &Connection,
+    target: &mut Connection,
+) -> Result<(), StorageError> {
     let backup = Backup::new(source, target).map_err(|e| sqlite_error("start backup", e))?;
     match backup
         .step(-1)

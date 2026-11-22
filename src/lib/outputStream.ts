@@ -15,7 +15,7 @@ import {
   type RemoteChannelRecovery, type StreamEndReason,
 } from "./remoteChannelRecovery";
 import { createTransportClient, type TransportClient } from "./transportClient";
-import { TerminalOutputReplay } from "./outputReplay";
+import { planOutputReplay, TerminalOutputReplay, type OutputCursor } from "./outputReplay";
 import { planOutputResync } from "./outputResync";
 import { DEV_BUILD } from "./devBuild";
 import { acceptsTerminalOutput } from "./terminalFrameGate";
@@ -85,6 +85,71 @@ const sinks = new Map<string, Set<TabOutputSink>>();
 const offsets = new Map<string, number>();
 const rings = new Map<string, { boot: string; ptyId?: string }>();
 const completedReplays = new Map<string, OutputFrame>();
+interface SinkSubscription {
+  readonly cancelled: boolean;
+  onCancel(listener: () => void): () => void;
+  cancel(): void;
+}
+
+function createSinkSubscription(): SinkSubscription {
+  let cancelled = false;
+  const listeners = new Set<() => void>();
+  return {
+    get cancelled() { return cancelled; },
+    onCancel(listener) {
+      if (cancelled) {
+        listener();
+        return () => {};
+      }
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
+    cancel() {
+      if (cancelled) return;
+      cancelled = true;
+      for (const listener of listeners) listener();
+      listeners.clear();
+    },
+  };
+}
+
+const sinkSubscriptions = new WeakMap<TabOutputSink, SinkSubscription>();
+const renderedCursors = new WeakMap<object, Map<string, OutputCursor>>();
+
+interface AggregateRenderJob {
+  kind: "output" | "replay_complete" | "truncated" | "catchup" | "ended";
+  tabId: string;
+  boot: string;
+  ptyId: string;
+  frame: OutputFrame;
+  bytes?: Uint8Array;
+  size: number;
+  targetSink?: TabOutputSink;
+  onComplete?: () => void;
+}
+
+interface AggregateRenderQueue {
+  key: string;
+  tabId: string;
+  boot: string;
+  ptyId: string;
+  outputGeneration: number;
+  jobs: AggregateRenderJob[];
+  cursors: Map<object, OutputCursor>;
+  pendingBytes: number;
+  pendingFrames: number;
+  active: boolean;
+  running: boolean;
+  overflowFrame?: OutputFrame;
+  overflowCompletions?: Array<() => void>;
+  overflowTruncation?: OutputFrame;
+  overflowReplayComplete?: { frame: OutputFrame; targetSink?: TabOutputSink };
+  overflowEnded?: OutputFrame;
+}
+
+const aggregateRenderQueues = new Map<string, AggregateRenderQueue>();
+const MAX_AGGREGATE_RENDER_BYTES = 256 * 1024;
+const MAX_AGGREGATE_RENDER_FRAMES = 16;
 
 let boot: string | null = readBoot();
 let streamAbort: AbortController | null = null;
@@ -151,11 +216,430 @@ function accountOutputFrame(bytes?: Uint8Array) {
   return perf;
 }
 
-async function handleFrame(msg: OutputFrame): Promise<void> {
+function aggregateRenderKey(tabId: string, bootId: string, ptyId: string): string {
+  return JSON.stringify([tabId, bootId, ptyId]);
+}
+
+function renderedCursor(terminal: object, tabId: string, bootId: string, ptyId: string): OutputCursor | undefined {
+  const cursor = renderedCursors.get(terminal)?.get(tabId);
+  return cursor?.boot === bootId && cursor.ptyId === ptyId ? cursor : undefined;
+}
+
+function saveRenderedCursor(terminal: object, tabId: string, cursor: OutputCursor): void {
+  let tabs = renderedCursors.get(terminal);
+  if (!tabs) {
+    tabs = new Map();
+    renderedCursors.set(terminal, tabs);
+  }
+  tabs.set(tabId, cursor);
+}
+
+function isCurrentAggregateRenderQueue(queue: AggregateRenderQueue): boolean {
+  return queue.active && queue.outputGeneration === outputGeneration && aggregateRenderQueues.get(queue.key) === queue;
+}
+
+function invalidateAggregateRenderQueue(queue: AggregateRenderQueue): void {
+  queue.active = false;
+  queue.jobs = [];
+  queue.pendingBytes = 0;
+  queue.pendingFrames = 0;
+  queue.overflowFrame = undefined;
+  queue.overflowCompletions = undefined;
+  queue.overflowTruncation = undefined;
+  queue.overflowReplayComplete = undefined;
+  queue.overflowEnded = undefined;
+  if (aggregateRenderQueues.get(queue.key) === queue) aggregateRenderQueues.delete(queue.key);
+}
+
+function invalidateAggregateRenderQueues(tabId?: string): void {
+  for (const queue of aggregateRenderQueues.values()) {
+    if (tabId === undefined || queue.tabId === tabId) invalidateAggregateRenderQueue(queue);
+  }
+}
+
+function aggregateRenderQueue(tabId: string, bootId: string, ptyId: string): AggregateRenderQueue {
+  const key = aggregateRenderKey(tabId, bootId, ptyId);
+  for (const queue of aggregateRenderQueues.values()) {
+    if (queue.tabId === tabId && queue.key !== key) invalidateAggregateRenderQueue(queue);
+  }
+  let queue = aggregateRenderQueues.get(key);
+  if (!queue) {
+    queue = {
+      key, tabId, boot: bootId, ptyId, outputGeneration,
+      jobs: [], cursors: new Map(), pendingBytes: 0, pendingFrames: 0,
+      active: true, running: false,
+    };
+    aggregateRenderQueues.set(key, queue);
+  }
+  return queue;
+}
+
+function aggregateRenderHasCapacity(queue: AggregateRenderQueue, job: AggregateRenderJob): boolean {
+  return queue.pendingFrames < MAX_AGGREGATE_RENDER_FRAMES
+    && (queue.pendingFrames === 0 || queue.pendingBytes + job.size <= MAX_AGGREGATE_RENDER_BYTES);
+}
+
+function hasAggregateRenderOverflow(queue: AggregateRenderQueue): boolean {
+  return queue.overflowFrame !== undefined || queue.overflowTruncation !== undefined
+    || queue.overflowReplayComplete !== undefined || queue.overflowEnded !== undefined;
+}
+
+function enqueueAggregateRender(
+  tabId: string,
+  frame: OutputFrame,
+  kind: AggregateRenderJob["kind"],
+  bytes?: Uint8Array,
+  options?: { targetSink?: TabOutputSink; onComplete?: () => void },
+): void {
+  const ptyId = frame.pty_id ?? rings.get(tabId)?.ptyId
+    ?? [...(sinks.get(tabId) ?? [])].map(sink => sinkIdentities.get(sink)?.boundPtyId).find(Boolean)
+    ?? tabId;
+  const queue = aggregateRenderQueue(tabId, frame.boot ?? boot ?? "", ptyId);
+  const job: AggregateRenderJob = {
+    kind, tabId, boot: frame.boot ?? boot ?? "", ptyId,
+    frame: kind === "output" || kind === "catchup"
+      ? { tab_id: tabId, pty_id: ptyId, boot: frame.boot ?? boot ?? "", from: frame.from, offset: frame.offset }
+      : frame,
+    bytes,
+    size: Math.max(1, bytes?.length ?? 0),
+    targetSink: options?.targetSink,
+    onComplete: options?.onComplete,
+  };
+  if (!isCurrentAggregateRenderQueue(queue)) return;
+  const full = !aggregateRenderHasCapacity(queue, job);
+  if (kind === "output" || kind === "catchup") {
+    if (hasAggregateRenderOverflow(queue) || full) {
+      // OutputRetention owns the bounded bytes; the queue keeps one coalesced catch-up cursor.
+      queue.overflowFrame = {
+        tab_id: tabId, pty_id: ptyId, boot: queue.boot, offset: frame.offset,
+      };
+      if (options?.onComplete) {
+        queue.overflowCompletions ??= [];
+        queue.overflowCompletions.push(options.onComplete);
+      }
+    } else {
+      queue.pendingBytes += job.size;
+      queue.pendingFrames++;
+      queue.jobs.push(job);
+    }
+  } else if (kind === "truncated" && (hasAggregateRenderOverflow(queue) || full)) {
+    queue.overflowTruncation = frame;
+  } else if (kind === "replay_complete" && (hasAggregateRenderOverflow(queue) || full)) {
+    queue.overflowReplayComplete = queue.overflowReplayComplete
+      ? {
+        frame,
+        targetSink: queue.overflowReplayComplete.targetSink === options?.targetSink ? options?.targetSink : undefined,
+      }
+      : { frame, targetSink: options?.targetSink };
+  } else if (kind === "ended" && (hasAggregateRenderOverflow(queue) || full)) {
+    queue.overflowEnded = frame;
+  } else if (!full) {
+    queue.pendingBytes += job.size;
+    queue.pendingFrames++;
+    queue.jobs.push(job);
+  }
+  drainAggregateRenderQueue(queue);
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return value !== null && (typeof value === "object" || typeof value === "function") && "then" in value;
+}
+
+function activeAggregateSink(queue: AggregateRenderQueue, sink: TabOutputSink, subscription: SinkSubscription | undefined): boolean {
+  return isCurrentAggregateRenderQueue(queue) && subscription !== undefined && !subscription.cancelled
+    && sinkSubscriptions.get(sink) === subscription && sinks.get(queue.tabId)?.has(sink) === true;
+}
+
+function rollbackQueueCursor(
+  queue: AggregateRenderQueue,
+  terminal: object,
+  expected: OutputCursor,
+  previous: OutputCursor | undefined,
+): void {
+  if (!isCurrentAggregateRenderQueue(queue) || queue.cursors.get(terminal) !== expected) return;
+  if (previous) queue.cursors.set(terminal, previous);
+  else queue.cursors.delete(terminal);
+}
+
+function awaitSinkCompletion(
+  subscription: SinkSubscription,
+  completion: PromiseLike<unknown>,
+  finish: () => void,
+  isActive: () => boolean,
+  onReject?: () => void,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let removeCancel = () => {};
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      removeCancel();
+      finish();
+      resolve();
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      removeCancel();
+      onReject?.();
+      if (isActive()) reject(error);
+      else resolve();
+    };
+    removeCancel = subscription.onCancel(done);
+    if (!settled) completion.then(done, fail);
+  });
+}
+
+function acceptsAggregateJob(job: AggregateRenderJob, sink: TabOutputSink): boolean {
+  if (job.targetSink && job.targetSink !== sink) return false;
+  if (job.kind === "ended" || (job.kind === "truncated" && !job.frame.reset)) {
+    if (job.frame.pty_id === undefined) {
+      const frameTabId = parseCompositeTabId(job.tabId)?.remoteTabId ?? job.tabId;
+      return job.frame.tab_id === undefined || frameTabId === job.frame.tab_id;
+    }
+  }
+  return acceptsSinkOutput(job.tabId, sink, job.frame);
+}
+
+function deliverAggregateOutput(queue: AggregateRenderQueue, sink: TabOutputSink, job: AggregateRenderJob): void | Promise<void> {
+  if (!job.bytes || !acceptsSinkOutput(job.tabId, sink, job.frame)) return;
+  const subscription = sinkSubscriptions.get(sink);
+  if (!subscription) return;
+  const identity = sinkIdentities.get(sink) ?? { terminal: sink, ptyId: queue.ptyId };
+  const previous = queue.cursors.get(identity.terminal)
+    ?? renderedCursor(identity.terminal, job.tabId, queue.boot, queue.ptyId);
+  const result = planOutputReplay(previous, {
+    boot: queue.boot, ptyId: queue.ptyId,
+    offset: job.frame.offset ?? job.bytes.length, bytes: job.bytes,
+  });
+  if (result.bytes.length === 0) return;
+  queue.cursors.set(identity.terminal, result.cursor);
+  let completion: void | Promise<void>;
+  try {
+    completion = writeSinkBytes(sink, result.bytes);
+  } catch (error) {
+    rollbackQueueCursor(queue, identity.terminal, result.cursor, previous);
+    throw error;
+  }
+  const finish = () => {
+    if (!activeAggregateSink(queue, sink, subscription)) {
+      rollbackQueueCursor(queue, identity.terminal, result.cursor, previous);
+      return;
+    }
+    saveRenderedCursor(identity.terminal, job.tabId, result.cursor);
+    if (typeof job.frame.offset === "number") sink.onRendered?.(job.frame.offset);
+  };
+  if (!isPromiseLike(completion)) {
+    finish();
+    return;
+  }
+  return awaitSinkCompletion(
+    subscription,
+    completion,
+    finish,
+    () => activeAggregateSink(queue, sink, subscription),
+    () => rollbackQueueCursor(queue, identity.terminal, result.cursor, previous),
+  );
+}
+
+function deliverAggregateReplayComplete(queue: AggregateRenderQueue, sink: TabOutputSink, job: AggregateRenderJob): void | Promise<void> {
+  if (!acceptsSinkOutput(job.tabId, sink, job.frame)) return;
+  const subscription = sinkSubscriptions.get(sink);
+  if (!subscription) return;
+  const identity = sinkIdentities.get(sink) ?? { terminal: sink, ptyId: queue.ptyId };
+  const completion = sink.onReplayComplete?.();
+  const finish = () => {
+    if (!activeAggregateSink(queue, sink, subscription) || typeof job.frame.offset !== "number") return;
+    const previous = queue.cursors.get(identity.terminal)
+      ?? renderedCursor(identity.terminal, job.tabId, queue.boot, queue.ptyId);
+    const cursor = {
+      boot: queue.boot, ptyId: queue.ptyId,
+      offset: Math.max(previous?.offset ?? 0, job.frame.offset),
+    };
+    queue.cursors.set(identity.terminal, cursor);
+    saveRenderedCursor(identity.terminal, job.tabId, cursor);
+    sink.onRendered?.(cursor.offset);
+  };
+  if (!isPromiseLike(completion)) {
+    finish();
+    return;
+  }
+  return awaitSinkCompletion(
+    subscription,
+    completion,
+    finish,
+    () => activeAggregateSink(queue, sink, subscription),
+  );
+}
+
+function deliverAggregateTruncation(queue: AggregateRenderQueue, sink: TabOutputSink, job: AggregateRenderJob): void {
+  if (typeof job.frame.from !== "number" || !acceptsAggregateJob(job, sink)) return;
+  const subscription = sinkSubscriptions.get(sink);
+  if (!subscription) return;
+  const identity = sinkIdentities.get(sink) ?? { terminal: sink, ptyId: queue.ptyId };
+  const previous = queue.cursors.get(identity.terminal)
+    ?? renderedCursor(identity.terminal, job.tabId, queue.boot, queue.ptyId);
+  const result = job.frame.reset
+    ? { offset: job.frame.from, reportGap: true }
+    : planOutputResync(previous?.offset, job.frame.from);
+  if (!result.reportGap) return;
+  const cursor = { boot: queue.boot, ptyId: queue.ptyId, offset: result.offset };
+  queue.cursors.set(identity.terminal, cursor);
+  try {
+    sink.onTruncated(job.frame.from);
+  } catch (error) {
+    rollbackQueueCursor(queue, identity.terminal, cursor, previous);
+    throw error;
+  }
+  if (activeAggregateSink(queue, sink, subscription)) {
+    saveRenderedCursor(identity.terminal, job.tabId, cursor);
+  } else {
+    rollbackQueueCursor(queue, identity.terminal, cursor, previous);
+  }
+}
+
+function deliverAggregateRenderJob(queue: AggregateRenderQueue, job: AggregateRenderJob): void | Promise<void> {
+  const targets = [...(sinks.get(job.tabId) ?? [])].filter(sink => acceptsAggregateJob(job, sink));
+  let pendingPromises: Promise<void>[] | undefined;
+  try {
+    for (const sink of targets) {
+      if (!isCurrentAggregateRenderQueue(queue) || !sinks.get(job.tabId)?.has(sink)) continue;
+      let result: void | Promise<void> = undefined;
+      if (job.kind === "output") result = deliverAggregateOutput(queue, sink, job);
+      else if (job.kind === "replay_complete") result = deliverAggregateReplayComplete(queue, sink, job);
+      else if (job.kind === "truncated") deliverAggregateTruncation(queue, sink, job);
+      else if (job.kind === "catchup") {
+        deliverAggregateTruncation(queue, sink, { ...job, kind: "truncated" });
+        result = deliverAggregateOutput(queue, sink, { ...job, kind: "output" });
+      } else {
+        sink.onEnded();
+      }
+      if (isPromiseLike(result)) {
+        if (!pendingPromises) pendingPromises = [];
+        pendingPromises.push(result);
+      }
+    }
+  } catch (error) {
+    if (pendingPromises) for (const promise of pendingPromises) void promise.catch(() => {});
+    throw error;
+  }
+  if (pendingPromises) return Promise.all(pendingPromises).then(() => undefined);
+}
+
+function reportAggregateRenderFailure(queue: AggregateRenderQueue, error: unknown): void {
+  const failure = error instanceof Error ? error : new Error(String(error));
+  for (const sink of sinks.get(queue.tabId) ?? []) {
+    try { sink.onStreamError?.(failure); } catch {}
+  }
+}
+
+function takeDeferredAggregateRenderJob(queue: AggregateRenderQueue): AggregateRenderJob | undefined {
+  if (queue.overflowTruncation) {
+    const frame = queue.overflowTruncation;
+    queue.overflowTruncation = undefined;
+    return { kind: "truncated", tabId: queue.tabId, boot: queue.boot, ptyId: queue.ptyId, frame, size: 1 };
+  }
+  if (queue.overflowFrame) {
+    queue.overflowFrame = undefined;
+    const completions = queue.overflowCompletions;
+    queue.overflowCompletions = undefined;
+    const cached = retainedOutput.snapshot(queue.tabId);
+    if (cached && cached.boot === queue.boot && cached.ptyId === queue.ptyId) {
+      const frame = {
+        tab_id: queue.tabId, pty_id: queue.ptyId, boot: queue.boot,
+        from: cached.offset - cached.bytes.length, offset: cached.offset,
+      };
+      return {
+        kind: "catchup", tabId: queue.tabId, boot: queue.boot, ptyId: queue.ptyId,
+        frame, bytes: cached.bytes, size: Math.max(1, cached.bytes.length),
+        onComplete: completions ? () => { for (const done of completions) done(); } : undefined,
+      };
+    }
+  }
+  if (queue.overflowReplayComplete) {
+    const { frame, targetSink } = queue.overflowReplayComplete;
+    queue.overflowReplayComplete = undefined;
+    return { kind: "replay_complete", tabId: queue.tabId, boot: queue.boot, ptyId: queue.ptyId, frame, size: 1, targetSink };
+  }
+  if (queue.overflowEnded) {
+    const frame = queue.overflowEnded;
+    queue.overflowEnded = undefined;
+    return { kind: "ended", tabId: queue.tabId, boot: queue.boot, ptyId: queue.ptyId, frame, size: 1 };
+  }
+  return undefined;
+}
+
+function drainAggregateRenderQueue(queue: AggregateRenderQueue): void {
+  if (queue.running || !isCurrentAggregateRenderQueue(queue)) return;
+  queue.running = true;
+  const finishJob = (job: AggregateRenderJob) => {
+    if (isCurrentAggregateRenderQueue(queue)) {
+      queue.pendingBytes -= job.size;
+      queue.pendingFrames--;
+    }
+  };
+  const failJob = (error: unknown) => {
+    if (isCurrentAggregateRenderQueue(queue)) reportAggregateRenderFailure(queue, error);
+    invalidateAggregateRenderQueue(queue);
+  };
+  const runOnComplete = (job: AggregateRenderJob) => {
+    if (!isCurrentAggregateRenderQueue(queue) || !job.onComplete) return;
+    try {
+      job.onComplete();
+    } catch (error) {
+      failJob(error);
+    }
+  };
+  const step = (): void => {
+    while (isCurrentAggregateRenderQueue(queue) && (queue.jobs.length > 0 || hasAggregateRenderOverflow(queue))) {
+      const deferred = queue.jobs.length === 0;
+      const job = deferred ? takeDeferredAggregateRenderJob(queue) : queue.jobs.shift();
+      if (!job) continue;
+      if (deferred) {
+        queue.pendingBytes += job.size;
+        queue.pendingFrames++;
+      }
+      let result: void | Promise<void> = undefined;
+      try {
+        result = deliverAggregateRenderJob(queue, job);
+      } catch (error) {
+        failJob(error);
+        finishJob(job);
+        continue;
+      }
+      if (isPromiseLike(result)) {
+        result.then(
+          () => {
+            runOnComplete(job);
+            finishJob(job);
+            step();
+          },
+          (error) => {
+            failJob(error);
+            finishJob(job);
+            step();
+          },
+        );
+        return;
+      }
+      runOnComplete(job);
+      finishJob(job);
+    }
+    queue.running = false;
+    if (isCurrentAggregateRenderQueue(queue) && queue.jobs.length === 0 && !hasAggregateRenderOverflow(queue)) {
+      aggregateRenderQueues.delete(queue.key);
+    }
+  };
+  step();
+}
+
+function handleFrame(msg: OutputFrame): void {
   const bytes = typeof msg.b64 === "string" ? decodeOutputBytes(msg.b64) : undefined;
   const perf = accountOutputFrame(bytes);
   if (msg.boot_changed && msg.boot) {
     outputGeneration++;
+    invalidateAggregateRenderQueues();
     for (const set of sinks.values()) for (const sink of set) sink.onReset?.();
     // boot-scoped offsets and reconnect — the boot-matched cursor full-replays.
     saveBoot(msg.boot);
@@ -176,23 +660,27 @@ async function handleFrame(msg: OutputFrame): Promise<void> {
   if (msg.replay_complete) {
     if (set && ![...set].some(sink => acceptsSinkOutput(tab, sink, msg))) return;
     completedReplays.set(tab, msg);
-    if (set) await Promise.all([...set].map((sink) => deliverReplayComplete(tab, sink, msg)));
+    if (set) enqueueAggregateRender(tab, msg, "replay_complete");
     return;
   }
   if (bytes && set && ![...set].some(sink => acceptsSinkOutput(tab, sink, msg))) return;
   if (typeof msg.offset === "number" && bytes) {
-    const ring = { boot: msg.boot ?? boot ?? "", ptyId: msg.pty_id };
+    const framePtyId = msg.pty_id
+      ?? [...(set ?? [])].map(sink => sinkIdentities.get(sink)?.boundPtyId).find(Boolean)
+      ?? tab;
+    const ring = { boot: msg.boot ?? boot ?? "", ptyId: framePtyId };
     const previous = rings.get(tab);
     const sameRing = previous?.boot === ring.boot && previous.ptyId === ring.ptyId;
+    if (!sameRing) invalidateAggregateRenderQueues(tab);
     offsets.set(tab, sameRing ? Math.max(offsets.get(tab) ?? 0, msg.offset) : msg.offset);
     rings.set(tab, ring);
     retainedOutput.append(tab, {
-      boot: ring.boot, ptyId: msg.pty_id ?? tab, offset: msg.offset,
+      boot: ring.boot, ptyId: ring.ptyId, offset: msg.offset,
       bytes,
     });
     if (set) {
       perf && (perf.batches += 1);
-      await Promise.all([...set].map((sink) => deliverOutput(tab, sink, msg, bytes)));
+      enqueueAggregateRender(tab, msg, "output", bytes);
     }
     return;
   }
@@ -200,14 +688,15 @@ async function handleFrame(msg: OutputFrame): Promise<void> {
     if (msg.reset && set && ![...set].some(sink => acceptsSinkOutput(tab, sink, msg))) return;
     offsets.set(tab, msg.reset ? msg.from : planOutputResync(offsets.get(tab), msg.from).offset);
     if (msg.reset) {
+      invalidateAggregateRenderQueues(tab);
       rings.set(tab, { boot: msg.boot ?? boot ?? "", ptyId: msg.pty_id });
       retainedOutput.delete(tab); completedReplays.delete(tab);
     }
-    if (set) for (const sink of set) deliverTruncation(tab, sink, msg.from, boot ?? "", msg.reset);
+    if (set) enqueueAggregateRender(tab, msg, "truncated");
     return;
   }
   if (msg.ended) {
-    if (set) for (const s of set) s.onEnded();
+    if (set) enqueueAggregateRender(tab, msg, "ended");
   }
 }
 
@@ -335,8 +824,19 @@ function ensureStarted(): void {
 
 export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal: object = sink, ptyId?: string): () => void {
   sinkIdentities.set(sink, { terminal, ptyId: ptyId ?? tabId, boundPtyId: ptyId });
+  sinkSubscriptions.get(sink)?.cancel();
+  const subscription = createSinkSubscription();
+  sinkSubscriptions.set(sink, subscription);
   const route = tabOutputRoute(tabId, selectedRelayTarget()?.id ?? null);
-  if (route) return subscribeRemoteTabOutput(`mesh:${route.peerId}/${route.tabId}`, route.peerId, sink);
+  if (route) {
+    const unsubscribe = subscribeRemoteTabOutput(`mesh:${route.peerId}/${route.tabId}`, route.peerId, sink);
+    return () => {
+      if (sinkSubscriptions.get(sink) !== subscription) return;
+      sinkSubscriptions.delete(sink);
+      subscription.cancel();
+      unsubscribe();
+    };
+  }
   let set = sinks.get(tabId);
   if (!set) {
     set = new Set();
@@ -344,22 +844,37 @@ export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal:
   }
   set.add(sink);
   if (aggregateStarting) sink.onStarting?.();
-  const cached = retainedOutput.snapshot(tabId, replay.cursor(terminal, tabId));
+  const retained = retainedOutput.snapshot(tabId);
+  const cached = retainedOutput.snapshot(tabId, renderedCursor(
+    terminal, tabId, retained?.boot ?? boot ?? "", retained?.ptyId ?? ptyId ?? tabId,
+  ));
   if (cached && (ptyId === undefined || cached.ptyId === ptyId)) {
     const from = cached.offset - cached.bytes.length;
-    deliverTruncation(tabId, sink, from, cached.boot);
-    replay.deliver(terminal, tabId, cached, (bytes) => writeSinkBytes(sink, bytes));
-    sink.onReady?.();
+    const frame = { tab_id: tabId, pty_id: cached.ptyId, boot: cached.boot, from, offset: cached.offset };
+    enqueueAggregateRender(tabId, frame, "catchup", cached.bytes, {
+      targetSink: sink,
+      onComplete: () => {
+        if (sinkSubscriptions.get(sink) === subscription && !subscription.cancelled) sink.onReady?.();
+      },
+    });
   }
   const completed = completedReplays.get(tabId);
-  if (completed) deliverReplayComplete(tabId, sink, completed);
+  if (completed && acceptsSinkOutput(tabId, sink, completed)) {
+    enqueueAggregateRender(tabId, completed, "replay_complete", undefined, { targetSink: sink });
+  }
   // Attaching a terminal is an activation: it revives a parked aggregate connection.
   if (started) recoverOutputStream();
   else ensureStarted();
   verifyStreamMuxes();
   return () => {
+    if (sinkSubscriptions.get(sink) !== subscription) return;
+    sinkSubscriptions.delete(sink);
+    subscription.cancel();
     set!.delete(sink);
-    if (set!.size === 0) sinks.delete(tabId);
+    if (set!.size === 0) {
+      sinks.delete(tabId);
+      invalidateAggregateRenderQueues(tabId);
+    }
   };
 }
 
@@ -612,6 +1127,8 @@ onResync(() => pokeOutputStream());
 
 /** Tear down (peer switch) — next subscription reconnects to the current host. */
 export function resetOutputStream(): void {
+  outputGeneration++;
+  invalidateAggregateRenderQueues();
   clearCapacityRetry();
   completedReplays.clear();
   started = false;

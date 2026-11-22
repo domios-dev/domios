@@ -1,5 +1,5 @@
 import { FIXTURE_PLAN_READ } from "../Canvas/cards/fixtures.testdata";
-import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
+import { muxMockFetch, settleDaemon } from "../../lib/muxMockFetch.testdata";
 // Run: npx tsx src/components/Sidebar/teamActivePlanRecovery.test.tsx
 
 import { act, useEffect, useState } from "react";
@@ -8,10 +8,12 @@ import { Window } from "happy-dom";
 import type { Tab, MultiplexerState, Team, Workspace } from "../../lib/types";
 import { __setListenForTest } from "../../lib/bridge";
 import { fireResync } from "../../lib/resync";
-import { PlansProvider, usePlanIndex, useSidebarPlansOptional } from "../Canvas/PlansProvider";
+import { PlansProvider, usePeerPlanSummaries, usePlanIndex, useSidebarPlansOptional } from "../Canvas/PlansProvider";
+import { selectRemoteTeamPlanProjection } from "./teamTaskStatus";
+import { TeamUnit } from "./TeamUnit";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { PlanSummaryRead } from "../Canvas/planProjection";
-import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
+import { FIXTURE_PLAN, FIXTURE_TASK, FIXTURE_TASK_METADATA } from "../Canvas/cards/fixtures.testdata";
 import type { Plan, Task } from "../Canvas/types";
 import { SidebarDnd } from "./sortable";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
@@ -327,6 +329,8 @@ async function main() {
   assert(host.querySelector('[data-testid="team-card-activation"]')
     ?.getAttribute("aria-label") === "Open Old active effort",
   "REST failure intentionally retains the old projection");
+  assert(host.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "stale",
+    "retained same-authority projection exposes explicit stale freshness instead of inventing zeros");
 
   backendPlans = [currentPlan];
   backendSnapshot = snapshot("Current Team label");
@@ -346,6 +350,666 @@ async function main() {
   assertCurrentProjection(host);
 
   await act(async () => root.unmount());
+  host.remove();
+
+  // Verify unknown/unavailable counts, index-only positive total, authoritative index title,
+  // matching nonzero summary, genuine zero, known absence, and credential change fencing.
+  const LARGE_PLAN_ID = "pl_7lsisa";
+  const largeIndexEntry: PlanIndexEntry = {
+    plan_id: LARGE_PLAN_ID,
+    file_path: `/workspace/.domios/plans/active/${LARGE_PLAN_ID}/plan.json`,
+    canonical_project_path: "/workspace",
+    owner: FIXTURE_PLAN.owner,
+    title: "Domios",
+    status: "active",
+    updated_at: 100,
+    team_id: TEAM_ID,
+    assigned_tab_ids: [TAB_ID],
+    task_count: 1625,
+    open_task_count: 46,
+  };
+  const largeSummary: PlanSummaryRead = {
+    ...FIXTURE_PLAN_READ,
+    id: LARGE_PLAN_ID,
+    title: "Domios",
+    status: "active",
+    owner: FIXTURE_PLAN.owner,
+    project_path: "/workspace",
+    canonical_project_path: "/workspace",
+    created_at: 100,
+    updated_at: 100,
+    canvas: FIXTURE_PLAN.canvas,
+    mode: "planning",
+    planning_state: "drafting",
+    team_id: TEAM_ID,
+    revision: "100",
+    tasks: [],
+    task_counts: {
+      total: 1625,
+      pending: 30,
+      in_progress: 6,
+      in_review: 10,
+      blocked: 0,
+      paused: 0,
+      done: 1579,
+      cancelled: 0,
+    },
+  };
+
+  let releaseIndex!: () => void;
+  let releaseSummary!: () => void;
+  let releaseOldCredSummary!: () => void;
+  let indexRequested!: () => void;
+  const indexReady = new Promise<void>((resolve) => { indexRequested = resolve; });
+  let summaryRequested!: () => void;
+  const summaryReady = new Promise<void>((resolve) => { summaryRequested = resolve; });
+  let oldCredSummaryRequested!: () => void;
+  const oldCredSummaryReady = new Promise<void>((resolve) => { oldCredSummaryRequested = resolve; });
+  let stage: "hold-both" | "verified-zero" | "absent" | "hold-cred" | "denied" = "hold-both";
+  backendSnapshot = snapshot("Domios 1.16.1");
+
+  const prevFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    value: muxMockFetch(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/mux/state")) return response(backendSnapshot);
+      if (stage === "denied") return new Response("forbidden", { status: 403 });
+      if (stage === "absent") {
+        return response({ plans: [] });
+      }
+      if (stage === "verified-zero") {
+        return url.endsWith("/api/plans?view=summary")
+          ? response({ plans: [summary(currentPlan)] })
+          : response({ plans: [indexEntry(currentPlan)] });
+      }
+      if (stage === "hold-cred") {
+        if (url.endsWith("/api/plans?view=summary")) {
+          return new Promise<Response>((resolve) => {
+            releaseOldCredSummary = () => resolve(response({ plans: [largeSummary] }));
+            oldCredSummaryRequested();
+          });
+        }
+        return response({ plans: [largeIndexEntry] });
+      }
+      if (url.endsWith("/api/plans?view=summary")) {
+        return new Promise<Response>((resolve) => {
+          releaseSummary = () => resolve(response({ plans: [largeSummary] }));
+          summaryRequested();
+        });
+      }
+      if (url.endsWith("/api/plans")) {
+        return new Promise<Response>((resolve) => {
+          releaseIndex = () => resolve(response({ plans: [largeIndexEntry] }));
+          indexRequested();
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }),
+  });
+
+  let indexObservedInView!: () => void;
+  const indexRendered = new Promise<void>((resolve) => { indexObservedInView = resolve; });
+  function IndexObserver() {
+    const { index } = usePlanIndex();
+    useEffect(() => {
+      if (index.some((entry) => entry.plan_id === LARGE_PLAN_ID)) indexObservedInView();
+    }, [index]);
+    return null;
+  }
+
+  const stageHost = document.createElement("div");
+  document.body.appendChild(stageHost);
+  const stageRoot = createRoot(stageHost);
+  try {
+    await act(async () => {
+      stageRoot.render(<PlansProvider api={API}><IndexObserver /><Projection /></PlansProvider>);
+      await Promise.all([indexReady, summaryReady]);
+    });
+    assert(
+      stageHost.querySelector('[data-testid="team-status-unavailable"]') !== null,
+      "missing projection while loading renders unavailable status instead of false zeros",
+    );
+    assert(
+      stageHost.querySelector('[data-testid="team-status-tally"]') === null,
+      "no false-zero bucket tally while projection is missing and loading",
+    );
+
+    await act(async () => {
+      releaseIndex();
+      await indexRendered;
+    });
+    assert(
+      stageHost.querySelector('[data-testid="team-name"]')?.textContent === "Domios",
+      "authoritative index title replaces legacy Team display name while summary counts load",
+    );
+    assert(
+      stageHost.querySelector('[data-testid="team-status-unavailable"]')?.textContent?.includes("1625 tasks"),
+      "index-only positive task_count reports loading counts instead of fabricating zeros",
+    );
+    assert(
+      stageHost.querySelector('[data-testid="team-status-tally"]') === null,
+      "index-only positive total never renders zero buckets",
+    );
+
+    await act(async () => {
+      releaseSummary();
+      await settleDaemon();
+    });
+    assert(
+      stageHost.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "verified",
+      "matching summary marks counts verified",
+    );
+    assert(
+      stageHost.querySelector('[data-testid="team-status-todo"] .ct-plan-status-breakdown-count')?.textContent === "36"
+      && stageHost.querySelector('[data-testid="team-status-review"] .ct-plan-status-breakdown-count')?.textContent === "10"
+      && stageHost.querySelector('[data-testid="team-status-blocked"] .ct-plan-status-breakdown-count')?.textContent === "0"
+      && stageHost.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent === "1579",
+      "matching nonzero summary renders exact task buckets",
+    );
+
+    stage = "verified-zero";
+    await act(async () => {
+      fireExistingFullResync();
+      await settleDaemon();
+    });
+    assert(
+      stageHost.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "verified",
+      "genuine empty summary marks zero buckets verified",
+    );
+    assert(
+      ["todo", "review", "blocked", "done"].every(
+        (bucket) => stageHost.querySelector(`[data-testid="team-status-${bucket}"] .ct-plan-status-breakdown-count`)?.textContent === "0",
+      ),
+      "genuine zero plan renders verified zero counts",
+    );
+
+    stage = "absent";
+    await act(async () => {
+      fireExistingFullResync();
+      await settleDaemon();
+    });
+    assert(
+      stageHost.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "absent",
+      "confirmed absence of an active plan is distinguished from unavailable counts",
+    );
+
+    stage = "hold-cred";
+    await act(async () => {
+      stageRoot.render(<PlansProvider api={{ ...API, token: "cred-1" }}><IndexObserver /><Projection /></PlansProvider>);
+      await oldCredSummaryReady;
+    });
+    stage = "denied";
+    await act(async () => {
+      stageRoot.render(<PlansProvider api={{ ...API, token: "cred-2" }}><IndexObserver /><Projection /></PlansProvider>);
+      await settleDaemon();
+    });
+    await act(async () => {
+      releaseOldCredSummary();
+      await settleDaemon();
+    });
+    assert(
+      stageHost.querySelector('[data-testid="team-status-unavailable"]') !== null,
+      "access denial after credential change clears old-authority projection and stays unavailable",
+    );
+    assert(
+      stageHost.querySelector('[data-testid="team-name"]')?.textContent !== "Domios",
+      "late old-credential reply cannot restore forbidden plan title",
+    );
+  } finally {
+    await act(async () => stageRoot.unmount());
+    stageHost.remove();
+    Object.defineProperty(globalThis, "fetch", { configurable: true, value: prevFetch });
+  }
+
+  // Source counterexample: old zero summary (updated_at 100, total 0) -> newer index (updated_at 200,
+  // task_count 94) while replacement summary is held -> convergence to Done 94 (with 25 loaded rows),
+  // plus epoch/credential replacement while held.
+  const COUNTER_PLAN_ID = "pl_counter";
+  const oldZeroSummary: PlanSummaryRead = {
+    ...FIXTURE_PLAN_READ,
+    id: COUNTER_PLAN_ID,
+    title: "Counter effort",
+    status: "active",
+    owner: FIXTURE_PLAN.owner,
+    project_path: "/workspace",
+    canonical_project_path: "/workspace",
+    created_at: 100,
+    updated_at: 100,
+    canvas: FIXTURE_PLAN.canvas,
+    mode: "planning",
+    planning_state: "drafting",
+    team_id: TEAM_ID,
+    revision: "100",
+    tasks: [],
+    task_counts: { total: 0, pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0 },
+  };
+  const oldZeroIndex: PlanIndexEntry = {
+    plan_id: COUNTER_PLAN_ID,
+    file_path: `/workspace/.domios/plans/active/${COUNTER_PLAN_ID}/plan.json`,
+    canonical_project_path: "/workspace",
+    owner: FIXTURE_PLAN.owner,
+    title: "Counter effort",
+    status: "active",
+    updated_at: 100,
+    team_id: TEAM_ID,
+    assigned_tab_ids: [TAB_ID],
+    task_count: 0,
+    open_task_count: 0,
+  };
+  const newerIndex94: PlanIndexEntry = {
+    ...oldZeroIndex,
+    updated_at: 200,
+    task_count: 94,
+    open_task_count: 0,
+  };
+  const newerSummary94: PlanSummaryRead = {
+    ...oldZeroSummary,
+    updated_at: 200,
+    revision: "200",
+    tasks: Array.from({ length: 25 }, (_, i) => ({
+      ...FIXTURE_TASK_METADATA,
+      id: `counter-${i}`,
+      name: `Counter ${i}`,
+      status: "done" as const,
+    })),
+    task_counts: { total: 94, pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 94, cancelled: 0 },
+  };
+  let counterPhase: "old-zero" | "hold-replacement" | "epoch-replaced" = "old-zero";
+  let releaseReplacementSummary!: () => void;
+  let replacementRequested!: () => void;
+  const replacementReady = new Promise<void>((resolve) => { replacementRequested = resolve; });
+  let counterIndexUpdated!: () => void;
+  const counterIndexReady = new Promise<void>((resolve) => { counterIndexUpdated = resolve; });
+
+  const counterPrevFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    value: muxMockFetch(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/mux/state")) return response(backendSnapshot);
+      if (counterPhase === "old-zero") {
+        return url.endsWith("/api/plans?view=summary")
+          ? response({ plans: [oldZeroSummary] })
+          : response({ plans: [oldZeroIndex] });
+      }
+      if (counterPhase === "hold-replacement") {
+        if (url.endsWith("/api/plans")) return response({ plans: [newerIndex94] });
+        if (url.includes(`/api/plans/${COUNTER_PLAN_ID}/projection`) || url.endsWith("/api/plans?view=summary")) {
+          return new Promise<Response>((resolve) => {
+            releaseReplacementSummary = () => resolve(response(
+              url.includes("/projection") ? newerSummary94 : { plans: [newerSummary94] },
+            ));
+            replacementRequested();
+          });
+        }
+      }
+      if (counterPhase === "epoch-replaced") {
+        const replacedSummary: PlanSummaryRead = {
+          ...oldZeroSummary,
+          id: "pl_epoch_new",
+          title: "Post-epoch effort",
+          updated_at: 300,
+          revision: "1",
+          task_counts: { total: 5, pending: 2, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 3, cancelled: 0 },
+        };
+        const replacedIndex: PlanIndexEntry = {
+          ...oldZeroIndex,
+          plan_id: "pl_epoch_new",
+          title: "Post-epoch effort",
+          updated_at: 300,
+          task_count: 5,
+          open_task_count: 2,
+        };
+        return url.endsWith("/api/plans?view=summary")
+          ? response({ plans: [replacedSummary] })
+          : response({ plans: [replacedIndex] });
+      }
+      return new Response("not found", { status: 404 });
+    }),
+  });
+
+  function CounterIndexObserver() {
+    const { index } = usePlanIndex();
+    useEffect(() => {
+      if (index.some((entry) => entry.plan_id === COUNTER_PLAN_ID && entry.task_count === 94)) counterIndexUpdated();
+    }, [index]);
+    return null;
+  }
+
+  const counterHost = document.createElement("div");
+  document.body.appendChild(counterHost);
+  const counterRoot = createRoot(counterHost);
+  try {
+    await act(async () => {
+      counterRoot.render(<PlansProvider api={API}><CounterIndexObserver /><Projection /></PlansProvider>);
+      await settleDaemon();
+    });
+    assert(
+      counterHost.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "verified"
+      && counterHost.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent === "0",
+      "precondition: old summary updated_at 100 starts at verified 0",
+    );
+
+    counterPhase = "hold-replacement";
+    await act(async () => {
+      for (const handler of listenHandlers.get("plan-changed") ?? []) {
+        handler({ payload: { plan_id: COUNTER_PLAN_ID, revision: "200", previous_revision: "100", task_ids: [], reset: false, deleted: false } });
+      }
+      await Promise.all([counterIndexReady, replacementReady]);
+    });
+    assert(
+      counterHost.querySelector('[data-testid="team-status-unavailable"]')?.textContent?.includes("94 tasks"),
+      "newer index task_count 94 over older zero summary preserves known total 94 while replacement summary is held",
+    );
+    assert(
+      counterHost.querySelector('[data-testid="team-status-tally"]') === null,
+      "superseded zero buckets are never shown as verified zero when newer index reports 94 tasks",
+    );
+
+    await act(async () => {
+      releaseReplacementSummary();
+      await settleDaemon();
+    });
+    assert(
+      counterHost.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "verified"
+      && counterHost.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent === "94",
+      "matching replacement summary converges to verified Done 94 without counting 25 loaded rows",
+    );
+
+    counterPhase = "hold-replacement";
+    let releaseEpochHeld!: () => void;
+    let epochHeldRequested!: () => void;
+    const epochHeldReady = new Promise<void>((resolve) => { epochHeldRequested = resolve; });
+    Object.defineProperty(globalThis, "fetch", {
+      configurable: true,
+      value: muxMockFetch(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/api/mux/state")) return response(backendSnapshot);
+        if (counterPhase === "hold-replacement") {
+          if (url.includes("/projection")) {
+            return new Promise<Response>((resolve) => {
+              releaseEpochHeld = () => resolve(response({ ...newerSummary94, revision: "201" }));
+              epochHeldRequested();
+            });
+          }
+          return response({ plans: [newerIndex94] });
+        }
+        const replacedSummary: PlanSummaryRead = {
+          ...oldZeroSummary,
+          id: "pl_epoch_new",
+          title: "Post-epoch effort",
+          updated_at: 300,
+          revision: "1",
+          task_counts: { total: 5, pending: 2, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 3, cancelled: 0 },
+        };
+        const replacedIndex: PlanIndexEntry = {
+          ...oldZeroIndex,
+          plan_id: "pl_epoch_new",
+          title: "Post-epoch effort",
+          updated_at: 300,
+          task_count: 5,
+          open_task_count: 2,
+        };
+        return url.endsWith("/api/plans?view=summary")
+          ? response({ plans: [replacedSummary] })
+          : response({ plans: [replacedIndex] });
+      }),
+    });
+    await act(async () => {
+      for (const handler of listenHandlers.get("plan-changed") ?? []) {
+        handler({ payload: { plan_id: COUNTER_PLAN_ID, revision: "201", previous_revision: "200", task_ids: [], reset: false, deleted: false } });
+      }
+      await epochHeldReady;
+    });
+    counterPhase = "epoch-replaced";
+    await act(async () => {
+      fireResync("epoch_changed");
+      await settleDaemon();
+    });
+    await act(async () => {
+      releaseEpochHeld();
+      await settleDaemon();
+    });
+    assert(
+      counterHost.querySelector('[data-testid="team-name"]')?.textContent === "Post-epoch effort"
+      && counterHost.querySelector('[data-testid="team-status-todo"] .ct-plan-status-breakdown-count')?.textContent === "2"
+      && counterHost.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent === "3",
+      "epoch replacement clears held pre-epoch summary and rejects late pre-epoch reply",
+    );
+  } finally {
+    await act(async () => counterRoot.unmount());
+    counterHost.remove();
+    Object.defineProperty(globalThis, "fetch", { configurable: true, value: counterPrevFetch });
+  }
+
+  // Remote browsed peer Team cards (eight / Sauron case): single bounded peer summary read,
+  // held -> unavailable, authoritative Done 94 (never loaded 25), genuine empty, foreign Team fenced,
+  // peer switch and late-reply fenced.
+  const { peerEventRail } = await import("../../lib/peerEventRail");
+  const remoteListeners = new Map<string, Set<(event: import("../../lib/peerEventRail").PeerEvent) => void>>();
+  const originalObserve = peerEventRail.observe;
+  peerEventRail.observe = (peerId, listener) => {
+    const set = remoteListeners.get(peerId) ?? new Set();
+    set.add(listener);
+    remoteListeners.set(peerId, set);
+    return () => { set.delete(listener); };
+  };
+  let releaseEight!: () => void;
+  let eightRequested!: () => void;
+  const eightReady = new Promise<void>((resolve) => { eightRequested = resolve; });
+  let releaseEightSwitch!: () => void;
+  let eightSwitchRequested!: () => void;
+  const eightSwitchReady = new Promise<void>((resolve) => { eightSwitchRequested = resolve; });
+  let eightMode: "hold" | "hold-switch" = "hold";
+  let eightSummaryRequests = 0;
+
+  const relayJson = (data: unknown) => response({ ok: true, status: 200, data });
+  const eightPlans: PlanSummaryRead[] = [
+    {
+      ...FIXTURE_PLAN_READ,
+      id: "pl_rek",
+      title: "Rekap: Navid Playground",
+      status: "active",
+      owner: FIXTURE_PLAN.owner,
+      project_path: "/sauron",
+      canonical_project_path: "/sauron",
+      created_at: 94,
+      updated_at: 94,
+      canvas: FIXTURE_PLAN.canvas,
+      mode: "planning",
+      planning_state: "drafting",
+      team_id: "team_rekap",
+      revision: "94",
+      tasks: Array.from({ length: 25 }, (_, i) => ({
+        ...FIXTURE_TASK_METADATA,
+        id: `rek-${i}`,
+        name: `REK-${i}`,
+        status: "done" as const,
+      })),
+      task_counts: { total: 94, pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 94, cancelled: 0 },
+    },
+    {
+      ...FIXTURE_PLAN_READ,
+      id: "pl_empty_remote",
+      title: "Project X",
+      status: "active",
+      owner: FIXTURE_PLAN.owner,
+      project_path: "/sauron",
+      canonical_project_path: "/sauron",
+      created_at: 1,
+      updated_at: 1,
+      canvas: FIXTURE_PLAN.canvas,
+      mode: "planning",
+      planning_state: "drafting",
+      team_id: "team_project_x",
+      revision: "1",
+      tasks: [],
+      task_counts: { total: 0, pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0 },
+    },
+  ];
+  const ubuntaPlans: PlanSummaryRead[] = [
+    {
+      ...FIXTURE_PLAN_READ,
+      id: "pl_ubunta",
+      title: "Ubunta effort",
+      status: "active",
+      owner: FIXTURE_PLAN.owner,
+      project_path: "/ubunta",
+      canonical_project_path: "/ubunta",
+      created_at: 2,
+      updated_at: 2,
+      canvas: FIXTURE_PLAN.canvas,
+      mode: "planning",
+      planning_state: "drafting",
+      team_id: "team_rekap",
+      revision: "2",
+      tasks: [],
+      task_counts: { total: 4, pending: 2, in_progress: 0, in_review: 1, blocked: 0, paused: 0, done: 1, cancelled: 0 },
+    },
+  ];
+
+  const remotePrevFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    value: muxMockFetch(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/api/plans")) return response({ plans: [] });
+      if (url.endsWith("/api/mesh/relay-to")) {
+        const envelope = JSON.parse(String(init?.body)) as { target_instance_id: string; path: string };
+        if (envelope.target_instance_id === "eight" && envelope.path === "/api/plans?view=summary") {
+          eightSummaryRequests += 1;
+          if (eightMode === "hold") {
+            return new Promise<Response>((resolve) => {
+              releaseEight = () => resolve(relayJson({ plans: eightPlans }));
+              eightRequested();
+            });
+          }
+          return new Promise<Response>((resolve) => {
+            releaseEightSwitch = () => resolve(relayJson({ plans: eightPlans }));
+            eightSwitchRequested();
+          });
+        }
+        if (envelope.target_instance_id === "ubunta" && envelope.path === "/api/plans?view=summary") {
+          return relayJson({ plans: ubuntaPlans });
+        }
+      }
+      return new Response("not found", { status: 404 });
+    }),
+  });
+
+  function RemoteTeamCardsProbe({ peerId }: { peerId: string }) {
+    const remote = usePeerPlanSummaries(peerId);
+    const entries = [
+      { id: "team_rekap", name: "Rekap: Navid Playground", ownerPeer: peerId },
+      { id: "team_project_x", name: "Project X", ownerPeer: peerId },
+      { id: "team_foreign", name: "Foreign Team", ownerPeer: "other-peer" },
+    ];
+    return (
+      <>
+        {entries.map((entry) => {
+          const matched = selectRemoteTeamPlanProjection({
+            teamId: entry.id,
+            owningPeerId: entry.ownerPeer,
+            viewedPeerId: peerId,
+            plans: remote.plans,
+            available: remote.available,
+            loading: remote.loading,
+            reconnecting: remote.reconnecting,
+            error: remote.error,
+          });
+          return (
+            <TeamUnit
+              key={`${peerId}:${entry.id}`}
+              team={{
+                id: entry.id,
+                name: entry.name,
+                lifecycle: "active",
+                created_at: 1,
+                workspace_id: "sauron",
+                remote_peer_id: entry.ownerPeer,
+                remote_peer_name: entry.ownerPeer,
+              }}
+              plan={matched.plan}
+              planCountMeta={matched.meta}
+              tabs={{}}
+              managers={null}
+              managerCount={1}
+              workers={null}
+              workerCount={0}
+              workingWorkerCount={0}
+              providers={[]}
+            />
+          );
+        })}
+      </>
+    );
+  }
+
+  const remoteHost = document.createElement("div");
+  document.body.appendChild(remoteHost);
+  const remoteRoot = createRoot(remoteHost);
+  try {
+    await act(async () => {
+      remoteRoot.render(<PlansProvider api={API}><RemoteTeamCardsProbe peerId="eight" /></PlansProvider>);
+      await eightReady;
+    });
+    assert(eightSummaryRequests === 1, "one bounded remote summary read serves all remote Team cards");
+    assert(
+      remoteHost.querySelectorAll('[data-testid="team-status-unavailable"]').length === 3
+      && remoteHost.querySelectorAll('[data-testid="team-status-tally"]').length === 0,
+      "held remote summary read keeps all remote Team cards unavailable instead of zero",
+    );
+
+    await act(async () => {
+      releaseEight();
+      await settleDaemon();
+    });
+    const rekapCard = remoteHost.querySelector('[data-team-id="team_rekap"]')!;
+    const projectXCard = remoteHost.querySelector('[data-team-id="team_project_x"]')!;
+    const foreignCard = remoteHost.querySelector('[data-team-id="team_foreign"]')!;
+    assert(
+      rekapCard.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "verified"
+      && rekapCard.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent === "94"
+      && rekapCard.querySelector('[data-testid="team-status-todo"] .ct-plan-status-breakdown-count')?.textContent === "0",
+      "remote Team card renders authoritative Done 94, never loaded page 25 or fabricated 0",
+    );
+    assert(
+      projectXCard.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state") === "verified"
+      && projectXCard.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent === "0",
+      "genuine empty remote plan renders verified zero buckets",
+    );
+    assert(
+      foreignCard.querySelector('[data-testid="team-status-unavailable"]') !== null,
+      "foreign-peer Team card stays unavailable rather than cross-matching or fabricating zeros",
+    );
+
+    eightMode = "hold-switch";
+    await act(async () => {
+      for (const listener of remoteListeners.get("eight") ?? []) listener({ type: "plans-loaded" });
+      await eightSwitchReady;
+    });
+    await act(async () => {
+      remoteRoot.render(<PlansProvider api={API}><RemoteTeamCardsProbe peerId="ubunta" /></PlansProvider>);
+      await settleDaemon();
+    });
+    await act(async () => {
+      releaseEightSwitch();
+      await settleDaemon();
+    });
+    const ubuntaCard = remoteHost.querySelector('[data-team-id="team_rekap"]')!;
+    assert(
+      ubuntaCard.querySelector('[data-testid="team-status-todo"] .ct-plan-status-breakdown-count')?.textContent === "2"
+      && ubuntaCard.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent === "1",
+      "peer switch isolates remote counts and late eight reply cannot overwrite ubunta",
+    );
+  } finally {
+    peerEventRail.observe = originalObserve;
+    await act(async () => remoteRoot.unmount());
+    remoteHost.remove();
+    Object.defineProperty(globalThis, "fetch", { configurable: true, value: remotePrevFetch });
+  }
+
   __setListenForTest(null);
   console.log("  ✓ Team active-plan recovery converges after one existing full resync");
 }

@@ -19,7 +19,6 @@ pub use launch::arm_provider_session_for_test;
 #[cfg(any(test, feature = "test-support"))]
 pub use launch::launch_waits_for_first_turn_binding;
 pub use launch::prepare_agent_command_for_service;
-#[cfg(test)]
 pub(crate) use launch::skip_local_worker_role;
 #[cfg(test)]
 pub(crate) use launch::AgentRegistry;

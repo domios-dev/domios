@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { IS_WEB, selfHost, tokenFor } from "../lib/webApi";
 import { registerServiceWorker } from "../lib/serviceWorkerRegistration";
-import { publishNotice } from "../lib/notices";
+import { setPwaInstallOffer } from "../lib/pwaInstallOffer";
 
 const HINT_DISMISSED_KEY = "codeterm-pwa-hint-dismissed";
 const INSTALL_DISMISSED_KEY = "codeterm-pwa-install-dismissed";
@@ -54,8 +54,10 @@ export function usePwaSetup() {
       });
     }
     if (isIos() && !isStandalone() && !localStorage.getItem(HINT_DISMISSED_KEY)) {
-      publishNotice({ kind: "toast", severity: "Info", id: "pwa-install-ios", title: "Install Domios", detail: "Tap Share, then Add to Home Screen for fullscreen access.",
-        actions: [{ label: "Do not show again", run: () => localStorage.setItem(HINT_DISMISSED_KEY, "1") }],
+      setPwaInstallOffer({
+        kind: "ios",
+        description: "In Safari, tap Share, then Add to Home Screen for fullscreen access.",
+        dismiss: () => { localStorage.setItem(HINT_DISMISSED_KEY, "1"); setPwaInstallOffer(null); },
       });
     }
   }, []);
@@ -66,11 +68,11 @@ export function usePwaSetup() {
       event.preventDefault();
       if (localStorage.getItem(INSTALL_DISMISSED_KEY)) return;
       const prompt = event as BeforeInstallPromptEvent;
-      publishNotice({ kind: "toast", severity: "Info", id: "pwa-install", title: "Install Domios", detail: "Add to your home screen or app dock for fullscreen access.",
-        actions: [
-          { label: "Install", run: async () => { await prompt.prompt(); await prompt.userChoice; } },
-          { label: "Do not show again", run: () => localStorage.setItem(INSTALL_DISMISSED_KEY, "1") },
-        ],
+      setPwaInstallOffer({
+        kind: "prompt",
+        description: "Add Domios to your home screen or app dock.",
+        install: async () => { await prompt.prompt(); await prompt.userChoice; setPwaInstallOffer(null); },
+        dismiss: () => { localStorage.setItem(INSTALL_DISMISSED_KEY, "1"); setPwaInstallOffer(null); },
       });
     };
     window.addEventListener("beforeinstallprompt", onInstallPrompt);

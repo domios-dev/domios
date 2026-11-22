@@ -53,12 +53,8 @@ Peer actions retain Mesh access checks; plugin operations retain their granted c
 
 | Method | Path | Operation |
 |--------|------|-----------|
-| DELETE | `/api/mesh/peers/{id}/crons/{cron_id}` | Delete a peer cron job. |
-| DELETE | `/api/mesh/peers/{id}/services/{service_id}` | Delete a peer service. |
 | DELETE | `/api/plugins/{id}/receiver-target` | Clear a plugin receiver destination. |
 | GET | `/api/mesh/inventory` | Read Mesh peer inventory. |
-| GET | `/api/mesh/peers/{id}/crons/{cron_id}` | Read a peer cron job. |
-| GET | `/api/mesh/peers/{id}/crons/{cron_id}/history` | Read a peer cron run history. |
 | GET | `/api/plugins/snapshot` | Read installed plugin snapshot. |
 | GET | `/api/plugins/tab-menu` | Read plugin-provided tab menu entries. |
 | GET | `/api/plugins/{id}/receiver-target` | Read a plugin receiver destination. |
@@ -66,7 +62,6 @@ Peer actions retain Mesh access checks; plugin operations retain their granted c
 | PATCH | `/api/services/{id}` | Patch service fields. |
 | POST | `/api/mesh/enabled` | Enable or disable Mesh. |
 | POST | `/api/mesh/peers/{id}/access` | Set peer access permissions. |
-| POST | `/api/mesh/peers/{id}/crons/{cron_id}/{action}` | Apply a peer cron action. |
 | POST | `/api/mesh/worker-dispatch` | Admit a signed remote Worker dispatch. |
 | POST | `/api/mesh/worker-dispatch-status` | Read a signed remote dispatch status. |
 | POST | `/api/mesh/worker-lane-bundle` | Transfer a signed remote lane Git bundle. |
@@ -89,7 +84,6 @@ Peer actions retain Mesh access checks; plugin operations retain their granted c
 | DELETE | `/api/plugins/{plugin}/media-frame/{frame}` | Local owner only: retire this presentation frame and all its media handles; returns 204. |
 | POST | `/api/plugins/{plugin}/media-register/{frame}` | Local owner only: `{id,viewFrame}` resolves a declared plugin media ID with the private current document lease. Returns `{handle,url,file_name,content_type,expires_in_seconds}`; `url` may be null for gesture-only files. The lease and live owner/workspace/Team/provider registration must match this exact frame; unavailable media returns 404. |
 | POST | `/api/services/smart-add-inspect` | Inspect a candidate service before registration. |
-| PUT | `/api/mesh/peers/{id}/crons/{cron_id}` | Update a peer cron job. |
 | PUT | `/api/plugins/{id}/receiver-target` | Set a plugin receiver destination. |
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

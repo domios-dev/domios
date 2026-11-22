@@ -40,6 +40,11 @@ pub(super) fn status_of(state: CronRunState) -> CronRunStatus {
 
 pub(super) fn run_record(run: &CronRunInfo) -> Result<CronRunRecord, StorageError> {
     Ok(CronRunRecord {
+        scheduled_occurrence_at: run.scheduled_occurrence_at,
+        fired_at: run.fired_at,
+        late_by_ms: run.late_by_ms,
+        provider: run.provider.clone(),
+        owner_instance_id: run.owner_instance_id.clone(),
         cancel_reason: run.cancel_reason,
         run_id: CronRunId::new(run.run_id.clone())?,
         started_at: run.started_at,
@@ -55,6 +60,11 @@ pub(super) fn run_record(run: &CronRunInfo) -> Result<CronRunRecord, StorageErro
 
 pub(super) fn run_info(run: CronRunRecord) -> CronRunInfo {
     CronRunInfo {
+        scheduled_occurrence_at: run.scheduled_occurrence_at,
+        fired_at: run.fired_at,
+        late_by_ms: run.late_by_ms,
+        provider: run.provider,
+        owner_instance_id: run.owner_instance_id,
         cancel_reason: run.cancel_reason,
         run_id: run.run_id.as_str().to_string(),
         started_at: run.started_at,
@@ -98,6 +108,7 @@ pub(super) fn job_record(job: &CronJob) -> Result<CronJobRecord, StorageError> {
             .map(|run| CronRunId::new(run.run_id.clone()))
             .transpose()?,
         next_run: job.next_run,
+        next_occurrence_at: job.next_occurrence_at,
         jitter_max_ms: job.jitter_max_ms,
         tz: job.tz.clone(),
         timeout_seconds: job.timeout_seconds,
@@ -134,6 +145,7 @@ pub(super) fn job_info(stored: StoredCronJob) -> Result<CronJob, String> {
         created_at: record.created_at,
         last_run: last_run.map(run_info),
         next_run: record.next_run,
+        next_occurrence_at: record.next_occurrence_at,
         jitter_max_ms: record.jitter_max_ms,
         tz: record.tz,
         timeout_seconds: record.timeout_seconds,

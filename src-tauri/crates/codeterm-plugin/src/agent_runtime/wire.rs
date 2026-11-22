@@ -181,22 +181,40 @@ pub struct RuntimeCommand {
     #[ts(optional)]
     pub argument_hint: Option<String>,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeConfigOptionKind {
+    Select,
+    Boolean,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeConfigOption {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kind: Option<RuntimeConfigOptionKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub description: Option<String>,
     pub id: String,
     pub name: String,
     pub current_value: String,
     pub options: Vec<RuntimeConfigValue>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeConfigValue {
     pub value: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub group: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
@@ -506,6 +524,36 @@ pub enum HistoryOrder {
     Desc,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeSessionCapabilities {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fork: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub list: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub close: bool,
+}
+
+impl RuntimeSessionCapabilities {
+    pub fn is_empty(&self) -> bool {
+        !self.fork && !self.list && !self.close
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeListedSession {
+    pub session_id: String,
+    pub cwd: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub updated_at: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(
     tag = "kind",
@@ -538,6 +586,15 @@ pub enum RuntimeResult {
         /// This agent takes input into a running turn, as it declared for this process.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         mid_turn_input: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        session_capabilities: Option<RuntimeSessionCapabilities>,
+    },
+    SessionsListed {
+        sessions: Vec<RuntimeListedSession>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        next_cursor: Option<String>,
     },
     ThreadLoaded {
         thread_id: String,
@@ -782,6 +839,14 @@ pub enum AgentRuntimeEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         permission: Option<RuntimePermission>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        #[ts(type = "unknown")]
+        file_diffs: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        #[ts(type = "unknown")]
+        elicitation: Option<Value>,
     },
     PromptResolved {
         thread_id: String,
@@ -797,6 +862,10 @@ pub enum AgentRuntimeEvent {
     },
     ThreadReverted {
         thread_id: String,
+    },
+    SessionTitle {
+        thread_id: String,
+        title: String,
     },
 }
 

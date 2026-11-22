@@ -2,6 +2,8 @@
 pub(crate) struct SwitchProviderRequest {
     pub provider: String,
     pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_profile: Option<String>,
     pub reasoning_effort: Option<String>,
     pub force: bool,
 }

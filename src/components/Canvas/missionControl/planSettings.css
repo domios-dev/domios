@@ -113,7 +113,7 @@
 
 .mc-setting-hint {
   margin: 0;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   line-height: 1.45;
   color: var(--ct-muted-fg);
 }
@@ -130,7 +130,7 @@
   align-items: center;
   gap: 6px;
   margin: 0;
-  font-size: var(--mc-text-meta);
+  font-size: var(--ct-font-size-meta);
   line-height: 1.45;
   color: var(--ct-fg);
 }

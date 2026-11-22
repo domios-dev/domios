@@ -47,6 +47,7 @@ fn map_error(e: SecretError) -> (StatusCode, Json<serde_json::Value>) {
         SecretError::AlreadyExists => StatusCode::CONFLICT,
         SecretError::BadRequest { .. } => StatusCode::BAD_REQUEST,
         SecretError::Backend { .. } => StatusCode::SERVICE_UNAVAILABLE,
+        SecretError::WriteUncertain { .. } => StatusCode::SERVICE_UNAVAILABLE,
     };
     // `message` may interpolate user-controlled strings (server URL, bw stderr); scrub control chars before the CLI prints them.
     let message = match &e {
@@ -59,6 +60,7 @@ fn map_error(e: SecretError) -> (StatusCode, Json<serde_json::Value>) {
         SecretError::AlreadyExists => "already exists".to_string(),
         SecretError::BadRequest { message } => sanitize_echoed(message),
         SecretError::Backend { message } => sanitize_echoed(message),
+        SecretError::WriteUncertain { message } => sanitize_echoed(message),
     };
     let body = serde_json::json!({
         "error": {
@@ -633,11 +635,22 @@ mod tests {
                 },
                 StatusCode::SERVICE_UNAVAILABLE,
             ),
+            (
+                SecretError::WriteUncertain {
+                    message: "remote save outcome is uncertain".into(),
+                },
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
         ];
         for (e, expected) in cases {
             let (got, _) = map_error(e);
             assert_eq!(got, expected);
         }
+        let (status, Json(body)) = map_error(SecretError::WriteUncertain {
+            message: "remote save outcome is uncertain".into(),
+        });
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["error"]["kind"], "write_uncertain");
     }
 
     #[test]

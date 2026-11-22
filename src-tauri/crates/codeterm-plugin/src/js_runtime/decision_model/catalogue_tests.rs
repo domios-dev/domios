@@ -55,16 +55,20 @@ fn cold_catalogue_shares_one_discovery_without_blocking_cheap_vm_calls() {
         });
         let model = Arc::new(JsDecisionModel::new(
             vm.clone(),
-            manifest.id,
+            &manifest.id,
             TokenMode::None,
         ));
+        model
+            .catalogue_fingerprint
+            .set(Some("fixture-binary".into()))
+            .unwrap();
         let first_model = model.clone();
         let first = std::thread::spawn(move || first_model.models());
         let entered_ok = call_gate::wait_opened(&entered, Duration::from_secs(3));
         if !entered_ok {
             call_gate::open(&release);
         }
-        assert!(entered_ok, "cold discovery did not start");
+        assert!(entered_ok, "{}: cold discovery did not start", manifest.id);
         assert!(vm.catalogue_gate.try_lock().is_none());
         assert!(model.cached_models().is_empty());
         let second_model = model.clone();

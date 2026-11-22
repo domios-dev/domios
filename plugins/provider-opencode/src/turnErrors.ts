@@ -1,5 +1,10 @@
-import type { ProviderSessionObservations } from "@codeterm/plugin-sdk";
-import { object } from "./runtimeProtocol";
+import type { AgentEvent, ProviderSessionObservations } from "@codeterm/plugin-sdk";
+import { object, text, utf8Length } from "./runtimeProtocol";
+
+interface Message {
+  role?: string;
+  error?: TurnError;
+}
 
 interface TurnError {
   name?: string;
@@ -8,15 +13,30 @@ interface TurnError {
   data?: { message?: string; statusCode?: number; isRetryable?: boolean };
 }
 
-interface Message {
-  role?: string;
-  error?: TurnError;
-}
-
 export function isQuotaError(value: unknown): boolean {
   const error = object(value);
   return error.type === "provider.quota" ||
     object(object(error.body).error).type === "insufficient_balance_error";
+}
+
+export function runtimeErrorMessage(error: Record<string, unknown>, fallback: string): string {
+  return text(object(error.data).message) ?? text(error.message) ?? fallback;
+}
+
+export function runtimeTurnErrorEvents(threadId: string, turnId: string | undefined, seq: number, message: string): AgentEvent[] {
+  let bytes = 0;
+  let content = "";
+  for (const character of message) {
+    bytes += utf8Length(character);
+    if (bytes > 4096) break;
+    content += character;
+  }
+  const notice: AgentEvent = { kind: "notice", threadId, message: content };
+  if (!turnId) return [notice];
+  return [notice, {
+    kind: "chatItem", threadId,
+    item: { id: `${turnId}:error`, seq, type: "system", systemSubtype: "api_error", toolFlowId: turnId, content },
+  }];
 }
 
 export function turnError(value: unknown): Message["error"] | null {

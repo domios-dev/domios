@@ -146,7 +146,12 @@ impl MultiplexerState {
             {
                 tab.shell_command_state.activity = crate::multiplexer::types::ShellActivity::Idle;
             }
-            if tab.agent_type.is_some() {
+            if matches!(tab.backing, TabBacking::ChatBackend { .. }) {
+                tab.agent_state =
+                    Some(tab.provider_signals.access_state().unwrap_or_else(|| {
+                        super::status_view::chat_backend_agent_state(tab, *status)
+                    }));
+            } else if tab.agent_type.is_some() {
                 tab.agent_state = tab.provider_signals.access_state().or_else(|| {
                     Some(super::status_view::agent_state_for_status(
                         tab.agent_state.as_ref(),
@@ -194,7 +199,12 @@ impl MultiplexerState {
                 agent_session_id: tab.and_then(|p| p.agent_session_id.clone()),
                 agent_identity: tab.map(|p| AgentIdentitySnapshot {
                     description_origin: p.description_origin,
-                    agent_runtime_state: p.agent_runtime_state.clone(),
+                    agent_runtime_state: p.agent_runtime_state.clone().map(|mut state| {
+                        if let Some(fields) = state.as_object_mut() {
+                            fields.remove("backgroundProcesses");
+                        }
+                        state
+                    }),
                     agent_runtime_config: p.agent_runtime_config.clone(),
                     agent_runtime_questions: p.agent_runtime_questions.clone(),
                     provisioned_cwd: normalized_snapshot_cwd(p.provisioned_cwd.as_deref()),
@@ -203,6 +213,7 @@ impl MultiplexerState {
                     agent_state: p.agent_state.clone(),
                     turn_resume: p.turn_resume.clone(),
                     boot_stage: p.boot_stage,
+                    boot_failure_reason: p.boot_failure_reason.clone(),
                     reasoning_effort: p.reasoning_effort_identity.clone(),
                     restorable_launch: p.restorable_launch.clone(),
                     context_epochs: p.context_epoch_archives.clone(),
@@ -639,7 +650,14 @@ fn install_leaf(
             Some(sid.clone())
         }
     });
-    let restored_identity = restored_session_id.as_ref().and(agent_identity.as_ref());
+    let failed_launch = agent_identity.as_ref().is_some_and(|identity| {
+        identity.boot_stage == Some(codeterm_types::pty::BootStage::SpawnFailed)
+    });
+    let restored_identity = if failed_launch {
+        agent_identity.as_ref()
+    } else {
+        restored_session_id.as_ref().and(agent_identity.as_ref())
+    };
     let restorable_launch = agent_identity
         .as_ref()
         .map(|identity| identity.restorable_launch.clone())
@@ -652,14 +670,19 @@ fn install_leaf(
     // Provider identity is committed state, never read off a title.
     let restored_agent_type = agent_type.clone();
     let scrollback_seed_pending = restored_agent_type.is_none()
+        && !failed_launch
         && matches!(&restored_backing, TabBacking::Pty)
         && ownership.is_none();
-    let restored_boot_stage = restored_agent_type
-        .as_ref()
-        .map(|_| match &restored_backing {
-            TabBacking::ChatBackend { .. } => codeterm_types::pty::BootStage::AgentLaunching,
-            _ => codeterm_types::pty::BootStage::PtyStarting,
-        });
+    let restored_boot_stage = if failed_launch {
+        Some(codeterm_types::pty::BootStage::SpawnFailed)
+    } else {
+        restored_agent_type
+            .as_ref()
+            .map(|_| match &restored_backing {
+                TabBacking::ChatBackend { .. } => codeterm_types::pty::BootStage::AgentLaunching,
+                _ => codeterm_types::pty::BootStage::PtyStarting,
+            })
+    };
     let restored_locked = *agent_type_locked || restored_agent_type.is_some();
     tabs.insert(
         tab_id.clone(),
@@ -791,7 +814,7 @@ fn install_leaf(
             skip_snapshot: false,
             show_in_tabbar: true,
             worker_id: None,
-            frozen: false,
+            frozen: failed_launch,
             has_checklist: false,
             focus_requested: false,
             slept_at_ms: None,
@@ -803,10 +826,22 @@ fn install_leaf(
             pending_scrollback_tail: None,
             pending_greeting: None,
             boot_stage: restored_boot_stage,
-            boot_failure_reason: None,
+            boot_failure_reason: agent_identity
+                .as_ref()
+                .filter(|_| failed_launch)
+                .and_then(|identity| identity.boot_failure_reason.clone()),
             provisional_launch: None,
         },
     );
+    if failed_launch {
+        if let Some(tab) = tabs
+            .get_mut(tab_id)
+            .filter(|tab| tab.reported_session_binding_nonce.is_some())
+        {
+            tab.remember_superseded_binding_nonce();
+            tab.session_binding_nonce = None;
+        }
+    }
     Some(tab_id.clone())
 }
 

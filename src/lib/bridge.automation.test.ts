@@ -72,7 +72,7 @@ async function main() {
     await assert.rejects(invoke("automation_graph_stop_blueprint", { ...scope, id: "sentinel-a" }));
     assert.equal(requests.length, 1);
     assert.equal(new URL(requests[0].url).pathname, "/api/mesh/relay-to");
-    assert.deepEqual(JSON.parse(String(requests[0].init?.body)), { target_peer_id: "peer-fixture", method: "POST", path: "/api/automation/blueprints/sentinel-a/stop", body: { workspace_id: scope.workspaceId, team_id: scope.teamId } });
+    assert.deepEqual(JSON.parse(String(requests[0].init?.body)), { target_instance_id: "peer-fixture", method: "POST", path: "/api/automation/blueprints/sentinel-a/stop", body: { workspace_id: scope.workspaceId, team_id: scope.teamId } });
     console.log("✓ peer stop refusal remains unavailable without local fallback");
     await assert.rejects(invoke("automation_graph_delete_blueprint", { ...scope, id: "sentinel-a" }));
     assert.equal(requests.length, 2);

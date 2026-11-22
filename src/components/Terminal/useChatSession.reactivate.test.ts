@@ -418,7 +418,7 @@ async function main(): Promise<void> {
     await act(async () => app.root.unmount());
   }
 
-  // A late mid-turn echo follows transcript sequence through reactivation and remount.
+  // Committed input uses its provider timestamp through reactivation and remount.
   {
     const realNow = Date.now;
     const clock = 1_800_000_000_000;
@@ -448,10 +448,10 @@ async function main(): Promise<void> {
         "reading config",
         "Read config.json",
         "config ok",
+        "also check the logs",
         "running the build",
         "Bash build.sh",
         "build ok",
-        "also check the logs",
         "logs are clean",
       ].join("|");
       const contents = (rows: NormalizedChatMessage[]) => rows.map((message) => message.content).join("|");
@@ -492,7 +492,7 @@ async function main(): Promise<void> {
       assert(server.log.starts.length === 2, `leave/return reattaches once without a remount (starts=${server.log.starts.length})`);
       assert(
         contents(reactivated) === expected,
-        `re-activation projects transcript sequence (${contents(reactivated)})`,
+        `re-activation projects committed timestamps (${contents(reactivated)})`,
       );
       assert(!reactivated.some((message) => message.id === optimisticId), "the echo reconciles the pre-leave optimistic row");
       assert(
@@ -549,8 +549,8 @@ async function main(): Promise<void> {
       ];
       const finalReply = [row("t-5", "assistant", "all done", 13_000)];
       const expected = [
-        "ship it", "on it", "Bash build", "build ok", "linting", "Bash lint",
-        "lint ok", "also run tests", "then bump version", "and tag it", "all done",
+        "ship it", "on it", "Bash build", "also run tests", "build ok", "linting",
+        "then bump version", "Bash lint", "and tag it", "lint ok", "all done",
       ];
       const beforeEchoes = [
         "ship it", "on it", "Bash build", "also run tests", "build ok", "linting",

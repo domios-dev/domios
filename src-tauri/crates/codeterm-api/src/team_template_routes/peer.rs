@@ -171,7 +171,7 @@ pub(super) async fn peer_start(
     // Subscribe before asking so the answer can never land between the two.
     let stream = peer
         .client
-        .open_relay_stream("/api/events/stream")
+        .open_relay_stream("/api/events/stream?scope=template")
         .await
         .map_err(|error| failure(StatusCode::SERVICE_UNAVAILABLE, error))?;
     if !stream.status().is_success() {

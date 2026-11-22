@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { WebGate } from "./WebGate";
+import { setWorkspaceBrowseTarget, workspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 
 const api = vi.hoisted(() => ({
   token: null as string | null,
@@ -50,11 +51,12 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  setWorkspaceBrowseTarget(null);
   vi.restoreAllMocks();
 });
 
 it("opens a relay-only link with the stored origin credential and authenticates through the API", async () => {
-  const { setRelayTarget, usableRelayTarget } = await import("../../lib/webApi");
+  const { usableRelayTarget } = await import("../../lib/webApi");
   api.token = "stored-origin-credential";
   window.history.replaceState(null, "", "/app#relay=receiver-instance");
   vi.mocked(usableRelayTarget).mockReturnValue({ id: "receiver-instance", name: "Desk" });
@@ -65,7 +67,7 @@ it("opens a relay-only link with the stored origin credential and authenticates 
   await act(async () => root.render(<WebGate><main>Authenticated app</main></WebGate>));
   expect(api.token).toBe("stored-origin-credential");
   expect(api.setTokenFor).not.toHaveBeenCalled();
-  expect(setRelayTarget).toHaveBeenCalledWith("receiver-instance", "Desk");
+  expect(workspaceBrowseTarget()).toEqual({ id: "receiver-instance", name: "Desk" });
   expect(api.localJson).toHaveBeenCalledWith("GET", "/api/workspaces");
   expect(host.querySelector("main")?.textContent).toBe("Authenticated app");
 });

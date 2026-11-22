@@ -24,6 +24,7 @@ use crate::storage::{
 
 mod concurrency;
 mod divergence;
+mod terminal;
 
 /// Failure bound around event waits only; elapsed time never signals readiness.
 const DEADLINE: Duration = Duration::from_secs(30);
@@ -158,6 +159,11 @@ fn rename(name: &str) -> CronUpdateParams {
 
 fn running(run_id: &str) -> CronRunInfo {
     CronRunInfo {
+        scheduled_occurrence_at: None,
+        fired_at: None,
+        late_by_ms: None,
+        provider: None,
+        owner_instance_id: None,
         cancel_reason: None,
         run_id: run_id.to_string(),
         started_at: START_MS,
@@ -169,6 +175,29 @@ fn running(run_id: &str) -> CronRunInfo {
         summary: None,
         report_delivery: None,
     }
+}
+
+#[test]
+fn storage_cron_run_identity_survives_rehydration() {
+    let f = fixture();
+    let job = f.create(params("identity round trip"));
+    let mut run = running("identity-run");
+    run.provider = Some("fixture-provider".into());
+    run.owner_instance_id = Some("machine-b".into());
+    commit(&f.cron, |store| {
+        store.prepare_record_run(&job.id, run.clone())
+    })
+    .expect("record identity run");
+
+    let saved = f
+        .rehydrated()
+        .get_history(&job.id)
+        .into_iter()
+        .find(|saved| saved.run_id == "identity-run")
+        .cloned()
+        .expect("rehydrated run");
+    assert_eq!(saved.provider.as_deref(), Some("fixture-provider"));
+    assert_eq!(saved.owner_instance_id.as_deref(), Some("machine-b"));
 }
 
 fn held(storage: &Storage) -> Hold {
@@ -622,6 +651,7 @@ fn record(id: &str) -> CronJobRecord {
         created_at: 1,
         last_run_id: None,
         next_run: None,
+        next_occurrence_at: None,
         jitter_max_ms: None,
         tz: None,
         timeout_seconds: None,
@@ -645,7 +675,7 @@ fn storage_cron_deleted_job_history_is_a_retired_identity() {
     commit(&f.cron, |store| {
         Ok(store.prepare_set_run_session(&job.id, "r1", late))
     })
-    .expect("a retired run still records its session");
+    .expect("late binding is a no-op for a terminal run");
     assert!(
         !finish_run(&f.cron, &job.id, "r1", CronRunStatus::Success, None).unwrap(),
         "no definition is left to account"
@@ -654,7 +684,7 @@ fn storage_cron_deleted_job_history_is_a_retired_identity() {
     assert!(fresh.get(&job.id).is_none());
     let history = fresh.get_history(&job.id);
     assert_eq!(history.len(), 1);
-    assert_eq!(history[0].session_id.as_deref(), Some("late-session"));
+    assert_eq!(history[0].session_id, None);
     let snapshot = f.snapshot();
     let retired = state_of(&snapshot, &job.id);
     assert!(retired.identity.retired && retired.job.is_none());
@@ -682,6 +712,11 @@ fn storage_cron_unknown_identity_is_refused_and_historical_targets_stay_verbatim
     let f = fixture();
     let before = f.snapshot();
     let ghost_run = CronRunRecord {
+        scheduled_occurrence_at: None,
+        fired_at: None,
+        late_by_ms: None,
+        provider: None,
+        owner_instance_id: None,
         cancel_reason: None,
         run_id: CronRunId::new("ghost-run").unwrap(),
         started_at: 1,
@@ -821,11 +856,15 @@ fn storage_cron_legacy_and_storage_backends_never_cross() {
 }
 
 #[test]
-fn storage_cron_previous_schema_is_refused_without_upgrade() {
+fn storage_cron_previous_schema_upgrades_in_place() {
     let temp = tempfile::tempdir().expect("temp root");
     std::fs::create_dir_all(instance(&temp)).unwrap();
     Storage::seed_before_cron_schema(&instance(&temp)).expect("seed");
-    assert!(Storage::open(instance(&temp), StorageConfig::default()).is_err());
+    let storage = Storage::open(instance(&temp), StorageConfig::default()).expect("upgrade seed");
+    storage
+        .shutdown()
+        .wait(DEADLINE)
+        .expect("close upgraded storage");
 }
 
 #[test]

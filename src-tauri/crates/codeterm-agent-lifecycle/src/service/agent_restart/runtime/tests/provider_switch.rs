@@ -29,7 +29,13 @@ fn completed_worker_switch_preserves_history_without_task_authority_and_delivers
         .unwrap();
     let live_input = fixture
         .service
-        .provider_switch_input(&live_source, &[], std::path::Path::new("archive-token"))
+        .provider_switch_input(
+            &live_source,
+            &[],
+            std::path::Path::new("archive-token"),
+            "target",
+            None,
+        )
         .unwrap();
     let live_frame = codeterm_wire::message_markers::parse_host_injected(&live_input).unwrap();
     complete_switch_task(&fixture, &task_id);
@@ -54,6 +60,7 @@ fn completed_worker_switch_preserves_history_without_task_authority_and_delivers
             &fixture.tab,
             PROVIDER,
             Some("supplied-model".into()),
+            None,
             None,
             true,
         )
@@ -140,7 +147,13 @@ fn completed_worker_switch_preserves_history_without_task_authority_and_delivers
     assert!(payload.contains(&attempt_id));
     let input = fixture
         .service
-        .provider_switch_input(&source, &[], std::path::Path::new("archive-token"))
+        .provider_switch_input(
+            &source,
+            &[],
+            std::path::Path::new("archive-token"),
+            "target",
+            None,
+        )
         .unwrap();
     let frame = codeterm_wire::message_markers::parse_host_injected(&input).unwrap();
     assert_ne!(
@@ -187,6 +200,7 @@ fn completed_worker_successive_switches_and_resume_keep_history_and_exact_sessio
                 &fixture.tab,
                 provider,
                 Some("supplied-model".into()),
+                None,
                 None,
                 true,
             )
@@ -336,6 +350,7 @@ fn completed_current_session_receipt_refuses_stale_identity_generation_history_a
                 PROVIDER,
                 Some("supplied-model".into()),
                 None,
+                None,
                 true,
             )
             .unwrap();
@@ -459,6 +474,7 @@ fn completed_resume_target_carry_fails_closed_on_history_or_generation_races() {
                 &fixture.tab,
                 PROVIDER,
                 Some("supplied-model".into()),
+                None,
                 None,
                 true,
             )
@@ -733,6 +749,7 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
                 PROVIDER,
                 Some("supplied-model".into()),
                 None,
+                None,
                 true,
             )
             .err()
@@ -869,6 +886,7 @@ fn task_worker_switch_from_pty_carries_attempt_and_delivers_one_handoff() {
             PROVIDER,
             Some("supplied-model".into()),
             None,
+            None,
             false
         )
         .err()
@@ -880,6 +898,7 @@ fn task_worker_switch_from_pty_carries_attempt_and_delivers_one_handoff() {
             &fixture.tab,
             PROVIDER,
             Some("supplied-model".into()),
+            None,
             None,
             true,
         )
@@ -982,6 +1001,7 @@ fn failed_target_launch_fences_the_worker_and_releases_carry_authority() {
             PROVIDER,
             Some("refused-model".into()),
             None,
+            None,
             true,
         )
         .err()
@@ -1026,6 +1046,7 @@ fn failed_runtime_restart_releases_the_task_attempt_authority() {
             &fixture.tab,
             PROVIDER,
             Some("supplied-model".into()),
+            None,
             None,
             true,
         )

@@ -126,8 +126,13 @@ impl CronCancelReason {
 /// One run row; the same row backs a history entry and a job's last run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CronRunRecord {
+    pub provider: Option<String>,
+    pub owner_instance_id: Option<String>,
     pub cancel_reason: Option<CronCancelReason>,
     pub run_id: CronRunId,
+    pub scheduled_occurrence_at: Option<u64>,
+    pub fired_at: Option<u64>,
+    pub late_by_ms: Option<u64>,
     pub started_at: u64,
     pub finished_at: Option<u64>,
     pub status: CronRunState,
@@ -146,11 +151,22 @@ impl CronRunRecord {
                 "requires cancelled status",
             ));
         }
+        for (name, value) in [
+            ("scheduled occurrence", self.scheduled_occurrence_at),
+            ("fire time", self.fired_at),
+            ("admission delay", self.late_by_ms),
+        ] {
+            if let Some(value) = value {
+                to_sql_u64(name, value)?;
+            }
+        }
         to_sql_u64("run start", self.started_at)?;
         if let Some(finished) = self.finished_at {
             to_sql_u64("run finish", finished)?;
         }
         optional("run tab", &self.tab_id, MAX_LABEL_BYTES)?;
+        optional("run provider", &self.provider, MAX_LABEL_BYTES)?;
+        optional("run owner", &self.owner_instance_id, MAX_LABEL_BYTES)?;
         optional("run session", &self.session_id, MAX_LABEL_BYTES)?;
         optional("run cwd", &self.cwd, MAX_PATH_BYTES)?;
         optional("run summary", &self.summary, MAX_TEXT_BYTES)?;
@@ -161,6 +177,8 @@ impl CronRunRecord {
         RECORD_OVERHEAD
             + self.run_id.0.len()
             + [
+                &self.provider,
+                &self.owner_instance_id,
                 &self.tab_id,
                 &self.session_id,
                 &self.cwd,
@@ -197,6 +215,7 @@ pub struct CronJobRecord {
     pub created_at: u64,
     pub last_run_id: Option<CronRunId>,
     pub next_run: Option<u64>,
+    pub next_occurrence_at: Option<u64>,
     pub jitter_max_ms: Option<u64>,
     pub tz: Option<String>,
     pub timeout_seconds: Option<u64>,
@@ -238,6 +257,7 @@ impl CronJobRecord {
         to_sql_u64("cron created at", self.created_at)?;
         for (field, value) in [
             ("cron next run", self.next_run),
+            ("cron next occurrence", self.next_occurrence_at),
             ("cron jitter", self.jitter_max_ms),
             ("cron timeout", self.timeout_seconds),
         ] {
@@ -307,10 +327,15 @@ pub enum CronRunField {
     Summary,
     ReportDelivery,
     CancelReason,
+    Provider,
+    OwnerInstanceId,
+    ScheduledOccurrenceAt,
+    FiredAt,
+    LateByMs,
 }
 
 impl CronRunField {
-    const ALL: [CronRunField; 9] = [
+    const ALL: [CronRunField; 14] = [
         CronRunField::StartedAt,
         CronRunField::FinishedAt,
         CronRunField::Status,
@@ -320,6 +345,11 @@ impl CronRunField {
         CronRunField::Summary,
         CronRunField::ReportDelivery,
         CronRunField::CancelReason,
+        CronRunField::Provider,
+        CronRunField::OwnerInstanceId,
+        CronRunField::ScheduledOccurrenceAt,
+        CronRunField::FiredAt,
+        CronRunField::LateByMs,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -333,6 +363,11 @@ impl CronRunField {
             CronRunField::Summary => "summary",
             CronRunField::ReportDelivery => "report_delivery",
             CronRunField::CancelReason => "cancel_reason",
+            CronRunField::Provider => "provider",
+            CronRunField::OwnerInstanceId => "owner_instance_id",
+            CronRunField::LateByMs => "late_by_ms",
+            CronRunField::FiredAt => "fired_at",
+            CronRunField::ScheduledOccurrenceAt => "scheduled_occurrence_at",
         }
     }
 
@@ -366,6 +401,13 @@ impl CronRunField {
             CronRunField::Summary => left.summary != right.summary,
             CronRunField::ReportDelivery => left.report_delivery != right.report_delivery,
             CronRunField::CancelReason => left.cancel_reason != right.cancel_reason,
+            CronRunField::Provider => left.provider != right.provider,
+            CronRunField::OwnerInstanceId => left.owner_instance_id != right.owner_instance_id,
+            CronRunField::LateByMs => left.late_by_ms != right.late_by_ms,
+            CronRunField::FiredAt => left.fired_at != right.fired_at,
+            CronRunField::ScheduledOccurrenceAt => {
+                left.scheduled_occurrence_at != right.scheduled_occurrence_at
+            }
         };
         CronRunField::ALL
             .into_iter()

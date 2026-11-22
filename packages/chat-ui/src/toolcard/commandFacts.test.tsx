@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { materializeToolEvent, reduceToolEvents } from "@codeterm/chat-core";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { ToolCallBubble } from "../ToolCallBubble";
@@ -42,6 +42,15 @@ async function renderMessages(messages: NormalizedChatMessage[], expanded = fals
 }
 
 const cases: Array<[string, () => Promise<void>]> = [
+  ["settled command rows show one duration from the outcome", async () => {
+    const host = await renderMessages([
+      call("timed-failure", { toolId: "call-tool", toolStatus: "failed", toolStartedAtMs: 1000, toolCompletedAtMs: 3000, toolError: true }),
+      result("timed-failure-result", { toolDurationMs: 2800, toolError: true }),
+    ]);
+    expect(host.querySelector('[role="timer"]')?.textContent).toBe("failed");
+    expect(host.querySelectorAll('[data-testid="toolcard-duration"]')).toHaveLength(1);
+    expect(host.querySelector('[data-testid="toolcard-duration"]')?.textContent).toBe("2.8s");
+  }],
   ["Claude Bash outcome facts stay exact on the command row", async () => {
     const host = await renderMessages([
       call("claude-success", { toolId: "call-tool", toolCallSourceId: "assistant-success" }),

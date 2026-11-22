@@ -176,6 +176,10 @@ function fail(code, message) {
 function refused(message) {
   return { kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false };
 }
+function httpRefused(error) {
+  if (object2(error.data).kind === "response_too_large") return { kind: "refused", reason: { code: "size_limit", message: error.message }, beforeAcceptance: false };
+  return refused(`OpenCode request was refused (${error.code})`);
+}
 function request(method, params, state = { stage: method }) {
   return { action: { kind: "request", call: { method, params: json(params) } }, state: json(state) };
 }
@@ -220,6 +224,25 @@ function utf8Length(value) {
 function isQuotaError(value) {
   const error = object2(value);
   return error.type === "provider.quota" || object2(object2(error.body).error).type === "insufficient_balance_error";
+}
+function runtimeErrorMessage(error, fallback) {
+  return text(object2(error.data).message) ?? text(error.message) ?? fallback;
+}
+function runtimeTurnErrorEvents(threadId, turnId, seq, message) {
+  let bytes2 = 0;
+  let content = "";
+  for (const character of message) {
+    bytes2 += utf8Length(character);
+    if (bytes2 > 4096) break;
+    content += character;
+  }
+  const notice = { kind: "notice", threadId, message: content };
+  if (!turnId) return [notice];
+  return [notice, {
+    kind: "chatItem",
+    threadId,
+    item: { id: `${turnId}:error`, seq, type: "system", systemSubtype: "api_error", toolFlowId: turnId, content }
+  }];
 }
 function turnError(value) {
   if (!value || typeof value !== "object") return null;
@@ -679,6 +702,7 @@ function parsePatch(path, patch) {
     hunk = void 0;
   };
   for (const line of patch.replace(/\r\n/g, "\n").split("\n")) {
+    if (line === "\\ No newline at end of file") continue;
     const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
     if (line.startsWith("diff --git ")) {
       finish();
@@ -1263,12 +1287,16 @@ function toolFileDiffs(part) {
   const edits = extractCanonicalEdits(input);
   let metadata = state.metadata && typeof state.metadata === "object" ? state.metadata : {};
   const hasFiles = Array.isArray(metadata.files) && metadata.files.some((file) => file && typeof file === "object" && Object.keys(file).length > 0);
-  const fileDiff = metadata.filediff && typeof metadata.filediff === "object" ? metadata.filediff : {};
-  if (part.tool?.toLowerCase() === "apply_patch" && typeof metadata.diff !== "string" && typeof metadata.patch !== "string" && !hasFiles && !Object.keys(fileDiff).length) {
+  const hasFileDiff = metadata.filediff !== null && typeof metadata.filediff === "object" && Object.keys(metadata.filediff).length > 0;
+  if (part.tool?.toLowerCase() === "apply_patch" && typeof metadata.diff !== "string" && typeof metadata.patch !== "string" && !hasFiles && !hasFileDiff) {
     const patch = typeof input.patch === "string" ? input.patch : typeof input.input === "string" ? input.input : "";
     if (patch) metadata = { ...metadata, patch };
   }
-  const creation = part.tool === "write" && metadata.exists === false && typeof input.content === "string" ? [{ path, old: "", new: input.content }] : [];
+  const content = Array.isArray(state.content) ? state.content[0] : void 0;
+  const contentText = content && typeof content === "object" && !Array.isArray(content) ? content.text : void 0;
+  const result = typeof state.output === "string" ? state.output : typeof contentText === "string" ? contentText : "";
+  const creationConfirmed = metadata.exists === false || metadata.exists === void 0 && /^Created file successfully(?::|$)/i.test(result.trim());
+  const creation = part.tool === "write" && creationConfirmed && typeof input.content === "string" ? [{ path, old: "", new: input.content }] : [];
   const diffs = opencodeFileDiffs(path, [...edits, ...creation], metadata);
   if (creation.length) {
     if (!diffs.length && path) diffs.push(fileDiffFromEdit(creation[0]));
@@ -1875,6 +1903,7 @@ var decisionModel = {
 };
 
 // plugins/provider-opencode/src/runtimeAuth.ts
+var providerListParams = { responseFields: { all: ["id", "name"], connected: [] } };
 function methods(ctx, providers, auth) {
   const provider = modelParts(ctx.settings.model)?.providerID;
   if (!provider) return [];
@@ -1929,7 +1958,7 @@ function loginEvent(loginId, status, error) {
 function loginPlan(ctx, op) {
   const { selection, value } = loginValue(op);
   if (modelParts(ctx.settings.model)?.providerID !== selection.provider) fail("binding_mismatch", "Sign-in method targets another selected provider");
-  if (value.action === "start") return request("provider.list", {}, { stage: "loginProviders" });
+  if (value.action === "start") return request("provider.list", providerListParams, { stage: "loginProviders" });
   if (value.action !== "complete" && value.action !== "code") fail("unsupported", "Unsupported sign-in challenge action");
   if (selection.kind !== "oauth" || selection.index === void 0) fail("invalid_schema", "Sign-in callback requires its discovered OAuth method");
   const code = value.action === "code" ? text(value.code) : void 0;
@@ -1960,7 +1989,7 @@ function loginResponse(ctx, op, state, body) {
     case "loginKey":
     case "loginCallback": {
       if (body !== true) return done([loginEvent(loginId, "failed", "The server did not confirm authentication")]);
-      return next("provider.list", {}, { stage: "loginVerify" });
+      return next("provider.list", providerListParams, { stage: "loginVerify" });
     }
     case "loginVerify":
       return done([loginEvent(loginId, list(object2(body).connected).includes(selection.provider) ? "completed" : "failed", list(object2(body).connected).includes(selection.provider) ? void 0 : "The provider did not confirm a connected account")]);
@@ -2371,6 +2400,7 @@ function v2Content(message, raw, ordinal, seq, ts) {
   const partForDiffs = { type: "tool", tool: name, state: { ...state, input, metadata, status: String(state.status) } };
   const diffs = toolFileDiffs(partForDiffs);
   const result = state.error ? errorText(state.error) : toolContent(state.content);
+  const duration = typeof time.ran === "number" && Number.isSafeInteger(time.ran) && typeof time.completed === "number" && Number.isSafeInteger(time.completed) && time.completed >= time.ran ? time.completed - time.ran : void 0;
   return {
     id: toolId(message, id),
     seq,
@@ -2387,6 +2417,7 @@ function v2Content(message, raw, ordinal, seq, ts) {
     toolStatus: status,
     ...result ? { toolResult: result } : {},
     ...aborted ? { toolInterrupted: true } : failed ? { toolError: true } : state.status === "completed" ? { toolError: false } : {},
+    ...duration !== void 0 ? { toolDurationMs: duration } : {},
     ...typeof time.ran === "number" ? { toolStartedAtMs: time.ran } : {},
     ...typeof time.completed === "number" ? { toolCompletedAtMs: time.completed } : {},
     ...timestamp2
@@ -2467,11 +2498,23 @@ function v2Plan(ctx, op) {
 function directory(value) {
   return value.replace(/\\/g, "/").replace(/\/$/, "");
 }
+function finishHistory(op, state, events = []) {
+  const cursor = text(state.cursor);
+  return { kind: "complete", result: {
+    kind: "historyPage",
+    threadId: op.threadId,
+    items: [],
+    openItems: [],
+    order: op.order ?? "desc",
+    ...cursor ? { nextCursor: cursor } : {}
+  }, events };
+}
 function v2Response(ctx, op, state, reply) {
   if (reply.kind === "error") {
+    if (op.kind === "readHistory" && state.stage === "historyActive") return finishHistory(op, state);
     if (op.kind === "resumeThread" && reply.error.code === 404) return { kind: "refused", reason: { code: "thread_not_found", message: "The exact OpenCode session was not found" }, beforeAcceptance: false };
     if (op.kind === "control" && op.action === "login") return done([{ kind: "authLogin", login: { status: "failed", loginId: String(object2(op.value).loginId), error: `Sign-in request was refused (${reply.error.code})` } }]);
-    return refused(`OpenCode request was refused (${reply.error.code})`);
+    return httpRefused(reply.error);
   }
   const envelope = object2(reply.value), body = envelope.body, value = object2(body), data = object2(value.data);
   switch (op.kind) {
@@ -2515,11 +2558,34 @@ function v2Response(ctx, op, state, reply) {
     }
     case "readHistory": {
       own(ctx, op.threadId);
+      if (state.stage === "historyActive") {
+        const sessions = value.data;
+        if (sessions === null || typeof sessions !== "object" || Array.isArray(sessions) || Object.values(sessions).some((session2) => object2(session2).type !== "running")) {
+          return finishHistory(op, state);
+        }
+        const events = [];
+        if (!Object.prototype.hasOwnProperty.call(sessions, op.threadId)) {
+          const detail = state.detail === "interrupted" ? "interrupted" : state.detail === "failed" ? "failed" : void 0;
+          events.push({ kind: "turnState", threadId: op.threadId, state: "idle", ...detail ? { detail } : {} });
+        }
+        return finishHistory(op, state, events);
+      }
       if (!Array.isArray(value.data) || value.data.length > 40) return refused("Invalid bounded OpenCode history response");
       const cursor = text(object2(value.cursor).next);
       if (cursor && (cursor.length > 4096 || cursor === op.cursor)) return refused("OpenCode history cursor did not advance");
       const order = op.order ?? "desc";
-      return { kind: "complete", result: { kind: "historyPage", threadId: op.threadId, items: v2History(value.data, order), openItems: [], order, ...cursor ? { nextCursor: cursor } : {} } };
+      const history = { kind: "historyPage", threadId: op.threadId, items: v2History(value.data, order), openItems: [], order };
+      if (order === "desc" ? !op.cursor : !cursor) {
+        const latest = object2(order === "desc" ? value.data[0] : value.data[value.data.length - 1]);
+        const detail = latest.type === "assistant" && latest.finish === "error" ? object2(latest.error).type === "aborted" ? "interrupted" : "failed" : void 0;
+        return {
+          kind: "continue",
+          history,
+          beforeAcceptance: false,
+          plan: request("v2.session.active", {}, { stage: "historyActive", ...detail ? { detail } : {}, ...cursor ? { cursor } : {} })
+        };
+      }
+      return { kind: "complete", result: { ...history, ...cursor ? { nextCursor: cursor } : {} } };
     }
     case "answer":
       return reply.value === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
@@ -2548,7 +2614,7 @@ function current(ctx, raw) {
 function witness(ctx, sequence, sendId) {
   return ctx.streamWindow?.turnRequests?.find((value) => (!sendId || value.sendId === sendId) && value.written && value.afterSequence !== void 0 && sequence !== void 0 && sequence > value.afterSequence);
 }
-function echoed(ctx, state, data, sequence, events) {
+function echoed(ctx, state, data, sequence, created, events) {
   const id = text(data.inboxID), item = object2(data.item), payload = object2(item.payload);
   const planned = binding(ctx).sends.find((send) => send.messageId === id);
   if (!planned || item.type !== "user" || state.evidenced.includes(planned.sendId)) return;
@@ -2558,9 +2624,18 @@ function echoed(ctx, state, data, sequence, events) {
   if (files.length !== claim.input.attachments.length || files.some((file, index) => file.uri !== attachmentUrl(claim.input.attachments[index]))) return;
   state.evidenced.push(planned.sendId);
   events.push(
-    { kind: "chatItem", threadId: ctx.threadId, item: { id: planned.messageId, seq: ++state.seq, type: "user", content: claim.input.text, attachments: claim.input.attachments.map((attachment) => ({ id: attachment.id, mimeType: attachment.mimeType, url: attachmentUrl(attachment) })) } },
+    { kind: "chatItem", threadId: ctx.threadId, item: { id: planned.messageId, seq: ++state.seq, type: "user", content: claim.input.text, ...created !== void 0 ? { timestamp: new Date(created).toISOString() } : {}, attachments: claim.input.attachments.map((attachment) => ({ id: attachment.id, mimeType: attachment.mimeType, url: attachmentUrl(attachment) })) } },
     { kind: "sendEvidence", threadId: ctx.threadId, sendId: planned.sendId, turnId: proof.turnId, itemId: planned.messageId }
   );
+}
+function toolRow(message, part, seq, finished, timestamp2) {
+  const row = v2Content(message, part, 0, seq, timestamp2);
+  const deadline = object2(part.time).deadline;
+  if (row && !finished && typeof deadline === "number") {
+    row.toolKind = "command";
+    row.toolInput = { ...object2(row.toolInput), deadlineAtMs: deadline };
+  }
+  return row;
 }
 function v2Reduce(ctx, raw, frames) {
   const loginEvents = v2LoginEvents(ctx, frames);
@@ -2569,8 +2644,20 @@ function v2Reduce(ctx, raw, frames) {
   const emit = (row) => events.push({ kind: "chatItem", threadId: ctx.threadId, item: row });
   for (let index = 0; index < frames.length; index++) {
     const frame = frames[index], event = object2(frame.params), data = object2(event.data), type = String(event.type), id = text(event.id);
-    if ((text(data.sessionID) ?? text(object2(data.form).sessionID)) !== ctx.threadId) continue;
     if (event.location && text(object2(event.location).directory)?.replace(/\\/g, "/").replace(/\/$/, "") !== ctx.cwd.replace(/\\/g, "/").replace(/\/$/, "")) continue;
+    if (type === "shell.exited") {
+      const shellId = text(data.id), exitedAt = event.created;
+      if (!event.location || !shellId || typeof exitedAt !== "number" || !Number.isSafeInteger(exitedAt)) continue;
+      const known = Object.values(state.parts).find((entry) => entry.shell?.id === shellId);
+      if (!known?.shell) continue;
+      const time = object2(known.part.time), deadline = time.deadline;
+      if (typeof deadline === "number" && deadline <= exitedAt) continue;
+      known.part.time = { ...time, deadline: exitedAt };
+      const row = toolRow(known.shell.message, known.part, known.seq, false, known.timestamp);
+      if (row) emit(row);
+      continue;
+    }
+    if ((text(data.sessionID) ?? text(object2(data.form).sessionID)) !== ctx.threadId) continue;
     if (!id || state.seen.includes(id)) continue;
     state.seen.push(id);
     state.seen = state.seen.slice(-512);
@@ -2585,7 +2672,7 @@ function v2Reduce(ctx, raw, frames) {
       continue;
     }
     if (type === "session.inbox.enqueued") {
-      echoed(ctx, state, data, sequence, events);
+      echoed(ctx, state, data, sequence, typeof event.created === "number" ? event.created : void 0, events);
       continue;
     }
     if (type === "session.execution.started") {
@@ -2595,17 +2682,17 @@ function v2Reduce(ctx, raw, frames) {
       }
       continue;
     }
-    const quotaSessionError = type === "session.error" && isQuotaError(data.error);
-    if (quotaSessionError || ["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"].includes(type)) {
-      if (turn && !state.completed.includes(turn)) {
-        state.completed.push(turn);
+    if (["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted", "session.error"].includes(type)) {
+      if (!turn || !state.completed.includes(turn)) {
+        if (turn) state.completed.push(turn);
         state.pendingPrompts = [];
-        const detail = type === "session.execution.failed" || quotaSessionError ? "failed" : type === "session.execution.interrupted" ? "interrupted" : void 0;
+        const detail = type === "session.execution.failed" || type === "session.error" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : void 0;
         if (detail === "failed") {
-          const message2 = isQuotaError(data.error) ? "Provider balance or quota is exhausted \u2014 top up or switch model" : String(object2(data.error).message ?? "OpenCode execution failed").slice(0, 4096);
-          events.push({ kind: "notice", threadId: ctx.threadId, message: message2 });
+          const error = object2(data.error);
+          const message2 = isQuotaError(error) ? "Provider balance or quota is exhausted \u2014 top up or switch model" : runtimeErrorMessage(error, "OpenCode execution failed");
+          events.push(...runtimeTurnErrorEvents(ctx.threadId, turn, turn ? ++state.seq : state.seq, message2));
         }
-        events.push({ kind: "turnState", threadId: ctx.threadId, turnId: turn, state: "idle", ...detail ? { detail } : {} });
+        events.push({ kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "idle", ...detail ? { detail } : {} });
         delete state.turn;
       }
       continue;
@@ -2648,35 +2735,50 @@ function v2Reduce(ctx, raw, frames) {
         }
       } else if (type.endsWith(".ended") || type.endsWith(".started") && !known) {
         const finished = type.endsWith(".ended"), seq = known?.seq ?? ++state.seq, content = finished ? String(data.text ?? "") : "";
-        const row = v2Content(message, { type: kind, text: content }, Number(data.ordinal), seq);
+        const timestamp2 = known?.timestamp ?? (typeof event.created === "number" ? event.created : void 0);
+        const row = v2Content(message, { type: kind, text: content }, Number(data.ordinal), seq, timestamp2);
         if (row) {
           emit(row);
-          state.parts[rowId] = { seq, bytes: utf8Length(content), ...turn ? { turn } : {}, finished, part: {} };
+          state.parts[rowId] = { seq, bytes: utf8Length(content), ...turn ? { turn } : {}, ...timestamp2 !== void 0 ? { timestamp: timestamp2 } : {}, finished, part: {} };
         }
       }
       continue;
     }
     if (type.startsWith("session.tool.") && text(data.id)) {
       const rowId = toolId(message, String(data.id)), known = state.parts[rowId];
-      if (known?.finished || !known && type !== "session.tool.input.started") continue;
+      const finished = type === "session.tool.success" || type === "session.tool.failed";
+      if (known?.finished || !known && !finished && type !== "session.tool.input.started") continue;
       const seq = known?.seq ?? ++state.seq, previous = known?.part ?? {}, previousState = object2(previous.state);
       const name = text(data.name) ?? text(previous.name);
-      if (!name) continue;
-      const part = { type: "tool", id: data.id, name, time: { ...object2(previous.time) } };
-      const finished = type === "session.tool.success" || type === "session.tool.failed";
+      if (!name && !finished) continue;
+      const part = { type: "tool", id: data.id, name: name ?? "tool", time: { ...object2(previous.time) } };
+      let shell = known?.shell;
       if (type === "session.tool.input.started" && !known) part.state = { status: "pending", input: {} };
       else if (type === "session.tool.called") {
         part.state = { status: "running", input: object2(data.input) };
         if (typeof event.created === "number") object2(part.time).ran = event.created;
       } else if (finished) {
-        part.state = { ...previousState, status: type.endsWith("success") ? "completed" : "error", ...data.content ? { content: data.content } : {}, ...data.error ? { error: data.error } : {} };
+        part.state = { ...previousState, status: type.endsWith("success") ? "completed" : "error", ...data.content ? { content: data.content } : {}, ...data.error ? { error: data.error } : {}, ...data.metadata ? { metadata: data.metadata } : {} };
         if (typeof event.created === "number") object2(part.time).completed = event.created;
-      } else if (type === "session.tool.progress" && known) part.state = previousState;
-      else continue;
-      const row = v2Content(message, part, 0, seq);
+      } else if (type === "session.tool.progress" && known) {
+        part.state = previousState;
+        const input = object2(previousState.input), timeout = input.timeout;
+        const timing = object2(part.time);
+        const shellId = text(object2(data.metadata).shellID);
+        if (name === "shell" && shellId && !shell) {
+          shell = { id: shellId, message };
+          if (typeof event.created === "number" && typeof timeout === "number" && Number.isSafeInteger(timeout) && timeout > 0 && Number.isSafeInteger(event.created + timeout)) timing.deadline = event.created + timeout;
+        }
+      } else continue;
+      const timestamp2 = known?.timestamp ?? (typeof event.created === "number" ? event.created : void 0);
+      const row = toolRow(message, part, seq, finished, timestamp2);
       if (row) {
+        if (!name) {
+          delete row.toolName;
+          delete row.toolInput;
+        }
         emit(row);
-        state.parts[rowId] = { seq, bytes: 0, finished, part: finished ? {} : part };
+        state.parts[rowId] = { seq, bytes: 0, ...timestamp2 !== void 0 ? { timestamp: timestamp2 } : {}, finished, part: finished ? {} : part, ...!finished && shell ? { shell } : {} };
       }
     }
   }
@@ -2711,6 +2813,15 @@ function bounded2(map, limit) {
 function ownSession(event) {
   const params = object2(event.properties);
   return text(params.sessionID) ?? text(object2(params.part).sessionID) ?? text(object2(params.info).sessionID) ?? (String(event.type).startsWith("session.") ? text(object2(params.info).id) : void 0);
+}
+function currentTurn(ctx, state, index) {
+  const sequence = ctx.streamWindow?.frameSequences?.[index];
+  return state.turn ?? ctx.activeTurnId ?? ctx.streamWindow?.turnRequests?.find((request2) => request2.written && request2.afterSequence !== void 0 && sequence !== void 0 && sequence > request2.afterSequence)?.turnId;
+}
+function completeTurn(state, turn) {
+  state.completed.push(turn);
+  state.completed = state.completed.slice(-256);
+  delete state.turn;
 }
 function evidence(ctx, state, part, sequence, events) {
   const messageId = text(part.messageID), planned = binding(ctx).sends.find((send) => send.messageId === messageId);
@@ -2800,24 +2911,27 @@ function runtimeReduce(ctx, raw, frames) {
     }
     if (type === "session.status" || type === "session.idle") {
       const status = type === "session.idle" ? "idle" : object2(params.status).type;
-      const sequence = ctx.streamWindow?.frameSequences?.[index];
-      const turn = state.turn ?? ctx.activeTurnId ?? ctx.streamWindow?.turnRequests?.find((request2) => request2.written && request2.afterSequence !== void 0 && sequence !== void 0 && sequence > request2.afterSequence)?.turnId;
+      const turn = currentTurn(ctx, state, index);
       if (status === "busy" || status === "retry") {
         if (!turn || state.completed.includes(turn)) continue;
         state.turn = turn;
         events.push({ kind: "turnState", threadId: ctx.threadId, turnId: turn, state: "working" });
       } else if (status === "idle" && turn && !state.completed.includes(turn)) {
-        state.completed.push(turn);
-        state.completed = state.completed.slice(-256);
+        completeTurn(state, turn);
         events.push({ kind: "turnState", threadId: ctx.threadId, turnId: turn, state: "idle" });
-        delete state.turn;
       }
       continue;
     }
     if (type === "session.error") {
-      const error = object2(params.error), message = text(object2(error.data).message) ?? "OpenCode reported a session error";
-      const turn = state.turn ?? ctx.activeTurnId;
-      events.push({ kind: "notice", threadId: ctx.threadId, message: message.slice(0, 4096) }, { kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "idle", detail: "failed" });
+      const error = object2(params.error), turn = currentTurn(ctx, state, index);
+      if (turn && state.completed.includes(turn)) continue;
+      const interrupted = error.name === "MessageAbortedError";
+      if (!interrupted) {
+        const message = runtimeErrorMessage(error, "OpenCode reported a session error");
+        events.push(...runtimeTurnErrorEvents(ctx.threadId, turn, turn ? ++state.seq : state.seq, message));
+      }
+      if (turn) completeTurn(state, turn);
+      events.push({ kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "idle", detail: interrupted ? "interrupted" : "failed" });
       if (error.name === "ProviderAuthError") events.push({ kind: "auth", state: "signedOut" }, { kind: "authentication", authentication: { state: "needs_auth", methods: binding(ctx).methods } });
     }
   }
@@ -2884,7 +2998,7 @@ function runtimePlan(ctx, op) {
     case "answer":
       return answerPlan(ctx, op);
     case "control": {
-      if (op.action === "auth") return request("provider.list", {}, { stage: "authProviders" });
+      if (op.action === "auth") return request("provider.list", providerListParams, { stage: "authProviders" });
       if (op.action === "login") return loginPlan(ctx, op);
       fail("unsupported", `OpenCode runtime control ${op.action} is unsupported`);
     }
@@ -2897,7 +3011,9 @@ function runtimeResponse(ctx, op, raw, reply) {
   if (op.kind === "interrupt" && reply.kind === "success") {
     const body2 = object2(reply.value).body;
     const protocol = binding(ctx).protocol;
-    if (protocol !== "v1" && typeof object2(body2).interrupted === "boolean") return done();
+    if (protocol !== "v1" && typeof object2(body2).interrupted === "boolean") {
+      return object2(body2).interrupted === false ? done([{ kind: "turnState", threadId: op.threadId, state: "idle", detail: "interrupted" }]) : done();
+    }
     if (protocol === "v2" || body2 !== true) return refused("OpenCode did not confirm the interrupt");
     const events = op.activeTurnId ? [{ kind: "turnState", threadId: op.threadId, turnId: op.activeTurnId, state: "idle", detail: "interrupted" }] : [];
     return done(events);
@@ -2912,7 +3028,7 @@ function runtimeResponse(ctx, op, raw, reply) {
   if (reply.kind === "error") {
     if (op.kind === "control" && op.action === "login" && text(object2(op.value).loginId)) return done([{ kind: "authLogin", login: { status: "failed", loginId: String(object2(op.value).loginId), error: `Sign-in request was refused (${reply.error.code})` } }]);
     if (op.kind === "resumeThread" && reply.error.code === 404) return { kind: "refused", reason: { code: "thread_not_found", message: "The exact OpenCode session was not found" }, beforeAcceptance: false };
-    return refused(`OpenCode request was refused (${reply.error.code})`);
+    return httpRefused(reply.error);
   }
   const envelope = object2(reply.value), body = envelope.body;
   switch (op.kind) {
@@ -2923,7 +3039,7 @@ function runtimeResponse(ctx, op, raw, reply) {
         if (!protocol) return refused("OpenCode did not confirm authenticated server health");
         binding(ctx).protocol = protocol;
         if (protocol === "v2") return v2Response(ctx, op, state, reply);
-        return next("provider.list", {}, { stage: "initializeProviders", version: health.version });
+        return next("provider.list", providerListParams, { stage: "initializeProviders", version: health.version });
       }
       if (state.stage === "initializeProviders") return next("provider.auth", {}, { stage: "initializeMethods", version: state.version, providers: providerSummary(body) });
       if (state.stage !== "initializeMethods") return refused("Unexpected initialization response");

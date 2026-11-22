@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { Notification } from "../../lib/types";
 import { __setInvokeForTest } from "../../lib/bridge";
+import { rememberMachineIdentities } from "../../lib/useMeshMachineIdentities";
 import { NotificationPanel } from "./NotificationPanel";
 import { takeNeighborFocus } from "../Neighbors/neighborFocus";
 
@@ -76,6 +77,30 @@ async function run() {
     invoked.push({ command, args });
     return undefined as never;
   });
+
+  rememberMachineIdentities({
+    machine_identities: {
+      "peer-a": { kind: "laptop", color: "blue" },
+      "peer-b": { kind: "server", color: "pink" },
+    },
+    paired: [
+      { instance_id: "peer-a", instance_name: "Same name" },
+      { instance_id: "peer-b", instance_name: "Same name" },
+    ],
+  } as unknown as Parameters<typeof rememberMachineIdentities>[0]);
+  const remotePanel = await render({
+    ...asked,
+    id: "remote-notification/peer-a/source",
+    tab_id: "mesh:peer-a/main",
+    workspace_id: null,
+    peer_name: "Same name",
+    remote_origin: { peerId: "peer-a", sourceId: "source", peerName: "Same name" },
+  });
+  const provenance = remotePanel.querySelector<HTMLElement>('[title="Same name, laptop"]');
+  assert(
+    provenance?.textContent?.includes(", laptop") && provenance.querySelector("svg"),
+    "remote notification origin uses the exact installation identity even when peer names collide",
+  );
 
   // An unanswered question renders one button per offered choice, and tapping
   // one delivers the label alone — no command name, no arguments.

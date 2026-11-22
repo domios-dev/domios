@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import readPostCases from "../../tests/fixtures/mux-read-post.json";
-import { createMuxReadCapacity, EMPTY_MUX_POSTS, initialMuxRequest, MUX_READ_CAPACITY, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestPolicy, readWhenMuxCapacityAvailable, requestWhenMuxCapacityAvailable, transitionMuxRequest } from "./streamMuxRequestModel";
+import { createMuxReadCapacity, EMPTY_MUX_POSTS, initialMuxRequest, MUX_READ_CAPACITY, MUX_READ_LIMIT, MUX_REQUEST_LIMIT, MUX_VISIBLE_READ_LIMIT, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestPolicy, muxRequestPriority, muxRequestWireLimit, readWhenMuxCapacityAvailable, requestWhenMuxCapacityAvailable, transitionMuxRequest } from "./streamMuxRequestModel";
 
 it.each([["GET", "/api/surfaces"], ["POST", "/api/tabs/t/preview/read"]])("an idempotent %s waits for admission without dispatching until release", async (method, path) => {
   const capacity = createMuxReadCapacity();
@@ -157,16 +157,90 @@ describe("mux POST admission", () => {
     expect(order.indexOf("bulk")).toBeLessThanOrEqual(8);
   });
 
-  it("reserves in-flight capacity for interactive responses independently of streams", () => {
-    expect(muxRequestAdmission(false, "bulk", 256, 48, 48)).toBe(false);
-    expect(muxRequestAdmission(false, "interactive", 256, 48, 48)).toBe(false);
-    expect(muxRequestAdmission(false, "interactive", 256, 64, 48, true)).toBe(true);
-    expect(muxRequestAdmission(false, "interactive", 0, 64, 48)).toBe(false);
+  it("reserves bounded admission for visible reads while keeping foreground and stream headroom", () => {
+    expect(muxRequestAdmission(false, "bulk", 256, MUX_READ_LIMIT, MUX_READ_LIMIT)).toBe(false);
+    expect(muxRequestAdmission(false, "interactive", 256, MUX_READ_LIMIT, MUX_READ_LIMIT)).toBe(false);
+    expect(muxRequestAdmission(false, "interactive", 256, MUX_READ_LIMIT, MUX_READ_LIMIT, "visible")).toBe(true);
+    expect(muxRequestAdmission(false, "interactive", 256, MUX_VISIBLE_READ_LIMIT - 1, MUX_READ_LIMIT, "visible")).toBe(true);
+    expect(muxRequestAdmission(false, "interactive", 256, MUX_VISIBLE_READ_LIMIT, MUX_READ_LIMIT, "visible")).toBe(false);
+    expect(muxRequestAdmission(false, "interactive", 256, MUX_REQUEST_LIMIT, MUX_READ_LIMIT, "foreground")).toBe(true);
+    expect(muxRequestAdmission(false, "interactive", 0, MUX_REQUEST_LIMIT, MUX_READ_LIMIT)).toBe(false);
     expect(muxRequestAdmission(true, "bulk", 256, 0, 0)).toBe(false);
+    expect(muxRequestWireLimit("normal")).toBe(MUX_READ_LIMIT);
+    expect(muxRequestWireLimit("visible")).toBe(MUX_VISIBLE_READ_LIMIT);
+    expect(muxRequestWireLimit("foreground")).toBe(MUX_REQUEST_LIMIT);
+  });
+
+  it("prioritizes visible reads ahead of normal reads while reserving the fourth POST slot for foreground and preserving normal interactive and bulk fairness", () => {
+    let state = EMPTY_MUX_POSTS;
+    for (const id of ["i1", "i2", "i3"]) state = muxPostEnqueue(state, id, "interactive", "normal");
+    state = muxPostEnqueue(state, "v1", "interactive", "visible");
+    state = muxPostEnqueue(state, "v2", "interactive", "visible");
+    state = muxPostEnqueue(state, "v3", "interactive", "visible");
+    state = muxPostEnqueue(state, "v4", "interactive", "visible");
+    let step = muxPostStart(state); state = step.state;
+    expect(step.ids).toEqual(["v1", "v2", "v3"]);
+    expect(state.active.size).toBe(3);
+    state = muxPostEnqueue(state, "stop", "interactive", "foreground");
+    step = muxPostStart(state); state = step.state;
+    expect(step.ids).toEqual(["stop"]);
+
+    // With normal interactive waiting, no bulk, and a replenished visible queue, normal interactive gets bounded service.
+    let noBulk = EMPTY_MUX_POSTS;
+    noBulk = muxPostEnqueue(noBulk, "plan", "interactive", "normal");
+    noBulk = muxPostEnqueue(noBulk, "health", "interactive", "normal");
+    const noBulkOrder: string[] = [];
+    for (let round = 0; round < 4; round++) {
+      for (let i = 0; i < 3; i++) noBulk = muxPostEnqueue(noBulk, `vis-${round}-${i}`, "interactive", "visible");
+      const next = muxPostStart(noBulk); noBulk = next.state; noBulkOrder.push(...next.ids);
+      for (const id of next.ids) noBulk = muxPostRemove(noBulk, id);
+    }
+    expect(noBulkOrder.indexOf("plan")).toBeGreaterThan(0);
+    expect(noBulkOrder.indexOf("plan")).toBeLessThanOrEqual(4);
+    expect(noBulkOrder.indexOf("health")).toBeGreaterThan(noBulkOrder.indexOf("plan"));
+    expect(noBulkOrder.indexOf("health")).toBeLessThanOrEqual(9);
+
+    // With both normal interactive and bulk waiting under a replenished visible queue, both make bounded progress.
+    let mixed = EMPTY_MUX_POSTS;
+    mixed = muxPostEnqueue(mixed, "state", "interactive", "normal");
+    mixed = muxPostEnqueue(mixed, "bulk", "bulk", "normal");
+    const mixedOrder: string[] = [];
+    for (let round = 0; round < 4; round++) {
+      for (let i = 0; i < 3; i++) mixed = muxPostEnqueue(mixed, `vis-${round}-${i}`, "interactive", "visible");
+      const next = muxPostStart(mixed); mixed = next.state; mixedOrder.push(...next.ids);
+      for (const id of next.ids) mixed = muxPostRemove(mixed, id);
+    }
+    expect(mixedOrder.indexOf("state")).toBeGreaterThan(0);
+    expect(mixedOrder.indexOf("state")).toBeLessThanOrEqual(4);
+    expect(mixedOrder.indexOf("bulk")).toBeGreaterThan(0);
+    expect(mixedOrder.indexOf("bulk")).toBeLessThanOrEqual(8);
+
+    // With only bulk waiting under a visible burst, bulk still makes bounded progress.
+    let fair = EMPTY_MUX_POSTS;
+    for (let i = 0; i < 16; i++) fair = muxPostEnqueue(fair, `v-${i}`, "interactive", "visible");
+    fair = muxPostEnqueue(fair, "bulk", "bulk", "normal");
+    const order: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const next = muxPostStart(fair); fair = next.state; order.push(...next.ids);
+      for (const id of next.ids) fair = muxPostRemove(fair, id);
+    }
+    expect(order.indexOf("bulk")).toBeLessThanOrEqual(8);
   });
 });
 
 describe("mux request authority and traffic class", () => {
+  it("classifies visible registry reads, foreground actions, and probes structurally", () => {
+    expect(muxRequestPriority("GET", "/api/surfaces")).toBe("visible");
+    expect(muxRequestPriority("GET", "/api/surfaces?refresh=1")).toBe("visible");
+    expect(muxRequestPriority("POST", "/api/mesh/relay-to", JSON.stringify({ method: "GET", path: "/api/surfaces" }))).toBe("visible");
+    expect(muxRequestPolicy("GET", "/api/surfaces")).toEqual({ traffic: "interactive", cancellable: true });
+    expect(muxRequestPriority("POST", "/api/tabs/t/chat-raw/start")).toBe("foreground");
+    expect(muxRequestPriority("POST", "/api/tabs/t/stop")).toBe("foreground");
+    expect(muxRequestPriority("GET", "/api/health", undefined, true)).toBe("foreground");
+    expect(muxRequestPriority("GET", "/api/health")).toBe("normal");
+    expect(muxRequestPriority("GET", "/api/tabs")).toBe("normal");
+    expect(muxRequestPriority("POST", "/api/tabs/t/preview/read")).toBe("normal");
+  });
   it("matches the shared daemon read POST fixture directly and relayed", () => {
     for (const { path, cancellable } of readPostCases) {
       expect(muxRequestPolicy("POST", path).cancellable, path).toBe(cancellable);

@@ -4,12 +4,14 @@ import type {
 } from "@codeterm/plugin-sdk";
 import {decodeAuthMethods, agentAuthMethod, type AuthMethod} from "./auth";
 import { methods, protocolVersion } from "./runtimeProtocol";
-import { clientRequest, reduceStream, sessionUpdate, settleStream, type StreamCursor } from "./runtimeReduce";
-import { usage } from "./runtimeReducePlan";
+import { clientRequest, reduceStream, sessionUpdate, settleStream, streamTurnUsage, type StreamCursor } from "./runtimeReduce";
+import { pathToFileUri } from "./runtimeReduceTools";
+import { usageFromReply } from "./runtimeReducePlan";
 import { fitTextReduction } from "./runtimeReduceBudget";
 import { runtimePrompt, runtimeAnswer } from "./runtimePrompts";
 import { authentication, sessionSettings, modelOption, effortOption, label, sessionModel, selectedSessionModel, configOptions } from "./runtimeControls";
 import { launchSelection } from "./launchSelection";
+import { classifyPromptQuotaError } from "./runtimeQuota";
 
 interface Negotiation {
   epoch:number;
@@ -28,7 +30,7 @@ interface Negotiation {
   cursor:StreamCursor;
   inFlight:boolean;
   promptOrdinal?:number;
-  queued?:{prompt:number;sendId:string;completed?:{cancelled:boolean;usage?:TokenUsage}}[];
+  queued?:{prompt:number;sendId:string;completed?:{stopReason:string;usage?:TokenUsage}}[];
   mcpUnavailable?:string;
   projection?:JsonValue;
   promptSend?:{sendId:string};
@@ -194,17 +196,95 @@ function clientCapabilities(ctx:RuntimeContext):JsonValue {
   return {fs:{readTextFile:ctx.clientBridges?.fsRead === true,writeTextFile:ctx.clientBridges?.fsWrite === true},terminal:ctx.clientBridges?.terminal === true};
 }
 
-function sessionRequest(ctx:RuntimeContext, method:string, sessionId?:string):RuntimePlan {
-  const mcpServers=hostMcpServers(ctx);
+function sessionRequest(ctx:RuntimeContext, capabilities:Record<string,JsonValue>, method:string, sessionId?:string, forceStdio=false):RuntimePlan {
+  const {servers:mcpServers,transport}=selectHostMcpServers(ctx,capabilities,forceStdio);
   const plan=request(method, {...(sessionId ? {sessionId} : {}),cwd:ctx.cwd,mcpServers});
-  plan.state={method,mcpOffered:mcpServers.length > 0};
+  plan.state={method,mcpOffered:mcpServers.length > 0,...(transport !== "none" ? {mcpTransport:transport} : {})};
   return plan;
 }
 
-function hostMcpServers(ctx:RuntimeContext):JsonValue[] {
+function attachmentFileName(rawPath:string):string {
+  const parts=rawPath.split(/[\\/]/).filter(Boolean);
+  return parts.length ? parts[parts.length-1] : rawPath;
+}
+
+function sessionCapabilitiesSummary(raw:unknown):{fork?:true;list?:true;close?:true}|undefined {
+  const session=object(object(raw).sessionCapabilities);
+  const summary:{fork?:true;list?:true;close?:true}={
+    ...(record(session.fork) ? {fork:true} : {}),
+    ...(record(session.list) ? {list:true} : {}),
+    ...(record(session.close) ? {close:true} : {}),
+  };
+  return Object.keys(summary).length ? summary : undefined;
+}
+
+function normalizeSessionCwd(rawPath:string):string {
+  let normalized=rawPath.trim().replace(/\\/g,"/");
+  if (/^\/[A-Za-z]:(?:\/|$)/.test(normalized)) normalized=normalized.slice(1);
+  if (/^[a-z]:(?:\/|$)/.test(normalized)) normalized=normalized[0].toUpperCase()+normalized.slice(1);
+  while (normalized.length > 1 && normalized.endsWith("/") && !/^[A-Za-z]:\/$/.test(normalized)) {
+    normalized=normalized.slice(0,-1);
+  }
+  return normalized;
+}
+
+function decodeListedSessions(raw:unknown):{sessionId:string;cwd:string;title?:string;updatedAt?:string}[]|undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const sessions:{sessionId:string;cwd:string;title?:string;updatedAt?:string}[]=[];
+  const seen=new Set<string>();
+  for (const entry of raw.slice(0,100)) {
+    const item=object(entry);
+    const sessionId=typeof item.sessionId === "string" ? item.sessionId.trim() : "";
+    const cwd=typeof item.cwd === "string" ? normalizeSessionCwd(item.cwd) : "";
+    if (!sessionId || sessionId.length > 4096 || !cwd || cwd.length > 4096 || seen.has(sessionId)) continue;
+    seen.add(sessionId);
+    const title=typeof item.title === "string" && item.title.trim() ? item.title.trim().slice(0,256) : undefined;
+    const updatedAt=typeof item.updatedAt === "string" && item.updatedAt.trim() ? item.updatedAt.trim().slice(0,64) : undefined;
+    sessions.push({sessionId,cwd,...(title ? {title} : {}),...(updatedAt ? {updatedAt} : {})});
+  }
+  return sessions;
+}
+
+function inlineFileResourceLinks(rawText:string, seenPaths:Set<string>):JsonValue[] {
+  if (!rawText.includes("<domios")) return [];
+  const links:JsonValue[]=[];
+  const tagPattern=/<domios\b(?=[^<>]*\stype="attachment")([^<>]*?)\/?>/gi;
+  let match:RegExpExecArray|null;
+  while ((match=tagPattern.exec(rawText)) !== null && links.length < 16) {
+    const attrs=match[1];
+    const kindMatch=/\bkind="([^"]*)"/i.exec(attrs);
+    const pathMatch=/\bpath="([^"]*)"/i.exec(attrs);
+    const kind=kindMatch ? kindMatch[1] : "";
+    const path=pathMatch ? pathMatch[1].replace(/&quot;/g,'"').replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&amp;/g,"&").trim() : "";
+    if (!path || kind === "image" || kind === "voice" || seenPaths.has(path)) continue;
+    seenPaths.add(path);
+    links.push({type:"resource_link",uri:pathToFileUri(path),name:attachmentFileName(path)});
+  }
+  return links;
+}
+
+export function supportsHttpMcp(capabilities:Record<string,JsonValue>|undefined):boolean {
+  return object(capabilities?.mcpCapabilities).http === true;
+}
+
+export function selectHostMcpServers(
+  ctx:RuntimeContext,
+  capabilities?:Record<string,JsonValue>,
+  forceStdio=false,
+):{servers:JsonValue[]; transport:"http"|"stdio"|"none"} {
   const descriptor=ctx.hostMcp;
-  return descriptor
-    ? [{name:descriptor.name,command:descriptor.command,args:[...descriptor.args],env:Object.entries(descriptor.env ?? {}).sort(([a],[b])=>a < b ? -1 : a > b ? 1 : 0).map(([name,value])=>({name,value}))}] : [];
+  if (!descriptor) return {servers:[],transport:"none"};
+  if (!forceStdio && supportsHttpMcp(capabilities) && descriptor.http && typeof descriptor.http.url === "string" && descriptor.http.url.length > 0) {
+    const headers=Object.entries(descriptor.http.headers ?? {})
+      .sort(([a],[b])=>a < b ? -1 : a > b ? 1 : 0)
+      .map(([name,value])=>({name,value}));
+    return {servers:[{type:"http",name:descriptor.name,url:descriptor.http.url,headers}],transport:"http"};
+  }
+  return {
+    servers:[{name:descriptor.name,command:descriptor.command,args:[...descriptor.args],
+      env:Object.entries(descriptor.env ?? {}).sort(([a],[b])=>a < b ? -1 : a > b ? 1 : 0).map(([name,value])=>({name,value}))}],
+    transport:"stdio",
+  };
 }
 
 export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
@@ -246,8 +326,28 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       return request("session/set_mode",{sessionId,modeId:op.value});
     }
     const option=state.settings?.configOptions?.find(option=>option.id === value.id);
+    if (option?.kind === "boolean") {
+      if (value.value !== true && value.value !== false && value.value !== "true" && value.value !== "false")
+        return refusePlan("Configuration value was not advertised");
+      const boolValue=value.value === true || value.value === "true";
+      return request("session/set_config_option",{sessionId,configId:option.id,type:"boolean",value:boolValue});
+    }
     if (!option?.options.some(option=>option.value === value.value)) return refusePlan("Configuration value was not advertised");
     return optionRequest(state,sessionId,option.id,value.value as string);
+  }
+  if (op.kind === "control" && op.action === "listSessions") {
+    if (!record(object(state.capabilities.sessionCapabilities).list))
+      return refusePlan("ACP agent did not advertise session/list");
+    const value=object(op.value);
+    const cwd=typeof value.cwd === "string" && value.cwd.trim() ? value.cwd.trim() : ctx.cwd;
+    const cursor=typeof value.cursor === "string" && value.cursor.trim() ? value.cursor.trim() : undefined;
+    return request(methods.list,{cwd,...(cursor ? {cursor} : {})});
+  }
+  if (op.kind === "control" && op.action === "closeSession") {
+    if (!record(object(state.capabilities.sessionCapabilities).close))
+      return refusePlan("ACP agent did not advertise session/close");
+    const sessionId=ownSession(ctx,state);
+    return request(methods.close,{sessionId});
   }
   switch (op.kind) {
     case "answer": {
@@ -258,7 +358,13 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
     }
     case "openThread":
       if (ctx.threadId || state.sessionId) return refusePlan("ACP session is already bound");
-      return sessionRequest(ctx,methods.newSession);
+      return sessionRequest(ctx,state.capabilities,methods.newSession);
+    case "forkThread": {
+      if (ctx.threadId || state.sessionId) return refusePlan("ACP session is already bound");
+      if (!record(object(state.capabilities.sessionCapabilities).fork))
+        return refusePlan("ACP agent did not advertise session/fork");
+      return sessionRequest(ctx,state.capabilities,methods.fork,op.sourceThreadId);
+    }
     case "resumeThread": {
       if (state.sessionId && state.sessionId !== op.threadId) return refusePlan("ACP session does not belong to this runtime");
       if (state.sessionActive && state.sessionId === op.threadId)
@@ -270,26 +376,45 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       state.sessionActive=false;
       state.sessionId=op.threadId;
       state.cursor={replay:state.cursor.replay+1,prompt:0,loading:true};
-      return sessionRequest(ctx,method,op.threadId);
+      return sessionRequest(ctx,state.capabilities,method,op.threadId);
     }
     case "submitTurn": {
       const sessionId = ownSession(ctx, state);
       const slash=op.input.text.match(/^\/([^\s]+)(?:\s|$)/);
       if (slash && !state.settings?.commands?.some(command=>command.name === slash[1]))
         return refusePlan("Command was not advertised by this session");
-      const images:JsonValue[] = [];
+      const promptCaps=object(state.capabilities.promptCapabilities);
+      const blocks:JsonValue[] = [];
+      const seenPaths=new Set<string>();
       for (const attachment of op.input.attachments) {
-        if (!attachment.mimeType.startsWith("image/"))
+        if (attachment.path) seenPaths.add(attachment.path);
+        if (attachment.mimeType.startsWith("image/")) {
+          if (promptCaps.image !== true)
+            return refusePlan("This ACP agent did not declare image support. Remove image attachments before sending.");
+          if (!attachment.data)
+            return refusePlan("Image attachment bytes are unavailable. The message was not sent.");
+          blocks.push({type:"image",data:attachment.data,mimeType:attachment.mimeType});
+        } else if (attachment.mimeType.startsWith("audio/")) {
+          if (promptCaps.audio !== true)
+            return refusePlan("This ACP agent did not declare audio support. Remove audio attachments before sending.");
+          if (!attachment.data)
+            return refusePlan("Audio attachment bytes are unavailable. The message was not sent.");
+          blocks.push({type:"audio",data:attachment.data,mimeType:attachment.mimeType});
+        } else if (attachment.data && promptCaps.embeddedContext === true) {
+          const uri=attachment.url || (attachment.path ? pathToFileUri(attachment.path) : `urn:domios:attachment:${encodeURIComponent(attachment.id)}`);
+          blocks.push({type:"resource",resource:{uri,mimeType:attachment.mimeType,blob:attachment.data}});
+        } else if (attachment.path || attachment.url) {
+          const uri=attachment.url || pathToFileUri(attachment.path!);
+          const name=attachment.path ? attachmentFileName(attachment.path) : attachment.id;
+          blocks.push({type:"resource_link",uri,name,mimeType:attachment.mimeType});
+        } else {
           return refusePlan("This ACP agent cannot receive this attachment kind. Remove the attachment before sending.");
-        if (object(state.capabilities.promptCapabilities).image !== true)
-          return refusePlan("This ACP agent did not declare image support. Remove image attachments before sending.");
-        if (!attachment.data)
-          return refusePlan("Image attachment bytes are unavailable. The message was not sent.");
-        images.push({type:"image",data:attachment.data,mimeType:attachment.mimeType});
+        }
       }
+      blocks.push(...inlineFileResourceLinks(op.input.text,seenPaths));
       if (state.steering && state.inFlight && op.activeTurnId) {
         // Joins the running turn: no prompt ordinal, and first-turn instructions already went out.
-        const plan=request(methods.steering,{sessionId,prompt:[{type:"text",text:op.input.text},...images],_meta:{steering:{idleBehavior:"promptRequired"}}});
+        const plan=request(methods.steering,{sessionId,prompt:[{type:"text",text:op.input.text},...blocks],_meta:{steering:{idleBehavior:"promptRequired"}}});
         if (plan.action.kind === "request") plan.action.call.target={threadId:sessionId,turnId:op.activeTurnId};
         plan.state={method:methods.steering,turnId:op.activeTurnId};
         return plan;
@@ -297,7 +422,7 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       const prompt:JsonValue[] = [];
       if (state.instructions) prompt.push({type:"text", text:state.instructions});
       prompt.push({type:"text", text:op.input.text});
-      prompt.push(...images);
+      prompt.push(...blocks);
       if (state.inFlight && !ctx.activeTurnId) endAbandonedPrompts(ctx,state);
       const ordinal=Math.max(state.promptOrdinal ?? 0,state.cursor.prompt,Number(object(state.projection).turn) || 0,ctx.restoredRowOrdinal ?? 0,...(state.queued ?? []).map(value=>value.prompt))+1;
       state.promptOrdinal=ordinal;
@@ -347,7 +472,7 @@ function promoteQueued(ctx:RuntimeContext, state:Negotiation):import("@codeterm/
     state.projection={...object(next.state),started:true};
     events.push({kind:"turnState",threadId:sessionId,turnId:`${sessionId}:turn:${queued.prompt}`,state:"working"});
     if (!queued.completed) break;
-    const settledQueued=settleStream(ctx,state.projection,queued.completed.cancelled ? "cancelled" : "end_turn");
+    const settledQueued=settleStream(ctx,state.projection,queued.completed.stopReason);
     state.projection=settledQueued.state;
     state.inFlight=false;
     if (queued.completed.usage) events.push({kind:"usage",threadId:sessionId,usage:accountedUsage(queued.completed.usage,queued.sendId)});
@@ -380,14 +505,33 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
   if (op.kind === "submitTurn" && method === methods.steering) return steeringResponse(ctx,op,raw,reply);
   if (reply.kind === "error") {
     const sessionOperation=op.kind === "openThread" && method === methods.newSession
+      || op.kind === "forkThread" && method === methods.fork
       || op.kind === "resumeThread" && (method === methods.load || method === methods.resume);
     const state=negotiated(ctx);
     if (state && op.kind === "submitTurn" && method === methods.prompt) {
       const turn=object(raw).prompt;
       state.queued=state.queued?.filter(queued=>queued.prompt !== turn || queued.sendId !== op.sendId);
       if (state.cursor.prompt === turn && state.promptSend?.sendId === op.sendId) {
+        const quotaSignal=classifyPromptQuotaError(reply.error);
         state.inFlight=false;
         delete state.promptSend;
+        if (quotaSignal) {
+          const sessionId=ownSession(ctx,state);
+          const turnId=`${sessionId}:turn:${turn}`;
+          const projected=reduceStream(ctx,state.projection ?? null,[],state.cursor);
+          const settled=settleStream(ctx,projected.state,"failed",{
+            content:reply.error.message || "Rate limit reached",
+            toolInput:quotaSignal as unknown as JsonValue,
+          });
+          state.projection=settled.state;
+          const events:import("@codeterm/plugin-sdk").AgentEvent[]=[
+            ...sessionAuthentication(state),
+            ...projected.events,
+            ...settled.events,
+            ...promoteQueued(ctx,state),
+          ];
+          return {kind:"complete",result:{kind:"turnAccepted",threadId:sessionId,sendId:op.sendId,turnId},events};
+        }
         const projected=reduceStream(ctx,state.projection ?? null,[],state.cursor).state;
         state.projection=settleStream(ctx,projected,"error").state;
         // The host settles refusals and starts deferred activity; keep the successor projection ready.
@@ -397,8 +541,12 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     if (op.kind === "resumeThread" && sessionOperation && reply.error.code !== -32000)
       return refused("session_load_refused", reply.error.message);
     if (sessionOperation && ![-32000,-32002,-32601].includes(reply.error.code) && state && !state.sessionActive && object(raw).mcpOffered === true && ctx.hostMcp) {
+      const sessionId=op.kind === "resumeThread" ? op.threadId : op.kind === "forkThread" ? op.sourceThreadId : undefined;
+      if (object(raw).mcpTransport === "http") {
+        return {kind:"continue",plan:sessionRequest(ctx,state.capabilities,method as string,sessionId,true)};
+      }
       state.mcpUnavailable=`Domios tools are unavailable for this agent: ${Array.from(reply.error.message).slice(0,1000).join("")}`;
-      const plan=request(method as string,{...(op.kind === "resumeThread" ? {sessionId:op.threadId} : {}),cwd:ctx.cwd,mcpServers:[]});
+      const plan=request(method as string,{...(sessionId ? {sessionId} : {}),cwd:ctx.cwd,mcpServers:[]});
       plan.state={method,mcpOffered:false};
       return {kind:"continue",plan};
     }
@@ -441,7 +589,8 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       sessionId:prior?.sessionId, sessionActive:prior?.sessionActive, instructions:prior?.instructions,
       cursor:prior?.cursor ?? {replay:0,prompt:0,loading:false},inFlight:prior?.inFlight ?? false,
       promptOrdinal:prior?.promptOrdinal, projection:prior?.projection, promptSend:prior?.promptSend, queued:prior?.queued, settings:prior?.settings, modelStateId:prior?.modelStateId});
-    return {kind:"complete",result:op.kind === "initialize" ? {kind:"initialized",...agentIdentity(value.agentInfo),...(steering ? {midTurnInput:true} : {})} : {kind:"done"},
+    const sessionCapabilities=sessionCapabilitiesSummary(value.agentCapabilities);
+    return {kind:"complete",result:op.kind === "initialize" ? {kind:"initialized",...agentIdentity(value.agentInfo),...(steering ? {midTurnInput:true} : {}),...(sessionCapabilities ? {sessionCapabilities} : {})} : {kind:"done"},
       events:[{kind:"authentication",authentication:authentication(authMethods,authenticated,authenticated ? false : prior?.required)}]};
   }
   const state = negotiated(ctx);
@@ -494,7 +643,33 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     applySettings(state,settings,method === "session/set_config_option");
     return {kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:sessionId,settings:op.action === "settings" ? state.settings ?? settings : settings}]};
   }
-  if (op.kind === "answer" && method === "session/request_permission")
+  if (op.kind === "forkThread" && method === methods.fork) {
+    const sessionId=value.sessionId;
+    if (typeof sessionId !== "string" || !sessionId || sessionId.length > 4096 || sessionId === op.sourceThreadId)
+      return refused("binding_mismatch","ACP forked session identity is invalid");
+    state.sessionId=sessionId;
+    state.sessionActive=true;
+    state.cursor={replay:0,prompt:0,loading:false};
+    state.settings={commands:[],configOptions:[],modes:[],...sessionSettings(value)};
+    state.modelStateId=sessionModel(value.models,configOptions(value.configOptions))?.id;
+    return {
+      kind:"complete",
+      result:{kind:"threadForked",sourceThreadId:op.sourceThreadId,threadId:sessionId,turnId:op.turnId},
+      ...threadNotices(state,sessionId,sessionAuthentication(state)),
+    };
+  }
+  if (op.kind === "control" && op.action === "listSessions" && method === methods.list) {
+    const sessions=decodeListedSessions(value.sessions);
+    if (!sessions) return refused("protocol_error","Invalid ACP session/list response");
+    const nextCursor=typeof value.nextCursor === "string" && value.nextCursor.trim() ? value.nextCursor.trim().slice(0,512) : undefined;
+    return {kind:"complete",result:{kind:"sessionsListed",sessions,...(nextCursor ? {nextCursor} : {})} as unknown as import("@codeterm/plugin-sdk").OperationResult};
+  }
+  if (op.kind === "control" && op.action === "closeSession" && method === methods.close) {
+    ownSession(ctx,state);
+    state.sessionActive=false;
+    return {kind:"complete",result:{kind:"done"}};
+  }
+  if (op.kind === "answer" && (method === methods.requestPermission || method === methods.elicitation))
     return {kind:"complete",result:{kind:"done"},events:[{kind:"promptResolved",threadId:ownSession(ctx,state),requestId:op.requestId}]};
   if (op.kind === "interrupt" && method === methods.cancel) {
     return {kind:"complete",result:{kind:"done"},events:[]};
@@ -505,15 +680,16 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     const turn=typeof object(raw).prompt === "number" ? object(raw).prompt : object(state.projection).turn;
     if (turn !== state.cursor.prompt || !state.inFlight) {
       const queued=state.queued?.find(queued=>queued.prompt === turn);
-      if (queued && !queued.completed) queued.completed={cancelled:value.stopReason === "cancelled",usage:usage(value.usage)};
+      if (queued && !queued.completed) queued.completed={stopReason:value.stopReason,usage:usageFromReply(value)};
       return {kind:"complete",result:{kind:"turnAccepted",threadId:sessionId,sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events:queued ? sessionAuthentication(state) : []};
     }
     state.inFlight=false;
     state.instructions = undefined;
     const projected=reduceStream(ctx,state.projection ?? null,[],state.cursor,{sendId:op.sendId,input:op.input},true);
+    const streamed=streamTurnUsage(projected.state);
     const settled=settleStream(ctx,projected.state,value.stopReason);
     state.projection=settled.state;
-    const mapped=usage(value.usage);
+    const mapped=usageFromReply(value) ?? streamed;
     const events:import("@codeterm/plugin-sdk").AgentEvent[]=[...sessionAuthentication(state),...(mapped ? [{kind:"usage" as const,threadId:sessionId,usage:accountedUsage(mapped,op.sendId)}] : []),...projected.events,...settled.events];
     events.push(...promoteQueued(ctx,state));
     return {kind:"complete", result:{kind:"turnAccepted", threadId:sessionId, sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events};
@@ -527,7 +703,7 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
   const state=negotiated(ctx);
   if (!ctx.threadId || !state || state.sessionId !== ctx.threadId) return {state:raw,events:[]};
   const own=frames.flatMap((frame,index)=>object(frame.params).sessionId === ctx.threadId &&
-    (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method))
+    (frame.kind === "notification" && (frame.method === methods.update || frame.method === methods.extensionUpdate) || frame.kind === "request" && clientRequest(frame.method))
       ? [{frame,index}] : []);
   const prompts=frames.flatMap(frame=>{
     if (frame.kind !== "request") return [];

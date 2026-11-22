@@ -62,12 +62,31 @@ pub enum MeshAction {
         #[command(subcommand)]
         action: MeshPeerAction,
     },
+    /// Manage the kind icon and colour of an installation.
+    Identity {
+        #[command(subcommand)]
+        action: MeshIdentityAction,
+    },
     /// Go offline: stop pinging peers, stop announcing, stop refreshing
     /// local addresses (which keeps Tailscale alive). The daemon stays up;
     /// peers will time out our presence on their side. Local-only command.
     Offline,
     /// Come back online — resume mesh activity. Local-only.
     Online,
+}
+
+#[derive(Subcommand)]
+pub enum MeshIdentityAction {
+    /// Set the machine's kind and colour. Requires owner authority.
+    Set {
+        #[arg(long, value_parser = ["laptop", "desktop", "server", "mac", "phone", "vm", "small", "other"])]
+        kind: String,
+        #[arg(long, value_parser = ["blue", "teal", "green", "yellow", "pink", "violet", "graphite"])]
+        color: String,
+        /// Set the identity on this paired machine by name or ID.
+        #[arg(long)]
+        peer: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -300,6 +319,25 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
     if let Some(id) = remote_close_tab_id(&cli.command) {
         relay::mesh_close_tab_and_forget_remote_worker(&base, target, id, cli.json);
         return;
+    }
+    if matches!(
+        cli.command,
+        Commands::Tab {
+            action: super::TabAction::Exec { .. }
+        }
+    ) {
+        let answer =
+            relay::mesh_relay_invoke_with_peer(target, &method, &path, body.as_deref(), cli.json);
+        let data = if cli.json {
+            relay::with_answering_peer(answer.data, answer.peer.as_ref())
+        } else {
+            relay::announce_answering_peer(target, answer.peer.as_ref());
+            answer.data
+        };
+        if data.get("output").is_some() {
+            crate::cmd::tab::exec::finish_exec(cli.json, data);
+        }
+        crate::cmd::tab::exec::fail_exec(cli.json, "the peer returned no exec result".into());
     }
     if matches!(cli.command, Commands::SendText { to_shell: true, .. }) {
         tty_line_guard::enforce(target, body.as_deref(), cli.json);

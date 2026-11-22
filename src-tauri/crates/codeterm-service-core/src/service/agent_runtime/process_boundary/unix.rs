@@ -98,7 +98,7 @@ fn born(_: u32) -> Result<u128, String> {
     Err("Runtime process identities are unsupported on this OS".into())
 }
 
-pub(super) struct Member {
+pub(in crate::service::agent_runtime) struct Member {
     pid: u32,
     born: u128,
     event: OwnedFd,
@@ -149,6 +149,9 @@ impl Member {
     }
     pub(super) fn token(&self) -> u128 {
         self.born
+    }
+    pub(super) fn event_fd(&self) -> std::os::fd::RawFd {
+        self.event.as_raw_fd()
     }
     pub(super) fn exited(&self) -> Result<bool, String> {
         if self

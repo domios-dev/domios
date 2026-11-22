@@ -16,6 +16,7 @@ export type {
   ChatSessionIntent,
   ToolEventKind,
   ToolEdit,
+  ToolLocation,
   FileDiff,
   FileDiffHunk,
   ToolRichResult,
@@ -119,6 +120,7 @@ export { ECHO_SKEW_MS, matchedOptimisticEchoes, collapseDuplicateUserMessages, t
 export { presentedAttachmentSegments } from "./attachmentPresentation";
 export { mergeById } from "./merge";
 export { timestampMs } from "./time";
+export { orderTimelineItems, type TimelineOrderItem } from "./timelineOrder";
 export {
   captureSendEchoBoundary,
   matchesMatchedRow,
@@ -141,6 +143,7 @@ export {
   transcriptOffsetKind,
   transcriptRowCount,
   transcriptRows,
+  transcriptSourceRows,
   type TranscriptAuthority,
   type TranscriptBatch,
   type TranscriptBatchKind,

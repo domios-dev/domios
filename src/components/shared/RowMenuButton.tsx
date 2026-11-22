@@ -10,11 +10,15 @@ export function KebabGlyph() {
   );
 }
 
-export function RowMenuButton({ label, title, touchMode = false, ref }: {
+export function RowMenuButton({
+  label, title, touchMode = false, ref, "aria-expanded": expanded, "aria-controls": controls,
+}: {
   label: string;
   title?: string;
   touchMode?: boolean;
   ref?: Ref<HTMLButtonElement>;
+  "aria-expanded"?: boolean;
+  "aria-controls"?: string;
 }) {
   return (
     <button
@@ -22,6 +26,8 @@ export function RowMenuButton({ label, title, touchMode = false, ref }: {
       type="button"
       aria-label={label}
       aria-haspopup="menu"
+      aria-expanded={expanded}
+      aria-controls={controls}
       title={title ?? label}
       className={`ct-row-kebab ${touchMode ? "ct-row-kebab--touch" : ""}`}
     >

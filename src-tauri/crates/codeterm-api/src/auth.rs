@@ -8,8 +8,10 @@ use codeterm_neighbors_service::prelude::*;
 use std::net::SocketAddr;
 
 mod actor;
+pub(crate) mod peer_grant;
+use peer_grant::PeerGrant;
 mod relay_agent;
-pub(crate) use relay_agent::{authenticated_agent, remote_agent};
+pub(crate) use relay_agent::{authenticated_agent, authenticated_agent_for_origin, remote_agent};
 mod credential_kind;
 pub(crate) mod remote;
 pub use actor::{ActorHeaders, AgentHeaders, RequestActor};
@@ -237,20 +239,24 @@ pub(crate) fn is_inbound_webhook_path(method: &Method, path: &str) -> bool {
 }
 
 fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity, ()> {
-    authenticate_caller(state, auth_header).map(|(identity, _)| identity)
+    authenticate_caller(state, auth_header).map(|(identity, _, _)| identity)
 }
 
 fn authenticate_caller(
     state: &AppState,
     auth_header: &str,
-) -> Result<(CallerIdentity, AuthenticatedOrigin), ()> {
+) -> Result<(CallerIdentity, AuthenticatedOrigin, Option<PeerGrant>), ()> {
     let token = auth_header.strip_prefix("Bearer ").unwrap_or("");
     if token.is_empty() {
         return Err(());
     }
 
     if let Some(caller) = state.svc.identify_tab_credential(token) {
-        return Ok((CallerIdentity::Tab(caller), AuthenticatedOrigin::Agent));
+        return Ok((
+            CallerIdentity::Tab(caller),
+            AuthenticatedOrigin::Agent,
+            None,
+        ));
     }
 
     if let Some(ref api_token) = state.config.lock().api.token {
@@ -261,7 +267,7 @@ fn authenticate_caller(
                 api_token.as_bytes(),
             )
         {
-            return Ok((CallerIdentity::Local, AuthenticatedOrigin::Owner));
+            return Ok((CallerIdentity::Local, AuthenticatedOrigin::Owner, None));
         }
     }
 
@@ -273,6 +279,7 @@ fn authenticate_caller(
         return Ok((
             CallerIdentity::ServicePush { service_id: svc_id },
             AuthenticatedOrigin::Service,
+            None,
         ));
     }
 
@@ -285,17 +292,26 @@ fn authenticate_caller(
             } else {
                 CallerIdentity::Relayed
             };
-            Ok((identity, claims.origin))
+            Ok((identity, claims.origin, None))
         }
         Ok(claims) => {
             let sender_id = claims.from_instance_id;
-            let (access_level, relay_protocol_version) = state
-                .mesh
-                .lock()
-                .paired_peers
-                .get(&sender_id)
-                .map(|peer| (peer.access_level.clone(), peer.relay_protocol_version))
-                .unwrap_or((AccessLevel::ReadOnly, 0));
+            let mesh = state.mesh.lock();
+            let peer = mesh.paired_peers.get(&sender_id).ok_or(())?;
+            if known_keys.get(&sender_id) != Some(&peer.public_key) {
+                return Err(());
+            }
+            if claims.origin == AuthenticatedOrigin::Agent
+                && claims
+                    .agent
+                    .as_ref()
+                    .is_none_or(|agent| agent.instance_id != sender_id)
+            {
+                return Err(());
+            }
+            let grant = PeerGrant::capture(&mesh, &sender_id).ok_or(())?;
+            let access_level = grant.access().clone();
+            let relay_protocol_version = peer.relay_protocol_version;
             Ok((
                 CallerIdentity::Peer {
                     instance_id: sender_id,
@@ -303,13 +319,14 @@ fn authenticate_caller(
                     relay_protocol_version,
                 },
                 claims.origin,
+                Some(grant),
             ))
         }
         Err(_) => Err(()),
     }
 }
 
-fn mesh_keys(state: &AppState) -> (std::collections::HashMap<String, String>, String) {
+pub(crate) fn mesh_keys(state: &AppState) -> (std::collections::HashMap<String, String>, String) {
     let mesh = state.mesh.lock();
     let mut known_keys = mesh.known_public_keys();
     let own_id = mesh.ident.identity.instance_id.clone();
@@ -342,6 +359,20 @@ pub(crate) fn caller_identity(
     authenticated_request(state, headers).map(|(identity, _)| identity)
 }
 
+/// Handler re-authentication verifies signatures and may scan service tokens, so it never runs on a runtime worker.
+pub(crate) async fn off_runtime<T: Send + 'static>(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    work: impl FnOnce(&AppState, &axum::http::HeaderMap) -> Result<T, (StatusCode, String)>
+        + Send
+        + 'static,
+) -> Result<T, (StatusCode, String)> {
+    let (state, headers) = (state.clone(), headers.clone());
+    tokio::task::spawn_blocking(move || work(&state, &headers))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+}
+
 pub(crate) fn authenticated_request(
     state: &AppState,
     headers: &axum::http::HeaderMap,
@@ -351,6 +382,7 @@ pub(crate) fn authenticated_request(
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
     authenticate_caller(state, auth)
+        .map(|(identity, origin, _)| (identity, origin))
         .map_err(|()| (StatusCode::UNAUTHORIZED, "Invalid or missing token".into()))
 }
 
@@ -393,20 +425,13 @@ fn ownership_release_is_local(caller: CallerIdentity) -> bool {
     matches!(caller, CallerIdentity::Local | CallerIdentity::Tab(_))
 }
 
-pub(crate) fn isolated_caller_peer_id(
-    state: &AppState,
-    headers: &axum::http::HeaderMap,
-) -> Option<String> {
-    let auth = headers
-        .get("authorization")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
-    match identify_caller(state, auth).ok()? {
+pub(crate) fn isolated_peer_id(identity: &CallerIdentity) -> Option<String> {
+    match identity {
         CallerIdentity::Peer {
             instance_id,
             access_level: AccessLevel::AgentIsolated,
             ..
-        } => Some(instance_id),
+        } => Some(instance_id.clone()),
         _ => None,
     }
 }
@@ -452,13 +477,11 @@ pub(crate) fn caller_access_level(
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
     match identify_caller(state, auth) {
-        Ok(CallerIdentity::Local | CallerIdentity::Tab(_) | CallerIdentity::Relayed) => {
-            Ok(AccessLevel::Full)
-        }
+        Ok(CallerIdentity::Local | CallerIdentity::Tab(_)) => Ok(AccessLevel::Full),
         Ok(CallerIdentity::Peer { access_level, .. }) => Ok(access_level),
-        Ok(CallerIdentity::ServicePush { .. }) => Err((
+        Ok(CallerIdentity::ServicePush { .. } | CallerIdentity::Relayed) => Err((
             StatusCode::FORBIDDEN,
-            "Service push tokens cannot inspect mesh inventory".into(),
+            "Caller lacks authority to inspect mesh inventory".into(),
         )),
         Err(()) => Err((StatusCode::UNAUTHORIZED, "Invalid or missing token".into())),
     }
@@ -533,7 +556,7 @@ pub async fn auth_middleware(
     }
     #[cfg(debug_assertions)]
     let queued = std::time::Instant::now();
-    let mesh = state.mesh.clone();
+    let response_state = state.clone();
     let outcome = tokio::task::spawn_blocking(move || {
         #[cfg(debug_assertions)]
         let (started, route, queue_ms) = (
@@ -557,17 +580,16 @@ pub async fn auth_middleware(
     match outcome {
         Ok(AuthOutcome::Allowed(req, false)) => next.run(req).await,
         Ok(AuthOutcome::Allowed(req, true)) => {
-            let peer_id = match req.extensions().get::<CallerIdentity>() {
-                Some(CallerIdentity::Peer { instance_id, .. }) => Some(instance_id.clone()),
-                _ => None,
+            let Some(grant) = req.extensions().get::<PeerGrant>().cloned() else {
+                return PeerGrant::refusal();
             };
-            let response = super::peer_redaction::redact_peer_response(next.run(req).await).await;
-            match peer_id {
-                Some(peer_id) => {
-                    crate::mesh_routes::account_link::fence_response(response, mesh, peer_id)
-                }
-                None => response,
+            if !grant.current(&response_state.mesh.lock()) {
+                return PeerGrant::refusal();
             }
+            let method = req.method().clone();
+            let uri = req.uri().to_string();
+            let response = super::peer_redaction::redact_peer_response(next.run(req).await).await;
+            grant.fence_response(response, response_state, method, uri)
         }
         Ok(AuthOutcome::Rejected(response)) => response,
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
@@ -661,10 +683,13 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         .to_string();
 
     let authenticated = authenticate_caller(&state, &auth);
-    if let Ok((_, origin)) = &authenticated {
+    if let Ok((_, origin, grant)) = &authenticated {
         req.extensions_mut().insert(*origin);
+        if let Some(grant) = grant {
+            req.extensions_mut().insert(grant.clone());
+        }
     }
-    let caller = authenticated.map(|(identity, _)| identity);
+    let caller = authenticated.map(|(identity, _, _)| identity);
     if tailnet_listener
         && state
             .mesh
@@ -734,7 +759,20 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
                         .into();
                 }
             }
-            if authorize_peer_request(&state, access_level, instance_id, &method, &path) {
+            use codeterm_service_core::api_support::access_policy::{
+                allows_full_dispatch, is_local_only_path, request_scope,
+            };
+            let uri = req.uri().to_string();
+            let full_routed_access = req
+                .extensions()
+                .get::<axum::extract::MatchedPath>()
+                .is_some()
+                && !is_local_only_path(&path)
+                && request_scope(&method, &uri).is_none()
+                && allows_full_dispatch(access_level);
+            if full_routed_access
+                || authorize_peer_request(&state, access_level, instance_id, &method, &uri)
+            {
                 AuthOutcome::Allowed(req, true)
             } else {
                 log::warn!(

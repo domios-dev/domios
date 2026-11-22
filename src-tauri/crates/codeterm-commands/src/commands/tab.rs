@@ -231,7 +231,7 @@ fn chat_start_inner(
             subscription_id: None,
         });
     }
-    let (provider_id, cwd, session_id, mux_ms) = {
+    let (provider_id, cwd, session_id, session_binding_nonce, mux_ms) = {
         let t = std::time::Instant::now();
         let m = svc.mux.read();
         let tab = m.get_tab(&tab_id).ok_or("Tab not found")?;
@@ -299,14 +299,14 @@ fn chat_start_inner(
                 subscription_id: None,
             });
         };
-        (provider, cwd, sid, t.elapsed().as_millis())
+        (
+            provider,
+            cwd,
+            sid,
+            tab.session_binding_nonce.clone(),
+            t.elapsed().as_millis(),
+        )
     };
-
-    let session_binding_nonce = svc
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .and_then(|tab| tab.session_binding_nonce.clone());
 
     // structured messages in Rust and stream deltas from a DB poller.
     if svc

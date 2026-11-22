@@ -22,10 +22,7 @@ pub enum RuntimeEvent {
         thread_id: String,
         message: String,
     },
-    BackgroundProcessesUpdated {
-        thread_id: String,
-        processes: Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>,
-    },
+    BackgroundProcessesUpdated,
     SessionUpdated {
         login: Option<RuntimeLoginState>,
         auth: Option<RuntimeAuthState>,
@@ -59,6 +56,8 @@ pub enum RuntimeEvent {
         response: Option<RuntimeQuestionResponse>,
         prompt: Option<PendingPrompt>,
         permission: Option<RuntimePermission>,
+        file_diffs: Option<serde_json::Value>,
+        elicitation: Option<serde_json::Value>,
         resolved: bool,
     },
     EvidenceUpdated {
@@ -89,6 +88,10 @@ pub enum RuntimeEvent {
     },
     ThreadReverted {
         thread_id: String,
+    },
+    SessionTitleUpdated {
+        thread_id: String,
+        title: String,
     },
     Warning {
         id: String,
@@ -133,8 +136,6 @@ struct RefusedClaim {
 #[derive(Default)]
 pub struct RuntimeMaps {
     pub authentication: Option<codeterm_plugin::agent_runtime::RuntimeAuthentication>,
-    pub background_processes:
-        HashMap<String, Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>>,
     epoch: u64,
     restore_binding: Option<RestoreBinding>,
     current_turns: HashMap<String, String>,
@@ -337,13 +338,7 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             thread_id: thread_id.clone(),
             message: message.clone(),
         },
-        AgentRuntimeEvent::BackgroundProcesses {
-            thread_id,
-            processes,
-        } => RuntimeEvent::BackgroundProcessesUpdated {
-            thread_id: thread_id.clone(),
-            processes: processes.clone(),
-        },
+        AgentRuntimeEvent::BackgroundProcesses { .. } => RuntimeEvent::BackgroundProcessesUpdated,
         AgentRuntimeEvent::AuthLogin { login } => RuntimeEvent::SessionUpdated {
             login: Some(login.clone()),
             auth: None,
@@ -373,6 +368,8 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             response: Some(response.clone()),
             prompt: None,
             permission: None,
+            file_diffs: None,
+            elicitation: None,
             resolved: false,
         },
         AgentRuntimeEvent::RateLimits {
@@ -443,6 +440,8 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             request_id,
             prompt,
             permission,
+            file_diffs,
+            elicitation,
         } => RuntimeEvent::RequestUpdated {
             thread_id: thread_id.clone(),
             request_id: Some(request_id.clone()),
@@ -451,6 +450,8 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             response: None,
             prompt: Some(prompt.clone()),
             permission: permission.clone(),
+            file_diffs: file_diffs.clone(),
+            elicitation: elicitation.clone(),
             resolved: false,
         },
         AgentRuntimeEvent::PromptResolved {
@@ -464,6 +465,8 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             response: None,
             prompt: None,
             permission: None,
+            file_diffs: None,
+            elicitation: None,
             resolved: true,
         },
         AgentRuntimeEvent::ControlsConfirmed {
@@ -483,6 +486,10 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
         AgentRuntimeEvent::ThreadReverted { thread_id } => RuntimeEvent::ThreadReverted {
             thread_id: thread_id.clone(),
         },
+        AgentRuntimeEvent::SessionTitle { thread_id, title } => RuntimeEvent::SessionTitleUpdated {
+            thread_id: thread_id.clone(),
+            title: title.clone(),
+        },
     }
 }
 
@@ -494,14 +501,7 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
         RuntimeEvent::AuthenticationDeclared { authentication } => {
             maps.authentication = Some(authentication.clone())
         }
-        RuntimeEvent::Notice { .. } => {}
-        RuntimeEvent::BackgroundProcessesUpdated {
-            thread_id,
-            processes,
-        } => {
-            maps.background_processes
-                .insert(thread_id.clone(), processes.clone());
-        }
+        RuntimeEvent::Notice { .. } | RuntimeEvent::BackgroundProcessesUpdated => {}
         RuntimeEvent::SessionUpdated { auth, .. } => {
             if let Some(auth) = auth {
                 maps.auth = Some(auth.clone());
@@ -521,7 +521,6 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
             turn_id,
             ..
         } => {
-            maps.background_processes.remove(thread_id);
             if turn_id
                 .as_ref()
                 .is_none_or(|turn| maps.current_turns.get(thread_id) == Some(turn))
@@ -590,7 +589,7 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
             item.kind = "compaction".into();
             upsert_item(maps, thread_id, item);
         }
-        RuntimeEvent::ThreadReverted { .. } => {}
+        RuntimeEvent::ThreadReverted { .. } | RuntimeEvent::SessionTitleUpdated { .. } => {}
         RuntimeEvent::Warning { id, message } => {
             let mut item = ChatMsg::default();
             item.id = id.clone();

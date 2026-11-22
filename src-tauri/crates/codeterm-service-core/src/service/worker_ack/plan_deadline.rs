@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::reports::ReportDetails;
+use crate::agent::reports::{AgentReportHostMetadata, ReportDetails};
 use crate::service::message_gateway::{DeliveryClass, MessageBody, MessageOrigin, OutboundMessage};
 use crate::service::report_delivery::HierarchyReportDelivery;
 use crate::service::startup_lease::StartupHoldRejection;
@@ -392,6 +392,41 @@ impl ServiceContext {
         );
     }
 
+    fn emit_lifecycle_report_events(
+        &self,
+        recipient_tab_id: &str,
+        sender_tab_id: &str,
+        sender_title: &str,
+        message: &str,
+        report: &crate::agent::reports::AgentReport,
+    ) {
+        let mut bus_payload = json!({
+            "target_tab_id": recipient_tab_id,
+            "sender_position": report.sender_position.clone(),
+            "report": report.clone(),
+        });
+        let mut ui_payload = json!({
+            "target_tab_id": recipient_tab_id,
+            "from_tab_id": sender_tab_id,
+            "from_title": sender_title,
+            "message": message,
+            "sender_position": report.sender_position.clone(),
+            "report": report.clone(),
+        });
+        if let Some(kind) = report
+            .kind
+            .as_deref()
+            .filter(|kind| !kind.trim().is_empty())
+        {
+            bus_payload["kind"] = Value::String(kind.to_string());
+            ui_payload["kind"] = Value::String(kind.to_string());
+        }
+        self.events
+            .publish_generic("agent.report", bus_payload.clone());
+        self.events.broadcast("agent.report", bus_payload);
+        self.ui.emit("agent-report", ui_payload);
+    }
+
     pub fn publish_agent_startup_report_with_delivery(
         &self,
         supervisor_tab_id: &str,
@@ -406,29 +441,31 @@ impl ServiceContext {
             .get_tab(agent_tab_id)
             .and_then(|tab| tab.agent_type.clone());
         let message = worker_lifecycle_notice(agent_title, provider.as_deref(), None, &payload);
-        let report = self.report_store.lock().add_detailed(
+        let notice_kind = payload.get("kind").and_then(Value::as_str);
+        let sender_position =
+            crate::service::agent_runtime::report_position::sender_position(self, agent_tab_id);
+        let host_metadata = AgentReportHostMetadata {
+            sender_position,
+            kind: notice_kind
+                .filter(|kind| !kind.trim().is_empty())
+                .map(str::to_string),
+        };
+        let report = self.report_store.lock().add_detailed_with_host_metadata(
             supervisor_tab_id,
             agent_tab_id,
             agent_title,
             &message,
             ReportDetails::default(),
             None,
+            host_metadata,
         );
         let gate = self.hierarchy_report_recipient_gate(supervisor_tab_id);
-        self.events.broadcast(
-            "agent.report",
-            json!({ "target_tab_id": supervisor_tab_id, "report": report.clone() }),
-        );
-        self.ui.emit(
-            "agent-report",
-            serde_json::to_value(json!({
-                "target_tab_id": supervisor_tab_id,
-                "from_tab_id": agent_tab_id,
-                "from_title": agent_title,
-                "message": message,
-                "report": report.clone(),
-            }))
-            .unwrap_or_default(),
+        self.emit_lifecycle_report_events(
+            supervisor_tab_id,
+            agent_tab_id,
+            agent_title,
+            &message,
+            &report,
         );
         self.deliver_hierarchy_report_if_allowed(&gate, &report, delivery);
     }
@@ -892,37 +929,36 @@ impl ServiceContext {
             provider_output.as_deref(),
             &payload,
         );
+        let notice_kind = payload.get("kind").and_then(Value::as_str);
+        let sender_position =
+            crate::service::agent_runtime::report_position::sender_position(self, worker_tab_id);
+        let host_metadata = AgentReportHostMetadata {
+            sender_position,
+            kind: notice_kind
+                .filter(|kind| !kind.trim().is_empty())
+                .map(str::to_string),
+        };
         let details = ReportDetails {
             plan_id: Some(plan_id.to_string()),
             task_id: Some(task_id.to_string()),
             ..Default::default()
         };
-        let report = self.report_store.lock().add_detailed(
+        let report = self.report_store.lock().add_detailed_with_host_metadata(
             parent_tab_id,
             worker_tab_id,
             worker_title,
             &message,
             details,
             None,
+            host_metadata,
         );
         let gate = self.hierarchy_report_recipient_gate(parent_tab_id);
-        self.events.broadcast(
-            "agent.report",
-            json!({
-                "target_tab_id": parent_tab_id,
-                "report": report.clone(),
-            }),
-        );
-        self.ui.emit(
-            "agent-report",
-            serde_json::to_value(json!({
-                "target_tab_id": parent_tab_id,
-                "from_tab_id": worker_tab_id,
-                "from_title": worker_title,
-                "message": message,
-                "report": report.clone(),
-            }))
-            .unwrap_or_default(),
+        self.emit_lifecycle_report_events(
+            parent_tab_id,
+            worker_tab_id,
+            worker_title,
+            &message,
+            &report,
         );
         self.deliver_hierarchy_report_if_allowed(&gate, &report, delivery);
     }

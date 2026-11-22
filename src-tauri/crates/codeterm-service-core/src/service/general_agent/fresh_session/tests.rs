@@ -36,7 +36,7 @@ fn fresh_spawn_response_uses_the_published_generation_and_includes_the_new_tab()
 fn fixture() -> (
     MultiplexerState,
     crate::config::schema::GeneralAgentConfig,
-    FreshGeneralSessionRequest,
+    ResolvedFreshGeneralSessionRequest,
 ) {
     let mut mux = MultiplexerState::empty();
     ensure_general_workspace(&mut mux, false);
@@ -46,18 +46,22 @@ fn fixture() -> (
         ..Default::default()
     };
     let request = FreshGeneralSessionRequest {
-        workspace_id: crate::service::general_agent::general_workspace_id(&mux).unwrap(),
-        provider_id: config.agent_provider.clone(),
-        cwd: crate::service::general_agent::general_dir()
-            .to_string_lossy()
-            .to_string(),
+        workspace_id: Some(crate::service::general_agent::general_workspace_id(&mux).unwrap()),
+        provider_id: Some(config.agent_provider.clone()),
+        cwd: Some(
+            crate::service::general_agent::general_dir()
+                .to_string_lossy()
+                .to_string(),
+        ),
         role: crate::service::general_agent::GENERAL_AGENT_KIND.into(),
         intent: "fresh_general".into(),
         model: None,
         reasoning_effort: None,
         preset: None,
         account_id: None,
-    };
+    }
+    .resolve(&mux, &config)
+    .unwrap();
     (mux, config, request)
 }
 
@@ -169,10 +173,41 @@ fn fresh_general_request_deserializes_chosen_launch_settings() {
         "reasoningEffort": "high", "preset": "owned-preset"
     }))
     .unwrap();
-    assert_eq!(request.provider_id, "selected-provider");
+    assert_eq!(request.provider_id.as_deref(), Some("selected-provider"));
     assert_eq!(request.model.as_deref(), Some("chosen-model"));
     assert_eq!(request.reasoning_effort.as_deref(), Some("high"));
     assert_eq!(request.preset.as_deref(), Some("owned-preset"));
+}
+
+#[test]
+fn empty_general_selection_uses_the_receiving_machines_defaults() {
+    let (mux, mut config, _) = fixture();
+    config.agent_provider = "peer-default-provider".into();
+    config.model = Some("peer-default-model".into());
+    config.reasoning_effort = Some("peer-default-effort".into());
+    let request: FreshGeneralSessionRequest = serde_json::from_value(serde_json::json!({
+        "role": "general_agent", "intent": "fresh_general"
+    }))
+    .unwrap();
+
+    let resolved = request.resolve(&mux, &config).unwrap();
+
+    assert_eq!(
+        resolved.workspace_id,
+        crate::service::general_agent::general_workspace_id(&mux).unwrap()
+    );
+    assert_eq!(resolved.provider_id, "peer-default-provider");
+    assert_eq!(
+        resolved.cwd,
+        crate::service::general_agent::general_dir()
+            .to_string_lossy()
+            .to_string()
+    );
+    assert_eq!(resolved.model.as_deref(), Some("peer-default-model"));
+    assert_eq!(
+        resolved.reasoning_effort.as_deref(),
+        Some("peer-default-effort")
+    );
 }
 
 #[test]
@@ -243,6 +278,7 @@ fn fresh_general_binds_the_requested_account_and_credential_home() {
         "accountId": "work"
     }))
     .unwrap();
+    let request = request.resolve(&svc.mux.read(), &config).unwrap();
     validate_request(&svc.mux.read(), &config, &request).unwrap();
     let (account, invocation, _reservation) =
         provider_accounts::spawn_params(svc, request.account_launch_params()).unwrap();

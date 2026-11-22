@@ -58,6 +58,11 @@ fn team_storage_fixture() -> TeamStorageFixture {
         .start_run(
             protected,
             CronRunRecord {
+                scheduled_occurrence_at: None,
+                fired_at: None,
+                late_by_ms: None,
+                provider: None,
+                owner_instance_id: None,
                 cancel_reason: None,
                 run_id,
                 started_at: 10,
@@ -203,6 +208,7 @@ fn cron_record(id: &str, workspace_id: &str, team_id: &str, protected: bool) -> 
         created_at: 1,
         last_run_id: None,
         next_run: None,
+        next_occurrence_at: None,
         jitter_max_ms: None,
         tz: None,
         timeout_seconds: None,

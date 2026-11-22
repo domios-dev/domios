@@ -42,9 +42,9 @@ async function main() {
   globalThis.fetch = muxMockFetch(async (input, init) => {
     const url = new URL(String(input));
     const envelope = url.pathname === "/api/mesh/relay-to"
-      ? JSON.parse(String(init?.body)) as { target_peer_id: string; path: string }
+      ? JSON.parse(String(init?.body)) as { target_instance_id: string; path: string }
       : null;
-    const machine = envelope?.target_peer_id ?? "self";
+    const machine = envelope?.target_instance_id ?? "self";
     const path = envelope?.path ?? `${url.pathname}${url.search}`;
     reads.push(`${machine}:${path}`);
     const plan = { ...FIXTURE_PLAN, id: `pl_${machine}`, title: `${machine}-${revision}`, revision: String(revision + 1) };
@@ -97,14 +97,47 @@ async function main() {
     revision = 2;
     holdReads = true;
     await renderAct(async () => {
-      for (const handler of handlers.get("plan-changed") ?? []) handler({ payload: { plan_id: "pl_ubunta", revision: String(revision + 1), previous_revision: String(revision), task_ids: [], reset: true, deleted: false } });
+      for (const handler of handlers.get("plan-changed") ?? []) {
+        handler({ payload: { plan_id: "pl_ubunta", revision: "3", previous_revision: "2", task_ids: [], reset: true, deleted: false } });
+        handler({ payload: { plan_id: "pl_ubunta", revision: "4", previous_revision: "3", task_ids: [], reset: true, deleted: false } });
+      }
     });
-    assert(heldReads.length > 0);
+    assert.equal(heldReads.length, 2, "same-authority advancing events coalesce to one held index read and one held summary read");
     holdReads = false;
     await switchPeer("eight", 2);
     assert.deepEqual(snapshot.full, ["pl_eight"]);
     await renderAct(async () => { heldReads.splice(0).forEach((resolve) => resolve()); });
     assert.deepEqual(snapshot.full, ["pl_eight"], "late peer reads cannot contaminate the current machine");
+
+    holdReads = true;
+    await renderAct(async () => {
+      for (const handler of handlers.get("plan-changed") ?? []) {
+        handler({ payload: { plan_id: "pl_eight", revision: "5", previous_revision: "4", task_ids: [], reset: false, deleted: false } });
+      }
+    });
+    assert(heldReads.length > 0, "reads held under old credential");
+    holdReads = false;
+    revision = 5;
+    await renderAct(async () => {
+      root.render(<PlansProvider api={{ ...API, token: "rotated-token" }}><Probe /></PlansProvider>);
+    });
+    assert.deepEqual(snapshot.titles, ["eight-5"]);
+    await renderAct(async () => { heldReads.splice(0).forEach((resolve) => resolve()); });
+    assert.deepEqual(snapshot.titles, ["eight-5"], "late old-credential reads cannot overwrite rotated credential state");
+
+    holdReads = true;
+    const { fireResync } = await import("../../lib/resync");
+    await renderAct(async () => {
+      for (const handler of handlers.get("plan-changed") ?? []) {
+        handler({ payload: { plan_id: "pl_eight", revision: "7", previous_revision: "6", task_ids: [], reset: false, deleted: false } });
+      }
+    });
+    assert.equal(heldReads.length, 2, "index and summary reads held before epoch change");
+    holdReads = false;
+    revision = 7;
+    await renderAct(async () => { fireResync("epoch_changed"); });
+    await renderAct(async () => { heldReads.splice(0).forEach((resolve) => resolve()); });
+    assert.deepEqual(snapshot.titles, ["eight-7"], "late pre-epoch replies cannot overwrite post-epoch state");
 
     await switchPeer(null, 3);
     assert.deepEqual(snapshot.full, ["pl_self"]);

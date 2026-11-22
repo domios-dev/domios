@@ -92,6 +92,7 @@ struct JobValues<'a> {
     jitter_max_ms: Option<i64>,
     timeout_seconds: Option<i64>,
     consecutive_failures: i64,
+    next_occurrence_at: Option<i64>,
 }
 
 impl<'a> JobValues<'a> {
@@ -105,10 +106,11 @@ impl<'a> JobValues<'a> {
             jitter_max_ms: optional_sql("cron jitter", job.jitter_max_ms)?,
             timeout_seconds: optional_sql("cron timeout", job.timeout_seconds)?,
             consecutive_failures: i64::from(job.consecutive_failures),
+            next_occurrence_at: optional_sql("cron next occurrence", job.next_occurrence_at)?,
         })
     }
 
-    fn scalars(&self) -> [&dyn ToSql; 25] {
+    fn scalars(&self) -> [&dyn ToSql; 26] {
         let job = self.job;
         [
             &job.name,
@@ -136,6 +138,7 @@ impl<'a> JobValues<'a> {
             &self.timeout_seconds,
             &self.consecutive_failures,
             &job.protected,
+            &self.next_occurrence_at,
         ]
     }
 }
@@ -148,7 +151,7 @@ fn insert_job_row(
     let values = JobValues::of(job)?;
     let mut bound: Vec<&dyn ToSql> = vec![&job.id.0 as &dyn ToSql, &ordinal];
     bound.extend(values.scalars());
-    let placeholders: Vec<String> = (3..=27).map(|index| format!("?{index}")).collect();
+    let placeholders: Vec<String> = (3..=28).map(|index| format!("?{index}")).collect();
     let columns = JOB_COLUMNS.replacen("id, ", "id, ordinal, ", 1);
     cx.write(
         &format!(
@@ -186,11 +189,22 @@ fn update_job_row(cx: &mut WriteCx<'_>, job: &CronJobRecord) -> Result<(), Stora
     Ok(())
 }
 
-fn run_values(run: &CronRunRecord) -> Result<(i64, Option<i64>), StorageError> {
-    Ok((
-        to_sql_u64("run start", run.started_at)?,
-        optional_sql("run finish", run.finished_at)?,
-    ))
+struct RunTimes {
+    started_at: i64,
+    finished_at: Option<i64>,
+    scheduled_occurrence_at: Option<i64>,
+    fired_at: Option<i64>,
+    late_by_ms: Option<i64>,
+}
+
+fn run_times(run: &CronRunRecord) -> Result<RunTimes, StorageError> {
+    Ok(RunTimes {
+        started_at: to_sql_u64("run start", run.started_at)?,
+        finished_at: optional_sql("run finish", run.finished_at)?,
+        scheduled_occurrence_at: optional_sql("scheduled occurrence", run.scheduled_occurrence_at)?,
+        fired_at: optional_sql("fire time", run.fired_at)?,
+        late_by_ms: optional_sql("admission delay", run.late_by_ms)?,
+    })
 }
 
 fn insert_run_row(
@@ -199,24 +213,29 @@ fn insert_run_row(
     run: &CronRunRecord,
     ordinal: Option<i64>,
 ) -> Result<(), StorageError> {
-    let (started_at, finished_at) = run_values(run)?;
+    let times = run_times(run)?;
     cx.write(
         "INSERT INTO cron_runs (job_id, run_id, ordinal, started_at, finished_at, status, \
-         tab_id, session_id, cwd, summary, report_delivery, cancel_reason) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+         tab_id, session_id, cwd, summary, report_delivery, cancel_reason, provider, owner_instance_id, scheduled_occurrence_at, fired_at, late_by_ms) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             job_id.0,
             run.run_id.0,
             ordinal,
-            started_at,
-            finished_at,
+            times.started_at,
+            times.finished_at,
             run.status.as_sql(),
             run.tab_id,
             run.session_id,
             run.cwd,
             run.summary,
             run.report_delivery,
-            run.cancel_reason.map(|reason| reason.as_sql())
+            run.cancel_reason.map(|reason| reason.as_sql()),
+            run.provider,
+            run.owner_instance_id,
+            times.scheduled_occurrence_at,
+            times.fired_at,
+            times.late_by_ms
         ],
     )?;
     Ok(())
@@ -227,23 +246,29 @@ fn update_run_row(
     job_id: &CronJobId,
     run: &CronRunRecord,
 ) -> Result<(), StorageError> {
-    let (started_at, finished_at) = run_values(run)?;
+    let times = run_times(run)?;
     let changed = cx.write(
         "UPDATE cron_runs SET started_at = ?3, finished_at = ?4, status = ?5, tab_id = ?6, \
-         session_id = ?7, cwd = ?8, summary = ?9, report_delivery = ?10, cancel_reason = ?11 \
+         session_id = ?7, cwd = ?8, summary = ?9, report_delivery = ?10, cancel_reason = ?11, \
+         provider = ?12, owner_instance_id = ?13, scheduled_occurrence_at = ?14, fired_at = ?15, late_by_ms = ?16 \
          WHERE job_id = ?1 AND run_id = ?2",
         params![
             job_id.0,
             run.run_id.0,
-            started_at,
-            finished_at,
+            times.started_at,
+            times.finished_at,
             run.status.as_sql(),
             run.tab_id,
             run.session_id,
             run.cwd,
             run.summary,
             run.report_delivery,
-            run.cancel_reason.map(|reason| reason.as_sql())
+            run.cancel_reason.map(|reason| reason.as_sql()),
+            run.provider,
+            run.owner_instance_id,
+            times.scheduled_occurrence_at,
+            times.fired_at,
+            times.late_by_ms
         ],
     )?;
     if changed != 1 {
@@ -432,22 +457,28 @@ fn evolve_mirror(
             "the divergent copy belongs to another run",
         )),
         Some(_) => {
-            let (started_at, finished_at) = run_values(copy)?;
+            let times = run_times(copy)?;
             cx.write(
                 "UPDATE cron_last_run_mirrors SET started_at = ?2, finished_at = ?3, \
                  status = ?4, tab_id = ?5, session_id = ?6, cwd = ?7, summary = ?8, \
-                 report_delivery = ?9, cancel_reason = ?10 WHERE job_id = ?1",
+                 report_delivery = ?9, cancel_reason = ?10, provider = ?11, owner_instance_id = ?12, \
+                 scheduled_occurrence_at = ?13, fired_at = ?14, late_by_ms = ?15 WHERE job_id = ?1",
                 params![
                     job_id.0,
-                    started_at,
-                    finished_at,
+                    times.started_at,
+                    times.finished_at,
                     copy.status.as_sql(),
                     copy.tab_id,
                     copy.session_id,
                     copy.cwd,
                     copy.summary,
                     copy.report_delivery,
-                    copy.cancel_reason.map(|reason| reason.as_sql())
+                    copy.cancel_reason.map(|reason| reason.as_sql()),
+                    copy.provider,
+                    copy.owner_instance_id,
+                    times.scheduled_occurrence_at,
+                    times.fired_at,
+                    times.late_by_ms
                 ],
             )?;
             Ok(())
@@ -469,7 +500,12 @@ fn drop_converged_mirror(cx: &mut WriteCx<'_>, job_id: &CronJobId) -> Result<(),
          AND r.cwd IS cron_last_run_mirrors.cwd \
          AND r.summary IS cron_last_run_mirrors.summary \
          AND r.report_delivery IS cron_last_run_mirrors.report_delivery \
-         AND r.cancel_reason IS cron_last_run_mirrors.cancel_reason)",
+         AND r.provider IS cron_last_run_mirrors.provider \
+         AND r.owner_instance_id IS cron_last_run_mirrors.owner_instance_id \
+         AND r.cancel_reason IS cron_last_run_mirrors.cancel_reason \
+         AND r.scheduled_occurrence_at IS cron_last_run_mirrors.scheduled_occurrence_at \
+         AND r.fired_at IS cron_last_run_mirrors.fired_at \
+         AND r.late_by_ms IS cron_last_run_mirrors.late_by_ms)",
         [job_id.as_str()],
     )?;
     Ok(())
@@ -610,18 +646,18 @@ pub(crate) fn write_import(cx: &mut WriteCx<'_>, import: &CronImport) -> Result<
         let (Some(copy), Some(listed)) = (&job.last_run, import.divergent_row(job)) else {
             continue;
         };
-        let (started_at, finished_at) = run_values(copy)?;
+        let times = run_times(copy)?;
         let differing = CronRunField::join(&CronRunField::differing(copy, listed));
         cx.write(
             "INSERT INTO cron_last_run_mirrors (job_id, run_id, started_at, finished_at, \
              status, tab_id, session_id, cwd, summary, report_delivery, cancel_reason, origin, \
-             imported_revision, imported_differing) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'legacy_import', ?12, ?13)",
+             provider, owner_instance_id, imported_revision, imported_differing, scheduled_occurrence_at, fired_at, late_by_ms) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'legacy_import', ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 job.record.id.0,
                 copy.run_id.0,
-                started_at,
-                finished_at,
+                times.started_at,
+                times.finished_at,
                 copy.status.as_sql(),
                 copy.tab_id,
                 copy.session_id,
@@ -629,8 +665,13 @@ pub(crate) fn write_import(cx: &mut WriteCx<'_>, import: &CronImport) -> Result<
                 copy.summary,
                 copy.report_delivery,
                 copy.cancel_reason.map(|reason| reason.as_sql()),
+                copy.provider,
+                copy.owner_instance_id,
                 revision,
-                differing
+                differing,
+                times.scheduled_occurrence_at,
+                times.fired_at,
+                times.late_by_ms
             ],
         )?;
     }

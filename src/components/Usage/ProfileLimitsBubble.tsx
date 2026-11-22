@@ -7,8 +7,18 @@ import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { balanceFailure, balanceLabel, balanceNeedsRead, balanceReading } from "./balanceModel";
 import { ContextUsageBubble } from "./ContextUsageBubble";
 import { contextUsage, useClaimContext } from "./contextUsage";
-import { quotaPill, quotaReadDue, quotaReading, unavailablePill } from "./quotaModel";
-import { ownRuntimeUsage } from "./runtimeUsage";
+import {
+  activeQuotaReset,
+  nextQuotaResetTickMs,
+  quotaPill,
+  quotaReadDue,
+  quotaReading,
+  quotaResetPill,
+  unavailablePill,
+  type QuotaReading,
+  type QuotaResetReading,
+} from "./quotaModel";
+import { ownRuntimeUsage, runtimeTokenBreakdown, runtimeTokenLabel } from "./runtimeUsage";
 import { UsageGauge } from "./UsageGauge";
 
 function LimitsPill({ label, text, tone, children }: { label: string; text: string; tone?: "quiet" | "warn" | "danger"; children: ReactNode }) {
@@ -29,18 +39,94 @@ function LimitsPill({ label, text, tone, children }: { label: string; text: stri
   );
 }
 
-/** The tab's own session, whose reported context stands in when the account's limits cannot be read. */
-export interface TabUsageSession { provider: string; accountId?: string | null; tabId: string; threadId?: string | null; context: unknown; label?: string }
+export function useQuotaResetTick(resetsAt: number | null, now: number): void {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (resetsAt == null) return;
+    const delay = nextQuotaResetTickMs(resetsAt, Date.now());
+    if (delay == null) return;
+    const timer = setTimeout(() => setTick((value) => value + 1), delay);
+    return () => clearTimeout(timer);
+  }, [resetsAt, now]);
+}
 
-/** Nothing readable for the account: the session's reported context when it has one, otherwise a dash that says why. */
+export function QuotaReadingPill({ reading, failure, capturedAt, onRefresh }: {
+  reading: QuotaReading; failure: string | null; capturedAt?: number; onRefresh?: () => void;
+}) {
+  const pill = quotaPill(reading, failure);
+  const state = classify(pill.percent);
+  const now = Date.now();
+  return (
+    <LimitsPill label={pill.label} text={pill.text} tone={state === "neutral" ? (failure ? "warn" : undefined) : state}>
+      <div className="head"><span className="title">{reading.title}</span></div>
+      {reading.limits.map((limit) => (
+        <UsageGauge key={limit.label} label={limit.label} variant="session" pct={limit.usedPercent} resetsAt={limit.resetsAt} state={classify(limit.usedPercent)} now={now} />
+      ))}
+      {failure ? <p className="ct-usage-detail">Last read failed: {failure}</p> : null}
+      <div className="ct-usage-foot">
+        <span>{capturedAt !== undefined ? `last updated ${formatAge(capturedAt, now)}` : "not read yet"}</span>
+        {onRefresh ? <button type="button" className="link" onClick={onRefresh}>Refresh</button> : null}
+      </div>
+    </LimitsPill>
+  );
+}
+
+export function QuotaResetPill({ title, reset, note, now }: {
+  title: string; reset: QuotaResetReading; note?: string; now: number;
+}) {
+  const pill = quotaResetPill(reset, now);
+  return (
+    <LimitsPill label={pill.label} text={pill.text} tone="warn">
+      <div className="head"><span className="title">{title}</span></div>
+      <UsageGauge label="Quota limit" variant="session" pct={100} resetsAt={reset.resetsAt} state="danger" now={now} />
+      {reset.reason ? <p className="ct-usage-detail">{reset.reason}</p> : null}
+      {note ? <p className="ct-usage-detail ct-usage-detail--note">{note}</p> : null}
+      {reset.observedAt !== null ? (
+        <div className="ct-usage-foot">
+          <span>observed {formatAge(reset.observedAt, now)}</span>
+        </div>
+      ) : null}
+    </LimitsPill>
+  );
+}
+
+/** The tab's own session, whose reported context stands in when the account's limits cannot be read. */
+export interface TabUsageSession { provider: string; accountId?: string | null; profileAccountId?: string | null; tabId: string; threadId?: string | null; context: unknown; label?: string }
+
+/** Nothing readable for the account: pushed quota or observed reset when present, else the session's reported context or a dash that says why. */
 export function UnavailableLimitsBubble({ reason, session }: { reason: string; session?: TabUsageSession }) {
   const { snapshot } = useUsageSnapshot({ provider: session?.provider ?? "", accountId: session?.accountId, enabled: session !== undefined });
+  const { snapshot: profileSnapshot } = useUsageSnapshot({
+    provider: session?.provider ?? "",
+    accountId: session?.profileAccountId,
+    enabled: Boolean(session?.provider && session?.profileAccountId),
+  });
+  const now = Date.now();
+  const pushedQuota = quotaReading(profileSnapshot);
+  const quotaReset = pushedQuota ? null : activeQuotaReset(profileSnapshot, now);
+  useQuotaResetTick(quotaReset?.resetsAt ?? null, now);
   const runtime = ownRuntimeUsage(snapshot, session?.tabId, session?.threadId);
-  const usage = session ? contextUsage(session.context, runtime) : null;
+  const usage = session && !pushedQuota && !quotaReset ? contextUsage(session.context, runtime) : null;
   useClaimContext(session?.tabId, usage !== null);
+  if (pushedQuota) {
+    return <QuotaReadingPill reading={pushedQuota} failure={null} capturedAt={profileSnapshot?.captured_at} />;
+  }
+  if (quotaReset) {
+    return <QuotaResetPill title={`${session?.label ?? session?.provider ?? "Account"} quota`} reset={quotaReset} note={reason} now={now} />;
+  }
   if (session && usage) {
     return <ContextUsageBubble title={`${session.label ?? session.provider} usage`} usage={usage} reason={reason}
       capturedAt={runtime?.token_usage?.captured_at ?? runtime?.captured_at ?? null} />;
+  }
+  if (session && runtime?.token_usage) {
+    const label = runtimeTokenLabel(runtime);
+    return (
+      <LimitsPill label={`usage ${label}`} text={label}>
+        <div className="head"><span className="title">{session.label ?? session.provider} usage</span></div>
+        <div role="status" className="ct-usage-detail">{runtimeTokenBreakdown(runtime)}</div>
+        <p className="ct-usage-detail">{reason}</p>
+      </LimitsPill>
+    );
   }
   const pill = unavailablePill(reason);
   return (
@@ -61,26 +147,19 @@ export function QuotaBubble({ provider, accountId, trackingEnabled, session }: {
     lastRequested.current = Date.now();
     void refresh();
   }, [trackingEnabled, reportedContext, refresh]);
-  if (!trackingEnabled) return null;
-  const reading = quotaReading(snapshot);
-  const failure = balanceFailure(snapshot, error, "Usage limits are unavailable");
-  if (!reading) return <UnavailableLimitsBubble reason={failure ?? "Usage limits have not been read yet"} session={session} />;
-  const pill = quotaPill(reading, failure);
-  const state = classify(pill.percent);
   const now = Date.now();
-  return (
-    <LimitsPill label={pill.label} text={pill.text} tone={state === "neutral" ? (failure ? "warn" : undefined) : state}>
-      <div className="head"><span className="title">{reading.title}</span></div>
-      {reading.limits.map((limit) => (
-        <UsageGauge key={limit.label} label={limit.label} variant="session" pct={limit.usedPercent} resetsAt={limit.resetsAt} state={classify(limit.usedPercent)} now={now} />
-      ))}
-      {failure ? <p className="ct-usage-detail">Last read failed: {failure}</p> : null}
-      <div className="ct-usage-foot">
-        <span>{snapshot?.captured_at !== undefined ? `last updated ${formatAge(snapshot.captured_at, now)}` : "not read yet"}</span>
-        <button type="button" className="link" onClick={() => void refresh()}>Refresh</button>
-      </div>
-    </LimitsPill>
-  );
+  const reading = trackingEnabled ? quotaReading(snapshot) : null;
+  const quotaReset = trackingEnabled && !reading ? activeQuotaReset(snapshot, now) : null;
+  useQuotaResetTick(quotaReset?.resetsAt ?? null, now);
+  if (!trackingEnabled) return null;
+  const failure = balanceFailure(snapshot, error, "Usage limits are unavailable");
+  if (reading) {
+    return <QuotaReadingPill reading={reading} failure={failure} capturedAt={snapshot?.captured_at} onRefresh={() => void refresh()} />;
+  }
+  if (quotaReset) {
+    return <QuotaResetPill title={`${session?.label ?? provider} quota`} reset={quotaReset} note={failure ?? undefined} now={now} />;
+  }
+  return <UnavailableLimitsBubble reason={failure ?? "Usage limits have not been read yet"} session={session} />;
 }
 
 /** A balance the provider plugin reads for this profile; reads are requested, never polled. */

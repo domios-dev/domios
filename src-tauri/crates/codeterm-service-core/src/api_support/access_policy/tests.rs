@@ -1,12 +1,54 @@
 use super::*;
 
 #[test]
+fn remote_team_plan_reads_require_read_plan_and_keep_writes_full() {
+    for path in [
+        "/api/teams/team-B/mission-control/state?limit=1",
+        "/api/plans",
+        "/api/plans/plan-B/projection?view=list",
+        "/api/plans/plan-B/board-state",
+        "/api/plans/plan-B/tasks",
+        "/api/plans/plan-B/tasks/task-B",
+        "/api/plans/plan-B/tasks/task-B/history?kind=milestones",
+        "/api/specs/spec-B",
+    ] {
+        let scope = request_scope(&Method::GET, path).unwrap();
+        assert_eq!(scope.operation, PeerOperation::ReadPlan, "{path}");
+        assert!(scope.allowed(&AccessLevel::ReadOnly), "{path}");
+        assert!(!scope.allowed(&AccessLevel::AgentIsolated), "{path}");
+        assert!(
+            !scope.allowed(&AccessLevel::Custom(vec![Permission::ReadTabs])),
+            "{path}"
+        );
+    }
+    assert!(!check_access(
+        &AccessLevel::ReadOnly,
+        &Method::PATCH,
+        "/api/plans/plan-B/tasks/task-B",
+    ));
+    assert!(!check_access(
+        &AccessLevel::ReadOnly,
+        &Method::POST,
+        "/api/mesh/rpc",
+    ));
+    assert!(check_access(
+        &AccessLevel::Full,
+        &Method::POST,
+        "/api/mesh/rpc",
+    ));
+}
+
+#[test]
 fn local_only_paths_are_denied_at_every_peer_access_level() {
     for path in [
         "/api/secrets/opaque/value",
         "/api/mesh/debug/sign",
         "/api/supporter/token",
         "/api/analytics/usage",
+        "/api/dictation/start",
+        "/api/dictation/opaque/frame/1",
+        "/api/dictation/opaque/finish/2",
+        "/api/dictation/opaque/cancel",
         "/api/agents/reparent",
         "/api/teams/team/adopt-remote",
         "/api/account/status",
@@ -245,4 +287,153 @@ fn mesh_control_denied_below_full() {
         &Method::POST,
         "/api/mesh/announce"
     ));
+}
+
+#[test]
+fn read_grants_are_scoped_to_the_actual_operation() {
+    let tabs = AccessLevel::Custom(vec![Permission::ReadTabs]);
+    let output = AccessLevel::Custom(vec![Permission::ReadOutput]);
+    assert!(check_access(&tabs, &Method::GET, "/api/tabs"));
+    assert!(!check_access(&output, &Method::GET, "/api/tabs"));
+    assert!(!check_access(&tabs, &Method::GET, "/api/tabs/owned/output"));
+    assert!(check_access(
+        &output,
+        &Method::GET,
+        "/api/tabs/owned/output"
+    ));
+    assert!(!check_access(
+        &tabs,
+        &Method::POST,
+        "/api/tabs/owned/chat-raw/history"
+    ));
+    assert!(check_access(
+        &output,
+        &Method::POST,
+        "/api/tabs/owned/chat-raw/history"
+    ));
+    for (method, action) in [
+        (Method::POST, "chat-raw/start"),
+        (Method::POST, "chat-raw/stop"),
+        (Method::POST, "chat-raw/resume"),
+        (Method::POST, "chat-send/admissions"),
+        (Method::GET, "chat-send"),
+        (Method::GET, "chat-send/dismissals"),
+    ] {
+        let path = format!("/api/tabs/owned/{action}");
+        assert!(check_access(&output, &method, &path));
+        assert!(!check_access(&tabs, &method, &path));
+    }
+    let dismissals = "/api/tabs/owned/chat-send/dismissals";
+    assert!(!check_access(
+        &AccessLevel::ReadOnly,
+        &Method::POST,
+        dismissals
+    ));
+    assert!(check_access(
+        &AccessLevel::Custom(vec![Permission::SendInput]),
+        &Method::POST,
+        dismissals,
+    ));
+    assert!(!check_access(
+        &AccessLevel::ReadOnly,
+        &Method::POST,
+        "/api/tabs/owned/chat-view"
+    ));
+    assert!(!check_access(
+        &AccessLevel::ReadOnly,
+        &Method::GET,
+        "/api/unknown"
+    ));
+    assert!(!check_access(
+        &AccessLevel::Full,
+        &Method::GET,
+        "/api/unknown"
+    ));
+}
+
+#[test]
+fn isolated_output_stream_requires_one_owned_tab() {
+    let access = AccessLevel::AgentIsolated;
+    for (path, allowed) in [
+        ("/api/output/stream", false),
+        ("/api/output/stream?tab_id=", false),
+        ("/api/output/stream?tab_id=owned&tab_id=foreign", false),
+        ("/api/output/stream?tab_id=foreign", false),
+        ("/api/output/stream?tab_id=%6fwned", true),
+    ] {
+        assert_eq!(
+            peer_access_allowed(&access, "peer", &Method::GET, path, |id| (id == "owned")
+                .then(|| "peer".to_owned()),),
+            allowed,
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn cron_run_history_has_a_distinct_resource_scope() {
+    let path = "/api/crons/job/history/run";
+    let scope = request_scope(&Method::GET, path).unwrap();
+    assert_eq!(
+        scope,
+        PeerScope::new(
+            PeerOperation::ReadCronRun,
+            PeerResource::CronRun {
+                cron_id: "job",
+                run_id: "run"
+            }
+        )
+    );
+    assert!(scope.allowed(&AccessLevel::ReadOnly));
+    assert!(scope.allowed(&AccessLevel::Custom(vec![Permission::ManageCrons])));
+    assert!(!scope.allowed(&AccessLevel::Custom(vec![Permission::ReadOutput])));
+    assert!(!scope.allowed(&AccessLevel::AgentIsolated));
+}
+
+#[test]
+fn workspace_close_preview_matches_workspace_close_authority() {
+    for path in [
+        "/api/workspaces/ws-1/close-preview",
+        "/api/workspaces/ws-1/close-preview?refresh=1",
+    ] {
+        let scope = request_scope(&Method::GET, path).unwrap();
+        assert_eq!(
+            scope,
+            PeerScope::new(
+                PeerOperation::ReadWorkspaceClosePreview,
+                PeerResource::Workspace("ws-1"),
+            ),
+            "{path}"
+        );
+        assert!(scope.allowed(&AccessLevel::Full), "{path}");
+        assert!(
+            scope.allowed(&AccessLevel::Custom(vec![Permission::ManageWorkspaces])),
+            "{path}"
+        );
+        assert!(
+            scope.allowed(&AccessLevel::Custom(vec![Permission::Admin])),
+            "{path}"
+        );
+        assert!(!scope.allowed(&AccessLevel::ReadOnly), "{path}");
+        assert!(!scope.allowed(&AccessLevel::AgentIsolated), "{path}");
+        assert!(
+            !scope.allowed(&AccessLevel::Custom(vec![Permission::ReadTabs])),
+            "{path}"
+        );
+        assert!(
+            !scope.allowed(&AccessLevel::Custom(vec![Permission::ReadOutput])),
+            "{path}"
+        );
+    }
+    assert!(request_scope(&Method::GET, "/api/workspaces/ws-1/close-preview/extra").is_none());
+    assert!(request_scope(&Method::GET, "/api/workspaces//close-preview").is_none());
+    let close_scope = request_scope(&Method::POST, "/api/workspaces/ws-1/close").unwrap();
+    assert_eq!(
+        close_scope,
+        PeerScope::new(PeerOperation::ManageWorkspace, PeerResource::Host)
+    );
+    assert!(close_scope.allowed(&AccessLevel::Full));
+    assert!(close_scope.allowed(&AccessLevel::Custom(vec![Permission::ManageWorkspaces])));
+    assert!(!close_scope.allowed(&AccessLevel::ReadOnly));
+    assert!(!close_scope.allowed(&AccessLevel::AgentIsolated));
 }

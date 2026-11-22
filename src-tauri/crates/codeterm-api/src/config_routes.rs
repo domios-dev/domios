@@ -180,11 +180,22 @@ pub async fn patch_config_api(
     headers: HeaderMap,
     Json(body): Json<PatchConfigBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    use codeterm_service_core::config::{
+        browser_blueprint_origins, browser_blueprint_profiles, valid_browser_blueprint_origin,
+        BROWSER_BLUEPRINT_ORIGINS_SETTING, BROWSER_BLUEPRINT_PROFILES_SETTING,
+    };
     let cfg = state.config.lock().clone();
     let mut cfg_json = serde_json::to_value(&cfg)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     if let (Some(key), Some(value)) = (body.key.as_deref(), &body.value) {
+        if matches!(
+            key,
+            BROWSER_BLUEPRINT_PROFILES_SETTING | BROWSER_BLUEPRINT_ORIGINS_SETTING
+        ) && !cfg.plugins.contains_key("browser")
+        {
+            cfg_json["plugins"]["browser"] = serde_json::json!({});
+        }
         dot_set(&mut cfg_json, key, value.clone())
             .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid key path".to_string()))?;
     } else if !body.partial.is_empty() {
@@ -213,6 +224,54 @@ pub async fn patch_config_api(
             StatusCode::FORBIDDEN,
             "Only the owner can change browser upload folders".into(),
         ));
+    }
+    let blueprint_profiles = browser_blueprint_profiles(&new_cfg);
+    if blueprint_profiles != browser_blueprint_profiles(&cfg) {
+        if origin != crate::auth::AuthenticatedOrigin::Owner {
+            return Err((
+                StatusCode::FORBIDDEN,
+                format!("Only the owner can change {BROWSER_BLUEPRINT_PROFILES_SETTING}"),
+            ));
+        }
+        if let Some(profiles) = blueprint_profiles {
+            let profiles = profiles.as_array().ok_or((
+                StatusCode::BAD_REQUEST,
+                format!("{BROWSER_BLUEPRINT_PROFILES_SETTING} must be an array of profile names"),
+            ))?;
+            for profile in profiles {
+                let profile = profile.as_str().unwrap_or_default();
+                codeterm_service_core::service::browser::profile::validate_named_profile(profile)
+                    .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+            }
+        }
+    }
+    let blueprint_origins = browser_blueprint_origins(&new_cfg);
+    if blueprint_origins != browser_blueprint_origins(&cfg) {
+        if origin != crate::auth::AuthenticatedOrigin::Owner {
+            return Err((
+                StatusCode::FORBIDDEN,
+                format!("Only the owner can change {BROWSER_BLUEPRINT_ORIGINS_SETTING}"),
+            ));
+        }
+        let invalid_origins = || {
+            (
+            StatusCode::BAD_REQUEST,
+            format!("{BROWSER_BLUEPRINT_ORIGINS_SETTING} must map profile names to arrays of exact HTTP(S) origins"),
+        )
+        };
+        if let Some(origins) = blueprint_origins {
+            for (profile, sites) in origins.as_object().ok_or_else(invalid_origins)? {
+                codeterm_service_core::service::browser::profile::validate_named_profile(profile)
+                    .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+                if !sites.as_array().is_some_and(|sites| {
+                    sites
+                        .iter()
+                        .all(|site| site.as_str().is_some_and(valid_browser_blueprint_origin))
+                }) {
+                    return Err(invalid_origins());
+                }
+            }
+        }
     }
     let headers = crate::auth::ActorHeaders::authenticate(&state, headers)?;
     if admit_config_write(
@@ -290,16 +349,17 @@ pub async fn patch_config_api(
         codeterm_service_core::config::changed_provider_settings(&cfg, &new_cfg);
 
     let config_state = state.config.clone();
-    let expected_folders = cfg.browser_upload_folders.clone();
+    let expected_config = cfg.clone();
     new_cfg = tokio::task::spawn_blocking(move || {
         if origin == crate::auth::AuthenticatedOrigin::Owner {
             codeterm_service_core::config::save_owner_config_and_apply(
                 &config_state,
                 new_cfg,
-                &expected_folders,
+                &expected_config,
             )
             .map_err(|error| match error {
-                codeterm_service_core::config::ConfigCommitError::StaleUploadFolders => {
+                codeterm_service_core::config::ConfigCommitError::StaleUploadFolders
+                | codeterm_service_core::config::ConfigCommitError::StaleBlueprintProfiles => {
                     (StatusCode::CONFLICT, error.to_string())
                 }
                 codeterm_service_core::config::ConfigCommitError::Save(message) => {

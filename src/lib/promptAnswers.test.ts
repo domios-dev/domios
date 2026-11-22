@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { answerablePrompt, promptMessagePart, isFreeTextPromptOption, promptResponseArgs } from "./promptAnswers";
+import { answerablePrompt, liveRuntimePrompt, promptMessagePart, isFreeTextPromptOption, promptResponseArgs } from "./promptAnswers";
+import { tabActivity, type TabActivityInput } from "./tabActivity";
+import type { TabStatus } from "./types";
 
 describe("answerablePrompt", () => {
   const prompt = { question: "opaque", options: ["a", "b"] };
@@ -71,5 +73,45 @@ describe("promptResponseArgs", () => {
     expect(captured.identity?.options[0].value).toBe("native");
     expect(promptResponseArgs("owned", "native", { question: "fixture", options })).toEqual({ tabId: "owned", value: "native" });
     expect(promptResponseArgs("owned", "native", null)).toEqual({ tabId: "owned", value: "native" });
+  });
+});
+
+describe("chat runtime permission projection", () => {
+  const tab: TabActivityInput = {
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "bound-thread" },
+    agent_session_id: "bound-thread",
+    boot_stage: "agent_ready",
+  };
+  const request = { request_id: "opaque-request", question: "Allow tool?",
+    options: [{ label: "Allow once", value: "opaque-once" }] };
+  const project = (input: TabActivityInput, status: TabStatus) => ({
+    activity: tabActivity(input, status),
+    card: promptMessagePart(undefined, null, null, liveRuntimePrompt(input)),
+  });
+
+  it("shows waiting with a card and an answer bound to the live request", () => {
+    const { activity, card } = project({ ...tab, pending_prompt_kind: "permission", pending_prompt: request }, "Working");
+    expect(activity).toMatchObject({ status: "Waiting", subtype: "permission" });
+    expect(card?.prompt).toEqual(request);
+    expect(promptResponseArgs("tab", "opaque-once", card?.prompt ?? null, "permission").identity)
+      .toEqual({ kind: "permission", options: request.options, request_id: "opaque-request" });
+  });
+
+  it.each([
+    { name: "replied", state: { state: "working" }, status: "Working", expected: "working" },
+    { name: "automatically answered", state: { state: "question", subtype: "permission" }, status: "Waiting", expected: "idle" },
+    { name: "turn ended", state: { state: "idle" }, status: "Idle", expected: "idle" },
+  ] as const)("clears the card and permission status when $name", ({ state, status, expected }) => {
+    const { activity, card } = project({ ...tab, agent_state: state }, status);
+    expect(activity.kind).toBe(expected);
+    expect(activity.subtype).toBeUndefined();
+    expect(card).toBeNull();
+  });
+
+  it("shows options for a runtime question without treating it as permission", () => {
+    const { activity, card } = project({ ...tab, pending_prompt_kind: "structured", pending_prompt: request }, "Working");
+    expect(activity).toMatchObject({ status: "Waiting", label: request.question });
+    expect(activity.subtype).toBeUndefined();
+    expect(card?.prompt).toEqual(request);
   });
 });

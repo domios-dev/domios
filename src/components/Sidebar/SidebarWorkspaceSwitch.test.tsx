@@ -5,6 +5,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { AppConfig, Tab, Team, Workspace } from "../../lib/types";
 import type { PlanView } from "../Canvas/planProjection";
 import { Sidebar } from "./Sidebar";
+import { setSidebarMachineFilter } from "./sidebarMachineFilter";
+import { PairedWorkspaceInventoryContext } from "../../store/multiplexer/context";
 import { SidebarDnd } from "./sortable";
 import { SidebarWorkspaceDetail, type SidebarWorkspaceDetailActions, type SidebarWorkspaceDetailData } from "./SidebarWorkspaceDetail";
 import { useMuxSelector } from "../../store/multiplexer/hooks";
@@ -12,8 +14,24 @@ import { usePtyConnection } from "../../hooks/terminal/usePtyConnection";
 import { invoke } from "../../lib/bridge";
 import { subscribeTabOutput } from "../../lib/outputStream";
 import type { Terminal } from "@xterm/xterm";
+import type { RemoteWorkspaceCloseConfirmation, RemoteWorkspaceCloseTarget } from "./useRemoteWorkspaceClose";
 
 const mux = vi.hoisted(() => ({ state: {} as Record<string, unknown>, listeners: new Set<() => void>() }));
+const remoteCloseCalls = vi.hoisted(() => ({
+  requested: [] as Array<{ peerId: string; workspaceId: string; availability: string; protected: boolean }>,
+  confirmed: [] as Array<{ peerId: string; workspaceId: string }>,
+}));
+const remotePlanCalls = vi.hoisted(() => ({
+  peerIds: [] as Array<string | null>,
+  result: {
+    plans: [] as PlanView[],
+    available: false,
+    loading: false,
+    reconnecting: false,
+    error: null as string | null,
+    refetch: async () => {},
+  },
+}));
 vi.mock("../../store/multiplexer/hooks", async () => {
   const { useSyncExternalStore } = await import("react");
   const subscribe = (listener: () => void) => { mux.listeners.add(listener); return () => { mux.listeners.delete(listener); }; };
@@ -23,8 +41,19 @@ vi.mock("../../store/multiplexer/hooks", async () => {
         mux.state = { ...mux.state, active_workspace_id: workspaceId, activeTabIds: { ...mux.state.activeTabIds as Record<string, string>, [workspaceId]: tabId } };
         for (const listener of [...mux.listeners]) listener();
       },
+      upsertToast: vi.fn(),
     }),
     useMuxSelector: (select: (state: object) => unknown) => select(useSyncExternalStore(subscribe, () => mux.state)),
+  };
+});
+vi.mock("../Canvas/PlansProvider", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../Canvas/PlansProvider")>();
+  return {
+    ...original,
+    usePeerPlanSummaries: vi.fn((peerId: string | null | undefined) => {
+      remotePlanCalls.peerIds.push(peerId ?? null);
+      return remotePlanCalls.result;
+    }),
   };
 });
 vi.mock("../../hooks/useAgentProviders", () => {
@@ -44,6 +73,36 @@ vi.mock("../Automation/hostAdapter", () => ({
     delete: async () => undefined,
   },
 }));
+vi.mock("./useRemoteWorkspaceClose", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./useRemoteWorkspaceClose")>();
+  const { useState } = await import("react");
+  return {
+    ...original,
+    useRemoteWorkspaceClose: (availabilityForPeer: Parameters<typeof original.useRemoteWorkspaceClose>[0], onClosed: Parameters<typeof original.useRemoteWorkspaceClose>[1]) => {
+      const [pending, setPending] = useState<RemoteWorkspaceCloseConfirmation | null>(null);
+      return {
+        pending,
+        request: async (target: RemoteWorkspaceCloseTarget, isStillSelected: () => boolean) => {
+          if (target.availability !== "online" || availabilityForPeer(target.peerId) !== "online") return { kind: "offline" as const };
+          if (target.protected) return { kind: "protected" as const };
+          if (!isStillSelected()) return { kind: "stale" as const };
+          remoteCloseCalls.requested.push({ peerId: target.peerId, workspaceId: target.workspaceId, availability: target.availability, protected: target.protected });
+          setPending({ ...target, agentTitles: ["peer-lead", "other-worker"], crons: [], blueprints: [], teams: [] });
+          return { kind: "ready" as const };
+        },
+        cancel: () => setPending(null),
+        confirm: async () => {
+          if (!pending) return { kind: "none" as const };
+          const target = pending;
+          setPending(null);
+          remoteCloseCalls.confirmed.push({ peerId: target.peerId, workspaceId: target.workspaceId });
+          onClosed(target.peerId, target.workspaceId);
+          return { kind: "closed" as const, target };
+        },
+      };
+    },
+  };
+});
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const config = { general_agent: { first_run_complete: true }, agent: {}, mesh: { enabled: false } } as AppConfig;
@@ -70,6 +129,13 @@ function mountHost() {
 }
 afterEach(async () => {
   for (const close of hosts.splice(0)) await close();
+  setSidebarMachineFilter("local");
+  remoteCloseCalls.requested.length = 0;
+  remoteCloseCalls.confirmed.length = 0;
+  remotePlanCalls.peerIds.length = 0;
+  remotePlanCalls.result = {
+    plans: [], available: false, loading: false, reconnecting: false, error: null, refetch: async () => {},
+  };
   localStorage.clear();
   vi.unstubAllGlobals();
 });
@@ -85,7 +151,7 @@ function detailData(tabs: readonly Tab[], teams: Team[], plans: PlanView[]): Sid
 const detailActions = {
   activateWorkspace: () => undefined, activateTab: () => undefined, closeTab: () => undefined, renameTab: () => undefined,
   renameWorkspace: () => undefined, closeWorkspace: () => undefined, newTerminal: () => undefined, newSession: () => undefined,
-  newAgent: () => undefined, openRemoteTab: () => undefined, openAutomation: () => undefined, closeTeam: () => undefined,
+  newAgent: () => undefined, openAutomation: () => undefined, closeTeam: () => undefined,
 } satisfies SidebarWorkspaceDetailActions;
 const row = (host: Element, tabId: string) => host.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`);
 
@@ -258,4 +324,136 @@ it.each([null, "owned-pty"])("selecting a failed tab never restarts it or change
       }
     }
   } finally { vi.mocked(invoke).mockResolvedValue([]); }
+});
+
+it("keeps one workspace switcher and falls back to one visible workspace when filtering", async () => {
+  vi.stubGlobal("__CODETERM_DEV__", false);
+  vi.stubGlobal("__APP_VERSION__", "test");
+  const here = [worker("local-worker", "Local home")];
+  setMux([workspaceOf("Local home", here)], here, "Local home");
+  const remoteId = "Peer home";
+  const lead = manager("peer-lead", remoteId);
+  const hand = worker("other-worker", remoteId);
+  const { host, root } = mountHost();
+  await act(async () => root.render(<PairedWorkspaceInventoryContext.Provider value={{
+    generals: [], browse: null, peerWorkspaces: [{
+      peerId: "blackstar", workspace: workspaceOf(remoteId, [lead, hand]), teams: [{ ...team(remoteId), name: null }],
+      planTitles: new Map([[team(remoteId).id, "Peer plan title"]]),
+      tabs: [{ viewerId: "mesh:blackstar/peer-lead", tab: lead }, { viewerId: "mesh:air/other-worker", tab: hand, peerId: "air" }],
+    }],
+  }}><Sidebar config={config} /></PairedWorkspaceInventoryContext.Provider>));
+  const grid = host.querySelector('[data-testid="workspace-card-grid"]');
+  const detail = () => [...host.querySelectorAll('[data-testid="workspace-detail"]')];
+  const cards = () => [...host.querySelectorAll('[data-testid="workspace-card"]')];
+  expect(cards()).toHaveLength(1);
+  expect(detail().map(node => node.getAttribute("aria-label"))).toEqual(["Local home workspace contents"]);
+
+  await act(async () => setSidebarMachineFilter("all"));
+  expect(cards()).toHaveLength(2);
+  expect(detail()).toHaveLength(1);
+  await act(async () => setSidebarMachineFilter({ id: "blackstar", name: "BLACKSTAR" }));
+  expect(host.querySelector('[data-testid="workspace-card-grid"]')).toBe(grid);
+  expect(detail().map(node => node.getAttribute("aria-label"))).toEqual(["Peer home workspace contents"]);
+  expect(cards()).toHaveLength(1);
+  expect(detail()[0].querySelector('[data-testid="team-name"]')?.textContent).toBe("Peer plan title");
+  expect(detail()[0].querySelector('[data-testid="team-status-unavailable"]')).not.toBeNull();
+  expect(detail()[0].querySelector('[data-testid="team-status-tally"]')).toBeNull();
+  expect(row(host, "mesh:blackstar/peer-lead")?.closest("[hidden]")).toBeNull();
+  expect(row(host, "mesh:air/other-worker")?.closest("[hidden]")).toBeNull();
+  const actions = row(host, "mesh:air/other-worker")!.querySelector<HTMLButtonElement>('button[aria-label="Tab actions"]')!;
+  await act(async () => actions.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  const menu = document.getElementById(actions.getAttribute("aria-controls")!)!;
+  const rename = menu.querySelector<HTMLButtonElement>('[data-testid="tab-menu-rename"]')!;
+  const close = menu.querySelector<HTMLButtonElement>('[data-testid="tab-menu-close"]')!;
+  expect(rename.getAttribute("aria-disabled")).toBe("true");
+  expect(close.getAttribute("aria-disabled")).toBe("true");
+  expect(document.getElementById(rename.getAttribute("aria-describedby")!)?.textContent).toBeTruthy();
+  await act(async () => rename.click());
+  expect(actions.getAttribute("aria-expanded")).toBe("true");
+
+  expect(row(host, "local-worker")).toBeNull();
+});
+
+it("wires the selected peer's authoritative Team summary into the real sidebar card", async () => {
+  vi.stubGlobal("__CODETERM_DEV__", false);
+  vi.stubGlobal("__APP_VERSION__", "test");
+  const localTabs = [worker("local-worker", "Local home")];
+  setMux([workspaceOf("Local home", localTabs)], localTabs, "Local home");
+  const peerId = "blackstar";
+  const remoteId = "Peer home";
+  const lead = manager("peer-lead", remoteId);
+  const hand = worker("other-worker", remoteId);
+  const remotePlan = {
+    ...plan(remoteId),
+    tasks: Array.from({ length: 25 }, (_, index) => ({ id: `loaded-${index}`, status: "done" })) as unknown as PlanView["tasks"],
+    task_counts: { total: 94, pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 94, cancelled: 0 },
+  } as PlanView;
+  remotePlanCalls.result = {
+    plans: [remotePlan], available: true, loading: false, reconnecting: false, error: null, refetch: async () => {},
+  };
+  const { host, root } = mountHost();
+  await act(async () => root.render(<PairedWorkspaceInventoryContext.Provider value={{
+    generals: [{ peerId, name: "BLACKSTAR", availability: "online", sessions: [] }],
+    browse: null,
+    peerWorkspaces: [{
+      peerId, workspace: workspaceOf(remoteId, [lead, hand]), teams: [{ ...team(remoteId), name: null }], planTitles: new Map(),
+      tabs: [{ viewerId: `mesh:${peerId}/${lead.id}`, tab: lead }, { viewerId: `mesh:${peerId}/${hand.id}`, tab: hand }],
+    }],
+  }}><Sidebar config={config} /></PairedWorkspaceInventoryContext.Provider>));
+
+  await act(async () => setSidebarMachineFilter({ id: peerId, name: "BLACKSTAR" }));
+  const detail = host.querySelector('[data-testid="workspace-detail"]');
+  expect(remotePlanCalls.peerIds).toContain(peerId);
+  expect(detail?.querySelector('[data-testid="team-name"]')?.textContent).toBe("Late plan");
+  expect(detail?.querySelector('[data-testid="team-status-done"] .ct-plan-status-breakdown-count')?.textContent).toBe("94");
+  expect(detail?.querySelector('[data-testid="team-status-tally"]')?.getAttribute("data-status-state")).toBe("verified");
+});
+
+it("closes the selected online remote workspace from its accessible read-only header", async () => {
+  vi.stubGlobal("__CODETERM_DEV__", false);
+  vi.stubGlobal("__APP_VERSION__", "test");
+  const localTabs = [worker("local-worker", "Local home")];
+  setMux([workspaceOf("Local home", localTabs)], localTabs, "Local home");
+  const peerId = "blackstar";
+  const remoteId = "Peer home";
+  const lead = manager("peer-lead", remoteId);
+  const hand = worker("other-worker", remoteId);
+  const { host, root } = mountHost();
+  await act(async () => root.render(<PairedWorkspaceInventoryContext.Provider value={{
+    generals: [{ peerId, name: "BLACKSTAR", availability: "online", sessions: [] }],
+    browse: null,
+    peerWorkspaces: [{
+      peerId, workspace: workspaceOf(remoteId, [lead, hand]), teams: [{ ...team(remoteId), name: null }],
+      planTitles: new Map([[team(remoteId).id, "Peer plan title"]]),
+      tabs: [{ viewerId: `mesh:${peerId}/${lead.id}`, tab: lead }, { viewerId: `mesh:${peerId}/${hand.id}`, tab: hand }],
+    }],
+  }}><Sidebar config={config} /></PairedWorkspaceInventoryContext.Provider>));
+
+  await act(async () => setSidebarMachineFilter({ id: peerId, name: "BLACKSTAR" }));
+  const closeFromHeader = async () => {
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Actions for Peer home"]')!;
+    expect(trigger).toBeTruthy();
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    const menu = document.getElementById(trigger.getAttribute("aria-controls")!)!;
+    const items = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+    expect(items.map(item => item.textContent?.trim())).toEqual(["Close Workspace"]);
+    await act(async () => items[0].click());
+  };
+
+  await closeFromHeader();
+  let dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Close Peer home on BLACKSTAR"]');
+  expect(dialog).not.toBeNull();
+  expect(dialog?.textContent).toContain("Other agent tabs (2)");
+  expect(remoteCloseCalls.requested).toEqual([{ peerId, workspaceId: remoteId, availability: "online", protected: false }]);
+  await act(async () => dialog?.querySelector<HTMLButtonElement>("button")?.click());
+  expect(remoteCloseCalls.confirmed).toEqual([]);
+
+  await closeFromHeader();
+  dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Close Peer home on BLACKSTAR"]');
+  const confirm = [...(dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
+    .find(button => button.textContent?.trim() === "Close workspace");
+  expect(confirm).toBeTruthy();
+  await act(async () => confirm?.click());
+  expect(remoteCloseCalls.confirmed).toEqual([{ peerId, workspaceId: remoteId }]);
+  expect(host.querySelector('[data-testid="workspace-detail"]')).toBeNull();
 });

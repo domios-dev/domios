@@ -97,7 +97,7 @@ pub struct ReportArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AgentAction {
-    /// Manage local ACP launch profiles (local owner or Orchestrator only)
+    /// Manage local ACP launch profiles (local owner, authenticated local General Agent, or live local Orchestrator)
     Acp {
         #[command(subcommand)]
         action: super::agent_acp::AcpAction,
@@ -271,6 +271,9 @@ pub enum AgentAction {
         tab: Option<String>,
         #[arg(long)]
         model: Option<String>,
+        /// Launch profile declared by the target provider.
+        #[arg(long = "profile", value_name = "ID")]
+        launch_profile: Option<String>,
         #[arg(long)]
         reasoning_effort: Option<String>,
         /// Stop the current turn before switching. Otherwise a busy tab refuses.

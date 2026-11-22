@@ -106,7 +106,7 @@ export interface ChatCardMenuItem {
   onSelect(): void;
 }
 
-export type MessageMenuKind = "open" | "copy" | "copy-markdown" | "ask" | "details" | "select" | "fork" | "revert" | "delete";
+export type MessageMenuKind = "reply" | "open" | "copy" | "copy-markdown" | "ask" | "details" | "select" | "fork" | "revert" | "delete";
 
 export interface ChatCardMenuSpec {
   label: string;
@@ -116,7 +116,7 @@ export interface ChatCardMenuSpec {
 /** Scope-wide services for chat blocks. Absent fields hide the matching control instead of faking it. */
 export interface ChatBlockHost {
   interacted?(kind: DsKind, action: "open" | "submit"): void;
-  openFileChange?(path: string, view: "diff" | "file"): void;
+  openFileChange?(path: string, view: "diff" | "file", line?: number): void;
   mentionTabId?: string;
   mentions?: ChatMentionHost;
   /** Draws a card's overflow trigger and menu with the host's shared dropdown. */

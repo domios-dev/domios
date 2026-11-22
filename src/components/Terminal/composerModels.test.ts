@@ -3,10 +3,10 @@ import { test } from "node:test";
 import { composerPickerState, createApprovalLatch, recallPrompt, approvalActions, approvalHotkey, contextMeter, rememberPrompt, swapStash } from "./composerModels";
 import { modelSwitchLabel, supportsLiveModelSwitch } from "../../lib/modelSwitch";
 
-test("approval docking promotes decline without changing response values or hotkeys", () => {
-  const prompt = { question: "opaque", options: [{ label: "A", value: "once" }, { label: "B", value: "always" }, { label: "C", value: "reject" }] };
-  assert.deepEqual(approvalActions(prompt).map(({ value, hotkey }) => [value, hotkey]), [["once", 1], ["reject", 3], ["always", 2]]);
-  assert.equal(approvalHotkey(prompt, "Digit3"), "reject");
+test("approval docking orders allow, always allow, then reject without changing response values or hotkeys", () => {
+  const prompt = { question: "opaque", options: [{ label: "C", value: "reject" }, { label: "A", value: "once" }, { label: "B", value: "always" }] };
+  assert.deepEqual(approvalActions(prompt).map(({ value, hotkey }) => [value, hotkey]), [["once", 2], ["always", 3], ["reject", 1]]);
+  assert.equal(approvalHotkey(prompt, "Digit1"), "reject");
   assert.equal(approvalHotkey(prompt, "Digit9"), undefined);
   assert.equal(approvalHotkey(prompt, "Numpad1"), undefined);
   assert.equal(approvalHotkey({ ...prompt, multi_select: true }, "Digit1"), undefined);

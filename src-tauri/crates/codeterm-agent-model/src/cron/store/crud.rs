@@ -3,11 +3,25 @@
 
 use std::collections::HashSet;
 
+use codeterm_cron::occurrence::{FireDecision, Occurrence};
+use codeterm_cron::schedule::{next_occurrence_at, restore_occurrence_at};
+
 use super::{
-    cap_jitter_max_ms_at, compute_backoff, compute_next_run_jittered_at, default_max_history,
-    is_stale_fire, parse_oneshot_schedule_at, validate_tz, CronCreateParams, CronJob, CronRunInfo,
-    CronRunStatus, CronStore, CronUpdateParams, MAX_CONSECUTIVE_FAILURES,
+    cap_jitter_max_ms_at, default_max_history, parse_oneshot_schedule_at, validate_tz,
+    CronCreateParams, CronJob, CronRunInfo, CronRunStatus, CronStore, CronUpdateParams,
+    MAX_CONSECUTIVE_FAILURES,
 };
+
+fn oneshot_occurrence(at: u64) -> Occurrence {
+    Occurrence {
+        scheduled_at: at,
+        due_at: at,
+    }
+}
+
+fn next_recurring_occurrence(job: &CronJob, now: u64) -> Result<Option<Occurrence>, String> {
+    next_occurrence_at(&job.schedule, job.jitter_max_ms, job.tz.as_deref(), now)
+}
 
 /// Complete post-state values of one authorized cron change.
 #[derive(Debug, Clone, PartialEq)]
@@ -107,6 +121,33 @@ pub(super) struct RunEdit {
 }
 
 impl RunEdit {
+    fn copies(&self) -> impl Iterator<Item = &CronRunInfo> {
+        self.entry.iter().chain(self.job.iter().filter_map(|job| {
+            job.last_run
+                .as_ref()
+                .filter(|run| run.run_id == self.run_id)
+        }))
+    }
+
+    fn current(&self) -> Option<&CronRunInfo> {
+        self.entry.as_ref().or_else(|| {
+            self.job
+                .as_ref()?
+                .last_run
+                .as_ref()
+                .filter(|run| run.run_id == self.run_id)
+        })
+    }
+
+    fn terminal(&self) -> bool {
+        self.entry.as_ref().is_some_and(|run| !is_active_run(run))
+            || self
+                .job
+                .as_ref()
+                .and_then(|job| job.last_run.as_ref())
+                .is_some_and(|run| run.run_id == self.run_id && !is_active_run(run))
+    }
+
     fn mirror(&mut self) -> Option<&mut CronRunInfo> {
         let run_id = &self.run_id;
         self.job
@@ -149,6 +190,74 @@ impl RunEdit {
 }
 
 impl CronStore {
+    pub fn run_receipt(&self, job_id: &str, run_id: &str) -> Option<&CronRunInfo> {
+        self.history_entry(job_id, run_id).or_else(|| {
+            self.get(job_id)?
+                .last_run
+                .as_ref()
+                .filter(|run| run.run_id == run_id)
+        })
+    }
+
+    pub fn run_is_active(&self, job_id: &str, run_id: &str) -> bool {
+        let copies = self.run_copies(job_id, run_id);
+        copies.iter().any(Option::is_some) && copies.into_iter().flatten().all(is_active_run)
+    }
+
+    pub(super) fn run_copies(&self, job: &str, run: &str) -> [Option<&CronRunInfo>; 2] {
+        [
+            self.history_entry(job, run),
+            self.get(job)
+                .and_then(|job| job.last_run.as_ref())
+                .filter(|receipt| receipt.run_id == run),
+        ]
+    }
+
+    pub fn run_is_cancelled(&self, job: &str, run: &str) -> bool {
+        self.run_copies(job, run)
+            .into_iter()
+            .flatten()
+            .any(|run| run.status == CronRunStatus::Cancelled)
+    }
+
+    pub fn retained_run_report(&self, job_id: &str, run_id: &str) -> Option<String> {
+        self.run_copies(job_id, run_id)
+            .into_iter()
+            .flatten()
+            .find_map(|run| run.report_delivery.clone())
+    }
+
+    pub fn register_active_tab(&mut self, tab: &str, job: &str, run: &str) -> bool {
+        if !self.run_is_active(job, run)
+            || self
+                .run_copies(job, run)
+                .into_iter()
+                .flatten()
+                .any(|receipt| receipt.tab_id.as_deref() != Some(tab))
+            || self
+                .tab_owners
+                .get(tab)
+                .is_some_and(|owner| owner != &(job.to_string(), run.to_string()))
+        {
+            return false;
+        }
+        self.tab_owners.insert(tab.into(), (job.into(), run.into()));
+        true
+    }
+
+    pub fn prepare_bind_run_tab(&self, job: &str, run: &str, tab: &str) -> Prepared<bool> {
+        let mut edit = self.edit_run(job, run);
+        if !self.run_is_active(job, run)
+            || edit
+                .copies()
+                .any(|receipt| receipt.tab_id.as_deref().is_some_and(|own| own != tab))
+        {
+            return Prepared::unchanged(false);
+        }
+        edit.each(|receipt| receipt.tab_id = Some(tab.into()));
+        edit.into_prepared(self, true)
+    }
+
     pub fn get(&self, id: &str) -> Option<&CronJob> {
         self.file.jobs.iter().find(|j| j.id == id)
     }
@@ -190,11 +299,15 @@ impl CronStore {
         let mut seen = HashSet::new();
         for job in &self.file.jobs {
             for run in self.file.history.get(&job.id).into_iter().flatten() {
-                if is_active_run(run) && seen.insert(run.run_id.clone()) {
+                if self.run_is_active(&job.id, &run.run_id) && seen.insert(run.run_id.clone()) {
                     runs.push((job.id.clone(), run.clone()));
                 }
             }
-            if let Some(run) = job.last_run.as_ref().filter(|run| is_active_run(run)) {
+            if let Some(run) = job
+                .last_run
+                .as_ref()
+                .filter(|run| self.run_is_active(&job.id, &run.run_id))
+            {
                 if seen.insert(run.run_id.clone()) {
                     runs.push((job.id.clone(), run.clone()));
                 }
@@ -203,15 +316,26 @@ impl CronStore {
         runs
     }
 
-    /// Locate a run by id across all jobs' history, without knowing its job_id
+    /// Locate a run by id across retained history and last-run receipts, without its job_id
     /// up front — used to distinguish "no such run" from "run already
     /// finalized" when its tab ownership has already been unregistered.
     pub fn find_run_by_id(&self, run_id: &str) -> Option<(&str, &CronRunInfo)> {
-        self.file.history.iter().find_map(|(job_id, runs)| {
-            runs.iter()
-                .find(|r| r.run_id == run_id)
-                .map(|r| (job_id.as_str(), r))
-        })
+        self.file
+            .history
+            .iter()
+            .find_map(|(job_id, runs)| {
+                runs.iter()
+                    .find(|r| r.run_id == run_id)
+                    .map(|r| (job_id.as_str(), r))
+            })
+            .or_else(|| {
+                self.file.jobs.iter().find_map(|job| {
+                    job.last_run
+                        .as_ref()
+                        .filter(|run| run.run_id == run_id)
+                        .map(|run| (job.id.as_str(), run))
+                })
+            })
     }
 
     pub(super) fn history_entry(&self, job_id: &str, run_id: &str) -> Option<&CronRunInfo> {
@@ -335,14 +459,13 @@ impl CronStore {
 
         let now_ms = self.now_ms();
         let enabled = params.enabled.unwrap_or(true);
-        let (next_run, jitter) = if oneshot {
+        let (occurrence, jitter) = if oneshot {
             let next = parse_oneshot_schedule_at(&params.schedule, now_ms)
                 .map_err(|error| format!("schedule: {error}"))?;
-            (enabled.then_some(next), jitter)
+            (enabled.then_some(oneshot_occurrence(next)), jitter)
         } else {
             let jitter = cap_jitter_max_ms_at(&params.schedule, jitter, tz.as_deref(), now_ms)?;
-            let next =
-                compute_next_run_jittered_at(&params.schedule, jitter, tz.as_deref(), now_ms)?;
+            let next = next_occurrence_at(&params.schedule, jitter, tz.as_deref(), now_ms)?;
             (if enabled { next } else { None }, jitter)
         };
 
@@ -369,7 +492,8 @@ impl CronStore {
             max_history: params.max_history.unwrap_or(default_max_history()),
             created_at: now_ms,
             last_run: None,
-            next_run,
+            next_run: occurrence.map(|slot| slot.due_at),
+            next_occurrence_at: occurrence.map(|slot| slot.scheduled_at),
             jitter_max_ms: jitter,
             tz,
             timeout_seconds,
@@ -403,7 +527,9 @@ impl CronStore {
             ));
         }
         let schedule_changed = patch.schedule.is_some();
-        let enabled_requested = patch.enabled == Some(true);
+        let timing_changed = schedule_changed
+            || (!job.oneshot && (patch.jitter_max_ms.is_some() || patch.tz.is_some()));
+        let enabling = !job.enabled && patch.enabled == Some(true);
 
         if let Some(name) = patch.name {
             codeterm_blueprint_types::automation_name::validate_cron_name(&name)?;
@@ -465,33 +591,24 @@ impl CronStore {
             job.timeout_seconds = if ts == 0 { None } else { Some(ts) };
         }
 
-        job.next_run = if job.oneshot {
-            if schedule_changed || enabled_requested || job.enabled {
+        if timing_changed || enabling {
+            let occurrence = if job.oneshot {
                 let next = parse_oneshot_schedule_at(&job.schedule, now_ms)
                     .map_err(|error| format!("schedule: {error}"))?;
-                if job.enabled {
-                    Some(next)
-                } else {
-                    None
-                }
+                Some(oneshot_occurrence(next))
             } else {
-                None
-            }
-        } else {
-            job.jitter_max_ms =
-                cap_jitter_max_ms_at(&job.schedule, job.jitter_max_ms, job.tz.as_deref(), now_ms)?;
-            let next = compute_next_run_jittered_at(
-                &job.schedule,
-                job.jitter_max_ms,
-                job.tz.as_deref(),
-                now_ms,
-            )?;
-            if job.enabled {
-                next
-            } else {
-                None
-            }
-        };
+                job.jitter_max_ms = cap_jitter_max_ms_at(
+                    &job.schedule,
+                    job.jitter_max_ms,
+                    job.tz.as_deref(),
+                    now_ms,
+                )?;
+                next_recurring_occurrence(&job, now_ms)?
+            };
+            job.set_occurrence(if job.enabled { occurrence } else { None });
+        } else if !job.enabled {
+            job.set_occurrence(None);
+        }
 
         Ok(Prepared::new(CronChange::Patch(job.clone()), job))
     }
@@ -543,19 +660,20 @@ impl CronStore {
         if job.is_plan_control_loop() {
             return Err("Manage Curator scheduling from the Team dashboard settings".into());
         }
+        if !enabled {
+            job.set_occurrence(None);
+        } else if !job.enabled || job.next_run.is_none() {
+            let occurrence = if job.oneshot {
+                Some(oneshot_occurrence(parse_oneshot_schedule_at(
+                    &job.schedule,
+                    now_ms,
+                )?))
+            } else {
+                next_recurring_occurrence(&job, now_ms)?
+            };
+            job.set_occurrence(occurrence);
+        }
         job.enabled = enabled;
-        job.next_run = if !enabled {
-            None
-        } else if job.oneshot {
-            Some(parse_oneshot_schedule_at(&job.schedule, now_ms)?)
-        } else {
-            compute_next_run_jittered_at(
-                &job.schedule,
-                job.jitter_max_ms,
-                job.tz.as_deref(),
-                now_ms,
-            )?
-        };
         if enabled {
             job.consecutive_failures = 0;
         }
@@ -575,62 +693,116 @@ impl CronStore {
         Ok(Prepared::new(CronChange::Patch(job.clone()), job))
     }
 
-    /// Moves a recurring job whose slot went stale to its next future slot without firing.
-    pub fn prepare_skip_stale_fire(&self, job_id: &str) -> Result<Prepared<bool>, String> {
-        let now_ms = self.now_ms();
-        let Some(job) = self.get(job_id) else {
-            return Ok(Prepared::unchanged(false));
+    pub fn prepare_restore_occurrence(&self, job_id: &str) -> Result<Prepared<()>, String> {
+        let Some(job) = self
+            .get(job_id)
+            .filter(|job| job.enabled && job.next_occurrence_at.is_none())
+        else {
+            return Ok(Prepared::unchanged(()));
         };
-        let stale = job.enabled
-            && job
-                .next_run
-                .is_some_and(|next| is_stale_fire(next, now_ms, job.oneshot));
-        if !stale {
-            return Ok(Prepared::unchanged(false));
-        }
+        let Some(due) = job.next_run else {
+            return Ok(Prepared::unchanged(()));
+        };
+        let restored = if job.oneshot {
+            Some(oneshot_occurrence(due))
+        } else if job.consecutive_failures == 0 {
+            restore_occurrence_at(&job.schedule, job.jitter_max_ms, job.tz.as_deref(), due)?
+        } else {
+            None
+        };
+        let occurrence = match restored {
+            Some(slot) => Some(slot),
+            None => next_recurring_occurrence(job, self.now_ms().saturating_sub(1))?,
+        };
         let mut job = job.clone();
-        job.next_run = compute_next_run_jittered_at(
-            &job.schedule,
-            job.jitter_max_ms,
-            job.tz.as_deref(),
-            now_ms,
-        )?;
-        Ok(Prepared::new(CronChange::Patch(job), true))
+        job.set_occurrence(occurrence);
+        Ok(Prepared::new(CronChange::Patch(job), ()))
     }
 
-    /// Schedule advancement is fire-time-only; completion never re-derives next_run.
+    pub fn job_has_active_run(&self, job: &CronJob) -> bool {
+        self.tab_owners
+            .values()
+            .any(|(own_job, run)| own_job == &job.id && self.run_is_active(&job.id, run))
+            || job
+                .last_run
+                .as_ref()
+                .is_some_and(|run| self.run_is_active(&job.id, &run.run_id))
+    }
+
+    pub fn prepare_scheduled_run(
+        &self,
+        job_id: &str,
+        occurrence: Occurrence,
+        mut run: CronRunInfo,
+    ) -> Result<Prepared<Option<FireDecision>>, String> {
+        let Some(job) = self
+            .get(job_id)
+            .filter(|job| job.enabled && job.occurrence() == Some(occurrence))
+        else {
+            return Ok(Prepared::unchanged(None));
+        };
+        let now = self.now_ms();
+        let decision = occurrence.decision(now, job.oneshot, self.job_has_active_run(job));
+        run.started_at = now;
+        run.scheduled_occurrence_at = Some(occurrence.scheduled_at);
+        match decision {
+            FireDecision::WaitUntil(_) => return Ok(Prepared::unchanged(None)),
+            FireDecision::Fire { late_by_ms } if run.fired_at.is_some() => {
+                run.late_by_ms = late_by_ms
+            }
+            FireDecision::Fire { .. } => return Ok(Prepared::unchanged(None)),
+            FireDecision::Missed => {
+                run.fired_at = None;
+                run.status = CronRunStatus::Cancelled;
+                run.finished_at = Some(now);
+                run.summary = Some("Missed scheduled occurrence".into());
+            }
+        }
+        let mut job = job.clone();
+        job.advance_occurrence(now)?;
+        Ok(Prepared::new(start_run(job, run), Some(decision)))
+    }
+
+    pub fn prepare_manual_run(
+        &self,
+        job_id: &str,
+        run: &CronRunInfo,
+    ) -> Result<Prepared<CronRunInfo>, String> {
+        let job = self
+            .get(job_id)
+            .ok_or_else(|| format!("Cron job not found: {job_id}"))?;
+        if self.job_has_active_run(job) {
+            return Err(format!("Cron job '{}' is already running", job.name));
+        }
+        let mut job = job.clone();
+        let mut run = run.clone();
+        let now = self.now_ms();
+        run.started_at = now;
+        run.fired_at = Some(now);
+        if job.oneshot {
+            job.advance_occurrence(now)?;
+        }
+        Ok(Prepared::new(start_run(job, run.clone()), run))
+    }
+
     pub fn prepare_record_run(
         &self,
         job_id: &str,
         run: CronRunInfo,
     ) -> Result<Prepared<()>, String> {
-        let store_now_ms = self.now_ms();
         let Some(job) = self.get(job_id) else {
             return Ok(Prepared::unchanged(()));
         };
         let mut job = job.clone();
-        job.last_run = Some(run.clone());
-        apply_failure_accounting(&mut job, job_id, &run.status, store_now_ms)?;
+        let now = self.now_ms();
+        apply_failure_accounting(&mut job, job_id, &run.status, now);
         if !matches!(run.status, CronRunStatus::Failed) {
-            if job.oneshot {
-                job.next_run = None;
-                if !job.is_plan_control_loop() {
-                    job.enabled = false;
-                }
-            } else if job.enabled {
-                job.next_run = compute_next_run_jittered_at(
-                    &job.schedule,
-                    job.jitter_max_ms,
-                    job.tz.as_deref(),
-                    store_now_ms,
-                )?;
-            }
+            job.advance_occurrence(now)?;
         }
-        Ok(Prepared::new(CronChange::StartRun { job, run }, ()))
+        Ok(Prepared::new(start_run(job, run), ()))
     }
 
-    /// The real completion path. Idempotent: once a run has a terminal status, later calls
-    /// update timestamps but skip accounting, so only the first is `fresh`.
+    /// Only the first terminal transition changes the run or its accounting.
     pub fn prepare_finish_run(
         &self,
         job_id: &str,
@@ -650,42 +822,42 @@ impl CronStore {
         summary: Option<&str>,
         cancel_reason: Option<super::CronCancelReason>,
     ) -> Result<Prepared<RunFinished>, String> {
+        let mut edit = self.edit_run(job_id, run_id);
+        if edit.current().is_none() || edit.terminal() {
+            return Ok(Prepared::unchanged(RunFinished {
+                fresh: false,
+                elapsed_ms: None,
+            }));
+        }
         if (status == CronRunStatus::Cancelled) != cancel_reason.is_some() {
             return Err("Cancelled cron runs require a typed cancel reason".into());
         }
         let now = self.now_ms();
-        let mut edit = self.edit_run(job_id, run_id);
+        let terminal = matches!(
+            status,
+            CronRunStatus::Success | CronRunStatus::Failed | CronRunStatus::Cancelled
+        );
         if let Some(session) = session {
             edit.each(|run| set_session(run, session));
         }
         if let Some(summary) = summary {
             edit.each(|run| run.summary = Some(summary.to_string()));
         }
-        let mut prior: Option<CronRunStatus> = None;
         let mut started_at: Option<u64> = None;
         edit.each(|run| {
-            if prior.is_none() {
-                prior = Some(run.status.clone());
-            }
             if started_at.is_none() {
                 started_at = Some(run.started_at);
             }
             run.status = status.clone();
             run.cancel_reason = cancel_reason;
-            run.finished_at = Some(now);
+            if terminal {
+                run.finished_at = Some(now);
+            }
         });
-        // First terminal status wins — a racing duplicate completion call for the
-        // same run must not double-count failures or re-fire a notification.
-        let already_terminal = matches!(
-            prior,
-            Some(CronRunStatus::Failed)
-                | Some(CronRunStatus::Success)
-                | Some(CronRunStatus::Cancelled)
-        );
         let mut fresh = false;
-        if !already_terminal {
+        if terminal {
             if let Some(job) = edit.job.as_mut() {
-                apply_failure_accounting(job, job_id, &status, now)?;
+                apply_failure_accounting(job, job_id, &status, now);
                 fresh = true;
             }
         }
@@ -703,6 +875,9 @@ impl CronStore {
         session: RunSession<'_>,
     ) -> Prepared<()> {
         let mut edit = self.edit_run(job_id, run_id);
+        if edit.terminal() {
+            return Prepared::unchanged(());
+        }
         edit.each(|run| set_session(run, session));
         edit.into_prepared(self, ())
     }
@@ -715,8 +890,14 @@ impl CronStore {
         delivery: &str,
     ) -> Prepared<()> {
         let mut edit = self.edit_run(job_id, run_id);
+        if edit
+            .copies()
+            .any(|run| run.status == CronRunStatus::Cancelled || run.report_delivery.is_some())
+        {
+            return Prepared::unchanged(());
+        }
         edit.each(|run| {
-            run.summary = Some(summary.to_string());
+            run.summary.get_or_insert_with(|| summary.to_string());
             run.report_delivery = Some(delivery.to_string());
         });
         edit.into_prepared(self, ())
@@ -725,6 +906,9 @@ impl CronStore {
     /// Records the tab a dispatched run was spawned into.
     pub fn prepare_set_run_tab(&self, job_id: &str, run_id: &str, tab_id: &str) -> Prepared<()> {
         let mut edit = self.edit_run(job_id, run_id);
+        if edit.terminal() {
+            return Prepared::unchanged(());
+        }
         edit.each(|run| run.tab_id = Some(tab_id.to_string()));
         edit.into_prepared(self, ())
     }
@@ -737,14 +921,32 @@ impl CronStore {
         now_ms: u64,
         reason: super::CronCancelReason,
     ) -> Result<Prepared<Vec<(String, u64)>>, String> {
+        let runs: Vec<_> = self
+            .active_runs()
+            .into_iter()
+            .filter(|(job, _)| job == job_id)
+            .map(|(_, run)| run.run_id)
+            .collect();
+        self.prepare_cancel_runs(job_id, &runs, now_ms, reason)
+    }
+
+    pub fn prepare_cancel_runs(
+        &self,
+        job_id: &str,
+        runs: &[String],
+        now_ms: u64,
+        reason: super::CronCancelReason,
+    ) -> Result<Prepared<Vec<(String, u64)>>, String> {
         let original = self
             .get(job_id)
             .ok_or_else(|| format!("Cron job not found: {}", job_id))?;
         let unfinished = |run: &CronRunInfo| {
-            matches!(
-                run.status,
-                CronRunStatus::Running | CronRunStatus::AwaitingOwnerPrompt
-            )
+            runs.contains(&run.run_id)
+                && self.run_is_active(job_id, &run.run_id)
+                && matches!(
+                    run.status,
+                    CronRunStatus::Running | CronRunStatus::AwaitingOwnerPrompt
+                )
         };
         let cancel = |run: &mut CronRunInfo| {
             run.status = CronRunStatus::Cancelled;
@@ -874,6 +1076,25 @@ impl CronStore {
     }
 }
 
+fn start_run(mut job: CronJob, run: CronRunInfo) -> CronChange {
+    job.last_run = Some(run.clone());
+    CronChange::StartRun { job, run }
+}
+
+impl CronJob {
+    fn advance_occurrence(&mut self, now: u64) -> Result<(), String> {
+        if self.oneshot {
+            self.set_occurrence(None);
+            if !self.is_plan_control_loop() {
+                self.enabled = false;
+            }
+        } else if self.enabled {
+            self.set_occurrence(next_recurring_occurrence(self, now)?);
+        }
+        Ok(())
+    }
+}
+
 fn is_active_run(run: &CronRunInfo) -> bool {
     matches!(
         run.status,
@@ -891,7 +1112,7 @@ fn set_session(run: &mut CronRunInfo, session: RunSession<'_>) {
 /// service::cron_complete parity: dashboards and grep-based observability need every
 /// Failed/Cancelled run.
 pub fn log_finished(job_id: &str, run_id: &str, status: &CronRunStatus, run: RunFinished) {
-    if matches!(status, CronRunStatus::Failed | CronRunStatus::Cancelled) {
+    if run.fresh && matches!(status, CronRunStatus::Failed | CronRunStatus::Cancelled) {
         log::info!(
             "Cron run completed: job={}, run={}, status={:?}, elapsed_ms={}",
             job_id,
@@ -908,14 +1129,7 @@ fn normalize_reasoning_effort(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-/// Increments the failure streak (+backoff, +auto-disable) on `Failed`, resets
-/// to 0 on `Success`. Shared by run starts and completions.
-fn apply_failure_accounting(
-    job: &mut CronJob,
-    job_id: &str,
-    status: &CronRunStatus,
-    now_ms: u64,
-) -> Result<(), String> {
+fn apply_failure_accounting(job: &mut CronJob, job_id: &str, status: &CronRunStatus, now_ms: u64) {
     match status {
         CronRunStatus::Failed => {
             job.consecutive_failures = job.consecutive_failures.saturating_add(1);
@@ -925,34 +1139,16 @@ fn apply_failure_accounting(
                     let next = now_ms.saturating_add(
                         codeterm_types::plan::CuratorWindow::HOST.delay(None) * 1000,
                     );
-                    job.next_run = Some(next);
+                    job.set_occurrence(Some(oneshot_occurrence(next)));
                     job.schedule = next.to_string();
                 }
             } else if job.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
                 job.enabled = false;
-                job.next_run = None;
+                job.set_occurrence(None);
                 log::warn!(
                     "[cron] auto-disabled job {} after {} consecutive failures",
                     job_id,
                     job.consecutive_failures
-                );
-            } else if !job.oneshot && job.enabled {
-                let base_ms = compute_next_run_jittered_at(
-                    &job.schedule,
-                    Some(0),
-                    job.tz.as_deref(),
-                    now_ms,
-                )?
-                .map(|t| t.saturating_sub(now_ms))
-                .unwrap_or(60_000);
-                let backoff = compute_backoff(job.consecutive_failures, base_ms);
-                job.next_run = Some(now_ms + backoff);
-                log::info!(
-                    "[cron] {} backoff after failure {}/{}: +{}ms",
-                    job_id,
-                    job.consecutive_failures,
-                    MAX_CONSECUTIVE_FAILURES,
-                    backoff
                 );
             }
         }
@@ -961,5 +1157,4 @@ fn apply_failure_accounting(
         }
         _ => {}
     }
-    Ok(())
 }

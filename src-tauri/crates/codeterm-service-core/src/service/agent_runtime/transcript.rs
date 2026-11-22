@@ -29,6 +29,7 @@ pub(super) struct TranscriptIo {
     read_failed: AtomicBool,
     write_failed: AtomicBool,
     archive_failed: AtomicBool,
+    handoff_saved: AtomicBool,
     archive: Mutex<Option<ArchiveWriter>>,
     last_archive_tick_ms: AtomicU64,
 }
@@ -249,6 +250,7 @@ fn archive_now(worker: &Session) {
 /// last settled turn left it, so restore never sees a half-finished one.
 pub(crate) async fn archive(session: &Arc<Session>) {
     if !selected(session) {
+        preserve_stored_handoff(session).await;
         return;
     }
     let worker = session.clone();
@@ -361,6 +363,7 @@ pub(super) fn apply_restored_rows(
 
 pub(crate) async fn persist(session: &Arc<Session>) {
     if !selected(session) {
+        preserve_stored_handoff(session).await;
         return;
     }
     let worker = session.clone();
@@ -388,6 +391,57 @@ pub(crate) async fn persist(session: &Arc<Session>) {
     if let Err(error) = result {
         let tab = session.context.lock().tab_id.clone();
         warn_once(&session.transcript_io.write_failed, &tab, "persist", error);
+    }
+}
+
+async fn preserve_stored_handoff(session: &Arc<Session>) {
+    if session.transcript_io.handoff_saved.load(Ordering::Relaxed)
+        || !session
+            .adapter
+            .lock()
+            .as_ref()
+            .and_then(|adapter| adapter.agent_runtime())
+            .is_some_and(|capability| capability.stored_history)
+    {
+        return;
+    }
+    let context = session.context.lock().clone();
+    let Some(thread) = &context.thread_id else {
+        return;
+    };
+    let Some(origin) = session.cache.lock().handoff_origin() else {
+        return;
+    };
+    if !same_binding(&session.context.lock(), &context) {
+        return;
+    }
+    let thread = thread.clone();
+    let worker = session.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        origin.save(&worker.provider, &thread)?;
+        if same_binding(&worker.context.lock(), &context) {
+            worker
+                .transcript_io
+                .handoff_saved
+                .store(true, Ordering::Relaxed);
+        }
+        Ok::<(), std::io::Error>(())
+    })
+    .await;
+    match result {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => warn_once(
+            &session.transcript_io.archive_failed,
+            &session.context.lock().tab_id,
+            "handoff archive",
+            error,
+        ),
+        Err(error) => warn_once(
+            &session.transcript_io.archive_failed,
+            &session.context.lock().tab_id,
+            "handoff archive",
+            error,
+        ),
     }
 }
 

@@ -1,6 +1,147 @@
 use super::*;
 
 #[test]
+fn oversized_leaf_does_not_block_desk_completion() {
+    use crate::session::store::SplitNodeSnapshot;
+    use codeterm_storage::{DeskLayoutNode, DeskLeafFields, MAX_DESK_LEAF_BYTES};
+
+    let root = tempfile::tempdir().unwrap();
+    let authority = crate::startup::open_instance_storage_at(root.path());
+    let storage = authority.require_ready().expect("startup seeds the desk");
+    let adapter = || crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
+    assert!(adapter().state().unwrap().snapshot.workspaces.is_empty());
+    let worker = pending_worker();
+    worker
+        .configure(WorkerMessage::InstallStorage(adapter()))
+        .unwrap();
+
+    let mut snapshot = fixture_snapshot("main");
+    let raw_fields = |leaf: &SplitNodeSnapshot| {
+        let mut values = serde_json::to_value(leaf).unwrap();
+        let fields = values.as_object_mut().unwrap();
+        fields.remove("type");
+        fields.remove("tab_id");
+        DeskLeafFields { values }
+    };
+    let workspace = &mut snapshot.workspaces[0];
+    for id in ["retained", "closing"] {
+        workspace
+            .tabs
+            .push(fixture_snapshot(id).workspaces.remove(0).tabs.remove(0));
+    }
+    let main = &mut workspace.tabs[0];
+    let SplitNodeSnapshot::Leaf {
+        role,
+        role_profile,
+        agent_identity,
+        ..
+    } = &mut main.split_tree
+    else {
+        panic!("expected a Main leaf");
+    };
+    *role = Some("Manager".into());
+    *role_profile = Some(codeterm_types::agent::role_kind::builtins::GENERAL_AGENT.into());
+    agent_identity.as_mut().unwrap().agent_runtime_config =
+        Some(serde_json::json!({"systemPrompt": "", "model": "fixture"}));
+    let mut raw = raw_fields(&main.split_tree);
+    let prompt_bytes = 61 * 1024;
+    let baseline = serde_json::to_vec(&raw.values).unwrap().len();
+    let escaped_bytes = MAX_DESK_LEAF_BYTES - baseline - prompt_bytes;
+    let prompt = "x".repeat(prompt_bytes - escaped_bytes) + &"\n".repeat(escaped_bytes);
+    raw.values["agent_identity"]["agent_runtime_config"]["systemPrompt"] =
+        serde_json::json!(prompt);
+    assert_eq!(
+        serde_json::to_vec(&raw.values).unwrap().len(),
+        MAX_DESK_LEAF_BYTES
+    );
+    assert_eq!(raw.validate(), Ok(()));
+    let SplitNodeSnapshot::Leaf { agent_identity, .. } = &mut main.split_tree else {
+        unreachable!();
+    };
+    agent_identity.as_mut().unwrap().agent_runtime_config =
+        Some(raw.values["agent_identity"]["agent_runtime_config"].clone());
+    raw.values["last_active_at_ms"] = serde_json::json!(main.last_active_at_ms);
+    raw.values["last_opened_at_ms"] = serde_json::json!(main.last_opened_at_ms);
+    assert_eq!(
+        raw.validate(),
+        Err(codeterm_storage::StorageError::Invalid {
+            field: "desk leaf fields",
+            reason: format!("exceeds {MAX_DESK_LEAF_BYTES} bytes"),
+        })
+    );
+
+    let first_save = worker.submit_snapshot(snapshot.clone(), SaveIntent::PreserveDesk, true);
+    assert!(
+        matches!(first_save, Ok(Some(SaveOutcome::Saved))),
+        "first desk completion: {first_save:?}"
+    );
+    let initial = adapter().state().unwrap();
+    let mut newly_oversized = fixture_snapshot("new").workspaces.remove(0).tabs.remove(0);
+    let workspace = &mut snapshot.workspaces[0];
+    for tab in [&mut workspace.tabs[1], &mut newly_oversized] {
+        let SplitNodeSnapshot::Leaf { close_restore, .. } = &mut tab.split_tree else {
+            panic!("expected a leaf");
+        };
+        *close_restore = Some(crate::multiplexer::types::CloseRestoreTabState {
+            command: Some(String::new()),
+            ..Default::default()
+        });
+        let raw = raw_fields(&tab.split_tree);
+        let command_bytes = MAX_DESK_LEAF_BYTES - serde_json::to_vec(&raw.values).unwrap().len();
+        let SplitNodeSnapshot::Leaf { close_restore, .. } = &mut tab.split_tree else {
+            unreachable!();
+        };
+        close_restore.as_mut().unwrap().command = Some("x".repeat(command_bytes));
+    }
+    workspace.tabs.push(newly_oversized);
+    workspace.active_tab_id = Some("new".into());
+    let preserving_save = worker.submit_snapshot(snapshot.clone(), SaveIntent::PreserveDesk, true);
+    assert!(
+        matches!(preserving_save, Ok(Some(SaveOutcome::Saved))),
+        "desk completion with oversized tabs: {preserving_save:?}"
+    );
+    let preserved = adapter().state().unwrap();
+    assert_eq!(
+        preserved.snapshot.workspaces[0].tabs,
+        initial.snapshot.workspaces[0].tabs
+    );
+
+    let workspace = &mut snapshot.workspaces[0];
+    workspace.tabs.retain(|tab| tab.id != "closing");
+    workspace.name = "Committed with omissions".into();
+    let closing_save = worker.submit_snapshot(snapshot, SaveIntent::AuthorizedReduction, true);
+    assert!(
+        matches!(closing_save, Ok(Some(SaveOutcome::Saved))),
+        "desk completion after closing a tab: {closing_save:?}"
+    );
+    stop_test_worker(&worker);
+
+    let persisted = adapter().state().unwrap();
+    let desk = &persisted.snapshot.workspaces[0];
+    assert!(persisted.revision > initial.revision);
+    assert_eq!(desk.record.name, "Committed with omissions");
+    assert_eq!(desk.active_tab_id, None);
+    assert_eq!(
+        desk.tabs
+            .iter()
+            .map(|tab| tab.id.as_str())
+            .collect::<Vec<_>>(),
+        ["main", "retained"]
+    );
+    assert_eq!(desk.tabs[1], initial.snapshot.workspaces[0].tabs[1]);
+    let DeskLayoutNode::Leaf { fields, .. } = &desk.tabs[0].layout else {
+        panic!("expected persisted Main leaf");
+    };
+    assert_eq!(
+        fields.values["agent_identity"]["agent_runtime_config"],
+        serde_json::json!({"model": "fixture"})
+    );
+    assert_eq!(fields.values["agent_session_id"], "session-main");
+    assert!(persisted.snapshot.validate().is_ok());
+    storage.shutdown().wait(PERSISTENCE_DEADLINE).unwrap();
+}
+
+#[test]
 fn storage_desk_app_adapter_imports_and_flushes_exact_selection() {
     let root = tempfile::tempdir().unwrap();
     let adapter = test_adapter(root.path());

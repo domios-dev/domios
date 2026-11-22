@@ -5,7 +5,7 @@ import { baseUrl } from "../../MemoryPanel/memoryApi";
 import type { PlanAttachment } from "../types";
 
 export function planAttachmentUrl(api: ApiConfig | undefined, planId: string | undefined, attachment: PlanAttachment): string {
-  if (!planId) return "";
+  if (!planId || api?.peerId) return "";
   const root = api ? baseUrl(api) : "";
   return `${root}/api/plans/${encodeURIComponent(planId)}/attachments?path=${encodeURIComponent(attachment.path)}`;
 }

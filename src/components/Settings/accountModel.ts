@@ -3,7 +3,7 @@ export type SignInStage = import("../../../gen/SignInStage").SignInStage;
 export type SignInError = import("../../../gen/AccountError").AccountError;
 export type TargetMismatch = import("../../../gen/TargetMismatch").TargetMismatch;
 export type SignInFailure = import("../../../gen/SignInFailure").SignInFailure;
-export type AccountStatus = Omit<Partial<import("../../../gen/AccountStatus").AccountStatus>, "identity" | "pending" | "target_mismatch"> & {identity: AccountIdentity | null; pending: import("../../../gen/AccountStatus").AccountStatus["pending"]; target_mismatch?: import("../../../gen/AccountStatus").AccountStatus["target_mismatch"] | null};
+export type AccountStatus = Omit<Partial<import("../../../gen/AccountStatus").AccountStatus>, "identity" | "pending" | "target_mismatch"> & {identity: AccountIdentity | null; login_attempt_id?: string | null; pending: import("../../../gen/AccountStatus").AccountStatus["pending"]; target_mismatch?: import("../../../gen/AccountStatus").AccountStatus["target_mismatch"] | null};
 export type AccountModel =
   | { kind: "signed_out"; sessionRevoked?: boolean; targetMismatch?: string }
   | { kind: "pending" }
@@ -12,9 +12,10 @@ export type AccountModel =
 export const SESSION_REVOKED_MESSAGE = "This machine was signed out from your account";
 
 export function accountModel(status: AccountStatus): AccountModel {
-  if (status.pending) return { kind: "pending" };
-  if (status.last_sign_in_failure) return { kind: "error", message: signInFailureMessage(status.last_sign_in_failure), failure: status.last_sign_in_failure };
   if (status.identity) return { kind: "signed_in", identity: status.identity, ...(status.session_only ? { sessionOnly: true } : {}) };
+  if (!status.pending && status.last_sign_in_failure && status.last_sign_in_failure.error !== "cancelled") {
+    return { kind: "error", message: signInFailureMessage(status.last_sign_in_failure), failure: status.last_sign_in_failure };
+  }
   return { kind: "signed_out", ...(status.session_revoked ? { sessionRevoked: true } : {}), ...(status.target_mismatch ? { targetMismatch: status.target_mismatch.reason } : {}) };
 }
 export function accountInitials(name: string): string {

@@ -1,12 +1,28 @@
 import assert from "node:assert/strict";
 import { act } from "react";
-import { it } from "vitest";
+import { beforeEach, it, vi } from "vitest";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { configureDaemonTransport } from "../../lib/daemonBootstrap";
+import { TransportError } from "../../lib/transportClient";
 import { setFrontendCacheStorageForTests, type FrontendCacheChanges, type FrontendCacheCommit, type FrontendCacheManifest, type FrontendCacheRecord, type FrontendCacheSnapshot, type FrontendCacheStorage } from "../../lib/frontendCacheRecords";
 import { installDom, mount, settle } from "../Jobs/jobsEntry.testdata";
 import { daemon } from "../General/generalOverview.testdata";
 import { useMeshData, type MeshDataResult } from "./useMeshData";
+
+const { readPeerInventory } = vi.hoisted(() => ({ readPeerInventory: vi.fn() }));
+vi.mock("../../lib/daemonBootstrap", async (original) => ({
+  ...await original<typeof import("../../lib/daemonBootstrap")>(),
+  daemonTransportForPeer: (id: string) => ({
+    json: (method: string, path: string) => readPeerInventory(id, method, path),
+  }),
+}));
+
+const emptyInventory = {
+  resources: [],
+  provenance: { freshness: "fresh", offline: false, fetched_at: 123 },
+};
+
+beforeEach(() => { readPeerInventory.mockReset().mockResolvedValue(emptyInventory); });
 
 class FakeStorage implements FrontendCacheStorage {
   private readonly scopes = new Map<string, { manifest: FrontendCacheManifest; records: Map<string, FrontendCacheRecord> }>();
@@ -147,9 +163,6 @@ it("surfaces a timed-out peer load as an error and releases the refresh for the 
       if (peersTimeOut) throw new DOMException("signal timed out", "TimeoutError");
       return { paired: [peer] } as T;
     }
-    if (command === "mesh_peer_services_list") {
-      return { services: [], stale: false, fetched_at: null, peer_online: true, error: null } as T;
-    }
     throw new Error(command);
   });
   let state: MeshDataResult | undefined;
@@ -169,6 +182,7 @@ it("surfaces a timed-out peer load as an error and releases the refresh for the 
     assert.equal(state?.loaded, true);
     assert.deepEqual(state?.peers.map((candidate) => candidate.instance_id), ["peer-1"]);
     assert.equal(state?.peers[0].access_level, "custom");
+    assert.deepEqual(readPeerInventory.mock.calls, [["peer-1", "GET", "/api/mesh/inventory"]]);
   } finally {
     await view.close();
     __setInvokeForTest(null);
@@ -186,8 +200,10 @@ it("keeps peer inventory failures local and refreshes again only on an external 
     listeners.set(event, () => handler({ payload: undefined as never }));
     return () => { listeners.delete(event); };
   });
-  let attempts = 0;
-  let failure = "HTTP 403";
+  readPeerInventory.mockResolvedValue({
+    ...emptyInventory,
+    resources: [{ ...daemon, capabilities: { delete: { allowed: true } } }],
+  });
   __setInvokeForTest(async <T,>(command: string): Promise<T> => {
     if (command === "mesh_inventory_list") return { resources: [] } as T;
     if (command === "mesh_get_status") return { instance_name: "Local" } as T;
@@ -195,11 +211,6 @@ it("keeps peer inventory failures local and refreshes again only on an external 
       instance_id: "peer-1", instance_name: "Peer", addresses: [], api_port: 7685,
       online: true, access_level: "full", last_seen: null, relay_protocol_version: 3,
     }] } as T;
-    if (command === "mesh_peer_services_list") {
-      attempts++;
-      return { services: [], stale: true, fetched_at: null, peer_online: true,
-        error: failure, partial_error: failure, freshness: "stale" } as T;
-    }
     throw new Error(command);
   });
   let state: MeshDataResult | undefined;
@@ -207,17 +218,24 @@ it("keeps peer inventory failures local and refreshes again only on an external 
   const view = await mount(<Probe />);
   try {
     await settle(() => state?.loading === false && state.peers.length === 1);
-    for (const error of ["HTTP 403", "HTTP 500", "parse: invalid JSON"]) {
-      const previousAttempts = attempts;
-      failure = error;
+    assert.equal(state?.services[0].source_peer_id, "peer-1");
+    for (const error of [new Error("parse: invalid JSON"), new TransportError(500, "/api/mesh/inventory", "failed"), new TransportError(403, "/api/mesh/inventory", "denied")]) {
+      const previousAttempts = readPeerInventory.mock.calls.length;
+      readPeerInventory.mockRejectedValue(error);
       await act(async () => { listeners.get("mesh-state-changed")?.(); });
-      assert.equal(attempts, previousAttempts + 1);
-      assert.equal(state?.peers[0].services_error, error);
+      assert.equal(readPeerInventory.mock.calls.length, previousAttempts + 1);
+      assert.equal(state?.peers[0].services_error, error.message);
+      if (error instanceof TransportError && error.status === 403) {
+        assert.equal(state?.services.length, 0, "a grant refusal discards previously visible peer rows");
+      } else {
+        assert.equal(state?.services[0].stale, true);
+        assert.equal(state?.services[0].capabilities?.delete?.allowed, false);
+      }
       assert.equal(state?.peers[0].online, true);
       assert.equal(state?.loading, false);
       assert.equal(state?.error, null);
       await act(async () => {});
-      assert.equal(attempts, previousAttempts + 1, "failure and render cannot schedule another inventory attempt");
+      assert.equal(readPeerInventory.mock.calls.length, previousAttempts + 1, "failure and render cannot schedule another inventory attempt");
     }
   } finally {
     await view.close();
@@ -240,7 +258,6 @@ it("retains the last peer version across missing metadata and updates on a new a
     if (command === "mesh_inventory_list") return { resources: [] } as T;
     if (command === "mesh_get_status") return { instance_name: "Local" } as T;
     if (command === "mesh_list_peers") return { paired: [{ instance_id: "peer-version", instance_name: "Peer", addresses: [], api_port: 7685, online: false, access_level: "full", last_seen: null, relay_protocol_version: 3, ...metadata }] } as T;
-    if (command === "mesh_peer_services_list") return { services: [], stale: true } as T;
     throw new Error(command);
   });
   let state: MeshDataResult | undefined;

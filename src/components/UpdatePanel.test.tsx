@@ -5,35 +5,15 @@ import type { UpdateAvailabilitySnapshot } from "../lib/updateAvailability";
 
 const fake = vi.hoisted(() => ({ check: vi.fn(), plugin: vi.fn(), app: { installing: false, error: null as string | null, currentVersion: "1.0.0", phase: "idle", nativeStatusObserved: false, applyUpdate: vi.fn(), captureFailureBoundary: () => ({ frontendRevision: 0, nativeRevision: null }) }, changed: null as ((event: { payload: UpdateAvailabilitySnapshot }) => void) | null }));
 vi.mock("../lib/updateAvailability", () => ({ checkUpdateAvailability: fake.check }));
-vi.mock("../hooks/useUpdate", () => ({ useUpdate: () => fake.app }));
+vi.mock("../hooks/useUpdate", () => ({ useUpdate: () => ({ ...fake.app }) }));
 vi.mock("../lib/pluginSnapshotStore", () => ({ runPluginSnapshotAction: fake.plugin, ensurePluginSnapshot: async () => ({}), usePluginSnapshotStore: () => ({ snapshot: { plugins: [], marketplace: [] } }) }));
 vi.mock("../lib/frontendUpdate/browser", () => ({ acceptFrontendUpdate: vi.fn(), setFrontendUpdateHeld: vi.fn(), frontendUpdateOffer: () => null, subscribeFrontendUpdateOffer: () => () => {} }));
 vi.mock("../lib/bridge", () => ({ listen: async (_event: string, handler: typeof fake.changed) => { fake.changed = handler; return () => {}; } }));
 import { UpdatePanelProvider, useUpdatePanel } from "../hooks/useUpdatePanel";
 import { UpdatePanel } from "./UpdatePanel";
-import { UpdateBlockingTabs } from "./UpdateBlockingTabs";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-it("names the blocking work and requires confirmation before stopping it", async () => {
-  const stopped = vi.fn().mockResolvedValue(undefined);
-  const tabs = [{ tab_id: "shell-1", title: "Build", workspace: "Project", command: "node long-task.js" }];
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host);
-  try {
-    await act(async () => root.render(<UpdateBlockingTabs tabs={tabs} busy={false} onStop={stopped} />));
-    expect(host.textContent).toContain("Project");
-    expect(host.textContent).toContain("node long-task.js");
-    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Stop Build and retry update"]')!.click());
-    expect(stopped).not.toHaveBeenCalled();
-    expect(host.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("Stop Build?");
-    await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="confirm-dialog-cancel"]')!.click());
-    expect(stopped).not.toHaveBeenCalled();
-    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Stop Build and retry update"]')!.click());
-    await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="confirm-dialog-confirm"]')!.click());
-    expect(stopped).toHaveBeenCalledExactlyOnceWith("shell-1");
-  } finally { await act(async () => root.unmount()); host.remove(); }
-});
 const available: UpdateAvailabilitySnapshot = { errors: {}, items: ["git", "grok"].map(id => ({ id, kind: "plugin", installed: "1.0.0", latest: "2.0.0", compatible: true, state: "update_available", reason: "newer", channel: "official" })) };
 afterEach(() => { localStorage.clear(); vi.resetAllMocks(); Object.assign(fake.app, { installing: false, error: null, currentVersion: "1.0.0", phase: "idle", nativeStatusObserved: false }); });
 
@@ -140,6 +120,30 @@ async function renderPanel(snapshot: UpdateAvailabilitySnapshot) {
   await act(async () => root.render(<UpdatePanelProvider><UpdatePanel /></UpdatePanelProvider>));
   return { host, dispose: async () => { await act(async () => root.unmount()); host.remove(); } };
 }
+
+it.each(["Update Domios", "Update all"])("keeps a blocked tab open and shows the current transport failure after %s", async label => {
+  const tabs = [{ tab_id: "shell-1", title: "Build", workspace: "Project", command: "The running shell command could not be saved for rerun" }];
+  fake.app.error = `Update blocked by busy tabs: Build in Project\n[update-blocking-tabs]${JSON.stringify(tabs)}`;
+  fake.app.applyUpdate.mockImplementationOnce(async () => {
+    fake.app.error = "GET installer download/verify failed: HTTP 429";
+    return null;
+  });
+  const offer = { ...runningApp, latest: "1.19.1", state: "update_available", reason: "newer_version" } as const;
+  const { host, dispose } = await renderPanel({ errors: {}, items: [offer] });
+  try {
+    const blockers = host.querySelector('[aria-label="Tabs blocking the update"]')!;
+    expect(blockers.textContent).toContain("Build");
+    expect(blockers.textContent).toContain("Project");
+    expect(blockers.textContent).toContain(tabs[0].command);
+    expect(host.querySelector('button[aria-label^="Stop Build"]')).toBeNull();
+    expect(blockers.querySelector("button")).toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!.click());
+    expect(fake.app.applyUpdate).toHaveBeenCalledExactlyOnceWith({ failureSurface: "inline" });
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("HTTP 429");
+    expect(host.querySelector('[aria-label="Tabs blocking the update"]')).toBeNull();
+    expect(host.textContent).not.toContain("Build in Project");
+  } finally { await dispose(); }
+});
 
 it.each([
   ["a cached same-version check", runningApp, "Up to date at last check"],

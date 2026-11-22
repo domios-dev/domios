@@ -9,6 +9,9 @@ import type { SurfaceDeclLookup } from "../components/Surface/surfaceRenderPlan"
 import { configureDaemonTransport } from "./daemonBootstrap";
 import { __setInvokeForTest, __setListenForTest } from "./bridge";
 import { useChatSession } from "../components/Terminal/useChatSession";
+import { useAgentRuntimeState } from "../components/Terminal/useAgentRuntimeState";
+import { useWakeOnOpen } from "../components/Terminal/useWakeOnOpen";
+import { RestoreStatePanel } from "../components/Terminal/RestoreStatePanel";
 import { chatBodyView } from "../components/Terminal/chatBodyVisibility";
 import { ChatSetupState } from "../components/Terminal/ChatSetupState";
 import { clearTranscriptWindows } from "../components/Terminal/transcriptStore";
@@ -16,6 +19,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { __resetStreamMuxesForTest, MuxDeadlineError, OutcomeUnknown, RetryableMuxError, streamMuxDiagnostics, withStreamMux } from "./streamMux";
 import { MUX_CAPACITY_WAIT, MUX_REQUEST_TIMEOUT, type MuxRequestInit } from "./streamMuxRequestModel";
 import type { TransportOptions } from "./transportClient";
+import { restoreStageView } from "./restoreStageView";
+import { resumeRemoteTabEvents } from "./remoteTabEvents";
+import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
+import type { AgentRuntimeState } from "./agentRuntimeState";
+import type { Tab } from "./types";
 
 interface Posted { id: string; session: string; path: string; method: string; init: RequestInit }
 
@@ -45,7 +53,9 @@ function fixture(onGatewayState?: (available: boolean) => void, origin = "http:/
       return Response.json({ accepted: true });
     }
     const headers = new Headers(init.headers);
-    const post = { id: parts[5], session: parts[3], path: headers.get("X-Domios-Mux-Path")!, method: headers.get("X-Domios-Mux-Method")!, init };
+    const channel = parts[4] === "channels" ? JSON.parse(String(init.body)) as { channel: string; path: string } : null;
+    const post = { id: channel?.channel ?? parts[5], session: parts[3], path: channel?.path ?? headers.get("X-Domios-Mux-Path")!,
+      method: channel ? "GET" : headers.get("X-Domios-Mux-Method")!, init };
     posted.push(post); waiting.shift()?.(post);
     return reply(post);
   };
@@ -238,6 +248,147 @@ it("classifies chat_start acknowledgement loss as a retryable read, including a 
   await expect(f.client.localJson("POST", "/api/tabs/t/chat-raw/start", {})).rejects.toBeInstanceOf(RetryableMuxError);
   await expect(f.client.localJson("POST", "/api/mesh/relay-to", { method: "POST", path: "/api/tabs/t/chat-raw/start", body: {} })).rejects.toBeInstanceOf(RetryableMuxError);
 });
+
+it("keeps a cold remote wake restoring and admits one older read per settled attachment across reconnects", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const f = fixture(undefined, window.location.origin);
+  vi.stubGlobal("fetch", f.fetch);
+  configureDaemonTransport({ origin: window.location.origin, token: "cold-chat-fixture" });
+  __setListenForTest(async () => () => {});
+  clearTranscriptWindows();
+
+  const authority = { source_session_id: "own", session_binding_nonce: "nonce", offset_kind: "items" };
+  const tabId = "mesh:peer/cold";
+  const loading: AgentRuntimeState = { state: "loaded", epoch: 2, history: "loading", historyPages: 1 };
+  const complete: AgentRuntimeState = { ...loading, history: "complete", historyPages: 2 };
+  const tab: Tab = { id: tabId, title: "Fixture", tab_type: "Terminal", pty_id: null, cwd: null,
+    frozen: true, agent_type: "fixture", session_bound: true, agent_session_id: "own", session_binding_nonce: "nonce" };
+  const pathOf = (post: Posted): string => post.path === "/api/mesh/relay-to"
+    ? JSON.parse(String(post.init.body)).path : post.path ?? "";
+  const olderPosts = () => f.posted.filter(post => pathOf(post).endsWith("/chat-raw/backfill"));
+  const isEventStream = (post: Posted) => post.path?.startsWith("/api/mesh/relay-stream?");
+  const nextPost = async (label: string, matches: (post: Posted) => boolean) => {
+    const deadline = AbortSignal.timeout(5_000);
+    let rejectDeadline!: () => void;
+    const expired = new Promise<never>((_, reject) => {
+      rejectDeadline = () => reject(new Error(`Missing ${label}. Posted: ${f.posted.map(pathOf).join(", ")}`));
+      deadline.addEventListener("abort", rejectDeadline, { once: true });
+    });
+    try {
+      while (true) {
+        const post = await Promise.race([f.next(), expired]);
+        if (matches(post)) return post;
+      }
+    } finally {
+      deadline.removeEventListener("abort", rejectDeadline);
+    }
+  };
+  const nextPath = (suffix: string) => nextPost(suffix, post => pathOf(post).endsWith(suffix));
+  const finish = (post: Posted, data: unknown) => {
+    f.head(post);
+    f.text(post, JSON.stringify(post.path === "/api/mesh/relay-to" ? { ok: true, status: 200, data } : data));
+    f.end(post);
+  };
+  f.reply(async post => {
+    if (pathOf(post).endsWith("/wake")) throw new TypeError("wake acknowledgement lost");
+    if (post.path && !isEventStream(post) && !/chat-raw\/(start|backfill)$/.test(pathOf(post))) finish(post, []);
+    return Response.json({ accepted: true }, { status: 202 });
+  });
+  const runtimeEvent = (post: Posted, seq: number, state: AgentRuntimeState) => {
+    f.text(post, `data: ${JSON.stringify({ event_type: "agent-runtime-state", boot: "peer-boot", seq,
+      data: { tab_id: "cold", session_binding_nonce: "nonce", state } })}\n\n`);
+  };
+
+  const message = (content: string, seq: number) => ({ id: content, content, type: "assistant", seq });
+  const tail = Array.from({ length: 20 }, (_, index) => message(`tail-${index}`, index + 1));
+  const snapshot = (post: Posted) => finish(post, {
+    ...authority, subscription_id: JSON.parse(String(post.init.body)).body.subscriptionId,
+    kind: "snapshot", pending: false, start_offset: 1, offset: 21, messages: tail,
+  });
+  const backfill = (post: Posted, content: string) => finish(post, {
+    ...authority, start_offset: 0, end_offset: 1, messages: [message(content, 0)],
+  });
+
+  const host = document.createElement("main");
+  document.body.append(host);
+  const root = createRoot(host);
+  function Probe({ current, projected }: { current: Tab; projected: AgentRuntimeState }) {
+    const wake = useWakeOnOpen(current, true);
+    const runtime = useAgentRuntimeState(tabId, "nonce", projected);
+    const chat = useChatSession({ tabId, agentSessionId: "own", sessionBindingNonce: "nonce",
+      active: !current.frozen, history: runtime.state?.history });
+    return createElement("section", null,
+      current.frozen ? createElement(RestoreStatePanel, { view: restoreStageView(current, wake) }) : null,
+      createElement("button", { disabled: chat.backfillLoading || !chat.canBackfillOlder,
+        onClick: () => void chat.loadOlder() }, "Load previous"),
+      createElement("output", null, chat.canBackfillOlder ? "more" : "end"),
+      ...chat.allMessages.map(row => createElement("p", { key: row.id }, row.content)));
+  }
+  const render = (current: Tab, projected: AgentRuntimeState) => act(async () => root.render(createElement(Probe, { current, projected })));
+  const rendered = () => [...host.querySelectorAll("p")].map(row => row.textContent);
+  const button = () => host.querySelector("button")!;
+
+  try {
+    await render(tab, loading);
+    const wakes = f.posted.filter(post => pathOf(post).endsWith("/wake"));
+    expect(wakes).toHaveLength(1);
+    expect(await f.cancelled()).toBe(wakes[0].id);
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector('[role="progressbar"]')).not.toBeNull();
+    const runtimeStream = await nextPost("remote runtime stream", isEventStream);
+    await act(async () => f.head(runtimeStream, 200, [["content-type", "text/event-stream"]]));
+
+    const awake: Tab = { ...tab, frozen: false, boot_stage: "agent_ready" };
+    await render(awake, loading);
+    const cold = await nextPath("/chat-raw/start");
+    await act(async () => snapshot(cold));
+    expect(rendered()).toEqual(tail.map(row => row.content));
+    expect(button().disabled).toBe(true);
+    expect(olderPosts()).toHaveLength(0);
+
+    await act(async () => runtimeEvent(runtimeStream, 1, complete));
+    const settled = await nextPath("/chat-raw/start");
+    for (let seq = 2; seq <= 3; seq++) {
+      await act(async () => {
+        runtimeEvent(runtimeStream, seq, loading);
+        window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
+      });
+    }
+    await render(awake, { ...loading, historyPages: 0 });
+    expect(olderPosts()).toHaveLength(0);
+    await act(async () => snapshot(settled));
+    const superseded = await nextPath("/chat-raw/backfill");
+    expect(olderPosts()).toHaveLength(1);
+    expect(new Headers(superseded.init.headers).get("X-Domios-Mux-Cancellable")).toBe("1");
+    expect(button().disabled).toBe(true);
+
+    await act(async () => { resumeRemoteTabEvents(); resumeRemoteTabEvents(); });
+    expect(f.posted.filter(post => pathOf(post).endsWith("/chat-raw/start"))).toHaveLength(2);
+    expect(f.deleted).not.toContain(superseded.id);
+
+    await act(async () => fireResync("overflow"));
+    const replacement = await nextPath("/chat-raw/start");
+    expect(await f.cancelled()).toBe(superseded.id);
+    expect(button().disabled).toBe(false);
+    await act(async () => snapshot(replacement));
+    const active = await nextPath("/chat-raw/backfill");
+    expect(olderPosts()).toHaveLength(2);
+
+    await act(async () => backfill(superseded, "stale"));
+    expect(rendered()).toEqual(tail.map(row => row.content));
+    expect(button().disabled).toBe(true);
+    await act(async () => backfill(active, "older"));
+    expect(rendered()).toEqual(["older", ...tail.map(row => row.content)]);
+    expect(host.querySelector("output")?.textContent).toBe("end");
+    expect(olderPosts()).toHaveLength(2);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setListenForTest(null);
+    clearTranscriptWindows();
+  }
+});
+
 it("reports the overflowing request's bytes and limit instead of the aggregate session total", async () => {
   const f = fixture();
   const other = f.client.request!("/api/paused"); const paused = await f.next();
@@ -366,7 +517,7 @@ it.each([200, 503])("admits a read by default on released capacity; dispatched H
   expect(f.posted.filter(post => post.path === "/api/mesh/peers")).toHaveLength(1);
 });
 
-it("cancels catalogue reads and lets the Browser surface lookup recover released capacity", async () => {
+it("cancels catalogue reads and unblocks visible Browser surface lookup under held ordinary reads with bounded priority and Stop headroom", async () => {
   const f = fixture(undefined, window.location.origin);
   vi.stubGlobal("fetch", f.fetch);
   configureDaemonTransport({ origin: window.location.origin, token: "fixture-token" });
@@ -381,26 +532,84 @@ it("cancels catalogue reads and lets the Browser surface lookup recover released
     expect(await f.cancelled()).toBe(post.id);
   }
   __setListenForTest(async () => () => {});
+  let answerSurfaces = true;
+  const heldSurfaces: Posted[] = [];
   f.reply(async post => {
     if (post.path === "/api/surfaces") {
-      f.head(post); f.text(post, JSON.stringify({declared:[{plugin_id:"browser",surface_id:"browser",renderer:"stream",runtime:"browser"}],open:[]})); f.end(post);
+      if (answerSurfaces) {
+        f.head(post); f.text(post, JSON.stringify({declared:[{plugin_id:"browser",surface_id:"browser",renderer:"stream",runtime:"browser"}],open:[]})); f.end(post);
+      } else {
+        heldSurfaces.push(post);
+      }
+    } else if (post.path.endsWith("/stop")) {
+      f.head(post); f.text(post, '{"ok":true}'); f.end(post);
     }
     return Response.json({accepted:true},{status:202});
   });
   for (let index=0;index<48;index++) void f.client.localJson("GET",`/api/read-${index}`).catch(()=>{});
-  const first = await f.next();
+  for (let index=0;index<48;index++) await f.next();
   let lookup: SurfaceDeclLookup = {status:"loading"};
   function Probe() { lookup=useSurfaceDecl(undefined,"browser","browser",0,null); return null; }
   const root=createRoot(document.createElement("div"));
   try {
     await act(async()=>root.render(createElement(Probe)));
-    expect(lookup.status).toBe("loading");
-    expect(streamMuxDiagnostics()[0]).toMatchObject({requests:48,waitingReads:1});
-    expect(f.posted.some(post=>post.path==="/api/surfaces")).toBe(false);
-    await act(async()=>{ f.head(first); f.text(first,'{}'); f.end(first); });
     expect(lookup).toMatchObject({status:"ready",declared:{runtime:"browser"}});
-    expect(f.posted.filter(post=>post.path==="/api/surfaces")).toHaveLength(1);
+    const surfacePosts = f.posted.filter(post=>post.path==="/api/surfaces");
+    expect(surfacePosts).toHaveLength(1);
+    expect(new Headers(surfacePosts[0].init.headers).get("X-Domios-Mux-Cancellable")).toBe("1");
+    expect(streamMuxDiagnostics()[0]).toMatchObject({requests:48,waitingReads:0});
+
+    // Saturate the bounded 8-slot visible-read reserve while all 48 ordinary reads remain held.
+    answerSurfaces = false;
+    for (let index=0;index<8;index++) void f.client.localJson("GET","/api/surfaces").catch(()=>{});
+    for (let index=0;index<8;index++) expect((await f.next()).path).toBe("/api/surfaces");
+    expect(streamMuxDiagnostics()[0]).toMatchObject({requests:56,waitingReads:0});
+
+    // A 9th visible read waits cleanly and remains cancellable without dispatching.
+    const cancelExtra = new AbortController();
+    let waited!: () => void;
+    const waitObserved = new Promise<void>(resolve => { waited = resolve; });
+    const extra = f.client.request!("/api/surfaces", { signal: cancelExtra.signal, [MUX_CAPACITY_WAIT]: waited } as MuxRequestInit).catch(error => error);
+    await waitObserved;
+    expect(streamMuxDiagnostics()[0]).toMatchObject({requests:56,waitingReads:1});
+    cancelExtra.abort();
+    expect(await extra).toMatchObject({name:"AbortError"});
+    expect(streamMuxDiagnostics()[0].waitingReads).toBe(0);
+
+    // Stop still dispatches and succeeds immediately despite 48 ordinary + 8 visible held reads.
+    await expect(f.client.localJson("POST","/api/tabs/active/stop",{})).resolves.toEqual({ok:true});
+
+    // Another waiting visible read wakes once one held visible read completes (ordinary reads still held).
+    let wokeWait!: () => void;
+    const wokeObserved = new Promise<void>(resolve => { wokeWait = resolve; });
+    const queuedVisible = f.client.request!("/api/surfaces", { [MUX_CAPACITY_WAIT]: wokeWait } as MuxRequestInit);
+    await wokeObserved;
+    answerSurfaces = true;
+    const released = heldSurfaces.shift()!;
+    f.head(released); f.text(released, '{"declared":[],"open":[]}'); f.end(released);
+    const wokeResponse = await queuedVisible;
+    expect(await wokeResponse.json()).toMatchObject({declared:[{runtime:"browser"}]});
   } finally { await act(async()=>root.unmount()); __setListenForTest(null); }
+});
+
+it("keeps the fourth carrier POST slot reserved for Stop ahead of visible surface reads", async () => {
+  const f = fixture();
+  const accepts: Array<(response: Response) => void> = [];
+  f.reply(post => {
+    if (post.path.endsWith("/stop")) {
+      f.head(post); f.text(post, '{"ok":true}'); f.end(post);
+      return Promise.resolve(Response.json({ accepted: true }, { status: 202 }));
+    }
+    return new Promise(resolve => accepts.push(resolve));
+  });
+  for (let index = 0; index < 4; index++) void f.client.localJson("GET", "/api/surfaces").catch(() => {});
+  try {
+    for (let index = 0; index < 3; index++) expect((await f.next()).path).toBe("/api/surfaces");
+    const stop = f.client.localJson("POST", "/api/tabs/active/stop", {}).catch(error => error);
+    expect((await f.next()).path).toBe("/api/tabs/active/stop");
+    expect(await stop).toEqual({ ok: true });
+    expect(f.posted.filter(post => post.path === "/api/surfaces")).toHaveLength(3);
+  } finally { for (const accept of accepts) accept(Response.json({ accepted: true }, { status: 202 })); }
 });
 
 it("expires an undispatched queued action as safe to retry without later sending it", async () => {

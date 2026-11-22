@@ -1,6 +1,7 @@
 .ct-anchored-popover {
   position: fixed;
   z-index: 1500;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -30,9 +31,33 @@
   animation: ct-menu-in var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
 }
 
-/* Over a blurred modal scrim the glass backdrop shows the dialog through; a menu opened from a dialog is opaque. */
-.ct-menu.ct-menu--modal {
+/* Keep text from the underlying surface out of menus over busy content. */
+.ct-menu:where(.ct-menu--modal, .ct-menu--opaque),
+:where(.ct-anchored-popover, .ct-menu-sheet) .ct-menu {
   background: var(--ct-glass-sheen), var(--ct-surface);
+  backdrop-filter: none;
+  animation-name: ct-opaque-menu-in;
+}
+
+.ct-menu-sheet {
+  position: fixed;
+  bottom: calc(var(--ct-visual-bottom, 0px) + max(12px, var(--ct-keyboard-safe-bottom, env(safe-area-inset-bottom))));
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  width: auto;
+  max-width: 360px;
+  margin-inline: auto;
+}
+
+.ct-menu-sheet > .ct-menu {
+  --ct-menu-origin: bottom center;
+  --ct-menu-shift: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  max-height: var(--ct-menu-sheet-max-height, calc(var(--ct-visual-height, 100dvh) - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: 16px;
 }
 
 .ct-menu-page {
@@ -91,13 +116,16 @@
 }
 
 .ct-menu-row[aria-checked="true"],
-.ct-menu-row[aria-selected="true"] {
+.ct-menu-row[aria-selected="true"],
+.ct-machine-menu-row[aria-current="true"] {
   background: color-mix(in srgb, var(--ct-accent) 13%, transparent);
 }
 
 .ct-menu-row[aria-checked="true"]:hover,
 .ct-menu-row[aria-checked="true"]:focus-visible,
-.ct-menu-row[aria-selected="true"]:hover {
+.ct-menu-row[aria-selected="true"]:hover,
+.ct-machine-menu-row[aria-current="true"]:hover,
+.ct-machine-menu-row[aria-current="true"]:focus-visible {
   background: color-mix(in srgb, var(--ct-accent) 18%, transparent);
 }
 
@@ -298,16 +326,20 @@
   padding: 0 7px 8px 47px;
 }
 
-.ct-plan-badge {
+.ct-plan-badge,
+.ct-neutral-badge {
   --ct-plan-tone: var(--ct-muted-fg);
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  padding: 0 8px;
   border: 1px solid color-mix(in srgb, var(--ct-plan-tone) 34%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--ct-plan-tone) 14%, transparent);
   color: color-mix(in srgb, var(--ct-plan-tone) 78%, var(--ct-fg));
+}
+
+.ct-plan-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.01em;
@@ -372,6 +404,15 @@
 .ct-menu-session__copy:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+@keyframes ct-opaque-menu-in {
+  from {
+    transform: translateY(var(--ct-menu-shift, -6px)) scale(0.94);
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
 }
 
 @keyframes ct-menu-in {

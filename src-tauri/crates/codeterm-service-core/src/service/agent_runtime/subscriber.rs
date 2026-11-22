@@ -29,6 +29,7 @@ mod bookkeeping;
 mod batch;
 
 pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, process: Arc<Process>) {
+    super::background::watch(&svc, &session, &process);
     process.client.trace_binding(&session.context.lock());
     let mut events = process.client.subscribe();
     let mut ended = process.client.ended();
@@ -326,6 +327,7 @@ async fn reply_unhandled(
     id: &RpcId,
     code: i64,
 ) -> Result<(), RuntimeFailure> {
+    log::debug!("[runtime-prompt] request={id:?} code={code} caller=unhandled_request");
     client.reply(id, Err(request_error(code))).await
 }
 

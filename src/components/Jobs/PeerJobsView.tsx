@@ -1,3 +1,4 @@
+import { MachineProvenance } from "../shared/MachineProvenance";
 import { blueprintMeta } from "../Automation/blueprintMeta";
 import { useState } from "react";
 import { Clock3, Network, RefreshCw, Workflow } from "lucide-react";
@@ -59,7 +60,7 @@ export function PeerJobsView({ peerId, peers, onMachineChange, onClose, clientFo
       </>}
       {selected && <article aria-label={selected.title} className="mx-auto max-w-3xl">
         <h3 className="break-words font-semibold">{selected.title}</h3>
-        <p className="ct-meta-muted">{peer?.instance_name} · {jobStateLabel(selected.state)}</p>
+        <p className="ct-meta-muted">{peer && <MachineProvenance peerId={peerId} name={peer.instance_name} status={peer.online ? "online" : "offline"} />} · {jobStateLabel(selected.state)}</p>
         {selected.kind === "blueprint" ? <BlueprintView pipeline={selected.blueprint.pipeline} headingLevel={3} />
           : selected.kind === "sentinel" ? <p className="mt-3 break-words">{sentinelRowText(selected.sentinel, selected.title).meta}</p>
             : service ? <ServiceDrawer state={{ kind: "service", id: service.id, sourcePeerId: peerId }} services={remoteServices} peers={[]} thisMachineName="This machine" onClose={() => setSelected(null)} onActionDone={refreshAfterAction} />

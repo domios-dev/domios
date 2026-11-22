@@ -118,41 +118,8 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     mark_notification_read: (a) =>
       webJson("POST", `/api/notifications/${enc(s(a, "id"))}/read`),
     mesh_get_status: () => webJson("GET", "/api/mesh/status"),
-    mesh_inventory_list: () => webJson("GET", "/api/mesh/inventory"),
+    mesh_inventory_list: (a) => (a.local === true ? localJson : webJson)("GET", "/api/mesh/inventory"),
     mesh_list_peers: () => webJson("GET", "/api/mesh/peers"),
-    mesh_peer_cron_action: (a) =>
-      webJson(
-        "POST",
-        `/api/mesh/peers/${enc(s(a, "instanceId"))}/crons/${enc(s(a, "id"))}/${enc(s(a, "action"))}`,
-      ),
-    mesh_peer_cron_delete: (a) =>
-      webJson(
-        "DELETE",
-        `/api/mesh/peers/${enc(s(a, "instanceId"))}/crons/${enc(s(a, "id"))}`,
-      ),
-    mesh_peer_cron_get: (a) =>
-      webJson(
-        "GET",
-        `/api/mesh/peers/${enc(s(a, "instanceId"))}/crons/${enc(s(a, "id"))}`,
-      ),
-    mesh_peer_cron_history: (a) =>
-      webJson(
-        "GET",
-        `/api/mesh/peers/${enc(s(a, "instanceId"))}/crons/${enc(s(a, "id"))}/history`,
-      ),
-    mesh_peer_cron_update: (a) =>
-      webJson(
-        "PUT",
-        `/api/mesh/peers/${enc(s(a, "instanceId"))}/crons/${enc(s(a, "id"))}`,
-        a.patch,
-      ),
-    mesh_peer_service_delete: (a) =>
-      webJson(
-        "DELETE",
-        `/api/mesh/peers/${enc(s(a, "instanceId"))}/services/${enc(s(a, "id"))}`,
-      ),
-    mesh_peer_services_list: (a) =>
-      webJson("GET", `/api/mesh/peers/${enc(s(a, "instanceId"))}/services`),
     mesh_set_access: (a) =>
       webJson("POST", `/api/mesh/peers/${enc(s(a, "instanceId"))}/access`, {
         access_level: a.accessLevel,

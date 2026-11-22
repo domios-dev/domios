@@ -42,6 +42,11 @@ fn session_owned_access_loss_ends_visible_round_and_rearms_its_cron() {
     };
     let mut job = cron.lock().get(&job_id).unwrap().clone();
     job.last_run = Some(CronRunInfo {
+        scheduled_occurrence_at: None,
+        fired_at: None,
+        late_by_ms: None,
+        provider: None,
+        owner_instance_id: None,
         run_id: "access-loss-run".into(),
         started_at: NOW,
         finished_at: None,
@@ -58,6 +63,16 @@ fn session_owned_access_loss_ends_visible_round_and_rearms_its_cron() {
     })
     .unwrap();
     cron.lock().register_tab(&tab, &job_id, "access-loss-run");
+    service
+        .run_watcher
+        .bind_cron_witness_for_test(
+            service,
+            "curator-visible-pty".into(),
+            tab.clone(),
+            job_id.clone(),
+            "access-loss-run".into(),
+        )
+        .unwrap();
     service
         .plan_store
         .edit_plan_fixture(&id, NOW, |plan| {
@@ -263,6 +278,11 @@ fn fixture(running_cron: bool) -> (ServiceFixture, String, codeterm_service_core
         let job_id = state.cron_id.unwrap();
         let mut job = cron.lock().get(&job_id).unwrap().clone();
         job.last_run = Some(CronRunInfo {
+            scheduled_occurrence_at: None,
+            fired_at: None,
+            late_by_ms: None,
+            provider: None,
+            owner_instance_id: None,
             run_id: "running-round".into(),
             started_at: NOW,
             finished_at: None,

@@ -119,6 +119,8 @@ fn unmapped_requests_get_correlated_error_decision() {
         request_id: id.clone(),
         prompt: prompt.clone(),
         permission: None,
+        file_diffs: None,
+        elicitation: None,
     };
     assert!(unmapped_request_error(&context, &id, &[own]).is_none());
     let foreign = AgentRuntimeEvent::Prompt {
@@ -126,6 +128,8 @@ fn unmapped_requests_get_correlated_error_decision() {
         request_id: id.clone(),
         prompt: prompt.clone(),
         permission: None,
+        file_diffs: None,
+        elicitation: None,
     };
     assert!(unmapped_request_error(&context, &id, &[foreign]).is_some());
     let unrelated = AgentRuntimeEvent::Prompt {
@@ -133,6 +137,8 @@ fn unmapped_requests_get_correlated_error_decision() {
         request_id: RpcId::Number(4),
         prompt,
         permission: None,
+        file_diffs: None,
+        elicitation: None,
     };
     assert!(unmapped_request_error(&context, &id, &[unrelated]).is_some());
 }

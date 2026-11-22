@@ -1,4 +1,4 @@
-// The origin cache must invalidate when `setFocusedTab` changes, or a stale closure routes Show Tab to the wrong handler.
+// Origin actions must use the current workspace navigation handler.
 
 import { act } from "react";
 import { Window } from "happy-dom";
@@ -36,42 +36,59 @@ function tabBase(id: string): Tab {
 }
 function originTab(id: string): Tab { return { id, pty_id: null, tab_type: "Terminal", title: id, cwd: null, agent_type: "claude" } as Tab; }
 
-function actionsWith(setFocusedTab: (tabId: string) => void): MultiplexerActionsContextType {
+function actionsWith(selectTabByTab: (workspaceId: string, tabId: string) => void): MultiplexerActionsContextType {
   const noop = () => {};
   const noopAsync = async () => undefined;
   return new Proxy({}, {
     get: (_t, prop) => {
-      if (prop === "setFocusedTab") return setFocusedTab;
+      if (prop === "selectTabByTab") return async (workspaceId: string, tabId: string) => selectTabByTab(workspaceId, tabId);
       if (prop === "spawnAgentTab") return async () => null;
       if (prop === "createOrchestrationPair") return async () => { throw new Error("not implemented"); };
-      if (prop === "createWorkspace" || prop === "createTab" || prop === "selectTabByTab") return noopAsync;
+      if (prop === "createWorkspace" || prop === "createTab") return noopAsync;
       return noop;
     },
   }) as MultiplexerActionsContextType;
 }
 
 function muxStateFor(tabs: Record<string, Tab>): ExtendedState {
-  return { workspaces: [], tabs, teams: [], active_workspace_id: null, focused_tab_id: Object.keys(tabs)[0] ?? null, notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [] };
+  return { workspaces: [
+    { id: "chat-workspace", name: "Chat", cwd: null, tabs: ["chat-tab"], active_tab_id: "chat-tab" },
+    { id: "sender-workspace", name: "Sender", cwd: null, tabs: ["wrkr0001-full-tab-id"], active_tab_id: "wrkr0001-full-tab-id" },
+  ], tabs, teams: [], active_workspace_id: "chat-workspace", focused_tab_id: Object.keys(tabs)[0] ?? null, notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [] } as ExtendedState;
 }
 function originReport(id: string, shortId: string, seq: number) {
-  return { id, type: "user", content: `<domios from="tab" label="Worker" tab="${shortId}">report body ${seq}</domios>`, timestamp: String(1_700_000_000_000 + seq * 1000), seq, provider: "test",
-    segments: [{ type: "frame", kind: "tab", from: "tab", attrs: { from: "tab", label: "Worker", tab: shortId }, body: `report body ${seq}`, tip: null }],
+  return { id, type: "user", content: `<domios from="tab" label="Worker" tab="${shortId}" model="haiku">report body ${seq}</domios>`, timestamp: String(1_700_000_000_000 + seq * 1000), seq, provider: "test",
+    segments: [{ type: "frame", kind: "tab", from: "tab", attrs: { from: "tab", label: "Worker", tab: shortId, model: "haiku" }, body: `report body ${seq}`, tip: null }],
   };
 }
 
 async function main() {
   const testWindow = setupDom();
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  const { setAgentDescriptors } = await import("../../lib/agentDescriptorCache");
   const { TabSessionChat } = await import("./TabSessionChat");
 
   const tabId = "chat-tab";
+  const switchedTabId = "switched-chat";
   const originShort = "wrkr0001";
   const originFull = "wrkr0001-full-tab-id";
   const initial = [originReport("m0", originShort, 0)];
+  setAgentDescriptors([{ id: "claude", available_models: [{ id: "haiku", display_name: "Claude Haiku 5.5" }] } as never]);
 
-  __setInvokeForTest((async (cmd: string) => {
+  const firstHandoff = { id: "provider-session:codex-session:first-handoff", type: "user", content: "First opaque payload", seq: 1,
+    inboundKind: "system", fromContext: "provider-handoff", fromLabel: "Codex", fromModel: "GPT-6.2-Sol" };
+  const secondHandoff = { id: "second-handoff", type: "user", content: "Second opaque payload", seq: 4,
+    inboundKind: "system", fromContext: "provider-handoff", fromLabel: "Claude", fromModel: "Haiku 5.5" };
+  const boundary = (seq: number) => ({ id: `boundary-${seq}`, type: "system", content: "Archived conversation boundary", systemSubtype: "provider_handoff", seq });
+  const copiedWire = '<domios from="system" context="provider-handoff" label="Copied provider">Copied user text</domios>';
+  const archive = [boundary(0), firstHandoff, { id: "copied-user-text", type: "user", content: copiedWire, seq: 2 }, boundary(3)];
+  __setInvokeForTest((async (cmd: string, args?: { tabId?: string }) => {
+    if (cmd === "chat_start" && args?.tabId === switchedTabId) {
+      return { text: "", offset: 0, messages: [secondHandoff], archived_messages: archive, pending: false, source_session_id: null, session_binding_nonce: null };
+    }
     if (cmd === "chat_start") return { text: "", offset: 0, messages: initial, pending: false, source_session_id: null, session_binding_nonce: null };
-    if (cmd === "delayed_send_list" || cmd === "list_agent_providers") return [];
+    if (cmd === "delayed_send_list") return [];
+    if (cmd === "list_agent_providers") return [{ id: "claude", display_name: "Claude", available_models: [{ id: "haiku", display_name: "Claude Haiku 5.5" }] }];
     return {};
   }) as never);
   __setListenForTest((async (event: string, cb: Handler) => {
@@ -79,42 +96,76 @@ async function main() {
     set.add(cb); return () => { set?.delete(cb); };
   }) as never);
 
-  test("origin action routes to the current setFocusedTab after its identity changes", async () => {
+  test("routed Show Tab selects the sender workspace by click and Enter", async () => {
     const calls: string[] = [];
-    const spyA = (id: string) => { calls.push(`A:${id}`); };
-    const spyB = (id: string) => { calls.push(`B:${id}`); };
+    const select = (workspaceId: string, id: string) => { calls.push(`${workspaceId}:${id}`); };
 
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
     const store = createMuxStateStore(() => muxStateFor({ [tabId]: tabBase(tabId), [originFull]: originTab(originFull) }));
 
-    const renderWith = (actions: MultiplexerActionsContextType) =>
+    const renderWith = () =>
       root.render(
         <MuxStateStoreContext.Provider value={store}>
-          <MultiplexerActionsContext.Provider value={actions}>
+          <MultiplexerActionsContext.Provider value={actionsWith(select)}>
             <TabSessionChat tabId={tabId} chatBackend isVisible />
           </MultiplexerActionsContext.Provider>
         </MuxStateStoreContext.Provider>,
       );
 
-    await act(async () => { renderWith(actionsWith(spyA)); });
+    await act(async () => { renderWith(); });
     await act(async () => { await Promise.resolve(); });
-
-    // Re-render with a FRESH setFocusedTab identity; tab/provider key is unchanged.
-    await act(async () => { renderWith(actionsWith(spyB)); });
-    await act(async () => { await Promise.resolve(); });
-
-    const button = host.querySelector<HTMLButtonElement>('button[title="Show Tab"]');
+    const button = host.querySelector<HTMLButtonElement>('button[data-testid="inbound-show-tab"]');
     assert(button, "origin 'Show Tab' action button present");
-    await act(async () => {
-      button!.dispatchEvent(new (globalThis as { MouseEvent: typeof MouseEvent }).MouseEvent("click", { bubbles: true }));
-    });
+    assert(host.textContent?.includes("Claude Haiku 5.5"), "routed sender model uses the catalogue display name");
+    assert(!host.textContent?.includes("haiku"), "routed sender model id is not shown when catalogued");
+    await act(async () => { button.click(); });
+    assert(calls[0] === `sender-workspace:${originFull}`, `click selects the sender workspace and tab (got ${JSON.stringify(calls)})`);
 
-    assert(calls.length === 1, `exactly one focus call (got ${JSON.stringify(calls)})`);
-    assert(calls[0] === `B:${originFull}`, `click must route to CURRENT setFocusedTab (got ${JSON.stringify(calls)})`);
-    console.log(`  origin-actions: routed ${calls[0]}`);
+    calls.length = 0;
+    await act(async () => {
+      button.focus();
+      button.dispatchEvent(new testWindow.KeyboardEvent("keydown", { key: "Enter", bubbles: true }) as unknown as Event);
+      button.click();
+      button.dispatchEvent(new testWindow.KeyboardEvent("keyup", { key: "Enter", bubbles: true }) as unknown as Event);
+    });
+    assert(calls[0] === `sender-workspace:${originFull}`, `Enter selects the sender workspace and tab (got ${JSON.stringify(calls)})`);
+    assert(calls.length === 1, `activation selects once (got ${JSON.stringify(calls)})`);
     await act(async () => root.unmount());
+  });
+
+  test("Chat reload after two provider switches renders both recorded handoff dividers", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const store = createMuxStateStore(() => muxStateFor({ [switchedTabId]: tabBase(switchedTabId) }));
+    const element = testWindow.HTMLElement.prototype;
+    const clientHeight = Object.getOwnPropertyDescriptor(element, "clientHeight");
+    Object.defineProperty(element, "clientHeight", {
+      configurable: true,
+      get(this: HTMLElement) { return this.getAttribute("role") === "log" ? 600 : clientHeight?.get?.call(this) ?? 0; },
+    });
+    try {
+      await act(async () => root.render(
+        <MuxStateStoreContext.Provider value={store}>
+          <MultiplexerActionsContext.Provider value={actionsWith(() => {})}>
+            <TabSessionChat tabId={switchedTabId} chatBackend isVisible />
+          </MultiplexerActionsContext.Provider>
+        </MuxStateStoreContext.Provider>,
+      ));
+      const dividers = Array.from(host.querySelectorAll('[role="separator"]'), (node) => node.getAttribute("aria-label"));
+      assert(dividers.join("|") === "Continued on Codex · GPT-6.2-Sol|Continued on Claude · Haiku 5.5",
+        `both handoff dividers render in transcript order (got ${dividers.join("|")})`);
+      const payloads = Array.from(host.querySelectorAll("details > pre"), (node) => node.textContent);
+      assert(payloads.includes(firstHandoff.content) && payloads.includes(secondHandoff.content), "both handoff payloads have Details");
+      assert(host.textContent?.includes("Copied user text"), "copied markup remains user content");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      if (clientHeight) Object.defineProperty(element, "clientHeight", clientHeight);
+      else Reflect.deleteProperty(element, "clientHeight");
+    }
   });
 
   let failed = 0;
@@ -125,6 +176,7 @@ async function main() {
   if (failed > 0) throw new Error(`${failed} test(s) failed`);
   __setInvokeForTest(null);
   __setListenForTest(null);
+  setAgentDescriptors([]);
   listeners.clear();
   await testWindow.happyDOM.abort();
   testWindow.close();

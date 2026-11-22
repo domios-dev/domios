@@ -192,10 +192,14 @@ describe("tab menu model", () => {
     expect(open?.kind === "item" ? open.hint : "present").toBeUndefined();
   });
 
-  it("omits the Plugins entry when it would hold nothing", () => {
+  it("keeps only the inert Telegram action visible when a remote tab has no local plugin controls", () => {
     for (const surface of SURFACES) {
       const entries = buildTabMenu(input(surface, { tab: tab({ remote_peer_id: "peer-1" }) }));
-      expect(submenu(entries, "plugins")).toBeUndefined();
+      const pluginsEntry = submenu(entries, "plugins");
+      const attach = child(pluginsEntry, "telegram-open");
+      expect(pluginsEntry?.entries.length).toBe(1);
+      expect(attach?.kind === "item" ? attach.unavailable : null).toBe(true);
+      expect(attach?.kind === "item" ? attach.action : "missing").toBeNull();
     }
   });
 
@@ -238,12 +242,37 @@ it("offers Detach on a remote tab and names the machine its Close acts on", () =
   expect(localClose?.kind === "item" ? localClose.label : null).not.toContain("PEER-NAME");
 });
 
+it("keeps remote Telegram controls visible with an inert owner-only reason", () => {
+  const remote = tab({ id: "mesh:peer/one", remote_peer_id: "peer", remote_tab_id: "one", connected_services: ["telegram"] });
+  const entries = buildTabMenu(input("header", { tab: remote }));
+  const plugins = submenu(entries, "plugins");
+  const open = child(plugins, "telegram-open");
+  const close = child(plugins, "telegram-close");
+  for (const entry of [open, close]) {
+    expect(entry?.kind).toBe("item");
+    if (entry?.kind !== "item") throw new Error("Missing remote Telegram control");
+    expect(entry.unavailable).toBe(true);
+    expect(entry.hint).toBe("Telegram controls are only available on the owning machine.");
+    expect(entry.action).toBeNull();
+  }
+});
+
 it("offers a session fork only for a declaring provider and a bound local tab", () => {
   const forkDescriptor={...CURRENT,supports_session_fork:true};
   const forkInput=input("header",{descriptor:forkDescriptor,tab:tab({agent_session_id:"fixture"})});
   expect(buildTabMenu(forkInput).some(entry=>entry.id==="fork")).toBe(true);
   expect(buildTabMenu({...forkInput,descriptor:CURRENT}).some(entry=>entry.id==="fork")).toBe(false);
   expect(buildTabMenu({...forkInput,tab:tab({agent_session_id:null})}).some(entry=>entry.id==="fork")).toBe(false);
+  expect(buildTabMenu({
+    ...forkInput,
+    descriptor: CURRENT,
+    tab: tab({ agent_session_id: "acp-sess", agent_runtime_state: { state: "loaded", epoch: 1, sessionCapabilities: { fork: true } } }),
+  }).some(entry => entry.id === "fork")).toBe(true);
+  expect(buildTabMenu({
+    ...forkInput,
+    descriptor: CURRENT,
+    tab: tab({ agent_session_id: "acp-sess", agent_runtime_state: { state: "loaded", epoch: 1, sessionCapabilities: { list: true } } }),
+  }).some(entry => entry.id === "fork")).toBe(false);
 });
 
 for (const surface of SURFACES) {

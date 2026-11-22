@@ -86,7 +86,93 @@ fn clear_agent_identity_with_prompt(
     }
 }
 
+fn clear_exited_agent_identity(tab: &mut crate::multiplexer::types::Tab) -> ClearedAgentIdentity {
+    if let (true, Some(provider_id), Some(nonce), Some(session_id)) = (
+        tab.launch_session_authenticated(),
+        tab.agent_type.as_ref(),
+        tab.session_binding_nonce.as_ref(),
+        tab.agent_session_id.as_ref(),
+    ) {
+        if !tab
+            .restorable_launch
+            .exited_chat_binding
+            .as_ref()
+            .is_some_and(|exit| &exit.provider_id == provider_id && &exit.session_id == session_id)
+        {
+            tab.restorable_launch.exited_chat_binding =
+                Some(crate::multiplexer::types::ExitedChatBinding {
+                    provider_id: provider_id.clone(),
+                    nonce: nonce.clone(),
+                    session_id: session_id.clone(),
+                });
+        }
+    }
+    clear_agent_identity_with_prompt(tab)
+}
+
 impl ServiceContext {
+    pub fn finish_provider_switch_source_exit(
+        &self,
+        authority: &crate::service::messenger::switch_handoff::SwitchSourceAuthority,
+        detach_pty: bool,
+    ) -> Result<(), String> {
+        let expected = authority.snapshot();
+        let identity = {
+            let mut mux = self.mux.write();
+            let current = mux
+                .get_tab_mut(&expected.id)
+                .filter(|current| authority.matches_retired(current))
+                .ok_or("provider_switch_superseded: source authority changed during retirement")?;
+            self.revoke_tab_credential(&expected.id);
+            if let Some(pty) = current.pty_id.as_deref() {
+                if let Some(gate) = self.pty.lock().guarded_input_gate(pty) {
+                    gate.invalidate();
+                }
+            }
+            let identity = clear_exited_agent_identity(current);
+            if detach_pty {
+                current.pty_id = None;
+                crate::service::boot_stage::apply_boot_stage(
+                    current,
+                    codeterm_types::pty::BootStage::PtyStarting,
+                    None,
+                );
+            }
+            identity
+        };
+        if let Some(prompt) = identity.prompt_identity {
+            self.resolve_prompt_notifications(&expected.id, &prompt);
+        }
+        if let (Some(pty), Some(nonce)) = (&expected.pty_id, &expected.session_binding_nonce) {
+            crate::service::launch_readiness::retire_attempt(
+                &crate::service::launch_readiness::LaunchAttempt {
+                    tab_id: expected.id.clone(),
+                    pty_id: pty.clone(),
+                    binding_nonce: nonce.clone(),
+                },
+            );
+            crate::service::pty_io::submit_transaction::notify_submit_cycle_provider_exit(pty);
+        }
+        if let (Some(epoch), Some(operation)) =
+            (expected.lifecycle_epoch, &expected.lifecycle_operation_id)
+        {
+            crate::service::tab_lifecycle::append(
+                &self.lifecycle_journal,
+                crate::session::lifecycle::LifecycleKey {
+                    tab_id: expected.id.clone(),
+                    epoch: crate::session::lifecycle::LifecycleEpoch(epoch),
+                    operation_id: operation.clone(),
+                },
+                crate::session::lifecycle::LifecycleTransition::RolledBack {
+                    reason: "provider switch retired the exact source".into(),
+                },
+            );
+        }
+        self.schedule_session_persist_debounced();
+        self.emit_state_changed(MuxEmitCause::AgentIdentity);
+        Ok(())
+    }
+
     pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit_with_cause(
         &self,
         tab_id: &str,
@@ -151,7 +237,7 @@ impl ServiceContext {
         let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
-                .map(clear_agent_identity_with_prompt)
+                .map(clear_exited_agent_identity)
                 .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
@@ -168,7 +254,13 @@ impl ServiceContext {
         let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
-                .map(clear_agent_identity_with_prompt)
+                .map(|tab| {
+                    let retired_recipient =
+                        tab.restorable_launch.exited_chat_binding.take().is_some();
+                    let mut identity = clear_agent_identity_with_prompt(tab);
+                    identity.cleared |= retired_recipient;
+                    identity
+                })
                 .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
@@ -259,7 +351,7 @@ impl ServiceContext {
         let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
-                .map(clear_agent_identity_with_prompt)
+                .map(clear_exited_agent_identity)
                 .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
@@ -342,7 +434,7 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
                 .filter(|tab| crate::service::launch_readiness::attempt_owns_tab(tab, attempt))
-                .map(clear_agent_identity_with_prompt)
+                .map(clear_exited_agent_identity)
                 .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
@@ -468,6 +560,7 @@ impl ServiceContext {
         self.orchestration().clear_dead_planner_binding(tab_id);
         self.prompt_detector.lock().clear(tab_id);
         crate::service::structured_prompt::clear_tab(tab_id);
+        self.schedule_session_persist_debounced();
         self.emit_state_changed(MuxEmitCause::AgentIdentity);
         if matches!(source, "pty-exit" | "lifecycle-clear" | "finished-marker") {
             if let Some(pty_id) = identity.pty_id.as_deref() {

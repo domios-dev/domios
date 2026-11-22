@@ -7,6 +7,7 @@ import type { Tab } from "../../lib/types";
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
+import { remoteTransportCall } from "../../lib/remoteTabTransport";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -32,8 +33,9 @@ async function main() {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { TabSessionChat } = await import("./TabSessionChat");
   const interrupts: unknown[] = [];
+  let receipt: unknown;
   __setInvokeForTest((async (cmd: string, args?: unknown) => {
-    if (cmd === "interrupt_agent") interrupts.push(args);
+    if (cmd === "interrupt_agent") { interrupts.push(args); return receipt; }
     if (cmd === "chat_start") return { source_session_id: "thread-1", session_binding_nonce: null, subscription_id: "s", text: "", offset: 0, messages: [] };
     if (cmd === "delayed_send_list") return [];
     return {};
@@ -71,10 +73,70 @@ async function main() {
   await act(async () => { stops[0].click(); });
   assert(interrupts.length === 1, `Stop interrupts once, got ${interrupts.length}`);
   assert(JSON.stringify(interrupts[0]) === JSON.stringify({ tabId: tab.id }), `Stop routes the runtime turn by tab, got ${JSON.stringify(interrupts[0])}`);
-  console.log("PASS working chat_backend tab renders an accessible Stop that interrupts once");
+  console.log("PASS local working chat_backend tab renders an accessible Stop that interrupts once");
 
   await act(async () => root.unmount());
   host.remove();
+
+  for (const provider of ["acp", "opencode", "claude"]) {
+    const remoteTabId = `mesh:install-b/${provider}-chat`;
+    const remoteTab = {
+      ...tab,
+      id: remoteTabId,
+      agent_type: provider,
+      session_binding_nonce: "binding-1",
+      agent_runtime_state: { state: "loaded", epoch: 2, active_turn_started_at_ms: 500 },
+      backing: { kind: "chat_backend", plugin_id: provider, session_id: "thread-1" },
+      remote_peer_id: "install-b",
+      remote_peer_name: "Peer B",
+      remote_tab_id: `${provider}-chat`,
+      remote_channels: { control: "available", chat: "available" },
+    } as Tab;
+    const remoteState = {
+      ...state,
+      tabs: { [remoteTabId]: remoteTab },
+      focused_tab_id: remoteTabId,
+      tabStatuses: { [remoteTabId]: "Working" },
+    } as unknown as ExtendedState;
+    const remoteHost = document.createElement("div");
+    document.body.appendChild(remoteHost);
+    const remoteRoot = createRoot(remoteHost);
+    interrupts.length = 0;
+    const confirmed = provider === "claude";
+    receipt = {
+      stopped: provider !== "opencode",
+      interrupted_turn: {
+        session_id: "thread-1", session_binding_nonce: "binding-1", epoch: 2,
+        started_at_ms: provider === "acp" ? 400 : 500,
+      },
+    };
+    await act(async () => {
+      remoteRoot.render(
+        <MuxStateStoreContext.Provider value={createMuxStateStore(() => remoteState)}>
+          <MultiplexerActionsContext.Provider value={actions}>
+            <TabSessionChat tabId={remoteTabId} chatBackend isVisible />
+          </MultiplexerActionsContext.Provider>
+        </MuxStateStoreContext.Provider>,
+      );
+    });
+    await act(async () => { await Promise.resolve(); });
+    const remoteStops = [...remoteHost.querySelectorAll("button")].filter((button) =>
+      button.getAttribute("aria-label") === "Stop the agent" && !button.disabled && button.getAttribute("aria-hidden") !== "true");
+    assert(remoteStops.length === 1, `${provider} remote Working snapshot renders one accessible Stop`);
+    await act(async () => { remoteStops[0].click(); });
+    assert(JSON.stringify(interrupts[0]) === JSON.stringify({ tabId: remoteTabId }), `${provider} Stop preserves exact composite tab id`);
+    const route = remoteTransportCall("interrupt_agent", interrupts[0] as Record<string, unknown>);
+    assert(route?.peerId === "install-b", `${provider} Stop routes to the selected installation`);
+    assert(route.remoteTabId === `${provider}-chat`, `${provider} Stop uses the peer's raw tab id`);
+    assert(route.method === "POST" && route.suffix === "/stop", `${provider} Stop uses the peer interruption endpoint`);
+    const enabled = remoteHost.querySelector<HTMLButtonElement>('button[aria-label="Stop the agent"]:not(:disabled)');
+    assert(Boolean(enabled) === !confirmed, `${provider} Stop settles only from the confirmed current turn`);
+    if (confirmed) assert(remoteHost.querySelector('[role="status"][aria-label*="Interrupted"]'), "the composer shows interruption before any mux refresh");
+    console.log(`PASS remote ${provider} Working snapshot renders Stop and routes to its exact peer tab`);
+    await act(async () => remoteRoot.unmount());
+    remoteHost.remove();
+  }
+
   __setInvokeForTest(null);
   __setListenForTest(null);
   await testWindow.happyDOM.abort();

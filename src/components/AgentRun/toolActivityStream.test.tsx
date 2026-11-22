@@ -157,7 +157,7 @@ describe("Claude tool activity", () => {
     expect(view.querySelector('[data-testid="chat-tool-call"]')?.textContent).toContain("command");
   });
 
-  it("keeps undescribed calls on today's row title and expansion even when they share a flow", async () => {
+  it("preserves undescribed calls' path context and expansion even when they share a flow", async () => {
     const plain = [
       claudeCall("read-1", "src/a.ts", { toolName: "Read", toolKind: "read", toolInput: { file_path: "src/a.ts" } }),
       claudeCall("grep-1", "TODO", { toolName: "Grep", toolKind: "search", toolInput: { pattern: "TODO" } }),
@@ -171,7 +171,7 @@ describe("Claude tool activity", () => {
     expect(cards).toHaveLength(2);
     expect(rowHeaders(view)).toEqual(baseline);
     expect(view.textContent).not.toContain("Derived title");
-    expect(cards[0].querySelector('[data-testid="toolcard-summary"]')?.textContent).toBe("a.ts");
+    expect(cards[0].querySelector('[data-testid="toolcard-summary"]')?.textContent).toBe("src/a.ts");
     const toggle = cards[0].querySelector<HTMLButtonElement>("button[aria-controls]");
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     await click(toggle);

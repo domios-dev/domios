@@ -1,4 +1,289 @@
 use super::*;
+use tokio::io::AsyncBufReadExt;
+
+fn switch_authority_fixture() -> (
+    crate::service::test_fixture::ServiceFixture,
+    String,
+    Arc<crate::service::messenger::switch_handoff::SwitchHandoffAuthority>,
+) {
+    use crate::multiplexer::{state::MultiplexerState, types::TabBacking};
+    use crate::service::messenger::switch_handoff::SwitchSourceAuthority;
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("target".into());
+    tab.agent_session_id = Some("target-session".into());
+    tab.session_binding_nonce = Some("target-nonce".into());
+    tab.reported_session_binding_nonce = Some("target-nonce".into());
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+    tab.backing = TabBacking::ChatBackend {
+        plugin_id: "target".into(),
+        session_id: "target-session".into(),
+    };
+    let mut source = tab.clone();
+    source.agent_type = Some("source".into());
+    source.agent_session_id = Some("source-session".into());
+    source.session_binding_nonce = Some("source-nonce".into());
+    source.reported_session_binding_nonce = Some("source-nonce".into());
+    source.backing = TabBacking::ChatBackend {
+        plugin_id: "source".into(),
+        session_id: "source-session".into(),
+    };
+    let authority = SwitchSourceAuthority::admitted(&source)
+        .ready_target(tab)
+        .unwrap();
+    (
+        crate::service::test_fixture::ServiceFixture::new(mux),
+        id,
+        authority,
+    )
+}
+
+#[tokio::test]
+async fn shutdown_admission_and_primary_claim_have_one_order_at_the_actual_writer() {
+    use crate::service::messenger::switch_handoff::HandoffShutdown;
+    for shutdown_first in [false, true] {
+        let (fixture, _id, authority) = switch_authority_fixture();
+        let admission = Arc::new(crate::crash::shutdown::ShutdownAdmission::default());
+        assert!(fixture
+            .service
+            .set_ext(HandoffShutdown(admission.clone()))
+            .is_ok());
+        authority.validate(&fixture.service).unwrap();
+        let (read, _peer) = tokio::io::duplex(4096);
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let client = Client::attach(read, RecordingWriter(bytes.clone()));
+        let owner = fixture.service.clone();
+        let witness = authority.clone();
+        let gate = admission.clone();
+        let guard: PrewriteGuard = Arc::new(move || {
+            if shutdown_first {
+                gate.close();
+            }
+            witness.claim(&owner)?;
+            if !shutdown_first {
+                gate.close();
+            }
+            Ok(())
+        });
+        let call = RpcCall {
+            method: "fixture/submit".into(),
+            params: json!({"input":"opaque"}),
+            target: None,
+        };
+        let result = client.notify_guarded(&call, Some(guard)).await;
+        assert!(authority.validate(&fixture.service).is_err());
+        assert!(!authority.claim_submit_key(&fixture.service));
+        if shutdown_first {
+            assert!(matches!(result, Err(RuntimeFailure::PrewriteRefused(_))));
+            assert!(!authority.was_claimed());
+            assert!(bytes.lock().is_empty());
+        } else {
+            result.unwrap();
+            assert!(authority.was_claimed());
+            let owner = fixture.service.clone();
+            let witness = authority.clone();
+            assert!(matches!(
+                client
+                    .notify_guarded(&call, Some(Arc::new(move || witness.claim(&owner))))
+                    .await,
+                Err(RuntimeFailure::WrittenAwaitingEvidence)
+            ));
+            assert_eq!(
+                String::from_utf8(bytes.lock().clone())
+                    .unwrap()
+                    .lines()
+                    .count(),
+                1
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn claimed_handoff_key_continuation_obeys_shutdown_at_the_serialized_pty_writer() {
+    use crate::service::messenger::switch_handoff::HandoffShutdown;
+    struct KeyWriter(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for KeyWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    for shutdown_first in [false, true] {
+        let (fixture, _id, authority) = switch_authority_fixture();
+        let admission = Arc::new(crate::crash::shutdown::ShutdownAdmission::default());
+        assert!(fixture
+            .service
+            .set_ext(HandoffShutdown(admission.clone()))
+            .is_ok());
+        let (read, _peer) = tokio::io::duplex(4096);
+        let primary = Arc::new(Mutex::new(Vec::new()));
+        let client = Client::attach(read, RecordingWriter(primary.clone()));
+        let owner = fixture.service.clone();
+        let witness = authority.clone();
+        client
+            .notify_guarded(
+                &RpcCall {
+                    method: "fixture/submit".into(),
+                    params: json!({"input":"opaque"}),
+                    target: None,
+                },
+                Some(Arc::new(move || witness.claim(&owner))),
+            )
+            .await
+            .unwrap();
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let queue = crate::pty::write_queue::WriteQueue::new(Box::new(KeyWriter(bytes.clone())));
+        let gate = crate::pty::write_queue::GuardedInputGate::default();
+        gate.rearm();
+        let owner = fixture.service.clone();
+        let witness = authority.clone();
+        let key = gate
+            .issue()
+            .unwrap()
+            .with_submit_key_claim(
+                b"\r",
+                Arc::new(move || {
+                    if shutdown_first {
+                        admission.close();
+                    }
+                    let admitted = witness.claim_submit_key(&owner);
+                    if !shutdown_first {
+                        admission.close();
+                    }
+                    admitted
+                }),
+            )
+            .for_submit_key(b"\r");
+        let result =
+            queue.send_and_wait_guarded(b"\r".to_vec(), key.clone(), Duration::from_secs(1));
+        assert_eq!(result.is_ok(), !shutdown_first);
+        assert_eq!(
+            bytes.lock().as_slice(),
+            if shutdown_first { &b""[..] } else { &b"\r"[..] }
+        );
+        assert!(queue
+            .send_and_wait_guarded(b"primary again".to_vec(), key, Duration::from_secs(1))
+            .is_err());
+        assert_eq!(
+            String::from_utf8(primary.lock().clone())
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
+        assert!(authority.was_claimed());
+    }
+}
+
+#[tokio::test]
+async fn switch_authority_is_rechecked_at_request_turn_and_notification_write_claim() {
+    for changed in [
+        "team",
+        "parent",
+        "report",
+        "account",
+        "namespace",
+        "nonce",
+        "session",
+        "frozen",
+        "cancel",
+    ] {
+        for door in ["request", "turn", "notification"] {
+            let (fixture, id, authority) = switch_authority_fixture();
+            let (read, peer) = tokio::io::duplex(4096);
+            let bytes = Arc::new(Mutex::new(Vec::new()));
+            let client = Client::attach(read, RecordingWriter(bytes.clone()));
+            let owner = fixture.service.clone();
+            let witness = authority.clone();
+            let guard: PrewriteGuard = Arc::new(move || {
+                {
+                    let mut mux = owner.mux.write();
+                    let current = mux.get_tab_mut(&id).unwrap();
+                    match changed {
+                        "team" => current.team_id = Some("replacement-team".into()),
+                        "parent" => current.parent_tab_id = Some("replacement-parent".into()),
+                        "report" => {
+                            current.report_target_tab_id = Some("replacement-report".into())
+                        }
+                        "account" => {
+                            current.restorable_launch.account_id =
+                                Some("replacement-account".into())
+                        }
+                        "namespace" => {
+                            current.restorable_launch.account_namespace =
+                                Some("replacement-namespace".into())
+                        }
+                        "nonce" => current.session_binding_nonce = Some("replacement-nonce".into()),
+                        "session" => current.agent_session_id = Some("replacement-session".into()),
+                        "cancel" => witness.retire(),
+                        "frozen" => current.frozen = true,
+                        _ => unreachable!(),
+                    }
+                }
+                witness.claim(&owner)
+            });
+            let call = RpcCall {
+                method: "fixture/submit".into(),
+                params: json!({"input":"opaque"}),
+                target: None,
+            };
+            let result = match door {
+                "request" => client.request_guarded(&call, Some(guard)).await.map(|_| ()),
+                "turn" => client
+                    .request_turn(&call, Some(guard), Arc::new(WriteWitness::default()))
+                    .await
+                    .map(|_| ()),
+                _ => client.notify_guarded(&call, Some(guard)).await,
+            };
+            assert!(
+                matches!(result, Err(RuntimeFailure::PrewriteRefused(_))),
+                "{changed}/{door}"
+            );
+            assert!(!authority.was_claimed());
+            assert!(bytes.lock().is_empty());
+            assert!(client.0.state.lock().pending.is_empty());
+            drop(peer);
+        }
+    }
+}
+
+#[tokio::test]
+async fn switch_claim_winning_order_conserves_one_frame_and_later_revocation_stays_uncertain() {
+    let (fixture, id, authority) = switch_authority_fixture();
+    let (read, peer) = tokio::io::duplex(4096);
+    let bytes = Arc::new(Mutex::new(Vec::new()));
+    let client = Client::attach(read, RecordingWriter(bytes.clone()));
+    let owner = fixture.service.clone();
+    let witness = authority.clone();
+    let guard: PrewriteGuard = Arc::new(move || {
+        witness.claim(&owner)?;
+        owner.mux.write().get_tab_mut(&id).unwrap().team_id = Some("replacement-team".into());
+        Ok(())
+    });
+    let call = RpcCall {
+        method: "fixture/submit".into(),
+        params: json!({"input":"opaque"}),
+        target: None,
+    };
+    client.notify_guarded(&call, Some(guard)).await.unwrap();
+    authority.retire();
+    let owner = fixture.service.clone();
+    let witness = authority.clone();
+    let guard: PrewriteGuard = Arc::new(move || witness.claim(&owner));
+    assert!(matches!(
+        client.notify_guarded(&call, Some(guard)).await,
+        Err(RuntimeFailure::WrittenAwaitingEvidence)
+    ));
+    assert!(authority.was_claimed());
+    let written = String::from_utf8(bytes.lock().clone()).unwrap();
+    assert_eq!(written.lines().count(), 1);
+    assert_eq!(written.matches("opaque").count(), 1);
+    drop(peer);
+}
 #[test]
 fn generic_framing_rejects_ambiguous_responses_and_distinguishes_server_ids() {
     for text in [
@@ -67,14 +352,18 @@ async fn pipe_eof_fails_pending_without_replaying_payload() {
 #[tokio::test]
 async fn partial_frame_is_a_typed_failure_not_a_successful_reply() {
     let mut reader = BufReader::new(&b"{\"id\":1"[..]);
-    let incomplete = read_frame(&mut reader).await.unwrap().unwrap();
+    let Some(Inbound::Text(incomplete)) = read_frame(&mut reader).await.unwrap() else {
+        panic!("expected an incomplete text frame");
+    };
     assert!(decode(&incomplete).is_err());
 }
 
 #[tokio::test]
 async fn a_complete_final_frame_without_newline_is_processed_before_eof() {
     let mut reader = BufReader::new(&b"{\"id\":1,\"result\":{}}"[..]);
-    let last = read_frame(&mut reader).await.unwrap().unwrap();
+    let Some(Inbound::Text(last)) = read_frame(&mut reader).await.unwrap() else {
+        panic!("expected a text frame");
+    };
     assert!(matches!(
         decode(&last),
         Ok(WireFrame::Response {
@@ -104,7 +393,7 @@ async fn process_start_notification_is_retained_before_subscriber_attachment() {
     .unwrap();
     let mut events = client.subscribe();
     assert!(
-        matches!(events.try_recv().unwrap().frame, RuntimeFrame::Notification { method, .. } if method == "fixture/started")
+        matches!(events.try_recv().unwrap().frame, Some(RuntimeFrame::Notification { method, .. }) if method == "fixture/started")
     );
 }
 
@@ -191,13 +480,96 @@ async fn multi_mib_history_frames_fit_but_transport_remains_bounded() {
         "x".repeat(12 * 1024 * 1024)
     );
     let mut reader = tokio::io::BufReader::new(history.as_bytes());
-    assert_eq!(read_frame(&mut reader).await.unwrap().unwrap(), history);
-    let oversized = vec![b'x'; FRAME_LIMIT + 1];
-    let mut reader = tokio::io::BufReader::new(oversized.as_slice());
-    assert!(matches!(
-        read_frame(&mut reader).await,
-        Err(RuntimeFailure::InvalidFrame(_))
-    ));
+    assert_eq!(
+        read_frame(&mut reader).await.unwrap(),
+        Some(Inbound::Text(history))
+    );
+}
+
+#[tokio::test]
+async fn oversized_response_fails_only_its_request_and_keeps_stdio_usable() {
+    let (host, peer) = tokio::io::duplex(64 * 1024);
+    let (read, write) = tokio::io::split(host);
+    let client = Client::attach(read, write);
+    let ended = client.ended();
+    let server = async {
+        let mut peer = BufReader::new(peer);
+        let mut requests = HashMap::new();
+        for _ in 0..2 {
+            let mut line = String::new();
+            peer.read_line(&mut line).await.unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            requests.insert(
+                request["method"].as_str().unwrap().to_owned(),
+                request["id"].clone(),
+            );
+        }
+        let image_chunk = [b'A'; 64 * 1024];
+        for (header, trailer) in [
+            (
+                r#"{"params":{"data":"data:image/png;base64,"#,
+                format!(
+                    r#""}},"id":{},"method":"fixture/prompt"}}"#,
+                    requests["fixture/other"]
+                ),
+            ),
+            (
+                r#"{"result":{"data":"data:image/png;base64,"#,
+                format!(
+                    r#""}},"\u0069d":{},"jsonrpc":"2.0"}}"#,
+                    requests["fixture/history"]
+                ),
+            ),
+        ] {
+            peer.write_all(header.as_bytes()).await.unwrap();
+            for _ in 0..INBOUND_FRAME_LIMIT / image_chunk.len() {
+                peer.write_all(&image_chunk).await.unwrap();
+            }
+            peer.write_all(trailer.as_bytes()).await.unwrap();
+            peer.write_all(b"\n").await.unwrap();
+        }
+        let response = json!({"id":requests["fixture/other"],"result":"other"});
+        peer.write_all(format!("{response}\n").as_bytes())
+            .await
+            .unwrap();
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        let next: Value = serde_json::from_str(&line).unwrap();
+        let response = json!({"id":next["id"],"result":"next"});
+        peer.write_all(format!("{response}\n").as_bytes())
+            .await
+            .unwrap();
+        peer
+    };
+    let request = |method: &str| RpcCall {
+        method: method.into(),
+        params: Value::Null,
+        target: None,
+    };
+    let requests = async {
+        let history = request("fixture/history");
+        let other = request("fixture/other");
+        let (oversized, unaffected) = tokio::join!(
+            client.request_guarded(&history, None),
+            client.request_guarded(&other, None),
+        );
+        let error = oversized.unwrap().unwrap_err();
+        assert_eq!(error.code, -32010);
+        assert_eq!(
+            error.data.unwrap(),
+            json!({"kind":"response_too_large","boundary":"stdio_frame","limitBytes":INBOUND_FRAME_LIMIT})
+        );
+        assert_eq!(unaffected.unwrap().unwrap(), "other");
+        let next = client.request_guarded(&request("fixture/next"), None).await;
+        assert_eq!(next.unwrap().unwrap(), "next");
+    };
+    let ((), _peer) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(requests, server)
+    })
+    .await
+    .unwrap();
+    assert!(ended.borrow().is_none());
+    assert!(client.0.state.lock().pending.is_empty());
 }
 
 #[tokio::test]
@@ -227,7 +599,7 @@ async fn parallel_tool_output_burst_stays_inside_the_event_queue() {
     .unwrap();
     let mut seen = 0;
     while let Ok(frame) = events.try_recv() {
-        let RuntimeFrame::Notification { params, .. } = frame.frame else {
+        let Some(RuntimeFrame::Notification { params, .. }) = frame.frame else {
             panic!("unexpected frame")
         };
         assert_eq!(params["seq"], seen);
@@ -255,7 +627,7 @@ async fn responsiveness_disabled_observer_keeps_ingress_order_and_payload() {
             .await
             .unwrap()
             .unwrap();
-        let RuntimeFrame::Notification { method, params } = event.frame else {
+        let Some(RuntimeFrame::Notification { method, params }) = event.frame else {
             panic!("unexpected request");
         };
         assert_eq!(method, frame["method"].as_str().unwrap());
@@ -485,7 +857,7 @@ async fn first_ingress_during_write_keeps_the_prewrite_sequence_boundary() {
         assert_eq!(witness.after_sequence(), Some(0));
         assert!(!witness.written());
         assert!(
-            matches!(first.frame,RuntimeFrame::Notification{params,..} if params["text"]=="first chunk")
+            matches!(first.frame,Some(RuntimeFrame::Notification{params,..}) if params["text"]=="first chunk")
         );
         release.send(()).unwrap();
         witness.wait().await.unwrap();

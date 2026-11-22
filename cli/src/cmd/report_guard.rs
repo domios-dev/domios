@@ -237,6 +237,21 @@ pub fn enrich_ready_report(
     }
     if is_readiness_status(status) {
         if let Some(scope) = task_scope {
+            if scope.recorded_plain_checkout {
+                let checkout = validation_worktree.ok_or_else(unresolved_lane_refusal)?;
+                validate_plain_checkout(checkout)?;
+                if branch.is_some()
+                    || sha.is_some()
+                    || changed_files
+                        .as_ref()
+                        .is_some_and(|files| !files.is_empty())
+                {
+                    return Err(git_refusal(
+                        "a recorded folder without Git history has no commit, branch or declared edit paths to report".into(),
+                    ));
+                }
+                return Ok((branch, sha, changed_files));
+            }
             if let Some(metadata) =
                 canonical_continuation::inspect(scope, sha.as_deref(), branch.as_deref())?
             {
@@ -260,6 +275,32 @@ pub fn enrich_ready_report(
         changed_files,
         acknowledge_dirty,
     )
+}
+
+fn validate_plain_checkout(checkout: &Path) -> Result<(), ReportRefusal> {
+    let root = std::fs::canonicalize(checkout)
+        .ok()
+        .filter(|root| root.is_dir())
+        .ok_or_else(|| unavailable_scope_refusal("recorded project folder is missing"))?;
+    for ancestor in root.ancestors() {
+        match std::fs::symlink_metadata(ancestor.join(".git")) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(git_refusal(error.to_string())),
+            Ok(_) => {}
+        }
+        let head = git_command(checkout)
+            .args(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
+            .output()
+            .map_err(|error| git_refusal(error.to_string()))?;
+        if head.status.code() == Some(1) {
+            git_one(checkout, &["rev-parse", "--git-dir"]).map_err(git_refusal)?;
+            return Ok(());
+        }
+        return Err(unavailable_scope_refusal(
+            "recorded project folder's Git history no longer matches its assignment",
+        ));
+    }
+    Ok(())
 }
 
 fn readiness_validation_options(

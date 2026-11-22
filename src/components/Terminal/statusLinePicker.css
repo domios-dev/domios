@@ -443,6 +443,12 @@ button.ct-status-identity:focus-visible {
   padding-inline: var(--ct-model-picker-inset);
 }
 
+.ct-model-picker__setting-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .ct-model-picker__extras .ct-model-picker__label {
   font-size: 12px;
   font-weight: 400;
@@ -458,10 +464,36 @@ button.ct-status-identity:focus-visible {
   color: var(--ct-muted-fg);
 }
 
-.ct-model-picker__setting > .ct-model-picker__label,
+.ct-model-picker__setting-label > .ct-model-picker__label,
 .ct-model-picker__setting > output {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.ct-menu-row.ct-model-picker__boolean {
+  white-space: normal;
+  align-items: center;
+}
+
+.ct-model-picker__checkbox {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--ct-fg) 22%, transparent);
+  background: transparent;
+  color: var(--ct-bg);
+  transition:
+    background-color var(--ct-duration-fast) var(--ct-ease-liquid-settle),
+    border-color var(--ct-duration-fast) var(--ct-ease-liquid-settle);
+}
+
+.ct-model-picker__checkbox[data-checked="true"] {
+  border-color: var(--ct-accent);
+  background: var(--ct-accent);
 }

@@ -305,4 +305,37 @@ test("shared checklist review marker clears on the approval event without changi
   await act(async () => root.unmount()); store.restore();
 });
 
+test("merged runtime plan entries render alongside Domios todos in the existing sidebar checklist", async () => {
+  const initial = {
+    ...checklistRecord("solo", 1, 2, [
+      ["Locked task criterion", "in_progress"],
+      ["Inspect ACP config", "done"],
+      ["Update picker UI", "open"],
+    ]),
+    items: [
+      { id: "domios-1", position: 0, title: "Locked task criterion", state: "in_progress", locked: true, revision: 1 },
+      { id: "runtime-plan-0", position: 1, title: "Inspect ACP config", state: "done", locked: false, revision: 2 },
+      { id: "runtime-plan-1", position: 2, title: "Update picker UI", state: "open", locked: false, revision: 2 },
+    ],
+  };
+  const store = checklistStore(initial);
+  const tabs: Record<string, Tab> = {
+    solo: tab({ id: "solo", title: "ACP Agent", has_checklist: true, backing: { kind: "chat_backend", plugin_id: "acp", session_id: "sess-1" }, ...boundAgent("solo") }),
+  };
+  const { host, root } = await renderSidebar({ tabs });
+  const toggle = toggleFor(host, "ACP Agent");
+  assert(toggle, "an ACP chat_backend tab with plan items shows the existing sidebar checklist toggle");
+  await open(toggle);
+  const region = regionFor(host, "ACP Agent")!;
+  assert(
+    JSON.stringify(checklistRows(region)) === JSON.stringify([
+      "Locked task criterionIn progress",
+      "Inspect ACP configDone",
+      "Update picker UIOpen",
+    ]),
+    "Domios todos and merged ACP plan items share the exact existing checklist row styling",
+  );
+  await act(async () => root.unmount()); store.restore();
+});
+
 void run();

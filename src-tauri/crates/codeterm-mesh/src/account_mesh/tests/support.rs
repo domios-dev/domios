@@ -50,6 +50,7 @@ pub struct FakeAuthority {
     pub installation_id: String,
     pub online: AtomicBool,
     pub authorize_calls: AtomicUsize,
+    pub possession_checks: AtomicUsize,
     pub registry: Mutex<HashMap<String, LinkTarget>>,
 }
 
@@ -60,6 +61,7 @@ impl FakeAuthority {
             installation_id: installation_id.into(),
             online: AtomicBool::new(true),
             authorize_calls: AtomicUsize::new(0),
+            possession_checks: AtomicUsize::new(0),
             registry: Mutex::new(HashMap::new()),
         })
     }
@@ -111,6 +113,7 @@ impl AccountMeshAuthority for FakeAuthority {
         transcript: &[u8; 32],
         signature: &str,
     ) -> bool {
+        self.possession_checks.fetch_add(1, Ordering::SeqCst);
         signature == format!("p|{}|{}", membership.installation_id, hex(transcript))
     }
 

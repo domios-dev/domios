@@ -79,8 +79,8 @@ it("renders source-backed parts and sends the hovered source slice through both 
   expect(written).toEqual({ "text/plain": "Second _paragraph_.", [DOMIOS_TEXT_MIME]: "Second _paragraph_." });
 });
 
-it("Quote excerpt, quote file content, and Ask content share the part target", async () => {
-  await render(); await target(1); await click("Ask about this");
+it("Quote excerpt, quote file content, and Reply content share the part target", async () => {
+  await render(); await target(1); await click("Reply");
   expect(composerReplyStore.take("parts")).toEqual({ label: "Fermi", ref: "one", excerpt: "Second paragraph.", content: "Fermi:\n> Second _paragraph_." });
   expect(composerInsertionStore.take("parts")).toEqual([]);
 });
@@ -88,7 +88,7 @@ it("Quote excerpt, quote file content, and Ask content share the part target", a
 it("Whole message switches the source and is remembered across other rows", async () => {
   await render(); await target(1); await scope(true); await click("Copy as Markdown");
   expect(written["text/plain"]).toBe(SOURCE);
-  await click("Ask about this");
+  await click("Reply");
   const quoted = composerReplyStore.take("parts")?.content ?? "";
   expect(quoted).toContain("Opening");
   expect(quoted).toContain("Last paragraph.");
@@ -131,7 +131,7 @@ it("retains original ranges through canonical block projection in the actual bub
   expect(spans).toEqual(["Lead.", "<ds-plugin id='example' />", html, "Tail."]);
   await target(2); await click("Copy");
   expect(written[DOMIOS_TEXT_MIME]).toBe(html);
-  await click("Ask about this");
+  await click("Reply");
   expect(composerReplyStore.take("parts")?.content ?? "").toContain("<div>First");
 });
 

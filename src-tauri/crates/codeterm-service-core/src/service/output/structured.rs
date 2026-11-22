@@ -44,17 +44,23 @@ impl ServiceContext {
             changed
         };
         if changed {
-            self.ui.emit(
-                "prompt-state-changed",
-                serde_json::to_value(
-                    serde_json::json!({ "tab_id": tab_id, "prompt": prompt, "kind": kind }),
-                )
-                .unwrap_or_default(),
-            );
-            self.emit_state_changed(MuxEmitCause::Prompt);
+            self.emit_structured_prompt(tab_id, prompt.as_ref(), kind);
         }
         if let Some(reply) = automatic {
             dispatch(reply);
         }
+    }
+
+    pub(crate) fn emit_structured_prompt(
+        &self,
+        tab_id: &str,
+        prompt: Option<&crate::multiplexer::types::PendingPrompt>,
+        kind: codeterm_types::pty::PromptKind,
+    ) {
+        self.ui.emit(
+            "prompt-state-changed",
+            serde_json::json!({ "tab_id": tab_id, "prompt": prompt, "kind": kind }),
+        );
+        self.emit_state_changed(MuxEmitCause::Prompt);
     }
 }

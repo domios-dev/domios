@@ -11,9 +11,18 @@
   --ct-font-size-sm: 0.8125rem;
   --ct-font-size-md: 0.875rem;
   --ct-font-size-lg: 1rem;
+  --ct-font-size-meta: 11px;
   --ct-line-height: 1.45;
   --ct-capsule-font-size: 14px;
   --ct-capsule-line-height: 20px;
+
+  --ct-machine-blue: #5b9cff;
+  --ct-machine-teal: #2ec4b0;
+  --ct-machine-green: #5cc46a;
+  --ct-machine-yellow: #e0b23a;
+  --ct-machine-pink: #f06cb4;
+  --ct-machine-violet: #a985ff;
+  --ct-machine-graphite: #9aa4ae;
 
   /* Input / control rhythm */
   --ct-control-height: 2.125rem;
@@ -131,6 +140,17 @@
   --ct-window-close-hover: #e81123;
 
   --ct-sheen: #fff;
+}
+
+:root[data-ct-theme="light"],
+[data-ct-theme="light"]:not(:root) {
+  --ct-machine-blue: #1f62d0;
+  --ct-machine-teal: #0b7d70;
+  --ct-machine-green: #2b7d36;
+  --ct-machine-yellow: #8a6200;
+  --ct-machine-pink: #b8327e;
+  --ct-machine-violet: #6d48c8;
+  --ct-machine-graphite: #5c6670;
 }
 
 /* Reduced motion */

@@ -2,12 +2,14 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { installTestIo } from "../../../plugins/provider-shared/tests/hostIo";
-import type { ChatSend } from "./sendOrder";
+import { captureSendEchoBoundary, type ChatSend } from "./sendOrder";
 import {
   createTranscriptState,
   projectTranscript,
   reduceTranscript,
+  transcriptCommittedEnd,
   transcriptRows,
+  transcriptSourceRows,
   type TranscriptState,
 } from "./transcript";
 import type { NormalizedChatMessage } from "./types";
@@ -46,7 +48,7 @@ const SENDS: ChatSend[] = [
 ];
 /** The send accepted after each fixture line index. */
 const SENT_AFTER_LINE = new Map<number, ChatSend[]>([[2, [SENDS[0]]], [7, [SENDS[1], SENDS[2]]]]);
-const EXPECTED = [
+const SOURCE_ORDER = [
   "build the release",
   "Starting the release build.",
   "call:toolu_fixture_build",
@@ -57,6 +59,19 @@ const EXPECTED = [
   "result:toolu_fixture_lint",
   "then update the changelog",
   "and tag the release",
+  "Changelog updated and release tagged.",
+];
+const DISPLAY_ORDER = [
+  "build the release",
+  "Starting the release build.",
+  "call:toolu_fixture_build",
+  "also run the linter",
+  "result:toolu_fixture_build",
+  "Running the linter as requested.",
+  "call:toolu_fixture_lint",
+  "then update the changelog",
+  "and tag the release",
+  "result:toolu_fixture_lint",
   "Changelog updated and release tagged.",
 ];
 
@@ -132,26 +147,30 @@ async function main(): Promise<void> {
           rows: entry.rows,
         }).state;
         cursor = entry.end;
-        const after = projectTranscript(state, sends).rows;
+        const { rows: after, echoes } = projectTranscript(state, sends);
         for (const echo of entry.rows.filter((row) => row.timelineMarker?.kind === "queued")) {
-          const send = sends.find((candidate) => candidate.content === echo.content);
-          const was = before.findIndex((row) => row.id === send?.id);
-          const now = after.findIndex((row) => row.content === echo.content);
-          eq(now, was, `the echo of "${echo.content}" takes the pending row's exact place`);
-          eq(after[now]?.id !== send?.id, true, `the echo of "${echo.content}" replaces the send's identity`);
+          const send = sends.find((candidate) => candidate.content === echo.content)!;
+          eq(before.some((row) => row.id === send.id), true, `"${echo.content}" has a pending row before its echo`);
+          eq(after.filter((row) => row.content === echo.content).map((row) => row.id), [echo.id],
+            `the echo of "${echo.content}" replaces the pending row with its source identity`);
+          eq(echoes.get(send.id)?.timestampMs, Date.parse(echo.timestamp!),
+            `the send records the timestamp of its exact echo`);
         }
         sends = recordEchoes(sends, state);
         steps.push(after.filter((row) => !row.id.startsWith("opt-")).map(label));
       }
       for (const send of SENT_AFTER_LINE.get(index) ?? []) {
-        sends = [...sends, send];
+        sends = [...sends, {
+          ...send,
+          echoBoundary: captureSendEchoBoundary(state.authority, transcriptSourceRows(state), transcriptCommittedEnd(state)),
+        }];
         steps.push(projectTranscript(state, sends).rows.filter((row) => !row.id.startsWith("opt-")).map(label));
       }
     });
     const final = projectTranscript(state, sends);
-    eq(final.rows.map(label), EXPECTED, "committed echoes follow transcript sequence");
+    eq(final.rows.map(label), DISPLAY_ORDER, "committed echoes display at their timestamps");
     eq(
-      steps.every((step) => isSubsequence(step, EXPECTED)),
+      steps.every((step) => isSubsequence(step, DISPLAY_ORDER)),
       true,
       "no committed row changes relative order across live replay",
     );
@@ -171,24 +190,21 @@ async function main(): Promise<void> {
       rows: entries.flatMap((entry) => entry.rows),
     }).state;
     const committed = hydrate();
-    eq(
-      transcriptRows(committed).map(label).join("|") === EXPECTED.join("|"),
-      true,
-      "transcript sequence determines committed order",
-    );
+    eq(transcriptSourceRows(committed).map(label), SOURCE_ORDER, "append evidence keeps provider record order");
+    eq(transcriptRows(committed).map(label), DISPLAY_ORDER, "committed rows display by timestamp");
     const recorded = recordEchoes(SENDS, committed);
     eq(recorded.every((send) => send.echo != null), true, "every send records its echo identity");
     const awayBack = projectedRows(hydrate(), recorded);
     const remount = projectedRows(hydrate(), recorded);
     const restored = JSON.parse(JSON.stringify(recorded)) as ChatSend[];
     const restart = projectedRows(hydrate(), restored);
-    eq(projectTranscript(hydrate(), recorded).rows.map(label), EXPECTED, "hydration projects the live order");
+    eq(projectTranscript(hydrate(), recorded).rows.map(label), DISPLAY_ORDER, "hydration projects the live order");
     eq(JSON.stringify(remount), JSON.stringify(awayBack), "remount hydration is byte-for-byte identical");
     eq(JSON.stringify(restart), JSON.stringify(awayBack), "restart hydration from stored sends is byte-for-byte identical");
     eq(
       projectTranscript(hydrate()).rows.map(label),
-      EXPECTED,
-      "without stored sends the echoes keep their transcript position",
+      DISPLAY_ORDER,
+      "without stored sends the echoes display at the same timestamps",
     );
   }
 

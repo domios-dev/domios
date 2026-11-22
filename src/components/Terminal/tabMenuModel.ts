@@ -350,8 +350,17 @@ function telegramEntries(state: TelegramThreadMenuState | null): TabMenuItemEntr
 }
 
 function pluginsSubmenu({ tab, pluginTabMenu, telegramThread }: TabMenuInput): TabMenuSubmenuEntry | null {
-  // A peer's tab has no local plugin receiver or bridge thread binding.
-  if (tab.remote_peer_id) return null;
+  if (tab.remote_peer_id) {
+    const reason = "Telegram controls are only available on the owning machine.";
+    const unavailable = (id: string, testId: string, label: string, icon: TabMenuGlyph): TabMenuItemEntry => ({
+      kind: "item", id, testId, label, icon, unavailable: true, hint: reason, action: null,
+    });
+    const entries = [unavailable("telegram-open", "tab-menu-telegram-connect", TELEGRAM_THREAD_LABELS.open, "telegram")];
+    if (tab.connected_services?.includes("telegram")) {
+      entries.push(unavailable("telegram-close", "tab-menu-telegram-disconnect", TELEGRAM_THREAD_LABELS.close, "telegramClose"));
+    }
+    return { kind: "submenu", id: "plugins", testId: "tab-menu-plugins", label: TAB_MENU_LABELS.plugins, icon: "plugins", entries };
+  }
   const entries: TabMenuLeafEntry[] = [
     ...pluginTabMenuEntries(pluginTabMenu, tab.id).map((entry): TabMenuCheckEntry => ({
       kind: "check",
@@ -373,6 +382,16 @@ function pluginsSubmenu({ tab, pluginTabMenu, telegramThread }: TabMenuInput): T
     icon: "plugins",
     entries,
   };
+}
+
+export function unavailableTabMenu(entries: readonly TabMenuEntry[], reason: string): TabMenuEntry[] {
+  return entries.map(entry => {
+    if (entry.kind === "header" || entry.kind === "separator") return entry;
+    return {
+      kind: "item", id: entry.id, testId: entry.testId, label: entry.label, icon: entry.icon,
+      unavailable: true, hint: reason, action: null,
+    };
+  });
 }
 
 export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
@@ -421,7 +440,7 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
     if (submenu) entries.push(submenu);
   }
   entries.push(...sessionItems(input, session), ...autoConfirmEntries(input));
-  if (session.sessionId && input.descriptor?.supports_session_fork === true && !tab.remote_peer_id) {
+  if (session.sessionId && (input.descriptor?.supports_session_fork === true || tab.agent_runtime_state?.sessionCapabilities?.fork === true) && !tab.remote_peer_id) {
     entries.push({kind:"item",id:"fork",label:"Fork session",icon:"fork",action:{type:"fork"}});
   }
   const plugins = pluginsSubmenu(input);

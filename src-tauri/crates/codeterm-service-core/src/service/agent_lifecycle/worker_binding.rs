@@ -1,4 +1,4 @@
-use crate::multiplexer::types::TaskBinding;
+use crate::multiplexer::types::{Tab, TaskBinding};
 use crate::service::agent_runtime::plan_warning::PlanBindingFailure;
 use crate::service::plan::{PlanError, RestartAttemptRead, TaskContinuityRead, TaskRestartQuery};
 use crate::service::{
@@ -13,8 +13,12 @@ use std::{
 
 type Mux = crate::lock_hold::TimedRwLock<crate::multiplexer::state::MultiplexerState>;
 
+#[cfg(any(test, feature = "test-support"))]
+struct SwitchBindingCommit(Mutex<Option<Arc<dyn Fn(&ServiceContext) + Send + Sync>>>);
+
 #[derive(Clone)]
 pub struct RestartBindingAuthority {
+    authorized_binding: TaskBinding,
     owner: Weak<Mux>,
     request: RuntimeRestartBinding,
     pub carried: bool,
@@ -22,6 +26,11 @@ pub struct RestartBindingAuthority {
     completed_source: Option<CurrentSession>,
     completed_binding: Option<TaskBinding>,
     completed_target: Option<CurrentSession>,
+}
+impl RestartBindingAuthority {
+    pub fn authorized_task_binding(&self) -> &TaskBinding {
+        &self.authorized_binding
+    }
 }
 pub static BINDINGS: LazyLock<Mutex<HashMap<(usize, String), RestartBindingAuthority>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -190,6 +199,19 @@ pub fn completed_attempt_matches(
 }
 
 impl ServiceContext {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn before_switch_binding_commit_for_test(
+        &self,
+        callback: Arc<dyn Fn(&ServiceContext) + Send + Sync>,
+    ) -> Result<(), String> {
+        let slot = self.ext_or_init(|| SwitchBindingCommit(Mutex::new(None)));
+        let mut guard = slot.0.lock();
+        if guard.is_some() {
+            return Err("switch binding fixture already installed".into());
+        }
+        *guard = Some(callback);
+        Ok(())
+    }
     #[cfg(any(test, feature = "test-support"))]
     pub fn forget_completed_session_for_test(&self, tab_id: &str) {
         COMPLETED_SESSIONS.lock().remove(&key(self, tab_id));
@@ -370,6 +392,17 @@ impl ServiceContext {
         target: &str,
         nonce: &str,
     ) -> Result<Option<RestartBindingAuthority>, String> {
+        self.authorize_provider_switch_binding_inner(tab_id, source, target, nonce, None)
+    }
+
+    pub(crate) fn authorize_provider_switch_binding_inner(
+        &self,
+        tab_id: &str,
+        source: &str,
+        target: &str,
+        nonce: &str,
+        admitted: Option<&crate::service::messenger::switch_handoff::SwitchSourceAuthority>,
+    ) -> Result<Option<RestartBindingAuthority>, String> {
         if let Some(authority) = self.completed_restart_binding(
             tab_id,
             source,
@@ -377,18 +410,47 @@ impl ServiceContext {
             nonce,
             RuntimeRestartMode::ProviderSwitch,
         )? {
+            if admitted.is_some_and(|source| {
+                source.snapshot().task_binding.as_ref() != Some(authority.authorized_task_binding())
+            }) {
+                return Err(
+                    "provider_switch_superseded: completed source task binding changed".into(),
+                );
+            }
             return Ok(Some(authority));
         }
-        if !self.restore_provider_switch_task_binding(tab_id, source, nonce)? {
+        let Some(restored) =
+            self.restore_provider_switch_task_binding(tab_id, source, nonce, admitted)?
+        else {
             return Ok(None);
-        }
-        let mut authority = self
-            .try_authorize_runtime_restart_binding(
+        };
+        let authorized = if let Some(admitted) = admitted {
+            let mut expected = admitted.snapshot().clone();
+            expected.task_binding = Some(restored.clone());
+            if !self.mux.read().get_tab(tab_id).is_some_and(|current| {
+                crate::service::messenger::switch_handoff::same_binding(&expected, current)
+            }) {
+                return Err(
+                    "provider_switch_superseded: source changed after authorized task restoration"
+                        .into(),
+                );
+            }
+            self.authorize_runtime_restart_snapshot(
+                tab_id,
+                source,
+                nonce,
+                RuntimeRestartMode::ProviderSwitch,
+                expected,
+            )
+        } else {
+            self.try_authorize_runtime_restart_binding(
                 tab_id,
                 source,
                 nonce,
                 RuntimeRestartMode::ProviderSwitch,
             )
+        };
+        let mut authority = authorized
             .map_err(|failure| format!("provider_switch_binding_refused: {}", failure.reason))?
             .ok_or("provider_switch_binding_refused: task attempt cannot be carried")?;
         authority.request.target_provider = Some(target.into());
@@ -508,6 +570,7 @@ impl ServiceContext {
         let current = CurrentSession::capture(&tab)
             .map_err(|reason| format!("provider_switch_binding_refused: {reason}"))?;
         Ok(Some(RestartBindingAuthority {
+            authorized_binding: binding.clone(),
             owner: Arc::downgrade(&self.mux),
             request: RuntimeRestartBinding {
                 plan_id: plan.clone(),
@@ -536,13 +599,19 @@ impl ServiceContext {
         tab_id: &str,
         source: &str,
         nonce: &str,
-    ) -> Result<bool, String> {
+        admitted: Option<&crate::service::messenger::switch_handoff::SwitchSourceAuthority>,
+    ) -> Result<Option<TaskBinding>, String> {
         let tab = self
             .mux
             .read()
             .get_tab(tab_id)
             .cloned()
             .ok_or("provider_switch_binding_refused: tab not found")?;
+        if admitted.is_some_and(|source| !source.matches(&tab)) {
+            return Err(
+                "provider_switch_superseded: source changed before task restoration".into(),
+            );
+        }
         let live_attempts = self
             .plan_store
             .runtime_current_attempt_bindings_projection(tab_id)
@@ -551,7 +620,7 @@ impl ServiceContext {
             binding.plan_id.is_some() || binding.task_id.is_some() || binding.attempt_id.is_some()
         });
         if live_attempts.is_empty() && !task_binding_present {
-            return Ok(false);
+            return Ok(None);
         }
         if tab.agent_type.as_deref() != Some(source)
             || tab.session_binding_nonce.as_deref() != Some(nonce)
@@ -641,11 +710,19 @@ impl ServiceContext {
             bound_at,
         };
         if tab.task_binding.as_ref() != Some(&restored) {
+            #[cfg(any(test, feature = "test-support"))]
+            if let Some(boundary) = self.try_ext::<SwitchBindingCommit>() {
+                let callback = boundary.0.lock().take();
+                if let Some(callback) = callback {
+                    callback(self);
+                }
+            }
             let mut mux = self.mux.write();
             let current = mux
                 .get_tab_mut(tab_id)
                 .ok_or("provider_switch_binding_refused: tab disappeared")?;
-            if current.agent_type != tab.agent_type
+            if admitted.is_some_and(|admitted| !admitted.matches(current))
+                || current.agent_type != tab.agent_type
                 || current.agent_session_id != tab.agent_session_id
                 || current.session_binding_nonce != tab.session_binding_nonce
                 || current.reported_session_binding_nonce != tab.reported_session_binding_nonce
@@ -653,9 +730,9 @@ impl ServiceContext {
             {
                 return Err("provider_switch_binding_refused: source task binding changed".into());
             }
-            current.task_binding = Some(restored);
+            current.task_binding = Some(restored.clone());
         }
-        Ok(true)
+        Ok(Some(restored))
     }
 
     pub fn authorize_runtime_restart_binding(
@@ -746,12 +823,24 @@ impl ServiceContext {
         {
             return Err("Runtime restart binding changed".into());
         }
+        self.authorize_runtime_restart_snapshot(tab_id, provider, nonce, mode, tab)
+    }
+
+    fn authorize_runtime_restart_snapshot(
+        &self,
+        tab_id: &str,
+        provider: &str,
+        nonce: &str,
+        mode: RuntimeRestartMode,
+        tab: Tab,
+    ) -> Result<Option<RestartBindingAuthority>, PlanBindingFailure> {
         let Some(binding) = tab.task_binding else {
             return Ok(None);
         };
         if binding.plan_id.is_none() && binding.task_id.is_none() && binding.attempt_id.is_none() {
             return Ok(None);
         }
+        let authorized_binding = binding.clone();
         let (Some(plan), Some(task), Some(attempt)) =
             (binding.plan_id, binding.task_id, binding.attempt_id)
         else {
@@ -788,6 +877,7 @@ impl ServiceContext {
             return Err("Runtime restart previous task binding changed".into());
         }
         Ok(Some(RestartBindingAuthority {
+            authorized_binding,
             owner: Arc::downgrade(&self.mux),
             request: RuntimeRestartBinding {
                 plan_id: plan,

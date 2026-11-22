@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { formatAttachmentMarker } from "@codeterm/chat-core";
 import { serializeCapsuleDraft } from "./composerCapsules";
-import { replyMarker, withReplyMarker } from "./composerReply";
+import { inlineReplyText, replyMarker, withInlineReply, withReplyMarker } from "./composerReply";
 import { canEditChatSend, type DeliverySend } from "./chatDeliveryModel";
 
 const pending = new Map<string, string[]>();
@@ -14,7 +14,10 @@ export function editableChatDelivery(send: DeliverySend): string {
     ...draft.attachments.map(path => formatAttachmentMarker(path)),
     ...draft.recordedVoiceAttachments.map(path => formatAttachmentMarker(path, "voice")),
   ].filter(Boolean).join("\n");
-  return draft.reply ? withReplyMarker(replyMarker(draft.reply), body) : body;
+  if (!draft.reply) return body;
+  return draft.inlineReply || !draft.reply.path
+    ? withInlineReply(inlineReplyText(draft.reply), body)
+    : withReplyMarker(replyMarker(draft.reply), body);
 }
 
 export function editChatDelivery(tabId: string, send: DeliverySend): void {

@@ -1,90 +1,106 @@
 import type { FileDiff, ToolEvent } from "@codeterm/chat-core";
-import { Copy, Maximize2 } from "lucide-react";
+import { ChevronRight, Copy, Maximize2 } from "lucide-react";
 import { CardChevron } from "../CompactCard";
 import { useId, useMemo, useState } from "react";
 import { ChatCardMenu, copyPlainText } from "../ChatCardMenu";
 import { useChatBlockHost } from "../blocks/ChatBlockHost";
 import { ToolOutputContent } from "../ToolOutputContent";
 import { COMMAND_TREE_CAP, LINE_CLASS } from "./CommandTree";
-import { DiffHunkLines, changedLines } from "./FileDiffCards";
+import { DiffHunkLines, FilePathLabel, changedLines, uniqueToolTexts } from "./FileDiffCards";
 import { StatusGlyph, statusName } from "./ToolActivityStream";
 import { toolKindVisual } from "./toolKindVisual";
+import { toolDurationLabel } from "./toolDuration";
 
 const QUIET = "var(--ct-muted-fg)";
 const RAIL = { color: QUIET, opacity: 0.6 };
 
 /** One file of a run: every edit to the same path, in order. */
 interface RunFile {
+  id: string;
+  memberId: string;
   path: string;
   movePath?: string;
   kind?: FileDiff["kind"];
   additions: number;
   deletions: number;
-  edits: number;
   hunks: FileDiff["hunks"];
+  status: ToolEvent["status"];
+  durationMs?: number;
+  textDetails: string[];
 }
 
 function runFiles(members: ToolEvent[]): RunFile[] {
-  const files = new Map<string, RunFile>();
-  for (const member of members) {
-    for (const diff of member.fileDiffs ?? []) {
-      const path = diff.movePath ?? diff.path;
-      const file = files.get(path);
-      if (file) {
-        file.additions += diff.additions;
-        file.deletions += diff.deletions;
-        file.edits += 1;
-        file.hunks = [...file.hunks, ...diff.hunks];
-        if (diff.kind === "delete") file.kind = "delete";
-      } else {
-        files.set(path, { path: diff.path, movePath: diff.movePath, kind: diff.kind, additions: diff.additions, deletions: diff.deletions, edits: 1, hunks: diff.hunks });
-      }
-    }
-  }
-  return [...files.values()];
+  return members.flatMap((member) => {
+    const textDetails = uniqueToolTexts(member);
+    return (member.fileDiffs ?? []).map((diff, index) => ({
+      id: `${member.id}:${index}`,
+      memberId: member.id,
+      path: diff.path,
+      movePath: diff.movePath,
+      kind: diff.kind,
+      additions: diff.additions,
+      deletions: diff.deletions,
+      hunks: diff.hunks,
+      status: member.status,
+      durationMs: member.durationMs,
+      // Attach member-level detail/result once per tool operation so multi-file diffs do not duplicate it.
+      textDetails: index === 0 ? textDetails : [],
+    }));
+  });
 }
 
-function PathLabel({ path }: { path: string }) {
-  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
-  return <>
-    {parts.length > 1 && <span style={{ color: QUIET }}>{parts[parts.length - 2]}/</span>}
-    <span style={{ color: "var(--ct-fg)" }}>{parts[parts.length - 1] ?? path}</span>
-  </>;
-}
-
-function Counts({ additions, deletions }: { additions: number; deletions: number }) {
+function Counts({ additions, deletions, kind }: { additions: number; deletions: number; kind?: FileDiff["kind"] }) {
   return <span data-testid="edit-run-counts" className="shrink-0 font-mono text-[10.5px]">
-    <span style={{ color: "var(--ct-green)" }}>+{additions}</span>{" "}
-    <span style={{ color: "var(--ct-red)" }}>−{deletions}</span>
+    {kind !== "delete" && <span style={{ color: "var(--ct-green)" }}>+{additions}</span>}
+    {kind !== "add" && <>{kind !== "delete" && <span> </span>}<span style={{ color: "var(--ct-red)" }}>−{deletions}</span></>}
   </span>;
 }
 
 function FileDetail({ file }: { file: RunFile }) {
-  if (file.hunks.length === 0) return <div className="px-1 font-mono text-[11px]" style={{ color: QUIET }}>{file.kind === "delete" ? "File deleted" : "Empty file"}</div>;
-  return <div data-testid="edit-run-diff" className="overflow-x-auto rounded border py-0.5" style={{ borderColor: "var(--ct-border)", background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)" }}>
-    {file.hunks.map((hunk, index) => <div key={index}>
-      <div className="px-3 py-0.5 font-mono text-[10.5px]" style={{ color: QUIET }}>{changedLines(hunk)}</div>
-      <DiffHunkLines hunk={hunk} path={file.movePath ?? file.path} />
-    </div>)}
-  </div>;
+  const diffBody = file.hunks.length === 0
+    ? <div className="px-1 font-mono text-[11px]" style={{ color: QUIET }}>{file.kind === "delete" ? "File deleted" : "Empty file"}</div>
+    : <div data-testid="edit-run-diff" className="overflow-x-auto rounded border py-0.5" style={{ borderColor: "var(--ct-border)", background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)" }}>
+      {file.hunks.map((hunk, index) => <div key={index}>
+        <div className="px-3 py-0.5 font-mono text-[10.5px]" style={{ color: QUIET }}>{changedLines(hunk)}</div>
+        <DiffHunkLines hunk={hunk} path={file.movePath ?? file.path} />
+      </div>)}
+    </div>;
+  return <>
+    {diffBody}
+    {file.textDetails.length > 0 && (
+      <div data-testid="toolcard-result" className="flex flex-col gap-1 pt-1">
+        {file.textDetails.map((detail, index) => (
+          <ToolOutputContent key={`${index}-${detail.slice(0, 32)}`} text={detail} maxHeight="12rem" />
+        ))}
+      </div>
+    )}
+  </>;
 }
 
 /** Back-to-back file edits as one line with a tree of files, in the same shape as a command group. */
 export function EditRunCard({ event, expanded, onToggle }: { event: ToolEvent; expanded: boolean; onToggle: (next: boolean) => void }) {
   const members = event.editRun ?? [];
   const files = useMemo(() => runFiles(members), [members]);
-  const [openPath, setOpenPath] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   const host = useChatBlockHost();
   const regionId = useId();
   const visual = toolKindVisual.edit;
   const Glyph = visual.glyph;
   const additions = files.reduce((sum, file) => sum + file.additions, 0);
   const deletions = files.reduce((sum, file) => sum + file.deletions, 0);
-  const title = `Edited ${files.length} ${files.length === 1 ? "file" : "files"}`;
+  const distinctFileCount = new Set(files.map((file) => file.movePath ?? file.path)).size;
+  const hasNonEdit = files.some((file) => file.kind === "add" || file.kind === "delete" || file.kind === "rename");
+  const title = hasNonEdit ? "File changes" : `Edited ${distinctFileCount} ${distinctFileCount === 1 ? "file" : "files"}`;
   const visible = expanded || files.length <= COMMAND_TREE_CAP + 1 ? files.length : COMMAND_TREE_CAP;
   const hidden = files.length - visible;
-  const failures = members.filter((member) => member.status === "error" && member.result);
   const openFile = host.openFileChange;
+  const openRow = openId ? files.find((file) => file.id === openId) : undefined;
+  const openMemberShownInline = openRow && openRow.textDetails.length > 0 ? openRow.memberId : null;
+  const groupDetails = members.flatMap((member) => {
+    if (member.id === openMemberShownInline) return [];
+    const texts = uniqueToolTexts(member);
+    return texts.length > 0 ? [{ id: member.id, texts }] : [];
+  });
 
   return (
     <section
@@ -120,26 +136,26 @@ export function EditRunCard({ event, expanded, onToggle }: { event: ToolEvent; e
         </span>
         <CardChevron expanded={expanded} label={`${expanded ? "Collapse" : "Expand"} edited files`} onToggle={() => onToggle(!expanded)} />
       </div>
-      <ol id={regionId} data-testid="chat-edit-run-files" aria-label={`${files.length} edited files`} className="m-0 min-w-0 list-none py-0.5 pb-1 pl-4 pr-2 font-mono text-[11.5px]">
+      <ol id={regionId} data-testid="chat-edit-run-files" aria-label={`${files.length} file changes`} className="m-0 min-w-0 list-none py-0.5 pb-1 pl-4 pr-2 font-mono text-[11.5px]">
         {files.slice(0, visible).map((file, index) => {
           const path = file.movePath ?? file.path;
-          const open = openPath === path;
-          const last = index === files.length - 1;
-          return <li key={path} data-testid="chat-edit-run-file" className="group/file min-w-0">
+          const open = openId === file.id;
+          const FileGlyph = visual.glyph;
+          return <li key={file.id} data-testid="chat-edit-run-file" className="group/file min-w-0">
             <div className="flex min-w-0 items-center">
               <button
                 type="button"
                 aria-expanded={open}
-                aria-label={`${open ? "Hide" : "Show"} diff for ${path}`}
-                onClick={() => setOpenPath(open ? null : path)}
-                className={LINE_CLASS}
+                aria-label={`${open ? "Hide" : "Show"} diff for ${path}, change ${index + 1}`}
+                onClick={() => setOpenId(open ? null : file.id)}
+                className={`${LINE_CLASS} gap-2`}
               >
-                <span aria-hidden="true" className="shrink-0" style={RAIL}>{last ? "└" : "├"}</span>
-                <span title={path} className="min-w-0 truncate"><PathLabel path={file.path} />{file.movePath && <> → <PathLabel path={file.movePath} /></>}</span>
-                {file.edits > 1 && <span className="shrink-0 text-[10px]" style={{ color: QUIET }}>×{file.edits}</span>}
-                {file.kind === "add" && <span className="shrink-0 text-[10px]" style={{ color: QUIET }}>new</span>}
-                {file.kind === "delete" && <span className="shrink-0 text-[10px]" style={{ color: "var(--ct-red)", opacity: 0.75 }}>deleted</span>}
-                <Counts additions={file.additions} deletions={file.deletions} />
+                <FileGlyph aria-hidden size={14} className="shrink-0" style={{ color: visual.color }} />
+                <span title={path} className="min-w-0 truncate">{file.kind === "add" && <span style={{ color: QUIET }}>Created </span>}{file.kind === "delete" && <span style={{ color: QUIET }}>Deleted </span>}{file.kind !== "add" && file.kind !== "delete" && <span style={{ color: QUIET }}>Edited </span>}<FilePathLabel path={file.path} />{file.movePath && <> → <FilePathLabel path={file.movePath} /></>}</span>
+                <Counts additions={file.additions} deletions={file.deletions} kind={file.kind} />
+                {file.durationMs !== undefined && <span data-testid="edit-run-duration" aria-label={`Duration ${file.durationMs} milliseconds`} title={`${file.durationMs}ms`} className="shrink-0 font-mono text-[10.5px]" style={{ color: QUIET }}>{toolDurationLabel(file.durationMs)}</span>}
+                <span role="status" aria-label={statusName(file.status)} className="flex size-4 shrink-0 items-center justify-center" style={{ color: file.status === "success" ? "var(--ct-green)" : QUIET }}><StatusGlyph status={file.status} /></span>
+                <ChevronRight aria-hidden size={14} data-testid="edit-run-chevron" className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} style={{ color: QUIET }} />
               </button>
               {openFile && <button
                 type="button"
@@ -160,8 +176,10 @@ export function EditRunCard({ event, expanded, onToggle }: { event: ToolEvent; e
           </button>
         </li>}
       </ol>
-      {expanded && failures.length > 0 && <div data-testid="toolcard-result" className="px-3 pb-2">
-        {failures.map((member) => <ToolOutputContent key={member.id} text={member.result ?? ""} maxHeight="12rem" />)}
+      {expanded && groupDetails.length > 0 && <div data-testid="toolcard-result" className="flex flex-col gap-1 px-3 pb-2">
+        {groupDetails.flatMap((entry) => entry.texts.map((text, index) => (
+          <ToolOutputContent key={`${entry.id}:${index}`} text={text} maxHeight="12rem" />
+        )))}
       </div>}
     </section>
   );

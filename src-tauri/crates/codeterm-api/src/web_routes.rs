@@ -9,7 +9,7 @@ use axum::{
     response::sse::{Event, KeepAlive, Sse},
     Json,
 };
-use codeterm_commands::{commands, commands_mesh};
+use codeterm_commands::commands;
 use futures_core::Stream;
 use serde::Deserialize;
 use std::time::{Duration, SystemTime};
@@ -17,6 +17,7 @@ use std::time::{Duration, SystemTime};
 use crate::routes::AppState;
 
 pub use crate::web_plugin_routes::plugin_ui;
+pub(crate) mod dictation;
 mod plugin_view;
 pub use plugin_view::{plugin_view_call, recording_suggestion, remote_task_call};
 mod session_transcript;
@@ -204,94 +205,16 @@ pub async fn tab_chat_view(
     })?
 }
 
-/// Peer services for the Mesh tab — same cache+failover logic as the
-/// Tauri command (`commands_mesh::fetch_peer_services_view`).
-pub async fn peer_services(
-    AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
-    Path(instance_id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let view = commands_mesh::fetch_peer_services_view(&state.mesh, &instance_id)
-        .await
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    Ok(Json(view))
-}
-
-pub async fn peer_service_delete(
-    AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
-    Path((instance_id, id)): Path<(String, String)>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let value = commands_mesh::peer_service_delete_request(&state.mesh, &instance_id, &id)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
-    Ok(Json(value))
-}
-
-pub async fn peer_cron_action(
-    AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
-    Path((instance_id, id, action)): Path<(String, String, String)>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let value = commands_mesh::peer_cron_action_request(&state.mesh, &instance_id, &id, &action)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
-    Ok(Json(value))
-}
-
-pub async fn peer_cron_update(
-    AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
-    Path((instance_id, id)): Path<(String, String)>,
-    Json(patch): Json<codeterm_service_core::cron::store::CronUpdateParams>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let patch = serde_json::to_value(patch)
-        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
-    let value = commands_mesh::peer_cron_update_request(&state.mesh, &instance_id, &id, patch)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
-    Ok(Json(value))
-}
-
-pub async fn peer_cron_delete(
-    AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
-    Path((instance_id, id)): Path<(String, String)>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let value = commands_mesh::peer_cron_delete_request(&state.mesh, &instance_id, &id)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
-    Ok(Json(value))
-}
-
-pub async fn peer_cron_history(
-    AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
-    Path((instance_id, id)): Path<(String, String)>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let value = commands_mesh::peer_cron_history_request(&state.mesh, &instance_id, &id)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
-    Ok(Json(value))
-}
-
-pub async fn peer_cron_get(
-    AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
-    Path((instance_id, id)): Path<(String, String)>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let value = commands_mesh::peer_cron_get_request(&state.mesh, &instance_id, &id)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
-    Ok(Json(value))
-}
-
 /// Optional replay cursor: `?since=<boot_id>:<seq>` (D1).
 #[derive(Deserialize)]
 pub struct EventsStreamQuery {
     since: Option<String>,
     tab_id: Option<String>,
+    scope: Option<PeerEventScope>,
 }
+
+mod peer_events;
+pub(crate) use peer_events::PeerEventScope;
 
 fn event_matches_tab(event: &crate::events::SystemEvent, tab_id: Option<&str>) -> bool {
     let Some(tab_id) = tab_id else { return true };
@@ -330,7 +253,21 @@ fn parse_since(raw: &str) -> Option<(String, u64)> {
     Some((boot.to_string(), seq.parse().ok()?))
 }
 
-fn event_frame(se: &crate::events::SeqEvent, previous: Option<u64>) -> Event {
+fn event_frame(
+    se: &crate::events::SeqEvent,
+    previous: Option<u64>,
+    peer_boot: Option<&str>,
+) -> Event {
+    if let Some((boot, tab)) = peer_boot.zip(peer_events::chat_send_status_tab(&se.event)) {
+        // Routed send bodies can exceed the shared rail's frame budget.
+        return Event::default().data(
+            serde_json::json!({
+                "prev_seq": previous, "seq": se.seq, "boot": boot,
+                "event_type": "chat-send-status", "data": { "tab_id": tab },
+            })
+            .to_string(),
+        );
+    }
     let previous = previous.map_or_else(|| "null".to_string(), |seq| seq.to_string());
     Event::default().data(format!(
         "{{\"prev_seq\":{previous},{}",
@@ -377,11 +314,18 @@ fn overflow_payload(
 /// Absent `?since` ⇒ start live from now (old-client behavior).
 pub async fn events_stream(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    caller: Option<axum::Extension<crate::auth::CallerIdentity>>,
     Query(q): Query<EventsStreamQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, (StatusCode, String)>
 {
-    Ok(events_sse(state.events, q, &STREAMS))
+    let caller = caller.map(|caller| caller.0);
+    peer_events::validate_scope(&state, &q, caller.as_ref())?;
+    let events = state.events.clone();
+    let scope = q.scope;
+    let tab = q.tab_id.clone();
+    Ok(events_sse_filtered(events, q, &STREAMS, move |event| {
+        peer_events::visible(&state, caller.as_ref(), scope, tab.as_deref(), event)
+    }))
 }
 
 pub(crate) fn events_sse(
@@ -389,11 +333,21 @@ pub(crate) fn events_sse(
     q: EventsStreamQuery,
     census: &StreamCensus,
 ) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
+    events_sse_filtered(events, q, census, |_| true)
+}
+
+fn events_sse_filtered(
+    events: crate::events::EventBroadcasterState,
+    q: EventsStreamQuery,
+    census: &StreamCensus,
+    visible: impl Fn(&crate::events::SystemEvent) -> bool + Send + 'static,
+) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
     use crate::events::ReplayPlan;
     // between the snapshot and buffered live events is deduped by seq below.
     let mut rx = events.subscribe();
     let snap = events.snapshot_ring();
     let boot = snap.boot_id.clone();
+    let watermark = snap.next_seq.saturating_sub(1);
     let since = q.since.as_deref().and_then(parse_since);
     let cursor_seq = since.as_ref().map(|(_, s)| *s);
     let plan = snap.plan(
@@ -401,6 +355,7 @@ pub(crate) fn events_sse(
         crate::events::ReplayBudget::default(),
     );
     let tab_id = q.tab_id;
+    let peer_scope = matches!(q.scope, Some(PeerEventScope::Peer));
 
     let stream = async_stream::stream! {
         let (mut replayed_max, mut previous, replay) = match plan {
@@ -423,9 +378,16 @@ pub(crate) fn events_sse(
             if se.seq > replayed_max {
                 replayed_max = se.seq;
             }
-            if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) { continue; }
-            yield Ok(event_frame(se, previous));
+            if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) || !visible(&se.event) { continue; }
+            yield Ok(event_frame(se, previous, peer_scope.then_some(boot.as_str())));
             previous = Some(previous.map_or(se.seq, |seq| seq.max(se.seq)));
+        }
+        if peer_scope {
+            replayed_max = replayed_max.max(watermark);
+            previous = Some(replayed_max);
+            yield Ok(Event::default().data(serde_json::json!({
+                "event_type": "peer-replay-complete", "data": null, "boot": boot, "seq": replayed_max,
+            }).to_string()));
         }
         loop {
             match rx.recv().await {
@@ -434,8 +396,8 @@ pub(crate) fn events_sse(
                         continue;
                     }
                     replayed_max = se.seq;
-                    if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) { continue; }
-                    yield Ok(event_frame(&se, previous));
+                    if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) || !visible(&se.event) { continue; }
+                    yield Ok(event_frame(&se, previous, peer_scope.then_some(boot.as_str())));
                     previous = Some(previous.map_or(se.seq, |seq| seq.max(se.seq)));
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
@@ -718,14 +680,15 @@ pub async fn chat_raw_start(
     _headers: HeaderMap,
     Path(tab_id): Path<String>,
     Json(body): Json<ChatSubscriptionBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    use axum::response::IntoResponse;
     let slot =
         crate::request_bound::RequestSlot::acquire_when_available(format!("chat-start:{tab_id}"))
             .await
             .map_err(|(status, error)| (status, error.0.to_string()))?;
     let svc = state.svc.clone();
     let queued = std::time::Instant::now();
-    let result = tokio::task::spawn_blocking(move || {
+    let payload = tokio::task::spawn_blocking(move || {
         let _slot = slot;
         let queue_us = queued.elapsed().as_micros();
         let result =
@@ -736,12 +699,16 @@ pub async fn chat_raw_start(
             queued.elapsed().as_micros(),
             result.is_ok()
         );
-        result.map(|result| serde_json::to_value(result).unwrap_or_default())
+        result.and_then(|result| serde_json::to_vec(&result).map_err(|error| error.to_string()))
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .map_err(|e| (StatusCode::CONFLICT, e))?;
-    Ok(Json(result))
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        payload,
+    )
+        .into_response())
 }
 
 #[derive(serde::Deserialize)]

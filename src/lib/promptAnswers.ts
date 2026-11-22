@@ -5,6 +5,12 @@ export function manualPendingPrompt(tab: Pick<Tab, "pending_prompt" | "pending_p
     ? null : tab?.pending_prompt ?? null;
 }
 
+export function liveRuntimePrompt(tab: Pick<Tab, "backing" | "pending_prompt" | "pending_prompt_kind"> | null | undefined): PendingPrompt | null {
+  return tab?.backing?.kind === "chat_backend" && tab.pending_prompt?.request_id != null
+    && (tab.pending_prompt_kind === "structured" || tab.pending_prompt_kind === "permission")
+    ? tab.pending_prompt : null;
+}
+
 export function answerablePrompt<T>(
   descriptor: { supports_prompt_answers?: boolean } | null | undefined,
   prompt: T | null,
@@ -16,9 +22,10 @@ export function promptMessagePart(
   descriptor: { supports_prompt_answers?: boolean; supports_structured_prompts?: boolean } | null | undefined,
   prompt: PendingPrompt | null,
   answeredQuestion: string | null = null,
+  runtimePrompt: PendingPrompt | null = null,
 ) {
   const pending = descriptor?.supports_structured_prompts || prompt?.question !== answeredQuestion ? prompt : null;
-  const answerable = answerablePrompt(descriptor, pending);
+  const answerable = runtimePrompt ?? answerablePrompt(descriptor, pending);
   return answerable ? { kind: "prompt" as const, id: "pending-prompt:" + JSON.stringify(answerable), prompt: answerable } : null;
 }
 

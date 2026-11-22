@@ -28,9 +28,41 @@ pub fn open_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UrlApplication {
+    Tailscale,
+}
+
 #[tauri::command]
-pub fn open_url(url: String) -> Result<(), String> {
-    codeterm_util::open_url::open_url(url)
+pub async fn open_url(url: String, application: Option<UrlApplication>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        if matches!(application, Some(UrlApplication::Tailscale)) && open_tailscale() {
+            return Ok(());
+        }
+        codeterm_util::open_url::open_url(url)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn open_tailscale() -> bool {
+    #[cfg(target_os = "macos")]
+    return std::process::Command::new("open")
+        .args(["-a", "Tailscale"])
+        .status()
+        .is_ok_and(|status| status.success());
+    #[cfg(target_os = "windows")]
+    return ["ProgramFiles", "ProgramFiles(x86)"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .map(std::path::PathBuf::from)
+        .flat_map(|root| {
+            ["Tailscale", "Tailscale IPN"].map(|dir| root.join(dir).join("tailscale-ipn.exe"))
+        })
+        .any(|program| program.is_file() && std::process::Command::new(program).spawn().is_ok());
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    false
 }
 
 #[tauri::command]

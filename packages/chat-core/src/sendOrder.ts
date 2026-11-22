@@ -107,13 +107,34 @@ export function sendRow(send: ChatSend): NormalizedChatMessage {
   };
 }
 
-/** An exact claim admitted before the oldest loaded row of its own session names a record in
+export interface UnloadedHistoryWindow {
+  /** Oldest known time (ms) among loaded own-session rows, when any loaded row is timed. */
+  startMs: number | null;
+  /** Byte start offset of the loaded window when the transcript uses byte paging. */
+  byteStart?: number | null;
+  /** True when the loaded window has own-session rows, older history is unloaded, and none carries a time. */
+  untimed?: boolean;
+}
+
+/** An exact claim admitted before the loaded window of its own session names a record in
  *  history the window has not paged in, so it is settled there, never waiting at the tail. */
 function claimPrecedesWindow(
-  send: ChatSend, authority: TranscriptAuthority | null, windowStartMs: number | null,
+  send: ChatSend,
+  authority: TranscriptAuthority | null,
+  rows: readonly NormalizedChatMessage[],
+  window: number | UnloadedHistoryWindow | null,
 ): boolean {
-  return windowStartMs != null && send.matchedRow != null && authority?.sourceSessionId != null
-    && send.matchedRow.source.source_session_id === authority.sourceSessionId && send.sentAtMs < windowStartMs;
+  if (window == null || send.matchedRow == null || authority?.sourceSessionId == null
+    || send.matchedRow.source.source_session_id !== authority.sourceSessionId) return false;
+  if (typeof window === "number") return send.sentAtMs < window;
+  const record = send.matchedRow.source.record;
+  if (record.kind === "jsonl" && window.byteStart != null && record.record_start < window.byteStart) return true;
+  if (window.startMs != null) return send.sentAtMs < window.startMs;
+  if (!window.untimed) return false;
+  const lastRowId = send.echoBoundary?.sourceSessionId === authority.sourceSessionId
+    ? send.echoBoundary.lastRowId : null;
+  if (lastRowId != null && rows.some(row => row.id === lastRowId)) return false;
+  return true;
 }
 
 /** A recorded echo or exact claim outside the loaded window still hides its reconciled send. */
@@ -122,7 +143,7 @@ export function reconcileSends(
   rows: readonly NormalizedChatMessage[],
   authority: TranscriptAuthority | null = null,
   rowStarts: ReadonlyMap<string, number> = new Map(),
-  windowStartMs: number | null = null,
+  windowStart: number | UnloadedHistoryWindow | null = null,
 ): { echoes: Map<string, SendEcho>; pending: ChatSend[]; outside: Set<string> } {
   const echoes = new Map<string, SendEcho>();
   const pending: ChatSend[] = [];
@@ -175,7 +196,7 @@ export function reconcileSends(
         continue;
       }
       if (!users.some(candidate => outsideClaimedRecordSpace(rows[candidate], send.matchedRow!))) {
-        if (claimPrecedesWindow(send, authority, windowStartMs)) outside.add(send.id);
+        if (claimPrecedesWindow(send, authority, rows, windowStart)) outside.add(send.id);
         else if (!send.echo) pending.push(send);
         continue;
       }

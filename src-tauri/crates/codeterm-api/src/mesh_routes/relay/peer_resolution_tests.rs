@@ -62,6 +62,23 @@ fn mesh_peer_resolution_table() {
 }
 
 #[test]
+fn mesh_exact_relay_refuses_name_and_prefix_substitutes_before_dispatch() {
+    let mesh = mesh_with(vec![peer(LIVE_ID, "ROG", true)]);
+    for target in ["ROG", "dc737738"] {
+        assert!(resolve_relay_peer(&mesh, target).is_ok());
+        let (status, body) = match resolve_exact_relay_peer(&mesh, target) {
+            Ok(_) => panic!("substitute installation must never receive the request"),
+            Err(error) => error,
+        };
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let refusal: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(refusal["code"], PEER_NOT_PAIRED_REASON);
+        assert_eq!(refusal["bytes_written"], false);
+    }
+    assert!(resolve_exact_relay_peer(&mesh, LIVE_ID).is_ok());
+}
+
+#[test]
 fn mesh_send_admission_distinguishes_registry_peer_without_link_from_unpaired() {
     let mut mesh = mesh_with(Vec::new());
     mesh.account_installations

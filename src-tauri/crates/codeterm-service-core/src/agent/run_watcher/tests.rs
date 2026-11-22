@@ -435,6 +435,7 @@ fn cron_run_not_failed_before_own_launch_issued() {
     assert!(launch_readiness::cron_launch_is_pending(&attempt));
 
     let run = Arc::new(RunState {
+        binding_nonce: None,
         pty_id: pty_id.clone(),
         tab_id,
         kind: AgentRunKind::Cron {
@@ -582,6 +583,11 @@ fn dead_cron_run_is_reaped_on_process_exit() {
             .record_run(
                 &job.id,
                 crate::cron::store::CronRunInfo {
+                    scheduled_occurrence_at: None,
+                    fired_at: None,
+                    late_by_ms: None,
+                    provider: None,
+                    owner_instance_id: None,
                     cancel_reason: None,
                     run_id: run_id.into(),
                     started_at: 1,
@@ -599,6 +605,7 @@ fn dead_cron_run_is_reaped_on_process_exit() {
         job.id
     };
     let run = std::sync::Arc::new(RunState {
+        binding_nonce: None,
         pty_id: pty_id.clone(),
         tab_id,
         kind: AgentRunKind::Cron {
@@ -691,6 +698,7 @@ fn dream_deadline_hook_finalizes_diary_on_hard_timeout() {
         })
         .unwrap();
     let run = RunState {
+        binding_nonce: None,
         pty_id: pty_id.clone(),
         tab_id,
         kind: AgentRunKind::MemWorker {
@@ -779,6 +787,7 @@ fn run_watcher_mem_worker_ends_on_pending_provider_prompt() {
         })
         .unwrap();
     let run = Arc::new(RunState {
+        binding_nonce: None,
         pty_id: pty_id.clone(),
         tab_id: tab_id.clone(),
         kind: AgentRunKind::MemWorker {
@@ -960,6 +969,7 @@ fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
         })
         .unwrap();
     let state = Arc::new(RunState {
+        binding_nonce: None,
         pty_id: pty_id.clone(),
         tab_id: tab_id.clone(),
         kind: AgentRunKind::MemWorker {
@@ -1061,6 +1071,7 @@ fn run_watcher_visible_tab_folder_trust_untouched() {
 #[test]
 fn run_watcher_blocking_prompt_end_is_idempotent_with_hard_timeout() {
     let run = RunState {
+        binding_nonce: None,
         pty_id: "approval-prompt-pty".into(),
         tab_id: "approval-prompt-tab".into(),
         kind: AgentRunKind::MemWorker {

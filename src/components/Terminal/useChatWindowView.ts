@@ -14,6 +14,7 @@ import {
   transcriptBackfillCursor,
   transcriptCommittedEnd,
   transcriptRows,
+  transcriptSourceRows,
   type NormalizedChatMessage,
   type SendEcho,
   type TimelineItem,
@@ -61,6 +62,8 @@ export function useChatWindowView({
   windowKey,
   transcript,
   attachedAuthority = null,
+  attachmentGeneration = 0,
+  historyReady = true,
   localAttempt,
   anchorKey,
   followTailRef,
@@ -76,22 +79,40 @@ export function useChatWindowView({
   windowKey: string;
   transcript: TranscriptState;
   attachedAuthority?: TranscriptAuthority | null;
+  attachmentGeneration?: number;
+  historyReady?: boolean;
   localAttempt?: DeliverySend["localAttempt"];
   anchorKey: string | null;
   followTailRef: MutableRefObject<boolean>;
-  loadOlderPage: (beforeOffset: number, maxBytes: number) => Promise<OlderChatPage | null>;
-  loadHistoryPage?: (message: NormalizedChatMessage) => Promise<NormalizedChatMessage[] | null>;
+  loadOlderPage: (beforeOffset: number, maxBytes: number, signal: AbortSignal) => Promise<OlderChatPage | null>;
+  loadHistoryPage?: (message: NormalizedChatMessage, signal: AbortSignal) => Promise<NormalizedChatMessage[] | null>;
 }) {
   const { sends, hydration, dismissalRevision } = useChatSendSnapshot(tabId);
   useChatSendDismissals(tabId);
   const [backfillLoading, setBackfillLoading] = useState(false);
-  const backfillInFlightRef = useRef(false);
-  const [pendingReveal, setPendingReveal] = useState(false);
+  const pagingLifetimeRef = useRef<AbortController | null>(null);
+  const backfillInFlightRef = useRef<AbortSignal | null>(null);
+  const [pendingReveal, setPendingReveal] = useState<AbortSignal | null>(null);
   const [readingSize, setReadingSize] = useState({ key: windowKey, size: CHAT_PAGE_SIZE });
   const windowSize = readingSize.key === windowKey ? readingSize.size : CHAT_PAGE_SIZE;
   const setWindowSize = (size: number) => setReadingSize({ key: windowKey, size });
-  const initialFillRef = useRef<string | null>(null);
+  const initialFillRef = useRef(false);
   const [backfillNotice, setBackfillNotice] = useState<"exhausted" | "stalled_cursor" | null>(null);
+
+  useLayoutEffect(() => {
+    setBackfillLoading(false);
+    setBackfillNotice(null);
+    setPendingReveal(null);
+    initialFillRef.current = false;
+    if (!historyReady) return;
+    const lifetime = new AbortController();
+    pagingLifetimeRef.current = lifetime;
+    return () => {
+      lifetime.abort();
+      pagingLifetimeRef.current = null;
+      backfillInFlightRef.current = null;
+    };
+  }, [attachmentGeneration, historyReady, windowKey]);
 
   const updateWindowAnchor = useLatestCallback((next: string | null) => {
     setTranscriptAnchor(windowKey, next);
@@ -222,9 +243,12 @@ export function useChatWindowView({
 
   const loadOlder = useLatestCallback(async (initial = false) => {
     if (backfillInFlightRef.current) return;
+    const needsRead = hiddenMessageCount < CHAT_PAGE_SIZE && canBackfillOlder;
+    const signal = pagingLifetimeRef.current?.signal;
+    if (needsRead && !signal) return;
     if (!initial) followTailRef.current = false;
     setBackfillNotice(null);
-    if (hiddenMessageCount >= CHAT_PAGE_SIZE || !canBackfillOlder) {
+    if (!needsRead || !signal) {
       if (!initial) revealOlder();
       return;
     }
@@ -235,19 +259,21 @@ export function useChatWindowView({
       setWindowSize(windowRange.end - windowRange.start);
       if (tail) updateWindowAnchor(timelineItemKey(tail));
     }
-    backfillInFlightRef.current = true;
+    backfillInFlightRef.current = signal;
     setBackfillLoading(true);
     try {
       if (!canReadServer && leadingGap) {
-        await gaps.load(leadingGap);
-        if (!initial) setPendingReveal(true);
+        await gaps.load(leadingGap, signal);
+        if (!signal.aborted && !initial) setPendingReveal(signal);
         return;
       }
       let cursor = backfillCursor!;
       let result: Awaited<ReturnType<typeof searchOlderChatHistory>>;
       do {
         result = await searchOlderChatHistory(cursor, async (before, maxBytes) => {
-          const page = await loadOlderPage(before, maxBytes);
+          if (signal.aborted) return null;
+          const page = await loadOlderPage(before, maxBytes, signal);
+          if (signal.aborted) return null;
           if (page) cursor = page.cursor;
           return page;
         }, initial ? CHAT_INITIAL_HISTORY_SCAN_BYTES : undefined, page => {
@@ -257,30 +283,33 @@ export function useChatWindowView({
           : entries.findIndex(entry => entry.msg.id === firstKey) >= CHAT_PAGE_SIZE;
         });
       } while (!initial && result.kind === "stop" && result.reason === "limit");
-      if (!initial && (result.kind === "reveal" || result.kind === "stop")) setPendingReveal(true);
+      if (signal.aborted) return;
+      if (!initial && (result.kind === "reveal" || result.kind === "stop")) setPendingReveal(signal);
       if (result.kind === "error") setBackfillNotice(result.reason);
       else if (result.kind === "stop" && result.reason === "exhausted") setBackfillNotice("exhausted");
     } catch {
-      setBackfillNotice("stalled_cursor");
+      if (!signal.aborted) setBackfillNotice("stalled_cursor");
     } finally {
-      backfillInFlightRef.current = false;
-      setBackfillLoading(false);
+      if (backfillInFlightRef.current === signal) {
+        backfillInFlightRef.current = null;
+        setBackfillLoading(false);
+      }
     }
   }, [allTimelineItems, backfillCursor, canBackfillOlder, followTailRef, hiddenMessageCount,
     canReadServer, gaps.load, leadingGap, loadOlderPage, revealOlder, updateWindowAnchor, windowRange]);
 
   useLayoutEffect(() => {
-    if (!pendingReveal) return;
-    setPendingReveal(false);
+    if (!pendingReveal || pendingReveal.aborted) return;
+    setPendingReveal(null);
     revealOlder();
   }, [allTimelineItems, pendingReveal, revealOlder]);
 
   useEffect(() => {
-    if (initialFillRef.current === windowKey || transcript.authority == null) return;
-    initialFillRef.current = windowKey;
-    if (allTimelineItems.length >= CHAT_PAGE_SIZE || !canBackfillOlder || backfillInFlightRef.current) return;
+    if (!historyReady || initialFillRef.current || transcript.authority == null || backfillInFlightRef.current) return;
+    if (allTimelineItems.length >= CHAT_PAGE_SIZE || !canBackfillOlder) return;
+    initialFillRef.current = true;
     void loadOlder(true);
-  }, [allTimelineItems.length, backfillCursor, canBackfillOlder, loadOlder, loadOlderPage, transcript.authority, windowKey]);
+  }, [allTimelineItems.length, attachmentGeneration, canBackfillOlder, historyReady, loadOlder, transcript.authority, windowKey]);
 
   const showLatest = useLatestCallback(() => {
     followTailRef.current = true;
@@ -319,7 +348,7 @@ export function useChatWindowView({
     const id = `opt-${sentAtMs}-${Math.floor(Math.random() * 1e6)}`;
     // The bubble's own id doubles as its send-correlation token.
     addChatSend(tabId, { id, content, sentAtMs, correlationId: id, localAttempt,
-      echoBoundary: captureSendEchoBoundary(transcript.authority ?? attachedAuthority, committedRows, transcriptCommittedEnd(transcript)) });
+      echoBoundary: captureSendEchoBoundary(transcript.authority ?? attachedAuthority, transcriptSourceRows(transcript), transcriptCommittedEnd(transcript)) });
     return id;
   }, [tabId]);
 
@@ -341,11 +370,13 @@ export function useChatWindowView({
     olderMessageLabel,
     historyGapLabel: gaps.label,
     loadHistoryGap: async (message: NormalizedChatMessage) => {
+      const signal = pagingLifetimeRef.current?.signal;
+      if (!signal) return;
       followTailRef.current = false;
       const tail = allTimelineItems[windowRange.end - 1];
       if (tail) updateWindowAnchor(timelineItemKey(tail));
-      const count = await gaps.load(message);
-      if (count > 0) setWindowSize(Math.min(CHAT_READING_SIZE, windowSize + count));
+      const count = await gaps.load(message, signal);
+      if (!signal.aborted && count > 0) setWindowSize(Math.min(CHAT_READING_SIZE, windowSize + count));
     },
     newerMessageCount: windowProjection.newerCount,
     loadOlder,

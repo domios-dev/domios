@@ -47,22 +47,25 @@ impl ServiceContext {
         }
     }
 
-    fn submit_utility_shell_command(
+    fn submit_utility_shell_command_observed(
         &self,
         pty_id: &str,
         command: &str,
         queued: Option<&dyn Fn(usize)>,
-    ) -> Result<crate::service::ExecWaiter, String> {
-        let _update_input = self.admit_update_pty_input(pty_id)?;
+    ) -> Result<crate::service::ShellExecSubmission, crate::service::ShellExecError> {
+        use crate::service::{ShellExecError, ShellExecSubmission};
+
+        let _update_input = self
+            .admit_update_pty_input(pty_id)
+            .map_err(classify_prewrite_shell_error)?;
         let _input = super::submit_transaction::reserve_command_input(
             pty_id,
             std::time::Instant::now() + std::time::Duration::from_secs(15),
         )
-        .map_err(|detail| super::utility_command::busy_refused(pty_id, detail))?;
+        .map_err(|detail| ShellExecError::BusyRefused(detail.into()))?;
         if super::utility_command::shell_command_running(self, pty_id) {
-            return Err(super::utility_command::busy_refused(
-                pty_id,
-                "a shell command is running",
+            return Err(ShellExecError::BusyRefused(
+                "a shell command is running".into(),
             ));
         }
         self.await_shell_ready(pty_id);
@@ -75,21 +78,27 @@ impl ServiceContext {
         let prepared = profile
             .as_ref()
             .map(|profile| profile.utility_command(command))
-            .transpose()?
+            .transpose()
+            .map_err(ShellExecError::PreparationRefused)?
             .flatten();
         #[cfg(windows)]
         let prepared = match (prepared, profile.as_ref()) {
-            (None, None) => codeterm_pty::pty::shell_profiles::powershell_utility_command(command)?,
+            (None, None) => codeterm_pty::pty::shell_profiles::powershell_utility_command(command)
+                .map_err(ShellExecError::PreparationRefused)?,
             (None, Some(_)) if command.contains(['\r', '\n']) => {
-                return Err("multiline utility command has no shell encapsulation".into());
+                return Err(ShellExecError::PreparationRefused(
+                    "multiline utility command has no shell encapsulation".into(),
+                ));
             }
             (prepared, _) => prepared,
         };
         let bytes = prepared
             .map(Ok)
-            .unwrap_or_else(|| build_spawn_dispatch(command).map_err(|error| error.to_string()))?;
+            .unwrap_or_else(|| build_spawn_dispatch(command).map_err(|error| error.to_string()))
+            .map_err(ShellExecError::PreparationRefused)?;
         let (payload, expected) = super::submit_transaction::shell_dispatch(&bytes);
-        let admission = super::utility_command::UtilityCommandAdmission::begin(self, pty_id)?;
+        let admission = super::utility_command::UtilityCommandAdmission::begin(self, pty_id)
+            .map_err(classify_prewrite_shell_error)?;
         let claim = super::submit_transaction::claim_command_submit_cycle(pty_id);
         let on_queued = |bytes| {
             admission.mark_written();
@@ -97,7 +106,7 @@ impl ServiceContext {
                 queued(bytes);
             }
         };
-        let result = super::submit_transaction::submit_shell_dispatch(
+        let outcome = super::submit_transaction::submit_shell_dispatch_observed(
             self,
             pty_id,
             &payload,
@@ -106,18 +115,63 @@ impl ServiceContext {
             Some(&on_queued),
             super::submit_transaction::ShellSubmitKeys::UtilityCommand,
         );
-        if result.is_ok()
-            || matches!(
-                &result,
-                Err(crate::service::inject_verify::InjectionError::SubmitNeverConfirmed { .. })
-            )
-        {
-            self.feed_input_parser(pty_id, command, true);
+        match outcome {
+            Ok(super::submit_transaction::ShellDispatchOutcome::Started(_, waiter)) => {
+                self.feed_input_parser(pty_id, command, true);
+                Ok(ShellExecSubmission::Started(waiter))
+            }
+            Ok(super::submit_transaction::ShellDispatchOutcome::Unconfirmed {
+                completion,
+                error,
+            }) => {
+                self.feed_input_parser(pty_id, command, true);
+                Ok(ShellExecSubmission::Unconfirmed {
+                    completion,
+                    detail: error.to_string(),
+                })
+            }
+            Err(error) => Err(classify_injection_prewrite_error(error)),
         }
-        result.map(|(_, waiter)| waiter).map_err(|error| {
-            crate::service::delivery_error::DeliveryError::from_injection(pty_id, error)
-                .ledger_message()
-        })
+    }
+
+    fn submit_utility_shell_command(
+        &self,
+        pty_id: &str,
+        command: &str,
+        queued: Option<&dyn Fn(usize)>,
+    ) -> Result<crate::service::ExecWaiter, String> {
+        use crate::service::delivery_error::DeliveryError;
+        use crate::service::{ShellExecError, ShellExecSubmission};
+
+        match self.submit_utility_shell_command_observed(pty_id, command, queued) {
+            Ok(ShellExecSubmission::Started(waiter)) => Ok(waiter),
+            Ok(ShellExecSubmission::Unconfirmed { detail, .. }) => {
+                Err(DeliveryError::SubmitUnconfirmed {
+                    tab: pty_id.into(),
+                    detail,
+                }
+                .ledger_message())
+            }
+            Err(ShellExecError::BusyRefused(detail)) => Err(DeliveryError::TabBusyRefused {
+                tab: pty_id.into(),
+                detail,
+            }
+            .ledger_message()),
+            Err(ShellExecError::PtyUnavailable(detail)) => Err(DeliveryError::PtyUnavailable {
+                tab: pty_id.into(),
+                detail,
+            }
+            .ledger_message()),
+            Err(ShellExecError::PreparationRefused(detail)) => Err(detail),
+        }
+    }
+
+    pub fn submit_shell_exec(
+        &self,
+        pty_id: &str,
+        cmd: &str,
+    ) -> Result<crate::service::ShellExecSubmission, crate::service::ShellExecError> {
+        self.submit_utility_shell_command_observed(pty_id, cmd, None)
     }
 
     pub(crate) fn submit_shell_command_with_receipt(
@@ -262,5 +316,34 @@ impl ServiceContext {
             submit_key_writes: usize::from(cfg!(windows)),
             elapsed: started.elapsed(),
         })
+    }
+}
+
+fn classify_prewrite_shell_error(error: String) -> crate::service::ShellExecError {
+    use crate::service::ShellExecError;
+    if let Some(detail) = error.strip_prefix("pty_unavailable:") {
+        ShellExecError::PtyUnavailable(detail.trim().to_string())
+    } else if let Some(detail) = error.strip_prefix("tab_busy_refused:") {
+        ShellExecError::BusyRefused(detail.trim().to_string())
+    } else {
+        ShellExecError::BusyRefused(error)
+    }
+}
+
+fn classify_injection_prewrite_error(
+    error: crate::service::inject_verify::InjectionError,
+) -> crate::service::ShellExecError {
+    use crate::service::inject_verify::InjectionError;
+    use crate::service::ShellExecError;
+    match error {
+        InjectionError::PtyClosed { .. } => ShellExecError::PtyUnavailable(error.to_string()),
+        InjectionError::PromptNeverReady { .. }
+        | InjectionError::WriteQueueFull { .. }
+        | InjectionError::AgentTuiPresent { .. }
+        | InjectionError::AgentInputUnavailable { .. }
+        | InjectionError::EchoMismatch { .. }
+        | InjectionError::SubmitNeverConfirmed { .. } => {
+            ShellExecError::BusyRefused(error.to_string())
+        }
     }
 }

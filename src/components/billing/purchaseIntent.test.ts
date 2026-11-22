@@ -50,8 +50,8 @@ describe("purchaseIntent", () => {
     }
   });
 
-  it("a Pro subscriber choosing Sponsor still goes to checkout", () => {
-    expect(run([choose("sponsor_yearly", "signed_out"), signedIn(PRO)])).toEqual({ kind: "opening", planKey: "sponsor_yearly" });
+  it("a Pro subscriber choosing Sponsor before sign-in never opens a second checkout", () => {
+    expect(run([choose("sponsor_yearly", "signed_out"), { type: "signedIn", plan: PRO, catalog, subscriptionPlan: "pro" }])).toEqual(IDLE_INTENT);
   });
 
   it("a lapsed subscription does not count as owning the plan", () => {

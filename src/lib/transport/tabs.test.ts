@@ -1,5 +1,6 @@
 import type { HttpMethod, TransportClient } from "../transportClient";
 import { describe, expect, it } from "vitest";
+import { remoteTransportCall } from "../remoteTabTransport";
 import { createTabsTransport, type TabsTransportClient } from "./tabs";
 
 it("sends checklist review snapshot and amendment through the authenticated tab transport", async () => {
@@ -20,6 +21,73 @@ it("carries the client's known window to chat attach", async () => {
   const knownWindow = { source_session_id: "own", session_binding_nonce: "nonce", end_offset: 123, file_length: 125, cursor: "opaque" };
   await transport.chat_start({ tabId: "tab", subscriptionId: "sub", knownWindow });
   expect(calls[0].body).toEqual({ subscriptionId: "sub", knownWindow });
+});
+
+it("relays General creation to the exact peer with a peer-default request", async () => {
+  const { transport, calls } = fixture([{ ok: true, data: { tab_id: "general-tab" }, peer: { instance_id: "machine-x" } }]);
+  const params = { role: "general_agent", intent: "fresh_general" };
+  await transport.spawn_general_agent_session({ peerId: "machine-x", params });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({
+    method: "POST",
+    path: "/api/mesh/relay-to",
+    body: { target_instance_id: "machine-x", method: "POST", path: "/api/agents/general/sessions", body: params },
+  });
+});
+
+it("relays a single agent to the exact peer without leaking the origin workspace or cwd", async () => {
+  const { transport, calls } = fixture([{ ok: true, data: { tab_id: "remote-agent" }, peer: { instance_id: "machine-x" } }]);
+  const result = await transport.mux_spawn_tab({ peerId: "machine-x", params: {
+    agentId: "codex", workspaceId: "origin-workspace", cwd: "C:/origin/repo", model: "model-x", reasoningEffort: "high",
+  } });
+  expect(result).toEqual({ tab_id: "remote-agent" });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({
+    method: "POST",
+    path: "/api/mesh/relay-to",
+    body: {
+      target_instance_id: "machine-x", method: "POST", path: "/api/agents/spawn",
+      body: { agent: "codex", model: "model-x", reasoning_effort: "high" },
+    },
+  });
+  const relayBody = calls[0].body as { body: Record<string, unknown> };
+  expect(relayBody.body).not.toHaveProperty("workspace_id");
+  expect(relayBody.body).not.toHaveProperty("cwd");
+  expect(relayBody.body).not.toHaveProperty("role");
+});
+
+it("uses a selected workspace from the target machine when provided", async () => {
+  const { transport, calls } = fixture([{ ok: true, data: { tab_id: "remote-agent" }, peer: { instance_id: "machine-x" } }]);
+  await transport.mux_spawn_tab({ peerId: "machine-x", params: {
+    agentId: "codex", workspaceId: "origin-workspace", remoteWorkspaceId: "peer-workspace",
+  } });
+  const relay = calls[0].body as { target_instance_id: string; body: Record<string, unknown> };
+  expect(relay.target_instance_id).toBe("machine-x");
+  expect(relay.body).toMatchObject({ agent: "codex", workspace_id: "peer-workspace" });
+  expect(relay.body).not.toHaveProperty("cwd");
+});
+
+it("surfaces a peer refusal without making a local spawn request", async () => {
+  const { transport, calls } = fixture([{ ok: false, error: "OFFLINE", peer: { instance_id: "machine-x" } }]);
+  await expect(transport.mux_spawn_tab({ peerId: "machine-x", params: { agentId: "codex", workspaceId: "origin-workspace" } }))
+    .rejects.toThrow("OFFLINE");
+  expect(calls).toHaveLength(1);
+  expect(calls[0].body).toMatchObject({ target_instance_id: "machine-x", path: "/api/agents/spawn" });
+});
+
+it("surfaces a peer General refusal without making a local session request", async () => {
+  const { transport, calls } = fixture([{ ok: false, error: "PEER-REFUSAL", peer: { instance_id: "machine-x" } }]);
+  await expect(transport.spawn_general_agent_session({ peerId: "machine-x", params: { role: "general_agent", intent: "fresh_general" } }))
+    .rejects.toThrow("PEER-REFUSAL");
+  expect(calls).toHaveLength(1);
+  expect(calls[0].body).toMatchObject({ target_instance_id: "machine-x", path: "/api/agents/general/sessions" });
+});
+
+it("does not reinterpret an empty remote target as a local General request", async () => {
+  const { transport, calls } = fixture();
+  expect(() => transport.spawn_general_agent_session({ peerId: "", params: { role: "general_agent", intent: "fresh_general" } }))
+    .toThrow("exact peer installation id");
+  expect(calls).toHaveLength(0);
 });
 
 function fixture(responses: unknown[] = [{}]) {
@@ -45,14 +113,88 @@ it("reads current child authority from the daemon snapshot", async()=>{
 it("relays a child authority snapshot read to the owning peer", async()=>{
   const {transport,calls}=fixture([{ok:true,data:{tabs:{}}}]);
   await transport.mesh_remote_tab_action({ordinaryTabId:"mesh:peer/owned",peerId:"peer",method:"GET",suffix:"/runtime-authority"});
-  expect(calls[0]).toMatchObject({method:"POST",path:"/api/mesh/relay-to",body:{target_peer_id:"peer",method:"GET",path:"/api/mux/state",body:null}});
+  expect(calls[0]).toMatchObject({method:"POST",path:"/api/mesh/relay-to",body:{target_instance_id:"peer",method:"GET",path:"/api/mux/state",body:null}});
+});
+
+it("lists notification history from the exact paired installation", async () => {
+  const rows = [{ id: "same-source-id" }];
+  const { transport, calls } = fixture([{ ok: true, data: rows, peer: { instance_id: "install-a", instance_name: "Same name" } }]);
+  expect(await transport.mesh_peer_notifications_list({ peerId: "install-a" })).toEqual(rows);
+  expect(calls[0]).toMatchObject({
+    method: "POST",
+    path: "/api/mesh/relay-to",
+    body: { target_instance_id: "install-a", method: "GET", path: "/api/notifications", body: null },
+  });
+});
+
+it("lists attached peer tabs with only their authoritative status snapshot", async () => {
+  const { transport, calls } = fixture([{
+    ok: true,
+    peer: { instance_id: "install-b", instance_name: "Peer B" },
+    data: {
+      tabs: {
+        "remote-chat": { id: "remote-chat", pty_id: null, tab_type: "Terminal", title: "Chat", cwd: null },
+        "mesh:install-a/attached": { id: "mesh:install-a/attached", pty_id: "mesh:install-a/attached", tab_type: "Terminal", title: "Other", cwd: null },
+        "nested-remote": { id: "nested-remote", pty_id: null, tab_type: "Terminal", title: "Nested", cwd: null, remote_peer_id: "install-a", remote_tab_id: "source" },
+      },
+      tab_statuses: { "remote-chat": "Working", "mesh:install-a/attached": "Idle", "nested-remote": "Idle", unrelated: "Error" },
+    },
+  }]);
+
+  expect(await transport.mesh_peer_tabs_list({ peerId: "install-b" })).toEqual({
+    peer_id: "install-b",
+    peer_name: "Peer B",
+    tabs: [{ id: "remote-chat", pty_id: null, tab_type: "Terminal", title: "Chat", cwd: null }],
+    tab_statuses: { "remote-chat": "Working" },
+  });
+  expect(calls[0]).toMatchObject({
+    method: "POST",
+    path: "/api/mesh/relay-to",
+    body: { target_instance_id: "install-b", method: "GET", path: "/api/mux/state", body: null },
+  });
+});
+
+it.each([
+  ["read", "POST", "/api/notifications/source%2Fid/read", null],
+  ["delete", "DELETE", "/api/notifications/source%2Fid", null],
+  ["resolve", "POST", "/api/notifications/source%2Fid/resolve", null],
+  ["answer", "POST", "/api/notifications/source%2Fid/answer", { label: "Approve" }],
+] as const)("routes remote notification %s by exact peer and source ids", async (notificationAction, method, path, body) => {
+  const { transport, calls } = fixture([{ ok: true, data: { ok: true }, peer: { instance_id: "install-b", instance_name: "Same name" } }]);
+  await transport.mesh_peer_notification_action({
+    peerId: "install-b",
+    sourceId: "source/id",
+    notificationAction,
+    ...(notificationAction === "answer" ? { label: "Approve" } : {}),
+  });
+  expect(calls[0]).toMatchObject({
+    method: "POST",
+    path: "/api/mesh/relay-to",
+    body: { target_instance_id: "install-b", method, path, body },
+  });
+});
+
+it("refuses an empty or mismatched remote notification installation before accepting another origin", async () => {
+  const { transport, calls } = fixture([{ ok: true, data: { ok: true }, peer: { instance_id: "install-a", instance_name: "Same name" } }]);
+  expect(() => transport.mesh_peer_notification_action({
+    peerId: "",
+    sourceId: "same-source-id",
+    notificationAction: "read",
+  })).toThrow("exact peer installation");
+  await expect(transport.mesh_peer_notification_action({
+    peerId: "install-b",
+    sourceId: "same-source-id",
+    notificationAction: "read",
+  })).rejects.toThrow("different installation");
+  expect(calls).toHaveLength(1);
+  expect(calls[0].body).toMatchObject({ target_instance_id: "install-b" });
 });
 
 it("starts or reuses a remote tab's PTY on its own peer without a prior PTY lookup", async()=>{
   const {transport,calls}=fixture([{ok:true,data:{pty_id:"peer-pty"}}]);
   await transport.mesh_remote_tab_action({ordinaryTabId:"mesh:peer/shell",peerId:"peer",method:"POST",suffix:"/pty/spawn",body:{cols:80,rows:24}});
   expect(calls).toHaveLength(1);
-  expect(calls[0]).toMatchObject({method:"POST",path:"/api/mesh/relay-to",body:{target_peer_id:"peer",method:"POST",path:"/api/pty/spawn",body:{cols:80,rows:24,tab_id:"shell"}}});
+  expect(calls[0]).toMatchObject({method:"POST",path:"/api/mesh/relay-to",body:{target_instance_id:"peer",method:"POST",path:"/api/pty/spawn",body:{cols:80,rows:24,tab_id:"shell"}}});
 });
 
 it("reads child history with root authority and no send payload",async()=>{
@@ -181,10 +323,11 @@ describe("tab command HTTP contract", () => {
     ]);
   });
 
-  it("preserves explicit startup consent on the human chat route", async () => {
+  it("preserves the expected recipient for tracked slash text", async () => {
     const { transport, calls } = fixture();
-    await transport.chat_send_text({ tabId: "tab", text: "opaque", clientToken: "once", startupOverrideNonce: "own-launch" });
-    expect(calls[0]).toMatchObject({ body: { text: "opaque", client_token: "once", startup_override_nonce: "own-launch" } });
+    const recipient = { provider_id: "fixture", binding_nonce: "own-launch", session_id: "own-session" };
+    await transport.chat_send_text({ tabId: "tab", text: "/help", clientToken: "once", expectedRecipient: recipient });
+    expect(calls[0].body).toEqual({ text: "/help", client_token: "once", expected_recipient: recipient });
   });
 
   it("preserves byte and item cursor units on history backfill", async () => {
@@ -275,6 +418,35 @@ describe("tab command HTTP contract", () => {
     const { transport, calls } = fixture([{ ok: false, status: 409, data: prompt }]);
     expect(await transport.mesh_remote_tab_action({ peerId: "peer", ordinaryTabId: "mesh:peer/tab", method: "POST", suffix: "/prompt/respond", body: {} })).toEqual(prompt);
     expect(calls).toHaveLength(1);
+  });
+
+  it("preserves B's recovery results and projects a Chat send receipt once", async () => {
+    const tabId = "mesh:peer/tab";
+    const resume = { kind: "resumed", deltas: [{
+      cursor: "B-next", source_session_id: "B-session", session_binding_nonce: "B-nonce",
+      start_offset: 7, offset: 9, messages: [],
+    }], caught_up: true };
+    const admissions = [{ correlationId: "original-token", evidence: "present" }];
+    const status = { tab_id: "tab", send_id: "same-B-send", correlationId: "original-token",
+      ledger_id: "B-ledger", sequence: 3, state: "written" };
+    const { transport, calls } = fixture([
+      ...[resume, admissions, [status]].map(data => ({ ok: true, status: 200, data })),
+      { ok: false, status: 503, error: "proof unavailable", data: { error: { code: "admission_proof_unavailable" } } },
+    ]);
+    const dispatch = (command: string, args = {}) =>
+      transport.mesh_remote_tab_action({ ...remoteTransportCall(command, { tabId, ...args })! });
+    expect(await dispatch("chat_resume", { cursor: "B-current" })).toEqual(resume);
+    expect(await dispatch("chat_send_admissions", { clientTokens: ["original-token"] })).toEqual(admissions);
+    expect(await dispatch("chat_send_status")).toEqual([{ ...status, tab_id: tabId }]);
+    await expect(dispatch("chat_send_admissions", { clientTokens: ["original-token"] })).rejects.toMatchObject({
+      status: 503, code: "admission_proof_unavailable", message: "proof unavailable",
+    });
+    expect(calls.map(call => call.body)).toEqual([
+      { target_instance_id: "peer", method: "POST", path: "/api/tabs/tab/chat-raw/resume", body: { cursor: "B-current" } },
+      { target_instance_id: "peer", method: "POST", path: "/api/tabs/tab/chat-send/admissions", body: { clientTokens: ["original-token"] } },
+      { target_instance_id: "peer", method: "GET", path: "/api/tabs/tab/chat-send", body: null },
+      { target_instance_id: "peer", method: "POST", path: "/api/tabs/tab/chat-send/admissions", body: { clientTokens: ["original-token"] } },
+    ]);
   });
 });
 

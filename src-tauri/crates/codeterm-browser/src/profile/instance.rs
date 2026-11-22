@@ -70,7 +70,7 @@ impl ProfileLayout {
     }
 }
 
-pub(super) async fn is_ephemeral(dir: &Path) -> bool {
+pub(crate) async fn is_ephemeral(dir: &Path) -> bool {
     let Ok(bytes) = tokio::fs::read(dir.join(BINDING)).await else {
         return false;
     };
@@ -124,8 +124,10 @@ pub fn verify_dev_identity(health: &Value, name: &str, port: u16) -> Result<(), 
     if port == 0
         || port == 7685
         || instance.get("name").and_then(Value::as_str) != Some(name)
-        || instance.get("identifier").and_then(Value::as_str)
-            != Some(format!("com.domios.dev.{name}").as_str())
+        || !instance
+            .get("identifier")
+            .and_then(Value::as_str)
+            .is_some_and(codeterm_frontend_shell::is_development_identifier)
         || actual_port != Some(port)
     {
         return Err(

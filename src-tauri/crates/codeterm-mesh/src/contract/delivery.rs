@@ -27,6 +27,18 @@ pub const PEER_RELAY_NOT_AUTHORIZED: &str = "peer_relay_not_authorized";
 pub const PEER_RELAY_PROTOCOL_MISMATCH: &str = "peer_relay_protocol_mismatch";
 pub const PEER_UNREACHABLE: &str = "peer_unreachable";
 
+/// Target tab's shell had already exited before submission; nothing written.
+pub const SHELL_EXITED_REFUSED: &str = "shell_exited_refused";
+/// Target tab hosts an agent rather than a shell; `tab exec` refused before any write.
+pub const EXEC_AGENT_TAB_REFUSED: &str = "exec_agent_tab_refused";
+/// Target daemon began restarting mid-exec after command delivery; completion is unknown.
+pub const TARGET_RESTARTING: &str = "target_restarting";
+
+pub const OUTCOME_SUBMIT_UNCONFIRMED: &str = "submit_unconfirmed";
+pub const OUTCOME_REFUSED: &str = "refused";
+pub const OUTCOME_COMPLETED: &str = "completed";
+pub const OUTCOME_UNKNOWN: &str = "unknown";
+
 // Sender-leg codes distinguish a request that never left from one accepted with unknown delivery, so retry decisions stay safe.
 
 /// The connection itself failed: refused, DNS failure, TLS handshake failure.
@@ -36,10 +48,3 @@ pub const MESH_TRANSPORT_NOTHING_SENT: &str = "mesh_transport_nothing_sent";
 /// mid-request. The payload may already have been written and be in flight —
 /// never treat this as nothing-landed.
 pub const MESH_TRANSPORT_SUBMIT_UNCONFIRMED: &str = "mesh_transport_submit_unconfirmed";
-/// The peer answered the relay POST itself with a non-success status (e.g. its
-/// own auth check rejected before dispatch). The transport hop landed; whether
-/// the relayed command ran is a separate, peer-side question.
-pub const MESH_TRANSPORT_PEER_REJECTED: &str = "mesh_transport_peer_rejected";
-/// The peer answered with a success status but the response body could not be
-/// parsed as a relay response.
-pub const MESH_TRANSPORT_BAD_RESPONSE: &str = "mesh_transport_bad_response";

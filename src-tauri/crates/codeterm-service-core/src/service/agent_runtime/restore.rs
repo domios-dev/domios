@@ -148,11 +148,22 @@ fn materialize(tab: &mut Tab, runtime_declared: bool) -> bool {
 }
 
 pub fn tab(svc: &ServiceContext, tab_id: &str) -> Result<bool, String> {
+    tab_expected(svc, tab_id, None)
+}
+
+pub(crate) fn tab_expected(
+    svc: &ServiceContext,
+    tab_id: &str,
+    expected_nonce: Option<&str>,
+) -> Result<bool, String> {
     let (provider, pty, restored) = {
         let mux = svc.mux.read();
         let Some(tab) = mux.get_tab(tab_id) else {
             return Ok(false);
         };
+        if expected_nonce.is_some_and(|nonce| tab.session_binding_nonce.as_deref() != Some(nonce)) {
+            return Err("Runtime launch generation superseded".into());
+        }
         (
             tab.agent_type.clone(),
             tab.pty_id.clone(),
@@ -170,8 +181,12 @@ pub fn tab(svc: &ServiceContext, tab_id: &str) -> Result<bool, String> {
     {
         return Err("Restored runtime tab still owns a live terminal process".into());
     }
-    sanitize_saved_controls(svc, tab_id, &provider)?;
-    let nonce = svc.ensure_session_binding_nonce(tab_id);
+    sanitize_saved_controls(svc, tab_id, &provider, expected_nonce)?;
+    let nonce = expected_nonce
+        .map(str::to_owned)
+        .unwrap_or_else(|| svc.ensure_session_binding_nonce(tab_id));
+    #[cfg(any(test, feature = "test-support"))]
+    super::engine::expected_launch_commit(svc, "restore_materialize");
     let thread = {
         let mut mux = svc.mux.write();
         let target = mux
@@ -206,12 +221,16 @@ fn sanitize_saved_controls(
     svc: &ServiceContext,
     tab_id: &str,
     provider_id: &str,
+    expected_nonce: Option<&str>,
 ) -> Result<(), String> {
     let (model, saved_efforts, saved_modes) = {
         let mux = svc.mux.read();
         let Some(tab) = mux.get_tab(tab_id) else {
             return Ok(());
         };
+        if expected_nonce.is_some_and(|nonce| tab.session_binding_nonce.as_deref() != Some(nonce)) {
+            return Err("Runtime launch generation superseded".into());
+        }
         let config = tab.agent_runtime_config.as_ref();
         let non_empty = |value: Option<&str>| {
             value
@@ -329,12 +348,17 @@ fn sanitize_saved_controls(
     if !drop_effort && !drop_mode {
         return Ok(());
     }
+    #[cfg(any(test, feature = "test-support"))]
+    super::engine::expected_launch_commit(svc, "restore_settings");
     {
         let mut mux = svc.mux.write();
         let tab = mux
             .get_tab_mut(tab_id)
             .ok_or("Restored runtime tab closed")?;
-        if tab.agent_type.as_deref() != Some(provider_id) {
+        if tab.agent_type.as_deref() != Some(provider_id)
+            || expected_nonce
+                .is_some_and(|nonce| tab.session_binding_nonce.as_deref() != Some(nonce))
+        {
             return Err("Restored runtime provider changed during settings validation".into());
         }
         if drop_mode {

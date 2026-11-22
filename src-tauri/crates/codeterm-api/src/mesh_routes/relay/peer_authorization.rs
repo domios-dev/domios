@@ -1,6 +1,8 @@
 use crate::routes::AppState;
 use axum::http::{Method, StatusCode};
-use codeterm_service_core::api_support::access_policy::{peer_access_allowed, request_path};
+use codeterm_service_core::api_support::access_policy::{
+    allows_full_dispatch, is_local_only_path, peer_access_allowed, request_path, request_scope,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum PeerRelayAuthorization<'a> {
@@ -9,6 +11,10 @@ pub(super) enum PeerRelayAuthorization<'a> {
         peer_id: &'a str,
         workspace_id: &'a str,
         force: bool,
+    },
+    WorkspaceClosePreview {
+        peer_id: &'a str,
+        workspace_id: &'a str,
     },
     MeshRpc {
         peer_id: &'a str,
@@ -28,7 +34,10 @@ pub(super) fn authorize_peer_relay<'a>(
     body: &serde_json::Value,
     tab_owner: impl FnOnce(&str) -> Option<String>,
 ) -> PeerRelayAuthorization<'a> {
-    if !peer_access_allowed(access, peer_id, method, path, tab_owner) {
+    let forward_to_routed_policy = allows_full_dispatch(access)
+        && !is_local_only_path(path)
+        && request_scope(method, path).is_none();
+    if !forward_to_routed_policy && !peer_access_allowed(access, peer_id, method, path, tab_owner) {
         return PeerRelayAuthorization::Rejected;
     }
     let path = request_path(path);
@@ -44,6 +53,12 @@ pub(super) fn authorize_peer_relay<'a>(
                 return PeerRelayAuthorization::TabClose { peer_id, tab_id };
             }
         }
+    }
+    if let Some(workspace_id) = workspace_close_preview_target(method, path) {
+        return PeerRelayAuthorization::WorkspaceClosePreview {
+            peer_id,
+            workspace_id,
+        };
     }
     match workspace_close_target(method, path) {
         Some(workspace_id) => PeerRelayAuthorization::WorkspaceClose {
@@ -139,6 +154,40 @@ fn workspace_close_target<'a>(method: &Method, path: &'a str) -> Option<&'a str>
         .strip_prefix("/api/workspaces/")?
         .strip_suffix("/close")?;
     (!workspace_id.is_empty() && !workspace_id.contains('/')).then_some(workspace_id)
+}
+
+fn workspace_close_preview_target<'a>(method: &Method, path: &'a str) -> Option<&'a str> {
+    if *method != Method::GET {
+        return None;
+    }
+    let workspace_id = path
+        .strip_prefix("/api/workspaces/")?
+        .strip_suffix("/close-preview")?;
+    (!workspace_id.is_empty() && !workspace_id.contains('/')).then_some(workspace_id)
+}
+
+pub(super) async fn workspace_close_preview_from_mesh_peer(
+    state: &AppState,
+    workspace_id: &str,
+) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
+    match crate::workspace_routes::close_preview_for_mesh_peer(state, workspace_id).await {
+        Ok(preview) => {
+            let data = serde_json::to_value(preview)
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+            Ok(codeterm_service_core::mesh::types::RelayResponse {
+                ok: true,
+                status: StatusCode::OK.as_u16(),
+                data: Some(data),
+                error: None,
+            })
+        }
+        Err((status, message)) => Ok(codeterm_service_core::mesh::types::RelayResponse {
+            ok: false,
+            status: status.as_u16(),
+            data: None,
+            error: Some(message),
+        }),
+    }
 }
 
 pub(super) async fn close_workspace_from_mesh_peer(

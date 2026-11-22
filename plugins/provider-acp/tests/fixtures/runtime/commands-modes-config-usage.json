@@ -511,6 +511,11 @@
         }
       },
       {
+        "kind": "sessionTitle",
+        "threadId": "session-fixture",
+        "title": "Fixture"
+      },
+      {
         "kind": "notice",
         "threadId": "session-fixture",
         "message": "Transient notice"

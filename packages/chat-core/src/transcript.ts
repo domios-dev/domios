@@ -2,8 +2,9 @@ import { projectTranscriptParts } from "./messageParts";
 import { placePendingSends } from "./sendPlacement";
 import { placeQueuedRows } from "./queuedPlacement";
 import { mergeBatchesById, mergeById } from "./merge";
-import { reconcileSends, type ChatSend, type SendEcho } from "./sendOrder";
+import { reconcileSends, type ChatSend, type SendEcho, type UnloadedHistoryWindow } from "./sendOrder";
 import { timestampMs } from "./time";
+import { orderTimelineItems } from "./timelineOrder";
 import type { NormalizedChatMessage } from "./types";
 
 /** Half-open source window; byte boundaries align to complete records. */
@@ -129,10 +130,14 @@ function orderedSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
 }
 
 /** Provider IDs survive every source window; the newest occurrence wins. */
-export function transcriptRows(state: TranscriptState): NormalizedChatMessage[] {
+export function transcriptSourceRows(state: TranscriptState): NormalizedChatMessage[] {
   const expanded = new Set(state.expandedGaps);
   return mergeBatchesById(orderedSegments(state.segments).map(segment =>
     segment.rows.filter(row => !expanded.has(row.id))));
+}
+
+export function transcriptRows(state: TranscriptState): NormalizedChatMessage[] {
+  return orderTimelineItems(transcriptSourceRows(state));
 }
 
 export function transcriptRowCount(state: TranscriptState): number {
@@ -212,7 +217,7 @@ function reduceItems(state: TranscriptState, batch: TranscriptBatch): Transcript
     start: Math.min(...ranges.map((entry) => entry.start)),
     end: Math.max(...ranges.map((entry) => entry.end)),
   };
-  const previous = transcriptRows({ ...state, segments: currentSegments });
+  const previous = transcriptSourceRows({ ...state, segments: currentSegments });
   const incoming = ownedRows(batch.authority, batch.rows);
   const rows = batch.kind === "backfill" ? mergeById(incoming, previous) : mergeById(previous, incoming);
   return {
@@ -417,19 +422,37 @@ export interface TranscriptProjection {
   outside: ReadonlySet<string>;
 }
 
-/** The oldest loaded time of the bound session while older history of it is still unloaded. */
-function unloadedHistoryBoundaryMs(
-  state: TranscriptState, rows: readonly NormalizedChatMessage[],
-): number | null {
-  const session = state.authority?.sourceSessionId;
-  if (session == null || ((transcriptBackfillCursor(state) ?? 0) <= 0 && state.evictedOlder === 0)) return null;
-  let oldest: number | null = null;
-  for (const row of rows) {
-    if (row.sourceSessionId !== session || row.inheritedFromSessionId != null) continue;
-    const at = timestampMs(row.timestamp);
-    if (at != null && (oldest == null || at < oldest)) oldest = at;
+function finiteTimeMs(value: number | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function rowTimeMs(row: NormalizedChatMessage): number | null {
+  let oldest = timestampMs(row.timestamp);
+  for (const candidate of [finiteTimeMs(row.toolStartedAtMs), finiteTimeMs(row.toolCompletedAtMs)]) {
+    if (candidate != null && (oldest == null || candidate < oldest)) oldest = candidate;
   }
   return oldest;
+}
+
+/** Boundary of loaded own-session history while older history of it is still unloaded. */
+function unloadedHistoryWindow(
+  state: TranscriptState, rows: readonly NormalizedChatMessage[],
+): UnloadedHistoryWindow | null {
+  const session = state.authority?.sourceSessionId;
+  const backfillCursor = transcriptBackfillCursor(state);
+  if (session == null || ((backfillCursor ?? 0) <= 0 && state.evictedOlder === 0)) return null;
+  let oldest: number | null = null;
+  let hasOwnRow = false;
+  for (const row of rows) {
+    if (row.sourceSessionId !== session || row.inheritedFromSessionId != null) continue;
+    hasOwnRow = true;
+    const at = rowTimeMs(row);
+    if (at != null && (oldest == null || at < oldest)) oldest = at;
+  }
+  const byteStart = transcriptOffsetKind(state) === "bytes" && backfillCursor != null && backfillCursor > 0
+    ? backfillCursor : null;
+  if (oldest == null && byteStart == null && !hasOwnRow) return null;
+  return { startMs: oldest, byteStart, untimed: hasOwnRow && oldest == null };
 }
 
 export function projectTranscript(
@@ -439,7 +462,7 @@ export function projectTranscript(
   const sourceSession = state.authority?.sourceSessionId;
   const ownInput = (row: NormalizedChatMessage) => sourceSession != null && row.sourceSessionId === sourceSession
     && row.inheritedFromSessionId == null && row.type === "user";
-  const loadedRows = transcriptRows(state);
+  const loadedRows = transcriptSourceRows(state);
   const providerIds = new Set<string>();
   const inputTimes = new Map<string, string | undefined>();
   for (const row of loadedRows) {
@@ -461,9 +484,9 @@ export function projectTranscript(
     }
   }
   const { echoes, pending, outside } = reconcileSends(
-    sends, committedRows, state.authority, rowStarts, unloadedHistoryBoundaryMs(state, committedRows),
+    sends, committedRows, state.authority, rowStarts, unloadedHistoryWindow(state, committedRows),
   );
-  const projectedCommittedRows = projectTranscriptParts(committedRows, sends);
+  const projectedCommittedRows = projectTranscriptParts(orderTimelineItems(committedRows), sends);
   const structuredWindow = state.segments.some(segment => segment.range?.unit === "items");
   const structuredItems = new Set(sends.flatMap(({ matchedRow }) => {
     const record = matchedRow?.source.record;

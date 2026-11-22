@@ -32,6 +32,8 @@ function fakeDaemon() {
   let drop!: () => void;
   // A stalled carrier stays open and its session keeps acknowledging posts, but nothing reaches the page.
   let stalled = false;
+  type RpcHandler = (rpc: { channel: string; method: string; path: string }, finish: () => void) => Promise<Response> | Response | void;
+  let rpcHandler: RpcHandler | undefined;
   const fetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = new URL(String(input));
     const method = init.method ?? "GET";
@@ -59,18 +61,29 @@ function fakeDaemon() {
     if (method === "POST" && parts[2] === "stream-mux" && parts[4] === "requests") {
       const channel = parts[5];
       const headers = new Headers(init.headers);
-      rpcs.push({ channel, method: headers.get("X-Domios-Mux-Method")!, path: headers.get("X-Domios-Mux-Path")! });
+      const rpc = { channel, method: headers.get("X-Domios-Mux-Method")!, path: headers.get("X-Domios-Mux-Path")! };
+      rpcs.push(rpc);
+      const finish = () => {
+        wire({ channel, open: true, status: 200, headers: [["content-type", "application/json"]] });
+        const answer = rpc.path === "/api/mesh/relay-to" ? { ok: true, status: 200, data: { data: channel } } : { data: channel };
+        wire({ channel, chunk: JSON.stringify(answer), enc: "utf8" });
+        wire({ channel, end: { reason: "eof" } });
+      };
+      if (rpcHandler) {
+        const handled = await rpcHandler(rpc, finish);
+        if (handled) return handled;
+      }
       // Early frames precede the ack, as on the real daemon.
-      wire({ channel, open: true, status: 200, headers: [["content-type", "application/json"]] });
-      const path = headers.get("X-Domios-Mux-Path")!;
-      const answer = path === "/api/mesh/relay-to" ? { ok: true, status: 200, data: { data: channel } } : { data: channel };
-      wire({ channel, chunk: JSON.stringify(answer), enc: "utf8" });
-      wire({ channel, end: { reason: "eof" } });
+      finish();
       return Response.json({ accepted: true }, { status: 202 });
     }
     return new Response("UI request bypassed the mux", { status: 500 });
   });
-  return { fetch, longLived, opened, released, rpcs, drop: () => drop(), stall: () => { stalled = true; }, resume: () => { stalled = false; }, push };
+  return {
+    fetch, longLived, opened, released, rpcs,
+    drop: () => drop(), stall: () => { stalled = true; }, resume: () => { stalled = false; }, push,
+    onRpc: (handler?: RpcHandler) => { rpcHandler = handler; },
+  };
 }
 
 async function boot() {
@@ -284,26 +297,188 @@ describe("one multiplexed stream per origin", () => {
     } finally { vi.useRealTimers(); stop(); }
   });
 
+  it("does not replace a healthy carrier while 64 occupied requests keep the health probe unsent, then proves the same carrier on release", async () => {
+    const { daemon } = await boot();
+    const webEvents = await import("./webEvents");
+    const { baseDaemonTransport } = await import("./daemonBootstrap");
+    const { streamMuxDiagnostics, verifyStreamMuxes } = await import("./streamMux");
+    const payloads: unknown[] = [];
+    const stopEvents = webEvents.webListen("fixture", ({ payload }) => payloads.push(payload));
+    const held: Array<() => void> = [];
+    daemon.onRpc((rpc, finish) => {
+      if (rpc.path.startsWith("/api/tabs/held-")) {
+        held.push(finish);
+        return Response.json({ accepted: true }, { status: 202 });
+      }
+      return undefined;
+    });
+    try {
+      await vi.waitFor(() => expect(daemon.opened).toHaveLength(1));
+      const eventChannel = daemon.opened[0].channel;
+      daemon.push({ channel: eventChannel, open: true, content_type: "text/event-stream" });
+      daemon.push({ channel: eventChannel, data: { boot: "boot", seq: 1, prev_seq: null, event_type: "fixture", data: "before" } });
+      await vi.waitFor(() => expect(payloads).toEqual(["before"]));
+
+      for (let i = 0; i < 64; i++) {
+        void baseDaemonTransport().localJson("POST", `/api/tabs/held-${i}/send`, { i }, { timeoutMs: null }).catch(() => {});
+      }
+      await vi.waitFor(() => expect(held).toHaveLength(64));
+
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const proof = verifyStreamMuxes(ORIGIN);
+      const coalesced = verifyStreamMuxes(ORIGIN);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(daemon.rpcs.filter(({ path }) => path === "/api/health")).toHaveLength(0);
+      expect(streamMuxDiagnostics()[0].carrier).toBe("queued");
+
+      // Advance well past both CARRIER_PROOF_MS (5s) and REST_READ_TIMEOUT_MS (30s): unsent probe must not replace.
+      await vi.advanceTimersByTimeAsync(35_000);
+      expect(daemon.longLived).toHaveLength(1);
+      expect(daemon.longLived[0].signal?.aborted).toBe(false);
+      expect(daemon.rpcs.filter(({ path }) => path === "/api/health")).toHaveLength(0);
+      expect(streamMuxDiagnostics()[0].carrier).toBe("queued");
+
+      // Unrelated SSE channel continues delivering on the exact same carrier during local wait.
+      daemon.push({ channel: eventChannel, data: { boot: "boot", seq: 2, prev_seq: 1, event_type: "fixture", data: "during-wait" } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(payloads).toEqual(["before", "during-wait"]);
+
+      // Releasing one occupied request admits the queued probe and proves the same carrier.
+      held.shift()!();
+      expect(await proof).toBe(true);
+      expect(await coalesced).toBe(true);
+      expect(daemon.rpcs.filter(({ path }) => path === "/api/health")).toHaveLength(1);
+      expect(daemon.longLived).toHaveLength(1);
+      expect(daemon.longLived[0].signal?.aborted).toBe(false);
+      expect(streamMuxDiagnostics()[0].carrier).toBe("trusted");
+    } finally {
+      vi.useRealTimers();
+      for (const release of held) release();
+      stopEvents();
+      webEvents.__resetWebEventsForTest();
+    }
+  });
+
+  it("does not replace a healthy carrier while 4 control POSTs hold the health probe unsent, and still recovers dispatched silence with mutation uncertainty", async () => {
+    const { daemon } = await boot();
+    const webEvents = await import("./webEvents");
+    const { baseDaemonTransport } = await import("./daemonBootstrap");
+    const { CARRIER_PROOF_MS } = await import("./streamMuxModel");
+    const { createStreamMux, OutcomeUnknown, streamMuxDiagnostics, verifyStreamMuxes } = await import("./streamMux");
+    const payloads: unknown[] = [];
+    const stopEvents = webEvents.webListen("fixture", ({ payload }) => payloads.push(payload));
+    const ackGates: Array<() => void> = [];
+    daemon.onRpc((rpc, finish) => {
+      if (rpc.path.startsWith("/api/tabs/post-")) {
+        return new Promise<Response>(resolve => {
+          ackGates.push(() => {
+            finish();
+            resolve(Response.json({ accepted: true }, { status: 202 }));
+          });
+        });
+      }
+      if (rpc.path === "/api/tabs/mutation/chat-send") {
+        return new Promise<Response>(resolve => {
+          ackGates.push(() => resolve(Response.json({ accepted: true }, { status: 202 })));
+        });
+      }
+      return undefined;
+    });
+    try {
+      await vi.waitFor(() => expect(daemon.opened).toHaveLength(1));
+      const eventChannel = daemon.opened[0].channel;
+      daemon.push({ channel: eventChannel, open: true, content_type: "text/event-stream" });
+      daemon.push({ channel: eventChannel, data: { boot: "boot", seq: 1, prev_seq: null, event_type: "fixture", data: "before" } });
+      await vi.waitFor(() => expect(payloads).toEqual(["before"]));
+
+      // Foreign-origin request is rejected before touching the carrier.
+      const callsBefore = daemon.fetch.mock.calls.length;
+      const isolated = createStreamMux(() => baseDaemonTransport(), daemon.fetch);
+      await expect(isolated.fetch("http://foreign.invalid/api/health")).rejects.toThrow("Mux requires its own daemon origin");
+      expect(daemon.fetch.mock.calls.length).toBe(callsBefore);
+      isolated.close();
+
+      // Hold all 4 control POST slots so /api/health cannot dispatch.
+      for (let i = 0; i < 4; i++) {
+        void baseDaemonTransport().localJson("POST", `/api/tabs/post-${i}/send`, { i }, { timeoutMs: null }).catch(() => {});
+      }
+      await vi.waitFor(() => expect(ackGates).toHaveLength(4));
+
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const healthyProof = verifyStreamMuxes(ORIGIN);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(daemon.rpcs.filter(({ path }) => path === "/api/health")).toHaveLength(0);
+      expect(streamMuxDiagnostics()[0].carrier).toBe("queued");
+
+      await vi.advanceTimersByTimeAsync(35_000);
+      expect(daemon.longLived).toHaveLength(1);
+      expect(daemon.longLived[0].signal?.aborted).toBe(false);
+      daemon.push({ channel: eventChannel, data: { boot: "boot", seq: 2, prev_seq: 1, event_type: "fixture", data: "sse-alive" } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(payloads).toEqual(["before", "sse-alive"]);
+
+      // Releasing one control POST admits the health probe and proves the same carrier.
+      ackGates.shift()!();
+      expect(await healthyProof).toBe(true);
+      expect(daemon.rpcs.filter(({ path }) => path === "/api/health")).toHaveLength(1);
+      expect(daemon.longLived).toHaveLength(1);
+
+      // Now refill the 4th control POST slot with a mutation; wait unsent, then stall and release one POST so probe dispatches into silence.
+      const mutation = baseDaemonTransport().localJson("POST", "/api/tabs/mutation/chat-send", { text: "once" }, { timeoutMs: null }).catch(error => error);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(ackGates).toHaveLength(4);
+
+      const silentProof = verifyStreamMuxes(ORIGIN);
+      await vi.advanceTimersByTimeAsync(CARRIER_PROOF_MS * 2);
+      expect(daemon.longLived[0].signal?.aborted).toBe(false);
+      expect(daemon.rpcs.filter(({ path }) => path === "/api/health")).toHaveLength(1);
+
+      daemon.stall();
+      ackGates.shift()!();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(daemon.rpcs.filter(({ path }) => path === "/api/health")).toHaveLength(2);
+      expect(streamMuxDiagnostics()[0].carrier).toBe("proving");
+
+      await vi.advanceTimersByTimeAsync(CARRIER_PROOF_MS - 1);
+      expect(daemon.longLived[0].signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await silentProof).toBe(false);
+      expect(daemon.longLived[0].signal?.aborted).toBe(true);
+      expect(await mutation).toBeInstanceOf(OutcomeUnknown);
+      expect(daemon.rpcs.filter(({ path }) => path === "/api/tabs/mutation/chat-send")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+      for (const release of ackGates) release();
+      stopEvents();
+      webEvents.__resetWebEventsForTest();
+    }
+  });
+
   it("N peers x M remote tabs plus a local terminal hold exactly one long-lived connection", async () => {
     const { daemon, remoteEvents, output } = await boot();
+    const { peerEventRail } = await import("./peerEventRail");
     const stops: Array<() => void> = [];
     const chat: unknown[] = [];
     for (let peer = 0; peer < PEERS; peer++) {
+      stops.push(peerEventRail.subscribe(peerId(peer), "paired-link", () => {}));
       for (let tab = 0; tab < TABS_PER_PEER; tab++) {
         const id = remoteTab(peer, tab);
         stops.push(remoteEvents.subscribeRemoteTabEvent(`tab-chat-msg-${id}`, ({ payload }) => { chat.push(payload); })!);
         stops.push(remoteEvents.subscribeRemoteTabEvent(`agent-runtime-state:${id}`, () => {})!);
         stops.push(remoteEvents.subscribeRemoteTabEvent(`pty-resize-owner-changed:${id}`, () => {})!);
-        stops.push(remoteEvents.subscribeRemoteTabEvent(`peer-state-changed:${id}`, () => {})!);
         stops.push(output.subscribeTabOutput(id, { onOutput() {}, onTruncated() {}, onEnded() {} }));
       }
     }
     const localOutput = vi.fn();
     stops.push(output.subscribeTabOutput("local-tab", { onOutput: localOutput, onTruncated() {}, onEnded() {} }, {}, "local-tab"));
 
-    const remoteChannels = PEERS * TABS_PER_PEER * 2;
+    const remoteChannels = PEERS * (TABS_PER_PEER * 2 + 1);
     await vi.waitFor(() => expect(daemon.opened.length).toBe(remoteChannels + 1));
     expect(daemon.longLived.map(({ path }) => new URL(path, ORIGIN).pathname)).toEqual(["/api/stream-mux"]);
+    expect(daemon.opened.filter(({ path }) => {
+      const params = new URL(path, ORIGIN).searchParams;
+      return params.get("scope") === "peer" && !params.has("tab");
+    })).toHaveLength(PEERS);
 
     const target = remoteTab(1, 2);
     const eventsChannel = channelFor(daemon.opened, (url) => url.searchParams.get("tab") === target

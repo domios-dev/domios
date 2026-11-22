@@ -1,7 +1,7 @@
 {
   "id": "opencode",
-  "version": "1.14.31",
-  "minCodeterm": "1.20.2",
+  "version": "1.14.35",
+  "minCodeterm": "1.21.0",
   "hostApi": 2,
   "capabilities": {
     "attachments": {
@@ -81,7 +81,7 @@
     "chatBackend": {
       "spawnable": true,
       "sessionConfig": true,
-      "agentTasks": true
+      "agentTasks": false
     },
     "agentRuntime": {
       "runtime": "http-sse",
@@ -236,6 +236,10 @@
                 "method": "GET",
                 "path": "/api/session/{sessionID}/message"
               },
+              "v2.session.active": {
+                "method": "GET",
+                "path": "/api/session/active"
+              },
               "v2.session.prompt": {
                 "method": "POST",
                 "path": "/api/session/{sessionID}/prompt"
@@ -332,7 +336,8 @@
         ],
         "readHistory": [
           "session.messages",
-          "v2.session.messages"
+          "v2.session.messages",
+          "v2.session.active"
         ],
         "submitTurn": [
           "session.prompt",

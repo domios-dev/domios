@@ -210,6 +210,100 @@ pub(super) fn team_close_lanes(
     team_id: &str,
     member_tab_ids: &[String],
 ) -> Vec<TeamCloseLane> {
+    team_close_lanes_bounded(plans, team_id, member_tab_ids, usize::MAX)
+        .expect("unbounded lane collection cannot overflow")
+}
+
+#[derive(Debug)]
+pub enum WorkspaceCloseLanePreviewError {
+    TooLarge,
+    Unavailable(String),
+}
+
+pub fn workspace_close_lane_preview(
+    plans: &[TeamClosePlanRead],
+    team_id: &str,
+    member_tab_ids: &[String],
+    max_lanes: usize,
+) -> Result<
+    Vec<codeterm_types::workspace_close_preview::WorkspaceClosePreviewLane>,
+    WorkspaceCloseLanePreviewError,
+> {
+    let lanes = team_close_lanes_bounded(plans, team_id, member_tab_ids, max_lanes)?;
+    lanes
+        .iter()
+        .map(|lane| {
+            use codeterm_types::workspace_close_preview::WorkspaceCloseLaneState as State;
+            let worktree_exists = match lane.worktree_path.as_deref() {
+                Some(path) => match std::fs::metadata(path) {
+                    Ok(_) => true,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+                    Err(error) => {
+                        return Err(WorkspaceCloseLanePreviewError::Unavailable(format!(
+                            "could not inspect lane worktree {path}: {error}"
+                        )))
+                    }
+                },
+                None => false,
+            };
+            let branch_exists = match lane.branch.as_deref() {
+                Some(branch) => branch_exists(lane, branch)
+                    .map_err(WorkspaceCloseLanePreviewError::Unavailable)?,
+                None => false,
+            };
+            let reason = lane_hold_reason(lane);
+            if reason.as_deref().is_some_and(lane_fact_unavailable) {
+                return Err(WorkspaceCloseLanePreviewError::Unavailable(
+                    reason.unwrap_or_else(|| "lane safety facts are unavailable".into()),
+                ));
+            }
+            let orphan = !worktree_exists && branch_exists;
+            let state = if orphan {
+                State::Orphan
+            } else if reason
+                .as_deref()
+                .is_some_and(|reason| reason.starts_with("dirty worktree:"))
+            {
+                State::Dirty
+            } else if reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("unmerged commits"))
+            {
+                State::Unmerged
+            } else if reason.is_some() {
+                State::Held
+            } else if lane
+                .worktree_path
+                .as_deref()
+                .is_some_and(|_| !worktree_exists)
+            {
+                State::Orphan
+            } else {
+                State::Safe
+            };
+            let detail = reason.or_else(|| {
+                orphan.then(|| "the recorded branch has no registered worktree".into())
+            });
+            Ok(
+                codeterm_types::workspace_close_preview::WorkspaceClosePreviewLane {
+                    plan_id: lane.plan_id.clone(),
+                    task_id: lane.task_id.clone(),
+                    path: lane.worktree_path.clone(),
+                    branch: lane.branch.clone(),
+                    state,
+                    detail,
+                },
+            )
+        })
+        .collect()
+}
+
+fn team_close_lanes_bounded(
+    plans: &[TeamClosePlanRead],
+    team_id: &str,
+    member_tab_ids: &[String],
+    max_lanes: usize,
+) -> Result<Vec<TeamCloseLane>, WorkspaceCloseLanePreviewError> {
     let tabs: HashSet<_> = member_tab_ids.iter().map(String::as_str).collect();
     let mut lanes = Vec::new();
     for plan in plans {
@@ -248,6 +342,9 @@ pub(super) fn team_close_lanes(
                     task.lane.destination.as_deref(),
                     task.lane.ownership,
                 );
+                if lanes.len() > max_lanes {
+                    return Err(WorkspaceCloseLanePreviewError::TooLarge);
+                }
             }
             for attempt in matching_attempts {
                 push_lane(
@@ -267,10 +364,24 @@ pub(super) fn team_close_lanes(
                         .or(task.lane.destination.as_deref()),
                     attempt.ownership,
                 );
+                if lanes.len() > max_lanes {
+                    return Err(WorkspaceCloseLanePreviewError::TooLarge);
+                }
             }
         }
     }
-    lanes
+    Ok(lanes)
+}
+
+fn lane_fact_unavailable(reason: &str) -> bool {
+    if reason.starts_with("dirty worktree:") || reason.contains("unmerged commits") {
+        return false;
+    }
+    reason.starts_with("git ")
+        || reason.contains("git could not run")
+        || reason.contains("failed in '")
+        || reason.starts_with("lane ownership could not be verified")
+        || reason.contains("cannot verify merged commits")
 }
 
 pub(super) fn finish_team_lane_cleanup(
@@ -868,6 +979,174 @@ mod lane_safety_tests {
     #[test]
     fn team_close_refuses_to_delete_non_lane_branches() {
         assert!(cleanup_lane(&lane("release/retained", "base")).is_err());
+    }
+
+    #[test]
+    fn workspace_close_lane_preview_classifies_warnings_and_refuses_unavailable_or_over_cap() {
+        use codeterm_service_core::plan::{PlanStatus, TaskStatus};
+        use codeterm_service_core::service::plan::{TeamCloseLaneRead, TeamCloseTaskRead};
+        use codeterm_types::workspace_close_preview::WorkspaceCloseLaneState as State;
+
+        assert!(!lane_fact_unavailable(
+            "dirty worktree: git status found uncommitted or untracked changes: ?? a.txt"
+        ));
+        assert!(!lane_fact_unavailable(
+            "branch has unmerged commits ahead of destination main"
+        ));
+        assert!(!lane_fact_unavailable("foreign checkout, not managed"));
+        assert!(!lane_fact_unavailable(
+            "lane ownership is not recorded and the lane does not match the Domios-provisioned fingerprint, not managed"
+        ));
+        assert!(lane_fact_unavailable(
+            "git status failed in '/repo' (exit 128): fatal"
+        ));
+        assert!(lane_fact_unavailable(
+            "lane destination is not recorded; cannot verify merged commits"
+        ));
+
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        let worktrees = temp.path().join("repo-worktrees");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::create_dir_all(&worktrees).unwrap();
+        let repo_str = codeterm_paths::strip_verbatim_prefix(&repo.display().to_string());
+        run_git(&repo_str, &["init", "-b", "main"]).unwrap();
+        run_git(&repo_str, &["config", "user.email", "test@example.com"]).unwrap();
+        run_git(&repo_str, &["config", "user.name", "Test"]).unwrap();
+        std::fs::write(repo.join("README.md"), "base\n").unwrap();
+        run_git(&repo_str, &["add", "README.md"]).unwrap();
+        run_git(&repo_str, &["commit", "-m", "base"]).unwrap();
+
+        let dirty_wt = worktrees.join("dirty");
+        let dirty_wt_str = codeterm_paths::strip_verbatim_prefix(&dirty_wt.display().to_string());
+        run_git(
+            &repo_str,
+            &["worktree", "add", "-b", "lane/dirty", &dirty_wt_str],
+        )
+        .unwrap();
+        std::fs::write(dirty_wt.join("untracked.txt"), "dirty\n").unwrap();
+
+        let unmerged_wt = worktrees.join("unmerged");
+        let unmerged_wt_str =
+            codeterm_paths::strip_verbatim_prefix(&unmerged_wt.display().to_string());
+        run_git(
+            &repo_str,
+            &["worktree", "add", "-b", "lane/unmerged", &unmerged_wt_str],
+        )
+        .unwrap();
+        std::fs::write(unmerged_wt.join("change.txt"), "ahead\n").unwrap();
+        run_git(&unmerged_wt_str, &["add", "change.txt"]).unwrap();
+        run_git(&unmerged_wt_str, &["commit", "-m", "ahead"]).unwrap();
+
+        run_git(&repo_str, &["branch", "lane/orphan"]).unwrap();
+
+        let mk_task = |id: &str, wt: Option<String>, branch: &str, own: Option<LaneOwnership>| {
+            TeamCloseTaskRead {
+                id: id.into(),
+                name: id.into(),
+                status: TaskStatus::InProgress,
+                assigned_tab_id: Some("member".into()),
+                lane: TeamCloseLaneRead {
+                    tab_id: Some("member".into()),
+                    worktree_path: wt,
+                    branch: Some(branch.into()),
+                    base: Some("main".into()),
+                    destination: Some("main".into()),
+                    ownership: own,
+                },
+                has_remote_attempt: false,
+                member_executor: Some("member".into()),
+                attempt_lanes: Vec::new(),
+                open_attempts: Vec::new(),
+            }
+        };
+        let plan = TeamClosePlanRead {
+            id: "plan-1".into(),
+            title: "Plan One".into(),
+            status: PlanStatus::Active,
+            team_id: Some("team-1".into()),
+            project_path: repo_str.clone(),
+            canonical_project_path: repo_str.clone(),
+            tasks: vec![
+                mk_task(
+                    "t-dirty",
+                    Some(dirty_wt_str.clone()),
+                    "lane/dirty",
+                    Some(LaneOwnership::DomiosLane),
+                ),
+                mk_task(
+                    "t-unmerged",
+                    Some(unmerged_wt_str.clone()),
+                    "lane/unmerged",
+                    Some(LaneOwnership::DomiosLane),
+                ),
+                mk_task(
+                    "t-orphan",
+                    None,
+                    "lane/orphan",
+                    Some(LaneOwnership::DomiosLane),
+                ),
+                mk_task(
+                    "t-foreign",
+                    None,
+                    "feature/ext",
+                    Some(LaneOwnership::ForeignCheckout),
+                ),
+            ],
+        };
+        let preview =
+            workspace_close_lane_preview(&[plan], "team-1", &["member".into()], 16).unwrap();
+        let states = preview
+            .iter()
+            .map(|lane| (lane.task_id.as_str(), lane.state))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            states,
+            vec![
+                ("t-dirty", State::Dirty),
+                ("t-unmerged", State::Unmerged),
+                ("t-orphan", State::Orphan),
+                ("t-foreign", State::Held),
+            ]
+        );
+        assert!(dirty_wt.join("untracked.txt").exists());
+        assert!(unmerged_wt.join("change.txt").exists());
+
+        let capped_plan = TeamClosePlanRead {
+            id: "plan-cap".into(),
+            title: "Cap".into(),
+            status: PlanStatus::Active,
+            team_id: Some("team-1".into()),
+            project_path: repo_str.clone(),
+            canonical_project_path: repo_str,
+            tasks: vec![
+                mk_task("a", None, "lane/orphan", Some(LaneOwnership::DomiosLane)),
+                mk_task("b", None, "lane/dirty", Some(LaneOwnership::DomiosLane)),
+            ],
+        };
+        assert!(matches!(
+            workspace_close_lane_preview(&[capped_plan], "team-1", &["member".into()], 1),
+            Err(WorkspaceCloseLanePreviewError::TooLarge)
+        ));
+
+        let broken_plan = TeamClosePlanRead {
+            id: "plan-bad".into(),
+            title: "Bad".into(),
+            status: PlanStatus::Active,
+            team_id: Some("team-1".into()),
+            project_path: temp.path().join("not-a-repo").display().to_string(),
+            canonical_project_path: String::new(),
+            tasks: vec![mk_task(
+                "t-bad",
+                None,
+                "lane/orphan",
+                Some(LaneOwnership::DomiosLane),
+            )],
+        };
+        assert!(matches!(
+            workspace_close_lane_preview(&[broken_plan], "team-1", &["member".into()], 8),
+            Err(WorkspaceCloseLanePreviewError::Unavailable(_))
+        ));
     }
 }
 

@@ -42,7 +42,9 @@ mod process_boundary;
 mod process_slot;
 pub mod profile_options;
 pub mod projections;
+pub mod report_position;
 pub mod reset_credits;
+pub mod session_list;
 pub mod thread_history;
 mod transcript;
 pub(crate) mod update;
@@ -108,4 +110,5 @@ pub async fn answer_question(
         .map_err(|reason| reason.to_string())?
 }
 
+pub use engine::refresh_provider_profile_icons;
 pub use restore::tab as restore_tab;

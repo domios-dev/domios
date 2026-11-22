@@ -5,7 +5,7 @@ import { AgentInspectionProvider } from "@codeterm/chat-ui";
 import { configureOrchestrationTransport } from "../../lib/transport/orchestrationRuntime";
 import { orchestrationTestClient } from "../../lib/transport/orchestration.testdata";
 import { setAgentDescriptors } from "../../lib/agentDescriptorCache";
-import type { BackgroundProcessSnapshot } from "../../lib/backgroundProcesses";
+import type { BackgroundProcessSnapshot, BackgroundStopResult } from "../../lib/backgroundProcesses";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { ProviderDescriptor } from "../../lib/types";
 import type { AutomationGraphAdapter } from "../Automation/types";
@@ -36,10 +36,10 @@ const adapter: AutomationGraphAdapter = {
   delete: async () => undefined,
 };
 
-function harness(messages: readonly NormalizedChatMessage[], onInspect: (threadId: string) => void, background?: { running: Record<string, string>; unknown?: Record<string, string>; ended?: Record<string, string> }) {
-  const state = {
+function harness(messages: readonly NormalizedChatMessage[], onInspect: (threadId: string) => void, background?: { running: Record<string, string>; unknown?: Record<string, string>; ended?: Record<string, string> }, processes: BackgroundProcessSnapshot["processes"] = []) {
+  let state = {
     workspaces: [],
-    tabs: { "tab-a": { provider_signals: { background }, agent_type: "codex", agent_session_id: authority.rootThreadId, session_binding_nonce: authority.bindingNonce, agent_runtime_state: { state:"loaded", epoch: authority.epoch } } },
+    tabs: { "tab-a": { provider_signals: { background }, agent_type: "codex", agent_session_id: authority.rootThreadId, session_binding_nonce: authority.bindingNonce, agent_runtime_state: { state:"loaded", epoch: authority.epoch, backgroundProcesses: snapshot(processes) } } },
     teams: [], active_workspace_id: null, focused_tab_id: null, notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
   } as unknown as ExtendedState;
   const store = createMuxStateStore(() => state);
@@ -58,7 +58,12 @@ function harness(messages: readonly NormalizedChatMessage[], onInspect: (threadI
       </AgentInspectionProvider>
     </MuxStateStoreContext.Provider>,
   );
-  return { host, root, render };
+  const setProcesses = (processes: BackgroundProcessSnapshot["processes"]) => {
+    const tab = { ...state.tabs["tab-a"], agent_runtime_state: { state: "loaded" as const, epoch: authority.epoch, backgroundProcesses: snapshot(processes) } };
+    state = { ...state, tabs: { ...state.tabs, "tab-a": tab } };
+    store.notify();
+  };
+  return { host, root, render, setProcesses };
 }
 
 it("labels a provider background shell by command kind and opens its command details", async () => {
@@ -90,14 +95,12 @@ it("labels a provider background shell by command kind and opens its command det
   }
 });
 
-it("opens the shared background panel and stops a terminal once", async () => {
+it.each(["stopped", "degraded"] as const)("stops a terminal once and renders the %s outcome", async (status) => {
   const process = { threadId: "root", processId: "process-1", itemId: "terminal-item", command: "node build.mjs", cwd: "C:/work", osPid: 42 };
   const terminalMessage: NormalizedChatMessage = {
-    id: "terminal-item", type: "tool_call", toolKind:"command", toolStatus:"running", toolInput:{command:process.command}, content: "build output", timestamp: new Date(Date.now() - 20_000).toISOString(), sourceSessionId: authority.rootThreadId,
+    id: "terminal-item", type: "tool_call", toolKind:"command", toolStatus:"running", toolInput:{command:process.command}, content: "build output", timestamp: new Date().toISOString(), sourceSessionId: authority.rootThreadId,
   };
   const stopCalls: unknown[] = [];
-  let reads = 0;
-  let processes = [process];
   configureOrchestrationTransport(orchestrationTestClient(async <T,>(method: string, path: string) => {
     expect(method).toBe("GET");
     expect(path).toBe("/api/crons");
@@ -106,16 +109,17 @@ it("opens the shared background panel and stops a terminal once", async () => {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   __setListenForTest(async () => () => undefined);
   __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
-    if (command === "agent_runtime_background_processes") { reads++; return snapshot(processes) as T; }
     if (command === "agent_runtime_stop_background_process") {
       stopCalls.push(args);
-      processes = [];
-      return snapshot(processes) as T;
+      const result: BackgroundStopResult = status === "stopped"
+        ? { status, snapshot: snapshot([]) }
+        : { status, reason: "attributionUnavailable" };
+      return result as T;
     }
     throw new Error(`unexpected invoke: ${command}`);
   });
   setAgentDescriptors([{ id: "codex", agent_runtime: { backgroundProcesses: true } }] as ProviderDescriptor[]);
-  const view = harness([terminalMessage], vi.fn());
+  const view = harness([terminalMessage], vi.fn(), undefined, [process]);
   document.body.append(view.host);
   try {
     await act(async () => { view.render(); });
@@ -134,7 +138,6 @@ it("opens the shared background panel and stops a terminal once", async () => {
     expect(panelStyle.touchAction).toBe("pan-y");
     expect(panel?.tabIndex).toBe(0);
     expect(view.host.querySelectorAll('button[aria-label="Details for build.mjs"]')).toHaveLength(1);
-    expect(reads).toBe(1);
     expect(panel?.querySelector("code,pre")).toBeNull();
     expect(view.host.querySelector('button[aria-label="Choose fixture model"]')).not.toBeNull();
     expect(view.host.querySelector('[data-testid="agent-state"]')?.textContent).not.toContain(process.command);
@@ -149,7 +152,16 @@ it("opens the shared background panel and stops a terminal once", async () => {
     await act(async () => { stop?.click(); stop?.click(); });
     expect(stopCalls).toHaveLength(1);
     expect(stopCalls[0]).toMatchObject({ tabId: "tab-a", request: { ...authority, threadId: "root", processId: "process-1" } });
+    await act(async () => view.setProcesses([]));
     expect(view.host.querySelector('button[aria-label="1 background work"]')).toBeNull();
+    const result = view.host.querySelector('[role="alert"][aria-label="Background stop unconfirmed"]');
+    if (status === "degraded") {
+      expect(result?.textContent).toContain("Could not identify the OS processes for build.mjs.");
+      await act(async () => result?.querySelector("button")?.click());
+      expect(view.host.querySelector('[role="alert"][aria-label="Background stop unconfirmed"]')).toBeNull();
+    } else {
+      expect(result).toBeNull();
+    }
   } finally {
     await act(async () => view.root.unmount());
     view.host.remove();
@@ -207,15 +219,9 @@ it("keeps mixed background work distinct from harness-internal agents", async ()
   const command: NormalizedChatMessage = { id: process.itemId, type: "tool_call", toolKind: "command", toolStatus: "running", content: "", timestamp: new Date(Date.now() - 20_000).toISOString(), sourceSessionId: "root" };
   const child = fixtureMessage("mixed-agent", { agent_id: "mixed-child", agent_parent_thread_id: "root", agent_state: "unknown", agent_description: "Child task" });
   configureOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));
-  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
-  __setListenForTest(async () => () => undefined);
-  __setInvokeForTest(async <T,>(name: string) => {
-    if (name === "agent_runtime_background_processes") return snapshot([process]) as T;
-    throw new Error(`Unexpected invoke: ${name}`);
-  });
   setAgentDescriptors([{ id: "codex", display_name: "Fixture Harness", supports_subagent_visibility: true, agent_runtime: { backgroundProcesses: true } }] as ProviderDescriptor[]);
   const inspect = vi.fn();
-  const view = harness([command, child], inspect);
+  const view = harness([command, child], inspect, undefined, [process]);
   try {
     await act(async () => { view.render(); });
     const bubble = view.host.querySelector<HTMLButtonElement>('button[aria-label="1 background work"]');
@@ -267,6 +273,37 @@ it("renders each live task as one bubble with its state inside and a readable na
     expect(panel.textContent).toContain("Run the release gate");
     expect(panel.querySelector('.ct-work-state[data-state="unknown"]')?.getAttribute("title")).toBe("No live evidence");
     expect(panel.textContent).not.toContain("Ended task");
+  } finally {
+    await act(async () => view.root.unmount());
+  }
+});
+
+it("surfaces OS-observed runtime background commands above the composer on an idle turn without protocol capability and clears on completion", async () => {
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));
+  setAgentDescriptors([{ id: "fixture-runtime", display_name: "Fixture Runtime", agent_runtime: {} }] as ProviderDescriptor[]);
+  const process = {
+    threadId: authority.rootThreadId,
+    processId: "os:5000:100",
+    itemId: "os-bg:5000:100",
+    command: "cargo nextest run -p codeterm-service-core",
+    cwd: "/work",
+    osPid: 5000,
+  };
+  const view = harness([], vi.fn(), undefined, [process]);
+  try {
+    await act(async () => view.render());
+    const linked = view.host.querySelector('[role="group"][aria-label="Linked to this tab"]');
+    const bubble = linked?.querySelector<HTMLButtonElement>('button[aria-label="1 background work"]');
+    expect(bubble).not.toBeNull();
+    await act(async () => bubble!.click());
+    const panel = view.host.querySelector<HTMLElement>('[role="group"][aria-label="Background work"]');
+    expect(panel).not.toBeNull();
+    const details = panel?.querySelector<HTMLButtonElement>('button[aria-label^="Details for "]');
+    expect(details).not.toBeNull();
+    await act(async () => details!.click());
+    expect(panel?.querySelector("code")?.textContent).toBe(process.command);
+    await act(async () => view.setProcesses([]));
+    expect(view.host.querySelector('button[aria-label="1 background work"]')).toBeNull();
   } finally {
     await act(async () => view.root.unmount());
   }

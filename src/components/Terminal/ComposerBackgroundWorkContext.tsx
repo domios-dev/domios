@@ -5,7 +5,12 @@ import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 
 type BackgroundWork = ReturnType<typeof useComposerBackgroundWork>;
-const ComposerBackgroundWorkContext = createContext<BackgroundWork>({items:[],stop:async()=>{}});
+const ComposerBackgroundWorkContext = createContext<BackgroundWork>({
+  items: [],
+  stop: async () => {},
+  stopWarning: undefined,
+  dismissStopWarning: () => {},
+});
 
 export function ComposerBackgroundWorkProvider({ tabId, messages, children }: { tabId: string; messages: readonly NormalizedChatMessage[]; children: ReactNode }) {
   const providerId = useMuxSelector(state => {
@@ -13,7 +18,7 @@ export function ComposerBackgroundWorkProvider({ tabId, messages, children }: { 
     return tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null);
   });
   const descriptor = useAgentDescriptor(providerId);
-  const work = useComposerBackgroundWork(tabId, descriptor?.agent_runtime?.backgroundProcesses === true, descriptor?.supports_subagent_visibility === true, messages);
+  const work = useComposerBackgroundWork(tabId, descriptor?.supports_subagent_visibility === true, messages);
   return <ComposerBackgroundWorkContext.Provider value={work}>{children}</ComposerBackgroundWorkContext.Provider>;
 }
 

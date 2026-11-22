@@ -217,11 +217,11 @@ Acknowledge receipt and ownership of the assigned task
 
 #### `domios agent acp`
 
-Manage local ACP launch profiles (local owner or Orchestrator only)
+Manage local ACP launch profiles (local owner, authenticated local General Agent, or live local Orchestrator)
 
 #### `domios agent acp add`
 
-Add an owner-configured installed ACP command (local owner or Orchestrator only)
+Add an owner-configured installed ACP command (local owner, authenticated local General Agent, or live local Orchestrator)
 
 - `--arg`
 - `--auth-env` — Optional sign-in secrets as KEY=secret-name:method
@@ -470,6 +470,7 @@ Continue this tab on another provider through a bounded handoff produced by the 
 
 - `--force` — Stop the current turn before switching. Otherwise a busy tab refuses
 - `--model`
+- `--profile` — Launch profile declared by the target provider
 - `<provider>`
 - `--reasoning-effort`
 - `--tab`
@@ -1868,6 +1869,18 @@ Account mesh — installations, status and authenticated relay
 Push our current address list to paired peers without re-detecting locally. Use --to to limit to one peer
 
 - `--to` — Optional target peer (instance_id or name). Omit for all peers
+
+#### `domios mesh identity`
+
+Manage the kind icon and colour of an installation
+
+#### `domios mesh identity set`
+
+Set the machine's kind and colour. Requires owner authority
+
+- `--color`
+- `--kind`
+- `--peer` — Set the identity on this paired machine by name or ID
 
 #### `domios mesh offline`
 

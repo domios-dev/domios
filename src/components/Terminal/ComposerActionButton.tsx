@@ -1,21 +1,50 @@
-import type { CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { ChevronUp, Lock, Mic, Square, X } from "lucide-react";
+import { bubblePoseFromPointer, type BubblePose } from "./composerBubble";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
+import type { LiveDictation } from "./voice/useLiveDictation";
+import { DictationSetupPrompt } from "./voice/DictationSetupPrompt";
+import { DictationStatus } from "./voice/DictationStatus";
+import { isCancelGesture, isDragUpGesture } from "./voice/voiceFsm";
 import { SendIcon } from "../Icons";
 import { COMPOSER_BUTTON_BASE } from "./composerButton";
 
 const accentFg = "var(--ct-on-accent, #fff)";
 const recordingFg = "var(--ct-red, #f85149)";
 const lockedFg = "var(--ct-bg, #0d1117)";
+const TAP_MS = 220;
+const HOLD_VISUAL_DELAY_MS = 160;
+const HOLD_DRAG_PX = 10;
+const NEUTRAL_POSE: BubblePose = { x: 0, y: 0, sx: 1, sy: 1 };
+
+interface DictationGesture {
+  id: number;
+  startX: number;
+  startY: number;
+  ptrX: number;
+  ptrY: number;
+  at: number;
+  locked: boolean;
+  cancelArmed: boolean;
+  holdVisual: boolean;
+}
 
 export function ComposerActionButton({
   voiceUi,
+  dictation,
+  spaceArming = false,
+  spacePop = false,
   sendDisabled,
+  sendUnavailableReason,
   onSend,
   onSchedule,
 }: {
   voiceUi: ComposerVoiceHandle;
+  dictation?: LiveDictation;
+  spaceArming?: boolean;
+  spacePop?: boolean;
   sendDisabled: boolean;
+  sendUnavailableReason?: string | null;
   onSend: () => void;
   onSchedule?: () => void;
 }) {
@@ -38,18 +67,165 @@ export function ComposerActionButton({
     lockFromPointerCancel,
   } = voiceUi;
 
+  const gestureRef = useRef<DictationGesture | null>(null);
+  const holdTimerRef = useRef<number | null>(null);
+  const suppressNextPointerUpSendRef = useRef(false);
+  const [dictationGesture, setDictationGesture] = useState<DictationGesture | null>(null);
+
+  const useDictation = Boolean(dictation && !voiceActive);
+  const dictationActive = Boolean(useDictation && dictation!.phase !== "idle");
+  const dictationFinishing = Boolean(useDictation && dictation!.phase === "finishing");
+
+  function clearHoldTimer() {
+    if (holdTimerRef.current !== null) {
+      window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  }
+
+  function clearDictationGesture() {
+    clearHoldTimer();
+    gestureRef.current = null;
+    setDictationGesture(null);
+  }
+
+  useEffect(() => {
+    if (!dictationActive) clearDictationGesture();
+  }, [dictationActive]);
+
+  useEffect(() => clearHoldTimer, []);
+
+  const effectiveSend = mainIsSend && !dictationActive && !voiceActive;
+  const dictationHold = Boolean(useDictation && dictationGesture?.holdVisual && !dictationGesture.locked);
+  const effectiveHold = isHold || dictationHold;
+  const effectiveLocked = isLocked || Boolean(dictationActive && !dictationHold);
+  const effectiveBubbleActive = voiceActive || dictationHold;
+  const effectiveCancelArmed = voiceActive ? cancelArmed : Boolean(dictationGesture?.cancelArmed);
+  const effectivePose = voiceActive
+    ? bubblePose
+    : dictationHold && dictationGesture
+      ? bubblePoseFromPointer(dictationGesture.ptrX, dictationGesture.ptrY, dictationGesture.startX, dictationGesture.startY)
+      : NEUTRAL_POSE;
+  const effectiveTitle = sendUnavailableReason ?? (
+    effectiveSend
+      ? mainTitle
+      : dictationActive
+        ? (dictationFinishing ? "Finishing dictation" : "Stop dictation")
+        : useDictation
+          ? "Dictation · tap, hold, or slide up to lock"
+          : mainTitle
+  );
+  const effectiveAriaLabel = !effectiveSend && useDictation
+    ? (dictationActive ? (dictationFinishing ? "Finishing dictation" : "Stop dictation") : "Start dictation")
+    : undefined;
+
+  function handleDictationPointerDown(e: PointerEvent<HTMLButtonElement>) {
+    if (!dictation || e.isPrimary === false || e.button !== 0) return;
+    e.preventDefault();
+    suppressNextPointerUpSendRef.current = true;
+    if (dictation.active()) {
+      clearDictationGesture();
+      void dictation.stop();
+      return;
+    }
+    const next: DictationGesture = {
+      id: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      ptrX: e.clientX,
+      ptrY: e.clientY,
+      at: e.timeStamp,
+      locked: false,
+      cancelArmed: false,
+      holdVisual: false,
+    };
+    gestureRef.current = next;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    clearHoldTimer();
+    holdTimerRef.current = window.setTimeout(() => {
+      holdTimerRef.current = null;
+      const current = gestureRef.current;
+      if (!current || current.id !== next.id || current.locked || current.holdVisual) return;
+      const engaged = { ...current, holdVisual: true };
+      gestureRef.current = engaged;
+      setDictationGesture(engaged);
+    }, HOLD_VISUAL_DELAY_MS);
+    void dictation.start();
+  }
+
+  function handleDictationPointerMove(e: PointerEvent<HTMLButtonElement>) {
+    const gesture = gestureRef.current;
+    if (!gesture || gesture.id !== e.pointerId || gesture.locked) return;
+    const locked = isDragUpGesture(gesture.startX, gesture.startY, e.clientX, e.clientY);
+    if (locked) {
+      clearHoldTimer();
+      const next = { ...gesture, ptrX: e.clientX, ptrY: e.clientY, locked: true, cancelArmed: false, holdVisual: false };
+      gestureRef.current = next;
+      setDictationGesture(next);
+      return;
+    }
+    const cancel = isCancelGesture(gesture.startX, e.clientX, false);
+    const moved = Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY) >= HOLD_DRAG_PX;
+    const holdVisual = gesture.holdVisual || moved || cancel;
+    if (holdVisual) clearHoldTimer();
+    const next = { ...gesture, ptrX: e.clientX, ptrY: e.clientY, cancelArmed: cancel, holdVisual };
+    gestureRef.current = next;
+    if (holdVisual || gesture.holdVisual) setDictationGesture(next);
+  }
+
+  function handleDictationPointerUp(e: PointerEvent<HTMLButtonElement>) {
+    const gesture = gestureRef.current;
+    if (!dictation || !gesture || gesture.id !== e.pointerId) return;
+    clearDictationGesture();
+    if (gesture.locked || isDragUpGesture(gesture.startX, gesture.startY, e.clientX, e.clientY)) return;
+    if (gesture.cancelArmed || isCancelGesture(gesture.startX, e.clientX, false)) {
+      dictation.cancel();
+    } else if (e.timeStamp - gesture.at > TAP_MS) {
+      void dictation.stop();
+    }
+  }
+
+  function handleDictationPointerAbort(e: PointerEvent<HTMLButtonElement>) {
+    const gesture = gestureRef.current;
+    if (!dictation || !gesture || gesture.id !== e.pointerId) return;
+    const locked = gesture.locked;
+    clearDictationGesture();
+    if (!locked) dictation.cancel();
+  }
+
   return (
     <div className="ct-composer-action-shell ct-composer-control relative shrink-0">
-      {isHold && <VoiceLockPill />}
+      {effectiveHold && <VoiceLockPill />}
+      {!effectiveHold && !voiceActive && dictation?.setup && (
+        <DictationSetupPrompt reason={dictation.setup} onDismiss={dictation.dismissSetup} anchor={buttonRef} />
+      )}
+      {!effectiveHold && !voiceActive && !dictation?.setup && dictation?.error && (
+        <DictationStatus dictation={dictation} anchor={buttonRef} />
+      )}
       <button
         ref={buttonRef}
         type="button"
-        data-testid={mainIsSend ? "composer-send-button" : "composer-voice-button"}
-        data-send={mainIsSend ? "true" : "false"}
-        title={mainTitle}
+        data-testid={effectiveSend ? "composer-send-button" : "composer-voice-button"}
+        data-send={effectiveSend ? "true" : "false"}
+        data-space-arming={spaceArming && !effectiveSend && !effectiveBubbleActive ? "true" : undefined}
+        data-space-pop={spacePop && !effectiveSend ? "true" : undefined}
+        aria-label={effectiveAriaLabel}
+        aria-pressed={useDictation && !effectiveSend ? dictationActive : undefined}
+        title={effectiveTitle}
+        aria-description={sendUnavailableReason ?? undefined}
+        aria-disabled={sendUnavailableReason ? "true" : undefined}
         onPointerDown={(e) => {
-          if (mainIsSend) {
+          if (sendUnavailableReason) {
             e.preventDefault();
+            return;
+          }
+          if (effectiveSend) {
+            suppressNextPointerUpSendRef.current = false;
+            e.preventDefault();
+            return;
+          }
+          if (useDictation) {
+            handleDictationPointerDown(e);
             return;
           }
           // completes drag-to-lock is a pointerup, so it can't trigger this.
@@ -61,38 +237,70 @@ export function ComposerActionButton({
           void startVoice(e);
         }}
         onPointerUp={(e) => {
+          if (useDictation && gestureRef.current?.id === e.pointerId) {
+            suppressNextPointerUpSendRef.current = false;
+            handleDictationPointerUp(e);
+            return;
+          }
+          if (suppressNextPointerUpSendRef.current) {
+            suppressNextPointerUpSendRef.current = false;
+            return;
+          }
           // Secondary buttons open the schedule through onContextMenu instead of sending.
-          if (e.button !== 0 || voice.recording || voicePressed) return;
-          if (mainIsSend) onSend();
+          if (e.button !== 0 || voice.recording || voicePressed || dictationActive) return;
+          if (effectiveSend) onSend();
         }}
         onTouchStart={(e) => {
-          if (mainIsSend || isLocked) e.preventDefault();
+          if (effectiveSend || effectiveLocked || sendUnavailableReason) e.preventDefault();
         }}
-        onPointerCancel={() => {
+        onPointerCancel={(e) => {
+          suppressNextPointerUpSendRef.current = false;
+          if (useDictation && gestureRef.current?.id === e.pointerId) {
+            handleDictationPointerAbort(e);
+            return;
+          }
           if (voice.recording && voiceMode === "hold") lockFromPointerCancel();
         }}
-        onPointerMove={moveVoice}
+        onLostPointerCapture={(e) => {
+          if (useDictation && gestureRef.current?.id === e.pointerId) handleDictationPointerAbort(e);
+        }}
+        onPointerMove={(e) => {
+          if (useDictation && gestureRef.current?.id === e.pointerId) {
+            handleDictationPointerMove(e);
+            return;
+          }
+          moveVoice(e);
+        }}
         onTouchEnd={(e) => {
-          if (mainIsSend || isLocked) e.preventDefault();
+          if (effectiveSend || effectiveLocked || sendUnavailableReason) e.preventDefault();
         }}
         onClick={(e) => {
           e.preventDefault();
+          if (e.detail !== 0 || sendUnavailableReason) return;
+          if (effectiveSend && !sendDisabled) {
+            onSend();
+          } else if (useDictation && dictation && !dictationFinishing) {
+            if (dictation.active()) void dictation.stop();
+            else void dictation.start();
+          }
         }}
         onContextMenu={(e) => {
-          if (!mainIsSend || !onSchedule) return;
+          if (!effectiveSend || !onSchedule) return;
           e.preventDefault();
           onSchedule();
         }}
         className={`${COMPOSER_BUTTON_BASE} ct-composer-voice-bubble absolute left-1/2 top-1/2 rounded-full border ${
-          voiceActive ? "z-30 is-active" : "ct-composer-round-button ct-composer-control"
-        } ${isLocked ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/25" : ""} shadow-none disabled:opacity-40`}
-        style={actionButtonStyle(voiceActive, mainIsSend, isLocked, bubblePose)}
-        disabled={voiceBusy || (mainIsSend && sendDisabled)}
+          effectiveBubbleActive ? "z-30 is-active" : "ct-composer-round-button ct-composer-control"
+        } ${effectiveLocked ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/25" : ""} ${
+          spaceArming && !effectiveSend && !effectiveBubbleActive ? "ct-voice-space-arming" : ""
+        } ${spacePop && !effectiveSend ? "ct-voice-space-pop" : ""} shadow-none disabled:opacity-40`}
+        style={actionButtonStyle(effectiveBubbleActive, effectiveSend, effectiveLocked, effectivePose)}
+        disabled={voiceBusy || dictationFinishing || (effectiveSend && sendDisabled && !sendUnavailableReason)}
       >
         <ActionButtonIcon
-          isLocked={isLocked}
-          voiceActive={voiceActive}
-          cancelArmed={cancelArmed}
+          isLocked={effectiveLocked}
+          voiceActive={effectiveBubbleActive}
+          cancelArmed={effectiveCancelArmed}
         />
       </button>
     </div>
@@ -124,7 +332,7 @@ function ActionButtonIcon({
   voiceActive: boolean;
   cancelArmed: boolean;
 }) {
-  // Armed to cancel: red cross. Locked: dark pause. Recording: red mic.
+  // Armed to cancel: red cross. Locked: dark stop. Recording hold: red mic.
   if (cancelArmed) return <X size={30} strokeWidth={2.6} color={recordingFg} />;
   if (isLocked) return <Square size={18} fill={lockedFg} color={lockedFg} />;
   if (voiceActive) return <Mic size={30} strokeWidth={2.4} color={recordingFg} />;

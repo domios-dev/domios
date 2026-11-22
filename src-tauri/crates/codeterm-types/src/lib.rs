@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod config;
+pub mod dictation;
 pub mod native_host;
 pub mod native_update;
 pub mod plan;
@@ -16,3 +17,6 @@ mod test_support;
 pub mod app_quit;
 
 pub mod api_contracts;
+pub mod workspace_close_preview;
+
+pub use workspace_close_preview::*;

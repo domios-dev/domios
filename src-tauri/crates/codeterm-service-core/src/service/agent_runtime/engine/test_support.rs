@@ -63,6 +63,7 @@ pub fn loaded_runtime(
         cache: Mutex::new(Default::default()),
         auth: Mutex::new(RuntimeAuthState::SignedIn),
         login: Mutex::new(Default::default()),
+        credential_stamp: Mutex::new(None),
         thread_loaded: std::sync::atomic::AtomicBool::new(true),
         stream_progress: tokio::sync::watch::channel(0).0,
         turn_requests: Mutex::new(HashMap::new()),

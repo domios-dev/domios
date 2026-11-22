@@ -165,6 +165,12 @@ fn claims_belong_to_this_launchs_running_turn() {
         "an interrupted agent may discard the tool result"
     );
     session.prompts_cancelled.store(false, Ordering::Release);
+    // Drive the owner explicitly so Idle does not drain the queued send before the idle-claim check.
+    svc.pending_delivery_payloads
+        .user_sends
+        .tab(&tab)
+        .running
+        .store(true, Ordering::Release);
     publish_turn(svc, &session, "running", RuntimeTurnState::Idle);
     assert_eq!(
         svc.claim_inbound_tool_messages(&tab, &nonce, "idle")
@@ -589,4 +595,163 @@ fn a_command_waits_for_the_turn_even_when_the_agent_takes_input_into_it() {
         Some(turn_requests::ACTIVE_TURN_HOLD)
     );
     assert_eq!(queued(svc, &tab), [command.send_id]);
+}
+
+fn persist_trace(
+    events: Vec<codeterm_types::trace::Event>,
+    send_id: &str,
+) -> Vec<codeterm_types::trace::Event> {
+    let dir = tempfile::tempdir().unwrap();
+    let mut sink = codeterm_types::trace::Sink::open(dir.path(), true).unwrap();
+    for event in events {
+        sink.append(&event).unwrap();
+    }
+    drop(sink);
+    codeterm_types::trace::select(
+        &codeterm_types::trace::read(dir.path()).unwrap(),
+        send_id,
+        0,
+    )
+}
+
+#[test]
+fn stage_trace_separates_active_turn_hold_tool_claim_write_ack_evidence_and_response() {
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
+    let svc = &fixture.service;
+    let (session, nonce) = running_turn(svc, &tab);
+    let (thread, provider) = {
+        let context = session.context.lock();
+        (context.thread_id.clone().unwrap(), session.provider.clone())
+    };
+    let payload = "opaque-tool-stage-payload";
+    let mut send_id = String::new();
+    let events = crate::flow_trace::test_capture::capture(|| {
+        let record = admit(svc, &tab, payload);
+        send_id = record.send_id.clone();
+        assert!(matches!(
+            user_delivery::drain(svc, &tab).unwrap(),
+            UserDrain::Idle
+        ));
+        let text = svc
+            .claim_inbound_tool_messages(&tab, &nonce, "claim")
+            .unwrap()
+            .expect("held send claimed for tool result");
+        assert!(text.contains(&send_id));
+        assert_eq!(state(svc, &record), ChatSendState::Pending);
+        svc.settle_inbound_tool_messages(&tab, &nonce, "claim", true)
+            .unwrap();
+        assert_eq!(state(svc, &record), ChatSendState::Sent);
+        crate::flow_trace::SourceCursor::rpc(
+            &tab,
+            &provider,
+            &thread,
+            Some(&nonce),
+            &ChatMsg {
+                id: "assistant-tool-reply".into(),
+                kind: "assistant".into(),
+                tool_flow_id: Some("running".into()),
+                content: "opaque reply".into(),
+                ..Default::default()
+            },
+        );
+    });
+    let mut peer = BufReader::new(peer);
+    assert_nothing_written(&mut peer);
+
+    let chain = persist_trace(events, &send_id);
+    let positions: Vec<usize> = [
+        ("send.started", "accepted"),
+        ("send.held", "active_turn"),
+        ("send.claimed", "tool_result"),
+        ("send.written", "rpc"),
+        ("trace.link", "protocol_turn"),
+        ("send.delivered", "exact_turn"),
+        ("transcript.append", "own_user_turn"),
+        ("transcript.assistant", "protocol_turn"),
+    ]
+    .into_iter()
+    .map(|(stage, outcome)| {
+        chain
+            .iter()
+            .position(|event| event.stage == stage && event.outcome == outcome)
+            .unwrap_or_else(|| panic!("missing stage {stage} ({outcome}) in {chain:?}"))
+    })
+    .collect();
+    assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(codeterm_types::trace::gaps(&chain).is_empty());
+    assert!(chain
+        .iter()
+        .all(|event| !event.detail.contains(payload) && !event.outcome.contains(payload)));
+}
+
+#[test]
+fn digest_and_abandoned_claim_traces_distinguish_zero_write_release_from_postwrite_uncertainty() {
+    let (fixture, tab, _peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
+    let svc = &fixture.service;
+    let session = engine::for_tab(&tab).unwrap();
+    let (head, member, context) = claimed_head(svc, &tab, &session);
+    let digest_events = crate::flow_trace::test_capture::capture(|| {
+        let digest = begin_digest(svc, &tab, &session, &head, "opaque head", &context).unwrap();
+        finish_digest(svc, &tab, &session, digest, true, Err("opaque".into()));
+        let digest = begin_digest(svc, &tab, &session, &head, "opaque head", &context).unwrap();
+        finish_digest(
+            svc,
+            &tab,
+            &session,
+            digest,
+            false,
+            Err("submit_unconfirmed: opaque".into()),
+        );
+    });
+    let member_stages: Vec<(&str, &str)> = digest_events
+        .iter()
+        .filter(|event| event.trace_id == member.send_id)
+        .map(|event| (event.stage.as_str(), event.outcome.as_str()))
+        .collect();
+    assert_eq!(
+        member_stages,
+        vec![
+            ("send.claimed", "digest_member"),
+            ("send.released", "zero_write_digest"),
+            ("send.claimed", "digest_member"),
+            ("send.uncertain", "postwrite_digest"),
+        ]
+    );
+
+    let (fixture, tab, _peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
+    let svc = &fixture.service;
+    let (session, nonce) = running_turn(svc, &tab);
+    // Drive the owner explicitly so abandoned-claim settlement runs inside the thread-local capture.
+    svc.pending_delivery_payloads
+        .user_sends
+        .tab(&tab)
+        .running
+        .store(true, Ordering::Release);
+    let mut abandoned_id = String::new();
+    let abandoned_events = crate::flow_trace::test_capture::capture(|| {
+        let record = admit(svc, &tab, "opaque abandoned");
+        abandoned_id = record.send_id.clone();
+        svc.claim_inbound_tool_messages(&tab, &nonce, "unacknowledged")
+            .unwrap()
+            .unwrap();
+        publish_turn(svc, &session, "running", RuntimeTurnState::Idle);
+        assert!(matches!(
+            user_delivery::drain(svc, &tab).unwrap(),
+            UserDrain::Idle
+        ));
+        assert_eq!(state(svc, &record), ChatSendState::Unknown);
+    });
+    let abandoned_stages: Vec<(&str, &str)> = abandoned_events
+        .iter()
+        .filter(|event| event.trace_id == abandoned_id)
+        .map(|event| (event.stage.as_str(), event.outcome.as_str()))
+        .collect();
+    assert_eq!(
+        abandoned_stages,
+        vec![
+            ("send.started", "accepted"),
+            ("send.claimed", "tool_result"),
+            ("send.uncertain", "abandoned_tool_claim"),
+        ]
+    );
 }

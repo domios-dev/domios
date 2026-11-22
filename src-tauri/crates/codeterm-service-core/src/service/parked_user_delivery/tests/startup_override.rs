@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn binding_deadline_owner_send_writes_once_and_own_append_retires_launch() {
+fn binding_deadline_owner_send_waits_for_ready_and_own_append_confirms_delivery() {
     let (fixture, tab) = queue_fixture(true, None);
     attach_fixture_pty(&fixture, &tab);
     append_turn(&fixture, "opaque-owner-turn");
@@ -17,10 +17,6 @@ fn binding_deadline_owner_send_writes_once_and_own_append_retires_launch() {
         codeterm_types::pty::BootStage::LaunchBindingUnconfirmed,
         "launch binding deadline elapsed",
     );
-    fixture
-        .service
-        .override_user_startup(&tab, &authority.binding_nonce)
-        .unwrap();
     let writes = Arc::new(AtomicUsize::new(0));
     let count = writes.clone();
     let _boundary = UserSubmitBoundary::install(
@@ -44,7 +40,7 @@ fn binding_deadline_owner_send_writes_once_and_own_append_retires_launch() {
         .unwrap();
     await_owner_idle(&fixture, &tab);
     fixture.service.drain_user_owner(&tab).unwrap();
-    assert_eq!(writes.load(Ordering::SeqCst), 1);
+    assert_eq!(writes.load(Ordering::SeqCst), 0);
     fixture.service.reconcile_chat_send_evidence(&tab);
     assert_eq!(
         fixture.service.mux.read().get_tab(&tab).unwrap().boot_stage,
@@ -56,24 +52,6 @@ fn binding_deadline_owner_send_writes_once_and_own_append_retires_launch() {
         .join("transcripts/foreign-session.jsonl");
     std::fs::write(foreign_path, "{\"content\":\"opaque-owner-turn\"}\n").unwrap();
     fixture.service.reconcile_chat_send_evidence(&tab);
-    assert!(!fixture
-        .service
-        .mux
-        .read()
-        .get_tab(&tab)
-        .unwrap()
-        .launch_session_authenticated());
-    append_turn(&fixture, "opaque-owner-turn");
-    let turn = observed_turn(&fixture, &tab, "own-row", "opaque-owner-turn");
-    assert!(deliver_turn(
-        &fixture,
-        &tab,
-        "foreign-session",
-        &authority.binding_nonce,
-        &turn
-    )
-    .is_empty());
-    assert!(deliver_turn(&fixture, &tab, "opaque-session", "foreign-nonce", &turn).is_empty());
     assert!(!fixture
         .service
         .mux
@@ -108,6 +86,29 @@ fn binding_deadline_owner_send_writes_once_and_own_append_retires_launch() {
             .launch_session_authenticated());
         *fixture.service.mux.write().get_tab_mut(&tab).unwrap() = original.clone();
     }
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .reported_session_binding_nonce = Some(authority.binding_nonce.clone());
+    fixture
+        .service
+        .reconcile_boot_stage_with_session_binding(&tab);
+    fixture.service.drain_user_owner(&tab).unwrap();
+    assert_eq!(writes.load(Ordering::SeqCst), 1);
+    append_turn(&fixture, "opaque-owner-turn");
+    let turn = observed_turn(&fixture, &tab, "own-row", "opaque-owner-turn");
+    assert!(deliver_turn(
+        &fixture,
+        &tab,
+        "foreign-session",
+        &authority.binding_nonce,
+        &turn
+    )
+    .is_empty());
+    assert!(deliver_turn(&fixture, &tab, "opaque-session", "foreign-nonce", &turn).is_empty());
     fixture.service.reconcile_chat_send_evidence(&tab);
     {
         let mux = fixture.service.mux.read();
@@ -134,7 +135,7 @@ fn binding_deadline_owner_send_writes_once_and_own_append_retires_launch() {
 }
 
 #[test]
-fn explicit_override_flushes_held_sends_once_in_order_and_binding_retires_startup() {
+fn authenticated_readiness_flushes_held_sends_once_in_order() {
     let (fixture, tab) = queue_fixture(true, None);
     let first = admit_current_ledger(&fixture.service, &tab, FIRST_PAYLOAD, "first-held");
     refuse_and_park_current_send(&fixture.service, first.clone(), FIRST_PAYLOAD);
@@ -157,10 +158,6 @@ fn explicit_override_flushes_held_sends_once_in_order_and_binding_retires_startu
     await_owner_idle(&fixture, &tab);
     assert!(received.try_recv().is_err());
     let authority = fixture.service.user_send_authority(&tab).unwrap();
-    assert!(fixture
-        .service
-        .override_user_startup(&tab, "retired-launch")
-        .is_err());
     assert!(!fixture.service.user_authority_is_ready(&authority));
     fixture
         .service
@@ -194,10 +191,6 @@ fn explicit_override_flushes_held_sends_once_in_order_and_binding_retires_startu
             .get_tab_mut(&tab)
             .unwrap()
             .boot_stage = Some(stage);
-        assert!(fixture
-            .service
-            .override_user_startup(&tab, &authority.binding_nonce)
-            .is_err());
         assert!(!fixture.service.user_authority_is_ready(&authority));
         assert!(fixture
             .service
@@ -215,10 +208,6 @@ fn explicit_override_flushes_held_sends_once_in_order_and_binding_retires_startu
         .get_tab_mut(&tab)
         .unwrap()
         .boot_stage = Some(codeterm_types::pty::BootStage::SpawnFailed);
-    assert!(fixture
-        .service
-        .override_user_startup(&tab, &authority.binding_nonce)
-        .is_err());
     assert!(received.try_recv().is_err());
     fixture
         .service
@@ -227,10 +216,7 @@ fn explicit_override_flushes_held_sends_once_in_order_and_binding_retires_startu
         .get_tab_mut(&tab)
         .unwrap()
         .boot_stage = Some(codeterm_types::pty::BootStage::LaunchWritten);
-    fixture
-        .service
-        .override_user_startup(&tab, &authority.binding_nonce)
-        .unwrap();
+    mark_ready(&fixture, &tab);
     await_owner_idle(&fixture, &tab);
     assert_eq!(
         received.recv_timeout(TEST_DEADLINE).unwrap(),
@@ -240,15 +226,11 @@ fn explicit_override_flushes_held_sends_once_in_order_and_binding_retires_startu
         received.recv_timeout(TEST_DEADLINE).unwrap(),
         (second.send_id, format!("\n\n{SECOND_PAYLOAD}"))
     );
-    fixture
-        .service
-        .override_user_startup(&tab, &authority.binding_nonce)
-        .unwrap();
     fixture.service.drain_user_owner(&tab).unwrap();
     assert!(received.try_recv().is_err());
     assert_eq!(
         fixture.service.mux.read().get_tab(&tab).unwrap().boot_stage,
-        Some(codeterm_types::pty::BootStage::LaunchBindingUnconfirmed)
+        Some(codeterm_types::pty::BootStage::AgentReady)
     );
     fixture
         .service

@@ -35,20 +35,25 @@ export function placeOutboundReports<M>(
   };
 
   const sourceOrder = new Map(positions?.sourceMessageIds.map((id, index) => [id, index]));
+  const locateBySource = (position: number) => {
+    let slot = -1;
+    let hasLater = false;
+    for (let index = 0; index < messages.length; index++) {
+      const candidate = sourceOrder.get(positions!.messageId(messages[index]));
+      if (candidate != null && candidate <= position) slot = index;
+      else if (candidate != null) {
+        hasLater = true;
+        break;
+      }
+    }
+    return { slot, hasLater };
+  };
+
   reportTimes.forEach((at, report) => {
     const anchor = positions?.reportMessageIds[report];
     const position = anchor == null ? undefined : sourceOrder.get(anchor);
-    if (position != null && positions) {
-      let slot = -1;
-      let hasLater = false;
-      for (let index = 0; index < messages.length; index++) {
-        const candidate = sourceOrder.get(positions.messageId(messages[index]));
-        if (candidate != null && candidate <= position) slot = index;
-        else if (candidate != null) {
-          hasLater = true;
-          break;
-        }
-      }
+    if (at == null && position != null && positions) {
+      const { slot, hasLater } = locateBySource(position);
       if (!hasLater && bounds.hiddenAfter && slot >= 0
         && sourceOrder.get(positions.messageId(messages[slot])) !== position) return;
       place(slot, report);
@@ -68,8 +73,36 @@ export function placeOutboundReports<M>(
         break;
       }
     }
-    if (hasLater) place(slot, report);
-    else if (!bounds.hiddenAfter) trailing.push(report);
+    if (hasLater) {
+      place(slot, report);
+      return;
+    }
+    if (position != null && positions) {
+      const source = locateBySource(position);
+      const fallbackSlot = Math.max(slot, source.slot);
+      let hasLaterSource = false;
+      for (let index = fallbackSlot + 1; index < messages.length; index++) {
+        const candidate = sourceOrder.get(positions.messageId(messages[index]));
+        if (candidate != null && candidate > position) {
+          hasLaterSource = true;
+          break;
+        }
+      }
+      if (hasLaterSource) {
+        place(fallbackSlot, report);
+        return;
+      }
+      if (bounds.hiddenAfter) {
+        if (fallbackSlot >= 0 && stamped[fallbackSlot].at == null
+          && sourceOrder.get(positions.messageId(messages[fallbackSlot])) === position) {
+          place(fallbackSlot, report);
+        }
+        return;
+      }
+      trailing.push(report);
+      return;
+    }
+    if (!bounds.hiddenAfter) trailing.push(report);
   });
 
   return { afterIndex, trailing };

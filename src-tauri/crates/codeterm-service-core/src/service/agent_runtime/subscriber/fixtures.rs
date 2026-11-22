@@ -215,7 +215,7 @@ impl AgentProvider for Adapter {
         Ok(RuntimeReduction {
             state: Value::Null,
             events: if self.0.native_prompt.load(Ordering::SeqCst) {
-                frames.iter().filter_map(|frame| match frame {RuntimeFrame::Request {request_id,..} => Some(AgentRuntimeEvent::Prompt {thread_id:ctx.thread_id.clone().unwrap(),request_id:request_id.clone(),prompt:serde_json::from_value(json!({"question":"opaque","options":[{"label":"Allow","value":"yes"}]})).unwrap(),permission:None}),_ => None}).collect()
+                frames.iter().filter_map(|frame| match frame {RuntimeFrame::Request {request_id,..} => Some(AgentRuntimeEvent::Prompt {thread_id:ctx.thread_id.clone().unwrap(),request_id:request_id.clone(),prompt:serde_json::from_value(json!({"question":"opaque","options":[{"label":"Allow","value":"yes"}]})).unwrap(),permission:None,file_diffs:None,elicitation:None}),_ => None}).collect()
             } else {
                 Vec::new()
             },
@@ -291,6 +291,7 @@ pub(super) fn scene() -> Scene {
         cache: Mutex::new(Default::default()),
         login: Mutex::new(Default::default()),
         auth: Mutex::new(RuntimeAuthState::Unknown),
+        credential_stamp: Mutex::new(None),
         thread_loaded: std::sync::atomic::AtomicBool::new(true),
         stream_progress: tokio::sync::watch::channel(0).0,
         turn_requests: Mutex::new(HashMap::new()),

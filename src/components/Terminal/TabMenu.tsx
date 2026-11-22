@@ -186,6 +186,7 @@ interface TabMenuProps {
   className?: string;
   menuTestId?: string;
   identity?: TabMenuIdentity;
+  provenance?: ReactNode;
   contextMenuTargetRef?: RefObject<HTMLElement | null>;
   onOpenChange?: (open: boolean) => void;
 }
@@ -230,7 +231,7 @@ function AccountTabMenu({ tab, entries, onAction, providerName, accounts, ...men
   }} />;
 }
 
-function PlainTabMenu({ entries, onAction, identity, tab: _tab, accounts: _accounts, accountError, ...menu }: TabMenuProps & { accountError?: string | null }) {
+function PlainTabMenu({ entries, onAction, identity, provenance, tab: _tab, accounts: _accounts, accountError, ...menu }: TabMenuProps & { accountError?: string | null }) {
   const header = entries.find((entry): entry is TabMenuHeaderEntry => entry.kind === "header");
   const items = entries.flatMap((entry): DropdownMenuEntry[] => {
     if (entry.kind === "header") return [];
@@ -241,7 +242,8 @@ function PlainTabMenu({ entries, onAction, identity, tab: _tab, accounts: _accou
       {...menu}
       items={items}
       menuLabel={TAB_MENU_LABELS.menu}
-      header={<><TabMenuHead identity={identity} session={header} onAction={onAction} />
+      opaque={Boolean(provenance)}
+      header={<>{provenance && <div className="ct-menu-head px-2 py-1.5 text-[length:var(--ct-font-size-meta)] text-[var(--ct-muted-fg)]">{provenance}</div>}<TabMenuHead identity={identity} session={header} onAction={onAction} />
         {accountError && <InlineErrorNotice error={accountError} operation="switching accounts" />}</>}
     />
   );

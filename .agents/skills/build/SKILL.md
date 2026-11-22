@@ -1215,6 +1215,8 @@ the run by the per-test `... ok` lines of the target that owns the test.
 `nextest <scope> [filterset]` uses the build gateway, compiles with
 `cargo nextest list --list-type binaries-only`, then runs through `scripts/test-capped.sh` with
 `--no-tests=fail`; it accepts the same scope names plus Cargo package names.
+Pass `--run-ignored only` for an explicitly authorized ignored fixture, or
+`--run-ignored all` to include it in a focused batch. Both retain the same gateway and target.
 Every `nextest` operation compiles a binaries-metadata inventory, saves Cargo
 metadata and reuses that exact inventory for execution. It captures per-test
 timings at normal parallelism. `check-slow-unit-tests.mjs LOG --candidates JSON`

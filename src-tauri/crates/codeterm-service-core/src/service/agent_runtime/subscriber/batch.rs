@@ -57,8 +57,11 @@ pub(super) async fn handle_stamped(
     lagged: bool,
 ) -> Step {
     let through = frames.last().map_or(0, |frame| frame.sequence);
-    let sequences = frames.iter().map(|frame| frame.sequence).collect();
-    let frames = frames.into_iter().map(|frame| frame.frame).collect();
+    let lagged = lagged || frames.iter().any(|frame| frame.frame.is_none());
+    let (frames, sequences) = frames
+        .into_iter()
+        .filter_map(|entry| entry.frame.map(|frame| (frame, entry.sequence)))
+        .unzip();
     let result = handle(svc, session, process, epoch, frames, sequences, lagged).await;
     if session.context.lock().epoch == epoch {
         let previous = *session.stream_progress.borrow();
@@ -85,12 +88,14 @@ pub(super) async fn handle(
     let mut reducible_sequences = Vec::new();
     let mut accepted = Vec::new();
     let mut native = Vec::new();
-    let bridges_declared = session
-        .adapter
-        .lock()
+    let adapter = session.adapter.lock().clone();
+    let capability = adapter.as_ref().and_then(|adapter| adapter.agent_runtime());
+    let bridges_declared = capability
         .as_ref()
-        .and_then(|adapter| adapter.agent_runtime())
         .is_some_and(|cap| cap.client_bridges.is_some());
+    let keep_interactive = capability
+        .as_ref()
+        .is_some_and(|cap| cap.http_sse.is_some());
     for (frame, sequence) in frames.into_iter().zip(sequences) {
         match frame {
             RuntimeFrame::Notification { method, params } => {
@@ -127,6 +132,10 @@ pub(super) async fn handle(
                     }
                 };
                 if refused {
+                    if keep_interactive {
+                        log::debug!("[runtime-prompt] request={request_id:?} left pending at host admission limit");
+                        continue;
+                    }
                     if let Err(reason) =
                         super::reply_unhandled(&process.client, &request_id, -32601).await
                     {
@@ -154,7 +163,6 @@ pub(super) async fn handle(
             Step::Continue
         };
     }
-    let adapter = session.adapter.lock().clone();
     let Some(adapter) = adapter else {
         for id in &accepted {
             session.prompts.lock().remove(id);
@@ -210,6 +218,7 @@ pub(super) async fn handle(
                 epoch,
                 &accepted,
                 bookkeeping::Reason::Hook,
+                keep_interactive,
             )
             .await;
         }
@@ -225,6 +234,7 @@ pub(super) async fn handle(
                 epoch,
                 &accepted,
                 bookkeeping::Reason::Hook,
+                keep_interactive,
             )
             .await;
         }
@@ -265,20 +275,31 @@ pub(super) async fn handle(
             epoch,
             &accepted,
             bookkeeping::Reason::Limit,
+            keep_interactive,
         )
         .await;
     }
+    let mut deferred = Vec::new();
     for id in &accepted {
         if native.iter().any(|(native_id, _, _)| native_id == id) {
             continue;
         }
         if let Some(error) = super::unmapped_request_error(&context, id, &reduced.events) {
+            if keep_interactive {
+                deferred.push(id.clone());
+                continue;
+            }
             session.prompts.lock().remove(id);
             if let Err(reason) = process.client.reply(id, Err(error)).await {
                 return Step::Close(reason);
             }
         }
     }
+    let refresh_background = reduced
+        .events
+        .iter()
+        .any(super::super::background::changed_by)
+        || lagged;
     *session.hook_state.lock() = reduced.state;
     if let Err(reason) =
         super::apply::publish_live_events(svc, session, epoch, reduced.events, received_at).await
@@ -309,6 +330,9 @@ pub(super) async fn handle(
             }
         };
     }
+    if refresh_background {
+        process.background_changed.notify_one();
+    }
     for (id, method, params) in native {
         session.prompts.lock().remove(&id);
         let current = session.context.lock().clone();
@@ -335,6 +359,7 @@ pub(super) async fn handle(
             return Step::Close(reason);
         }
     }
+    recover_interactive(svc, session, epoch, &deferred).await;
     if session
         .prompts_cancelled
         .load(std::sync::atomic::Ordering::Acquire)
@@ -369,7 +394,15 @@ async fn fail_requests(
     epoch: u64,
     accepted: &[RpcId],
     reason: bookkeeping::Reason,
+    keep_interactive: bool,
 ) -> Step {
+    if keep_interactive {
+        let step = bookkeeping::account(svc, session, process, epoch, reason).await;
+        if matches!(step, Step::Continue) {
+            recover_interactive(svc, session, epoch, accepted).await;
+        }
+        return step;
+    }
     for id in accepted {
         session.prompts.lock().remove(id);
         if let Err(reason) = super::reply_unhandled(&process.client, id, -32602).await {
@@ -377,6 +410,86 @@ async fn fail_requests(
         }
     }
     bookkeeping::account(svc, session, process, epoch, reason).await
+}
+
+async fn recover_interactive(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    epoch: u64,
+    ids: &[RpcId],
+) {
+    if ids.is_empty() {
+        return;
+    }
+    let context = session.context.lock().clone();
+    if context.epoch != epoch || engine::validate_binding(svc, session).is_err() {
+        return;
+    }
+    let Some(adapter) = session.adapter.lock().clone() else {
+        return;
+    };
+    let state = session.hook_state.lock().clone();
+    let frames = {
+        let pending = session.prompts.lock();
+        ids.iter()
+            .filter_map(|id| {
+                let request = &pending.get(id)?.request;
+                Some(RuntimeFrame::Request {
+                    request_id: request.request_id.clone(),
+                    method: request.method.clone(),
+                    params: request.params.clone(),
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    if frames.is_empty() {
+        return;
+    }
+    let invocation = session.invocation.lock().clone();
+    let reduction = codeterm_plugin::provider_account::scope(
+        invocation,
+        tokio::time::timeout(
+            RUNTIME_HOOK_DEADLINE,
+            adapter.runtime_reduce(&context, &state, &frames),
+        ),
+    )
+    .await;
+    if let Ok(Ok(reduced)) = reduction {
+        let events: Vec<_> = reduced
+            .events
+            .into_iter()
+            .filter(|event| {
+                matches!(event,
+                    AgentRuntimeEvent::Prompt { request_id, .. } if ids.contains(request_id)
+                )
+            })
+            .collect();
+        let all_surfaced = ids
+            .iter()
+            .all(|id| super::unmapped_request_error(&context, id, &events).is_none());
+        let at = chrono::Utc::now().timestamp_millis().max(0) as u64;
+        if !events.is_empty()
+            && super::super::model::validated_state_bytes(&reduced.state).is_ok()
+            && super::apply::publish_live_events(svc, session, epoch, events, at)
+                .await
+                .is_ok()
+        {
+            if session.context.lock().epoch == epoch {
+                *session.hook_state.lock() = reduced.state;
+            }
+            if all_surfaced {
+                return;
+            }
+        }
+    }
+    log::debug!(
+        "[runtime-prompt] tab={} epoch={epoch} interactive requests left pending after recovery",
+        context.tab_id
+    );
+    if session.context.lock().epoch == epoch && engine::validate_binding(svc, session).is_ok() {
+        super::super::declared_controls::notice(svc, session,
+            "The provider is waiting for input that could not be displayed. Stop the turn to continue.".into());
+    }
 }
 
 fn notification_allowed(session: &Session, method: &str) -> bool {

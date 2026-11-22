@@ -47,15 +47,12 @@ pub(super) fn environment(
                     "CODETERM_API_PORT",
                     "CODETERM_SOCKET_PATH",
                     "CODETERM_CLI_PATH",
-                    "CODETERM_TEAM_ID",
-                    "CODETERM_PLAN_ID",
-                    "CODETERM_LANE_BASE",
                 ]
                 .contains(&key.as_str())
         })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect::<BTreeMap<_, _>>();
-    let allowed = |key: &str| {
+    let inherit = |key: &str| {
         [
             "PATH",
             "LANG",
@@ -77,14 +74,31 @@ pub(super) fn environment(
     let mut env: BTreeMap<_, _> = std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
         .chain(base)
-        .filter(|(key, _)| allowed(key))
+        .filter(|(key, _)| inherit(key))
         .collect();
     if changes.len() > 32 {
         return Err("Too many environment changes".into());
     }
     for entry in changes {
-        if !allowed(&entry.name) || entry.value.len() > 4096 || entry.value.contains('\0') {
+        if entry.name.is_empty()
+            || entry.name.len() > 4096
+            || entry.name.contains(['=', '\0'])
+            || entry.value.len() > 4096
+            || entry.value.contains('\0')
+        {
             return Err("Environment change denied".into());
+        }
+        let name = entry.name.to_uppercase();
+        if name == "CODETERM"
+            || name.starts_with("CODETERM_")
+            || name == "DOMIOS"
+            || name.starts_with("DOMIOS_")
+        {
+            log::debug!(
+                "Ignoring protected terminal environment key {:?}",
+                entry.name
+            );
+            continue;
         }
         #[cfg(windows)]
         {
@@ -102,6 +116,9 @@ pub(super) fn environment(
 pub(super) struct Terminal {
     pub output: Arc<Mutex<Vec<u8>>>,
     pub truncated: Arc<Mutex<bool>>,
+    command_line: String,
+    cwd: String,
+    pid: u32,
     stop: watch::Sender<bool>,
     ended: watch::Receiver<Option<Result<Value, String>>>,
     limit: usize,
@@ -114,11 +131,34 @@ impl Drop for Terminal {
     }
 }
 impl Terminal {
+    #[cfg(test)]
     pub fn spawn(
+        spec: &Command,
+        cwd: &Path,
+        directory: std::fs::File,
+        env: &BTreeMap<String, String>,
+    ) -> Result<Arc<Self>, String> {
+        Self::spawn_with_notify(spec, cwd, directory, env, None)
+    }
+
+    #[cfg(test)]
+    pub fn spawn_with_notify(
+        spec: &Command,
+        cwd: &Path,
+        directory: std::fs::File,
+        env: &BTreeMap<String, String>,
+        on_exit: Option<Arc<tokio::sync::Notify>>,
+    ) -> Result<Arc<Self>, String> {
+        Self::spawn_with_callbacks(spec, cwd, directory, env, on_exit, None)
+    }
+
+    pub fn spawn_with_callbacks(
         spec: &Command,
         _cwd: &Path,
         directory: std::fs::File,
         env: &BTreeMap<String, String>,
+        on_exit: Option<Arc<tokio::sync::Notify>>,
+        on_output: Option<Arc<dyn Fn(String) + Send + Sync>>,
     ) -> Result<Arc<Self>, String> {
         #[cfg(windows)]
         let resolved_program = windows::program(
@@ -204,15 +244,25 @@ impl Terminal {
                     (false, Ok(0) | Err(_)) => stderr_open = false,
                     (is_stdout, Ok(count)) => {
                         let bytes = if is_stdout { &a[..count] } else { &b[..count] };
-                        let mut held = out.lock();
-                        held.extend_from_slice(bytes);
-                        if held.len() > limit {
-                            let excess = held.len() - limit;
-                            held.drain(..excess);
-                            while held.first().is_some_and(|byte| byte & 0xc0 == 0x80) {
-                                held.remove(0);
+                        let tail = {
+                            let mut held = out.lock();
+                            held.extend_from_slice(bytes);
+                            if held.len() > limit {
+                                let excess = held.len() - limit;
+                                held.drain(..excess);
+                                while held.first().is_some_and(|byte| byte & 0xc0 == 0x80) {
+                                    held.remove(0);
+                                }
+                                *clipped.lock() = true;
                             }
-                            *clipped.lock() = true;
+                            on_output.as_ref().map(|_| {
+                                const LIVE_TAIL_BYTES: usize = 8192;
+                                let start = held.len().saturating_sub(LIVE_TAIL_BYTES);
+                                String::from_utf8_lossy(&held[start..]).into_owned()
+                            })
+                        };
+                        if let (Some(emit), Some(text)) = (&on_output, tail) {
+                            emit(text);
                         }
                         #[cfg(test)]
                         changed.send_replace(());
@@ -265,16 +315,46 @@ impl Terminal {
                 Ok(json!({"exitCode":status.code(),"signal":signal}))
             })();
             finished.send_replace(Some(result));
+            if let Some(notify) = on_exit {
+                notify.notify_one();
+            }
         });
+        let command_line = std::iter::once(spec.command.as_str())
+            .chain(spec.args.iter().map(String::as_str))
+            .map(|part| {
+                if part.is_empty() || part.chars().any(char::is_whitespace) {
+                    format!("\"{}\"", part.replace('"', "\\\""))
+                } else {
+                    part.to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let cwd_text = codeterm_paths::strip_verbatim_prefix(&_cwd.to_string_lossy());
         Ok(Arc::new(Self {
             output,
             truncated,
+            command_line,
+            cwd: cwd_text,
+            pid,
             stop,
             ended,
             limit,
             #[cfg(test)]
             changes,
         }))
+    }
+    pub fn running(&self) -> bool {
+        self.ended.borrow().is_none()
+    }
+    pub fn command_line(&self) -> &str {
+        &self.command_line
+    }
+    pub fn cwd(&self) -> &str {
+        &self.cwd
+    }
+    pub fn pid(&self) -> u32 {
+        self.pid
     }
     pub fn output(&self) -> Value {
         let mut text = String::from_utf8_lossy(&self.output.lock()).into_owned();
@@ -304,3 +384,6 @@ impl Terminal {
         self.wait().await
     }
 }
+
+#[cfg(test)]
+mod tests;

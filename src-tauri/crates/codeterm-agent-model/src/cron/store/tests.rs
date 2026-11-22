@@ -1,5 +1,27 @@
 use super::*;
 
+#[test]
+fn run_identity_round_trips_and_legacy_records_default_it() {
+    let mut run = run("identity-run", 1, CronRunStatus::Success);
+    run.provider = Some("fixture-provider".into());
+    run.owner_instance_id = Some("machine-b".into());
+    let encoded = serde_json::to_value(&run).unwrap();
+    assert_eq!(encoded["provider"], "fixture-provider");
+    assert_eq!(encoded["owner_instance_id"], "machine-b");
+    assert_eq!(serde_json::from_value::<CronRunInfo>(encoded).unwrap(), run);
+
+    let legacy = serde_json::json!({
+        "run_id": "legacy-run",
+        "started_at": 1,
+        "finished_at": null,
+        "status": "Success",
+        "tab_id": null
+    });
+    let decoded = serde_json::from_value::<CronRunInfo>(legacy).unwrap();
+    assert_eq!(decoded.provider, None);
+    assert_eq!(decoded.owner_instance_id, None);
+}
+
 fn temp_store() -> CronStore {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("crons.json");
@@ -53,6 +75,11 @@ fn set_run_session_persists_on_history_and_last_run() {
         .create(make_params("test-run-schedule", "ws", "0 * * * *"))
         .unwrap();
     let run = CronRunInfo {
+        scheduled_occurrence_at: None,
+        fired_at: None,
+        late_by_ms: None,
+        provider: None,
+        owner_instance_id: None,
         cancel_reason: None,
         run_id: "r1".into(),
         started_at: 1,
@@ -250,6 +277,11 @@ fn record_failure_increments_counter_and_backs_off() {
         .record_run(
             &job.id,
             CronRunInfo {
+                scheduled_occurrence_at: None,
+                fired_at: None,
+                late_by_ms: None,
+                provider: None,
+                owner_instance_id: None,
                 cancel_reason: None,
                 run_id: "r1".into(),
                 started_at: 0,
@@ -280,6 +312,11 @@ fn record_5_failures_auto_disables_job() {
             .record_run(
                 &job.id,
                 CronRunInfo {
+                    scheduled_occurrence_at: None,
+                    fired_at: None,
+                    late_by_ms: None,
+                    provider: None,
+                    owner_instance_id: None,
                     cancel_reason: None,
                     run_id: format!("r{}", i),
                     started_at: 0,
@@ -314,6 +351,11 @@ fn success_resets_failure_counter() {
             .record_run(
                 &job.id,
                 CronRunInfo {
+                    scheduled_occurrence_at: None,
+                    fired_at: None,
+                    late_by_ms: None,
+                    provider: None,
+                    owner_instance_id: None,
                     cancel_reason: None,
                     run_id: format!("f{}", i),
                     started_at: 0,
@@ -332,6 +374,11 @@ fn success_resets_failure_counter() {
         .record_run(
             &job.id,
             CronRunInfo {
+                scheduled_occurrence_at: None,
+                fired_at: None,
+                late_by_ms: None,
+                provider: None,
+                owner_instance_id: None,
                 cancel_reason: None,
                 run_id: "ok".into(),
                 started_at: 0,
@@ -448,6 +495,11 @@ fn test_record_run_history() {
             .record_run(
                 &job.id,
                 CronRunInfo {
+                    scheduled_occurrence_at: None,
+                    fired_at: None,
+                    late_by_ms: None,
+                    provider: None,
+                    owner_instance_id: None,
                     cancel_reason: None,
                     run_id: format!("run-{}", i),
                     started_at: 1000 + i,
@@ -510,6 +562,11 @@ fn test_oneshot_create_and_record_run() {
         .record_run(
             &job.id,
             CronRunInfo {
+                scheduled_occurrence_at: None,
+                fired_at: None,
+                late_by_ms: None,
+                provider: None,
+                owner_instance_id: None,
                 cancel_reason: None,
                 run_id: "run-1".into(),
                 started_at: 1000,
@@ -737,6 +794,8 @@ fn update_schedule_only_recomputes_next_run() {
 // ── Time-travel semantics (injected MockClock) ─────────────────────
 
 use crate::cron::clock::MockClock;
+#[path = "terminal_tests.rs"]
+mod terminal;
 
 /// 2023-11-14T22:13:20Z — fixed epoch so boundary math is deterministic.
 const T0: u64 = 1_700_000_000_000;
@@ -752,6 +811,11 @@ fn mock_store(start_ms: u64) -> (CronStore, std::sync::Arc<MockClock>) {
 
 fn run(run_id: &str, started_at: u64, status: CronRunStatus) -> CronRunInfo {
     CronRunInfo {
+        scheduled_occurrence_at: None,
+        fired_at: None,
+        late_by_ms: None,
+        provider: None,
+        owner_instance_id: None,
         cancel_reason: None,
         run_id: run_id.into(),
         started_at,
@@ -830,22 +894,42 @@ fn every_5min_fires_exactly_three_times_across_15min_advance() {
 }
 
 #[test]
-fn failure_backoff_is_anchored_to_mock_now() {
-    let (mut store, clock) = mock_store(T0);
-    let job = store
-        .create(make_params("backoff", "ws", "0 * * * *"))
+fn timeout_completion_leaves_riga_minute_32_occurrence_due_on_time() {
+    use codeterm_cron::occurrence::FireDecision;
+
+    const NOV_19_UTC: u64 = 1_795_046_400_000;
+    let at = |hour: u64, minute: u64| NOV_19_UTC + (hour * 60 + minute) * 60_000;
+    let (mut store, clock) = mock_store(at(14, 31));
+    let mut params = make_params("cadence", "ws", "32 * * * *");
+    params.tz = Some("Europe/Riga".into());
+    params.jitter_max_ms = Some(0);
+    let job = store.create(params).unwrap();
+
+    let cron = std::sync::Arc::new(parking_lot::Mutex::new(store));
+    let mut occurrence = job.occurrence().unwrap();
+    for (hour, minute, next_hour) in [(14, 52, 15), (15, 52, 16)] {
+        clock.set_ms(occurrence.due_at);
+        let run_id = format!("run-{hour}");
+        let mut starting = run(&run_id, occurrence.due_at, CronRunStatus::Running);
+        starting.fired_at = Some(occurrence.due_at);
+        let committed = super::commit(&cron, |store| {
+            store.prepare_scheduled_run(&job.id, occurrence, starting.clone())
+        })
         .unwrap();
-    clock.advance_ms(60_000);
-    let now = store.now_ms();
-    store
-        .record_run(&job.id, run("r1", now, CronRunStatus::Failed))
-        .unwrap();
-    let next = store.get(&job.id).unwrap().next_run.unwrap();
-    assert!(next > now, "backoff must schedule in the mocked future");
-    assert!(
-        next - now <= 3_600_000 + 3_600_000 / 4 + 1,
-        "backoff must respect the 1h cap (+25% jitter)"
-    );
+        assert_eq!(
+            committed.value,
+            Some(FireDecision::Fire { late_by_ms: None })
+        );
+        clock.set_ms(at(hour, minute));
+        super::finish_run(&cron, &job.id, &run_id, CronRunStatus::Failed, None).unwrap();
+
+        let store = cron.lock();
+        let current = store.get(&job.id).unwrap();
+        occurrence = current.occurrence().unwrap();
+        assert_eq!(current.consecutive_failures, (hour - 13) as u32);
+        assert_eq!(occurrence.scheduled_at, at(next_hour, 32));
+        assert_eq!(occurrence.due_at, occurrence.scheduled_at);
+    }
 }
 
 #[test]
@@ -946,6 +1030,11 @@ fn curator_failures_defer_with_injected_clock_and_public_toggles_are_absent() {
             .record_run(
                 &job.id,
                 CronRunInfo {
+                    scheduled_occurrence_at: None,
+                    fired_at: None,
+                    late_by_ms: None,
+                    provider: None,
+                    owner_instance_id: None,
                     run_id: format!("run-{number}"),
                     started_at: NOW,
                     finished_at: None,

@@ -87,10 +87,16 @@ fn derived_owner_profiles_show_the_sanitized_bundle_icon_their_base_declares() {
     assert_eq!(profiles["derived"].icon_svg.as_deref(), Some(bundled));
     assert!(profiles["undeclared"].icon_svg.is_none());
     let colliding: Profiles = serde_json::from_value(json!({
-        "base":{"binary":"derived-agent","args":[],"ownerConfigured":true}
+        "base":{"binary":"derived-agent","args":[],"ownerConfigured":true},
+        "custom":{"binary":"custom-agent","args":[],"ownerConfigured":true}
     }))
     .unwrap();
-    assert!(overlay_with(capability, colliding).is_err());
+    let merged = overlay_with(capability, colliding)
+        .unwrap()
+        .launch_profiles
+        .unwrap();
+    assert_eq!(merged["base"].binary, "base-agent");
+    assert_eq!(merged["custom"].binary, "custom-agent");
 }
 
 #[test]
@@ -129,4 +135,92 @@ fn installed_registry_profiles_gain_the_plugin_registry_default_on_load() {
         stored["installed"].limits_source, None,
         "the stored record is not rewritten"
     );
+}
+
+#[tokio::test]
+async fn cached_registry_svg_loads_for_profiles_while_explicit_local_icons_take_precedence() {
+    let root = tempfile::tempdir().unwrap();
+    let icon_cache = root.path().join("cache/icons");
+    let store_path = root.path().join("owner-profiles.json");
+    let url = "https://cdn.example.test/registry-agent.svg";
+    let remote_svg = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M2 2h20v20H2z"/></svg>"#;
+    let cached =
+        crate::plugin_icon::registry::resolve_with(icon_cache.clone(), url, 1_000, |_| async {
+            crate::plugin_icon::registry::FetchOutcome::Ok {
+                mime: "image/svg+xml".into(),
+                bytes: remote_svg.to_vec(),
+            }
+        })
+        .await
+        .expect("cached registry SVG");
+
+    let declarations = json!({
+        "registry-agent": {"binary":"registry-bin","args":[],"ownerConfigured":true,"registryId":"fixture-reg","iconUrl":url},
+        "local-override": {"binary":"local-bin","args":[],"ownerConfigured":true,"icon":"base-color.svg","iconUrl":url},
+        "offline-agent": {"binary":"offline-bin","args":[],"ownerConfigured":true,"iconUrl":"https://cdn.example.test/missing.svg"}
+    });
+    std::fs::write(&store_path, serde_json::to_vec(&declarations).unwrap()).unwrap();
+
+    let loaded = read_with_icon_cache(&store_path, Some(&icon_cache)).unwrap();
+    assert_eq!(
+        loaded["registry-agent"].icon_svg.as_deref(),
+        Some(cached.as_str())
+    );
+    assert!(loaded["local-override"].icon_svg.is_none());
+    assert!(loaded["offline-agent"].icon_svg.is_none());
+
+    let mut capability: AgentRuntimeCapability = serde_json::from_value(json!({
+        "runtime":"stdio-jsonrpc","command":{"binary":"fixture-agent","args":[]},
+        "requestMethods":{"initialize":["initialize"]},"notificationMethods":[],
+        "launchProfiles":{"base":{"binary":"base-agent","args":[],"icon":"base-color.svg"}}
+    }))
+    .unwrap();
+    let bundled = "<svg><path d=\"M1 1\"/></svg>";
+    capability
+        .launch_profiles
+        .as_mut()
+        .unwrap()
+        .get_mut("base")
+        .unwrap()
+        .icon_svg = Some(bundled.into());
+
+    let resolved = overlay_with(capability, loaded)
+        .unwrap()
+        .launch_profiles
+        .unwrap();
+    assert_eq!(
+        resolved["registry-agent"].icon_svg.as_deref(),
+        Some(cached.as_str())
+    );
+    assert_eq!(
+        resolved["local-override"].icon_svg.as_deref(),
+        Some(bundled)
+    );
+    assert!(resolved["offline-agent"].icon_svg.is_none());
+
+    cache().lock().insert(
+        store_path.clone(),
+        Ok(serde_json::from_value(declarations).unwrap()),
+    );
+    let updated_url = "https://cdn.example.test/refreshed-agent.svg";
+    assert!(sync_registry_icon_url_at(&store_path, "registry-agent", updated_url).unwrap());
+    assert!(!sync_registry_icon_url_at(&store_path, "local-override", updated_url).unwrap());
+    assert!(!sync_registry_icon_url_at(
+        &store_path,
+        "registry-agent",
+        "http://insecure.test/a.svg"
+    )
+    .unwrap());
+    assert!(refresh_icon_at(&store_path, updated_url, "<svg><path d=\"M3 3\"/></svg>").unwrap());
+    let projected = cache().lock().get(&store_path).unwrap().clone().unwrap();
+    assert_eq!(
+        projected["registry-agent"].icon_url.as_deref(),
+        Some(updated_url)
+    );
+    assert_eq!(
+        projected["registry-agent"].icon_svg.as_deref(),
+        Some("<svg><path d=\"M3 3\"/></svg>")
+    );
+    assert!(projected["local-override"].icon_svg.is_none());
+    cache().lock().remove(&store_path);
 }

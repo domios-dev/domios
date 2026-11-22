@@ -98,7 +98,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
   const viewMode: PlanViewMode = storedMode;
   const selected = segment ? TASK_SEGMENT_VALUE : viewMode;
   const openingTask = props.workspaceTarget?.jump?.view === "task";
-  const fullQuery = usePlanSummariesOptional(Boolean(props.planIndex) && !openingTask && selected !== "tasks" && selected !== TASK_SEGMENT_VALUE);
+  const fullQuery = usePlanSummariesOptional(!props.api?.peerId && Boolean(props.planIndex) && !openingTask && selected !== "tasks" && selected !== TASK_SEGMENT_VALUE);
   const fullPlans = fullQuery?.plans ?? props.plans;
   const fullProps: PlanViewSurfaceProps = {
     ...props,
@@ -228,39 +228,39 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
           hidden={selected !== "spec"}
           aria-hidden={selected !== "spec"}
         >
-          <SpecSurface {...specProps} />
+          {(!props.api?.peerId || selected === "spec") && <SpecSurface {...specProps} />}
         </div>
         <div
           className="absolute inset-0"
           hidden={selected !== "plan"}
           aria-hidden={selected !== "plan"}
         >
-          <PlanSurface {...planProps} onOpenSpec={openSpec} />
+          {(!props.api?.peerId || selected === "plan") && <PlanSurface {...planProps} onOpenSpec={openSpec} />}
         </div>
         <div
           className="absolute inset-0"
           hidden={selected !== "board"}
           aria-hidden={selected !== "board"}
         >
-          <BoardSurface
+          {(!props.api?.peerId || selected === "board") && <BoardSurface
             {...boardProps}
             headerActionsSlot={selected === "board" ? actionsSlot : null}
             onOpenView={selectMode}
-          />
+          />}
         </div>
         <div
           className="absolute inset-0"
           hidden={selected !== "list"}
           aria-hidden={selected !== "list"}
         >
-          <ListSurface {...listProps} isActive={selected === "list"} onClose={undefined} />
+          {(!props.api?.peerId || selected === "list") && <ListSurface {...listProps} isActive={selected === "list"} onClose={undefined} />}
         </div>
         <div
           className="absolute inset-0"
           hidden={selected !== "tasks"}
           aria-hidden={selected !== "tasks"}
         >
-          <TasksSurface {...tasksProps} />
+          {(!props.api?.peerId || selected === "tasks") && <TasksSurface {...tasksProps} />}
         </div>
         {segment && (
           <div className="absolute inset-0">
@@ -277,6 +277,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
                 panelRef={panelRef}
                 detail={detail}
                 historyController={taskDetail}
+                footer={detail && props.renderTaskActions?.(detail)}
                 fallbackPlan={cachedTask?.plan ?? null}
                 taskRef={segment.taskRef}
                 loading={taskDetail.loading}

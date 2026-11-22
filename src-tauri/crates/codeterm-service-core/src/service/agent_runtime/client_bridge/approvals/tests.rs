@@ -138,6 +138,7 @@ fn exact_approved_write_is_consumed_once_and_persisted_without_another_prompt() 
             &session,
             pending.request_id.clone(),
             prompt,
+            codeterm_types::pty::PromptKind::Permission,
         );
         let process = session.process.lock().clone().unwrap();
         engine::run(

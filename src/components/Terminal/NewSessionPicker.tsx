@@ -28,6 +28,7 @@ import {
 import { probeProviderInstallMap } from "../../lib/providerInstallStatus";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
 import { ModeCards } from "./NewSessionPickerParts";
+import { ResumeSessionSection } from "./ResumeSessionSection";
 import { useAnimatedHeight } from "../shared/useAnimatedHeight";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Button } from "../shared/Button";
@@ -40,6 +41,9 @@ import {ExecutionLocationPicker} from "./ExecutionLocationPicker";
 import {useLaunchProfileSelection} from "./useLaunchProfileSelection";
 import {cloudExecution} from "./cloudExecution";
 import { TeamTemplateSection } from "../TeamTemplates/TeamTemplateSection";
+import { MachinePlacement } from "../shared/MachinePlacement";
+import { useMachinePlacementInventory } from "../shared/useMachinePlacementInventory";
+import { LOCAL_MACHINE_ID } from "../../lib/machinePlacement";
 import { openTeamChannelsSettings } from "../../lib/teamTemplates/teamChannels";
 import { openSecretsSettings } from "../../lib/teamTemplates/vaultSecrets";
 import { PinnedFooter } from "../TeamTemplates/PinnedFooter";
@@ -47,6 +51,7 @@ import { hasPendingTemplatePreview } from "../../lib/teamTemplates/pendingPrevie
 import { useTeamTemplateChoice } from "../TeamTemplates/useTeamTemplateChoice";
 import { blockerView, startErrorView, templateTitle, type PickerSeed, type StartErrorView } from "../../lib/teamTemplates/startModel";
 import { peerOutcomeError } from "../../lib/teamTemplates/peerStartOutcome";
+import { setSidebarMachineFilter } from "../Sidebar/sidebarMachineFilter";
 
 function spawnAccountSlot(accounts: ReturnType<typeof useSpawnAccounts>, providerName: string, busy: boolean) {
   if (!accounts.snapshot || accountChoices(accounts.snapshot).length < 2) return undefined;
@@ -85,6 +90,11 @@ export function NewSessionPicker({
   const { providers, loading: providersLoading, refetch: refreshProviders } = useAgentProviders();
   const { spawnAgentTab, createOrchestrationPair, selectTabByTab, upsertToast } = useMultiplexer();
   const state = useMuxState();
+  const machineInventory = useMachinePlacementInventory();
+  const [machineId, setMachineId] = useState(LOCAL_MACHINE_ID);
+  const selectedMachine = machineInventory.choices?.find((machine) => machine.id === machineId);
+  const remoteMachineId = machineId === LOCAL_MACHINE_ID ? undefined : machineId;
+  const machineAvailable = !remoteMachineId || selectedMachine?.unavailableReason === null;
   const { presets, loading: presetsLoading, error: presetsError } = useModelPresets();
   const menuProviders = useMemo(
     () => {
@@ -111,7 +121,7 @@ export function NewSessionPicker({
   const remote = cloudExecution.enabled && section === "workspace" ? remoteProvider(menuProviders, localId) : undefined;
   const location = remote && execution.providerId === localId ? execution.location : "local";
   const environmentId = execution.providerId === localId ? execution.environmentId : "";
-  const accountProviderId = location === "local" && selectedProvider?.accounts ? selectedProvider.id : null;
+  const accountProviderId = !remoteMachineId && location === "local" && selectedProvider?.accounts ? selectedProvider.id : null;
   const accounts = useSpawnAccounts(accountProviderId, workspaceId);
   const [busy, setBusy] = useState(false);
   const [dismissing, setDismissing] = useState(false);
@@ -286,34 +296,38 @@ export function NewSessionPicker({
   ) => {
     if (!executionMode && disabledProviderIds.has(providerId)) return;
     const targetCwd = section === "general" ? workspaceCwd ?? selectedWorkspace?.cwd : selectedWorkspace?.cwd ?? workspaceCwd;
+    const machineCwd = remoteMachineId ? undefined : targetCwd ?? undefined;
+    const beforeRemoteTabSelect = remoteMachineId ? () => setSidebarMachineFilter("all") : undefined;
     if (executionMode) {
-      await finishSpawn(() => spawnAgentTab(workspaceId, providerId, targetCwd ?? undefined, undefined, undefined, preset, undefined, executionMode));
+      await finishSpawn(() => remoteMachineId
+        ? spawnAgentTab(workspaceId, providerId, machineCwd, undefined, undefined, preset, undefined, executionMode, undefined, undefined, remoteMachineId, undefined, beforeRemoteTabSelect)
+        : spawnAgentTab(workspaceId, providerId, machineCwd, undefined, undefined, preset, undefined, executionMode));
       return;
     }
     if (profile) {
-      await finishSpawn(() => spawnAgentTab(workspaceId, providerId, targetCwd ?? undefined, modelId, effortId, preset, undefined, undefined, profile,
-        ...(accountId ? [accountId] as const : [] as const)));
+      await finishSpawn(() => remoteMachineId
+        ? spawnAgentTab(workspaceId, providerId, machineCwd, modelId, effortId, preset, undefined, undefined, profile, accountId, remoteMachineId, undefined, beforeRemoteTabSelect)
+        : spawnAgentTab(workspaceId, providerId, machineCwd, modelId, effortId, preset, undefined, undefined, profile,
+          ...(accountId ? [accountId] as const : [] as const)));
       return;
     }
+    const intent = section === "general" ? "fresh_general" as const : undefined;
     const selectionArgs: [intent?: "fresh_general", executionMode?: string, profile?: string, accountId?: string] = accountId
-      ? [section === "general" ? "fresh_general" : undefined, undefined, undefined, accountId]
-      : section === "general" ? ["fresh_general"] : [];
-    await finishSpawn(() =>
-      spawnAgentTab(
-        workspaceId,
-        providerId,
-        targetCwd ?? undefined,
-        modelId,
-        effortId,
-        preset,
-        ...selectionArgs,
-      ),
-    );
-  }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, workspaceId, workspaceCwd, section]);
+      ? [intent, undefined, undefined, accountId]
+      : intent ? [intent] : [];
+    await finishSpawn(() => remoteMachineId
+      ? spawnAgentTab(workspaceId, providerId, machineCwd, modelId, effortId, preset, intent, undefined, undefined, accountId, remoteMachineId, undefined, beforeRemoteTabSelect)
+      : spawnAgentTab(workspaceId, providerId, machineCwd, modelId, effortId, preset, ...selectionArgs));
+  }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, workspaceId, workspaceCwd, section, remoteMachineId]);
 
   const runSingleSpawn = useCallback(async () => {
     if (choice.mode !== "single") return;
     if (accountProviderId && (accounts.loading || !accounts.snapshot || !accounts.selectedAccountId)) return;
+    if (section === "general" && remoteMachineId) {
+      await finishSpawn(() => spawnAgentTab(workspaceId, choice.providerId, undefined, undefined, undefined, undefined,
+        "fresh_general", undefined, undefined, undefined, remoteMachineId, undefined, () => setSidebarMachineFilter("all")));
+      return;
+    }
     if (location === "cloud") {
       const target = remoteSpawnSelection(menuProviders, choice.providerId, environmentId);
       await runProviderSpawn(target.providerId, undefined, undefined, target.preset, target.executionMode);
@@ -325,7 +339,7 @@ export function NewSessionPicker({
       return;
     }
     await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset, undefined, undefined, accounts.explicitAccountId ?? undefined);
-  }, [choice, runProviderSpawn, location, environmentId, menuProviders, profileReady, launchProfile, profileModel.model, profileModel.effort, accountProviderId, accounts.loading, accounts.snapshot, accounts.selectedAccountId, accounts.explicitAccountId]);
+  }, [choice, runProviderSpawn, location, environmentId, menuProviders, profileReady, launchProfile, profileModel.model, profileModel.effort, accountProviderId, accounts.loading, accounts.snapshot, accounts.selectedAccountId, accounts.explicitAccountId, section, remoteMachineId, finishSpawn, spawnAgentTab, workspaceId]);
 
   const runPairSpawn = useCallback(async () => {
     if (choice.mode !== "pair" || !allowedNewSessionModes(section).includes("pair")
@@ -427,14 +441,20 @@ export function NewSessionPicker({
 
   const remoteCanStart = location === "cloud" && remote?.remote_task?.availability.status === "available"
     && remote.remote_task.environments.some(environment => environment.id === environmentId);
+  const peerGeneral = section === "general" && Boolean(remoteMachineId);
+  const selectedTeamMachine = templates.remotePeer
+    ? templates.placement.machines?.find((machine) => machine.id === templates.remotePeer?.id)
+    : undefined;
+  const teamMachineAvailable = !templates.remotePeer || selectedTeamMachine?.unavailableReason === null;
   const canStart = choice.mode === "single"
-    ? location === "cloud" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId) && profileReady
+    ? machineAvailable && (peerGeneral || (location === "cloud" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId) && profileReady))
       && (!accountProviderId || (!accounts.loading && Boolean(accounts.snapshot && accounts.selectedAccountId)))
     : choice.orchestratorProviderId.length > 0
       && choice.plannerProviderId.length > 0
       && !disabledProviderIds.has(choice.orchestratorProviderId)
       && !disabledProviderIds.has(choice.plannerProviderId)
       && orchestratorProfile.ready && plannerProfile.ready
+      && teamMachineAvailable
       && templates.blocker === null;
   const templateStep = choice.mode === "pair" && templates.view.kind !== "form";
   const teamForm = choice.mode === "pair" && !templateStep;
@@ -445,6 +465,11 @@ export function NewSessionPicker({
   const blocker = templates.blocker
     ? blockerView(templates.blocker, (id) => visibleProviders.find((provider) => provider.id === id)?.display_name ?? id)
     : null;
+  const confirmLabel = choice.mode === "pair"
+    ? templates.remotePeer ? `Start Team on ${templates.remotePeer.name}` : "Start team"
+    : remoteMachineId
+      ? section === "general" ? `Start General session on ${selectedMachine?.name ?? "the selected machine"}` : `Start agent on ${selectedMachine?.name ?? "the selected machine"}`
+      : "Start session";
 
   return createPortal(
     <div
@@ -493,7 +518,10 @@ export function NewSessionPicker({
           style={teamForm ? { minHeight: 0, flexShrink: 1, overflowY: "auto", overflowX: "hidden" } : undefined}>
           <div ref={modeContentRef} className={teamForm ? "pb-4" : undefined}>
             <div key={choice.mode} className="picker-mode-panel">
-              {choice.mode === "single" && location === "local" && presets.some((preset) => preset.provider === choice.providerId) && <label>
+              {choice.mode === "single" && section === "general" && remoteMachineId && <p role="status" className="mt-2 text-[11px] text-[var(--ct-muted-fg)]">
+                Uses {selectedMachine?.name ?? "the selected machine"}'s General defaults.
+              </p>}
+              {choice.mode === "single" && !remoteMachineId && location === "local" && presets.some((preset) => preset.provider === choice.providerId) && <label>
                 Preset<select aria-label="Preset" disabled={presetsLoading} value={choice.preset ?? ""} onChange={(event) => {
                   const preset = presets.find((preset) => preset.provider === choice.providerId && preset.name === event.target.value);
                   setChoice({ ...choice, preset: preset?.name, modelId: preset?.model ?? choice.modelId,
@@ -503,11 +531,11 @@ export function NewSessionPicker({
                   {presets.filter((preset) => preset.provider === choice.providerId).map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}
                 </select>
               </label>}
-              {choice.mode === "single" && <ExecutionLocationPicker provider={remote} location={location} environmentId={environmentId}
+              {choice.mode === "single" && !(section === "general" && remoteMachineId) && <ExecutionLocationPicker provider={remote} location={location} environmentId={environmentId}
                 onLocation={next => setExecution({providerId: localId, location: next, environmentId})}
                 onEnvironment={id => setExecution({providerId: localId, location, environmentId: id})}
                 onRefresh={() => { void refreshRemoteProviders(); }} />}
-              {choice.mode === "single" ? (
+              {choice.mode === "single" && !(section === "general" && remoteMachineId) ? (
                 <><OrchestrationRoleRow
                   label="Agent"
                   modelControls={location === "local" && !selectedProvider?.agent_runtime?.launchProfiles}
@@ -538,7 +566,7 @@ export function NewSessionPicker({
                 />
                 {accountProviderId && accounts.error && <InlineErrorNotice error={accounts.error} operation="choosing an account" />}
                 {singleProfile.details}</>
-              ) : (
+              ) : choice.mode === "pair" && (
                 <TeamTemplateSection
                   choice={templates}
                   providers={visibleProviders}
@@ -604,6 +632,30 @@ export function NewSessionPicker({
                 </>}
                 />
               )}
+              {choice.mode === "single" && section !== "general" && <MachinePlacement choices={machineInventory.choices}
+                value={machineId} onChange={setMachineId} disabled={busy} testId="session-machine-placement" />}
+              {choice.mode === "single" && !remoteMachineId && location === "local" && (
+                <ResumeSessionSection
+                  workspaceId={workspaceId}
+                  cwd={section === "general" ? workspaceCwd ?? selectedWorkspace?.cwd : selectedWorkspace?.cwd ?? workspaceCwd}
+                  disabled={busy}
+                  providerLabel={(id) => visibleProviders.find((provider) => provider.id === id)?.display_name ?? id}
+                  onResumed={(result) => {
+                    if (result.tabId) void selectTabByTab(result.workspaceId, result.tabId).catch(() => {});
+                    onClose();
+                  }}
+                  onError={(error) => {
+                    createNoticePublisher({ upsertToast })({
+                      kind: "toast",
+                      tabId: null,
+                      workspaceId,
+                      title: "Session could not resume",
+                      detail: error instanceof Error ? error.message : String(error),
+                      severity: "Error",
+                    });
+                  }}
+                />
+              )}
             </div>
           </div>
         </div>
@@ -624,13 +676,13 @@ export function NewSessionPicker({
                 className={`min-w-0 flex-1 text-[12px] ${!templates.touched ? "text-[var(--ct-muted-fg)]" : blocker.tone === "red" ? "text-[var(--ct-red)]" : "text-[var(--ct-yellow,#d97706)]"}`}>{blocker.text}</span>
             ) : <span aria-hidden="true" className="hidden flex-1 sm:block" />}
             <Button variant="primary" className="w-full text-xs sm:w-auto" data-testid="picker-confirm" disabled={!canStart} loading={busy} onClick={handleStart}>
-              Start team
+              {confirmLabel}
             </Button>
           </PinnedFooter>
         ) : (
           <div data-testid="picker-footer" className="relative mt-4 flex flex-wrap items-center justify-end gap-3">
             <Button variant="primary" className="text-xs" data-testid="picker-confirm" disabled={!canStart} loading={busy} onClick={handleStart}>
-              Start session
+              {confirmLabel}
             </Button>
           </div>
         ))}

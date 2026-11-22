@@ -5,7 +5,7 @@ import { wellFormedFileDiffs } from "./fileDiffs";
 import { parseUnifiedDiff } from "./unifiedDiff";
 import { assignedCommand, toolCommand, unwrapShellLauncher } from "./shellComposition";
 import { normalizeToolRichResult } from "./toolRichResult";
-import type { AgentActivity, FileDiff, NormalizedChatMessage, ToolEdit, ToolEventKind, ToolRichResult } from "./types";
+import type { AgentActivity, FileDiff, NormalizedChatMessage, ToolEdit, ToolEventKind, ToolLocation, ToolRichResult } from "./types";
 
 export type StreamEntry =
   | { kind: "action"; event: ToolEvent }
@@ -33,6 +33,7 @@ export interface ToolEvent {
   detail?: string;
   edits?: ToolEdit[];
   fileDiffs?: FileDiff[];
+  locations?: ToolLocation[];
   richResult?: ToolRichResult;
   result?: string;
   error?: boolean;
@@ -107,6 +108,20 @@ function eventStatus(message: NormalizedChatMessage, phase: ToolEvent["phase"]):
   return "success";
 }
 
+function normalizeToolLocations(raw: unknown): ToolLocation[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: ToolLocation[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    if (typeof record.path !== "string" || !record.path.trim()) continue;
+    const line = typeof record.line === "number" && Number.isSafeInteger(record.line) && record.line > 0 ? record.line : undefined;
+    out.push(line !== undefined ? { path: record.path, line } : { path: record.path });
+    if (out.length >= 8) break;
+  }
+  return out.length ? out : undefined;
+}
+
 export function materializeToolEvent(message: NormalizedChatMessage): ToolEvent | null {
   if (message.type !== "tool_call" && message.type !== "tool_result") return null;
   const phase = message.type === "tool_call" ? "call" : "result";
@@ -114,6 +129,7 @@ export function materializeToolEvent(message: NormalizedChatMessage): ToolEvent 
   const summary = text(message.toolSummary) || parsedDiffs.map(diff => diff.path).join("\n");
   const embeddedResult = phase === "call" ? firstNonEmpty(message.toolResult) : undefined;
   const fileDiffs = wellFormedFileDiffs(message.fileDiffs) ?? wellFormedFileDiffs(parsedDiffs);
+  const locations = normalizeToolLocations(message.toolLocations);
   return {
     id: message.id,
     toolId: message.toolId,
@@ -126,6 +142,7 @@ export function materializeToolEvent(message: NormalizedChatMessage): ToolEvent 
     detail: text(message.toolDetail) || undefined,
     edits: message.toolEdits,
     ...(fileDiffs ? { fileDiffs } : {}),
+    ...(locations ? { locations } : {}),
     richResult: normalizeToolRichResult(message.toolRichResult),
     result: phase === "result"
       ? firstNonEmpty(message.toolDetail, message.toolResult, message.content)
@@ -153,6 +170,7 @@ function mergeText(existing: string | undefined, incoming: string | undefined): 
 function mergeResult(call: ToolEvent, result: ToolEvent): ToolEvent {
   const resultText = firstNonEmpty(result.result, result.summary);
   const fileDiffs = result.fileDiffs ?? call.fileDiffs;
+  const locations = result.locations ?? call.locations;
   const richResult = result.richResult ?? call.richResult;
   const message = {
     ...call.message,
@@ -165,12 +183,14 @@ function mergeResult(call: ToolEvent, result: ToolEvent): ToolEvent {
     toolInterrupted: result.message.toolInterrupted ?? call.message.toolInterrupted,
     toolBackgroundTaskId: result.message.toolBackgroundTaskId ?? call.message.toolBackgroundTaskId,
     ...(fileDiffs ? { fileDiffs } : {}),
+    ...(locations ? { toolLocations: locations } : {}),
     ...(richResult ? { toolRichResult: richResult } : {}),
   };
   const status = eventStatus(message, "call");
   return {
     ...call,
     ...(fileDiffs ? { fileDiffs } : {}),
+    ...(locations ? { locations } : {}),
     ...(richResult ? { richResult } : {}),
     result: mergeText(call.result, resultText),
     error: status === "error" ? true : call.error,

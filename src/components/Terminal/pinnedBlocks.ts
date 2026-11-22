@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react";
 import type { ChatBlockHost, LiveBindingSource } from "@codeterm/chat-ui";
+import { localArtifactOpeningAvailable, openLocalArtifact } from "@codeterm/chat-ui/localArtifactLoader";
 import { planSidePanelStore } from "../Canvas/planSidePanelStore";
 import { insertIntoComposer } from "./composerInsertion";
 import { chatChangesStore } from "./chatChangesStore";
@@ -69,15 +70,20 @@ export function usePinnedBlocks(tabId: string): readonly string[] {
   return useSyncExternalStore(pinnedBlocksStore.subscribe, () => pinnedBlocksStore.list(tabId), () => EMPTY);
 }
 
-export function openRecordedFileChange(tabId: string, path: string, view: "diff" | "file"): void {
+export function openRecordedFileChange(tabId: string, path: string, view: "diff" | "file", _line?: number): void {
   const normalized = path.replace(/\\/g, "/");
   const file = chatChangesStore.get(tabId).cumulative.find((file) =>
     [file.path, file.movePath].some((candidate) => candidate?.replace(/\\/g, "/") === normalized));
-  if (!file) return;
-  tabPanelNavigationStore.dispatch(tabId, { type: "scope", scope: "all" });
-  tabPanelNavigationStore.dispatch(tabId, { type: "open", view: "changes", id: changeKey(file) });
-  tabPanelNavigationStore.dispatch(tabId, { type: "change-view", view });
-  planSidePanelStore.open({ planId: "", documentsTabId: tabId, tabView: "changes" });
+  if (file) {
+    tabPanelNavigationStore.dispatch(tabId, { type: "scope", scope: "all" });
+    tabPanelNavigationStore.dispatch(tabId, { type: "open", view: "changes", id: changeKey(file) });
+    tabPanelNavigationStore.dispatch(tabId, { type: "change-view", view });
+    planSidePanelStore.open({ planId: "", documentsTabId: tabId, tabView: "changes" });
+    return;
+  }
+  if (localArtifactOpeningAvailable()) {
+    void openLocalArtifact(path).catch(() => {});
+  }
 }
 
 /** Tab-scoped block services: Ask goes to this tab's composer, Pin keeps the block live in this tab's side panel. */
@@ -90,7 +96,7 @@ export function useTabChatBlockHost(tabId: string): ChatBlockHost {
     };
     return {
       mentionTabId: tabId,
-      openFileChange: (path, view) => openRecordedFileChange(tabId, path, view),
+      openFileChange: (path, view, line) => openRecordedFileChange(tabId, path, view, line),
       askAbout: ({ title, text }) => insertIntoComposer(tabId, { kind: "quote", detail: title, content: text }),
       pin: (source) => {
         if (pinnedBlocksStore.toggle(tabId, source)) planSidePanelStore.open({ planId: "", documentsTabId: tabId, tabView: "documents" });

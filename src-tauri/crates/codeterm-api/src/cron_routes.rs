@@ -195,6 +195,50 @@ pub async fn cron_history(
     Ok(Json(serde_json::to_value(history).unwrap()))
 }
 
+pub async fn cron_run_transcript(
+    AxumState(state): AxumState<AppState>,
+    _headers: HeaderMap,
+    Path((id, run_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let run = state
+        .svc
+        .cron_history(&state.cron, &id)
+        .map_err(cron_read_error)?
+        .into_iter()
+        .find(|run| run.run_id == run_id)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Cron run not found".to_string()))?;
+    let session_id = run
+        .session_id
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Cron run has no session".to_string()))?;
+    let provider = run.provider.unwrap_or_default();
+    let cwd = run.cwd.unwrap_or_default();
+    let svc = state.svc.clone();
+    let (messages, total) = tokio::task::spawn_blocking(move || {
+        let (provider, cwd) = if provider.is_empty() {
+            let session = svc
+                .agent_registry
+                .find_session(&session_id)
+                .ok_or_else(|| "Run session is unavailable".to_string())?;
+            (session.provider, session.project_path.unwrap_or(cwd))
+        } else {
+            (provider, cwd)
+        };
+        codeterm_service_core::service::tab_chat::session_chat_snapshot(
+            &svc,
+            &provider,
+            &cwd,
+            &session_id,
+            0,
+        )
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| (StatusCode::NOT_FOUND, error))?;
+    Ok(Json(
+        serde_json::json!({ "messages": messages, "total": total }),
+    ))
+}
+
 fn cron_read_error(error: String) -> (StatusCode, String) {
     if error.starts_with("cron storage unavailable:") {
         (StatusCode::SERVICE_UNAVAILABLE, error)

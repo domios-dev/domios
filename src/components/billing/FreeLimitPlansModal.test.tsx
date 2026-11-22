@@ -9,6 +9,7 @@ const account = vi.hoisted(() => ({
   paid: true,
   login: null as null | ((outcome: "ok" | "fail") => void),
   logins: 0,
+  loginFailed: false,
 }));
 vi.mock("../../lib/webApi", async (actual) => ({ ...await actual<object>(), ...fetches }));
 
@@ -37,7 +38,12 @@ const toasts: ToastInput[] = [];
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
 const identity = { uid: "user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
-const status = () => ({ identity: account.signedIn ? identity : null, pending: false, last_sign_in_failure: null });
+const status = () => ({
+  identity: account.signedIn ? identity : null,
+  pending: account.login !== null,
+  login_attempt_id: account.logins ? String(account.logins) : null,
+  last_sign_in_failure: account.loginFailed ? { stage: "redemption", error: "provider" } : null,
+});
 
 async function fakeDaemon(url: string) {
   const path = url.split("?")[0];
@@ -50,17 +56,21 @@ async function fakeDaemon(url: string) {
   }
   if (path.endsWith("/login")) {
     account.logins++;
-    const outcome = await new Promise<"ok" | "fail">((resolve) => { account.login = resolve; });
-    if (outcome === "fail") return new Response("opaque", { status: 503 });
-    account.signedIn = true;
-    return json(status());
+    account.loginFailed = false;
+    account.login = (outcome) => {
+      account.login = null;
+      account.signedIn = outcome === "ok";
+      account.loginFailed = outcome === "fail";
+      window.dispatchEvent(new Event("domios:account-sign-in"));
+    };
+    return new Response(JSON.stringify({ attempt_id: String(account.logins) }), { status: 202 });
   }
   return json({});
 }
 
 beforeEach(() => {
   fetches.localJson.mockClear().mockResolvedValue({ consent: "off" });
-  Object.assign(account, { signedIn: true, plan: "free", paid: true, login: null, logins: 0 });
+  Object.assign(account, { signedIn: true, plan: "free", paid: true, login: null, logins: 0, loginFailed: false });
   fetches.localFetch.mockImplementation(fakeDaemon);
   toasts.length = 0;
   disconnectToasts = connectNoticeToasts((toast) => { toasts.push(toast); });

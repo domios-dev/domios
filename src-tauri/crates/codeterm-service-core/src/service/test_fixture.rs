@@ -444,6 +444,8 @@ impl ServiceFixture {
         extensions.insert(crate::mem_ops::author::OwnerMemoryAuthor::default());
         extensions.insert_service_slots();
         extensions.insert_late::<FixtureLimitGate>();
+        extensions.insert_late::<crate::service::agent_runtime::engine::ExpectedLaunchCommit>();
+        extensions.insert_late::<crate::service::messenger::switch_handoff::HandoffShutdown>();
         extensions.insert(config);
         let (private_key, public_key) = crate::mesh::crown::generate_peer_keypair();
         extensions.insert::<crate::MeshStateHandle>(Arc::new(Mutex::new(

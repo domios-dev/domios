@@ -131,14 +131,26 @@ export function ensureMermaidInitialized() {
 }
 
 export function looksLikeMermaidSource(text: string): boolean {
-  const firstLine = text.trim().split("\n").find((line) => line.trim() !== "");
-  if (!firstLine || !text.includes("\n")) {
+  const lines = text.split("\n");
+  const firstNonEmptyIndex = lines.findIndex((line) => line.trim() !== "");
+  if (firstNonEmptyIndex < 0 || lines.length < 2) {
     return false;
   }
-  return firstLine.trim().startsWith("---") || MERMAID_BLOCK_GUARDS.some((keyword) => {
-    const token = firstLine.trim();
+
+  const isDiagramStart = (line: string) => MERMAID_BLOCK_GUARDS.some((keyword) => {
+    const token = line.trim();
     return token === keyword || token.startsWith(`${keyword} `) || token.startsWith(`${keyword}\t`);
   });
+
+  const firstLine = lines[firstNonEmptyIndex].trim();
+  if (firstLine === "---") {
+    const closingIndex = lines.findIndex((line, index) => index > firstNonEmptyIndex && line.trim() === "---");
+    if (closingIndex < 0) return false;
+    const diagramIndex = lines.findIndex((line, index) => index > closingIndex && line.trim() !== "");
+    return diagramIndex >= 0 && isDiagramStart(lines[diagramIndex]);
+  }
+
+  return isDiagramStart(lines[firstNonEmptyIndex]);
 }
 
 function stripMermaidWrapper(text: string): string {

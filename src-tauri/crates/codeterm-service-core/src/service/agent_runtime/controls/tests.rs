@@ -275,13 +275,18 @@ fn tab_stop_interrupts_a_working_runtime_and_keeps_the_tab_open() {
             .unwrap()
             .pty_id
             .is_none());
+        let binding_nonce = session.context.lock().binding_nonce.clone();
         let stopped =
             crate::service::stop_execution::stop_agent_turn(fixture.service.clone(), id.clone())
                 .await
                 .unwrap();
         assert_eq!(
             stopped,
-            json!({"ok": true, "stopped": true, "reason": "stopped", "route": "runtime"})
+            json!({
+                "ok": true, "stopped": true, "reason": "stopped", "route": "runtime",
+                "interrupted_turn": { "session_binding_nonce": binding_nonce,
+                    "session_id": "own-thread", "epoch": epoch, "started_at_ms": 1 },
+            })
         );
         assert!(session
             .completions
@@ -396,6 +401,8 @@ fn unchanged_settings_confirm_without_a_new_provider_event() {
 fn control_changes_name_only_confirmed_non_model_controls_that_changed() {
     let declared = |effort: &str| codeterm_plugin::agent_runtime::RuntimeConfigOption {
         category: Some("thought_level".into()),
+        kind: None,
+        description: None,
         id: "opaque-effort".into(),
         name: "Effort".into(),
         current_value: effort.into(),

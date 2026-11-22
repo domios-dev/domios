@@ -90,6 +90,7 @@ import { isReleasePushRun, checkQualifiedRun, REQUIRED_JOBS } from './release-pr
 import { requireQualificationWithGithub, requireReleasePrQualification } from './ci-workflow-api.mjs';
 import { ciFailures } from './ci-result.mjs';
 import { classifyPluginDiff, directPluginId } from './plugin-release-scope.mjs';
+import { docsAssetLinks } from './release-docs-scope.mjs';
 
 const repository = 'domios-dev/domios';
 const sha = 'a'.repeat(40);
@@ -432,4 +433,20 @@ test('direct plugin PR naming identifies the one expected plugin', () => {
   for (const ref of ['release/next', 'release/plugin-', 'release/plugin-opencode/topic', 'feature/plugin-opencode']) {
     assert.equal(directPluginId(ref), null);
   }
+});
+
+test('README asset check reads both picture variants and Markdown local image targets', () => {
+  const markdown = [
+    '<source srcset="docs/readme/dark.png 1x, ./docs/readme/dark-2x.png 2x">',
+    "<img src='docs/readme/light.png?cache=1'>",
+    '<img src=docs/readme/plain.jpg>',
+    '![local](./docs/readme/figure.webp)',
+    '[download]: docs/readme/dark.png',
+    '![external](https://example.com/image.png)',
+    '[film](https://youtu.be/kMZJDku4xcE)',
+  ].join('\n');
+  assert.deepEqual(docsAssetLinks(markdown), [
+    'docs/readme/dark.png', 'docs/readme/dark-2x.png', 'docs/readme/light.png',
+    'docs/readme/plain.jpg', 'docs/readme/figure.webp',
+  ]);
 });

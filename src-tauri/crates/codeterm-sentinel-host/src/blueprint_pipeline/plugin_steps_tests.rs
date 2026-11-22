@@ -7,6 +7,43 @@ use std::sync::Arc;
 struct Unavailable;
 
 #[test]
+fn browser_url_binding_admits_code_strings_and_rejects_non_strings() {
+    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let manifest: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../plugins/browser/plugin.json")).unwrap();
+    let descriptors = parse_descriptors(&manifest["capabilities"]["graphNodes"]["steps"]).unwrap();
+    fixture
+        .service
+        .ext::<Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>()
+        .register_steps("browser", &descriptors, Arc::new(Unavailable))
+        .unwrap();
+    for node in ["browser.read_page", "browser.snapshot_page"] {
+        for kind in ["string", "integer"] {
+            let document = codeterm_blueprint_types::blueprint_document::Document::from_definition(&json!({
+                "schema_version":2,"kind":"pipeline","name":"browser-bind",
+                "trigger":{"type":"input","kind":{"lit":"text"},"source":{"lit":{"text":"start"}}},
+                "steps":[
+                    {"id":"prior","code":{"lang":"python","src":"def main(value): return 'https://example.com/'"},"out":{"type":kind}},
+                    {"id":"read","uses":node,"bind":{"url":"prior.out"}}
+                ],
+                "result":{"to":"notify"}
+            })).unwrap();
+            let spec = serde_json::from_value(document.lower().unwrap()["spec"].clone()).unwrap();
+            let errors = plugin_validation::validate(&fixture.service, &spec);
+            if kind == "string" {
+                assert!(errors.is_empty(), "{errors:?}");
+            } else {
+                assert_eq!(errors.len(), 1);
+                assert_eq!(
+                    errors[0].reason,
+                    "plugin port binding is unavailable or incompatible"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn unavailable_plugin_errors_preserve_typed_step_locations() {
     let fixture = ServiceFixture::new(MultiplexerState::new().0);
     let document = codeterm_blueprint_types::blueprint_document::parse(

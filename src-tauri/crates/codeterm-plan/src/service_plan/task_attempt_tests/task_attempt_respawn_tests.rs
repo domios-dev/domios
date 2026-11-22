@@ -459,48 +459,40 @@ fn concurrent_respawns_of_one_source_create_only_one_replacement() {
 
 #[test]
 fn respawn_keeps_persona() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let mut p = Plan::new(
-        "Respawn".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_tab("orch"),
-    );
-    store.save(&mut p, 1).unwrap();
-    let task_id = store
-        .add_task(
-            &p.id,
-            NewTask {
-                name: "retry lane".into(),
-                kind: "implement".into(),
-                personality: Some("Opaquepersona".into()),
-                model: Some("codex/gpt-5.5".into()),
-                body: "opaque-task-body-92".into(),
-                role_guidance: Some("opaque-role-fragment-93".into()),
-                acceptance_criteria: vec!["opaque-acceptance-94".into()],
-                correctness: Some("opaque-correctness-95".into()),
-                test_plan: Some("opaque-test-plan-96".into()),
-                qa_plan: Some("opaque-qa-plan-97".into()),
-                intent: Some("opaque-intent-98".into()),
-                lane: TaskLaneMetadata {
-                    worktree_path: Some("/tmp/worktree".into()),
-                    branch: Some("lane/retry".into()),
-                    ..Default::default()
-                },
+    let (_dir, store, plan_id, task_id) = plan_with_task(
+        "Respawn",
+        NewTask {
+            name: "retry lane".into(),
+            kind: "implement".into(),
+            personality: Some("Opaquepersona".into()),
+            model: Some("codex/gpt-5.5".into()),
+            body: "opaque-task-body-92".into(),
+            role_guidance: Some("opaque-role-fragment-93".into()),
+            acceptance_criteria: vec!["opaque-acceptance-94".into()],
+            correctness: Some("opaque-correctness-95".into()),
+            test_plan: Some("opaque-test-plan-96".into()),
+            qa_plan: Some("opaque-qa-plan-97".into()),
+            intent: Some("opaque-intent-98".into()),
+            lane: TaskLaneMetadata {
+                worktree_path: Some("/tmp/worktree".into()),
+                branch: Some("lane/retry".into()),
                 ..Default::default()
             },
-            2,
-        )
-        .unwrap();
+            ..Default::default()
+        },
+    );
     store
-        .assign_task(&p.id, &task_id, "tab_old", None, 3)
+        .assign_task(&plan_id, &task_id, "tab_old", None, 3)
         .unwrap();
-    let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
+    let attempt = store
+        .list_task_attempts(&plan_id, &task_id)
+        .unwrap()
+        .remove(0);
     assert_ne!(attempt.attempt_id, "tab_old");
     assert!(attempt.attempt.executor_title.is_none());
     store
         .record_task_attempt_report(
-            &p.id,
+            &plan_id,
             &task_id,
             &AgentRef::from_tab("tab_old"),
             "STATUS: blocked\nFOLLOWUP: respawn needed",
@@ -511,7 +503,7 @@ fn respawn_keeps_persona() {
 
     let draft = store
         .build_task_respawn_draft(
-            &p.id,
+            &plan_id,
             &task_id,
             task_attempts::TaskRespawnRequest {
                 attempt_id: attempt.attempt_id.clone(),
@@ -549,47 +541,47 @@ fn respawn_keeps_persona() {
     assert!(draft.task_prompt.contains("opaque-intent-98"));
     assert!(draft
         .task_prompt
-        .contains(crate::service_plan::worker_identity::WORKER_IDENTITY_END));
-    assert!(draft
-        .task_prompt
         .contains(&format!("attempt_id: {}", attempt.attempt_id)));
     assert!(draft.task_prompt.contains(&format!(
         "domios agent report --plan {} --task {}",
-        p.id, task_id
+        plan_id, task_id
     )));
     assert!(!draft.task_prompt.contains("--base "));
 }
 
+fn assigned_respawn_fixture(
+    plan_title: &str,
+    lane: TaskLaneMetadata,
+) -> (tempfile::TempDir, PlanStore, String, String, String) {
+    let (dir, store, plan_id, task_id) = plan_with_task(
+        plan_title,
+        NewTask {
+            name: "retry lane".into(),
+            kind: "implement".into(),
+            lane,
+            ..Default::default()
+        },
+    );
+    store
+        .assign_task(&plan_id, &task_id, "tab_old", None, 3)
+        .unwrap();
+    let attempt_id = store.list_task_attempts(&plan_id, &task_id).unwrap()[0]
+        .attempt_id
+        .clone();
+    (dir, store, plan_id, task_id, attempt_id)
+}
+
 #[test]
 fn respawn_report_command_uses_attempt_base_not_task_lane_base() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let mut p = Plan::new(
-        "Respawn".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_tab("orch"),
+    let (_dir, store, plan_id, task_id, attempt_id) = assigned_respawn_fixture(
+        "Respawn",
+        TaskLaneMetadata {
+            base: Some("task-base".into()),
+            ..Default::default()
+        },
     );
-    store.save(&mut p, 1).unwrap();
-    let task_id = store
-        .add_task(
-            &p.id,
-            NewTask {
-                name: "retry lane".into(),
-                kind: "implement".into(),
-                lane: TaskLaneMetadata {
-                    base: Some("task-base".into()),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            2,
-        )
-        .unwrap();
     store
-        .assign_task(&p.id, &task_id, "tab_old", None, 3)
-        .unwrap();
-    store
-        .edit_plan_fixture(&p.id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -602,12 +594,10 @@ fn respawn_report_command_uses_attempt_base_not_task_lane_base() {
 
     let draft = store
         .build_task_respawn_draft(
-            &p.id,
+            &plan_id,
             &task_id,
             task_attempts::TaskRespawnRequest {
-                attempt_id: store.list_task_attempts(&p.id, &task_id).unwrap()[0]
-                    .attempt_id
-                    .clone(),
+                attempt_id,
                 ..Default::default()
             },
         )
@@ -620,36 +610,14 @@ fn respawn_report_command_uses_attempt_base_not_task_lane_base() {
 
 #[test]
 fn task_respawn_draft_preserves_explicit_request_title() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let mut p = Plan::new(
-        "Respawn title".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_tab("orch"),
-    );
-    store.save(&mut p, 1).unwrap();
-    let task_id = store
-        .add_task(
-            &p.id,
-            NewTask {
-                name: "retry lane".into(),
-                kind: "implement".into(),
-                ..Default::default()
-            },
-            2,
-        )
-        .unwrap();
-    store
-        .assign_task(&p.id, &task_id, "tab_old", None, 3)
-        .unwrap();
-    let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
-
+    let (_dir, store, plan_id, task_id, attempt_id) =
+        assigned_respawn_fixture("Respawn title", TaskLaneMetadata::default());
     let draft = store
         .build_task_respawn_draft(
-            &p.id,
+            &plan_id,
             &task_id,
             task_attempts::TaskRespawnRequest {
-                attempt_id: attempt.attempt_id,
+                attempt_id,
                 title: Some("Exact User Title".into()),
                 ..Default::default()
             },
@@ -662,36 +630,14 @@ fn task_respawn_draft_preserves_explicit_request_title() {
 
 #[test]
 fn task_respawn_draft_omitted_title_stays_provisional() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let mut p = Plan::new(
-        "Respawn inherited title".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_tab("orch"),
-    );
-    store.save(&mut p, 1).unwrap();
-    let task_id = store
-        .add_task(
-            &p.id,
-            NewTask {
-                name: "retry lane".into(),
-                kind: "implement".into(),
-                ..Default::default()
-            },
-            2,
-        )
-        .unwrap();
-    store
-        .assign_task(&p.id, &task_id, "tab_old", None, 3)
-        .unwrap();
-    let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
-
+    let (_dir, store, plan_id, task_id, attempt_id) =
+        assigned_respawn_fixture("Respawn inherited title", TaskLaneMetadata::default());
     let draft = store
         .build_task_respawn_draft(
-            &p.id,
+            &plan_id,
             &task_id,
             task_attempts::TaskRespawnRequest {
-                attempt_id: attempt.attempt_id,
+                attempt_id,
                 ..Default::default()
             },
         )
@@ -703,36 +649,24 @@ fn task_respawn_draft_omitted_title_stays_provisional() {
 
 #[test]
 fn competition_keeps_planned_model_separate_from_lane_requests() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let mut plan = Plan::new(
-        "Competition".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_tab("orch"),
+    let (_dir, store, plan_id, task_id) = plan_with_task(
+        "Competition",
+        NewTask {
+            name: "compare models".into(),
+            kind: "implement".into(),
+            model: Some("codex/model-planned".into()),
+            competition: Some(crate::plan::TaskCompetitionMetadata {
+                enabled: true,
+                attempts: Some(2),
+                models: vec!["model-a".into(), "model-b".into()],
+                judge_hint: None,
+            }),
+            ..Default::default()
+        },
     );
-    store.save(&mut plan, 1).unwrap();
-    let task_id = store
-        .add_task(
-            &plan.id,
-            NewTask {
-                name: "compare models".into(),
-                kind: "implement".into(),
-                model: Some("codex/model-planned".into()),
-                competition: Some(crate::plan::TaskCompetitionMetadata {
-                    enabled: true,
-                    attempts: Some(2),
-                    models: vec!["model-a".into(), "model-b".into()],
-                    judge_hint: None,
-                }),
-                ..Default::default()
-            },
-            2,
-        )
-        .unwrap();
-
     let drafts = store
         .build_task_compete_drafts(
-            &plan.id,
+            &plan_id,
             &task_id,
             task_attempts::TaskCompeteRequest::default(),
         )
@@ -748,28 +682,18 @@ fn competition_keeps_planned_model_separate_from_lane_requests() {
 
 #[test]
 fn compete_commit_preserves_admission_when_review_debt_changes() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(PlanStore::new_for_test(dir.path()));
-    let mut plan = Plan::new(
-        "Compete capacity race".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_tab("orch"),
+    let (_dir, store, plan_id, task_id) = plan_with_task(
+        "Compete capacity race",
+        NewTask {
+            name: "race target".into(),
+            kind: "implement".into(),
+            ..Default::default()
+        },
     );
-    store.save(&mut plan, 1).unwrap();
-    let task_id = store
-        .add_task(
-            &plan.id,
-            NewTask {
-                name: "race target".into(),
-                kind: "implement".into(),
-                ..Default::default()
-            },
-            2,
-        )
-        .unwrap();
+    let store = Arc::new(store);
     let draft = store
         .build_task_compete_drafts(
-            &plan.id,
+            &plan_id,
             &task_id,
             task_attempts::TaskCompeteRequest::default(),
         )
@@ -778,7 +702,7 @@ fn compete_commit_preserves_admission_when_review_debt_changes() {
     let phase = Arc::new(Barrier::new(2));
     let worker_store = Arc::clone(&store);
     let worker_phase = Arc::clone(&phase);
-    let worker_plan_id = plan.id.clone();
+    let worker_plan_id = plan_id.clone();
     let worker_task_id = task_id.clone();
     let commit = std::thread::spawn(move || {
         let snapshot = worker_store.get(&worker_plan_id).unwrap();
@@ -802,7 +726,7 @@ fn compete_commit_preserves_admission_when_review_debt_changes() {
 
     phase.wait();
     store
-        .edit_plan_fixture(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan_id, 3, |plan| {
             plan.review_policy.credit = -(plan.review_policy.wip_limit as i64);
             Ok(())
         })
@@ -810,15 +734,9 @@ fn compete_commit_preserves_admission_when_review_debt_changes() {
     phase.wait();
 
     commit.join().unwrap().unwrap();
-    let task = store
-        .get(&plan.id)
-        .unwrap()
-        .tasks
-        .into_iter()
-        .find(|task| task.id == task_id)
-        .unwrap();
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.execution_attempts.len(), 1);
-    assert_eq!(store.get(&plan.id).unwrap().review_policy.credit, -5);
+    assert_eq!(store.get(&plan_id).unwrap().review_policy.credit, -5);
 }
 
 #[test]
@@ -932,34 +850,39 @@ fn respawn_commit_preserves_admission_when_review_backlog_changes() {
     );
 }
 
-#[test]
-fn role_guidance_round_trips_and_worker_charter_prepends_it() {
+fn plan_with_task(title: &str, task: NewTask) -> (tempfile::TempDir, PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
-    let mut p = Plan::new(
-        "Guidance".into(),
+    let mut plan = Plan::new(
+        title.into(),
         dir.path().display().to_string(),
         OrchestratorRef::from_tab("orch"),
     );
-    p.mode = crate::plan::PlanMode::Execution;
-    store.save(&mut p, 1).unwrap();
-    let task_id = store
-        .add_task(
-            &p.id,
-            NewTask {
-                name: "guided".into(),
-                kind: "implement".into(),
-                personality: Some("Hopper".into()),
-                role_guidance: Some("opaque-guidance-71".into()),
-                assigned_tab_id: Some("tab_guided".into()),
-                competition: None,
-                ..Default::default()
-            },
-            2,
-        )
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store.add_task(&plan.id, task, 2).unwrap();
+    (dir, store, plan.id, task_id)
+}
+
+#[test]
+fn role_guidance_round_trips_and_worker_charter_prepends_it() {
+    let (_dir, store, plan_id, task_id) = plan_with_task(
+        "Guidance",
+        NewTask {
+            name: "guided".into(),
+            kind: "implement".into(),
+            personality: Some("Hopper".into()),
+            role_guidance: Some("opaque-guidance-71".into()),
+            assigned_tab_id: Some("tab_guided".into()),
+            ..Default::default()
+        },
+    );
+    store
+        .edit_plan_fixture(&plan_id, 2, |plan| {
+            plan.mode = crate::plan::PlanMode::Execution;
+            Ok(())
+        })
         .unwrap();
-    let plan = store.get(&p.id).unwrap();
-    let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.role_guidance.as_deref(), Some("opaque-guidance-71"));
 
     let brief = store
@@ -971,36 +894,27 @@ fn role_guidance_round_trips_and_worker_charter_prepends_it() {
 
 #[test]
 fn respawn_prompt_starts_with_canonical_identity_once() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let mut p = Plan::new(
-        "Respawn identity".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_tab("orch"),
+    let (_dir, store, plan_id, task_id) = plan_with_task(
+        "Respawn identity",
+        NewTask {
+            name: "retry lane".into(),
+            kind: "implement".into(),
+            personality: Some("Hopper".into()),
+            role_guidance: Some("opaque-guidance-72".into()),
+            body: "Fix the reconnect prompt.".into(),
+            ..Default::default()
+        },
     );
-    store.save(&mut p, 1).unwrap();
-    let task_id = store
-        .add_task(
-            &p.id,
-            NewTask {
-                name: "retry lane".into(),
-                kind: "implement".into(),
-                personality: Some("Hopper".into()),
-                role_guidance: Some("opaque-guidance-72".into()),
-                body: "Fix the reconnect prompt.".into(),
-                ..Default::default()
-            },
-            2,
-        )
-        .unwrap();
     store
-        .assign_task(&p.id, &task_id, "tab_old", None, 3)
+        .assign_task(&plan_id, &task_id, "tab_old", None, 3)
         .unwrap();
-    let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
-
+    let attempt = store
+        .list_task_attempts(&plan_id, &task_id)
+        .unwrap()
+        .remove(0);
     let draft = store
         .build_task_respawn_draft(
-            &p.id,
+            &plan_id,
             &task_id,
             task_attempts::TaskRespawnRequest {
                 attempt_id: attempt.attempt_id,
@@ -1008,7 +922,6 @@ fn respawn_prompt_starts_with_canonical_identity_once() {
             },
         )
         .unwrap();
-
     let task = store.inspect_task_for_test(&task_id).unwrap().task;
     let expected =
         crate::service_plan::worker_identity::compose_task_worker_identity(&task, Some("Hopper"));
@@ -1023,43 +936,30 @@ fn respawn_prompt_starts_with_canonical_identity_once() {
 
 #[test]
 fn competition_prompt_starts_with_same_canonical_identity() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let mut p = Plan::new(
-        "Competition identity".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_tab("orch"),
+    let (_dir, store, plan_id, task_id) = plan_with_task(
+        "Competition identity",
+        NewTask {
+            name: "judgeable".into(),
+            kind: "implement".into(),
+            personality: Some("Hopper".into()),
+            role_guidance: Some("opaque-guidance-73".into()),
+            competition: Some(crate::plan::TaskCompetitionMetadata {
+                enabled: true,
+                attempts: Some(2),
+                models: vec![],
+                judge_hint: None,
+            }),
+            ..Default::default()
+        },
     );
-    store.save(&mut p, 1).unwrap();
-    let task_id = store
-        .add_task(
-            &p.id,
-            NewTask {
-                name: "judgeable".into(),
-                kind: "implement".into(),
-                personality: Some("Hopper".into()),
-                role_guidance: Some("opaque-guidance-73".into()),
-                competition: Some(crate::plan::TaskCompetitionMetadata {
-                    enabled: true,
-                    attempts: Some(2),
-                    models: vec![],
-                    judge_hint: None,
-                }),
-                ..Default::default()
-            },
-            2,
-        )
-        .unwrap();
-
     let drafts = store
         .build_task_compete_drafts(
-            &p.id,
+            &plan_id,
             &task_id,
             task_attempts::TaskCompeteRequest::default(),
         )
         .unwrap();
     let prompt = &drafts[0].task_prompt;
-
     let task = store.inspect_task_for_test(&task_id).unwrap().task;
     let expected =
         crate::service_plan::worker_identity::compose_task_worker_identity(&task, Some("Hopper"));
@@ -1177,4 +1077,119 @@ fn attempt_launch_profile_optional_round_trip_and_respawn_override() {
         .record_task_respawn_attempt(&plan, &task, "replacement", &draft, Some("worker"), 5)
         .unwrap();
     assert_eq!(created.attempt.launch_profile.as_deref(), Some("selected"));
+}
+
+#[test]
+fn respawn_pre_spawn_record_rolls_back_cleanly_and_launch_identity_keeps_session() {
+    let (_dir, store, plan_id, task_id, source_id) =
+        assigned_respawn_fixture("Respawn rollback", TaskLaneMetadata::default());
+    store
+        .edit_plan_fixture(&plan_id, 4, |plan| {
+            let task = plan.tasks.iter_mut().find(|t| t.id == task_id).unwrap();
+            task.status = TaskStatus::InProgress;
+            task.interruption.execution_intent = crate::plan::ExecutionIntent::Mutating;
+            task.execution_attempts[0].provider = Some("fixture-agent".into());
+            task.execution_attempts[0].launch_profile = Some("selected".into());
+            Ok(())
+        })
+        .unwrap();
+    let draft = store
+        .build_task_respawn_draft(
+            &plan_id,
+            &task_id,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: source_id.clone(),
+                model: Some("opaque-model".into()),
+                reasoning_effort: Some("high".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let (created, undo) = store
+        .record_task_respawn_attempt_with_undo(
+            &plan_id,
+            &task_id,
+            "tab-reserved",
+            &draft,
+            Some("worker"),
+            5,
+        )
+        .unwrap();
+    assert_eq!(created.attempt.executor_tab_id, "tab-reserved");
+    assert_eq!(
+        created.attempt.execution_intent,
+        Some(crate::plan::ExecutionIntent::Mutating)
+    );
+    assert_eq!(created.attempt.launch_profile.as_deref(), Some("selected"));
+    assert_eq!(
+        created.attempt.requested_model.as_deref(),
+        Some("opaque-model")
+    );
+    assert_eq!(created.attempt.reasoning_effort.as_deref(), Some("high"));
+    assert!(created.attempt.executor_title.is_some());
+    assert_eq!(
+        store
+            .roll_back_task_dispatch_attempt(&undo, "tab-reserved", &created.attempt.id, 6)
+            .unwrap(),
+        DispatchRollback::Restored
+    );
+    let restored = store.inspect_task_for_test(&task_id).unwrap().task;
+    assert_eq!(restored.status, TaskStatus::InProgress);
+    assert_eq!(restored.assigned_tab_id.as_deref(), Some("tab_old"));
+    assert_eq!(restored.execution_attempts[0].retired_at, None);
+    assert_eq!(restored.execution_attempts[0].closed_at, None);
+    assert_eq!(restored.execution_attempts[1].closed_at, Some(6));
+
+    let (_dir2, store2, plan2, task2, source2) =
+        assigned_respawn_fixture("Respawn identity", TaskLaneMetadata::default());
+    let draft2 = store2
+        .build_task_respawn_draft(
+            &plan2,
+            &task2,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: source2,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let (created2, _) = store2
+        .record_task_respawn_attempt_with_undo(
+            &plan2,
+            &task2,
+            "tab-live",
+            &draft2,
+            Some("worker"),
+            5,
+        )
+        .unwrap();
+    store2
+        .finish_task_dispatch(
+            &plan2,
+            &task2,
+            "tab-live",
+            &created2.attempt.id,
+            "session-live",
+            "nonce-live",
+            TaskLaneMetadata::default(),
+            6,
+        )
+        .unwrap();
+    let updated = store2
+        .update_respawn_attempt_launch_identity(
+            &plan2,
+            &task2,
+            "tab-live",
+            &created2.attempt.id,
+            "resolved-provider",
+            Some("resolved-model".into()),
+            "Beacon",
+            7,
+        )
+        .unwrap()
+        .expect("launch identity update returns changed attempt");
+    assert_eq!(updated.executor_title.as_deref(), Some("Beacon"));
+    assert_eq!(updated.provider.as_deref(), Some("resolved-provider"));
+    assert_eq!(updated.model.as_deref(), Some("resolved-model"));
+    assert_eq!(updated.session_id.as_deref(), Some("session-live"));
+    assert_eq!(updated.session_binding_nonce.as_deref(), Some("nonce-live"));
 }

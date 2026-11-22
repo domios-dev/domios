@@ -2,7 +2,7 @@ use crate::blocking_json::handler as blocking_json;
 use axum::{
     http::{HeaderMap, StatusCode},
     middleware,
-    routing::{delete, get, post},
+    routing::{get, post},
     Router,
 };
 use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer};
@@ -214,6 +214,10 @@ pub(super) fn create_router_with_preview_admission(
             post(workspace_routes::close_workspace),
         )
         .route(
+            "/api/workspaces/{id}/close-preview",
+            get(workspace_routes::close_preview),
+        )
+        .route(
             "/api/workspaces/{id}/recently-closed",
             get(workspace_routes::list_recently_closed),
         )
@@ -395,29 +399,7 @@ pub(super) fn create_router_with_preview_admission(
             post(web_routes::tab_close),
         )
         .route("/api/tabs/{id}/chat-view", post(web_routes::tab_chat_view))
-        .route(
-            "/api/mesh/peers/{id}/services",
-            get(blocking_json(web_routes::peer_services)),
-        )
         .route("/api/mesh/inventory", get(mesh_inventory::inventory))
-        .route(
-            "/api/mesh/peers/{id}/services/{service_id}",
-            delete(web_routes::peer_service_delete),
-        )
-        .route(
-            "/api/mesh/peers/{id}/crons/{cron_id}",
-            get(blocking_json(web_routes::peer_cron_get))
-                .put(web_routes::peer_cron_update)
-                .delete(web_routes::peer_cron_delete),
-        )
-        .route(
-            "/api/mesh/peers/{id}/crons/{cron_id}/{action}",
-            post(web_routes::peer_cron_action),
-        )
-        .route(
-            "/api/mesh/peers/{id}/crons/{cron_id}/history",
-            get(blocking_json(web_routes::peer_cron_history)),
-        )
         .merge(super::runtime_login::router())
         .merge(super::tab_todo_routes::router())
         .merge(super::client_selection_routes::router())
@@ -433,6 +415,25 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/output/stream", get(output_stream::output_stream))
         .merge(stream_mux::router())
         .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
+        .route(
+            "/api/dictation/start",
+            plugin_host_action_routes::owner_post(web_routes::dictation::start)
+                .layer(axum::extract::DefaultBodyLimit::max(1024)),
+        )
+        .route(
+            "/api/dictation/{session}/frame/{sequence}",
+            plugin_host_action_routes::owner_post(web_routes::dictation::frame).layer(
+                axum::extract::DefaultBodyLimit::max(codeterm_types::dictation::MAX_PCM_BYTES),
+            ),
+        )
+        .route(
+            "/api/dictation/{session}/finish/{sequence}",
+            plugin_host_action_routes::owner_post(web_routes::dictation::finish),
+        )
+        .route(
+            "/api/dictation/{session}/cancel",
+            plugin_host_action_routes::owner_post(web_routes::dictation::cancel),
+        )
         .route(
             "/api/tabs/{id}/chat-raw/start",
             post(blocking_json(web_routes::chat_raw_start)),
@@ -514,6 +515,10 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/crons/{id}/trigger", post(cron_routes::cron_trigger))
         .route("/api/crons/{id}/cancel", post(cron_routes::cron_cancel))
         .route("/api/crons/{id}/history", get(cron_routes::cron_history))
+        .route(
+            "/api/crons/{id}/history/{run_id}",
+            get(cron_routes::cron_run_transcript),
+        )
         .route(
             "/api/services",
             get(services_routes::list_services).post(services_routes::create_service),
@@ -619,6 +624,10 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/account/status", get(super::account_routes::status))
         .route("/api/account/backend", get(super::account_routes::backend))
         .route("/api/account/login", post(super::account_routes::login))
+        .route(
+            "/api/account/login/{id}/cancel",
+            post(super::account_routes::cancel_login),
+        )
         .merge(super::account_routes::debug_login_router())
         .route(
             "/api/account/callback",
@@ -660,6 +669,11 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/mesh/ping", get(mesh_routes::mesh_ping))
         .route("/api/mesh/status", get(mesh_routes::mesh_status))
         .route("/api/mesh/peers", get(mesh_routes::mesh_peers))
+        .route(
+            "/api/mesh/identity",
+            get(crate::account_mesh_routes::machine_identity)
+                .post(crate::account_mesh_routes::set_machine_identity),
+        )
         .route("/api/mesh/relay-to", post(mesh_routes::mesh_relay_to_peer))
         .route(
             "/api/mesh/attachments/transfer",
