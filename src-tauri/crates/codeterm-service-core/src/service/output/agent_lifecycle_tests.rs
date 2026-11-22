@@ -516,6 +516,8 @@ fn declared_pty_turn_rejects_stale_classifier_idle_and_keeps_stop_available() {
     tab.pty_id = Some("own-pty".into());
     tab.agent_type = Some(manifest.id.clone());
     tab.agent_session_id = Some("own-session".into());
+    tab.session_binding_nonce = Some("own-nonce".into());
+    tab.reported_session_binding_nonce = Some("own-nonce".into());
     tab.boot_stage = Some(BootStage::AgentReady);
     tab.agent_state = Some(live_state_for(ProviderStateVerdict::Idle));
     let fixture = ServiceFixture::new(mux);
