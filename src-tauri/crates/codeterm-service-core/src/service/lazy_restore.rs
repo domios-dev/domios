@@ -246,6 +246,25 @@ fn wake_with(
     wake_with_intent(svc, tab_id, allow_failed, WakeIntent::Resume, materialize)
 }
 
+fn wake_automatic_refusal(
+    tab: &Tab,
+    allow_failed: bool,
+    intent: WakeIntent,
+) -> Option<Result<(), String>> {
+    if intent == WakeIntent::Restart
+        || allow_failed
+        || !wake_eligible_for_intent(tab, allow_failed, intent)
+    {
+        return None;
+    }
+    let reason = automatic_restore_refusal(tab)?;
+    Some(if intent == WakeIntent::Open {
+        Ok(())
+    } else {
+        Err(reason.into())
+    })
+}
+
 fn wake_with_intent(
     svc: &ServiceContext,
     tab_id: &str,
@@ -258,14 +277,11 @@ fn wake_with_intent(
         let resolved = mux
             .resolve_tab_id(tab_id)
             .ok_or_else(|| format!("Tab {tab_id} not found"))?;
-        if intent != WakeIntent::Restart {
-            if let Some(reason) = mux.get_tab(&resolved).and_then(automatic_restore_refusal) {
-                return if intent == WakeIntent::Open {
-                    Ok(())
-                } else {
-                    Err(reason.into())
-                };
-            }
+        if let Some(outcome) = mux
+            .get_tab(&resolved)
+            .and_then(|tab| wake_automatic_refusal(tab, allow_failed, intent))
+        {
+            return outcome;
         }
         if intent == WakeIntent::Open
             && !mux
@@ -291,10 +307,13 @@ fn wake_with_intent(
         let id = mux
             .resolve_tab_id(tab_id)
             .ok_or_else(|| format!("Tab {tab_id} not found"))?;
-        if !mux
-            .get_tab(&id)
-            .is_some_and(|tab| wake_eligible_for_intent(tab, allow_failed, intent))
-        {
+        let Some(tab) = mux.get_tab(&id) else {
+            return Ok(());
+        };
+        if let Some(outcome) = wake_automatic_refusal(tab, allow_failed, intent) {
+            return outcome;
+        }
+        if !wake_eligible_for_intent(tab, allow_failed, intent) {
             return Ok(());
         }
         id
@@ -336,6 +355,9 @@ fn wake_with_intent(
     let (retry_started_agent, retained_pty_progress) = {
         let mut mux = svc.mux.write();
         let tab = mux.get_tab_mut(&id).ok_or("Sleeping tab closed")?;
+        if let Some(outcome) = wake_automatic_refusal(tab, allow_failed, intent) {
+            return outcome;
+        }
         if !wake_eligible_for_intent(tab, allow_failed, intent) {
             return Ok(());
         }
