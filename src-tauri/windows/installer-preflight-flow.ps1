@@ -28,8 +28,19 @@ function Invoke-InstallerPreflight {
     $root = (Get-InstalledImagePath ([IO.Path]::GetFullPath($InstallRoot))).TrimEnd('\')
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $deadline = $GracefulMilliseconds + $ExitMilliseconds
+    $sleep = if ($Ports.ContainsKey('Sleep') -and $null -ne $Ports.Sleep) { $Ports.Sleep } else { { param($ms) Start-Sleep -Milliseconds $ms } }
     while ($true) {
-        $capture = & $Ports.Capture $root
+        try {
+            $capture = & $Ports.Capture $root
+        } catch {
+            $isTransient = $null -ne $_.Exception -and $null -ne $_.Exception.Data -and $true -eq $_.Exception.Data['TransientUnpinnableHolder']
+            $remaining = $GracefulMilliseconds - [int]$clock.ElapsedMilliseconds
+            if ($isTransient -and $remaining -gt 0) {
+                & $sleep ([Math]::Min(250, $remaining))
+                continue
+            }
+            throw
+        }
         try {
             $holders = @(Get-InstalledCaptureHolders $root $capture)
             if ($holders.Count -eq 0) { return $true }
