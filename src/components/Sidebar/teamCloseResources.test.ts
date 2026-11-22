@@ -30,6 +30,7 @@ async function main() {
   const requests: string[] = [];
   const controller = new AbortController();
   const transport = {
+    currentToken: () => null,
     async localJson<T>(method: string, path: string, body?: unknown, options?: { signal?: AbortSignal }) {
       assert.equal(method, "GET");
       assert.equal(body, undefined);
@@ -37,7 +38,7 @@ async function main() {
       requests.push(path);
       return preview as T;
     },
-  } satisfies Pick<TransportClient, "localJson">;
+  } satisfies Pick<TransportClient, "currentToken" | "localJson">;
   const [team] = (await readTeamClosePlanMetadata("workspace/a", "team/a", controller.signal, transport)).teams;
   assert.deepEqual(requests, ["/api/workspaces/workspace%2Fa/close-preview?resources_only=true&team_id=team%2Fa"]);
   assert.deepEqual(team.members.map(member => member.tabId), ["member-a"]);
@@ -46,7 +47,7 @@ async function main() {
   assert.deepEqual(team.lanes, ["Shared plan: Member task"]);
   await assert.rejects(readTeamClosePlanMetadata("workspace/a", "other-team", controller.signal, transport), /selected scope/);
   await readTeamClosePlanMetadata("workspace/a", null, controller.signal, transport);
-  assert.equal(requests.at(-1), "/api/workspaces/workspace%2Fa/close-preview?resources_only=true");
+  assert.equal(requests[requests.length - 1], "/api/workspaces/workspace%2Fa/close-preview?resources_only=true");
 }
 
 void main();
