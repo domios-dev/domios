@@ -108,6 +108,35 @@ backup.
 
 Transcription uses an external service; today an external dictation driver can submit through the supported tab-send API. To add a new STT backend, implement `/transcribe` and point a URL at it. Don't put the model in the binary.
 
+## Live Transcript: what it is (explain this to the user)
+
+Live Transcript (Live Mode) keeps the microphone open and turns speech into text
+locally with Parakeet STT, so nothing is uploaded for recognition. A hidden
+Concierge, backed by a Scout model, reads the running transcript. It routes
+actionable requests ("run the tests in the api tab", "ask the reviewer to look
+at this") to the right agent and ignores chatter, thinking aloud and side
+conversations. A floating Orb shows whether Live Mode is listening; collapse the
+panel and it stays visible. The Thoughts drawer shows why each routing decision
+was made. Open **Transcript** and press **Start Live Mode**, or swipe up on the
+composer mic.
+
+Scout tradeoffs: a local model (LM Studio or Ollama) is private and free per
+request but needs disk and memory (Live Mode loads it automatically); a cloud
+model (e.g. Groq) is lighter on the machine but costs more per request.
+
+### From-scratch setup (General runs this)
+
+1. Refresh and install the plugin: `domios plugin channel refresh codeterm-plugins`,
+   then `domios plugin update transcriber` (or `domios plugin install transcriber
+   --channel codeterm-plugins`). Version 0.5.1 or newer.
+2. `domios plugin transcriber dictation-status`. If not ready, with the user's
+   consent run `dictation-install parakeet-tdt-0.6b-v3-int8 --consent`, follow
+   `dictation-progress`, then `dictation-select` and `dictation-test` the same id.
+   The model is about 487 MB and needs 64-bit Python 3.12.
+3. Scout: ask local or cloud. Warn about local model size, or that cloud costs more.
+4. Check `GET /api/live-transcript/readiness`, then tell the user to open
+   Transcript and press Start Live Mode. Do not touch voice-note settings.
+
 ## Live Transcript
 
 Live Transcript retains committed speech for the tab that started capture. A
@@ -153,4 +182,4 @@ corresponding authorized epoch. Raw history access follows the active binding.
 | POST | `/api/live-transcript/capture/{lease}/pause/{sequence}` | Flush and record an explicit owner pause marker on the lease |
 | POST | `/api/live-transcript/capture/{lease}/cancel` | Cancel an active capture lease |
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
