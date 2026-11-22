@@ -286,11 +286,14 @@ fn four_tabs_can_start_independently_and_the_fifth_waits_for_a_slot() {
 
 #[test]
 fn reserved_worker_never_takes_background_and_focus_changes_reprioritize_pending() {
-    use super::{take_prioritized, Priority};
-    let mut pending = vec![0, 1, 2, 3];
+    use super::{take_prioritized, Pending, Priority};
+    let mut pending = Pending {
+        indices: vec![0, 1, 2, 3],
+        idle_reserved: 0,
+    };
     let mut priorities = vec![Priority::Background; 4];
     assert_eq!(take_prioritized(&mut pending, &priorities, true), None);
-    assert_eq!(pending, [0, 1, 2, 3]);
+    assert_eq!(pending.indices, [0, 1, 2, 3]);
     priorities[3] = Priority::Focused;
     priorities[2] = Priority::Visible;
     assert_eq!(take_prioritized(&mut pending, &priorities, true), Some(3));
