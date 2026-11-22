@@ -27,6 +27,7 @@ pub mod agent_transition;
 pub(crate) mod ai_helper_spawn;
 mod image_attachments;
 pub mod lazy_restore;
+pub mod live_transcript;
 pub mod provider_accounts;
 pub mod tab_mutation_authority;
 pub mod tab_todos;

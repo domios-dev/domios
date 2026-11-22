@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod config;
 pub mod dictation;
+pub mod live_transcript;
 pub mod native_host;
 pub mod native_update;
 pub mod plan;
