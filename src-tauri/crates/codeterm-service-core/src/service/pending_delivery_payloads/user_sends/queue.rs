@@ -124,8 +124,8 @@ impl UserSendStore {
     }
 
     pub(super) fn emit_queue_change(&self, tab_id: &str) {
-        if let Some(events) = self.queue_events.get() {
-            events.emit(
+        if let Some(ui) = self.queue_events.get() {
+            ui.emit(
                 "chat-send-queue-changed",
                 serde_json::json!({ "tab_id": tab_id }),
             );
