@@ -71,13 +71,18 @@ export function AgentStateIndicator({
   const background = backgroundOwnsTool(activeTool, work.items);
   const compacting = phase === "compacting";
   const runningTool = activity.kind === "working" && !background && !compacting ? activeTool : undefined;
+  const rawCommandStatusLine = !runningTool && !background && !compacting && activity.kind === "working" && /[\\/]/.test(activity.label)
+    ? activity.label
+    : undefined;
   const statusMessage = background && activity.kind === "working" && !compacting
     ? activity.status
-    : runningTool ? statusActivityLabel(runningTool) : activity.label;
+    : runningTool ? statusActivityLabel(runningTool)
+      : rawCommandStatusLine ? statusActivityLabel({ toolKind: "command", toolDetail: rawCommandStatusLine })
+        : activity.label;
   const stableMessage = useStableStatusLabel(statusMessage, compacting ? "compacting" : activity.kind, !runningTool && !background && activity.genericWork === true);
   const status = compacting ? "" : suppressLastTurn && activity.kind === "idle" ? stableMessage
     : runtimeActivityLabel(stableMessage, activity.kind, runtimeState, Date.now(), activity.lastTurnMs);
-  const detail = runningTool ? activityCommand(runningTool) : undefined;
+  const detail = runningTool ? activityCommand(runningTool) : rawCommandStatusLine;
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
     ? reasoningEffort.actual?.trim()
     : null;
