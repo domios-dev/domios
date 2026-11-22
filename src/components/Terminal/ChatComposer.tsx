@@ -699,6 +699,23 @@ function ChatComposerImpl({
       sendUnavailableReason={sendUnavailableReason}
       dictation={liveLocked ? undefined : dictation}
       onOpenLiveTranscript={transcript && !liveLocked ? openLiveTranscript : undefined}
+      hideActionButton={liveLocked}
+      inputOverlay={liveLocked && transcript ? (
+        <div className="flex w-full items-center justify-between gap-2 px-1" data-testid="live-transcript-composer-lock">
+          <span className="flex min-w-0 items-center gap-2 text-xs text-[var(--ct-muted-fg,#8b949e)]">
+            <span className="ct-live-dot" data-live="true" aria-hidden="true" />
+            <span className="truncate font-medium text-[var(--ct-fg,#e6edf3)]">Live Transcript listening</span>
+            <span className="hidden truncate opacity-75 sm:inline">· Drop or paste files</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => transcript.open(tabId)}
+            className="shrink-0 rounded-full border border-[color-mix(in_srgb,var(--ct-accent,#58a6ff)_38%,transparent)] bg-[color-mix(in_srgb,var(--ct-accent,#58a6ff)_14%,transparent)] px-2.5 py-1 text-xs font-medium text-[var(--ct-fg,#e6edf3)] transition-colors hover:bg-[color-mix(in_srgb,var(--ct-accent,#58a6ff)_24%,transparent)]"
+          >
+            Open Transcript
+          </button>
+        </div>
+      ) : undefined}
       spaceArming={spaceArming}
       spacePop={spacePop}
       hasText={liveLocked || input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
@@ -717,7 +734,6 @@ function ChatComposerImpl({
       />
       {!liveLocked && <ComposerMentions ref={mentionPicker} tabId={tabId} input={displayInput} setInput={mentionTokens.change} onInsert={pickMention} tokens={mentionTokens.draft.tokens}
         onPicked={refocusComposer} textareaRef={textareaRef} anchorRef={shellRef} />}
-      {liveLocked && <button type="button" className="ct-delivery__retry" onClick={() => transcript.open(tabId)}>Live Input active · Open Transcript</button>}
       {plansSink}
       {!sendPolicy.allowed && <span role="status">Connecting to chat — sending is unavailable</span>}
       <ComposerCapsuleField

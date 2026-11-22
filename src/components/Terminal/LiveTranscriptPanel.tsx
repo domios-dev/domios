@@ -60,20 +60,12 @@ function LiveTranscriptSession({ tab, identity, openCount, autoStartCount, onLoc
   const api = useMemo(() => createLiveTranscriptApi(tab.id), [tab.id]);
   const [autoResume, setAutoResume] = useState(false);
   const capture = useLiveTranscriptCapture({ tabId: tab.id, identity, enabled: true, autoResume });
-  const lastAutoStart = useRef(0);
-  useEffect(() => {
-    if (autoStartCount === 0 || autoStartCount === lastAutoStart.current) return;
-    lastAutoStart.current = autoStartCount;
-    if (capture.phase === "idle" || capture.phase === "paused") {
-      void capture.start(capture.phase === "paused");
-    }
-  }, [autoStartCount, capture.phase, capture.start]);
   const active = capture.phase === "recording" || capture.phase === "starting" || capture.phase === "pausing";
   useLayoutEffect(() => {
     onLock(active);
     return () => onLock(false);
   }, [active, onLock]);
-  return createPortal(<LiveTranscriptPanel api={api} owner={tab} openCount={openCount}
+  return createPortal(<LiveTranscriptPanel api={api} owner={tab} openCount={openCount} autoStartCount={autoStartCount}
     capture={capture} autoResume={autoResume} onAutoResume={setAutoResume} onClose={onClose} />, document.body);
 }
 
@@ -81,13 +73,14 @@ type PanelProps = {
   api: LiveTranscriptApi;
   owner: Tab;
   openCount: number;
+  autoStartCount?: number;
   capture: ReturnType<typeof useLiveTranscriptCapture>;
   autoResume: boolean;
   onAutoResume: (enabled: boolean) => void;
   onClose: () => void;
 };
 
-export function LiveTranscriptPanel({ api, owner, openCount, capture, autoResume, onAutoResume, onClose }: PanelProps) {
+export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0, capture, autoResume, onAutoResume, onClose }: PanelProps) {
   const store = useMuxStateStore();
   const geometry = useLiveTranscriptGeometry();
   const [collapsedAt, setCollapsedAt] = useState<number>();
@@ -97,6 +90,8 @@ export function LiveTranscriptPanel({ api, owner, openCount, capture, autoResume
   const [thoughts, setThoughts] = useState<{ epoch: string; rationale?: string }>();
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const [feedback, setFeedback] = useState<string>();
+  const lastAutoStart = useRef(0);
+  const pendingAutoStart = useRef(false);
   const attachments = useLiveTranscriptAttachments(owner.id, setFeedback);
   const view = useLiveTranscriptPanel({ api, show: !collapsed, log, captureRevision: capture.revision, capturePhase: capture.phase });
   const ownerName = displayTitleForTab(owner);
@@ -111,9 +106,25 @@ export function LiveTranscriptPanel({ api, owner, openCount, capture, autoResume
   const selectedText = chosen.flatMap(row => row.content.kind === "speech" ? [row.content.text] : []).join("\n\n");
   const ownEpoch = status?.binding.target.kind === "attached" ? status.binding.target.epochId : undefined;
   const scoutUnavailable = status?.scout === "unavailable" || view.readiness?.scout === "unavailable";
+  const conciergeAttached = Boolean(status && status.binding.target.kind !== "detached");
+  const conciergeReady = Boolean(view.loaded && conciergeAttached && status?.concierge === "ready");
+  const needsConcierge = Boolean(view.loaded && !conciergeReady);
   const useGeneral = capture.phase === "setup" || view.readiness?.asr.state === "unavailable" ||
     view.readiness?.asr.state === "unloaded" || view.readiness?.concierge === "unavailable" || scoutUnavailable;
   const routeRange = contiguousSpeechRange(chosen);
+
+  useEffect(() => {
+    if (autoStartCount > 0 && autoStartCount !== lastAutoStart.current) {
+      lastAutoStart.current = autoStartCount;
+      pendingAutoStart.current = true;
+    }
+    if (!pendingAutoStart.current || !view.loaded) return;
+    if (!conciergeReady) return;
+    pendingAutoStart.current = false;
+    if (capture.phase === "idle" || capture.phase === "paused") {
+      void capture.start(canResume);
+    }
+  }, [autoStartCount, view.loaded, conciergeReady, capture.phase, capture.start, canResume]);
 
   function switchView(toLog: boolean) {
     setLog(toLog);
@@ -173,7 +184,10 @@ export function LiveTranscriptPanel({ api, owner, openCount, capture, autoResume
       <button type="button" aria-label="Collapse Live Transcript" onClick={() => { setThoughts(undefined); setCollapsedAt(openCount); }}><Minus size={16} aria-hidden /></button>
       <button type="button" aria-label="Close Live Transcript" disabled={active} onClick={onClose}><X size={16} aria-hidden /></button>
     </header>
-    {(settings || useGeneral || scoutUnavailable || capture.error || view.error) && <div className="ct-live-controls">
+    {(settings || needsConcierge || useGeneral || scoutUnavailable || capture.error || view.error) && <div className="ct-live-controls">
+      {needsConcierge && !settings && <ConciergeSetupGate owner={owner.id} view={view} api={api}
+        scoutUnavailable={scoutUnavailable} autoStart={pendingAutoStart.current}
+        onConnected={() => { setFeedback("Concierge connected."); }} />}
       {settings && <RoutingSettings owner={owner.id} view={view} api={api} autoResume={autoResume}
         onAutoResume={onAutoResume} scoutUnavailable={scoutUnavailable} />}
       {useGeneral && <div className="ct-live-callout">
@@ -183,7 +197,7 @@ export function LiveTranscriptPanel({ api, owner, openCount, capture, autoResume
           "2. `domios plugin transcriber dictation-status` — if not ready, run `domios plugin transcriber dictation-install parakeet-tdt-0.6b-v3-int8 --consent`, check `domios plugin transcriber dictation-progress` until completed, then `domios plugin transcriber dictation-select parakeet-tdt-0.6b-v3-int8` and `domios plugin transcriber dictation-test parakeet-tdt-0.6b-v3-int8`.\n" +
           "3. Reply in one short friendly line once ready (or the exact error). Never touch voice-note settings or drafts."))}>Set up with General</button>
       </div>}
-      {scoutUnavailable && <div className="ct-live-callout" role="status">
+      {scoutUnavailable && !needsConcierge && <div className="ct-live-callout" role="status">
         Scout is unavailable. Choose Wake word, Direct batch, or Manual to route speech.
         {!settings && <button type="button" onClick={() => setSettings(true)}>Choose routing mode</button>}
       </div>}
@@ -245,12 +259,12 @@ export function LiveTranscriptPanel({ api, owner, openCount, capture, autoResume
         onClick={() => { if (routeRange) void view.mutate(signal => api.route(routeRange, signal)); }}>Route selection</button>}
     </div>}
     <footer className="ct-live-footer">
-      <span role="status"><span className="ct-live-dot" data-live={active} />{feedback ?? captureLabel(phase)}</span>
+      <span role="status"><span className="ct-live-dot" data-live={active} />{feedback ?? (needsConcierge && !active ? "Connect Concierge first" : captureLabel(phase))}</span>
       <button type="button" aria-label="Refresh transcript" title="Refresh transcript" onClick={() => { void view.refresh(); void view.refreshReadiness(); }}>
         <RefreshCw size={14} aria-hidden />
       </button>
       {active ? <button type="button" disabled={phase === "pausing"} onClick={() => void capture.pause()}>Pause</button> :
-        <button type="button" onClick={() => void capture.start(canResume)}>
+        <button type="button" disabled={!conciergeReady || view.busy} title={!conciergeReady ? "Connect a Concierge before starting live capture" : undefined} onClick={() => void capture.start(canResume)}>
           <Mic size={14} aria-hidden />{canResume ? "Resume" : "Start"}
         </button>}
       <button type="button" className="ct-live-resize ct-live-handle" aria-label="Resize Live Transcript" title="Resize with the arrow keys or drag"
@@ -318,6 +332,55 @@ function LogEpochPicker({ current, records, open, onOpen }: {
     </button>
     {!epoch && <span className="ct-live-muted">Reasoning unavailable</span>}
   </>;
+}
+
+function ConciergeSetupGate({ owner, view, api, scoutUnavailable, autoStart, onConnected }: {
+  owner: string;
+  view: ReturnType<typeof useLiveTranscriptPanel>;
+  api: LiveTranscriptApi;
+  scoutUnavailable: boolean;
+  autoStart: boolean;
+  onConnected: () => void;
+}) {
+  const tabs = useMuxSelector(state => state.tabs);
+  const status = view.overview?.status;
+  const builtInUnavailable = view.readiness?.concierge === "unavailable" && status?.concierge === "unavailable";
+  const externalTabs = Object.values(tabs).filter(tab => tab.id !== owner && usableTab(tab) && tab.agent_type);
+  const [externalTab, setExternalTab] = useState("");
+  const [trigger, setTrigger] = useState<Trigger>("direct_batch");
+  const chosenExternal = externalTab || (builtInUnavailable ? (externalTabs[0]?.id ?? "") : "");
+  const canConnect = Boolean(status && !view.busy && (!builtInUnavailable || chosenExternal)
+    && !(scoutUnavailable && trigger === "scout_then_concierge"));
+
+  return <section className="ct-live-gate" aria-label="Concierge setup required" data-testid="live-transcript-concierge-gate">
+    <div className="ct-live-gate-title">Connect Concierge first</div>
+    <p className="ct-live-muted">
+      {builtInUnavailable
+        ? "No built-in Concierge model is ready. Pick an existing agent tab below or set up a provider with General."
+        : "Live Transcript routes your speech through a Concierge. Connect one before recording."}
+    </p>
+    <div className="ct-live-settings">
+      <label>Concierge
+        <select value={chosenExternal} onChange={event => setExternalTab(event.target.value)}>
+          {!builtInUnavailable && <option value="">Transcript Concierge (built-in)</option>}
+          {externalTabs.map(tab => <option key={tab.id} value={tab.id}>{displayTitleForTab(tab)}</option>)}
+        </select>
+      </label>
+      <label>Routing mode
+        <select value={trigger} onChange={event => setTrigger(event.target.value as Trigger)}>
+          {Object.entries(MODES).map(([id, title]) => <option value={id} key={id}
+            disabled={id === "scout_then_concierge" && scoutUnavailable}>{title}</option>)}
+        </select>
+      </label>
+      <button type="button" className="ct-live-primary" disabled={!canConnect} onClick={async () => {
+        if (await view.mutate(signal => api.attach({ trigger, ...(chosenExternal ? { externalTab: chosenExternal } : {}) }, signal))) {
+          onConnected();
+        }
+      }}>
+        {view.busy ? "Connecting…" : autoStart ? "Connect & Start" : "Connect Concierge"}
+      </button>
+    </div>
+  </section>;
 }
 
 function RoutingSettings({ owner, view, api, autoResume, onAutoResume, scoutUnavailable }: {

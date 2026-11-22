@@ -267,4 +267,34 @@ describe("Live Transcript panel", () => {
     expect(panel()?.textContent).toContain("Uncommitted words");
     expect(document.querySelector('[aria-label="Owner lock"]')?.textContent).toBe(shell.id);
   });
+
+  it("blocks capture until Concierge is connected and starts after Connect & Start", async () => {
+    const { api } = await mount();
+    let attached = false;
+    api.history.mockResolvedValue({ rows: [], gaps: [], nextFromSeq: null });
+    api.overview.mockImplementation(async () => ({
+      status: {
+        committedSeq: 0,
+        trigger: attached ? "direct_batch" : "scout_then_concierge",
+        scout: "ready",
+        concierge: attached ? "ready" : "needs_attachment",
+        binding: attached
+          ? { ownerTabId: shell.id, revision: 1, target: { kind: "attached", epochId: "current" } }
+          : { ownerTabId: shell.id, revision: 0, target: { kind: "detached" } },
+      },
+      cursor: attached ? { ackedSeq: 0, seenSeq: 0 } : null,
+    }));
+    api.attach.mockImplementation(async () => { attached = true; });
+
+    await click("Autostart active Transcript");
+    expect(panel()?.querySelector('[data-testid="live-transcript-concierge-gate"]')).not.toBeNull();
+    expect(control("Start").disabled).toBe(true);
+    expect(document.querySelector('[aria-label="Owner lock"]')?.textContent).toBe("unlocked");
+
+    await click("Connect & Start");
+    expect(api.attach).toHaveBeenCalledExactlyOnceWith({ trigger: "direct_batch" }, expect.any(AbortSignal));
+    expect(panel()?.querySelector('[data-testid="live-transcript-concierge-gate"]')).toBeNull();
+    expect(panel()?.textContent).toContain("Uncommitted words");
+    expect(document.querySelector('[aria-label="Owner lock"]')?.textContent).toBe(shell.id);
+  });
 });

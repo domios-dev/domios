@@ -11,6 +11,7 @@ export function ComposerInputShell({
   header,
   footer,
   actions,
+  overlay,
 }: {
   voiceUi: ComposerVoiceHandle;
   dictationPhase?: "idle" | "starting" | "listening" | "finishing";
@@ -18,6 +19,7 @@ export function ComposerInputShell({
   header?: ReactNode;
   footer?: ReactNode;
   actions?: ReactNode;
+  overlay?: ReactNode;
 }) {
   const {
     voice,
@@ -33,12 +35,14 @@ export function ComposerInputShell({
     sendPreview,
   } = voiceUi;
 
+  const hideEditor = composerHidden || Boolean(overlay);
+
   return (
     <ComposerCard ref={shellRef}
-      dictating={!composerHidden && dictationPhase && dictationPhase !== "idle" ? dictationPhase : undefined}
+      dictating={!hideEditor && dictationPhase && dictationPhase !== "idle" ? dictationPhase : undefined}
       header={!composerHidden ? header : undefined}
-      footer={!composerHidden && footer ? <div className="flex flex-wrap items-center gap-1">{footer}</div> : undefined}
-      actions={!composerHidden && actions && <div className="ct-composer-inner-actions flex shrink-0 items-center gap-1">{actions}</div>}
+      footer={!hideEditor && footer ? <div className="flex flex-wrap items-center gap-1">{footer}</div> : undefined}
+      actions={!hideEditor && actions && <div className="ct-composer-inner-actions flex shrink-0 items-center gap-1">{actions}</div>}
     >
       {composerHidden && (
         <div className="absolute inset-1 z-10 flex items-center px-1.5">
@@ -60,9 +64,14 @@ export function ComposerInputShell({
           )}
         </div>
       )}
+      {!composerHidden && overlay && (
+        <div className="absolute inset-1 z-10 flex items-center px-2">
+          {overlay}
+        </div>
+      )}
       <div
         className={
-          composerHidden
+          hideEditor
             ? "relative flex min-w-0 flex-1 items-center opacity-0 pointer-events-none"
             : "relative flex min-w-0 flex-1 items-center"
         }

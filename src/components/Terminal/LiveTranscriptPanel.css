@@ -198,12 +198,42 @@
 
 .ct-live-route,
 .ct-live-callout,
-.ct-live-settings {
+.ct-live-settings,
+.ct-live-gate {
   margin-bottom: 7px;
   padding: 7px 9px;
   background: rgb(144 164 217 / 7%);
   border: 1px solid rgb(198 207 240 / 13%);
   border-radius: 8px;
+}
+
+.ct-live-gate {
+  background: rgb(88 166 255 / 9%);
+  border-color: rgb(88 166 255 / 32%);
+}
+
+.ct-live-gate-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.ct-live-gate > .ct-live-settings {
+  margin: 8px 0 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.ct-live-panel button.ct-live-primary {
+  width: 100%;
+  margin-top: 8px;
+  background: #58a6ff;
+  color: #0d1117;
+  font-weight: 600;
+}
+
+.ct-live-panel button.ct-live-primary:hover:not(:disabled) {
+  background: #79b8ff;
 }
 
 .ct-live-callout button {
