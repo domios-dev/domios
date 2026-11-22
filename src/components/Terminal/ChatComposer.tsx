@@ -680,7 +680,12 @@ function ChatComposerImpl({
 
   const openLiveTranscript = useLatestCallback(() => {
     if (!transcript || liveLocked) return;
-    if (dictation.active()) dictation.cancel();
+    if (dictation.active()) {
+      void Promise.resolve(dictation.cancel()).finally(() => {
+        transcript.open(tabId, { autostart: true });
+      });
+      return;
+    }
     transcript.open(tabId, { autostart: true });
   }, [liveLocked, tabId, transcript]);
 

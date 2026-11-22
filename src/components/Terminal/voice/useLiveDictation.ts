@@ -139,13 +139,13 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     afterComposition.current = undefined;
     if (enabledRef.current && after?.identity === identityRef.current) after.callback();
   };
-  const discard = useLatestCallback((capture: Capture, reason?: string) => {
-    if (owned.current !== capture) return;
+  const discard = useLatestCallback((capture: Capture, reason?: string): Promise<void> => {
+    if (owned.current !== capture) return Promise.resolve();
     owned.current = null;
     capture.controller.abort();
     capture.finish?.();
     release(capture);
-    void capture.transport.cancel().catch(() => {});
+    const cancelled = capture.transport.cancel().catch(() => {});
     updates.current = [];
     deferredIdentity.current = null;
     afterComposition.current = undefined;
@@ -154,6 +154,7 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     levelChannel.reset();
     setPhase("idle");
     if (reason) setError(reason);
+    return cancelled;
   }, []);
   function fail(capture: Capture, failure: unknown) {
     discard(capture, microphoneErrorMessage(failure));
@@ -314,7 +315,7 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
       void stop();
     },
     active: () => owned.current !== null || updates.current.length > 0 || rollback.current,
-    cancel: () => { if (owned.current) discard(owned.current); },
+    cancel: (): void | Promise<void> => (owned.current ? discard(owned.current) : undefined),
     dismissSetup: () => setSetup(null),
     dismissError: () => setError(null),
   };

@@ -457,6 +457,7 @@ pub(super) fn wake_when_idle(
     svc: &ServiceContext,
     store: TranscriptStore,
     owner: &str,
+    destination: String,
     session: Arc<crate::service::agent_runtime::engine::Session>,
 ) {
     {
@@ -467,11 +468,31 @@ pub(super) fn wake_when_idle(
         }
         entry.waiting_for_idle = true;
     }
+    let mut events = svc.events.subscribe();
     let svc = svc.weak_self();
     let owner = owner.to_owned();
     crate::async_runtime::spawn(async move {
-        let permit = tokio::time::timeout(Duration::from_secs(60), session.gate.acquire()).await;
-        drop(permit);
+        let wait_idle = async {
+            loop {
+                let permit = session.gate.acquire().await;
+                let turn_active = session.state.lock().active_turn_started_at_ms.is_some();
+                drop(permit);
+                if !turn_active {
+                    break;
+                }
+                match events.recv().await {
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+                if svc
+                    .upgrade()
+                    .is_some_and(|s| s.mux.read().get_tab(&destination).is_none())
+                {
+                    break;
+                }
+            }
+        };
+        let _ = tokio::time::timeout(Duration::from_secs(90), wait_idle).await;
         let Some(svc) = svc.upgrade() else { return };
         {
             if let Some(entry) = svc

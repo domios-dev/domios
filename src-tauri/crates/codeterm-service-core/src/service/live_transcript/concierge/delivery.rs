@@ -147,7 +147,20 @@ pub(super) fn settle(
                     .map_err(|error| error.to_string())?;
             }
         }
-        ChatSendState::Failed => {}
+        ChatSendState::Failed => {
+            if state.attempted_through == action.range.to_seq {
+                state.attempted_through = action.range.from_seq.saturating_sub(1);
+            }
+            if let Some(session) = engine::for_tab(&action.destination) {
+                super::wake_when_idle(
+                    svc,
+                    store.clone(),
+                    &pending.binding.owner_tab_id,
+                    action.destination.clone(),
+                    session,
+                );
+            }
+        }
         _ => return Ok(()),
     }
     state.pending = None;
@@ -201,8 +214,9 @@ pub(super) fn route(
     {
         return Err("Transcript router is busy or unavailable".into());
     }
-    if session.gate.available_permits() == 0 {
-        super::wake_when_idle(svc, store.clone(), owner, session);
+    let turn_active = session.state.lock().active_turn_started_at_ms.is_some();
+    if session.gate.available_permits() == 0 || turn_active {
+        super::wake_when_idle(svc, store.clone(), owner, destination.clone(), session);
         return Err("Transcript router is busy or unavailable".into());
     }
     let cursor = store.cursor(&binding).map_err(|error| error.to_string())?;
