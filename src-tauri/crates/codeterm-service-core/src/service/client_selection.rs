@@ -63,6 +63,7 @@ impl ServiceContext {
                 .and_then(|workspace| workspace.cwd.clone());
             (switched, cwd, workspace_id, highlight_cleared)
         };
+        super::restore_admission::notify_changed();
         self.ext::<std::sync::Arc<crate::user_last_activity::UserLastActivity>>()
             .mark();
         if switched {

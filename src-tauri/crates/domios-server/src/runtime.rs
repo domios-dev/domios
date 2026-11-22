@@ -528,6 +528,7 @@ async fn shutdown_signal() -> io::Result<()> {
 fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
     use codeterm_service_core::{crash, service::session_persist, startup};
     crash::shutdown::mark_shutting_down_for(crash::shutdown::ShutdownReason::Signal);
+    codeterm_service_core::service::restore_admission::notify_changed();
     let spawn_gate = running.states.pty.lock().spawn_gate();
     spawn_gate.quiesce();
     let surfaces =

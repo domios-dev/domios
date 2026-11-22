@@ -33,12 +33,18 @@ function snapshot(): MultiplexerState {
 /** A daemon whose first state read stays pending until the test lets the restore land. */
 function createDaemon() {
   const listeners = new Map<string, Set<Handler>>();
+  const selections: Array<Record<string, unknown> | undefined> = [];
   let land!: () => void;
   const read = new Promise<MultiplexerState>((resolve) => { land = () => resolve(snapshot()); });
   return {
-    land: () => land(),
-    invoke: async <T,>(cmd: string): Promise<T> => {
+    land,
+    selections,
+    emit: (event: string, payload: unknown) => {
+      for (const listen of listeners.get(event) ?? []) listen({ payload });
+    },
+    invoke: async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
       if (cmd === "mux_get_state") return await read as T;
+      if (cmd === "mux_set_active_tab_and_workspace") selections.push(args);
       if (cmd === "ordinary_tabs_list" || cmd === "list_notifications") return [] as T;
       return undefined as T;
     },
@@ -77,6 +83,7 @@ afterEach(async () => {
   for (const root of mounted.splice(0)) await act(async () => root.unmount());
   bridge.__setInvokeForTest(null);
   bridge.__setListenForTest(null);
+  window.sessionStorage.clear();
   window.localStorage.clear();
 });
 
@@ -89,6 +96,7 @@ describe("a reload restore lands behind the user's navigation", () => {
     await settle();
     expect(page.state().active_workspace_id).toBe("ws-b");
     expect(page.state().activeTabIds["ws-b"]).toBe("b1");
+    expect(daemon.selections).toEqual([{ workspaceId: "ws-b", tabId: "b1" }]);
   });
 
   it("keeps what the user opened right after the reload when the restore completes later", async () => {
@@ -96,10 +104,17 @@ describe("a reload restore lands behind the user's navigation", () => {
     const daemon = createDaemon();
     const page = await mountPage(daemon);
     await act(async () => page.actions().setActiveTab("ws-a", "a2"));
+    expect(daemon.selections).toEqual([]);
     daemon.land();
     await settle();
+    await act(async () => {
+      daemon.emit("mux-state-changed", { ...snapshot(), generation: 4,
+        active_workspace_id: "ws-b", focused_tab_id: "b1" });
+      daemon.emit("tab-focused", { tab_id: "b1" });
+    });
     expect(page.state().active_workspace_id).toBe("ws-a");
     expect(page.state().activeTabIds["ws-a"]).toBe("a2");
     expect(page.state().focused_tab_id).toBe("a2");
+    expect(daemon.selections).toEqual([{ workspaceId: "ws-a", tabId: "a2" }]);
   });
 });

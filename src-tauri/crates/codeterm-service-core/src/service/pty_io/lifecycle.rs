@@ -47,6 +47,16 @@ pub(super) struct RestoredSnapshotLaunchInput {
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
 }
 
+impl RestoredSnapshotLaunchInput {
+    fn fresh_input(&self) -> crate::service::restored_launch::RestoredFreshLaunchInput {
+        crate::service::restored_launch::RestoredFreshLaunchInput {
+            params: self.params.clone(),
+            launch_parameters: self.launch_parameters.clone(),
+            launch_task: self.launch_task.clone(),
+        }
+    }
+}
+
 pub(super) fn restored_snapshot_launch_input(
     registry: &crate::agent::registry::AgentRegistry,
     launch: RestoredLaunch,
@@ -147,13 +157,10 @@ fn restored_snapshot_launch_command_inner(
     input: &RestoredSnapshotLaunchInput,
 ) -> crate::service::orchestrator::PreparedAgentCommand {
     if let Some(service) = service {
-        return crate::service::restored_launch::RestoredFreshLaunchInput {
-            params: input.params.clone(),
-            launch_parameters: input.launch_parameters.clone(),
-            launch_task: input.launch_task.clone(),
-        }
-        .prepared_command(service, tab_id)
-        .unwrap_or_default();
+        return input
+            .fresh_input()
+            .prepared_command(service, tab_id)
+            .unwrap_or_default();
     }
     match input.params.resume_session_id {
         Some(_) => crate::service::orchestrator::build_agent_command(
@@ -830,12 +837,32 @@ impl ServiceContext {
                     &input.params,
                     &input.launch_parameters,
                 );
-                let launch_cmd = restored_snapshot_launch_command_for_service(
-                    self,
-                    tab_id,
-                    &provider_id,
-                    &input,
-                );
+                use crate::service::provider_accounts::{self, provisioning};
+                let launch_cmd = if provisioning::in_startup(self, tab_id) {
+                    let Some(expected) = self.mux.read().get_tab(tab_id).cloned() else {
+                        return;
+                    };
+                    let invocation = provider_accounts::for_tab(self, tab_id);
+                    if crate::crash::shutdown::is_shutting_down()
+                        || !provisioning::startup_tab_is_current(self, &expected)
+                    {
+                        return;
+                    }
+                    let invocation = match invocation {
+                        Ok(invocation) => invocation,
+                        Err(reason) => {
+                            self.refuse_restored_launch(tab_id, &reason);
+                            command_error = Some(reason);
+                            return;
+                        }
+                    };
+                    input
+                        .fresh_input()
+                        .prepared_command_with_invocation(self, tab_id, invocation)
+                        .unwrap_or_default()
+                } else {
+                    restored_snapshot_launch_command_for_service(self, tab_id, &provider_id, &input)
+                };
                 crate::startup::boot_timing::mark(tab_id, None, "launch_command_built");
                 if let Err(reason) = require_restored_launch_command(
                     &launch_cmd,

@@ -279,60 +279,70 @@ impl LaunchAccount {
         tab: &str,
         provided: Option<Option<Arc<InvocationContext>>>,
     ) -> Result<Option<Arc<InvocationContext>>, String> {
-        use crate::service::provider_accounts;
-        let implicit = provider_accounts::selected_account(&self.expected.lock())
+        crate::startup::boot_timing::mark(tab, None, "account_supervision_begin");
+        let implicit = crate::service::provider_accounts::selected_account(&self.expected.lock())
             == codeterm_types::config::provider_accounts::IMPLICIT_ACCOUNT;
-        if implicit {
+        let result = if implicit {
             if provided.as_ref().is_some_and(Option::is_some) {
-                return Err(
+                Err(
                     "launch_account_context_changed: usual sign-in cannot use a private account"
                         .into(),
-                );
-            }
-            return self.resolve_with(svc, tab, || {
-                provider_accounts::implicit_launch_invocation(svc, &self.provider)
-            });
-        }
-        let owner = svc.clone();
-        let tab = tab.to_owned();
-        let account = self.clone();
-        self.start_resolution(svc, &tab, move || {
-            let (id, saved_namespace) = {
-                let expected = account.expected.lock();
-                (
-                    crate::service::provider_accounts::selected_account(&expected).to_owned(),
-                    expected.restorable_launch.account_namespace.clone(),
                 )
-            };
-            let namespace = crate::service::provider_accounts::credential_namespace(
-                &owner,
-                &account.provider,
-                Some(&id),
-                saved_namespace.as_deref(),
-            )?;
-            let resolved = crate::service::provider_accounts::invocation_at(
-                &owner,
-                &account.provider,
-                Some(&id),
-                namespace.as_deref(),
-            )?;
-            let current_namespace = crate::service::provider_accounts::credential_namespace(
-                &owner,
-                &account.provider,
-                Some(&id),
-                saved_namespace.as_deref(),
-            )?;
-            if namespace != current_namespace
-                || provided.as_ref().is_some_and(|provided| {
-                    provided.as_ref().map(|context| context.cache_key())
-                        != resolved.as_ref().map(|context| context.cache_key())
+            } else {
+                self.resolve_with(svc, tab, || {
+                    crate::service::provider_accounts::implicit_launch_invocation(
+                        svc,
+                        &self.provider,
+                    )
                 })
-            {
-                return Err("launch_account_context_changed: credential namespace changed".into());
             }
-            Ok(resolved)
-        })?
-        .wait_blocking(std::time::Duration::from_secs(60))
+        } else {
+            let owner = svc.clone();
+            let tab = tab.to_owned();
+            let account = self.clone();
+            let provision = move || {
+                let (id, saved_namespace) = {
+                    let expected = account.expected.lock();
+                    (
+                        crate::service::provider_accounts::selected_account(&expected).to_owned(),
+                        expected.restorable_launch.account_namespace.clone(),
+                    )
+                };
+                let namespace = crate::service::provider_accounts::credential_namespace(
+                    &owner,
+                    &account.provider,
+                    Some(&id),
+                    saved_namespace.as_deref(),
+                )?;
+                let resolved = crate::service::provider_accounts::invocation_at(
+                    &owner,
+                    &account.provider,
+                    Some(&id),
+                    namespace.as_deref(),
+                )?;
+                let current_namespace = crate::service::provider_accounts::credential_namespace(
+                    &owner,
+                    &account.provider,
+                    Some(&id),
+                    saved_namespace.as_deref(),
+                )?;
+                if namespace != current_namespace
+                    || provided.as_ref().is_some_and(|provided| {
+                        provided.as_ref().map(|context| context.cache_key())
+                            != resolved.as_ref().map(|context| context.cache_key())
+                    })
+                {
+                    return Err(
+                        "launch_account_context_changed: credential namespace changed".into(),
+                    );
+                }
+                Ok(resolved)
+            };
+            self.start_resolution(svc, &tab, provision)
+                .and_then(|job| job.wait_blocking(std::time::Duration::from_secs(60)))
+        };
+        crate::startup::boot_timing::mark(tab, None, "account_supervision_settled");
+        result
     }
 
     pub(super) fn start_resolution(
