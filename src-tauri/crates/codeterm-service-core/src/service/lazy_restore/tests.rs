@@ -100,6 +100,8 @@ fn contradictory_restored_failure_refuses_admission_without_becoming_a_passive_s
 fn ordinary_shell_failure_keeps_ordinary_recent_activity_restore_policy() {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
+    tab.role = None;
+    tab.role_profile = None;
     tab.boot_stage = Some(BootStage::SpawnFailed);
     tab.boot_failure_reason = Some("shell process exited".into());
     tab.last_active_at_ms = Some(u64::MAX);
@@ -111,6 +113,7 @@ fn ordinary_shell_failure_keeps_ordinary_recent_activity_restore_policy() {
     let tab = mux.get_tab(&id).unwrap();
     assert!(automatic_restore_refusal(tab).is_none());
     assert!(!tab.frozen);
+    assert!(tab.role.is_none());
     assert!(tab.agent_type.is_none());
     assert!(tab.agent_session_id.is_none());
 }

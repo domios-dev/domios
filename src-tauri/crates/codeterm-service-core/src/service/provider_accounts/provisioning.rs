@@ -64,6 +64,24 @@ impl Drop for Retained {
     }
 }
 
+pub(super) fn require_idle(svc: &ServiceContext) -> Result<(), String> {
+    if crate::crash::shutdown::is_shutting_down() {
+        return Err("account_provisioning_refused: service is shutting down".into());
+    }
+    if !owns(svc)
+        && svc
+            .ext_or_init::<State>(State::default)
+            .provisioning_job
+            .lock()
+            .is_some()
+    {
+        return Err(
+            "account_provisioning_busy: a retained provisioning job is still running".into(),
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn start(
     svc: &ServiceContext,
     provision: impl FnOnce() -> ResultContext + Send + 'static,

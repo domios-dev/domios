@@ -421,6 +421,8 @@ impl ServiceContext {
             bus_payload["kind"] = Value::String(kind.to_string());
             ui_payload["kind"] = Value::String(kind.to_string());
         }
+        self.events
+            .publish_generic("agent.report", bus_payload.clone());
         self.events.broadcast("agent.report", bus_payload);
         self.ui.emit("agent-report", ui_payload);
     }

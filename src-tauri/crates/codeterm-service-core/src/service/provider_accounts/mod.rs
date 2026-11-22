@@ -495,6 +495,11 @@ pub(crate) fn invocation_at(
     account: Option<&str>,
     namespace: Option<&str>,
 ) -> Result<Option<Arc<InvocationContext>>, String> {
+    if account.unwrap_or(IMPLICIT_ACCOUNT) == IMPLICIT_ACCOUNT {
+        provisioning::require_idle(svc)?;
+        return invocation_at_typed(svc, provider, account, namespace)
+            .map_err(|error| error.to_string());
+    }
     let owner = svc.clone();
     let provider = provider.to_owned();
     let account = account.map(str::to_owned);
