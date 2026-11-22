@@ -256,10 +256,11 @@ impl LaunchAccount {
         tab: &str,
         provided: Option<Option<Arc<InvocationContext>>>,
     ) -> Result<Option<Arc<InvocationContext>>, String> {
+        crate::startup::boot_timing::mark(tab, None, "account_supervision_begin");
         let owner = svc.clone();
         let tab = tab.to_owned();
         let account = self.clone();
-        self.start_resolution(svc, &tab, move || {
+        let provision = move || {
             let (id, saved_namespace) = {
                 let expected = account.expected.lock();
                 (
@@ -294,8 +295,18 @@ impl LaunchAccount {
                 return Err("launch_account_context_changed: credential namespace changed".into());
             }
             Ok(resolved)
-        })?
-        .wait_blocking(std::time::Duration::from_secs(60))
+        };
+        let result = if crate::service::provider_accounts::provisioning::in_startup(svc, &tab)
+            && crate::service::provider_accounts::selected_account(&self.expected.lock())
+                == codeterm_types::config::provider_accounts::IMPLICIT_ACCOUNT
+        {
+            self.resolve_with(svc, &tab, provision)
+        } else {
+            self.start_resolution(svc, &tab, provision)
+                .and_then(|job| job.wait_blocking(std::time::Duration::from_secs(60)))
+        };
+        crate::startup::boot_timing::mark(&tab, None, "account_supervision_settled");
+        result
     }
 
     pub(super) fn start_resolution(

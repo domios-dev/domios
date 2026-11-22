@@ -32,12 +32,14 @@ fn start_restored_pty_backends(
     initialized: std::sync::mpsc::Receiver<()>,
 ) {
     codeterm_service_core::startup::boot_timing::mark("-", None, "restore_scheduled");
+    let queued = restored_backend_tab_ids(&service_state);
+    let wave = service::restore_admission::track_startup_wave(&service_state, &queued);
     codeterm_util::named_thread::spawn("restore-pty-backends", move || {
+        let _wave = wave;
         if !service_initialized(initialized) {
             log::error!("[startup-pty] service initialization acknowledgement unavailable");
             return;
         }
-        let queued = restored_backend_tab_ids(&service_state);
         for tab_id in &queued {
             codeterm_service_core::startup::boot_timing::mark(tab_id, None, "wave_queued");
         }
@@ -69,27 +71,39 @@ fn start_restored_pty_backends(
             },
             |tab_id| {
                 codeterm_service_core::startup::boot_timing::mark(tab_id, None, "cwd_check_enter");
-                let cwd = service_state
-                    .mux
-                    .read()
-                    .get_tab(tab_id)
-                    .and_then(|tab| tab.cwd.clone());
+                let expected = service_state.mux.read().get_tab(tab_id).cloned();
+                let Some(expected) = expected else {
+                    return Ok(None);
+                };
                 let result = service_state
-                    .validate_request_cwd(None, Some(tab_id), cwd.as_deref())
+                    .validate_request_cwd(None, Some(tab_id), expected.cwd.as_deref())
                     .map_err(|error| error.data().to_string());
                 if let Err(reason) = &result {
-                    publish_backend_materialization_failure(&service_state, tab_id, reason);
+                    let current = service_state.mux.read().get_tab(tab_id).is_some_and(|tab| {
+                        service::messenger::switch_handoff::same_binding(&expected, tab)
+                            && tab.restored_from_snapshot
+                    });
+                    if current {
+                        publish_backend_materialization_failure(&service_state, tab_id, reason);
+                    }
                     log::error!("[startup-pty] tab={tab_id} cwd refused: {reason}");
                 }
                 codeterm_service_core::startup::boot_timing::mark(tab_id, None, "cwd_check_done");
-                result
+                result.map(|()| Some(expected))
             },
-            |tab_id, admission| {
+            |tab_id, admission, expected| {
+                let Some(expected) = expected else {
+                    return Ok(());
+                };
+                if !service_state.mux.read().get_tab(tab_id).is_some_and(|tab| {
+                    tab.restored_from_snapshot
+                        && service::messenger::switch_handoff::same_binding(&expected, tab)
+                }) {
+                    return Ok(());
+                }
                 admission.mark(tab_id, None, "wave_admitted");
                 let result = if service_state.tab_chat_backing(tab_id).is_some() {
-                    service_state
-                        .chatbackend_reopen_if_restored(tab_id)
-                        .map(|_| ())
+                    service::restore_admission::admit_restored_chat(&service_state, tab_id)
                 } else {
                     service::restore_admission::admit_restored_pty(
                         &service_state,
@@ -121,7 +135,11 @@ fn start_restored_pty_backends(
 }
 
 fn publish_backend_materialization_failure(service: &ServiceState, tab_id: &str, reason: &str) {
-    if let Some(tab) = service.mux.write().get_tab_mut(tab_id) {
+    {
+        let mut mux = service.mux.write();
+        let Some(tab) = mux.get_tab_mut(tab_id) else {
+            return;
+        };
         if service::lazy_restore::automatic_restore_refusal(tab).is_some() {
             return;
         }

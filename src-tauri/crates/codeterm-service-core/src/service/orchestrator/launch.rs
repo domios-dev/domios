@@ -312,13 +312,18 @@ pub fn launch_agent_in_background_with_invocation(
             }
         };
     let launch_nonce = reserved_nonce.clone();
+    let startup = crate::service::provider_accounts::provisioning::in_startup(&svc, &tab_id);
     account.set_booting(&svc, &tab_id, true);
     crate::service::boot_wait::notify_boot_changed();
     let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
+    let startup_invocation =
+        startup.then(|| account.resolve_bounded(&svc, &tab_id, invocation.clone()));
     std::thread::spawn(move || {
-        crate::startup::boot_timing::mark(&tab_id, None, "account_supervision_begin");
-        let resolved_invocation = account.resolve_bounded(&svc, &tab_id, invocation);
-        crate::startup::boot_timing::mark(&tab_id, None, "account_supervision_settled");
+        let _startup = startup.then(|| {
+            crate::service::provider_accounts::provisioning::StartupScope::enter(&svc, &tab_id)
+        });
+        let resolved_invocation = startup_invocation
+            .unwrap_or_else(|| account.resolve_bounded(&svc, &tab_id, invocation));
         let invocation = match resolved_invocation {
             Ok(invocation) => invocation,
             Err(error) => {

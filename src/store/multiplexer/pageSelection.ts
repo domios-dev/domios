@@ -1,3 +1,5 @@
+import type { MultiplexerState } from "../../lib/types";
+
 export interface PageSelection {
   active_workspace_id: string | null;
   focused_tab_id: string | null;
@@ -44,6 +46,21 @@ export function seededSelection(userNavigated: boolean, seed: PageSelection | un
 
 export function initialRouteReady(generation: number): boolean {
   return generation > 0;
+}
+
+export function shouldRecordHydratedSelection(
+  snapshot: MultiplexerState,
+  selection: SavedPageSelection,
+  pendingCloses: readonly string[],
+): boolean {
+  const { workspaceId, tabId } = selection;
+  const workspace = snapshot.workspaces.find((entry) => entry.id === workspaceId);
+  if (!workspace) return false;
+  if (tabId == null) return snapshot.active_workspace_id !== workspaceId;
+  const tab = snapshot.tabs[tabId];
+  if (!tab || tab.remote_peer_id || !workspace.tabs.includes(tabId) || pendingCloses.includes(tabId)) return false;
+  return snapshot.active_workspace_id !== workspaceId || workspace.active_tab_id !== tabId
+    || (snapshot.focused_tab_id != null && snapshot.focused_tab_id !== tabId);
 }
 
 export function reconcilePageSelection(
