@@ -168,7 +168,7 @@ export function LiveTranscriptPanel({ api, owner, openCount, capture, autoResume
         onAutoResume={onAutoResume} scoutUnavailable={scoutUnavailable} />}
       {useGeneral && <div className="ct-live-callout">
         <button type="button" disabled={view.busy} onClick={() => void view.mutate(() => askGeneralAgent(store.getState(),
-          "Help me set up Live Transcript in Domios. Check Live Transcript readiness for ASR, Scout and Concierge."))}>Set up with General</button>
+          "Install and configure Live Transcript in Domios automatically right now (clicking Set up with General is my explicit consent to download and install the official Transcriber plugin 0.5.1+, the ~487 MB Parakeet TDT 0.6B v3 model, and its local Python runtime). Check GET /api/live-transcript/readiness for ASR, Scout and Concierge, run `domios plugin transcriber dictation-install --consent`, track `dictation-progress` until complete, verify with `dictation-test`, and report once ready. Keep existing voice-note settings and drafts intact."))}>Set up with General</button>
       </div>}
       {scoutUnavailable && <div className="ct-live-callout" role="status">
         Scout is unavailable. Choose Wake word, Direct batch, or Manual to route speech.

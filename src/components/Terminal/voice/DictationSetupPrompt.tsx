@@ -10,7 +10,7 @@ import type { ExtendedState } from "../../../store/multiplexer/tree";
 import { useMuxStateStore } from "../../../store/multiplexer/selectorStore";
 
 const DICTATION_SETUP_REQUEST =
-  "Help me set up local live composer dictation in Domios. Use the official Transcriber plugin and its Russian-capable Parakeet default. Explain the model download size, permissions, progress, and any failure. Use the plugin's supported installation and configuration controls. Keep the existing voice-note transcription settings and my draft intact.";
+  "Install and configure local live dictation in Domios automatically right now (clicking Set up with General is my explicit consent to download and install the ~487 MB Parakeet TDT 0.6B v3 model and its local Python runtime). Install or update the official Transcriber plugin (0.5.1+), run `domios plugin transcriber dictation-install --consent`, track `dictation-progress` until complete, select/verify with `dictation-test`, and report once ready (or any real error). Keep my existing voice-note transcription settings and composer draft intact.";
 
 interface GeneralAuthority {
   tabId: string;
@@ -214,7 +214,7 @@ export function DictationSetupPrompt({
             <X size={14} strokeWidth={2.2} aria-hidden="true" />
           </button>
         </div>
-        <p className="ct-dictation-bubble__body">{reason} General can guide the local model download.</p>
+        <p className="ct-dictation-bubble__body">{reason} General will install the plugin and local model automatically.</p>
         <div className="ct-dictation-bubble__actions">
           <Button type="button" variant="primary" size="sm" loading={pending} disabled={pending} onClick={() => void install()}>
             Set up with General
