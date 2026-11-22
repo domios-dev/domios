@@ -416,14 +416,8 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/output/stream", get(output_stream::output_stream))
         .merge(stream_mux::router())
         .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
-        .nest(
-            "/api/live-transcript/capture",
-            web_routes::live_transcript_capture::router(),
-        )
-        .nest(
-            "/api/live-transcript",
-            web_routes::live_transcript::router(),
-        )
+        .merge(web_routes::live_transcript_capture::router())
+        .merge(web_routes::live_transcript::router())
         .route(
             "/api/dictation/start",
             plugin_host_action_routes::owner_post(web_routes::dictation::start)

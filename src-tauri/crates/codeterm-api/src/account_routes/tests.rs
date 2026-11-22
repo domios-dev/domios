@@ -443,7 +443,14 @@ async fn account_plan_routes_local_journey() {
                 .oneshot(local_account_request("POST", "/api/account/logout"))
                 .await
                 .unwrap();
-            assert_eq!(logout.status(), StatusCode::OK);
+            let logout_status = logout.status();
+            let logout_body = to_bytes(logout.into_body(), 4096).await.unwrap();
+            assert_eq!(
+                logout_status,
+                StatusCode::OK,
+                "POST /api/account/logout: {}",
+                String::from_utf8_lossy(&logout_body)
+            );
         }
     }
     assert!(!fixture

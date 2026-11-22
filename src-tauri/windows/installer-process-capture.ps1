@@ -5,7 +5,11 @@ function Get-InstallerPinnedProcess {
         $process = [Diagnostics.Process]::GetProcessById([int]$Entry.ProcessId)
         $null = $process.Handle
         if ($process.HasExited) { $process.Dispose(); return $null }
-        $created = $process.StartTime.ToUniversalTime().ToFileTimeUtc()
+        $startTime = $process.StartTime
+        if ($null -eq $startTime) {
+            throw 'Access denied reading process start time.'
+        }
+        $created = $startTime.ToUniversalTime().ToFileTimeUtc()
         if ($null -ne $Entry.CreationDate -and ($created - ($created % 10)) -ne $Entry.CreationDate.ToUniversalTime().ToFileTimeUtc()) {
             $process.Dispose()
             return $null
@@ -63,8 +67,18 @@ function Get-DomiosInstallCapture {
                 $created = 0L
                 if ($registeredPids.ContainsKey($processId)) { $created = [long]$registeredPids[$processId].Created }
                 if ((& $ports.State $processId $created) -in @('Exited', 'Replaced')) { continue }
-                if ($registeredPids.ContainsKey($processId) -or (Test-InstalledBinaryImage $Root $entry.ExecutablePath)) {
-                    throw "Cannot pin install-file holder $($entry.ExecutablePath) (PID $processId): $($_.Exception.Message)"
+                $isInstalled = Test-InstalledBinaryImage $Root $entry.ExecutablePath
+                if ($registeredPids.ContainsKey($processId) -or $isInstalled) {
+                    $holderName = if (-not [string]::IsNullOrWhiteSpace($entry.ExecutablePath)) {
+                        $entry.ExecutablePath
+                    } elseif ($registeredPids.ContainsKey($processId) -and -not [string]::IsNullOrWhiteSpace($registeredPids[$processId].Name)) {
+                        $registeredPids[$processId].Name
+                    } else {
+                        $entry.Name
+                    }
+                    $err = [InvalidOperationException]::new("Cannot pin install-file holder $holderName (PID $processId): $($_.Exception.Message)")
+                    if (-not $isInstalled) { $err.Data['TransientUnpinnableHolder'] = $true }
+                    throw $err
                 }
             }
         }
@@ -72,7 +86,9 @@ function Get-DomiosInstallCapture {
             $record = $table[[int]$holder.Pid]
             if ($null -eq $record -or $record.Created -ne [long]$holder.Created) {
                 if ((& $ports.State ([int]$holder.Pid) ([long]$holder.Created)) -in @('Exited', 'Replaced')) { continue }
-                throw "Cannot pin install-file holder $($holder.Name) (PID $($holder.Pid))."
+                $err = [InvalidOperationException]::new("Cannot pin install-file holder $($holder.Name) (PID $($holder.Pid)).")
+                $err.Data['TransientUnpinnableHolder'] = $true
+                throw $err
             }
             if ($record.Process.HasExited) { continue }
             $holders["$($holder.Pid)/$($holder.Created)"] = $record

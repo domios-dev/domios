@@ -93,6 +93,35 @@ try {
     Assert ($capture.Table.Count -eq 0) 'reused identity retained'
     Pass 'reused pid is skipped without termination'
 
+    $transientState = @{ Calls = 0 }
+    $transientEntry = @{ ProcessId = 456; ParentProcessId = 1; Name = 'svchost.exe'; ExecutablePath = $null }
+    $transientHolder = [pscustomobject]@{ Pid = 456; Created = 999L; Name = 'Program Compatibility Assistant' }
+    $transientPorts = Ports @{
+        Registered = {
+            $transientState.Calls++
+            if ($transientState.Calls -eq 1) { @($transientHolder) } else { @() }
+        }.GetNewClosure()
+        Entries = {
+            if ($transientState.Calls -eq 1) { @($transientEntry) } else { @() }
+        }.GetNewClosure()
+        Pin = { throw 'Access denied reading process start time.' }
+        State = { 'Unknown' }
+    }
+    $transientPorts.Sleep = { param($ms) }
+    Assert (Invoke-InstallerPreflight $root $transientPorts -GracefulMilliseconds 1000) 'transient unpinnable system holder did not recover within grace window'
+    Assert ($transientState.Calls -eq 2) "expected retry after transient system holder, got $($transientState.Calls) calls"
+    $persistedPorts = Ports @{
+        Entries = { @($transientEntry) }.GetNewClosure()
+        Registered = { @($transientHolder) }.GetNewClosure()
+        Pin = { throw 'Access denied reading process start time.' }
+        State = { 'Unknown' }
+    }
+    $persistedPorts.Sleep = { param($ms) }
+    $persistedRefusal = $null
+    try { Invoke-InstallerPreflight $root $persistedPorts -GracefulMilliseconds 0 | Out-Null } catch { $persistedRefusal = $_.Exception.Message }
+    Assert ($persistedRefusal -like '*Program Compatibility Assistant (PID 456)*') "persisted unpinnable holder missing fallback name: $persistedRefusal"
+    Pass 'transient unpinnable system holder retries within grace window and names holder on timeout'
+
     $process = Start-Helper "$root/domios-server/domios-server.exe"
     $entry = Entry $process
     $discovery = @{ Entries = { @($entry) }.GetNewClosure(); Registered = { @() } }

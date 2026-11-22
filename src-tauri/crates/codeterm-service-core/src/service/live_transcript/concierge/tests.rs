@@ -226,7 +226,6 @@ fn failed_summary_does_not_replace_raw_data() {
     assert!(super::super::maintenance::summarize(&store).is_err());
     assert!(store.raw_bytes() > 1);
     std::fs::remove_file(&summaries).unwrap();
-    std::fs::create_dir(&summaries).unwrap();
     drop(store);
     let reopened = TranscriptStore::open(dir.path(), "owner", 1).unwrap();
     assert_eq!(reopened.read_sealed(range).unwrap().len(), 1);

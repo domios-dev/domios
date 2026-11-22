@@ -26,18 +26,21 @@ type Refusal = (StatusCode, String);
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route(
-            "/start",
+            "/api/live-transcript/capture/start",
             owner_post(start).layer(DefaultBodyLimit::max(1024)),
         )
         .route(
-            "/{lease}/frame/{sequence}",
+            "/api/live-transcript/capture/{lease}/frame/{sequence}",
             owner_post(frame).layer(DefaultBodyLimit::max(MAX_PCM_BYTES)),
         )
         .route(
-            "/{lease}/pause/{sequence}",
+            "/api/live-transcript/capture/{lease}/pause/{sequence}",
             owner_post(pause).layer(DefaultBodyLimit::max(256)),
         )
-        .route("/{lease}/cancel", owner_post(cancel))
+        .route(
+            "/api/live-transcript/capture/{lease}/cancel",
+            owner_post(cancel),
+        )
         .route_layer(middleware::from_fn(require_direct_secure_owner))
 }
 

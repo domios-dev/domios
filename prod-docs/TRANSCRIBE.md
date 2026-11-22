@@ -130,4 +130,27 @@ The wake phrase is “Hey Domios”. An owner can use `--external-tab` to select
 tab with a separate cursor. The owner can inspect route events and the
 corresponding authorized epoch. Raw history access follows the active binding.
 
-<!-- revision: 8 -->
+### Live Transcript REST endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/live-transcript/readiness` | Setup readiness for ASR, Scout and Concierge (content-free; owner or General) |
+| GET | `/api/live-transcript/{tab}/status` | Owner binding revision, capture lease and routing readiness |
+| GET | `/api/live-transcript/{tab}/overview` | Owner cursor state and retained transcript bounds |
+| GET | `/api/live-transcript/{tab}/history` | Paged committed owner transcript history |
+| GET | `/api/live-transcript/{tab}/search` | Paged search over committed owner transcript |
+| GET | `/api/live-transcript/{tab}/events` | Paged routing ledger events for the owner tab |
+| GET | `/api/live-transcript/{tab}/epochs/{epoch}` | Scoped provider-published thinking and tool records for one exact epoch |
+| GET | `/api/live-transcript/{tab}/read` | Consumer read of committed speech at the active binding revision |
+| POST | `/api/live-transcript/{tab}/attach` | Owner attach or update hidden router, external tab, or trigger mode |
+| POST | `/api/live-transcript/{tab}/pause` | Owner explicit capture pause and speech flush |
+| POST | `/api/live-transcript/{tab}/resume` | Owner resume capture admission |
+| POST | `/api/live-transcript/{tab}/route` | Owner manual route of an exact sequence range |
+| POST | `/api/live-transcript/{tab}/ack` | Active consumer acknowledgement through a processed sequence |
+| POST | `/api/live-transcript/{tab}/mark-seen` | Active consumer seen-cursor update at the current revision |
+| POST | `/api/live-transcript/capture/start` | Direct secure owner start of a live microphone capture lease |
+| POST | `/api/live-transcript/capture/{lease}/frame/{sequence}` | Stream one sequenced PCM capture frame for an active lease |
+| POST | `/api/live-transcript/capture/{lease}/pause/{sequence}` | Flush and record an explicit owner pause marker on the lease |
+| POST | `/api/live-transcript/capture/{lease}/cancel` | Cancel an active capture lease |
+
+<!-- revision: 9 -->
