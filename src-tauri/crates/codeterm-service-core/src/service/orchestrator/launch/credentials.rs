@@ -11,6 +11,21 @@ pub(super) struct CredentialCommand {
 
 impl CredentialCommand {
     pub(super) fn send(&mut self, service: &ServiceContext, pty_id: &str) -> Result<(), String> {
+        let attempt = crate::service::launch_readiness::LaunchAttempt {
+            tab_id: self.tab_id.clone(),
+            pty_id: pty_id.to_owned(),
+            binding_nonce: self.nonce.clone(),
+        };
+        if crate::service::launch_readiness::LaunchAttempt::current(
+            &service.mux,
+            &self.tab_id,
+            pty_id,
+        )
+        .as_ref()
+            != Some(&attempt)
+        {
+            return Err("credential launch attempt changed before write".into());
+        }
         let generation = service
             .pty
             .lock()
@@ -24,6 +39,13 @@ impl CredentialCommand {
             return Err("credential launch PTY changed before write".into());
         }
         self.transfer(service, pty_id)?;
+        let dispatch = std::str::from_utf8(&payload)
+            .map_err(|error| error.to_string())?
+            .trim()
+            .to_owned();
+        if !crate::service::launch_readiness::record_shell_dispatch(&attempt, dispatch) {
+            return Err("credential launch attempt changed before write".into());
+        }
         pty.write(pty_id, &payload)
     }
 

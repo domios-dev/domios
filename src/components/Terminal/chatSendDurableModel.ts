@@ -51,6 +51,7 @@ interface DurableSend {
   requestHadResponse?: boolean;
   admissionSettled?: boolean;
   wasHeld?: boolean;
+  queueEdit?: DeliverySend["queueEdit"];
   draft?: DurableDraft;
 }
 
@@ -129,6 +130,7 @@ export function encodeChatSend(tabId: string, send: DeliverySend, revision = 0, 
     ...(send.requestHadResponse !== undefined ? { requestHadResponse: send.requestHadResponse } : {}),
     ...(send.admissionSettled !== undefined ? { admissionSettled: send.admissionSettled } : {}),
     ...(send.wasHeld !== undefined ? { wasHeld: send.wasHeld } : {}),
+    ...(send.queueEdit !== undefined ? { queueEdit: send.queueEdit } : {}),
     ...(draft !== undefined ? { draft: {
       text: body(draft.text),
       attachments: draft.attachments,
@@ -312,6 +314,7 @@ export function decodeChatSend(record: ChatSendDurableRecord): DeliverySend | nu
       ...(value.requestHadResponse !== undefined ? { requestHadResponse: value.requestHadResponse } : {}),
       ...(value.admissionSettled !== undefined ? { admissionSettled: value.admissionSettled } : {}),
       ...(value.wasHeld !== undefined ? { wasHeld: value.wasHeld } : {}),
+      ...(value.queueEdit !== undefined ? { queueEdit: value.queueEdit } : {}),
       ...(value.draft !== undefined ? { draft: {
         text: draftText!,
         attachments: value.draft.attachments,
@@ -351,6 +354,7 @@ export function mergeChatSendRecord(
       requestUncertain: next.requestUncertain,
       requestHadResponse: next.requestHadResponse,
       admissionSettled: next.admissionSettled,
+      queueEdit: next.queueEdit,
     };
   }
   const patch = <K extends keyof DeliverySend>(key: K) => {
@@ -359,7 +363,7 @@ export function mergeChatSendRecord(
     if (previous && !sameValue(current[key], previous[key])) return;
     (merged as DeliverySend)[key] = next[key] as DeliverySend[K];
   };
-  for (const key of ["content", "sentAtMs", "target", "echoBoundary", "localAttempt", "droppedUploads", "remoteFailure", "requestFailed", "requestError", "requestUncertain", "requestHadResponse", "admissionSettled", "wasHeld", "draft"] as const) patch(key);
+  for (const key of ["content", "sentAtMs", "target", "echoBoundary", "localAttempt", "droppedUploads", "remoteFailure", "requestFailed", "requestError", "requestUncertain", "requestHadResponse", "admissionSettled", "wasHeld", "queueEdit", "draft"] as const) patch(key);
   if (!retry) patch("correlationId");
   if (!retry) patch("matchedRow");
   if (current.echo == null && next.echo != null && deliveryState(current) !== "failed"

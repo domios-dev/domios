@@ -46,7 +46,7 @@ import type {
   TabBootStageEvent,
 } from "../../lib/types";
 import { reducer } from "./reducer";
-import { acceptsPageFocus, initialPageSelection } from "./pageSelection";
+import { acceptsPageFocus, initialPageSelection, shouldRecordHydratedSelection, type SavedPageSelection } from "./pageSelection";
 import { loadClientPageSelection } from "../../lib/clientPageSelection";
 import { buildInitialState, HYDRATED_GENERATION } from "./initialState";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
@@ -122,6 +122,7 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
   // Web writes wait until async cache discovery or authoritative reconcile.
   const writeGateRef = useRef<WriteGate>(createWriteGate(IS_WEB));
   const reconciledRef = useRef(false);
+  const hydrationSelectionRef = useRef<(SavedPageSelection & { onRecorded?: () => void }) | null | undefined>(undefined);
   // In-flight user tab selections; masks stale snapshots until the backend
   // confirms the switch, rejects it, or removes the target tab.
   const pendingTabSwitchRef = useRef<TabGuards>({});
@@ -180,6 +181,18 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
     reconciledRef.current = true;
     writeGateRef.current.unlock();
     peerRebindGateRef.current.acceptedSnapshot(peerSwitchRef.current);
+    if (!wasReconciled) {
+      const navigation = hydrationSelectionRef.current;
+      hydrationSelectionRef.current = undefined;
+      const selection = navigation === undefined ? loadClientPageSelection() : navigation;
+      if (selection && shouldRecordHydratedSelection(s, selection, stateRef.current.pendingCloses)) {
+        const { workspaceId, tabId } = selection;
+        const write = tabId == null
+          ? invoke("mux_set_active_workspace", { workspaceId })
+          : invoke("mux_set_active_tab_and_workspace", { workspaceId, tabId });
+        void write.then(navigation?.onRecorded).catch(() => {});
+      }
+    }
     if (IS_WEB && !wasReconciled) window.dispatchEvent(new Event("codeterm-cache-reconciled"));
   }, [applyBackendState]);
 
@@ -574,6 +587,7 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
       const switchId = (event as CustomEvent<{ switchId: number }>).detail.switchId;
       peerSwitchRef.current = switchId;
       pendingTabSwitchRef.current = {};
+      hydrationSelectionRef.current = undefined;
       writeGateRef.current.lock();
       reconciledRef.current = false;
       cachedBackendGenerationRef.current = undefined;
@@ -763,7 +777,11 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
   }, [guardedInvoke, applyBackendState]);
 
   const setActiveWorkspace = useCallback((id: string) => {
-    guardedInvoke("mux_set_active_workspace", { workspaceId: id }).catch(() => {});
+    if (reconciledRef.current) {
+      void guardedInvoke("mux_set_active_workspace", { workspaceId: id }).catch(() => {});
+    } else {
+      hydrationSelectionRef.current = { workspaceId: id, tabId: null };
+    }
     dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "user", id });
   }, [guardedInvoke]);
 
@@ -1000,6 +1018,7 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
     const event = agentTabSelection(stateRef.current.active_workspace_id !== workspaceId || selected !== tabId, remote?.agent_type);
     const recordSelection = () => { if (event) void recordProductEvent(event); };
     if (remote?.remote_peer_id) {
+      if (!reconciledRef.current) hydrationSelectionRef.current = null;
       dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "user", id: workspaceId });
       dispatch({ type: "SET_ACTIVE_TAB", source: "user", workspaceId, tabId });
       dispatch({ type: "SET_FOCUSED_TAB", tabId });
@@ -1008,11 +1027,15 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
       else recordSelection();
       return;
     }
-    pendingTabSwitchRef.current[workspaceId] = { tabId };
-    guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId }).then(recordSelection).catch(() => {
-      delete pendingTabSwitchRef.current[workspaceId];
-      void restoreFromBackend();
-    });
+    if (reconciledRef.current) {
+      pendingTabSwitchRef.current[workspaceId] = { tabId };
+      guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId }).then(recordSelection).catch(() => {
+        delete pendingTabSwitchRef.current[workspaceId];
+        void restoreFromBackend();
+      });
+    } else {
+      hydrationSelectionRef.current = { workspaceId, tabId, onRecorded: recordSelection };
+    }
     dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "user", id: workspaceId });
     dispatch({ type: "SET_ACTIVE_TAB", source: "user", workspaceId, tabId });
     dispatch({ type: "SET_FOCUSED_TAB", tabId });

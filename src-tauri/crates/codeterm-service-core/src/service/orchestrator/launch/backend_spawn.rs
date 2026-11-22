@@ -12,8 +12,7 @@ pub(super) fn spawn_backend_pty(
         .read()
         .get_tab(tab_id)
         .and_then(|tab| tab.cwd.clone());
-    let mut env_vars = svc.tab_env(tab_id).map_err(LaunchFailure::PtySpawn)?;
-    env_vars.extend(launch_env.clone());
+    let mut env_vars = launch_env.clone();
     env_vars.extend(
         svc.model_provider_launch_env(provider_id)
             .map_err(|error| LaunchFailure::PtySpawn(error.to_string()))?,

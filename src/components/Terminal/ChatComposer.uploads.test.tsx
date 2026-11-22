@@ -169,7 +169,7 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
     }
     expect(parseAttachmentMarkers(sent[0]).attachments.map((item) => item.path)).toEqual([uploadedPath]);
     if (failure === "HEIC") {
-      expect(parseAttachmentMarkers(sent[0]).attachments[0].kind).toBe("file");
+      expect(parseAttachmentMarkers(sent[0]).attachments[0].kind).toBe("image");
       expect(createImageBitmap).not.toHaveBeenCalled();
       expect(HTMLCanvasElement.prototype.getContext).not.toHaveBeenCalled();
       return;

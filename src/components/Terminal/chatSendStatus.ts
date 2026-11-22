@@ -9,6 +9,9 @@ import { beginChatSendDeletion, chatSendTabHydrationState, endChatSendDeletion, 
   reconcileChatSendAdmission, reconcileDeliveryStatuses, readChatSends, recordChatSendAdmissionFailure, recordRemoteChatSendFailure,
   persistLocalChatSendDismissal, type ChatSendDismissal } from "./chatSendStore";
 import type { AdmissionEvidence } from "./chatDeliveryModel";
+import { EVENT_STREAM_READY } from "../../lib/eventStreamReady";
+import { observeComposerQueue, observeComposerQueueEdit, readHostChatSendStatuses } from "./chatSendStore";
+import { EMPTY_QUEUE, type ComposerSendQueue, type QueuedSendAction, type QueuedSendOutcome } from "./composerQueueModel";
 
 const activeAdmissions = new Set<string>();
 const ADMISSION_DEADLINE_MS = 60_000;
@@ -39,20 +42,30 @@ export function useChatSendStatusSubscription(
       return stop;
     }
     let cancelled = false;
-    let unlisten: UnlistenFn | undefined;
-    void listen<ChatSendStatus>("chat-send-status", ({ payload }) => {
+    const releases: UnlistenFn[] = [];
+    const collect = (release: UnlistenFn) => {
+      if (cancelled) release();
+      else releases.push(release);
+    };
+    const statusListener = listen<ChatSendStatus>("chat-send-status", ({ payload }) => {
       if (!cancelled && payload.tab_id === tabId) void observeStatus(payload);
-    }).then((release) => {
-      if (cancelled) {
-        release();
-        return;
-      }
-      unlisten = release;
-      refresh();
+    }).then(collect);
+    const queueListener = listen<{ tab_id: string }>("chat-send-queue-changed", ({ payload }) => {
+      if (!cancelled && payload.tab_id === tabId) refresh();
+    }).then(collect);
+    window.addEventListener(EVENT_STREAM_READY, refresh);
+    void Promise.allSettled([statusListener, queueListener]).then(results => {
+      if (!cancelled) refresh();
+      const failure = results.find(result => result.status === "rejected");
+      if (failure?.status === "rejected") console.warn("[chat-send] status subscription failed", failure.reason);
     }).catch((error: unknown) => {
       console.warn("[chat-send] status subscription failed", error);
     });
-    return () => { cancelled = true; unlisten?.(); };
+    return () => {
+      cancelled = true;
+      for (const release of releases) release();
+      window.removeEventListener(EVENT_STREAM_READY, refresh);
+    };
   }, [tabId, observeStatus, reconcile]);
 }
 
@@ -84,14 +97,18 @@ export function reconcileTrackedChatMessages(tabId: string): Promise<ChatSendSta
 
 async function reconcileReadyChatMessages(tabId: string): Promise<ChatSendStatus[]> {
   const requested = readChatSends(tabId);
+  const requestedHost = readHostChatSendStatuses(tabId);
   const statusesRead = invoke<ChatSendStatus[]>("chat_send_status", { tabId });
   const dismissalsRead = invoke<ChatSendDismissal[]>("chat_send_dismissals", { tabId });
-  const [statuses, dismissals] = await Promise.all([
+  const queueRead = invoke<ComposerSendQueue>("chat_send_queue", { tabId }).catch(() => EMPTY_QUEUE);
+  const [statuses, dismissals, queue] = await Promise.all([
     statusesRead,
     parseCompositeTabId(tabId) ? dismissalsRead : dismissalsRead.catch(() => []),
+    queueRead,
   ]);
   if (Array.isArray(dismissals)) for (const receipt of dismissals) if (receipt.send?.id) observeChatSendDismissal(tabId, receipt);
-  reconcileDeliveryStatuses(tabId, statuses, requested);
+  reconcileDeliveryStatuses(tabId, statuses, requested, requestedHost);
+  observeComposerQueue(tabId, Array.isArray(queue?.items) && Array.isArray(queue?.claimed) && Array.isArray(queue?.edits) ? queue : EMPTY_QUEUE);
   const unresolved = readChatSends(tabId).filter((send) => !send.dismissed && !send.status && !send.admissionSettled && send.correlationId
     && !activeAdmissions.has(admissionKey(tabId, send.correlationId)));
   if (unresolved.length > 0) {
@@ -109,6 +126,16 @@ async function reconcileReadyChatMessages(tabId: string): Promise<ChatSendStatus
     } catch { /* Missing proof keeps the bubble uncertain. */ }
   }
   return statuses;
+}
+
+export async function changeComposerSendQueue(tabId: string, action: QueuedSendAction): Promise<QueuedSendOutcome> {
+  try {
+    const outcome = await invoke<QueuedSendOutcome>("chat_send_queue_change", { tabId, action });
+    if (outcome.outcome === "appended") observeComposerQueueEdit(tabId, outcome.edit);
+    return outcome;
+  } finally {
+    void reconcileTrackedChatMessages(tabId).catch(() => {});
+  }
 }
 
 export async function sendTrackedChatMessage(

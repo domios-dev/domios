@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { applyDeliveryStatus, canDeleteChatSend, canEditChatSend, canRetryChatSend, deliveryState, deliveryPresentation, queuedBehindTurn, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, undeliveredSends, unownedHeldSends, visibleDeliveryRows, type DeliverySend } from "./chatDeliveryModel";
+import { deliverySendForRow } from "./chatDeliveryModel";
 import { createTranscriptState, reduceTranscript, projectTranscript } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 import type { MessageSegment, NormalizedChatMessage } from "@codeterm/chat-core";
@@ -256,7 +257,7 @@ test("a held send stays one bubble at send time until its exact echo replaces it
   assert.equal(queuedBehindTurn(held, "idle"), true);
   assert.deepEqual(projectTranscript(running, deliveryProjectionSends([held])).rows.map((row) => row.id), ["turn", "work", "bubble"]);
   const written = applyDeliveryStatus(held, status("written", 2));
-  assert.equal(queuedBehindTurn(written, "working"), true);
+  assert.equal(queuedBehindTurn(written, "working"), false);
   assert.equal(queuedBehindTurn(written, "idle"), false);
   assert.deepEqual(projectTranscript(running, deliveryProjectionSends([written])).rows.map((row) => row.id), ["turn", "work", "bubble"]);
   const echoed = reduceTranscript(running, {
@@ -303,7 +304,7 @@ test("a held send names no turn once the runtime has failed", () => {
   const held = applyDeliveryStatus(send(), { ...status("held", 1), pending_reason: "held_active_turn" });
   assert.equal(queuedBehindTurn(held, "working"), true);
   assert.equal(queuedBehindTurn(held, "failed"), false);
-  assert.equal(deliveryPresentation(held, "failed"), "queued");
+  assert.equal(deliveryPresentation(held), "queued");
 });
 
 test("only live undelivered sends stay in the body while setup owns it", () => {
@@ -327,40 +328,49 @@ test("a held status with no local send counts as queued elsewhere; settled and o
   assert.equal(unownedHeldSends([], [{ ...other, correlationId: undefined }]), 0);
 });
 
-test("written input waits for the running turn and becomes uncertain only once that turn ends without evidence", () => {
+test("written and unconfirmed receipts keep their own presentation through another turn", () => {
   const written = applyDeliveryStatus(send(), status("written", 2));
   const unconfirmed = applyDeliveryStatus(written, status("submit_unconfirmed", 3));
   const before = JSON.stringify(unconfirmed);
-  for (const [label, current] of [["written", written], ["submit_unconfirmed", unconfirmed]] as const) {
-    assert.equal(deliveryPresentation(current, "working"), "queued", label);
-    assert.equal(queuedBehindTurn(current, "working"), true, label);
-  }
-  assert.equal(deliveryPresentation(written, "idle"), "written");
-  for (const activity of ["idle", "starting", "waiting-on-user", "failed"] as const) {
-    assert.equal(deliveryPresentation(unconfirmed, activity), "uncertain", activity);
+  assert.equal(deliveryPresentation(written), "written");
+  assert.equal(deliveryPresentation(unconfirmed), "uncertain");
+  for (const activity of ["working", "idle", "starting", "waiting-on-user", "failed"] as const) {
+    assert.equal(queuedBehindTurn(written, activity), false, activity);
     assert.equal(queuedBehindTurn(unconfirmed, activity), false, activity);
   }
   assert.equal(JSON.stringify(unconfirmed), before, "presentation never rewrites the receipt");
   const delivered = applyDeliveryStatus(unconfirmed, status("delivered", 4));
   for (const activity of ["working", "idle"] as const) {
-    assert.equal(deliveryPresentation(delivered, activity), "delivered");
+    assert.equal(deliveryPresentation(delivered), "delivered");
     assert.equal(queuedBehindTurn(delivered, activity), false);
   }
 });
 
 test("a written prompt the agent refused while busy stays uncertain during the turn", () => {
   const refused = applyDeliveryStatus(send(), { ...status("submit_unconfirmed", 2), error: "agent_refused_while_busy: opaque" });
-  assert.equal(deliveryPresentation(refused, "working"), "uncertain");
+  assert.equal(deliveryPresentation(refused), "uncertain");
   assert.equal(queuedBehindTurn(refused, "working"), false);
 });
 
-test("activity never changes held or proven terminal outcomes", () => {
-  for (const [ledgerState, expected] of [["failed", "failed"], ["held", "queued"], ["delivered", "delivered"]] as const) {
+test("a claim changes only a held receipt to sending", () => {
+  for (const [ledgerState, expected] of [["failed", "failed"], ["held", "sending"], ["delivered", "delivered"]] as const) {
     const current = applyDeliveryStatus(send(), status(ledgerState, 2));
-    for (const activity of ["working", "idle", "starting", "waiting-on-user", "failed"] as const) {
-      assert.equal(deliveryPresentation(current, activity), expected);
-    }
+    assert.equal(deliveryPresentation(current, true), expected);
   }
+});
+
+test("a folded structured row uses its exact delivery receipt without losing its bubble identity", () => {
+  const first = applyDeliveryStatus(send(), status("held", 1));
+  const match = { source: { source_session_id: "own", record: {
+    kind: "structured" as const, thread_id: "own", item_id: "folded",
+  } }, ordinal: 2 };
+  const second = applyDeliveryStatus({ ...send(), id: "later", correlationId: "later" }, {
+    ...status("delivered", 2), send_id: "later-tx", correlationId: "later", matched_row: match,
+  });
+  const row = { id: first.id, type: "user" as const, content: "first and later", runtimeSourceItemId: "folded", sourceSessionId: "own" };
+  assert.equal(sendForRow([first, second], row), first);
+  assert.equal(deliveryPresentation(deliverySendForRow([first, second], row)!), "delivered");
+  assert.equal(deliveryPresentation(deliverySendForRow([first, second], { ...row, sourceSessionId: "other" })!), "queued");
 });
 
 test("held input remains queued when a later ledger snapshot omits it", () => {
@@ -369,9 +379,9 @@ test("held input remains queued when a later ledger snapshot omits it", () => {
   const reconciled = reconcileDeliveryStatusesModel([restored], [])[0];
   assert.equal(reconciled, restored);
   assert.equal(deliveryState(reconciled), "queued");
-  assert.equal(deliveryPresentation(reconciled, "idle"), "queued");
+  assert.equal(deliveryPresentation(reconciled), "queued");
   const delivered = reconcileDeliveryStatusesModel([reconciled], [status("delivered", 2)])[0];
-  assert.equal(deliveryPresentation(delivered, "idle"), "delivered");
+  assert.equal(deliveryPresentation(delivered), "delivered");
   assert.equal(delivered.id, held.id);
 });
 
@@ -386,7 +396,7 @@ test("unclassified and request-failed sends flow before newer output without cha
     const projection = projectTranscript(transcript, deliveryProjectionSends([current]));
     assert.deepEqual(projection.rows.map((row) => row.id), ["bubble", "new"]);
     assert.equal(deliveryState(current), requestFailed ? "failed" : "sending");
-    assert.equal(deliveryPresentation(current, "idle"), requestFailed ? "failed" : "sending");
+    assert.equal(deliveryPresentation(current), requestFailed ? "failed" : "sending");
     assert.equal(current.status, undefined);
   }
 });

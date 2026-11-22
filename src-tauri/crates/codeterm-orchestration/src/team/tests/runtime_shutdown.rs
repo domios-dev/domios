@@ -1,22 +1,40 @@
 use super::*;
 use codeterm_service_core::service::tab::RuntimeStopOverride;
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::time::Duration;
 
 struct FakeRuntimeEngine {
     live: Mutex<BTreeSet<String>>,
     stopped: Mutex<Vec<String>>,
     close_thread: std::thread::ThreadId,
     fail: bool,
+    overlap: Option<(usize, Condvar)>,
 }
 
 fn stop_runtime(service: &ServiceContext, tab_id: &str) -> Result<(), String> {
     let engine = service.host_extension::<FakeRuntimeEngine>().unwrap();
     assert_ne!(std::thread::current().id(), engine.close_thread);
+    let mut stopped = engine.stopped.lock();
     assert!(service.mux.try_write().is_some());
     assert!(engine.live.lock().remove(tab_id));
-    engine.stopped.lock().push(tab_id.to_string());
+    stopped.push(tab_id.to_string());
+    if let Some((expected, ready)) = &engine.overlap {
+        if stopped.len() == *expected {
+            ready.notify_all();
+        }
+        assert!(
+            !ready
+                .wait_while_for(
+                    &mut stopped,
+                    |stopped| stopped.len() < *expected,
+                    Duration::from_secs(5)
+                )
+                .timed_out(),
+            "Team member stops must all enter before any returns"
+        );
+    }
     if engine.fail {
         Err("injected stop failure".into())
     } else {
@@ -34,6 +52,7 @@ async fn close_team_with_fake_runtimes(fail: bool) {
         stopped: Mutex::new(Vec::new()),
         close_thread: std::thread::current().id(),
         fail,
+        overlap: Some((members.len(), Condvar::new())),
     });
     let root = tempfile::tempdir().unwrap();
     let instance = crate::test_fixture::open_instance_with_mux(root.path(), mux);
@@ -90,6 +109,7 @@ async fn single_tab_close_uses_the_same_runtime_shutdown() {
         stopped: Mutex::new(Vec::new()),
         close_thread: std::thread::current().id(),
         fail: false,
+        overlap: None,
     });
     let service = &fixture.service;
     assert!(service.register_host_extension(engine.clone()).is_ok());

@@ -262,7 +262,7 @@ export function assignedCommand(command: string, argv?: readonly string[]): Assi
 }
 
 function inputCommand(input: Record<string, unknown> | undefined): string {
-  for (const key of ["command", "cmd"]) {
+  for (const key of ["command", "cmd", "CommandLine", "commandLine", "command_line"]) {
     const value = input?.[key];
     if (typeof value === "string" && value.trim()) return value.trim();
   }
@@ -272,7 +272,7 @@ function inputCommand(input: Record<string, unknown> | undefined): string {
 /** The command a tool event ran, plus its argv when the source supplied one. */
 export function toolCommand(event: Pick<ToolEvent, "detail" | "summary" | "result" | "message">): { command: string; argv?: string[] } {
   // Detail is presentation text and may carry extra lines (a cwd note); the source's own command field is exact.
-  const command = inputCommand(event.message.toolInput) || event.detail?.trim() || event.summary || event.result?.trim() || "";
+  const command = inputCommand(event.message.toolInput) || event.detail?.trim() || event.summary || event.message.toolTitle?.trim() || "";
   const argv = event.message.toolInput?.argv;
   return Array.isArray(argv) && argv.length > 0 && argv.every((value) => typeof value === "string")
     ? { command, argv: argv as string[] }

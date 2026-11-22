@@ -8,6 +8,7 @@ fn database() -> PlanDatabase {
     PlanDatabase {
         path: Default::default(),
         connection: parking_lot::Mutex::new(connection),
+        readers: None,
         pending_changes: Default::default(),
     }
 }

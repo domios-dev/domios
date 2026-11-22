@@ -259,13 +259,20 @@ fn repository_respawn_and_recorded_read_only_lane_still_inspect_git() {
         TaskExecutionIntent::RepositoryMutation,
         ExecutionIntent::Mutating,
     );
+    task.interruption.execution_intent = ExecutionIntent::ReadOnly;
     assert!(
         verify_respawn_lane(project, &lane_facts(&task, &draft), &draft)
             .unwrap_err()
             .contains("failed to inspect worker lane")
     );
+    task.interruption.execution_intent = ExecutionIntent::Mutating;
+    draft.execution_intent = ExecutionIntent::ReadOnly;
+    assert!(
+        verify_respawn_lane(project, &lane_facts(&task, &draft), &draft)
+            .unwrap()
+            .is_none()
+    );
     task.execution_intent = TaskExecutionIntent::NonRepository;
-    task.interruption.execution_intent = ExecutionIntent::ReadOnly;
     task.lane.worktree_path = Some(project.into());
     assert!(
         verify_respawn_lane(project, &lane_facts(&task, &draft), &draft)
@@ -278,6 +285,64 @@ fn repository_respawn_and_recorded_read_only_lane_still_inspect_git() {
         verify_respawn_lane(project, &lane_facts(&task, &draft), &draft)
             .unwrap_err()
             .contains("failed to inspect worker lane")
+    );
+}
+
+#[test]
+fn recorded_detached_lane_uses_effective_respawn_protection() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    for args in [
+        &["init", "-q"][..],
+        &[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "fixture",
+        ],
+        &["checkout", "-q", "--detach"],
+    ] {
+        let output = crate::process_util::git_command()
+            .current_dir(&repo)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{args:?}: {:?}", output.stderr);
+    }
+    let project = repo.to_str().unwrap();
+    let store = PlanStore::new_for_test(root.path());
+    let (_, mut task, mut draft) = respawn_fixture(
+        &store,
+        project,
+        TaskExecutionIntent::RepositoryMutation,
+        ExecutionIntent::Mutating,
+    );
+    task.lane.worktree_path = Some(project.into());
+    draft.execution_intent = ExecutionIntent::ReadOnly;
+    let lane = verify_respawn_lane(project, &lane_facts(&task, &draft), &draft)
+        .unwrap()
+        .unwrap();
+    assert!(lane.branch.is_empty());
+    task.lane.branch = Some("recorded-branch".into());
+    assert!(
+        verify_respawn_lane(project, &lane_facts(&task, &draft), &draft)
+            .unwrap_err()
+            .contains("branch mismatch")
+    );
+    task.lane.branch = None;
+    task.interruption.execution_intent = ExecutionIntent::ReadOnly;
+    draft.execution_intent = ExecutionIntent::Mutating;
+    assert!(
+        verify_respawn_lane(project, &lane_facts(&task, &draft), &draft)
+            .unwrap_err()
+            .contains("detached HEAD")
     );
 }
 

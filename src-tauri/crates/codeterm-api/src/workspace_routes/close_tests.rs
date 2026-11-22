@@ -1,6 +1,17 @@
-use super::{close_preview, workspace_close_caller, CloseWorkspaceBody, WorkspaceCloseCaller};
-use axum::extract::{Path, State as AxumState};
+use super::{workspace_close_caller, ClosePreviewScope, CloseWorkspaceBody, WorkspaceCloseCaller};
+use axum::extract::{Path, Query, State as AxumState};
 use axum::http::{HeaderMap, StatusCode};
+
+async fn close_preview(
+    state: AxumState<crate::routes::AppState>,
+    headers: HeaderMap,
+    path: Path<String>,
+) -> Result<
+    axum::Json<codeterm_types::workspace_close_preview::WorkspaceClosePreview>,
+    (StatusCode, String),
+> {
+    super::close_preview(state, headers, path, Query(ClosePreviewScope::default())).await
+}
 
 #[test]
 fn workspace_close_route_reads_force_from_body() {
@@ -407,6 +418,26 @@ async fn workspace_close_preview_reports_complete_facts_warnings_and_never_loads
     assert!(warning_kinds.contains(&&WorkspaceCloseWarningKind::RemoteTeam));
     assert!(warning_kinds.contains(&&WorkspaceCloseWarningKind::OrphanTask));
     assert!(warning_kinds.contains(&&WorkspaceCloseWarningKind::RemoteAttempt));
+
+    let scoped = super::close_preview(
+        AxumState(state),
+        bearer_headers("owner-secret"),
+        Path(ws.clone()),
+        Query(ClosePreviewScope {
+            team_id: Some(local_team_id.clone()),
+            resources_only: true,
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert!(scoped.agent_tabs.is_empty());
+    assert!(scoped.crons.is_empty());
+    assert_eq!(scoped.teams.len(), 1);
+    assert_eq!(scoped.teams[0].id, local_team_id);
+    assert_eq!(scoped.teams[0].crons, team.crons);
+    assert_eq!(scoped.teams[0].tasks.len(), team.tasks.len());
+    assert!(scoped.teams[0].lanes.is_empty());
 
     assert_never_loaded(
         &fixture.service.plan_store,

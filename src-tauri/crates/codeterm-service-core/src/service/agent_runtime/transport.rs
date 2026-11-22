@@ -30,8 +30,28 @@ pub fn send(
     input: &crate::service::messenger::AgentInput,
     send_id: Option<&str>,
 ) -> Result<(), DeliveryError> {
-    let rendered = input.text();
-    let text = rendered.as_ref();
+    send_inner(svc, tab, input, send_id, None)
+}
+
+pub(super) fn send_selected(
+    svc: &ServiceContext,
+    tab: &str,
+    input: &crate::service::messenger::AgentInput,
+    send_id: &str,
+    session: &Arc<Session>,
+    context: &RuntimeContext,
+    _permit: tokio::sync::SemaphorePermit<'_>,
+) -> Result<(), DeliveryError> {
+    send_inner(svc, tab, input, Some(send_id), Some((session, context)))
+}
+
+fn send_inner(
+    svc: &ServiceContext,
+    tab: &str,
+    input: &crate::service::messenger::AgentInput,
+    send_id: Option<&str>,
+    selected: Option<(&Arc<Session>, &RuntimeContext)>,
+) -> Result<(), DeliveryError> {
     svc.require_admitted_input_allowed(tab, send_id)
         .map_err(|detail| DeliveryError::TabBusyRefused {
             tab: tab.into(),
@@ -63,20 +83,50 @@ pub fn send(
             detail: "Runtime handoff already claimed; replay refused".into(),
         });
     }
-    let session = crate::async_runtime::block_on(engine::ensure(svc, tab))
-        .map_err(|error| before_write(tab, error))?;
-    let _permit =
-        super::blocking::deadline(std::time::Duration::from_secs(30), session.gate.acquire())
-            .map_err(|_| before_write(tab, RuntimeFailure::Deadline))?
-            .map_err(|_| before_write(tab, RuntimeFailure::Superseded))?;
+    let session = if let Some((session, _)) = selected {
+        session.clone()
+    } else if let Some(session) = super::user_delivery::ready_session(svc, tab) {
+        session
+    } else {
+        crate::async_runtime::block_on(engine::ensure(svc, tab))
+            .map_err(|error| before_write(tab, error))?
+    };
+    #[cfg(debug_assertions)]
+    let gate_started = std::time::Instant::now();
+    let _permit = if selected.is_some() {
+        None
+    } else {
+        Some(
+            super::blocking::deadline(std::time::Duration::from_secs(30), session.gate.acquire())
+                .map_err(|_| before_write(tab, RuntimeFailure::Deadline))?
+                .map_err(|_| before_write(tab, RuntimeFailure::Superseded))?,
+        )
+    };
+    #[cfg(debug_assertions)]
+    if let Some(send_id) = send_id {
+        log::debug!(
+            "[delivery-stage] tab={tab} send_id={send_id} stage=session_gate elapsed_us={}",
+            gate_started.elapsed().as_micros()
+        );
+    }
     let context = session.context.lock().clone();
-    if context.binding_nonce != expected {
+    if context.binding_nonce != expected
+        || selected.is_some_and(|(_, selected)| {
+            context.epoch != selected.epoch
+                || context.binding_nonce != selected.binding_nonce
+                || context.thread_id != selected.thread_id
+        })
+        || !engine::for_tab(tab).is_some_and(|current| Arc::ptr_eq(&current, &session))
+    {
         return Err(before_write(tab, RuntimeFailure::Superseded));
     }
     let process = session
         .process
         .lock()
         .clone()
+        .filter(|process| {
+            process.ended.borrow().is_none() && process.client.ended().borrow().is_none()
+        })
         .ok_or_else(|| before_write(tab, RuntimeFailure::PipeEof))?;
     let pending = match send_id {
         Some(id) => svc.chat_send_ledger.status(id).ok_or_else(|| {
@@ -87,7 +137,13 @@ pub fn send(
         })?,
         None => svc
             .chat_send_ledger
-            .try_start_scoped_with_normalization(tab, text, None, None, Default::default())
+            .try_start_scoped_with_normalization(
+                tab,
+                input.text().as_ref(),
+                None,
+                None,
+                Default::default(),
+            )
             .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?,
     };
     crate::async_runtime::block_on(svc.gateway.submit_runtime_loaded_turn(
@@ -437,6 +493,17 @@ pub(crate) async fn submit_loaded(
                 tab: tab.into(),
                 detail: reason,
             })
+        }
+        Err(RuntimeFailure::WrittenAwaitingEvidence)
+            if svc
+                .chat_send_ledger
+                .status(&pending.send_id)
+                .is_some_and(|status| {
+                    use crate::service::chat_send_transaction::ChatSendState;
+                    matches!(status.state, ChatSendState::Written | ChatSendState::Sent)
+                }) =>
+        {
+            Ok(())
         }
         other => {
             if let Some(status) = svc.chat_send_ledger.mark_rpc_uncertain(&pending.send_id) {

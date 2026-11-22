@@ -53,6 +53,8 @@ impl UserSendStore {
         }
         self.persist(&tab, &next)?;
         loaded.index = next;
+        drop(data);
+        self.emit_queue_change(&record.authority.tab_id);
         Ok(())
     }
 }

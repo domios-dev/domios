@@ -1,23 +1,53 @@
 import assert from "node:assert/strict";
-import { teamCloseResourcesForWorkspace } from "./teamCloseResources";
-import type { BlueprintSnapshot } from "../Automation/types";
-import type { Tab, Team, Workspace } from "../../lib/types";
+import type { WorkspaceClosePreview } from "../../../gen/WorkspaceClosePreview";
+import type { TransportClient } from "../../lib/transportClient";
+import { readTeamClosePlanMetadata } from "./teamClosePlanRead";
 
-const workspace = { id: "workspace-a", name: "Workspace A", tabs: ["member-a", "other-tab"], active_tab_id: null, cwd: null } satisfies Workspace;
-const tabs = {
-  "member-a": { id: "member-a", title: "Team member", team_id: "team-a" } as Tab,
-  "other-tab": { id: "other-tab", title: "Other tab", team_id: "team-b", parent_tab_id: "member-a" } as Tab,
-};
-const teams: Team[] = [{ id: "team-a", name: "Team A", lifecycle: "active", created_at: 0, workspace_id: workspace.id }];
-const blueprints: BlueprintSnapshot[] = [
-  { id: "team-run", name: "Team pipeline", owner: { kind: "team", tab_id: "member-a", team_id: "team-a" }, state: "running", run_id: "run-1", current_step: 0, last_event_at_ms: 1 },
-  { id: "member-run", name: "Member pipeline", owner: { kind: "tab", tab_id: "member-a", team_id: null }, state: "running", run_id: "run-2", current_step: 0, last_event_at_ms: 2 },
-  { id: "other-run", name: "Other pipeline", owner: { kind: "tab", tab_id: "other-tab", team_id: null }, state: "running", run_id: "run-3", current_step: 0, last_event_at_ms: 3 },
-  { id: "idle", name: "Idle pipeline", owner: { kind: "team", tab_id: "member-a", team_id: "team-a" }, state: "idle", run_id: null, current_step: null, last_event_at_ms: null },
-];
+async function main() {
+  const preview: WorkspaceClosePreview = {
+    installation_id: "local",
+    workspace_id: "workspace/a",
+    workspace_name: "Workspace A",
+    protected: false,
+    agent_tabs: [],
+    remote_members: [],
+    crons: [],
+    blueprints: [],
+    warnings: [],
+    teams: [{
+      id: "team/a",
+      name: "Team A",
+      remote: false,
+      members: [{ tab_id: "member-a", title: "Team member", role: "Worker", role_profile: null, remote: false }],
+      crons: ["Team schedule"],
+      blueprints: ["Team pipeline", "Member pipeline"],
+      tasks: [{ plan_id: "foreign-plan-with-team-attempt", plan_title: "Shared plan", task_id: "a",
+        task_name: "Member task", status: "in_progress", orphan: false, remote_attempt: false }],
+      open_attempts: [],
+      lanes: [],
+    }],
+  };
+  const requests: string[] = [];
+  const controller = new AbortController();
+  const transport = {
+    currentToken: () => null,
+    async localJson<T>(method: string, path: string, body?: unknown, options?: { signal?: AbortSignal }) {
+      assert.equal(method, "GET");
+      assert.equal(body, undefined);
+      assert.equal(options?.signal, controller.signal);
+      requests.push(path);
+      return preview as T;
+    },
+  } satisfies Pick<TransportClient, "currentToken" | "localJson">;
+  const [team] = (await readTeamClosePlanMetadata("workspace/a", "team/a", controller.signal, transport)).teams;
+  assert.deepEqual(requests, ["/api/workspaces/workspace%2Fa/close-preview?resources_only=true&team_id=team%2Fa"]);
+  assert.deepEqual(team.members.map(member => member.tabId), ["member-a"]);
+  assert.deepEqual(team.crons, ["Team schedule"]);
+  assert.deepEqual(team.blueprints, ["Team pipeline", "Member pipeline"]);
+  assert.deepEqual(team.lanes, ["Shared plan: Member task"]);
+  await assert.rejects(readTeamClosePlanMetadata("workspace/a", "other-team", controller.signal, transport), /selected scope/);
+  await readTeamClosePlanMetadata("workspace/a", null, controller.signal, transport);
+  assert.equal(requests[requests.length - 1], "/api/workspaces/workspace%2Fa/close-preview?resources_only=true");
+}
 
-const [team] = teamCloseResourcesForWorkspace(workspace, tabs, teams, [], [], blueprints);
-assert.deepEqual(team.members.map(member => member.tabId), ["member-a"]);
-assert.deepEqual(team.blueprints, ["Team pipeline", "Member pipeline"]);
-
-console.log("Team close Blueprint inventory cases passed");
+void main();

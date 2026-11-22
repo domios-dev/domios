@@ -171,6 +171,29 @@ impl LaunchAccount {
         self.validate_snapshot(current)
     }
 
+    pub(super) fn validate_recovery_pty(
+        &self,
+        svc: &ServiceContext,
+        tab: &str,
+        origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
+    ) -> Result<(), String> {
+        use crate::service::launch_diagnostics::AgentLaunchOrigin;
+        if !matches!(
+            origin,
+            AgentLaunchOrigin::ExitRecovery | AgentLaunchOrigin::AutomaticExitRecovery
+        ) {
+            return Ok(());
+        }
+        let mux = svc.mux.read();
+        let current = mux
+            .get_tab(tab)
+            .ok_or("exit_recovery_no_live_shell: tab closed")?;
+        if current.pty_id != self.expected.lock().pty_id {
+            return Err("exit_recovery_no_live_shell: shell changed before relaunch".into());
+        }
+        Ok(())
+    }
+
     fn validate_snapshot(&self, current: &Tab) -> Result<(), String> {
         if self
             .switch_launch
@@ -256,46 +279,70 @@ impl LaunchAccount {
         tab: &str,
         provided: Option<Option<Arc<InvocationContext>>>,
     ) -> Result<Option<Arc<InvocationContext>>, String> {
-        let owner = svc.clone();
-        let tab = tab.to_owned();
-        let account = self.clone();
-        self.start_resolution(svc, &tab, move || {
-            let (id, saved_namespace) = {
-                let expected = account.expected.lock();
-                (
-                    crate::service::provider_accounts::selected_account(&expected).to_owned(),
-                    expected.restorable_launch.account_namespace.clone(),
+        crate::startup::boot_timing::mark(tab, None, "account_supervision_begin");
+        let implicit = crate::service::provider_accounts::selected_account(&self.expected.lock())
+            == codeterm_types::config::provider_accounts::IMPLICIT_ACCOUNT;
+        let result = if implicit {
+            if provided.as_ref().is_some_and(Option::is_some) {
+                Err(
+                    "launch_account_context_changed: usual sign-in cannot use a private account"
+                        .into(),
                 )
-            };
-            let namespace = crate::service::provider_accounts::credential_namespace(
-                &owner,
-                &account.provider,
-                Some(&id),
-                saved_namespace.as_deref(),
-            )?;
-            let resolved = crate::service::provider_accounts::invocation_at(
-                &owner,
-                &account.provider,
-                Some(&id),
-                namespace.as_deref(),
-            )?;
-            let current_namespace = crate::service::provider_accounts::credential_namespace(
-                &owner,
-                &account.provider,
-                Some(&id),
-                saved_namespace.as_deref(),
-            )?;
-            if namespace != current_namespace
-                || provided.as_ref().is_some_and(|provided| {
-                    provided.as_ref().map(|context| context.cache_key())
-                        != resolved.as_ref().map(|context| context.cache_key())
+            } else {
+                self.resolve_with(svc, tab, || {
+                    crate::service::provider_accounts::implicit_launch_invocation(
+                        svc,
+                        &self.provider,
+                    )
                 })
-            {
-                return Err("launch_account_context_changed: credential namespace changed".into());
             }
-            Ok(resolved)
-        })?
-        .wait_blocking(std::time::Duration::from_secs(60))
+        } else {
+            let owner = svc.clone();
+            let tab = tab.to_owned();
+            let account = self.clone();
+            let provision = move || {
+                let (id, saved_namespace) = {
+                    let expected = account.expected.lock();
+                    (
+                        crate::service::provider_accounts::selected_account(&expected).to_owned(),
+                        expected.restorable_launch.account_namespace.clone(),
+                    )
+                };
+                let namespace = crate::service::provider_accounts::credential_namespace(
+                    &owner,
+                    &account.provider,
+                    Some(&id),
+                    saved_namespace.as_deref(),
+                )?;
+                let resolved = crate::service::provider_accounts::invocation_at(
+                    &owner,
+                    &account.provider,
+                    Some(&id),
+                    namespace.as_deref(),
+                )?;
+                let current_namespace = crate::service::provider_accounts::credential_namespace(
+                    &owner,
+                    &account.provider,
+                    Some(&id),
+                    saved_namespace.as_deref(),
+                )?;
+                if namespace != current_namespace
+                    || provided.as_ref().is_some_and(|provided| {
+                        provided.as_ref().map(|context| context.cache_key())
+                            != resolved.as_ref().map(|context| context.cache_key())
+                    })
+                {
+                    return Err(
+                        "launch_account_context_changed: credential namespace changed".into(),
+                    );
+                }
+                Ok(resolved)
+            };
+            self.start_resolution(svc, &tab, provision)
+                .and_then(|job| job.wait_blocking(std::time::Duration::from_secs(60)))
+        };
+        crate::startup::boot_timing::mark(tab, None, "account_supervision_settled");
+        result
     }
 
     pub(super) fn start_resolution(

@@ -30,10 +30,16 @@ impl Priority {
 
 pub fn priority(mux: &crate::multiplexer::state::MultiplexerState, tab_id: &str) -> Priority {
     let tab = mux.get_tab(tab_id);
+    let workspace = mux.get_active_workspace();
+    let focused = mux
+        .get_focused_tab_id()
+        .filter(|id| {
+            workspace.is_none_or(|workspace| workspace.tabs.iter().any(|tab| tab.as_str() == *id))
+        })
+        .or_else(|| workspace.and_then(|workspace| workspace.active_tab_id.as_deref()));
     Priority::from_visibility(
-        mux.get_focused_tab_id() == Some(tab_id),
-        mux.get_active_workspace()
-            .is_some_and(|workspace| workspace.tabs.iter().any(|id| id == tab_id)),
+        focused == Some(tab_id),
+        workspace.is_some_and(|workspace| workspace.tabs.iter().any(|id| id == tab_id)),
         tab.is_some_and(|tab| tab.show_in_tabbar),
         tab.is_none_or(|tab| tab.hidden),
     )
@@ -113,6 +119,17 @@ impl Changes {
             self.changed.wait(&mut revision);
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn wait_until(&self, observed: u64, deadline: std::time::Instant) -> bool {
+        let mut revision = self.revision.lock();
+        while *revision == observed {
+            if self.changed.wait_until(&mut revision, deadline).timed_out() {
+                return *revision != observed;
+            }
+        }
+        true
+    }
 }
 
 pub fn changes() -> &'static Changes {
@@ -122,6 +139,68 @@ pub fn changes() -> &'static Changes {
 
 pub fn notify_changed() {
     changes().notify();
+}
+
+#[derive(Default)]
+struct StartupTabs(Arc<Mutex<HashSet<String>>>);
+
+pub struct StartupWave(Arc<Mutex<HashSet<String>>>);
+
+pub fn track_startup_wave(service: &ServiceContext, tabs: &[String]) -> StartupWave {
+    let targets = &service.ext_or_init::<StartupTabs>(StartupTabs::default).0;
+    targets.lock().extend(tabs.iter().cloned());
+    StartupWave(targets.clone())
+}
+
+impl Drop for StartupWave {
+    fn drop(&mut self) {
+        self.0.lock().clear();
+    }
+}
+
+static PREPARATION: OnceLock<PreparationGate> = OnceLock::new();
+
+pub(super) fn owns_startup_restore(service: &ServiceContext, tab: &str) -> bool {
+    service
+        .try_ext::<StartupTabs>()
+        .is_some_and(|targets| targets.0.lock().contains(tab))
+        || PREPARATION.get().is_some_and(|gate| {
+            let key = (Arc::as_ptr(&service.mux) as usize, tab.to_owned());
+            gate.state.lock().active.contains(&key)
+        })
+}
+
+pub fn admit_restored_chat(service: &ServiceContext, tab_id: &str) -> Result<(), String> {
+    let expected = service
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .filter(|tab| {
+            matches!(
+                tab.backing,
+                crate::multiplexer::types::TabBacking::ChatBackend { .. }
+            ) && tab.restored_from_snapshot
+                && !tab.frozen
+                && !tab.protected
+                && !tab
+                    .close_restore
+                    .as_ref()
+                    .is_some_and(|closed| closed.stopped)
+                && super::lazy_restore::automatic_restore_refusal(tab).is_none()
+        })
+        .cloned();
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    if crate::crash::shutdown::is_shutting_down() {
+        return Ok(());
+    }
+    use super::provider_accounts::provisioning::{startup_tab_is_current, StartupScope};
+    let _startup = StartupScope::enter(service, tab_id);
+    match service.chatbackend_reopen_if_restored(tab_id) {
+        Err(reason) if startup_tab_is_current(service, &expected) => Err(reason),
+        _ => Ok(()),
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -374,13 +453,27 @@ pub fn admit_restored_pty(
     let pty_id = {
         crate::startup::boot_timing::mark(&resolved, None, "pty_claim_enter");
         let claim = service.pty_ownership.acquire(&resolved)?;
-        if let Some(reason) = service
-            .mux
-            .read()
-            .get_tab(&resolved)
-            .and_then(super::lazy_restore::automatic_restore_refusal)
         {
-            return Err(reason.into());
+            let mux = service.mux.read();
+            let Some(tab) = mux.get_tab(&resolved) else {
+                return Ok(());
+            };
+            if crate::crash::shutdown::is_shutting_down()
+                || !tab.restored_from_snapshot
+                || tab.agent_booting
+                || tab.frozen
+                || tab.protected
+                || !matches!(tab.backing, crate::multiplexer::types::TabBacking::Pty)
+                || tab
+                    .close_restore
+                    .as_ref()
+                    .is_some_and(|closed| closed.stopped)
+            {
+                return Ok(());
+            }
+            if let Some(reason) = super::lazy_restore::automatic_restore_refusal(tab) {
+                return Err(reason.into());
+            }
         }
         crate::startup::boot_timing::mark(&resolved, None, "pty_claim_acquired");
         if service.direct_restored_pty_pending(&resolved) {
@@ -407,7 +500,6 @@ fn schedule_preparation(
     resolved: String,
     pty_id: Option<String>,
 ) -> Option<std::thread::JoinHandle<()>> {
-    static PREPARATION: OnceLock<PreparationGate> = OnceLock::new();
     let Some(mut ticket) = PREPARATION
         .get_or_init(PreparationGate::default)
         .enqueue(&service.mux, &resolved)
@@ -441,6 +533,8 @@ fn schedule_preparation(
                 admission.mark(&resolved, pty_id.as_deref(), "prepare_cancelled");
                 return;
             }
+            let _startup =
+                super::provider_accounts::provisioning::StartupScope::enter(&service, &resolved);
             let result = service.materialize_restored_agent_with_admission(&claim, Some(admission));
             if let Err(reason) = &result {
                 if let Some(tab) = service.mux.write().get_tab_mut(&resolved) {

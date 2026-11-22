@@ -166,7 +166,7 @@ impl PlanDatabase {
         query: &ListWindowQuery,
         view: PlanViewProjection,
     ) -> Result<Value, PlanError> {
-        let mut guard = self.connection.lock();
+        let mut guard = self.read_connection();
         let transaction = guard.transaction().map_err(db_error)?;
         let value =
             super::ui_projections::projection_with_list(&transaction, id, view, Some(query))?;

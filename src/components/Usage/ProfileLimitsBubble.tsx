@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { formatAge } from "../../lib/timeLabels";
 import { classify } from "../../types/usage";
+import type { ModelGroup } from "../../lib/types";
 import { contextMeter } from "../Terminal/composerModels";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { balanceFailure, balanceLabel, balanceNeedsRead, balanceReading } from "./balanceModel";
@@ -9,19 +10,24 @@ import { ContextUsageBubble } from "./ContextUsageBubble";
 import { contextUsage, useClaimContext } from "./contextUsage";
 import {
   activeQuotaReset,
+  activeQuotaGroup,
+  formatResetCountdown,
   nextQuotaResetTickMs,
   quotaPill,
+  quotaGroups,
   quotaReadDue,
   quotaReading,
   quotaResetPill,
   unavailablePill,
   type QuotaReading,
+  type QuotaGroup,
   type QuotaResetReading,
 } from "./quotaModel";
 import { ownRuntimeUsage, runtimeTokenBreakdown, runtimeTokenLabel } from "./runtimeUsage";
 import { UsageGauge } from "./UsageGauge";
+import { UsageMetricGlyph } from "./UsageMetricGlyph";
 
-function LimitsPill({ label, text, tone, children }: { label: string; text: string; tone?: "quiet" | "warn" | "danger"; children: ReactNode }) {
+function LimitsPill({ label, text, tone, children }: { label: string; text: ReactNode; tone?: "quiet" | "warn" | "danger"; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => setOpen(false), []);
@@ -30,7 +36,7 @@ function LimitsPill({ label, text, tone, children }: { label: string; text: stri
       <button ref={anchor} type="button" aria-label={label} aria-expanded={open}
         className={["ct-bar-pill ct-usage-bubble", tone ? `is-${tone}` : "", open ? "is-open" : ""].filter(Boolean).join(" ")}
         onClick={(event) => { event.stopPropagation(); setOpen((value) => !value); }}>
-        <span className="pct">{text}</span>
+        {typeof text === "string" ? <span className="pct">{text}</span> : text}
       </button>
       <AnchoredPopover open={open} anchor={anchor} placement="bottom-end" className="ct-usage" onClose={close}>
         <div className="ct-usage-popover" role="dialog" aria-label="usage details">{children}</div>
@@ -50,18 +56,29 @@ export function useQuotaResetTick(resetsAt: number | null, now: number): void {
   }, [resetsAt, now]);
 }
 
-export function QuotaReadingPill({ reading, failure, capturedAt, onRefresh }: {
+export function QuotaReadingPill({ reading, failure, capturedAt, onRefresh, modelId, modelGroups, reset }: {
   reading: QuotaReading; failure: string | null; capturedAt?: number; onRefresh?: () => void;
+  modelId?: string | null; modelGroups?: ModelGroup[]; reset?: QuotaResetReading | null;
 }) {
-  const pill = quotaPill(reading, failure);
-  const state = classify(pill.percent);
+  const groups = quotaGroups(reading);
+  const active = activeQuotaGroup(groups, modelId, modelGroups);
+  const pill = quotaPill(active ? { ...reading, limits: active.limits } : reading, failure);
+  const state = groups.length && !active ? "neutral" : classify(pill.percent);
+  const failureNote = failure ? `, last read failed: ${failure}` : "";
+  const quotaLabel = active
+    ? `${active.label} usage limits, ${active.metrics.map(metric => `${metric.key === "session" ? "5h" : "weekly"} ${Math.round(metric.pct)}% used`).join(", ")}${failureNote}`
+    : groups.length ? `Active model quota unavailable${failureNote}` : pill.label;
   const now = Date.now();
+  const currentReset = reset && reset.resetsAt > now ? reset : null;
+  useQuotaResetTick(currentReset?.resetsAt ?? null, now);
+  const resetNote = currentReset ? `Profile quota resets in ${formatResetCountdown(currentReset.resetsAt, now)}.` : null;
   return (
-    <LimitsPill label={pill.label} text={pill.text} tone={state === "neutral" ? (failure ? "warn" : undefined) : state}>
+    <LimitsPill label={[quotaLabel, resetNote].filter(Boolean).join(". ")} text={active ? active.metrics.map((metric, index) => (
+      <UsageMetricGlyph key={metric.key} metric={metric} state={classify(metric.pct)} separated={index > 0} />
+    )) : groups.length ? "—" : pill.text} tone={state === "neutral" ? (failure || currentReset ? "warn" : undefined) : state}>
       <div className="head"><span className="title">{reading.title}</span></div>
-      {reading.limits.map((limit) => (
-        <UsageGauge key={limit.label} label={limit.label} variant="session" pct={limit.usedPercent} resetsAt={limit.resetsAt} state={classify(limit.usedPercent)} now={now} />
-      ))}
+      <QuotaReadingDetails key={active?.label} reading={reading} groups={groups} active={active} now={now} />
+      {resetNote && <p className="ct-usage-detail">{resetNote} {currentReset?.reason}</p>}
       {failure ? <p className="ct-usage-detail">Last read failed: {failure}</p> : null}
       <div className="ct-usage-foot">
         <span>{capturedAt !== undefined ? `last updated ${formatAge(capturedAt, now)}` : "not read yet"}</span>
@@ -69,6 +86,29 @@ export function QuotaReadingPill({ reading, failure, capturedAt, onRefresh }: {
       </div>
     </LimitsPill>
   );
+}
+
+function QuotaReadingDetails({ reading, groups, active, now }: {
+  reading: QuotaReading; groups: QuotaGroup[]; active: QuotaGroup | null; now: number;
+}) {
+  const [selection, setSelection] = useState(active?.label ?? "");
+  const selected = groups.find(group => group.label === selection);
+  const limits = selected?.limits ?? reading.limits;
+  const hasUngrouped = groups.reduce((count, group) => count + group.limits.length, 0) !== reading.limits.length;
+  return <>
+    {(groups.length > 1 || (groups.length > 0 && hasUngrouped)) && (
+      <label className="ct-usage-detail flex items-center justify-between gap-2">Quota group
+        <select value={selected?.label ?? ""} onChange={event => setSelection(event.target.value)}>
+          <option value="">All limits</option>
+          {groups.map(group => <option key={group.label}>{group.label}</option>)}
+        </select>
+      </label>
+    )}
+    {limits.map((limit, index) => (
+      <UsageGauge key={`${limit.label}:${index}`} label={limit.label} variant={/ weekly$/i.test(limit.label) ? "weekly" : "session"}
+        pct={limit.usedPercent} resetsAt={limit.resetsAt} state={classify(limit.usedPercent)} now={now} />
+    ))}
+  </>;
 }
 
 export function QuotaResetPill({ title, reset, note, now }: {
@@ -91,7 +131,7 @@ export function QuotaResetPill({ title, reset, note, now }: {
 }
 
 /** The tab's own session, whose reported context stands in when the account's limits cannot be read. */
-export interface TabUsageSession { provider: string; accountId?: string | null; profileAccountId?: string | null; tabId: string; threadId?: string | null; context: unknown; label?: string }
+export interface TabUsageSession { provider: string; accountId?: string | null; profileAccountId?: string | null; tabId: string; threadId?: string | null; context: unknown; label?: string; modelId?: string | null; modelGroups?: ModelGroup[] }
 
 /** Nothing readable for the account: pushed quota or observed reset when present, else the session's reported context or a dash that says why. */
 export function UnavailableLimitsBubble({ reason, session }: { reason: string; session?: TabUsageSession }) {
@@ -103,13 +143,14 @@ export function UnavailableLimitsBubble({ reason, session }: { reason: string; s
   });
   const now = Date.now();
   const pushedQuota = quotaReading(profileSnapshot);
-  const quotaReset = pushedQuota ? null : activeQuotaReset(profileSnapshot, now);
-  useQuotaResetTick(quotaReset?.resetsAt ?? null, now);
+  const quotaReset = activeQuotaReset(profileSnapshot, now);
+  useQuotaResetTick(pushedQuota ? null : quotaReset?.resetsAt ?? null, now);
   const runtime = ownRuntimeUsage(snapshot, session?.tabId, session?.threadId);
   const usage = session && !pushedQuota && !quotaReset ? contextUsage(session.context, runtime) : null;
   useClaimContext(session?.tabId, usage !== null);
   if (pushedQuota) {
-    return <QuotaReadingPill reading={pushedQuota} failure={null} capturedAt={profileSnapshot?.captured_at} />;
+    return <QuotaReadingPill reading={pushedQuota} failure={null} capturedAt={profileSnapshot?.captured_at} modelId={session?.modelId}
+      modelGroups={session?.modelGroups} reset={quotaReset} />;
   }
   if (quotaReset) {
     return <QuotaResetPill title={`${session?.label ?? session?.provider ?? "Account"} quota`} reset={quotaReset} note={reason} now={now} />;
@@ -149,12 +190,13 @@ export function QuotaBubble({ provider, accountId, trackingEnabled, session }: {
   }, [trackingEnabled, reportedContext, refresh]);
   const now = Date.now();
   const reading = trackingEnabled ? quotaReading(snapshot) : null;
-  const quotaReset = trackingEnabled && !reading ? activeQuotaReset(snapshot, now) : null;
-  useQuotaResetTick(quotaReset?.resetsAt ?? null, now);
+  const quotaReset = trackingEnabled ? activeQuotaReset(snapshot, now) : null;
+  useQuotaResetTick(reading ? null : quotaReset?.resetsAt ?? null, now);
   if (!trackingEnabled) return null;
   const failure = balanceFailure(snapshot, error, "Usage limits are unavailable");
   if (reading) {
-    return <QuotaReadingPill reading={reading} failure={failure} capturedAt={snapshot?.captured_at} onRefresh={() => void refresh()} />;
+    return <QuotaReadingPill reading={reading} failure={failure} capturedAt={snapshot?.captured_at}
+      modelId={session?.modelId} modelGroups={session?.modelGroups} reset={quotaReset} onRefresh={() => void refresh()} />;
   }
   if (quotaReset) {
     return <QuotaResetPill title={`${session?.label ?? provider} quota`} reset={quotaReset} note={failure ?? undefined} now={now} />;

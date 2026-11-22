@@ -12,6 +12,7 @@ import { deleteTrackedChatMessage, isProvenAdmissionRefusal, reconcileTrackedCha
 import { addChatSend, beginChatSendRetry, forgetChatSendsInMemory, observeDeliveryStatus, readChatSends,
   __setChatSendRepositoryForTest, ensureChatSendTabHydrated, chatSendTabHydrationState } from "./chatSendStore";
 import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
+import type { ComposerSendQueue } from "./composerQueueModel";
 
 beforeEach(() => __setChatSendRepositoryForTest(new MemoryChatSendRepository()));
 
@@ -258,9 +259,36 @@ test("restart reconciliation wires durable states onto each persisted held bubbl
     assert.equal(sends[0].id, "bubble");
     assert.equal(sends[0].status?.state, state);
     assert.equal(sends[0].status?.ledger_id, "new-daemon");
-    assert.deepEqual(calls, [{ command: "chat_send_status", args: { tabId } }, { command: "chat_send_dismissals", args: { tabId } }]);
+    assert.deepEqual(calls, ["chat_send_status", "chat_send_dismissals", "chat_send_queue"].map(command => ({ command, args: { tabId } })));
     assert.equal(beginChatSendRetry(tabId, "bubble") !== undefined, state === "failed");
   }
+});
+
+test("a versioned queue addition survives a reload and a later write without doubling the text", async () => {
+  const tabId = "reload-queue-edit";
+  const receipt = { ...heldStatus(), tab_id: tabId };
+  const item = { sendId: receipt.send_id, correlationId: receipt.correlationId!, version: 1, preview: "opaque [image]" };
+  const queue: ComposerSendQueue = { items: [item], claimed: [], edits: [{ ...item, appended: "\n\nFollow-up" }] };
+  const content = 'opaque <domios type="attachment" kind="image" path="/attachments/one.png" />';
+  addChatSend(tabId, { id: "bubble", correlationId: receipt.correlationId, content, sentAtMs: 1 });
+  let state: ChatSendStatus["state"] = "held";
+  __setInvokeForTest(async <T>(command: string) => {
+    if (command === "chat_send_queue") return queue as T;
+    if (command === "chat_send_status") return [{ ...receipt, state }] as T;
+    assert.equal(command, "chat_send_dismissals");
+    return [] as T;
+  });
+  await reconcileTrackedChatMessages(tabId);
+  assert.equal(readChatSends(tabId)[0]?.content, `${content}\n\nFollow-up`);
+  forgetChatSendsInMemory();
+  state = "written";
+  queue.items = [];
+  await reconcileTrackedChatMessages(tabId);
+  const [send] = readChatSends(tabId);
+  assert.equal(send.id, "bubble");
+  assert.equal(send.content, `${content}\n\nFollow-up`);
+  assert.equal(send.status?.state, "written");
+  assert.equal(beginChatSendRetry(tabId, send.id), undefined);
 });
 
 test("a composer send ended with its lost session retries once, and the old attempt cannot reclaim it", () => {
@@ -316,7 +344,7 @@ test("status reconciliation waits for full hydration and skips failed storage wi
   assert.deepEqual(commands, [], "pending storage cannot trigger empty-ledger reconciliation");
   finishHydration();
   await pendingReconciliation;
-  assert.deepEqual(commands, ["chat_send_status", "chat_send_dismissals"], "full hydration enables authoritative reconciliation");
+  assert.deepEqual(commands, ["chat_send_status", "chat_send_dismissals", "chat_send_queue"], "full hydration enables authoritative reconciliation");
 
   const failedRepository = new MemoryChatSendRepository();
   failedRepository.failHydration = true;

@@ -12,18 +12,18 @@ impl PlanDatabase {
         limit: usize,
         cursor: Option<&TeamEventCursor>,
     ) -> Result<Vec<TeamPlanRead>, PlanError> {
-        let mut guard = self.connection.lock();
+        let mut guard = self.read_connection();
         let transaction = guard.transaction().map_err(db_error)?;
         record_query();
         let headers = {
             let mut statement=transaction.prepare_cached(
-                "SELECT json_object('id',id,'title',title,'team_id',json_extract(header_json,'$.team_id'),
+                "SELECT json_object('id',id,'title',title,'team_id',team_id,
                     'status',status,'mode',CASE WHEN json_type(header_json,'$.mode') IS NULL THEN 'planning' ELSE json_extract(header_json,'$.mode') END,
                     'planning_state',CASE WHEN json_type(header_json,'$.planning_state') IS NULL THEN 'drafting' ELSE json_extract(header_json,'$.planning_state') END,
                     'goal',CASE WHEN json_type(header_json,'$.goal') IS NULL OR json_type(header_json,'$.goal')='null' THEN NULL
                         ELSE json_object('vector',json_extract(header_json,'$.goal.vector')) END,
                     'created_at',json(header_json->'$.created_at'),'updated_at',json(header_json->'$.updated_at'))
-                 FROM plans WHERE json_extract(header_json,'$.team_id')=?1 ORDER BY id"
+                 FROM plans WHERE team_id=?1 ORDER BY id"
             ).map_err(db_error)?;
             let rows = statement
                 .query_map([team_id], |row| column::<String>(row, 0))
@@ -65,7 +65,9 @@ fn task_counts(connection: &Connection, id: &str) -> Result<TaskCounts, PlanErro
     record_query();
     let mut statement = connection
         .prepare_cached(
-            "SELECT json_quote(status),count(*) FROM plan_tasks WHERE plan_id=?1 GROUP BY status",
+            "SELECT json_quote(json_extract(row_json,'$.status')),count(*)
+             FROM plan_tasks INDEXED BY plan_tasks_status_summary
+             WHERE plan_id=?1 GROUP BY json_extract(row_json,'$.status')",
         )
         .map_err(db_error)?;
     let rows = statement

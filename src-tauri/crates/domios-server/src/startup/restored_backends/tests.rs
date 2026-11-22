@@ -26,7 +26,7 @@ fn bounded_transports_progress_independently_without_starving_queued_tabs() {
             |kind| *kind,
             || vec![super::Priority::Background; 13],
             |_| Ok(()),
-            |kind, _| {
+            |kind, _, ()| {
                 entered.send(*kind).unwrap();
                 match kind {
                     RestoreTransport::Pty => pty_tokens.lock().unwrap().recv().unwrap(),
@@ -119,7 +119,7 @@ fn wave_reads_current_focus_when_each_slot_becomes_free() {
 }
 
 #[test]
-fn every_cwd_is_validated_before_slots_start_and_failures_are_isolated() {
+fn each_cwd_is_validated_before_its_slot_starts_and_failures_are_isolated() {
     let events = Mutex::new(Vec::new());
     let results = run_wave(
         &[0, 1, 2, 3],
@@ -135,10 +135,7 @@ fn every_cwd_is_validated_before_slots_start_and_failures_are_isolated() {
         },
         |item| {
             let mut events = events.lock().unwrap();
-            assert_eq!(
-                events.iter().filter(|event| event.0 == "validate").count(),
-                4
-            );
+            assert!(events.contains(&("validate", *item)));
             events.push(("materialize", *item));
             if *item == 2 {
                 Err("spawn-refused".into())
@@ -159,6 +156,98 @@ fn every_cwd_is_validated_before_slots_start_and_failures_are_isolated() {
     let events = events.into_inner().unwrap();
     assert!(!events.contains(&("materialize", 0)));
     assert_eq!(events.len(), 7);
+}
+
+#[test]
+fn saved_and_touched_foreground_materialize_while_background_stages_are_held() {
+    use super::{AdmissionPermit, Priority};
+    const DEADLINE: Duration = Duration::from_secs(5);
+    for kind in [RestoreTransport::Pty, RestoreTransport::Chat] {
+        for saved in [true, false] {
+            let (entered, observed) = mpsc::channel();
+            let (release_check, check) = mpsc::channel();
+            let (release_backend, backend) = mpsc::channel();
+            let check = Mutex::new(check);
+            let backend = Mutex::new(backend);
+            let foreground = Arc::new(AtomicUsize::new(if saved { 2 } else { usize::MAX }));
+            let current = foreground.clone();
+            let worker = std::thread::spawn(move || {
+                run_transport_waves(
+                    &[0, 1, 2],
+                    RestoreBudgets {
+                        foreground: 1,
+                        background: 2,
+                        chat_foreground: 1,
+                        chat_background: 2,
+                    },
+                    |_| kind,
+                    || {
+                        (0..3)
+                            .map(|index| {
+                                if index == current.load(Ordering::SeqCst) {
+                                    Priority::Focused
+                                } else {
+                                    Priority::Background
+                                }
+                            })
+                            .collect()
+                    },
+                    |item| {
+                        if *item == 0 {
+                            entered.send("background cwd held").unwrap();
+                            check.lock().unwrap().recv_timeout(DEADLINE).unwrap();
+                        }
+                        Ok(())
+                    },
+                    |item, admission, ()| {
+                        match item {
+                            1 => {
+                                entered.send("background backend held").unwrap();
+                                backend.lock().unwrap().recv_timeout(DEADLINE).unwrap();
+                            }
+                            2 => {
+                                assert_eq!(admission.priority, Priority::Focused);
+                                assert_eq!(admission.permit, AdmissionPermit::Reserved);
+                                entered.send("foreground usable").unwrap();
+                            }
+                            _ => {}
+                        }
+                        Ok(())
+                    },
+                )
+            });
+            if !saved {
+                let mut held = [
+                    observed.recv_timeout(DEADLINE).unwrap(),
+                    observed.recv_timeout(DEADLINE).unwrap(),
+                ];
+                held.sort_unstable();
+                assert_eq!(held, ["background backend held", "background cwd held"]);
+                foreground.store(2, Ordering::SeqCst);
+                super::changes().notify();
+                assert_eq!(
+                    observed.recv_timeout(DEADLINE).unwrap(),
+                    "foreground usable"
+                );
+            } else {
+                let mut events = (0..3)
+                    .map(|_| observed.recv_timeout(DEADLINE).unwrap())
+                    .collect::<Vec<_>>();
+                events.sort_unstable();
+                assert_eq!(
+                    events,
+                    [
+                        "background backend held",
+                        "background cwd held",
+                        "foreground usable"
+                    ]
+                );
+            }
+            release_check.send(()).unwrap();
+            release_backend.send(()).unwrap();
+            assert_eq!(worker.join().unwrap(), vec![Ok(()); 3]);
+        }
+    }
 }
 
 #[test]
@@ -197,11 +286,14 @@ fn four_tabs_can_start_independently_and_the_fifth_waits_for_a_slot() {
 
 #[test]
 fn reserved_worker_never_takes_background_and_focus_changes_reprioritize_pending() {
-    use super::{take_prioritized, Priority};
-    let mut pending = vec![0, 1, 2, 3];
+    use super::{take_prioritized, Pending, Priority};
+    let mut pending = Pending {
+        indices: vec![0, 1, 2, 3],
+        idle_reserved: 0,
+    };
     let mut priorities = vec![Priority::Background; 4];
     assert_eq!(take_prioritized(&mut pending, &priorities, true), None);
-    assert_eq!(pending, [0, 1, 2, 3]);
+    assert_eq!(pending.indices, [0, 1, 2, 3]);
     priorities[3] = Priority::Focused;
     priorities[2] = Priority::Visible;
     assert_eq!(take_prioritized(&mut pending, &priorities, true), Some(3));
@@ -245,7 +337,7 @@ fn five_workers_serve_visible_burst_before_any_completion() {
             |_| RestoreTransport::Pty,
             || vec![super::Priority::Visible; 5],
             |_| Ok(()),
-            |item, admission| {
+            |item, admission, ()| {
                 entered.send((*item, admission)).unwrap();
                 tokens.lock().unwrap().recv().unwrap();
                 Ok(())
@@ -305,7 +397,7 @@ fn focus_event_uses_reserved_worker_while_all_shared_workers_are_busy() {
                     .collect()
             },
             |_| Ok(()),
-            |item, admission| {
+            |item, admission, ()| {
                 entered.send((*item, admission)).unwrap();
                 tokens.lock().unwrap().recv().unwrap();
                 Ok(())
@@ -355,7 +447,7 @@ fn reserved_chat_worker_never_takes_background_chat_tabs() {
             |_| RestoreTransport::Chat,
             || vec![super::Priority::Background; 5],
             |_| Ok(()),
-            |item, admission| {
+            |item, admission, ()| {
                 entered.send((*item, admission)).unwrap();
                 tokens.lock().unwrap().recv().unwrap();
                 Ok(())
@@ -414,7 +506,7 @@ fn visible_chat_tab_jumps_queued_background_chat_while_shared_workers_are_busy()
                     .collect()
             },
             |_| Ok(()),
-            |item, admission| {
+            |item, admission, ()| {
                 entered.send((*item, admission)).unwrap();
                 if *item != 6 {
                     tokens.lock().unwrap().recv().unwrap();

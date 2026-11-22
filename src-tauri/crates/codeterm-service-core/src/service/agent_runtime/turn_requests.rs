@@ -257,7 +257,7 @@ pub(super) async fn publish_written_inputs(
                     Some(thread),
                     Some(&pending.context.binding_nonce),
                 );
-                super::transcript::persist(session).await;
+                super::transcript::archive_tick(session);
                 Ok::<(), RuntimeFailure>(())
             })
             .await?;
@@ -348,9 +348,12 @@ pub(super) async fn run(
     let RuntimeOperation::SubmitTurn { send_id, .. } = &operation else {
         return Err(RuntimeFailure::Superseded);
     };
+    let send_id = send_id.clone();
     let RuntimeAction::Request { call } = &plan.action else {
         return Err(RuntimeFailure::Superseded);
     };
+    #[cfg(debug_assertions)]
+    let method = call.method.clone();
     let turn = call
         .target
         .as_ref()
@@ -376,7 +379,7 @@ pub(super) async fn run(
     });
     {
         let mut requests = session.turn_requests.lock();
-        if requests.len() >= 32 || requests.contains_key(send_id) {
+        if requests.len() >= 32 || requests.contains_key(&send_id) {
             return Err(RuntimeFailure::PrewriteRefused(
                 "Pending turn request capacity exceeded".into(),
             ));
@@ -390,6 +393,8 @@ pub(super) async fn run(
     let runtime = session.clone();
     let process = process.clone();
     let send = send_id.clone();
+    #[cfg(debug_assertions)]
+    let dispatched = std::time::Instant::now();
     tokio::spawn(async move {
         let result = await_reply(
             &owner, &runtime, &process, &pending, &operation, &plan, guard,
@@ -430,17 +435,45 @@ pub(super) async fn run(
         owner.wake_user_owner_on_state_change(&pending.context.tab_id);
     });
     loop {
-        if let Some(result) = outcome.borrow_and_update().clone() {
-            return result;
-        }
         tokio::select! {
-            changed = outcome.changed() => { changed.map_err(|_| RuntimeFailure::PipeEof)?; },
+            biased;
             written = witness.wait() => {
                 written?;
+                #[cfg(debug_assertions)]
+                {
+                    crate::flow_trace::record(
+                        &send_id,
+                        "send.frame_written",
+                        &context.tab_id,
+                        &session.provider,
+                        &method,
+                        None,
+                    );
+                    log::debug!(
+                        "[delivery-stage] tab={} send_id={send_id} stage=frame_written method={method} elapsed_us={}",
+                        context.tab_id,
+                        dispatched.elapsed().as_micros()
+                    );
+                }
+                if let Some(status) = svc.chat_send_ledger.mark_owned_rpc_written(&send_id) {
+                    svc.ui.emit("chat-send-status", serde_json::to_value(status).unwrap_or_default());
+                    let owner = svc.clone();
+                    let runtime = session.clone();
+                    tokio::spawn(async move {
+                        if let Err(reason) = publish_written_activity(&owner, &runtime, &activity).await {
+                            log::debug!("[runtime-send] send_id={} written activity unavailable: {reason}", activity.send_id);
+                        }
+                    });
+                    return Err(RuntimeFailure::WrittenAwaitingEvidence);
+                }
                 publish_written_activity(svc, session, &activity).await?;
                 if let Some(result) = outcome.borrow().clone() { return result; }
                 return Err(RuntimeFailure::WrittenAwaitingEvidence);
-            }
+            },
+            changed = outcome.changed() => {
+                changed.map_err(|_| RuntimeFailure::PipeEof)?;
+                if let Some(result) = outcome.borrow_and_update().clone() { return result; }
+            },
         }
     }
 }
@@ -485,6 +518,13 @@ async fn await_reply(
         }
     };
     pending.witness.wait().await?;
+    log::debug!(
+        "[delivery-stage] tab={} send_id={} stage=provider_reply method={} elapsed_ms={}",
+        pending.context.tab_id,
+        pending.send_id,
+        call.method,
+        now().saturating_sub(pending.started_at)
+    );
     publish_written_activity(svc, session, pending).await?;
     wait_for_updates(svc, session, process, pending, reply.through).await?;
     validate(svc, session, &pending.context)?;
@@ -651,6 +691,12 @@ async fn settle_failure(
     validate(svc, session, &pending.context)?;
     if pending.settled.swap(true, Ordering::AcqRel) {
         return Ok(());
+    }
+    if let Some(status) = svc.chat_send_ledger.mark_rpc_uncertain(&pending.send_id) {
+        svc.ui.emit(
+            "chat-send-status",
+            serde_json::to_value(status).unwrap_or_default(),
+        );
     }
     let thread_id = pending
         .context

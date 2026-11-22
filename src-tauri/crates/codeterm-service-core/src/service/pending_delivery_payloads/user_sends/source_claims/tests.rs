@@ -65,6 +65,7 @@ fn old_jsonl_claim_without_incarnation_loads_receipts_and_discards_only_the_clai
         client_token: Some("token".into()),
         ledger_sequence: 1,
         state: continuity::ReceiptState::Delivered,
+        queue_edit: None,
     };
     let mut index = serde_json::to_value(UserIndex::default()).unwrap();
     index["receipts"] = serde_json::json!([receipt]);

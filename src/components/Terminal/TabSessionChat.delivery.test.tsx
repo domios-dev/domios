@@ -17,7 +17,9 @@ import { addChatSend, readChatSends, failChatSendRequest, setChatSendDraft,
   observeChatSendDismissal, observeDeliveryStatus } from "./chatSendStore";
 import { encodeChatSend } from "./chatSendDurableModel";
 import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
-import { sendTrackedChatMessage } from "./chatSendStatus";
+import { reconcileTrackedChatMessages, sendTrackedChatMessage } from "./chatSendStatus";
+import type { ChatSendStatus } from "./chatSendStatus";
+import type { ComposerSendQueue } from "./composerQueueModel";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -157,7 +159,7 @@ function muxActions(): MultiplexerActionsContextType {
 type ChatEventHandler = (event: { payload: unknown }) => void;
 
 async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeState, sessionIntent?: { title: string; goal: string }, chatError?: string,
-  seed: { messages?: unknown[]; working?: boolean; statuses?: unknown[]; general?: boolean; pty?: boolean } = {}): Promise<{
+  seed: { messages?: unknown[]; working?: boolean; statuses?: unknown[]; general?: boolean; pty?: boolean; queue?: ComposerSendQueue } = {}): Promise<{
   host: HTMLDivElement;
   root: Root;
   dispatch: (event: string, payload: unknown) => void;
@@ -185,6 +187,7 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
       };
     }
     if (command === "chat_send_status") return seed.statuses ?? [];
+    if (command === "chat_send_queue") return seed.queue;
     if (command === "delayed_send_list" || command === "system_heartbeat_list") return [];
     return {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -235,6 +238,44 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
     },
   };
 }
+
+test("composer feedback follows the durable queue and the written receipt until settlement", async () => {
+  __setChatSendRepositoryForTest(new MemoryChatSendRepository());
+  const tabId = "composer-feedback";
+  const held: ChatSendStatus = { tab_id: tabId, send_id: "held-tx", state: "held", sequence: 1, ledger_id: "ledger",
+    retained_from: 1, error: null, correlationId: "feedback-token", pending_reason: "held_active_turn" };
+  const seed = {
+    statuses: [held],
+    queue: { items: [{ sendId: held.send_id, correlationId: held.correlationId!, version: 0, preview: "message" }],
+      claimed: [], edits: [] } satisfies ComposerSendQueue as ComposerSendQueue,
+  };
+  const { host, root, dispatch } = await renderChat(tabId, { state: "loaded", epoch: 3, last_turn_duration_ms: 12000 },
+    undefined, undefined, seed);
+  try {
+    await act(async () => { await reconcileTrackedChatMessages(tabId); });
+    const status = host.querySelector(".ct-composer-status")!;
+    assert(status.textContent?.includes("Queued: 1"), "the durable queue supplies the count");
+    assert(!status.textContent?.includes("Last turn"), "held input suppresses stale timing");
+    seed.queue = { ...seed.queue, items: [], claimed: [held.send_id] };
+    await act(async () => dispatch("chat-send-queue-changed", { tab_id: tabId }));
+    assert(!status.textContent?.includes("Sending…"), "composer does not render a Sending row above the input");
+    assert(!status.textContent?.includes("Last turn"), "claimed input suppresses stale timing");
+    assert(!status.textContent?.includes("Queued: 1"), "a claim removes the edit controls");
+    seed.queue = { ...seed.queue, claimed: [] };
+    seed.statuses = [{ ...held, state: "written", pending_reason: undefined }];
+    await act(async () => dispatch("chat-send-status", seed.statuses[0]));
+    assert(!status.textContent?.includes("Sending…"), "written input does not render a Sending row above the input");
+    assert(!status.textContent?.includes("Last turn"), "written input keeps suppressing stale timing");
+    seed.statuses = [{ ...held, state: "delivered", pending_reason: undefined }];
+    await act(async () => dispatch("chat-send-status", seed.statuses[0]));
+    assert(!status.textContent?.includes("Sending…"), "delivery settles the composer");
+    assert(status.textContent?.includes("Last turn 12s"), "the confirmed last turn can return");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setChatSendRepositoryForTest(null);
+  }
+});
 
 
 for (const narrow of [false, true]) {

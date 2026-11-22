@@ -55,6 +55,7 @@ fn receipts_ledger_and_in_flight_admissions_are_never_reported_absent() {
                 client_token: Some("durable".into()),
                 ledger_sequence: 1,
                 state: continuity::ReceiptState::Delivered,
+                queue_edit: None,
             });
     }
     tab.admissions

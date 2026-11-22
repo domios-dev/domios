@@ -117,7 +117,8 @@ function record(value: unknown): Record<string, unknown> {
 
 export function activityCommand(tool: ActivityTool): string {
   const input = record(tool.toolInput);
-  const command = input.cmd ?? input.command ?? tool.toolDetail ?? (tool.toolKind === "command" ? tool.toolSummary : undefined);
+  const command = input.cmd ?? input.command ?? input.CommandLine ?? input.commandLine ?? input.command_line
+    ?? tool.toolDetail ?? (tool.toolKind === "command" ? tool.toolSummary : undefined);
   return Array.isArray(command) ? argvParsed(command.map(String)).rest(0) : typeof command === "string" ? command : "";
 }
 
@@ -170,4 +171,41 @@ export function activityLabel(tool: ActivityTool): string {
     return path ? clip(`Reading ${basename(path)}`) : "Reading files";
   }
   return clip(unwrapped) || "Working";
+}
+
+/** Short verb for the narrow composer status bar; raw commands belong in the chat tool row and hover title. */
+export function statusActivityLabel(tool: ActivityTool): string {
+  const input = record(tool.toolInput);
+  const name = tool.toolName ?? "";
+  if (tool.toolKind === "edit" || /apply_patch|^(?:Edit|Write|MultiEdit)$/i.test(name)) return "Editing files";
+  if (tool.toolKind === "read" || /^(?:Read|read_file)$/i.test(name)) return "Reading files";
+  if (tool.toolKind === "search" || /^(?:Grep|Glob|grep_search|find_by_name)$/i.test(name)) return "Searching";
+  if (tool.toolKind === "web" || /^(?:WebSearch|WebFetch|search_web)$/i.test(name)) return "Searching web";
+  if (tool.toolKind !== "command" && input.cmd === undefined && input.command === undefined) {
+    const fallback = compact(tool.toolTitle || name || "Working");
+    return fallback.length <= 28 && !/[\\/]/.test(fallback) ? fallback : "Working";
+  }
+  const command = activityCommand(tool);
+  if (!command) return "Running command";
+  const unwrapped = unwrapCommand(command);
+  const parsed = tokenize(unwrapped);
+  let tokens = parsed.tokens;
+  if (POSIX_SHELLS.has(executableName(tokens[0] ?? "")) && /build\.(?:sh|ps1)$/i.test(tokens[1] ?? "")) tokens = tokens.slice(1);
+  if (["npx", "pnpm", "npm", "yarn", "bun"].includes(executableName(tokens[0] ?? "").toLowerCase())) {
+    tokens = tokens.slice(1);
+    if (["exec", "run", "x"].includes(tokens[0])) tokens = tokens.slice(1);
+  }
+  const exe = executableName(tokens[0] ?? "").toLowerCase();
+  const sub = (tokens[1] ?? "").toLowerCase();
+  if (exe === "tsc") return "Checking types";
+  if (["vitest", "jest", "test", "pytest", "nextest"].includes(exe)
+    || (exe === "node" && tokens.includes("--test"))
+    || (exe === "cargo" && (sub === "test" || sub === "nextest"))) return "Running tests";
+  if (exe === "build.sh" || exe === "build.ps1" || exe === "build"
+    || (exe === "cargo" && ["build", "check", "clippy", "rustc"].includes(sub))) return "Building";
+  if (exe === "git") return "Running git";
+  if (exe === "apply_patch") return "Editing files";
+  if (["rg", "grep", "find", "fd", "select-string"].includes(exe)) return "Searching";
+  if (["cat", "get-content", "head", "tail"].includes(exe) || (exe === "sed" && tokens[1] === "-n")) return "Reading files";
+  return "Running command";
 }

@@ -9,6 +9,9 @@ fn occurrences(haystack: &str, needle: &str) -> usize {
 fn outbound_stages_only_run_at_user_facing_send_seams() {
     let rest = include_str!("../../../crates/codeterm-api/src/tab_routes/send/preparation.rs");
     let composer = include_str!("../../../crates/codeterm-service-core/src/service/agent_pad.rs");
+    let queue = include_str!(
+        "../../../crates/codeterm-service-core/src/service/pending_delivery_payloads/user_sends/queue.rs"
+    );
     let chat =
         include_str!("../../../crates/codeterm-service-core/src/service/tab_transport_chat.rs");
     let batch =
@@ -18,6 +21,7 @@ fn outbound_stages_only_run_at_user_facing_send_seams() {
 
     assert_eq!(occurrences(rest, "run_outbound_stages("), 1);
     assert_eq!(occurrences(composer, "run_outbound_stages("), 1);
+    assert_eq!(occurrences(queue, "run_outbound_stages("), 1);
     assert_eq!(occurrences(chat, "run_outbound_stages("), 0);
     assert_eq!(occurrences(batch, "run_outbound_stages("), 0);
     assert_eq!(occurrences(messenger, "run_outbound_stages("), 0);
@@ -46,5 +50,5 @@ fn outbound_calls_in(dir: &std::path::Path) -> usize {
 #[test]
 fn outbound_stages_have_no_additional_crate_callers() {
     let crates = test_support::fixture_manifest_dir().join("crates");
-    assert_eq!(outbound_calls_in(&crates), 2);
+    assert_eq!(outbound_calls_in(&crates), 3);
 }

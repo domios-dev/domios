@@ -36,6 +36,7 @@ pub(crate) struct State {
     root: std::path::PathBuf,
     provisioning: parking_lot::Mutex<()>,
     provisioning_job: parking_lot::Mutex<Option<Arc<provisioning::Owner>>>,
+    startup_waiters: parking_lot::Mutex<Vec<Arc<str>>>,
     observations:
         parking_lot::Mutex<std::collections::BTreeMap<(String, String), roster::Observation>>,
     operations: parking_lot::Mutex<
@@ -59,6 +60,7 @@ impl Default for State {
             root: crate::paths::data_dir_path(),
             provisioning: Default::default(),
             provisioning_job: Default::default(),
+            startup_waiters: Default::default(),
             observations: Default::default(),
             operations: Default::default(),
             sign_ins: Default::default(),
@@ -524,6 +526,14 @@ pub(crate) fn login_invocation(
     })
 }
 
+pub(crate) fn implicit_launch_invocation(
+    svc: &super::ServiceContext,
+    provider: &str,
+) -> Result<Option<Arc<InvocationContext>>, String> {
+    invocation_at_typed(svc, provider, Some(IMPLICIT_ACCOUNT), None)
+        .map_err(|error| error.to_string())
+}
+
 fn invocation_at_typed(
     svc: &super::ServiceContext,
     provider: &str,
@@ -576,6 +586,18 @@ pub(crate) fn prepare_named_session_hook(
     else {
         return Ok(None);
     };
+    let consent = super::provider_hooks::integration_consent(svc, &provider);
+    if consent == Some(false) {
+        return Ok(Some(false));
+    }
+    let Some(harness) = svc.agent_registry.provider_arc(&provider) else {
+        return Ok(None);
+    };
+    provisioning::require_idle(svc)?;
+    let available = harness.named_account_session_hook(std::path::Path::new(&home), false)?;
+    if available != Some(false) || consent != Some(true) {
+        return Ok(available);
+    }
     let owner = svc.clone();
     provisioning::hook(svc, move || {
         let _integration_write = codeterm_notifications::provider_hooks::lock_integration_changes();
@@ -633,8 +655,33 @@ pub fn for_tab(
         ))
     };
     let before = selection()?;
-    let namespace = credential_namespace(svc, &before.0, Some(&before.1), before.3.as_deref())?;
-    let context = invocation_at(svc, &before.0, Some(&before.1), namespace.as_deref())?;
+    let context = if provisioning::in_startup(svc, tab) && before.1 != IMPLICIT_ACCOUNT {
+        let owner = svc.clone();
+        let (provider, account, _, saved_namespace) = before.clone();
+        provisioning::invocation(svc, move || {
+            let namespace = credential_namespace(
+                &owner,
+                &provider,
+                Some(&account),
+                saved_namespace.as_deref(),
+            )?;
+            let context = invocation_at(&owner, &provider, Some(&account), namespace.as_deref())?;
+            if namespace
+                != credential_namespace(
+                    &owner,
+                    &provider,
+                    Some(&account),
+                    saved_namespace.as_deref(),
+                )?
+            {
+                return Err("Account credential context changed during provisioning".into());
+            }
+            Ok(context)
+        })?
+    } else {
+        let namespace = credential_namespace(svc, &before.0, Some(&before.1), before.3.as_deref())?;
+        invocation_at(svc, &before.0, Some(&before.1), namespace.as_deref())?
+    };
     if selection()? != before {
         return Err("Account selection changed during provisioning".into());
     }

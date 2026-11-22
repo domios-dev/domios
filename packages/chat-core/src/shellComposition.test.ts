@@ -171,6 +171,17 @@ describe("command display labels", () => {
       command: "wrapper --encoded opaque", commandActions: [{ type: "unknown", command: 'Write-Output "hello world"' }],
     } } })).toBe('Write-Output "hello world"');
   });
+
+  it("reads ACP CommandLine input and never falls back to tool output", () => {
+    expect(toolCommandLabel({
+      message: { id: "acp-cmd", type: "tool_call", content: "", toolTitle: "Run check", toolInput: { CommandLine: "git status --short" } },
+      result: "The tool's output was truncated due to being too long.",
+    })).toBe("git status --short");
+    expect(toolCommandLabel({
+      message: { id: "acp-no-cmd", type: "tool_call", content: "", toolTitle: "Audit logs" },
+      result: "The tool's output was truncated due to being too long.",
+    })).toBe("Audit logs");
+  });
 });
 
 describe("bounded intended shell file operations", () => {

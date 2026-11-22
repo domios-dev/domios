@@ -238,6 +238,9 @@ pub async fn state(
     let store = state.svc.plan_store.clone();
     let limit = query.bounded_limit();
     let cursor = query.cursor;
+    let _permit = crate::plan_routes::acquire_plan_blocking_permit()
+        .await
+        .map_err(|(status, body)| (status, body.0.to_string()))?;
     let projection = tokio::task::spawn_blocking(move || {
         let decoded_cursor = cursor
             .as_deref()

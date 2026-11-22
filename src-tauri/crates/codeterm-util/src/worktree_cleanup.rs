@@ -37,40 +37,6 @@ pub fn remove(canonical: &str, worktree: &str, force: bool) -> Result<(), String
     {
         return Err(format!("refusing canonical checkout removal: '{worktree}'"));
     }
-    let list = git(canonical, &["worktree", "list", "--porcelain", "-z"])?;
-    let registered = list
-        .stdout
-        .split(|byte| *byte == 0)
-        .filter_map(|field| field.strip_prefix(b"worktree "))
-        .filter_map(|name| std::str::from_utf8(name).ok())
-        .any(|name| std::fs::canonicalize(name).is_ok_and(|name| name == lane_path));
-    if !registered {
-        return Err(format!("unregistered worktree: '{worktree}'"));
-    }
-    if !force {
-        let status = git(
-            worktree,
-            &["status", "--porcelain", "--untracked-files=all"],
-        )?;
-        if !status.stdout.is_empty() {
-            return Err(format!("dirty lane protected: '{worktree}'"));
-        }
-    }
-    for record in list
-        .stdout
-        .split(|byte| *byte == 0)
-        .collect::<Vec<_>>()
-        .split(|field| field.is_empty())
-    {
-        let owns = record
-            .iter()
-            .filter_map(|field| field.strip_prefix(b"worktree "))
-            .filter_map(|name| std::str::from_utf8(name).ok())
-            .any(|name| std::fs::canonicalize(name).is_ok_and(|name| name == lane_path));
-        if owns && record.iter().any(|field| field.starts_with(b"locked")) {
-            return Err(format!("locked worktree protected: '{worktree}'"));
-        }
-    }
     let (registration, lane_common) =
         crate::git_checkout::paths(Path::new(worktree)).map_err(|error| error.to_string())?;
     if lane_common != common {
@@ -87,6 +53,30 @@ pub fn remove(canonical: &str, worktree: &str, force: bool) -> Result<(), String
         ));
     }
     crate::safe_tree::refuse_linked_ancestors(&registration)?;
+    let back_pointer = std::fs::read_to_string(registration.join("gitdir"))
+        .map_err(|error| format!("cannot read worktree registration for '{worktree}': {error}"))?;
+    let registered =
+        std::fs::canonicalize(registration.join(back_pointer.trim_end_matches(['\r', '\n'])))
+            .is_ok_and(|path| path == lane_path.join(".git"));
+    if !registered {
+        return Err(format!("unregistered worktree: '{worktree}'"));
+    }
+    if registration
+        .join("locked")
+        .try_exists()
+        .map_err(|error| error.to_string())?
+    {
+        return Err(format!("locked worktree protected: '{worktree}'"));
+    }
+    if !force {
+        let status = git(
+            worktree,
+            &["status", "--porcelain", "--untracked-files=all"],
+        )?;
+        if !status.stdout.is_empty() {
+            return Err(format!("dirty lane protected: '{worktree}'"));
+        }
+    }
     crate::safe_tree::remove(path)?;
     if let Err(error) = git(canonical, &["worktree", "remove", "--force", worktree]) {
         if registration.join("locked").exists() {
@@ -94,14 +84,9 @@ pub fn remove(canonical: &str, worktree: &str, force: bool) -> Result<(), String
         }
         crate::safe_tree::remove(&registration).map_err(|reason| format!("{error}; {reason}"))?;
     }
-    let remaining = git(canonical, &["worktree", "list", "--porcelain", "-z"])?;
-    let expected = comparable(worktree);
-    if remaining
-        .stdout
-        .split(|byte| *byte == 0)
-        .filter_map(|field| field.strip_prefix(b"worktree "))
-        .filter_map(|name| std::str::from_utf8(name).ok())
-        .any(|name| comparable(name) == expected)
+    if registration
+        .try_exists()
+        .map_err(|error| error.to_string())?
     {
         return Err(format!("worktree registration remains for '{worktree}'"));
     }

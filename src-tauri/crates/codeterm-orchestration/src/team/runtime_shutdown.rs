@@ -1,28 +1,43 @@
 use codeterm_service_core::service::ServiceContext;
+use std::time::Duration;
+use tokio::task::JoinSet;
 
 pub(super) async fn stop_members(
     svc: &ServiceContext,
     member_tab_ids: &[String],
 ) -> Result<(), String> {
-    let runtime_service = svc.clone();
-    let runtime_tab_ids = member_tab_ids.to_vec();
-    tokio::task::spawn_blocking(move || {
-        let mut errors = Vec::new();
-        for tab_id in runtime_tab_ids {
-            if let Err(error) = runtime_service.shutdown_tab_agent_runtime(&tab_id) {
-                errors.push(format!("{tab_id}: {error}"));
+    let mut stops = JoinSet::new();
+    for tab_id in member_tab_ids.iter().cloned() {
+        let service = svc.clone();
+        stops.spawn(async move {
+            service
+                .shutdown_tab_agent_runtime_async(&tab_id)
+                .await
+                .map_err(|error| format!("{tab_id}: {error}"))
+        });
+    }
+    let mut errors = Vec::new();
+    let result = tokio::time::timeout(Duration::from_secs(30), async {
+        while let Some(result) = stops.join_next().await {
+            match result {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => errors.push(error),
+                Err(error) => errors.push(error.to_string()),
             }
         }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(format!(
-                "Team runtime shutdown failed: {}",
-                errors.join("; ")
-            ))
-        }
     })
-    .await
-    .map_err(|error| format!("Team runtime shutdown task failed: {error}"))
-    .and_then(|result| result)
+    .await;
+    if result.is_err() {
+        // A deadline must not cancel in-flight process retirement.
+        stops.detach_all();
+        errors.push("deadline exceeded while stopping member runtimes".into());
+    }
+    if errors.is_empty() {
+        return Ok(());
+    }
+    errors.sort();
+    Err(format!(
+        "Team runtime shutdown failed: {}",
+        errors.join("; ")
+    ))
 }

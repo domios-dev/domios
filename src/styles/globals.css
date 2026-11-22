@@ -2988,6 +2988,20 @@ button {
   justify-content: flex-start;
 }
 
+.sidebar-team-readout-unavailable {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--ct-muted-fg);
+}
+
 .sidebar-team-readout .ct-plan-status-breakdown-item {
   transition: color 0.18s linear;
 }

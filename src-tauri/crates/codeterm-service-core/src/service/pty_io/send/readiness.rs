@@ -42,7 +42,7 @@ impl ServiceContext {
         agent_id: &str,
         timeout: std::time::Duration,
     ) -> bool {
-        self.await_agent_tui_screen(pty_id, agent_id, timeout, false)
+        self.await_agent_tui_screen(pty_id, agent_id, timeout, false, None)
     }
 
     pub(crate) fn await_agent_tui_on_screen(
@@ -51,20 +51,21 @@ impl ServiceContext {
         agent_id: &str,
         timeout: std::time::Duration,
     ) -> bool {
-        self.await_agent_tui_screen(pty_id, agent_id, timeout, true)
+        self.await_agent_tui_screen(pty_id, agent_id, timeout, true, None)
     }
 
     pub(crate) fn await_provider_readiness_on_screen(
         &self,
-        pty_id: &str,
+        attempt: &crate::service::launch_readiness::LaunchAttempt,
         agent_id: &str,
         strategy: crate::agent::provider::ProviderReadinessStrategy,
     ) -> bool {
         self.await_agent_tui_screen(
-            pty_id,
+            &attempt.pty_id,
             agent_id,
             strategy.timeout(),
             strategy.requires_composer(),
+            Some(attempt),
         )
     }
 
@@ -74,6 +75,7 @@ impl ServiceContext {
         agent_id: &str,
         timeout: std::time::Duration,
         require_composer: bool,
+        launch: Option<&crate::service::launch_readiness::LaunchAttempt>,
     ) -> bool {
         let _output_read = self.screen_state.suspend_output(pty_id);
         let composer_position = self
@@ -81,11 +83,20 @@ impl ServiceContext {
             .with_provider(agent_id, |provider| provider.composer_cursor_position())
             .unwrap_or(crate::agent::provider::ComposerCursorPosition::BottomRegion);
         let signal = self.screen_state.arm_screen_change_signal(pty_id);
+        let _input_wake = launch.map(|attempt| {
+            crate::service::launch_readiness::register_input_wake(attempt, signal.clone())
+        });
         let deadline = std::time::Instant::now() + timeout;
         let generation = std::cell::Cell::new(signal.generation());
         wait_for_observed_readiness(
             deadline,
             || {
+                if launch.is_some_and(|attempt| {
+                    self.launch_attempt_has_live_binding(attempt)
+                        || crate::service::launch_readiness::owner_prompt_is_active(&attempt.tab_id)
+                }) {
+                    return true;
+                }
                 let (screen, input) = self
                     .screen_state
                     .existing(pty_id)

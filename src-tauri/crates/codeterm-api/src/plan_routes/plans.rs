@@ -154,6 +154,7 @@ pub async fn list(
     _headers: HeaderMap,
     Query(q): Query<ListPlansQuery>,
 ) -> PlanRouteResult {
+    let _permit = super::acquire_plan_list_permit().await?;
     tokio::task::spawn_blocking(move || {
         if q.chat == Some(true) {
             if q.query.is_some()

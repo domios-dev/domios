@@ -40,8 +40,8 @@ const LIST_INDEX_SQL: &str = "
             WHEN json_type(p.header_json,'$.goal')='object' THEN 1 ELSE json('invalid plan goal') END,
         CASE WHEN json_type(p.header_json,'$.orphaned') IS NULL OR json_type(p.header_json,'$.orphaned')='null' THEN NULL
             WHEN json_type(p.header_json,'$.orphaned')='object' THEN json_extract(p.header_json,'$.orphaned.reason') ELSE json('invalid orphan marker') END,
-        (SELECT count(*) FROM plan_tasks t WHERE t.plan_id = p.id),
-        (SELECT count(*) FROM plan_tasks t WHERE t.plan_id = p.id AND t.status IN OPEN_TASKS),
+        (SELECT count(*) FROM plan_tasks t INDEXED BY plan_tasks_status_summary WHERE t.plan_id = p.id),
+        (SELECT count(*) FROM plan_tasks t INDEXED BY plan_tasks_status_summary WHERE t.plan_id = p.id AND json_extract(t.row_json, '$.status') IN OPEN_TASKS),
         (SELECT count(*) FROM plan_sections s WHERE s.plan_id = p.id),
         (SELECT count(*) FROM plan_elements e WHERE e.plan_id = p.id)
     FROM plans p";
@@ -95,7 +95,7 @@ fn finish_index_row(
 
 impl PlanDatabase {
     pub(in crate::service_plan) fn load_index_rows(&self) -> Result<Vec<PlanIndexRow>, PlanError> {
-        let connection = self.connection.lock();
+        let connection = self.read_connection();
         let mut statement = connection
             .prepare(&format!("SELECT {INDEX_COLUMNS} FROM plans"))
             .map_err(db_error)?;
@@ -122,7 +122,7 @@ impl PlanDatabase {
         &self,
         id: &str,
     ) -> Result<Option<PlanIndexRow>, PlanError> {
-        let connection = self.connection.lock();
+        let connection = self.read_connection();
         let row = connection
             .query_row(
                 &format!("SELECT {INDEX_COLUMNS} FROM plans WHERE id = ?1"),
@@ -139,7 +139,7 @@ impl PlanDatabase {
     pub(in crate::service_plan) fn active_plan_team_bindings(
         &self,
     ) -> Result<Vec<(String, Option<String>)>, PlanError> {
-        let connection = self.connection.lock();
+        let connection = self.read_connection();
         record_query();
         let mut statement = connection
             .prepare_cached(
@@ -158,7 +158,7 @@ impl PlanDatabase {
 
     /// Whether any plan, task, milestone or section already carries this id.
     pub(in crate::service_plan) fn id_in_use(&self, id: &str) -> Result<bool, PlanError> {
-        let connection = self.connection.lock();
+        let connection = self.read_connection();
         connection
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM plans WHERE id = ?1)
@@ -176,7 +176,7 @@ impl PlanDatabase {
     /// and element rows, so no plan is loaded.
     #[cfg(test)]
     pub(in crate::service_plan) fn list_index_entries(&self) -> Result<Vec<IndexEntry>, PlanError> {
-        let connection = self.connection.lock();
+        let connection = self.read_connection();
         let mut assigned = assigned_tab_ids(&connection)?;
         let sql = LIST_INDEX_SQL.replace("OPEN_TASKS", OPEN_TASK_STATUSES);
         let mut statement = connection.prepare_cached(&sql).map_err(db_error)?;
@@ -210,7 +210,7 @@ fn assigned_tab_ids(
 ) -> Result<HashMap<String, Vec<String>>, PlanError> {
     let mut statement = connection
         .prepare_cached(&format!(
-            "SELECT plan_id, trim(assigned_tab_id) FROM plan_tasks
+            "SELECT plan_id, trim(assigned_tab_id) FROM plan_tasks INDEXED BY plan_tasks_assigned_tab_id
              WHERE assigned_tab_id IS NOT NULL AND status NOT IN {FINISHED_TASK_STATUSES}
                AND trim(assigned_tab_id) <> ''
              ORDER BY plan_id, position"
@@ -292,15 +292,15 @@ impl PlanDatabase {
         owner: Option<&str>,
     ) -> Result<Vec<IndexEntry>, PlanError> {
         let status = status_filter(status.as_ref());
-        let mut connection = self.connection.lock();
+        let mut connection = self.read_connection();
         let transaction = connection.transaction().map_err(db_error)?;
         let mut assigned = HashMap::<String, Vec<String>>::new();
         let matched = matching_plans();
         {
             record_query();
             let sql = format!(
-                "{matched} SELECT t.plan_id,trim(t.assigned_tab_id) FROM matched_plans p
-                JOIN plan_tasks t ON t.plan_id=p.id WHERE t.assigned_tab_id IS NOT NULL AND t.status NOT IN {FINISHED_TASK_STATUSES}
+                "{matched} SELECT t.plan_id,trim(t.assigned_tab_id) FROM plan_tasks t INDEXED BY plan_tasks_assigned_tab_id
+                JOIN matched_plans p ON p.id=t.plan_id WHERE t.assigned_tab_id IS NOT NULL AND t.status NOT IN {FINISHED_TASK_STATUSES}
                 AND trim(t.assigned_tab_id)<>'' ORDER BY t.plan_id,t.position"
             );
             let mut statement = transaction.prepare_cached(&sql).map_err(db_error)?;

@@ -23,34 +23,6 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     }
 }
 
-fn compensate_failed_attempt<T>(
-    result: Result<T, PlanError>,
-    close_spawned_tab: impl FnOnce() -> Result<(), String>,
-) -> Result<T, JsonRpcError> {
-    match result {
-        Ok(value) => Ok(value),
-        Err(error) => {
-            let cleanup_error = close_spawned_tab().err();
-            let mut rpc_error = plan_rpc_err(error);
-            if let Some(cleanup_error) = cleanup_error {
-                rpc_error.message = format!(
-                    "{}; spawned tab compensation failed: {cleanup_error}",
-                    rpc_error.message
-                );
-            }
-            Err(rpc_error)
-        }
-    }
-}
-
-pub(super) fn record_spawned_attempt<T>(
-    svc: &ServiceState,
-    tab_id: &str,
-    record: impl FnOnce() -> Result<T, PlanError>,
-) -> Result<T, JsonRpcError> {
-    compensate_failed_attempt(record(), || svc.close_tab(tab_id))
-}
-
 /// A record failure whose compensating close is REPORTED, not just folded into
 /// the message. A caller holding the tab's lane must know whether it is still live.
 pub(super) struct SpawnedAttemptFailure {
@@ -58,17 +30,14 @@ pub(super) struct SpawnedAttemptFailure {
     pub close_error: Option<String>,
 }
 
-/// Same compensation as `record_spawned_attempt`, but reports whether the tab
-/// closed. A sibling on purpose: the shared helper's contract is unchanged.
-pub(super) fn record_spawned_attempt_reporting_close<T>(
-    svc: &ServiceState,
-    tab_id: &str,
-    record: impl FnOnce() -> Result<T, PlanError>,
+fn compensate_failed_attempt_reporting_close<T>(
+    result: Result<T, PlanError>,
+    close_spawned_tab: impl FnOnce() -> Result<(), String>,
 ) -> Result<T, SpawnedAttemptFailure> {
-    match record() {
+    match result {
         Ok(value) => Ok(value),
         Err(error) => {
-            let close_error = svc.close_tab(tab_id).err();
+            let close_error = close_spawned_tab().err();
             let mut rpc_error = plan_rpc_err(error);
             if let Some(close_error) = close_error.as_deref() {
                 rpc_error.message = format!(
@@ -82,6 +51,14 @@ pub(super) fn record_spawned_attempt_reporting_close<T>(
             })
         }
     }
+}
+
+pub(super) fn record_spawned_attempt_reporting_close<T>(
+    svc: &ServiceState,
+    tab_id: &str,
+    record: impl FnOnce() -> Result<T, PlanError>,
+) -> Result<T, SpawnedAttemptFailure> {
+    compensate_failed_attempt_reporting_close(record(), || svc.close_tab(tab_id))
 }
 
 pub(super) fn update_role_guidance_if_present(
@@ -220,7 +197,7 @@ mod tests {
         let open = AtomicBool::new(true);
         let closes = AtomicUsize::new(0);
 
-        let result = compensate_failed_attempt::<()>(
+        let result = compensate_failed_attempt_reporting_close::<()>(
             Err(PlanError::ReviewWipExceeded {
                 wip_count: 1,
                 wip_limit: 1,
@@ -233,7 +210,13 @@ mod tests {
             },
         );
 
-        assert!(matches!(result, Err(JsonRpcError { code: -32603, .. })));
+        assert!(matches!(
+            result,
+            Err(SpawnedAttemptFailure {
+                error: JsonRpcError { code: -32603, .. },
+                close_error: None
+            })
+        ));
         assert!(!open.load(Ordering::SeqCst));
         assert_eq!(closes.load(Ordering::SeqCst), 1);
     }
