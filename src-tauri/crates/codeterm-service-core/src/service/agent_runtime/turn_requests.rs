@@ -348,6 +348,7 @@ pub(super) async fn run(
     let RuntimeOperation::SubmitTurn { send_id, .. } = &operation else {
         return Err(RuntimeFailure::Superseded);
     };
+    let send_id = send_id.clone();
     let RuntimeAction::Request { call } = &plan.action else {
         return Err(RuntimeFailure::Superseded);
     };
@@ -378,7 +379,7 @@ pub(super) async fn run(
     });
     {
         let mut requests = session.turn_requests.lock();
-        if requests.len() >= 32 || requests.contains_key(send_id) {
+        if requests.len() >= 32 || requests.contains_key(&send_id) {
             return Err(RuntimeFailure::PrewriteRefused(
                 "Pending turn request capacity exceeded".into(),
             ));
@@ -441,7 +442,12 @@ pub(super) async fn run(
                 #[cfg(debug_assertions)]
                 {
                     crate::flow_trace::record(
-                        send_id, "send.frame_written", &context.tab_id, &session.provider, &method, None,
+                        &send_id,
+                        "send.frame_written",
+                        &context.tab_id,
+                        &session.provider,
+                        &method,
+                        None,
                     );
                     log::debug!(
                         "[delivery-stage] tab={} send_id={send_id} stage=frame_written method={method} elapsed_us={}",
@@ -449,7 +455,7 @@ pub(super) async fn run(
                         dispatched.elapsed().as_micros()
                     );
                 }
-                if let Some(status) = svc.chat_send_ledger.mark_owned_rpc_written(send_id) {
+                if let Some(status) = svc.chat_send_ledger.mark_owned_rpc_written(&send_id) {
                     svc.ui.emit("chat-send-status", serde_json::to_value(status).unwrap_or_default());
                     let owner = svc.clone();
                     let runtime = session.clone();

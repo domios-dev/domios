@@ -1,5 +1,5 @@
 import { runtimeActivityLabel } from "../../lib/agentRuntimeTiming";
-import { activityCommand, activityLabel, type ActivityTool } from "../../../packages/plugin-sdk/src/activityLabel";
+import { activityCommand, statusActivityLabel, type ActivityTool } from "../../../packages/plugin-sdk/src/activityLabel";
 import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
 import type { ReactNode } from "react";
 import { Square, Terminal, X } from "lucide-react";
@@ -73,7 +73,7 @@ export function AgentStateIndicator({
   const runningTool = activity.kind === "working" && !background && !compacting ? activeTool : undefined;
   const statusMessage = background && activity.kind === "working" && !compacting
     ? activity.status
-    : runningTool ? activityLabel(runningTool) : activity.label;
+    : runningTool ? statusActivityLabel(runningTool) : activity.label;
   const stableMessage = useStableStatusLabel(statusMessage, compacting ? "compacting" : activity.kind, !runningTool && !background && activity.genericWork === true);
   const status = compacting ? "" : suppressLastTurn && activity.kind === "idle" ? stableMessage
     : runtimeActivityLabel(stableMessage, activity.kind, runtimeState, Date.now(), activity.lastTurnMs);

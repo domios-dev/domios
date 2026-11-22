@@ -71,6 +71,20 @@ async function main(): Promise<void> {
     await act(async () => running.root.unmount());
     running.host.remove();
   }
+  const longCommand = "node C:/Users/User/.domios/runtime/agent-pads/03fb1324/rework.mjs --verbose";
+  const compactCommand = await render(
+    <AgentStateIndicator
+      activity={tabActivity({ agent_session_id: "session", agent_state: { state: "working", status_line: "Working" } }, "Working")}
+      providerName="Codex"
+      renderIdentity={(label) => <span>{label}</span>}
+      activeTool={{ toolKind: "command", toolDetail: longCommand }}
+    />,
+  );
+  assert(compactCommand.host.querySelector('[role="status"]')?.textContent?.includes("Running command"), "status line shows a compact verb instead of a raw command path");
+  assert(!compactCommand.host.querySelector('[role="status"]')?.textContent?.includes("agent-pads"), "status line never dumps raw command paths into the narrow bar");
+  assert(Array.from(compactCommand.host.querySelectorAll("[title]")).some(element => element.getAttribute("title") === longCommand), "hover preserves the full raw command");
+  await act(async () => compactCommand.root.unmount());
+  compactCommand.host.remove();
   const idle = await render(
     <AgentStateIndicator
       activity={tabActivity({ agent_state: { state: "idle" } }, "Idle")}
