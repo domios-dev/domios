@@ -147,7 +147,15 @@ fn wait_for_mux_snapshot(mux_rx: &std::sync::mpsc::Receiver<()>) {
 #[test]
 fn service_completion_publishes_idle_without_duplicate_events() {
     let (mut mux, tab_id) = MultiplexerState::new();
-    mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("service-completion-pty".into());
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.pty_id = Some("service-completion-pty".into());
+        tab.agent_type = Some("opaque-provider".into());
+        tab.agent_session_id = Some("current-session".into());
+        tab.session_binding_nonce = Some("current-nonce".into());
+        tab.reported_session_binding_nonce = Some("current-nonce".into());
+        tab.boot_stage = Some(BootStage::AgentReady);
+    }
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let service = &fixture.service;
 

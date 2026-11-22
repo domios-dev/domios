@@ -83,6 +83,31 @@ fn root_cwd_remains_attributable() {
     ));
 }
 
+#[test]
+fn executable_and_shell_command_normalize_windows_wrappers_cross_platform() {
+    assert_eq!(
+        executable(r"C:\Program Files\PowerShell\7\pwsh.exe").to_ascii_lowercase(),
+        "pwsh"
+    );
+    assert_eq!(executable("PWSH.EXE").to_ascii_lowercase(), "pwsh");
+    assert_eq!(executable("conhost.exe").to_ascii_lowercase(), "conhost");
+    assert_eq!(executable("/usr/local/bin/domios"), "domios");
+    assert_eq!(
+        shell_command(&args(&[
+            r"C:\Program Files\PowerShell\7\PWSH.EXE",
+            "-NoProfile",
+            "-Command",
+            "cargo test",
+        ])),
+        Some("cargo test")
+    );
+    assert_eq!(
+        shell_command(&args(&["cmd.exe", "/c", "cargo test"])),
+        Some("cargo test")
+    );
+    assert_eq!(shell_command(&args(&["pwsh.exe", "-NoProfile"])), None);
+}
+
 #[cfg(unix)]
 #[test]
 fn non_utf8_cwd_never_aliases_a_roster_path() {

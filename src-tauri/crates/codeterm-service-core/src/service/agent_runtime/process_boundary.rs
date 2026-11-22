@@ -375,16 +375,26 @@ fn retirement_confirmed(termination_requested: bool, all_observed_exited: bool) 
     termination_requested && all_observed_exited
 }
 
+fn strip_exe_suffix(name: &str) -> &str {
+    let Some(start) = name.len().checked_sub(4) else {
+        return name;
+    };
+    if name.is_char_boundary(start) && name[start..].eq_ignore_ascii_case(".exe") {
+        &name[..start]
+    } else {
+        name
+    }
+}
+
 fn executable(value: &str) -> String {
+    let name = strip_exe_suffix(value.rsplit(['/', '\\']).next().unwrap_or(value));
     #[cfg(windows)]
     {
-        let name = value.rsplit(['/', '\\']).next().unwrap_or(value);
-        let name = name.to_lowercase();
-        name.strip_suffix(".exe").unwrap_or(&name).to_owned()
+        name.to_lowercase()
     }
     #[cfg(not(windows))]
     {
-        value.rsplit('/').next().unwrap_or(value).to_owned()
+        name.to_owned()
     }
 }
 
@@ -450,7 +460,7 @@ fn command_matches(
 }
 
 fn shell_command(argv: &[String]) -> Option<&str> {
-    let shell_name = executable(argv.first()?);
+    let shell_name = executable(argv.first()?).to_ascii_lowercase();
     let switch = argv.get(argv.len().saturating_sub(2)).map(String::as_str);
     let command_switch = match shell_name.as_str() {
         "sh" | "bash" | "zsh" | "dash" => {
@@ -459,7 +469,6 @@ fn shell_command(argv: &[String]) -> Option<&str> {
         "pwsh" | "powershell" => switch.is_some_and(|value| {
             value.eq_ignore_ascii_case("-command") || value.eq_ignore_ascii_case("-c")
         }),
-        #[cfg(windows)]
         "cmd" => switch.is_some_and(|value| value.eq_ignore_ascii_case("/c")),
         _ => false,
     };
