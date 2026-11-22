@@ -149,7 +149,7 @@ fn dismount_preserves_the_fence_and_logical_cursor_until_archive() {
     let store = TranscriptStore::open(root.path(), "owner", DEFAULT_RAW_BUDGET_BYTES).unwrap();
     assert_eq!(store.binding(), suspended);
     assert_eq!(store.suspended_epoch().unwrap().unwrap().epoch, old);
-    let bootstrap = router_bootstrap(&store).unwrap();
+    let bootstrap = router_bootstrap(&store, "owner", "Main").unwrap();
     let context = bootstrap
         .split("[CONTEXT]\n")
         .nth(1)

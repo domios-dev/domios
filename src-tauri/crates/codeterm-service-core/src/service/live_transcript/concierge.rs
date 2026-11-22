@@ -76,6 +76,7 @@ struct Dispatch {
 #[derive(Default)]
 struct OwnerDispatch {
     running: bool,
+    waiting_for_idle: bool,
     pending: Option<TranscriptRange>,
     scout_unavailable: bool,
     dispatch_finished: Arc<tokio::sync::Notify>,
@@ -452,6 +453,47 @@ fn watch_delivery(svc: &ServiceContext, store: TranscriptStore, owner: &str, sen
     });
 }
 
+pub(super) fn wake_when_idle(
+    svc: &ServiceContext,
+    store: TranscriptStore,
+    owner: &str,
+    session: Arc<crate::service::agent_runtime::engine::Session>,
+) {
+    {
+        let mut owners = svc.ext_or_init(Dispatch::default).owners.lock();
+        let entry = owners.entry(owner.into()).or_default();
+        if entry.waiting_for_idle {
+            return;
+        }
+        entry.waiting_for_idle = true;
+    }
+    let svc = svc.weak_self();
+    let owner = owner.to_owned();
+    crate::async_runtime::spawn(async move {
+        let permit = tokio::time::timeout(Duration::from_secs(60), session.gate.acquire()).await;
+        drop(permit);
+        let Some(svc) = svc.upgrade() else { return };
+        {
+            if let Some(entry) = svc
+                .ext_or_init(Dispatch::default)
+                .owners
+                .lock()
+                .get_mut(&owner)
+            {
+                entry.waiting_for_idle = false;
+            }
+        }
+        let committed = store.committed_seq();
+        if committed > 0
+            && store.routing_state().is_ok_and(|state| {
+                state.trigger != TranscriptTrigger::Manual && committed > state.attempted_through
+            })
+        {
+            enqueue(&svc, &store, &owner, committed);
+        }
+    });
+}
+
 async fn settle_after_dispatch(svc: Arc<ServiceContext>, store: TranscriptStore, owner: String) {
     loop {
         let result = tokio::task::spawn_blocking({
@@ -463,6 +505,14 @@ async fn settle_after_dispatch(svc: Arc<ServiceContext>, store: TranscriptStore,
                 }
                 if let Ok(mut state) = store.routing_state() {
                     let _ = delivery::settle(&svc, &store, &mut state);
+                    let committed = store.committed_seq();
+                    if state.pending.is_none()
+                        && state.trigger != TranscriptTrigger::Manual
+                        && committed > state.attempted_through
+                    {
+                        drop(entries);
+                        enqueue(&svc, &store, &owner, committed);
+                    }
                 }
                 None
             }
@@ -539,9 +589,9 @@ fn process(
         return Ok(());
     }
     let observed_binding = store.binding();
-    let from_seq = range
-        .from_seq
-        .max(state.attempted_through.saturating_add(1))
+    let from_seq = state
+        .attempted_through
+        .saturating_add(1)
         .max(range.to_seq.saturating_sub(7));
     let page = store
         .history(from_seq, 8)
@@ -633,54 +683,33 @@ fn scout_model(svc: &ServiceContext) -> Option<Arc<dyn codeterm_decision::Decisi
     Some(model)
 }
 
-fn minimized_evidence(text: &str) -> serde_json::Value {
-    let filtered = codeterm_supporter::privacy::value(&json!(text));
-    let filtered = filtered.as_str().unwrap_or_default();
-    let mut words = filtered
-        .split(|ch: char| !ch.is_alphanumeric())
-        .filter(|word| !word.is_empty());
-    let first = words.next().unwrap_or_default().to_ascii_lowercase();
-    let request = [
-        "please",
-        "can",
-        "could",
-        "would",
-        "help",
-        "check",
-        "show",
-        "remind",
-        "summarize",
-        "tell",
-        "find",
-        "review",
-        "draft",
-        "explain",
-        "look",
-    ]
-    .contains(&first.as_str());
-    json!({
-        "request_lead": request,
-        "addressed_to_domios": wake_word(filtered),
-        "question": filtered.trim_end().ends_with('?'),
-    })
+const MAX_SCOUT_SEGMENT_CHARS: usize = 512;
+
+fn scout_segment(seq: u64, text: &str) -> Option<serde_json::Value> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let bounded: String = trimmed.chars().take(MAX_SCOUT_SEGMENT_CHARS).collect();
+    let redacted = codeterm_supporter::privacy::value(&json!(bounded));
+    Some(json!({
+        "seq": seq,
+        "text": redacted,
+    }))
 }
 
 fn classify(svc: &ServiceContext, speech: &[(u64, &str)]) -> Result<Option<bool>, &'static str> {
-    let evidence: Vec<_> = speech
+    let segments: Vec<_> = speech
         .iter()
-        .map(|(_, text)| minimized_evidence(text))
+        .filter_map(|(seq, text)| scout_segment(*seq, text))
         .collect();
-    if evidence.iter().all(|item| {
-        item["request_lead"] == false
-            && item["addressed_to_domios"] == false
-            && item["question"] == false
-    }) {
+    if segments.is_empty() {
         return Ok(None);
     }
     let model = scout_model(svc).ok_or("Scout unavailable")?;
     let request = DecisionRequest {
-        state: json!({ "speech_signals": evidence }),
-        instructions: "Wake for explicit requests to the agent. Ignore background speech and isolated questions without a request or address.".into(),
+        state: json!({ "segments": segments }),
+        instructions: "Decide whether this recent transcript contains an actionable request, instruction, or message meant for an assistant or agent in any language (Russian, English, or any other language). Ignore pure ambient chatter or filler with no request.".into(),
         question: DecisionQuestion::Choice { options: [
             ("wake".into(), "Actionable request".into()),
             ("ignore".into(), "No actionable request".into()),

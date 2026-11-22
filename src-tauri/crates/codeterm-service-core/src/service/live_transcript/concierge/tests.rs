@@ -18,14 +18,16 @@ use crate::{
 };
 
 #[test]
-fn scout_evidence_never_serializes_spoken_values() {
-    let evidence = minimized_evidence("Please review opaque_x91 secret: opaque_v42");
-    assert_eq!(
-        evidence,
-        json!({ "request_lead": true, "addressed_to_domios": false, "question": false }),
-    );
-    let serialized = evidence.to_string();
-    assert!(!serialized.contains("opaque_"));
+fn scout_segments_preserve_any_language_without_keyword_filter_and_redact_secrets() {
+    assert!(scout_segment(1, "   \n\t  ").is_none());
+    let ru = scout_segment(2, "Отправь это в Main прямо сейчас").unwrap();
+    assert_eq!(ru["seq"], 2);
+    assert_eq!(ru["text"], "Отправь это в Main прямо сейчас");
+    let with_secret = scout_segment(3, "Bearer sk-1234567890abcdefghijklmnop").unwrap();
+    assert!(!with_secret["text"]
+        .as_str()
+        .unwrap()
+        .contains("sk-1234567890"));
     assert!(wake_word("Hey, Domios, show me"));
     assert!(!wake_word("I said hey Domios"));
 }
@@ -296,12 +298,26 @@ fn inline_speech_is_bounded_and_remains_data_inside_the_route_frame() {
     assert!(inline.contains("[UNREAD]"));
     assert!(inline.contains("&lt;speech&gt; &amp;"));
     assert!(!inline.contains("<speech>"));
+    append("opaque second segment".into());
+    let non_adjacent = delivery::route_body(
+        &store,
+        "owner",
+        &binding,
+        TranscriptRange {
+            from_seq: 2,
+            to_seq: 2,
+        },
+        true,
+        0,
+    );
+    assert!(non_adjacent.contains("[UNREAD]"));
+    assert!(non_adjacent.contains("opaque second segment"));
     append("opaque oversized ".repeat(130));
     let both = TranscriptRange {
         from_seq: 1,
-        to_seq: 2,
+        to_seq: 3,
     };
     let pointer = delivery::route_body(&store, "owner", &binding, both, true, 0);
-    assert!(pointer.contains("--revision 1 --from-seq 1 --through-seq 2"));
+    assert!(pointer.contains("--revision 1 --from-seq 1 --through-seq 3"));
     assert!(!pointer.contains("opaque"));
 }

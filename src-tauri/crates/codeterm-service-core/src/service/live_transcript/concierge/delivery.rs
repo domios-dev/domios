@@ -198,8 +198,11 @@ pub(super) fn route(
         .get_tab(&destination)
         .is_some_and(engine::has_live_bound_session)
         || restart::model_restart_busy(&session)
-        || session.gate.available_permits() == 0
     {
+        return Err("Transcript router is busy or unavailable".into());
+    }
+    if session.gate.available_permits() == 0 {
+        super::wake_when_idle(svc, store.clone(), owner, session);
         return Err("Transcript router is busy or unavailable".into());
     }
     let cursor = store.cursor(&binding).map_err(|error| error.to_string())?;
@@ -297,23 +300,44 @@ pub(super) fn route_body(
     acked_seq: u64,
 ) -> String {
     let pointer = format!(
-        "Live transcript {}–{}. Read only this range with domios live-transcript read --tab {owner} --revision {} --from-seq {} --through-seq {}.",
-        range.from_seq, range.to_seq, binding.revision, range.from_seq, range.to_seq,
+        "Live transcript {}–{} (owner tab: {owner}, revision: {}). Ack after handling: domios live-transcript ack --tab {owner} --revision {} --through-seq {}. If not inline, read with: domios live-transcript read --tab {owner} --revision {} --from-seq {} --through-seq {}.",
+        range.from_seq, range.to_seq, binding.revision, binding.revision, range.to_seq, binding.revision, range.from_seq, range.to_seq,
     );
-    if allow_inline && acked_seq.checked_add(1) == Some(range.from_seq) {
+    if allow_inline {
         let budget = INLINE_CHARS.saturating_sub(pointer.chars().count() + 1);
-        if let Ok(page) = store.read_page(binding, None, budget, None) {
-            if page.next.is_none() && page.gaps.is_empty() && page.through_seq == range.to_seq {
-                let text = page
-                    .text
-                    .replace('&', "&amp;")
-                    .replace('<', "&lt;")
-                    .replace('>', "&gt;");
-                if text.chars().count() <= budget {
+        if acked_seq.checked_add(1) == Some(range.from_seq) {
+            if let Ok(page) = store.read_page(binding, None, budget, None) {
+                if page.next.is_none() && page.gaps.is_empty() && page.through_seq == range.to_seq {
+                    let text = escape_inline(&page.text);
+                    if text.chars().count() <= budget {
+                        return format!("{pointer}\n{text}");
+                    }
+                }
+            }
+        } else {
+            let limit = (range.to_seq.saturating_sub(range.from_seq) + 1).min(16) as usize;
+            if let Ok(page) = store.history(range.from_seq, limit) {
+                let mut text = String::from("[UNREAD]");
+                for row in page.rows.iter().filter(|row| row.seq <= range.to_seq) {
+                    if let crate::service::live_transcript::TranscriptContent::Speech {
+                        text: spoken,
+                    } = &row.content
+                    {
+                        text.push('\n');
+                        text.push_str(&format!("{} {}", row.seq, escape_inline(spoken)));
+                    }
+                }
+                if text.len() > "[UNREAD]".len() && text.chars().count() <= budget {
                     return format!("{pointer}\n{text}");
                 }
             }
         }
     }
     pointer
+}
+
+fn escape_inline(raw: &str) -> String {
+    raw.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
