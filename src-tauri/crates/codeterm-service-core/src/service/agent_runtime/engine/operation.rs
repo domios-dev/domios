@@ -199,7 +199,32 @@ async fn run_inner(
             }) as rpc::PrewriteGuard
         });
     let mut context = session.context.lock().clone();
-    super::super::cli_exception::validate_before_operation(svc, &context).await?;
+    #[cfg(debug_assertions)]
+    let submit_stages = {
+        let mut started = std::time::Instant::now();
+        let tab = context.tab_id.clone();
+        let send_id = match &operation {
+            RuntimeOperation::SubmitTurn { send_id, .. } => Some(send_id.clone()),
+            _ => None,
+        };
+        move |stage: &str| {
+            let now = std::time::Instant::now();
+            if let Some(send_id) = &send_id {
+                log::debug!(
+                    "[delivery-stage] tab={tab} send_id={send_id} stage={stage} elapsed_us={}",
+                    now.duration_since(started).as_micros()
+                );
+            }
+            started = now;
+        }
+    };
+    #[cfg(debug_assertions)]
+    let mut submit_stages = submit_stages;
+    let cli_validation =
+        super::super::cli_exception::validate_before_operation(svc, &context).await;
+    #[cfg(debug_assertions)]
+    submit_stages("cli_validation");
+    cli_validation?;
     let declined = super::super::permission_policy::declined(session, &operation);
     crate::service::execution_sandbox::validate_runtime_operation(
         svc,
@@ -230,7 +255,10 @@ async fn run_inner(
     {
         session.prompts_cancelled.store(false, Ordering::Release);
         super::super::client_bridge::begin_turn(&context);
-        process.begin_turn().await?;
+        let snapshot = process.begin_turn().await;
+        #[cfg(debug_assertions)]
+        submit_stages("process_identity_snapshot");
+        snapshot?;
     }
     let adapter = session
         .adapter
@@ -240,11 +268,17 @@ async fn run_inner(
     let capability = adapter.agent_runtime().ok_or(RuntimeFailure::Superseded)?;
     validate_runtime_operation(&context, &operation)
         .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
-    let mut next = plan(session, &context, &operation).await?;
+    let next = plan(session, &context, &operation).await;
+    #[cfg(debug_assertions)]
+    submit_stages("runtime_plan");
+    let mut next = next?;
     if matches!(operation, RuntimeOperation::SubmitTurn { .. })
         || matches!(&operation, RuntimeOperation::Control { action, .. } if matches!(action.as_str(), "restoreContext" | "compact"))
     {
-        super::resume::before_turn(svc, session).await?;
+        let fenced = super::resume::before_turn(svc, session).await;
+        #[cfg(debug_assertions)]
+        submit_stages("resume_fence");
+        fenced?;
     }
     let mut history = RuntimeHistory::default();
     let mut steps = 0;
@@ -302,6 +336,16 @@ async fn run_inner(
                     RuntimeOperation::SubmitTurn { send_id, .. } => Some(send_id.clone()),
                     _ => None,
                 };
+                let submit_binding = captured_send.as_ref().map(|_| {
+                    (
+                        context.binding_nonce.clone(),
+                        context.thread_id.clone(),
+                        process.clone(),
+                        svc.pending_delivery_payloads
+                            .user_sends
+                            .tab(&context.tab_id),
+                    )
+                });
                 let captured_read = matches!(operation, RuntimeOperation::ReadHistory { .. })
                     .then(|| operation.clone());
                 let captured_login = super::super::login::declared_operation_witness(&operation);
@@ -331,6 +375,28 @@ async fn run_inner(
                             let tab = runtime.context.lock().tab_id.clone();
                             capture::validate_if_present(&owner, &tab, send)?;
                         }
+                        if let Some((nonce, thread, process, send_owner)) = &submit_binding {
+                            if cli_context.binding_nonce != *nonce
+                                || cli_context.thread_id != *thread
+                                || send_owner.revoked.load(Ordering::Acquire)
+                                || send_owner.failed.load(Ordering::Acquire)
+                                || !super::super::authority::verifies(
+                                    &owner,
+                                    &cli_context.tab_id,
+                                    &runtime.provider,
+                                    nonce,
+                                )
+                                || !for_tab(&cli_context.tab_id)
+                                    .is_some_and(|current| Arc::ptr_eq(&current, &runtime))
+                                || !runtime
+                                    .process
+                                    .lock()
+                                    .as_ref()
+                                    .is_some_and(|current| Arc::ptr_eq(current, process))
+                            {
+                                return Err(RuntimeFailure::Superseded);
+                            }
+                        }
                         if let Some(guard) = &captured_switch {
                             guard()?;
                         }
@@ -358,6 +424,8 @@ async fn run_inner(
                     );
                 }
                 handed_off.store(true, Ordering::Release);
+                #[cfg(debug_assertions)]
+                submit_stages(&format!("rpc_dispatch:{}", call.method));
                 if !super::super::turn_requests::call_joins_turn(&operation, call)
                     && capability
                         .turn_scoped_requests
@@ -375,7 +443,10 @@ async fn run_inner(
                     )
                     .await;
                 }
-                process.client.request_guarded(call, Some(guard)).await?
+                let reply = process.client.request_guarded(call, Some(guard)).await;
+                #[cfg(debug_assertions)]
+                submit_stages(&format!("rpc_reply:{}", call.method));
+                reply?
             }
             RuntimeAction::Notification { notification } => {
                 if !super::model::permits(&capability, &operation, &notification.method) {

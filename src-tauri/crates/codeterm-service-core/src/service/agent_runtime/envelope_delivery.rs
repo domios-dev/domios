@@ -50,7 +50,9 @@ pub(super) fn send(
         return outcome(status);
     }
     // During automatic recovery the envelope is held for the relaunch, not refused by the transient degrade.
-    if !svc.runtime_recovery_owns_sends(tab) {
+    if !svc.runtime_recovery_owns_sends(tab)
+        && super::user_delivery::ready_session(svc, tab).is_none()
+    {
         crate::async_runtime::block_on(super::engine::ensure(svc, tab))
             .map_err(|reason| super::transport::before_write(tab, reason).ledger_message())?;
     }
