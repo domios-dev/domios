@@ -67,6 +67,7 @@ interface TabTopBarProps {
   isActive?: boolean;
   workspaceId?: string | null;
   tabMenu?: HeaderTabMenu;
+  onOpenTranscript?: () => void;
 }
 
 function RemoteViewerPill({ tabId, tab }: { tabId: string; tab?: Tab }) {
@@ -130,6 +131,7 @@ export function TabTopBar({
   isActive = false,
   workspaceId,
   tabMenu,
+  onOpenTranscript,
 }: TabTopBarProps) {
   useEffect(() => { if (isActive) planSidePanelStore.activateTab(tabId); }, [isActive, tabId]);
   const [reconnecting, setReconnecting] = useState(false);
@@ -330,6 +332,8 @@ export function TabTopBar({
           />
         )}
         <TabLockMark tab={menuTab} />
+        {onOpenTranscript && <button type="button" className="ct-bar-pill shrink-0 px-2"
+          style={{ height: TAB_BAR_CONTROL_H }} onClick={onOpenTranscript}>Transcript</button>}
       </div>
       <div className="ml-auto flex min-w-0 flex-1 items-start justify-end gap-1 sm:gap-1.5">
       <div

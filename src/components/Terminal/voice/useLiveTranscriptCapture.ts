@@ -143,6 +143,7 @@ export function useLiveTranscriptCapture(options: CaptureOptions) {
   const [phase, setPhase] = useState<CapturePhase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [provisional, setProvisional] = useState("");
+  const [revision, setRevision] = useState(0);
   const owned = useRef<Recording | null>(null);
   const permission = useRef<Recording | null>(null);
   const resumable = useRef<Pick<Recording, "tabId" | "identity"> | null>(null);
@@ -281,7 +282,10 @@ export function useLiveTranscriptCapture(options: CaptureOptions) {
         if (owned.current !== recording) return;
         const signal = AbortSignal.any([recording.io.signal, AbortSignal.timeout(55_000)]);
         const update = await recording.transport.frame(lease, ++recording.sequence, data, signal);
-        if (owned.current === recording && !recording.pauseReason && mounted.current) setProvisional(update.provisional);
+        if (owned.current === recording && !recording.pauseReason && mounted.current) {
+          setProvisional(update.provisional);
+          setRevision(value => value + 1);
+        }
         recording.queueSize--;
       }).catch(failure => fail(recording, failure));
     };
@@ -315,7 +319,8 @@ export function useLiveTranscriptCapture(options: CaptureOptions) {
   }
 
   function eligible() {
-    return latest.current.enabled && mounted.current && document.visibilityState !== "hidden" && document.hasFocus();
+    return latest.current.enabled && mounted.current &&
+      (!latest.current.autoResume || (document.visibilityState !== "hidden" && document.hasFocus()));
   }
 
   const resumeOnFocus = useLatestCallback(() => {
@@ -330,11 +335,12 @@ export function useLiveTranscriptCapture(options: CaptureOptions) {
 
   useEffect(() => {
     const hidden = () => {
-      if (document.visibilityState === "hidden") void pause("hidden");
-      else resumeOnFocus();
+      if (document.visibilityState === "hidden") {
+        if (latest.current.autoResume) void pause("hidden");
+      } else resumeOnFocus();
     };
     const pageHide = () => { void pause("hidden"); };
-    const blur = () => { void pause("focusLost"); };
+    const blur = () => { if (latest.current.autoResume) void pause("focusLost"); };
     window.addEventListener("blur", blur);
     window.addEventListener("focus", resumeOnFocus);
     window.addEventListener("pagehide", pageHide);
@@ -349,5 +355,5 @@ export function useLiveTranscriptCapture(options: CaptureOptions) {
     };
   }, [tabId, identity, enabled, pause, resumeOnFocus]);
 
-  return { phase, error, provisional, start, pause };
+  return { phase, error, provisional, revision, start, pause };
 }
