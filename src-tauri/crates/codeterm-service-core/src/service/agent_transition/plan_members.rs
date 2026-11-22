@@ -4,6 +4,7 @@ pub(super) fn relink_plan_members(
     mux: &mut MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     rebind: Option<&AgentLifecyclePlanRebind>,
+    reads: &mut ReadSet,
 ) -> Result<(), String> {
     let Some(rebind) = rebind else {
         return Ok(());
@@ -13,25 +14,21 @@ pub(super) fn relink_plan_members(
         .tab_id
         .as_deref()
         .ok_or_else(|| "plan rebind requires a destination Orchestrator tab".to_string())?;
+    reads.tab(owner_tab_id);
+    reads.team(&rebind.team_id);
     let mut targets = plan_store
         .relink_targets_projection(&rebind.plan_id, false)
         .map_err(|error| error.to_string())?;
-    for tab in mux.all_tabs().filter(|tab| {
-        tab.role == Some(AgentRole::Worker)
-            && tab
-                .task_binding
-                .as_ref()
-                .and_then(|binding| binding.plan_id.as_deref())
-                == Some(rebind.plan_id.as_str())
-    }) {
-        if !targets.contains(&tab.id) {
-            targets.push(tab.id.clone());
+    for id in reads.plan_workers(mux, &rebind.plan_id) {
+        if !targets.contains(&id) {
+            targets.push(id);
         }
     }
     for tab_id in targets {
         if tab_id == owner_tab_id {
             continue;
         }
+        reads.tab(&tab_id);
         let Some(tab) = mux.get_tab(&tab_id) else {
             continue;
         };

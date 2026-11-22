@@ -7,6 +7,7 @@ pub(super) fn transfer_plan_request(
     to: codeterm_service_core::plan::OrchestratorRef,
     reason: &str,
     caller: TeamMutationCaller,
+    reads: &mut ReadSet,
 ) -> Result<codeterm_service_core::service::agent_transition::AgentTransitionRequest, TeamPlanError>
 {
     let source_plan = plan_store
@@ -47,6 +48,14 @@ pub(super) fn transfer_plan_request(
             ))
         })?
         .to_string();
+    if let Some(id) = caller.tab_id() {
+        reads.tab(id);
+    }
+    reads.tab(&tab_id);
+    for id in [source_team_id, destination_team_id.as_str()] {
+        reads.team(id);
+        reads.team_flag(mux, id, is_remote_team);
+    }
     authorize_plan_transfer(mux, source_team_id, &destination_team_id, &tab_id, caller)
         .map_err(TeamPlanError::Team)?;
     codeterm_service_core::service::agent_transition::plan_owner_request(

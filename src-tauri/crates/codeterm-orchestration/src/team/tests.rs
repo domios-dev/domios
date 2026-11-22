@@ -202,47 +202,30 @@ fn plan_owner_uses_the_acting_orchestrator_when_team_has_multiple() {
             1,
         )
         .unwrap();
-    let by_tab = |tab_id: &str| TeamMutationCaller::AgentTab(tab_id.to_string());
-
-    assert_eq!(
+    let resolve = |plan_id: &str, caller: TeamMutationCaller| {
         team_plan_owner(
             &mux,
             &plan_store,
             &team_id,
-            &plan.id,
-            &by_tab(&second_orchestrator)
+            plan_id,
+            &caller,
+            &mut ReadSet::default(),
         )
-        .unwrap(),
+    };
+    let by_tab = |id: &str| TeamMutationCaller::AgentTab(id.to_owned());
+    assert_eq!(
+        resolve(&plan.id, by_tab(&second_orchestrator)).unwrap(),
         second_orchestrator
     );
     assert_eq!(
-        team_plan_owner(&mux, &plan_store, &team_id, &plan.id, &by_tab(&planner)).unwrap(),
-        first_orchestrator,
-        "a managing leaf resolves through its own chain, not a global scan"
+        resolve(&plan.id, by_tab(&planner)).unwrap(),
+        first_orchestrator
     );
     assert_eq!(
-        team_plan_owner(
-            &mux,
-            &plan_store,
-            &team_id,
-            &plan.id,
-            &TeamMutationCaller::Human
-        )
-        .unwrap(),
-        first_orchestrator,
-        "a human names no chain, so the plan's recorded anchor stays the owner"
+        resolve(&plan.id, TeamMutationCaller::Human).unwrap(),
+        first_orchestrator
     );
-    assert!(
-        team_plan_owner(
-            &mux,
-            &plan_store,
-            &team_id,
-            "pl_missing",
-            &TeamMutationCaller::Human
-        )
-        .is_err(),
-        "with several anchors and no recorded owner the caller must name one"
-    );
+    assert!(resolve("pl_missing", TeamMutationCaller::Human).is_err());
 }
 
 #[test]

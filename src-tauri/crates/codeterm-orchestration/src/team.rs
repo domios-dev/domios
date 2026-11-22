@@ -7,12 +7,13 @@ use codeterm_service_core::service::MuxEmitCause;
 use codeterm_types::agent::role_kind::{self, builtins::ORCHESTRATOR, builtins::PLANNER};
 use codeterm_types::team::Team;
 
-use codeterm_service_core::multiplexer::state::MultiplexerState;
+use codeterm_service_core::multiplexer::state::{
+    LifecyclePatch, MultiplexerState, ReadSet, TeamCloseTransaction,
+};
 use codeterm_service_core::multiplexer::types::{AgentRole, TabCloseReason};
 use codeterm_service_core::service::plan::PlanError;
 use codeterm_service_core::service::team_core::{
-    is_remote_team, local_team_anchors, now_ms, remote_team_origin, TeamMutationCaller,
-    TeamPlanError,
+    is_remote_team, now_ms, remote_team_origin, TeamMutationCaller, TeamPlanError,
 };
 use codeterm_service_core::service::ServiceContext;
 
@@ -654,8 +655,8 @@ pub fn adopt_plan_for_team(
 ) -> Result<codeterm_service_core::service::plan::TeamPlanMutationRead, TeamPlanError> {
     svc.transition_agent_prepared_at(
         now_ms,
-        |mux, store| {
-            adopt_plan_request(mux, store, team_id, plan_id, caller.clone())
+        |mux, store, reads| {
+            adopt_plan_request(mux, store, team_id, plan_id, caller.clone(), reads)
                 .map_err(|error| format!("{error:?}"))
         },
         codeterm_service_core::service::agent_transition::TransitionFailurePoint::None,
@@ -685,7 +686,7 @@ pub fn unarchive_team_plan(
     now_ms: u64,
 ) -> Result<(), TeamPlanError> {
     let history = codeterm_service_core::multiplexer::state::ClosedTabsStore::in_memory();
-    let mut before = svc
+    let before = svc
         .mux
         .read()
         .begin_team_close_transaction_with_store(history);
@@ -693,14 +694,7 @@ pub fn unarchive_team_plan(
         .plan_store
         .prepare_team_plan_unarchive(plan_id, now_ms)
         .map_err(TeamPlanError::Plan)?;
-    if before.state_mut().get_team(&team_id).is_none() {
-        return Err(TeamPlanError::Team(format!("Plan {plan_id} references missing Team {team_id}; adopt it into a live Team before resuming")));
-    }
-    let history = codeterm_service_core::multiplexer::state::ClosedTabsStore::in_memory();
-    let after = before
-        .state_mut()
-        .begin_team_close_transaction_with_store(history);
-    codeterm_service_core::multiplexer::state::LifecyclePatch::new(before, after)
+    unarchive_patch(before, plan_id, &team_id)?
         .apply(&mut svc.mux.write())
         .map_err(TeamPlanError::Team)?;
     svc.plan_store
@@ -708,6 +702,20 @@ pub fn unarchive_team_plan(
         .map_err(TeamPlanError::Plan)?;
     svc.emit_plan_changed(plan_id);
     Ok(())
+}
+
+fn unarchive_patch(
+    mut before: TeamCloseTransaction,
+    plan_id: &str,
+    team_id: &str,
+) -> Result<LifecyclePatch, TeamPlanError> {
+    if before.state_mut().get_team(team_id).is_none() {
+        return Err(TeamPlanError::Team(format!("Plan {plan_id} references missing Team {team_id}; adopt it into a live Team before resuming")));
+    }
+    let after = before.state_mut().begin_team_close_transaction();
+    let mut reads = ReadSet::default();
+    reads.team(team_id);
+    Ok(LifecyclePatch::new(before, after, reads))
 }
 
 pub fn transfer_team_plan(
@@ -720,7 +728,7 @@ pub fn transfer_team_plan(
 ) -> Result<codeterm_service_core::service::plan::TeamPlanMutationRead, TeamPlanError> {
     svc.transition_agent_prepared_at(
         now_ms,
-        |mux, store| {
+        |mux, store, reads| {
             transfer_plan_request(
                 mux,
                 store,
@@ -728,6 +736,7 @@ pub fn transfer_team_plan(
                 to.clone(),
                 reason,
                 TeamMutationCaller::AgentTab(caller_tab_id.clone()),
+                reads,
             )
             .map_err(|error| format!("{error:?}"))
         },
@@ -827,7 +836,14 @@ pub fn adopt_plan_for_team_core(
     caller: TeamMutationCaller,
     now_ms: u64,
 ) -> Result<codeterm_service_core::service::plan::TeamPlanMutationRead, TeamPlanError> {
-    let request = adopt_plan_request(mux, plan_store, team_id, plan_id, caller)?;
+    let request = adopt_plan_request(
+        mux,
+        plan_store,
+        team_id,
+        plan_id,
+        caller,
+        &mut ReadSet::default(),
+    )?;
     codeterm_service_core::service::agent_transition::execute_transition_at(
         mux,
         plan_store,
@@ -847,8 +863,14 @@ fn adopt_plan_request(
     team_id: &str,
     plan_id: &str,
     caller: TeamMutationCaller,
+    reads: &mut ReadSet,
 ) -> Result<codeterm_service_core::service::agent_transition::AgentTransitionRequest, TeamPlanError>
 {
+    reads.team(team_id);
+    reads.team_flag(mux, team_id, is_remote_team);
+    if let Some(id) = caller.tab_id() {
+        reads.tab(id);
+    }
     authorize_plan_orchestrator(mux, team_id, &caller).map_err(|error| {
         TeamPlanError::Team(format!(
             "Plan adoption requires manager authority in destination Team {team_id}: {error}. \
@@ -859,10 +881,11 @@ Safe recovery: old-team member transfers ownership, then new owner adopts."
         .plan_identity_projection(plan_id)
         .map_err(TeamPlanError::Plan)?;
     if let Some(source_team) = source.team_id.as_deref() {
+        reads.team_flag(mux, source_team, is_remote_team);
         reject_remote_team_mutation(mux, source_team).map_err(TeamPlanError::Team)?;
     }
-    let owner_tab_id = team_plan_owner(mux, plan_store, team_id, plan_id, &caller)?;
-    let planner = live_team_planner_ref(mux, team_id);
+    let owner_tab_id = team_plan_owner(mux, plan_store, team_id, plan_id, &caller, reads)?;
+    let planner = live_team_planner_ref(mux, team_id, reads);
     codeterm_service_core::service::agent_transition::plan_owner_request(
         codeterm_service_core::plan::OrchestratorRef::from_tab(&owner_tab_id),
         plan_id,
@@ -878,14 +901,16 @@ Safe recovery: old-team member transfers ownership, then new owner adopts."
 pub fn live_team_planner_ref(
     mux: &MultiplexerState,
     team_id: &str,
+    reads: &mut ReadSet,
 ) -> Option<codeterm_service_core::plan::PlannerRef> {
-    let mut planners = mux.all_tabs().filter(|tab| {
-        tab.team_id.as_deref() == Some(team_id)
-            && tab.role == Some(AgentRole::Manager)
-            && tab.role_profile.as_deref()
-                == Some(codeterm_types::agent::role_kind::builtins::PLANNER)
-            && codeterm_service_core::service::plan_reconcile::tab_has_live_agent(tab)
-    });
+    let candidates = reads.team_planners(mux, team_id);
+    for id in &candidates {
+        reads.tab(id);
+    }
+    let mut planners = candidates
+        .iter()
+        .filter_map(|id| mux.get_tab(id))
+        .filter(|tab| codeterm_service_core::service::plan_reconcile::tab_has_live_agent(tab));
     let planner = planners.next()?;
     if planners.next().is_some() {
         return None;
@@ -907,7 +932,15 @@ fn transfer_team_plan_core(
     caller: TeamMutationCaller,
     now_ms: u64,
 ) -> Result<codeterm_service_core::service::plan::TeamPlanMutationRead, TeamPlanError> {
-    let request = transfer_plan_request(mux, plan_store, plan_id, to, reason, caller)?;
+    let request = transfer_plan_request(
+        mux,
+        plan_store,
+        plan_id,
+        to,
+        reason,
+        caller,
+        &mut ReadSet::default(),
+    )?;
     codeterm_service_core::service::agent_transition::execute_transition_at(
         mux,
         plan_store,
@@ -923,10 +956,16 @@ fn transfer_team_plan_core(
 
 /// Resolution is local to the caller's own placement, so several anchors stay
 /// unambiguous without a global "there must be exactly one" scan.
-pub fn anchor_above(mux: &MultiplexerState, team_id: &str, caller_tab_id: &str) -> Option<String> {
+pub fn anchor_above(
+    mux: &MultiplexerState,
+    team_id: &str,
+    caller_tab_id: &str,
+    reads: &mut ReadSet,
+) -> Option<String> {
     let mut seen = std::collections::HashSet::new();
     let mut current = caller_tab_id.to_string();
     while seen.insert(current.clone()) {
+        reads.tab(&current);
         let tab = mux.get_tab(&current)?;
         if tab.team_id.as_deref() == Some(team_id) && tab.anchors_team() {
             return Some(current);
@@ -944,15 +983,17 @@ pub fn team_plan_owner(
     team_id: &str,
     plan_id: &str,
     caller: &TeamMutationCaller,
+    reads: &mut ReadSet,
 ) -> Result<String, TeamPlanError> {
-    let anchors = local_team_anchors(mux, team_id);
+    let mut anchors = reads.team_anchors(mux, team_id);
+    anchors.sort();
     if anchors.is_empty() {
         return Err(TeamPlanError::Team(format!(
             "Team {team_id} has no live Orchestrator"
         )));
     }
     if let Some(caller_tab_id) = caller.tab_id() {
-        return anchor_above(mux, team_id, caller_tab_id).ok_or_else(|| {
+        return anchor_above(mux, team_id, caller_tab_id, reads).ok_or_else(|| {
             TeamPlanError::Team(format!(
                 "Caller tab {caller_tab_id} sits under no anchor in Team {team_id}"
             ))
