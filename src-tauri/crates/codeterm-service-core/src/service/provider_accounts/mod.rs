@@ -593,6 +593,7 @@ pub(crate) fn prepare_named_session_hook(
     let Some(harness) = svc.agent_registry.provider_arc(&provider) else {
         return Ok(None);
     };
+    provisioning::require_idle(svc)?;
     let available = harness.named_account_session_hook(std::path::Path::new(&home), false)?;
     if available != Some(false) || consent != Some(true) {
         return Ok(available);

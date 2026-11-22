@@ -277,6 +277,7 @@ async fn ensure_account(
             crate::service::provider_accounts::for_tab(&owner, &target)
         };
         let invocation = if implicit {
+            provisioning::require_idle(svc).map_err(RuntimeFailure::Refused)?;
             let invocation = provision();
             if let Some(acquisition) = &acquisition {
                 let completed_refusal = invocation
