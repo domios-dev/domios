@@ -9,9 +9,9 @@ use super::store::{
     validate_tab_id, write_private, StoreState, MAX_RECORD_BYTES,
 };
 use super::{
-    BindingTarget, ClosedTranscriptOwner, CursorStart, RoutedAction, RoutedActionRecord,
-    RoutedActionsPage, TranscriptBinding, TranscriptCursor, TranscriptOwnerState, TranscriptSeq,
-    TranscriptStore,
+    BindingTarget, ClosedTranscriptOwner, CursorStart, EpochHistory, RoutedAction,
+    RoutedActionRecord, RoutedActionsPage, TranscriptBinding, TranscriptCursor,
+    TranscriptOwnerState, TranscriptSeq, TranscriptStore,
 };
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -21,6 +21,8 @@ pub(super) struct BindingDocument {
     pub(super) owner: TranscriptOwnerState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) reopened_from: Option<ClosedTranscriptOwner>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    suspended_epoch_id: Option<String>,
     initial_cursor_seq: TranscriptSeq,
 }
 
@@ -44,6 +46,7 @@ impl BindingDocument {
                     live_tab_id: owner_tab_id.to_owned(),
                 },
                 reopened_from: None,
+                suspended_epoch_id: None,
                 initial_cursor_seq: 0,
             };
             write_private(&path, &document, MAX_RECORD_BYTES)?;
@@ -65,6 +68,14 @@ impl BindingDocument {
         }
         if let Some(identity) = &binding.reopened_from {
             super::close_retention::validate_closed_identity(identity)?;
+        }
+        if let Some(epoch_id) = &binding.suspended_epoch_id {
+            let epoch = super::epoch_index::require_epoch(root, owner_tab_id, epoch_id)?;
+            if binding.binding.target != BindingTarget::Detached
+                || epoch.activation_revision >= binding.binding.revision
+            {
+                return Err(invalid_data("Invalid suspended transcript epoch"));
+            }
         }
         match &binding.binding.target {
             BindingTarget::Attached { epoch_id } => {
@@ -117,6 +128,9 @@ impl BindingDocument {
     }
 
     pub(super) fn detach(&mut self) {
+        if let BindingTarget::Attached { epoch_id } = &self.binding.target {
+            self.suspended_epoch_id = Some(epoch_id.clone());
+        }
         self.binding.target = BindingTarget::Detached;
         self.initial_cursor_seq = 0;
     }
@@ -158,6 +172,58 @@ impl TranscriptStore {
         self.inner.state.lock().binding.binding.clone()
     }
 
+    pub(in crate::service) fn verify_live_binding(
+        &self,
+        owner: &str,
+        binding: &TranscriptBinding,
+    ) -> io::Result<()> {
+        let state = self.inner.state.lock();
+        state.require_healthy()?;
+        state.binding.require_live_owner(owner)?;
+        if &state.binding.binding != binding {
+            return Err(refused("Stale or foreign transcript binding"));
+        }
+        Ok(())
+    }
+
+    pub fn suspended_epoch(&self) -> io::Result<Option<EpochHistory>> {
+        let state = self.inner.state.lock();
+        state.require_healthy()?;
+        state
+            .binding
+            .suspended_epoch_id
+            .as_deref()
+            .map(|epoch_id| {
+                super::epoch_index::require_epoch(
+                    &self.inner.root,
+                    &state.binding.binding.owner_tab_id,
+                    epoch_id,
+                )
+                .map(|document| document.history)
+            })
+            .transpose()
+    }
+
+    pub fn suspend_attached_epoch(
+        &self,
+        expected: &TranscriptBinding,
+    ) -> io::Result<TranscriptBinding> {
+        let mut state = self.inner.state.lock();
+        self.require_cursor(&state, expected)?;
+        let BindingTarget::Attached { .. } = &expected.target else {
+            return Err(refused("Transcript has no attached router to suspend"));
+        };
+        let mut document = state.binding.clone();
+        document.next_revision()?;
+        document.detach();
+        state
+            .binding
+            .persist_active_cursor(&self.inner.root, state.last_seq())?;
+        let binding = document.binding.clone();
+        self.save_binding(&mut state, document)?;
+        Ok(binding)
+    }
+
     pub fn set_binding(
         &self,
         expected_revision: u64,
@@ -170,6 +236,28 @@ impl TranscriptStore {
         state.binding.require_revision(expected_revision)?;
         if state.binding.binding.target == target {
             return Ok(state.binding.binding.clone());
+        }
+        if let BindingTarget::Attached { epoch_id } = &state.binding.binding.target {
+            let epoch = super::epoch_index::require_epoch(
+                &self.inner.root,
+                &state.binding.binding.owner_tab_id,
+                epoch_id,
+            )?;
+            if epoch.archive_source.is_some() {
+                return Err(refused(
+                    "Suspend the exact transcript router before changing its binding",
+                ));
+            }
+        }
+        if let Some(epoch_id) = &state.binding.suspended_epoch_id {
+            let epoch = super::epoch_index::require_epoch(
+                &self.inner.root,
+                &state.binding.binding.owner_tab_id,
+                epoch_id,
+            )?;
+            if epoch.history.archive.is_none() {
+                return Err(refused("Suspended transcript epoch has no archive"));
+            }
         }
         match &target {
             BindingTarget::Attached { epoch_id } => {
@@ -210,6 +298,7 @@ impl TranscriptStore {
             None => 0,
         };
         document.binding.target = target;
+        document.suspended_epoch_id = None;
         state
             .binding
             .persist_active_cursor(&self.inner.root, committed_seq)?;

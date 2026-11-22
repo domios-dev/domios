@@ -137,6 +137,21 @@ fn archived_session_messages(svc: &ServiceContext, archive: &ContextEpochArchive
     }
 }
 
+pub(crate) fn retained_chat_backend_epoch(
+    svc: &ServiceContext,
+    archive: &ContextEpochArchive,
+) -> Result<Vec<ChatMsg>, String> {
+    if archive.transport != ContextEpochTransport::ChatBackend {
+        return Err("Transcript epoch has a different transport".into());
+    }
+    let mut rows = super::runtime_stored::archived_messages(svc, archive)?
+        .ok_or("No retained chat backend history for this epoch")?;
+    for row in &mut rows {
+        scope_archived(row, &archive.session_id);
+    }
+    Ok(rows)
+}
+
 /// Read-only identity of a row from an archived session, whose tools can no longer be running.
 pub(crate) fn scope_archived(message: &mut ChatMsg, session_id: &str) {
     scope_historical_message(message, session_id);

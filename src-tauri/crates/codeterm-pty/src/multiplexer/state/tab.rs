@@ -103,7 +103,16 @@ impl MultiplexerState {
         {
             workspace.tabs.retain(|candidate| candidate != tab_id);
             if workspace.active_tab_id.as_deref() == Some(tab_id) {
-                workspace.active_tab_id = workspace.tabs.last().cloned();
+                workspace.active_tab_id = workspace
+                    .tabs
+                    .iter()
+                    .rev()
+                    .find(|id| {
+                        self.tabs
+                            .get(*id)
+                            .is_some_and(|tab| !tab.is_transcript_router())
+                    })
+                    .cloned();
             }
         }
         if let Some(tab) = self.tabs.remove(tab_id) {
@@ -118,6 +127,7 @@ impl MultiplexerState {
     }
 
     pub fn set_active_tab(&mut self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
+        self.require_focusable_tab(tab_id)?;
         let workspace = self
             .workspaces
             .iter_mut()
