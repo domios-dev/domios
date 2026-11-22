@@ -22,6 +22,7 @@ pub enum LaunchPurpose {
     #[default]
     Agent,
     CronRun,
+    TranscriptRouter,
 }
 
 /// A hidden tab spawned for automation (a `CronRun` or a hidden worker) has
@@ -86,6 +87,9 @@ impl UnattendedLaunch<'_> {
     }
 
     fn owed_commands(&self) -> Vec<&'static str> {
+        if self.purpose == LaunchPurpose::TranscriptRouter {
+            return Vec::new();
+        }
         let cron = self.purpose == LaunchPurpose::CronRun;
         let mut commands = Vec::new();
         if self.role.is_some() || self.has_task || cron {
@@ -149,6 +153,22 @@ fn lacks_unattended_mode(mode: &ModelMode, launch: &UnattendedLaunch<'_>) -> boo
 /// Refuse, before any tab exists, a launch whose role cannot run its CodeTerm
 /// commands unattended on the requested model.
 pub fn preflight(registry: &AgentRegistry, launch: &UnattendedLaunch<'_>) -> Result<(), String> {
+    if launch.purpose == LaunchPurpose::TranscriptRouter
+        && (launch.role.is_some()
+            || launch.role_profile.is_some()
+            || launch.has_task
+            || launch.full_access
+            || !registry
+                .with_provider(launch.provider_id, |provider| {
+                    provider.agent_runtime().is_some()
+                })
+                .unwrap_or(false))
+    {
+        return Err(
+            "A transcript router requires a roleless local chat runtime without permission bypass"
+                .into(),
+        );
+    }
     let Some(mode) = model_mode(registry, launch) else {
         return Ok(());
     };

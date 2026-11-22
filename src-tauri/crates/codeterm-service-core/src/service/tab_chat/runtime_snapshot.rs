@@ -26,6 +26,30 @@ pub(super) fn for_tab(svc: &ServiceContext, tab_id: &str) -> Result<Option<Vec<C
     snapshot(svc, tab_id, None)
 }
 
+impl ServiceContext {
+    pub(crate) fn attached_transcript_epoch_rows(
+        &self,
+        epoch: &crate::service::live_transcript::ConciergeEpoch,
+    ) -> Result<Vec<ChatMsg>, String> {
+        let current = || {
+            self.mux
+                .read()
+                .get_tab(&epoch.runtime_tab_id)
+                .is_some_and(|tab| {
+                    crate::service::spawn_chatbackend::live_transcript::is_current_epoch(tab, epoch)
+                })
+        };
+        if !current() {
+            return Err("Transcript epoch is not current".into());
+        }
+        let rows = for_tab(self, &epoch.runtime_tab_id)?;
+        if !current() {
+            return Err("Transcript epoch changed during history read".into());
+        }
+        rows.ok_or_else(|| "Transcript epoch history is unavailable".into())
+    }
+}
+
 fn snapshot(
     svc: &ServiceContext,
     tab_id: &str,

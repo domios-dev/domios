@@ -8,6 +8,7 @@ use std::future::Future;
 #[path = "spawn_chatbackend/launch_options.rs"]
 mod launch_options;
 use launch_options::runtime_launch_mode;
+pub(super) mod live_transcript;
 mod role;
 #[path = "spawn_chatbackend/runtime_launch.rs"]
 mod runtime_launch;
