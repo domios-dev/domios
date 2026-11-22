@@ -8,6 +8,7 @@ use std::sync::LazyLock;
 
 mod caller;
 mod capability;
+mod observation_limit;
 mod origin;
 mod peer_asset;
 mod peer_rail;
@@ -923,6 +924,14 @@ async fn perform_relay_unredacted(
     }
     let client = local_forward_http_client()?;
 
+    let observation =
+        codeterm_service_core::api_support::access_policy::is_observation(&cmd.method, &cmd.path);
+    let _observation_permit = if sender_id != "local" && observation {
+        observation_limit::acquire_peer_observation(sender_id).await
+    } else {
+        None
+    };
+
     // Recheck immediately before forwarding. Once the downstream route may
     // have written to a PTY, its result and dedupe receipt must remain intact.
     if let Some(refusal) = relay_prewrite_refusal(state, sender_id) {
@@ -940,8 +949,6 @@ async fn perform_relay_unredacted(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.split(';').next())
         .is_some_and(|value| value.eq_ignore_ascii_case("application/json"));
-    let observation =
-        codeterm_service_core::api_support::access_policy::is_observation(&cmd.method, &cmd.path);
     let result = resp.bytes().await;
     if observation
         && admitted_grant
