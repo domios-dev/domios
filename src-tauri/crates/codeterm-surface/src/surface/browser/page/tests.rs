@@ -286,3 +286,41 @@ fn browser_viewer_input_revokes_refs_and_an_inflight_capture() {
         .finish_snapshot(&pending, Snapshot::default())
         .is_err());
 }
+
+#[tokio::test]
+async fn browser_page_cursor_binding_sanitizes_and_resets_on_navigation() {
+    assert_eq!(sanitize_cursor("pointer"), "pointer");
+    assert_eq!(sanitize_cursor("text"), "text");
+    assert_eq!(sanitize_cursor("url(evil.cur), auto"), "default");
+    assert_eq!(sanitize_cursor("javascript:alert(1)"), "default");
+
+    let shared = PageShared::new("Jev");
+    shared.session.lock().bound_session = Some("s".into());
+    let mut cursor = shared.subscribe_cursor();
+    let (tx, rx) = tokio::sync::mpsc::channel(4);
+    tx.send(std::sync::Arc::new(CdpEvent {
+        session_id: Some("s".into()),
+        method: "Runtime.bindingCalled".into(),
+        params: json!({ "name": CURSOR_BINDING, "payload": "pointer" }),
+    }))
+    .await
+    .unwrap();
+    drop(tx);
+    listen(
+        shared.clone(),
+        EventStream::from_receiver(rx),
+        "s".into(),
+        "t".into(),
+    )
+    .await;
+    assert_eq!(*cursor.borrow_and_update(), "pointer");
+
+    shared.session.lock().bound_session = Some("s".into());
+    shared.apply(
+        "s",
+        PageUpdate::Navigated {
+            url: "https://example.com/next".into(),
+        },
+    );
+    assert_eq!(*cursor.borrow_and_update(), "default");
+}

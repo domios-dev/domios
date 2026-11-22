@@ -78,7 +78,7 @@ fn browser_screencast_parses_frame_with_float_second_timestamp() {
 fn browser_screencast_start_params_use_device_pixels() {
     assert_eq!(
         params(1280).start_json(),
-        json!({"format": "jpeg", "quality": 90, "maxWidth": 1920, "maxHeight": 1080, "everyNthFrame": 1})
+        json!({"format": "jpeg", "quality": DEFAULT_QUALITY, "maxWidth": 1920, "maxHeight": 1080, "everyNthFrame": 1})
     );
     for dpr in [1.25, 1.5, 2.0] {
         let params = ScreencastParams::new(Viewport {

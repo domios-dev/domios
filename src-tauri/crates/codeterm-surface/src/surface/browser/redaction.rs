@@ -105,7 +105,7 @@ fn event_with(mut event: SurfaceEvent, sanitize: &impl Fn(&str) -> String) -> Su
             notice.text = sanitize(&notice.text);
             notice.detail = notice.detail.as_deref().map(sanitize);
         }
-        SurfaceEvent::Frame(_) => {}
+        SurfaceEvent::Frame(_) | SurfaceEvent::Cursor(_) => {}
     }
     event
 }

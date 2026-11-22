@@ -11,6 +11,7 @@ type FetchPort = NonNullable<TransportOptions["fetch"]>;
 type Head = Extract<MuxFrame, { kind: "open" }>;
 const SESSION_BUFFER = 4 * 1024 * 1024;
 const REQUEST_BUFFER = 512 * 1024;
+const STREAM_BUFFER = 2 * 1024 * 1024;
 const CARRIER_PROBE = Symbol("mux-carrier-proof");
 const CARRIER_PROBE_DISPATCH = Symbol("mux-carrier-proof-dispatch");
 type CarrierProbeInit = MuxRequestInit & {
@@ -18,9 +19,9 @@ type CarrierProbeInit = MuxRequestInit & {
   [CARRIER_PROBE_DISPATCH]?: (session: string) => void;
 };
 
-function responseBufferLimit(head: Head): number {
+function responseBufferLimit(head: Head, stream: boolean): number {
   const length = head.headers.find(([name]) => name.toLowerCase() === "content-length")?.[1];
-  if (length == null || !/^\d+$/.test(length)) return REQUEST_BUFFER;
+  if (length == null || !/^\d+$/.test(length)) return stream ? STREAM_BUFFER : REQUEST_BUFFER;
   const bytes = Number(length);
   return Number.isSafeInteger(bytes) ? Math.min(SESSION_BUFFER, Math.max(REQUEST_BUFFER, bytes)) : REQUEST_BUFFER;
 }
@@ -284,7 +285,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     if (frame.kind === "open") {
       if (entry.head) { failure(entry, new Error("Duplicate mux response head")); return; }
       entry.head = frame;
-      entry.bufferLimit = responseBufferLimit(frame);
+      entry.bufferLimit = responseBufferLimit(frame, entry.stream);
       entry.state = transitionMuxRequest(entry.state, { type: "frame", stage: "head" }).state;
       deliverHead(entry);
     } else if (frame.kind === "chunk") {

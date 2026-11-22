@@ -48,6 +48,7 @@ pub async fn connect(
         None
     };
     let mut state = runtime.shared.subscribe_state();
+    let mut cursor = runtime.shared.subscribe_cursor();
     let mut notices = runtime.shared.subscribe_notices();
     let mut host_notices = runtime.host.notices();
     let mut frames = runtime.host.subscribe_screencast();
@@ -56,6 +57,10 @@ pub async fn connect(
         let _lease = lease;
         let current = state.borrow_and_update().clone();
         yield runtime.redact_event(SurfaceEvent::State(current));
+        let current_cursor = cursor.borrow_and_update().clone();
+        if current_cursor != "default" {
+            yield SurfaceEvent::Cursor(current_cursor);
+        }
         if let Some(frame) = latest {
             yield SurfaceEvent::Frame(frame);
         }
@@ -68,6 +73,13 @@ pub async fn connect(
                     Ok(()) => {
                         let current = state.borrow_and_update().clone();
                         Some(SurfaceEvent::State(current))
+                    }
+                    Err(_) => None,
+                },
+                changed = cursor.changed() => match changed {
+                    Ok(()) => {
+                        let next = cursor.borrow_and_update().clone();
+                        Some(SurfaceEvent::Cursor(next))
                     }
                     Err(_) => None,
                 },

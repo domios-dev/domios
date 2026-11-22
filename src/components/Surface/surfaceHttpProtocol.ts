@@ -6,7 +6,8 @@ import { NOTICE_KIND, type StreamFrame, type SurfaceNotice, type SurfaceNoticeKi
 export type SurfaceStreamEvent =
   | { type: "state"; state: SurfaceState }
   | { type: "frame"; frame: StreamFrame }
-  | { type: "notice"; notice: SurfaceNotice };
+  | { type: "notice"; notice: SurfaceNotice }
+  | { type: "cursor"; cursor: string };
 
 export type CallReply<T> = { ok: true; result: T } | { ok: false; message: string };
 
@@ -115,6 +116,10 @@ export function surfaceStreamValue(event: string, value: unknown): SurfaceStream
     case "notice": {
       const notice = toNotice(value);
       return notice ? { type: "notice", notice } : null;
+    }
+    case "cursor": {
+      const cursor = optionalString(value.cursor);
+      return cursor ? { type: "cursor", cursor } : null;
     }
     default:
       return null;

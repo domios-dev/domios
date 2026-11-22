@@ -112,8 +112,12 @@ impl BrowserRuntime {
             "nav" => {
                 let nav: NavArgs = parse(method, args)?;
                 let page = self.ensure_page().await?;
-                self.navigate(&page, NavAction::parse(&nav.action)?, nav.target.as_deref())
-                    .await?;
+                self.navigate_for_viewer(
+                    &page,
+                    NavAction::parse(&nav.action)?,
+                    nav.target.as_deref(),
+                )
+                .await?;
                 Value::Null
             }
             "screenshot" => {
