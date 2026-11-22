@@ -196,7 +196,7 @@ impl Drop for Retained {
     }
 }
 
-pub(super) fn require_idle(svc: &ServiceContext) -> Result<(), String> {
+pub(crate) fn require_idle(svc: &ServiceContext) -> Result<(), String> {
     if crate::crash::shutdown::is_shutting_down() {
         return Err(SHUTDOWN.into());
     }
