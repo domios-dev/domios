@@ -168,10 +168,10 @@ export function LiveTranscriptPanel({ api, owner, openCount, capture, autoResume
         onAutoResume={onAutoResume} scoutUnavailable={scoutUnavailable} />}
       {useGeneral && <div className="ct-live-callout">
         <button type="button" disabled={view.busy} onClick={() => void view.mutate(() => askGeneralAgent(store.getState(),
-          "Set up Live Transcript automatically in a few direct commands (clicking Set up with General is my explicit consent to install the official Transcriber plugin 0.5.1+, the ~487 MB Parakeet TDT 0.6B v3 model, and its local Python runtime — do not pause to ask or send me to Extensions). Run directly without exploratory checks:\n" +
-          "1. Ensure Transcriber >= 0.5.1: `domios plugin update transcriber` (or `domios plugin install transcriber` if missing/local).\n" +
-          "2. Check `domios plugin transcriber dictation-status`. If not ready, run `domios plugin transcriber dictation-install parakeet-tdt-0.6b-v3-int8 --consent`, track `domios plugin transcriber dictation-progress` until complete, then run `domios plugin transcriber dictation-select parakeet-tdt-0.6b-v3-int8` and `domios plugin transcriber dictation-test parakeet-tdt-0.6b-v3-int8`.\n" +
-          "3. Reply with one short confirmation once ready (or the exact error if a step failed). Keep existing voice-note settings and drafts untouched."))}>Set up with General</button>
+          "Install Live Transcript dictation automatically now (clicking Set up with General is my explicit consent to install Transcriber 0.5.1+, the ~487 MB Parakeet TDT 0.6B v3 model, and its local Python runtime — do not ask again or send me to Extensions). Skip `mem search`, `domios docs`, `--help`, `channel list/diff`, and `plugin get`; run only these exact commands (plugin verbs do not take `--json`):\n" +
+          "1. `domios plugin channel refresh codeterm-plugins` then `domios plugin update transcriber` (if missing/local, `domios plugin install transcriber --channel codeterm-plugins`).\n" +
+          "2. `domios plugin transcriber dictation-status` — if not ready, run `domios plugin transcriber dictation-install parakeet-tdt-0.6b-v3-int8 --consent`, check `domios plugin transcriber dictation-progress` until completed, then `domios plugin transcriber dictation-select parakeet-tdt-0.6b-v3-int8` and `domios plugin transcriber dictation-test parakeet-tdt-0.6b-v3-int8`.\n" +
+          "3. Reply in one short friendly line once ready (or the exact error). Never touch voice-note settings or drafts."))}>Set up with General</button>
       </div>}
       {scoutUnavailable && <div className="ct-live-callout" role="status">
         Scout is unavailable. Choose Wake word, Direct batch, or Manual to route speech.

@@ -10,11 +10,11 @@ import type { ExtendedState } from "../../../store/multiplexer/tree";
 import { useMuxStateStore } from "../../../store/multiplexer/selectorStore";
 
 const DICTATION_SETUP_REQUEST =
-  "Set up local live dictation automatically in a few direct commands (clicking Set up with General is my explicit consent to download the ~487 MB Parakeet TDT 0.6B v3 model and its local Python runtime — do not pause to ask or send me to Extensions). Run directly without exploratory checks:\n" +
-  "1. Ensure the official Transcriber plugin (>= 0.5.1) is installed and current: `domios plugin update transcriber` (if not installed or if a local copy blocks update, run `domios plugin install transcriber`).\n" +
-  "2. Check `domios plugin transcriber dictation-status`. If `ready` is already true, skip to step 4.\n" +
-  "3. Run `domios plugin transcriber dictation-install parakeet-tdt-0.6b-v3-int8 --consent`, monitor completion with `domios plugin transcriber dictation-progress` (bounded checks until finished), then select/verify with `domios plugin transcriber dictation-select parakeet-tdt-0.6b-v3-int8` and `domios plugin transcriber dictation-test parakeet-tdt-0.6b-v3-int8`.\n" +
-  "4. Reply with one short ready confirmation (or the exact error if a step failed). Keep existing voice-note settings and my draft untouched.";
+  "Install local live dictation automatically now (clicking Set up with General is my explicit consent to download the ~487 MB Parakeet TDT 0.6B v3 model and its local Python runtime — do not ask again or send me to Extensions). Skip `mem search`, `domios docs`, `--help`, `channel list/diff`, and `plugin get`; run only these exact commands (note: plugin verbs do not take `--json`):\n" +
+  "1. `domios plugin channel refresh codeterm-plugins` then `domios plugin update transcriber` (if not installed or refused as a local install, run `domios plugin install transcriber --channel codeterm-plugins`).\n" +
+  "2. `domios plugin transcriber dictation-status` — if `ready: true`, skip to step 4.\n" +
+  "3. `domios plugin transcriber dictation-install parakeet-tdt-0.6b-v3-int8 --consent`, check `domios plugin transcriber dictation-progress` until completed, then `domios plugin transcriber dictation-select parakeet-tdt-0.6b-v3-int8` and `domios plugin transcriber dictation-test parakeet-tdt-0.6b-v3-int8`.\n" +
+  "4. Reply in one short friendly line once ready (or the exact error if a step failed). Never touch voice-note settings or my draft.";
 
 interface GeneralAuthority {
   tabId: string;
