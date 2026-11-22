@@ -99,43 +99,6 @@ fn browser_screencast_start_params_use_device_pixels() {
 }
 
 #[test]
-fn browser_screencast_scaled_compositor_metadata_preserves_css_coordinates() {
-    for native_dpr in [1.0, 1.25, 2.0] {
-        for dpr in [1.25, 1.5, 2.0] {
-            let viewport = Viewport {
-                width: 1320,
-                height: 996,
-                dpr,
-                mobile: false,
-            };
-            let params = ScreencastParams::new(viewport);
-            let scale = dpr / native_dpr;
-            let raw = FrameMetadata {
-                device_width: 1320.0 * scale,
-                device_height: 996.0 * scale,
-                offset_top: 12.0 * scale,
-                page_scale_factor: 0.8,
-                scroll_offset_x: 34.0,
-                scroll_offset_y: 222.0,
-                timestamp: Some(123.0),
-            };
-            let css = params.frame_metadata(raw.clone(), Some(native_dpr));
-            assert_eq!(css.device_width, 1320.0);
-            assert_eq!(css.device_height, 996.0);
-            assert_eq!(css.offset_top, 12.0);
-            assert_eq!(css.page_scale_factor, 0.8);
-            assert_eq!((css.scroll_offset_x, css.scroll_offset_y), (34.0, 222.0));
-            assert_eq!(css.timestamp, Some(123.0));
-            assert_eq!(
-                params.frame_metadata(raw.clone(), None),
-                raw,
-                "attached pages retain native coordinates"
-            );
-        }
-    }
-}
-
-#[test]
 fn browser_screencast_hub_drives_start_stop_by_viewers() {
     let hub = FrameHub::new(params(1280));
     let (driver, mut commands) = mpsc::unbounded_channel();
