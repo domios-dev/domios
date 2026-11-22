@@ -255,7 +255,7 @@ impl TranscriptStore {
                 &state.binding.binding.owner_tab_id,
                 epoch_id,
             )?;
-            if epoch.history.archive.is_none() {
+            if epoch.archive_source.is_some() && epoch.history.archive.is_none() {
                 return Err(refused("Suspended transcript epoch has no archive"));
             }
         }
