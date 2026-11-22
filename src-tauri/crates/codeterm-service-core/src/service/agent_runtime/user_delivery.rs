@@ -1,7 +1,7 @@
 use super::{engine, model::RuntimePhase, transport};
 use crate::service::{
     parked_user_delivery::UserDrain,
-    pending_delivery_payloads::user_sends::{UserSendAuthority, MAX_UNSETTLED},
+    pending_delivery_payloads::user_sends::{UserSendAuthority, UserTab, MAX_UNSETTLED},
     ServiceContext,
 };
 use std::sync::{atomic::Ordering, Arc};
@@ -134,7 +134,7 @@ pub(crate) fn is_ready(svc: &ServiceContext, authority: &UserSendAuthority) -> b
     readiness_blocker(svc, authority).is_none()
 }
 
-fn ready_session(svc: &ServiceContext, tab: &str) -> Option<Arc<engine::Session>> {
+pub(super) fn ready_session(svc: &ServiceContext, tab: &str) -> Option<Arc<engine::Session>> {
     if crate::service::messenger::switch_handoff::launch_authority(svc, tab).is_some() {
         return None;
     }
@@ -150,12 +150,14 @@ fn ready_session(svc: &ServiceContext, tab: &str) -> Option<Arc<engine::Session>
     let context = session.context.lock().clone();
     let process = session.process.lock().clone();
     let ready = context.thread_id.is_some()
+        && !session.gate.is_closed()
         && session.thread_loaded.load(Ordering::Acquire)
         && matches!(session.state.lock().phase, RuntimePhase::Ready)
         && !session.compaction.lock().held(context.epoch)
         && process.is_some_and(|process| {
             process.ended.borrow().is_none() && process.client.ended().borrow().is_none()
         })
+        && super::authority::verifies(svc, tab, &session.provider, &context.binding_nonce)
         && engine::validate_binding(svc, &session).is_ok();
     ready.then_some(session)
 }
@@ -240,15 +242,43 @@ fn settle_held_sends(svc: &ServiceContext, tab: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn wake_on_permit(
+    svc: &ServiceContext,
+    tab: &str,
+    owner: &Arc<UserTab>,
+    session: Option<&Arc<engine::Session>>,
+) {
+    let waiting = if session.is_some() {
+        &owner.waiting_for_runtime_gate
+    } else {
+        &owner.waiting_for_runtime_drain
+    };
+    if waiting.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let (owner, svc, tab, session) = (owner.clone(), svc.clone(), tab.to_owned(), session.cloned());
+    crate::async_runtime::spawn(async move {
+        let (gate, waiting) = match &session {
+            Some(session) => (&session.gate, &owner.waiting_for_runtime_gate),
+            None => (&owner.runtime_drain, &owner.waiting_for_runtime_drain),
+        };
+        drop(gate.acquire().await);
+        waiting.store(false, Ordering::Release);
+        svc.wake_user_owner_on_state_change(&tab);
+    });
+}
+
 pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String> {
     let store = &svc.pending_delivery_payloads.user_sends;
     let owner = store.tab(tab);
-    let _drain = super::blocking::deadline(
-        std::time::Duration::from_secs(30),
-        owner.runtime_drain.acquire(),
-    )
-    .map_err(|_| "submit_unconfirmed: runtime drain outcome pending; replay refused")?
-    .map_err(|_| "submit_unconfirmed: runtime drain closed; replay refused")?;
+    let _drain = match owner.runtime_drain.try_acquire() {
+        Ok(permit) => permit,
+        Err(tokio::sync::TryAcquireError::NoPermits) => {
+            wake_on_permit(svc, tab, &owner, None);
+            return Ok(UserDrain::Idle);
+        }
+        Err(tokio::sync::TryAcquireError::Closed) => return Ok(UserDrain::Idle),
+    };
     if owner.revoked.load(Ordering::Acquire) || owner.failed.load(Ordering::Acquire) {
         return Ok(UserDrain::Idle);
     }
@@ -263,7 +293,7 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
     }
     #[cfg(debug_assertions)]
     let ensure_started = Instant::now();
-    // Skip redundant engine::ensure on a live ready session so drain never blocks on session.gate.
+    // Only launch or restore enters provisioning. A warm submit uses the retained session.
     let (session, _ensure_mode) = match ready_session(svc, tab) {
         Some(session) => (session, "fast_ready"),
         None => match crate::async_runtime::block_on(engine::ensure(svc, tab)) {
@@ -438,6 +468,14 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
             .thread_id
             .as_deref()
             .ok_or("Runtime thread unavailable")?;
+        let gate = match session.gate.try_acquire() {
+            Ok(permit) => permit,
+            Err(tokio::sync::TryAcquireError::NoPermits) => {
+                wake_on_permit(svc, tab, &owner, Some(&session));
+                return Ok(UserDrain::Idle);
+            }
+            Err(tokio::sync::TryAcquireError::Closed) => return Ok(UserDrain::Idle),
+        };
         #[cfg(debug_assertions)]
         let claim_started = Instant::now();
         if !store.claim(&record, Some(thread))? {
@@ -473,7 +511,8 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
         };
         #[cfg(debug_assertions)]
         let submit_started = Instant::now();
-        let result = transport::send(svc, tab, &input, Some(&record.send_id));
+        let result =
+            transport::send_selected(svc, tab, &input, &record.send_id, &session, &context, gate);
         #[cfg(debug_assertions)]
         let submit_us = submit_started.elapsed().as_micros();
         let submit_ok = result.is_ok();

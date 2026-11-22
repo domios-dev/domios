@@ -76,8 +76,18 @@ impl ChatSendLedger {
     }
 
     pub(crate) fn mark_rpc_accepted(&self, send_id: &str) -> Option<ChatSendStatus> {
+        self.mark_rpc_written(send_id, false)
+    }
+
+    pub(crate) fn mark_owned_rpc_written(&self, send_id: &str) -> Option<ChatSendStatus> {
+        self.mark_rpc_written(send_id, true)
+    }
+
+    fn mark_rpc_written(&self, send_id: &str, owned_only: bool) -> Option<ChatSendStatus> {
         let mut state = self.state.lock();
-        if !state.rpc_by_id.contains_key(send_id) {
+        if !state.rpc_by_id.contains_key(send_id)
+            || owned_only && !state.owned.contains_key(send_id)
+        {
             return None;
         }
         let status = state.by_id.get_mut(send_id)?;
