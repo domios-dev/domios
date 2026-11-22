@@ -58,6 +58,10 @@ pub enum LiveCaptureEvent {
 
 #[async_trait]
 pub trait LiveCaptureSink: Send + Sync {
+    async fn prepare(&self, _owner: &str) -> Result<(), String> {
+        Ok(())
+    }
+
     async fn append(
         &self,
         capture: &LiveCaptureIdentity,
@@ -127,6 +131,12 @@ impl Drop for Claim {
 }
 
 impl LiveCaptureSessions {
+    pub fn active_for_owner(&self, owner: &str) -> bool {
+        self.0.lock().as_ref().is_some_and(|recording| {
+            recording.identity.tab_id == owner && !*recording.cancel.borrow()
+        })
+    }
+
     fn claim(&self, identity: LiveCaptureIdentity, microphone: MicrophoneLease) -> Claim {
         let (sender, commands) = mpsc::channel(1);
         let (cancel, cancelled) = watch::channel(false);
@@ -165,7 +175,7 @@ impl LiveCaptureSessions {
         if pcm.is_empty() || pcm.len() > MAX_PCM_BYTES || pcm.len() % 2 != 0 {
             return Err("Invalid live capture audio frame.".into());
         }
-        self.submit(client, lease, sequence, Command::Audio(pcm))
+        self.submit(client, lease, sequence, None, Command::Audio(pcm))
             .await
     }
 
@@ -176,8 +186,25 @@ impl LiveCaptureSessions {
         sequence: u32,
         reason: PauseReason,
     ) -> ResultUpdate {
-        self.submit(client, lease, sequence, Command::Pause(reason))
+        self.submit(client, lease, sequence, None, Command::Pause(reason))
             .await
+    }
+
+    pub async fn pause_owner(
+        &self,
+        owner: &str,
+        client: Uuid,
+        lease: Uuid,
+        sequence: u32,
+    ) -> ResultUpdate {
+        self.submit(
+            client,
+            lease,
+            sequence,
+            Some(owner),
+            Command::Pause(PauseReason::Manual),
+        )
+        .await
     }
 
     async fn submit(
@@ -185,6 +212,7 @@ impl LiveCaptureSessions {
         client: Uuid,
         lease: Uuid,
         sequence: u32,
+        owner: Option<&str>,
         command: Command,
     ) -> ResultUpdate {
         if sequence == 0 {
@@ -195,7 +223,11 @@ impl LiveCaptureSessions {
             let slot = self.0.lock();
             let recording = slot
                 .as_ref()
-                .filter(|r| r.identity.client == client && r.identity.lease == lease)
+                .filter(|r| {
+                    r.identity.client == client
+                        && r.identity.lease == lease
+                        && owner.is_none_or(|owner| owner == r.identity.tab_id)
+                })
                 .ok_or("The live capture lease has ended.")?;
             if *recording.cancel.borrow() {
                 return Err("The live capture lease was cancelled.".into());
@@ -216,6 +248,22 @@ impl LiveCaptureSessions {
 }
 
 impl ServiceContext {
+    pub async fn live_capture_readiness(&self) -> codeterm_plugin::transcribe::TranscriberStatus {
+        use codeterm_plugin::transcribe::TranscriberStatus;
+        let registry = self.ext::<Arc<TranscribeRegistry>>();
+        let preferred = self.configuration().integrations.voice_transcribe.active;
+        let Some((backend, _)) = select_backend(registry, &preferred) else {
+            return TranscriberStatus::Unavailable {
+                reason: "Install a live dictation plugin.".into(),
+            };
+        };
+        timeout(Duration::from_secs(2), backend.status())
+            .await
+            .unwrap_or_else(|_| TranscriberStatus::Unavailable {
+                reason: "Transcriber readiness timed out.".into(),
+            })
+    }
+
     pub fn live_capture_sessions(&self) -> Arc<LiveCaptureSessions> {
         if let Some(sessions) = self.host_extension::<LiveCaptureSessions>() {
             return sessions;
@@ -251,6 +299,9 @@ impl ServiceContext {
                 reason: "A live dictation plugin is needed on this device.".into(),
             };
         };
+        if let Err(reason) = output.0.prepare(&request.tab_id).await {
+            return unavailable(reason);
+        }
         let identity = LiveCaptureIdentity {
             client,
             lease: Uuid::new_v4(),

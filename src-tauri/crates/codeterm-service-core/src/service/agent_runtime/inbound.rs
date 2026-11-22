@@ -57,6 +57,10 @@ fn foldable(record: &UserSendRecord, text: &str) -> bool {
     !text.starts_with('/')
         && !record.capture_required
         && record.typed_follow_up.is_none()
+        && !record
+            .client_token
+            .as_deref()
+            .is_some_and(crate::service::live_transcript::is_transcript_delivery_token)
         && record.input_provenance.is_local()
         && user_delivery::restore_input(record, text)
             .map_err(|reason| reason.to_string())

@@ -951,6 +951,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         | Commands::Analytics { .. }
         | Commands::Plugin { .. }
         | Commands::ModelProvider { .. }
+        | Commands::LiveTranscript { .. }
         | Commands::Supporter { .. }
         | Commands::Blueprint { .. }
         | Commands::Plan { .. }

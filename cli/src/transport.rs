@@ -146,6 +146,9 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Notify { .. } => socket_rest(),
         Commands::Keepawake { .. } => socket_rest(),
         Commands::Integration { .. } => socket_rest(),
+        Commands::LiveTranscript { .. } => socket_unsupported(
+            "live transcript requires a local owner or active consumer credential",
+        ),
         Commands::Theme { .. } => socket_rest(),
         Commands::Surface { .. } => socket_unsupported(SURFACE_LOCAL_ONLY),
         Commands::Agent { action: crate::AgentAction::Turns { .. } } => socket_unsupported("agent turns reads this daemon's authenticated session; run on the target machine"),
