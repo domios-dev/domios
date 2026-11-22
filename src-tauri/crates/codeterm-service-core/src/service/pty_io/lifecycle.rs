@@ -935,7 +935,9 @@ impl ServiceContext {
             let Some(tab) = mux.get_tab_mut(tab_id) else {
                 return false;
             };
-            if !crate::service::launch_readiness::surviving_shell_exit_is_after_launch_ack(tab) {
+            if !crate::service::launch_readiness::attempt_owns_tab(tab, proof.attempt())
+                || !crate::service::launch_readiness::surviving_shell_exit_is_after_launch_ack(tab)
+            {
                 return false;
             }
             // Marks the observation on the record so every reader of

@@ -437,7 +437,9 @@ impl ServiceContext {
                 .map(clear_exited_agent_identity)
                 .unwrap_or_default()
         };
-        crate::service::launch_readiness::owner_prompt_cleared(tab_id);
+        if cleared.cleared {
+            crate::service::launch_readiness::owner_prompt_cleared(tab_id);
+        }
         self.finish_agent_identity_clear(
             tab_id,
             cause,

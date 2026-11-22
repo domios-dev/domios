@@ -1,6 +1,69 @@
 use super::*;
 
+impl LaunchExitProof {
+    pub(crate) fn confirm_exact_shell_completion(&mut self) {
+        self.deferred = false;
+    }
+}
+
+pub(crate) fn record_shell_dispatch(attempt: &LaunchAttempt, command: String) -> bool {
+    let mut state = OBSERVATIONS.state.lock();
+    let Some(armed) = state.armed.get_mut(&attempt.tab_id) else {
+        return false;
+    };
+    if armed.attempt != *attempt
+        || armed.exit_claimed
+        || armed.failure.is_some()
+        || armed.shell_dispatch.is_some()
+    {
+        return false;
+    }
+    armed.shell_dispatch = Some(command);
+    true
+}
+
+pub(crate) fn shell_dispatch_matches(
+    attempt: &LaunchAttempt,
+    command_line: Option<&str>,
+) -> Option<bool> {
+    let state = OBSERVATIONS.state.lock();
+    let dispatch = state
+        .armed
+        .get(&attempt.tab_id)
+        .filter(|armed| armed.attempt == *attempt)?
+        .shell_dispatch
+        .as_deref()?;
+    Some(command_line.is_some_and(|line| dispatch == line.trim()))
+}
+
+pub(crate) fn note_acknowledged(tab_id: &str, pty_id: &str, binding_nonce: &str) -> bool {
+    let acknowledged = note(tab_id, pty_id, LaunchEvidence::Acknowledged, |attempt| {
+        attempt.binding_nonce == binding_nonce
+    });
+    let wake = OBSERVATIONS
+        .state
+        .lock()
+        .input_wakes
+        .get(tab_id)
+        .filter(|(attempt, _)| attempt.pty_id == pty_id && attempt.binding_nonce == binding_nonce)
+        .map(|(_, signal)| signal.clone());
+    if let Some(signal) = wake {
+        signal.mark_changed();
+    }
+    acknowledged
+}
+
 impl ServiceContext {
+    pub(crate) fn launch_attempt_has_live_binding(&self, attempt: &LaunchAttempt) -> bool {
+        let bound = self.mux.read().get_tab(&attempt.tab_id).is_some_and(|tab| {
+            attempt_owns_tab(tab, attempt)
+                && tab.launch_session_authenticated()
+                && tab.pending_prompt.is_none()
+                && tab.exit_suspected_at.is_none()
+        });
+        bound && self.pty_child_is_live(&attempt.pty_id)
+    }
+
     /// Own one launch's bounded readiness observation to its end. Runs on its
     /// own thread so no launch blocks on it.
     pub fn observe_launch_readiness(

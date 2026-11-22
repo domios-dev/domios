@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 pub(super) fn await_input_readiness(
     service: &ServiceContext,
     tab_id: &str,
-    pty_id: &str,
     agent_id: &str,
     attempt: &LaunchAttempt,
     session_starts_on_first_turn: bool,
@@ -43,10 +42,13 @@ pub(super) fn await_input_readiness(
                         provider_readiness.clone()
                     };
                 let _ = service.await_provider_readiness_on_screen(
-                    pty_id,
+                    attempt,
                     agent_id,
                     provider_frame_wait,
                 );
+            }
+            if crate::service::launch_readiness::owner_prompt_is_active(tab_id) {
+                continue;
             }
             service.await_lazy_session_input_readiness(
                 attempt,

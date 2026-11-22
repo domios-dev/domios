@@ -24,9 +24,10 @@ pub(crate) const EXIT_RECOVERY_SESSION_NOT_OWNED: &str = "exit_recovery_session_
 
 pub struct ExitedShell {
     pty_id: String,
-    live: bool,
+    live_generation: Option<u64>,
     cwd: Option<String>,
     lineage: Vec<PriorBindingNonce>,
+    binding_nonce: Option<String>,
     role: Option<String>,
     role_profile: Option<String>,
 }
@@ -198,6 +199,7 @@ pub trait ExitRecoveryExt {
     fn retire_exited_shell_stage(
         &self,
         snap: &TabRestartSnapshot,
+        shell: &ExitedShell,
         attempt: Option<&crate::service::launch_readiness::LaunchAttempt>,
     ) -> Result<(), String>;
 }
@@ -289,14 +291,14 @@ impl ExitRecoveryExt for ServiceContext {
         .is_some();
         let snap = TabRestartSnapshot {
             tab_id: tab_id.to_string(),
-            pty_id: shell.pty_id,
+            pty_id: shell.pty_id.clone(),
             provider,
             target_provider: None,
             session_id,
-            cwd: shell.cwd,
+            cwd: shell.cwd.clone(),
             auto_approve,
-            role: shell.role,
-            role_profile: shell.role_profile,
+            role: shell.role.clone(),
+            role_profile: shell.role_profile.clone(),
             handoff_history: None,
         };
         restart_claim.remember_target(&snap);
@@ -325,7 +327,7 @@ impl ExitRecoveryExt for ServiceContext {
             });
         };
         let direct = relaunch.command.direct.is_some();
-        if !recovery_has_launch_host(shell.live, direct) {
+        if !recovery_has_launch_host(shell.live_generation.is_some(), direct) {
             return Err(refusal(
                 EXIT_RECOVERY_NO_LIVE_SHELL,
                 "provider requires a live shell for exit recovery".into(),
@@ -333,10 +335,14 @@ impl ExitRecoveryExt for ServiceContext {
             .into());
         }
         outcome.recovered_in_place = !direct;
+        let pty_claim = self
+            .pty_ownership
+            .acquire(&snap.tab_id)
+            .map_err(AgentRestartError::BadRequest)?;
         if let Some(attempt) = attempt {
             self.claim_exited_shell_for_recovery(attempt)?;
         }
-        if let Err(reason) = self.retire_exited_shell_stage(&snap, attempt) {
+        if let Err(reason) = self.retire_exited_shell_stage(&snap, &shell, attempt) {
             crate::service::task_files::release_tab(self, &snap.tab_id);
             if let Some(attempt) = attempt {
                 self.release_exited_shell_recovery_claim(&snap, attempt);
@@ -354,12 +360,13 @@ impl ExitRecoveryExt for ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             None,
         );
+        let (launched, mut launch_result) = tokio::sync::oneshot::channel();
         crate::service::orchestrator::launch_agent_in_background_with_env(
             self.clone(),
             snap.tab_id.clone(),
             relaunch.command,
             snap.provider.clone(),
-            if automatic {
+            if attempt.is_some() {
                 crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery
             } else {
                 crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery
@@ -370,9 +377,33 @@ impl ExitRecoveryExt for ServiceContext {
             None,
             Default::default(),
             None,
-            None,
+            Some(launched),
             snap.session_id.clone(),
         );
+        if let Ok(Err(reason)) = launch_result.try_recv() {
+            if let Some(tab) = self.mux.write().get_tab_mut(&snap.tab_id).filter(|tab| {
+                tab.pty_id.as_deref() == Some(snap.pty_id.as_str())
+                    && tab.session_binding_nonce == shell.binding_nonce
+                    && tab.agent_type.as_deref() == Some(snap.provider.as_str())
+                    && !tab.launch_session_authenticated()
+            }) {
+                tab.agent_booting = false;
+                crate::service::boot_stage::apply_boot_stage(
+                    tab,
+                    BootStage::SpawnFailed,
+                    Some(&reason),
+                );
+            }
+            crate::service::boot_wait::notify_boot_changed();
+            self.emit_state_changed(MuxEmitCause::AgentRestart);
+            crate::service::task_files::release_tab(self, &snap.tab_id);
+            return Err(RestartAttemptError::Failed {
+                outcome,
+                reason,
+                timed_out: false,
+            });
+        }
+        drop(pty_claim);
         restart_claim.begin_settling();
 
         let ready = self.finish_observed_restart(
@@ -398,7 +429,7 @@ impl ExitRecoveryExt for ServiceContext {
         tab_id: &str,
         attempt: Option<&crate::service::launch_readiness::LaunchAttempt>,
     ) -> Result<ExitedShell, AgentRestartError> {
-        let (pty_id, cwd, lineage, role, role_profile) = {
+        let (pty_id, cwd, lineage, binding_nonce, role, role_profile) = {
             let mux = self.mux.read();
             let tab = mux
                 .get_tab(tab_id)
@@ -419,15 +450,18 @@ impl ExitRecoveryExt for ServiceContext {
                 tab.pty_id.clone(),
                 tab.cwd.clone(),
                 tab.prior_session_binding_nonces.clone(),
+                tab.session_binding_nonce.clone(),
                 tab.role.map(|role| format!("{role:?}")),
                 tab.role_profile.clone(),
             )
         };
-        let live = pty_id
+        let live_generation = pty_id
             .as_deref()
-            .is_some_and(|pty_id| self.pty_child_is_live(pty_id));
+            .filter(|pty_id| self.pty_child_is_live(pty_id))
+            .and_then(|pty_id| self.pty.lock().get_session(pty_id))
+            .map(|session| session.generation);
         let pty_id = pty_id
-            .filter(|_| live || !lineage.is_empty())
+            .filter(|_| live_generation.is_some() || !lineage.is_empty())
             .ok_or_else(|| {
                 refusal(
                     EXIT_RECOVERY_NO_LIVE_SHELL,
@@ -437,9 +471,10 @@ impl ExitRecoveryExt for ServiceContext {
             })?;
         Ok(ExitedShell {
             pty_id,
-            live,
+            live_generation,
             cwd,
             lineage,
+            binding_nonce,
             role,
             role_profile,
         })
@@ -490,6 +525,7 @@ impl ExitRecoveryExt for ServiceContext {
     fn retire_exited_shell_stage(
         &self,
         snap: &TabRestartSnapshot,
+        shell: &ExitedShell,
         attempt: Option<&crate::service::launch_readiness::LaunchAttempt>,
     ) -> Result<(), String> {
         {
@@ -497,20 +533,37 @@ impl ExitRecoveryExt for ServiceContext {
             let tab = mux
                 .get_tab_mut(&snap.tab_id)
                 .ok_or_else(|| format!("Tab {} disappeared during recovery", snap.tab_id))?;
-            if tab.pty_id.as_deref() != Some(snap.pty_id.as_str()) {
+            if tab.pty_id.as_deref() != Some(snap.pty_id.as_str())
+                || shell.live_generation.is_some_and(|generation| {
+                    !self
+                        .pty
+                        .lock()
+                        .session_generation_matches(&snap.pty_id, generation)
+                })
+            {
                 return Err(format!(
                     "Tab {} changed its shell during recovery",
                     snap.tab_id
                 ));
             }
-            if attempt.is_some_and(|attempt| !launch_exit_tab_matches(tab, attempt, true)) {
+            if tab.agent_type.is_some()
+                || tab.agent_booting != attempt.is_some()
+                || tab.session_binding_nonce != shell.binding_nonce
+                || tab.prior_session_binding_nonces != shell.lineage
+                || attempt.is_some_and(|attempt| !launch_exit_tab_matches(tab, attempt, true))
+            {
                 return Err(format!(
                     "Tab {} moved on from the exited launch during recovery",
                     snap.tab_id
                 ));
             }
             tab.auto_approve = snap.auto_approve;
-            crate::service::boot_stage::apply_boot_stage(tab, BootStage::PtyStarting, None);
+            if shell.live_generation.is_some() && self.recovery_shell_has_idle_prompt(&snap.pty_id)
+            {
+                crate::service::boot_stage::apply_boot_stage(tab, BootStage::ShellReady, None);
+            } else if tab.boot_stage == Some(BootStage::AgentReady) {
+                crate::service::boot_stage::apply_boot_stage(tab, BootStage::PtyStarting, None);
+            }
         }
         crate::service::boot_wait::notify_boot_changed();
         self.emit_state_changed(MuxEmitCause::AgentRestart);

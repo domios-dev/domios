@@ -524,6 +524,14 @@ pub(crate) fn login_invocation(
     })
 }
 
+pub(crate) fn implicit_launch_invocation(
+    svc: &super::ServiceContext,
+    provider: &str,
+) -> Result<Option<Arc<InvocationContext>>, String> {
+    invocation_at_typed(svc, provider, Some(IMPLICIT_ACCOUNT), None)
+        .map_err(|error| error.to_string())
+}
+
 fn invocation_at_typed(
     svc: &super::ServiceContext,
     provider: &str,
@@ -576,6 +584,17 @@ pub(crate) fn prepare_named_session_hook(
     else {
         return Ok(None);
     };
+    let consent = super::provider_hooks::integration_consent(svc, &provider);
+    if consent == Some(false) {
+        return Ok(Some(false));
+    }
+    let Some(harness) = svc.agent_registry.provider_arc(&provider) else {
+        return Ok(None);
+    };
+    let available = harness.named_account_session_hook(std::path::Path::new(&home), false)?;
+    if available != Some(false) || consent != Some(true) {
+        return Ok(available);
+    }
     let owner = svc.clone();
     provisioning::hook(svc, move || {
         let _integration_write = codeterm_notifications::provider_hooks::lock_integration_changes();

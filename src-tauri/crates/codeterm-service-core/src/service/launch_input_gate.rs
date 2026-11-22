@@ -250,9 +250,6 @@ fn decide_launch_input(
     observation: LaunchInputObservation,
     mode: LaunchInputMode,
 ) -> Result<Option<LaunchInputEvidence>, LaunchInputRefusal> {
-    if mode == LaunchInputMode::LazySessionStart && observation.provider_busy {
-        return Ok(None);
-    }
     if observation.directory_trust_prompt || observation.directory_trust_pending {
         return Ok(None);
     }
@@ -279,22 +276,19 @@ fn decide_launch_input(
             LaunchInputMode::LazySessionStart => Ok(None),
         };
     }
+    if observation.session_bound {
+        return Ok(Some(LaunchInputEvidence::SessionBinding));
+    }
+    if mode == LaunchInputMode::LazySessionStart && observation.provider_busy {
+        return Ok(None);
+    }
     let lazy_tui_live = observation.provider_process_alive || observation.composer_ready;
     if mode == LaunchInputMode::LazySessionStart && !lazy_tui_live {
         return Ok(None);
     }
-    if mode == LaunchInputMode::LazySessionStart {
-        return Ok(observation
-            .composer_ready
-            .then_some(LaunchInputEvidence::ProviderComposer));
-    }
-    if observation.session_bound {
-        Ok(Some(LaunchInputEvidence::SessionBinding))
-    } else {
-        Ok(observation
-            .composer_ready
-            .then_some(LaunchInputEvidence::ProviderComposer))
-    }
+    Ok(observation
+        .composer_ready
+        .then_some(LaunchInputEvidence::ProviderComposer))
 }
 
 fn decide_launch_input_at_deadline(
@@ -419,9 +413,8 @@ impl ServiceContext {
     ) -> Result<LaunchInputEvidence, LaunchInputRefusal> {
         let mut diagnostic = LaunchInputDiagnostic::new(attempt, mode, timeout);
         let signal = self.screen_state.arm_screen_change_signal(&attempt.pty_id);
-        let _input_wake = (mode == LaunchInputMode::LazySessionStart).then(|| {
-            crate::service::launch_readiness::register_input_wake(attempt, signal.clone())
-        });
+        let _input_wake =
+            crate::service::launch_readiness::register_input_wake(attempt, signal.clone());
         let started = Instant::now();
         let deadline = started + timeout;
         let mut generation = signal.generation();
@@ -489,7 +482,9 @@ impl ServiceContext {
                     delegated_role(tab.role, tab.role_profile.as_deref()),
                 )
             };
+            let session_bound = session_bound && self.pty_child_is_live(&attempt.pty_id);
             let provider_process_alive = mode == LaunchInputMode::Standard
+                || session_bound
                 || self.provider_process_alive_in_tab_tree(&attempt.pty_id, &provider_binary_name);
             diagnostic.session_bound = GateFact::Observed(session_bound);
             diagnostic.pending_prompt = GateFact::Observed(pending_prompt);

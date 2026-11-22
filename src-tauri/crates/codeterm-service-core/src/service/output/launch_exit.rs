@@ -111,16 +111,55 @@ impl super::super::ServiceContext {
         ))
     }
 
+    pub(super) fn finished_marker_owns_launch(
+        &self,
+        attempt: &LaunchAttempt,
+        command_line: Option<&str>,
+    ) -> bool {
+        use crate::service::boot_stage::BootStage;
+        use crate::service::launch_readiness::{attempt_owns_tab, shell_dispatch_matches};
+
+        let mux = self.mux.read();
+        let Some(tab) = mux
+            .get_tab(&attempt.tab_id)
+            .filter(|tab| attempt_owns_tab(tab, attempt))
+        else {
+            return false;
+        };
+        if let Some(matches) = shell_dispatch_matches(attempt, command_line) {
+            return matches;
+        }
+        if crate::service::launch_readiness::launch_was_issued(attempt) {
+            return true;
+        }
+        !matches!(
+            tab.boot_stage,
+            Some(
+                BootStage::PtyStarting
+                    | BootStage::PtySpawned
+                    | BootStage::ReaderReady
+                    | BootStage::AgentLaunching
+            )
+        ) && (tab.boot_stage != Some(BootStage::ShellReady)
+            || (!tab.agent_booting && !crate::service::launch_readiness::attempt_is_armed(attempt)))
+    }
+
     pub(super) fn command_finished_proves_provider_exit(
         &self,
-        tab_id: &str,
-        pty_id: &str,
+        attempt: &LaunchAttempt,
         event: &CommandLifecycle,
         tree: &ProviderTreeObservation,
     ) -> Option<LaunchExitProof> {
-        let CommandLifecycle::Finished { exit_code, .. } = event else {
+        let CommandLifecycle::Finished {
+            command_line,
+            exit_code,
+            ..
+        } = event
+        else {
             return None;
         };
+        let tab_id = &attempt.tab_id;
+        let pty_id = &attempt.pty_id;
         let finished_event_proves_exit_before_first_seen =
             finished_marker_has_explicit_exit_evidence(event);
         let may_have_named_process = (tree.state() == ProviderTreeState::AbsentBeforeSeen
@@ -144,22 +183,32 @@ impl super::super::ServiceContext {
             );
             return None;
         }
-        let Some(attempt) = LaunchAttempt::current(&self.mux, tab_id, pty_id) else {
-            log::info!(
-                "[launch-readiness] refused verdict_source=finished-marker tree_evidence={} attempt_unavailable tab={} pty={}",
-                tree.evidence(),
-                tab_id,
-                pty_id,
-            );
+        let exact_command = crate::service::launch_readiness::shell_dispatch_matches(
+            attempt,
+            command_line.as_deref(),
+        ) == Some(true);
+        if !exact_command
+            && tree.state() == ProviderTreeState::AbsentBeforeSeen
+            && self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+                crate::service::launch_readiness::attempt_owns_tab(tab, attempt)
+                    && tab.launch_session_authenticated()
+            })
+        {
             return None;
-        };
-        let proof = LaunchExitProof::from_finished_marker(
-            &attempt,
+        }
+        let mut proof = LaunchExitProof::from_finished_marker(
+            attempt,
             tree,
             *exit_code,
             finished_event_proves_exit_before_first_seen,
             may_have_named_process,
         );
+        if let Some(proof) = proof
+            .as_mut()
+            .filter(|_| exact_command && exit_code.is_some())
+        {
+            proof.confirm_exact_shell_completion();
+        }
         if proof.is_none() {
             log::info!(
                 "[launch-readiness] refused verdict_source=finished-marker tree_evidence={} attempt_mismatch tab={} pty={}",

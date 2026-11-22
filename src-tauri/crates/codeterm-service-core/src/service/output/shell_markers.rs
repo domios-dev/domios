@@ -2,16 +2,22 @@ use super::super::ServiceContext;
 
 impl ServiceContext {
     pub(super) fn process_shell_markers_for_pty(&self, pty_id: &str, data: &[u8]) {
-        let (tab_id, nonce) = {
+        let (tab_id, shell_nonce, binding_nonce) = {
             let mux = self.mux.read();
             let tab_id = mux.tab_id_for_pty(pty_id);
-            let nonce = tab_id
-                .as_ref()
+            let (shell_nonce, binding_nonce) = tab_id
+                .as_deref()
                 .and_then(|tab| mux.get_tab(tab))
-                .and_then(|tab| tab.shell_integration_nonce.clone());
-            (tab_id, nonce)
+                .map(|tab| {
+                    (
+                        tab.shell_integration_nonce.clone(),
+                        tab.session_binding_nonce.clone(),
+                    )
+                })
+                .unwrap_or_default();
+            (tab_id, shell_nonce, binding_nonce)
         };
-        self.process_shell_markers(pty_id, tab_id.as_deref(), nonce, data);
+        self.process_shell_markers(pty_id, tab_id.as_deref(), shell_nonce, binding_nonce, data);
     }
 
     fn publish_shell_command_state(
@@ -37,11 +43,12 @@ impl ServiceContext {
         }
     }
 
-    pub(super) fn process_shell_markers(
+    fn process_shell_markers(
         &self,
         pty_id: &str,
         tab_id: Option<&str>,
         nonce: Option<String>,
+        binding_nonce: Option<String>,
         data: &[u8],
     ) {
         let (events, command_state) = {
@@ -89,16 +96,18 @@ impl ServiceContext {
             return;
         };
         let launch_attempt =
-            crate::service::launch_readiness::LaunchAttempt::current(&self.mux, tab_id, pty_id);
-        let cron_launch_pending = launch_attempt
-            .as_ref()
-            .is_some_and(crate::service::launch_readiness::cron_launch_is_pending);
-        let tree_observation = (!cron_launch_pending && self.pty_child_is_live(pty_id))
-            .then(|| self.observe_provider_process_tree(tab_id, pty_id))
-            .flatten();
+            binding_nonce.map(
+                |binding_nonce| crate::service::launch_readiness::LaunchAttempt {
+                    tab_id: tab_id.to_owned(),
+                    pty_id: pty_id.to_owned(),
+                    binding_nonce,
+                },
+            );
         for event in &events {
             if let crate::agent::command_detection::CommandLifecycle::Finished {
-                exit_code, ..
+                exit_code,
+                command_line,
+                ..
             } = event
             {
                 let cron_launch_pending =
@@ -106,14 +115,16 @@ impl ServiceContext {
                         || launch_attempt
                             .as_ref()
                             .is_some_and(crate::service::launch_readiness::cron_launch_is_pending);
-                let tree = tree_observation.as_ref();
-                let proof = if cron_launch_pending {
-                    None
-                } else {
-                    tree.and_then(|tree| {
-                        self.command_finished_proves_provider_exit(tab_id, pty_id, event, tree)
-                    })
-                };
+                let eligible = launch_attempt.as_ref().filter(|attempt| {
+                    !cron_launch_pending
+                        && self.finished_marker_owns_launch(attempt, command_line.as_deref())
+                });
+                let tree = eligible
+                    .filter(|_| self.pty_child_is_live(pty_id))
+                    .and_then(|_| self.observe_provider_process_tree(tab_id, pty_id));
+                let proof = eligible.zip(tree.as_ref()).and_then(|(attempt, tree)| {
+                    self.command_finished_proves_provider_exit(attempt, event, tree)
+                });
                 if cron_launch_pending {
                     log::info!(
                         "[launch-readiness] ignored Finished marker before cron provider launch tab={tab_id} pty={pty_id}"
@@ -139,7 +150,7 @@ impl ServiceContext {
                 };
                 if let Some(proof) = proof {
                     self.handle_proven_provider_exit(tab_id, pty_id, *exit_code, &proof);
-                } else if tree.is_none() && !cron_launch_pending {
+                } else if tree.is_none() && eligible.is_some() {
                     log::info!(
                         "[launch-readiness] refused verdict_source=finished-marker tree_evidence=provider_tree_unavailable tab={tab_id} pty={pty_id}"
                     );
@@ -164,7 +175,18 @@ impl ServiceContext {
         exit_code: Option<i32>,
         proof: &crate::service::launch_readiness::LaunchExitProof,
     ) {
-        let ga_snapshot = { self.mux.read().get_tab(tab_id).cloned() };
+        let ga_snapshot = {
+            self.mux
+                .read()
+                .get_tab(tab_id)
+                .filter(|tab| {
+                    crate::service::launch_readiness::attempt_owns_tab(tab, proof.attempt())
+                })
+                .cloned()
+        };
+        if ga_snapshot.is_none() {
+            return;
+        }
         let ga_tree_key = self.provider_tree_key_for_tab(tab_id, pty_id);
         let general_exit = ga_snapshot
             .as_ref()

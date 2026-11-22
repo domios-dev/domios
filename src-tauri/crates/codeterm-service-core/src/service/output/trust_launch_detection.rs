@@ -41,6 +41,7 @@ impl ServiceContext {
             binding_nonce,
             deadline_elapsed,
             authenticated,
+            launch_written,
         ) = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
@@ -62,6 +63,13 @@ impl ServiceContext {
                 tab.session_binding_nonce.clone(),
                 deadline_elapsed,
                 tab.launch_session_authenticated(),
+                matches!(
+                    tab.boot_stage,
+                    Some(
+                        crate::service::boot_stage::BootStage::LaunchWritten
+                            | crate::service::boot_stage::BootStage::ProviderReady
+                    )
+                ),
             )
         };
         if authenticated {
@@ -91,23 +99,18 @@ impl ServiceContext {
         let trust_prompt_resolved = binding_nonce.as_deref().is_some_and(|nonce| {
             super::super::directory_trust::trust_prompt_resolved_for_launch(tab_id, nonce)
         });
-        let hookless_input = exact
+        let launch_input_attached = exact
+            && launch_written
             && pty_id
-                .zip(binding_nonce)
-                .is_some_and(|(pty_id, binding_nonce)| {
-                    self.hookless_launch_has_input(&super::super::launch_readiness::LaunchAttempt {
-                        tab_id: tab_id.to_owned(),
-                        pty_id,
-                        binding_nonce,
-                    })
-                });
+                .as_deref()
+                .is_some_and(|pty_id| self.screen_state.bracketed_paste_mode(pty_id) == Some(true));
         let launch_detection = launch_session_detection_due(
             heuristic,
             hooked,
             exact,
             deadline_elapsed,
             trust_prompt_resolved
-                || hookless_input
+                || launch_input_attached
                 || (exact && self.launch_has_resume_target(tab_id)),
         );
         let launch_detection = launch_detection && !exact_returned_null;
