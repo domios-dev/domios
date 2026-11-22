@@ -120,10 +120,23 @@ impl RunWatcherRegistry {
         owner: &CronRunAuthority,
         reason: &str,
     ) -> Option<cron_end::CronEndHandle> {
+        let watched_runtime = self
+            .runtime_runs
+            .lock()
+            .get(owner.tab_id())
+            .is_some_and(|run| {
+                run.nonce.as_str() == owner.nonce().unwrap_or_default()
+                    && run.kind
+                        == (AgentRunKind::Cron {
+                            job_id: owner.job_id.clone(),
+                            run_id: owner.run_id.clone(),
+                        })
+            });
         let failed_start_epoch = match engine::for_tab(owner.tab_id())
             .filter(|session| Some(session.context.lock().binding_nonce.as_str()) == owner.nonce())
         {
             Some(_) => Some(ended_unbound_start(svc, owner.tab_id(), owner.nonce()?)?),
+            None if watched_runtime => return None,
             None => None,
         };
         cron_end::finish(
@@ -232,6 +245,7 @@ impl RunWatcherRegistry {
     pub(crate) fn resume_cron_cleanup_for_run(
         &self,
         svc: &ServiceContext,
+        cron: &crate::CronState,
         run: &str,
         caller: Option<&str>,
         nonce: Option<&str>,
@@ -249,6 +263,14 @@ impl RunWatcherRegistry {
             })
             .map(|entry| entry.owner.clone());
         let Some(owner) = owner else { return false };
+        if cron.lock().run_is_active(owner.job_id(), owner.run_id())
+            || self
+                .cron_finalizers
+                .lock()
+                .contains_key(&(owner.job_id.clone(), owner.run_id.clone()))
+        {
+            return false;
+        }
         svc.close_owned_cron_launch(&owner, TabCloseReason::AgentRunEnded);
         true
     }

@@ -202,14 +202,15 @@ fn storage_cron_divergent_last_run_evolves_like_the_legacy_file() {
         cwd: Some("/late"),
     };
     legacy.set_run_session(STALE, "r1", "late-session", Some("/late"));
-    let bound = rows(
-        commit(&f.cron, |store| {
-            Ok(store.prepare_set_run_session(STALE, "r1", session))
-        })
-        .unwrap(),
-    );
+    let bound = commit(&f.cron, |store| {
+        Ok(store.prepare_set_run_session(STALE, "r1", session))
+    })
+    .unwrap();
     assert_same_as(&legacy, &f);
-    assert_eq!(bound, 0, "a terminal history row conserves both copies");
+    assert!(
+        bound.receipt.is_none(),
+        "a terminal history row conserves both copies"
+    );
 
     for store in [&mut legacy, &mut *f.cron.lock()] {
         store.register_tab("tab-r1", STALE, "r1");

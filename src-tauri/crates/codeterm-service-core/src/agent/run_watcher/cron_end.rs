@@ -331,7 +331,12 @@ fn start_gated(
                 svc.run_watcher
                     .reserve_cron_slot(&svc, &cron, &key.0, &key.1)?;
             }
-            svc.run_watcher.retain_cron_cleanup(&finalizer.owner, None);
+            if matches!(
+                *finalizer.phase.lock(),
+                FinalPhase::Terminal | FinalPhase::Cleanup
+            ) {
+                svc.run_watcher.retain_cron_cleanup(&finalizer.owner, None);
+            }
             svc.run_watcher.journal_cron_owner(&finalizer.owner)?;
             if cron.lock().run_is_cancelled(&key.0, &key.1) {
                 finalizer.cancelled.store(true, Ordering::Release);
@@ -629,7 +634,6 @@ fn start_gated(
                     FinalPhase::Retire => {
                         svc.run_watcher
                             .archive_cron_record(&cron, &key.0, &key.1, false)?;
-                        svc.emit_cron_changed();
                         break;
                     }
                     _ => unreachable!("effects settle separately"),

@@ -833,7 +833,7 @@ impl CronStore {
             return Err("Cancelled cron runs require a typed cancel reason".into());
         }
         let now = self.now_ms();
-        let fresh = matches!(
+        let terminal = matches!(
             status,
             CronRunStatus::Success | CronRunStatus::Failed | CronRunStatus::Cancelled
         );
@@ -850,13 +850,15 @@ impl CronStore {
             }
             run.status = status.clone();
             run.cancel_reason = cancel_reason;
-            if fresh {
+            if terminal {
                 run.finished_at = Some(now);
             }
         });
-        if fresh {
+        let mut fresh = false;
+        if terminal {
             if let Some(job) = edit.job.as_mut() {
                 apply_failure_accounting(job, job_id, &status, now);
+                fresh = true;
             }
         }
         let finished = RunFinished {

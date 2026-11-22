@@ -59,13 +59,16 @@ fn cron_settle_service_rpc_closes_completed_tab() {
             },
         )
         .unwrap();
-    store.register_tab(&tab_id, &job_id, "service-rpc-complete-run");
     let cron: codeterm_service_core::CronState = Arc::new(parking_lot::Mutex::new(store));
     assert!(fixture.service.set_ext(cron).is_ok());
     assert!(fixture
         .service
         .set_ext::<codeterm_service_core::CronWake>(Arc::new(std::sync::Condvar::new()))
         .is_ok());
+    fixture
+        .service
+        .prepare_runtime_cron_owner_for_test(&tab_id, &job_id, "service-rpc-complete-run")
+        .unwrap();
 
     let response = dispatch_service_rpc(
         "cron.complete",

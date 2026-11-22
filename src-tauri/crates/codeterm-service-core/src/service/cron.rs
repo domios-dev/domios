@@ -906,6 +906,7 @@ impl ServiceContext {
             human_confirmed,
         ) || self.run_watcher.resume_cron_cleanup_for_run(
             self,
+            cron,
             run_id,
             caller_tab_id,
             binding_nonce,

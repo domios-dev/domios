@@ -85,6 +85,7 @@ impl Drop for ProvisionalCronLaunch {
             self.svc
                 .run_watcher
                 .release_cron_allocation(&self.svc, &self.owner);
+            self.svc.run_watcher.retire_cron(&self.owner);
             if let Some(handle) = self.svc.run_watcher.fail_sealed_cron_launch(
                 &self.svc,
                 &self.owner,
