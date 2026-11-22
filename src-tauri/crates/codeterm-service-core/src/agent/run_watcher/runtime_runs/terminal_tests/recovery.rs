@@ -1097,7 +1097,7 @@ pub(super) fn runtime_completion_projection_bounds_scalar_escaping_depth_and_utf
 ) {
     for (content, nesting) in [
         ("🙂".repeat(1024 * 1024), 0),
-        ("\u{0001}".repeat(1000), 0),
+        ("\u{0001}".repeat(1500), 0),
         ("ordinary".into(), 24),
     ] {
         let mut cache = crate::service::agent_runtime::model::ItemCache::default();

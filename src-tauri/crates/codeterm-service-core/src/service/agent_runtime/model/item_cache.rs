@@ -457,7 +457,22 @@ impl<'a> serde::Serializer for &'a mut TerminalBudget {
     terminal_primitive!(serialize_bool:bool, serialize_i8:i8, serialize_i16:i16, serialize_i32:i32, serialize_i64:i64, serialize_i128:i128,
         serialize_u8:u8, serialize_u16:u16, serialize_u32:u32, serialize_u64:u64, serialize_u128:u128, serialize_f32:f32, serialize_f64:f64, serialize_char:char);
     fn serialize_str(self, value: &str) -> Result<(), Self::Error> {
-        self.scalar(value.len())
+        self.scalar(value.len())?;
+        let escaped_extra: usize = value
+            .bytes()
+            .map(|byte| match byte {
+                b'"' | b'\\' | b'\x08' | b'\x0c' | b'\n' | b'\r' | b'\t' => 1,
+                0x00..=0x1f => 5,
+                _ => 0,
+            })
+            .sum();
+        if escaped_extra > 0 {
+            self.scalars = self
+                .scalars
+                .checked_sub(escaped_extra)
+                .ok_or_else(terminal_limit)?;
+        }
+        Ok(())
     }
     fn serialize_bytes(self, value: &[u8]) -> Result<(), Self::Error> {
         self.scalar(value.len())

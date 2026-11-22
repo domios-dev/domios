@@ -13,7 +13,12 @@ const PROVIDER: &str = "run-end-fixture";
 mod terminal;
 const SOURCE: &str = r#"
 module.exports = {
-  runtimePlan(ctx, op) { return {action:{kind:'request',call:{method:op.kind,params:op}},state:null}; },
+  runtimePlan(ctx, op) {
+    if (op.kind === 'forkThread') {
+      return {action:{kind:'request',call:{method:'thread/fork',params:{threadId:op.sourceThreadId,lastTurnId:op.turnId}}},state:null};
+    }
+    return {action:{kind:'request',call:{method:op.kind,params:op}},state:null};
+  },
   runtimeResponse(ctx, op) {
     let result = {kind:'done'}, events = [];
     if (op.kind === 'initialize') result = {kind:'initialized'};
@@ -71,16 +76,16 @@ impl Scene {
         assert!(fixture.service.set_ext(cron.clone()).is_ok());
         assert!(fixture.service.set_ext(wake.clone()).is_ok());
         let methods = [
-            "initialize",
-            "resumeThread",
-            "openThread",
-            "forkThread",
-            "readHistory",
-            "submitTurn",
-            "control",
+            ("initialize", "initialize"),
+            ("resumeThread", "resumeThread"),
+            ("openThread", "openThread"),
+            ("forkThread", "thread/fork"),
+            ("readHistory", "readHistory"),
+            ("submitTurn", "submitTurn"),
+            ("control", "control"),
         ]
         .into_iter()
-        .map(|method| (method.to_string(), json!([method])))
+        .map(|(op, method)| (op.to_string(), json!([method])))
         .collect::<serde_json::Map<String, serde_json::Value>>();
         let manifest = PluginManifest::from_json_str(&json!({
             "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",

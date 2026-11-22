@@ -136,7 +136,7 @@ impl RunWatcherRegistry {
             .filter(|session| Some(session.context.lock().binding_nonce.as_str()) == owner.nonce())
         {
             Some(_) => Some(ended_unbound_start(svc, owner.tab_id(), owner.nonce()?)?),
-            None if watched_runtime => return None,
+            None if watched_runtime && owner.matches(&svc.mux.read()) => return None,
             None => None,
         };
         cron_end::finish(
