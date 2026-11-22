@@ -204,8 +204,9 @@ where
         .competition_lane_projection(&id, &tid)
         .map_err(plan_rpc_err)?;
     let canonical_cwd = plan.canonical_path.clone();
-    let lane_protection =
-        codeterm_service_core::service::LaneProtection::for_dispatch_intent(&task.dispatch_intent);
+    let lane_protection = codeterm_service_core::service::LaneProtection::for_dispatch_intent(
+        &draft.execution_intent,
+    );
     let provenance = codeterm_service_core::service::plan::respawn_lane::verify_respawn_lane(
         &canonical_cwd,
         &launch,
@@ -217,7 +218,7 @@ where
         data: None,
     })?;
     if let Some(provenance) = provenance.as_ref() {
-        if task.dispatch_intent == codeterm_service_core::plan::ExecutionIntent::Mutating {
+        if draft.execution_intent == codeterm_service_core::plan::ExecutionIntent::Mutating {
             let verdict = codeterm_service_core::service::task_lane_guard::classify_lane_facts(
                 &plan.canonical_path,
                 &provenance.worktree_path,
@@ -536,15 +537,18 @@ mod tests {
     use super::*;
     use codeterm_service_core::multiplexer::state::MultiplexerState;
     use codeterm_service_core::plan::{
-        ExecutionIntent, OrchestratorRef, PlanMode, PlanningState, TaskExecutionIntent, TaskStatus,
+        ExecutionIntent, OrchestratorRef, PlanMode, PlanningState, TaskExecutionIntent,
+        TaskLaneMetadata, TaskStatus,
     };
     use codeterm_service_core::service::plan::NewTask;
     use codeterm_service_core::service::test_fixture::ServiceFixture;
     use std::cell::Cell;
     use std::sync::Arc;
 
-    #[test]
-    fn respawn_persists_reserved_tab_and_attempt_before_spawn_and_rolls_back_on_refusal() {
+    fn blocked_respawn_fixture(
+        task_default: ExecutionIntent,
+        source_intent: ExecutionIntent,
+    ) -> (ServiceFixture, String, String, Value) {
         let (mut mux, _) = MultiplexerState::new();
         let workspace = mux.list_workspaces()[0].id.clone();
         let owner = mux.create_tab(&workspace).unwrap();
@@ -557,6 +561,31 @@ mod tests {
             tab.reported_session_binding_nonce = Some("owner-nonce".into());
         }
         let fixture = ServiceFixture::new(mux);
+        let repo = fixture.temp.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        for args in [
+            &["init", "-q"][..],
+            &[
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.com",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "fixture",
+            ],
+        ] {
+            let output = codeterm_service_core::process_util::git_command()
+                .current_dir(&repo)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{args:?}: {:?}", output.stderr);
+        }
+        let canonical = repo.canonicalize().unwrap().display().to_string();
         let svc = &fixture.service;
         svc.agent_registry.register_provider(Box::new(
             codeterm_service_core::agent::test_provider::MockProvider::new("fixture-agent"),
@@ -565,7 +594,7 @@ mod tests {
             .plan_store
             .create_plan_for_team(
                 "respawn pre-spawn".into(),
-                fixture.temp.path().display().to_string(),
+                canonical.clone(),
                 OrchestratorRef {
                     tab_id: Some(owner.clone()),
                     session_id: Some("owner-session".into()),
@@ -586,7 +615,7 @@ mod tests {
                 NewTask {
                     name: "Respawn pre-spawn task".into(),
                     personality: Some("Beacon".into()),
-                    execution_intent: TaskExecutionIntent::NonRepository,
+                    execution_intent: TaskExecutionIntent::RepositoryMutation,
                     ..Default::default()
                 },
                 3,
@@ -598,9 +627,16 @@ mod tests {
         svc.plan_store
             .edit_plan_fixture(&plan.id, 5, |plan| {
                 let task = plan.tasks.iter_mut().find(|t| t.id == task_id).unwrap();
-                task.status = TaskStatus::InProgress;
-                task.interruption.execution_intent = ExecutionIntent::ReadOnly;
-                task.execution_attempts[0].execution_intent = Some(ExecutionIntent::ReadOnly);
+                task.status = TaskStatus::Blocked;
+                task.status_label = Some("awaiting dependency evidence".into());
+                task.interruption.execution_intent = task_default;
+                task.lane = TaskLaneMetadata {
+                    worktree_path: Some(canonical.clone()),
+                    ..task.lane.clone()
+                };
+                let source = &mut task.execution_attempts[0];
+                source.execution_intent = Some(source_intent);
+                source.worktree_path = Some(canonical);
                 Ok(())
             })
             .unwrap();
@@ -613,21 +649,29 @@ mod tests {
         svc.plan_store
             .record_task_executor_termination(&plan.id, &task_id, &source_attempt, 6)
             .unwrap();
-        let source_id = source_attempt.id;
+        let request = json!({
+            "plan_id": plan.id,
+            "task_id": task_id,
+            "attempt_id": source_attempt.id,
+            "provider": "fixture-agent",
+            "workspace_id": workspace,
+            "caller_tab_id": owner,
+            "session_id": "owner-session",
+            "session_binding_nonce": "owner-nonce",
+        });
+        (fixture, plan.id, task_id, request)
+    }
+
+    #[test]
+    fn respawn_persists_reserved_tab_and_attempt_before_spawn_and_rolls_back_on_refusal() {
+        let (fixture, plan_id, task_id, request) =
+            blocked_respawn_fixture(ExecutionIntent::Mutating, ExecutionIntent::ReadOnly);
+        let svc = &fixture.service;
         let tabs_before = svc.mux.read().snapshot().tabs.len();
         let observed = Cell::new(false);
 
         let error = respawn_with_spawn(
-            &Some(json!({
-                "plan_id": plan.id,
-                "task_id": task_id,
-                "attempt_id": source_id,
-                "provider": "fixture-agent",
-                "workspace_id": workspace,
-                "caller_tab_id": owner,
-                "session_id": "owner-session",
-                "session_binding_nonce": "owner-nonce",
-            })),
+            &Some(request),
             &Arc::new(svc.clone()),
             10,
             |service, params, _ready_tx| {
@@ -639,8 +683,9 @@ mod tests {
                     .task_launch_authority
                     .as_ref()
                     .expect("respawn must carry launch authority");
-                assert_eq!(params.plan_id.as_deref(), Some(plan.id.as_str()));
+                assert_eq!(params.plan_id.as_deref(), Some(plan_id.as_str()));
                 assert_eq!(params.task_id.as_deref(), Some(task_id.as_str()));
+                assert_eq!(params.execution_intent, Some(ExecutionIntent::ReadOnly));
                 assert!(params.plan_skill_manifest.is_some());
                 assert!(
                     service.mux.read().get_tab(reserved_tab).is_some(),
@@ -652,6 +697,7 @@ mod tests {
                     .unwrap()
                     .task;
                 assert_eq!(task.assigned_tab_id.as_deref(), Some(reserved_tab));
+                assert_eq!(task.status, TaskStatus::Pending);
                 assert_eq!(task.status_label.as_deref(), Some("starting"));
                 assert_eq!(task.execution_attempts.len(), 2);
                 assert!(task.execution_attempts[0].retired_at.is_some());
@@ -668,7 +714,7 @@ mod tests {
                     .assigned_task_binding_projection(reserved_tab)
                     .unwrap()
                     .expect("reserved respawn tab must already carry authoritative task binding");
-                assert_eq!(binding.plan_id, plan.id);
+                assert_eq!(binding.plan_id, plan_id);
                 assert_eq!(binding.task_id, task_id);
                 observed.set(true);
                 Err("opaque respawn spawn refusal".into())
@@ -681,7 +727,11 @@ mod tests {
         assert!(error.message.contains("opaque respawn spawn refusal"));
         assert_eq!(svc.mux.read().snapshot().tabs.len(), tabs_before);
         let rolled_back = svc.plan_store.inspect_task_for_test(&task_id).unwrap().task;
-        assert_eq!(rolled_back.status, TaskStatus::InProgress);
+        assert_eq!(rolled_back.status, TaskStatus::Blocked);
+        assert_eq!(
+            rolled_back.status_label.as_deref(),
+            Some("awaiting dependency evidence")
+        );
         assert_eq!(
             rolled_back.assigned_tab_id.as_deref(),
             Some("source-worker")
@@ -689,5 +739,28 @@ mod tests {
         assert_eq!(rolled_back.execution_attempts[0].retired_at, None);
         assert_eq!(rolled_back.execution_attempts[0].closed_at, None);
         assert_eq!(rolled_back.execution_attempts[1].closed_at, Some(10));
+    }
+
+    #[test]
+    fn respawn_refuses_effective_mutating_source_on_canonical_checkout() {
+        let (fixture, _, task_id, request) =
+            blocked_respawn_fixture(ExecutionIntent::ReadOnly, ExecutionIntent::Mutating);
+        let svc = &fixture.service;
+        let before = svc.plan_store.inspect_task_for_test(&task_id).unwrap().task;
+        let tabs = svc.mux.read().snapshot().tabs.len();
+        let error = respawn_with_spawn(&Some(request), &Arc::new(svc.clone()), 10, |_, _, _| {
+            panic!("unsafe mutating respawn reached spawn")
+        })
+        .unwrap_err();
+        assert_eq!(error.code, -32013);
+        assert_eq!(
+            error.data.unwrap()["violation_id"],
+            super::super::super::plan_task_dispatch::lane_safety::REFUSAL_MUTATING_WRITE_IN_CANONICAL
+        );
+        assert_eq!(
+            svc.plan_store.inspect_task_for_test(&task_id).unwrap().task,
+            before
+        );
+        assert_eq!(svc.mux.read().snapshot().tabs.len(), tabs);
     }
 }
