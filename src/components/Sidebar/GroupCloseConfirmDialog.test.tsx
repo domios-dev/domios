@@ -92,7 +92,8 @@ test("Team mode names the Team action and counts only Team tabs", async () => {
       onCancel={() => {}}
     />,
   );
-  assert(document.body.textContent?.includes("Close Team?"), "Team confirmation has Team title");
+  assert(document.body.textContent?.includes("Close QA fixtures?"), "Team confirmation names the Team in its title");
+  assert(document.querySelector('[role="dialog"]')?.getAttribute("aria-label") === "Close Team", "Team dialog exposes Close Team label");
   assert(document.body.textContent?.includes("all 2 Team tabs"), "Team count excludes synthetic root");
   assert(document.querySelector('[data-testid="group-close-confirm-button"]')?.textContent?.includes("Close Team"), "Team confirm action is explicit");
   await act(async () => root.unmount());
