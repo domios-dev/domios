@@ -1,9 +1,14 @@
 use std::{
-    sync::{Arc, Weak},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Weak,
+    },
     time::Duration,
 };
 
-use codeterm_plugin::transcribe::{DictationAdmission, DictationSession, TranscribeRegistry};
+use codeterm_plugin::transcribe::{
+    DictationAdmission, DictationSession, TranscribeRegistry, Transcriber,
+};
 use codeterm_types::dictation::{
     DictationStart, DictationStartResult, DictationUpdate, MAX_AUDIO_BYTES, MAX_PCM_BYTES,
     MAX_UPDATE_BYTES,
@@ -16,6 +21,8 @@ use tokio::{
 
 use super::ServiceContext;
 
+pub mod live_capture;
+
 const IDLE: Duration = Duration::from_secs(45);
 const LIFETIME: Duration = Duration::from_secs(345);
 const EXCHANGE: Duration = Duration::from_secs(18);
@@ -25,7 +32,18 @@ type ClientResult = Result<DictationUpdate, String>;
 type Slot = Arc<Mutex<Option<Recording>>>;
 
 #[derive(Default)]
-pub struct DictationSessions(Slot);
+pub struct DictationSessions {
+    slot: Slot,
+    microphone: Arc<AtomicBool>,
+}
+
+struct MicrophoneLease(Arc<AtomicBool>);
+
+impl Drop for MicrophoneLease {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
 
 struct Recording {
     lease: String,
@@ -46,6 +64,7 @@ struct Claim {
     session: String,
     cancellation: watch::Receiver<bool>,
     frames: mpsc::Receiver<Frame>,
+    _microphone: MicrophoneLease,
 }
 
 impl Drop for Claim {
@@ -76,11 +95,16 @@ impl TabIdentity {
 }
 
 impl DictationSessions {
+    fn claim_microphone(&self) -> Result<MicrophoneLease, String> {
+        self.microphone
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .map(|_| MicrophoneLease(self.microphone.clone()))
+            .map_err(|_| "Another microphone recording is already active.".into())
+    }
+
     fn claim(&self, client: &str, session: &str) -> Result<Claim, String> {
-        let mut slot = self.0.lock();
-        if slot.is_some() {
-            return Err("A dictation recording is already active.".into());
-        }
+        let microphone = self.claim_microphone()?;
+        let mut slot = self.slot.lock();
         let (cancel, cancellation) = watch::channel(false);
         let (tx, frames) = mpsc::channel(1);
         *slot = Some(Recording {
@@ -90,16 +114,17 @@ impl DictationSessions {
             cancel,
         });
         Ok(Claim {
-            slot: self.0.clone(),
+            slot: self.slot.clone(),
             session: session.into(),
             cancellation,
             frames,
+            _microphone: microphone,
         })
     }
 
     pub fn cancel(&self, client: &str, session: &str) {
         if let Some(recording) = self
-            .0
+            .slot
             .lock()
             .as_ref()
             .filter(|recording| recording.matches(client, session))
@@ -126,7 +151,7 @@ impl DictationSessions {
         }
         let (response, result) = oneshot::channel();
         {
-            let slot = self.0.lock();
+            let slot = self.slot.lock();
             let recording = slot
                 .as_ref()
                 .filter(|recording| recording.matches(client, session))
@@ -175,17 +200,7 @@ impl ServiceContext {
         };
         let registry = self.ext::<Arc<TranscribeRegistry>>().clone();
         let preferred = self.configuration().integrations.voice_transcribe.active;
-        let selected = registry
-            .registered(&preferred)
-            .filter(|(plugin, _)| plugin.supports_dictation())
-            .or_else(|| {
-                let mut ids = registry.ids();
-                ids.sort_unstable();
-                ids.into_iter()
-                    .filter_map(|id| registry.registered(&id))
-                    .find(|(plugin, _)| plugin.supports_dictation())
-            });
-        let Some((backend, registration)) = selected else {
+        let Some((backend, registration)) = select_backend(&registry, &preferred) else {
             return DictationStartResult::Setup {
                 reason: "A live dictation plugin is needed on this device.".into(),
             };
@@ -236,6 +251,22 @@ impl ServiceContext {
             .await
             .unwrap_or_else(|_| unavailable("The dictation worker did not start.".into()))
     }
+}
+
+fn select_backend(
+    registry: &TranscribeRegistry,
+    preferred: &str,
+) -> Option<(Arc<dyn Transcriber>, String)> {
+    registry
+        .registered(preferred)
+        .filter(|(plugin, _)| plugin.supports_dictation())
+        .or_else(|| {
+            let mut ids = registry.ids();
+            ids.sort_unstable();
+            ids.into_iter()
+                .filter_map(|id| registry.registered(&id))
+                .find(|(plugin, _)| plugin.supports_dictation())
+        })
 }
 
 struct Authority {
