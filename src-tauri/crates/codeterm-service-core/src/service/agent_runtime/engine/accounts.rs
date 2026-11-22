@@ -276,8 +276,18 @@ async fn ensure_account(
             }
             crate::service::provider_accounts::for_tab(&owner, &target)
         };
-        let invocation = if startup && implicit {
-            provision()
+        let invocation = if implicit {
+            let invocation = provision();
+            if let Some(acquisition) = &acquisition {
+                let completed_refusal = invocation
+                    .as_ref()
+                    .err()
+                    .is_some_and(|reason| !reason.starts_with("account_provisioning_busy:"));
+                acquisition
+                    .settled
+                    .store(invocation.is_ok() || completed_refusal, Ordering::Release);
+            }
+            invocation
         } else {
             let observation =
                 provisioning::start(svc, provision).map_err(RuntimeFailure::Refused)?;
