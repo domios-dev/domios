@@ -117,7 +117,8 @@ function record(value: unknown): Record<string, unknown> {
 
 export function activityCommand(tool: ActivityTool): string {
   const input = record(tool.toolInput);
-  const command = input.cmd ?? input.command ?? tool.toolDetail ?? (tool.toolKind === "command" ? tool.toolSummary : undefined);
+  const command = input.cmd ?? input.command ?? input.CommandLine ?? input.commandLine ?? input.command_line
+    ?? tool.toolDetail ?? (tool.toolKind === "command" ? tool.toolSummary : undefined);
   return Array.isArray(command) ? argvParsed(command.map(String)).rest(0) : typeof command === "string" ? command : "";
 }
 
