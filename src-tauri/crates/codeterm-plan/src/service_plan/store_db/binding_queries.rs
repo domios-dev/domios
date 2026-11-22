@@ -11,7 +11,7 @@ impl PlanDatabase {
         if tab.trim().is_empty() {
             return Ok(Vec::new());
         }
-        let connection = self.connection.lock();
+        let connection = self.read_connection();
         record_query();
         let mut statement=connection.prepare_cached(
             "SELECT p.id,json_extract(t.row_json,'$.id'),json_extract(t.row_json,'$.name')
@@ -34,7 +34,7 @@ impl PlanDatabase {
         if tab.trim().is_empty() {
             return Ok(Vec::new());
         }
-        let connection = self.connection.lock();
+        let connection = self.read_connection();
         record_query();
         let mut statement=connection.prepare_cached(
             "SELECT p.id,json_extract(t.row_json,'$.id')
@@ -60,7 +60,7 @@ impl PlanDatabase {
         if tab.trim().is_empty() || session.trim().is_empty() || nonce.trim().is_empty() {
             return Ok(None);
         }
-        let connection = self.connection.lock();
+        let connection = self.read_connection();
         record_query();
         let mut statement=connection.prepare_cached(
             "SELECT p.id,t.task_id,json_extract(a.row_json,'$.id')

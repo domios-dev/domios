@@ -127,6 +127,17 @@ impl PlanDatabase {
         team_owners: &TeamOwners,
         patches: Vec<LifecyclePatch>,
     ) -> Result<(LifecycleUndo, Vec<CommittedRows>), PlanError> {
+        // A no-op lifecycle transition (e.g. placing a newly dispatched Worker tab) writes no
+        // plan rows, so unrelated mutations to the same plan must not abort it.
+        if patches.is_empty() && team_owners.is_empty() {
+            return Ok((
+                LifecycleUndo {
+                    patches,
+                    revisions: Vec::new(),
+                },
+                Vec::new(),
+            ));
+        }
         let receipts = self.lifecycle_transaction(&patches, false, |tx| {
             if revisions(tx, selector)? != expected
                 || read_team_owners(tx, team_owners.iter().map(|(team, _)| team.as_str()))?

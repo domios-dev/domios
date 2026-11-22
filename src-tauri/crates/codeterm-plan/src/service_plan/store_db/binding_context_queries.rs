@@ -33,7 +33,7 @@ impl PlanDatabase {
         &self,
         tab: &str,
     ) -> Result<Vec<RestoredPlanBindingRead>, PlanError> {
-        let connection = self.connection.lock();
+        let connection = self.read_connection();
         record_query();
         let mut statement=connection.prepare_cached(&format!("SELECT p.id,json_object('plan_id',p.id,
             'owns_plan',json(CASE WHEN {OWNS_PLAN} THEN 'true' ELSE 'false' END),
@@ -58,7 +58,7 @@ impl PlanDatabase {
         session: Option<&str>,
         routable: bool,
     ) -> Result<bool, PlanError> {
-        let connection = self.connection.lock();
+        let connection = self.read_connection();
         record_query();
         connection.query_row(&format!("WITH bindings AS MATERIALIZED (
             SELECT {OWNS_PLAN} AS owner,CASE WHEN json_extract(p.header_json,'$.planner.kind')='tab'
@@ -79,7 +79,7 @@ impl PlanDatabase {
         if tab.trim().is_empty() {
             return Ok(None);
         }
-        let connection = self.connection.lock();
+        let connection = self.read_connection();
         record_query();
         let encoded: Option<(String,String)> = connection.query_row(
             &format!("SELECT plan_id,json_object('plan_id',plan_id,'task_id',task_id) FROM ({ASSIGNED})"),
@@ -95,7 +95,7 @@ impl PlanDatabase {
         if tab.trim().is_empty() {
             return Ok(None);
         }
-        let connection = self.connection.lock();
+        let connection = self.read_connection();
         record_query();
         connection
             .query_row(
@@ -117,7 +117,7 @@ impl PlanDatabase {
         if tab.trim().is_empty() {
             return Ok(Vec::new());
         }
-        let connection = self.connection.lock();
+        let connection = self.read_connection();
         record_query();
         let mut statement = connection.prepare_cached(TASKLESS).map_err(db_error)?;
         let rows = statement
@@ -133,7 +133,7 @@ impl PlanDatabase {
         if tab.trim().is_empty() {
             return Ok(KpiPlanContextRead::default());
         }
-        let connection = self.connection.lock();
+        let connection = self.read_connection();
         record_query();
         let (id,encoded): (Option<String>,String) = connection.query_row(
             &format!("WITH assigned AS ({ASSIGNED}),taskless AS ({TASKLESS} LIMIT 2),

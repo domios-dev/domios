@@ -1,7 +1,12 @@
 use super::*;
 use crate::multiplexer::state::{LifecyclePatch, LIFECYCLE_CONTEXT_CONFLICT};
 
-pub(super) const PREPARE_ATTEMPTS: usize = 3;
+pub(super) const PREPARE_ATTEMPTS: usize = 5;
+
+fn is_retryable_lifecycle_conflict(error: &str) -> bool {
+    error == LIFECYCLE_CONTEXT_CONFLICT
+        || error.contains("lifecycle conflict: plan changed during preparation")
+}
 
 impl ServiceContext {
     pub fn transition_agent_prepared_at(
@@ -35,7 +40,9 @@ impl ServiceContext {
         let mut attempt = 1;
         loop {
             match self.transition_agent_prepared_once(now_ms, &mut prepare, failure) {
-                Err(error) if error == LIFECYCLE_CONTEXT_CONFLICT && attempt < PREPARE_ATTEMPTS => {
+                Err(error)
+                    if is_retryable_lifecycle_conflict(&error) && attempt < PREPARE_ATTEMPTS =>
+                {
                     attempt += 1;
                 }
                 outcome => return outcome,

@@ -90,7 +90,22 @@ pub(super) fn create_schema(connection: &Connection) -> rusqlite::Result<()> {
 pub(super) struct PlanDatabase {
     path: PathBuf,
     connection: Mutex<Connection>,
+    readers: Option<reader_pool::ReaderPool>,
     pub(super) pending_changes: Mutex<super::change_feed::PendingPlanChanges>,
+}
+
+fn register_all_functions(connection: &Connection) -> Result<(), PlanError> {
+    status_queries::register_functions(connection)?;
+    state_event_window::register_functions(connection)?;
+    heartbeat_queries::register_functions(connection)?;
+    reference_resolver_queries::register_functions(connection)?;
+    task_key_queries::register_functions(connection)?;
+    curator_notice_queries::register_functions(connection)?;
+    auxiliary_queries::register_functions(connection)?;
+    worker_read_queries::register_functions(connection)?;
+    list_window_queries::register_functions(connection)?;
+    task_authority_queries::register_functions(connection)?;
+    Ok(())
 }
 
 impl PlanDatabase {
@@ -105,16 +120,7 @@ impl PlanDatabase {
         }
         .map_err(db_error)?;
         migrations::initialize(&mut connection, &path)?;
-        status_queries::register_functions(&connection)?;
-        state_event_window::register_functions(&connection)?;
-        heartbeat_queries::register_functions(&connection)?;
-        reference_resolver_queries::register_functions(&connection)?;
-        task_key_queries::register_functions(&connection)?;
-        curator_notice_queries::register_functions(&connection)?;
-        auxiliary_queries::register_functions(&connection)?;
-        worker_read_queries::register_functions(&connection)?;
-        list_window_queries::register_functions(&connection)?;
-        task_authority_queries::register_functions(&connection)?;
+        register_all_functions(&connection)?;
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(db_error)?;
@@ -133,11 +139,27 @@ impl PlanDatabase {
                 [],
             )
             .map_err(db_error)?;
+        let readers = if connection.path().is_some_and(|p| !p.is_empty()) {
+            Some(reader_pool::ReaderPool::open(
+                &path,
+                register_all_functions,
+            )?)
+        } else {
+            None
+        };
         Ok(Self {
             path,
             connection: Mutex::new(connection),
+            readers,
             pending_changes: Mutex::new(super::change_feed::PendingPlanChanges::default()),
         })
+    }
+
+    fn read_connection(&self) -> reader_pool::ReadConnectionGuard<'_> {
+        match &self.readers {
+            Some(pool) => reader_pool::ReadConnectionGuard::Pooled(pool.acquire()),
+            None => reader_pool::ReadConnectionGuard::Writer(self.connection.lock()),
+        }
     }
 
     pub(super) fn path(&self) -> PathBuf {
@@ -147,6 +169,10 @@ impl PlanDatabase {
     #[cfg(any(test, feature = "test-support"))]
     pub(super) fn with_connection_held_for_test<T>(&self, work: impl FnOnce() -> T) -> T {
         let _connection = self.connection.lock();
+        let _readers = self
+            .readers
+            .as_ref()
+            .map(reader_pool::ReaderPool::acquire_all_for_test);
         work()
     }
 
@@ -600,6 +626,7 @@ mod board_state_queries;
 mod list_window_queries;
 mod match_queries;
 pub(super) mod read_projections;
+mod reader_pool;
 mod reference_queries;
 mod state_event_queries;
 mod state_event_window;

@@ -67,7 +67,7 @@ impl PlanDatabase {
         plan_id: Option<&str>,
         tab_id: Option<&str>,
     ) -> Result<Vec<ChatPlanRead>, PlanError> {
-        let mut connection = self.connection.lock();
+        let mut connection = self.read_connection();
         let transaction = connection.transaction().map_err(db_error)?;
         record_query();
         let headers = {

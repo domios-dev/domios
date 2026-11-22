@@ -61,7 +61,7 @@ impl PlanDatabase {
             return serde_json::to_value(PlanProjection::Chat(Box::new(value)))
                 .map_err(super::json_error);
         }
-        let mut guard = self.connection.lock();
+        let mut guard = self.read_connection();
         let transaction = guard.transaction().map_err(db_error)?;
         let value = projection(&transaction, id, view)?;
         transaction.commit().map_err(db_error)?;
@@ -72,7 +72,7 @@ impl PlanDatabase {
         &self,
         project: Option<&str>,
     ) -> Result<Vec<Value>, PlanError> {
-        let mut guard = self.connection.lock();
+        let mut guard = self.read_connection();
         let transaction = guard.transaction().map_err(db_error)?;
         let ids = {
             record_query();

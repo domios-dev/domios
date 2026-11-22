@@ -181,9 +181,36 @@ fn tag_facets_from_body(
     tag_facets_from_value(value)
 }
 
+/// Keep plan-list storms from saturating `rest-api-worker`'s 512-thread blocking pool;
+/// excess callers park as zero-thread async futures and cancel cleanly on disconnect.
+pub(super) const PLAN_LIST_CONCURRENCY: usize = 8;
+const PLAN_BLOCKING_CONCURRENCY: usize = 24;
+
+static PLAN_LIST_GATE: std::sync::LazyLock<tokio::sync::Semaphore> =
+    std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(PLAN_LIST_CONCURRENCY));
+static PLAN_BLOCKING_GATE: std::sync::LazyLock<tokio::sync::Semaphore> =
+    std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(PLAN_BLOCKING_CONCURRENCY));
+
+pub(super) async fn acquire_plan_list_permit(
+) -> Result<tokio::sync::SemaphorePermit<'static>, (StatusCode, Json<Value>)> {
+    PLAN_LIST_GATE
+        .acquire()
+        .await
+        .map_err(|_| text_err(StatusCode::SERVICE_UNAVAILABLE, "plan list gate closed"))
+}
+
+pub(crate) async fn acquire_plan_blocking_permit(
+) -> Result<tokio::sync::SemaphorePermit<'static>, (StatusCode, Json<Value>)> {
+    PLAN_BLOCKING_GATE
+        .acquire()
+        .await
+        .map_err(|_| text_err(StatusCode::SERVICE_UNAVAILABLE, "plan worker gate closed"))
+}
+
 async fn run_blocking<T: Send + 'static>(
     operation: impl FnOnce() -> Result<T, (StatusCode, Json<Value>)> + Send + 'static,
 ) -> Result<T, (StatusCode, Json<Value>)> {
+    let _permit = acquire_plan_blocking_permit().await?;
     tokio::task::spawn_blocking(operation)
         .await
         .map_err(|_| text_err(StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?

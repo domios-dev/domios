@@ -39,6 +39,33 @@ interface WorkspaceBrowse {
   workspaces: BrowsedWorkspace[];
 }
 
+export interface CachedPlanTitles {
+  publicKey: string;
+  planTitles: Map<string, string>;
+  lookedUpTeamIds: Set<string>;
+}
+
+export function unnamedTeamIdsForWorkspaces(workspaces: readonly BrowsedWorkspace[]): string[] {
+  const missing = new Set<string>();
+  for (const workspace of workspaces) {
+    const namedTeams = new Set(workspace.teams.filter(team => remoteTeamName(team.id, team.name)).map(team => team.id));
+    for (const { tab } of workspace.tabs) {
+      if (tab.team_id && !namedTeams.has(tab.team_id)) missing.add(tab.team_id);
+    }
+  }
+  return [...missing];
+}
+
+export function needsPeerPlanTitlesFetch(
+  unnamedTeamIds: readonly string[],
+  cached: CachedPlanTitles | undefined,
+  publicKey: string,
+): boolean {
+  if (!unnamedTeamIds.length) return false;
+  if (!cached || cached.publicKey !== publicKey) return true;
+  return unnamedTeamIds.some(teamId => !cached.lookedUpTeamIds.has(teamId));
+}
+
 export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: boolean, cacheAccount: CacheAccount) {
   const peers = roster?.peers ?? null;
   const accountNames = useAccountMachineNames();
@@ -49,6 +76,7 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
   accountRef.current = cacheAccount;
   const [general, setGeneral] = useState<ReadonlyMap<string, GeneralSnapshot>>(() => new Map());
   const reads = useRef(new Map<string, PeerRead>());
+  const planTitlesCache = useRef(new Map<string, CachedPlanTitles>());
   const cacheScope = cacheAccount ? pairedGeneralCacheScope(cacheAccount) : null;
   const [cached, setCached] = useState<{ scope: string; peers: ReadonlyMap<string, CachedPeerGeneral> }>();
   const cachedPeers = cached?.scope === cacheScope ? cached?.peers : undefined;
@@ -82,6 +110,7 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
   const invalidatePeerInventory = useCallback((peerId: string) => {
     const running = reads.current.get(peerId);
     reads.current.delete(peerId);
+    planTitlesCache.current.delete(peerId);
     running?.controller.abort();
     const peer = peerRoster.current?.paired.find(item => item.instance_id === peerId);
     if (!peer) return;
@@ -132,14 +161,22 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
             return name && name !== team.id ? [[team.id, name] as const] : [];
           }));
           const workspaces = projectBrowsedWorkspaces(peerId, snapshot, ordinaryTabs);
-          publish(() => ({ account, publicKey: peer.public_key, sessions, teamNames, workspaces, availability: "online" }));
-          const needsPlanTitle = workspaces.some(workspace => {
-            const namedTeams = new Set(workspace.teams.filter(team => remoteTeamName(team.id, team.name)).map(team => team.id));
-            return workspace.tabs.some(({ tab }) => tab.team_id && !namedTeams.has(tab.team_id));
-          });
+          const unnamedTeamIds = unnamedTeamIdsForWorkspaces(workspaces);
+          const cachedTitles = planTitlesCache.current.get(peerId);
+          const validCache = cachedTitles?.publicKey === peer.public_key ? cachedTitles : undefined;
+          const initialWorkspaces = validCache && validCache.planTitles.size
+            ? workspaces.map(workspace => ({ ...workspace, planTitles: validCache.planTitles }))
+            : workspaces;
+          publish(() => ({ account, publicKey: peer.public_key, sessions, teamNames, workspaces: initialWorkspaces, availability: "online" }));
+          const needsPlanTitle = needsPeerPlanTitlesFetch(unnamedTeamIds, cachedTitles, peer.public_key);
           if (!needsPlanTitle) return;
-          void readTeamPlanTitles(peerId, signal).then(planTitles => {
-            if (planTitles) publish(previous => previous?.sessions !== sessions ? undefined : ({
+          // Return this promise so `reads.current` keeps peer refreshes serialized until `/api/plans` settles.
+          return readTeamPlanTitles(peerId, signal).then(planTitles => {
+            if (!planTitles) return;
+            const lookedUpTeamIds = new Set(validCache?.lookedUpTeamIds ?? []);
+            for (const teamId of unnamedTeamIds) lookedUpTeamIds.add(teamId);
+            planTitlesCache.current.set(peerId, { publicKey: peer.public_key, planTitles, lookedUpTeamIds });
+            publish(previous => previous?.sessions !== sessions ? undefined : ({
               ...previous,
               workspaces: workspaces.map(workspace => ({ ...workspace, planTitles })),
             }));
