@@ -302,6 +302,16 @@ pub fn await_owner_idle(fixture: &ServiceFixture, tab_id: &str) {
             let _ = callback_tx.try_send(());
         }),
     );
+    if !owner.running.load(Ordering::Acquire)
+        && (owner.revoked.load(Ordering::Acquire)
+            || owner.waiting_for_dispatch.load(Ordering::Acquire))
+    {
+        fixture
+            .service
+            .ready_user_send_tasks
+            .wait(tab_id, TEST_DEADLINE);
+        return;
+    }
     fixture
         .service
         .wake_user_owner(tab_id, super::UserWake::Housekeeping);

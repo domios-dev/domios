@@ -269,10 +269,28 @@ fn wake_on_permit(
 }
 
 pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String> {
+    drain_with(svc, tab, false)
+}
+
+pub(super) fn drain_envelope(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String> {
+    drain_with(svc, tab, true)
+}
+
+fn drain_with(svc: &ServiceContext, tab: &str, wait_when_ready: bool) -> Result<UserDrain, String> {
     let store = &svc.pending_delivery_payloads.user_sends;
     let owner = store.tab(tab);
     let _drain = match owner.runtime_drain.try_acquire() {
         Ok(permit) => permit,
+        Err(tokio::sync::TryAcquireError::NoPermits)
+            if wait_when_ready && ready_session(svc, tab).is_some() =>
+        {
+            super::blocking::deadline(
+                std::time::Duration::from_secs(30),
+                owner.runtime_drain.acquire(),
+            )
+            .map_err(|_| "submit_unconfirmed: runtime drain outcome pending; replay refused")?
+            .map_err(|_| "submit_unconfirmed: runtime drain closed; replay refused")?
+        }
         Err(tokio::sync::TryAcquireError::NoPermits) => {
             wake_on_permit(svc, tab, &owner, None);
             return Ok(UserDrain::Idle);

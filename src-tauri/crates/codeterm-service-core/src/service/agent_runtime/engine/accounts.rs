@@ -276,7 +276,13 @@ async fn ensure_account(
             }
             crate::service::provider_accounts::for_tab(&owner, &target)
         };
-        let invocation = if implicit {
+        #[cfg(any(test, feature = "test-support"))]
+        let has_provision_hook = svc
+            .try_ext::<ExpectedLaunchCommit>()
+            .is_some_and(|hook| hook.stage == "account_provision");
+        #[cfg(not(any(test, feature = "test-support")))]
+        let has_provision_hook = false;
+        let invocation = if implicit && !has_provision_hook {
             provisioning::require_idle(svc).map_err(RuntimeFailure::Refused)?;
             let invocation = provision();
             if let Some(acquisition) = &acquisition {

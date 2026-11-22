@@ -40,7 +40,7 @@ pub(super) fn send(
             .status(&id)
             .ok_or("Durable runtime envelope receipt unavailable")?;
         if status.state == ChatSendState::Pending {
-            super::user_delivery::drain(svc, tab)?;
+            super::user_delivery::drain_envelope(svc, tab)?;
         }
         let status = svc
             .chat_send_ledger
@@ -87,7 +87,7 @@ pub(super) fn send(
         serde_json::to_value(&status).unwrap_or_default(),
     );
     drop(reservation);
-    super::user_delivery::drain(svc, tab)?;
+    super::user_delivery::drain_envelope(svc, tab)?;
     let status = svc
         .chat_send_ledger
         .status(&record.send_id)
