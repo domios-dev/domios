@@ -856,3 +856,100 @@ fn unchanged_own_session_binding_retires_stale_provisional_launch() {
     assert!(tab.provisional_launch.is_none());
     assert_eq!(tab.agent_session_id.as_deref(), Some("own-session"));
 }
+
+#[test]
+fn failure_and_provisional_stages_clear_agent_booting_without_weakening_liveness() {
+    use codeterm_types::pty::{
+        classify_agent_liveness, AgentBacking, AgentLiveness, LivenessEvidence,
+    };
+
+    let liveness = |tab: &Tab| {
+        classify_agent_liveness(LivenessEvidence {
+            declares_agent: tab.agent_type.is_some(),
+            backing: AgentBacking::Pty {
+                pty_live: Some(true),
+            },
+            boot_stage: tab.boot_stage,
+            boot_in_flight: tab.agent_booting,
+            provider_exit_observed: tab.exit_suspected_at.is_some(),
+            pending_prompt: tab.pending_prompt.is_some(),
+        })
+    };
+
+    for (stage, expected_liveness) in [
+        (BootStage::LaunchDeadlineElapsed, AgentLiveness::Unobserved),
+        (
+            BootStage::LaunchBindingUnconfirmed,
+            AgentLiveness::Unobserved,
+        ),
+    ] {
+        let mut tab = launching_tab("pty-a", "nonce-a");
+        tab.agent_booting = true;
+        tab.slept_at_ms = Some(42);
+        assert!(apply_provisional_launch(
+            &mut tab,
+            "pty-a",
+            "nonce-a",
+            stage,
+            DEADLINE_REASON,
+        ));
+        assert!(!tab.agent_booting, "{stage:?} must settle agent_booting");
+        assert_eq!(tab.slept_at_ms, Some(42));
+        assert_eq!(liveness(&tab), expected_liveness);
+    }
+
+    let mut spawn_failed = launching_tab("pty-a", "nonce-a");
+    spawn_failed.agent_booting = true;
+    spawn_failed.slept_at_ms = Some(42);
+    apply_boot_stage(&mut spawn_failed, BootStage::SpawnFailed, Some("boom"));
+    assert!(!spawn_failed.agent_booting);
+    assert_eq!(spawn_failed.slept_at_ms, Some(42));
+    assert_eq!(liveness(&spawn_failed), AgentLiveness::Absent);
+
+    let mut active_newer = launching_tab("pty-b", "nonce-b");
+    active_newer.boot_stage = Some(BootStage::LaunchWritten);
+    active_newer.agent_booting = true;
+    assert!(!apply_provisional_launch(
+        &mut active_newer,
+        "pty-a",
+        "nonce-a",
+        BootStage::LaunchDeadlineElapsed,
+        DEADLINE_REASON,
+    ));
+    assert!(active_newer.agent_booting);
+    assert_eq!(active_newer.boot_stage, Some(BootStage::LaunchWritten));
+}
+
+#[test]
+fn tab_has_armed_launch_tracks_readiness_attempt_and_owner_prompt() {
+    use crate::service::launch_readiness::{
+        arm, owner_prompt_cleared, owner_prompt_pending, retire_attempt, LaunchAttempt,
+    };
+    use crate::service::test_fixture::ServiceFixture;
+
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.pty_id = Some("pty-armed".into());
+        tab.session_binding_nonce = Some("nonce-armed".into());
+        tab.boot_stage = Some(BootStage::LaunchDeadlineElapsed);
+    }
+    let fixture = ServiceFixture::new(mux);
+    let tab = fixture.service.mux.read().get_tab(&tab_id).unwrap().clone();
+    assert!(!fixture.service.tab_has_armed_launch(&tab));
+
+    let attempt = LaunchAttempt {
+        tab_id: tab_id.clone(),
+        pty_id: "pty-armed".into(),
+        binding_nonce: "nonce-armed".into(),
+    };
+    arm(attempt.clone());
+    assert!(fixture.service.tab_has_armed_launch(&tab));
+    assert!(retire_attempt(&attempt));
+    assert!(!fixture.service.tab_has_armed_launch(&tab));
+
+    owner_prompt_pending(&tab_id, "opaque-owner-prompt");
+    assert!(fixture.service.tab_has_armed_launch(&tab));
+    owner_prompt_cleared(&tab_id);
+    assert!(!fixture.service.tab_has_armed_launch(&tab));
+}

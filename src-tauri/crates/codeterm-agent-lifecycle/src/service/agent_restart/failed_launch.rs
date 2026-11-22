@@ -4,9 +4,28 @@ use super::{AgentRestartError, TabRestartSnapshot};
 use crate::prelude::*;
 use crate::service::ServiceContext;
 
+fn provisional_launch_matches_tab(tab: &crate::multiplexer::types::Tab) -> bool {
+    tab.provisional_launch.as_ref().is_none_or(|launch| {
+        tab.pty_id.as_deref() == Some(launch.pty_id.as_str())
+            && tab.session_binding_nonce.as_deref() == Some(launch.binding_nonce.as_str())
+    })
+}
+
 fn failed_provider(tab: &crate::multiplexer::types::Tab) -> Option<&str> {
-    if tab.agent_booting && tab.boot_stage != Some(BootStage::PtyStarting) {
+    if tab.launch_session_authenticated()
+        || crate::service::boot_stage::first_turn_input_is_ready(tab)
+    {
         return None;
+    }
+    if tab.agent_booting {
+        let stale_boot_stage = match tab.boot_stage {
+            Some(BootStage::PtyStarting) => true,
+            Some(BootStage::LaunchDeadlineElapsed) => provisional_launch_matches_tab(tab),
+            _ => false,
+        };
+        if !stale_boot_stage {
+            return None;
+        }
     }
     tab.restorable_launch
         .failed_provider
@@ -26,11 +45,75 @@ fn failed_provider(tab: &crate::multiplexer::types::Tab) -> Option<&str> {
         })
 }
 
+fn latest_verified_rebind_session<'a>(
+    records: &'a [crate::session::lifecycle::JournalRecord],
+    tab_id: &str,
+    provider: &str,
+) -> Option<&'a str> {
+    use crate::session::lifecycle::{AgentTypeWriteOrigin, JournalRecord, LifecycleTransition};
+
+    records
+        .iter()
+        .rev()
+        .find_map(|record| {
+            if record.tab_id() != tab_id {
+                return None;
+            }
+            match record {
+                JournalRecord::Transition { entry } => match &entry.transition {
+                    LifecycleTransition::AgentTypeWrite {
+                        origin: AgentTypeWriteOrigin::Rebind,
+                        new_provider,
+                        session_id,
+                        applied: true,
+                        ..
+                    } => Some((new_provider.as_deref(), session_id.as_deref())),
+                    _ => None,
+                },
+                JournalRecord::Checkpoint { .. } => None,
+            }
+        })
+        .and_then(|(recorded_provider, recorded_session)| {
+            (recorded_provider == Some(provider))
+                .then_some(recorded_session)
+                .flatten()
+        })
+}
+
+fn live_provider_process_present(
+    svc: &ServiceContext,
+    tab: &crate::multiplexer::types::Tab,
+) -> bool {
+    let Some(pty_id) = tab.pty_id.as_deref() else {
+        return false;
+    };
+    if svc.pty.lock().get_session(pty_id).is_none() {
+        return false;
+    }
+    svc.observe_provider_process_tree(&tab.id, pty_id)
+        .is_some_and(|tree| {
+            tree.state() == crate::service::process_tree::ProviderTreeState::Present
+        })
+}
+
+fn tab_has_active_owner_or_launch(
+    svc: &ServiceContext,
+    tab: &crate::multiplexer::types::Tab,
+) -> bool {
+    crate::agent::live_state::observe_tab_liveness(svc, &tab.id) == AgentLiveness::Live
+        || svc.tab_has_armed_launch(tab)
+        || live_provider_process_present(svc, tab)
+}
+
 pub trait FailedLaunchExt {
     fn failed_launch_restart_snapshot(
         &self,
         tab_id: &str,
     ) -> Result<Option<TabRestartSnapshot>, AgentRestartError>;
+    fn require_failed_launch_recovery_current(
+        &self,
+        snap: &TabRestartSnapshot,
+    ) -> Result<(), AgentRestartError>;
 }
 
 impl FailedLaunchExt for ServiceContext {
@@ -50,8 +133,17 @@ impl FailedLaunchExt for ServiceContext {
         let Some(provider) = failed_provider(&tab) else {
             return Ok(None);
         };
-        if crate::agent::live_state::observe_tab_liveness(self, &tab.id) == AgentLiveness::Live {
+        if tab_has_active_owner_or_launch(self, &tab) {
             return Ok(None);
+        }
+        if self
+            .ext::<crate::service::agent_restart::RestartTracker>()
+            .lock()
+            .model_switch_busy(&tab.id)
+        {
+            return Err(AgentRestartError::BadRequest(
+                "an agent restart or automatic recovery is already in progress".to_string(),
+            ));
         }
         let transport = self
             .agent_registry
@@ -84,19 +176,32 @@ impl FailedLaunchExt for ServiceContext {
             }
             tab.agent_session_id.clone()
         } else {
+            let records = self.lifecycle_journal.load().records;
             let selected = super::exit_recovery::select_journal_recovery_session(
-                &self.lifecycle_journal.load().records,
+                &records,
                 &tab.id,
                 tab.agent_session_id.as_deref(),
                 &tab.prior_session_binding_nonces,
-            );
-            let saved_session = tab.agent_session_id.is_some()
+            )
+            .or_else(|error| {
+                tab.agent_session_id
+                    .as_deref()
+                    .filter(|current| {
+                        latest_verified_rebind_session(&records, &tab.id, provider)
+                            == Some(*current)
+                    })
+                    .map(str::to_string)
+                    .ok_or(error)
+            });
+            let requires_verified_session = tab.boot_stage
+                == Some(BootStage::LaunchDeadlineElapsed)
+                || tab.agent_session_id.is_some()
                 || tab.prior_session_binding_nonces.iter().any(|binding| {
                     binding.session_id.is_some() || binding.resume_target_session_id.is_some()
                 });
             let selected = match selected {
                 Ok(session) => Some(session),
-                Err(error) if saved_session => return Err(error),
+                Err(error) if requires_verified_session => return Err(error),
                 Err(_) => None,
             };
             if let Some(session_id) = selected.as_deref() {
@@ -125,6 +230,29 @@ impl FailedLaunchExt for ServiceContext {
             role_profile: tab.role_profile.clone(),
             handoff_history: None,
         }))
+    }
+
+    fn require_failed_launch_recovery_current(
+        &self,
+        snap: &TabRestartSnapshot,
+    ) -> Result<(), AgentRestartError> {
+        let tab = self
+            .mux
+            .read()
+            .get_tab(&snap.tab_id)
+            .cloned()
+            .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", snap.tab_id)))?;
+        if failed_provider(&tab) != Some(snap.provider.as_str())
+            || tab.pty_id.as_deref().unwrap_or_default() != snap.pty_id
+            || tab.cwd != snap.cwd
+            || tab_has_active_owner_or_launch(self, &tab)
+        {
+            return Err(AgentRestartError::BadRequest(
+                "failed launch recovery superseded: tab launch or liveness changed; retry by intent"
+                    .into(),
+            ));
+        }
+        Ok(())
     }
 }
 
