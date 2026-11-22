@@ -71,8 +71,9 @@ export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onO
       onMouseDown={viewport.handlers.onMouseDown}
       onScroll={(event) => { event.currentTarget.scrollTop = 0; event.currentTarget.scrollLeft = 0; }}
       {...viewport.interactions}
+      data-canvas-pan={viewport.isDragging ? "active" : viewport.isSpaceHeld ? "ready" : undefined}
       className="bp-canvas relative min-h-[14rem] min-w-0 flex-1 touch-none overflow-hidden focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--ct-accent)]"
-      style={{ cursor: viewport.isDragging ? "grabbing" : "grab" }}
+      style={{ cursor: viewport.isDragging ? "grabbing" : viewport.isSpaceHeld ? "grab" : "default" }}
     >
       <CanvasToolbar label="Blueprint graph controls" onFit={viewport.showOverview} onZoomOut={() => viewport.zoom(-CANVAS_ZOOM_STEP)} onZoomIn={() => viewport.zoom(CANVAS_ZOOM_STEP)} extras={toolbar} />
       {crumbs && <div className="bp-canvas-crumbs" onMouseDown={(event) => event.stopPropagation()}>{crumbs}</div>}
