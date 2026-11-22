@@ -78,16 +78,21 @@ pub(crate) fn in_startup(svc: &ServiceContext, tab: &str) -> bool {
 }
 
 pub(crate) fn startup_tab_is_current(svc: &ServiceContext, expected: &Tab) -> bool {
-    svc.mux.read().get_tab(&expected.id).is_some_and(|current| {
-        same_binding(expected, current)
-            && current.restored_from_snapshot == expected.restored_from_snapshot
-            && !current.frozen
-            && current.boot_stage != Some(crate::service::boot_stage::BootStage::SpawnFailed)
-            && !current
-                .close_restore
-                .as_ref()
-                .is_some_and(|closed| closed.stopped)
-    })
+    svc.mux
+        .read()
+        .get_tab(&expected.id)
+        .is_some_and(|current| matches_startup_tab(expected, current))
+}
+
+fn matches_startup_tab(expected: &Tab, current: &Tab) -> bool {
+    same_binding(expected, current)
+        && current.restored_from_snapshot == expected.restored_from_snapshot
+        && !current.frozen
+        && current.boot_stage != Some(crate::service::boot_stage::BootStage::SpawnFailed)
+        && !current
+            .close_restore
+            .as_ref()
+            .is_some_and(|closed| closed.stopped)
 }
 
 fn validate_startup_tab(svc: &ServiceContext, expected: &Tab) -> Result<(), String> {
@@ -132,12 +137,17 @@ fn reserve_startup(
         if crate::crash::shutdown::is_shutting_down() {
             return Err(SHUTDOWN.into());
         }
-        validate_startup_tab(svc, expected)?;
         {
+            let mux = svc.mux.read();
+            if !mux
+                .get_tab(&expected.id)
+                .is_some_and(|current| matches_startup_tab(expected, current))
+            {
+                return Err(SUPERSEDED.into());
+            }
             let waiting = state.startup_waiters.lock();
             let mut slot = state.provisioning_job.lock();
             if slot.is_none() {
-                let mux = svc.mux.read();
                 let next = waiting.iter().min_by_key(|tab| priority(&mux, tab));
                 if next.is_some_and(|next| Arc::ptr_eq(next, &tab)) {
                     return crate::crash::shutdown::with_shutdown_admission(|| {
