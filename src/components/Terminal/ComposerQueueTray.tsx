@@ -7,10 +7,9 @@ function sendKey({ sendId, correlationId, version }: QueuedSendItem) {
   return { sendId, correlationId, version };
 }
 
-export function ComposerQueueTray({ tabId, items, sending, editable }: {
+export function ComposerQueueTray({ tabId, items, editable }: {
   tabId: string;
   items: readonly QueuedSendItem[];
-  sending: boolean;
   editable: boolean;
 }) {
   const button = useRef<HTMLButtonElement>(null);
@@ -64,7 +63,6 @@ export function ComposerQueueTray({ tabId, items, sending, editable }: {
   const queueLabel = `Queued: ${items.length}`;
   const targetCurrent = target && items.some(item => item.sendId === target.sendId && item.version === target.version);
   return <div className="ct-composer-lane mx-auto flex w-full flex-wrap items-center gap-x-2 text-xs text-[var(--ct-muted-fg)] empty:hidden">
-    {sending && <span role="status">Sending…</span>}
     {items.length > 0 && (editable ? <button type="button" ref={button} className="ct-bar-pill"
       aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? dialogId : undefined}
       onClick={() => { if (open) close(); else setShow(true); }}>{queueLabel}</button> : <span role="status">{queueLabel}</span>)}

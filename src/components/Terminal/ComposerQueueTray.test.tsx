@@ -36,7 +36,7 @@ test("the tray submits the observed version and surfaces a refused claim race", 
   document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<ComposerQueueTray tabId="tab" items={[item]} sending={false} editable />));
+    await act(async () => root.render(<ComposerQueueTray tabId="tab" items={[item]} editable />));
     const trigger = host.querySelector("button")!;
     expect(trigger.textContent).toBe("Queued: 1");
     await act(async () => trigger.click());
@@ -56,9 +56,9 @@ test("the tray submits the observed version and surfaces a refused claim race", 
     expect(host.querySelector('[role="alert"]')?.textContent).toMatch(/left the editable queue or changed/);
     await act(async () => dialog.querySelector<HTMLButtonElement>('button[aria-label="Cancel queued message 1"]')!.click());
     expect(change).toHaveBeenLastCalledWith("tab", { ...key, action: "cancel" });
-    await act(async () => root.render(<ComposerQueueTray tabId="tab" items={[]} sending editable />));
+    await act(async () => root.render(<ComposerQueueTray tabId="tab" items={[]} editable />));
     expect(document.querySelector('[aria-label="Queued messages"]')).toBeNull();
-    expect(host.textContent).toContain("Sending…");
+    expect(host.textContent).not.toContain("Sending…");
   } finally {
     await act(async () => root.unmount());
     host.remove();

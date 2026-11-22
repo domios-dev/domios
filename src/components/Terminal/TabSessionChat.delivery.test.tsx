@@ -258,12 +258,14 @@ test("composer feedback follows the durable queue and the written receipt until 
     assert(!status.textContent?.includes("Last turn"), "held input suppresses stale timing");
     seed.queue = { ...seed.queue, items: [], claimed: [held.send_id] };
     await act(async () => dispatch("chat-send-queue-changed", { tab_id: tabId }));
-    assert(status.textContent?.includes("Sending…"), "the durable claim presents sending before write evidence");
+    assert(!status.textContent?.includes("Sending…"), "composer does not render a Sending row above the input");
+    assert(!status.textContent?.includes("Last turn"), "claimed input suppresses stale timing");
     assert(!status.textContent?.includes("Queued: 1"), "a claim removes the edit controls");
     seed.queue = { ...seed.queue, claimed: [] };
     seed.statuses = [{ ...held, state: "written", pending_reason: undefined }];
     await act(async () => dispatch("chat-send-status", seed.statuses[0]));
-    assert(status.textContent?.includes("Sending…"), "written input waits for its own receipt");
+    assert(!status.textContent?.includes("Sending…"), "written input does not render a Sending row above the input");
+    assert(!status.textContent?.includes("Last turn"), "written input keeps suppressing stale timing");
     seed.statuses = [{ ...held, state: "delivered", pending_reason: undefined }];
     await act(async () => dispatch("chat-send-status", seed.statuses[0]));
     assert(!status.textContent?.includes("Sending…"), "delivery settles the composer");

@@ -616,7 +616,7 @@ export function TeamUnit({
           data-team-card-hit-target="team-card-activation"
           data-status-state={planStatus.loading ? "loading" : "unavailable"}
           role="status"
-          className="sidebar-team-readout"
+          className="sidebar-team-readout sidebar-team-readout-unavailable"
         >
           {planStatus.totalTasks !== null && planStatus.totalTasks > 0
             ? `${planStatus.totalTasks} ${planStatus.totalTasks === 1 ? "task" : "tasks"} · ${planStatus.loading ? "loading counts…" : "counts unavailable"}`

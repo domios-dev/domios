@@ -1135,7 +1135,7 @@ function TabSessionChatBody({
           renderIdentity={tab ? (label) => <TabStatusLineModelPicker tab={tab} label={label} /> : undefined}
           recovery={showRemoteState || (readOnly && !isConciergeTab(tab)) || launchedFailure ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
         />
-        <ComposerQueueTray key={tabId} tabId={tabId} items={sendFeedback.items} sending={sendFeedback.sending} editable={!readOnly && !showRemoteState} />
+        <ComposerQueueTray key={tabId} tabId={tabId} items={sendFeedback.items} editable={!readOnly && !showRemoteState} />
         {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
             tabId={tabId}
