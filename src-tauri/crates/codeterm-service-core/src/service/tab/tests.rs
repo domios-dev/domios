@@ -936,7 +936,12 @@ fn cron_claim_captures_before_build_and_refuses_cancelled_or_replaced_launch() {
             assert!(result.is_err());
             if let Some(assembly) = assembly {
                 drop(assembly);
-                terminal.recv_timeout(Duration::from_secs(5)).unwrap();
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                while svc.run_watcher.cron_job_finalizing(&job.id) {
+                    terminal
+                        .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                        .unwrap();
+                }
                 assert!(!svc
                     .run_watcher
                     .cron_allocation_pending(&job.id, "claim-run"));
