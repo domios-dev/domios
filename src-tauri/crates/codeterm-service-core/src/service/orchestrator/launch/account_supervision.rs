@@ -171,6 +171,29 @@ impl LaunchAccount {
         self.validate_snapshot(current)
     }
 
+    pub(super) fn validate_recovery_pty(
+        &self,
+        svc: &ServiceContext,
+        tab: &str,
+        origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
+    ) -> Result<(), String> {
+        use crate::service::launch_diagnostics::AgentLaunchOrigin;
+        if !matches!(
+            origin,
+            AgentLaunchOrigin::ExitRecovery | AgentLaunchOrigin::AutomaticExitRecovery
+        ) {
+            return Ok(());
+        }
+        let mux = svc.mux.read();
+        let current = mux
+            .get_tab(tab)
+            .ok_or("exit_recovery_no_live_shell: tab closed")?;
+        if current.pty_id != self.expected.lock().pty_id {
+            return Err("exit_recovery_no_live_shell: shell changed before relaunch".into());
+        }
+        Ok(())
+    }
+
     fn validate_snapshot(&self, current: &Tab) -> Result<(), String> {
         if self
             .switch_launch
@@ -256,6 +279,20 @@ impl LaunchAccount {
         tab: &str,
         provided: Option<Option<Arc<InvocationContext>>>,
     ) -> Result<Option<Arc<InvocationContext>>, String> {
+        use crate::service::provider_accounts;
+        let implicit = provider_accounts::selected_account(&self.expected.lock())
+            == codeterm_types::config::provider_accounts::IMPLICIT_ACCOUNT;
+        if implicit {
+            if provided.as_ref().is_some_and(Option::is_some) {
+                return Err(
+                    "launch_account_context_changed: usual sign-in cannot use a private account"
+                        .into(),
+                );
+            }
+            return self.resolve_with(svc, tab, || {
+                provider_accounts::implicit_launch_invocation(svc, &self.provider)
+            });
+        }
         let owner = svc.clone();
         let tab = tab.to_owned();
         let account = self.clone();

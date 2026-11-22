@@ -109,6 +109,11 @@ fn abandoned_account_provisioning_retains_one_job_and_never_launches_late() {
             .recv_timeout(std::time::Duration::from_secs(10))
             .unwrap();
         assert_eq!(provisioning::retained_count(&fixture.service), 1);
+        assert!(account
+            .resolve_bounded(&fixture.service, &id, Some(None))
+            .unwrap()
+            .is_none());
+        assert_eq!(provisioning::retained_count(&fixture.service), 1);
         if !cancel {
             assert!(job
                 .wait_blocking(std::time::Duration::ZERO)

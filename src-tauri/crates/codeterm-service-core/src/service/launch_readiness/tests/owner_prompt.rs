@@ -29,13 +29,17 @@ fn answered_owner_prompt_resumes_normal_readiness() {
         )
     });
     assert_eq!(events.recv().unwrap(), Some(BootStage::AwaitingOwnerPrompt));
-    owner_prompt_cleared(&attempt.tab_id);
-    assert_eq!(events.recv().unwrap(), None);
     assert!(note_acknowledged(
         &attempt.tab_id,
         &attempt.pty_id,
         &attempt.binding_nonce
     ));
+    assert!(matches!(
+        events.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
+    owner_prompt_cleared(&attempt.tab_id);
+    assert_eq!(events.recv().unwrap(), None);
     assert_eq!(
         observer.join().unwrap(),
         LaunchObservation::Evidence(LaunchEvidence::Acknowledged)

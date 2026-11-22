@@ -574,8 +574,8 @@ fn lazy_session_start_accepts_structural_composer_when_wrapper_name_is_absent() 
             },
             LaunchInputMode::LazySessionStart,
         ),
-        Ok(None),
-        "a live provider without its declared composer is not ready",
+        Ok(Some(LaunchInputEvidence::SessionBinding)),
+        "an authenticated live session no longer needs first-turn composer evidence",
     );
 }
 

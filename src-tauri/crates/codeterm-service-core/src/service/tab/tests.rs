@@ -580,6 +580,89 @@ fn finished_marker_cannot_clear_identity_after_the_pty_child_dies() {
 }
 
 #[test]
+fn powershell_restore_prompt_cannot_settle_a_held_provider_write() {
+    use std::sync::mpsc::{self, TryRecvError};
+    use std::time::Duration;
+
+    let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .boot_stage = Some(crate::service::boot_stage::BootStage::AgentLaunching);
+    let witnesses = fixture
+        .service
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>();
+    for _ in 0..2 {
+        witnesses.script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
+        fixture
+            .service
+            .observe_provider_process_tree(&tab_id, &pty_id)
+            .unwrap();
+    }
+
+    let (release, held) = mpsc::sync_channel(0);
+    let (wire, written) = mpsc::channel();
+    let writer_attempt = attempt.clone();
+    let session = fixture.service.pty.lock().get_session(&pty_id).unwrap();
+    let writer = std::thread::spawn(move || {
+        held.recv_timeout(Duration::from_secs(5)).unwrap();
+        let command = "echo opaque-provider-launch-current";
+        assert!(launch_readiness::record_shell_dispatch(
+            &writer_attempt,
+            command.into()
+        ));
+        session
+            .write_queue
+            .send_and_wait(format!("{command}\r").into_bytes(), Duration::from_secs(5))
+            .unwrap();
+        wire.send(command).unwrap();
+        assert!(!launch_readiness::record_shell_dispatch(
+            &writer_attempt,
+            command.into()
+        ));
+    });
+
+    fixture.service.process_pty_output(
+        &pty_id,
+        b"\x1b]633;E;;restored-opencode-shell\x07\x1b]633;D\x07\x1b]633;A\x07",
+    );
+    assert_eq!(written.try_recv(), Err(TryRecvError::Empty));
+    assert_opencode_identity(&fixture, &tab_id);
+    assert_eq!(
+        LaunchAttempt::current(&fixture.service.mux, &tab_id, &pty_id),
+        Some(attempt.clone())
+    );
+    assert!(launch_readiness::attempt_is_armed(&attempt));
+    assert!(launch_readiness::take_published_failure(&attempt).is_none());
+
+    release.send(()).unwrap();
+    let command = written.recv_timeout(Duration::from_secs(5)).unwrap();
+    writer.join().unwrap();
+    assert_eq!(written.try_recv(), Err(TryRecvError::Disconnected));
+
+    for stale in ["", "opaque-provider-launch-prior"] {
+        fixture.service.process_pty_output(
+            &pty_id,
+            format!("\x1b]633;E;{stale};restored-opencode-shell\x07\x1b]633;D;7\x07").as_bytes(),
+        );
+    }
+    assert!(launch_readiness::take_published_failure(&attempt).is_none());
+    assert_opencode_identity(&fixture, &tab_id);
+
+    witnesses.script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
+    fixture.service.process_pty_output(
+        &pty_id,
+        format!("\x1b]633;E;{command};restored-opencode-shell\x07\x1b]633;D;0\x07").as_bytes(),
+    );
+    assert!(launch_readiness::take_published_failure(&attempt)
+        .is_some_and(|reason| reason.contains("exit_code=0")));
+    fixture.service.pty.lock().kill(&pty_id).unwrap();
+}
+
+#[test]
 fn powershell_finished_marker_uses_a_distinct_launch_written_absence() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
     fixture
@@ -623,6 +706,48 @@ fn powershell_finished_marker_uses_a_distinct_launch_written_absence() {
         .lock()
         .kill(&pty_id)
         .expect("stop the tab's PTY shell");
+}
+
+#[test]
+fn live_authenticated_launch_releases_frame_wait_without_a_tui() {
+    use crate::agent::provider::ProviderReadinessStrategy;
+    use std::time::Duration;
+
+    let (fixture, tab_id, pty_id, attempt, _) = restored_opencode_fixture();
+    let strategy = ProviderReadinessStrategy::TuiFrame {
+        timeout: Duration::ZERO,
+    };
+    assert!(!fixture.service.await_provider_readiness_on_screen(
+        &attempt,
+        "opencode",
+        strategy.clone()
+    ));
+
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .reported_session_binding_nonce = Some(attempt.binding_nonce.clone());
+    let mut stale = attempt.clone();
+    stale.binding_nonce = "stale-boot-attempt".into();
+    assert!(!fixture.service.await_provider_readiness_on_screen(
+        &stale,
+        "opencode",
+        strategy.clone()
+    ));
+    assert!(fixture.service.await_provider_readiness_on_screen(
+        &attempt,
+        "opencode",
+        strategy.clone()
+    ));
+
+    fixture.service.pty.lock().kill(&pty_id).unwrap();
+    assert!(!fixture
+        .service
+        .await_provider_readiness_on_screen(&attempt, "opencode", strategy));
+    launch_readiness::retire_attempt(&attempt);
 }
 
 #[test]
