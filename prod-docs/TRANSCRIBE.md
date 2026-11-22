@@ -108,4 +108,26 @@ backup.
 
 Transcription uses an external service; today an external dictation driver can submit through the supported tab-send API. To add a new STT backend, implement `/transcribe` and point a URL at it. Don't put the model in the binary.
 
-<!-- revision: 7 -->
+## Live Transcript
+
+Live Transcript retains committed speech for the tab that started capture. A
+tab switch leaves its capture lease active. Explicit pause flushes the final
+speech before recording the pause marker. Resume admits a new lease for the
+client providing the microphone frames.
+
+Run `domios live-transcript status` for transcriber setup, routing readiness and
+the active binding revision. Use `overview` for the cursor and retained size
+and `search` for paged owner history. The active consumer can `read`,
+`mark-seen`, and `ack` using the current revision. Acknowledge only fully
+processed sequences. Ordinary chat transcript commands keep their own group.
+General can query `GET /api/live-transcript/readiness` for setup readiness
+without obtaining tab history or bindings.
+
+The default Scout sends bounded request indicators to the configured Supporter
+model. If Scout is unavailable, choose `wake_word`, `direct_batch` or `manual`
+explicitly in `attach`. Use `--mode-only` to change the trigger in place.
+The wake phrase is “Hey Domios”. An owner can use `--external-tab` to select a
+tab with a separate cursor. The owner can inspect route events and the
+corresponding authorized epoch. Raw history access follows the active binding.
+
+<!-- revision: 8 -->

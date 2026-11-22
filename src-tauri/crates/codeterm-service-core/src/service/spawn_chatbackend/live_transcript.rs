@@ -815,6 +815,7 @@ impl ServiceContext {
         if let Some(history) = previous {
             let epoch = &history.epoch;
             if self.ready_router_tab(owner, epoch) {
+                self.events.protect_private_chat_tab(&epoch.runtime_tab_id);
                 if let Err(error) = crate::async_runtime::block_on(
                     restart::restart_attached_transcript_epoch(self, epoch, bootstrap),
                 ) {
@@ -845,6 +846,7 @@ impl ServiceContext {
         }
         spec.route_agent_to_chatbackend()?;
         let (handle, launch) = self.stage_chatbackend_spawn(spec, false)?;
+        self.events.protect_private_chat_tab(&handle.tab_id);
         if let Err(error) = launch.run() {
             self.close_transcript_router(owner, &handle.tab_id)?;
             return Err(error);
@@ -852,7 +854,7 @@ impl ServiceContext {
         Ok(handle.tab_id)
     }
 
-    fn transcript_router_provider(
+    pub(in crate::service) fn transcript_router_provider(
         &self,
         previous: Option<&EpochHistory>,
     ) -> Result<String, String> {

@@ -18,6 +18,7 @@ use crate::routes::AppState;
 
 pub use crate::web_plugin_routes::plugin_ui;
 pub(crate) mod dictation;
+pub(crate) mod live_transcript;
 pub(crate) mod live_transcript_capture;
 mod plugin_view;
 pub use plugin_view::{plugin_view_call, recording_suggestion, remote_task_call};

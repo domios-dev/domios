@@ -24,6 +24,7 @@ pub mod identify;
 pub(crate) mod inbound;
 pub mod install;
 pub mod integration;
+pub mod live_transcript;
 pub mod local_io;
 pub mod manifest;
 pub mod mcp;

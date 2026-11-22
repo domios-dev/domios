@@ -83,6 +83,7 @@ pub(super) fn create_router_with_preview_admission(
     preview_read_admission: std::sync::Arc<super::local_preview_routes::Admission>,
     preview_check_admission: std::sync::Arc<super::local_preview_routes::Admission>,
 ) -> Router {
+    state.svc.install_live_transcript_capture();
     let router = Router::new()
         .route(
             "/api/tabs/{id}/preview/prepare",
@@ -418,6 +419,10 @@ pub(super) fn create_router_with_preview_admission(
         .nest(
             "/api/live-transcript/capture",
             web_routes::live_transcript_capture::router(),
+        )
+        .nest(
+            "/api/live-transcript",
+            web_routes::live_transcript::router(),
         )
         .route(
             "/api/dictation/start",
