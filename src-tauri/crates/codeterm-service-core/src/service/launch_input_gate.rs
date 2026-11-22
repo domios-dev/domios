@@ -276,9 +276,6 @@ fn decide_launch_input(
             LaunchInputMode::LazySessionStart => Ok(None),
         };
     }
-    if observation.session_bound {
-        return Ok(Some(LaunchInputEvidence::SessionBinding));
-    }
     if mode == LaunchInputMode::LazySessionStart && observation.provider_busy {
         return Ok(None);
     }
@@ -286,9 +283,18 @@ fn decide_launch_input(
     if mode == LaunchInputMode::LazySessionStart && !lazy_tui_live {
         return Ok(None);
     }
-    Ok(observation
-        .composer_ready
-        .then_some(LaunchInputEvidence::ProviderComposer))
+    if mode == LaunchInputMode::LazySessionStart {
+        return Ok(observation
+            .composer_ready
+            .then_some(LaunchInputEvidence::ProviderComposer));
+    }
+    if observation.session_bound {
+        Ok(Some(LaunchInputEvidence::SessionBinding))
+    } else {
+        Ok(observation
+            .composer_ready
+            .then_some(LaunchInputEvidence::ProviderComposer))
+    }
 }
 
 fn decide_launch_input_at_deadline(
@@ -482,9 +488,7 @@ impl ServiceContext {
                     delegated_role(tab.role, tab.role_profile.as_deref()),
                 )
             };
-            let session_bound = session_bound && self.pty_child_is_live(&attempt.pty_id);
             let provider_process_alive = mode == LaunchInputMode::Standard
-                || session_bound
                 || self.provider_process_alive_in_tab_tree(&attempt.pty_id, &provider_binary_name);
             diagnostic.session_bound = GateFact::Observed(session_bound);
             diagnostic.pending_prompt = GateFact::Observed(pending_prompt);

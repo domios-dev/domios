@@ -392,7 +392,7 @@ fn finish_team_lane_cleanup_using(
                 .as_deref()
                 .is_some_and(|path| cleanup_io.worktree_exists(path))
                 || lane.branch.as_deref().is_some_and(|branch| {
-                    !matches!(cleanup_io.branch_exists(lane, branch), Ok(false))
+                    matches!(cleanup_io.branch_exists(lane, branch), Ok(true))
                 })
         })
         .collect();
