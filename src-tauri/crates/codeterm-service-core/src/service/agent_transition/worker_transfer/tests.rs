@@ -769,7 +769,7 @@ fn worker_transfer_plan_rebind_moves_all_bound_workers_atomically_and_preserves_
             service
                 .transition_agent_prepared_at(
                     6,
-                    |_, _| Ok(request.clone()),
+                    |_, _, _| Ok(request.clone()),
                     TransitionFailurePoint::AfterPlanCommit,
                 )
                 .map(|_| ())
@@ -779,7 +779,7 @@ fn worker_transfer_plan_rebind_moves_all_bound_workers_atomically_and_preserves_
             .service
             .transition_agent_prepared_at(
                 7,
-                |_, _| Ok(request.clone()),
+                |_, _, _| Ok(request.clone()),
                 TransitionFailurePoint::None,
             )
             .unwrap();
@@ -859,10 +859,64 @@ fn worker_transfer_plan_rebind_refuses_remote_or_conflicting_bindings_without_mu
             service
                 .transition_agent_prepared_at(
                     6,
-                    |_, _| Ok(request.clone()),
+                    |_, _, _| Ok(request.clone()),
                     TransitionFailurePoint::None,
                 )
                 .map(|_| ())
         });
     }
+}
+
+#[test]
+fn worker_transfer_validates_read_only_authority_before_reassignment() {
+    let fixture = TransferFixture::new();
+    let service = &fixture.fixture.service;
+    let (patch, _, _) = service
+        .prepare_task_bound_worker_transfer(
+            &fixture.caller(),
+            &fixture.worker,
+            &fixture.destination,
+        )
+        .unwrap();
+    let refuse = |change: fn(&mut MultiplexerState, &TransferFixture)| {
+        let mut concurrent = service.mux.read().begin_team_close_transaction();
+        let mux = concurrent.state_mut();
+        change(mux, &fixture);
+        let before = mux_snapshot_without_generation(mux);
+        assert_eq!(
+            patch.apply(mux).unwrap_err(),
+            crate::multiplexer::state::LIFECYCLE_CONTEXT_CONFLICT
+        );
+        assert_eq!(mux_snapshot_without_generation(mux), before);
+        assert_eq!(
+            mux.get_tab(&fixture.worker)
+                .unwrap()
+                .parent_tab_id
+                .as_deref(),
+            Some(fixture.source.as_str())
+        );
+    };
+    refuse(|mux, f| mux.get_tab_mut(&f.destination).unwrap().depth += 1);
+    refuse(|mux, f| {
+        let team = mux
+            .get_tab(&f.destination)
+            .unwrap()
+            .team_id
+            .clone()
+            .unwrap();
+        mux.set_team_lifecycle(&team, TeamLifecycle::Closing)
+            .unwrap();
+    });
+    refuse(|mux, f| {
+        let ws = mux.find_workspace_for_tab(&f.worker).unwrap();
+        mux.get_workspace_mut(&ws).unwrap().protected = true;
+    });
+    refuse(|mux, f| {
+        mux.reserve_tab_close(&f.destination).unwrap();
+    });
+    refuse(|mux, f| {
+        let ws = mux.find_workspace_for_tab(&f.worker).unwrap();
+        let child = mux.create_tab(&ws).unwrap();
+        mux.get_tab_mut(&child).unwrap().parent_tab_id = Some(f.worker.clone());
+    });
 }

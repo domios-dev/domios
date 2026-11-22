@@ -1,4 +1,5 @@
 use super::*;
+use crate::multiplexer::state::LifecyclePatch;
 use crate::service::plan::mutations::agent_lifecycle::VerifiedWorkerTransferBinding;
 use crate::service::AuthenticatedPlanCaller;
 use crate::service::MuxEmitCause;
@@ -49,12 +50,61 @@ impl ServiceContext {
         worker_tab_id: &str,
         destination_manager_tab_id: &str,
     ) -> Result<WorkerTransferOutcome, String> {
+        let (patch, verified, outcome) = self.prepare_task_bound_worker_transfer(
+            caller,
+            worker_tab_id,
+            destination_manager_tab_id,
+        )?;
+        patch.apply(&mut self.mux.write())?;
+        if let Err(error) = self
+            .plan_store
+            .with_verified_worker_transfer_binding(&verified, || {})
+        {
+            patch
+                .revert(&mut self.mux.write())
+                .map_err(|rollback| format!("{error}; lifecycle rollback conflict: {rollback}"))?;
+            return Err(error.to_string());
+        }
+
+        log::info!(
+            "[worker-transfer] committed_observation_unconfirmed receipt={} worker={} source_manager={} destination_manager={} source_team={} destination_team={} plan={} task={} attempt={}",
+            outcome.receipt_id,
+            outcome.worker_tab_id,
+            outcome.source_manager_tab_id,
+            outcome.destination_manager_tab_id,
+            outcome.source_team_id,
+            outcome.destination_team_id,
+            outcome.plan_id,
+            outcome.task_id,
+            outcome.attempt_id
+        );
+        self.record_role_transition(worker_tab_id);
+        self.schedule_session_persist_debounced();
+        self.emit_state_changed(MuxEmitCause::PlanTask);
+        Ok(outcome)
+    }
+
+    fn prepare_task_bound_worker_transfer(
+        &self,
+        caller: &AuthenticatedPlanCaller,
+        worker_tab_id: &str,
+        destination_manager_tab_id: &str,
+    ) -> Result<
+        (
+            LifecyclePatch,
+            VerifiedWorkerTransferBinding,
+            WorkerTransferOutcome,
+        ),
+        String,
+    > {
         let history = crate::multiplexer::state::ClosedTabsStore::in_memory();
         let mut before = self
             .mux
             .read()
             .begin_team_close_transaction_with_store(history);
         let mux = before.state_mut();
+        let mut reads = ReadSet::default();
+        reads.tab(worker_tab_id);
         let worker = mux
             .get_tab(worker_tab_id)
             .ok_or_else(|| "worker transfer refused: Worker tab not found".to_string())?
@@ -64,7 +114,7 @@ impl ServiceContext {
         {
             return Err("worker transfer refused: target is not a cross-parent Worker".into());
         }
-        if !mux.get_children_ids(worker_tab_id).is_empty() {
+        if !reads.children(mux, worker_tab_id).is_empty() {
             return Err("worker transfer refused: Worker has child tabs".into());
         }
         if worker.report_target_mesh_peer.is_some()
@@ -85,6 +135,9 @@ impl ServiceContext {
             .as_deref()
             .ok_or_else(|| "worker transfer refused: source manager is missing".to_string())?
             .to_string();
+        reads.tab(&source_manager_tab_id);
+        reads.tab(destination_manager_tab_id);
+        reads.workspace(&worker_workspace);
         let source = verified_orchestrator(&mux, &source_manager_tab_id, &worker_workspace)?;
         let (source_session_id, source_nonce) = verified_session(source)?;
         if caller.tab_id.as_deref() != Some(source_manager_tab_id.as_str())
@@ -105,6 +158,8 @@ impl ServiceContext {
         let destination_team_id = destination.team_id.clone().ok_or_else(|| {
             "worker transfer refused: destination manager has no Team".to_string()
         })?;
+        reads.team(&source_team_id);
+        reads.team(&destination_team_id);
         let source_team = mux
             .get_team(&source_team_id)
             .ok_or_else(|| "worker transfer refused: source Team is missing".to_string())?;
@@ -116,8 +171,13 @@ impl ServiceContext {
             TeamLifecycle::Active | TeamLifecycle::Forming
         ) || destination_team.lifecycle != TeamLifecycle::Active
             || worker.team_id.as_deref() != Some(source_team_id.as_str())
-            || !unique_team_anchor(&mux, &source_team_id, &source_manager_tab_id)
-            || !unique_team_anchor(&mux, &destination_team_id, destination_manager_tab_id)
+            || !unique_team_anchor(&mut reads, mux, &source_team_id, &source_manager_tab_id)
+            || !unique_team_anchor(
+                &mut reads,
+                mux,
+                &destination_team_id,
+                destination_manager_tab_id,
+            )
         {
             return Err("worker transfer refused: manager Team anchor is not active".into());
         }
@@ -244,18 +304,7 @@ impl ServiceContext {
         staged_worker.can_spawn = false;
         staged_worker.report_target_tab_id = Some(destination_manager_tab_id.to_string());
 
-        let patch = crate::multiplexer::state::LifecyclePatch::new(before, staged);
-        patch.apply(&mut self.mux.write())?;
-        if let Err(error) = self
-            .plan_store
-            .with_verified_worker_transfer_binding(&verified, || {})
-        {
-            patch
-                .revert(&mut self.mux.write())
-                .map_err(|rollback| format!("{error}; lifecycle rollback conflict: {rollback}"))?;
-            return Err(error.to_string());
-        }
-
+        let patch = LifecyclePatch::new(before, staged, reads);
         let outcome = WorkerTransferOutcome {
             status: "committed_observation_unconfirmed",
             receipt_id: uuid::Uuid::new_v4().to_string(),
@@ -268,22 +317,7 @@ impl ServiceContext {
             task_id: task_id.to_string(),
             attempt_id: attempt_id.to_string(),
         };
-        log::info!(
-            "[worker-transfer] committed_observation_unconfirmed receipt={} worker={} source_manager={} destination_manager={} source_team={} destination_team={} plan={} task={} attempt={}",
-            outcome.receipt_id,
-            outcome.worker_tab_id,
-            outcome.source_manager_tab_id,
-            outcome.destination_manager_tab_id,
-            outcome.source_team_id,
-            outcome.destination_team_id,
-            outcome.plan_id,
-            outcome.task_id,
-            outcome.attempt_id
-        );
-        self.record_role_transition(worker_tab_id);
-        self.schedule_session_persist_debounced();
-        self.emit_state_changed(MuxEmitCause::PlanTask);
-        Ok(outcome)
+        Ok((patch, verified, outcome))
     }
 }
 
@@ -309,12 +343,13 @@ fn verified_orchestrator<'a>(
     Ok(tab)
 }
 
-fn unique_team_anchor(mux: &MultiplexerState, team_id: &str, manager_tab_id: &str) -> bool {
-    let anchors = mux
-        .team_member_tab_ids(team_id)
-        .into_iter()
-        .filter(|tab_id| mux.get_tab(tab_id).is_some_and(Tab::anchors_team))
-        .collect::<Vec<_>>();
+fn unique_team_anchor(
+    reads: &mut ReadSet,
+    mux: &MultiplexerState,
+    team_id: &str,
+    manager_tab_id: &str,
+) -> bool {
+    let anchors = reads.team_anchors(mux, team_id);
     anchors.len() == 1 && anchors[0] == manager_tab_id
 }
 

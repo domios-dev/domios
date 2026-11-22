@@ -59,9 +59,7 @@ pub fn now_ms() -> u64 {
 /// but no anchor, which is what makes it locally immutable.
 pub fn local_team_anchors(mux: &MultiplexerState, team_id: &str) -> Vec<String> {
     let mut anchors: Vec<String> = mux
-        .snapshot()
-        .tabs
-        .values()
+        .all_tabs()
         .filter(|tab| tab.team_id.as_deref() == Some(team_id) && tab.anchors_team())
         .map(|tab| tab.id.clone())
         .collect();
@@ -72,7 +70,7 @@ pub fn local_team_anchors(mux: &MultiplexerState, team_id: &str) -> Vec<String> 
 /// The peer a Team is anchored on, read from existing `RemoteOwnership`
 /// evidence. `RemoteOwnership` itself is untouched: this only reads it.
 pub fn remote_team_origin(mux: &MultiplexerState, team_id: &str) -> Option<String> {
-    mux.snapshot().tabs.values().find_map(|tab| {
+    mux.all_tabs().find_map(|tab| {
         let ownership = tab.ownership.as_ref()?;
         let team = ownership.team.as_ref()?;
         let qualified_id = format!("mesh:{}/{}", ownership.peer_id, team.id);
