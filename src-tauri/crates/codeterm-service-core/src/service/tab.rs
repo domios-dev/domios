@@ -147,6 +147,7 @@ impl ServiceContext {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<(), String> {
+        self.persist_router_before_close(tab_id);
         super::provider_accounts::prepare_tab_close(self, tab_id)?;
         self.pending_delivery_payloads
             .user_sends
@@ -181,6 +182,12 @@ impl ServiceContext {
     }
 
     fn finish_tab_close_with_pad(&self, tab_id: &str, retire_pad: bool) -> Result<(), String> {
+        if let Err(error) = self.settle_closed_live_transcript(tab_id, None) {
+            log::warn!("[live-transcript] owner {tab_id} close settlement held: {error}");
+        }
+        if let Err(error) = self.settle_closed_transcript_router(tab_id) {
+            log::warn!("[live-transcript] router {tab_id} close settlement held: {error}");
+        }
         self.revoke_tab_credential(tab_id);
         super::supporter_tab_state::forget_observations(tab_id);
         self.release_managed_tabs(tab_id);
@@ -443,6 +450,7 @@ impl ServiceContext {
         };
         if let Some(batch) = history_batch {
             let evicted = batch.persist_on_blocking_thread_collect_evicted();
+            self.retire_evicted_transcript_owners(&evicted);
             self.forget_evicted_tab_todos(evicted);
             crate::service::tab_chat::closed_transcript::forget_evicted(self);
         }
@@ -570,6 +578,7 @@ impl ServiceContext {
     }
 
     pub fn focus_tab(&self, tab_id: &str) -> Result<(), String> {
+        self.mux.read().require_focusable_tab(tab_id)?;
         self.ext::<std::sync::Arc<crate::user_last_activity::UserLastActivity>>()
             .mark();
         focus_tab_hot_path(

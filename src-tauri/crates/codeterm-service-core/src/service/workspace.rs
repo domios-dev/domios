@@ -529,6 +529,7 @@ impl ServiceContext {
         };
         if let Some(batch) = history_batch {
             let evicted = batch.persist_on_blocking_thread_collect_evicted();
+            self.retire_evicted_transcript_owners(&evicted);
             self.forget_evicted_tab_todos(evicted);
             crate::service::tab_chat::closed_transcript::forget_evicted(self);
         }
@@ -583,9 +584,28 @@ impl ServiceContext {
         if self.mux.read().get_workspace(to_workspace_id).is_none() {
             return Err(format!("Workspace not found: {to_workspace_id}"));
         }
-        self.mux
-            .write()
-            .move_tab(tab_id, from_workspace_id, to_workspace_id)?;
+        {
+            let mut mux = self.mux.write();
+            mux.require_focusable_tab(tab_id)?;
+            mux.move_tab(tab_id, from_workspace_id, to_workspace_id)?;
+            let fallback = mux.get_workspace(from_workspace_id).and_then(|workspace| {
+                let active = workspace.active_tab_id.as_deref()?;
+                mux.require_focusable_tab(active).err()?;
+                Some(
+                    workspace
+                        .tabs
+                        .iter()
+                        .rev()
+                        .find(|id| mux.require_focusable_tab(id).is_ok())
+                        .cloned(),
+                )
+            });
+            if let Some(fallback) = fallback {
+                if let Some(workspace) = mux.get_workspace_mut(from_workspace_id) {
+                    workspace.active_tab_id = fallback;
+                }
+            }
+        }
         self.emit_state_changed(MuxEmitCause::Workspace);
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
@@ -732,10 +752,11 @@ impl ServiceContext {
     ) -> Result<String, String> {
         let tab_id = {
             let mut mux = self.mux.write();
-            let result = mux.reopen_closed_tab(workspace_id, index)?;
-            let _ = mux.set_active_tab(workspace_id, &result);
-            result
+            let owner = mux.reopen_closed_tab_with_lineage(workspace_id, index)?;
+            let _ = mux.set_active_tab(workspace_id, &owner.live_tab_id);
+            owner.live_tab_id
         };
+        self.settle_reopened_transcript(&tab_id);
         self.emit_state_changed(MuxEmitCause::Workspace);
         Ok(tab_id)
     }
@@ -748,13 +769,16 @@ impl ServiceContext {
         if let Some(result) = self.restore_close_inventory(group_id)? {
             return Ok(result);
         }
-        let result = {
+        let (result, lineage) = {
             let mut mux = self.mux.write();
-            let r = mux.reopen_closed_group(group_id)?;
+            let (r, lineage) = mux.reopen_closed_group_with_lineage(group_id)?;
             let _ = mux.set_active_workspace(&r.0);
             let _ = mux.set_active_tab(&r.0, &r.1);
-            r
+            (r, lineage)
         };
+        for owner in lineage {
+            self.settle_reopened_transcript(&owner.live_tab_id);
+        }
         self.emit_state_changed(MuxEmitCause::Workspace);
         Ok(result)
     }
@@ -764,13 +788,30 @@ impl ServiceContext {
     pub fn reopen_orphaned_tab(&self, tab_id: &str) -> Result<(String, String), String> {
         let result = {
             let mut mux = self.mux.write();
-            let r = mux.reopen_orphaned_tab(tab_id)?;
+            let (workspace, owner) = mux.reopen_orphaned_tab_with_lineage(tab_id)?;
+            let r = (workspace, owner.live_tab_id);
             let _ = mux.set_active_workspace(&r.0);
             let _ = mux.set_active_tab(&r.0, &r.1);
             r
         };
+        self.settle_reopened_transcript(&result.1);
         self.emit_state_changed(MuxEmitCause::Workspace);
         Ok(result)
+    }
+
+    fn settle_reopened_transcript(&self, live_tab_id: &str) {
+        let lineage = self.mux.read().reopened_transcript_owner(live_tab_id);
+        match lineage.and_then(|closed| {
+            if let Some(closed) = closed {
+                self.restore_transcript_owner(&closed, live_tab_id)?;
+            }
+            Ok(())
+        }) {
+            Ok(()) => {}
+            Err(error) => {
+                log::warn!("[live-transcript] reopened owner {live_tab_id} held: {error}")
+            }
+        }
     }
 }
 

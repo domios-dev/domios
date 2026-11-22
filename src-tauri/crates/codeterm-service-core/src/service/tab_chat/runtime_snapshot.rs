@@ -23,6 +23,7 @@ fn same_cwd(left: &str, right: &str) -> bool {
 }
 
 pub(super) fn for_tab(svc: &ServiceContext, tab_id: &str) -> Result<Option<Vec<ChatMsg>>, String> {
+    svc.require_public_transcript_tab(tab_id)?;
     snapshot(svc, tab_id, None)
 }
 
@@ -42,7 +43,7 @@ impl ServiceContext {
         if !current() {
             return Err("Transcript epoch is not current".into());
         }
-        let rows = for_tab(self, &epoch.runtime_tab_id)?;
+        let rows = snapshot(self, &epoch.runtime_tab_id, None)?;
         if !current() {
             return Err("Transcript epoch changed during history read".into());
         }
@@ -234,6 +235,7 @@ pub(super) fn for_session(
     cwd: &str,
     session_id: &str,
 ) -> Result<Option<(Vec<ChatMsg>, u64)>, String> {
+    svc.require_public_transcript_session(provider_id, session_id)?;
     if !svc
         .agent_registry
         .with_provider(provider_id, |provider| provider.agent_runtime().is_some())

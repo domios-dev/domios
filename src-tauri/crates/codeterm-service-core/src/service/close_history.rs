@@ -109,6 +109,8 @@ impl ServiceContext {
         {
             self.settle_close_inventory(Some(&record.id))?;
         }
+        let service = self.clone();
+        crate::async_runtime::spawn_blocking(move || service.recover_transcript_routers());
         Ok(())
     }
 
@@ -138,6 +140,23 @@ impl ServiceContext {
             id.clone(),
             super::team_core::now_ms(),
         )?;
+        let routers: HashSet<_> = record
+            .tabs
+            .iter()
+            .filter(|item| item.tab.is_transcript_router())
+            .map(|item| item.tab.id.clone())
+            .collect();
+        record.tabs.retain(|item| !routers.contains(&item.tab.id));
+        for workspace in std::iter::once(&mut record.workspace).chain(&mut record.workspaces) {
+            workspace.tabs.retain(|id| !routers.contains(id));
+            if workspace
+                .active_tab_id
+                .as_ref()
+                .is_some_and(|id| routers.contains(id))
+            {
+                workspace.active_tab_id = workspace.tabs.first().cloned();
+            }
+        }
         let team_ids: HashSet<_> = record.teams.iter().map(|team| team.id.as_str()).collect();
         let plans = close_inventory_plans(&self.plan_store, &team_ids)?;
         let in_scope = |workspace_id: &str, team_id: Option<&str>| {
@@ -236,6 +255,15 @@ impl ServiceContext {
             mux.discard_closed_structure(id)?;
         }
         drop(mux);
+        if changed {
+            for item in &record.tabs {
+                let owner = item.tab.id.as_str();
+                let identity = transcript_structure_identity(&record, owner);
+                if let Err(error) = self.settle_closed_live_transcript(owner, Some(identity)) {
+                    log::warn!("[live-transcript] structural close of {owner} held: {error}");
+                }
+            }
+        }
         self.emit_state_changed(MuxEmitCause::TabLifecycle);
         Ok(())
     }
@@ -308,6 +336,14 @@ impl ServiceContext {
         record.state = StructureState::Restoring;
         self.mux.read().save_closed_structure(&record)?;
         self.mux.write().restore_structure(&record)?;
+        for item in &record.tabs {
+            let owner = item.tab.id.as_str();
+            if let Err(error) =
+                self.restore_transcript_owner(&transcript_structure_identity(&record, owner), owner)
+            {
+                log::warn!("[live-transcript] structural reopen of {owner} held: {error}");
+            }
+        }
         self.persist_history_desk()?;
         self.restore_history_plans(&resources)?;
         self.restore_history_automation(&resources)?;
@@ -477,6 +513,17 @@ impl ServiceContext {
                 Err("Restored desk was not persisted".into())
             }
         }
+    }
+}
+
+fn transcript_structure_identity(
+    record: &crate::multiplexer::state::ClosedStructure,
+    tab_id: &str,
+) -> super::live_transcript::ClosedTranscriptOwner {
+    super::live_transcript::ClosedTranscriptOwner {
+        tab_id: tab_id.into(),
+        group_id: record.id.clone(),
+        closed_at_ms: record.closed_at,
     }
 }
 
