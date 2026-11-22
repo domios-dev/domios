@@ -1,142 +1,206 @@
+/* Live Transcript: one floating HUD on the shared glass surface. Opaque fill (the panel floats over
+   chat text), theme tokens only, so dark and light both follow the active theme. */
+
 .ct-live-panel,
 .ct-live-orb {
+  --ct-live-hairline: color-mix(in srgb, var(--ct-fg) 9%, transparent);
+  --ct-live-soft: color-mix(in srgb, var(--ct-fg) 4%, transparent);
+  --ct-live-hover: color-mix(in srgb, var(--ct-fg) 7%, transparent);
+  --ct-live-live: var(--ct-green);
   position: fixed;
   z-index: 55;
-  color: #ecf0f7;
-  color-scheme: dark;
-  background: rgb(21 24 33 / 96%);
-  border: 1px solid rgb(198 207 240 / 23%);
-  box-shadow: 0 18px 56px rgb(0 0 0 / 48%);
-  backdrop-filter: blur(20px);
-  font-size: 13px;
+  color: var(--ct-fg);
+  font-family: var(--ct-font-ui);
+  font-size: var(--ct-font-size-sm);
+  background: var(--ct-glass-sheen), var(--ct-surface);
+  border: 1px solid var(--ct-live-hairline);
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-xl);
 }
 
 .ct-live-panel {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: 15px;
+  border-radius: 18px;
+  transform-origin: top left;
+  animation: ct-live-unfold var(--ct-duration-smooth) var(--ct-ease-out-back) both;
 }
 
 .ct-live-panel[data-drag-over="true"],
 .ct-live-orb[data-drag-over="true"] {
-  border-color: #6de9c5;
+  border-color: color-mix(in srgb, var(--ct-accent) 60%, transparent);
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-xl), 0 0 0 3px color-mix(in srgb, var(--ct-accent) 18%, transparent);
 }
 
-.ct-live-header,
-.ct-live-footer,
-.ct-live-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 7px;
-}
-
-.ct-live-header,
-.ct-live-footer {
-  flex-shrink: 0;
-  background: rgb(116 133 170 / 9%);
-}
-
-.ct-live-header {
-  border-bottom: 1px solid rgb(198 207 240 / 14%);
-}
-
-.ct-live-footer {
-  border-top: 1px solid rgb(198 207 240 / 14%);
-}
-
-.ct-live-footer > span {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-  color: #bfc9dd;
-}
-
-.ct-live-panel button,
-.ct-live-orb button,
-.ct-live-panel select {
+/* Controls: quiet ghosts by default; one filled primary per state. Zero-specificity base so shared
+   components inside (Segmented, DropdownSelect, LiquidToggle) keep their own styling. */
+:where(.ct-live-panel, .ct-live-orb) button:where(:not(.ct-liquid-segmented__option, .ct-liquid-toggle, [aria-haspopup])) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 6px;
   min-height: 28px;
-  padding: 2px 6px;
+  padding: 0 10px;
   color: inherit;
-  background: rgb(144 164 217 / 9%);
-  border: 1px solid transparent;
-  border-radius: 6px;
-  font-size: inherit;
+  font: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background-color var(--ct-duration-fast) var(--ct-ease-decel), color var(--ct-duration-fast) var(--ct-ease-decel),
+    transform var(--ct-duration-fast) var(--ct-ease-decel);
 }
 
-.ct-live-panel button:hover:not(:disabled),
-.ct-live-orb button:hover,
-.ct-live-switch button[aria-pressed="true"] {
-  background: rgb(144 164 217 / 20%);
+:where(.ct-live-panel, .ct-live-orb) button:where(:not(.ct-liquid-segmented__option, .ct-liquid-toggle, [aria-haspopup])):where(:hover:not(:disabled)) {
+  background: var(--ct-live-hover);
+}
+
+:where(.ct-live-panel) button:where(:not(.ct-liquid-segmented__option, .ct-liquid-toggle, [aria-haspopup])):where(:active:not(:disabled)) {
+  transform: scale(.97);
 }
 
 .ct-live-panel button:focus-visible,
 .ct-live-orb button:focus-visible,
-.ct-live-panel select:focus-visible,
 .ct-live-document:focus-visible {
-  outline: 2px solid #acc1ff;
-  outline-offset: -2px;
+  outline: 2px solid var(--ct-border-focus, var(--ct-accent));
+  outline-offset: 1px;
 }
 
 .ct-live-panel button:disabled {
-  opacity: .45;
+  opacity: .42;
+  cursor: default;
+}
+
+.ct-live-panel .ct-live-icon {
+  width: 28px;
+  padding: 0;
+  color: var(--ct-muted-fg);
+}
+
+.ct-live-panel .ct-live-icon:hover:not(:disabled),
+.ct-live-panel .ct-live-icon[aria-expanded="true"] {
+  color: var(--ct-fg);
+}
+
+.ct-live-panel .ct-live-ghost {
+  min-height: 26px;
+  padding: 0 9px;
+  color: var(--ct-muted-fg);
+  font-size: var(--ct-font-size-meta);
+  font-weight: 500;
+}
+
+.ct-live-panel .ct-live-ghost:hover:not(:disabled) {
+  color: var(--ct-fg);
+}
+
+.ct-live-panel .ct-live-primary {
+  min-height: 34px;
+  padding: 0 16px;
+  color: var(--ct-bg);
+  background: var(--ct-accent);
+  font-weight: 600;
+  border-radius: 11px;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--ct-fg) 12%, transparent) inset, 0 6px 16px color-mix(in srgb, var(--ct-accent) 26%, transparent);
+}
+
+.ct-live-panel .ct-live-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ct-accent) 86%, var(--ct-fg));
+}
+
+.ct-live-panel .ct-live-primary--compact {
+  min-height: 30px;
+  padding: 0 14px;
+  box-shadow: none;
+}
+
+/* Header: the whole bar moves the panel; buttons inside keep their clicks. */
+.ct-live-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 6px 6px 6px 4px;
+  border-bottom: 1px solid var(--ct-live-hairline);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.ct-live-header[data-dragging="true"],
+.ct-live-orb[data-dragging="true"] {
+  cursor: grabbing;
+}
+
+.ct-live-header .ct-live-handle {
+  width: 20px;
+  cursor: inherit;
+  opacity: .55;
+}
+
+.ct-live-header:hover .ct-live-handle {
+  opacity: 1;
 }
 
 .ct-live-panel .ct-live-owner {
-  display: block;
+  justify-content: flex-start;
   flex: 1;
   min-width: 0;
+  padding: 0 6px;
   overflow: hidden;
-  text-align: left;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: inherit;
+}
+
+.ct-live-owner-state {
   font-weight: 600;
-  background: transparent;
 }
 
-.ct-live-owner .ct-live-dot {
-  margin-inline-end: 6px;
+.ct-live-owner-sep,
+.ct-live-owner-name {
+  color: var(--ct-muted-fg);
 }
 
+.ct-live-owner-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ct-live-panel .ct-live-owner:hover .ct-live-owner-name {
+  color: var(--ct-fg);
+}
+
+.ct-live-switch {
+  flex-shrink: 0;
+  margin-inline: 2px;
+}
+
+/* The live dot: muted at rest, green with a slow breath while the microphone is open. */
 .ct-live-dot {
+  position: relative;
   display: inline-block;
   flex: none;
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #a3aec2;
+  background: color-mix(in srgb, var(--ct-muted-fg) 70%, transparent);
 }
 
 .ct-live-dot[data-live="true"] {
-  background: #6de9c5;
-  box-shadow: 0 0 8px #6de9c599;
+  background: var(--ct-live-live, var(--ct-green));
 }
 
-.ct-live-switch {
-  display: flex;
-  gap: 2px;
+.ct-live-dot[data-live="true"]::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ct-green) 35%, transparent);
+  animation: ct-live-breathe var(--ct-duration-recording-pulse, 1.8s) var(--ct-ease-liquid-breathe, ease-in-out) infinite;
 }
 
-.ct-live-handle {
-  cursor: grab;
-  touch-action: none;
-}
-
-.ct-live-handle:active {
-  cursor: grabbing;
-}
-
-.ct-live-handle.ct-live-resize {
-  cursor: nwse-resize;
-}
-
+/* Document: reading text first, quiet affordances on demand. */
 .ct-live-document,
 .ct-live-controls,
 .ct-live-thoughts-scroll {
@@ -148,129 +212,300 @@
 
 .ct-live-document {
   flex: 1;
-  padding: 8px 12px;
+  padding: 10px 8px 12px;
 }
 
 .ct-live-controls {
-  max-height: 45%;
-  padding: 7px 9px 0;
+  flex-shrink: 0;
+  max-height: 55%;
+  padding: 10px 10px 0;
 }
 
 .ct-live-speech {
-  display: flex;
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: 9px;
-  padding-block: 5px;
-  line-height: 1.55;
+  gap: 8px;
+  padding: 6px 8px;
+  line-height: 1.6;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color var(--ct-duration-fast) var(--ct-ease-decel);
 }
 
-.ct-live-speech > span,
+.ct-live-speech:hover {
+  background: var(--ct-live-soft);
+}
+
+.ct-live-speech[data-selected="true"] {
+  background: color-mix(in srgb, var(--ct-accent) 11%, transparent);
+}
+
+.ct-live-speech-text,
 .ct-live-draft {
   white-space: pre-wrap;
 }
 
+.ct-live-speech-time {
+  color: var(--ct-muted-fg);
+  font-size: var(--ct-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transition: opacity var(--ct-duration-fast) var(--ct-ease-decel);
+}
+
+.ct-live-speech:hover .ct-live-speech-time,
+.ct-live-speech[data-selected="true"] .ct-live-speech-time {
+  opacity: 1;
+}
+
+/* Row selection: the real checkbox stays for keyboard and readers, drawn as a soft round mark that
+   appears on hover, on focus, or once anything is selected. */
+.ct-live-speech input {
+  appearance: none;
+  position: relative;
+  top: 2px;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  border: 1.5px solid color-mix(in srgb, var(--ct-muted-fg) 60%, transparent);
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--ct-duration-fast) var(--ct-ease-decel), background-color var(--ct-duration-fast) var(--ct-ease-decel);
+}
+
+.ct-live-speech:hover input,
+.ct-live-speech input:focus-visible,
+.ct-live-document[data-selecting="true"] .ct-live-speech input {
+  opacity: 1;
+}
+
+.ct-live-speech input:checked {
+  background: var(--ct-accent);
+  border-color: var(--ct-accent);
+  box-shadow: inset 0 0 0 2.5px var(--ct-surface);
+}
+
+.ct-live-speech input:focus-visible {
+  outline: 2px solid var(--ct-border-focus, var(--ct-accent));
+  outline-offset: 2px;
+}
+
 .ct-live-draft {
-  margin: 5px 0 0 22px;
-  color: #becceb;
+  margin: 6px 8px 0 34px;
+  color: var(--ct-muted-fg);
   font-style: italic;
+  line-height: 1.6;
 }
 
 .ct-live-marker {
-  margin-block: 5px;
-  color: #abbbdc;
-  border-bottom: 1px solid rgb(151 177 229 / 24%);
-  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 8px;
+  color: var(--ct-muted-fg);
+  font-size: var(--ct-font-size-meta);
 }
 
-.ct-live-paging,
-.ct-live-selection {
-  flex-wrap: wrap;
+.ct-live-marker::before,
+.ct-live-marker::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--ct-live-hairline);
 }
 
-.ct-live-paging,
-.ct-live-selection,
 .ct-live-muted,
 .ct-live-rationale,
 .ct-live-route time {
-  color: #bfc9dd;
-  font-size: 12px;
+  margin: 0;
+  color: var(--ct-muted-fg);
+  font-size: var(--ct-font-size-meta);
+  line-height: 1.5;
 }
 
+.ct-live-document > .ct-live-muted {
+  padding: 18px 8px;
+  text-align: center;
+}
+
+/* Toolbars: understated, only present when there is somewhere to go. */
+.ct-live-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+}
+
+.ct-live-paging {
+  border-top: 1px solid var(--ct-live-hairline);
+}
+
+.ct-live-paging-end {
+  margin-inline-start: auto;
+}
+
+.ct-live-selection {
+  margin: 0 10px 8px;
+  padding: 4px 4px 4px 12px;
+  background: color-mix(in srgb, var(--ct-accent) 10%, var(--ct-surface));
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 26%, transparent);
+  border-radius: 12px;
+  animation: ct-live-rise var(--ct-duration-normal) var(--ct-ease-out-expo) both;
+}
+
+.ct-live-selection-count {
+  margin-inline-end: auto;
+  font-size: var(--ct-font-size-meta);
+  font-weight: 600;
+}
+
+.ct-live-panel .ct-live-selection .ct-live-ghost {
+  color: var(--ct-fg);
+}
+
+/* Cards inside the panel: fg 4% on the surface, one hairline. */
 .ct-live-route,
 .ct-live-callout,
-.ct-live-settings,
-.ct-live-gate {
-  margin-bottom: 7px;
-  padding: 7px 9px;
-  background: rgb(144 164 217 / 7%);
-  border: 1px solid rgb(198 207 240 / 13%);
-  border-radius: 8px;
+.ct-live-settings {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: var(--ct-live-soft);
+  border: 1px solid var(--ct-live-hairline);
+  border-radius: 12px;
 }
 
-.ct-live-gate {
-  background: rgb(88 166 255 / 9%);
-  border-color: rgb(88 166 255 / 32%);
+.ct-live-callout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 0;
+  color: var(--ct-fg);
+  font-size: var(--ct-font-size-meta);
 }
 
-.ct-live-gate-title {
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-
-.ct-live-gate > .ct-live-settings {
-  margin: 8px 0 0;
-  padding: 0;
-  background: transparent;
-  border: 0;
-}
-
-.ct-live-panel button.ct-live-primary {
-  width: 100%;
-  margin-top: 8px;
-  background: #58a6ff;
-  color: #0d1117;
-  font-weight: 600;
-}
-
-.ct-live-panel button.ct-live-primary:hover:not(:disabled) {
-  background: #79b8ff;
+.ct-live-callout > span {
+  flex: 1;
+  min-width: 12ch;
 }
 
 .ct-live-callout button {
-  margin-inline-start: 4px;
+  margin-inline-start: auto;
 }
 
-.ct-live-route > div,
-.ct-live-settings > label {
+.ct-live-route > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ct-live-route p {
+  margin: 3px 0 0;
+}
+
+.ct-live-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.ct-live-field {
+  display: grid;
+  grid-template-columns: minmax(84px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.ct-live-field > span {
+  color: var(--ct-muted-fg);
+  font-size: var(--ct-font-size-meta);
+}
+
+.ct-live-router {
+  margin-top: 8px;
+}
+
+.ct-live-toggle-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ct-live-hairline);
+  font-size: var(--ct-font-size-meta);
 }
 
-.ct-live-settings > * + * {
-  margin-top: 5px;
+.ct-live-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
 }
 
-.ct-live-panel select {
-  max-width: min(100%, 210px);
+.ct-live-select--inline {
+  min-width: 0;
+  max-width: 190px;
 }
 
-.ct-live-settings > .ct-live-autoresume {
-  justify-content: flex-start;
+/* Onboarding: one calm card, one primary action. */
+.ct-live-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 22px 20px 18px;
+  text-align: center;
+  background: radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--ct-accent) 12%, transparent), transparent 70%), var(--ct-live-soft);
+  border: 1px solid var(--ct-live-hairline);
+  border-radius: 14px;
+  animation: ct-live-rise var(--ct-duration-smooth) var(--ct-ease-out-expo) both;
 }
 
+.ct-live-gate-mark {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 12px;
+  place-items: center;
+  color: var(--ct-accent);
+  background: color-mix(in srgb, var(--ct-accent) 14%, transparent);
+  border-radius: 13px;
+}
+
+.ct-live-gate-title {
+  margin: 0;
+  font-size: var(--ct-font-size-lg);
+  font-weight: 600;
+}
+
+.ct-live-gate-lead {
+  max-width: 34ch;
+  margin: 6px 0 16px;
+  color: var(--ct-muted-fg);
+  line-height: 1.55;
+}
+
+.ct-live-gate .ct-live-primary {
+  min-width: 180px;
+}
+
+/* Thoughts inspector. */
 .ct-live-thoughts {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
-  border-top: 1px solid rgb(198 207 240 / 18%);
+  border-top: 1px solid var(--ct-live-hairline);
 }
 
 .ct-live-thoughts > .ct-live-rationale,
 .ct-live-thoughts-scroll {
-  padding-inline: 10px;
+  padding-inline: 12px;
 }
 
 .ct-live-thoughts-scroll {
@@ -281,35 +516,297 @@
   pointer-events: none;
 }
 
-.ct-live-orb {
+/* Footer: state on the left, one clear action on the right. */
+.ct-live-footer {
+  position: relative;
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 4px;
-  padding: 4px;
-  max-width: calc(100vw - 16px);
+  min-height: 48px;
+  padding: 8px 22px 8px 14px;
+  border-top: 1px solid var(--ct-live-hairline);
+}
+
+.ct-live-status {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ct-muted-fg);
+  font-size: var(--ct-font-size-meta);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ct-live-panel .ct-live-cta {
+  min-height: 30px;
+  padding: 0 14px 0 12px;
+  color: var(--ct-bg);
+  background: var(--ct-accent);
+  font-weight: 600;
   border-radius: 999px;
 }
 
+.ct-live-panel .ct-live-cta:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ct-accent) 86%, var(--ct-fg));
+}
+
+.ct-live-panel .ct-live-cta[data-variant="pause"] {
+  color: var(--ct-fg);
+  background: var(--ct-live-hover);
+}
+
+.ct-live-panel .ct-live-cta[data-variant="pause"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ct-fg) 12%, transparent);
+}
+
+.ct-live-panel .ct-live-resize {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 16px;
+  min-height: 16px;
+  padding: 0;
+  color: var(--ct-muted-fg);
+  border-radius: 5px;
+  cursor: nwse-resize;
+  touch-action: none;
+  opacity: .5;
+}
+
+.ct-live-panel .ct-live-resize:hover,
+.ct-live-panel .ct-live-resize:focus-visible {
+  opacity: 1;
+  background: transparent;
+}
+
+/* Collapsed orb: a draggable pill; a press that travels moves it, a tap expands it. */
+.ct-live-orb {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px 4px 4px;
+  max-width: calc(100vw - 16px);
+  border-radius: 999px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  animation: ct-live-pop var(--ct-duration-normal) var(--ct-ease-out-back) both;
+}
+
 .ct-live-orb .ct-live-circle {
-  width: 36px;
-  height: 36px;
+  position: relative;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
   flex-shrink: 0;
+  color: var(--ct-accent);
+  background: color-mix(in srgb, var(--ct-accent) 13%, transparent);
   border-radius: 50%;
 }
 
-.ct-live-circle[data-live="true"] {
-  color: #6de9c5;
+.ct-live-orb .ct-live-circle[data-live="true"] {
+  color: var(--ct-green);
+  background: color-mix(in srgb, var(--ct-green) 14%, transparent);
+}
+
+.ct-live-orb .ct-live-circle[data-live="true"]::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--ct-green) 45%, transparent);
+  animation: ct-live-breathe var(--ct-duration-recording-pulse, 1.8s) var(--ct-ease-liquid-breathe, ease-in-out) infinite;
+}
+
+.ct-live-orb .ct-live-orb-label {
+  max-width: 220px;
+  min-height: 30px;
+  padding: 0 10px;
+  overflow: hidden;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: inherit;
 }
 
 .ct-live-sidebar-mark {
-  color: var(--ct-accent, #6de9c5);
+  color: var(--ct-accent);
   margin-inline-start: 5px;
+}
+
+/* Locked composer: the composer itself says Live Transcript holds it. */
+.ct-live-lock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 4px 0 6px;
+}
+
+.ct-live-lock-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ct-live-lock-title {
+  overflow: hidden;
+  color: var(--ct-fg);
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ct-live-lock-hint {
+  overflow: hidden;
+  color: var(--ct-muted-fg);
+  font-size: var(--ct-font-size-meta);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ct-live-lock-open {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 12px;
+  color: var(--ct-fg);
+  font: inherit;
+  font-size: var(--ct-font-size-meta);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--ct-accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 30%, transparent);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color var(--ct-duration-fast) var(--ct-ease-decel);
+}
+
+.ct-live-lock-open:hover {
+  background: color-mix(in srgb, var(--ct-accent) 22%, transparent);
+}
+
+.ct-live-lock-open:focus-visible {
+  outline: 2px solid var(--ct-border-focus, var(--ct-accent));
+  outline-offset: 2px;
+}
+
+/* Mic entry pills. */
+.ct-live-try-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 12px 0 10px;
+  color: var(--ct-fg);
+  font: inherit;
+  font-size: var(--ct-font-size-meta);
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--ct-glass-sheen), var(--ct-surface);
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 32%, transparent);
+  border-radius: 999px;
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
+  cursor: pointer;
+  animation: ct-live-pop var(--ct-duration-normal) var(--ct-ease-out-back) both;
+  transition: border-color var(--ct-duration-fast) var(--ct-ease-decel), transform var(--ct-duration-fast) var(--ct-ease-decel);
+}
+
+.ct-live-try-pill:hover {
+  border-color: color-mix(in srgb, var(--ct-accent) 60%, transparent);
+}
+
+.ct-live-try-pill:active {
+  transform: scale(.97);
+}
+
+.ct-live-try-pill .ct-live-try-icon {
+  color: var(--ct-accent);
+}
+
+.ct-live-try-pill .ct-live-try-chevron {
+  color: var(--ct-muted-fg);
+}
+
+.ct-voice-lock-pill.ct-voice-lock-pill--live {
+  background: var(--ct-glass-sheen), var(--ct-surface);
+  border-color: color-mix(in srgb, var(--ct-accent) 40%, transparent);
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
+  color: var(--ct-muted-fg);
+}
+
+.ct-voice-lock-pill--live .ct-live-try-icon {
+  color: var(--ct-accent);
+}
+
+.ct-voice-lock-pill--live .ct-voice-lock-label {
+  color: var(--ct-fg);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  line-height: 1;
+}
+
+@keyframes ct-live-unfold {
+  from { opacity: 0; transform: scale(.92) translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ct-live-pop {
+  from { opacity: 0; transform: scale(.7); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ct-live-rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ct-live-breathe {
+  0%, 100% { opacity: .25; transform: scale(.85); }
+  50% { opacity: .9; transform: scale(1.2); }
 }
 
 @media (pointer: coarse) {
   .ct-live-panel button,
-  .ct-live-orb button,
-  .ct-live-panel select {
+  .ct-live-orb button {
     min-height: 36px;
+  }
+
+  .ct-live-panel .ct-live-icon {
+    width: 36px;
+  }
+
+  .ct-live-speech input {
+    opacity: 1;
+  }
+
+  .ct-live-speech-time {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-live-panel,
+  .ct-live-orb,
+  .ct-live-gate,
+  .ct-live-selection,
+  .ct-live-try-pill {
+    animation: none;
+  }
+
+  .ct-live-dot[data-live="true"]::after,
+  .ct-live-orb .ct-live-circle[data-live="true"]::after {
+    animation: none;
+    opacity: .5;
   }
 }

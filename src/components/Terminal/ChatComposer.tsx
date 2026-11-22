@@ -1,3 +1,4 @@
+import { AudioLines } from "lucide-react";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { composerAttachmentError } from "./composerAttachmentAdmission";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
@@ -701,18 +702,14 @@ function ChatComposerImpl({
       onOpenLiveTranscript={transcript && !liveLocked ? openLiveTranscript : undefined}
       hideActionButton={liveLocked}
       inputOverlay={liveLocked && transcript ? (
-        <div className="flex w-full items-center justify-between gap-2 px-1" data-testid="live-transcript-composer-lock">
-          <span className="flex min-w-0 items-center gap-2 text-xs text-[var(--ct-muted-fg,#8b949e)]">
+        <div className="ct-live-lock" data-testid="live-transcript-composer-lock">
+          <span className="ct-live-lock-label">
             <span className="ct-live-dot" data-live="true" aria-hidden="true" />
-            <span className="truncate font-medium text-[var(--ct-fg,#e6edf3)]">Live Transcript listening</span>
-            <span className="hidden truncate opacity-75 sm:inline">· Drop or paste files</span>
+            <span className="ct-live-lock-title">Live Transcript is listening</span>
+            <span className="ct-live-lock-hint hidden sm:inline">Drop or paste files here</span>
           </span>
-          <button
-            type="button"
-            onClick={() => transcript.open(tabId)}
-            className="shrink-0 rounded-full border border-[color-mix(in_srgb,var(--ct-accent,#58a6ff)_38%,transparent)] bg-[color-mix(in_srgb,var(--ct-accent,#58a6ff)_14%,transparent)] px-2.5 py-1 text-xs font-medium text-[var(--ct-fg,#e6edf3)] transition-colors hover:bg-[color-mix(in_srgb,var(--ct-accent,#58a6ff)_24%,transparent)]"
-          >
-            Open Transcript
+          <button type="button" className="ct-live-lock-open" onClick={() => transcript.open(tabId)}>
+            <AudioLines size={13} aria-hidden="true" />Open Transcript
           </button>
         </div>
       ) : undefined}

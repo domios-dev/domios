@@ -125,14 +125,21 @@ async function click(name: string) {
   await act(async () => { control(name).click(); });
 }
 
+/** Opens a shared DropdownSelect by its accessible name ("Label: current value") and returns its trigger.
+ *  happy-dom has no PointerEvent; a bubbling Event of that type still reaches React's pointerdown listener. */
+async function openSelect(label: string): Promise<HTMLButtonElement> {
+  const trigger = Array.from(document.querySelectorAll<HTMLButtonElement>("button[aria-haspopup]"))
+    .find(el => el.getAttribute("aria-label")?.startsWith(`${label}: `));
+  if (!trigger) throw new Error(`Missing select: ${label}`);
+  await act(async () => { trigger.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true })); });
+  return trigger;
+}
+
 async function choose(label: string, value: string) {
-  const select = Array.from(document.querySelectorAll("select")).find(el =>
-    el.getAttribute("aria-label") === label || el.labels?.[0]?.firstChild?.textContent === label);
-  if (!select) throw new Error(`Missing select: ${label}`);
-  await act(async () => {
-    select.value = value;
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  const trigger = await openSelect(label);
+  const option = document.querySelector<HTMLElement>(`[data-testid="${trigger.dataset.testid}-option-${value}"]`);
+  if (!option) throw new Error(`Missing option ${value} for ${label}`);
+  await act(async () => { option.click(); });
 }
 
 function panel() {
@@ -204,8 +211,10 @@ describe("Live Transcript panel", () => {
     expect(api.attach).not.toHaveBeenCalled();
     await click("Choose routing mode");
     expect(panel()?.textContent).toContain("Scout is unavailable");
-    const selects = Array.from(panel()?.querySelectorAll("select") ?? []);
-    expect(selects[1].textContent).not.toContain(hidden.title);
+    const routeTo = await openSelect("Route to");
+    expect(document.querySelector('[role="menu"]')?.textContent).not.toContain(hidden.title);
+    expect(document.querySelector(`[data-testid="${routeTo.dataset.testid}-option-${hidden.id}"]`)).toBeNull();
+    await act(async () => { document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
     expect(control("Apply routing").disabled).toBe(true);
     await choose("Routing mode", "manual");
     await click("Apply routing");
@@ -268,7 +277,7 @@ describe("Live Transcript panel", () => {
     expect(document.querySelector('[aria-label="Owner lock"]')?.textContent).toBe(shell.id);
   });
 
-  it("blocks capture until Concierge is connected and starts after Connect & Start", async () => {
+  it("blocks capture until Concierge is connected and starts after Start Live Mode", async () => {
     const { api } = await mount();
     let attached = false;
     api.history.mockResolvedValue({ rows: [], gaps: [], nextFromSeq: null });
@@ -291,7 +300,7 @@ describe("Live Transcript panel", () => {
     expect(control("Start").disabled).toBe(true);
     expect(document.querySelector('[aria-label="Owner lock"]')?.textContent).toBe("unlocked");
 
-    await click("Connect & Start");
+    await click("Start Live Mode");
     expect(api.attach).toHaveBeenCalledExactlyOnceWith({ trigger: "direct_batch" }, expect.any(AbortSignal));
     expect(panel()?.querySelector('[data-testid="live-transcript-concierge-gate"]')).toBeNull();
     expect(panel()?.textContent).toContain("Uncommitted words");

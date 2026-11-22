@@ -224,15 +224,11 @@ export function ComposerActionButton({
               clearDictationGesture();
               onOpenLiveTranscript();
             }}
-            className="flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium text-[var(--ct-fg,#e6edf3)] shadow-[0_8px_24px_rgba(0,0,0,0.42)] backdrop-blur-md transition-colors hover:border-[var(--ct-accent,#58a6ff)]"
-            style={{
-              background: "color-mix(in srgb, var(--ct-surface, #161b22) 92%, transparent)",
-              borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 36%, var(--ct-border, rgba(255,255,255,0.14)))",
-            }}
+            className="ct-live-try-pill"
           >
-            <AudioLines size={14} strokeWidth={2.2} className="text-[var(--ct-accent,#58a6ff)]" aria-hidden="true" />
+            <AudioLines size={14} strokeWidth={2.2} className="ct-live-try-icon" aria-hidden="true" />
             <span>Try Live Transcript</span>
-            <ChevronUp size={13} className="opacity-75" aria-hidden="true" />
+            <ChevronUp size={13} className="ct-live-try-chevron" aria-hidden="true" />
           </button>
         </AnchoredPopover>
       )}
@@ -351,18 +347,16 @@ function VoiceLockPill({ liveTranscript = false }: { liveTranscript?: boolean })
   return (
     <div
       data-testid="composer-voice-lock-pill"
-      className="ct-voice-lock-pill absolute bottom-full left-1/2 mb-7 flex -translate-x-1/2 flex-col items-center gap-1 rounded-full border px-2 py-2.5 text-[var(--ct-muted-fg)] shadow-[0_6px_20px_rgba(0,0,0,0.35)]"
-      style={{
+      className={`ct-voice-lock-pill absolute bottom-full left-1/2 mb-7 flex -translate-x-1/2 flex-col items-center gap-1.5 rounded-full border px-2 py-2.5 text-[var(--ct-muted-fg)] shadow-[0_6px_20px_rgba(0,0,0,0.35)]${liveTranscript ? " ct-voice-lock-pill--live" : ""}`}
+      style={liveTranscript ? undefined : {
         background: "var(--ct-surface, #161b22)",
-        borderColor: liveTranscript
-          ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 42%, transparent)"
-          : "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 26%, transparent)",
+        borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 26%, transparent)",
       }}
     >
       {liveTranscript ? (
         <>
-          <AudioLines size={14} strokeWidth={2.2} className="text-[var(--ct-accent,#58a6ff)]" />
-          <span className="text-[10px] font-medium leading-none text-[var(--ct-fg,#e6edf3)]">Live</span>
+          <AudioLines size={14} strokeWidth={2.2} className="ct-live-try-icon" />
+          <span className="ct-voice-lock-label">Live</span>
         </>
       ) : (
         <Lock size={14} strokeWidth={2.2} />

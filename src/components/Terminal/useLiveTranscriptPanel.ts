@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { TRANSCRIPT_PAGE_SIZE, type LiveTranscriptApi, type RoutedPage, type TranscriptHistory, type TranscriptOverview, type TranscriptReadiness } from "../../lib/transport/liveTranscript";
 import { useAttachments } from "./useAttachments";
@@ -226,6 +226,7 @@ function fit(bounds: Bounds): Bounds {
 export function useLiveTranscriptGeometry() {
   const [bounds, setBounds] = useState(() => fit({ left: window.innerWidth - 460, top: 72, width: 420, height: 440 }));
   const gesture = useRef<{ id: number; x: number; y: number; bounds: Bounds } | null>(null);
+  const dragState = useRef<DragState | null>(null);
   useEffect(() => {
     const resize = () => setBounds(fit);
     window.addEventListener("resize", resize);
@@ -257,5 +258,54 @@ export function useLiveTranscriptGeometry() {
       },
     };
   }
-  return { bounds, handle };
+  /** Pointer drag for a whole surface (panel header, collapsed orb). A press only becomes a drag past a
+   *  small threshold, and the click that ends a drag is swallowed so it never toggles what it started on. */
+  function drag(options: { ignore?: string } = {}) {
+    const state = dragState;
+    return {
+      onPointerDown(event: PointerEvent<HTMLElement>) {
+        if (event.button !== 0) return;
+        if (options.ignore && (event.target as Element).closest(options.ignore)) return;
+        const rect = event.currentTarget.getBoundingClientRect();
+        state.current = { id: event.pointerId, x: event.clientX, y: event.clientY, left: bounds.left, top: bounds.top,
+          width: rect.width, height: rect.height, moved: false, element: event.currentTarget };
+      },
+      onPointerMove(event: PointerEvent<HTMLElement>) {
+        const start = state.current;
+        if (!start || start.id !== event.pointerId) return;
+        const dx = event.clientX - start.x;
+        const dy = event.clientY - start.y;
+        if (!start.moved) {
+          if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+          start.moved = true;
+          start.element.setPointerCapture(event.pointerId);
+          start.element.dataset.dragging = "true";
+        }
+        const left = Math.max(MARGIN, Math.min(start.left + dx, window.innerWidth - start.width - MARGIN));
+        const top = Math.max(MARGIN, Math.min(start.top + dy, window.innerHeight - start.height - MARGIN));
+        setBounds(previous => ({ ...previous, left, top }));
+      },
+      onPointerUp(event: PointerEvent<HTMLElement>) {
+        const start = state.current;
+        if (start?.id !== event.pointerId) return;
+        delete start.element.dataset.dragging;
+        if (!start.moved) state.current = null;
+      },
+      onLostPointerCapture() {
+        const start = state.current;
+        if (start) delete start.element.dataset.dragging;
+        if (!start?.moved) state.current = null;
+      },
+      onClickCapture(event: MouseEvent<HTMLElement>) {
+        if (!state.current?.moved) return;
+        state.current = null;
+        event.preventDefault();
+        event.stopPropagation();
+      },
+    };
+  }
+  return { bounds, handle, drag };
 }
+
+const DRAG_THRESHOLD = 4;
+type DragState = { id: number; x: number; y: number; left: number; top: number; width: number; height: number; moved: boolean; element: HTMLElement };
