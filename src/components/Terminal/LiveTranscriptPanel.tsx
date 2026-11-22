@@ -124,10 +124,10 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
   const conciergeReady = Boolean(view.loaded && conciergeAttached && status?.concierge === "ready");
   const needsConcierge = Boolean(view.loaded && !conciergeReady);
   const useGeneral = capture.phase === "setup" || view.readiness?.asr.state === "unavailable" ||
-    view.readiness?.asr.state === "unloaded" || view.readiness?.concierge === "unavailable" || scoutUnavailable;
+    view.readiness?.concierge === "unavailable" || scoutUnavailable;
   const routeRange = contiguousSpeechRange(chosen);
   const needsSetup = capture.phase === "setup" || view.readiness?.asr.state === "unavailable" ||
-    view.readiness?.asr.state === "unloaded" || view.readiness?.concierge === "unavailable";
+    view.readiness?.concierge === "unavailable";
 
   function setUpWithGeneral() {
     const state = store.getState();
@@ -394,10 +394,10 @@ function ConciergeSetupGate({ view, api, needsSetup, onSetup, onConnected }: {
   </section>;
 }
 
-const GENERAL_SETUP_PROMPT = "Set up Live Transcript for me (clicking Set up with General is my consent to install what dictation needs). Keep it fast: skip `mem search`, `domios docs`, `--help`, `channel list/diff` and `plugin get`; plugin verbs take no `--json`.\n" +
+const GENERAL_SETUP_PROMPT = "Set up Live Transcript for me (clicking Set up with General is my consent to install what dictation needs). Keep it fast: skip `mem search`, `domios docs`, `--help`, `channel list/diff`, `plugin get`, `domios model-provider`, and `domios live-transcript status` (live-transcript status is owner-only); plugin verbs take no `--json`.\n" +
   "1. Speech: `domios plugin channel refresh codeterm-plugins`, then `domios plugin update transcriber` (if it is missing or local, `domios plugin install transcriber --channel codeterm-plugins`). Transcriber must be 0.5.1 or newer. Then `domios plugin transcriber dictation-status`; if it is not ready, run `domios plugin transcriber dictation-install parakeet-tdt-0.6b-v3-int8 --consent`, follow `domios plugin transcriber dictation-progress` until it completes, then `domios plugin transcriber dictation-select parakeet-tdt-0.6b-v3-int8` and `domios plugin transcriber dictation-test parakeet-tdt-0.6b-v3-int8`.\n" +
-  "2. Concierge: configure the Live Transcript Concierge and Scout model. Prefer a tested local model through LM Studio or Ollama: before downloading, tell me its size and that Live Mode starts and loads that model automatically whenever it runs. If I have no local runtime or prefer the cloud, offer a cloud option (Groq or a provider I already have) and say plainly that cloud routing costs more than a local model. Ask me once, then do it.\n" +
-  "3. Reply in one short friendly line when Live Mode is ready, or with the exact error. Never touch voice-note settings or existing drafts.";
+  "2. Concierge: once dictation-test succeeds, built-in Live Mode is ready to connect directly from the Transcript panel. If I ask for a local Scout/Concierge model (LM Studio or Ollama), warn me of the model size and that Live Mode loads it automatically; if I prefer cloud (e.g. Groq), warn plainly that cloud routing costs more than a local model.\n" +
+  "3. Reply in one short friendly line telling me Live Mode is ready (open Transcript and click Start Live Mode), or the exact error if a step failed. Never touch voice-note settings or existing drafts.";
 
 function RoutingSettings({ owner, view, api, autoResume, onAutoResume, scoutUnavailable }: {
   owner: string;
