@@ -14,7 +14,7 @@ mod closed;
 mod creation_order;
 mod lifecycle;
 mod locks;
-pub use lifecycle::{LifecyclePatch, LIFECYCLE_CONTEXT_CONFLICT};
+pub use lifecycle::{LifecyclePatch, ReadSet, LIFECYCLE_CONTEXT_CONFLICT};
 pub mod names;
 mod reorder;
 mod role;

@@ -111,11 +111,7 @@ fn existing_live_pty(svc: &ServiceContext, tab_id: &str) -> Option<String> {
         .read()
         .get_tab(tab_id)
         .and_then(|tab| tab.pty_id.clone())?;
-    svc.pty
-        .lock()
-        .get_session(&pty_id)
-        .is_some()
-        .then_some(pty_id)
+    svc.pty_child_is_live(&pty_id).then_some(pty_id)
 }
 
 use generation::command_with_binding_nonce;
@@ -312,13 +308,18 @@ pub fn launch_agent_in_background_with_invocation(
             }
         };
     let launch_nonce = reserved_nonce.clone();
+    let startup = crate::service::provider_accounts::provisioning::in_startup(&svc, &tab_id);
     account.set_booting(&svc, &tab_id, true);
     crate::service::boot_wait::notify_boot_changed();
     let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
+    let startup_invocation =
+        startup.then(|| account.resolve_bounded(&svc, &tab_id, invocation.clone()));
     std::thread::spawn(move || {
-        crate::startup::boot_timing::mark(&tab_id, None, "account_supervision_begin");
-        let resolved_invocation = account.resolve_bounded(&svc, &tab_id, invocation);
-        crate::startup::boot_timing::mark(&tab_id, None, "account_supervision_settled");
+        let _startup = startup.then(|| {
+            crate::service::provider_accounts::provisioning::StartupScope::enter(&svc, &tab_id)
+        });
+        let resolved_invocation = startup_invocation
+            .unwrap_or_else(|| account.resolve_bounded(&svc, &tab_id, invocation));
         let invocation = match resolved_invocation {
             Ok(invocation) => invocation,
             Err(error) => {
@@ -371,6 +372,18 @@ pub fn launch_agent_in_background_with_invocation(
                 crate::service::boot_wait::notify_boot_changed();
             };
             let existing_pty = existing_live_pty(&svc, &tab_id);
+            if let Err(error) = account.validate_recovery_pty(&svc, &tab_id, origin) {
+                account.fail_if_current(
+                    &launch,
+                    &svc,
+                    LaunchFailure::StartupSupervision(error.clone()),
+                );
+                set_booting(&launch, false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
+            }
             let direct = direct_spec.is_some();
             let mut reserved_nonce = reserved_nonce;
             let mut readiness_registration = None;
@@ -487,9 +500,11 @@ pub fn launch_agent_in_background_with_invocation(
                 return;
             }
             crate::service::agent_lifecycle::timing::stage(&tab_id, &pty_id, "relaunch-spawn");
-            // Off the boot critical path: reading the provider's install report
-            // touches disk, and the tab is already up by here.
-            svc.announce_integration_silence(&tab_id, &agent_cmd);
+            let (notice_service, notice_tab, notice_provider) =
+                (svc.clone(), tab_id.clone(), agent_cmd.clone());
+            crate::async_runtime::spawn_blocking(move || {
+                notice_service.announce_integration_silence(&notice_tab, &notice_provider);
+            });
 
             let mut reader_monitor = match reader_readiness.wait(std::time::Duration::from_secs(10))
             {
@@ -662,9 +677,7 @@ pub fn launch_agent_in_background_with_invocation(
 
             let shell_ready_from_exit =
                 exited_provider_recovery_has_shell_ready_evidence(origin, reused_live_pty, || {
-                    svc.ext::<crate::ShellCapabilityState>()
-                        .lock()
-                        .prompt_idle_after_command(&pty_id)
+                    svc.recovery_shell_has_idle_prompt(&pty_id)
                 });
             if shell_ready_from_exit {
                 log::info!(
@@ -991,7 +1004,6 @@ pub fn launch_agent_in_background_with_invocation(
                 let readiness = owner_prompt_wait::await_input_readiness(
                     &svc,
                     &tab_id,
-                    &pty_id,
                     &agent_cmd,
                     &readiness_attempt,
                     session_starts_on_first_turn || user_composer_required,
@@ -1035,7 +1047,12 @@ pub fn launch_agent_in_background_with_invocation(
                 }
                 return;
             }
-            if session_starts_on_first_turn {
+            if session_starts_on_first_turn
+                && launch_input_readiness
+                    == Some(
+                        crate::service::launch_input_gate::LaunchInputEvidence::ProviderComposer,
+                    )
+            {
                 if !launch.await_provider_ack(std::time::Duration::ZERO)
                     && !crate::service::launch_readiness::note_first_turn_input_ready(
                         &readiness_attempt.tab_id,

@@ -33,7 +33,7 @@ impl PlanDatabase {
         event_offset: usize,
         include_events: bool,
     ) -> Result<BoardStateRead, PlanError> {
-        let mut guard = self.connection.lock();
+        let mut guard = self.read_connection();
         let transaction = guard.transaction().map_err(db_error)?;
         record_query();
         let (mode, status, team_id): (String, String, Option<String>) = transaction.query_row(

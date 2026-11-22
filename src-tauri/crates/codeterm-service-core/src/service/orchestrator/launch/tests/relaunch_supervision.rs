@@ -109,6 +109,11 @@ fn abandoned_account_provisioning_retains_one_job_and_never_launches_late() {
             .recv_timeout(std::time::Duration::from_secs(10))
             .unwrap();
         assert_eq!(provisioning::retained_count(&fixture.service), 1);
+        assert!(account
+            .resolve_bounded(&fixture.service, &id, Some(None))
+            .unwrap()
+            .is_none());
+        assert_eq!(provisioning::retained_count(&fixture.service), 1);
         if !cancel {
             assert!(job
                 .wait_blocking(std::time::Duration::ZERO)
@@ -145,6 +150,114 @@ fn abandoned_account_provisioning_retains_one_job_and_never_launches_late() {
         assert!(!after.launch_session_authenticated());
         assert!(after.pty_id.is_none());
     }
+}
+
+#[test]
+fn retained_startup_provisioning_grants_a_touched_chat_before_pending_pty_workers() {
+    use crate::multiplexer::types::{AgentRole, TabBacking};
+    use crate::service::provider_accounts::{self, provisioning};
+    use crate::service::restore_admission::{notify_changed, track_startup_wave};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    const DEADLINE: Duration = Duration::from_secs(10);
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace = mux.get_active_workspace().unwrap().id.clone();
+    let targets = (0..5)
+        .map(|index| {
+            let id = mux.create_tab(&workspace).unwrap();
+            let tab = mux.get_tab_mut(&id).unwrap();
+            tab.hidden = true;
+            tab.restored_from_snapshot = true;
+            tab.agent_type = Some("fixture-startup".to_owned());
+            tab.session_binding_nonce = Some(format!("queued-{index}"));
+            if index < 2 {
+                tab.role = Some(AgentRole::Worker);
+                tab.restorable_launch.account_id = Some("shared-fixture-account".to_owned());
+            }
+            if index == 2 {
+                tab.backing = TabBacking::ChatBackend {
+                    plugin_id: "fixture-chat".into(),
+                    session_id: "restored-chat-thread".into(),
+                };
+            }
+            id
+        })
+        .collect::<Vec<_>>();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    let _wave = track_startup_wave(svc, &targets);
+    let (held_entered, entered) = mpsc::channel();
+    let (release_owner, held) = mpsc::channel();
+    let owner = provisioning::start(svc, move || {
+        held_entered.send(()).unwrap();
+        held.recv_timeout(DEADLINE).unwrap();
+        Ok(None)
+    })
+    .unwrap();
+    entered.recv_timeout(DEADLINE).unwrap();
+    drop(owner);
+    assert_eq!(provisioning::retained_count(svc), 1);
+    assert!(matches!(
+        provisioning::start(svc, || panic!("ordinary launch must fail fast")),
+        Err(reason) if reason.starts_with("account_provisioning_busy:")
+    ));
+    {
+        let _startup = provisioning::StartupScope::enter(svc, &targets[3]);
+        assert!(provider_accounts::for_tab(svc, &targets[3])
+            .unwrap()
+            .is_none());
+        assert_eq!(provisioning::retained_count(svc), 1);
+    }
+
+    let (granted, grants) = mpsc::channel();
+    let mut waiting = Vec::new();
+    for (index, id) in targets.iter().enumerate() {
+        let target = id.clone();
+        let service = svc.clone();
+        let granted = granted.clone();
+        waiting.push(std::thread::spawn(move || {
+            let _startup = provisioning::StartupScope::enter(&service, &target);
+            let retained_service = service.clone();
+            provisioning::start(&service, move || {
+                assert_eq!(provisioning::retained_count(&retained_service), 1);
+                granted.send(index).unwrap();
+                if index == 4 {
+                    Err("definitive account refusal".into())
+                } else {
+                    Ok(None)
+                }
+            })?
+            .wait_blocking(DEADLINE)
+        }));
+        provisioning::wait_for_startup_waiters(svc, index + 1, Instant::now() + DEADLINE);
+    }
+    svc.record_client_selection(Some(&workspace), Some(&targets[2]))
+        .unwrap();
+    svc.mux
+        .write()
+        .get_tab_mut(&targets[3])
+        .unwrap()
+        .session_binding_nonce = Some("replacement".into());
+    notify_changed();
+    provisioning::wait_for_startup_waiters(svc, 4, Instant::now() + DEADLINE);
+    assert!(matches!(grants.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    release_owner.send(()).unwrap();
+    let actual = (0..4)
+        .map(|_| grants.recv_timeout(DEADLINE).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(actual, [2, 0, 1, 4]);
+    for (index, job) in waiting.into_iter().enumerate() {
+        let result = job.join().unwrap();
+        match index {
+            3 => assert!(result
+                .unwrap_err()
+                .contains("startup provisioning authority changed")),
+            4 => assert_eq!(result.unwrap_err(), "definitive account refusal"),
+            _ => assert!(result.unwrap().is_none()),
+        }
+    }
+    assert_eq!(provisioning::retained_count(svc), 0);
 }
 
 #[test]

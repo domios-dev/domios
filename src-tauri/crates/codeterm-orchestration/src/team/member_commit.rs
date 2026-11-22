@@ -22,7 +22,12 @@ pub fn commit_team_member_prepared(
         .ok_or("spawned Team member disappeared")?;
     let result = svc.transition_agent_prepared_with_at(
         now_ms,
-        |mux, store| {
+        |mux, store, reads| {
+            reads.tab(tab_id);
+            reads.team(team_id);
+            if let Some(id) = caller {
+                reads.tab(id);
+            }
             if !member_context_matches(mux, tab_id, &captured) {
                 return Err(
                     "spawned member context conflict: live identity or placement changed".into(),
@@ -41,6 +46,7 @@ pub fn commit_team_member_prepared(
                 return Ok((None, result));
             };
             let previous = previous.unwrap_or_default();
+            reads.tab(&previous);
             if previous == tab_id
                 || mux.get_tab(&previous).is_some_and(|tab| {
                     tab.anchors_team()

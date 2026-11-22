@@ -116,6 +116,21 @@ it("waits for two screenshot-sized uploads and sends their Unicode paths through
   } finally { await view.dispose(); }
 });
 
+it("a camera-format upload stays an image capsule after the host stores it", async () => {
+  uploads.store = async () => "/opaque/IMG_0412.heic";
+  const view = await mount("camera-image");
+  try {
+    await view.pick([new File(["pixels"], "IMG_0412.heic")]);
+    await view.send();
+    expect(view.sent).toHaveLength(1);
+    expect(parseAttachmentMarkers(view.sent[0]).attachments).toMatchObject([
+      { kind: "image", path: "/opaque/IMG_0412.heic" },
+    ]);
+  } finally {
+    await view.dispose();
+  }
+});
+
 it.each([false, true])("keeps distinct images with reused capsule labels while a send is pending (upload pending: %s)", async pending => {
   const tabId = `distinct-images-${pending}`;
   let finishSend!: () => void;

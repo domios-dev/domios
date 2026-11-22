@@ -117,7 +117,7 @@ test("HEIC uploads its original bytes without a renderer decoder", async () => {
   assert.equal(stores, 1);
   assert.equal(h.uploads().length, 0);
   assert.equal(draftHasPendingUploads(h.draft(), h.registry()), false);
-  assert.equal(Object.values(h.registry()).find(capsule => capsule.path === "/uploads/photo.heic")?.kind, "file");
+  assert.equal(Object.values(h.registry()).find(capsule => capsule.path === "/uploads/photo.heic")?.kind, "image");
   assert.equal(capsuleSpans(h.draft()).length, 1);
   assert(h.draft().includes("left"));
 });

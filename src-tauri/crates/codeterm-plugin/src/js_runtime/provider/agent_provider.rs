@@ -257,10 +257,10 @@ impl AgentProvider for JsProvider {
     }
 
     fn starter_prompt_text(&self, prompt: crate::provider::StarterPrompt) -> Option<String> {
-        prompt
-            .host_text()
-            .map(str::to_owned)
-            .or_else(|| self.try_call::<String>("starterPromptText", &[json!(prompt)]))
+        prompt.host_text().map(str::to_owned).or_else(|| {
+            self.try_call::<Option<String>>("starterPromptText", &[json!(prompt)])
+                .flatten()
+        })
     }
 
     fn readiness_strategy(&self) -> ReadinessStrategy {

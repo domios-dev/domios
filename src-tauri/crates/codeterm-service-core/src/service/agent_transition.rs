@@ -1,7 +1,7 @@
 use crate::service::MuxEmitCause;
 use codeterm_types::agent::role_kind::{self, builtins};
 
-use crate::multiplexer::state::MultiplexerState;
+use crate::multiplexer::state::{MultiplexerState, ReadSet};
 use crate::multiplexer::types::{AgentRole, Tab};
 use crate::plan::PlannerRef;
 use crate::service::general_agent::refuse_parenting_under_general_agent;
@@ -215,7 +215,7 @@ impl ServiceContext {
         request: AgentTransitionRequest,
         failure: TransitionFailurePoint,
     ) -> Result<Vec<String>, String> {
-        self.transition_agent_with_precondition(request, failure, |_| Ok(()))
+        self.transition_agent_with_precondition(request, failure, |_, _| Ok(()))
     }
 
     pub fn promote_standalone_agent(
@@ -233,7 +233,8 @@ impl ServiceContext {
                 plan_rebind: None,
             },
             TransitionFailurePoint::None,
-            |mux| {
+            |mux, reads| {
+                reads.team_count();
                 super::tab_mutation_authority::authorize_self_promotion(
                     mux,
                     caller,
@@ -248,12 +249,12 @@ impl ServiceContext {
         &self,
         request: AgentTransitionRequest,
         failure: TransitionFailurePoint,
-        precondition: impl Fn(&MultiplexerState) -> Result<(), String>,
+        precondition: impl Fn(&MultiplexerState, &mut ReadSet) -> Result<(), String>,
     ) -> Result<Vec<String>, String> {
         let (changed_plan_ids, changed_bindings) = self.transition_agent_prepared_at(
             epoch_ms(),
-            |mux, _| {
-                precondition(mux)?;
+            |mux, _, reads| {
+                precondition(mux, reads)?;
                 self.remote_teams
                     .ensure_tab_lifecycle_available(&request.tab_id)?;
                 Ok(request.clone())
@@ -499,7 +500,7 @@ pub fn execute_transition_at(
     now_ms: u64,
 ) -> Result<Vec<String>, String> {
     refuse_unverified_task_bound_worker_transfer(mux, plan_store, &request)?;
-    let mut prepared = prepare_transition(mux, plan_store, &request)?;
+    let mut prepared = prepare_transition(mux, plan_store, &request, &mut ReadSet::default())?;
     if failure == TransitionFailurePoint::SkipPlanRebind {
         for change in &mut prepared.plan_changes {
             change.plan_rebind = None;
@@ -525,7 +526,9 @@ fn prepare_transition(
     mux: &MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     request: &AgentTransitionRequest,
+    reads: &mut ReadSet,
 ) -> Result<PreparedTransition, String> {
+    reads.tab(&request.tab_id);
     let source = mux
         .get_tab(&request.tab_id)
         .ok_or_else(|| format!("Tab {} not found", request.tab_id))?
@@ -537,6 +540,11 @@ fn prepare_transition(
     let mut staged_mux = mux.begin_team_close_transaction();
     let staged = staged_mux.state_mut();
     let mut plan_changes = Vec::new();
+    if request.destination.is_planner() && request.plan_binding.is_some() {
+        if let Some(parent) = &source.parent_tab_id {
+            reads.tab(parent);
+        }
+    }
     let plan_rebind = destination_plan_rebind(mux, plan_store, request, &source)?;
     let preserve_owned_plans = request.destination.anchors_team()
         && source.anchors_team()
@@ -572,14 +580,16 @@ fn prepare_transition(
             }),
     )?;
     if let Some(incumbent_id) = incumbent.as_deref() {
+        reads.tab(incumbent_id);
         if staged.get_tab(incumbent_id).is_some() {
-            for affected_id in clear_lifecycle(staged, incumbent_id, None)? {
+            for affected_id in clear_lifecycle(staged, incumbent_id, None, reads)? {
                 plan_changes.push(revocation_change(affected_id));
             }
         }
     }
 
     let affected = apply_destination(
+        reads,
         staged,
         request,
         preserve_owned_plans,
@@ -592,7 +602,7 @@ fn prepare_transition(
     {
         plan_changes.push(revocation_change(affected_id));
     }
-    relink_plan_members(staged, plan_store, plan_rebind.as_ref())?;
+    relink_plan_members(staged, plan_store, plan_rebind.as_ref(), reads)?;
     let planner_binding = planner_binding(staged, request, plan_rebind.as_ref())?;
     plan_changes.push(AgentLifecyclePlanChange {
         tab_id: request.tab_id.clone(),
@@ -612,6 +622,7 @@ fn prepare_transition(
 }
 
 fn apply_destination(
+    reads: &mut ReadSet,
     mux: &mut MultiplexerState,
     request: &AgentTransitionRequest,
     preserve_owned_plans: bool,
@@ -627,13 +638,14 @@ fn apply_destination(
         return Ok(Vec::new());
     }
 
-    let affected = clear_lifecycle(mux, &request.tab_id, retain_empty_team)?;
+    let affected = clear_lifecycle(mux, &request.tab_id, retain_empty_team, reads)?;
     match &request.destination {
         AgentPlacement::Roleless => {}
         AgentPlacement::Worker {
             parent_tab_id,
             role_profile,
         } => {
+            reads.tab(parent_tab_id);
             refuse_parenting_under_general_agent(mux, Some(parent_tab_id.as_str()))?;
             mux.set_tab_role_kind(
                 &request.tab_id,
@@ -649,6 +661,9 @@ fn apply_destination(
             can_spawn,
         } => {
             let parent = resolved_manager_parent(request, plan_rebind, parent_tab_id)?;
+            if let Some(parent) = &parent {
+                reads.tab(parent);
+            }
             refuse_parenting_under_general_agent(mux, parent.as_deref())?;
             mux.set_tab_role_kind(
                 &request.tab_id,
@@ -692,11 +707,13 @@ fn clear_lifecycle(
     mux: &mut MultiplexerState,
     tab_id: &str,
     retain_empty_team: Option<&str>,
+    reads: &mut ReadSet,
 ) -> Result<Vec<String>, String> {
     let mut affected = vec![tab_id.to_string()];
     let mut cursor = 0;
     while cursor < affected.len() {
-        let children = mux.get_children_ids(&affected[cursor]);
+        reads.tab(&affected[cursor]);
+        let children = reads.children(mux, &affected[cursor]);
         for child in children {
             if !affected.contains(&child) {
                 affected.push(child);
@@ -704,7 +721,7 @@ fn clear_lifecycle(
         }
         cursor += 1;
     }
-    let old_teams: Vec<_> = affected
+    let old_teams: std::collections::HashSet<_> = affected
         .iter()
         .filter_map(|id| mux.get_tab(id).and_then(|tab| tab.team_id.clone()))
         .collect();
@@ -719,12 +736,7 @@ fn clear_lifecycle(
         }
     }
     for team_id in old_teams {
-        let remains_in_use = mux
-            .snapshot()
-            .tabs
-            .values()
-            .any(|tab| tab.team_id.as_deref() == Some(team_id.as_str()));
-        if !remains_in_use && retain_empty_team != Some(team_id.as_str()) {
+        if retain_empty_team != Some(team_id.as_str()) && !reads.team_in_use(mux, &team_id) {
             mux.remove_team(&team_id);
         }
     }

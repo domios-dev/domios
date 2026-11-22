@@ -50,7 +50,7 @@ impl RestartClaim {
         self.tracker.lock().last_restart.remove(&self.tab_id);
     }
 
-    fn begin_settling(&mut self) {
+    pub(in crate::service::agent_restart) fn begin_settling(&mut self) {
         let mut tracker = self.tracker.lock();
         *tracker
             .settling_restarts
@@ -117,6 +117,8 @@ pub(super) fn claim_restart_attempt(
             .get(tab_id)
             .is_some_and(|staged| staged.claimed);
     if state.in_progress.contains(tab_id)
+        || (admission != RestartAdmission::AutomaticRecovery
+            && state.settling_restarts.contains_key(tab_id))
         || (model_switch_running
             && admission != RestartAdmission::ModelSwitch
             && !(admission == RestartAdmission::AutomaticRecovery
@@ -406,6 +408,12 @@ impl AgentRestartExt for ServiceContext {
             .pty_ownership
             .acquire(&snap.tab_id)
             .map_err(AgentRestartError::BadRequest)?;
+        if mode == RestartMode::SkipExit && model_switch.is_none() {
+            if let Err(error) = self.require_failed_launch_recovery_current(&snap) {
+                restart_claim.release_cooldown();
+                return Err(error.into());
+            }
+        }
         if model_switch.is_some()
             && mode == RestartMode::Standard
             && !self.tab_is_idle(&snap.tab_id)
@@ -625,6 +633,14 @@ impl AgentRestartExt for ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             None,
         );
+        if mode == RestartMode::SkipExit && session_present && !provider_changed {
+            let mut mux = self.mux.write();
+            if let Some(tab) = mux.get_tab_mut(&snap.tab_id) {
+                if tab.agent_session_id.is_none() {
+                    tab.agent_session_id = snap.session_id.clone();
+                }
+            }
+        }
         crate::service::agent_lifecycle::timing::stage(
             &snap.tab_id,
             &snap.pty_id,

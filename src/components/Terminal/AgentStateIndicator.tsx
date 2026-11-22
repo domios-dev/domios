@@ -1,5 +1,5 @@
 import { runtimeActivityLabel } from "../../lib/agentRuntimeTiming";
-import { activityCommand, activityLabel, type ActivityTool } from "../../../packages/plugin-sdk/src/activityLabel";
+import { activityCommand, statusActivityLabel, type ActivityTool } from "../../../packages/plugin-sdk/src/activityLabel";
 import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
 import type { ReactNode } from "react";
 import { Square, Terminal, X } from "lucide-react";
@@ -38,6 +38,7 @@ export function AgentStateIndicator({
   onRebind,
   renderIdentity,
   showActivity = true,
+  suppressLastTurn = false,
   channelLoadingLabel,
   activeTool,
   recovery,
@@ -56,6 +57,7 @@ export function AgentStateIndicator({
   onRebind?: () => void;
   renderIdentity?: (label: string) => ReactNode;
   showActivity?: boolean;
+  suppressLastTurn?: boolean;
   channelLoadingLabel?: string;
   activeTool?: ActivityTool & { id?: string; sourceSessionId?: string };
   /** Shown only while the activity's failure offers a restart. */
@@ -69,12 +71,18 @@ export function AgentStateIndicator({
   const background = backgroundOwnsTool(activeTool, work.items);
   const compacting = phase === "compacting";
   const runningTool = activity.kind === "working" && !background && !compacting ? activeTool : undefined;
+  const rawCommandStatusLine = !runningTool && !background && !compacting && activity.kind === "working" && /[\\/]/.test(activity.label)
+    ? activity.label
+    : undefined;
   const statusMessage = background && activity.kind === "working" && !compacting
     ? activity.status
-    : runningTool ? activityLabel(runningTool) : activity.label;
+    : runningTool ? statusActivityLabel(runningTool)
+      : rawCommandStatusLine ? statusActivityLabel({ toolKind: "command", toolDetail: rawCommandStatusLine })
+        : activity.label;
   const stableMessage = useStableStatusLabel(statusMessage, compacting ? "compacting" : activity.kind, !runningTool && !background && activity.genericWork === true);
-  const status = compacting ? "" : runtimeActivityLabel(stableMessage, activity.kind, runtimeState, Date.now(), activity.lastTurnMs);
-  const detail = runningTool ? activityCommand(runningTool) : undefined;
+  const status = compacting ? "" : suppressLastTurn && activity.kind === "idle" ? stableMessage
+    : runtimeActivityLabel(stableMessage, activity.kind, runtimeState, Date.now(), activity.lastTurnMs);
+  const detail = runningTool ? activityCommand(runningTool) : rawCommandStatusLine;
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
     ? reasoningEffort.actual?.trim()
     : null;

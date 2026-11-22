@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import type { UsageSnapshot } from "../../types/usage";
 import {
   activeQuotaReset,
+  activeQuotaGroup,
   formatResetCountdown,
   nextQuotaResetTickMs,
   quotaPill,
+  quotaGroups,
   quotaReadDue,
   quotaReading,
   quotaResetPill,
@@ -29,6 +31,16 @@ assert.equal(pill.text, "13%", "the pill shows the model closest to its limit");
 assert.equal(pill.percent, 12.5);
 assert.ok(pill.label.includes("fixture-pro"), "the accessible name says which model that is");
 assert.ok(quotaPill(reading!, "Opaque stale cause").label.includes("Opaque stale cause"), "a kept reading names what stopped it moving");
+
+const mixed = quotaReading(row({ quota: { title: "Mixed", limits: [
+  {label: "3P 5h", used_percent: 98, resets_at: 6_000},
+  {label: "Gemini 5h", used_percent: 4, resets_at: null},
+  {label: "Gemini weekly", used_percent: 31, resets_at: 5_000},
+] } }))!;
+const groups = quotaGroups(mixed);
+assert.deepEqual(activeQuotaGroup(groups, "gemini-4-neon")?.metrics, [{key: "session", pct: 4}, {key: "weekly", pct: 31}]);
+assert.deepEqual(activeQuotaGroup(groups, "external/other", [{id: "external", label: "3P"}])?.metrics, [{key: "session", pct: 98}]);
+assert.equal(activeQuotaGroup(groups, "unknown"), null, "a different group never substitutes for an unknown model");
 
 assert.equal(quotaReadDue(null, 0), true, "the first read is always due");
 assert.equal(quotaReadDue(1_000, 1_000 + 59_999), false, "turn activity does not read faster than once a minute");

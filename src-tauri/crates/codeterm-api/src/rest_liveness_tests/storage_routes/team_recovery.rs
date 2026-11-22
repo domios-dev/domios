@@ -85,6 +85,13 @@ async fn team_takeover_unarchive_and_planner_lookup_release_mux_while_sql_is_hel
             if available && change_context {
                 if operation_kind == "planner" {
                     state.svc.mux.write().close_tab(&owner).unwrap();
+                } else if operation_kind == "unarchive" {
+                    state
+                        .svc
+                        .mux
+                        .write()
+                        .rename_team(&team, "Changed".into())
+                        .unwrap();
                 } else {
                     state
                         .svc

@@ -66,3 +66,38 @@ test.each([true, false])("every composer point accepts a drop once (web=%s)", as
     if (elementFromPoint) Object.defineProperty(document, "elementFromPoint", elementFromPoint); else delete (document as Partial<Document>).elementFromPoint;
   }
 });
+
+test("an empty WebKit preview can land as an item-only photo without a second upload", async () => {
+  fixture.web = true;
+  const upload = vi.fn<(files: File[]) => Promise<void>>(async () => {});
+  const showError = vi.fn();
+  function Surface() {
+    const { handlers } = useWebFileDrop(() => {}, showError, upload);
+    return <div {...handlers}><textarea aria-label="Composer" /></div>;
+  }
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<Surface />));
+    const field = host.querySelector("textarea")!;
+    const dispatch = async (type: string, transfer: object) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", { value: transfer });
+      await act(async () => field.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+    };
+    await dispatch("dragover", { types: [], items: [], files: [] });
+    expect(upload).not.toHaveBeenCalled();
+    const photo = new File(["pixels"], "photo");
+    await dispatch("drop", { types: ["public.jpeg"], items: [
+      { kind: "file", type: "public.jpeg", getAsFile: () => photo },
+    ], files: [] });
+    expect(upload).toHaveBeenCalledOnce();
+    expect(upload.mock.calls[0]?.[0]).toEqual([expect.objectContaining({ name: "photo.jpg" })]);
+    await dispatch("drop", { types: ["public.image"], items: [], files: [] });
+    expect(upload).toHaveBeenCalledOnce();
+    expect(showError).toHaveBeenCalledOnce();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

@@ -591,7 +591,9 @@ impl ServiceContext {
                     .is_some_and(super::lazy_restore::wake_on_open_eligible)
             })
         };
-        if let Some(target) = target {
+        if let Some(target) =
+            target.filter(|id| !super::restore_admission::owns_startup_restore(self, id))
+        {
             let service = self.clone();
             crate::async_runtime::spawn_blocking(move || {
                 if let Err(reason) = service.wake_tab_on_open(&target) {

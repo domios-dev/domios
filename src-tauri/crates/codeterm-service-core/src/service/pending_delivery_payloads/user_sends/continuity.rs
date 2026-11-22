@@ -5,6 +5,7 @@ pub(super) const MAX_RECEIPTS: usize = 256;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum ReceiptState {
     Failed,
+    Cancelled,
     Degraded,
     // A refusal of a written prompt never proved non-delivery; such receipts restore as uncertain.
     #[serde(alias = "RpcRefused")]
@@ -19,6 +20,8 @@ pub(crate) struct UserSendReceipt {
     pub(crate) client_token: Option<String>,
     pub(crate) ledger_sequence: u64,
     pub(crate) state: ReceiptState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) queue_edit: Option<queue::QueuedSendEdit>,
 }
 
 pub(crate) fn can_carry_held_send(record: &UserSendRecord, current: &UserSendAuthority) -> bool {
@@ -55,6 +58,7 @@ pub(super) fn retain_receipt(index: &mut UserIndex, record: &UserSendRecord, sta
         client_token: record.client_token.clone(),
         ledger_sequence: record.ledger_sequence,
         state,
+        queue_edit: record.edit.as_ref().map(|edit| edit.view.clone()),
     });
     if index.receipts.len() > MAX_RECEIPTS {
         index.receipts.drain(..index.receipts.len() - MAX_RECEIPTS);

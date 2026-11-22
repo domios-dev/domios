@@ -25,7 +25,7 @@ const TURN_ENDS_BEFORE_UNECHOED_RELEASE = 2;
 function tailWaitEnded(send: DeliverySend, state: DeliveryState, turnEnds: number): boolean {
   return Boolean(send.dismissed) || send.echo != null || state === "failed"
     || (Boolean(send.status?.system_send) && (state === "delivered" || send.status?.pending_reason !== ACTIVE_TURN_HOLD))
-    || (state === "delivered" && send.matchedRow?.source.record.kind === "structured")
+    || (state === "delivered" && (send.matchedRow ?? send.status?.matched_row)?.source.record.kind === "structured")
     || ((state === "uncertain" || state === "delivered") && turnEnds >= TURN_ENDS_BEFORE_UNECHOED_RELEASE);
 }
 

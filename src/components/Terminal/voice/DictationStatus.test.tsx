@@ -1,10 +1,13 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { __setInvokeForTest } from "../../../lib/bridge";
 import { createMuxStateStore } from "../../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../../store/multiplexer/context";
 import type { ExtendedState } from "../../../store/multiplexer/tree";
+import { getByRole } from "../../../test/semanticRoles";
 import { ComposerActions } from "../ComposerActions";
+import { clearDictationSetupHandoff } from "./DictationSetupPrompt";
 import { DictationPresence, DictationStatus } from "./DictationStatus";
 import {
   createDictationLevelChannel,
@@ -247,6 +250,368 @@ describe("DictationPresence and DictationStatus", () => {
       await act(async () => errorBubble.querySelector<HTMLButtonElement>('button[aria-label="Dismiss dictation error"]')!.click());
       expect(dismissError).toHaveBeenCalledOnce();
     } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
+function deferred<T = void>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function makeMuxState(
+  workspaces: ExtendedState["workspaces"],
+  tabs: ExtendedState["tabs"],
+  pendingCloses: string[] = [],
+): ExtendedState {
+  return {
+    workspaces,
+    tabs,
+    teams: [],
+    notifications: [],
+    tabStatuses: {},
+    toasts: [],
+    activeTabIds: {},
+    generation: 1,
+    pendingCloses,
+    active_workspace_id: null,
+    focused_tab_id: null,
+  } as ExtendedState;
+}
+
+function localGeneralState(overrides: Partial<ExtendedState["tabs"][string]> = {}, tabId = "general-1", workspaceId = "ws-general") {
+  return makeMuxState(
+    [{ id: workspaceId, name: "General", tabs: [tabId], active_tab_id: tabId, cwd: null, protected: true }],
+    {
+      [tabId]: {
+        id: tabId,
+        pty_id: `pty-${tabId}`,
+        tab_type: "Terminal",
+        title: "General",
+        cwd: null,
+        protected: true,
+        lifecycle_epoch: 1,
+        session_binding_nonce: `nonce-${tabId}`,
+        ...overrides,
+      },
+    },
+  );
+}
+
+function makeSetupDictation(dismissSetup: () => void): LiveDictation {
+  const channel = createDictationLevelChannel();
+  return {
+    phase: "idle",
+    error: null,
+    setup: "No local transcriber installed.",
+    start: async () => {},
+    stop: async () => {},
+    cancel: () => {},
+    finishThen: () => {},
+    compositionEnded: () => {},
+    dismissSetup,
+    dismissError: () => {},
+    active: () => false,
+    readLevel: channel.read,
+    subscribeLevel: channel.subscribe,
+  };
+}
+
+function renderComposerWithSetup(
+  store: ReturnType<typeof createMuxStateStore>,
+  dictation: LiveDictation,
+  draft = "Keep my draft",
+) {
+  return (
+    <MuxStateStoreContext.Provider value={store}>
+      <ComposerActions
+        onAttach={() => {}}
+        onSend={() => {}}
+        onSendWithAttachments={() => {}}
+        onError={() => {}}
+        sendDisabled={false}
+        hasText={draft.length > 0}
+        dictation={dictation}
+      >
+        <textarea aria-label="Message composer" defaultValue={draft} />
+      </ComposerActions>
+    </MuxStateStoreContext.Provider>
+  );
+}
+
+describe("DictationSetupPrompt General handoff", () => {
+  afterEach(() => {
+    __setInvokeForTest(null);
+    clearDictationSetupHandoff();
+    document.body.replaceChildren();
+  });
+
+  it("coalesces overlapping confirmations, preserves draft, and allows a later explicit request after completion", async () => {
+    const sends: Array<{ tabId: unknown; text: unknown }> = [];
+    const gates: Array<ReturnType<typeof deferred<unknown>>> = [];
+    __setInvokeForTest(async (cmd, args) => {
+      expect(cmd).toBe("chat_send_text");
+      sends.push({ tabId: args?.tabId, text: args?.text });
+      const gate = deferred<unknown>();
+      gates.push(gate);
+      return await gate.promise as never;
+    });
+
+    const focusEvents: Array<{ tabId?: string; workspaceId?: string }> = [];
+    const onFocus = (event: Event) => {
+      focusEvents.push((event as CustomEvent<{ tabId?: string; workspaceId?: string }>).detail);
+    };
+    window.addEventListener("codeterm:focus-tab", onFocus);
+
+    const state = localGeneralState();
+    const store = createMuxStateStore(() => state);
+    const dismissFirst = vi.fn();
+    const dismissSecond = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(renderComposerWithSetup(store, makeSetupDictation(dismissFirst), "Unsent composer draft")));
+      const button = getByRole(document.body, "button", "Set up with General") as HTMLButtonElement;
+
+      await act(async () => {
+        button.click();
+        button.click();
+      });
+      expect(sends).toHaveLength(1);
+      expect(sends[0].tabId).toBe("general-1");
+      expect(button.disabled).toBe(true);
+      expect(focusEvents).toHaveLength(0);
+      expect(dismissFirst).not.toHaveBeenCalled();
+
+      await act(async () => gates[0].resolve({ send_id: "s1", tab_id: "general-1", state: "delivered", error: null, ledger_id: "l1", sequence: 1, retained_from: 1 }));
+      expect(focusEvents).toEqual([{ tabId: "general-1", workspaceId: "ws-general" }]);
+      expect(dismissFirst).toHaveBeenCalledTimes(1);
+      const draft = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message composer"]')!;
+      expect(draft.value).toBe("Unsent composer draft");
+
+      await act(async () => root.render(renderComposerWithSetup(store, { ...makeSetupDictation(dismissFirst), setup: null }, "Unsent composer draft")));
+      await act(async () => root.render(renderComposerWithSetup(store, makeSetupDictation(dismissSecond), "Unsent composer draft")));
+      const retryButton = getByRole(document.body, "button", "Set up with General") as HTMLButtonElement;
+      await act(async () => retryButton.click());
+      expect(sends).toHaveLength(2);
+      expect(sends[1].tabId).toBe("general-1");
+
+      await act(async () => gates[1].resolve({ send_id: "s2", tab_id: "general-1", state: "held", error: null, ledger_id: "l1", sequence: 2, retained_from: 1 }));
+      expect(focusEvents).toEqual([
+        { tabId: "general-1", workspaceId: "ws-general" },
+        { tabId: "general-1", workspaceId: "ws-general" },
+      ]);
+      expect(dismissSecond).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("codeterm:focus-tab", onFocus);
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("coalesces remount while pending without duplicating requests and never applies stale focus after unmount", async () => {
+    const sends: Array<{ tabId: unknown }> = [];
+    const gates: Array<ReturnType<typeof deferred<unknown>>> = [];
+    __setInvokeForTest(async (cmd, args) => {
+      expect(cmd).toBe("chat_send_text");
+      sends.push({ tabId: args?.tabId });
+      const gate = deferred<unknown>();
+      gates.push(gate);
+      return await gate.promise as never;
+    });
+
+    const focusEvents: Array<{ tabId?: string; workspaceId?: string }> = [];
+    const onFocus = (event: Event) => {
+      focusEvents.push((event as CustomEvent<{ tabId?: string; workspaceId?: string }>).detail);
+    };
+    window.addEventListener("codeterm:focus-tab", onFocus);
+
+    const state = localGeneralState();
+    const store = createMuxStateStore(() => state);
+    const dismissMount1 = vi.fn();
+    const dismissMount2 = vi.fn();
+    const dismissMount3 = vi.fn();
+    const host1 = document.createElement("div");
+    const host2 = document.createElement("div");
+    document.body.append(host1, host2);
+    const root1 = createRoot(host1);
+    const root2 = createRoot(host2);
+    try {
+      await act(async () => root1.render(renderComposerWithSetup(store, makeSetupDictation(dismissMount1))));
+      await act(async () => getByRole(document.body, "button", "Set up with General").click());
+      expect(sends).toHaveLength(1);
+
+      await act(async () => root1.unmount());
+      await act(async () => root2.render(renderComposerWithSetup(store, makeSetupDictation(dismissMount2))));
+      const remountedButton = getByRole(document.body, "button", "Set up with General") as HTMLButtonElement;
+      await act(async () => remountedButton.click());
+      expect(sends).toHaveLength(1);
+      expect(remountedButton.disabled).toBe(true);
+
+      await act(async () => gates[0].resolve({ send_id: "s1", tab_id: "general-1", state: "written", error: null, ledger_id: "l1", sequence: 1, retained_from: 1 }));
+      expect(focusEvents).toEqual([{ tabId: "general-1", workspaceId: "ws-general" }]);
+      expect(dismissMount1).not.toHaveBeenCalled();
+      expect(dismissMount2).toHaveBeenCalledTimes(1);
+
+      await act(async () => root2.render(renderComposerWithSetup(store, makeSetupDictation(dismissMount3))));
+      await act(async () => getByRole(document.body, "button", "Set up with General").click());
+      expect(sends).toHaveLength(2);
+      await act(async () => root2.unmount());
+      await act(async () => gates[1].resolve({ send_id: "s2", tab_id: "general-1", state: "delivered", error: null, ledger_id: "l1", sequence: 2, retained_from: 1 }));
+      expect(focusEvents).toHaveLength(1);
+      expect(dismissMount3).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("codeterm:focus-tab", onFocus);
+      await act(async () => {
+        root1.unmount();
+        root2.unmount();
+      });
+      host1.remove();
+      host2.remove();
+    }
+  });
+
+  it("refuses foreign General tabs and prevents stale focus when local General authority is replaced mid-flight", async () => {
+    const sends: Array<{ tabId: unknown }> = [];
+    const gates: Array<ReturnType<typeof deferred<unknown>>> = [];
+    __setInvokeForTest(async (cmd, args) => {
+      expect(cmd).toBe("chat_send_text");
+      sends.push({ tabId: args?.tabId });
+      const gate = deferred<unknown>();
+      gates.push(gate);
+      return await gate.promise as never;
+    });
+
+    const focusEvents: Array<{ tabId?: string; workspaceId?: string }> = [];
+    const onFocus = (event: Event) => {
+      focusEvents.push((event as CustomEvent<{ tabId?: string; workspaceId?: string }>).detail);
+    };
+    window.addEventListener("codeterm:focus-tab", onFocus);
+
+    let currentState = makeMuxState(
+      [{ id: "ws-remote", name: "Peer General", tabs: ["mesh:peer-a/general"], active_tab_id: "mesh:peer-a/general", cwd: null, protected: true }],
+      {
+        "mesh:peer-a/general": {
+          id: "mesh:peer-a/general",
+          pty_id: null,
+          tab_type: "Terminal",
+          title: "General",
+          cwd: null,
+          protected: true,
+          remote_peer_id: "peer-a",
+          remote_tab_id: "general",
+        },
+      },
+    );
+    const store = createMuxStateStore(() => currentState);
+    const dismissFirst = vi.fn();
+    const dismissSecond = vi.fn();
+    const host1 = document.createElement("div");
+    const host2 = document.createElement("div");
+    document.body.append(host1, host2);
+    const root1 = createRoot(host1);
+    const root2 = createRoot(host2);
+    try {
+      await act(async () => root1.render(renderComposerWithSetup(store, makeSetupDictation(dismissFirst))));
+      await act(async () => getByRole(document.body, "button", "Set up with General").click());
+      expect(sends).toHaveLength(0);
+      expect(focusEvents).toHaveLength(0);
+      expect(dismissFirst).not.toHaveBeenCalled();
+      expect(document.querySelector('[role="alert"]')?.textContent).toContain("General Agent is not running");
+
+      currentState = localGeneralState({ lifecycle_epoch: 1, pty_id: "pty-1" }, "general-1", "ws-general");
+      await act(async () => getByRole(document.body, "button", "Set up with General").click());
+      expect(sends).toEqual([{ tabId: "general-1" }]);
+
+      currentState = localGeneralState({ lifecycle_epoch: 2, pty_id: "pty-2" }, "general-2", "ws-general");
+      await act(async () => root2.render(renderComposerWithSetup(store, makeSetupDictation(dismissSecond))));
+      const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).filter(
+        candidate => candidate.textContent?.trim() === "Set up with General",
+      );
+      expect(buttons).toHaveLength(2);
+      await act(async () => buttons[1].click());
+      expect(sends).toEqual([{ tabId: "general-1" }, { tabId: "general-2" }]);
+
+      await act(async () => gates[0].resolve({ send_id: "s1", tab_id: "general-1", state: "delivered", error: null, ledger_id: "l1", sequence: 1, retained_from: 1 }));
+      expect(focusEvents).toHaveLength(0);
+      expect(dismissFirst).not.toHaveBeenCalled();
+      expect(document.querySelector('[role="alert"]')?.textContent).toContain("General Agent changed");
+
+      await act(async () => gates[1].resolve({ send_id: "s2", tab_id: "general-2", state: "delivered", error: null, ledger_id: "l1", sequence: 1, retained_from: 1 }));
+      expect(focusEvents).toEqual([{ tabId: "general-2", workspaceId: "ws-general" }]);
+      expect(dismissSecond).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("codeterm:focus-tab", onFocus);
+      await act(async () => {
+        root1.unmount();
+        root2.unmount();
+      });
+      host1.remove();
+      host2.remove();
+    }
+  });
+
+  it("keeps refusal, failed delivery, and unconfirmed or malformed receipts truthful without automatic replay or dismissal", async () => {
+    const outcomes: Array<() => Promise<unknown>> = [
+      () => Promise.reject(new Error("General refused input")),
+      () => Promise.resolve({ send_id: "s1", tab_id: "general-1", state: "failed", error: "General session unavailable", ledger_id: "l1", sequence: 1, retained_from: 1 }),
+      () => Promise.resolve({ send_id: "s2", tab_id: "general-1", state: "submit_unconfirmed", error: null, ledger_id: "l1", sequence: 2, retained_from: 1 }),
+      () => Promise.resolve(undefined),
+      () => Promise.resolve({}),
+      () => Promise.resolve({ send_id: "s3", tab_id: "general-1", state: "unexpected_state", error: null, ledger_id: "l1", sequence: 3, retained_from: 1 }),
+    ];
+    let calls = 0;
+    __setInvokeForTest(async (cmd) => {
+      expect(cmd).toBe("chat_send_text");
+      const next = outcomes[calls++];
+      if (!next) throw new Error("Unexpected automatic replay");
+      return await next() as never;
+    });
+
+    const focusEvents: Event[] = [];
+    const onFocus = (event: Event) => focusEvents.push(event);
+    window.addEventListener("codeterm:focus-tab", onFocus);
+
+    const state = localGeneralState();
+    const store = createMuxStateStore(() => state);
+    const dismissSetup = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(renderComposerWithSetup(store, makeSetupDictation(dismissSetup))));
+
+      await act(async () => getByRole(document.body, "button", "Set up with General").click());
+      expect(calls).toBe(1);
+      expect(document.querySelector('[role="alert"]')?.textContent).toBe("General refused input");
+      expect(dismissSetup).not.toHaveBeenCalled();
+      expect(focusEvents).toHaveLength(0);
+
+      await act(async () => getByRole(document.body, "button", "Set up with General").click());
+      expect(calls).toBe(2);
+      expect(document.querySelector('[role="alert"]')?.textContent).toBe("General session unavailable");
+      expect(dismissSetup).not.toHaveBeenCalled();
+      expect(focusEvents).toHaveLength(0);
+
+      for (const expectedCall of [3, 4, 5, 6]) {
+        await act(async () => getByRole(document.body, "button", "Set up with General").click());
+        expect(calls).toBe(expectedCall);
+        const alertText = document.querySelector('[role="alert"]')?.textContent ?? "";
+        expect(alertText).toMatch(/unconfirmed|could not be confirmed/i);
+        expect(alertText).toContain("may have reached General");
+        expect(dismissSetup).not.toHaveBeenCalled();
+        expect(focusEvents).toHaveLength(0);
+      }
+    } finally {
+      window.removeEventListener("codeterm:focus-tab", onFocus);
       await act(async () => root.unmount());
       host.remove();
     }

@@ -471,6 +471,78 @@ fn in_place_readiness_is_the_relaunch_reaching_agent_ready() {
 }
 
 #[test]
+fn restored_starting_shell_recovery_requires_the_same_pty_and_idle_prompt() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = format!("recovery-shell-{}", uuid::Uuid::new_v4());
+    mux.link_pty(&tab_id, pty_id.clone());
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.boot_stage = Some(BootStage::PtyStarting);
+        tab.restored_from_snapshot = true;
+        tab.shell_integration_nonce = Some("recovery-shell-nonce".into());
+    }
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let service = &fixture.service;
+    let gate = service.pty.lock().spawn_gate();
+    let built =
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).unwrap();
+    service
+        .pty
+        .lock()
+        .register_session(Some(pty_id.clone()), built);
+    let shell = service.exited_shell(&tab_id, None).unwrap();
+    let snap = TabRestartSnapshot {
+        tab_id: tab_id.clone(),
+        pty_id: pty_id.clone(),
+        provider: "fixture-provider".into(),
+        target_provider: None,
+        session_id: Some("own-session".into()),
+        cwd: None,
+        auto_approve: false,
+        role: None,
+        role_profile: None,
+        handoff_history: None,
+    };
+
+    service
+        .retire_exited_shell_stage(&snap, &shell, None)
+        .unwrap();
+    assert_eq!(
+        service.mux.read().get_tab(&tab_id).unwrap().boot_stage,
+        Some(BootStage::PtyStarting)
+    );
+
+    service.process_pty_output(
+        &pty_id,
+        b"\x1b]633;E;opaque-provider;recovery-shell-nonce\x07\x1b]633;D;0\x07\x1b]633;A\x07",
+    );
+    service
+        .retire_exited_shell_stage(&snap, &shell, None)
+        .unwrap();
+    assert_eq!(
+        service.mux.read().get_tab(&tab_id).unwrap().boot_stage,
+        Some(BootStage::ShellReady)
+    );
+
+    service.mux.write().get_tab_mut(&tab_id).unwrap().pty_id = Some("replacement-shell".into());
+    assert!(service
+        .retire_exited_shell_stage(&snap, &shell, None)
+        .unwrap_err()
+        .contains("changed its shell"));
+    assert_eq!(
+        service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .pty_id
+            .as_deref(),
+        Some("replacement-shell")
+    );
+    service.pty.lock().kill(&pty_id).unwrap();
+}
+
+#[test]
 fn plain_shell_without_a_live_pty_is_refused_before_acceptance() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);

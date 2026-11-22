@@ -24,7 +24,7 @@ pub fn verify_respawn_lane(
         return Err("respawn source attempt does not belong to the task".into());
     }
     if !respawn_requires_git_lane(
-        &task.dispatch_intent,
+        &draft.execution_intent,
         task.execution_intent,
         task.lane.worktree_path.as_deref(),
         draft.source_attempt.worktree_path.as_deref(),
@@ -42,7 +42,7 @@ pub fn verify_respawn_lane(
         &draft.cwd,
         task.lane.branch.as_deref(),
         task.lane.base.as_deref(),
-        LaneProtection::for_dispatch_intent(&task.dispatch_intent),
+        LaneProtection::for_dispatch_intent(&draft.execution_intent),
     )
     .map(Some)
 }

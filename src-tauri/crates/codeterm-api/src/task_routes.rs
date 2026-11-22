@@ -143,6 +143,7 @@ pub async fn list(
     headers: HeaderMap,
     Query(q): Query<ListTasksQuery>,
 ) -> TaskRouteResult {
+    let _permit = crate::plan_routes::acquire_plan_blocking_permit().await?;
     tokio::task::spawn_blocking(move || {
         let caller = header_tab(&headers);
         let mine = q.mine == Some(true);
@@ -184,6 +185,7 @@ pub async fn list(
 }
 
 pub async fn show(State(state): State<AppState>, Path(id): Path<String>) -> TaskRouteResult {
+    let _permit = crate::plan_routes::acquire_plan_blocking_permit().await?;
     tokio::task::spawn_blocking(move || {
         let task = state
             .svc

@@ -250,9 +250,6 @@ fn decide_launch_input(
     observation: LaunchInputObservation,
     mode: LaunchInputMode,
 ) -> Result<Option<LaunchInputEvidence>, LaunchInputRefusal> {
-    if mode == LaunchInputMode::LazySessionStart && observation.provider_busy {
-        return Ok(None);
-    }
     if observation.directory_trust_prompt || observation.directory_trust_pending {
         return Ok(None);
     }
@@ -278,6 +275,9 @@ fn decide_launch_input(
             LaunchInputMode::Standard => Err(refusal),
             LaunchInputMode::LazySessionStart => Ok(None),
         };
+    }
+    if mode == LaunchInputMode::LazySessionStart && observation.provider_busy {
+        return Ok(None);
     }
     let lazy_tui_live = observation.provider_process_alive || observation.composer_ready;
     if mode == LaunchInputMode::LazySessionStart && !lazy_tui_live {
@@ -419,9 +419,8 @@ impl ServiceContext {
     ) -> Result<LaunchInputEvidence, LaunchInputRefusal> {
         let mut diagnostic = LaunchInputDiagnostic::new(attempt, mode, timeout);
         let signal = self.screen_state.arm_screen_change_signal(&attempt.pty_id);
-        let _input_wake = (mode == LaunchInputMode::LazySessionStart).then(|| {
-            crate::service::launch_readiness::register_input_wake(attempt, signal.clone())
-        });
+        let _input_wake =
+            crate::service::launch_readiness::register_input_wake(attempt, signal.clone());
         let started = Instant::now();
         let deadline = started + timeout;
         let mut generation = signal.generation();

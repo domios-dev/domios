@@ -161,17 +161,32 @@ impl ServiceContext {
     /// The tab's provider ran its own session-start hook carrying this launch's
     /// binding nonce. A launch held only for that report becomes ready now.
     pub fn observe_session_start_hook(&self, tab_id: &str, binding_nonce: &str) {
-        self.session_start_hooks()
-            .tabs
-            .lock()
-            .entry(tab_id.to_string())
-            .or_default()
-            .reported_nonce = Some(binding_nonce.to_string());
-        let Some((attempt, _)) = self.input_attach_candidate(tab_id) else {
+        let Some((attempt, _)) = self
+            .input_attach_candidate(tab_id)
+            .filter(|(attempt, _)| attempt.binding_nonce == binding_nonce)
+        else {
             return;
         };
+        {
+            let mux = self.mux.read();
+            if !mux
+                .get_tab(tab_id)
+                .is_some_and(|tab| super::launch_readiness::attempt_owns_tab(tab, &attempt))
+            {
+                return;
+            }
+            self.session_start_hooks()
+                .tabs
+                .lock()
+                .entry(tab_id.to_string())
+                .or_default()
+                .reported_nonce = Some(binding_nonce.to_string());
+        }
+        self.screen_state
+            .arm_screen_change_signal(&attempt.pty_id)
+            .mark_changed();
         let held = WATCHING.lock().contains(&attempt);
-        if attempt.binding_nonce == binding_nonce && held && self.attempt_awaits_ready(&attempt) {
+        if held && self.attempt_awaits_ready(&attempt) {
             self.emit_boot_stage(tab_id, BootStage::AgentReady, None);
         }
     }

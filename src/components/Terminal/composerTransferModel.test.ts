@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractTransferFiles, imageUploadName, isFileTransfer, planFileDrop } from "./composerTransferModel";
+import { extractTransferFiles, identifyOpaqueImage, imageUploadName, isFileTransfer, planFileDrop } from "./composerTransferModel";
 
 test("iOS items-only JPEG drop extracts one file despite an empty files list", () => {
   const photo = new File(["pixels"], "photo", { type: "image/jpeg" });
@@ -32,6 +32,28 @@ test("HEIC and unreadable photo drags are recognized for cancellation and visibl
   }
   assert.equal(imageUploadName("photo.heic", "image/heic"), "photo.heic");
   assert.equal(imageUploadName("photo.heic", ""), "photo.heic");
+});
+
+test("an image type on the drop item names an opaque Safari file only once", () => {
+  const bytes = new File(["pixels"], "image.bin");
+  const item = { kind: "file", type: "public.heic", getAsFile: () => bytes };
+  const result = planFileDrop({ files: [bytes], items: [item], types: ["Files"] });
+  assert.deepEqual(result.files.map(file => file.name), ["image.heic"]);
+  assert.equal(result.files[0].size, bytes.size);
+  assert.equal(result.error, null);
+  const unreadable = planFileDrop({ types: ["public.jpeg"], items: [
+    { ...item, getAsFile: () => { throw new Error("external data withdrawn"); } },
+  ] });
+  assert.equal(unreadable.files.length, 0);
+  assert.ok(unreadable.error);
+});
+
+test("a generic image UTI accepts known file bytes and refuses unreadable images", async () => {
+  const data = { types: ["public.image"], files: [new File([new Uint8Array([0xff, 0xd8, 0xff])], "photo")] };
+  const drop = planFileDrop(data);
+  assert(drop.needsImageType);
+  assert.equal((await identifyOpaqueImage(drop.files[0]))?.name, "photo.jpg");
+  assert.equal(await identifyOpaqueImage(new File(["unreadable"], "photo")), null);
 });
 
 test("image URL drops refuse visibly without navigating; all composer drops cancel navigation", () => {

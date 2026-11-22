@@ -179,7 +179,7 @@ pub async fn task_respawn(
         plan.canonical_project_path.clone()
     };
     let lane_protection = codeterm_service_core::service::LaneProtection::for_dispatch_intent(
-        &original_task.dispatch_intent,
+        &draft.execution_intent,
     );
     let verify_draft = draft.clone();
     let verify_canonical_cwd = canonical_cwd.clone();

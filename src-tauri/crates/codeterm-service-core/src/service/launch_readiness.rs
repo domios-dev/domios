@@ -15,6 +15,7 @@ use std::time::Instant;
 mod first_turn;
 mod wait;
 pub(crate) use first_turn::note_first_turn_input_ready;
+pub(crate) use wait::{note_acknowledged, record_shell_dispatch, shell_dispatch_matches};
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
@@ -333,6 +334,7 @@ struct Armed {
     exit_claimed: bool,
     cron_run: bool,
     launch_issued: bool,
+    shell_dispatch: Option<String>,
     /// A verdict already published for this attempt. Kept so the launch thread
     /// can see it and never claims ready over a launch known to be gone.
     failure: Option<String>,
@@ -539,6 +541,7 @@ fn arm_inner(
             exit_claimed: false,
             cron_run,
             launch_issued: false,
+            shell_dispatch: None,
             failure: None,
             owner_prompt,
             prompt_revision: 0,
@@ -604,12 +607,6 @@ pub(crate) fn suspect_exit(
         .suspected_exit
         .get_or_insert_with(|| (exit_code, proof.clone()));
     true
-}
-
-pub(crate) fn note_acknowledged(tab_id: &str, pty_id: &str, binding_nonce: &str) -> bool {
-    note(tab_id, pty_id, LaunchEvidence::Acknowledged, |attempt| {
-        attempt.binding_nonce == binding_nonce
-    })
 }
 
 pub(crate) fn owner_prompt_pending(tab_id: &str, question: &str) {
@@ -710,10 +707,7 @@ pub(crate) fn owner_prompt_is_active(tab_id: &str) -> bool {
 
 /// Take this tab's launch for an exit observed right now. One lock does the
 /// whole claim, so the observer waiting on this launch cannot take it away
-/// mid-claim. It asks nothing of the shell's reported command line: the
-/// observation is already bound to one PTY and one launch nonce, and a shell
-/// that reports an empty command line is the ordinary case, not a foreign
-/// command. An acknowledged or already-failed launch is refused.
+/// mid-claim. An acknowledged or already-failed launch is refused.
 fn claim_exit(
     tab_id: &str,
     pty_id: Option<&str>,
@@ -827,10 +821,6 @@ fn observe_with_owner_prompt(
         if &observed.attempt != attempt || observed.failure.is_some() {
             return LaunchObservation::Retired;
         }
-        if let Some(evidence) = observed.evidence.take() {
-            state.armed.remove(&attempt.tab_id);
-            return LaunchObservation::Evidence(evidence);
-        }
         if last_revision != Some(observed.prompt_revision) {
             last_revision = Some(observed.prompt_revision);
             let prompt = observed.owner_prompt.clone();
@@ -848,6 +838,12 @@ fn observe_with_owner_prompt(
             // A clear or acknowledgement noted while unlocked already notified; re-check it.
             continue;
         }
+        if observed.owner_prompt.is_none() {
+            if let Some(evidence) = observed.evidence.take() {
+                state.armed.remove(&attempt.tab_id);
+                return LaunchObservation::Evidence(evidence);
+            }
+        }
         let deadline = owner_deadline.unwrap_or(normal_deadline);
         if OBSERVATIONS
             .changed
@@ -859,7 +855,8 @@ fn observe_with_owner_prompt(
                 .get(&attempt.tab_id)
                 .filter(|observed| &observed.attempt == attempt)
                 .is_some_and(|observed| {
-                    observed.evidence.is_some() || Some(observed.prompt_revision) != last_revision
+                    (observed.evidence.is_some() && observed.owner_prompt.is_none())
+                        || Some(observed.prompt_revision) != last_revision
                 })
             {
                 continue;

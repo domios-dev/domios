@@ -1,13 +1,15 @@
 import { useState, type ReactNode } from "react";
 import { UpdateTray } from "./UpdateTray";
 import { GearIcon } from "../Icons";
+import { Ellipsis } from "lucide-react";
 import { DropdownMenu, type DropdownMenuEntry } from "../shared/DropdownMenu";
 import { UI_TRAY_BTN } from "../shared/design";
 import { SETTINGS_SECTIONS, type SectionId } from "../Settings/sections";
 import { usePwaInstallOffer } from "../../lib/pwaInstallOffer";
 
 interface SettingsMenuProps {
-  onOpenSection: (section?: SectionId) => void;
+  onOpenSection?: (section?: SectionId) => void;
+  overflowActions?: DropdownMenuEntry[];
   /** Sits between the gear and the update control, e.g. the account circle. */
   afterGear?: ReactNode;
 }
@@ -16,10 +18,10 @@ interface SettingsMenuProps {
  * Gear button in the titlebar tray that opens the settings menu.
  * Each row deep-links into the full settings panel at that section.
  */
-export function SettingsMenu({ onOpenSection, afterGear }: SettingsMenuProps) {
+export function SettingsMenu({ onOpenSection, afterGear, overflowActions }: SettingsMenuProps) {
   const [open, setOpen] = useState(false);
   const installOffer = usePwaInstallOffer();
-  const items: DropdownMenuEntry[] = SETTINGS_SECTIONS.map((s) => {
+  const settings: DropdownMenuEntry[] = onOpenSection ? SETTINGS_SECTIONS.map((s) => {
     const Icon = s.icon;
     return {
       label: s.label,
@@ -28,19 +30,24 @@ export function SettingsMenu({ onOpenSection, afterGear }: SettingsMenuProps) {
       onClick: () => onOpenSection(s.id),
       "data-testid": `settings-menu-${s.id}`,
     };
-  });
+  }) : [];
   if (installOffer) {
-    items.push({ separator: true, key: "pwa-install" });
-    items.push(installOffer.kind === "prompt"
+    if (settings.length) settings.push({ separator: true, key: "pwa-install" });
+    settings.push(installOffer.kind === "prompt"
       ? { label: "Install Domios", description: installOffer.description, onClick: () => void installOffer.install?.(), "data-testid": "settings-menu-install-domios" }
       : { label: "Add to Home Screen", description: installOffer.description, unavailable: true, "data-testid": "settings-menu-install-domios" });
-    items.push({ label: "Do not show again", onClick: installOffer.dismiss, "data-testid": "settings-menu-dismiss-install" });
+    settings.push({ label: "Do not show again", onClick: installOffer.dismiss, "data-testid": "settings-menu-dismiss-install" });
   }
+  const mobile = overflowActions !== undefined;
+  const menuLabel = mobile ? "More actions" : "Settings";
+  const items: DropdownMenuEntry[] = overflowActions && settings.length
+    ? [...overflowActions, { label: "Settings", icon: <GearIcon size={14} />, submenu: { label: "Settings", items: settings } }]
+    : overflowActions ?? settings;
 
   const gear = (className: string) => (
     <DropdownMenu
       items={items}
-      menuLabel="Settings"
+      menuLabel={menuLabel}
       menuTestId="settings-menu"
       onOpenChange={setOpen}
       className="flex"
@@ -48,12 +55,13 @@ export function SettingsMenu({ onOpenSection, afterGear }: SettingsMenuProps) {
         <button
           type="button"
           data-testid="titlebar-settings"
-          title="Settings"
+          title={menuLabel}
+          aria-label={menuLabel}
           aria-haspopup="menu"
           aria-expanded={open}
           className={className}
         >
-          <GearIcon size={15} className={open ? "rotate-45 transition-transform" : "transition-transform"} />
+          {mobile ? <Ellipsis size={16} aria-hidden /> : <GearIcon size={15} className={open ? "rotate-45 transition-transform" : "transition-transform"} />}
         </button>
       }
     />
@@ -62,6 +70,6 @@ export function SettingsMenu({ onOpenSection, afterGear }: SettingsMenuProps) {
   return <div className="flex items-center gap-1">
     {gear(`${UI_TRAY_BTN} ${open ? "bg-[var(--ct-hover)] text-[var(--ct-fg)]" : ""}`)}
     {afterGear}
-    <UpdateTray />
+    {onOpenSection && <UpdateTray />}
   </div>;
 }

@@ -1034,7 +1034,7 @@ fn racing_worker_placement(
     let mut preparations = 0;
     let result = fixture.service.transition_agent_prepared_at(
         1,
-        |_, _| {
+        |_, _, _| {
             preparations += 1;
             if preparations <= racing_preparations {
                 fixture
@@ -1091,4 +1091,35 @@ fn prepared_transition_refuses_after_bounded_concurrent_conflicts() {
     let mux = fixture.service.mux.read();
     assert_eq!(mux.get_tab(&target).unwrap().role, None);
     assert_eq!(mux.get_tab(&target).unwrap().parent_tab_id, None);
+}
+
+#[test]
+fn prepared_no_diff_rechecks_caller_reads_and_accepts_unrelated_closes() {
+    let (fixture, owner, target) = race_fixture();
+    let mut attempts = 0;
+    let (_, _, depth) = fixture
+        .service
+        .transition_agent_prepared_with_at(
+            1,
+            |mux, _, reads| {
+                attempts += 1;
+                reads.tab(&owner);
+                let depth = mux.get_tab(&owner).unwrap().depth;
+                let mut live = fixture.service.mux.write();
+                match attempts {
+                    1 => live.get_tab_mut(&owner).unwrap().depth += 1,
+                    2 => {
+                        live.close_tab(&target)?;
+                    }
+                    _ => panic!("unrelated close invalidated preparation"),
+                }
+                Ok((None, depth))
+            },
+            TransitionFailurePoint::None,
+        )
+        .unwrap();
+    assert_eq!(attempts, 2);
+    let live = fixture.service.mux.read();
+    assert_eq!(depth, live.get_tab(&owner).unwrap().depth);
+    assert!(live.get_tab(&target).is_none());
 }

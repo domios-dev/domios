@@ -83,20 +83,28 @@ impl Process {
     }
 
     pub(super) async fn begin_turn(&self) -> Result<(), RuntimeFailure> {
-        let members = self.observe().await?;
+        let Some(boundary) = self.boundary.clone() else {
+            return Ok(());
+        };
+        let first = !self.first_turn_started.load(Ordering::Acquire);
+        let (members, extra) = tokio::task::spawn_blocking(move || {
+            let members = boundary.snapshot()?;
+            let extra = if first {
+                boundary.baseline_identities().unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            Ok::<_, RuntimeFailure>((members, extra))
+        })
+        .await
+        .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))??;
         if !self.first_turn_started.swap(true, Ordering::AcqRel) {
-            let mut baseline_ids: Vec<(u32, u128)> = members
-                .iter()
-                .map(|member| (member.pid, member.token()))
-                .collect();
-            if let Some(boundary) = self.boundary.clone() {
-                if let Ok(Ok(extra)) =
-                    tokio::task::spawn_blocking(move || boundary.baseline_identities()).await
-                {
-                    baseline_ids.extend(extra);
-                }
-            }
-            self.session_baseline.lock().extend(baseline_ids);
+            self.session_baseline.lock().extend(
+                members
+                    .iter()
+                    .map(|member| (member.pid, member.token()))
+                    .chain(extra),
+            );
         }
         *self.turn_members.lock() = members;
         Ok(())

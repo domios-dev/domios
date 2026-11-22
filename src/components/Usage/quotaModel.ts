@@ -1,5 +1,8 @@
 import {usageField, usageRecord} from "./usageDetailsModel";
 import type { UsageLatestView } from "../../types/usage";
+import { modelGroupForId } from "../../lib/modelGroups";
+import type { ModelGroup } from "../../lib/types";
+import type { VisibleUsageMetric } from "./metrics";
 
 /** A pill with nothing to read shows a quiet dash; the reason stays in its accessible name and popover. */
 export function unavailablePill(reason: string): { text: string; label: string } {
@@ -9,6 +12,7 @@ export function unavailablePill(reason: string): { text: string; label: string }
 export interface QuotaLimit { label: string; usedPercent: number; resetsAt: number | null }
 export interface QuotaReading { title: string; limits: QuotaLimit[] }
 export interface QuotaResetReading { resetsAt: number; observedAt: number | null; reason: string | null }
+export interface QuotaGroup { label: string; limits: QuotaLimit[]; metrics: Pick<VisibleUsageMetric, "key" | "pct">[] }
 
 const QUOTA_READ_INTERVAL_MS = 60_000;
 const MINUTE_MS = 60_000;
@@ -35,6 +39,38 @@ export function quotaPill(reading: QuotaReading, failure: string | null): { text
   const closest = reading.limits.reduce((top, limit) => limit.usedPercent > top.usedPercent ? limit : top);
   const text = `${Math.round(closest.usedPercent)}%`;
   return { text, percent: closest.usedPercent, label: `usage limits ${text} used on ${closest.label}${failure ? `, last read failed: ${failure}` : ""}` };
+}
+
+export function quotaGroups(reading: QuotaReading): QuotaGroup[] {
+  const groups = new Map<string, QuotaGroup>();
+  for (const limit of reading.limits) {
+    const bucket = /^(.+) (5h|weekly)$/i.exec(limit.label);
+    if (!bucket) continue;
+    const [, label, window] = bucket;
+    const id = label.toLowerCase();
+    const group = groups.get(id) ?? { label, limits: [], metrics: [] };
+    group.limits.push(limit);
+    const key = window.toLowerCase() === "5h" ? "session" : "weekly";
+    if (!group.metrics.some(metric => metric.key === key)) group.metrics.push({ key, pct: limit.usedPercent });
+    groups.set(id, group);
+  }
+  return [...groups.values()].map(group => ({
+    ...group,
+    metrics: [...group.metrics].sort((a, b) => a.key.localeCompare(b.key)),
+  }));
+}
+
+export function activeQuotaGroup(groups: QuotaGroup[], modelId?: string | null, modelGroups?: ModelGroup[]): QuotaGroup | null {
+  if (!modelId) return groups.length === 1 ? groups[0] : null;
+  const declared = modelGroupForId(modelGroups, modelId);
+  const model = modelId.slice(modelId.lastIndexOf("/") + 1).toLowerCase();
+  const key = (label: string) => label.toLowerCase().replace(/\s+/g, "-");
+  if (declared) {
+    const group = groups.find(group => key(group.label) === key(declared.id) || key(group.label) === key(declared.label));
+    if (group) return group;
+  }
+  const matches = groups.filter(group => model === key(group.label) || model.startsWith(`${key(group.label)}-`));
+  return matches.length === 1 ? matches[0] : null;
 }
 
 /** Reads follow the mount and the session's own activity, at most once a minute; nothing polls. */

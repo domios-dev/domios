@@ -151,6 +151,159 @@ module.exports = {
 };
 "#;
 
+#[test]
+fn warm_envelope_writes_once_after_gate_release_while_other_provisioning_is_held() {
+    use crate::service::{messenger::Delivery, provider_accounts::provisioning};
+    use codeterm_plugin::agent_runtime::AgentRuntimeEvent;
+    use codeterm_types::agent::chat_types::ChatMsg;
+
+    let (fixture, tab, peer, _cleanup) =
+        engine::test_support::runtime_fixture_turn_scoped(TURN_SCOPED_SOURCE);
+    let svc = &fixture.service;
+    let session = ready_session(svc, &tab).expect("fixture must have a retained ready session");
+    let context = session.context.lock().clone();
+    let thread = context.thread_id.unwrap();
+    let owner = svc.pending_delivery_payloads.user_sends.tab(&tab);
+
+    let (release, held) = std::sync::mpsc::channel();
+    let observation = provisioning::start(svc, move || {
+        held.recv_timeout(Duration::from_secs(10))
+            .map_err(|error| error.to_string())?;
+        Ok(None)
+    })
+    .unwrap();
+    let frame = Messenger::from(MessageEnvelope::default()).framed_delivery("opaque warm payload");
+    let token = "opaque-warm-envelope";
+    let send = || super::super::envelope_delivery::send(svc, &tab, &frame, token, None).unwrap();
+    let gate = session.gate.try_acquire().unwrap();
+    owner.running.store(true, Ordering::Release);
+    let Delivery::Pending { delivery_id } = send() else {
+        panic!("an unavailable session gate must leave the durable envelope queued");
+    };
+    owner.running.store(false, Ordering::Release);
+    assert!(owner.waiting_for_runtime_gate.load(Ordering::Acquire));
+    assert!(owner.runtime_drain.try_acquire().is_ok());
+    let mut peer = BufReader::new(peer);
+    assert!(matches!(
+        Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(Waker::noop())),
+        Poll::Pending
+    ));
+    drop(gate);
+
+    let request: Value = crate::async_runtime::block_on(async {
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(3), peer.read_line(&mut line))
+            .await
+            .expect("permit release must wake the owner and write while provisioning is held")
+            .unwrap();
+        let _gate = tokio::time::timeout(Duration::from_secs(3), session.gate.acquire())
+            .await
+            .expect("writer acknowledgement must release the session gate before provider reply")
+            .unwrap();
+        serde_json::from_str(&line).unwrap()
+    });
+    assert_eq!(request["method"], "fixture/submit");
+    assert_eq!(request["params"]["sendId"], delivery_id);
+    assert_eq!(
+        svc.chat_send_ledger.status(&delivery_id).unwrap().state,
+        ChatSendState::Written
+    );
+    assert!(matches!(
+        send(),
+        Delivery::ChatBackend { message_id } if message_id == delivery_id
+    ));
+    assert!(matches!(
+        Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(Waker::noop())),
+        Poll::Pending
+    ));
+
+    let evidence = |thread_id: String| AgentRuntimeEvent::SendEvidence {
+        thread_id,
+        send_id: delivery_id.clone(),
+        turn_id: delivery_id.clone(),
+        item_id: Some("own-user-row".into()),
+    };
+    assert!(
+        crate::async_runtime::block_on(super::super::subscriber::publish_events(
+            svc,
+            &session,
+            context.epoch,
+            vec![evidence("foreign-thread".into())],
+            1,
+        ))
+        .is_err()
+    );
+    assert_eq!(
+        svc.chat_send_ledger.status(&delivery_id).unwrap().state,
+        ChatSendState::Written
+    );
+    let wire_text = request["params"]["text"].as_str().unwrap().to_owned();
+    crate::async_runtime::block_on(super::super::subscriber::publish_events(
+        svc,
+        &session,
+        context.epoch,
+        vec![
+            AgentRuntimeEvent::ChatItem {
+                thread_id: thread.clone(),
+                item: ChatMsg {
+                    id: "own-user-row".into(),
+                    kind: "user".into(),
+                    content: wire_text,
+                    ..Default::default()
+                },
+            },
+            evidence(thread),
+        ],
+        2,
+    ))
+    .unwrap();
+    assert_eq!(
+        svc.chat_send_ledger.status(&delivery_id).unwrap().state,
+        ChatSendState::Sent
+    );
+    release.send(()).unwrap();
+    observation.wait_blocking(Duration::from_secs(2)).unwrap();
+}
+
+#[test]
+fn selected_send_refuses_a_replaced_epoch_without_writing() {
+    use crate::service::{
+        delivery_error::DeliveryError,
+        messenger::{AgentInput, HumanInput},
+    };
+
+    let (fixture, tab, peer, _cleanup) = engine::test_support::runtime_fixture();
+    let svc = &fixture.service;
+    let session = ready_session(svc, &tab).unwrap();
+    let context = session.context.lock().clone();
+    let gate = session.gate.try_acquire().unwrap();
+    let payload = "opaque stale claim";
+    let record = admit_plain(svc, &tab, payload);
+    session.context.lock().epoch += 1;
+    let result = transport::send_selected(
+        svc,
+        &tab,
+        &AgentInput::Human(HumanInput::composer(payload)),
+        &record.send_id,
+        &session,
+        &context,
+        gate,
+    );
+    let error = result.unwrap_err();
+    assert!(matches!(error, DeliveryError::TabBusyRefused { .. }));
+    assert!(!error.bytes_written());
+    assert_eq!(
+        svc.chat_send_ledger.status(&record.send_id).unwrap().state,
+        ChatSendState::Pending
+    );
+    assert!(!svc.chat_send_ledger.has_rpc_handoff(&record.send_id));
+    let mut peer = BufReader::new(peer);
+    assert!(matches!(
+        Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(Waker::noop())),
+        Poll::Pending
+    ));
+}
+
 fn admit_plain(
     svc: &ServiceContext,
     tab: &str,

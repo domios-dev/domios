@@ -37,6 +37,8 @@ Neither route promises the recipient *answered*. Replies come through the sender
 | GET | `/api/tabs/{id}/chat-send` | — | This tab's chat-send ledger (`ChatSendStatus[]`), including submitted socket user sends admitted by the same owner; states and reconciliation: API-CHAT. |
 | GET | `/api/tabs/{id}/chat-send/dismissals` | — | Durable dismissal receipts `{send_id, send}[]`. Clients keep hidden send correlations to consume later echoes without restoring dismissed rows. |
 | POST | `/api/tabs/{id}/chat-send/dismissals` | `{send_id, send:{id, correlationId, content, sentAtMs, echo?}}` | Delete a retained undelivered user bubble. Cancels queued input atomically against claim; a claimed or written send is only dismissed. Returns the durable receipt. Delivered and system sends are refused; never replays input. |
+| GET | `/api/tabs/{id}/chat-send/queue` | — | Read editable held chat-send queue items, claimed send IDs, and committed queue edits for this tab. |
+| POST | `/api/tabs/{id}/chat-send/queue` | `{sendId, correlationId, version, action:"cancel"\|"append", text?}` | Cancel or append to an unclaimed held chat send at its exact observed version; returns `{outcome:"cancelled"\|"appended"\|"unavailable", edit?}`. |
 | GET | `/api/tabs/{id}/chat` | `?since=N` | Stateless transcript read, resolved from the tab's own session record. `{messages, count, pending}`. A tab with no bound session answers `pending: true` with an empty list — never another tab's transcript. Unknown tab → 404 |
 | GET | `/api/tabs/{id}/closed-children` | `?child=TAB&since=N` | A parent's closed child tabs, newest first, as `{parent_tab_id, count, children}`. With `child`, that child's transcript in the closed shape below; a child of another parent is `404`. Answers the owner, the parent itself and the parent's Team. |
 
@@ -105,4 +107,4 @@ Chat requests use the target tab's owned session. Bridge thread changes require 
 | POST | `/api/tabs/{id}/chat-raw/resume` | Resume raw chat streaming. |
 | POST | `/api/tabs/{id}/chat-send/admissions` | Read admission results for submitted chat sends. |
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

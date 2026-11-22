@@ -1,7 +1,12 @@
 use super::*;
 use crate::multiplexer::state::{LifecyclePatch, LIFECYCLE_CONTEXT_CONFLICT};
 
-pub(super) const PREPARE_ATTEMPTS: usize = 3;
+pub(super) const PREPARE_ATTEMPTS: usize = 5;
+
+fn is_retryable_lifecycle_conflict(error: &str) -> bool {
+    error == LIFECYCLE_CONTEXT_CONFLICT
+        || error.contains("lifecycle conflict: plan changed during preparation")
+}
 
 impl ServiceContext {
     pub fn transition_agent_prepared_at(
@@ -10,12 +15,13 @@ impl ServiceContext {
         mut request: impl FnMut(
             &MultiplexerState,
             &crate::service::plan::PlanStore,
+            &mut ReadSet,
         ) -> Result<AgentTransitionRequest, String>,
         failure: TransitionFailurePoint,
     ) -> Result<(Vec<String>, Vec<String>), String> {
         self.transition_agent_prepared_with_at(
             now_ms,
-            |mux, store| request(mux, store).map(|request| (Some(request), ())),
+            |mux, store, reads| request(mux, store, reads).map(|request| (Some(request), ())),
             failure,
         )
         .map(|(changed, bindings, ())| (changed, bindings))
@@ -27,13 +33,16 @@ impl ServiceContext {
         mut prepare: impl FnMut(
             &mut MultiplexerState,
             &crate::service::plan::PlanStore,
+            &mut ReadSet,
         ) -> Result<(Option<AgentTransitionRequest>, T), String>,
         failure: TransitionFailurePoint,
     ) -> Result<(Vec<String>, Vec<String>, T), String> {
         let mut attempt = 1;
         loop {
             match self.transition_agent_prepared_once(now_ms, &mut prepare, failure) {
-                Err(error) if error == LIFECYCLE_CONTEXT_CONFLICT && attempt < PREPARE_ATTEMPTS => {
+                Err(error)
+                    if is_retryable_lifecycle_conflict(&error) && attempt < PREPARE_ATTEMPTS =>
+                {
                     attempt += 1;
                 }
                 outcome => return outcome,
@@ -49,6 +58,7 @@ impl ServiceContext {
         prepare: &mut impl FnMut(
             &mut MultiplexerState,
             &crate::service::plan::PlanStore,
+            &mut ReadSet,
         ) -> Result<(Option<AgentTransitionRequest>, T), String>,
         failure: TransitionFailurePoint,
     ) -> Result<(Vec<String>, Vec<String>, T), String> {
@@ -61,18 +71,23 @@ impl ServiceContext {
         let mut staged = before
             .state_mut()
             .begin_team_close_transaction_with_store(history);
+        let mut reads = ReadSet::default();
         let (plans, (staged, changed_bindings, payload)) =
             self.plan_store.prepare_agent_lifecycle_with(now_ms, || {
                 let bindings_before = role_team_bindings(before.state_mut());
-                let (request, payload) = prepare(staged.state_mut(), &self.plan_store)?;
+                let (request, payload) = prepare(staged.state_mut(), &self.plan_store, &mut reads)?;
                 let (changes, mut staged) = if let Some(request) = request {
                     refuse_unverified_task_bound_worker_transfer(
                         staged.state_mut(),
                         &self.plan_store,
                         &request,
                     )?;
-                    let mut prepared =
-                        prepare_transition(staged.state_mut(), &self.plan_store, &request)?;
+                    let mut prepared = prepare_transition(
+                        staged.state_mut(),
+                        &self.plan_store,
+                        &request,
+                        &mut reads,
+                    )?;
                     (
                         std::mem::take(&mut prepared.plan_changes),
                         prepared.staged_mux,
@@ -91,7 +106,7 @@ impl ServiceContext {
                     .collect::<Vec<_>>();
                 Ok((changes, (staged, changed_bindings, payload)))
             })?;
-        let patch = LifecyclePatch::new(before, staged);
+        let patch = LifecyclePatch::new(before, staged, reads);
         patch.apply(&mut self.mux.write())?;
         let committed = if failure == TransitionFailurePoint::AfterPlanCommit {
             Err("injected agent transition failure".to_string())

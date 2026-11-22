@@ -57,7 +57,7 @@ impl PlanDatabase {
         &self,
         reference: &str,
     ) -> Result<Option<TaskDetail>, PlanError> {
-        let mut connection = self.connection.lock();
+        let mut connection = self.read_connection();
         let tx = connection.transaction().map_err(db_error)?;
         record_query();
         let raw:Option<(String,String)>=tx.query_row(&format!("{}, target AS MATERIALIZED (

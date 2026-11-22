@@ -225,10 +225,14 @@ async fn ensure_account(
         let admitted = authority.clone();
         let selection = expected.clone();
         let original_generation = expected_nonce.clone();
-        let observation = crate::service::provider_accounts::provisioning::start(svc, move || {
+        use crate::service::provider_accounts::provisioning;
+        let startup = provisioning::in_startup(svc, tab);
+        let implicit = crate::service::provider_accounts::selected_account(&expected)
+            == codeterm_types::config::provider_accounts::IMPLICIT_ACCOUNT;
+        let provision = move || {
             #[cfg(any(test, feature = "test-support"))]
             expected_launch_commit(&owner, "account_provision");
-            if admitted.is_some() || original_generation.is_some() {
+            if admitted.is_some() || original_generation.is_some() || startup {
                 if let Some(authority) = &admitted {
                     authority.validate(&owner)?;
                 }
@@ -271,20 +275,43 @@ async fn ensure_account(
                 return Ok(invocation);
             }
             crate::service::provider_accounts::for_tab(&owner, &target)
-        })
-        .map_err(RuntimeFailure::Refused)?;
-        let invocation = observation.wait(std::time::Duration::from_secs(60)).await;
-        if let Some(acquisition) = &acquisition {
-            acquisition.settled.store(
-                invocation.is_ok() || observation.observed_completed_refusal(),
-                Ordering::Release,
-            );
-        }
+        };
+        #[cfg(any(test, feature = "test-support"))]
+        let has_provision_hook = svc
+            .try_ext::<ExpectedLaunchCommit>()
+            .is_some_and(|hook| hook.stage == "account_provision");
+        #[cfg(not(any(test, feature = "test-support")))]
+        let has_provision_hook = false;
+        let invocation = if implicit && !has_provision_hook {
+            provisioning::require_idle(svc).map_err(RuntimeFailure::Refused)?;
+            let invocation = provision();
+            if let Some(acquisition) = &acquisition {
+                let completed_refusal = invocation
+                    .as_ref()
+                    .err()
+                    .is_some_and(|reason| !reason.starts_with("account_provisioning_busy:"));
+                acquisition
+                    .settled
+                    .store(invocation.is_ok() || completed_refusal, Ordering::Release);
+            }
+            invocation
+        } else {
+            let observation =
+                provisioning::start(svc, provision).map_err(RuntimeFailure::Refused)?;
+            let invocation = observation.wait(std::time::Duration::from_secs(60)).await;
+            if let Some(acquisition) = &acquisition {
+                acquisition.settled.store(
+                    invocation.is_ok() || observation.observed_completed_refusal(),
+                    Ordering::Release,
+                );
+            }
+            invocation
+        };
         check_expected_nonce(svc, tab, expected_nonce.as_deref())?;
         let invocation = invocation.map_err(RuntimeFailure::Refused)?;
         if crate::crash::shutdown::is_shutting_down()
             || !svc.mux.read().get_tab(tab).is_some_and(|current| {
-                if authority.is_some() || expected_nonce.is_some() {
+                if authority.is_some() || expected_nonce.is_some() || startup {
                     account_authority_matches(&expected, current)
                 } else {
                     concurrent_ensure_authority_matches(&expected, current)

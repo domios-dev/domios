@@ -57,7 +57,8 @@ assert.deepEqual(parseAttachmentMarkers('<domios type="attachment" path="/tmp/x.
 assert.deepEqual(parseAttachmentMarkers('<domios type="attachment" kind="image" />').attachments, []);
 
 assert.equal(attachmentKindForPath("C:/a/B.PNG"), "image");
-assert.equal(attachmentKindForPath("C:/a/b.heic"), "file");
+assert.equal(attachmentKindForPath("C:/a/b.heic"), "image");
+assert.equal(attachmentPreviewKind({ kind: "image", path: "/a/b.heic" }), null);
 assert.equal(attachmentPreviewKind({ kind: "image", path: "/a/b.png" }), "image");
 assert.equal(attachmentPreviewKind({ kind: "file", path: "/a/b.html" }), "page");
 assert.equal(attachmentPreviewKind({ kind: "file", path: "/a/b.md" }), "document");

@@ -101,3 +101,23 @@ fn plan_adoption_refuses_a_planner_without_changing_owner_or_hierarchy() {
         Some(owner.as_str())
     );
 }
+
+#[test]
+fn unarchive_patch_refuses_removed_or_replaced_referenced_team() {
+    use codeterm_service_core::multiplexer::state::LIFECYCLE_CONTEXT_CONFLICT;
+    let (mut mux, owner) = MultiplexerState::new();
+    let team = mux.resolve_or_mint_team_for_parent(&owner).unwrap().team_id;
+    let patch = unarchive_patch(mux.begin_team_close_transaction(), "archived", &team).unwrap();
+    let mut removed = mux.remove_team(&team).unwrap();
+    assert_eq!(
+        patch.apply(&mut mux).unwrap_err(),
+        LIFECYCLE_CONTEXT_CONFLICT
+    );
+    removed.created_at += 1;
+    mux.upsert_team(removed.clone());
+    assert_eq!(
+        patch.apply(&mut mux).unwrap_err(),
+        LIFECYCLE_CONTEXT_CONFLICT
+    );
+    assert_eq!(mux.get_team(&team), Some(&removed));
+}

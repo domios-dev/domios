@@ -86,7 +86,7 @@ impl PlanDatabase {
         &self,
         filter: &TaskListFilter,
     ) -> Result<TaskListResult, PlanError> {
-        let mut connection = self.connection.lock();
+        let mut connection = self.read_connection();
         let transaction = connection.transaction().map_err(db_error)?;
         let task_source = if filter.mine_tabs.is_empty() {
             "plan_tasks t"

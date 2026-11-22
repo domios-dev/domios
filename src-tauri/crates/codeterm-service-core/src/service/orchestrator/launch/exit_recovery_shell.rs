@@ -1,3 +1,11 @@
+impl crate::service::ServiceContext {
+    pub fn recovery_shell_has_idle_prompt(&self, pty_id: &str) -> bool {
+        self.ext::<crate::ShellCapabilityState>()
+            .lock()
+            .prompt_idle_after_command(pty_id)
+    }
+}
+
 pub(super) fn exited_provider_recovery_has_shell_ready_evidence(
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
     reused_live_pty: bool,

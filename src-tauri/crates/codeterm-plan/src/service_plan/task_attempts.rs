@@ -778,7 +778,10 @@ impl PlanStore {
             }),
             plan_id: read.plan_id,
             task_id: task.id.clone(),
-            execution_intent: task.execution_intent.clone(),
+            execution_intent: source
+                .execution_intent
+                .clone()
+                .unwrap_or_else(|| task.execution_intent.clone()),
             attempt_id: gen_attempt_id(),
             speed: task.speed.clone(),
             source_attempt: source.clone(),

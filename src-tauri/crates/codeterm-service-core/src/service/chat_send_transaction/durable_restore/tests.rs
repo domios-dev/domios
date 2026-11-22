@@ -7,6 +7,7 @@ fn receipt(id: &str, sequence: u64) -> UserSendReceipt {
         client_token: Some(format!("token-{id}")),
         ledger_sequence: sequence,
         state: ReceiptState::Failed,
+        queue_edit: None,
     }
 }
 
