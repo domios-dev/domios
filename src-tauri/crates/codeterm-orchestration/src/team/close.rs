@@ -6,6 +6,9 @@ use codeterm_types::team::Team;
 use serde::Serialize;
 
 use super::TeamMutationCaller;
+use codeterm_service_core::service::lane_removal::LiveTabCwd;
+
+mod git_lane_cleanup;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::multiplexer::types::TabBacking;
 use codeterm_service_core::plan::LaneOwnership;
@@ -14,6 +17,8 @@ use codeterm_service_core::service::plan::lane_ownership::{
 };
 use codeterm_service_core::service::plan::TeamClosePlanRead;
 use codeterm_service_core::service::plan::{PlanStore, TaskLaneUpdate};
+pub(crate) use git_lane_cleanup::cleanup_lane_with_tabs;
+use git_lane_cleanup::GitTeamLaneCleanup;
 
 #[derive(Debug)]
 pub struct CloseTeamCleanup {
@@ -58,30 +63,6 @@ pub(super) trait TeamLaneCleanupIo {
     fn remove_lane(&mut self, lane: &TeamCloseLane) -> Result<(), String>;
 }
 
-struct GitTeamLaneCleanup;
-
-impl TeamLaneCleanupIo for GitTeamLaneCleanup {
-    fn not_managed(&mut self, lane: &TeamCloseLane) -> Option<String> {
-        unmanaged_reason(lane, None)
-    }
-
-    fn worktree_exists(&mut self, path: &str) -> bool {
-        Path::new(path).exists()
-    }
-
-    fn branch_exists(&mut self, lane: &TeamCloseLane, branch: &str) -> Result<bool, String> {
-        branch_exists(lane, branch)
-    }
-
-    fn hold_reason(&mut self, lane: &TeamCloseLane) -> Option<String> {
-        lane_hold_reason(lane)
-    }
-
-    fn remove_lane(&mut self, lane: &TeamCloseLane) -> Result<(), String> {
-        cleanup_lane(lane)
-    }
-}
-
 #[cfg(any(test, feature = "test-support"))]
 pub fn close_team_with_state_change(
     mux: &mut MultiplexerState,
@@ -123,7 +104,7 @@ where
         caller,
         now_ms,
         close_member,
-        &mut GitTeamLaneCleanup,
+        &mut GitTeamLaneCleanup::new(&[]),
     )
 }
 
@@ -193,12 +174,12 @@ pub(super) fn commit_prepared_team_close(
     mux: &mut MultiplexerState,
     team_id: &str,
     caller: &TeamMutationCaller,
-    expected: &PreparedTeamClose,
+    expected: Option<&PreparedTeamClose>,
 ) -> Result<(Team, CloseTeamCleanup), String> {
     let staged = stage_team_close(mux, team_id, caller, &mut |mux, tab_id| {
         mux.close_tab_for_team_close(tab_id)
     })?;
-    if staged.member_tab_ids != expected.member_tab_ids {
+    if expected.is_some_and(|expected| staged.member_tab_ids != expected.member_tab_ids) {
         return Err("Team membership changed during close; retry the close".into());
     }
     let (team, cleanup) = commit_staged_team_close(mux, staged)?;
@@ -388,8 +369,14 @@ pub(super) fn finish_team_lane_cleanup(
     plan_store: &PlanStore,
     lanes: &[TeamCloseLane],
     now_ms: u64,
+    live_tabs: &[LiveTabCwd],
 ) -> Result<TeamCloseInventory, String> {
-    finish_team_lane_cleanup_using(plan_store, lanes, now_ms, &mut GitTeamLaneCleanup)
+    finish_team_lane_cleanup_using(
+        plan_store,
+        lanes,
+        now_ms,
+        &mut GitTeamLaneCleanup::new(live_tabs),
+    )
 }
 
 fn finish_team_lane_cleanup_using(
@@ -405,16 +392,30 @@ fn finish_team_lane_cleanup_using(
                 .as_deref()
                 .is_some_and(|path| cleanup_io.worktree_exists(path))
                 || lane.branch.as_deref().is_some_and(|branch| {
-                    matches!(cleanup_io.branch_exists(lane, branch), Ok(true))
+                    !matches!(cleanup_io.branch_exists(lane, branch), Ok(false))
                 })
         })
         .collect();
     let mut not_managed = Vec::new();
     let mut not_managed_hints = HashMap::<(String, String), Vec<String>>::new();
+    let mut worktree_holds = HashMap::new();
+    let mut branch_holds = HashMap::new();
+    let mut remember_hold = |lane: &TeamCloseLane, reason: &str| {
+        if let Some(path) = lane.worktree_path.as_deref() {
+            worktree_holds.insert(codeterm_paths::normalize_cwd(path), reason.to_string());
+        }
+        if let Some(branch) = &lane.branch {
+            branch_holds.insert(
+                (lane.project_path.clone(), branch.clone()),
+                reason.to_string(),
+            );
+        }
+    };
     let existing_lanes: Vec<_> = present_lanes
         .into_iter()
         .filter(|lane| match cleanup_io.not_managed(lane) {
             Some(reason) => {
+                remember_hold(lane, &reason);
                 not_managed_hints
                     .entry((lane.plan_id.clone(), lane.task_id.clone()))
                     .or_default()
@@ -431,10 +432,12 @@ fn finish_team_lane_cleanup_using(
         .cloned()
         .collect();
     let assessed_lanes: Vec<_> = existing_lanes
-        .iter()
-        .cloned()
+        .into_iter()
         .map(|mut lane| {
             lane.hold_reason = cleanup_io.hold_reason(&lane);
+            if let Some(reason) = &lane.hold_reason {
+                remember_hold(&lane, reason);
+            }
             lane
         })
         .collect();
@@ -459,7 +462,20 @@ fn finish_team_lane_cleanup_using(
                 inventory.orphan_branches.push(branch.to_string());
             }
         }
-        let failure = if let Some(reason) = &lane.hold_reason {
+        let hold = lane
+            .hold_reason
+            .as_ref()
+            .or_else(|| {
+                lane.worktree_path
+                    .as_deref()
+                    .and_then(|path| worktree_holds.get(&codeterm_paths::normalize_cwd(path)))
+            })
+            .or_else(|| {
+                lane.branch.as_ref().and_then(|branch| {
+                    branch_holds.get(&(lane.project_path.clone(), branch.clone()))
+                })
+            });
+        let failure = if let Some(reason) = hold {
             Some(reason.clone())
         } else {
             cleanup_io.remove_lane(lane).err()
@@ -527,8 +543,11 @@ fn finish_team_lane_cleanup_using(
             errors.push(format!("{plan_id}/{task_id}: {error}"));
         }
     }
-    for error in errors {
-        log::warn!("[team-close] lane state update failed after close: {error}");
+    if !errors.is_empty() {
+        return Err(format!(
+            "Team closed with lane records that could not be updated: {}",
+            errors.join("; ")
+        ));
     }
     inventory.orphan_branches.sort();
     inventory.orphan_branches.dedup();
@@ -544,14 +563,7 @@ fn stage_team_close<F>(
 where
     F: FnMut(&mut MultiplexerState, &str) -> Result<Vec<String>, String>,
 {
-    let mut member_tab_ids: Vec<_> = mux
-        .snapshot()
-        .tabs
-        .values()
-        .filter(|tab| tab.team_id.as_deref() == Some(team_id))
-        .map(|tab| tab.id.clone())
-        .collect();
-    member_tab_ids.sort();
+    let member_tab_ids = mux.team_member_tab_ids(team_id);
     let agent_providers = member_tab_ids
         .iter()
         .filter_map(|tab_id| {
@@ -680,12 +692,14 @@ pub(crate) fn lane_hold_reason_with_inventory(
         return Some(reason);
     }
     if let Some(branch) = lane.branch.as_deref() {
+        let owned;
         let registrations = if let Some((worktrees, _)) = inventory {
-            worktrees.to_string()
+            worktrees
         } else {
             match git_output(&lane.project_path, &["worktree", "list", "--porcelain"]) {
                 Ok(output) if output.status.success() => {
-                    String::from_utf8_lossy(&output.stdout).to_string()
+                    owned = String::from_utf8_lossy(&output.stdout).into_owned();
+                    &owned
                 }
                 Ok(output) => {
                     return Some(git_output_error(
@@ -831,67 +845,6 @@ pub use codeterm_wire::api_contracts::TeamCloseInventory;
 
 pub use codeterm_wire::api_contracts::TeamCloseLaneRecord;
 
-fn cleanup_lane(lane: &TeamCloseLane) -> Result<(), String> {
-    cleanup_lane_with_tabs(lane, &[])
-}
-
-pub(crate) fn cleanup_lane_with_tabs(
-    lane: &TeamCloseLane,
-    live_tabs: &[codeterm_service_core::service::lane_removal::LiveTabCwd],
-) -> Result<(), String> {
-    if let Some(reason) = lane_hold_reason(lane) {
-        return Err(reason);
-    }
-    let branch_tip = if let Some(branch) = lane.branch.as_deref() {
-        if branch_exists(lane, branch)? {
-            let reference = format!("refs/heads/{branch}");
-            let output = git_output(&lane.project_path, &["rev-parse", "--verify", &reference])?;
-            if !output.status.success() {
-                return Err(git_output_error("rev-parse", &lane.project_path, &output));
-            }
-            let tip = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let destination = lane
-                .destination
-                .as_deref()
-                .ok_or_else(|| "lane destination is not recorded".to_string())?;
-            if let Some(reason) = merged_refusal(&lane.project_path, &tip, destination) {
-                return Err(reason);
-            }
-            Some((reference, tip))
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-    if let Some(path) = lane.worktree_path.as_deref() {
-        codeterm_service_core::service::lane_removal::remove_lane(
-            &codeterm_service_core::service::lane_removal::LaneRemovalRequest {
-                worktree_path: path.to_string(),
-                branch: None,
-                canonical_cwd: Some(lane.project_path.clone()),
-                force: false,
-                ownership: lane.ownership,
-            },
-            live_tabs,
-        )?;
-    }
-    if let Some((reference, tip)) = branch_tip {
-        let current = git_output(&lane.project_path, &["rev-parse", "--verify", &reference])?;
-        if !current.status.success() || String::from_utf8_lossy(&current.stdout).trim() != tip {
-            return Err(format!(
-                "branch {reference} changed during lane removal; branch retained"
-            ));
-        }
-        let branch = reference
-            .strip_prefix("refs/heads/")
-            .ok_or("invalid lane branch reference")?;
-        run_git(&lane.project_path, &["branch", "-d", "--", branch])
-            .map_err(|error| format!("branch {reference} could not be deleted: {error}"))?;
-    }
-    Ok(())
-}
-
 fn branch_exists(lane: &TeamCloseLane, branch: &str) -> Result<bool, String> {
     let reference = format!("refs/heads/{branch}");
     let output = git_output(
@@ -973,12 +926,12 @@ mod lane_safety_tests {
 
     #[test]
     fn team_close_refuses_to_delete_the_base_branch() {
-        assert!(cleanup_lane(&lane("main", "main")).is_err());
+        assert!(cleanup_lane_with_tabs(&lane("main", "main"), &[]).is_err());
     }
 
     #[test]
     fn team_close_refuses_to_delete_non_lane_branches() {
-        assert!(cleanup_lane(&lane("release/retained", "base")).is_err());
+        assert!(cleanup_lane_with_tabs(&lane("release/retained", "base"), &[]).is_err());
     }
 
     #[test]

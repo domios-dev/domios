@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State as AxumState},
-    http::{HeaderMap, Method, StatusCode},
+    http::{HeaderMap, StatusCode},
     Json,
 };
 use serde::Deserialize;
@@ -9,6 +9,10 @@ use std::io::{self, Write};
 
 use crate::routes::AppState;
 use codeterm_service_core::api_support::OptionalJson;
+
+mod close_preview;
+use close_preview::ClosePreviewScope;
+pub(crate) use close_preview::{close_preview, close_preview_for_mesh_peer};
 use codeterm_types::workspace_close_preview::{
     WorkspaceCloseLaneState, WorkspaceClosePreview, WorkspaceClosePreviewAttempt,
     WorkspaceClosePreviewMember, WorkspaceClosePreviewRemoteMember, WorkspaceClosePreviewTab,
@@ -278,76 +282,6 @@ pub async fn close_workspace(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-pub async fn close_preview(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> Result<Json<WorkspaceClosePreview>, (StatusCode, String)> {
-    let (identity, origin) = crate::auth::authenticated_request(&state, &headers)?;
-    if origin != crate::auth::AuthenticatedOrigin::Owner {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "Only owner-origin requests may inspect workspace close previews".into(),
-        ));
-    }
-    if headers
-        .get("x-codeterm-tab-id")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|tab_id| !tab_id.trim().is_empty())
-    {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "An agent tab cannot inspect workspace close previews".into(),
-        ));
-    }
-    match identity {
-        crate::auth::CallerIdentity::Local => {}
-        crate::auth::CallerIdentity::Peer { access_level, .. } => {
-            let path = format!("/api/workspaces/{id}/close-preview");
-            if !codeterm_service_core::api_support::access_policy::check_access(
-                &access_level,
-                &Method::GET,
-                &path,
-            ) {
-                return Err((
-                    StatusCode::FORBIDDEN,
-                    "Peer lacks workspace close authority".into(),
-                ));
-            }
-        }
-        crate::auth::CallerIdentity::Tab(_)
-        | crate::auth::CallerIdentity::ServicePush { .. }
-        | crate::auth::CallerIdentity::Relayed => {
-            return Err((
-                StatusCode::FORBIDDEN,
-                "Caller lacks authority to inspect workspace close previews".into(),
-            ));
-        }
-    }
-    close_preview_for_mesh_peer(&state, &id).await.map(Json)
-}
-
-pub(crate) async fn close_preview_for_mesh_peer(
-    state: &AppState,
-    workspace_id: &str,
-) -> Result<WorkspaceClosePreview, (StatusCode, String)> {
-    let svc = state.svc.clone();
-    let cron = state.cron.clone();
-    let installation_id = state.mesh.lock().ident.identity.instance_id.clone();
-    let workspace_id = workspace_id.to_string();
-    tokio::task::spawn_blocking(move || {
-        build_workspace_close_preview(&svc, &cron, &installation_id, &workspace_id)
-    })
-    .await
-    .map_err(|error| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            format!("Workspace preview worker failed: {error}"),
-        )
-    })?
-    .map_err(WorkspaceClosePreviewError::into_http)
-}
-
 struct PreviewTab {
     id: String,
     title: String,
@@ -422,6 +356,7 @@ fn build_workspace_close_preview(
     cron: &codeterm_service_core::CronState,
     installation_id: &str,
     workspace_id: &str,
+    scope: &ClosePreviewScope,
 ) -> Result<WorkspaceClosePreview, WorkspaceClosePreviewError> {
     use codeterm_sentinel_host::AutomationGraphExt;
 
@@ -436,10 +371,17 @@ fn build_workspace_close_preview(
         if workspace.protected {
             return Err(WorkspaceClosePreviewError::Protected);
         }
-        if workspace.tabs.len() > WORKSPACE_CLOSE_PREVIEW_MAX_ROWS {
+        let mut pending = if let Some(team_id) = scope.team_id.as_deref() {
+            mux.get_team(team_id)
+                .filter(|team| team.workspace_id == workspace_id)
+                .ok_or(WorkspaceClosePreviewError::NotFound)?;
+            mux.team_member_tab_ids(team_id)
+        } else {
+            workspace.tabs.clone()
+        };
+        if pending.len() > WORKSPACE_CLOSE_PREVIEW_MAX_ROWS {
             return Err(WorkspaceClosePreviewError::TooLarge);
         }
-        let mut pending = workspace.tabs.clone();
         let mut visited = HashSet::new();
         let mut tabs = Vec::new();
         while let Some(tab_id) = pending.pop() {
@@ -473,12 +415,14 @@ fn build_workspace_close_preview(
                 role_profile: tab.role_profile.clone(),
                 remote,
             });
-            let child_limit = WORKSPACE_CLOSE_PREVIEW_MAX_ROWS.saturating_sub(visited.len());
-            let children = mux.get_children_ids_bounded(&tab_id, child_limit);
-            if children.len() > child_limit {
-                return Err(WorkspaceClosePreviewError::TooLarge);
+            if scope.team_id.is_none() {
+                let child_limit = WORKSPACE_CLOSE_PREVIEW_MAX_ROWS.saturating_sub(visited.len());
+                let children = mux.get_children_ids_bounded(&tab_id, child_limit);
+                if children.len() > child_limit {
+                    return Err(WorkspaceClosePreviewError::TooLarge);
+                }
+                pending.extend(children);
             }
-            pending.extend(children);
         }
 
         let mut team_ids = BTreeSet::new();
@@ -487,11 +431,15 @@ fn build_workspace_close_preview(
                 team_ids.insert(team_id.clone());
             }
         }
-        for team in mux
-            .teams_for_workspace(workspace_id)
-            .take(WORKSPACE_CLOSE_PREVIEW_MAX_ROWS + 1)
-        {
-            team_ids.insert(team.id.clone());
+        if let Some(team_id) = &scope.team_id {
+            team_ids.insert(team_id.clone());
+        } else {
+            for team in mux
+                .teams_for_workspace(workspace_id)
+                .take(WORKSPACE_CLOSE_PREVIEW_MAX_ROWS + 1)
+            {
+                team_ids.insert(team.id.clone());
+            }
         }
         if team_ids.len() > WORKSPACE_CLOSE_PREVIEW_MAX_ROWS {
             return Err(WorkspaceClosePreviewError::TooLarge);
@@ -594,7 +542,12 @@ fn build_workspace_close_preview(
         let crons = store
             .list()
             .iter()
-            .filter(|job| job.workspace_id == workspace_id)
+            .filter(|job| {
+                scope.team_id.as_ref().map_or_else(
+                    || job.workspace_id == workspace_id,
+                    |team_id| job.team_id.as_ref() == Some(team_id),
+                )
+            })
             .take(remaining.saturating_add(1))
             .map(|job| (job.team_id.clone(), job.name.clone()))
             .collect::<Vec<_>>();
@@ -640,6 +593,20 @@ fn build_workspace_close_preview(
         .iter()
         .filter(|bp| format!("{:?}", bp.state) == "Running")
     {
+        if let Some(team_id) = scope.team_id.as_deref() {
+            let owner = &blueprint.owner;
+            let belongs = match owner.kind.as_str() {
+                "team" => owner.team_id.as_deref() == Some(team_id),
+                "tab" => owner
+                    .tab_id
+                    .as_deref()
+                    .is_some_and(|id| tab_teams.contains_key(id)),
+                _ => false,
+            };
+            if !belongs {
+                continue;
+            }
+        }
         let name = blueprint
             .name
             .as_deref()
@@ -768,13 +735,17 @@ fn build_workspace_close_preview(
             })
             .sum::<usize>();
         budget.add(plan_rows)?;
-        let lanes = codeterm_orchestration::team::close::workspace_close_lane_preview(
-            &plans,
-            team_id,
-            &members,
-            budget.remaining(),
-        )
-        .map_err(|error| match error {
+        let lanes = if scope.resources_only {
+            Vec::new()
+        } else {
+            codeterm_orchestration::team::close::workspace_close_lane_preview(
+                &plans,
+                team_id,
+                &members,
+                budget.remaining(),
+            )
+            .map_err(|error| {
+                match error {
             codeterm_orchestration::team::close::WorkspaceCloseLanePreviewError::TooLarge => {
                 WorkspaceClosePreviewError::TooLarge
             }
@@ -783,7 +754,9 @@ fn build_workspace_close_preview(
                     "Team lane safety inventory is unavailable: {d}"
                 ))
             }
-        })?;
+            }
+            })?
+        };
         budget.add(lanes.len())?;
         for lane in &lanes {
             let kind = match lane.state {
