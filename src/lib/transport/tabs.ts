@@ -170,6 +170,8 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         chat_send_dismissals: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId"))}/chat-send/dismissals`),
         chat_send_delete: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-send/dismissals`, a.dismissal),
         chat_send_status: (a: Args) => clientFor(a).json<ChatSendStatus[]>("GET", `/api/tabs/${enc(s(a, "tabId"))}/chat-send`),
+        chat_send_queue: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId"))}/chat-send/queue`),
+        chat_send_queue_change: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-send/queue`, a.action),
         chat_send_admissions: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-send/admissions`, { clientTokens: a.clientTokens }),
         ordinary_tabs_list: (a: Args = {}) => clientFor(a).json("GET", "/api/tabs"),
         mesh_peer_tabs_list: async (a: Args) => {

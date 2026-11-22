@@ -3,8 +3,10 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import type { Notification, ThemeConfig } from "../../lib/types";
 import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
+import type { UpdateRow } from "../../lib/updatePanelModel";
 
 const stores = vi.hoisted(() => ({
+  mobile: false,
   window: { minimize: vi.fn(), toggleMaximize: vi.fn(), close: vi.fn() },
   account: {
     model: { kind: "error", message: "account-store-error" },
@@ -15,14 +17,19 @@ const stores = vi.hoisted(() => ({
     plan: { authority: "billing", fullAccess: false, plan: "pro", status: "unavailable", stale: false, periodEnd: null, cancelAtPeriodEnd: false },
     manage: vi.fn(async () => new Error("billing-store-error")),
   },
-  update: { error: "update-store-error", busy: false, checking: false, items: [], rows: [], diagnostics: [], retry: vi.fn() },
+  update: { error: "update-store-error", busy: false, checking: false, items: [] as UpdateRow[], rows: [] as UpdateRow[],
+    diagnostics: [], history: [], information: [], checkDetails: [], blockingTabs: [], retry: vi.fn() },
 }));
 
 vi.mock("../Settings/useAccount", () => ({ useAccount: () => stores.account }));
 vi.mock("../../lib/nativeBridge", async (original) => {
   const module = await original<typeof import("../../lib/nativeBridge")>();
-  return { ...module, nativeBridge: { ...module.nativeBridge, window: stores.window } };
+  return { ...module, nativeBridge: { ...module.nativeBridge, get window() { return stores.mobile ? undefined : stores.window; } } };
 });
+vi.mock("../../lib/webApi", async (original) => ({
+  ...await original<typeof import("../../lib/webApi")>(), get IS_WEB() { return stores.mobile; },
+}));
+vi.mock("../../hooks/useSidebarViewport", () => ({ usePhoneViewport: () => stores.mobile }));
 vi.mock("../../lib/keybindings", async (original) => ({
   ...await original<typeof import("../../lib/keybindings")>(), isMac: false,
 }));
@@ -42,7 +49,9 @@ Object.assign(globalThis, {
   __APP_VERSION__: "test",
 });
 
-function Harness({ locked = false }: { locked?: boolean }) {
+function Harness({ locked = false, onAnalytics, onExtensions }: {
+  locked?: boolean; onAnalytics?: () => void; onExtensions?: () => void;
+}) {
   const [toasts, setToasts] = useState<Notification[]>([]);
   const actions = {
     upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => setToasts((current) => [
@@ -54,11 +63,54 @@ function Harness({ locked = false }: { locked?: boolean }) {
       locked={locked}
       theme={{} as ThemeConfig}
       onOpenSettings={() => {}}
+      onToggleAnalytics={onAnalytics}
+      onOpenExtensions={onExtensions}
       toasts={toasts}
       onDismissToast={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))}
     />
   </MultiplexerActionsContext.Provider>;
 }
+
+it("keeps an available Update operable beside the keyboard-accessible phone overflow", async () => {
+  stores.mobile = true;
+  stores.update.error = "";
+  stores.update.rows = [{ id: "interface", group: "Interface", name: "Interface", currentVersion: "1", targetVersion: "2",
+    alreadyCurrent: false, state: "available" }];
+  stores.update.items = stores.update.rows;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const onAnalytics = vi.fn();
+  const onExtensions = vi.fn();
+  try {
+    await act(async () => root.render(<Harness onAnalytics={onAnalytics} onExtensions={onExtensions} />));
+    const update = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
+    const overflow = host.querySelector<HTMLButtonElement>('button[aria-label="More actions"]')!;
+    expect(update.getAttribute("aria-description")).toContain("Updates available");
+    await act(async () => update.click());
+    expect(update.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector('button[aria-label="Update Interface"]')).not.toBeNull();
+    await act(async () => update.click());
+    overflow.focus();
+    await act(async () => overflow.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
+    const menu = document.querySelector('[role="menu"][aria-label="More actions"]')!;
+    const analytics = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"]')]
+      .find(item => item.textContent?.includes("Analytics"))!;
+    expect(document.activeElement).toBe(analytics);
+    expect(menu.textContent).toContain("Extensions");
+    expect(menu.textContent).toContain("Settings");
+    await act(async () => analytics.click());
+    expect(onAnalytics).toHaveBeenCalledOnce();
+    expect(update.getAttribute("aria-expanded")).toBe("false");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    stores.mobile = false;
+    stores.update.error = "update-store-error";
+    stores.update.rows = [];
+    stores.update.items = [];
+  }
+});
 
 it("keeps account, billing and update errors out of the titlebar status region", async () => {
   const host = document.createElement("div");

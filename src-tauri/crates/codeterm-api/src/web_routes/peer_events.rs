@@ -160,7 +160,10 @@ pub(super) fn chat_send_status_tab(event: &SystemEvent) -> Option<&str> {
     let SystemEvent::Generic { event_type, data } = event else {
         return None;
     };
-    if event_type != "chat-send-status" {
+    if !matches!(
+        event_type.as_str(),
+        "chat-send-status" | "chat-send-queue-changed"
+    ) {
         return None;
     }
     data.get("tab_id")

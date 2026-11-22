@@ -274,6 +274,8 @@ export function TabTopBar({
     threadId: shellTab?.agent_session_id,
     context: usageContext,
     label: usageLabel,
+    modelId: shellTab?.agent_session_model ?? usageModelId,
+    modelGroups: usageModelGroups,
   };
   useLayoutEffect(() => {
     const row = bubblesRef.current;
@@ -383,6 +385,7 @@ export function TabTopBar({
             context={usageContext}
             borrowedAccount={usageSource.borrowedAccount}
             profileAccountId={usageSource.borrowedAccount ? null : profileAccountId}
+            profileQuotaModelId={shellTab?.agent_session_model ?? usageModelId}
           />
         )}
         <ComposerContextMeter tabId={tabId} />

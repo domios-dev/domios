@@ -118,6 +118,7 @@ fn expired_receipt_round_trip_never_restores_sending_or_retry_and_repairs_live_w
         client_token: Some("token".into()),
         ledger_sequence: send.sequence,
         state: ReceiptState::Uncertain,
+        queue_edit: None,
     };
     let persisted = serde_json::to_string(&receipt).unwrap();
     let restored: UserSendReceipt = serde_json::from_str(&persisted).unwrap();

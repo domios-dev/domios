@@ -182,7 +182,7 @@ impl ChatSendLedger {
             return;
         }
         let (send_state, error) = match receipt.state {
-            ReceiptState::Failed | ReceiptState::Degraded => (
+            ReceiptState::Failed | ReceiptState::Degraded | ReceiptState::Cancelled => (
                 ChatSendState::Failed,
                 Some(receipt_failure_reason(receipt.state).into()),
             ),
@@ -243,6 +243,7 @@ fn neighbor_message_id(token: &str) -> Option<&str> {
 fn receipt_failure_reason(receipt: ReceiptState) -> &'static str {
     match receipt {
         ReceiptState::Degraded => "launch_degraded_before_write",
+        ReceiptState::Cancelled => "user_cancelled_queued_send",
         _ => "launch_ended_before_write",
     }
 }
@@ -250,7 +251,10 @@ fn receipt_failure_reason(receipt: ReceiptState) -> &'static str {
 fn receipt_ends_held_status(current: &ChatSendState, active: bool, receipt: ReceiptState) -> bool {
     *current == ChatSendState::Pending
         && !active
-        && matches!(receipt, ReceiptState::Failed | ReceiptState::Degraded)
+        && matches!(
+            receipt,
+            ReceiptState::Failed | ReceiptState::Degraded | ReceiptState::Cancelled
+        )
 }
 
 #[cfg(test)]

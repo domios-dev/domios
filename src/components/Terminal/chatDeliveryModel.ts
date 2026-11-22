@@ -21,7 +21,7 @@ export interface ChatSendTarget {
   expectedRecipient?: ExpectedChatRecipient;
 }
 export type DeliverySend = ChatSend & { target?: ChatSendTarget; localAttempt?: { ptyId: string; bindingNonce: string }; droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestError?: string; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft;
-  wasHeld?: boolean; remoteFailure?: RemoteChatFailure & { state: RemoteChatState } };
+  wasHeld?: boolean; queueEdit?: { version: number; appended: string }; remoteFailure?: RemoteChatFailure & { state: RemoteChatState } };
 
 export function chatSendFailureReason(reason?: unknown): string {
   const message = typeof reason === "string" ? reason
@@ -53,6 +53,13 @@ function sameSystemSend(left: ChatSendStatus["system_send"], right: ChatSendStat
   if (left.segments === right.segments) return true;
   if (!left.segments || !right.segments || left.segments.length !== right.segments.length) return false;
   return JSON.stringify(left.segments) === JSON.stringify(right.segments);
+}
+
+export function sameDeliveryStatus(left: ChatSendStatus | undefined, right: ChatSendStatus): boolean {
+  return left === right || Boolean(left && left.ledger_id === right.ledger_id && left.sequence === right.sequence
+    && left.send_id === right.send_id && left.state === right.state && left.correlationId === right.correlationId
+    && left.pending_reason === right.pending_reason && left.error === right.error
+    && sameMatchedRow(left.matched_row, right.matched_row) && sameSystemSend(left.system_send, right.system_send));
 }
 
 function mergeSystemSend(
@@ -88,23 +95,16 @@ export function awaitsTranscriptEcho(sends: readonly DeliverySend[]): boolean {
   });
 }
 
-/** Written input lands when the running turn ends, so missing evidence is uncertain only once that turn is over. */
-function writtenAwaitingTurn(send: DeliverySend, activity: TabActivity["kind"]): boolean {
-  const status = send.status;
-  return activity === "working" && !send.echo && !status?.error
-    && (status?.state === "written" || status?.state === "submit_unconfirmed");
-}
-
-export function deliveryPresentation(send: DeliverySend, activity: TabActivity["kind"]): DeliveryState {
-  if (writtenAwaitingTurn(send, activity)) return "queued";
-  return deliveryState(send) === "sending" && send.status?.state === "written" ? "written" : deliveryState(send);
+export function deliveryPresentation(send: DeliverySend, claimed = false): DeliveryState {
+  const state = deliveryState(send);
+  if (state === "queued" && claimed) return "sending";
+  return state === "sending" && send.status?.state === "written" ? "written" : state;
 }
 
 export const ACTIVE_TURN_HOLD = "held_active_turn";
 
 /** A send waits for the running turn when the host holds it for that turn, or while the agent is mid-turn. */
 export function queuedBehindTurn(send: DeliverySend, activity: TabActivity["kind"]): boolean {
-  if (writtenAwaitingTurn(send, activity)) return true;
   return deliveryState(send) === "queued" && activity !== "failed"
     && (send.status?.pending_reason === ACTIVE_TURN_HOLD || activity === "working");
 }
@@ -131,13 +131,10 @@ export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus):
   }
   const mergedSystemSend = mergeSystemSend(send.status?.system_send, status.system_send, send.status?.send_id === status.send_id);
   const nextStatus = mergedSystemSend === status.system_send ? status : { ...status, system_send: mergedSystemSend };
-  if (send.status?.ledger_id === nextStatus.ledger_id && send.status.sequence === nextStatus.sequence
-    && send.status.send_id === nextStatus.send_id && send.status.state === nextStatus.state
-    && send.status.pending_reason === nextStatus.pending_reason && send.status.error === nextStatus.error
-    && sameMatchedRow(send.status.matched_row, nextStatus.matched_row)
-    && sameSystemSend(send.status.system_send, nextStatus.system_send)) return send;
+  if (sameDeliveryStatus(send.status, nextStatus)) return send;
   return {
     ...send,
+    ...(nextStatus.state === "failed" && nextStatus.error === "user_cancelled_queued_send" ? { dismissed: true } : {}),
     ...(send.wasHeld || nextStatus.state === "held" ? { wasHeld: true } : {}),
     matchedRow: nextStatus.matched_row ?? send.matchedRow,
     status: nextStatus,
@@ -208,13 +205,24 @@ export function sendForRow(sends: readonly DeliverySend[], row: NormalizedChatMe
   return owners.find(send => !send.dismissed) ?? owners[0] ?? sends.find(send => echoesRow(send, row));
 }
 
+export function deliverySendForRow(sends: readonly DeliverySend[], row: NormalizedChatMessage): DeliverySend | undefined {
+  const owner = sendForRow(sends, row);
+  if (!owner || deliveryState(owner) === "delivered") return owner;
+  return sends.find(send => {
+    const match = send.matchedRow ?? send.status?.matched_row;
+    return !send.dismissed && deliveryState(send) === "delivered"
+      && match?.source.record.kind === "structured" && matchesMatchedRow(row, match);
+  }) ?? owner;
+}
+
 export function reconcileDeliveryStatusesModel(
   current: readonly DeliverySend[], statuses: readonly ChatSendStatus[],
   requested: readonly DeliverySend[] = current,
 ): readonly DeliverySend[] {
   return current.map((send) => {
     const prior = requested.find((item) => item.id === send.id);
-    const status = statuses.find((item) => item.correlationId != null && item.correlationId === send.correlationId);
+    const candidates = statuses.filter(item => item.correlationId != null && item.correlationId === send.correlationId);
+    const status = candidates.find(item => item.send_id === send.status?.send_id) ?? candidates[candidates.length - 1];
     if (status) return applyDeliveryStatus(send, status);
     if (!prior || prior.status !== send.status || prior.correlationId !== send.correlationId
       || prior.requestFailed !== send.requestFailed) return send;

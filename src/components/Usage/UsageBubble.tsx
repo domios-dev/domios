@@ -16,7 +16,8 @@ import { groupBalance, groupSpendSnapshot, hasGroupSpend } from "./groupSpend";
 import { UsageDetail, UsageSpendDetail } from "./UsageDetail";
 import { UsageHistoryModal } from "./UsageHistoryModal";
 import type {UsageSnapshot} from "../../types/usage";
-import { unreportedBillingLabel, usageMetricsAriaLabel, visibleUsageMetrics, usagePillText, type VisibleUsageMetric } from "./metrics";
+import { unreportedBillingLabel, usageMetricsAriaLabel, visibleUsageMetrics, usagePillText } from "./metrics";
+import { UsageMetricGlyph } from "./UsageMetricGlyph";
 import { formatAge } from "../../lib/timeLabels";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { contextUsage, hasQuota, useClaimContext } from "./contextUsage";
@@ -50,8 +51,8 @@ interface UsageBubbleProps {
   borrowedAccount?: boolean;
   /// The tab's launch-profile quota account key (`profile:<id>`), used for profile-level quota resets and pushed quota.
   profileAccountId?: string | null;
+  profileQuotaModelId?: string | null;
 }
-
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const STALE_MS = 20 * 60 * 1000;
 
@@ -68,6 +69,7 @@ export function UsageBubble({
   providerLabel,
   borrowedAccount = false,
   profileAccountId = null,
+  profileQuotaModelId = modelId,
 }: UsageBubbleProps) {
   const { usage: modelUsage, refresh: refreshModelUsage } = useProviderModelUsageState(
     provider,
@@ -121,15 +123,16 @@ export function UsageBubble({
   const closeDetail = useCallback(() => setOpen(false), []);
   const resetNow = Date.now();
   const profileQuota = trackingEnabled && !balance && !hasQuota(active) ? quotaReading(profileSnapshot) : null;
-  const profileReset = trackingEnabled && !balance && !hasQuota(active) && !profileQuota ? activeQuotaReset(profileSnapshot, resetNow) : null;
-  useQuotaResetTick(profileReset?.resetsAt ?? null, resetNow);
+  const profileReset = trackingEnabled && !balance && !hasQuota(active) ? activeQuotaReset(profileSnapshot, resetNow) : null;
+  useQuotaResetTick(profileQuota ? null : profileReset?.resetsAt ?? null, resetNow);
   // A harness that reports its context fill but no quota (an ACP agent): the fill is the bubble value.
   const contextReading = contextUsage(context, runtime);
   const contextMode = trackingEnabled && !balance && !profileQuota && !profileReset && contextReading != null && !hasQuota(active);
   useClaimContext(tabId, contextMode);
 
   if (profileQuota) {
-    return <QuotaReadingPill reading={profileQuota} failure={null} capturedAt={profileSnapshot?.captured_at} />;
+    return <QuotaReadingPill reading={profileQuota} failure={null} capturedAt={profileSnapshot?.captured_at} modelId={profileQuotaModelId}
+      modelGroups={modelGroups} reset={profileReset} />;
   }
   if (profileReset) {
     return <QuotaResetPill title={`${providerLabel ?? provider} quota`} reset={profileReset} now={resetNow} />;
@@ -284,16 +287,4 @@ export function UsageBubble({
       )}
     </div>
   );
-}
-
-function UsageMetricGlyph({metric, state, separated}: {metric: VisibleUsageMetric; state: "neutral" | "warn" | "danger"; separated: boolean}) {
-  return <>
-    {separated && <span className="sep" />}
-    <span className={`glyph ${state}`}>
-      <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        {metric.key === "session" ? <><circle cx="6" cy="6" r="4.6" /><path d="M6 3.4V6l1.7 1.1" /></> : <path d="M1 7.2 3 5l2.2 2.2L7.4 4l3.4 3.4" />}
-      </svg>
-      <span className="pct">{Math.round(metric.pct)}%</span>
-    </span>
-  </>;
 }

@@ -4,7 +4,7 @@ import { invoke } from "../../lib/bridge";
 import { IS_WEB } from "../../lib/webApi";
 import type { InlineAttachment } from "./useComposerCapsules";
 import { storeBlob } from "./voice/audio";
-import { isFileTransfer, planFileDrop } from "./composerTransferModel";
+import { acceptsFileDropPreview, identifyOpaqueImage, isFileTransfer, planFileDrop, unreadableFileDrop } from "./composerTransferModel";
 
 export async function storeBrowserFiles(
   files: Iterable<File>,
@@ -43,10 +43,9 @@ export function useWebFileDrop(
   const [dragOver, setDragOver] = useState(false);
   const handlers = {
     onDragOverCapture: (e: DragEvent) => {
-      if (isFileTransfer(e.dataTransfer)) {
-        e.preventDefault();
-        setDragOver(true);
-      }
+      const files = isFileTransfer(e.dataTransfer);
+      if (files || (IS_WEB && acceptsFileDropPreview(e.dataTransfer))) e.preventDefault();
+      if (files) setDragOver(true);
     },
     onDragLeaveCapture: (e: DragEvent) => {
       if (
@@ -62,11 +61,20 @@ export function useWebFileDrop(
         if (isFileTransfer(e.dataTransfer)) e.preventDefault();
         return;
       }
-      const { preventNavigation, files, error } = planFileDrop(e.dataTransfer);
-      if (preventNavigation) e.preventDefault();
+      e.preventDefault();
+      e.stopPropagation();
+      const { files, needsImageType, error } = planFileDrop(e.dataTransfer);
       if (error) onError(error);
       if (!files.length) return;
-      void (uploadFiles ? uploadFiles(files) : storeBrowserFiles(files, onAttach, onError)).catch(error => onError(error instanceof Error ? error.message : String(error)));
+      const attach = async () => {
+        if (needsImageType) {
+          const image = await identifyOpaqueImage(files[0]);
+          if (!image) { onError(unreadableFileDrop()); return; }
+          files[0] = image;
+        }
+        await (uploadFiles ? uploadFiles(files) : storeBrowserFiles(files, onAttach, onError));
+      };
+      void attach().catch(error => onError(error instanceof Error ? error.message : String(error)));
     },
   };
   return { dragOver: dragOver && IS_WEB, handlers };

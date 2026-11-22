@@ -200,6 +200,7 @@ impl ChatSendLedger {
             send_id: claim.send_id.clone(), tab_id: claim.tab_id.clone(),
             client_token: claim.client_token.clone(), ledger_sequence: claim.ledger_sequence,
             state: super::super::pending_delivery_payloads::user_sends::continuity::ReceiptState::Delivered,
+            queue_edit: None,
         };
         self.restore_user_receipt(&receipt);
         let mut state = self.state.lock();

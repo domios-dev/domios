@@ -632,8 +632,10 @@ export function NewSessionPicker({
                 </>}
                 />
               )}
-              {choice.mode === "single" && section !== "general" && <MachinePlacement choices={machineInventory.choices}
-                value={machineId} onChange={setMachineId} disabled={busy} testId="session-machine-placement" />}
+              {choice.mode === "single" && section !== "general" && <div className="mt-3">
+                <MachinePlacement choices={machineInventory.choices}
+                  value={machineId} onChange={setMachineId} disabled={busy} testId="session-machine-placement" />
+              </div>}
               {choice.mode === "single" && !remoteMachineId && location === "local" && (
                 <ResumeSessionSection
                   workspaceId={workspaceId}

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { ChatSend, NormalizedChatMessage, SendEcho } from "@codeterm/chat-core";
 import { applyDeliveryStatus, canRetryChatSend, canDeleteChatSend, canDismissSettledChatSend, chatSendFailureReason, deliveryState, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, unownedHeldSends, type AdmissionEvidence, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
+import { sameDeliveryStatus } from "./chatDeliveryModel";
+import { applyQueuedSendEdit, EMPTY_QUEUE, type ComposerSendQueue, type QueuedSendEdit } from "./composerQueueModel";
 import { uid } from "../../lib/uid";
 import {
   createChatSendRepository,
@@ -34,6 +36,8 @@ export interface ChatSendSnapshot {
   dismissalRevision: number;
   /** Held on the host with no local record, once this window's ledger has loaded. */
   unownedHeld: number;
+  hostStatuses: ReadonlyMap<string, ChatSendStatus>;
+  queue: ComposerSendQueue;
 }
 
 /** The ledger stays in memory for synchronous React reads; IndexedDB is record persistence only. */
@@ -46,6 +50,8 @@ const hydrationGenerations = new Map<string, number>();
 const hydrationRemovedIds = new Map<string, Set<string>>();
 const snapshotsByTab = new Map<string, ChatSendSnapshot>();
 const hostStatusesByTab = new Map<string, ReadonlyMap<string, ChatSendStatus>>();
+const EMPTY_HOST_STATUSES: ReadonlyMap<string, ChatSendStatus> = new Map();
+const queuesByTab = new Map<string, ComposerSendQueue>();
 const dismissalMarkersByTab = new Map<string, Map<string, ChatSendDismissalMarker>>();
 const dismissalLookupByTab = new Map<string, ChatSendDismissalLookup>();
 const dismissalRevisionByTab = new Map<string, number>();
@@ -75,13 +81,18 @@ function notifyIfLoadedSnapshotChanged(tabId: string): void {
   if (snapshot && (snapshot.sends !== (sendsByTab.get(tabId) ?? EMPTY)
     || snapshot.hydration !== (hydrationStates.get(tabId) ?? "pending")
     || snapshot.dismissalRevision !== (dismissalRevisionByTab.get(tabId) ?? 0)
+    || snapshot.hostStatuses !== readHostChatSendStatuses(tabId)
+    || snapshot.queue !== (queuesByTab.get(tabId) ?? EMPTY_QUEUE)
     || snapshot.unownedHeld !== unownedHeldCount(tabId))) notify(tabId);
 }
 
 function unownedHeldCount(tabId: string): number {
   if ((hydrationStates.get(tabId) ?? "pending") === "pending") return 0;
   const statuses = hostStatusesByTab.get(tabId);
-  return statuses ? unownedHeldSends(sendsByTab.get(tabId) ?? EMPTY, [...statuses.values()]) : 0;
+  if (!statuses) return 0;
+  const queue = queuesByTab.get(tabId) ?? EMPTY_QUEUE;
+  const shown = new Set([...queue.claimed, ...queue.items.map(item => item.sendId)]);
+  return unownedHeldSends(sendsByTab.get(tabId) ?? EMPTY, [...statuses.values()].filter(status => !shown.has(status.send_id)));
 }
 
 function setTab(tabId: string, next: readonly DeliverySend[]): void {
@@ -122,6 +133,7 @@ function evictTab(tabId: string): void {
   hydrationRemovedIds.delete(tabId);
   snapshotsByTab.delete(tabId);
   hostStatusesByTab.delete(tabId);
+  queuesByTab.delete(tabId);
   dismissalMarkersByTab.delete(tabId);
   dismissalLookupByTab.delete(tabId);
   dismissalRevisionByTab.delete(tabId);
@@ -269,10 +281,13 @@ function readChatSendSnapshot(tabId: string): ChatSendSnapshot {
   const hydration = hydrationStates.get(tabId) ?? "pending";
   const dismissalRevision = dismissalRevisionByTab.get(tabId) ?? 0;
   const unownedHeld = unownedHeldCount(tabId);
+  const hostStatuses = readHostChatSendStatuses(tabId);
+  const queue = queuesByTab.get(tabId) ?? EMPTY_QUEUE;
   const current = snapshotsByTab.get(tabId);
   if (current?.sends === sends && current.hydration === hydration
-    && current.dismissalRevision === dismissalRevision && current.unownedHeld === unownedHeld) return current;
-  const next = { sends, hydration, dismissalRevision, unownedHeld };
+    && current.dismissalRevision === dismissalRevision && current.unownedHeld === unownedHeld
+    && current.hostStatuses === hostStatuses && current.queue === queue) return current;
+  const next = { sends, hydration, dismissalRevision, unownedHeld, hostStatuses, queue };
   snapshotsByTab.set(tabId, next);
   return next;
 }
@@ -425,7 +440,34 @@ function updateHostStatus(status: ChatSendStatus): void {
   const current = hostStatusesByTab.get(status.tab_id);
   const prior = current?.get(status.send_id);
   if (prior && prior.ledger_id === status.ledger_id && prior.sequence > status.sequence) return;
+  if (prior?.state === "delivered" && status.state !== "delivered") return;
+  if (sameDeliveryStatus(prior, status)) return;
   hostStatusesByTab.set(status.tab_id, new Map(current).set(status.send_id, status));
+}
+
+export function readHostChatSendStatuses(tabId: string): ReadonlyMap<string, ChatSendStatus> {
+  return hostStatusesByTab.get(tabId) ?? EMPTY_HOST_STATUSES;
+}
+
+export function observeComposerQueue(tabId: string, queue: ComposerSendQueue): void {
+  queuesByTab.set(tabId, queue);
+  const edits = new Map(queue.edits.map(edit => [edit.correlationId, edit]));
+  updateQueueEdits(tabId, edits);
+  notifyIfLoadedSnapshotChanged(tabId);
+}
+
+export function observeComposerQueueEdit(tabId: string, edit: QueuedSendEdit): void {
+  updateQueueEdits(tabId, new Map([[edit.correlationId, edit]]));
+}
+
+function updateQueueEdits(tabId: string, edits: ReadonlyMap<string, QueuedSendEdit>): void {
+  if (!edits.size) return;
+  const current = readChatSends(tabId);
+  const next = current.map(send => {
+    const edit = send.correlationId && edits.get(send.correlationId);
+    return edit ? applyQueuedSendEdit(send, edit) : send;
+  });
+  if (next.some((send, index) => send !== current[index])) publish(tabId, next);
 }
 
 export function observeDeliveryStatus(status: ChatSendStatus): void | Promise<void> {
@@ -500,6 +542,7 @@ export function recordChatSendAdmissionFailure(tabId: string, correlationId: str
 
 export function reconcileDeliveryStatuses(
   tabId: string, statuses: readonly ChatSendStatus[], requested?: readonly DeliverySend[],
+  requestedHost = readHostChatSendStatuses(tabId),
 ): void {
   for (const status of statuses) {
     if (status.system_send && status.correlationId) observeDeliveryStatus(status);
@@ -507,7 +550,16 @@ export function reconcileDeliveryStatuses(
   const current = readChatSends(tabId);
   const next = reconcileDeliveryStatusesModel(current, statuses, requested);
   if (next.some((send, index) => send !== current[index])) publish(tabId, next);
-  hostStatusesByTab.set(tabId, new Map(statuses.map((status) => [status.send_id, status])));
+  const reconciled = new Map(statuses.map(status => [status.send_id, status]));
+  const host = readHostChatSendStatuses(tabId);
+  for (const [id, currentStatus] of host) {
+    const read = reconciled.get(id);
+    if ((currentStatus !== requestedHost.get(id) && (!read || (read.ledger_id === currentStatus.ledger_id && currentStatus.sequence > read.sequence)))
+      || (read && currentStatus.state === "delivered" && read.state !== "delivered")) reconciled.set(id, currentStatus);
+  }
+  if (host.size !== reconciled.size || [...reconciled].some(([id, read]) => !sameDeliveryStatus(host.get(id), read))) {
+    hostStatusesByTab.set(tabId, reconciled);
+  }
   notifyIfLoadedSnapshotChanged(tabId);
 }
 
@@ -516,7 +568,7 @@ export function beginChatSendRetry(tabId: string, id: string): DeliverySend | un
   const send = current.find((item) => item.id === id);
   if (!send || deleting.has(deletionKey(tabId, id)) || !canRetryChatSend(send)) return;
   const next = { ...send, requestFailed: false, requestError: undefined, requestUncertain: false, requestHadResponse: undefined, admissionSettled: undefined, status: undefined,
-    matchedRow: undefined, remoteFailure: undefined, correlationId: uid() };
+    matchedRow: undefined, remoteFailure: undefined, queueEdit: undefined, correlationId: uid() };
   publish(tabId, current.map((item) => item.id === id ? next : item));
   return next;
 }
@@ -568,6 +620,7 @@ export function forgetChatSendsInMemory(): void {
   hydrationRemovedIds.clear();
   snapshotsByTab.clear();
   hostStatusesByTab.clear();
+  queuesByTab.clear();
   dismissalMarkersByTab.clear();
   dismissalLookupByTab.clear();
   dismissalRevisionByTab.clear();

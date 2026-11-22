@@ -26,6 +26,13 @@ describe("remote tab transport adapter", () => {
       suffix: "/chat-send/admissions", body: { clientTokens: ["local/one", "local/two"] }, select: undefined,
     });
   });
+  it("passes the exact queue version and send identity to the owning peer", () => {
+    const tabId = "mesh:peer-b/shared";
+    const action = { action: "append", sendId: "send", correlationId: "token", version: 3, text: "addition" };
+    expect(remoteTransportCall("chat_send_queue_change", { tabId, action })).toMatchObject({
+      ordinaryTabId: tabId, peerId: "peer-b", remoteTabId: "shared", method: "POST", suffix: "/chat-send/queue", body: action,
+    });
+  });
   it("resolves child authority from the owning peer's current tab",()=>{
     const call=remoteTransportCall("agent_runtime_child_authority",{tabId:"mesh:peer/owned"});
     expect(call).toMatchObject({peerId:"peer",method:"GET",suffix:"/runtime-authority"});
