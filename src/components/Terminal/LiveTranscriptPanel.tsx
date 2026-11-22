@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AudioLines, ChevronDown, Grip, Maximize2, Mic, Minus, RefreshCw, Settings2, X } from "lucide-react";
 import { focusTab, askGeneralAgent, workspaceOfTab } from "../../lib/generalAgent";
@@ -11,7 +11,7 @@ import { createLiveTranscriptApi, directTranscriptAvailable, TRANSCRIPT_PAGE_SIZ
 import { webRequestContext } from "../../lib/webApi";
 import { useLiveTranscriptCapture } from "./voice/useLiveTranscriptCapture";
 import { LiveTranscriptThoughts } from "./LiveTranscriptThoughts";
-import { LiveTranscriptContext, useLiveTranscriptAttachments, useLiveTranscriptGeometry, useLiveTranscriptPanel } from "./useLiveTranscriptPanel";
+import { LiveTranscriptContext, useLiveTranscriptAttachments, useLiveTranscriptGeometry, useLiveTranscriptPanel, type LiveTranscriptOpenOptions } from "./useLiveTranscriptPanel";
 import "./LiveTranscriptPanel.css";
 
 const MODES: Record<Trigger, string> = {
@@ -30,34 +30,44 @@ export function LiveTranscriptHost({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<{ ownerId: string; identity: number }>();
   const [locked, setLocked] = useState(false);
   const [openCount, setOpenCount] = useState(0);
+  const [autoStartCount, setAutoStartCount] = useState(0);
   const tab = useMuxSelector(state => session ? state.tabs[session.ownerId] : undefined);
   const identity = useMuxSelector(webRequestContext);
   const active = tab && usableTab(tab) && session?.identity === identity && directTranscriptAvailable() ? session : undefined;
   const context = useMemo(() => ({
     ownerId: active?.ownerId ?? null,
     locked: Boolean(active && locked),
-    open(tabId: string) {
+    open(tabId: string, options?: LiveTranscriptOpenOptions) {
       if (!directTranscriptAvailable()) return;
       const target = store.getState().tabs[tabId];
       if (!target || !usableTab(target)) return;
       if (!active || active.ownerId !== tabId && !locked) setSession({ ownerId: tabId, identity: webRequestContext() });
       setOpenCount(count => count + 1);
+      if (options?.autostart) setAutoStartCount(count => count + 1);
     },
   }), [active, locked, store]);
   return <LiveTranscriptContext.Provider value={context}>
     {children}
     {active && tab && <LiveTranscriptSession key={`${active.identity}:${active.ownerId}`} tab={tab}
-      identity={String(active.identity)} openCount={openCount} onLock={setLocked}
+      identity={String(active.identity)} openCount={openCount} autoStartCount={autoStartCount} onLock={setLocked}
       onClose={() => { setLocked(false); setSession(undefined); }} />}
   </LiveTranscriptContext.Provider>;
 }
 
-function LiveTranscriptSession({ tab, identity, openCount, onLock, onClose }: {
-  tab: Tab; identity: string; openCount: number; onLock: (active: boolean) => void; onClose: () => void;
+function LiveTranscriptSession({ tab, identity, openCount, autoStartCount, onLock, onClose }: {
+  tab: Tab; identity: string; openCount: number; autoStartCount: number; onLock: (active: boolean) => void; onClose: () => void;
 }) {
   const api = useMemo(() => createLiveTranscriptApi(tab.id), [tab.id]);
   const [autoResume, setAutoResume] = useState(false);
   const capture = useLiveTranscriptCapture({ tabId: tab.id, identity, enabled: true, autoResume });
+  const lastAutoStart = useRef(0);
+  useEffect(() => {
+    if (autoStartCount === 0 || autoStartCount === lastAutoStart.current) return;
+    lastAutoStart.current = autoStartCount;
+    if (capture.phase === "idle" || capture.phase === "paused") {
+      void capture.start(capture.phase === "paused");
+    }
+  }, [autoStartCount, capture.phase, capture.start]);
   const active = capture.phase === "recording" || capture.phase === "starting" || capture.phase === "pausing";
   useLayoutEffect(() => {
     onLock(active);

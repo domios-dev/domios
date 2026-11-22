@@ -28,6 +28,7 @@ interface Props {
   canAttach?: boolean;
   uploadFiles?: (files: File[]) => Promise<void>;
   dictation?: LiveDictation;
+  onOpenLiveTranscript?: () => void;
   spaceArming?: boolean;
   spacePop?: boolean;
 }
@@ -56,6 +57,7 @@ function ComposerActionsBody({
   canAttach = true,
   uploadFiles,
   dictation,
+  onOpenLiveTranscript,
   spaceArming = false,
   spacePop = false,
 }: Props) {
@@ -115,6 +117,7 @@ function ComposerActionsBody({
           <ComposerActionButton
             voiceUi={voiceUi}
             dictation={dictation}
+            onOpenLiveTranscript={onOpenLiveTranscript}
             spaceArming={spaceArming}
             spacePop={spacePop}
             sendDisabled={sendDisabled}

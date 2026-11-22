@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
-import { ChevronUp, Lock, Mic, Square, X } from "lucide-react";
+import { AudioLines, ChevronUp, Lock, Mic, Square, X } from "lucide-react";
 import { bubblePoseFromPointer, type BubblePose } from "./composerBubble";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 import type { LiveDictation } from "./voice/useLiveDictation";
 import { DictationSetupPrompt } from "./voice/DictationSetupPrompt";
 import { DictationStatus } from "./voice/DictationStatus";
 import { isCancelGesture, isDragUpGesture } from "./voice/voiceFsm";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { SendIcon } from "../Icons";
 import { COMPOSER_BUTTON_BASE } from "./composerButton";
 
@@ -32,6 +33,7 @@ interface DictationGesture {
 export function ComposerActionButton({
   voiceUi,
   dictation,
+  onOpenLiveTranscript,
   spaceArming = false,
   spacePop = false,
   sendDisabled,
@@ -41,6 +43,7 @@ export function ComposerActionButton({
 }: {
   voiceUi: ComposerVoiceHandle;
   dictation?: LiveDictation;
+  onOpenLiveTranscript?: () => void;
   spaceArming?: boolean;
   spacePop?: boolean;
   sendDisabled: boolean;
@@ -112,7 +115,9 @@ export function ComposerActionButton({
       : dictationActive
         ? (dictationFinishing ? "Finishing dictation" : "Stop dictation")
         : useDictation
-          ? "Dictation · tap, hold, or slide up to lock"
+          ? (onOpenLiveTranscript
+            ? "Dictation · tap, hold, or slide up for Live Transcript"
+            : "Dictation · tap, hold, or slide up to lock")
           : mainTitle
   );
   const effectiveAriaLabel = !effectiveSend && useDictation
@@ -158,6 +163,11 @@ export function ComposerActionButton({
     if (!gesture || gesture.id !== e.pointerId || gesture.locked) return;
     const locked = isDragUpGesture(gesture.startX, gesture.startY, e.clientX, e.clientY);
     if (locked) {
+      if (onOpenLiveTranscript) {
+        clearDictationGesture();
+        onOpenLiveTranscript();
+        return;
+      }
       clearHoldTimer();
       const next = { ...gesture, ptrX: e.clientX, ptrY: e.clientY, locked: true, cancelArmed: false, holdVisual: false };
       gestureRef.current = next;
@@ -177,7 +187,11 @@ export function ComposerActionButton({
     const gesture = gestureRef.current;
     if (!dictation || !gesture || gesture.id !== e.pointerId) return;
     clearDictationGesture();
-    if (gesture.locked || isDragUpGesture(gesture.startX, gesture.startY, e.clientX, e.clientY)) return;
+    if (gesture.locked) return;
+    if (isDragUpGesture(gesture.startX, gesture.startY, e.clientX, e.clientY)) {
+      onOpenLiveTranscript?.();
+      return;
+    }
     if (gesture.cancelArmed || isCancelGesture(gesture.startX, e.clientX, false)) {
       dictation.cancel();
     } else if (e.timeStamp - gesture.at > TAP_MS) {
@@ -193,9 +207,35 @@ export function ComposerActionButton({
     if (!locked) dictation.cancel();
   }
 
+  const showLiveTranscriptBubble = Boolean(
+    dictationActive && !dictationFinishing && !effectiveHold && !voiceActive && !dictation?.setup && !dictation?.error && onOpenLiveTranscript,
+  );
+
   return (
     <div className="ct-composer-action-shell ct-composer-control relative shrink-0">
-      {effectiveHold && <VoiceLockPill />}
+      {effectiveHold && <VoiceLockPill liveTranscript={!voiceActive && Boolean(onOpenLiveTranscript)} />}
+      {showLiveTranscriptBubble && onOpenLiveTranscript && (
+        <AnchoredPopover open anchor={buttonRef} placement="top-end" gap={10}>
+          <button
+            type="button"
+            data-testid="try-live-transcript-pill"
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => {
+              clearDictationGesture();
+              onOpenLiveTranscript();
+            }}
+            className="flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium text-[var(--ct-fg,#e6edf3)] shadow-[0_8px_24px_rgba(0,0,0,0.42)] backdrop-blur-md transition-colors hover:border-[var(--ct-accent,#58a6ff)]"
+            style={{
+              background: "color-mix(in srgb, var(--ct-surface, #161b22) 92%, transparent)",
+              borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 36%, var(--ct-border, rgba(255,255,255,0.14)))",
+            }}
+          >
+            <AudioLines size={14} strokeWidth={2.2} className="text-[var(--ct-accent,#58a6ff)]" aria-hidden="true" />
+            <span>Try Live Transcript</span>
+            <ChevronUp size={13} className="opacity-75" aria-hidden="true" />
+          </button>
+        </AnchoredPopover>
+      )}
       {!effectiveHold && !voiceActive && dictation?.setup && (
         <DictationSetupPrompt reason={dictation.setup} onDismiss={dictation.dismissSetup} anchor={buttonRef} />
       )}
@@ -307,17 +347,26 @@ export function ComposerActionButton({
   );
 }
 
-function VoiceLockPill() {
+function VoiceLockPill({ liveTranscript = false }: { liveTranscript?: boolean }) {
   return (
     <div
       data-testid="composer-voice-lock-pill"
       className="ct-voice-lock-pill absolute bottom-full left-1/2 mb-7 flex -translate-x-1/2 flex-col items-center gap-1 rounded-full border px-2 py-2.5 text-[var(--ct-muted-fg)] shadow-[0_6px_20px_rgba(0,0,0,0.35)]"
       style={{
         background: "var(--ct-surface, #161b22)",
-        borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 26%, transparent)",
+        borderColor: liveTranscript
+          ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 42%, transparent)"
+          : "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 26%, transparent)",
       }}
     >
-      <Lock size={14} strokeWidth={2.2} />
+      {liveTranscript ? (
+        <>
+          <AudioLines size={14} strokeWidth={2.2} className="text-[var(--ct-accent,#58a6ff)]" />
+          <span className="text-[10px] font-medium leading-none text-[var(--ct-fg,#e6edf3)]">Live</span>
+        </>
+      ) : (
+        <Lock size={14} strokeWidth={2.2} />
+      )}
       <ChevronUp size={13} className="ct-voice-chevron-bounce" />
     </div>
   );

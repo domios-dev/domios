@@ -77,7 +77,7 @@ function dictationHandle(overrides: Partial<LiveDictation> = {}): LiveDictation 
 
 async function renderButton(
   voiceUi: ComposerVoiceHandle,
-  props: { dictation?: LiveDictation; spaceArming?: boolean; spacePop?: boolean; sendDisabled?: boolean; onSend?: () => void; onSchedule?: () => void } = {},
+  props: { dictation?: LiveDictation; onOpenLiveTranscript?: () => void; spaceArming?: boolean; spacePop?: boolean; sendDisabled?: boolean; onSend?: () => void; onSchedule?: () => void } = {},
 ): Promise<{ button: HTMLButtonElement; host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -87,6 +87,7 @@ async function renderButton(
       <ComposerActionButton
         voiceUi={voiceUi}
         dictation={props.dictation}
+        onOpenLiveTranscript={props.onOpenLiveTranscript}
         spaceArming={props.spaceArming}
         spacePop={props.spacePop}
         sendDisabled={props.sendDisabled ?? false}
@@ -95,7 +96,7 @@ async function renderButton(
       />,
     );
   });
-  return { button: host.querySelector("button") as HTMLButtonElement, host, root };
+  return { button: host.querySelector('[data-testid="composer-send-button"], [data-testid="composer-voice-button"]') as HTMLButtonElement, host, root };
 }
 
 async function renderAttachButton(props: { uploading?: boolean; onClick?: () => void } = {}): Promise<{ button: HTMLButtonElement; root: Root }> {
@@ -317,6 +318,31 @@ test("space-hold arming and ignition pop classes apply on the round mic button",
   });
   assert(popBtn.classList.contains("ct-voice-space-pop"), "ignition pop class missing");
   assert(popBtn.dataset.spacePop === "true", "ignition pop data attribute missing");
+});
+
+test("active dictation shows Try Live Transcript bubble and drag-up promotes to Live Transcript", async () => {
+  let opened = 0;
+  const { root } = await renderButton(voiceHandle({ mainIsSend: false }), {
+    dictation: dictationHandle({ phase: "listening", active: () => true }),
+    onOpenLiveTranscript: () => { opened++; },
+  });
+  const pill = document.querySelector('[data-testid="try-live-transcript-pill"]') as HTMLButtonElement | null;
+  assert(pill, "Try Live Transcript bubble missing while dictating");
+  await act(async () => { pill.click(); });
+  assertEq(opened, 1, "clicking Try Live Transcript bubble must invoke onOpenLiveTranscript");
+  await act(async () => { root.unmount(); });
+
+  const { button, root: dragRoot } = await renderButton(voiceHandle({ mainIsSend: false }), {
+    dictation: dictationHandle(),
+    onOpenLiveTranscript: () => { opened++; },
+  });
+  await act(async () => {
+    button.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 4000));
+    button.dispatchEvent(pointerEvent("pointermove", { clientX: 100, clientY: 30 }, 4150));
+    button.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 30 }, 4250));
+  });
+  assertEq(opened, 2, "dragging up on dictation mic must promote directly to Live Transcript");
+  await act(async () => { dragRoot.unmount(); });
 });
 
 async function main() {

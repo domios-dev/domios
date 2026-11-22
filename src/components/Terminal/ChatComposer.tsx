@@ -677,6 +677,12 @@ function ChatComposerImpl({
     else void send([], dictationDraft.current());
   }
 
+  const openLiveTranscript = useLatestCallback(() => {
+    if (!transcript || liveLocked) return;
+    if (dictation.active()) dictation.cancel();
+    transcript.open(tabId, { autostart: true });
+  }, [liveLocked, tabId, transcript]);
+
   if (replacement) return <ComposerDock mode={composerLayout.mode} ref={shellRef}>{replacement}</ComposerDock>;
 
   const composerActions = (
@@ -692,6 +698,7 @@ function ChatComposerImpl({
       sendDisabled={liveLocked || !sendPolicy.allowed || (!input.trim() && attachments.length === 0 && !reply.reply)}
       sendUnavailableReason={sendUnavailableReason}
       dictation={liveLocked ? undefined : dictation}
+      onOpenLiveTranscript={transcript && !liveLocked ? openLiveTranscript : undefined}
       spaceArming={spaceArming}
       spacePop={spacePop}
       hasText={liveLocked || input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}

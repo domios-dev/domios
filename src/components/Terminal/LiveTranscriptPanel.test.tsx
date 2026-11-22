@@ -94,6 +94,7 @@ async function mount() {
     return <>
       <button onClick={() => setActive(agent)}>Switch active tab</button>
       <button onClick={() => transcript?.open(active.id)}>Open active Transcript</button>
+      <button onClick={() => transcript?.open(active.id, { autostart: true })}>Autostart active Transcript</button>
       <button onClick={() => transcript?.open(hidden.id)}>Open hidden Transcript</button>
       <output aria-label="Owner lock">{transcript?.locked ? transcript.ownerId : "unlocked"}</output>
     </>;
@@ -258,5 +259,12 @@ describe("Live Transcript panel", () => {
     await switchPeer();
     expect(peerSignal?.aborted).toBe(true);
     expect(panel()).toBeNull();
+  });
+
+  it("autostarts capture immediately when opened with autostart", async () => {
+    await mount();
+    await click("Autostart active Transcript");
+    expect(panel()?.textContent).toContain("Uncommitted words");
+    expect(document.querySelector('[aria-label="Owner lock"]')?.textContent).toBe(shell.id);
   });
 });

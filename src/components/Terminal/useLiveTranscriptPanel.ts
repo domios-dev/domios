@@ -4,10 +4,14 @@ import { TRANSCRIPT_PAGE_SIZE, type LiveTranscriptApi, type RoutedPage, type Tra
 import { useAttachments } from "./useAttachments";
 import type { InlineAttachment, InlineAttachmentSink } from "./useComposerCapsules";
 
+export interface LiveTranscriptOpenOptions {
+  autostart?: boolean;
+}
+
 export interface LiveTranscriptHostState {
   ownerId: string | null;
   locked: boolean;
-  open: (tabId: string) => void;
+  open: (tabId: string, options?: LiveTranscriptOpenOptions) => void;
 }
 
 export const LiveTranscriptContext = createContext<LiveTranscriptHostState | null>(null);
