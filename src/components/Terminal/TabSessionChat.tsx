@@ -122,8 +122,10 @@ import { useStopSettlement, type StopReceipt } from "./useStopSettlement";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { HoldWhileHidden } from "./HoldWhileHidden";
-import { awaitsTranscriptEcho, deliveryPresentation, queuedBehindTurn, sendForRow, undeliveredSends } from "./chatDeliveryModel";
+import { awaitsTranscriptEcho, deliveryPresentation, deliverySendForRow, queuedBehindTurn, undeliveredSends } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, setChatSendDraft, updateChatSendContent, useChatSendSnapshot } from "./chatSendStore";
+import { ComposerQueueTray } from "./ComposerQueueTray";
+import { composerSendFeedback } from "./composerQueueModel";
 import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
@@ -207,7 +209,7 @@ function TabSessionChatBody({
   }
 
   const touchMode = useTouchOptimizedUi();
-  const { sends: deliverySends, unownedHeld } = useChatSendSnapshot(tabId);
+  const { sends: deliverySends, hostStatuses, queue, unownedHeld } = useChatSendSnapshot(tabId);
   const { expand: expandDeliveryTasks, plansSink: deliveryPlansSink } = useDsTasksExpander(tabId);
   const tabBlockHost = useTabChatBlockHost(tabId);
   const lastStopAtRef = useRef(0);
@@ -219,6 +221,9 @@ function TabSessionChatBody({
   const openPlanTarget = usePlanTargetNavigation();
   const tabSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
+  const sendFeedback = useMemo(() => composerSendFeedback(
+    sendsOfCurrentAttempt(deliverySends, tab?.pty_id, tab?.session_binding_nonce), [...hostStatuses.values()], queue,
+  ), [deliverySends, hostStatuses, queue, tab?.pty_id, tab?.session_binding_nonce]);
   const remoteChat = useRemoteChatNotice(tabId, tab, deliverySends, remoteConnection);
   const tabLock = useTabLock(tab);
   const readOnly = isInputBlockedTab(tab, tabLock);
@@ -1009,7 +1014,7 @@ function TabSessionChatBody({
           const followingAsks = askPlacement.afterIndex.get(messageIndex) ?? NO_RAIL_INDICES;
           const nextId = renderedEnrichedMessages[messageIndex + 1]?.msg.id;
           const reports = rowReports(reportRows.byRow.get(messageIndex), following, outboundReports);
-          const deliverySend = sendForRow(deliverySends, msg);
+          const deliverySend = deliverySendForRow(deliverySends, msg);
           return (
             <ChatTranscriptRow
               key={msg.id}
@@ -1020,7 +1025,8 @@ function TabSessionChatBody({
               reports={reports}
               asks={followingAsks.length ? followingAsks.map((index) => asks[index]).filter(Boolean) : NO_ASKS}
               deliverySend={deliverySend}
-              deliveryView={deliverySend ? deliveryPresentation(deliverySend, agentActivity.kind) : undefined}
+              deliveryView={deliverySend ? deliveryPresentation(deliverySend,
+                Boolean(deliverySend.status && queue.claimed.includes(deliverySend.status.send_id))) : undefined}
               deliveryBehindTurn={deliverySend ? queuedBehindTurn(deliverySend, agentActivity.kind) : undefined}
               sourceOrdinal={mountedWindow.identities[messageIndex].ordinal}
               ariaLabel={chatMessageAccessibleName(msg.type, msg.content, id => tabTitleMap.get(id))}
@@ -1057,7 +1063,7 @@ function TabSessionChatBody({
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
         {unownedHeld > 0 && <p role="status" data-testid="chat-unowned-held" className="py-1 text-center text-xs text-[var(--ct-muted-fg)]">
-          {unownedHeld} {unownedHeld === 1 ? "message" : "messages"} from another window queued for this agent.
+          {unownedHeld} {unownedHeld === 1 ? "message" : "messages"} from another window held for this agent.
         </p>}
         {!tabLock.locked && !signInState && <ChatTranscriptNotices tab={tab} workspaceId={workspaceId} remote={remoteChat}
           retrySend={retryChatDelivery} retryAttachment={retryAttachment} attaching={recovering || (loading && attachmentState === "attaching")}
@@ -1110,6 +1116,7 @@ function TabSessionChatBody({
           activity={composerActivity}
           activeTool={composerRunningTool(allMessages, runtime.state?.state)}
           runtimeState={runtime.state}
+          suppressLastTurn={sendFeedback.unsettled}
           showActivity={!showRemoteState && setupView.kind === "none" && !chatLoading}
           channelLoadingLabel={chatChannelLoadingRow(chatLoading, setupView, snapshotReady, hasHeldWindow) === "model"
             ? `${provider?.displayName ?? tabProvider} loading chat` : undefined}
@@ -1127,7 +1134,9 @@ function TabSessionChatBody({
             : undefined}
           renderIdentity={tab ? (label) => <TabStatusLineModelPicker tab={tab} label={label} /> : undefined}
           recovery={showRemoteState || (readOnly && !isConciergeTab(tab)) || launchedFailure ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
-        />        {bindingRecoveryOpen && (
+        />
+        <ComposerQueueTray key={tabId} tabId={tabId} items={sendFeedback.items} sending={sendFeedback.sending} editable={!readOnly && !showRemoteState} />
+        {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
             tabId={tabId}
             suggestedSessionId={sessionBindingSurface.rebindSessionId}

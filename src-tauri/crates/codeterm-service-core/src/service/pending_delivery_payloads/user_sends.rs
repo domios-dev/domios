@@ -6,7 +6,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 mod admission_evidence;
 mod admission_tokens;
@@ -20,6 +20,7 @@ use runtime_observers::RuntimeAdmission;
 pub(crate) mod continuity;
 pub(crate) mod ended_launch;
 mod handoff;
+pub mod queue;
 mod ready_launch;
 mod reservations;
 pub(crate) mod retention;
@@ -95,6 +96,14 @@ pub struct UserSendRecord {
         skip_serializing_if = "crate::service::messenger::InputProvenance::is_local"
     )]
     pub(crate) input_provenance: crate::service::messenger::InputProvenance,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    composer_pipeline: Option<bool>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    composer_preview: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    edit: Option<queue::UserSendEdit>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    queue_claimed: bool,
     original_digest: String,
     original_bytes: usize,
     prepared_digest: String,
@@ -182,6 +191,7 @@ pub struct UserReservation {
     pub(crate) ledger_sequence: u64,
     pub(crate) authority: UserSendAuthority,
     pub(crate) client_token: Option<String>,
+    pub(crate) composer_pipeline: Option<bool>,
     ordinal: u64,
     tab: Arc<UserTab>,
     reused: bool,
@@ -226,6 +236,7 @@ pub struct UserSendStore {
     root_initialized: Mutex<bool>,
     epoch: String,
     tabs: Mutex<HashMap<String, Arc<UserTab>>>,
+    queue_events: OnceLock<Arc<dyn crate::ports::host::UiEvents>>,
     #[cfg(test)]
     persistence_boundary: Mutex<Option<Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>>>,
 }
@@ -238,6 +249,7 @@ impl UserSendStore {
             root_initialized: Mutex::new(false),
             epoch: uuid::Uuid::new_v4().to_string(),
             tabs: Mutex::new(HashMap::new()),
+            queue_events: OnceLock::new(),
             #[cfg(test)]
             persistence_boundary: Mutex::new(None),
         })
@@ -385,6 +397,9 @@ impl UserSendStore {
         {
             return Err("user payload exceeds bounded storage work".into());
         }
+        let composer_preview = reservation
+            .composer_pipeline
+            .map_or_else(String::new, |_| queue::composer_preview(original));
         let tab = &reservation.tab;
         let mut data = tab.data.lock();
         let loaded = self.load(tab, &mut data)?;
@@ -419,6 +434,10 @@ impl UserSendStore {
             typed_follow_up,
             capture_required: runtime.capture_required,
             input_provenance: runtime.provenance,
+            composer_pipeline: reservation.composer_pipeline,
+            composer_preview,
+            edit: None,
+            queue_claimed: false,
             original_digest: digest(original.as_bytes()),
             original_bytes: original.len(),
             prepared_digest: digest(prepared.as_bytes()),
@@ -642,6 +661,8 @@ impl UserSendStore {
         if current.state != UserSendState::Queued
             || current.authority != record.authority
             || current.owner_epoch != record.owner_epoch
+            || current.handoff_session.is_some()
+            || current.queue_version() != record.queue_version()
             || session.is_some_and(|session| {
                 current
                     .authority
@@ -660,8 +681,11 @@ impl UserSendStore {
             .ok_or("user send disappeared")?;
         current.state = UserSendState::Claimed;
         current.handoff_session = session.map(str::to_string);
+        current.queue_claimed = current.composer_pipeline.is_some();
         self.persist(&tab, &next)?;
         loaded.index = next;
+        drop(data);
+        self.emit_queue_change(&record.authority.tab_id);
         Ok(true)
     }
 
@@ -740,12 +764,13 @@ impl UserSendStore {
             .into_iter()
             .find(|record| record.send_id == send_id)
             .ok_or("user send is not indexed")?;
-        self.read_payload(
+        let original = self.read_payload(
             &record,
             "original",
             &record.original_digest,
             record.original_bytes,
-        )
+        )?;
+        Ok(record.with_original_append(original))
     }
 
     pub(crate) fn prepared(&self, record: &UserSendRecord) -> Result<String, String> {
@@ -760,12 +785,13 @@ impl UserSendStore {
                 return Err("prepared body integrity failed".into());
             }
         }
-        self.read_payload(
+        let prepared = self.read_payload(
             record,
             "prepared",
             &record.prepared_digest,
             record.prepared_bytes,
-        )
+        )?;
+        Ok(record.with_prepared_append(prepared))
     }
 
     pub(crate) fn body_path(&self, record: &UserSendRecord) -> Result<Option<PathBuf>, String> {
@@ -859,6 +885,7 @@ fn validate_index(index: &UserIndex, tab_id: &str) -> Result<(), String> {
             || record.body_digest.is_some() != record.body_path.is_some()
             || record.original_digest.len() != 64
             || record.prepared_digest.len() != 64
+            || !record.valid_queue_edit()
             || record
                 .body_digest
                 .as_ref()
@@ -869,12 +896,23 @@ fn validate_index(index: &UserIndex, tab_id: &str) -> Result<(), String> {
         prepared = prepared
             .checked_add(record.prepared_bytes)
             .and_then(|value| {
+                value.checked_add(record.edit.as_ref().map_or(0, |edit| edit.prepared.len()))
+            })
+            .and_then(|value| {
                 value.checked_add(record.typed_follow_up.as_ref().map_or(0, String::len))
             })
             .and_then(|value| value.checked_add(record.body_bytes))
             .ok_or("prepared byte accounting overflow")?;
         original = original
             .checked_add(record.original_bytes)
+            .and_then(|value| {
+                value.checked_add(
+                    record
+                        .edit
+                        .as_ref()
+                        .map_or(0, |edit| edit.view.appended.len()),
+                )
+            })
             .ok_or("original byte accounting overflow")?;
     }
     if index

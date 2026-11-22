@@ -208,6 +208,9 @@ impl crate::service::ServiceContext {
     }
 
     pub(crate) fn bind_user_send_owner(&self) {
+        self.pending_delivery_payloads
+            .user_sends
+            .bind_queue_events(self.ui.clone());
         if let Some(weak) = self.try_ext::<std::sync::Weak<super::super::ServiceContext>>() {
             *self.chat_send_ledger.owner.lock() = Some(weak.clone());
         }
@@ -238,7 +241,7 @@ impl crate::service::ServiceContext {
 
     fn prepare_and_admit_user_send_with_capture(
         &self,
-        reservation: UserReservation,
+        mut reservation: UserReservation,
         original: String,
         run_stages: bool,
         capture: Option<super::super::local_recording::leases::Capture>,
@@ -252,6 +255,9 @@ impl crate::service::ServiceContext {
         }
         if original.len() > MAX_PREPARED_BYTES {
             return Err("user original exceeds 4 MiB storage bound".into());
+        }
+        if capture.is_none() && reservation.client_token.is_some() {
+            reservation.composer_pipeline = Some(run_stages);
         }
         let (prepared, returned) = self.prepare_chat_send_text_for_send(
             &reservation.authority.tab_id,
@@ -364,19 +370,8 @@ impl crate::service::ServiceContext {
         }
         let store = &self.pending_delivery_payloads.user_sends;
         let final_transport = store.final_transport(&reservation, prepared, body.as_ref())?;
-        let follow_up = self
-            .agent_registry
-            .with_provider(&reservation.authority.provider_id, |provider| {
-                if provider.agent_runtime().is_some() {
-                    return None;
-                }
-                provider.paste_capability().and_then(|capability| {
-                    capability
-                        .typed_follow_up_for(&final_transport)
-                        .map(str::to_string)
-                })
-            })
-            .flatten();
+        let follow_up =
+            self.user_send_follow_up(&reservation.authority.provider_id, &final_transport);
         let held_before_readiness = !self.user_authority_is_ready(&reservation.authority);
         let record = store.admit_with_follow_up(
             &reservation,

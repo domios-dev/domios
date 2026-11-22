@@ -229,6 +229,28 @@ assert.ok(resetDialog.textContent?.includes("32%"));
 assert.ok(resetDialog.textContent?.includes(formatResetsAt(resetAt,Date.now())));
 await act(async()=>container.querySelector("button")!.dispatchEvent(new MouseEvent("pointerenter",{bubbles:true})));
 assert.ok(resetDialog.textContent?.includes(formatResetsAt(resetAt,Date.now())));
+const {QuotaReadingPill} = await import("./ProfileLimitsBubble");
+await act(async () => root.render(<QuotaReadingPill failure={null} modelId="gemini-4-neon"
+  reading={{ title: "Account quota", limits: [
+    { label: "Gemini 5h", usedPercent: 4, resetsAt: null },
+    { label: "Gemini weekly", usedPercent: 12, resetsAt: resetAt },
+    { label: "3P 5h", usedPercent: 98, resetsAt: null },
+  ] }} />));
+const quotaTrigger = container.querySelector("button")!;
+assert.equal(quotaTrigger.getAttribute("aria-label"), "Gemini usage limits, 5h 4% used, weekly 12% used");
+assert.equal(quotaTrigger.querySelectorAll("svg").length, 2);
+await act(async () => quotaTrigger.click());
+const quotaDetails = document.querySelector('[role="dialog"][aria-label="usage details"]')!;
+const groupSelect = quotaDetails.querySelector("select")!;
+assert.equal(groupSelect.value, "Gemini");
+assert.equal(quotaDetails.textContent?.includes("98%"), false);
+await act(async () => {
+  groupSelect.value = "3P";
+  groupSelect.dispatchEvent(new Event("change", { bubbles: true }));
+});
+assert.ok(quotaDetails.textContent?.includes("98%"));
+assert.equal(quotaDetails.textContent?.includes("Gemini weekly"), false);
+assert.equal(quotaTrigger.getAttribute("aria-label"), "Gemini usage limits, 5h 4% used, weekly 12% used");
 await act(async()=>root.unmount());bridge.__setInvokeForTest(null);bridge.__setListenForTest(null);dom.happyDOM.abort();
 console.log("PASS usage chip wiring: subscription metrics and API session breakdown");
 

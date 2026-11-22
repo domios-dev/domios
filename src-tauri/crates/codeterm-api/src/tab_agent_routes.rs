@@ -86,6 +86,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(tab_routes::chat_send_admissions),
         )
         .route(
+            "/api/tabs/{id}/chat-send/queue",
+            get(tab_routes::chat_send_queue).post(tab_routes::chat_send_queue_change),
+        )
+        .route(
             "/api/tabs/{id}/attachments",
             post(super::mesh_attachment::ingest).layer(axum::extract::DefaultBodyLimit::max(
                 super::mesh_attachment::MESH_ATTACHMENT_RELAY_BODY_LIMIT,

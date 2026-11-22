@@ -52,6 +52,7 @@ const VIDEO_MIME: Record<string, string> = {
   webm: "video/webm",
 };
 const DOCUMENT_EXTENSIONS = new Set(["md", "markdown", "txt", "log", "json", "yaml", "yml", "toml", "csv"]);
+const CAMERA_IMAGE_EXTENSIONS = new Set(["heic", "heif", "tif", "tiff"]);
 
 // Only the typed attachment form matches; a routed `<domios from=...>` frame is provenance, never an attachment.
 const MARKER = /<domios\b(?=[^<>]*\stype="attachment")([^<>]*?)\/?>/gi;
@@ -78,7 +79,7 @@ export function videoMimeType(path: string): string {
 }
 
 export function attachmentKindForPath(path: string): AttachmentKind {
-  if (isImagePath(path)) return "image";
+  if (isImagePath(path) || CAMERA_IMAGE_EXTENSIONS.has(extension(path))) return "image";
   return isVideoPath(path) ? "video" : "file";
 }
 

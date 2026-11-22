@@ -19,6 +19,8 @@ mod authority;
 mod neighbor;
 mod preparation;
 pub use admissions::chat_send_admissions;
+mod queue;
+pub use queue::{chat_send_queue, chat_send_queue_change};
 
 fn chat_admission_rejection(tab_id: &str, detail: String) -> SendRejection {
     if detail.starts_with("admission_unknown:") {

@@ -258,6 +258,8 @@ const simple = [
   ["chat_send_dismissals", "GET", "/api/tabs/tab/chat-send/dismissals"],
   ["chat_send_delete", "POST", "/api/tabs/tab/chat-send/dismissals"],
   ["chat_send_status", "GET", "/api/tabs/tab/chat-send"],
+  ["chat_send_queue", "GET", "/api/tabs/tab/chat-send/queue"],
+  ["chat_send_queue_change", "POST", "/api/tabs/tab/chat-send/queue"],
   ["ordinary_tabs_list", "GET", "/api/tabs"],
   ["write_pty_string", "POST", "/api/pty/pty/write"],
   ["interrupt_agent", "POST", "/api/tabs/tab/stop"],

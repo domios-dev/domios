@@ -239,6 +239,7 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
                         | "chat"
                         | "shell-commands"
                         | "chat-send"
+                        | "chat-send/queue"
                         | "chat-send/dismissals",
                     ) => ReadOutput,
                     (
@@ -264,7 +265,11 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
                     _ if is_preview_read(method, path) => ReadPreview,
                     (
                         &Method::POST,
-                        "send" | "attachments" | "chat-send" | "chat-send/dismissals",
+                        "send"
+                        | "attachments"
+                        | "chat-send"
+                        | "chat-send/queue"
+                        | "chat-send/dismissals",
                     ) => SendInput,
                     (
                         &Method::POST,

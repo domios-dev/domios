@@ -105,3 +105,21 @@
     animation: none;
   }
 }
+.ct-titlebar--phone {
+  padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+}
+
+.ct-titlebar--phone .ct-titlebar-machine > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ct-titlebar--phone .ct-titlebar-machine .ct-machine-switcher {
+  max-width: min(100%, 40vw, 10rem);
+}
+
+.ct-titlebar--phone [data-testid="settings-update-action"] {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2.75rem;
+}
