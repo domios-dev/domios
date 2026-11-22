@@ -1,0 +1,164 @@
+{
+  "name": "mem-enrichment",
+  "tabs": [
+    {
+      "id": "relay",
+      "title": "Relay",
+      "purpose": "Infrastructure, release operations and incident follow-up"
+    },
+    {
+      "id": "canvas",
+      "title": "Canvas",
+      "purpose": "Design feedback and interface work"
+    },
+    {
+      "id": "notes",
+      "title": "Notes",
+      "purpose": "Meeting notes and handoff summaries"
+    },
+    {
+      "id": "qa",
+      "title": "QA",
+      "purpose": "Verification requests and reproduction details"
+    }
+  ],
+  "corpus": [
+    {
+      "keywords": "cedar rollout owner",
+      "fact": "The Cedar rollout is owned by the Relay tab (ID relay)."
+    },
+    {
+      "keywords": "juniper accessibility baseline",
+      "fact": "The Juniper accessibility baseline is awaiting contrast sign-off."
+    },
+    {
+      "keywords": "alder accessibility owner",
+      "fact": "Alder accessibility is owned by the Canvas tab (ID canvas)."
+    },
+    {
+      "keywords": "alder calendar review",
+      "fact": "The Alder review calendar is maintained in Notes (ID notes)."
+    }
+  ],
+  "turns": [
+    {
+      "at_seconds": 0,
+      "rows": [
+        { "text": "I finally moved the plant so the leaves aren't right in front of the monitor." }
+      ]
+    },
+    {
+      "at_seconds": 208,
+      "rows": [
+        { "text": "Find the owner of the Cedar rollout and send them a request to review the retry chart." }
+      ],
+      "lookup": "Cedar rollout owner",
+      "memoryEvidence": "owned by the Relay tab",
+      "routes": [
+        {
+          "target": "relay",
+          "payload": "Review the Cedar rollout retry chart.",
+          "intent": [
+            "cedar",
+            "retry",
+            "chart",
+            "review"
+          ]
+        }
+      ]
+    },
+    {
+      "at_seconds": 416,
+      "rows": [
+        { "text": "The pot is heavier than it looks. I probably need to water it less often." }
+      ]
+    },
+    {
+      "at_seconds": 624,
+      "rows": [
+        { "text": "Send Notes the status of the Juniper accessibility baseline. It's in the workspace notes somewhere." }
+      ],
+      "lookup": "Juniper accessibility baseline",
+      "memoryEvidence": "awaiting contrast sign-off",
+      "routes": [
+        {
+          "target": "notes",
+          "payload": "The Juniper accessibility baseline is awaiting contrast sign-off.",
+          "intent": [
+            "juniper",
+            "contrast",
+            "sign.off",
+            "await(?:ing|s)?|pending|needs?"
+          ]
+        }
+      ]
+    },
+    {
+      "at_seconds": 832,
+      "rows": [
+        { "text": "Ask QA to rerun smoke tests for the billing summary after the fixture update." }
+      ],
+      "routes": [
+        {
+          "target": "qa",
+          "payload": "Rerun billing summary smoke tests after the fixture update.",
+          "intent": [
+            "billing summary",
+            "smoke",
+            "after",
+            "fixture"
+          ]
+        }
+      ]
+    },
+    {
+      "at_seconds": 1040,
+      "rows": [
+        { "text": "I can hear a bus idling outside. It must be stopped just past the corner." }
+      ]
+    },
+    {
+      "at_seconds": 1248,
+      "rows": [
+        { "text": "Send the person who owns Alder accessibility the reminder to check heading order on Settings." }
+      ],
+      "lookup": "Alder accessibility owner",
+      "memoryEvidence": "owned by the Canvas tab",
+      "routes": [
+        {
+          "target": "canvas",
+          "payload": "Check heading order on Settings for Alder.",
+          "intent": [
+            "heading order",
+            "settings"
+          ]
+        }
+      ]
+    },
+    {
+      "at_seconds": 1456,
+      "rows": [
+        { "text": "Someone left the outside door open. The hallway always echoes when that happens." }
+      ]
+    },
+    {
+      "at_seconds": 1664,
+      "rows": [
+        { "text": "For the doc, add a bullet under Review to confirm the release candidate number before announcing it." }
+      ],
+      "patch": {
+        "heading": "Review",
+        "prose": "",
+        "bullets": [
+          "Confirm the release candidate number before announcing it."
+        ]
+      }
+    },
+    {
+      "at_seconds": 1872,
+      "rows": [
+        { "text": "That's enough for this morning. The light is already moving off the wall." }
+      ]
+    }
+  ]
+}
