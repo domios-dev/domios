@@ -331,14 +331,15 @@ impl FrameHub {
         base64: Option<Arc<str>>,
         metadata: FrameMetadata,
         still: bool,
-        only_if_seq: Option<u64>,
+        only_if: Option<(u64, ScreencastParams)>,
     ) -> bool {
         let frame = {
             let mut state = self.state.lock();
             if state.closed || state.generation != generation {
                 return false;
             }
-            if only_if_seq.is_some_and(|expected| state.seq != expected) {
+            // A still for superseded params would flash the previous viewport after a restart.
+            if only_if.is_some_and(|(seq, params)| state.seq != seq || state.params != params) {
                 return false;
             }
             if state.captures > 0 && !still && off_viewport(&metadata, state.params.viewport) {
@@ -599,7 +600,7 @@ async fn push_still(
         Some(Arc::from(raw_base64)),
         FrameMetadata::still(params.viewport, unix_now_secs()),
         true,
-        Some(seq_before),
+        Some((seq_before, params)),
     );
 }
 
