@@ -17,13 +17,11 @@ use crate::service::ServiceState;
 pub use codeterm_agent_model::cron::CronState;
 
 /// Notification channel to wake the scheduler when cron jobs are modified.
-pub type CronWake = Arc<std::sync::Condvar>;
+pub type CronWake = Arc<super::wake::CronWakeSignal>;
 const FAILURE_DEADLINE_MS: u64 = 60_000;
 
 /// Start the cron scheduler in a background thread.
 pub fn start(cron_state: CronState, cron_wake: CronWake, service: ServiceState) {
-    let wake_mutex = Arc::new(std::sync::Mutex::new(()));
-
     codeterm_util::named_thread::spawn("cron-scheduler", move || {
         log::info!("Cron scheduler started");
         if let Err(error) = service
@@ -37,21 +35,19 @@ pub fn start(cron_state: CronState, cron_wake: CronWake, service: ServiceState) 
             );
         }
         loop {
+            let observed = cron_wake.observe();
             let wait = tick(&cron_state, &service);
-            let guard = wake_mutex.lock().unwrap();
             match wait {
                 TickWait::Until(wait_ms) => {
-                    let _ = cron_wake.wait_timeout(guard, Duration::from_millis(wait_ms));
+                    cron_wake.wait_after(observed, Duration::from_millis(wait_ms));
                 }
                 TickWait::Settlement => {
                     if cron_state.lock().scheduler_settlement_ready() {
                         continue;
                     }
-                    let timed_out = cron_wake
-                        .wait_timeout(guard, Duration::from_millis(FAILURE_DEADLINE_MS))
-                        .map(|(_, result)| result.timed_out())
-                        .unwrap_or(true);
-                    if timed_out {
+                    let notified =
+                        cron_wake.wait_after(observed, Duration::from_millis(FAILURE_DEADLINE_MS));
+                    if !notified {
                         let mut store = cron_state.lock();
                         if store.scheduler_settlement_ready() {
                             continue;
@@ -62,8 +58,7 @@ pub fn start(cron_state: CronState, cron_wake: CronWake, service: ServiceState) 
                     }
                 }
                 TickWait::Unavailable => {
-                    let _ =
-                        cron_wake.wait_timeout(guard, Duration::from_millis(FAILURE_DEADLINE_MS));
+                    cron_wake.wait_after(observed, Duration::from_millis(FAILURE_DEADLINE_MS));
                 }
             }
         }
@@ -624,6 +619,10 @@ pub(crate) fn record_fire_start(cron: &CronState, job_id: &str, run_id: &str) ->
 #[cfg(test)]
 #[path = "scheduler/process_split_contract.rs"]
 mod process_split_contract;
+
+#[cfg(test)]
+#[path = "scheduler/load_tests.rs"]
+mod load_tests;
 
 #[cfg(test)]
 mod tests {

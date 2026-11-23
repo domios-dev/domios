@@ -40,10 +40,7 @@ fn oneshot_run_with_history(
     let fixture = ServiceFixture::new(mux);
     let cron: crate::CronState = Arc::new(Mutex::new(store(&fixture)));
     assert!(fixture.service.set_ext(cron.clone()).is_ok());
-    assert!(fixture
-        .service
-        .set_ext::<crate::CronWake>(Arc::new(std::sync::Condvar::new()))
-        .is_ok());
+    assert!(fixture.service.set_ext(crate::CronWake::default()).is_ok());
     let run_id = "oneshot-run".to_string();
     let params = CronCreateParams {
         name: "once".into(),

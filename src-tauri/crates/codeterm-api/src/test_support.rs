@@ -15,7 +15,7 @@ pub fn app_state(fixture: &ServiceFixture) -> AppState {
                 fixture.temp.path().join("cron.json"),
             ),
         )),
-        cron_wake: Arc::new(std::sync::Condvar::new()),
+        cron_wake: Default::default(),
         api_port: 0,
         update_state: Arc::new(parking_lot::Mutex::new(codeterm_update::UpdateState {
             install_method: codeterm_update::InstallMethod::Unknown,

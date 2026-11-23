@@ -121,7 +121,7 @@ fn team_storage_fixture() -> TeamStorageFixture {
         codeterm_sentinel::storage::commit(&sentinel, |store| store.stage_insert(sentinel_job))
             .unwrap()
             .id;
-    let wake = Arc::new(std::sync::Condvar::new());
+    let wake = codeterm_service_core::CronWake::default();
     assert!(service
         .service
         .set_ext(codeterm_service_core::startup::StorageAuthority::Ready(

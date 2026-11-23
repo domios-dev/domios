@@ -72,7 +72,7 @@ impl Scene {
         let cron = Arc::new(Mutex::new(CronStore::new_with_path(
             fixture.temp.path().join("cron.json"),
         )));
-        let wake = Arc::new(std::sync::Condvar::new());
+        let wake = crate::CronWake::default();
         assert!(fixture.service.set_ext(cron.clone()).is_ok());
         assert!(fixture.service.set_ext(wake.clone()).is_ok());
         let methods = [

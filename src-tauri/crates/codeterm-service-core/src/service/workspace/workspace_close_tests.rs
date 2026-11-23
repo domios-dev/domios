@@ -224,7 +224,7 @@ async fn workspace_close_handles_crons() {
         .create(add_cron(retained_workspace_id.clone(), "Retained cron"))
         .unwrap();
     assert!(fixture.service.set_ext(cron.clone()).is_ok());
-    let wake: crate::CronWake = Arc::new(std::sync::Condvar::new());
+    let wake = crate::CronWake::default();
     assert!(fixture.service.set_ext(wake.clone()).is_ok());
 
     fixture

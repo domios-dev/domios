@@ -289,7 +289,7 @@ pub(crate) fn start_servers(
     };
     let cron_available = cron_store.unavailable_reason().is_none();
     let cron_state: CronState = Arc::new(Mutex::new(cron_store));
-    let cron_wake: CronWake = Arc::new(std::sync::Condvar::new());
+    let cron_wake = CronWake::default();
 
     // Auto-install bundled mem dreaming cron if not present. Idempotent by name. Schedule "0 3 * * *" + ±90min jitter (anti-anti-cheat).
     if cron_available {

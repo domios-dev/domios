@@ -12,7 +12,23 @@ pub fn should_report(held: Duration) -> bool {
 }
 
 #[cfg(debug_assertions)]
+pub mod order;
+
+#[cfg(not(debug_assertions))]
+pub mod order {
+    #[track_caller]
+    pub fn check_blocking_wait(_what: &str) {}
+    pub fn violation_count() -> usize {
+        0
+    }
+    pub fn violations_mentioning(_needle: &str) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+#[cfg(debug_assertions)]
 mod imp {
+    use super::order::{self, Access};
     use super::should_report;
     use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
     use std::ops::{Deref, DerefMut};
@@ -26,28 +42,52 @@ mod imp {
         start: Instant,
         waited: Duration,
         site: &'static Location<'static>,
+        order_token: u64,
         inner: G,
     }
 
-    impl<G> TimedGuard<G> {
-        fn acquired(
-            name: &'static str,
-            kind: &'static str,
-            waiting: Instant,
-            site: &'static Location<'static>,
-            inner: G,
-        ) -> Self {
+    struct Acquisition {
+        name: &'static str,
+        kind: &'static str,
+        access: Access,
+        addr: usize,
+        site: &'static Location<'static>,
+    }
+
+    impl Acquisition {
+        fn blocking<G>(self, take: impl FnOnce() -> G) -> TimedGuard<G> {
+            order::check_blocking(self.name, self.addr, self.access, self.site);
+            let waiting = Instant::now();
+            let inner = take();
+            self.acquired(waiting, inner)
+        }
+
+        fn bounded<G>(self, take: impl FnOnce() -> Option<G>) -> Option<TimedGuard<G>> {
+            order::check_blocking(self.name, self.addr, self.access, self.site);
+            self.attempt(take)
+        }
+
+        fn attempt<G>(self, take: impl FnOnce() -> Option<G>) -> Option<TimedGuard<G>> {
+            let waiting = Instant::now();
+            let inner = take()?;
+            Some(self.acquired(waiting, inner))
+        }
+
+        fn acquired<G>(self, waiting: Instant, inner: G) -> TimedGuard<G> {
             let start = Instant::now();
-            Self {
-                name,
-                kind,
+            TimedGuard {
+                name: self.name,
+                kind: self.kind,
                 start,
                 waited: start.duration_since(waiting),
-                site,
+                site: self.site,
+                order_token: order::enter(self.name, self.addr, self.access, self.site),
                 inner,
             }
         }
+    }
 
+    impl<G> TimedGuard<G> {
         pub(super) fn report_held(&self, held: Duration, report: impl FnOnce(String)) {
             if should_report(held) {
                 report(format_report(
@@ -77,6 +117,7 @@ mod imp {
     impl<G> Drop for TimedGuard<G> {
         fn drop(&mut self) {
             self.report_held(self.start.elapsed(), |report| log::debug!("{report}"));
+            order::exit(self.order_token);
         }
     }
 
@@ -111,27 +152,28 @@ mod imp {
             }
         }
         #[track_caller]
+        fn acquisition(&self, kind: &'static str) -> Acquisition {
+            Acquisition {
+                name: self.name,
+                kind,
+                access: Access::Exclusive,
+                addr: self as *const Self as usize,
+                site: Location::caller(),
+            }
+        }
+        #[track_caller]
         pub fn lock(&self) -> TimedGuard<MutexGuard<'_, T>> {
-            let site = Location::caller();
-            let waiting = Instant::now();
-            let inner = self.inner.lock();
-            TimedGuard::acquired(self.name, "lock", waiting, site, inner)
+            self.acquisition("lock").blocking(|| self.inner.lock())
         }
         #[track_caller]
         pub fn try_lock(&self) -> Option<TimedGuard<MutexGuard<'_, T>>> {
-            let site = Location::caller();
-            let waiting = Instant::now();
-            self.inner
-                .try_lock()
-                .map(|inner| TimedGuard::acquired(self.name, "try_lock", waiting, site, inner))
+            self.acquisition("try_lock")
+                .attempt(|| self.inner.try_lock())
         }
         #[track_caller]
         pub fn try_lock_until(&self, deadline: Instant) -> Option<TimedGuard<MutexGuard<'_, T>>> {
-            let site = Location::caller();
-            let waiting = Instant::now();
-            self.inner.try_lock_until(deadline).map(|inner| {
-                TimedGuard::acquired(self.name, "try_lock_until", waiting, site, inner)
-            })
+            self.acquisition("try_lock_until")
+                .bounded(|| self.inner.try_lock_until(deadline))
         }
     }
 
@@ -148,45 +190,42 @@ mod imp {
             }
         }
         #[track_caller]
+        fn acquisition(&self, kind: &'static str, access: Access) -> Acquisition {
+            Acquisition {
+                name: self.name,
+                kind,
+                access,
+                addr: self as *const Self as usize,
+                site: Location::caller(),
+            }
+        }
+        #[track_caller]
         pub fn read(&self) -> TimedGuard<RwLockReadGuard<'_, T>> {
-            let site = Location::caller();
-            let waiting = Instant::now();
-            let inner = self.inner.read();
-            TimedGuard::acquired(self.name, "read", waiting, site, inner)
+            self.acquisition("read", Access::Shared)
+                .blocking(|| self.inner.read())
         }
         #[track_caller]
         pub fn try_read(&self) -> Option<TimedGuard<RwLockReadGuard<'_, T>>> {
-            let site = Location::caller();
-            let waiting = Instant::now();
-            self.inner
-                .try_read()
-                .map(|inner| TimedGuard::acquired(self.name, "try_read", waiting, site, inner))
+            self.acquisition("try_read", Access::Shared)
+                .attempt(|| self.inner.try_read())
         }
         #[track_caller]
         pub fn try_read_until(
             &self,
             deadline: Instant,
         ) -> Option<TimedGuard<RwLockReadGuard<'_, T>>> {
-            let site = Location::caller();
-            let waiting = Instant::now();
-            self.inner.try_read_until(deadline).map(|inner| {
-                TimedGuard::acquired(self.name, "try_read_until", waiting, site, inner)
-            })
+            self.acquisition("try_read_until", Access::Shared)
+                .bounded(|| self.inner.try_read_until(deadline))
         }
         #[track_caller]
         pub fn write(&self) -> TimedGuard<RwLockWriteGuard<'_, T>> {
-            let site = Location::caller();
-            let waiting = Instant::now();
-            let inner = self.inner.write();
-            TimedGuard::acquired(self.name, "write", waiting, site, inner)
+            self.acquisition("write", Access::Exclusive)
+                .blocking(|| self.inner.write())
         }
         #[track_caller]
         pub fn try_write(&self) -> Option<TimedGuard<RwLockWriteGuard<'_, T>>> {
-            let site = Location::caller();
-            let waiting = Instant::now();
-            self.inner
-                .try_write()
-                .map(|inner| TimedGuard::acquired(self.name, "try_write", waiting, site, inner))
+            self.acquisition("try_write", Access::Exclusive)
+                .attempt(|| self.inner.try_write())
         }
     }
 }
