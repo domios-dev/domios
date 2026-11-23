@@ -134,6 +134,7 @@ fn forward_range_recovers_acked_speech_without_reclaiming_an_earlier_forward() {
         sent_text: "Earlier speech".into(),
         sent_excerpt: "Earlier speech".into(),
         rationale: None,
+        feedback: None,
     };
     assert_eq!(
         forward::forward_range(6, 7, &rows, std::slice::from_ref(&previous)),

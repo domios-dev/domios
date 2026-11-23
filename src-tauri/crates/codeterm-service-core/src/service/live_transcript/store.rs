@@ -57,6 +57,8 @@ pub struct TranscriptForward {
     pub sent_text: String,
     pub sent_excerpt: String,
     pub rationale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feedback: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -222,6 +224,59 @@ impl TranscriptStore {
         write_private(&path, &forward, MAX_RECORD_BYTES)?;
         insert_forward_path(&mut state.forward_paths, path);
         Ok(())
+    }
+
+    pub fn set_forward_feedback(
+        &self,
+        forward_id: &str,
+        verdict: &str,
+    ) -> io::Result<TranscriptForward> {
+        self.update_forward_feedback(forward_id, verdict, |_| Ok(()))
+    }
+
+    pub(super) fn update_forward_feedback(
+        &self,
+        forward_id: &str,
+        verdict: &str,
+        after_write: impl FnOnce(&TranscriptForward) -> io::Result<()>,
+    ) -> io::Result<TranscriptForward> {
+        validate_record_id(forward_id)?;
+        if !matches!(verdict, "wrong_send" | "good_send") {
+            return Err(invalid_input("Expected wrong_send or good_send feedback"));
+        }
+        let _gate = self.inner.forward_gate.lock();
+        let state = self.inner.state.lock();
+        state.require_healthy()?;
+        let dir = self.inner.root.join("forwards");
+        let encoded_suffix = encoded_record_path(Path::new(""), &format!("-{forward_id}"));
+        let suffix = encoded_suffix.to_string_lossy();
+        for entry in fs::read_dir(dir)? {
+            let path = entry?.path();
+            if !path.file_name().is_some_and(|name| {
+                let name = name.to_string_lossy();
+                name.len() == 40 + suffix.len() && name.ends_with(suffix.as_ref())
+            }) {
+                continue;
+            }
+            let mut forward: TranscriptForward = read_private(&path, MAX_RECORD_BYTES)?
+                .ok_or_else(|| invalid_data("Transcript forward is missing"))?;
+            if forward.forward_id != forward_id || forward_path(&self.inner.root, &forward) != path
+            {
+                return Err(invalid_data("Transcript forward identity mismatch"));
+            }
+            let previous = forward.feedback.replace(verdict.to_owned());
+            write_private(&path, &forward, MAX_RECORD_BYTES)?;
+            if let Err(error) = after_write(&forward) {
+                forward.feedback = previous;
+                write_private(&path, &forward, MAX_RECORD_BYTES)?;
+                return Err(error);
+            }
+            return Ok(forward);
+        }
+        Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Transcript forward is missing",
+        ))
     }
 
     pub fn forwards(&self) -> io::Result<Vec<TranscriptForward>> {

@@ -87,6 +87,7 @@ impl BindingDocument {
                     return Err(invalid_data("Invalid attached transcript epoch"));
                 }
             }
+            BindingTarget::Local => {}
             BindingTarget::External { tab_id } => validate_tab_id(tab_id)?,
             BindingTarget::Detached if binding.initial_cursor_seq != 0 => {
                 return Err(invalid_data("Detached transcript has an initial cursor"));
@@ -271,6 +272,7 @@ impl TranscriptStore {
                     return Err(refused("Transcript epoch is ineligible for activation"));
                 }
             }
+            BindingTarget::Local => {}
             BindingTarget::External { tab_id } => validate_tab_id(tab_id)?,
             BindingTarget::Detached => {}
         }
@@ -286,7 +288,8 @@ impl TranscriptStore {
                     state.binding.initial_cursor_seq
                 } else {
                     match (&target, start) {
-                        (BindingTarget::Attached { .. }, _) | (_, CursorStart::Beginning) => 0,
+                        (BindingTarget::Attached { .. } | BindingTarget::Local, _)
+                        | (_, CursorStart::Beginning) => 0,
                         (_, CursorStart::Latest) => committed_seq,
                         (_, CursorStart::After(seq)) if seq <= committed_seq => seq,
                         (_, CursorStart::After(_)) => {
@@ -326,6 +329,15 @@ impl TranscriptStore {
         binding: &TranscriptBinding,
         through_seq: TranscriptSeq,
     ) -> io::Result<TranscriptCursor> {
+        self.ack_with_previous(binding, through_seq)
+            .map(|(_, cursor)| cursor)
+    }
+
+    pub(super) fn ack_with_previous(
+        &self,
+        binding: &TranscriptBinding,
+        through_seq: TranscriptSeq,
+    ) -> io::Result<(u64, TranscriptCursor)> {
         self.advance_cursor(binding, through_seq, true)
     }
 
@@ -335,6 +347,7 @@ impl TranscriptStore {
         through_seq: TranscriptSeq,
     ) -> io::Result<TranscriptCursor> {
         self.advance_cursor(binding, through_seq, false)
+            .map(|(_, cursor)| cursor)
     }
 
     fn advance_cursor(
@@ -342,7 +355,7 @@ impl TranscriptStore {
         binding: &TranscriptBinding,
         through_seq: TranscriptSeq,
         ack: bool,
-    ) -> io::Result<TranscriptCursor> {
+    ) -> io::Result<(u64, TranscriptCursor)> {
         let mut state = self.inner.state.lock();
         let previous = self.require_cursor(&state, binding)?;
         if through_seq > state.last_seq() {
@@ -359,7 +372,7 @@ impl TranscriptStore {
                 return Err(error);
             }
         }
-        Ok(cursor)
+        Ok((previous.acked_seq, cursor))
     }
 
     pub fn record_action(
@@ -555,6 +568,7 @@ fn validate_action_record(
                 return Err(invalid_data("Routed transcript action epoch mismatch"));
             }
         }
+        BindingTarget::Local => {}
         BindingTarget::External { tab_id } => validate_tab_id(tab_id)?,
         BindingTarget::Detached => {
             return Err(invalid_data("Routed transcript action has no consumer"))
@@ -579,7 +593,9 @@ fn validate_action(action: &RoutedAction, committed_seq: TranscriptSeq) -> io::R
 
 fn consumer_key(owner_tab_id: &str, target: &BindingTarget) -> Option<String> {
     match target {
-        BindingTarget::Attached { .. } => Some(format!("concierge:{owner_tab_id}")),
+        BindingTarget::Attached { .. } | BindingTarget::Local => {
+            Some(format!("concierge:{owner_tab_id}"))
+        }
         BindingTarget::External { tab_id } => Some(format!("tab:{tab_id}")),
         BindingTarget::Detached => None,
     }
