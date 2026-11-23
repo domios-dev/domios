@@ -26,9 +26,9 @@ mod origin_guard {
     use crate::auth::{AuthenticatedOrigin, CallerIdentity};
 
     const SESSION: &str = "a2a9f17e-cb7c-4ba1-9a1b-7099ae215153";
-    const TAILNET_PEER: &str = "100.64.0.7:52100";
+    const REMOTE_PEER: &str = "192.0.2.7:52100";
     const LOOPBACK_PEER: &str = "127.0.0.1:52100";
-    const SERVE_HOST: &str = "blackstar.tail0.ts.net";
+    const SERVE_HOST: &str = "serve.example";
 
     struct Call<'a> {
         caller: CallerIdentity,
@@ -80,7 +80,7 @@ mod origin_guard {
         let same_origin = format!("https://{SERVE_HOST}");
         for path in paths() {
             for call in [
-                owner(TAILNET_PEER, Some(&same_origin)),
+                owner(REMOTE_PEER, Some(&same_origin)),
                 owner(LOOPBACK_PEER, None),
                 owner(LOOPBACK_PEER, Some("http://127.0.0.1:7686")),
                 owner(LOOPBACK_PEER, Some("tauri://localhost")),
@@ -103,14 +103,14 @@ mod origin_guard {
         let insecure = format!("http://{SERVE_HOST}");
         for path in paths() {
             for call in [
-                owner(TAILNET_PEER, Some(&insecure)),
-                owner(TAILNET_PEER, Some("https://attacker.example")),
-                owner(TAILNET_PEER, None),
-                owner(TAILNET_PEER, Some("http://127.0.0.1:7686")),
-                owner(TAILNET_PEER, Some("null")),
+                owner(REMOTE_PEER, Some(&insecure)),
+                owner(REMOTE_PEER, Some("https://attacker.example")),
+                owner(REMOTE_PEER, None),
+                owner(REMOTE_PEER, Some("http://127.0.0.1:7686")),
+                owner(REMOTE_PEER, Some("null")),
                 Call {
                     caller: CallerIdentity::Relayed,
-                    ..owner(TAILNET_PEER, Some(&same_origin))
+                    ..owner(REMOTE_PEER, Some(&same_origin))
                 },
                 Call {
                     origin_kind: AuthenticatedOrigin::Agent,

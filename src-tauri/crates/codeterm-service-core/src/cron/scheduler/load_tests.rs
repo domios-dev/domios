@@ -23,7 +23,7 @@ fn job_params(creator: usize, index: usize) -> CronCreateParams {
         "workspace_id": "workspace",
         "schedule": "* * * * *",
         "task": "tick",
-        "agent": "claude",
+        "agent": "pty-agent",
         "jitter_max_ms": 0
     }))
     .unwrap()

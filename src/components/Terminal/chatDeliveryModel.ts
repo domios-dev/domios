@@ -162,7 +162,7 @@ export function reconcileAdmissionEvidence(send: DeliverySend, evidence: Admissi
 export function reconcileDeliverySnapshot(send: DeliverySend, statuses: readonly ChatSendStatus[]): DeliverySend {
   if (!send.status || deliveryState(send) === "delivered"
     || statuses.some((status) => status.send_id === send.status?.send_id)) return send;
-  if (send.status.state === "written" || send.status.state === "held") {
+  if (send.status.state === "written") {
     return { ...send, status: { ...send.status, state: "submit_unconfirmed", pending_reason: undefined } };
   }
   return send.status.state === "failed" ? { ...send, status: undefined } : send;

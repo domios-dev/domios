@@ -157,7 +157,7 @@ fn run_transcript_load(utterances: usize) {
 fn idle_wake_requested_while_the_dispatch_lock_is_held_does_not_reenter_it() {
     let (_fixture, svc, owner, router) = fixture();
     let mut tab = svc.mux.read().get_tab(&router).unwrap().clone();
-    tab.agent_type = Some("codex".into());
+    tab.agent_type = Some("fixture".into());
     tab.agent_session_id = Some("router-session".into());
     tab.session_binding_nonce = Some("router-nonce".into());
     let _live = live_runtime(&tab);
