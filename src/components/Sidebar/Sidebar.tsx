@@ -41,6 +41,7 @@ import { renamePlan } from "../Canvas/plansApi";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { SidebarWorkspaceDetail, type SidebarWorkspaceDetailActions, type SidebarWorkspaceDetailData } from "./SidebarWorkspaceDetail";
 import { SidebarGeneralSection } from "./SidebarGeneralSection";
+import { SidebarScrollLayout } from "./SidebarScrollLayout";
 import { SidebarSkeleton } from "./SidebarSkeleton";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
@@ -504,6 +505,8 @@ export const Sidebar = memo(function Sidebar({
     return workspaceId ? sidebarWorkspaceKey(null, workspaceId) : null;
   });
   const activeWorkspaceId = state.active_workspace_id;
+  const activeTabId = isWorkspaceMode && !workspaceCanvasActive && activeWorkspaceId
+    ? state.activeTabIds[activeWorkspaceId] ?? null : null;
   const activeOrdinaryWorkspaceId = ordinaryWorkspaces.find(workspace => workspace.id === activeWorkspaceId)?.id;
   useEffect(() => {
     if (activeOrdinaryWorkspaceId) setPreferredWorkspaceKey(sidebarWorkspaceKey(null, activeOrdinaryWorkspaceId));
@@ -763,14 +766,15 @@ export const Sidebar = memo(function Sidebar({
           data-touch-mode={touchMode ? "true" : "false"}
           data-collapsed={isSidebarCollapsed && !isPeeking ? "true" : "false"}
           data-peek={isPeeking || undefined}
-          className="ct-sidebar-panel shrink-0 h-full min-h-0 flex flex-col select-none overflow-x-hidden overflow-y-hidden relative"
+          className="ct-sidebar-panel shrink-0 h-full min-h-0 grid select-none overflow-x-hidden overflow-y-hidden relative"
           style={isPeeking ? { width: "100%", "--ct-sidebar-peek-width": `${peekWidth}px` } as React.CSSProperties : { width: "100%" }}
           onMouseEnter={isPeeking ? holdPeek : undefined}
           onMouseLeave={isPeeking ? releasePeek : undefined}
         >
           {(!isSidebarCollapsed || isPeeking) && (
-            <>
-            <div ref={contentScrollRef} className="ct-sidebar-content flex-1 min-w-0 overflow-y-scroll overflow-x-hidden" onMouseDown={keepPressFocusInPlace}>
+            <SidebarScrollLayout scrollRef={contentScrollRef} activeTabId={activeTabId}>
+            {scrollRef => <>
+            <div ref={scrollRef} className="ct-sidebar-content min-w-0 overflow-y-scroll overflow-x-hidden" onMouseDown={keepPressFocusInPlace}>
               {restoring && <SidebarSkeleton compact={isCompact} />}
               {isCompact && !restoring && (
                 <SidebarCompactRail
@@ -866,7 +870,7 @@ export const Sidebar = memo(function Sidebar({
               </SidebarDnd>
             </div>
             {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} enabled={neighborsSwitch.enabled} activeChat={activeNeighborChat}
-              activeTabId={isWorkspaceMode && !workspaceCanvasActive && state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null} />}
+              activeTabId={activeTabId} />}
             <div
               role="navigation"
               aria-label="Sidebar views"
@@ -923,7 +927,8 @@ export const Sidebar = memo(function Sidebar({
                 )}
               </div>
             </div>
-          </>
+            </>}
+            </SidebarScrollLayout>
         )}
       </aside>
       <button

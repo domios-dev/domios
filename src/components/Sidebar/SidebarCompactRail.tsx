@@ -12,6 +12,7 @@ import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { RemoteTabIcon, useRemoteTabPresentation, type ObservedTabMachine } from "./RemoteTabPresentation";
 import { matchesSidebarMachine, useSidebarMachineFilter } from "./sidebarMachineFilter";
 import { effectiveTeamId } from "./workspaceTeamModel";
+import { SidebarSelectedRowContext, useSidebarSelectedRow } from "./sidebarSelectedRow";
 
 export interface CompactRailGroup {
   workspaceId: string;
@@ -51,6 +52,7 @@ function RailTab({ tab, observed, status, attention, active, touchMode, hidden, 
   hidden: boolean; onActivate: () => void; onPeek: (event: MouseEvent<HTMLButtonElement>) => void; onLeave: () => void;
 }) {
   const title = displayTitleForTab(tab);
+  const selectedRowRef = useSidebarSelectedRow<HTMLButtonElement>(tab.id, title, active);
   const activity = tabActivity(tab, status);
   const machine = useRemoteTabPresentation(tab, activity, observed);
   const firstRun = isFirstRunGeneralTab(tab);
@@ -60,6 +62,7 @@ function RailTab({ tab, observed, status, attention, active, touchMode, hidden, 
   const backgroundLabel = machine?.unavailable ? null : idleBackgroundLabel(activity);
   const backgroundActive = Boolean(backgroundLabel);
   return <button
+    ref={selectedRowRef}
     type="button"
     hidden={hidden}
     data-first-run-allowed={firstRun || undefined}
@@ -128,9 +131,11 @@ export function SidebarCompactRail({ groups, tabStatuses, onActivate, attentionB
       {peek && matchesSidebarMachine(filter) && (
         <AnchoredPopover open anchor={{ x: peek.x, y: peek.y }} gap={0}>
           <div key={peek.tab.id} className="ct-compact-peek" data-testid="sidebar-compact-peek" onMouseEnter={hold} onMouseLeave={release}>
-            <TabItem tab={peek.tab} index={0} isActive={peek.active} onClick={() => activate(peek.workspaceId, peek.tab.id)}
-              onClose={() => undefined} canClose={false} workspaceId={peek.workspaceId} hasAgent={Boolean(peek.tab.agent_type)}
-              status={tabStatuses[peek.tab.id] ?? null} attention={attentionByTab[peek.tab.id]} />
+            <SidebarSelectedRowContext.Provider value={null}>
+              <TabItem tab={peek.tab} index={0} isActive={peek.active} onClick={() => activate(peek.workspaceId, peek.tab.id)}
+                onClose={() => undefined} canClose={false} workspaceId={peek.workspaceId} hasAgent={Boolean(peek.tab.agent_type)}
+                status={tabStatuses[peek.tab.id] ?? null} attention={attentionByTab[peek.tab.id]} />
+            </SidebarSelectedRowContext.Provider>
           </div>
         </AnchoredPopover>
       )}
