@@ -1,5 +1,6 @@
 import { IS_WEB } from "./webApi";
 import { buildHash } from "./buildStamp";
+import { DEV_BUILD } from "./devBuild";
 import { interfaceReloadUrl, prepareInterfaceReload } from "./interfaceReload";
 
 const REG_FAIL_KEY = "codeterm-sw-reg-failures";
@@ -125,7 +126,7 @@ function watchForUpdates(registration: ServiceWorkerRegistration): void {
 }
 
 export function registerServiceWorker(): void {
-  if (!IS_WEB || !("serviceWorker" in navigator)) return;
+  if (DEV_BUILD || !IS_WEB || !("serviceWorker" in navigator)) return;
 
   const hadController = Boolean(navigator.serviceWorker.controller);
   const loadedBuild = buildHash();
