@@ -456,3 +456,50 @@ fn attached_cursor_carries_local_ack_and_keeps_cloud_sends_distinct_from_pure_ac
     assert_eq!(ignore["source"], "cloud_concierge");
     assert_eq!(ignore["range"], json!({"fromSeq": 2, "toSeq": 2}));
 }
+
+#[test]
+fn local_context_stops_at_pause_boundary_and_stale_age() {
+    let mut server = Server::new();
+    let (fixture, owner, _) = fixture();
+    let svc = &fixture.service;
+    let store = attach(svc, &owner, &server, TranscriptTrigger::Manual);
+    append(&store, &owner, 1_000, "Stale old request from earlier");
+    store
+        .append(
+            &owner,
+            TranscriptInput {
+                at_ms: 2_000,
+                content: TranscriptContent::Paused {
+                    reason: "manual".into(),
+                },
+            },
+        )
+        .unwrap();
+    append(&store, &owner, 200_000, "Fresh lead-in");
+    store.ack(&store.binding(), 3).unwrap();
+    append(&store, &owner, 205_000, "Microphone test 123");
+    let endpoint = mock_decision(
+        &mut server,
+        &json!({
+            "rationale": "Microphone test is ignored.",
+            "action": "ignore", "targetTabId": null, "message": null,
+        })
+        .to_string(),
+    );
+    svc.route_live_transcript_manually(
+        &owner,
+        TranscriptRange {
+            from_seq: 4,
+            to_seq: 4,
+        },
+    )
+    .unwrap();
+    endpoint.assert();
+    let context = summary(&store)["recentSamples"][0]["contextRows"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(context.len(), 1);
+    assert_eq!(context[0]["seq"], 3);
+    assert_eq!(context[0]["dtMs"], -5_000);
+}

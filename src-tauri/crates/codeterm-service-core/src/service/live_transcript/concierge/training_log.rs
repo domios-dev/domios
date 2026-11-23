@@ -15,6 +15,7 @@ const SAMPLES: &str = "routing_samples.jsonl";
 const FEEDBACK: &str = "routing_feedback.jsonl";
 const MAX_LOG_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_UNREAD_ROWS: usize = 100;
+const MAX_CONTEXT_AGE_MS: u64 = 90_000;
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -149,18 +150,11 @@ impl RoutingInput {
     ) -> io::Result<Self> {
         let unread_rows = unread(store, range)?;
         let first_at_ms = unread_rows.first().map_or(0, |row| row.at_ms);
-        let context_rows = store
-            .recent_context(acked_seq.min(range.from_seq.saturating_sub(1)))?
-            .into_iter()
-            .filter_map(speech)
-            .map(|row| ContextRow {
-                seq: row.seq,
-                dt_ms: (i128::from(row.at_ms) - i128::from(first_at_ms))
-                    .clamp(i128::from(i64::MIN), i128::from(i64::MAX))
-                    as i64,
-                text: row.text,
-            })
-            .collect();
+        let context_rows = recent_window(
+            store.recent_context(acked_seq.min(range.from_seq.saturating_sub(1)))?,
+            first_at_ms,
+            previous,
+        );
         Ok(Self {
             owner_tab: OwnerTab {
                 id: owner.into(),
@@ -172,6 +166,37 @@ impl RoutingInput {
             forwarded_ranges: previous.iter().map(|forward| forward.range).collect(),
         })
     }
+}
+
+fn recent_window(
+    rows: Vec<TranscriptRow>,
+    first_at_ms: u64,
+    previous: &[TranscriptForward],
+) -> Vec<ContextRow> {
+    let mut selected = Vec::new();
+    for row in rows.into_iter().rev() {
+        if matches!(row.content, TranscriptContent::Paused { .. }) {
+            break;
+        }
+        let Some(row) = speech(row) else {
+            continue;
+        };
+        if first_at_ms.saturating_sub(row.at_ms) > MAX_CONTEXT_AGE_MS
+            || previous
+                .iter()
+                .any(|f| f.range.from_seq <= row.seq && row.seq <= f.range.to_seq)
+        {
+            break;
+        }
+        selected.push(ContextRow {
+            seq: row.seq,
+            dt_ms: (i128::from(row.at_ms) - i128::from(first_at_ms))
+                .clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64,
+            text: row.text,
+        });
+    }
+    selected.reverse();
+    selected
 }
 
 fn speech(row: TranscriptRow) -> Option<UnreadRow> {
