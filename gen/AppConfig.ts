@@ -7,6 +7,7 @@ import type { GeneralAgentConfig } from "./GeneralAgentConfig";
 import type { IntegrationsConfig } from "./IntegrationsConfig";
 import type { KeybindingsConfig } from "./KeybindingsConfig";
 import type { KpiConfig } from "./KpiConfig";
+import type { LiveTranscriptConfig } from "./LiveTranscriptConfig";
 import type { MemoryConfig } from "./MemoryConfig";
 import type { MeshConfig } from "./MeshConfig";
 import type { ModelDefaultsConfig } from "./ModelDefaultsConfig";
@@ -38,4 +39,4 @@ agents: Record<string, import("../src/lib/configWireFallbacks").ProviderConfig>,
  * plugin defines its own settings schema (rendered by SchemaRenderer); the
  * plugin reads its own blob via `host.settingsJson()`.
  */
-plugins: { [key in string]: JsonValue }, general_agent: GeneralAgentConfig, memory: MemoryConfig, supporter: SupporterConfig, orchestration: OrchestrationConfig, usage: UsageConfig, integrations: IntegrationsConfig, mesh: MeshConfig, neighbors: NeighborsConfig, updater: UpdaterConfig, ui: import("../src/lib/configWireFallbacks").UiConfig, runaway: RunawayConfig, kpi: KpiConfig, model_defaults: ModelDefaultsConfig, };
+plugins: { [key in string]: JsonValue }, general_agent: GeneralAgentConfig, live_transcript: LiveTranscriptConfig, memory: MemoryConfig, supporter: SupporterConfig, orchestration: OrchestrationConfig, usage: UsageConfig, integrations: IntegrationsConfig, mesh: MeshConfig, neighbors: NeighborsConfig, updater: UpdaterConfig, ui: import("../src/lib/configWireFallbacks").UiConfig, runaway: RunawayConfig, kpi: KpiConfig, model_defaults: ModelDefaultsConfig, };

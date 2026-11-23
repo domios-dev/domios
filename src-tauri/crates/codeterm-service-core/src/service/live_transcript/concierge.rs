@@ -11,7 +11,8 @@ use serde_json::json;
 
 use super::{
     store::{read_private, write_private, MAX_RECORD_BYTES},
-    AppendReceipt, TranscriptContent, TranscriptInput, TranscriptRange, TranscriptStore,
+    AppendReceipt, ConciergeEpoch, TranscriptContent, TranscriptInput, TranscriptRange,
+    TranscriptStore,
 };
 use crate::service::spawn_chatbackend::live_transcript::{
     transcript_router_stuck, transcript_router_turn_ms,
