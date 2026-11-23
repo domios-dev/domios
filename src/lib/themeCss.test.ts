@@ -44,6 +44,67 @@ const lightTheme: ThemeConfig = {
 
 console.log("themeCss tests");
 
+for (const [theme, opacity] of [[lightTheme, 7], [DEFAULT_THEME, 5]] as const) {
+  const backdrop = themeToCSS(theme)["--ct-chat-backdrop"];
+  assert(`${theme.name}: default backdrop tiles one foreground-colored dot`,
+    backdrop === `radial-gradient(circle, color-mix(in srgb, var(--ct-fg) ${opacity}%, transparent) 0.75px, transparent 1.1px) 10px 10px / 20px 20px repeat`);
+}
+
+{
+  const theme = {
+    ...lightTheme,
+    chat_background: {
+      pattern: "icon",
+      icon: "cat",
+      scale: 48,
+      rotation: -12,
+      color: "#5359a8",
+      opacity: 1,
+      gradient: { kind: "linear", angle: 35, stops: ["#5359a8", "#419a80"] },
+    },
+  } satisfies ThemeConfig;
+  const backdrop = themeToCSS(theme)["--ct-chat-backdrop"];
+  const encodedTile = backdrop.match(/^url\("data:image\/svg\+xml,([^"]+)"\)/)?.[1] ?? "";
+  const decoded = decodeURIComponent(encodedTile);
+  assert("custom tile repeats at 48 px", backdrop.includes("/ 48px 48px repeat"));
+  assert("cat glyph respects the rotation, color and readability cap",
+    decoded.includes('<path d="M5 10')
+      && decoded.includes('rotate(-12 24 24)')
+      && decoded.includes('color="#5359a8"')
+      && decoded.includes('opacity="0.12"'));
+  assert("a subdued gradient paints below the tile", backdrop.startsWith('url("data:image/svg+xml,')
+    && backdrop.endsWith("linear-gradient(35deg, color-mix(in srgb, #5359a8 8%, transparent), color-mix(in srgb, #419a80 8%, transparent)) no-repeat"));
+
+  const none = themeToCSS({ ...theme, chat_background: { pattern: "none" } });
+  assert("none clears the previous background", none["--ct-chat-backdrop"] === "none");
+  const radial = themeToCSS({ ...theme, chat_background: {
+    pattern: "none",
+    gradient: { ...theme.chat_background.gradient, kind: "radial" },
+  } });
+  assert("gradient alone fills the transcript", radial["--ct-chat-backdrop"].startsWith("radial-gradient("));
+
+  const grid = themeToCSS({ ...theme, chat_background: { pattern: "grid", scale: 32, rotation: 20 } });
+  assert("grid repeats rotated perpendicular lines at the requested spacing",
+    grid["--ct-chat-backdrop"].includes("repeating-linear-gradient(20deg,")
+      && grid["--ct-chat-backdrop"].includes("repeating-linear-gradient(110deg,")
+      && grid["--ct-chat-backdrop"].includes("transparent 1px 32px"));
+}
+
+for (const [theme, opacity] of [[lightTheme, 0.09], [DEFAULT_THEME, 0.085]] as const) {
+  const painted: ThemeConfig = { ...theme, chat_background: { pattern: "doodles" } };
+  const vars = themeToCSS(painted);
+  const backdrop = vars["--ct-chat-backdrop"];
+  assert(`${theme.name}: doodles use the theme ink and a 360 px tile`,
+    backdrop.includes("/ 360px 360px repeat")
+      && backdrop.includes(`color%3D%22%23${theme.foreground.slice(1)}%22`)
+      && backdrop.includes(`opacity%3D%22${opacity}%22`));
+  cacheThemeSnapshot(painted, vars);
+  assert("first-paint cache excludes the doodle SVG and preserves theme colors",
+    readCachedTheme()?.chat_background === undefined
+      && readCachedThemeVars()?.["--ct-chat-backdrop"] === undefined
+      && readCachedThemeVars()?.["--ct-bg"] === theme.background);
+}
+
 {
   const vars = themeToCSS(lightTheme);
   assert("themeToCSS uses theme background", vars["--ct-bg"] === "#f6f8fa");

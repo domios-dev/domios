@@ -345,6 +345,19 @@ fn test_resolve_theme_applies_builtin() {
 }
 
 #[test]
+fn theme_resolution_keeps_an_explicit_chat_background() {
+    let mut config: AppConfig =
+        toml::from_str("[theme]\nname = 'github-light'\n[theme.chat_background]\npattern = 'none'")
+            .unwrap();
+    resolve_theme(&mut config);
+    assert_eq!(config.theme.background, "#f6f8fa");
+    assert_eq!(
+        config.theme.chat_background.unwrap().pattern,
+        schema::ChatPattern::None
+    );
+}
+
+#[test]
 fn test_save_and_load_config() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("config.toml");

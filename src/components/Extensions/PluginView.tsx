@@ -37,7 +37,7 @@ const COPY_NOTICE_STYLE: CSSProperties = {
 };
 
 /** Every theme token the app derives, so shared components render inside a plugin UI as they do in the app. */
-export const PLUGIN_THEME_VARS = Object.keys(themeToCSS(DEFAULT_THEME));
+export const PLUGIN_THEME_VARS = Object.keys(themeToCSS(DEFAULT_THEME)).filter(name => name !== "--ct-chat-backdrop");
 
 function themeCss(): string {
   const cs = getComputedStyle(document.documentElement);

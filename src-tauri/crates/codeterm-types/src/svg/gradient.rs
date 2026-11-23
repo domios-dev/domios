@@ -97,7 +97,7 @@ fn bounded(value: &str, max: f64) -> bool {
         .ok()
         .is_some_and(|v| v.is_finite() && v >= 0.0 && v <= max)
 }
-fn transform(mut value: &str) -> bool {
+pub(super) fn transform(mut value: &str) -> bool {
     if value.is_empty() || value.len() > 512 {
         return false;
     }
