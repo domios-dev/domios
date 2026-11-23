@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { waiverReleaseNotes } from './release-test-waiver.mjs';
 import { sourceRepository } from './source-repository.mjs';
-// Caller: CI release-manifest-validate.yml; scripts tests/release-notes-sync.test.mjs; skill github-release
+// Caller: CI release-manifest-validate.yml; scripts sync-release-notes.test.mjs; skill github-release
 
 import { manualInstallNotes } from "./legacy-updater-refusal.mjs";
 import { spawnSync } from "node:child_process";
@@ -36,11 +36,39 @@ export function isGeneratedBody(body) {
   return /(^|\n)## What's Changed\s*($|\n)/.test(body);
 }
 
+// Release PR sections that record operator evidence rather than user-facing changes.
+const INTERNAL_SECTION =
+  /^(verification|evidence|release evidence|qualification|owner publication approval|publication approval|candidate|included lanes|lanes|test plan|checks|deferred|investigated|handoff|runner[s]?)\b/i;
+
+function withoutInternalSections(text) {
+  const kept = [];
+  let skipping = false;
+  for (const line of text.split(/\r?\n/)) {
+    const heading = /^##\s+(.+?)\s*$/.exec(line);
+    if (heading) skipping = INTERNAL_SECTION.test(heading[1]);
+    if (!skipping) kept.push(line);
+  }
+  return kept.join("\n");
+}
+
+export function changelogNotes(tag, changelog) {
+  const version = tag.replace(/^v/, "");
+  const lines = changelog.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === `## [${version}]` || line.startsWith(`## [${version}] `));
+  if (start < 0) return "";
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^##\s/.test(line));
+  const section = (end < 0 ? rest : rest.slice(0, end)).join("\n").trim();
+  return section ? `## Domios ${version}\n\n${section}` : "";
+}
+
 export function canonicalPullRequestBody(tag, pullRequestBody) {
-  const cleaned = pullRequestBody
+  const cleaned = withoutInternalSections(pullRequestBody)
     .split(/\r?\n/)
-    .filter((line) => !/^(Repository-Issue:|Public-Issue:|(?:Closes|Fixes|Refs)\s)/i.test(line.trim()))
+    .filter((line) => !/^(Repository-Issue:|Public-Issue:|Release-Test-Waiver:|(?:Closes|Fixes|Refs)\s)/i.test(line.trim()))
+    .filter((line) => !/^This release uses commit `[0-9a-f]{7,40}`\.?$/.test(line.trim()))
     .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
   if (!cleaned) throw new Error(`release PR for ${tag} has an empty body`);
   const heading = `## Domios ${tag.replace(/^v/, "")}`;
@@ -109,6 +137,15 @@ function pullRequestNotes(repo, tag) {
   return candidate ? canonicalPullRequestBody(tag, candidate.body) : "";
 }
 
+function changelogAt(repo, tag) {
+  try {
+    return runGh(["api", "-H", "Accept: application/vnd.github.raw", `repos/${repo}/contents/CHANGELOG.md?ref=${tag}`], { capture: true });
+  } catch (error) {
+    if (/HTTP 404|Not Found/i.test(error.message)) return "";
+    throw error;
+  }
+}
+
 function writeBoth(sourceRepo, mirrorRepo, tag, body) {
   const dir = mkdtempSync(join(tmpdir(), "codeterm-release-notes-"));
   const file = join(dir, "notes.md");
@@ -139,7 +176,7 @@ function prepareTag(sourceRepo, mirrorRepo, tag) {
   const existing = source.body ?? "";
   let replacement = "";
   if (isPlaceholderBody(existing, tag) || isGeneratedBody(existing)) {
-    replacement = pullRequestNotes(sourceRepo, tag);
+    replacement = changelogNotes(tag, changelogAt(sourceRepo, tag)) || pullRequestNotes(sourceRepo, tag);
     if (!replacement) replacement = canonicalGeneratedBody(tag, generate(sourceRepo, tag));
   }
   const marker = existing.match(/<!-- qualification(?::.*?|\-complete) -->/g)?.join('\n');
