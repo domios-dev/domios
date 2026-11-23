@@ -112,6 +112,29 @@ it("keeps an available Update operable beside the keyboard-accessible phone over
   }
 });
 
+it("omits Analytics from both titlebar entries when the shell cannot open it", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<Harness />));
+    expect(host.querySelector('button[aria-label="Analytics"]')).toBeNull();
+
+    stores.mobile = true;
+    await act(async () => root.render(<Harness />));
+    const overflow = host.querySelector<HTMLButtonElement>('button[aria-label="More actions"]')!;
+    overflow.focus();
+    await act(async () => overflow.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
+    const menu = document.querySelector('[role="menu"][aria-label="More actions"]');
+    expect(menu?.textContent).toContain("Settings");
+    expect(menu?.textContent).not.toContain("Analytics");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    stores.mobile = false;
+  }
+});
+
 it("keeps account, billing and update errors out of the titlebar status region", async () => {
   const host = document.createElement("div");
   document.body.append(host);

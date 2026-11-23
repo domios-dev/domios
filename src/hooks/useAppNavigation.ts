@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { HYDRATED_GENERATION } from "../store/multiplexer/initialState";
 import { optionalNavigationId, parentWhenMissing } from "../lib/viewerNavigation";
 import { useViewerNavigation } from "./useViewerNavigation";
@@ -6,10 +6,19 @@ import { useViewerNavigation } from "./useViewerNavigation";
 const VIEWS = ["workspace", "settings", "memory", "mesh", "neighbors", "neighbor", "extensions", "analytics"] as const;
 export type MainView = typeof VIEWS[number];
 const mainView = (value: unknown): MainView | undefined => VIEWS.find((entry) => entry === value);
+const settingsReturnView = (value: unknown): MainView | undefined => value === "settings" ? undefined : mainView(value);
 const jobsScope = (value: unknown) => value === "machine" || value === "workspace" ? value : undefined;
 
 export function useAppNavigation(generation: number, focusedTabId: string | null, workspaces: readonly { id: string }[]) {
   const [view, setMainView] = useViewerNavigation<MainView>("view", "workspace", mainView);
+  const [returnView, setReturnView] = useViewerNavigation<MainView>("settings-return", "workspace", settingsReturnView);
+  const openSettingsView = useCallback(() => {
+    if (view !== "settings") setReturnView(view);
+    setMainView("settings");
+  }, [view, setReturnView, setMainView]);
+  const closeSettingsView = useCallback(() => {
+    setMainView((current) => current === "settings" ? returnView : current);
+  }, [returnView, setMainView]);
   const [automationWorkspaceId, setAutomationWorkspaceId] = useViewerNavigation<string | null>("jobs-workspace", null, optionalNavigationId);
   const [scope, setJobsScope] = useViewerNavigation<"machine" | "workspace">("jobs-scope", "workspace", jobsScope);
   const [workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId] = useViewerNavigation<string | null>("workspace-map", null, optionalNavigationId);
@@ -30,5 +39,5 @@ export function useAppNavigation(generation: number, focusedTabId: string | null
     setAutomationWorkspaceId((id) => parentWhenMissing(id, ready, exists));
     setWorkspaceMapWorkspaceId((id) => parentWhenMissing(id, ready, exists));
   }, [generation, workspaces, automationWorkspaceId, workspaceMapWorkspaceId, setAutomationWorkspaceId, setWorkspaceMapWorkspaceId]);
-  return { navigationReady: generation > HYDRATED_GENERATION, mainView: view, setMainView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope: scope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId, neighborChat, setNeighborChat };
+  return { navigationReady: generation > HYDRATED_GENERATION, mainView: view, setMainView, openSettingsView, closeSettingsView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope: scope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId, neighborChat, setNeighborChat };
 }

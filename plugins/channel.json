@@ -37,7 +37,7 @@
     {
       "id": "analytics",
       "path": "analytics",
-      "version": "1.10.24",
+      "version": "1.10.25",
       "minCodeterm": "1.19.0"
     },
     {

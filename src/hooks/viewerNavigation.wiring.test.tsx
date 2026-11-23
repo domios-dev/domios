@@ -40,17 +40,32 @@ async function main() {
   assert.equal(app.mainView, "workspace", "a later tab choice closes the panel");
   await act(async () => { app.setAutomationWorkspaceId("removed"); });
   assert.equal(app.automationWorkspaceId, null);
+  await act(async () => app.setMainView("extensions"));
+  await act(async () => app.openSettingsView());
+  assert.equal(app.mainView, "settings");
+  await page.close();
+  page = await mount(<AppProbe generation={1} tabId="tab-b" />);
+  await act(async () => app.openSettingsView());
+  await act(async () => app.closeSettingsView());
+  assert.equal(app.mainView, "extensions", "restoring or reentering Settings preserves where the visit began");
   await page.close();
 
   let settings!: ReturnType<typeof useSettingsNavigation>;
-  function SettingsProbe({ link }: { link?: "general" | "agents" }) { settings = useSettingsNavigation(link, undefined); return null; }
+  function SettingsProbe({ link, restore }: { link?: "general" | "jobs"; restore?: boolean }) { settings = useSettingsNavigation(link, undefined, restore); return null; }
   let panel = await mount(<SettingsProbe />);
   await act(async () => settings[1]([{ kind: "root" }, { kind: "section", id: "agents" }, { kind: "agent-provider", providerId: "fixture" }]));
   await panel.close();
   panel = await mount(<SettingsProbe />);
   assert.deepEqual(settings[0].map((route) => route.kind), ["root", "section", "agent-provider"]);
   await panel.render(<SettingsProbe link="general" />);
-  assert.deepEqual(settings[0], [{ kind: "root" }, { kind: "section", id: "general", card: undefined, helpSection: undefined }]);
+  assert.deepEqual(settings[0], [{ kind: "section", id: "general", card: undefined, helpSection: undefined }]);
+  await panel.render(<SettingsProbe link="jobs" />);
+  await panel.close();
+  panel = await mount(<SettingsProbe />);
+  assert.deepEqual(settings[0], [{ kind: "section", id: "jobs", card: undefined, helpSection: undefined }], "direct Jobs stays directly entered after reload");
+  await panel.close();
+  panel = await mount(<SettingsProbe restore={false} />);
+  assert.deepEqual(settings[0], [{ kind: "root" }], "an explicit root entry starts a fresh visit");
   await panel.close();
   assert.deepEqual(settingsStack([{ kind: "root" }, { kind: "section", id: "removed" }]), [{ kind: "root" }]);
 
@@ -95,7 +110,7 @@ async function main() {
   assert.equal(jobs.openedSolution, null);
   assert.equal(jobs.selection, null, "missing saved solution falls back to Jobs");
   await view.close();
-  console.log("viewerNavigation wiring: 19 assertions passed");
+  console.log("viewerNavigation wiring: Settings, app and Jobs assertions passed");
 }
 
 main().catch((error) => { console.error(error); process.exit(1); });
