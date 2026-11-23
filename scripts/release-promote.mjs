@@ -5,9 +5,11 @@ import { sourceRepository } from './source-repository.mjs';
 //
 //   release-promote.mjs check <run-id> <source-sha> <release-branch>
 //   release-promote.mjs publish <tag> <source-sha> <run-id> <work-dir>
+//   release-promote.mjs checksums <tag> <work-dir>   (SHA256SUMS.txt of the draft's payload assets)
+//   release-promote.mjs prune <tag>   (after publication: delete superseded hidden qualification drafts)
 import { requireQualification, isReleasePushRun } from './ci-qualification.mjs';
 import { execFile, execFileSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -149,6 +151,34 @@ export async function promoteQualifiedDrafts({ tag, sourceSha, runId, work, repo
   console.log(`Digest-verified publication completed in ${((performance.now() - started) / 1000).toFixed(1)}s (concurrency ${PUBLICATION_CONCURRENCY})`);
 }
 
+export const CHECKSUMS_ASSET = 'SHA256SUMS.txt';
+const PAYLOAD = /\.(dmg|exe|deb|rpm|AppImage|tar\.gz)$/;
+
+// Asset digests were already checked against the signed-byte receipts when each payload was uploaded.
+export function checksumManifest(assets) {
+  const payloads = assets.filter(asset => PAYLOAD.test(asset.name)).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  if (!payloads.length) refuse('release has no platform payloads');
+  return payloads.map(asset => {
+    const digest = /^sha256:([0-9a-f]{64})$/.exec(asset.digest ?? '')?.[1];
+    if (!digest || asset.state !== 'uploaded') refuse(`${asset.name} has no uploaded sha256 digest`);
+    return `${digest}  ${asset.name}\n`;
+  }).join('');
+}
+
+export async function publishChecksums({ tag, repository, env, work, run = gh }) {
+  const release = JSON.parse(await run(['release', 'view', tag, '--repo', repository, '--json', 'databaseId'], env));
+  const assets = (await run(['api', '--paginate', '--jq', '.[] | tojson',
+    `repos/${repository}/releases/${release.databaseId}/assets?per_page=100`], env)).split('\n').filter(Boolean).map(JSON.parse);
+  const file = path.join(work, CHECKSUMS_ASSET);
+  await writeFile(file, checksumManifest(assets));
+  await run(['release', 'upload', tag, file, '--clobber', '--repo', repository], env);
+}
+
+function publicationRepositories() {
+  return [[SOURCE_REPO, process.env.GH_TOKEN],
+    ...(process.env.PUBLISH_MIRROR === 'true' ? [[MIRROR_REPO, process.env.MIRROR_TOKEN]] : [])];
+}
+
 async function main([verb, ...args]) {
   if (verb === 'check') {
     const [runId, sourceSha, branch] = args;
@@ -164,9 +194,18 @@ async function main([verb, ...args]) {
   } else if (verb === 'publish') {
     const [tag, sourceSha, runId, work] = args;
     const receipt = requireQualification(sourceSha, { runId });
-    const repositories = [[SOURCE_REPO, process.env.GH_TOKEN],
-      ...(process.env.PUBLISH_MIRROR === 'true' ? [[MIRROR_REPO, process.env.MIRROR_TOKEN]] : [])];
+    const repositories = publicationRepositories();
     await promoteQualifiedDrafts({ tag, sourceSha, runId, work, repositories, requireDraft: Boolean(receipt.test_waiver) });
+  } else if (verb === 'checksums') {
+    const [tag, work] = args;
+    await publishChecksums({ tag, repository: SOURCE_REPO, env: process.env, work });
+  } else if (verb === 'prune') {
+    const [tag] = args;
+    const { pruneSupersededDrafts } = await import('./release-qualification-draft.mjs');
+    for (const [repository, token] of publicationRepositories()) {
+      const removed = await pruneSupersededDrafts({ tag, repository, env: { ...process.env, GH_TOKEN: token } });
+      console.log(`${repository}: removed ${removed.length} superseded qualification draft(s)${removed.length ? ': ' + removed.join(', ') : ''}`);
+    }
   } else refuse('unknown operation');
 }
 

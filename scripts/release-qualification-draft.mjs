@@ -20,6 +20,48 @@ export function qualificationTag(tag, runId) {
   return `qualification-${tag}-${runId}`;
 }
 
+export function releaseTitle(tag) {
+  if (!/^v\d+\.\d+\.\d+$/.test(tag)) throw new Error('Invalid release tag');
+  return `Domios ${tag.slice(1)}`;
+}
+
+const QUALIFICATION_MARKER = '<!-- qualification:';
+
+function versionKey(version) {
+  return version.split('.').map(part => part.padStart(8, '0')).join('.');
+}
+
+// A draft is ours only with a run marker; untagged-* placeholders carry the version in their title.
+export function draftVersion(release) {
+  if (!release?.draft || !release.body?.includes(QUALIFICATION_MARKER)) return null;
+  const hidden = /^qualification-v(\d+\.\d+\.\d+)-[1-9]\d*$/.exec(release.tag_name ?? '');
+  if (hidden) return hidden[1];
+  if (!/^untagged-[0-9a-f]+$/.test(release.tag_name ?? '')) return null;
+  return /^Domios v?(\d+\.\d+\.\d+)$/.exec(release.name ?? '')?.[1] ?? null;
+}
+
+export function supersededDrafts(releases, tag) {
+  const published = versionKey(releaseTitle(tag).slice('Domios '.length));
+  return releases.filter(release => {
+    const version = draftVersion(release);
+    return version !== null && versionKey(version) <= published;
+  });
+}
+
+export async function pruneSupersededDrafts({ tag, repository, env, run = gh }) {
+  const current = await readDraft(tag, repository, env, run);
+  if (!current || current.isDraft || current.tagName !== tag) throw new Error(`${repository} ${tag} is not published`);
+  const releases = (await run(['api', '--paginate', '--jq', '.[] | tojson',
+    `repos/${repository}/releases?per_page=100`], env)).split('\n').filter(Boolean).map(JSON.parse);
+  const removed = [];
+  for (const old of supersededDrafts(releases, tag)) {
+    try { await run(['api', '--method', 'DELETE', `repos/${repository}/releases/${old.id}`], env); }
+    catch (error) { if (!/HTTP 404/.test(error.stderr ?? error.message)) throw error; }
+    removed.push(old.tag_name);
+  }
+  return removed;
+}
+
 export function draftNotes(sourceSha, runId) {
   if (!/^[a-f0-9]{40}$/.test(sourceSha) || !/^[1-9]\d*$/.test(String(runId))) throw new Error('Invalid draft identity');
   return `<!-- qualification:${JSON.stringify({ source_sha: sourceSha, run_id: String(runId) })} -->`;
@@ -53,9 +95,12 @@ export async function prepareDraft({ tag, sourceSha, runId, repository, env, run
     }
     throw new Error('Cannot replace a foreign run draft');
   }
+  // A draft for a shipped version can never be promoted and would linger in Releases.
+  const shipped = await readDraft(tag, repository, env, run);
+  if (shipped && !shipped.isDraft) throw new Error(`${repository} ${tag} is already published; bump the version`);
   await run(['release', 'create', hiddenTag, '--repo', repository,
     ...(repository === sourceRepository() ? ['--target', sourceSha] : []), '--draft',
-    '--title', `Domios ${tag}`, '--notes', draftNotes(sourceSha, runId)], env);
+    '--title', releaseTitle(tag), '--notes', draftNotes(sourceSha, runId)], env);
 }
 
 export async function uploadAsset({ repository, id, name, file, env }) {
