@@ -599,7 +599,7 @@ export function TeamUnit({
       ) : (
         <span className="sidebar-team-title-row">
           <span data-testid="team-name" className={`sidebar-team-name ${lockedDimClass(lock)}`.trim()}>{displayTitle}</span>
-          <TeamMachinePill id={machineId} {...machine} />
+          {machine.identity && <TeamMachinePill id={machineId} {...machine} />}
           <LockBadge view={lock} />
           {closing && <span role="status" aria-label={`Closing ${displayTitle}`} aria-busy="true">Closing…</span>}
           {workingWorkerCount > 0 && (
@@ -647,7 +647,7 @@ export function TeamUnit({
 
   return (
     <section
-      aria-label={`${displayTitle}, ${machine.name}`}
+      aria-label={machine.identity ? `${displayTitle}, ${machine.name}` : displayTitle}
       data-testid="team-unit"
       data-team-id={team.id}
       data-expanded={expanded ? "true" : "false"}
@@ -661,7 +661,7 @@ export function TeamUnit({
           data-team-card-hit-target="team-card-activation"
           className="sidebar-team-card-activation"
           aria-label={`Open ${displayTitle}`}
-          aria-describedby={machineId}
+          aria-describedby={machine.identity ? machineId : undefined}
           onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id })}
         />
       )}

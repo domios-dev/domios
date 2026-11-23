@@ -10,7 +10,7 @@ const setting: ChatWallpaper = {
   fill: { mode: "gradient", preset: "midnight" },
 };
 assert.equal(effectiveWallpaper(theme).background.pattern, "grid");
-assert.equal(effectiveWallpaper(DEFAULT_THEME).background.pattern, "dots");
+assert.equal(effectiveWallpaper(DEFAULT_THEME).background.pattern, "none");
 assert.equal(effectiveWallpaper(theme, setting).background.pattern, "domios");
 assert.equal(WALLPAPER_PATTERNS[2].id, "domios");
 const dark = wallpaperRenderStyle(theme, setting, false);
@@ -20,8 +20,9 @@ assert.match(dark["--ct-wallpaper-mask"], /domios-domios\.svg.*360px 360px repea
 assert.equal(dark["--ct-wallpaper-fill"], "linear-gradient(160deg, var(--ct-bg), #141b33)");
 assert.equal(wallpaperRenderStyle(theme, setting, true)["--ct-wallpaper-ink"],
   "linear-gradient(180deg, #0a7ea4, #2b8a3e, #6d48c8)");
-assert.equal(wallpaperRenderStyle(DEFAULT_THEME, undefined, false, undefined, "blue")["--ct-wallpaper-ink"],
-  "var(--ct-machine-blue)");
+// An unset machine keeps the plain default dots; its identity colour never tints the chat.
+const unset = wallpaperRenderStyle(DEFAULT_THEME, undefined, false, undefined, "blue");
+assert.doesNotMatch(Object.values(unset).join(" "), /ct-machine-/);
 
 const uploaded: ChatWallpaper = { background: { pattern: "image" }, asset: "f".repeat(64) + ".png" };
 assert.doesNotMatch(wallpaperRenderStyle(theme, uploaded, true, "file:///example.png")["--ct-wallpaper-fill"], /file:/);

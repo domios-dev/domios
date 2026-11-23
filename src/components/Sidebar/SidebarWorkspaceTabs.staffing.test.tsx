@@ -73,7 +73,7 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(close, "Close Team action is available");
   await act(async () => close.click());
   assert(closed.join(",") === TEAM.id, "Close Team reports the exact Team id");
-  assert(host.querySelector(`section[aria-label="${TEAM.name}, This machine"]`), "Team identity remains visible without a plan");
+  assert(host.querySelector(`section[aria-label="${TEAM.name}"]`), "Team identity remains visible without a plan");
   assert(!host.querySelector('[data-testid="team-plan-button"]'), "no plan button is rendered without a plan");
   const emptyCounts = host.querySelectorAll('[data-testid="team-status-tally"] .ct-plan-status-breakdown-count');
   assert(emptyCounts.length === 4 && Array.from(emptyCounts).every((count) => count.textContent === "0"), "a Team without a plan exposes four zero counts");
