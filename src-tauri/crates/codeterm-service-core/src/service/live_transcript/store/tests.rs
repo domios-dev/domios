@@ -24,6 +24,61 @@ fn speech(text: &str) -> TranscriptInput {
     }
 }
 
+#[test]
+fn recent_context_keeps_the_latest_sixteen_speech_rows_in_order() {
+    let (_temp, store) = fixture(DEFAULT_RAW_BUDGET_BYTES);
+    for _ in 0..20 {
+        append(&store, "Speech chunk");
+        store
+            .append(
+                OWNER,
+                TranscriptInput {
+                    at_ms: 123,
+                    content: TranscriptContent::Resumed,
+                },
+            )
+            .unwrap();
+    }
+    append(&store, "Future speech");
+    let sequences = store
+        .recent_context(40)
+        .unwrap()
+        .into_iter()
+        .map(|row| row.seq)
+        .collect::<Vec<_>>();
+    assert_eq!(sequences, (9..40).step_by(2).collect::<Vec<_>>());
+}
+
+#[test]
+fn forward_receipts_persist_and_return_the_latest_fifty_in_time_order() {
+    let (temp, store) = fixture(DEFAULT_RAW_BUDGET_BYTES);
+    assert!(store.forwards().unwrap().is_empty());
+    append(&store, "Speech chunk");
+    let forward = |at_ms| TranscriptForward {
+        forward_id: format!("forward-{at_ms}"),
+        epoch_id: Some("epoch-1".into()),
+        range: TranscriptRange {
+            from_seq: 1,
+            to_seq: 1,
+        },
+        at_ms,
+        target_tab_id: "tab-1".into(),
+        target_title: "Main".into(),
+        sent_text: "Please send this".into(),
+        sent_excerpt: "Please send this".into(),
+        rationale: None,
+    };
+    for at_ms in (1..=55).rev() {
+        store.record_forward(forward(at_ms)).unwrap();
+    }
+    let expected = (6..=55).map(forward).collect::<Vec<_>>();
+    assert_eq!(store.forwards().unwrap(), expected);
+    drop(store);
+
+    let reopened = TranscriptStore::open(temp.path(), OWNER, DEFAULT_RAW_BUDGET_BYTES).unwrap();
+    assert_eq!(reopened.forwards().unwrap(), expected);
+}
+
 fn append(store: &TranscriptStore, text: &str) -> AppendReceipt {
     store.append(OWNER, speech(text)).unwrap()
 }
@@ -383,14 +438,13 @@ fn format_v1_pages_unicode_at_the_smallest_bound_and_keeps_live_ephemeral() {
             .iter()
             .map(|row| row.seq)
             .collect::<Vec<_>>(),
-        [2, 3, 4]
+        [1, 2, 3, 4]
     );
 
     let full = store
-        .read_page(&active, None, 256, Some("transient 🦉"))
+        .read_page(&active, None, 400, Some("transient 🦉"))
         .unwrap();
-    assert!(full.text.contains("[CONTEXT]\n2 | context two"));
-    assert!(!full.text.contains("context old"));
+    assert!(full.text.contains("[CONTEXT]\n1 | context old"));
     assert!(full.text.contains("[UNREAD]\n6 | unread"));
     assert!(full.text.contains("[SEEN]\n5 | æ🦉漢"));
     assert!(full.text.contains("[LIVE]\ntransient 🦉"));

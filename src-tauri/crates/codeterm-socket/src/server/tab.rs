@@ -422,6 +422,7 @@ pub(super) fn dispatch(
                 .from_agent(Some(from_agent))
                 .from_transcript_router(from_transcript_router);
                 let envelope = signed_send_envelope(envelope, system_context);
+                let from_transcript_router = envelope.from_transcript_router;
                 let class = if envelope.kind
                     == codeterm_service_core::service::messenger::MessageKind::System
                 {
@@ -446,6 +447,15 @@ pub(super) fn dispatch(
                 } else {
                     svc.public_delivery_receipt(&resolved_target, delivery)
                 };
+                use codeterm_service_core::service::messenger::Delivery;
+                if from_transcript_router
+                    && matches!(
+                        delivery,
+                        Delivery::ChatBackend { .. } | Delivery::Pty { .. }
+                    )
+                {
+                    svc.record_live_transcript_forward(src, &resolved_target, &raw_text);
+                }
                 gateway_send_response(delivery, pad_file)
             } else {
                 let (text, pad_file) = svc

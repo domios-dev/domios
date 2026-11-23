@@ -226,7 +226,7 @@ fn dismount_preserves_the_fence_and_logical_cursor_until_archive() {
         .collect();
     assert_eq!(
         rows.iter().map(|row| row.seq).collect::<Vec<_>>(),
-        [2, 3, 4]
+        [1, 2, 3, 4]
     );
     assert!(bootstrap.ends_with("[ACK]\nconcierge:owner 4\n"));
 
