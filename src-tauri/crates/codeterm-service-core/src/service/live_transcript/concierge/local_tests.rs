@@ -273,7 +273,6 @@ fn sent_fixture() -> (
     )
     .unwrap();
     endpoint.assert();
-    writes.wait_for_flush();
     (fixture, store, owner, target, writes)
 }
 
