@@ -2457,17 +2457,6 @@ button {
   text-align: left;
 }
 
-/* Own compositing layer from the start: WebKit misplaces sticky headers promoted mid-scroll by animated rows below them. */
-.sidebar-general-section > .sidebar-structural-header,
-.sidebar-structural-section > .sidebar-structural-header,
-.sidebar-workspace-detail-header {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: var(--ct-bg);
-  will-change: transform;
-}
-
 [data-touch-mode="true"] { --sidebar-section-header-h: 52px; }
 
 .sidebar-structural-section > .sidebar-structural-header {
@@ -2516,11 +2505,15 @@ button {
 }
 
 .sidebar-workspace-detail-header {
-  top: var(--sidebar-section-header-h);
+  position: sticky;
+  top: 0;
   z-index: 4;
   margin: 1px 0 2px;
   padding-inline: 12px;
   border-bottom: 1px solid color-mix(in srgb, var(--ct-border) 65%, transparent);
+  background: var(--ct-bg);
+  /* WebKit can misplace sticky headers when animated rows gain a compositing layer. */
+  will-change: transform;
 }
 
 [data-touch-mode="true"] .sidebar-workspace-detail-header { padding-inline: 16px; }
