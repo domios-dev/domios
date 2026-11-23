@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import type { ChatWallpaper } from "../../gen/ChatWallpaper";
-import { effectiveWallpaper, WALLPAPER_PATTERNS, wallpaperRenderStyle } from "./chatWallpaper";
+import { effectiveWallpaper, WALLPAPER_PATTERNS, wallpaperDefaultOpacity, wallpaperRenderStyle } from "./chatWallpaper";
 import { DEFAULT_THEME } from "./themeCss";
+
+// Dots chosen in the picker use the same near-invisible intensity as theme dots.
+assert.equal(wallpaperDefaultOpacity("dots", true, false), 0.035);
+assert.equal(wallpaperDefaultOpacity("dots", false, false), 0.028);
 
 const theme = { ...DEFAULT_THEME, chat_background: { pattern: "grid" } } as const;
 const setting: ChatWallpaper = {

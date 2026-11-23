@@ -4,7 +4,8 @@ import type { ThemeConfig } from "./types";
 
 const DEFAULT_SCALE = 20;
 const DOODLE_SCALE = 360;
-const DEFAULT_OPACITY = { light: 0.035, dark: 0.028 };
+export const DOT_OPACITY = { light: 0.035, dark: 0.028 };
+const DEFAULT_OPACITY = DOT_OPACITY;
 const DOODLE_OPACITY = { light: 0.09, dark: 0.085 };
 const MAX_OPACITY = 0.24;
 const GRADIENT_OPACITY = 0.08;
