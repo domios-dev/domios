@@ -13,7 +13,11 @@ use super::{
     store::{read_private, write_private, MAX_RECORD_BYTES},
     AppendReceipt, TranscriptContent, TranscriptInput, TranscriptRange, TranscriptStore,
 };
+use crate::service::spawn_chatbackend::live_transcript::{
+    transcript_router_stuck, transcript_router_turn_ms,
+};
 use crate::service::{
+    agent_runtime::engine,
     dictation::live_capture::{
         LiveCaptureEvent, LiveCaptureIdentity, LiveCaptureOutput, LiveCaptureSink,
     },
@@ -33,7 +37,7 @@ pub enum TranscriptTrigger {
     Manual,
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScoutStatus {
     Ready,
@@ -50,6 +54,41 @@ pub struct LiveTranscriptStatus {
     pub scout: ScoutStatus,
     pub awaiting_delivery: bool,
     pub concierge: ConciergeStatus,
+    pub configured: bool,
+    pub default_mic_tap: bool,
+    pub router: Option<TranscriptRouterInfo>,
+    pub last_route_error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptRouterInfo {
+    pub provider: String,
+    pub model: Option<String>,
+    pub cap: usize,
+    pub activity: RouterActivity,
+    pub active_turn_ms: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum RouterActivity {
+    Idle,
+    Reviewing,
+    Stuck,
+    Unavailable,
+}
+
+impl TranscriptRouterInfo {
+    fn new(provider: String, model: Option<String>) -> Self {
+        Self {
+            provider,
+            model,
+            cap: super::DEFAULT_TRANSCRIPT_TURN_LIMIT.get(),
+            activity: RouterActivity::Idle,
+            active_turn_ms: None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -79,6 +118,7 @@ struct OwnerDispatch {
     waiting_for_idle: bool,
     pending: Option<TranscriptRange>,
     scout_unavailable: bool,
+    last_route_error: Option<String>,
     dispatch_finished: Arc<tokio::sync::Notify>,
 }
 
@@ -93,15 +133,23 @@ impl ServiceContext {
 
     pub fn live_transcript_status(&self, owner: &str) -> Result<LiveTranscriptStatus, String> {
         let store = self.open_live_transcript(owner)?;
-        let entries = self.ext_or_init(Dispatch::default).owners.lock();
-        let entry = entries.get(owner);
+        let mut entries = self.ext_or_init(Dispatch::default).owners.lock();
         let mut state = store.routing_state()?;
-        if !entry.is_some_and(|entry| entry.running) {
-            delivery::settle(self, &store, &mut state)?;
+        let running = entries.get(owner).is_some_and(|entry| entry.running);
+        let awaiting_delivery = state.pending.is_some();
+        if !running && awaiting_delivery {
+            if let Err(error) = delivery::settle(self, &store, &mut state) {
+                entries.entry(owner.into()).or_default().last_route_error = Some(error);
+            }
         }
+        let entry = entries.get(owner);
         let trigger = state.trigger;
         let unavailable = entry.is_some_and(|entry| entry.scout_unavailable);
+        let last_route_error = entry.and_then(|entry| entry.last_route_error.clone());
         drop(entries);
+        if awaiting_delivery && state.pending.is_none() {
+            self.emit_live_transcript_changed(owner);
+        }
         let scout = match trigger {
             TranscriptTrigger::ScoutThenConcierge
                 if !unavailable && scout_model(self).is_some() =>
@@ -112,30 +160,47 @@ impl ServiceContext {
             _ => ScoutStatus::Disabled,
         };
         let binding = store.binding();
-        let router = match &binding.target {
-            super::BindingTarget::Detached => None,
-            super::BindingTarget::External { tab_id } => Some(tab_id.clone()),
+        let epoch = match &binding.target {
             super::BindingTarget::Attached { epoch_id } => store
                 .epoch(epoch_id)
                 .map_err(|error| error.to_string())?
-                .map(|entry| entry.epoch.runtime_tab_id),
+                .map(|entry| entry.epoch),
+            _ => None,
         };
-        let concierge =
-            match router {
-                Some(id)
-                    if self.mux.read().get_tab(&id).is_some_and(
-                        crate::service::agent_runtime::engine::has_live_bound_session,
-                    ) =>
-                {
-                    ConciergeStatus::Ready
-                }
-                None if matches!(binding.target, super::BindingTarget::Detached)
-                    && self.transcript_router_provider(None).is_ok() =>
-                {
-                    ConciergeStatus::NeedsAttachment
-                }
-                _ => ConciergeStatus::Unavailable,
-            };
+        let router = if let Some(epoch) = &epoch {
+            let mut info = TranscriptRouterInfo::new(epoch.provider.clone(), epoch.model.clone());
+            info.active_turn_ms = transcript_router_turn_ms(epoch);
+            info.activity = router_activity(
+                self.ready_router_tab(owner, epoch),
+                info.active_turn_ms,
+                running || state.pending.is_some(),
+            );
+            Some(info)
+        } else {
+            self.transcript_router_preview()
+        };
+        let concierge = match &binding.target {
+            super::BindingTarget::Attached { .. }
+                if epoch.is_some()
+                    && router
+                        .as_ref()
+                        .is_some_and(|info| info.activity != RouterActivity::Unavailable) =>
+            {
+                ConciergeStatus::Ready
+            }
+            super::BindingTarget::External { tab_id }
+                if self
+                    .mux
+                    .read()
+                    .get_tab(tab_id)
+                    .is_some_and(engine::has_live_bound_session) =>
+            {
+                ConciergeStatus::Ready
+            }
+            super::BindingTarget::Detached if router.is_some() => ConciergeStatus::NeedsAttachment,
+            _ => ConciergeStatus::Unavailable,
+        };
+        let setup = self.configuration().live_transcript;
         Ok(LiveTranscriptStatus {
             committed_seq: store.committed_seq(),
             binding,
@@ -143,6 +208,10 @@ impl ServiceContext {
             scout,
             awaiting_delivery: state.pending.is_some(),
             concierge,
+            configured: setup.configured,
+            default_mic_tap: setup.default_mic_tap,
+            router,
+            last_route_error,
         })
     }
 
@@ -150,18 +219,198 @@ impl ServiceContext {
         super::maintenance::schedule(self, store);
     }
 
-    pub fn live_transcript_setup(&self) -> (ScoutStatus, ConciergeStatus) {
+    pub(in crate::service) fn transcript_router_cwd(&self, owner: &str) -> String {
+        Self::normalize_resolved_agent_cwd(
+            &self
+                .agent_pad_data_dir
+                .join("transcripts")
+                .join(owner)
+                .join("concierge")
+                .to_string_lossy(),
+        )
+    }
+
+    pub(in crate::service) fn transcript_router_matches_setup(
+        &self,
+        owner: &str,
+        epoch: &super::ConciergeEpoch,
+    ) -> bool {
+        let Ok((provider, model)) = self.transcript_router_selection(Some(epoch)) else {
+            return false;
+        };
+        let cwd = self.transcript_router_cwd(owner);
+        provider == epoch.provider
+            && self
+                .mux
+                .read()
+                .get_tab(&epoch.runtime_tab_id)
+                .is_some_and(|tab| {
+                    let launch_model = tab
+                        .agent_runtime_config
+                        .as_ref()
+                        .and_then(|config| config["model"].as_str());
+                    tab.cwd.as_deref() == Some(cwd.as_str())
+                        && (model == epoch.model
+                            || model
+                                .as_deref()
+                                .is_some_and(|model| Some(model) == launch_model))
+                })
+    }
+
+    pub(in crate::service) fn transcript_router_selection(
+        &self,
+        previous: Option<&ConciergeEpoch>,
+    ) -> Result<(String, Option<String>), String> {
+        let config = self.configuration();
+        let setup = config.live_transcript;
+        let provider = [
+            setup.provider.as_str(),
+            previous.map_or("", |epoch| epoch.provider.as_str()),
+            &config.general_agent.agent_provider,
+        ]
+        .into_iter()
+        .find(|id| self.transcript_router_eligible(id))
+        .map(str::to_owned)
+        .or_else(|| {
+            self.agent_registry
+                .provider_ids()
+                .into_iter()
+                .filter(|id| self.transcript_router_eligible(id))
+                .min()
+        })
+        .ok_or("No local chat backend declares transcript router launch capabilities")?;
+        let model = if !setup.model.is_empty()
+            && (setup.provider.is_empty() || setup.provider == provider)
+        {
+            Some(setup.model)
+        } else {
+            previous
+                .filter(|epoch| epoch.provider == provider)
+                .and_then(|epoch| epoch.model.clone())
+        };
+        Ok((provider, model))
+    }
+
+    fn transcript_router_preview(&self) -> Option<TranscriptRouterInfo> {
+        let (provider, model) = self.transcript_router_selection(None).ok()?;
+        let model = model.or_else(|| {
+            self.agent_registry
+                .with_provider(&provider, |p| p.default_model())
+                .flatten()
+        });
+        Some(TranscriptRouterInfo::new(provider, model))
+    }
+
+    pub fn live_transcript_setup(&self) -> serde_json::Value {
         let scout = if scout_model(self).is_some() {
             ScoutStatus::Ready
         } else {
             ScoutStatus::Unavailable
         };
-        let concierge = if self.transcript_router_provider(None).is_ok() {
+        let router = self.transcript_router_preview().map(|router| {
+            let mut ids = self.agent_registry.provider_ids();
+            ids.sort();
+            let providers: Vec<_> = ids.into_iter()
+                .filter(|id| self.transcript_router_eligible(id))
+                .filter_map(|id| self.agent_registry.provider_arc(&id).map(|provider| {
+                    let default_model = provider.default_model();
+                    let mut models: Vec<_> = provider.available_models().into_iter()
+                        .filter(|model| model.available != Some(false))
+                        .map(|model| model.id).collect();
+                    if models.is_empty() {
+                        models.extend(default_model.clone());
+                    }
+                    json!({"id": id, "displayName": provider.display_name(), "defaultModel": default_model, "models": models})
+                }))
+                .collect();
+            json!({"provider": router.provider, "model": router.model, "cap": router.cap, "providers": providers})
+        });
+        let concierge = if router.is_some() {
             ConciergeStatus::NeedsAttachment
         } else {
             ConciergeStatus::Unavailable
         };
-        (scout, concierge)
+        let setup = self.configuration().live_transcript;
+        json!({
+            "scout": scout,
+            "concierge": concierge,
+            "configured": setup.configured,
+            "defaultMicTap": setup.default_mic_tap,
+            "defaultTrigger": default_trigger(&setup.trigger, scout),
+            "router": router,
+        })
+    }
+
+    pub fn configure_live_transcript(
+        &self,
+        owner: &str,
+        configure: bool,
+        provider: Option<String>,
+        model: Option<String>,
+        trigger: Option<TranscriptTrigger>,
+        default_mic_tap: Option<bool>,
+    ) -> Result<(), String> {
+        let configure = configure || provider.is_some() || model.is_some();
+        if !configure && default_mic_tap.is_none() {
+            return Ok(());
+        }
+        self.open_live_transcript(owner)?;
+        let trigger = if configure {
+            trigger
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|error| error.to_string())?
+        } else {
+            None
+        };
+        let next = crate::config::update_config_and_apply(
+            self.ext::<crate::config::ConfigState>(),
+            |config| {
+                let setup = &mut config.live_transcript;
+                setup.configured |= configure;
+                if let Some(provider) = provider {
+                    if setup.provider != provider {
+                        setup.model.clear();
+                    }
+                    setup.provider = provider;
+                }
+                if let Some(model) = model {
+                    setup.model = model;
+                }
+                if let Some(trigger) = trigger.as_ref().and_then(serde_json::Value::as_str) {
+                    setup.trigger = trigger.into();
+                }
+                if let Some(default_mic_tap) = default_mic_tap {
+                    setup.default_mic_tap = default_mic_tap;
+                }
+                Ok(())
+            },
+        )?;
+        self.ui.emit(
+            "config-changed",
+            serde_json::to_value(next).map_err(|error| error.to_string())?,
+        );
+        self.emit_live_transcript_changed(owner);
+        Ok(())
+    }
+
+    pub fn live_transcript_cursor_changed(&self, owner: &str, ack: bool) {
+        if ack {
+            if let Some(entry) = self
+                .ext_or_init(Dispatch::default)
+                .owners
+                .lock()
+                .get_mut(owner)
+            {
+                entry.last_route_error = None;
+            }
+        }
+        self.emit_live_transcript_changed(owner);
+    }
+
+    fn emit_live_transcript_changed(&self, owner: &str) {
+        self.events
+            .publish_generic("live-transcript-changed", json!({"ownerTabId": owner}));
     }
 
     pub fn with_live_transcript_consumer<T>(
@@ -218,6 +467,7 @@ impl ServiceContext {
             return;
         };
         for (owner, store) in owners.stores_for_destination(router_tab_id) {
+            self.emit_live_transcript_changed(&owner);
             let committed = store.committed_seq();
             if committed > 0
                 && store.routing_state().is_ok_and(|state| {
@@ -248,6 +498,17 @@ impl ServiceContext {
         if state.pending.is_some() {
             return Err("A transcript delivery is awaiting confirmation".into());
         }
+        let trigger = trigger.or_else(|| {
+            let setup = self.configuration().live_transcript;
+            (setup.configured && !store.inner.root.join("routing.json").exists()).then(|| {
+                let scout = if scout_model(self).is_some() {
+                    ScoutStatus::Ready
+                } else {
+                    ScoutStatus::Unavailable
+                };
+                default_trigger(&setup.trigger, scout)
+            })
+        });
         entry.running = true;
         drop(entries);
         let result = (|| {
@@ -260,12 +521,9 @@ impl ServiceContext {
                     ) {
                         self.set_transcript_external_override(owner, None, start)?;
                     }
-                    self.admit_attached_transcript_turn(
-                        owner,
-                        super::DEFAULT_TRANSCRIPT_TURN_LIMIT,
-                    )?
-                    .binding()
-                    .clone()
+                    self.admit_transcript_router(owner, super::DEFAULT_TRANSCRIPT_TURN_LIMIT, true)?
+                        .binding()
+                        .clone()
                 }
             };
             if let Some(trigger) = trigger {
@@ -286,7 +544,11 @@ impl ServiceContext {
             if result.is_ok() && trigger.is_some() {
                 entry.scout_unavailable = false;
             }
+            if result.is_ok() {
+                entry.last_route_error = None;
+            }
         }
+        self.emit_live_transcript_changed(owner);
         result
     }
 
@@ -316,6 +578,7 @@ impl ServiceContext {
         }
         entry.running = true;
         drop(entries);
+        self.emit_live_transcript_changed(owner);
         let result = delivery::route(
             self,
             &store,
@@ -327,8 +590,10 @@ impl ServiceContext {
         );
         if let Some(entry) = dispatch.owners.lock().get_mut(owner) {
             entry.running = false;
+            entry.last_route_error = result.as_ref().err().cloned();
             entry.dispatch_finished.notify_waiters();
         }
+        self.emit_live_transcript_changed(owner);
         result
     }
 
@@ -348,7 +613,35 @@ impl ServiceContext {
         state.trigger = trigger;
         store.save_routing_state(&state)?;
         entry.scout_unavailable = false;
+        entry.last_route_error = None;
+        drop(owners);
+        self.emit_live_transcript_changed(owner);
         Ok(())
+    }
+}
+
+fn default_trigger(configured: &str, scout: ScoutStatus) -> TranscriptTrigger {
+    serde_json::from_value::<TranscriptTrigger>(json!(configured))
+        .ok()
+        .filter(|trigger| {
+            *trigger != TranscriptTrigger::ScoutThenConcierge || scout == ScoutStatus::Ready
+        })
+        .unwrap_or(if scout == ScoutStatus::Ready {
+            TranscriptTrigger::ScoutThenConcierge
+        } else {
+            TranscriptTrigger::DirectBatch
+        })
+}
+
+fn router_activity(ready: bool, turn_ms: Option<u64>, dispatching: bool) -> RouterActivity {
+    if !ready {
+        RouterActivity::Unavailable
+    } else if transcript_router_stuck(turn_ms) {
+        RouterActivity::Stuck
+    } else if turn_ms.is_some() || dispatching {
+        RouterActivity::Reviewing
+    } else {
+        RouterActivity::Idle
     }
 }
 
@@ -431,12 +724,14 @@ fn on_commit(
     if !receipt.sealed.is_empty() {
         super::maintenance::schedule(svc, store.clone());
     }
-    if matches!(receipt.row.content, TranscriptContent::Speech { .. })
-        && store
+    if matches!(receipt.row.content, TranscriptContent::Speech { .. }) {
+        svc.emit_live_transcript_changed(owner);
+        if store
             .routing_state()
             .is_ok_and(|state| state.trigger != TranscriptTrigger::Manual)
-    {
-        enqueue(svc, store, owner, receipt.row.seq);
+        {
+            enqueue(svc, store, owner, receipt.row.seq);
+        }
     }
 }
 
@@ -524,6 +819,7 @@ pub(super) fn wake_when_idle(
                 entry.waiting_for_idle = false;
             }
         }
+        svc.emit_live_transcript_changed(&owner);
         let committed = store.committed_seq();
         if committed > 0
             && store.routing_state().is_ok_and(|state| {
@@ -540,20 +836,26 @@ async fn settle_after_dispatch(svc: Arc<ServiceContext>, store: TranscriptStore,
         let result = tokio::task::spawn_blocking({
             let (svc, store, owner) = (svc.clone(), store.clone(), owner.clone());
             move || {
-                let entries = svc.ext_or_init(Dispatch::default).owners.lock();
+                let mut entries = svc.ext_or_init(Dispatch::default).owners.lock();
                 if let Some(entry) = entries.get(&owner).filter(|entry| entry.running) {
                     return Some(entry.dispatch_finished.clone());
                 }
-                if let Ok(mut state) = store.routing_state() {
-                    let _ = delivery::settle(&svc, &store, &mut state);
+                let result = store.routing_state().and_then(|mut state| {
+                    delivery::settle(&svc, &store, &mut state)?;
                     let committed = store.committed_seq();
-                    if state.pending.is_none()
+                    Ok((state.pending.is_none()
                         && state.trigger != TranscriptTrigger::Manual
-                        && committed > state.attempted_through
-                    {
-                        drop(entries);
-                        enqueue(&svc, &store, &owner, committed);
-                    }
+                        && committed > state.attempted_through)
+                        .then_some(committed))
+                });
+                if let Err(error) = &result {
+                    entries.entry(owner.clone()).or_default().last_route_error =
+                        Some(error.clone());
+                }
+                drop(entries);
+                svc.emit_live_transcript_changed(&owner);
+                if let Ok(Some(committed)) = result {
+                    enqueue(&svc, &store, &owner, committed);
                 }
                 None
             }
@@ -606,10 +908,15 @@ fn enqueue(svc: &Arc<ServiceContext>, store: &TranscriptStore, owner: &str, seq:
                 };
                 range
             };
-            if let Err(error) = process(&svc, &store, &owner, range) {
-                log::debug!("[live-transcript] route attempt stopped: {error}");
+            svc.emit_live_transcript_changed(&owner);
+            let result = process(&svc, &store, &owner, range);
+            if !matches!(&result, Ok(false)) {
+                let mut owners = dispatch.owners.lock();
+                owners.entry(owner.clone()).or_default().last_route_error = result.err();
             }
+            svc.emit_live_transcript_changed(&owner);
         }
+        svc.emit_live_transcript_changed(&owner);
     });
 }
 
@@ -618,7 +925,7 @@ fn process(
     store: &TranscriptStore,
     owner: &str,
     range: TranscriptRange,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let mut state = store
         .routing_state()
         .map_err(|error| format!("routing state unavailable: {error}"))?;
@@ -628,7 +935,7 @@ fn process(
         || state.pending.is_some()
         || range.to_seq <= state.attempted_through
     {
-        return Ok(());
+        return Ok(false);
     }
     let observed_binding = store.binding();
     let mut from_seq = state.attempted_through.saturating_add(1);
@@ -650,10 +957,10 @@ fn process(
             break batch;
         }
         let Some(last_seq) = page.rows.last().map(|row| row.seq) else {
-            return Ok(());
+            return Ok(false);
         };
         if last_seq >= range.to_seq {
-            return Ok(());
+            return Ok(false);
         }
         from_seq = last_seq.saturating_add(1);
     };
@@ -662,30 +969,30 @@ fn process(
         .map(|(seq, text)| (*seq, text.as_str()))
         .collect();
     let Some(&(to_seq, _)) = speech.last() else {
-        return Ok(());
+        return Ok(false);
     };
     let range = TranscriptRange { from_seq, to_seq };
     let rationale = match state.trigger {
         TranscriptTrigger::ScoutThenConcierge => {
             let decision = classify(svc, &speech);
             if matches!(decision, Ok(None)) {
-                return Ok(());
+                return Ok(false);
             }
             let mut entries = svc.ext_or_init(Dispatch::default).owners.lock();
             entries.entry(owner.into()).or_default().scout_unavailable = decision.is_err();
             if decision.map_err(str::to_string)? != Some(true) {
-                return Ok(());
+                return Ok(false);
             }
             "Scout identified an explicit request"
         }
         TranscriptTrigger::WakeWord => {
             if !speech.iter().any(|(_, text)| wake_word(text)) {
-                return Ok(());
+                return Ok(false);
             }
             "Owner-selected wake word detected"
         }
         TranscriptTrigger::DirectBatch => "Owner-selected direct batch",
-        TranscriptTrigger::Manual => return Ok(()),
+        TranscriptTrigger::Manual => return Ok(false),
     };
     delivery::route(
         svc,
@@ -696,6 +1003,7 @@ fn process(
         rationale,
         &mut state,
     )
+    .map(|()| true)
 }
 
 fn wake_word(text: &str) -> bool {

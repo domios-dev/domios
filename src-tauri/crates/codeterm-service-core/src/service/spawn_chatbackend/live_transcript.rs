@@ -36,8 +36,26 @@ Rules:\n\
    - If NO (ambient chatter, filler like 'yeah'/'okay', testing mic, thinking aloud with no request): send nothing.\n\
 3. On EVERY turn, advance your cursor with the exact `domios live-transcript ack` command shown in the turn.\n\
 4. Be fast and minimal: never read SKILL.md, never run `domios mem search` for instructions, never spawn agents. Reply with one short status line when done.";
-pub const DEFAULT_TRANSCRIPT_TURN_LIMIT: NonZeroUsize = NonZeroUsize::new(10).unwrap();
+pub const DEFAULT_TRANSCRIPT_TURN_LIMIT: NonZeroUsize = NonZeroUsize::new(5).unwrap();
+const STUCK_TURN_MS: u64 = 45_000;
 const MAX_TURN_LIMIT: usize = 100;
+
+pub(in crate::service) fn transcript_router_turn_ms(epoch: &ConciergeEpoch) -> Option<u64> {
+    let session = engine::for_tab(&epoch.runtime_tab_id)?;
+    let context = session.context.lock();
+    if context.thread_id.as_deref() != Some(epoch.session_id.as_str())
+        || context.binding_nonce != epoch.binding_nonce
+    {
+        return None;
+    }
+    drop(context);
+    let started = session.state.lock().active_turn_started_at_ms?;
+    Some(crate::service::wall_now_ms().saturating_sub(started))
+}
+
+pub(in crate::service) fn transcript_router_stuck(turn_ms: Option<u64>) -> bool {
+    turn_ms.is_some_and(|elapsed| elapsed > STUCK_TURN_MS)
+}
 
 pub(super) fn router_launch_owner<'a>(
     svc: &ServiceContext,
@@ -60,7 +78,6 @@ pub(super) fn router_launch_owner<'a>(
         || spec.visibility != TabVisibility::Hidden
         || spec.audience != TabAudience::TranscriptRouter
         || launch.params.existing_tab_id.is_some()
-        || launch.params.skip_permissions != Some(false)
         || launch.agent.resume_session_id.is_some()
         || launch.owner_linkage.is_some()
         || launch.runtime_fork.is_some()
@@ -79,11 +96,14 @@ pub(super) fn router_launch_owner<'a>(
     {
         return Err("Invalid attached transcript router launch".into());
     }
+    let params = super::launch_options::authorize(svc, provider, Some(&launch.params))?;
     unattended_launch::preflight(
         &svc.agent_registry,
-        &launch
-            .agent
-            .unattended_launch(provider, launch.agent.model.as_deref(), false),
+        &launch.agent.unattended_launch(
+            provider,
+            launch.agent.model.as_deref(),
+            params.permission_bypass_requested(provider),
+        ),
     )?;
     launch
         .agent
@@ -544,6 +564,15 @@ impl ServiceContext {
         authorized_owner_tab_id: &str,
         turn_limit: NonZeroUsize,
     ) -> Result<AttachedTranscriptTurn, String> {
+        self.admit_transcript_router(authorized_owner_tab_id, turn_limit, false)
+    }
+
+    pub(in crate::service) fn admit_transcript_router(
+        &self,
+        authorized_owner_tab_id: &str,
+        turn_limit: NonZeroUsize,
+        reattaching: bool,
+    ) -> Result<AttachedTranscriptTurn, String> {
         if turn_limit.get() > MAX_TURN_LIMIT {
             return Err("Transcript router turn limit exceeds supported capacity".into());
         }
@@ -553,8 +582,12 @@ impl ServiceContext {
             .gate(&store.binding().owner_tab_id)
             .try_lock_owned()
             .map_err(|_| "Transcript router admission is held")?;
-        let (binding, epoch) =
-            self.reconcile_transcript_router(&store, authorized_owner_tab_id, turn_limit)?;
+        let (binding, epoch) = self.reconcile_transcript_router(
+            &store,
+            authorized_owner_tab_id,
+            turn_limit,
+            reattaching,
+        )?;
         let admission = AttachedTranscriptTurn {
             owner: authorized_owner_tab_id.into(),
             store,
@@ -601,11 +634,14 @@ impl ServiceContext {
         epoch: &ConciergeEpoch,
         through: TranscriptSeq,
     ) -> Result<TranscriptCursor, String> {
-        self.with_active_transcript_epoch(authorized_owner_tab_id, epoch, |store, binding| {
-            store
-                .ack(binding, through)
-                .map_err(|error| error.to_string())
-        })
+        let cursor =
+            self.with_active_transcript_epoch(authorized_owner_tab_id, epoch, |store, binding| {
+                store
+                    .ack(binding, through)
+                    .map_err(|error| error.to_string())
+            })?;
+        self.live_transcript_cursor_changed(authorized_owner_tab_id, true);
+        Ok(cursor)
     }
 
     pub fn record_attached_transcript_action(
@@ -693,7 +729,7 @@ impl ServiceContext {
             .ok_or("Transcript owner workspace is absent".into())
     }
 
-    fn ready_router_tab(&self, owner: &str, epoch: &ConciergeEpoch) -> bool {
+    pub(in crate::service) fn ready_router_tab(&self, owner: &str, epoch: &ConciergeEpoch) -> bool {
         self.mux
             .read()
             .get_tab(&epoch.runtime_tab_id)
@@ -709,6 +745,7 @@ impl ServiceContext {
         store: &TranscriptStore,
         owner: &str,
         turn_limit: NonZeroUsize,
+        reattaching: bool,
     ) -> Result<(TranscriptBinding, ConciergeEpoch), String> {
         require_live_owner(store, owner)?;
         self.require_transcript_owner_tab(owner)?;
@@ -718,14 +755,24 @@ impl ServiceContext {
         }
         if matches!(binding.target, BindingTarget::Attached { .. }) {
             let epoch = active_epoch(store, owner, &binding)?;
-            if self.ready_router_tab(owner, &epoch)
+            let ready = self.ready_router_tab(owner, &epoch);
+            let turn_ms = transcript_router_turn_ms(&epoch);
+            let matches_setup = self.transcript_router_matches_setup(owner, &epoch);
+            let retire_active = reattaching
+                && (transcript_router_stuck(turn_ms) || (!matches_setup && turn_ms.is_some()));
+            if ready
+                && !retire_active
                 && restart::attached_transcript_settled_turns(self, &epoch)? < turn_limit.get()
+                && matches_setup
             {
                 return Ok((binding, epoch));
             }
             binding = store
                 .suspend_attached_epoch(&binding)
                 .map_err(|error| error.to_string())?;
+            if retire_active {
+                self.close_transcript_router(owner, &epoch.runtime_tab_id)?;
+            }
         }
         let previous = store.suspended_epoch().map_err(|error| error.to_string())?;
         if let Some(history) = &previous {
@@ -748,10 +795,10 @@ impl ServiceContext {
                 .cloned()
                 .ok_or("Transcript router disappeared before activation")?;
             let epoch = capture_epoch(owner, &tab)?;
-            if previous
-                .as_ref()
-                .is_some_and(|history| history.epoch.session_id == epoch.session_id)
-            {
+            if previous.as_ref().is_some_and(|history| {
+                history.epoch.provider == epoch.provider
+                    && history.epoch.session_id == epoch.session_id
+            }) {
                 return Err("Fresh transcript router returned the prior session".into());
             }
             restart::arm_attached_transcript_turns(self, &epoch)?;
@@ -830,7 +877,9 @@ impl ServiceContext {
     ) -> Result<String, String> {
         if let Some(history) = previous {
             let epoch = &history.epoch;
-            if self.ready_router_tab(owner, epoch) {
+            if self.ready_router_tab(owner, epoch)
+                && self.transcript_router_matches_setup(owner, epoch)
+            {
                 self.events.protect_private_chat_tab(&epoch.runtime_tab_id);
                 if let Err(error) = crate::async_runtime::block_on(
                     restart::restart_attached_transcript_epoch(self, epoch, bootstrap),
@@ -844,23 +893,8 @@ impl ServiceContext {
         for id in self.transcript_router_tabs(owner) {
             self.close_transcript_router(owner, &id)?;
         }
-        let provider = self.transcript_router_provider(previous)?;
-        let mut spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
-            agent: Some(provider),
-            model: previous.and_then(|history| history.epoch.model.clone()),
-            workspace_id: Some(self.require_transcript_owner_tab(owner)?),
-            spawned_by_tab_id: Some(owner.into()),
-            title: Some("Concierge".into()),
-            audience: TabAudience::TranscriptRouter,
-            skip_permissions: Some(false),
-            system_prompt: Some(bootstrap.into()),
-            ..Default::default()
-        });
-        spec.visibility = TabVisibility::Hidden;
-        if let TabCommand::Agent(agent) = &mut spec.command {
-            agent.launch_purpose = LaunchPurpose::TranscriptRouter;
-        }
-        spec.route_agent_to_chatbackend()?;
+        let spec =
+            self.transcript_router_spec(owner, previous.map(|history| &history.epoch), bootstrap)?;
         let (handle, launch) = self.stage_chatbackend_spawn(spec, false)?;
         self.events.protect_private_chat_tab(&handle.tab_id);
         if let Err(error) = launch.run() {
@@ -870,37 +904,45 @@ impl ServiceContext {
         Ok(handle.tab_id)
     }
 
-    pub(in crate::service) fn transcript_router_provider(
+    fn transcript_router_spec(
         &self,
-        previous: Option<&EpochHistory>,
-    ) -> Result<String, String> {
-        let eligible = |id: &str| {
-            engine::requested(self, id)
-                && self
-                    .runtime_system_prompt_delivery(
-                        id,
-                        self.agent_registry.provider_arc(id).as_deref(),
-                    )
-                    .is_some_and(|capability| {
-                        crate::service::launch_delivery::mode_for_descriptor(&capability)
-                            == crate::service::launch_delivery::LaunchDeliveryMode::SystemPrompt
-                    })
-        };
-        let configured = self.configuration().general_agent.agent_provider;
-        if let Some(history) = previous {
-            return eligible(&history.epoch.provider)
-                .then(|| history.epoch.provider.clone())
-                .ok_or("Original transcript router provider is unavailable".into());
+        owner: &str,
+        previous: Option<&ConciergeEpoch>,
+        bootstrap: &str,
+    ) -> Result<SpawnTabSpec, String> {
+        let (provider, model) = self.transcript_router_selection(previous)?;
+        let workspace_id = self.require_transcript_owner_tab(owner)?;
+        let cwd = self.transcript_router_cwd(owner);
+        std::fs::create_dir_all(&cwd)
+            .map_err(|error| format!("Could not create Concierge working directory: {error}"))?;
+        let mut spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            agent: Some(provider),
+            model,
+            cwd: Some(cwd),
+            workspace_id: Some(workspace_id),
+            spawned_by_tab_id: Some(owner.into()),
+            title: Some("Concierge".into()),
+            audience: TabAudience::TranscriptRouter,
+            sandbox: self.configuration().agent.sandbox_ceiling,
+            system_prompt: Some(bootstrap.into()),
+            ..Default::default()
+        });
+        spec.visibility = TabVisibility::Hidden;
+        if let TabCommand::Agent(agent) = &mut spec.command {
+            agent.launch_purpose = LaunchPurpose::TranscriptRouter;
         }
-        if eligible(&configured) {
-            return Ok(configured);
-        }
-        let mut providers = self.chatbackend_registry.ids();
-        providers.sort();
-        providers
-            .into_iter()
-            .find(|id| eligible(id))
-            .ok_or("No local chat backend declares transcript router launch capabilities".into())
+        spec.route_agent_to_chatbackend()?;
+        Ok(spec)
+    }
+
+    pub(in crate::service) fn transcript_router_eligible(&self, id: &str) -> bool {
+        engine::requested(self, id)
+            && self
+                .runtime_system_prompt_delivery(id, self.agent_registry.provider_arc(id).as_deref())
+                .is_some_and(|capability| {
+                    crate::service::launch_delivery::mode_for_descriptor(&capability)
+                        == crate::service::launch_delivery::LaunchDeliveryMode::SystemPrompt
+                })
     }
 
     fn transcript_router_tabs(&self, owner: &str) -> Vec<String> {

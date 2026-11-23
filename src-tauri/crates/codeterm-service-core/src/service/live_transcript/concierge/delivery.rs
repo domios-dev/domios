@@ -297,6 +297,7 @@ pub(super) fn route(
         Err(_) => return Err("Transcript delivery admission outcome is unavailable".into()),
     };
     svc.chat_send_ledger.admit_user(&record);
+    svc.emit_live_transcript_changed(owner);
     super::watch_delivery(svc, store.clone(), owner, &send_id);
     drop(reservation);
     user_delivery::drain(svc, &destination)?;

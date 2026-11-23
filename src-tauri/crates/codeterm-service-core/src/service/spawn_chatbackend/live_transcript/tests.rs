@@ -24,6 +24,69 @@ fn transcript_router_purpose_refuses_a_provider_without_a_local_runtime() {
     assert!(unattended_launch::preflight(&registry, &agent_launch).is_ok());
 }
 
+#[test]
+fn transcript_router_prefers_saved_provider_and_prepares_owner_authorized_clean_cwd() {
+    let (mux, owner) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    for id in ["alpha", "beta", "previous"] {
+        let runtime = serde_json::from_value(serde_json::json!({
+            "runtime": "stdio-jsonrpc",
+            "command": { "binary": "fixture", "args": [] },
+            "hostApprovals": true,
+            "requestMethods": {},
+            "notificationMethods": [],
+        }))
+        .unwrap();
+        svc.agent_registry.register_provider(Box::new(
+            crate::agent::test_provider::MockProvider::new(id)
+                .with_session_config_delivery()
+                .with_agent_runtime(runtime),
+        ));
+    }
+    let config = svc.ext::<crate::config::ConfigState>();
+    config.lock().general_agent.agent_provider = "beta".into();
+    let mut previous = epoch("runtime".into());
+    previous.provider = "previous".into();
+    previous.model = Some("prior-model".into());
+    assert_eq!(
+        svc.transcript_router_selection(Some(&previous)).unwrap(),
+        ("previous".into(), Some("prior-model".into())),
+    );
+    config.lock().live_transcript.provider = "alpha".into();
+    config.lock().live_transcript.model = "selected-model".into();
+    let spec = svc
+        .transcript_router_spec(&owner, Some(&previous), "opaque")
+        .unwrap();
+    let cwd = svc
+        .agent_pad_data_dir
+        .join("transcripts")
+        .join(&owner)
+        .join("concierge");
+    assert_eq!(std::path::Path::new(spec.cwd.as_deref().unwrap()), cwd);
+    assert!(cwd.is_dir());
+    assert!(!cwd.join("AGENTS.md").exists());
+    assert_eq!(spec.visibility, TabVisibility::Hidden);
+    let launch = spec.chatbackend_launch.as_ref().unwrap();
+    assert_eq!(launch.agent.model.as_deref(), Some("selected-model"));
+    assert_eq!(launch.params.skip_permissions, None);
+    let params =
+        super::super::launch_options::authorize(svc, "alpha", Some(&launch.params)).unwrap();
+    assert!(params.permission_bypass_requested("alpha"));
+    assert_eq!(
+        router_launch_owner(svc, &spec, "alpha", true).unwrap(),
+        Some(owner.as_str())
+    );
+    assert!(router_launch_owner(svc, &spec, "alpha", false).is_err());
+
+    config.lock().agent.sandbox_ceiling = Some("read-only".into());
+    let spec = svc.transcript_router_spec(&owner, None, "opaque").unwrap();
+    let params = &spec.chatbackend_launch.as_ref().unwrap().params;
+    let params = super::super::launch_options::authorize(svc, "alpha", Some(params)).unwrap();
+    assert_eq!(params.sandbox.as_deref(), Some("read-only"));
+    assert!(!params.permission_bypass_requested("alpha"));
+}
+
 fn epoch(runtime_tab_id: String) -> ConciergeEpoch {
     ConciergeEpoch {
         epoch_id: "epoch".into(),
@@ -361,6 +424,15 @@ async fn cap_counts_distinct_settled_turns_on_only_the_ready_epoch() {
     let store = fixture.service.open_live_transcript(&owner).unwrap();
     let binding = attach(&store, &epoch, "work");
     let cap = DEFAULT_TRANSCRIPT_TURN_LIMIT.get();
+    let status = fixture.service.live_transcript_status(&owner).unwrap();
+    let router_status = serde_json::to_value(status).unwrap();
+    assert_eq!(router_status["router"]["activity"], "idle");
+    session.state.lock().active_turn_started_at_ms =
+        Some(crate::service::wall_now_ms().saturating_sub(STUCK_TURN_MS + 1));
+    let status = fixture.service.live_transcript_status(&owner).unwrap();
+    let router_status = serde_json::to_value(status).unwrap();
+    assert_eq!(router_status["router"]["activity"], "stuck");
+    session.state.lock().active_turn_started_at_ms = None;
     for index in 0..cap - 1 {
         engine::record_completed_turn(&session, &epoch.session_id, Some(&index.to_string()));
     }
