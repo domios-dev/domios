@@ -112,7 +112,8 @@ pub(super) fn forward_range(
         .max()
         .unwrap_or(0);
     from_seq = from_seq.max(forwarded_through + 1);
-    let mut speech = rows.iter().rev().skip_while(|row| row.seq > from_seq);
+    let start_seq = from_seq;
+    let mut speech = rows.iter().rev().skip_while(move |row| row.seq > start_seq);
     if let Some(start) = speech.next().filter(|row| {
         row.seq == from_seq && matches!(row.content, TranscriptContent::Speech { .. })
     }) {
