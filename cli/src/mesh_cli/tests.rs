@@ -900,6 +900,8 @@ fn send_delay_maps_to_delayed_messages() {
         tab: Some("abc123".into()),
         from_file: None,
         from_pad: None,
+        attach: Vec::new(),
+        copy: false,
         stdin: false,
         actions: None,
         delay: Some("1m".into()),

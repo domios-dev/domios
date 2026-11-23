@@ -7,6 +7,8 @@ fn send_text_is_fire_and_forget_on_mesh() {
         tab: Some("abc123".into()),
         from_file: None,
         from_pad: None,
+        attach: Vec::new(),
+        copy: false,
         stdin: false,
         actions: None,
         delay: None,

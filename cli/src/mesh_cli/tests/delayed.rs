@@ -12,6 +12,8 @@ fn send_every_maps_recurrence_through_mesh() {
         tab: Some("abc123".into()),
         from_file: None,
         from_pad: None,
+        attach: Vec::new(),
+        copy: false,
         stdin: false,
         actions: None,
         delay: None,

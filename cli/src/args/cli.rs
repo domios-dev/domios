@@ -222,6 +222,14 @@ pub enum Commands {
         #[arg(long, value_name = "PATH", conflicts_with_all = ["text", "from_file", "stdin"])]
         from_pad: Option<String>,
 
+        /// Share a relative file from the current tab's pad in the recipient's chat. Repeat to share several files.
+        #[arg(long, value_name = "PATH", conflicts_with_all = ["actions", "delay", "at", "every", "until", "count", "system_context", "to_shell", "mesh"])]
+        attach: Vec<String>,
+
+        /// Put a snapshot of each attachment in the receiving tab's pad inbox.
+        #[arg(long, requires = "attach")]
+        copy: bool,
+
         /// Read text from stdin. Pair with a single-quoted heredoc to bypass
         /// the shell entirely:
         ///   domios send --tab X --stdin <<'EOF'

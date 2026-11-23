@@ -74,7 +74,7 @@ pub fn checked_path(raw: &str) -> Result<PathBuf, String> {
 pub(crate) struct PreviewSource {
     pub path: PathBuf,
     pub size: u64,
-    file: File,
+    pub(super) file: File,
     #[cfg(windows)]
     _parents: Vec<File>,
 }
@@ -120,7 +120,7 @@ impl PreviewSource {
 }
 
 #[cfg(unix)]
-fn secure_open(path: &Path) -> std::io::Result<PreviewSource> {
+pub(super) fn secure_open(path: &Path) -> std::io::Result<PreviewSource> {
     use std::ffi::CString;
     use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::ffi::OsStrExt;
@@ -164,7 +164,7 @@ fn multiple_links(_: &File, metadata: &std::fs::Metadata) -> Result<bool, String
 }
 
 #[cfg(windows)]
-fn secure_open(path: &Path) -> std::io::Result<PreviewSource> {
+pub(super) fn secure_open(path: &Path) -> std::io::Result<PreviewSource> {
     use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
     use windows_sys::Win32::Storage::FileSystem::{
         FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,

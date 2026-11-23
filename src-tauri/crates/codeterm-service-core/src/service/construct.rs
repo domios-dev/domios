@@ -313,6 +313,7 @@ pub fn build_service_context(
         #[cfg(any(test, feature = "test-support"))]
         ready_user_send_tasks: Arc::new(service::test_fixture::TestReadySendTasks::default()),
         agent_pad_data_dir: crate::paths::data_dir(),
+        pad_shares: Default::default(),
         mux: states.mux.clone(),
         pty: states.pty.clone(),
         output_buf: states.output_buffer.clone(),

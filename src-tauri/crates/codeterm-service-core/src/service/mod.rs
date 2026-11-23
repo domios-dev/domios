@@ -393,6 +393,7 @@ pub struct ServiceContext {
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) ready_user_send_tasks: Arc<test_fixture::TestReadySendTasks>,
     pub(crate) agent_pad_data_dir: std::path::PathBuf,
+    pad_shares: Arc<local_preview::pad_shares::Store>,
     pub mux: MuxState,
     pub pty: PtyState,
     pub output_buf: OutputBufferState,
