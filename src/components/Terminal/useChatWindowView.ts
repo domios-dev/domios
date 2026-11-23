@@ -22,7 +22,7 @@ import {
   type TranscriptAuthority,
 } from "@codeterm/chat-core";
 import { type EnrichmentCache } from "./chatEnrichment";
-import { CHAT_PAGE_SIZE, CHAT_READING_SIZE, conversationEntries, earlierMessageLabel, revealEarlierMessages } from "./chatPagingModel";
+import { CHAT_PAGE_SIZE, CHAT_READING_SIZE, conversationEntries, earlierMessageLabel, revealEarlierMessages, revealNewerMessages } from "./chatPagingModel";
 import {
   addChatSend,
   readChatSendDismissalMarkers,
@@ -311,6 +311,16 @@ export function useChatWindowView({
     void loadOlder(true);
   }, [allTimelineItems.length, attachmentGeneration, canBackfillOlder, historyReady, loadOlder, transcript.authority, windowKey]);
 
+  // A detached reader resting on the frozen bottom edge gets the newer rows below it, so a scroll can re-pin.
+  const revealNewer = useLatestCallback(() => {
+    if (followTailRef.current) return false;
+    const next = revealNewerMessages(allTimelineItems, loadedAnchorKey, windowSize);
+    if (!next) return false;
+    setWindowSize(next.size);
+    updateWindowAnchor(next.anchor);
+    return true;
+  }, [allTimelineItems, followTailRef, loadedAnchorKey, updateWindowAnchor, windowSize]);
+
   const showLatest = useLatestCallback(() => {
     followTailRef.current = true;
     setWindowSize(CHAT_PAGE_SIZE);
@@ -382,6 +392,7 @@ export function useChatWindowView({
     loadOlder,
     setHistoryReading,
     showLatest,
+    revealNewer,
     prepareMessage,
     updateOptimistic,
   };

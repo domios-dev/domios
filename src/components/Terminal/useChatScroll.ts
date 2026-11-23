@@ -31,6 +31,7 @@ import { chatRevealIndex } from "./chatAnchorModel";
 import { useChatScrollGesture } from "./useChatScrollGesture";
 import { chatScrollBookmark, chatScrollRestoreTarget, initialChatScrollAnchor, type ChatScrollState } from "./chatScrollMemory";
 import { isChatScrollReady } from "./chatScrollReadiness";
+import { journalChatNewerRevealed, journalChatViewportMode, type ChatViewportCause } from "./chatViewportJournal";
 
 const SHOW_SCROLL_DOWN_THRESHOLD_PX = 240;
 
@@ -58,6 +59,10 @@ export interface UseChatScrollOptions {
   followTailRef?: MutableRefObject<boolean>;
   onViewportChange?: () => void;
   onModeChange?: (mode: ChatViewportMode) => void;
+  /** Rows the logical window holds back below a detached reader; `onNewerEdge` renders them, true when it did. */
+  newerCount?: number;
+  onNewerEdge?: () => boolean;
+  journalTabId?: string;
   userScrollingRef?: MutableRefObject<boolean>;
   /** Releases layout shift held off-screen during the gesture; returns the scroll delta that keeps the view still. */
   foldLayoutDrift?: () => number;
@@ -87,6 +92,9 @@ export function useChatScroll({
   followTailRef,
   onModeChange,
   onViewportChange,
+  newerCount = 0,
+  onNewerEdge,
+  journalTabId,
   userScrollingRef: sharedUserScrollingRef,
   foldLayoutDrift,
 }: UseChatScrollOptions): UseChatScrollResult {
@@ -110,6 +118,9 @@ export function useChatScroll({
   const observedRef = useRef(new Set<Element>());
   const onModeChangeRef = useRef(onModeChange);
   onModeChangeRef.current = onModeChange;
+  const newerRef = useRef({ count: newerCount, reveal: onNewerEdge, tabId: journalTabId });
+  newerRef.current = { count: newerCount, reveal: onNewerEdge, tabId: journalTabId };
+  const detachCauseRef = useRef<ChatViewportCause>("restore");
   const [showScrollDown, setShowScrollDown] = useState(false);
   const gestureEndRef = useRef<() => void>(() => {});
   const gestureStartRef = useRef<() => void>(() => {});
@@ -170,14 +181,16 @@ export function useChatScroll({
     onViewportChange?.();
   }, [onViewportChange, userScrollingRef]);
 
-  const setMode = useCallback((mode: ChatViewportMode, el: HTMLDivElement) => {
+  const setMode = useCallback((mode: ChatViewportMode, el: HTMLDivElement, cause: ChatViewportCause) => {
     const changed = modeRef.current !== mode;
     modeRef.current = mode;
     if (el.style.overflowAnchor !== chatOverflowAnchorFor(mode, userScrollingRef.current)) el.style.overflowAnchor = chatOverflowAnchorFor(mode, userScrollingRef.current);
     contentAnchorRef.current = mode === "detached" ? captureChatContentAnchor(el) : null;
     if (followTailRef) followTailRef.current = mode === "pinned";
     if (changed) {
-      chatScrollDiagnostic(sessionKeyRef.current, "mode", { mode, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight });
+      chatScrollDiagnostic(sessionKeyRef.current, "mode", { mode, cause, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight });
+      if (mode === "detached") detachCauseRef.current = cause;
+      journalChatViewportMode(newerRef.current.tabId, mode, cause);
       onModeChangeRef.current?.(mode);
     }
     persist(el);
@@ -187,7 +200,7 @@ export function useChatScroll({
     const el = scrollRef.current;
     if (!el || !active || !isChatScrollReady("pinned", loading, messageCount) || userScrollingRef.current) return;
     writeScrollTop(el, chatLayoutScrollTarget("pinned", el, null));
-    setMode("pinned", el);
+    setMode("pinned", el, "pin");
     setShowScrollDown(false);
   }, [active, loading, messageCount, setMode, userScrollingRef, writeScrollTop]);
 
@@ -200,12 +213,18 @@ export function useChatScroll({
     pinToBottom();
   }, [pinToBottom, resetGesture, userScrollingRef]);
 
-  // A detached viewport on the bottom edge cannot produce a scroll event to reattach, so it offers the jump.
+  // A detached viewport on the bottom edge cannot produce a scroll event to reattach, so it offers the jump
+  // and renders rows held back below it; a later scroll down then reaches the real bottom and re-pins.
   const updateScrollDown = useCallback((el: HTMLDivElement) => {
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setShowScrollDown(modeRef.current === "detached"
-      && (distance > SHOW_SCROLL_DOWN_THRESHOLD_PX || isChatViewportNearBottom(el)));
-  }, []);
+    const detached = modeRef.current === "detached";
+    setShowScrollDown(detached && (distance > SHOW_SCROLL_DOWN_THRESHOLD_PX || isChatViewportNearBottom(el)));
+    const newer = newerRef.current;
+    if (detached && newer.count > 0 && !userScrollingRef.current && isChatViewportAtBottom(el) && newer.reveal?.()) {
+      newer.count = 0; // until the next render reports what is still held back
+      journalChatNewerRevealed(newer.tabId, detachCauseRef.current);
+    }
+  }, [userScrollingRef]);
 
   const holdContentAnchor = useCallback((el: HTMLDivElement) => {
     const anchor = contentAnchorRef.current;
@@ -265,7 +284,7 @@ export function useChatScroll({
     if (mode === "pinned" && !isChatViewportAtBottom(el)) writeScrollTop(el, el.scrollHeight);
     lastViewportRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
     if (fromHookWrite || (layoutChanged && !userScrolling)) persist(el);
-    else setMode(mode, el);
+    else setMode(mode, el, "scroll");
     updateScrollDown(el);
   }, [active, loading, holdContentAnchor, persist, recordGestureScroll, setMode, updateScrollDown, userScrollingRef, writeScrollTop]);
 
@@ -279,7 +298,7 @@ export function useChatScroll({
     resetGesture();
     writeScrollTop(el, row.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop);
     // Detached, so a pinned tail cannot pull the revealed row back out of view.
-    setMode("detached", el);
+    setMode("detached", el, "reveal");
     updateScrollDown(el);
     return true;
   }, [resetGesture, setMode, updateScrollDown, writeScrollTop]);
@@ -311,7 +330,7 @@ export function useChatScroll({
       // A finger holding a pinned view (longer than a tap) keeps it where it is: content arriving underneath detaches
       // the view and offers the jump, rather than snapping to the new bottom when the finger lifts. A tap still re-pins.
       if (modeRef.current === "pinned" && holdingView() && !isChatViewportAtBottom(el)) {
-        setMode("detached", el);
+        setMode("detached", el, "hold");
         updateScrollDown(el);
       } else if (modeRef.current === "pinned") pinToBottom();
       else if (!prependSnapshotRef.current) holdContentAnchor(el);
@@ -344,7 +363,7 @@ export function useChatScroll({
       const target = chatScrollRestoreTarget(bookmark, anchored, el.scrollHeight - el.clientHeight);
       if (target.mode === "detached") {
         writeScrollTop(el, target.top);
-        setMode("detached", el);
+        setMode("detached", el, "restore");
         updateScrollDown(el);
       } else {
         pinToBottom();
@@ -409,12 +428,18 @@ export function useChatScroll({
       const afterScroll = chatViewportModeAfterScroll(modeRef.current, lastViewportRef.current, el, true);
       // Released after a hold with the bottom moved away underneath: stay put and offer the jump instead of snapping.
       const mode = afterScroll === "pinned" && heldView() && !isChatViewportAtBottom(el) ? "detached" : afterScroll;
-      if (mode !== modeRef.current || shouldCaptureChatAnchor(lastViewportRef.current, el, true)) setMode(mode, el);
+      if (mode !== modeRef.current || shouldCaptureChatAnchor(lastViewportRef.current, el, true)) setMode(mode, el, mode === afterScroll ? "scroll" : "hold");
       if (mode === "detached") updateScrollDown(el);
     }
     repairViewport();
   };
   useLayoutEffect(repairViewport, [repairViewport]);
+
+  // Rows held back below the window change no geometry, so their arrival is checked here.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el && active && newerCount > 0 && el.clientHeight > 0) updateScrollDown(el);
+  }, [active, newerCount, updateScrollDown]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;

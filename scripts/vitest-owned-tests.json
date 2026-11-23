@@ -294,6 +294,7 @@
   "src/components/Terminal/useMountedChatWindow.drift.test.tsx",
   "src/components/Terminal/useChatScroll.tail.test.tsx",
   "src/components/Terminal/useChatScroll.separator.test.tsx",
+  "src/components/Terminal/useChatScroll.newer.test.tsx",
   "src/components/Terminal/ChatWindowRow.live.test.tsx",
   "packages/chat-ui/src/highlightBudget.test.ts",
   "packages/chat-ui/src/ChatHighlightBudget.test.tsx",
