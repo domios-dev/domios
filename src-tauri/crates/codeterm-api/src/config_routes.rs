@@ -1,6 +1,7 @@
 use axum::{
     extract::{Query, State as AxumState},
     http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     Extension, Json,
 };
 use codeterm_neighbors_service::prelude::*;
@@ -179,6 +180,36 @@ pub async fn patch_config_api(
     Extension(origin): Extension<crate::auth::AuthenticatedOrigin>,
     headers: HeaderMap,
     Json(body): Json<PatchConfigBody>,
+) -> Response {
+    if body
+        .key
+        .iter()
+        .chain(body.partial.keys())
+        .any(|key| key.split('.').next() == Some("chat_wallpaper"))
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": {
+                    "code": "wallpaper_route_required",
+                    "message": "Use PUT /api/chat-wallpaper to change the chat wallpaper.",
+                    "method": "PUT",
+                    "path": "/api/chat-wallpaper",
+                }
+            })),
+        )
+            .into_response();
+    }
+    apply_config_patch(state, origin, headers, body)
+        .await
+        .into_response()
+}
+
+async fn apply_config_patch(
+    state: AppState,
+    origin: crate::auth::AuthenticatedOrigin,
+    headers: HeaderMap,
+    body: PatchConfigBody,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     use codeterm_service_core::config::{
         browser_blueprint_origins, browser_blueprint_profiles, valid_browser_blueprint_origin,
