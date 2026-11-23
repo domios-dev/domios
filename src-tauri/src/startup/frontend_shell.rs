@@ -652,6 +652,14 @@ pub fn create_window(
                 return false;
             }
             let api_origin = current_api_origin(&shell_app);
+            // Only consume the permit when the navigation targets a guarded
+            // document; ordinary navigations must not drain it.
+            let guard = guarded_shell_document(url, &unavailable);
+            let permit = if guard.is_some() {
+                take_shell_navigation_permit(&shell_app)
+            } else {
+                None
+            };
             let decision = shell_navigation_decision(
                 url,
                 origin.as_deref(),
@@ -660,7 +668,7 @@ pub fn create_window(
                 &fallback,
                 ShellNavigationState {
                     frontend_active: frontend_navigation_active(&shell_app),
-                    permit: take_shell_navigation_permit(&shell_app),
+                    permit,
                 },
             );
             log::debug!(
