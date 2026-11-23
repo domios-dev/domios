@@ -413,7 +413,7 @@ async fn temporary_mobile_capture_restores_previous_metrics_after_success_and_fa
         assert_eq!(metrics[metrics.len() - 2]["mobile"], true);
         assert_eq!(
             metrics.last().unwrap(),
-            &json!({"width":1600,"height":900,"deviceScaleFactor":1.0,"mobile":false})
+            &json!({"width":1600,"height":900,"deviceScaleFactor":1.0,"mobile":false,"screenWidth":1600,"screenHeight":900})
         );
         assert_eq!(host.viewport(), Viewport::default());
         assert_eq!(

@@ -413,6 +413,8 @@ pub(super) async fn apply_viewport(
             "height": viewport.height,
             "deviceScaleFactor": viewport.dpr,
             "mobile": viewport.mobile,
+            "screenWidth": viewport.width,
+            "screenHeight": viewport.height,
         }),
     )
     .await
