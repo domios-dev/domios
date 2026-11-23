@@ -221,8 +221,9 @@ export function selectQualificationArtifact(artifacts, sha, now = Date.now(), ru
 
 export function qualificationJobs(run, repository, request) {
   const jobs = [];
-  for (let page = 1; page <= 20; page++) {
-    const batch = request(`repos/${repository}/actions/runs/${run.id}/jobs?filter=all&per_page=100&page=${page}`);
+  // GitHub answers 502 for 100-job pages of large multi-attempt runs.
+  for (let page = 1; page <= 40; page++) {
+    const batch = request(`repos/${repository}/actions/runs/${run.id}/jobs?filter=all&per_page=50&page=${page}`);
     jobs.push(...batch.jobs);
     if (jobs.length >= batch.total_count) return jobs;
     if (!batch.jobs.length) break;
