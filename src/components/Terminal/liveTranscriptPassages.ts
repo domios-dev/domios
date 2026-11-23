@@ -56,8 +56,12 @@ export function groupPassages(
   for (const { seq, atMs, content } of rows) {
     if (content.kind !== "speech") {
       const previous = items[items.length - 1];
-      if (content.kind === "resumed" && previous?.kind === "paused" && previous.resumedAtMs == null) {
-        previous.resumedAtMs = atMs;
+      if (previous?.kind === "paused") {
+        if (content.kind === "resumed") previous.resumedAtMs = atMs;
+        else delete previous.resumedAtMs;
+      } else if (previous?.kind === "resumed") {
+        if (content.kind === "resumed") previous.atMs = atMs;
+        else items[items.length - 1] = { kind: "paused", id: `marker-${seq}`, atMs };
       } else {
         items.push({ kind: content.kind, id: `marker-${seq}`, atMs });
       }

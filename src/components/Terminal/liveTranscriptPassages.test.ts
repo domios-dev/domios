@@ -83,6 +83,15 @@ describe("groupPassages", () => {
       { seq: 3, atMs: 200, content: { kind: "resumed" } },
     ];
     expect(segments(groupPassages(separated, [], 3))).toEqual(["paused", [2], "resumed"]);
+    const repeated: TranscriptRow[] = [
+      { seq: 1, atMs: 100, content: { kind: "paused", reason: "manual" } },
+      { seq: 2, atMs: 200, content: { kind: "resumed" } },
+      { seq: 3, atMs: 300, content: { kind: "paused", reason: "manual" } },
+    ];
+    const collapsed = groupPassages(repeated, [], 3);
+    expect(collapsed).toHaveLength(1);
+    expect(collapsed[0]).toMatchObject({ kind: "paused", atMs: 100 });
+    expect("resumedAtMs" in collapsed[0] && collapsed[0].resumedAtMs).toBeFalsy();
   });
 
   it("retains multiple forwards in send order when they share a passage range", () => {

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { AudioLines, ChevronDown, ChevronUp, ChevronsDown, CornerDownRight, Download, GripVertical, Mic, Minus, Pause, RefreshCw, Settings2, X } from "lucide-react";
+import { AudioLines, ChevronDown, ChevronRight, ChevronUp, ChevronsDown, CornerDownRight, Download, GripVertical, Mic, Minus, Pause, RefreshCw, Settings2, X } from "lucide-react";
 import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
 import { LiquidToggle } from "../shared/LiquidToggle";
 import { Segmented, type SegmentedOption } from "../shared/Segmented";
@@ -422,7 +422,7 @@ function CollapsedRemarks({ passages, renderPassage }: {
   const [expanded, setExpanded] = useState(false);
   return <>
     <button type="button" className="ct-live-remarks" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
-      {passages.length} remarks not sent <span aria-hidden>{expanded ? "⌄" : "›"}</span>
+      {passages.length} remarks not sent {expanded ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />}
     </button>
     {expanded && passages.map(renderPassage)}
   </>;
@@ -471,7 +471,9 @@ function RouteError({ error, retry, busy }: { error: string; retry?: () => void;
       <span className="ct-live-not-delivered" role="status"><span aria-hidden>●</span> Not delivered</span>
       <button type="button" onClick={retry} disabled={busy || !retry}
         title={!retry ? "Retry is unavailable for this route" : undefined}>Retry</button>
-      <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>Details <span aria-hidden>{expanded ? "⌄" : "›"}</span></button>
+      <button type="button" className="ct-live-disclosure" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
+        Details {expanded ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />}
+      </button>
     </div>
     {expanded && <p className="ct-live-receipt-details" role="alert">{error}</p>}
   </div>;
@@ -524,16 +526,16 @@ function ForwardReceipt({ api, forward, expanded, onExpanded, thoughtsOpen, onTh
       <span aria-hidden>·</span>
       <time dateTime={new Date(forward.atMs).toISOString()}>{threadTime(forward.atMs)}</time>
       <span aria-hidden>·</span>
-      <button type="button" aria-expanded={expanded} onClick={() => onExpanded(!expanded)}>
-        Details <span aria-hidden>{expanded ? "⌄" : "›"}</span>
+      <button type="button" className="ct-live-disclosure" aria-expanded={expanded} onClick={() => onExpanded(!expanded)}>
+        Details {expanded ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />}
       </button>
     </div>
     {expanded && <div className="ct-live-receipt-details">
       <SentText text={forward.sentText} />
       {forward.rationale && <p className="ct-live-receipt-rationale">{forward.rationale}</p>}
       {forward.epochId ? <>
-        <button type="button" aria-expanded={thoughtsOpen} onClick={() => onThoughts(!thoughtsOpen)}>
-          Thoughts <span aria-hidden>›</span>
+        <button type="button" className="ct-live-disclosure" aria-expanded={thoughtsOpen} onClick={() => onThoughts(!thoughtsOpen)}>
+          Thoughts {thoughtsOpen ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />}
         </button>
         {thoughtsOpen && <LiveTranscriptThoughts key={forward.epochId} api={api} epoch={forward.epochId} onClose={() => onThoughts(false)} />}
       </> : <span className="ct-live-muted">Reasoning unavailable</span>}

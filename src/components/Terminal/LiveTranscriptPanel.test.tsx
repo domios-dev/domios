@@ -313,15 +313,15 @@ describe("Live Transcript panel", () => {
       window.removeEventListener("codeterm:focus-tab", focused);
     }
     expect(sent?.textContent).not.toContain("Exact request sent");
-    await click("Details ›");
+    await click("Details");
     expect(sent?.textContent).toContain("What was sent");
     expect(sent?.textContent).toContain("Exact request sent");
     expect(sent?.textContent).toContain("The request named a destination");
     expect(api.epoch).not.toHaveBeenCalled();
-    await click("Thoughts ›");
+    await click("Thoughts");
     expect(sent?.querySelector('[aria-label="Thoughts inspector"]')).not.toBeNull();
     expect(api.epoch).toHaveBeenCalledExactlyOnceWith("receipt-epoch", 0, expect.any(AbortSignal));
-    await click("Details ⌄");
+    await click("Details");
     expect(sent?.querySelector('[aria-label="Thoughts inspector"]')).toBeNull();
   });
 
@@ -343,20 +343,20 @@ describe("Live Transcript panel", () => {
     });
     await click("Open active Transcript");
     const sent = panel()?.querySelector('[data-seq="993"]')?.closest("article");
-    const buttons = () => Array.from(sent?.querySelectorAll("button") ?? []).filter(b => b.textContent?.startsWith("Details"));
+    const buttons = () => Array.from(sent?.querySelectorAll("button") ?? []).filter(b => b.textContent?.trim() === "Details");
     expect(sent?.textContent).toContain("Sent to Agent");
     expect(sent?.textContent).toContain("Sent to Atlas");
     expect(buttons()).toHaveLength(2);
     await act(async () => { buttons()[0].click(); });
     expect(sent?.textContent).toContain("First payload");
     expect(sent?.textContent).not.toContain("Second payload");
-    expect(buttons()[0].textContent).toBe("Details ⌄");
-    expect(buttons()[1].textContent).toBe("Details ›");
+    expect(buttons()[0].getAttribute("aria-expanded")).toBe("true");
+    expect(buttons()[1].getAttribute("aria-expanded")).toBe("false");
     await act(async () => { buttons()[1].click(); });
     expect(sent?.textContent).not.toContain("First payload");
     expect(sent?.textContent).toContain("Second payload");
-    expect(buttons()[0].textContent).toBe("Details ›");
-    expect(buttons()[1].textContent).toBe("Details ⌄");
+    expect(buttons()[0].getAttribute("aria-expanded")).toBe("false");
+    expect(buttons()[1].getAttribute("aria-expanded")).toBe("true");
   });
 
   it("expands older not-sent remarks in place while keeping the latest run visible", async () => {
@@ -376,12 +376,12 @@ describe("Live Transcript panel", () => {
       }],
     });
     await click("Open active Transcript");
-    const disclosure = control("3 remarks not sent ›");
+    const disclosure = control("3 remarks not sent");
     expect(disclosure.getAttribute("aria-expanded")).toBe("false");
     expect(panel()?.textContent).not.toContain("Speech with sequence 993");
     expect(panel()?.textContent).toContain("Speech with sequence 999");
     expect(control("Saved title")).toBeDefined();
-    await click("3 remarks not sent ›");
+    await click("3 remarks not sent");
     expect(disclosure.getAttribute("aria-expanded")).toBe("true");
     expect(panel()?.textContent).toContain("Speech with sequence 993");
     expect(panel()?.textContent).toContain("Speech with sequence 995");
@@ -522,7 +522,7 @@ describe("Live Transcript panel", () => {
     expect(panel()?.textContent).toContain("Not delivered");
     expect(control("Retry").disabled).toBe(true);
     expect(panel()?.querySelector('[role="alert"]')).toBeNull();
-    await click("Details ›");
+    await click("Details");
     expect(panel()?.querySelector('[role="alert"]')?.textContent).toBe("The Concierge turn timed out.");
 
     await click("Concierge · fixture / base · Scout then Concierge");

@@ -427,6 +427,13 @@
   transform: none;
 }
 
+.ct-live-panel .ct-live-remarks,
+.ct-live-panel .ct-live-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .ct-live-panel .ct-live-remarks {
   justify-self: start;
   margin-inline-start: 30px;

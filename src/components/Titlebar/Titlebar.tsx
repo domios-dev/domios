@@ -76,7 +76,8 @@ export function Titlebar({
   void _theme;
   // Window chrome controls only exist in the Tauri shell; the browser tab owns its own window in web-mirror mode.
   const isTauri = nativeBridge.window !== undefined;
-  const phone = usePhoneViewport() && IS_WEB;
+  const narrow = usePhoneViewport();
+  const phone = narrow && IS_WEB;
   const overflowActions: DropdownMenuEntry[] = [];
   if (onToggleAnalytics) overflowActions.push({ label: "Analytics", checked: analyticsOpen, onClick: onToggleAnalytics });
   if (onOpenExtensions) overflowActions.push({ label: "Extensions", onClick: onOpenExtensions });
@@ -91,7 +92,7 @@ export function Titlebar({
     <div
       data-testid="titlebar"
       data-toast-obstacle
-      className={`ct-titlebar flex min-w-0 items-center select-none shrink-0 ${IS_WEB ? "relative z-50 max-sm:min-h-[calc(44px+var(--ct-safe-top,0px))]" : ""} ${phone ? "ct-titlebar--phone" : ""}`}
+      className={`ct-titlebar flex min-w-0 items-center select-none shrink-0 ${IS_WEB ? "relative z-50 max-sm:min-h-[calc(44px+var(--ct-safe-top,0px))]" : ""} ${phone ? "ct-titlebar--phone" : ""} ${narrow ? "ct-titlebar--narrow" : ""}`}
       style={{
         height: "calc(2rem + var(--ct-safe-top, 0px))",
         paddingTop: "var(--ct-safe-top, 0px)",
@@ -146,16 +147,16 @@ export function Titlebar({
             />
           )}
         </div>
-        {!phone && onToggleAnalytics && (
+        {!narrow && onToggleAnalytics && (
           <AnalyticsTray ref={analyticsButtonRef} open={analyticsOpen} onToggle={onToggleAnalytics} />
         )}
-        {!phone && onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
+        {!narrow && onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
         <KeepAwakeTray />
         <RateUsTray locked={locked} />
-        {(onOpenSettings || (phone && overflowActions.length > 0)) && (
+        {(onOpenSettings || (narrow && overflowActions.length > 0)) && (
           <>
             <span className={UI_TRAY_DIVIDER} aria-hidden />
-            <SettingsMenu onOpenSection={onOpenSettings} overflowActions={phone ? overflowActions : undefined}
+            <SettingsMenu onOpenSection={onOpenSettings} overflowActions={narrow ? overflowActions : undefined}
               afterGear={onOpenSettings ? <span data-first-run-allowed="true" style={{ display: "contents" }}><AccountTray locked={locked} onOpenPlans={() => { if (!locked) onOpenSettings("plans"); }} /></span> : undefined} />
           </>
         )}
