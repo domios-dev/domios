@@ -312,7 +312,13 @@ async fn overview(State(state): State<AppState>, Path(tab): Path<String>) -> Res
         let status = state.svc.live_transcript_status(&tab).map_err(conflict)?;
         let store = state.svc.open_live_transcript(&tab).map_err(conflict)?;
         let cursor = store.cursor(&status.binding).ok();
-        Ok(json!({ "status": status, "cursor": cursor, "rawBytes": store.raw_bytes() }))
+        let forwards = store.forwards().map_err(conflict)?;
+        Ok(json!({
+            "status": status,
+            "cursor": cursor,
+            "rawBytes": store.raw_bytes(),
+            "forwards": forwards,
+        }))
     })
     .await
 }

@@ -43,6 +43,215 @@ fn fixture() -> (ServiceFixture, Arc<ServiceContext>, String, String) {
 }
 
 #[test]
+fn silence_hallucinations_match_whole_normalized_utterances() {
+    for text in [
+        "",
+        "  « … THANK\tYOU very  much! » ",
+        "'Thank you.'",
+        "thanks",
+        "Thanks for watching ...",
+        "Thanks for listening!",
+        "Thank you for watching.",
+        "Thank you for listening.",
+        "You.",
+        "Bye!",
+        "Goodbye.",
+        "Subtitles by",
+        "Transcribed by",
+        "Спасибо!",
+        "Спасибо за просмотр.",
+        "Продолжение следует…",
+        "Субтитры делал",
+        "Субтитры подготовил",
+    ] {
+        assert!(is_silence_hallucination(text), "{text:?}");
+    }
+    for text in [
+        "Thank you, please send that to Main",
+        "Спасибо, отправь это в Мэйн",
+        "Subtitles by Alex",
+        "Yeah.",
+        "Mm-hmm.",
+        "Uh.",
+    ] {
+        assert!(!is_silence_hallucination(text), "{text:?}");
+    }
+}
+
+#[test]
+fn retryable_router_failures_do_not_set_the_persistent_banner() {
+    let mut dispatch = OwnerDispatch::default();
+    for error in [
+        "Transcript router is busy or unavailable",
+        "Transcript router requires an idle, exact ready session",
+        "A transcript dispatch is in progress",
+        "Send is awaiting confirmation",
+        "This transcript range already has a send record",
+        "Transcript router admission is held",
+    ] {
+        dispatch.settle_route(Err(error.into()));
+        assert_eq!(dispatch.last_route_error, None);
+    }
+    dispatch.settle_route(Err("Committed speech unavailable".into()));
+    dispatch.settle_route(Err("Transcript router runtime is busy".into()));
+    assert_eq!(
+        dispatch.last_route_error.as_deref(),
+        Some("Committed speech unavailable")
+    );
+    dispatch.settle_route(Ok(()));
+    assert_eq!(dispatch.last_route_error, None);
+}
+
+#[test]
+fn forward_range_recovers_acked_speech_without_reclaiming_an_earlier_forward() {
+    use super::super::{TranscriptForward, TranscriptRow};
+    let rows = (1..=7)
+        .map(|seq| TranscriptRow {
+            seq,
+            at_ms: if seq == 1 { 0 } else { 8_001 + seq * 1_000 },
+            content: TranscriptContent::Speech {
+                text: format!("Chunk {seq}"),
+            },
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        forward::forward_range(6, 7, &rows, &[]),
+        TranscriptRange {
+            from_seq: 2,
+            to_seq: 7
+        }
+    );
+    let previous = TranscriptForward {
+        forward_id: "earlier".into(),
+        epoch_id: None,
+        range: TranscriptRange {
+            from_seq: 2,
+            to_seq: 3,
+        },
+        at_ms: 12_000,
+        target_tab_id: "tab".into(),
+        target_title: "Main".into(),
+        sent_text: "Earlier speech".into(),
+        sent_excerpt: "Earlier speech".into(),
+        rationale: None,
+    };
+    assert_eq!(
+        forward::forward_range(6, 7, &rows, std::slice::from_ref(&previous)),
+        TranscriptRange {
+            from_seq: 4,
+            to_seq: 7
+        }
+    );
+    assert_eq!(
+        forward::forward_range(2, 7, &rows, std::slice::from_ref(&previous)),
+        TranscriptRange {
+            from_seq: 4,
+            to_seq: 7
+        }
+    );
+    assert_eq!(
+        forward::forward_range(3, 3, &rows, std::slice::from_ref(&previous)),
+        previous.range
+    );
+}
+
+#[test]
+fn router_forward_receipts_preserve_epoch_and_rotation_keeps_reviewing_status() {
+    use super::super::{BindingTarget, CursorStart};
+    use crate::multiplexer::types::TabAudience;
+
+    let (_fixture, svc, owner, router) = fixture();
+    let store = svc.open_live_transcript(&owner).unwrap();
+    let epoch = ConciergeEpoch {
+        epoch_id: "epoch-1".into(),
+        runtime_tab_id: router.clone(),
+        session_id: "session-1".into(),
+        binding_nonce: "nonce-1".into(),
+        provider: "fixture-provider".into(),
+        model: Some("fixture-model".into()),
+        started_at_ms: 1,
+    };
+    let target_title = {
+        let mut mux = svc.mux.write();
+        let tab = mux.get_tab_mut(&router).unwrap();
+        tab.audience = TabAudience::TranscriptRouter;
+        tab.spawned_by_tab_id = Some(owner.clone());
+        mux.display_label_for_tab(&owner)
+    };
+    let revision = store.binding().revision;
+    store.stage_epoch(revision, epoch.clone()).unwrap();
+    let binding = store
+        .set_binding(
+            revision,
+            BindingTarget::Attached {
+                epoch_id: epoch.epoch_id.clone(),
+            },
+            CursorStart::Beginning,
+        )
+        .unwrap();
+    for at_ms in 1..=3 {
+        store
+            .append(
+                &owner,
+                TranscriptInput {
+                    at_ms,
+                    content: TranscriptContent::Speech {
+                        text: "Speech chunk".into(),
+                    },
+                },
+            )
+            .unwrap();
+    }
+    store.ack(&binding, 2).unwrap();
+    store
+        .save_routing_state(&RoutingState {
+            attempted_through: 3,
+            ..Default::default()
+        })
+        .unwrap();
+    let mut events = svc.events.subscribe();
+    svc.record_live_transcript_forward(&owner, &router, "Wrong source");
+    assert!(store.forwards().unwrap().is_empty());
+    svc.record_live_transcript_forward(&router, &owner, &format!("  {}  ", "🦉".repeat(4_001)));
+    let forwards = store.forwards().unwrap();
+    let [forward] = forwards.as_slice() else {
+        panic!("Expected one forward")
+    };
+    assert_eq!(forward.epoch_id.as_deref(), Some("epoch-1"));
+    assert_eq!(
+        forward.range,
+        TranscriptRange {
+            from_seq: 1,
+            to_seq: 3
+        }
+    );
+    assert_eq!(forward.target_tab_id, owner);
+    assert_eq!(forward.target_title, target_title);
+    assert_eq!(forward.sent_text, "🦉".repeat(4_000));
+    assert_eq!(forward.sent_excerpt, format!("{}…", "🦉".repeat(240)));
+    assert!(matches!(
+        &events.try_recv().unwrap().event,
+        codeterm_events::SystemEvent::Generic { event_type, data }
+            if event_type == "live-transcript-changed" && data["ownerTabId"] == owner
+    ));
+
+    store.suspend_attached_epoch(&binding).unwrap();
+    svc.ext_or_init(Dispatch::default)
+        .owners
+        .lock()
+        .entry(owner.clone())
+        .or_default()
+        .running = true;
+    let status = svc.live_transcript_status(&owner).unwrap();
+    assert!(matches!(status.concierge, ConciergeStatus::Ready));
+    assert_eq!(status.reviewing_through_seq, Some(3));
+    let router = status.router.unwrap();
+    assert_eq!(router.activity, RouterActivity::Reviewing);
+    assert_eq!(router.provider, epoch.provider);
+    assert_eq!(router.model, epoch.model);
+}
+
+#[test]
 fn setup_uses_saved_trigger_and_mic_default_and_falls_back_without_scout() {
     let (_fixture, svc, owner, _) = fixture();
     let initial = svc.live_transcript_setup();
@@ -423,7 +632,7 @@ fn inline_speech_is_bounded_and_remains_data_inside_the_route_frame() {
     assert!(adjacent_before_pause.contains("&lt;speech&gt; &amp;"));
     assert!(adjacent_before_pause.contains("[UNREAD]"));
     assert!(adjacent_before_pause.contains("opaque second segment"));
-    append("opaque oversized ".repeat(130));
+    append("opaque oversized ".repeat(400));
     let both = TranscriptRange {
         from_seq: 1,
         to_seq: 4,
@@ -431,4 +640,56 @@ fn inline_speech_is_bounded_and_remains_data_inside_the_route_frame() {
     let pointer = delivery::route_body(&store, "owner", &binding, both, true, 0);
     assert!(pointer.contains("--revision 1 --from-seq 1 --through-seq 4"));
     assert!(!pointer.contains("opaque"));
+}
+
+#[test]
+fn long_inline_monologue_carries_complete_context_and_new_speech() {
+    use super::super::{BindingTarget, CursorStart, DEFAULT_RAW_BUDGET_BYTES};
+    let temp = tempfile::tempdir().unwrap();
+    let store = TranscriptStore::open(temp.path(), "owner", DEFAULT_RAW_BUDGET_BYTES).unwrap();
+    let binding = store
+        .set_binding(
+            0,
+            BindingTarget::External {
+                tab_id: "other".into(),
+            },
+            CursorStart::Beginning,
+        )
+        .unwrap();
+    let chunks = (1..=17)
+        .map(|seq| {
+            format!(
+                "Monologue chunk {seq} ending in {}",
+                "speech ".repeat(22).trim_end()
+            )
+        })
+        .collect::<Vec<_>>();
+    for (index, text) in chunks.iter().enumerate() {
+        store
+            .append(
+                "owner",
+                TranscriptInput {
+                    at_ms: index as u64,
+                    content: TranscriptContent::Speech { text: text.clone() },
+                },
+            )
+            .unwrap();
+    }
+    store.ack(&binding, 16).unwrap();
+    let body = delivery::route_body(
+        &store,
+        "owner",
+        &binding,
+        TranscriptRange {
+            from_seq: 17,
+            to_seq: 17,
+        },
+        true,
+        16,
+    );
+    let (context, unread) = body.split_once("[UNREAD]").unwrap();
+    assert!(context.contains("[CONTEXT]"));
+    assert!(chunks[..16].iter().all(|chunk| context.contains(chunk)));
+    assert!(unread.contains(&chunks[16]));
+    assert!((1_600..=5_000).contains(&body.chars().count()));
 }

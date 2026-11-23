@@ -12,11 +12,15 @@ pub use super::spawn_chatbackend::live_transcript::{
 };
 pub use close_retention::TranscriptReader;
 pub use codeterm_types::live_transcript::*;
-pub(in crate::service) use concierge::{external_handoff, is_transcript_delivery_token};
+pub(in crate::service) use concierge::{
+    external_handoff, is_transcript_delivery_token, wake_when_idle,
+};
 pub use concierge::{ConciergeStatus, LiveTranscriptStatus, ScoutStatus, TranscriptTrigger};
 pub use projection::{MAX_AGENT_PAGE_CHARS, MIN_AGENT_PAGE_CHARS};
 pub use retention::DEFAULT_RAW_BUDGET_BYTES;
-pub use store::{TranscriptStore, MAX_ROW_BYTES, RAW_SEGMENT_BYTES, RAW_SEGMENT_ROWS};
+pub use store::{
+    TranscriptForward, TranscriptStore, MAX_ROW_BYTES, RAW_SEGMENT_BYTES, RAW_SEGMENT_ROWS,
+};
 
 use parking_lot::Mutex;
 use std::{

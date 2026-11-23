@@ -19,7 +19,7 @@ const FRAME_CHARS: usize =
 pub const MIN_AGENT_PAGE_CHARS: usize = FRAME_CHARS + 1;
 pub const MAX_AGENT_PAGE_CHARS: usize = 64 * 1024;
 
-const MAX_CONTEXT_ROWS: usize = 3;
+const MAX_CONTEXT_ROWS: usize = 16;
 const MAX_CONTEXT_CHARS: usize = 768;
 const MAX_SCAN_SEGMENTS: usize = 4;
 const MAX_HISTORY_ROWS: usize = 100;
@@ -47,13 +47,16 @@ impl TranscriptStore {
         for segment in state.segments[..=last]
             .iter()
             .rev()
-            .filter(|segment| segment.has_raw())
             .take(MAX_CONTEXT_ROWS)
+            .filter(|segment| segment.has_raw())
         {
             let mut latest = VecDeque::new();
             visit_raw(&self.inner.root, segment, |row| {
                 if row.seq > through_seq {
                     return Ok(false);
+                }
+                if !matches!(row.content, TranscriptContent::Speech { .. }) {
+                    return Ok(true);
                 }
                 if latest.len() == MAX_CONTEXT_ROWS {
                     latest.pop_front();
@@ -110,10 +113,11 @@ impl TranscriptStore {
             remaining: max_chars - FRAME_CHARS,
             ..AgentFrame::default()
         };
-        if position.seq == first && position.char_offset == 0 {
-            let per_row = (output.remaining / 4).min(MAX_CONTEXT_CHARS) / MAX_CONTEXT_ROWS;
+        if position.seq == first && position.char_offset == 0 && output.remaining >= 8 {
+            let context = self.context_locked(&state, cursor.acked_seq)?;
+            let per_row = (output.remaining / 4).min(MAX_CONTEXT_CHARS) / context.len().max(1);
             if per_row >= 2 {
-                for row in self.context_locked(&state, cursor.acked_seq)? {
+                for row in context {
                     let line = format_row(&row);
                     output.remaining -= push_context(&mut output.context, &line, per_row);
                 }

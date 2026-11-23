@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -18,6 +18,7 @@ use super::{
 pub const RAW_SEGMENT_BYTES: u64 = 2 * 1024 * 1024;
 pub const RAW_SEGMENT_ROWS: usize = 1000;
 pub const MAX_ROW_BYTES: usize = 64 * 1024;
+const RECENT_FORWARDS: usize = 50;
 pub(super) const MAX_RECORD_BYTES: u64 = 128 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -30,6 +31,7 @@ pub(super) struct StoreInner {
     pub(super) root: PathBuf,
     pub(super) state: Mutex<StoreState>,
     pub(super) raw_budget_bytes: u64,
+    pub(super) forward_gate: Mutex<()>,
     _lease: File,
 }
 
@@ -38,8 +40,23 @@ pub(super) struct StoreState {
     pub(super) binding: BindingDocument,
     pub(super) segments: Vec<Segment>,
     pub(super) action_ids: Vec<String>,
+    forward_paths: BTreeSet<PathBuf>,
     pub(super) readers: usize,
     write_uncertain: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptForward {
+    pub forward_id: String,
+    pub epoch_id: Option<String>,
+    pub range: TranscriptRange,
+    pub at_ms: u64,
+    pub target_tab_id: String,
+    pub target_title: String,
+    pub sent_text: String,
+    pub sent_excerpt: String,
+    pub rationale: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -127,6 +144,7 @@ impl TranscriptStore {
             "cursors",
             "concierge_epochs",
             "route_actions",
+            "forwards",
         ] {
             private_dir(&root, directory)?;
         }
@@ -161,6 +179,13 @@ impl TranscriptStore {
         }
         let binding = BindingDocument::load(&root, owner_tab_id, last_seq)?;
         let action_ids = super::binding::recover_actions(&root, &binding.binding, last_seq)?;
+        let mut forward_paths = BTreeSet::new();
+        for entry in fs::read_dir(root.join("forwards"))? {
+            let path = entry?.path();
+            if path.extension().is_some_and(|ext| ext == "json") {
+                insert_forward_path(&mut forward_paths, path);
+            }
+        }
         Ok(Self {
             inner: Arc::new(StoreInner {
                 root,
@@ -169,10 +194,12 @@ impl TranscriptStore {
                     binding,
                     segments,
                     action_ids,
+                    forward_paths,
                     readers: 0,
                     write_uncertain: false,
                 }),
                 raw_budget_bytes,
+                forward_gate: Mutex::new(()),
                 _lease: lease,
             }),
         })
@@ -180,6 +207,43 @@ impl TranscriptStore {
 
     pub fn committed_seq(&self) -> TranscriptSeq {
         self.inner.state.lock().last_seq()
+    }
+
+    pub fn record_forward(&self, forward: TranscriptForward) -> io::Result<()> {
+        validate_record_id(&forward.forward_id)?;
+        validate_tab_id(&forward.target_tab_id)?;
+        let mut state = self.inner.state.lock();
+        state.require_healthy()?;
+        let range = forward.range;
+        if range.from_seq == 0 || range.from_seq > range.to_seq || range.to_seq > state.last_seq() {
+            return Err(invalid_input("Forward range exceeds committed transcript"));
+        }
+        let path = forward_path(&self.inner.root, &forward);
+        write_private(&path, &forward, MAX_RECORD_BYTES)?;
+        insert_forward_path(&mut state.forward_paths, path);
+        Ok(())
+    }
+
+    pub fn forwards(&self) -> io::Result<Vec<TranscriptForward>> {
+        let paths = self
+            .inner
+            .state
+            .lock()
+            .forward_paths
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        paths
+            .iter()
+            .map(|path| {
+                let forward = read_private::<TranscriptForward>(path, MAX_RECORD_BYTES)?
+                    .ok_or_else(|| invalid_data("Transcript forward is missing"))?;
+                if forward_path(&self.inner.root, &forward) != *path {
+                    return Err(invalid_data("Transcript forward identity mismatch"));
+                }
+                Ok(forward)
+            })
+            .collect()
     }
 
     /// A successful receipt is the publication boundary for committed speech and seal events.
@@ -282,6 +346,20 @@ impl TranscriptStore {
         }
         state.manifest = manifest;
         Ok(())
+    }
+}
+
+fn forward_path(root: &Path, forward: &TranscriptForward) -> PathBuf {
+    encoded_record_path(
+        &root.join("forwards"),
+        &format!("{:020}-{}", forward.at_ms, forward.forward_id),
+    )
+}
+
+fn insert_forward_path(paths: &mut BTreeSet<PathBuf>, path: PathBuf) {
+    paths.insert(path);
+    if paths.len() > RECENT_FORWARDS {
+        paths.pop_first();
     }
 }
 

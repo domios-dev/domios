@@ -1,5 +1,6 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
+    fmt::Write as _,
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc, Weak,
@@ -10,8 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use super::RoutingState;
 use crate::service::live_transcript::{
-    BindingTarget, RoutedAction, TranscriptBinding, TranscriptRange, TranscriptStore,
-    DEFAULT_TRANSCRIPT_TURN_LIMIT,
+    BindingTarget, RoutedAction, TranscriptBinding, TranscriptContent, TranscriptRange,
+    TranscriptRow, TranscriptStore, DEFAULT_TRANSCRIPT_TURN_LIMIT,
 };
 use crate::service::{
     agent_runtime::{engine, model::RuntimeFailure, restart, user_delivery},
@@ -20,7 +21,32 @@ use crate::service::{
     wall_now_ms, ServiceContext,
 };
 
-const INLINE_CHARS: usize = 1600;
+const INLINE_CHARS: usize = 5000;
+
+impl super::OwnerDispatch {
+    pub(super) fn settle_route(&mut self, result: Result<(), String>) {
+        self.last_route_error = match result {
+            Ok(()) => None,
+            Err(error) if is_retryable_route_error(&error) => return,
+            Err(error) => Some(error),
+        };
+    }
+}
+
+fn is_retryable_route_error(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    [
+        "busy",
+        "requires an idle",
+        "in progress",
+        "awaiting confirmation",
+        "already has a send record",
+        "admission is held",
+        "binding change is held",
+    ]
+    .iter()
+    .any(|&reason| error.contains(reason))
+}
 const ATTACHED_SEND_PREFIX: &str = "runtime-envelope:live-transcript:";
 const EXTERNAL_SEND_PREFIX: &str = "runtime-envelope:live-transcript-external:";
 
@@ -320,6 +346,18 @@ pub(super) fn route_body(
     );
     if allow_inline {
         let budget = INLINE_CHARS.saturating_sub(pointer.chars().count() + 1);
+        let row_count = range.to_seq.saturating_sub(range.from_seq) + 1;
+        if row_count <= 16 {
+            if let Ok(page) = store.history(range.from_seq, row_count as usize) {
+                if page.gaps.is_empty()
+                    && page.rows.last().is_some_and(|row| row.seq >= range.to_seq)
+                {
+                    if let Some(inline) = inline_speech(store, range, &page.rows, budget) {
+                        return format!("{pointer}\n{inline}");
+                    }
+                }
+            }
+        }
         if acked_seq.checked_add(1) == Some(range.from_seq) {
             if let Ok(page) = store.read_page(binding, None, budget, None) {
                 if page.next.is_none() && page.gaps.is_empty() && page.through_seq == range.to_seq {
@@ -330,47 +368,49 @@ pub(super) fn route_body(
                 }
             }
         }
-        let limit = (range.to_seq.saturating_sub(range.from_seq) + 1).min(16) as usize;
-        if let Ok(page) = store.history(range.from_seq, limit) {
-            let mut unread = String::from("[UNREAD]");
-            for row in page.rows.iter().filter(|row| row.seq <= range.to_seq) {
-                if let crate::service::live_transcript::TranscriptContent::Speech { text: spoken } =
-                    &row.content
-                {
-                    unread.push('\n');
-                    unread.push_str(&format!("{} {}", row.seq, escape_inline(spoken)));
-                }
-            }
-            if unread.len() > "[UNREAD]".len() {
-                let mut context = String::new();
-                if let Ok(recent) = store.recent_context(range.from_seq.saturating_sub(1)) {
-                    for row in recent {
-                        if let crate::service::live_transcript::TranscriptContent::Speech {
-                            text: spoken,
-                        } = row.content
-                        {
-                            if context.is_empty() {
-                                context.push_str("[CONTEXT]");
-                            }
-                            context.push('\n');
-                            context.push_str(&format!("{} {}", row.seq, escape_inline(&spoken)));
-                        }
-                    }
-                }
-                let combined = if !context.is_empty()
-                    && context.chars().count() + 1 + unread.chars().count() <= budget
-                {
-                    format!("{context}\n{unread}")
-                } else {
-                    unread
+    }
+    pointer
+}
+
+fn inline_speech(
+    store: &TranscriptStore,
+    range: TranscriptRange,
+    rows: &[TranscriptRow],
+    budget: usize,
+) -> Option<String> {
+    let mut unread = String::from("[UNREAD]");
+    for row in rows {
+        if let TranscriptContent::Speech { text } = &row.content {
+            let _ = write!(unread, "\n{} {}", row.seq, escape_inline(text));
+        }
+    }
+    if unread == "[UNREAD]" || unread.chars().count() > budget {
+        return None;
+    }
+
+    let mut remaining = budget.saturating_sub(unread.chars().count() + "[CONTEXT]\n".len());
+    let mut context = VecDeque::new();
+    if let Ok(recent) = store.recent_context(range.from_seq.saturating_sub(1)) {
+        for row in recent.into_iter().rev() {
+            if let TranscriptContent::Speech { text } = row.content {
+                let line = format!("\n{} {}", row.seq, escape_inline(&text));
+                let Some(next) = remaining.checked_sub(line.chars().count()) else {
+                    break;
                 };
-                if combined.chars().count() <= budget {
-                    return format!("{pointer}\n{combined}");
-                }
+                remaining = next;
+                context.push_front(line);
             }
         }
     }
-    pointer
+    if context.is_empty() {
+        return Some(unread);
+    }
+    let mut inline = String::from("[CONTEXT]");
+    for line in context {
+        inline.push_str(&line);
+    }
+    let _ = write!(inline, "\n{unread}");
+    Some(inline)
 }
 
 fn escape_inline(raw: &str) -> String {

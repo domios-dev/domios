@@ -975,6 +975,9 @@ pub async fn send_text(
 
     let raw_text = body.text.unwrap_or_default();
     let envelope = source_envelope.unwrap_or_default();
+    let router_tab = envelope
+        .from_transcript_router
+        .then(|| envelope.from_tab.clone());
     let raw_text = preparation::stage(&state.svc, &tab_id, raw_text, run_stages).await?;
     let svc = state.svc.clone();
     let target = tab_id.clone();
@@ -1001,6 +1004,22 @@ pub async fn send_text(
         state.svc.public_delivery_receipt(&tab_id, delivery)
     };
     use codeterm_service_core::service::messenger::Delivery;
+    if let Some(router) = router_tab.filter(|_| {
+        matches!(
+            delivery,
+            Delivery::ChatBackend { .. } | Delivery::Pty { .. }
+        )
+    }) {
+        let svc = state.svc.clone();
+        let target = tab_id.clone();
+        if let Err(error) = tokio::task::spawn_blocking(move || {
+            svc.record_live_transcript_forward(&router, &target, &raw_text);
+        })
+        .await
+        {
+            log::warn!("[api/send] transcript forward receipt worker failed: {error}");
+        }
+    }
     let (delivery_state, send_id, bytes_written) = match delivery {
         Delivery::Pending { delivery_id } => ("pending", Some(delivery_id), false),
         Delivery::Unconfirmed { delivery_id } => ("pending", Some(delivery_id), true),

@@ -18,7 +18,7 @@ use crate::service::spawn_chatbackend::live_transcript::{
     transcript_router_stuck, transcript_router_turn_ms,
 };
 use crate::service::{
-    agent_runtime::engine,
+    agent_runtime::{engine, restart},
     dictation::live_capture::{
         LiveCaptureEvent, LiveCaptureIdentity, LiveCaptureOutput, LiveCaptureSink,
     },
@@ -26,6 +26,7 @@ use crate::service::{
 };
 
 mod delivery;
+mod forward;
 pub(in crate::service) use delivery::{external_handoff, is_transcript_delivery_token};
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -58,6 +59,7 @@ pub struct LiveTranscriptStatus {
     pub configured: bool,
     pub default_mic_tap: bool,
     pub router: Option<TranscriptRouterInfo>,
+    pub reviewing_through_seq: Option<u64>,
     pub last_route_error: Option<String>,
 }
 
@@ -140,7 +142,10 @@ impl ServiceContext {
         let awaiting_delivery = state.pending.is_some();
         if !running && awaiting_delivery {
             if let Err(error) = delivery::settle(self, &store, &mut state) {
-                entries.entry(owner.into()).or_default().last_route_error = Some(error);
+                entries
+                    .entry(owner.into())
+                    .or_default()
+                    .settle_route(Err(error));
             }
         }
         let entry = entries.get(owner);
@@ -168,6 +173,7 @@ impl ServiceContext {
                 .map(|entry| entry.epoch),
             _ => None,
         };
+        let attaching = running && matches!(&binding.target, super::BindingTarget::Detached);
         let router = if let Some(epoch) = &epoch {
             let mut info = TranscriptRouterInfo::new(epoch.provider.clone(), epoch.model.clone());
             info.active_turn_ms = transcript_router_turn_ms(epoch);
@@ -177,9 +183,26 @@ impl ServiceContext {
                 running || state.pending.is_some(),
             );
             Some(info)
+        } else if attaching {
+            store
+                .suspended_epoch()
+                .ok()
+                .flatten()
+                .map(|previous| {
+                    TranscriptRouterInfo::new(previous.epoch.provider, previous.epoch.model)
+                })
+                .or_else(|| self.transcript_router_preview())
+                .map(|mut info| {
+                    info.activity = RouterActivity::Reviewing;
+                    info
+                })
         } else {
             self.transcript_router_preview()
         };
+        let reviewing_through_seq = router
+            .as_ref()
+            .filter(|info| info.activity == RouterActivity::Reviewing)
+            .map(|_| state.attempted_through);
         let concierge = match &binding.target {
             super::BindingTarget::Attached { .. }
                 if epoch.is_some()
@@ -198,6 +221,9 @@ impl ServiceContext {
             {
                 ConciergeStatus::Ready
             }
+            super::BindingTarget::Detached if attaching && router.is_some() => {
+                ConciergeStatus::Ready
+            }
             super::BindingTarget::Detached if router.is_some() => ConciergeStatus::NeedsAttachment,
             _ => ConciergeStatus::Unavailable,
         };
@@ -212,6 +238,7 @@ impl ServiceContext {
             configured: setup.configured,
             default_mic_tap: setup.default_mic_tap,
             router,
+            reviewing_through_seq,
             last_route_error,
         })
     }
@@ -591,7 +618,7 @@ impl ServiceContext {
         );
         if let Some(entry) = dispatch.owners.lock().get_mut(owner) {
             entry.running = false;
-            entry.last_route_error = result.as_ref().err().cloned();
+            entry.settle_route(result.clone());
             entry.dispatch_finished.notify_waiters();
         }
         self.emit_live_transcript_changed(owner);
@@ -663,6 +690,37 @@ impl TranscriptStore {
     }
 }
 
+pub(crate) fn is_silence_hallucination(text: &str) -> bool {
+    let normalized = text
+        .trim_matches(|ch: char| {
+            ch.is_whitespace() || matches!(ch, '.' | ',' | '!' | '?' | '…' | '"' | '\'' | '«' | '»')
+        })
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    matches!(
+        normalized.as_str(),
+        "" | "thank you"
+            | "thank you very much"
+            | "thanks"
+            | "thanks for watching"
+            | "thanks for listening"
+            | "thank you for watching"
+            | "thank you for listening"
+            | "you"
+            | "bye"
+            | "goodbye"
+            | "subtitles by"
+            | "transcribed by"
+            | "спасибо"
+            | "спасибо за просмотр"
+            | "продолжение следует"
+            | "субтитры делал"
+            | "субтитры подготовил"
+    )
+}
+
 #[async_trait::async_trait]
 impl LiveCaptureSink for CaptureSink {
     async fn prepare(&self, owner: &str) -> Result<(), String> {
@@ -688,6 +746,7 @@ impl LiveCaptureSink for CaptureSink {
         let svc = self.0.upgrade().ok_or("Live transcript service stopped")?;
         let owner = capture.tab_id.clone();
         let content = match event {
+            LiveCaptureEvent::Speech { text } if is_silence_hallucination(&text) => return Ok(()),
             LiveCaptureEvent::Speech { text } => TranscriptContent::Speech { text },
             LiveCaptureEvent::Paused { reason } => TranscriptContent::Paused {
                 reason: serde_json::to_value(reason)
@@ -768,7 +827,7 @@ fn watch_delivery(svc: &ServiceContext, store: TranscriptStore, owner: &str, sen
     });
 }
 
-pub(super) fn wake_when_idle(
+pub(in crate::service) fn wake_when_idle(
     svc: &ServiceContext,
     store: TranscriptStore,
     owner: &str,
@@ -792,8 +851,9 @@ pub(super) fn wake_when_idle(
             loop {
                 let permit = session.gate.acquire().await;
                 let turn_active = session.state.lock().active_turn_started_at_ms.is_some();
+                let busy = turn_active || restart::model_restart_busy(&session);
                 drop(permit);
-                if !turn_active {
+                if !busy {
                     break;
                 }
                 match events.recv().await {
@@ -850,8 +910,10 @@ async fn settle_after_dispatch(svc: Arc<ServiceContext>, store: TranscriptStore,
                         .then_some(committed))
                 });
                 if let Err(error) = &result {
-                    entries.entry(owner.clone()).or_default().last_route_error =
-                        Some(error.clone());
+                    entries
+                        .entry(owner.clone())
+                        .or_default()
+                        .settle_route(Err(error.clone()));
                 }
                 drop(entries);
                 svc.emit_live_transcript_changed(&owner);
@@ -913,7 +975,10 @@ fn enqueue(svc: &Arc<ServiceContext>, store: &TranscriptStore, owner: &str, seq:
             let result = process(&svc, &store, &owner, range);
             if !matches!(&result, Ok(false)) {
                 let mut owners = dispatch.owners.lock();
-                owners.entry(owner.clone()).or_default().last_route_error = result.err();
+                owners
+                    .entry(owner.clone())
+                    .or_default()
+                    .settle_route(result.map(|_| ()));
             }
             svc.emit_live_transcript_changed(&owner);
         }
