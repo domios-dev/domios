@@ -1160,33 +1160,56 @@ function parseSessionObservations(value) {
 }
 
 // plugins/provider-claude/src/backgroundWork.ts
+var TASK_ID = /^[A-Za-z0-9_-]{1,256}$/;
+var END_STATES = ["completed", "killed", "failed"];
 function object4(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function shellOutputPath(content, session, id) {
+  if (!Array.isArray(content) || typeof session !== "string") return;
+  const prefix = `Command running in background with ID: ${id}. Output is being written to: `;
+  for (const value of content) {
+    const block = object4(value);
+    if (block?.type !== "tool_result" || block.is_error === true || typeof block.content !== "string") continue;
+    if (!block.content.startsWith(prefix)) continue;
+    const end = block.content.indexOf(". You will be notified", prefix.length);
+    if (end < 0) continue;
+    const path = block.content.slice(prefix.length, end);
+    const [root, key, owner, directory, filename] = path.split(/[\\/]/).slice(-5);
+    return /^claude(?:-[0-9]+)?$/.test(root ?? "") && key && owner === session && directory === "tasks" && filename === `${id}.output` ? path : void 0;
+  }
 }
 function parseBackgroundWork(value) {
   const row = object4(value);
   if (!row) return [];
-  if (row.type === "summary" || row.isCompactSummary === true || row.type === "system" && ["compact_boundary", "init", "resume"].includes(String(row.subtype))) return [{ id: "", state: "session_boundary" }];
+  if (row.type === "summary" || row.isCompactSummary === true || row.type === "system" && ["compact_boundary", "init", "resume"].includes(String(row.subtype))) {
+    return [{ id: "", state: "session_boundary" }];
+  }
   const result = object4(row.toolUseResult);
-  const events = [];
-  for (const [key, state] of [["backgroundTaskId", "running"], ["agentId", result?.status === "async_launched" || result?.status === "running" ? "running" : result?.status]]) {
-    const id = result?.[key];
-    if (typeof id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(id) && ["running", "completed", "failed", "killed"].includes(String(state))) events.push({ id, state });
-  }
   const content = object4(row.message)?.content;
-  if (row.type === "user" && result?.task_type === "local_bash" && typeof result.command === "string" && !(Array.isArray(content) && content.some((block) => object4(block)?.is_error === true))) {
-    const id = result.task_id;
-    if (typeof id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(id)) events.push({ id, state: "killed" });
+  const events = [];
+  const shellId = result?.backgroundTaskId;
+  if (typeof shellId === "string" && TASK_ID.test(shellId)) {
+    const outputPath = shellOutputPath(content, row.sessionId, shellId);
+    events.push({ id: shellId, state: "running", kind: "shell", ...outputPath && { output_path: outputPath } });
   }
-  const prompt = object4(row.attachment)?.prompt;
-  const texts = typeof content === "string" ? [content] : Array.isArray(content) ? content.map((block) => object4(block)?.text).filter((text2) => typeof text2 === "string") : [];
-  if (typeof prompt === "string") texts.push(prompt);
-  for (const text2 of texts) {
-    const notifications = text2.match(/<task-notification>[\s\S]*?<\/task-notification>/g) || [];
-    for (const block of notifications) {
+  const agentId = result?.agentId;
+  const agentStatus = result?.status === "async_launched" ? "running" : result?.status;
+  if (typeof agentId === "string" && TASK_ID.test(agentId) && (agentStatus === "running" || agentStatus === "completed" || agentStatus === "killed" || agentStatus === "failed")) {
+    events.push({ id: agentId, state: agentStatus, kind: "subagent" });
+  }
+  const stoppedId = result?.task_id;
+  if (row.type === "user" && result?.task_type === "local_bash" && typeof result.command === "string" && typeof stoppedId === "string" && TASK_ID.test(stoppedId) && !(Array.isArray(content) && content.some((block) => object4(block)?.is_error === true))) {
+    events.push({ id: stoppedId, state: "killed", kind: "shell" });
+  }
+  const attachment = object4(row.attachment);
+  const notification = row.type === "attachment" && attachment?.type === "queued_command" && attachment.commandMode === "task-notification" ? attachment.prompt : row.type === "user" && row.isMeta === true ? content : void 0;
+  if (typeof notification === "string") {
+    for (const block of notification.match(/<task-notification>[\s\S]*?<\/task-notification>/g) ?? []) {
       const id = /<task-id>([^<]+)<\/task-id>/.exec(block)?.[1].trim();
-      const state = /<status>([^<]+)<\/status>/.exec(block)?.[1].trim();
-      if (id && /^[A-Za-z0-9_-]{1,256}$/.test(id) && state && ["running", "completed", "killed", "failed"].includes(state)) events.push({ id, state });
+      const status = /<status>([^<]+)<\/status>/.exec(block)?.[1].trim();
+      const state = END_STATES.find((state2) => state2 === status);
+      if (id && TASK_ID.test(id) && state) events.push({ id, state });
     }
   }
   return events;

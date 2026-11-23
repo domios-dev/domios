@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
-import { readableActivityLine, tabActivity, type TabActivityInput, type TabActivity } from "./tabActivity";
+import { idleBackgroundLabel, readableActivityLine, tabActivity, type TabActivityInput, type TabActivity } from "./tabActivity";
 import type { BootStage, TabStatus } from "./types";
 import { aggregateTabStatuses, countWorkingTabs } from "../components/Sidebar/tabStatuses";
 import type { Tab } from "./types";
 
 const agent: TabActivityInput = { tab_type: "Terminal", agent_type: "fixture", agent_session_id: "bound-session" };
-const background: TabActivityInput["provider_signals"] = { auth: null, api_error: null, permission_mode: null, background: { running: { child: "Inspect" }, overflow: false, history_incomplete: false, history_initialized: true } };
+const background: TabActivityInput["provider_signals"] = { auth: null, api_error: null, permission_mode: null, background: { running: { shell: "", child: "Inspect" }, kinds: { shell: "shell", child: "subagent" }, overflow: false, history_incomplete: false, history_initialized: true } };
 const finishedWithBackground = tabActivity({ ...agent, provider_signals: background, agent_state: { state: "idle" } }, "Idle");
-assert.deepEqual([finishedWithBackground.kind, finishedWithBackground.canStop, finishedWithBackground.backgroundTasks], ["idle", false, 1]);
+assert.deepEqual([finishedWithBackground.kind, finishedWithBackground.canStop, finishedWithBackground.backgroundTasks], ["idle", false, 2]);
+assert.equal(idleBackgroundLabel(finishedWithBackground), "1 background process running · 1 sub-agent running");
 const wokenByBackground = tabActivity({ ...agent, provider_signals: background, agent_state: { state: "working" } }, "Working");
-assert.deepEqual([wokenByBackground.kind, wokenByBackground.canStop, wokenByBackground.backgroundTasks], ["working", true, 1]);
+assert.deepEqual([wokenByBackground.kind, wokenByBackground.canStop, wokenByBackground.backgroundTasks], ["working", true, 2]);
 assert.equal(tabActivity({ ...agent, provider_signals: background, agent_state: { state: "question" } }, "Waiting").status, "Waiting");
 const cases: Array<[string, TabActivityInput | null, TabStatus | null, TabActivity["kind"], boolean, boolean]> = [
   ["unknown", null, null, "idle", false, false],
@@ -165,8 +166,8 @@ assert.equal(idleWithRuntimeBg.kind, "idle", "runtime background process preserv
 assert.equal(idleWithRuntimeBg.active, false);
 assert.equal(idleWithRuntimeBg.canStop, false);
 assert.equal(idleWithRuntimeBg.backgroundTasks, 1);
-assert.equal(aggregateTabStatuses(["rt-bg"], { "rt-bg": "Idle" }, { "rt-bg": runtimeBgBase }), "Working");
-assert.equal(countWorkingTabs([runtimeBgBase], { "rt-bg": "Idle" }), 1);
+assert.equal(aggregateTabStatuses(["rt-bg"], { "rt-bg": "Idle" }, { "rt-bg": runtimeBgBase }), "Idle");
+assert.equal(countWorkingTabs([runtimeBgBase], { "rt-bg": "Idle" }), 0);
 
 const staleEpochBg: Tab = {
   ...runtimeBgBase,

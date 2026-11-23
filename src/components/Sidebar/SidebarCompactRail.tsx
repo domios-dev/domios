@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import type { Tab, TabStatus } from "../../lib/types";
-import { tabActivity } from "../../lib/tabActivity";
+import { idleBackgroundLabel, tabActivity } from "../../lib/tabActivity";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { AgentIcon } from "../AgentIcon";
 import { TerminalIcon } from "../Icons";
@@ -57,7 +57,8 @@ function RailTab({ tab, observed, status, attention, active, touchMode, hidden, 
   const icon = tab.agent_type ? <AgentIcon tab={tab} providerId={tab.agent_type} title={machine ? "" : undefined} className="text-[15px]" /> : <TerminalIcon size={14} />;
   const mark = <TabAttentionMark title={title} attention={attention ?? tabAttention(tab, status, [], active)} active={active} placement="compact" remote={Boolean(machine)} />;
   const activityKind = machine?.unavailable ? "idle" : activity.kind;
-  const backgroundActive = !machine?.unavailable && activityKind === "idle" && activity.backgroundTasks > 0;
+  const backgroundLabel = machine?.unavailable ? null : idleBackgroundLabel(activity);
+  const backgroundActive = Boolean(backgroundLabel);
   return <button
     type="button"
     hidden={hidden}
@@ -70,7 +71,7 @@ function RailTab({ tab, observed, status, attention, active, touchMode, hidden, 
     data-background-work={backgroundActive ? "true" : undefined}
     data-touch-mode={touchMode || undefined}
     aria-current={active ? "page" : undefined}
-    aria-label={machine ? `Open tab ${title}, ${machine.label}` : `Open tab ${title}`}
+    aria-label={`Open tab ${title}${machine ? `, ${machine.label}` : ""}${backgroundLabel ? `, Idle, ${backgroundLabel}` : ""}`}
     onClick={observed?.cached ? undefined : onActivate}
     onMouseEnter={machine ? undefined : onPeek}
     onMouseLeave={machine ? undefined : onLeave}

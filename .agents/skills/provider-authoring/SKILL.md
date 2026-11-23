@@ -230,6 +230,10 @@ evidence. Historical launches project unknown; only own-session append observati
 can establish running. Completion projects ended. The bounded roster is session-scoped;
 `background_work_guard` defaults false. When enabled, restart refuses live work,
 provider updates wait for a roster change event, and explicit force is reported.
+Launch observations may report `kind: "shell" | "subagent"`. A shell launch may
+also report `output_path` from its own authenticated session record. The owner
+can read a bounded text tail of that exact temporary log through the current
+binding, subject to secure preview checks. No plugin filesystem grant is added.
 
 A JS provider never sees the ~70-method Rust `AgentProvider` trait. It sees two
 surfaces:

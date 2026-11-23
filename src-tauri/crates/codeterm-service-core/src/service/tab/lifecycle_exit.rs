@@ -53,6 +53,7 @@ fn clear_agent_identity_after_prompt_clear(
     tab.session_binding_nonce = None;
     tab.reported_session_binding_nonce = None;
     tab.agent_state = None;
+    tab.provider_signals.background = Default::default();
     tab.exit_suspected_at = None;
     // Provider and model are one identity; clearing only the provider leaves a
     // stale model label attached to the tab.

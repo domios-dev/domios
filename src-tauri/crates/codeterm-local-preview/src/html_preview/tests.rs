@@ -1,6 +1,17 @@
 use super::*;
 
 #[test]
+fn process_output_reads_a_bounded_text_tail_and_keeps_preview_authority() {
+    let temp = tempfile::tempdir().unwrap();
+    let file = preview_test_root(temp.path()).join("process.output");
+    std::fs::write(&file, b"older\nnewer\n").unwrap();
+    let path = file.to_str().unwrap();
+    let tail = read_text_tail_guarded(path, |_, _| Ok(()), 6).unwrap();
+    assert_eq!(tail.data, "newer\n");
+    assert!(read_text_tail_guarded(path, |_, _| Err("fixture refusal".into()), 6).is_err());
+}
+
+#[test]
 fn batch_preview_check_excludes_missing_relative_and_directory_paths() {
     let temp = tempfile::tempdir().unwrap();
     let file = preview_test_root(temp.path()).join("notes.md");
