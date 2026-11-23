@@ -60,9 +60,9 @@ it("names local and remote Team cards with the machine shown after the title", a
       <TeamUnit {...props} team={{ ...team, id: "local-team", name: "Local research" }} />
       <TeamUnit {...props} team={{ ...team, remote_peer_id: "remote-peer", remote_peer_name: "Desk [dev-qa]" }} />
     </>));
-    const local = host.querySelector('section[aria-label="Local research, This machine"]')!;
+    const local = host.querySelector('section[aria-label="Local research"]')!;
     const remote = host.querySelector('section[aria-label="Remote research, Desk"]')!;
-    expect(local.querySelector('[title="This machine"]')?.textContent).toBe("This machine");
+    expect(local.querySelector(".sidebar-team-machine-pill")).toBeNull();
     const title = remote.querySelector('[data-testid="team-name"]')!;
     const machine = remote.querySelector('[title="Desk"]')!;
     expect(machine.textContent).toBe("Desk");
