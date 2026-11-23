@@ -33,6 +33,13 @@ const button = (name: string) => host.querySelector<HTMLButtonElement>(`button[a
 const statusCalls = () => fixture.invoke.mock.calls.filter(([command]) => command === "provider_cli_status").length;
 
 describe("provider CLI controls", () => {
+  it("shows ownership guidance without an install or update action even without a CLI update target", async () => {
+    const guidance = "Use the owning app's updater.";
+    status = { ...missing, installed: true, availability: "available", installer: null, update_refusal: guidance };
+    await act(async () => root.render(<ProviderCliControls providerId="fixture" />));
+    expect([...host.querySelectorAll('[role="status"]')].some(element => element.textContent === guidance)).toBe(true);
+    expect(host.querySelector("button")).toBeNull();
+  });
   it("loads a persisted automatic update result in Settings", async () => {
     status = { ...missing, installed: true, update_summary: "opaque persisted result" };
     await act(async () => root.render(<ProviderCliControls providerId="fixture" />));

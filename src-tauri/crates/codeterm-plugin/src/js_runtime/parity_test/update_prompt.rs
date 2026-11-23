@@ -161,6 +161,12 @@ impl AgentProvider for NativeUpdateFixture {
             npm_package: "@scope/fixture-cli".into(),
             standalone_directory: "packages/standalone".into(),
             standalone_args: vec!["update".into()],
+            macos_app_bundle: Some(crate::provider_self_update::MacosAppBundle {
+                bundle_identifier: "com.example.agent".into(),
+                team_identifier: "A1B2C3D4E5".into(),
+                executable_paths: vec!["Contents/Resources/agent".into()],
+                update_guidance: "Use the app updater.".into(),
+            }),
         })
     }
 }
@@ -175,7 +181,19 @@ fn parity_provider_self_update_capability() {
         native.provider_self_update_capability(),
         load_inline_js(
             "fixture",
-            "module.exports.default = { providerSelfUpdateCapability: () => ({ npmPackage: \"@scope/fixture-cli\", standaloneDirectory: \"packages/standalone\", standaloneArgs: [\"update\"] }) };",
+            r#"module.exports.default = {
+                providerSelfUpdateCapability: () => ({
+                    npmPackage: "@scope/fixture-cli",
+                    standaloneDirectory: "packages/standalone",
+                    standaloneArgs: ["update"],
+                    macosAppBundle: {
+                        bundleIdentifier: "com.example.agent",
+                        teamIdentifier: "A1B2C3D4E5",
+                        executablePaths: ["Contents/Resources/agent"],
+                        updateGuidance: "Use the app updater."
+                    }
+                })
+            };"#,
         )
         .provider_self_update_capability()
     );
