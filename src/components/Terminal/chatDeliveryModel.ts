@@ -162,7 +162,7 @@ export function reconcileAdmissionEvidence(send: DeliverySend, evidence: Admissi
 export function reconcileDeliverySnapshot(send: DeliverySend, statuses: readonly ChatSendStatus[]): DeliverySend {
   if (!send.status || deliveryState(send) === "delivered"
     || statuses.some((status) => status.send_id === send.status?.send_id)) return send;
-  if (send.status.state === "written") {
+  if (send.status.state === "written" || send.status.state === "held") {
     return { ...send, status: { ...send.status, state: "submit_unconfirmed", pending_reason: undefined } };
   }
   return send.status.state === "failed" ? { ...send, status: undefined } : send;
@@ -236,17 +236,19 @@ export function deliveryProjectionSends(
   return sends.filter((send) => send.dismissed || resetCutoffMs == null || deliveryState(send) !== "delivered" || send.sentAtMs >= resetCutoffMs)
     .map((send) => {
       const frame = send.status?.system_send ? parseDomiosMessage(send.content) : null;
+      const state = deliveryState(send);
       return {
         ...send,
         segments: send.status?.system_send?.segments?.length ? send.status.system_send.segments
           : frame ? [{ type: "frame" as const, kind: (frame.attrs.from === "cli" ? "system" : frame.attrs.from) as FrameKind, from: frame.attrs.from, attrs: frame.attrs, body: frame.body,
             tip: frame.content.slice(frame.body.length).match(/<tip>([\s\S]*?)<\/tip>/)?.[1] ?? null }] : send.segments,
-        echoEligible: deliveryState(send) !== "failed",
-        neverWritten: deliveryState(send) === "queued",
+        delivered: state === "delivered",
+        echoEligible: state !== "failed",
+        neverWritten: state === "queued",
         flowAtMs: send.sentAtMs,
         held: Boolean(send.draft?.recordedVoiceAttachments.length && !send.echo)
           || queuedIds.has(send.id)
-          || (deliveryState(send) !== "delivered" && send.status?.pending_reason === ACTIVE_TURN_HOLD),
+          || (state !== "delivered" && send.status?.pending_reason === ACTIVE_TURN_HOLD),
       };
     });
 }

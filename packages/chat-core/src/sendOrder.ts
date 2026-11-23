@@ -39,6 +39,7 @@ export interface ChatSend {
   correlationId?: string;
   echo?: SendEcho;
   matchedRow?: MatchedRow;
+  delivered?: boolean;
   echoEligible?: boolean;
   /** The host holds it unwritten, so no row can be its echo by text; only its own token can name a row. */
   neverWritten?: boolean;
@@ -126,15 +127,23 @@ function claimPrecedesWindow(
 ): boolean {
   if (window == null || send.matchedRow == null || authority?.sourceSessionId == null
     || send.matchedRow.source.source_session_id !== authority.sourceSessionId) return false;
-  if (typeof window === "number") return send.sentAtMs < window;
   const record = send.matchedRow.source.record;
-  if (record.kind === "jsonl" && window.byteStart != null && record.record_start < window.byteStart) return true;
+  if (typeof window !== "number" && record.kind === "jsonl"
+    && window.byteStart != null && record.record_start < window.byteStart) return true;
+  const boundary = send.echoBoundary?.sourceSessionId === authority.sourceSessionId ? send.echoBoundary : undefined;
+  return sendPrecedesWindow(send, boundary, rows, window);
+}
+
+function sendPrecedesWindow(
+  send: ChatSend,
+  boundary: SendEchoBoundary | undefined,
+  rows: readonly NormalizedChatMessage[],
+  window: number | UnloadedHistoryWindow,
+): boolean {
+  if (typeof window === "number") return send.sentAtMs < window;
   if (window.startMs != null) return send.sentAtMs < window.startMs;
-  if (!window.untimed) return false;
-  const lastRowId = send.echoBoundary?.sourceSessionId === authority.sourceSessionId
-    ? send.echoBoundary.lastRowId : null;
-  if (lastRowId != null && rows.some(row => row.id === lastRowId)) return false;
-  return true;
+  return window.untimed === true
+    && (boundary?.lastRowId == null || !rows.some(row => row.id === boundary.lastRowId));
 }
 
 /** A recorded echo or exact claim outside the loaded window still hides its reconciled send. */
@@ -167,7 +176,9 @@ export function reconcileSends(
     if (send.echoBoundary && row.sourceSessionId === authority?.sourceSessionId) {
       if (send.correlationId != null && row.correlationId === send.correlationId) return true;
       const start = rowStarts.get(row.id);
-      if (send.echoBoundary.endOffset != null && start != null && start >= send.echoBoundary.endOffset) return true;
+      if (send.echoBoundary.sessionBindingNonce === authority?.sessionBindingNonce) {
+        if (send.echoBoundary.endOffset != null && start != null && start >= send.echoBoundary.endOffset) return true;
+      } else if (send.echoBoundary.lastRowId == null) return false;
     }
     const boundary = boundaries.get(sendId);
     if (boundary == null) return;
@@ -201,8 +212,27 @@ export function reconcileSends(
         continue;
       }
     }
-    if (send.echoBoundary && (send.echoBoundary.sourceSessionId !== authority?.sourceSessionId
-      || send.echoBoundary.sessionBindingNonce !== authority?.sessionBindingNonce)) {
+    const foreignBoundary = send.echoBoundary != null && send.echoBoundary.sourceSessionId !== authority?.sourceSessionId;
+    const deliveredWithoutRow = send.delivered === true && send.matchedRow == null && !foreignBoundary;
+    if (deliveredWithoutRow) {
+      const session = authority?.sourceSessionId;
+      const index = session == null ? undefined : users.find(candidate => {
+        const row = rows[candidate];
+        return !recorded.has(candidate) && row.sourceSessionId === session
+          && (row.id === send.id || (send.correlationId != null && row.correlationId === send.correlationId));
+      });
+      if (index != null) {
+        recorded.add(index);
+        claim(send, index);
+        continue;
+      }
+      if (windowStart != null && sendPrecedesWindow(send, send.echoBoundary, rows, windowStart)) {
+        outside.add(send.id);
+        continue;
+      }
+    }
+    if (foreignBoundary || (send.echoBoundary && !deliveredWithoutRow
+      && send.echoBoundary.sessionBindingNonce !== authority?.sessionBindingNonce)) {
       if (!send.echo) pending.push(send);
       continue;
     }
