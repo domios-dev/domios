@@ -24,6 +24,13 @@ pub const MAX_TAB_TITLE_CHARS: usize = 64;
 pub const TAB_TITLE_ERROR: &str =
     "tab title must be one word of at most 64 characters with no whitespace or control characters; put descriptive text in description";
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TabCloseCleanup {
+    Standard,
+    KeepPad,
+    KeepWorkerLane,
+}
+
 pub fn validate_tab_title(title: &str) -> Result<(), String> {
     if title.is_empty()
         || title.chars().count() > MAX_TAB_TITLE_CHARS
@@ -179,10 +186,14 @@ impl ServiceContext {
     }
 
     pub(crate) fn finish_tab_close(&self, tab_id: &str) -> Result<(), String> {
-        self.finish_tab_close_with_pad(tab_id, true)
+        self.finish_tab_close_with_cleanup(tab_id, TabCloseCleanup::Standard)
     }
 
-    fn finish_tab_close_with_pad(&self, tab_id: &str, retire_pad: bool) -> Result<(), String> {
+    fn finish_tab_close_with_cleanup(
+        &self,
+        tab_id: &str,
+        cleanup: TabCloseCleanup,
+    ) -> Result<(), String> {
         if let Err(error) = self.settle_closed_live_transcript(tab_id, None) {
             log::warn!("[live-transcript] owner {tab_id} close settlement held: {error}");
         }
@@ -200,14 +211,17 @@ impl ServiceContext {
         }
         super::task_files::release_tab(self, tab_id);
         self.cancel_agent_startup_supervision(tab_id);
-        let pad_result = if retire_pad {
+        let pad_result = if cleanup != TabCloseCleanup::KeepPad {
             self.revoke_agent_pad(tab_id)
         } else {
             Ok(())
         };
         self.orchestration().clear_dead_planner_binding(tab_id);
-        self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
-        self.settle_lanes_held_by_closed_tab(tab_id);
+        let owner_worker_close = cleanup == TabCloseCleanup::KeepWorkerLane;
+        self.flag_gone_tab(tab_id, epoch_ms(), owner_worker_close);
+        if !owner_worker_close {
+            self.settle_lanes_held_by_closed_tab(tab_id);
+        }
         self.prompt_detector.lock().remove_tab(tab_id);
         self.forget_permission_auto_confirm(tab_id);
         self.forget_directory_trust(tab_id);
@@ -311,7 +325,11 @@ impl ServiceContext {
                 lines.join("; ")
             ));
         }
-        self.close_tab(target_tab_id)?;
+        if caller_tab_id.is_none() {
+            self.close_tab_as_owner(&canon_target)?;
+        } else {
+            self.close_tab(target_tab_id)?;
+        }
         Ok(busy_worker_close_warnings(&canon_target, &assignments))
     }
 
@@ -378,17 +396,17 @@ impl ServiceContext {
             &str,
         ) -> Result<(), String>,
     ) -> Result<(), String> {
-        self.close_tab_with_teardown_and_pad(
+        self.close_tab_with_teardown_and_cleanup(
             tab_id,
             reason,
             validate,
             teardown,
             validate_commit,
-            true,
+            TabCloseCleanup::Standard,
         )
     }
 
-    pub(crate) fn close_tab_with_teardown_and_pad(
+    pub(crate) fn close_tab_with_teardown_and_cleanup(
         &self,
         tab_id: &str,
         reason: TabCloseReason,
@@ -398,7 +416,7 @@ impl ServiceContext {
             &mut crate::multiplexer::state::MultiplexerState,
             &str,
         ) -> Result<(), String>,
-        retire_pad: bool,
+        cleanup: TabCloseCleanup,
     ) -> Result<(), String> {
         let (pre_focus, reservation, provider_id, canonical_tab_id, session_id) = {
             let mut mux = self.mux.write();
@@ -485,7 +503,7 @@ impl ServiceContext {
         if let Some(provider_id) = provider_id {
             self.release_tab_launch_artifacts(&canonical_tab_id, &provider_id);
         }
-        self.finish_tab_close_with_pad(&canonical_tab_id, retire_pad)?;
+        self.finish_tab_close_with_cleanup(&canonical_tab_id, cleanup)?;
         self.retire_public_send_launch(&canonical_tab_id);
         self.reap_orphaned_startup_teams();
         self.retire_closed_tab_notifications(&canonical_tab_id);

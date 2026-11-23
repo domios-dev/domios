@@ -46,6 +46,8 @@ Plan pause is the only agent-issued pause. Paused tasks are system holds; there 
 
 A Worker that dies while holding an in-progress task produces an immediate structured event to its Orchestrator naming the task, lane, dirty state and recovery command. Recovery preserves the task's evidence and ownership boundaries. After daemon recovery, continuation follows the exact session and task-attempt evidence required by the [crash-recovery contract](core.md#core:crash-recovery-supervisor); a restored view alone does not authorize resuming work.
 
+An owner can close a Worker tab while its task stays in the same state. The close retires the tab's attempt and keeps its worktree and branch. The UI asks once before closing in-progress work, which remains recoverable through the worker-lost path. Closing a Worker awaiting review or attached to a terminal task needs no confirmation or launch nonce. Agent actions still require their existing authority.
+
 ## Team teardown
 
 Team close inventories every Team-owned task lane and reports removed, retained-with-reason and worktree-less branch entries. It removes only clean lanes whose branch tip is an ancestor of the recorded destination; unsafe lanes remain as cleanup debt. It removes the Team's members, finalizes open attempts and removes its crons. Attached Cartographer membership ends with the Team; [Blueprints](sentinels.md) follow the same Team lifetime.

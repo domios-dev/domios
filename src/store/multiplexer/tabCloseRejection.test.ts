@@ -34,5 +34,6 @@ test("the rendered toast names the typed reason, not the generic close failure",
   const shown = describeError(notice.detail, { operation: `handling ${notice.title}` });
   assert.equal(shown.title, "This tab is protected and cannot be closed.");
   const opaque = describeError(tabCloseRejectionNotice("opaque-fragment", "w1", "t1").detail, { operation: `handling ${notice.title}` });
+  assert.equal(opaque.title, "opaque-fragment");
   assert.ok(opaque.raw.includes("opaque-fragment"));
 });
