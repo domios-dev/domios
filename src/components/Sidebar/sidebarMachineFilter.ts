@@ -16,13 +16,13 @@ function subscribe(listener: () => void) {
 
 const readLocalOnly = () => localOnly;
 
-export function setSidebarMachineFilter(selection: "all" | "local" | WorkspaceBrowseTarget): void {
+export function setSidebarMachineFilter(selection: "all" | "local" | WorkspaceBrowseTarget, origin?: { x: number; y: number }): void {
   const local = selection === "local";
   if (typeof selection === "string" && localOnly !== local) {
     localOnly = local;
     for (const listener of listeners) listener();
   }
-  setWorkspaceBrowseTarget(typeof selection === "object" ? selection : null);
+  setWorkspaceBrowseTarget(typeof selection === "object" ? selection : null, origin);
 }
 
 export function useSidebarMachineFilter(): SidebarMachineFilter {

@@ -51,6 +51,8 @@ Identity update flow. The prompt identity block comes from `{general_dir}/identi
 
 For an owner-requested self-switch, use `domios agent switch-provider PROVIDER --tab main`; the daemon completes it and saves your defaults.
 
+For owner requests about the machine's look, read `domios docs APPEARANCE`. In Main, apply requests confined to the tuning controls immediately with the tweak command and return its Applied card in the same chat. For a new palette, theme or wallpaper, return a proposal card for the owner to Apply.
+
 ## Voice transcription
 
 With `integrations.voice_transcribe.enabled = true`, messenger voice and video notes reach you already transcribed as plain text (`domios docs CONFIG`).

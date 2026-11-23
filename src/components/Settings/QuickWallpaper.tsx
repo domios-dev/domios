@@ -3,7 +3,7 @@ import { FlaskConical } from "lucide-react";
 import type { ChatWallpaper } from "../../../gen/ChatWallpaper";
 import type { AppConfig } from "../../lib/types";
 import { appearanceError } from "../../lib/appearanceClient";
-import { effectiveWallpaper, wallpaperRenderStyle, wallpaperSummary } from "../../lib/chatWallpaper";
+import { effectiveWallpaper, wallpaperRenderStyle, wallpaperSummary, wallpaperThumbnailIntensity } from "../../lib/chatWallpaper";
 import { saveWallpaper } from "../../lib/chatWallpaperClient";
 import { isLightColor } from "../../lib/themeCss";
 import { MachineAppearanceContext, useWallpaperAsset } from "../../lib/useMachineAppearance";
@@ -25,10 +25,10 @@ export function QuickWallpaper({ config, onOpenLab }: { config: AppConfig; onOpe
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const ready = selected?.ready ?? true;
-  const style = (paper?: ChatWallpaper, url?: string) => ({
+  const style = (paper?: ChatWallpaper, url?: string, intensity?: number) => ({
     "--ct-bg": theme.background,
     "--ct-fg": theme.foreground,
-    ...wallpaperRenderStyle(theme, paper, light, url, identity),
+    ...wallpaperRenderStyle(theme, paper, light, url, identity, intensity),
   }) as CSSProperties;
   const choose = async (pattern: typeof choices[number][0]) => {
     if (!ready || busy) return;
@@ -53,10 +53,15 @@ export function QuickWallpaper({ config, onOpenLab }: { config: AppConfig; onOpe
       <div role="radiogroup" aria-label="Quick wallpaper" className="ct-quick-wallpaper__choices">
         {choices.map(([pattern, label]) => {
           const checked = active.background.pattern === pattern;
+          const background = checked ? active.background : { pattern };
+          const sample = {
+            ...(checked ? active : undefined),
+            background: { ...background, scale: pattern === "dots" ? 20 : 110, opacity: 0.24 },
+          };
           return <label key={pattern}>
             <input type="radio" name={group} className="sr-only" aria-label={label} checked={checked} disabled={busy || !ready} onChange={() => void choose(pattern)} />
             <span className="ct-quick-wallpaper__thumb" aria-hidden="true">
-              <span className="ct-chat-wallpaper" style={style(checked ? wallpaper : { background: { pattern, scale: pattern === "dots" ? 20 : 110 } }, checked ? asset?.url : undefined)} />
+              <span className="ct-chat-wallpaper" style={style(sample, checked ? asset?.url : undefined, wallpaperThumbnailIntensity(light))} />
             </span>
             {label}
           </label>;
@@ -66,7 +71,7 @@ export function QuickWallpaper({ config, onOpenLab }: { config: AppConfig; onOpe
     {error && <p role="alert" className="ct-appearance-error">{error}</p>}
     <div className="ct-quick-wallpaper__footer">
       <small>More patterns, colours, your own file, shadows and roundness live in the Lab.</small>
-      <Button variant="outline" onClick={onOpenLab}><FlaskConical size={15} aria-hidden="true" /> Open Appearance Lab</Button>
+      <Button variant="outline" className="gap-1.5" onClick={onOpenLab}><FlaskConical size={15} aria-hidden="true" /> Open Appearance Lab</Button>
     </div>
   </div>;
 }

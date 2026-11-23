@@ -2,7 +2,7 @@ import { useContext, useDeferredValue, useEffect, useId, useState, type FormEven
 import { Monitor, Palette, Sparkles, Undo2 } from "lucide-react";
 import { DEFAULT_APPEARANCE, PALETTE_CONTROLS, TERMINAL_COLOURS, applyContrastFix, paletteContrast, type AppearanceLook, type AppearanceProposal, type AppearanceTuning, type ContrastCheck, type CurrentAppearance } from "../../lib/appearance";
 import { APPEARANCE_CHANGED, appearanceError, changeAppearance, checkAppearanceContrast, proposeAppearance, readAppearance, readAppearanceProposal, type AppearanceTarget, type OpenAppearance } from "../../lib/appearanceClient";
-import { clearAppearancePress, indicateAppearancePress } from "../../lib/appearanceMotion";
+import { bindAppearancePress, clearAppearancePress, indicateAppearancePress } from "../../lib/appearanceMotion";
 import { focusTab, generalAgentTab } from "../../lib/generalAgent";
 import { setClientTabUiMode } from "../../lib/clientTabUiMode";
 import { useMuxSelector } from "../../store/multiplexer/hooks";
@@ -10,7 +10,8 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 import { sendTrackedChatMessage } from "../Terminal/chatSendStatus";
 import { addChatSend } from "../Terminal/chatSendStore";
 import { uid } from "../../lib/uid";
-import { useMeshMachineChoices } from "../../lib/useMeshMachineIdentities";
+import { useAccountMachineNames, useMeshMachineChoices, useMeshPeerName } from "../../lib/useMeshMachineIdentities";
+import { cleanMachineName } from "../../lib/machineIdentity";
 import type { AppConfig, ThemeConfig } from "../../lib/types";
 import { AppearancePreview } from "./AppearancePreview";
 import { ChatWallpaperPicker } from "./ChatWallpaperPicker";
@@ -36,9 +37,11 @@ interface Props {
 export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Props) {
   const heading = useId();
   const machineChoices = useMeshMachineChoices();
+  const accountNames = useAccountMachineNames();
   const machineAppearance = useContext(MachineAppearanceContext);
   const viewedPeer = machineAppearance?.peerId;
   const [target, setTarget] = useState<AppearanceTarget>(() => open ?? (viewedPeer ? { machine: viewedPeer, peer: viewedPeer } : LOCAL));
+  const peerName = useMeshPeerName(target.peer);
   const [current, setCurrent] = useState<CurrentAppearance>();
   const [draft, setDraft] = useState<AppearanceLook>();
   const [proposal, setProposal] = useState<AppearanceProposal>();
@@ -104,7 +107,9 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
     setError("");
     setTarget(id === "local" ? LOCAL : { machine: id, peer: id });
   };
-  const machine = current?.machine.name ?? (target.peer ? machineChoices.peers?.find(peer => peer.instance_id === target.peer)?.instance_name : machineChoices.local_instance_name) ?? target.machine;
+  const currentName = cleanMachineName(current?.machine.name, current?.machine.id);
+  const localName = accountNames.local ?? machineChoices.local_instance_name ?? (!target.peer ? currentName : undefined);
+  const machine = target.peer ? peerName ?? currentName ?? "Machine" : localName ?? "this machine";
   const unavailable = Boolean(target.peer && machineChoices.peers?.find(peer => peer.instance_id === target.peer)?.online === false);
   const tuning = draft?.tuning ?? DEFAULT_APPEARANCE;
   const dirty = Boolean(draft && current && JSON.stringify(draft) !== JSON.stringify(current.look));
@@ -120,11 +125,12 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
     try {
       const next = proposal?.state !== "applied" && proposal && JSON.stringify(draft) === JSON.stringify(proposal.look)
         ? proposal : await proposeAppearance(target, draft, current.look);
+      bindAppearancePress(button, next.id, next.look, target.peer ?? relayTarget()?.id);
       await changeAppearance(target, next.id, "apply");
     } catch (failure) {
+      clearAppearancePress(button);
       setError(appearanceError(failure));
     } finally {
-      clearAppearancePress(button);
       setBusy(false);
     }
   };
@@ -152,8 +158,8 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
       theme: { ...current.look.theme, chat_background: themeWallpaper },
       wallpaper: current.look.wallpaper && { ...current.look.wallpaper, background },
     };
-    const name = current.machine.name.replace(/\s+/g, " ");
-    const request = `Make me a new look for ${name}: ${text}\n\n<context>\nAppearance Lab · for ${name}\nInstallation: ${current.machine.id}\nCurrent look: ${JSON.stringify(look)}\nSee domios docs APPEARANCE for the full wallpaper and proposal workflow.\n</context>`;
+    const name = machine.replace(/\s+/g, " ");
+    const request = `Appearance request for ${name}: ${text}\n\n<context>\nAppearance Lab · for ${name}\nInstallation: ${current.machine.id}\nCurrent look: ${JSON.stringify(look)}\nSee domios docs APPEARANCE for tweaks and proposals.\n</context>`;
     setClientTabUiMode(generalTab, "chat");
     const id = uid();
     addChatSend(generalTab, { id, correlationId: id, content: request, sentAtMs: Date.now() });
@@ -181,8 +187,8 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
         <h2 id={heading} className="sr-only"><Palette size={19} aria-hidden="true" /> Appearance Lab</h2>
         <label className="ct-appearance-machine"><Monitor size={15} aria-hidden="true" />
           <select aria-label="Appearance machine" value={target.peer ?? "local"} onChange={event => changeMachine(event.target.value)} disabled={busy}>
-            <option value="local">For {machineChoices.local_instance_name ?? (target.peer ? "this machine" : machine)}</option>
-            {machineChoices.peers?.map(peer => <option key={peer.instance_id} value={peer.instance_id}>For {peer.instance_name}{peer.online ? "" : " · offline"}</option>)}
+            <option value="local">For {localName ?? "this machine"}</option>
+            {machineChoices.peers?.map(peer => <option key={peer.instance_id} value={peer.instance_id}>For {accountNames.peers.get(peer.instance_id) ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine"}{peer.online ? "" : " · offline"}</option>)}
           </select>
         </label>
         <div className="ct-appearance-lab__actions">
@@ -258,11 +264,11 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
               </div>
             </SettingsCard>
             <SettingsCard title="Text">
-              <div className="ct-appearance-knob">Font size
-                <div className="ct-appearance-size">
-                  <button type="button" aria-label="Decrease font size" data-appearance-field="appearance.font_size" disabled={tuning.font_size <= -1} onClick={() => editTuning({ font_size: tuning.font_size - 1 })}>A−</button>
+              <div className="ct-appearance-knob">Interface text
+                <div className="ct-appearance-size" role="group" aria-label="Interface text">
+                  <button type="button" aria-label="Decrease interface text size" data-appearance-field="appearance.font_size" disabled={tuning.font_size <= -1} onClick={() => editTuning({ font_size: tuning.font_size - 1 })}>A−</button>
                   <output>{13 + tuning.font_size} px</output>
-                  <button type="button" aria-label="Increase font size" data-appearance-field="appearance.font_size" disabled={tuning.font_size >= 2} onClick={() => editTuning({ font_size: tuning.font_size + 1 })}>A+</button>
+                  <button type="button" aria-label="Increase interface text size" data-appearance-field="appearance.font_size" disabled={tuning.font_size >= 2} onClick={() => editTuning({ font_size: tuning.font_size + 1 })}>A+</button>
                   {tuning.font_size === 0 && <small>Default</small>}
                 </div>
               </div>

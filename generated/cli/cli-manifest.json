@@ -2473,6 +2473,44 @@
           "subcommands": []
         },
         {
+          "name": "tweak",
+          "about": "Apply tuning controls immediately from this machine's bound General Main session",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from-pad",
+              "positional": false,
+              "required": true,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Tuning-only TOML in your Agent Pad",
+              "aliases": []
+            },
+            {
+              "name": "machine",
+              "positional": false,
+              "required": false,
+              "value_name": "MACHINE",
+              "possible_values": [],
+              "default": "local",
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "revision",
+              "positional": false,
+              "required": true,
+              "value_name": "REVISION",
+              "possible_values": [],
+              "default": null,
+              "help": "Revision returned by appearance current",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "undo",
           "about": "Restore the look that was active before applying this proposal",
           "aliases": [],

@@ -1,0 +1,118 @@
+.ct-bar-pill.ct-machine-switcher {
+  box-shadow: none;
+}
+
+.ct-bar-pill.ct-machine-switcher:focus-visible,
+.ct-machine-option:focus-visible {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: -2px;
+}
+
+.ct-machine-list {
+  width: min(17rem, calc(100vw - 2rem));
+}
+
+.ct-machine-option {
+  --ct-switcher-tone: var(--ct-muted-fg);
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--ct-menu-row-radius);
+  background: transparent;
+  color: var(--ct-fg);
+  cursor: pointer;
+  text-align: start;
+}
+
+.ct-machine-option--all {
+  --ct-switcher-tone: var(--ct-accent);
+  margin-bottom: 3px;
+}
+
+.ct-machine-option:hover {
+  background: color-mix(in srgb, var(--ct-fg) 6%, transparent);
+}
+
+.ct-machine-option[aria-selected="true"] {
+  background: color-mix(in srgb, var(--ct-switcher-tone) 14%, transparent);
+}
+
+.ct-machine-option__tile,
+.ct-machine-constellation {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ct-switcher-tone) 18%, transparent);
+}
+
+.ct-machine-constellation {
+  align-content: center;
+  gap: 1px;
+  padding: 4px;
+}
+
+.ct-machine-constellation > i {
+  width: min(100%, 5px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+.ct-machine-constellation > [data-offline] {
+  filter: saturate(.2);
+}
+
+.ct-machine-option__copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.ct-machine-option__name,
+.ct-machine-option__status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ct-machine-option__status {
+  margin-top: 2px;
+  color: var(--ct-muted-fg);
+  font-size: max(11px, var(--ct-font-size-meta));
+}
+
+.ct-machine-option__check {
+  flex: none;
+  color: var(--ct-accent);
+}
+
+.ct-machine-option__status .activity-dots {
+  color: var(--ct-switcher-tone);
+}
+
+.ct-machine-option__dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.ct-machine-option__dot[data-online] {
+  background: var(--ct-green);
+}
+
+@media (forced-colors: active) {
+  .ct-machine-option:focus-visible,
+  .ct-bar-pill.ct-machine-switcher:focus-visible {
+    outline-color: Highlight;
+  }
+}

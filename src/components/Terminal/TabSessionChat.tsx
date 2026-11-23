@@ -907,6 +907,7 @@ function TabSessionChatBody({
     <div
       ref={chatRootRef}
       className="ct-chat-shell w-full h-full flex flex-col relative"
+      data-appearance-surface
       data-testid="tab-session-chat"
       data-tab-id={tabId}
       data-snapshot-ready={snapshotReady}
@@ -934,8 +935,8 @@ function TabSessionChatBody({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
-      <div className="relative flex-1 min-h-0">
       <ChatWallpaperBackdrop />
+      <div className="relative flex-1 min-h-0">
       {signInState && signIn === "center" && (
         <div className="absolute inset-0 z-10 flex items-center justify-center overflow-y-auto p-4" data-testid="chat-sign-in">
           <AccountRuntimeLoginActions tab={tab} key={`${tabId}:${signInState.epoch}`} variant="center" tabId={tabId} state={signInState}

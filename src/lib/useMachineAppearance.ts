@@ -1,9 +1,9 @@
-import { createContext, useEffect, useState } from "react";
+import { createContext, useEffect, useMemo, useState } from "react";
 import type { AppConfig } from "./types";
 import { daemonTransportForPeer } from "./daemonBootstrap";
 import { readMachineAppearance, readWallpaperAsset, type MachineAppearance } from "./chatWallpaperClient";
 import { relayTarget } from "./webApi";
-import { useWorkspaceBrowseTarget } from "./workspaceBrowseTarget";
+import { discardWorkspaceSwitchOrigin, useWorkspaceBrowseTarget } from "./workspaceBrowseTarget";
 import { useMeshMachineIdentity } from "./useMeshMachineIdentities";
 import type { MachineIdentity } from "./machineIdentity";
 
@@ -42,7 +42,7 @@ export function useMachineAppearance(config: AppConfig, ready: boolean): Selecte
     }, { signal: controller.signal, onEnd: () => undefined });
     void readMachineAppearance(target.id, controller.signal).then(appearance => {
       if (!changed) publish(appearance);
-    }).catch(() => undefined);
+    }).catch(() => { if (!controller.signal.aborted && !changed) discardWorkspaceSwitchOrigin(target); });
     return () => { controller.abort(); unsubscribe(); };
   }, [target, relay]);
 
@@ -62,8 +62,14 @@ export function useMachineAppearance(config: AppConfig, ready: boolean): Selecte
 }
 
 export function useWallpaperAsset(peerId: string | undefined, id: string | undefined) {
-  const [asset, setAsset] = useState<(WallpaperAsset & { id: string; peerId?: string })>();
+  return useWallpaperAssetResult(peerId, id).asset;
+}
+
+export function useWallpaperAssetResult(peerId: string | undefined, id: string | undefined) {
+  const request = useMemo(() => ({ id, peerId }), [id, peerId]);
+  const [result, setResult] = useState<{ request: typeof request; asset?: WallpaperAsset }>();
   useEffect(() => {
+    const { id, peerId } = request;
     if (!id) return;
     const controller = new AbortController();
     let release: (() => void) | undefined;
@@ -73,14 +79,15 @@ export function useWallpaperAsset(peerId: string | undefined, id: string | undef
       let users = 1;
       release = () => { if (--users === 0) URL.revokeObjectURL(url); };
       const drop = release;
-      setAsset({ id, peerId, url, size: blob.size, retain() { users++; return drop; } });
-    }).catch(() => undefined);
+      setResult({ request, asset: { url, size: blob.size, retain() { users++; return drop; } } });
+    }).catch(() => { if (!controller.signal.aborted) setResult({ request }); });
     return () => {
       controller.abort();
       release?.();
     };
-  }, [peerId, id]);
-  return asset?.id === id && asset?.peerId === peerId ? asset : undefined;
+  }, [request]);
+  const current = result?.request === request ? result : undefined;
+  return { asset: current?.asset, ready: !id || current !== undefined };
 }
 
 export interface WallpaperAsset {
