@@ -433,6 +433,7 @@ pub(crate) fn compose_observed(
         surface_registry,
         &cap_registries,
     );
+    svc_ctx.start_browser_orphan_sweep();
     drop(phase);
     let phase = startup::StartupStep::debug("service wiring");
     // Startup wiring may already restart or recover agents through the lifecycle port.

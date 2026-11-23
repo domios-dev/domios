@@ -25,6 +25,13 @@ impl CommandPort for ServiceContext {
         self.snapshot_with_reconciled_status()
     }
 
+    fn surface_tab_status(
+        &self,
+        tab: &crate::multiplexer::types::Tab,
+    ) -> Option<(&'static str, Option<String>)> {
+        self.browser_tab_status_fields(tab)
+    }
+
     fn mux_snapshot_until(&self, deadline: std::time::Instant) -> Option<MultiplexerSnapshot> {
         crate::service::status_reconciliation::snapshot_with_reconciled_status_until(
             &self.mux,

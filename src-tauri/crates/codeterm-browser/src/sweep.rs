@@ -2,8 +2,10 @@ use super::profile::{ProfileLayout, PROFILES_DIR, SESSIONS_DIR};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 const USER_DATA_DIR: &str = "--user-data-dir=";
+const INVENTORY_DEADLINE: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcessRow {
@@ -57,8 +59,19 @@ pub fn profile_dir_in_command_line(
     let line_norm = normalize(command_line, case_insensitive);
     let mut search_from = 0;
     while let Some(found) = line_norm[search_from..].find(USER_DATA_DIR) {
-        let value_start = search_from + found + USER_DATA_DIR.len();
+        let flag_start = search_from + found;
+        let value_start = flag_start + USER_DATA_DIR.len();
         search_from = value_start;
+        let before_flag = line_norm[..flag_start]
+            .strip_suffix('"')
+            .unwrap_or(&line_norm[..flag_start]);
+        if before_flag
+            .chars()
+            .next_back()
+            .is_some_and(|c| !c.is_whitespace())
+        {
+            continue;
+        }
         let value = line_norm[value_start..].trim_start_matches('"');
         let Some(below_root) = value.strip_prefix(root_norm.as_str()) else {
             continue;
@@ -75,10 +88,12 @@ pub fn profile_dir_in_command_line(
         let kind = [SESSIONS_DIR, PROFILES_DIR]
             .into_iter()
             .find(|dir| normalize(dir, case_insensitive) == kind);
-        if let (Some(kind), true) = (kind, name_len > 0) {
+        if let (Some(kind), true) = (kind, name_len > 0 && !rest[name_len..].starts_with('/')) {
             let name_start = line_norm.len() - rest.len();
             let name = &command_line[name_start..name_start + name_len];
-            return Some(root.join(kind).join(name));
+            if super::profile::sanitize_profile_name(name) == name {
+                return Some(root.join(kind).join(name));
+            }
         }
     }
     None
@@ -97,14 +112,8 @@ pub fn find_orphans(
         .collect();
     rows.iter()
         .filter(|row| row.pid != own_pid && row.pid > 1)
-        .filter(|row| {
-            row.command_line
-                .split_whitespace()
-                .any(|arg| arg.trim_matches('"') == super::launch::OWNERSHIP_FLAG)
-        })
         .filter_map(|row| {
-            let profile_dir =
-                profile_dir_in_command_line(&row.command_line, root, case_insensitive)?;
+            let profile_dir = owned_profile(row, root, case_insensitive)?;
             (!kept.contains(&normalized_dir(&profile_dir, case_insensitive))).then_some(
                 OrphanMatch {
                     pid: row.pid,
@@ -114,6 +123,42 @@ pub fn find_orphans(
             )
         })
         .collect()
+}
+
+#[cfg(windows)]
+fn owned_profile(row: &ProcessRow, root: &Path, case_insensitive: bool) -> Option<PathBuf> {
+    let args = codeterm_util::process_util::windows_command_line_args(&row.command_line)?;
+    let args = args.get(1..)?;
+    if !args.iter().any(|arg| arg == super::launch::OWNERSHIP_FLAG) {
+        return None;
+    }
+    let mut profiles = args.iter().filter(|arg| arg.starts_with(USER_DATA_DIR));
+    let arg = profiles.next()?;
+    if profiles.next().is_some() {
+        return None;
+    }
+    let value = arg.strip_prefix(USER_DATA_DIR)?;
+    let normalized = normalize(value, case_insensitive);
+    let root_norm = normalized_dir(root, case_insensitive);
+    let below_root = normalized
+        .strip_prefix(root_norm.as_str())?
+        .strip_prefix('/')?;
+    let (kind, name) = below_root.split_once('/')?;
+    let kind = [SESSIONS_DIR, PROFILES_DIR]
+        .into_iter()
+        .find(|dir| normalize(dir, case_insensitive) == kind)?;
+    let name = &value[value.len() - name.len()..];
+    (!name.is_empty() && super::profile::sanitize_profile_name(name) == name)
+        .then(|| root.join(kind).join(name))
+}
+
+#[cfg(unix)]
+fn owned_profile(row: &ProcessRow, root: &Path, case_insensitive: bool) -> Option<PathBuf> {
+    row.command_line
+        .split_whitespace()
+        .any(|arg| arg == super::launch::OWNERSHIP_FLAG)
+        .then(|| profile_dir_in_command_line(&row.command_line, root, case_insensitive))
+        .flatten()
 }
 
 /// Tree kills start at matches whose parent is not itself a match, so each tree is killed once.
@@ -143,17 +188,18 @@ pub fn parse_ps_output(stdout: &str) -> Vec<ProcessRow> {
 }
 
 /// `ConvertTo-Json` of `ProcessId,ParentProcessId,CommandLine`; one result serializes as an object, not an array.
-pub fn parse_cim_json(stdout: &str) -> Vec<ProcessRow> {
+pub fn parse_cim_json(stdout: &str) -> Result<Vec<ProcessRow>, String> {
     let trimmed = stdout.trim().trim_start_matches('\u{feff}');
     if trimmed.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let rows = match serde_json::from_str::<Value>(trimmed) {
         Ok(Value::Array(rows)) => rows,
         Ok(row @ Value::Object(_)) => vec![row],
-        _ => return Vec::new(),
+        _ => return Err("invalid browser process inventory".into()),
     };
-    rows.iter()
+    Ok(rows
+        .iter()
         .filter_map(|row| {
             Some(ProcessRow {
                 pid: u32::try_from(row.get("ProcessId")?.as_u64()?).ok()?,
@@ -165,7 +211,7 @@ pub fn parse_cim_json(stdout: &str) -> Vec<ProcessRow> {
                 command_line: row.get("CommandLine")?.as_str()?.to_string(),
             })
         })
-        .collect()
+        .collect())
 }
 
 #[cfg(windows)]
@@ -173,54 +219,65 @@ fn enumerate_processes() -> Result<Vec<ProcessRow>, String> {
     let script = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; \
         Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*--user-data-dir=*' } | \
         Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress";
-    let mut command = std::process::Command::new("powershell");
-    codeterm_util::process_util::no_window_std(&mut command);
-    command.args(["-NoProfile", "-NonInteractive", "-Command", script]);
-    let output = command
-        .output()
-        .map_err(|error| format!("process enumeration failed: {error}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "process enumeration exited with {}: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    Ok(parse_cim_json(&String::from_utf8_lossy(&output.stdout)))
+    let output = codeterm_util::process_util::bounded_capture(
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", script],
+        INVENTORY_DEADLINE,
+    )
+    .map_err(|error| format!("process enumeration failed: {error}"))?;
+    parse_cim_json(&output)
 }
 
 #[cfg(not(windows))]
 fn enumerate_processes() -> Result<Vec<ProcessRow>, String> {
-    let mut command = std::process::Command::new("ps");
-    codeterm_util::process_util::no_window_std(&mut command);
-    command.args(["-axww", "-o", "pid=,ppid=,args="]);
-    let output = command
-        .output()
-        .map_err(|error| format!("process enumeration failed: {error}"))?;
-    if !output.status.success() {
-        return Err(format!("ps exited with {}", output.status));
-    }
-    Ok(parse_ps_output(&String::from_utf8_lossy(&output.stdout)))
+    let output = codeterm_util::process_util::bounded_capture(
+        "ps",
+        &["-axww", "-o", "pid=,ppid=,args="],
+        INVENTORY_DEADLINE,
+    )
+    .map_err(|error| format!("process enumeration failed: {error}"))?;
+    Ok(parse_ps_output(&output))
 }
 
-/// Blocking: whole process tree, because Chromium children escape Windows Job Objects.
 #[cfg(windows)]
-pub fn kill_tree_blocking(pid: u32) -> Result<(), String> {
-    let mut command = std::process::Command::new("taskkill");
-    codeterm_util::process_util::no_window_std(&mut command);
-    command.args(["/PID", &pid.to_string(), "/T", "/F"]);
-    let status = command.status().map_err(|error| error.to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("taskkill {pid} exited with {status}"))
-    }
+fn reap_orphan(
+    pid: u32,
+    identity: Option<&codeterm_util::process_tree::ProcessRecord>,
+) -> Result<(), String> {
+    use codeterm_util::process_tree::OwnedProcessTree;
+    let identity = identity.ok_or_else(|| format!("no browser launch identity for PID {pid}"))?;
+    let executable = identity
+        .executable
+        .as_ref()
+        .ok_or_else(|| format!("no browser image for PID {pid}"))?;
+    let tree = OwnedProcessTree::capture_including_root(
+        (pid, identity.created),
+        std::slice::from_ref(executable),
+    )
+    .map_err(|error| format!("browser PID {pid} identity changed: {error}"))?;
+    tree.terminate_remaining(super::process::KILL_DEADLINE)
+        .map_err(|error| format!("browser PID {pid} tree exit: {error}"))
 }
 
 #[cfg(unix)]
-pub fn kill_tree_blocking(pid: u32) -> Result<(), String> {
-    let Ok(pid) = i32::try_from(pid) else {
-        return Err(format!("pid {pid} out of range"));
+fn reap_orphan(
+    orphan: &OrphanMatch,
+    layout: &ProfileLayout,
+    case_insensitive: bool,
+) -> Result<(), String> {
+    let pid = i32::try_from(orphan.pid).map_err(|_| "browser PID out of range".to_string())?;
+    let current = codeterm_util::process_util::bounded_capture(
+        "ps",
+        &["-p", &pid.to_string(), "-ww", "-o", "pid=,ppid=,args="],
+        INVENTORY_DEADLINE,
+    )
+    .map_err(|error| format!("browser PID {pid} no longer identifiable: {error}"))?;
+    if !parse_ps_output(&current).iter().any(|row| {
+        row.pid == orphan.pid
+            && owned_profile(row, layout.root(), case_insensitive).as_ref()
+                == Some(&orphan.profile_dir)
+    }) {
+        return Err(format!("browser PID {pid} launch identity changed"));
     };
     let group = unsafe { libc::getpgid(pid) };
     let target = if group == pid { -pid } else { pid };
@@ -239,6 +296,12 @@ pub fn kill_tree_blocking(pid: u32) -> Result<(), String> {
 pub fn sweep_orphans_blocking(layout: &ProfileLayout, keep: &HashSet<PathBuf>) -> SweepReport {
     let mut report = SweepReport::default();
     let case_insensitive = paths_case_insensitive();
+    let mut kept: HashSet<String> = keep
+        .iter()
+        .map(|dir| normalized_dir(dir, case_insensitive))
+        .collect();
+    #[cfg(windows)]
+    let process_identities = codeterm_util::process_tree::process_table();
     match enumerate_processes() {
         Ok(rows) => {
             let orphans = find_orphans(
@@ -248,30 +311,67 @@ pub fn sweep_orphans_blocking(layout: &ProfileLayout, keep: &HashSet<PathBuf>) -
                 keep,
                 case_insensitive,
             );
-            for pid in orphan_roots(&orphans) {
-                match kill_tree_blocking(pid) {
+            let orphan_ids: HashSet<_> = orphans.iter().map(|orphan| orphan.pid).collect();
+            kept.extend(
+                rows.iter()
+                    .filter(|row| {
+                        !orphan_ids.contains(&row.pid) && !row.command_line.contains(" --type=")
+                    })
+                    .filter_map(|row| {
+                        let dir = profile_dir_in_command_line(
+                            &row.command_line,
+                            layout.root(),
+                            case_insensitive,
+                        )?;
+                        Some(normalized_dir(&dir, case_insensitive))
+                    }),
+            );
+            let roots = orphan_roots(&orphans);
+            for orphan in orphans.iter().filter(|orphan| roots.contains(&orphan.pid)) {
+                let pid = orphan.pid;
+                #[cfg(windows)]
+                let result = match &process_identities {
+                    Ok(identities) => reap_orphan(pid, identities.get(&pid)),
+                    Err(error) => Err(format!("browser process identities unavailable: {error}")),
+                };
+                #[cfg(unix)]
+                let result = reap_orphan(orphan, layout, case_insensitive);
+                match result {
                     Ok(()) => report.killed.push(pid),
-                    Err(error) => report.errors.push(error),
+                    Err(error) => {
+                        kept.insert(normalized_dir(&orphan.profile_dir, case_insensitive));
+                        report.errors.push(error);
+                    }
                 }
             }
         }
-        Err(error) => report.errors.push(error),
+        Err(error) => {
+            log::warn!("[browser-sweep] process enumeration failed: {error}");
+            report.errors.push(error);
+            return report;
+        }
     }
-    let kept: HashSet<String> = keep
-        .iter()
-        .map(|dir| normalized_dir(dir, case_insensitive))
-        .collect();
-    if let Ok(entries) = std::fs::read_dir(layout.sessions_dir()) {
-        for entry in entries.flatten() {
-            let dir = entry.path();
-            if kept.contains(&normalized_dir(&dir, case_insensitive)) {
-                continue;
-            }
-            match std::fs::remove_dir_all(&dir) {
-                Ok(()) => report.removed_dirs.push(dir),
-                Err(error) => report
-                    .errors
-                    .push(format!("remove {}: {error}", dir.display())),
+    let sessions = layout.sessions_dir();
+    if codeterm_util::safe_tree::refuse_linked_ancestors(&sessions).is_ok() {
+        if let Ok(entries) = std::fs::read_dir(&sessions) {
+            for entry in entries.flatten() {
+                let dir = entry.path();
+                if kept.contains(&normalized_dir(&dir, case_insensitive))
+                    || !entry.file_type().is_ok_and(|kind| kind.is_dir())
+                    || !entry
+                        .file_name()
+                        .to_str()
+                        .is_some_and(|name| uuid::Uuid::parse_str(name).is_ok())
+                    || codeterm_util::safe_tree::refuse_linked_ancestors(&dir).is_err()
+                {
+                    continue;
+                }
+                match std::fs::remove_dir_all(&dir) {
+                    Ok(()) => report.removed_dirs.push(dir),
+                    Err(error) => report
+                        .errors
+                        .push(format!("remove {}: {error}", dir.display())),
+                }
             }
         }
     }
@@ -338,6 +438,9 @@ mod tests {
             "/usr/bin/google-chrome --user-data-dir=/home/u/.domios/browsers/sessions/",
             "/usr/bin/google-chrome /home/u/.domios/browsers/sessions/x",
             "/usr/bin/google-chrome --user-data-dir=/HOME/U/.domios/browsers/sessions/x",
+            "/usr/bin/google-chrome --user-data-dir=/home/u/.domios/browsers/sessions/../x",
+            "/usr/bin/google-chrome --user-data-dir=/home/u/.domios/browsers/sessions/x/subdir",
+            "/usr/bin/google-chrome --description=--user-data-dir=/home/u/.domios/browsers/sessions/x",
         ] {
             assert_eq!(
                 profile_dir_in_command_line(line, root, false),
@@ -382,6 +485,18 @@ mod tests {
         assert!(find_orphans(&rows, root, 42, &HashSet::new(), false).is_empty());
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn browser_sweep_ignores_ownership_flags_inside_windows_arguments() {
+        let root = Path::new(r"C:\Users\Fixture User\.domios\browsers");
+        let rows = vec![row(
+            90,
+            1,
+            r#"powershell.exe -Command "echo --codeterm-owned-browser --user-data-dir=C:\Users\Fixture User\.domios\browsers\profiles\work""#,
+        )];
+        assert!(find_orphans(&rows, root, 42, &HashSet::new(), true).is_empty());
+    }
+
     #[test]
     fn browser_sweep_parses_ps_output() {
         let stdout =
@@ -399,12 +514,15 @@ mod tests {
     fn browser_sweep_parses_cim_json_array_object_and_empty() {
         let array = r#"[{"ProcessId":7,"ParentProcessId":3,"CommandLine":"chrome.exe --user-data-dir=\"C:\\x\""},{"ProcessId":8,"CommandLine":null}]"#;
         assert_eq!(
-            parse_cim_json(array),
+            parse_cim_json(array).unwrap(),
             vec![row(7, 3, r#"chrome.exe --user-data-dir="C:\x""#)]
         );
         let object = "\u{feff}{\"ProcessId\":9,\"CommandLine\":\"msedge.exe\"}\r\n";
-        assert_eq!(parse_cim_json(object), vec![row(9, 0, "msedge.exe")]);
-        assert!(parse_cim_json("").is_empty());
-        assert!(parse_cim_json("not json").is_empty());
+        assert_eq!(
+            parse_cim_json(object).unwrap(),
+            vec![row(9, 0, "msedge.exe")]
+        );
+        assert!(parse_cim_json("").unwrap().is_empty());
+        assert!(parse_cim_json("not json").is_err());
     }
 }

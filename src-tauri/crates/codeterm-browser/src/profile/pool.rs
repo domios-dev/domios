@@ -40,9 +40,8 @@ impl SharedBrowser {
             }
         };
         self.client.close("shared browser stopped");
-        let confirmed_exit = self.process.is_none()
-            || !cfg!(target_os = "macos")
-            || outcome.is_some_and(CloseOutcome::confirms_exit);
+        let confirmed_exit =
+            self.process.is_none() || outcome.is_some_and(CloseOutcome::confirms_exit);
         if !self.profile.is_persistent() || super::instance::is_ephemeral(&self.dir).await {
             if confirmed_exit {
                 let _ = tokio::fs::remove_dir_all(&self.dir).await;
@@ -204,16 +203,27 @@ impl ProfileLease {
         let target_id = self.target_id.take();
         Some(executor.spawn(async move {
             let mut model = slot.lock().await;
-            let same_browser = model.handle().is_some_and(|current| Arc::ptr_eq(&current, &browser));
+            let same_browser = model
+                .handle()
+                .is_some_and(|current| Arc::ptr_eq(&current, &browser));
             if same_browser && !browser.is_alive() {
-                if let Some(retired) = model.retire() { return retired.stop(deadline, model.generation()).await; }
+                if let Some(retired) = model.retire() {
+                    return retired.stop(deadline, model.generation()).await;
+                }
             }
             if same_browser {
                 if let Some(target_id) = target_id {
-                    let closed = browser.client.send_to(None, "Target.closeTarget", json!({ "targetId": target_id }), deadline).await;
-                    if !matches!(closed, Ok(ref result) if result.get("success").and_then(serde_json::Value::as_bool) == Some(true)) {
-                        let retired = model.retire();
-                        if let Some(retired) = retired { return retired.stop(deadline, model.generation()).await; }
+                    if let Err(error) = browser
+                        .client
+                        .send_to(
+                            None,
+                            "Target.closeTarget",
+                            json!({ "targetId": target_id }),
+                            deadline,
+                        )
+                        .await
+                    {
+                        log::debug!("[browser] close profile target {target_id}: {error}");
                     }
                 }
             }

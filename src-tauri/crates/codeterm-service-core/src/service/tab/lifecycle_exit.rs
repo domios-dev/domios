@@ -111,6 +111,23 @@ fn clear_exited_agent_identity(tab: &mut crate::multiplexer::types::Tab) -> Clea
 }
 
 impl ServiceContext {
+    fn clear_exited_agent_and_browsers(
+        &self,
+        tab_id: &str,
+        matches: impl FnOnce(&crate::multiplexer::types::Tab) -> bool,
+    ) -> ClearedAgentIdentity {
+        let mut mux = self.mux.write();
+        let identity = mux
+            .get_tab_mut(tab_id)
+            .filter(|tab| matches(tab))
+            .map(clear_exited_agent_identity)
+            .unwrap_or_default();
+        if identity.cleared {
+            self.remove_owned_browser_tabs(&mut mux, tab_id);
+        }
+        identity
+    }
+
     pub fn finish_provider_switch_source_exit(
         &self,
         authority: &crate::service::messenger::switch_handoff::SwitchSourceAuthority,
@@ -234,12 +251,7 @@ impl ServiceContext {
             }
             return false;
         }
-        let cleared = {
-            let mut mux = self.mux.write();
-            mux.get_tab_mut(tab_id)
-                .map(clear_exited_agent_identity)
-                .unwrap_or_default()
-        };
+        let cleared = self.clear_exited_agent_and_browsers(tab_id, |_| true);
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         let finished =
             self.finish_agent_identity_clear(tab_id, cause, cleared, "pty-exit", tree_evidence);
@@ -348,12 +360,7 @@ impl ServiceContext {
         let exited = exit_proof
             .as_ref()
             .and_then(|proof| self.claim_launch_exit(tab_id, Some(&pty_id), None, proof));
-        let cleared = {
-            let mut mux = self.mux.write();
-            mux.get_tab_mut(tab_id)
-                .map(clear_exited_agent_identity)
-                .unwrap_or_default()
-        };
+        let cleared = self.clear_exited_agent_and_browsers(tab_id, |_| true);
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         let finished = self.finish_agent_identity_clear(
             tab_id,
@@ -430,13 +437,9 @@ impl ServiceContext {
                 "finished_marker_tree_identity_mismatch",
             );
         }
-        let cleared = {
-            let mut mux = self.mux.write();
-            mux.get_tab_mut(tab_id)
-                .filter(|tab| crate::service::launch_readiness::attempt_owns_tab(tab, attempt))
-                .map(clear_exited_agent_identity)
-                .unwrap_or_default()
-        };
+        let cleared = self.clear_exited_agent_and_browsers(tab_id, |tab| {
+            crate::service::launch_readiness::attempt_owns_tab(tab, attempt)
+        });
         if cleared.cleared {
             crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         }
@@ -533,6 +536,7 @@ impl ServiceContext {
         if !identity.cleared {
             return false;
         }
+        self.dispose_closed_surface_runtimes();
         if source != "explicit-clear" {
             if let Some(pty_id) = identity.pty_id.as_deref() {
                 self.screen_state.reset_input_modes(pty_id);

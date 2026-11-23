@@ -39,6 +39,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures_util::future::{BoxFuture, Shared};
+use futures_util::FutureExt;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 
@@ -56,16 +58,18 @@ use super::runtime::{
 use codeterm_browser::process::CloseOutcome;
 use codeterm_browser::profile::ProfileLayout;
 use codeterm_browser::viewport::ViewportRequest;
-use codeterm_browser::{BrowserHost, BrowserHostConfig, OpenOptions, PageChannel};
+use codeterm_browser::{BrowserHost, BrowserHostConfig, BrowserStatus, OpenOptions, PageChannel};
 
 pub const BROWSER_RUNTIME: &str = "browser";
 pub(super) const WAIT_DEADLINE: Duration = Duration::from_secs(15);
 const PENDING_GRABS: usize = 16;
 const CLEAN_PROFILE: &str = "clean";
 
+type BrowserSweep = tokio::sync::OnceCell<Shared<BoxFuture<'static, ()>>>;
+
 pub struct BrowserRuntimeFactory {
     data_dir: PathBuf,
-    swept: Arc<tokio::sync::OnceCell<()>>,
+    swept: Arc<BrowserSweep>,
 }
 
 impl BrowserRuntimeFactory {
@@ -75,6 +79,25 @@ impl BrowserRuntimeFactory {
             swept: Arc::new(tokio::sync::OnceCell::new()),
         }
     }
+
+    pub async fn sweep(&self) {
+        sweep_browsers(&self.swept, ProfileLayout::under_data_dir(&self.data_dir)).await;
+    }
+}
+
+async fn sweep_browsers(swept: &BrowserSweep, layout: ProfileLayout) {
+    swept
+        .get_or_init(|| async {
+            async move {
+                let report = codeterm_browser::sweep_orphans(layout).await;
+                log::debug!("[browser] startup orphan sweep: {report:?}");
+            }
+            .boxed()
+            .shared()
+        })
+        .await
+        .clone()
+        .await;
 }
 
 impl SurfaceRuntimeFactory for BrowserRuntimeFactory {
@@ -105,7 +128,7 @@ pub struct BrowserRuntime {
     host: BrowserHost,
     viewport: tokio::sync::Mutex<viewport::ViewportOwner>,
     layout: ProfileLayout,
-    swept: Arc<tokio::sync::OnceCell<()>>,
+    swept: Arc<BrowserSweep>,
     shared: Arc<PageShared>,
     profile_request: Mutex<String>,
     resume_profile: tokio::sync::Mutex<Option<String>>,
@@ -129,7 +152,7 @@ impl BrowserRuntime {
         config: BrowserHostConfig,
         owner: &str,
         owner_scope: &str,
-        swept: Arc<tokio::sync::OnceCell<()>>,
+        swept: Arc<BrowserSweep>,
         resume: SurfaceResume,
     ) -> Self {
         let resume = SurfaceResume {
@@ -211,13 +234,7 @@ impl BrowserRuntime {
         exclusive_profile: Option<&str>,
     ) -> Result<PageChannel, String> {
         self.viewport.lock().await.start(self.host.viewport());
-        let layout = self.layout.clone();
-        self.swept
-            .get_or_init(|| async move {
-                let report = codeterm_browser::sweep_orphans(layout).await;
-                log::info!("[browser] orphan sweep before first launch: {report:?}");
-            })
-            .await;
+        sweep_browsers(&self.swept, self.layout.clone()).await;
         self.apply_resume_profile().await;
         let viewport = self.host.viewport();
         let options = OpenOptions {
@@ -382,6 +399,7 @@ impl BrowserRuntime {
 
     /// `""` or `"clean"` is the throwaway profile; a named one keeps logins across restarts.
     async fn use_profile(&self, raw: &str) -> Result<(), String> {
+        sweep_browsers(&self.swept, self.layout.clone()).await;
         let wanted = if raw.trim().is_empty() || raw.trim().eq_ignore_ascii_case(CLEAN_PROFILE) {
             String::new()
         } else {
@@ -543,6 +561,17 @@ impl SurfaceRuntime for BrowserRuntime {
 
     fn resume_updates(&self) -> Option<tokio::sync::watch::Receiver<SurfaceResume>> {
         Some(self.shared.subscribe_resume())
+    }
+
+    fn browser_status(&self) -> BrowserStatus {
+        match self.host.status() {
+            BrowserStatus::Error(reason) => BrowserStatus::Error(self.redact_text(&reason)),
+            status => status,
+        }
+    }
+
+    fn retire(&self) {
+        self.host.retire();
     }
 
     async fn dispose(&self) {

@@ -516,6 +516,22 @@ fn handle_pty_death_with_cause(
         .as_ref()
         .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_session_id.is_some());
     if has_agent_identity {
+        let removed = {
+            let mut mux = svc.mux.write();
+            let same_pty = mux
+                .get_tab(pid)
+                .is_some_and(|tab| tab.pty_id.as_deref() == Some(pty_id))
+                && svc
+                    .pty
+                    .lock()
+                    .session_generation_matches(pty_id, generation);
+            same_pty && svc.remove_owned_browser_tabs(&mut mux, pid)
+        };
+        if removed {
+            svc.dispose_closed_surface_runtimes();
+            svc.schedule_session_persist_debounced();
+            svc.emit_state_changed(super::MuxEmitCause::Surface);
+        }
         log::info!(
             "[backend-reader] preserving Tab agent identity after PTY death without an exit marker: {}",
             pid
