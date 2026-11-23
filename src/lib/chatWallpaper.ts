@@ -5,7 +5,7 @@ import type { WallpaperFill } from "../../gen/WallpaperFill";
 import type { WallpaperFillPreset } from "../../gen/WallpaperFillPreset";
 import type { WallpaperPalette } from "../../gen/WallpaperPalette";
 import { chatBackgroundToCSS, chatPatternTile } from "./chatBackgroundCss";
-import { machineColor, type MachineColor } from "./machineIdentity";
+import type { MachineColor } from "./machineIdentity";
 import type { ThemeConfig } from "./types";
 
 export const WALLPAPER_PATTERNS = [
@@ -86,11 +86,6 @@ export function wallpaperRenderStyle(
   const swatch = WALLPAPER_PATTERNS.find(candidate => candidate.id === pattern);
   const art = swatch && "art" in swatch ? swatch.art : undefined;
 
-  if (!setting && !theme.chat_background && identity) {
-    const tone = `var(--ct-machine-${machineColor(identity)})`;
-    const fill = `linear-gradient(160deg, color-mix(in srgb, ${tone} ${light ? 10 : 16}%, var(--ct-bg)), var(--ct-bg))`;
-    return backdrop(fill, dotsMask(20), tone, 0.09);
-  }
   if (!setting && (!art || pattern === "doodles") && !background.colors) {
     return backdrop(chatBackgroundToCSS(theme, light));
   }
