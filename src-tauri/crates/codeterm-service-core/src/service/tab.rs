@@ -52,6 +52,7 @@ pub(crate) fn normalize_optional_tab_description(
 /// Prefix on every self-termination refusal so transports can classify it.
 pub const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
 pub(crate) const UNATTRIBUTED_CLOSE_REFUSAL_PREFIX: &str = "tab close refused";
+mod cwd;
 mod ownership;
 mod remote_close;
 pub use remote_close::REMOTE_TAB_CLOSE_REFUSAL_PREFIX;
@@ -634,32 +635,6 @@ impl ServiceContext {
             |selected| self.seed_pending_scrollback_before_link(tab_id, selected),
             |_, _| Ok(()),
         )
-    }
-
-    pub fn update_tab_cwd(&self, tab_id: &str, cwd: String) {
-        let changed = {
-            let mut mux = self.mux.write();
-            mux.get_tab_mut(tab_id).is_some_and(|tab| {
-                let mapped = tab
-                    .shell_profile
-                    .as_ref()
-                    .filter(|profile| profile.wsl_distro.is_some() && cwd.starts_with('/'))
-                    .map(|profile| profile.host_cwd(&cwd))
-                    .transpose();
-                let Ok(mapped) = mapped else {
-                    return false;
-                };
-                let cwd = codeterm_paths::strip_verbatim_prefix(&mapped.unwrap_or(cwd));
-                if tab.cwd.as_deref() == Some(cwd.as_str()) {
-                    return false;
-                }
-                tab.cwd = Some(cwd);
-                true
-            })
-        };
-        if changed {
-            self.emit_state_changed(MuxEmitCause::Cwd);
-        }
     }
 
     pub fn clear_tab_restored_flag(&self, tab_id: &str) {
