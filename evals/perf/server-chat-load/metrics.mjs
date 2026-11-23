@@ -75,9 +75,17 @@ export async function embeddingQueue(connection) {
 const countFields = ["requests", "request_bytes", "response_bytes"];
 
 export function censusDelta(before, after) {
+  const newestMinute = snapshot => Math.max(...snapshot.requests.entries.map(row => row.minute_epoch));
+  const startMinute = newestMinute(before);
+  const endMinute = newestMinute(after);
+  if (!Number.isFinite(startMinute) || endMinute < startMinute ||
+      endMinute - startMinute >= after.requests.retained_minutes) {
+    throw new Error("DEV counters rotated out during phase");
+  }
   const totals = new Map();
   for (const [sign, entries] of [[-1, before.requests.entries], [1, after.requests.entries]]) {
     for (const entry of entries) {
+      if (entry.minute_epoch < startMinute) continue;
       const { method, route, client_id } = entry;
       const key = JSON.stringify([method, route, client_id]);
       const result = totals.get(key) ?? { method, route, client_id, requests: 0, request_bytes: 0, response_bytes: 0 };
