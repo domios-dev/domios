@@ -4,7 +4,7 @@ The public source repository is `domios-dev/domios`. The owner reviews and appli
 
 ## Apply and verify policy
 
-From the reviewed checkout, select the personal account for this command without changing the global active account:
+Before reprovisioning, the release owner must reconcile the environment and runner-group drift documented here. Then select the personal account for this command without changing the global active account:
 
 ```bash
 GH_TOKEN="$(gh auth token --user rollacode)" bash .github/admin/public-repo.sh --apply
@@ -30,7 +30,14 @@ checks the exact master diff and whitespace, verifies local README images,
 and runs the public privacy guard. The docs route publishes no packages.
 Use `release/next` for everything outside these scoped PR routes.
 
-Inspect existing rulesets and environment branch policies first. The named rulesets are updated in place. The script reconciles the `release` environment's deployment branch policies to exactly two branch entries and deletes every other branch or tag policy: `release/next` (release push dry run and owner dispatches) and `master` (publication). Verify that the final list contains only those two and that the only reviewer is `rollacode`. Self-review must remain enabled so the sole owner can approve their own run. Disable environment administrator bypass in the environment settings if available.
+The effective `release` environment has two deployment branch policies, `release/*` for release branches and `master` for publication. Workflow actor, ref and event checks still govern individual jobs. Read back the branch policies and reviewer:
+
+```bash
+gh api repos/domios-dev/domios/environments/release/deployment-branch-policies --jq '.branch_policies[] | {type,name}'
+gh api repos/domios-dev/domios/environments/release --jq '.protection_rules[] | select(.type == "required_reviewers")'
+```
+
+The sole required reviewer is `rollacode`, with self-review enabled. Disable environment administrator bypass in the environment settings if available. The checked-in [provisioning script](../../.github/admin/public-repo.sh) still replaces `release/*` with the older exact `release/next` rule. The release owner must review that drift before the script is applied.
 
 If develop has a live rule requiring the old `CI result` context, the owner replaces it with `PR result`; a rule naming a context no PR emits blocks every develop merge.
 
@@ -95,11 +102,14 @@ gh api repos/domios-dev/domios/actions/runners --paginate
 ```
 
 Select `domios-trusted` by its returned ID. After the owner creates `release/next`, the release
-Orchestrator applies the reviewed [runner-group PATCH payload](../../.github/admin/runner-group-policy.json)
-under standing owner permission. GitHub requires the exact `refs/heads/release/next` ref to exist
-when applying the policy. Include reusable workflows and their callers. Reuse the same allowlist
-when the owner recreates the branch for a new version. Read it back before each release and confirm
-runner assignment on the new push.
+Orchestrator reads back the exact runner policy and confirms runner assignment on the new push.
+The effective allowlist includes
+`domios-dev/domios/.github/workflows/plugin-release.yml@refs/heads/release/next`.
+The checked-in [runner-group PATCH payload](../../.github/admin/runner-group-policy.json) omits
+that entry. The release owner must review the difference before the payload is applied. Current
+plugin publication jobs run on hosted Ubuntu at `master`. GitHub requires the exact
+`refs/heads/release/next` ref to exist when applying the policy. Include reusable workflows and their
+callers in the reviewed allowlist.
 
 Owner-only creation, updates and deletion are enforced by `owner-only-trusted-branches` (27323646).
 The owner provisioning script installs a no-bypass force-push rule for `release/next` before
@@ -129,7 +139,8 @@ Use `PUT /orgs/domios-dev/actions/runner-groups/<group-id>/repositories` with
 `{"selected_repository_ids":[1187898203]}` after confirming the repository ID with
 `gh api repos/domios-dev/domios --jq '.id'`. Read the grant back before requesting runners.
 
-Orchestrator operation under standing owner permission, after reviewing the ID and payload:
+Orchestrator operation under standing owner permission, after the release owner reconciles drift
+and reviews the group ID and payload:
 
 ```bash
 gh api --method PATCH orgs/domios-dev/actions/runner-groups/REVIEWED_GROUP_ID --input .github/admin/runner-group-policy.json

@@ -1,5 +1,6 @@
 import { releaseTag } from './release-version.mjs';
-import { isReleasePushRun, latestQualificationJobs, QUALIFICATION_JOBS, resolveQualificationOrigins } from './ci-qualification.mjs';
+import { isReleasePushRun, latestQualificationJobs, QUALIFICATION_JOBS, RELEASE_CLIPPY_JOB,
+  resolveQualificationOrigins } from './ci-qualification.mjs';
 import { REQUIRED_JOBS, verifyAssetDigests } from './release-promote.mjs';
 import { PLATFORMS } from './release-dry-run-manifest.mjs';
 
@@ -78,6 +79,7 @@ export function verifyTestWaiver({ waiver, run, jobs, attempts, sha, repository,
   const derived = [];
   for (const job of effective) {
     if (waiver.jobs.includes(job.name) || job.conclusion === 'success') continue;
+    if (job.name === RELEASE_CLIPPY_JOB) throw new Error(`Unwaived qualification failure: ${job.name}`);
     if (job.name === 'qualification receipt' && job.status === 'completed' && job.conclusion === 'skipped') {
       derived.push(job); continue;
     }
