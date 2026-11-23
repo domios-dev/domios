@@ -310,6 +310,8 @@ fn inline_speech_is_bounded_and_remains_data_inside_the_route_frame() {
         true,
         0,
     );
+    assert!(non_adjacent.contains("[CONTEXT]"));
+    assert!(non_adjacent.contains("&lt;speech&gt; &amp;"));
     assert!(non_adjacent.contains("[UNREAD]"));
     assert!(non_adjacent.contains("opaque second segment"));
     append("opaque oversized ".repeat(130));

@@ -331,18 +331,46 @@ pub(super) fn route_body(
         } else {
             let limit = (range.to_seq.saturating_sub(range.from_seq) + 1).min(16) as usize;
             if let Ok(page) = store.history(range.from_seq, limit) {
-                let mut text = String::from("[UNREAD]");
+                let mut unread = String::from("[UNREAD]");
                 for row in page.rows.iter().filter(|row| row.seq <= range.to_seq) {
                     if let crate::service::live_transcript::TranscriptContent::Speech {
                         text: spoken,
                     } = &row.content
                     {
-                        text.push('\n');
-                        text.push_str(&format!("{} {}", row.seq, escape_inline(spoken)));
+                        unread.push('\n');
+                        unread.push_str(&format!("{} {}", row.seq, escape_inline(spoken)));
                     }
                 }
-                if text.len() > "[UNREAD]".len() && text.chars().count() <= budget {
-                    return format!("{pointer}\n{text}");
+                if unread.len() > "[UNREAD]".len() {
+                    let mut context = String::new();
+                    if let Ok(recent) = store.recent_context(range.from_seq.saturating_sub(1)) {
+                        for row in recent {
+                            if let crate::service::live_transcript::TranscriptContent::Speech {
+                                text: spoken,
+                            } = row.content
+                            {
+                                if context.is_empty() {
+                                    context.push_str("[CONTEXT]");
+                                }
+                                context.push('\n');
+                                context.push_str(&format!(
+                                    "{} {}",
+                                    row.seq,
+                                    escape_inline(&spoken)
+                                ));
+                            }
+                        }
+                    }
+                    let combined = if !context.is_empty()
+                        && context.chars().count() + 1 + unread.chars().count() <= budget
+                    {
+                        format!("{context}\n{unread}")
+                    } else {
+                        unread
+                    };
+                    if combined.chars().count() <= budget {
+                        return format!("{pointer}\n{combined}");
+                    }
                 }
             }
         }
