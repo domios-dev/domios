@@ -62,6 +62,7 @@
   --ct-bg-selected: rgba(99, 102, 241, 0.12);
 
   /* Borders - sub-pixel via box-shadow */
+  --ct-panel-edge: color-mix(in srgb, var(--ct-fg) 8%, transparent);
   --ct-border-subtle: rgba(255, 255, 255, 0.06);
   --ct-border-default: rgba(255, 255, 255, 0.1);
   --ct-border-focus: rgba(99, 102, 241, 0.5);
