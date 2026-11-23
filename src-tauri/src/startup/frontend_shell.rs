@@ -362,9 +362,14 @@ fn grant_shell_navigation(
 
 fn take_shell_navigation_permit(
     app: &codeterm_client_shell::app_runtime::AppHandle,
+    document: GuardedShellDocument,
 ) -> Option<GuardedShellDocument> {
     app.try_state::<ShellSupervisor>().and_then(|supervisor| {
-        GuardedShellDocument::from_code(supervisor.shell_permit.swap(0, Ordering::AcqRel))
+        supervisor
+            .shell_permit
+            .compare_exchange(document.code(), 0, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| document)
     })
 }
 
@@ -392,7 +397,7 @@ fn navigate_main_guarded(
         Ok(()) => Ok(()),
         Err(error) => {
             if main {
-                take_shell_navigation_permit(window.app_handle());
+                take_shell_navigation_permit(window.app_handle(), document);
             }
             Err(error.to_string())
         }
@@ -655,11 +660,7 @@ pub fn create_window(
             // Only consume the permit when the navigation targets a guarded
             // document; ordinary navigations must not drain it.
             let guard = guarded_shell_document(url, &unavailable);
-            let permit = if guard.is_some() {
-                take_shell_navigation_permit(&shell_app)
-            } else {
-                None
-            };
+            let permit = guard.and_then(|document| take_shell_navigation_permit(&shell_app, document));
             let decision = shell_navigation_decision(
                 url,
                 origin.as_deref(),
