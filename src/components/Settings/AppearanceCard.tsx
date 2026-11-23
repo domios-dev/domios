@@ -13,6 +13,8 @@ import { Button } from "../shared/Button";
 import { AppearancePreview } from "./AppearancePreview";
 import "./appearance.css";
 
+const percent = (value: number) => `${Number((value * 100).toFixed(2))}%`;
+
 function changes(proposal: AppearanceProposal, wallpaperLabel: string | null): string[] {
   const before = proposal.previous.tuning ?? DEFAULT_APPEARANCE;
   const after = proposal.look.tuning ?? DEFAULT_APPEARANCE;
@@ -25,7 +27,7 @@ function changes(proposal: AppearanceProposal, wallpaperLabel: string | null): s
     wallpaperLabel,
     after.roundness !== before.roundness ? `Roundness ${after.roundness}` : null,
     after.shadow_strength !== before.shadow_strength ? `Shadow ${after.shadow_strength}` : null,
-    after.edges !== before.edges ? `Edges ${after.edges}` : null,
+    after.border_strength !== before.border_strength ? `Border brightness ${percent(after.border_strength)}` : null,
     strength !== previousStrength ? `Background ${Math.round(strength * 100)}%` : null,
     after.font_size !== before.font_size ? `Interface text ${after.font_size > 0 ? "+" : ""}${after.font_size}px` : null,
   ].filter((value): value is string => value !== null);
@@ -39,14 +41,13 @@ function tweakChanges({ previous, look }: AppearanceProposal): string[] {
     const painted = Boolean(palette || background.color || background.colors?.length);
     return background.opacity ?? wallpaperDefaultOpacity(background.pattern, isLightColor(theme.background), painted);
   };
-  const percent = (value: number) => `${Number((value * 100).toFixed(2))}%`;
   const pixels = (value: number) => `${value > 0 ? "+" : ""}${value}px`;
   const controls = [
     ["Wallpaper", percent(intensity(previous)), percent(intensity(look))],
     ["Background", percent(previous.wallpaper?.fill_strength ?? 1), percent(look.wallpaper?.fill_strength ?? 1)],
     ["Roundness", percent(before.roundness), percent(after.roundness)],
     ["Shadow", percent(before.shadow_strength), percent(after.shadow_strength)],
-    ["Edges", before.edges, after.edges],
+    ["Border brightness", percent(before.border_strength), percent(after.border_strength)],
     ["Interface text", pixels(before.font_size), pixels(after.font_size)],
   ];
   return controls.flatMap(([label, from, to]) => from === to ? [] : [`${label} ${from} → ${to}`]);

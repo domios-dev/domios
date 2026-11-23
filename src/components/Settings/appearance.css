@@ -37,7 +37,7 @@
 .ct-appearance-machine,
 .ct-appearance-lab button {
   border-radius: calc(8px * var(--ct-roundness, 1));
-  border: 1px solid var(--ct-accessible-edge, var(--appearance-edge));
+  border: 1px solid var(--appearance-edge);
 }
 .ct-appearance-machine { max-width: 100%; padding: 3px 8px; flex-wrap: nowrap; }
 .ct-appearance-machine svg { flex: none; }
@@ -184,7 +184,7 @@
 .ct-appearance-colour input {
   width: 24px;
   height: 24px;
-  border: 1px solid var(--ct-accessible-edge, var(--appearance-edge));
+  border: 1px solid var(--ct-control-border, var(--ct-fg));
   border-radius: calc(6px * var(--ct-roundness, 1));
   padding: 0;
   overflow: hidden;
@@ -219,7 +219,7 @@
 .ct-appearance-segment button { border-color: transparent; font-size: .75rem; }
 .ct-appearance-segment button[aria-pressed="true"] {
   background-color: var(--ct-bg);
-  border-color: var(--ct-accessible-edge, var(--appearance-edge));
+  border-color: var(--ct-accent);
 }
 .ct-appearance-preview {
   display: grid;
@@ -276,7 +276,7 @@
   max-width: 100%;
   padding: 5px 7px;
   background: var(--ct-surface);
-  border: 1px solid var(--ct-accessible-edge, var(--ct-border-default));
+  border: 1px solid var(--ct-border-default);
   border-radius: calc(8px * var(--ct-roundness, 1));
   overflow-wrap: anywhere;
 }
@@ -285,7 +285,7 @@
   padding: 3px 5px;
   background: var(--ct-surface);
   color: var(--ct-fg);
-  border: 1px solid var(--ct-accessible-edge, var(--ct-border-default));
+  border: 1px solid var(--ct-border-default);
   border-radius: calc(6px * var(--ct-roundness, 1));
 }
 .ct-appearance-preview__menu {
@@ -300,6 +300,7 @@
   width: 100%;
   margin-top: auto;
   color: var(--ct-muted-fg);
+  border-color: var(--ct-input-border, var(--ct-panel-edge));
   box-shadow: var(--ct-shadow-capsule);
   border-radius: calc(20px * var(--ct-roundness, 1));
 }
