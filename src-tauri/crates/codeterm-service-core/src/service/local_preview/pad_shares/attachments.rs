@@ -126,7 +126,10 @@ pub(super) struct PreparedAttachments {
 impl PreparedAttachments {
     pub(super) fn write_snapshot(&self) -> Result<(), String> {
         if let Some(snapshot) = &self.snapshot {
-            write_pad_inbox(&snapshot.pad, &snapshot.files)?;
+            write_pad_inbox(
+                &codeterm_paths::simplified_path(&snapshot.pad),
+                &snapshot.files,
+            )?;
         }
         Ok(())
     }

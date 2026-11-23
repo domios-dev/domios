@@ -324,7 +324,7 @@ impl Fixture {
         sender: &str,
         recipient: &str,
         mut body: serde_json::Value,
-    ) -> Response {
+    ) -> (Response, Vec<String>) {
         let writes =
             self._service
                 .bind_recorded_agent_recipient(recipient, recipient, "share-nonce");
@@ -335,12 +335,8 @@ impl Fixture {
             .body(Body::from(body.to_string()))
             .unwrap();
         let response = self.app.clone().oneshot(request).await.unwrap();
-        if response.status().is_success() {
-            tokio::task::spawn_blocking(move || writes.wait_for_flush())
-                .await
-                .unwrap();
-        }
-        response
+        let delivered = writes.texts.lock().clone();
+        (response, delivered)
     }
 }
 

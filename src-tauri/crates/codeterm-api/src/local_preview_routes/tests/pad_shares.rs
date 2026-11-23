@@ -1,4 +1,5 @@
 use super::*;
+use std::path::PathBuf;
 
 #[tokio::test]
 async fn tab_send_grants_an_exact_canvas_and_its_items_to_owner_chat() {
@@ -25,11 +26,14 @@ async fn tab_send_grants_an_exact_canvas_and_its_items_to_owner_chat() {
     );
 
     let card = format!("<ds-canvas src=\"{}\" />", board.display());
-    let response = fixture
-        .send(sender, recipient, serde_json::json!({"text": card}))
+    let (response, delivered) = fixture
+        .send(sender, recipient, serde_json::json!({"text": card.clone()}))
         .await;
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(json(response).await["ok"], true);
+    let status = response.status();
+    let receipt = json(response).await;
+    assert_eq!(status, StatusCode::OK, "{receipt}");
+    assert_eq!(receipt["bytes_written"], true, "{receipt}");
+    assert_eq!(delivered, [card]);
 
     let read_board = fixture.read(recipient, &board, "canvas").await;
     assert_eq!(read_board.status(), StatusCode::OK);
@@ -131,7 +135,7 @@ async fn copy_attachment_snapshots_canvas_items_in_the_recipient_inbox() {
         serde_json::json!(item),
     );
     std::fs::write(&board, content).unwrap();
-    let refusal = fixture
+    let (refusal, delivered) = fixture
         .send(
             sender,
             recipient,
@@ -142,9 +146,10 @@ async fn copy_attachment_snapshots_canvas_items_in_the_recipient_inbox() {
         .await;
     assert_eq!(refusal.status(), StatusCode::CONFLICT);
     assert_eq!(json(refusal).await["error"]["bytes_written"], false);
+    assert!(delivered.is_empty());
     let inbox = fixture.pad(recipient).join("inbox");
     assert!(!inbox.exists());
-    let response = fixture
+    let (response, delivered) = fixture
         .send(
             sender,
             recipient,
@@ -153,8 +158,11 @@ async fn copy_attachment_snapshots_canvas_items_in_the_recipient_inbox() {
             }),
         )
         .await;
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(json(response).await["ok"], true);
+    let status = response.status();
+    let receipt = json(response).await;
+    assert_eq!(status, StatusCode::OK, "{receipt}");
+    assert_eq!(receipt["bytes_written"], true, "{receipt}");
+    assert_eq!(delivered.len(), 1);
     let files: Vec<_> = std::fs::read_dir(&inbox)
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -164,6 +172,7 @@ async fn copy_attachment_snapshots_canvas_items_in_the_recipient_inbox() {
         .iter()
         .find(|file| file.to_string_lossy().ends_with(".canvas.json"))
         .unwrap();
+    assert!(delivered[0].contains(copied.file_name().unwrap().to_str().unwrap()));
     let copy = std::fs::read_to_string(copied).unwrap();
     let child: serde_json::Value = serde_json::from_str(&copy).unwrap();
     let child = PathBuf::from(child["items"][0]["src"].as_str().unwrap());
