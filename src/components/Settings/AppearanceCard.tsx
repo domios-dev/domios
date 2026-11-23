@@ -3,11 +3,12 @@ import { Check, FlaskConical, Info, Palette } from "lucide-react";
 import { deriveColor } from "../../lib/colors";
 import { DEFAULT_APPEARANCE, type AppearanceProposal } from "../../lib/appearance";
 import { APPEARANCE_CHANGED, OPEN_APPEARANCE, appearanceError, changeAppearance, listenAppearanceCommit, readAppearanceProposal, type AppearanceTarget, type OpenAppearance } from "../../lib/appearanceClient";
-import { clearAppearancePress, indicateAppearancePress } from "../../lib/appearanceMotion";
+import { bindAppearancePress, clearAppearancePress, indicateAppearancePress } from "../../lib/appearanceMotion";
 import { useAccountMachineNames, useMeshMachineChoices, useMeshPeerName } from "../../lib/useMeshMachineIdentities";
 import { cleanMachineName } from "../../lib/machineIdentity";
 import { effectiveWallpaper, WALLPAPER_PATTERNS, wallpaperDefaultOpacity, wallpaperSummary } from "../../lib/chatWallpaper";
 import { isLightColor } from "../../lib/themeCss";
+import { relayTarget } from "../../lib/webApi";
 import { Button } from "../shared/Button";
 import { AppearancePreview } from "./AppearancePreview";
 import "./appearance.css";
@@ -116,12 +117,15 @@ function AppearanceCard({ id, machine }: { id: string; machine: string }) {
     record.contrast.filter(value => value.name === name).sort((a, b) => a.ratio - b.ratio).slice(0, 1));
   const run = async (action: "apply" | "undo" | "use-theme-wallpaper", button: HTMLButtonElement) => {
     if (busy) return;
-    if (action !== "undo") indicateAppearancePress(button);
+    if (action !== "undo") {
+      indicateAppearancePress(button);
+      bindAppearancePress(button, id, action === "use-theme-wallpaper" ? { ...look, wallpaper: null } : look, peer ?? relayTarget()?.id);
+    }
     setBusy(true);
     setError("");
     try { setRecord(await changeAppearance(target, id, action)); }
-    catch (failure) { setError(appearanceError(failure)); }
-    finally { setBusy(false); clearAppearancePress(button); }
+    catch (failure) { clearAppearancePress(button); setError(appearanceError(failure)); }
+    finally { setBusy(false); }
   };
   const openLab = () => window.dispatchEvent(new CustomEvent<OpenAppearance>(OPEN_APPEARANCE, { detail: { ...target, proposal: id } }));
   return (

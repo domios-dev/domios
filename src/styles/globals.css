@@ -18,7 +18,6 @@
 @import "../components/Terminal/childTranscript.css";
 @import "../components/Terminal/chatLayout.css";
 @import "../components/Settings/wallpaperPicker.css";
-@import "../components/WebPeerPicker/machineWallpaper.css";
 @import "../components/Terminal/RestoreStatePanel.css";
 @import "../components/shared/dropdownMenu.css";
 @import "../components/Sidebar/sidebarPanel.css";
@@ -1060,16 +1059,6 @@ button {
 
 .ct-portal-menu {
   z-index: 1100;
-}
-
-.ct-peer-menu .ct-menu-row[aria-current="true"] {
-  background: color-mix(in srgb, var(--ct-accent) 13%, transparent);
-}
-
-@media (pointer: coarse) {
-  .ct-peer-menu .ct-menu-row {
-    min-height: 44px;
-  }
 }
 
 .ct-toast-inline {

@@ -1,47 +1,62 @@
-import { useCallback, useContext, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { ChevronDown, Network } from "lucide-react";
+import { useCallback, useContext, useEffect, useId, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent } from "react";
+import { Check, ChevronDown, Network } from "lucide-react";
+import type { MeshPeersResponse } from "../../../gen/MeshPeersResponse";
+import type { PairedPeer } from "../../../gen/PairedPeer";
 import { listen } from "../../lib/bridge";
+import { hasLocalInstanceName, localInstanceLabel, onMeshPeersLoaded, rememberLocalInstanceName } from "../../lib/localInstanceName";
+import { cleanMachineName, machineColor, machineLabel, type MachineIdentity, type MeshIdentityProjection } from "../../lib/machineIdentity";
 import { rankPeersByLastActive } from "../../lib/peerRanking";
-import {
-  localJson,
-} from "../../lib/webApi";
+import { tabActivity } from "../../lib/tabActivity";
+import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
+import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
+import { localJson } from "../../lib/webApi";
 import { useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
+import { MuxStateStoreContext, usePairedWorkspaceInventory } from "../../store/multiplexer/context";
 import { setSidebarMachineFilter, useSidebarMachineFilter } from "../Sidebar/sidebarMachineFilter";
+import { ActivityDots } from "../shared/ActivityDots";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { MachineGlyph } from "../shared/MachineGlyph";
-import { MachinePickerRow, MachineThisBadge, machineRowLabel } from "../shared/MachineRow";
-import { cleanMachineName, machineColor, machineLabel, type MachineIdentity, type MeshIdentityProjection } from "../../lib/machineIdentity";
-import { MachineAppearanceContext } from "../../lib/useMachineAppearance";
-import { MachineAppearanceActions, MachineCopyNotice, MachineWallpaperSwatch, NowOnMachine, useMachineAppearanceCopy } from "./MachineWallpaperDetails";
-import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
+import { MachineThisBadge } from "../shared/MachineRow";
 import { menuKeyAction } from "./menuKeyboard";
-import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
-import { hasLocalInstanceName, localInstanceLabel, onMeshPeersLoaded, rememberLocalInstanceName } from "../../lib/localInstanceName";
+import "./machineSwitcher.css";
 
-type PairedPeer = Pick<import("../../../gen/PairedPeer").PairedPeer, "instance_id" | "instance_name" | "addresses" | "api_port" | "online" | "relay_protocol_version" | "last_active_ms">;
-type MeshPeers = Omit<Pick<import("../../../gen/MeshPeersResponse").MeshPeersResponse, "paired" | "local_instance_name">, "paired"> & {paired: PairedPeer[]} & MeshIdentityProjection;
+function machineTone(identity?: MachineIdentity) {
+  return identity?.color ? `var(--ct-machine-${machineColor(identity.color)})` : "var(--ct-muted-fg)";
+}
 
-/** Selects which paired host supplies the Web workspace inventory. */
-export function WebPeerPicker({ compact = false, onOpenWallpaper }: { compact?: boolean; onOpenWallpaper?: () => void }) {
+const offlineClock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+
+function peerStatus(peer: PairedPeer) {
+  if (peer.online) return peer.relay_protocol_version === RELAY_PROTOCOL_VERSION ? "online" : "update required";
+  const seen = peer.last_seen ? Date.parse(peer.last_seen) : NaN;
+  return Number.isFinite(seen) ? `offline since ${offlineClock.format(seen)}` : "offline";
+}
+
+const noWorking = () => 0;
+const noSubscription = () => () => {};
+
+export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [peers, setPeers] = useState<PairedPeer[]>([]);
   const [localName, setLocalName] = useState(localInstanceLabel);
   const [open, setOpen] = useState(false);
-  const [notice, setNotice] = useState<{ label: string; key: number }>();
-  const [previousPill, setPreviousPill] = useState<{ label: string; all: boolean; local: boolean; identity?: MachineIdentity; key: number }>();
-  const noticeSequence = useRef(0);
-  const appearance = useContext(MachineAppearanceContext);
-  const copy = useMachineAppearanceCopy();
   const target = useWorkspaceBrowseTarget();
   const filter = useSidebarMachineFilter();
   const accountNames = useAccountMachineNames();
+  const { browse, generals } = usePairedWorkspaceInventory();
+  const mux = useContext(MuxStateStoreContext);
+  const localWorking = useSyncExternalStore(open && mux ? mux.subscribe : noSubscription, open && mux ? () => {
+    const { tabs, tabStatuses } = mux.getState();
+    return Object.values(tabs).filter(tab => !tab.remote_peer_id && tab.agent_type && !tab.frozen
+      && tabActivity(tab, tabStatuses[tab.id]).active).length;
+  } : noWorking);
   const [identities, setIdentities] = useState<MeshIdentityProjection>({});
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuId = useId();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const res = await localJson<MeshPeers>("GET", "/api/mesh/peers");
+      const res = await localJson<MeshPeersResponse>("GET", "/api/mesh/peers");
       const paired = res.paired ?? [];
       setLocalName(rememberLocalInstanceName(res.local_instance_name));
       setPeers(rankPeersByLastActive(paired));
@@ -84,152 +99,159 @@ export function WebPeerPicker({ compact = false, onOpenWallpaper }: { compact?: 
     };
   }, [refresh]);
 
-  const menuItems = useCallback(
-    () => Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? []),
-    [],
-  );
+  const options = () => Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? []);
 
-  const closeMenu = useCallback(() => {
+  const close = () => {
     setOpen(false);
-    triggerRef.current?.focus();
-  }, []);
-  const dismissMenu = useCallback(() => setOpen(false), []);
+    triggerRef.current?.focus({ preventScroll: true });
+  };
 
-  // An explicitly opened menu takes focus so arrows and Escape reach it.
   useEffect(() => {
-    if (open) menuItems()[0]?.focus();
-  }, [open, menuItems]);
+    if (!open) return;
+    const selected = menuRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    (selected ?? menuRef.current?.querySelector<HTMLElement>('[role="option"]'))?.focus();
+  }, [open]);
 
-  const onMenuKeyDown = useCallback(
-    (event: ReactKeyboardEvent<HTMLDivElement>) => {
-      const items = menuItems();
-      const action = menuKeyAction(event.key, items.indexOf(document.activeElement as HTMLElement), items.length);
-      if (!action) return;
+  const onOptionKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Tab") {
+      close();
+      return;
+    }
+    const items = options();
+    const focused = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.key === "Enter" && focused !== -1) {
       event.preventDefault();
-      if (action.kind === "close") closeMenu();
-      else items[action.index]?.focus();
-    },
-    [closeMenu, menuItems],
-  );
+      items[focused].click();
+      return;
+    }
+    const action = menuKeyAction(event.key, focused, items.length);
+    if (!action) return;
+    event.preventDefault();
+    if (action.kind === "close") close();
+    else items[action.index]?.focus();
+  };
 
-  const showAll = filter === "all";
-  const allMachinesLabel = "All machines";
+  const peerName = (peer: PairedPeer) => accountNames.peers.get(peer.instance_id)
+    ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine";
   const selectedPeer = peers.find(peer => peer.instance_id === target?.id);
-  const label = target ? accountNames.peers.get(target.id) ?? cleanMachineName(selectedPeer?.instance_name ?? target.name, target.id) ?? "Machine" : accountNames.local ?? localName;
-  const identity = target ? identities.machine_identities?.[target.id] : identities.local_machine_identity;
-  const localMachine = { name: accountNames.local ?? localName, identity: identities.local_machine_identity, status: "online", local: true };
-  const pillLabel = showAll ? allMachinesLabel : filter === "local" ? machineRowLabel(localMachine) : machineLabel(label, identity);
-  const source = { name: label, peerId: appearance?.peerId ?? target?.id, available: appearance?.ready ?? !target };
-  const copyTargets = [
-    { name: localMachine.name, peerId: undefined, available: true },
-    ...peers.map(peer => ({
-      name: accountNames.peers.get(peer.instance_id) ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine",
-      peerId: peer.instance_id,
-      available: peer.online === true && peer.relay_protocol_version === RELAY_PROTOCOL_VERSION,
-      unavailableReason: peer.online ? "not applied, update required" : undefined,
-    })),
-  ].filter(machine => machine.peerId !== source.peerId);
+  const local = { name: accountNames.local ?? localName, identity: identities.local_machine_identity };
+  const all = filter === "all";
+  const localSelected = filter === "local";
+  const label = all ? "All machines" : target
+    ? selectedPeer ? peerName(selectedPeer) : cleanMachineName(target.name, target.id) ?? "Machine"
+    : local.name;
+  const identity = target ? identities.machine_identities?.[target.id] : local.identity;
+  const onlineCount = 1 + peers.filter(peer => peer.online).length;
 
-  function switchTo(selection: PairedPeer | "all" | "local") {
-      const changed = typeof selection === "string" ? selection !== filter : target?.id !== selection.instance_id;
-      if (changed) {
-        setPreviousPill({ label: showAll ? allMachinesLabel : label, all: showAll, local: filter === "local", identity, key: ++noticeSequence.current });
-      }
-      if (typeof selection === "string") {
-        if (selection === "all") setNotice(undefined);
-        else if (changed) setNotice({ key: noticeSequence.current, label: localMachine.name });
-        setSidebarMachineFilter(selection);
-      } else {
-        const name = accountNames.peers.get(selection.instance_id) ?? cleanMachineName(selection.instance_name, selection.instance_id) ?? "Machine";
-        if (changed) setNotice({ key: noticeSequence.current, label: name });
-        setSidebarMachineFilter({ id: selection.instance_id, name });
-      }
-      closeMenu();
+  function select(selection: Parameters<typeof setSidebarMachineFilter>[0], option: HTMLButtonElement, animate = true) {
+    const bounds = option.getBoundingClientRect();
+    const origin = bounds.width && bounds.height ? bounds : triggerRef.current?.getBoundingClientRect();
+    setSidebarMachineFilter(selection, animate && origin
+      ? { x: origin.left + origin.width / 2, y: origin.top + origin.height / 2 }
+      : undefined);
+    close();
   }
-  const visiblePill = previousPill ?? { label: showAll ? allMachinesLabel : label, all: showAll, local: filter === "local", identity };
 
   return (
-    <div ref={rootRef} className="relative" data-testid="peer-picker">
+    <div className="relative" data-testid="peer-picker">
       <button
         ref={triggerRef}
         type="button"
         data-testid="peer-picker-button"
-        aria-label={`Filter sidebar by machine, ${pillLabel}`}
-        aria-haspopup="menu"
+        aria-label={`Machine: ${label}`}
+        aria-haspopup="listbox"
         aria-expanded={open}
-        onClick={() => (open ? closeMenu() : setOpen(true))}
-        data-filtered={!showAll || undefined}
+        aria-controls={open ? menuId : undefined}
+        onClick={() => open ? close() : setOpen(true)}
+        onKeyDown={event => {
+          if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
         className={`ct-bar-pill ct-machine-switcher ${compact ? "min-w-0 max-w-[min(10rem,40vw)] sm:max-w-none" : ""}`}
-        title="Filter sidebar by machine"
       >
-        {visiblePill.all ? <Network size={12} className="shrink-0" aria-hidden="true" /> : <MachineGlyph {...visiblePill.identity} />}
-        <span className="min-w-0 truncate">{visiblePill.label}</span>
-        {visiblePill.local && <MachineThisBadge className="hidden min-[400px]:inline-flex" />}
-        {previousPill && <span key={previousPill.key} aria-hidden="true" className="ct-machine-label-transition"
-          onAnimationEnd={() => setPreviousPill(current => current?.key === previousPill.key ? undefined : current)} />}
+        {all ? <Network size={12} className="shrink-0" aria-hidden="true" /> : <MachineGlyph {...identity} />}
+        <span className="min-w-0 truncate">{label}</span>
+        {localSelected && <MachineThisBadge className="hidden min-[400px]:inline-flex" />}
         <ChevronDown size={12} className="shrink-0 opacity-60" aria-hidden="true" />
       </button>
-      {notice && <NowOnMachine key={notice.key} label={notice.label} onDismiss={() => setNotice(undefined)} />}
-      <MachineCopyNotice copy={copy} />
-      <AnchoredPopover open={open} anchor={rootRef} placement={compact ? "bottom-end" : "bottom-start"} onClose={dismissMenu}>
-        <div
-          ref={menuRef}
-          data-testid="peer-picker-menu"
-          role="menu"
-          aria-label="Machines"
-          onKeyDown={onMenuKeyDown}
-          data-wallpaper-tint={Boolean(identity) || undefined}
-          style={{ "--ct-wallpaper-identity": `var(--ct-machine-${machineColor(identity?.color)})` } as CSSProperties}
-          className="ct-menu ct-menu--opaque ct-peer-menu w-max max-w-[min(24rem,calc(100vw-2rem))]"
+      <AnchoredPopover open={open} anchor={triggerRef} placement={compact ? "bottom-end" : "bottom-start"} onClose={() => setOpen(false)}>
+        <div id={menuId} ref={menuRef} data-testid="peer-picker-menu" role="listbox" aria-label="Machines"
+          onKeyDown={onOptionKeyDown} onBlur={event => {
+            if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== triggerRef.current) setOpen(false);
+          }}
+          className="ct-menu ct-menu--opaque ct-machine-list"
         >
-          <button type="button" role="menuitem" data-testid="peer-picker-all"
-            aria-current={showAll ? "true" : undefined}
-            onClick={() => switchTo("all")} className="ct-menu-row ct-machine-menu-row">
-            <span className="flex min-w-0 items-center gap-2">
-              <Network size={15} className="shrink-0" aria-hidden="true" />
-              <span className="truncate">{allMachinesLabel}</span>
+          <button type="button" role="option" tabIndex={-1} data-testid="peer-picker-all" aria-selected={all}
+            onClick={event => select("all", event.currentTarget)} className="ct-machine-option ct-machine-option--all">
+            <span className="ct-machine-constellation" aria-hidden="true"
+              style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(peers.length + 1))}, minmax(0, 1fr))` }}>
+              {[{ id: "local", identity: local.identity, online: true }, ...peers.map(peer => ({
+                id: peer.instance_id, identity: identities.machine_identities?.[peer.instance_id], online: peer.online,
+              }))].map(machine => <i key={machine.id} data-offline={!machine.online || undefined} style={{ backgroundColor: machineTone(machine.identity) }} />)}
             </span>
+            <span className="ct-machine-option__copy">
+              <span>All machines</span>
+              <span className="ct-machine-option__status">{peers.length + 1} {peers.length ? "machines" : "machine"} · {onlineCount} online</span>
+            </span>
+            {all && <Check size={16} className="ct-machine-option__check" aria-hidden="true" />}
           </button>
-          <button type="button" role="menuitem" data-testid="peer-picker-self"
-            aria-current={filter === "local" ? "true" : undefined}
-            aria-label={machineRowLabel(localMachine)} onClick={() => switchTo("local")}
-            className="ct-menu-row ct-machine-menu-row">
-            <MachinePickerRow {...localMachine} trailing={open && <MachineWallpaperSwatch machine={{
-              name: localMachine.name, available: true,
-            }} identity={localMachine.identity} preview={source.peerId === undefined ? appearance?.appearance : undefined} />} />
-          </button>
-          {peers.map((p) => {
-            const active = target?.id === p.instance_id;
-            const name = accountNames.peers.get(p.instance_id) ?? cleanMachineName(p.instance_name, p.instance_id) ?? "Machine";
-            const compatible = p.relay_protocol_version === RELAY_PROTOCOL_VERSION;
-            const status = p.online ? compatible ? "online" : "update required" : "offline";
-            const identity = identities.machine_identities?.[p.instance_id];
-            const endpoint = p.addresses?.[0]?.ip;
-            return (
-              <button
-                type="button"
-                role="menuitem"
-                key={p.instance_id}
-                data-testid="peer-picker-item"
-                aria-current={active ? "true" : undefined}
-                aria-label={machineRowLabel({ name, identity, status })}
-                data-peer-id={p.instance_id}
-                data-peer-name={name}
-                data-peer-online={String(!!p.online)}
-                onClick={() => switchTo(p)}
-                className="ct-menu-row ct-machine-menu-row min-h-[44px] sm:min-h-0"
-                title={[name, status, endpoint && `${endpoint}:${p.api_port}`].filter(Boolean).join(" · ")}
-              >
-                <MachinePickerRow name={name} identity={identity} status={status} trailing={open && <MachineWallpaperSwatch machine={{
-                  name, peerId: p.instance_id, available: Boolean(p.online && compatible),
-                }} identity={identity} preview={active ? appearance?.appearance : undefined} />} />
-              </button>
-            );
+          <MachineOption {...local} local status="online" working={localWorking} online selected={localSelected}
+            onSelect={option => select("local", option)} />
+          {peers.map(peer => {
+            const name = peerName(peer);
+            const status = peerStatus(peer);
+            const working = browse?.target.id === peer.instance_id && browse.availability === "online"
+              ? observedWorkingCount(generals.find(general => general.peerId === peer.instance_id)?.sessions ?? [], browse.workspaces.flatMap(workspace => workspace.tabs))
+              : 0;
+            return <MachineOption key={peer.instance_id} name={name} identity={identities.machine_identities?.[peer.instance_id]}
+              peerId={peer.instance_id} status={status} working={working} online={peer.online} selected={target?.id === peer.instance_id}
+              onSelect={option => select({ id: peer.instance_id, name }, option, status === "online")} />;
           })}
-          {appearance && <MachineAppearanceActions key={source.peerId ?? "local"} source={source} targets={copyTargets} copy={copy}
-            onAsk={onOpenWallpaper ? () => { closeMenu(); onOpenWallpaper(); } : undefined} />}
         </div>
       </AnchoredPopover>
     </div>
   );
+}
+
+type ObservedTab = import("../../store/multiplexer/pairedWorkspaceProjection").ObservedPeerTab;
+
+function observedWorkingCount(general: ObservedTab[], desk: ObservedTab[]) {
+  const seen = new Set<string>();
+  for (const { viewerId, tab, status } of [...general, ...desk]) {
+    if (tab.agent_type && !tab.frozen && tabActivity(tab, status).active) seen.add(viewerId);
+  }
+  return seen.size;
+}
+
+function MachineOption({ name, identity, peerId, status, working, local, online, selected, onSelect }: {
+  name: string;
+  identity?: MachineIdentity;
+  peerId?: string;
+  status: string;
+  working: number;
+  local?: boolean;
+  online: boolean;
+  selected: boolean;
+  onSelect: (option: HTMLButtonElement) => void;
+}) {
+  const busy = status === "online" && working > 0;
+  const state = busy ? `${working} working` : status;
+  return <button type="button" role="option" tabIndex={-1} aria-selected={selected}
+    aria-label={machineLabel(name, identity, local ? `this machine, ${state}` : state)}
+    data-testid={local ? "peer-picker-self" : "peer-picker-item"} data-peer-id={peerId} data-peer-name={peerId ? name : undefined}
+    data-peer-online={peerId ? String(online) : undefined} data-offline={!online || undefined}
+    className="ct-machine-option" style={{ "--ct-switcher-tone": online ? machineTone(identity) : "var(--ct-muted-fg)" } as CSSProperties}
+    onClick={event => onSelect(event.currentTarget)}>
+    <span className="ct-machine-option__tile"><MachineGlyph {...identity} size="mark-15" muted={!online || !identity?.color} /></span>
+    <span className="ct-machine-option__copy">
+      <span className="ct-machine-option__name"><span className="truncate">{name}</span>{local && <MachineThisBadge />}</span>
+      <span className="ct-machine-option__status">
+        {busy ? <ActivityDots size="small" /> : <span aria-hidden="true" className="ct-machine-option__dot" data-online={online && status === "online" || undefined} />}
+        {state}
+      </span>
+    </span>
+    {selected && <Check size={16} className="ct-machine-option__check" aria-hidden="true" />}
+  </button>;
 }

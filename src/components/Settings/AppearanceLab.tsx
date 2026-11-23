@@ -2,7 +2,7 @@ import { useContext, useDeferredValue, useEffect, useId, useState, type FormEven
 import { Monitor, Palette, Sparkles, Undo2 } from "lucide-react";
 import { DEFAULT_APPEARANCE, PALETTE_CONTROLS, TERMINAL_COLOURS, applyContrastFix, paletteContrast, type AppearanceLook, type AppearanceProposal, type AppearanceTuning, type ContrastCheck, type CurrentAppearance } from "../../lib/appearance";
 import { APPEARANCE_CHANGED, appearanceError, changeAppearance, checkAppearanceContrast, proposeAppearance, readAppearance, readAppearanceProposal, type AppearanceTarget, type OpenAppearance } from "../../lib/appearanceClient";
-import { clearAppearancePress, indicateAppearancePress } from "../../lib/appearanceMotion";
+import { bindAppearancePress, clearAppearancePress, indicateAppearancePress } from "../../lib/appearanceMotion";
 import { focusTab, generalAgentTab } from "../../lib/generalAgent";
 import { setClientTabUiMode } from "../../lib/clientTabUiMode";
 import { useMuxSelector } from "../../store/multiplexer/hooks";
@@ -125,11 +125,12 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
     try {
       const next = proposal?.state !== "applied" && proposal && JSON.stringify(draft) === JSON.stringify(proposal.look)
         ? proposal : await proposeAppearance(target, draft, current.look);
+      bindAppearancePress(button, next.id, next.look, target.peer ?? relayTarget()?.id);
       await changeAppearance(target, next.id, "apply");
     } catch (failure) {
+      clearAppearancePress(button);
       setError(appearanceError(failure));
     } finally {
-      clearAppearancePress(button);
       setBusy(false);
     }
   };

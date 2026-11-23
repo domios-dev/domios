@@ -43,7 +43,7 @@ it("documents each Lab and wallpaper control and stages one complete proposal", 
   const tuning = { roundness: 1, shadow_strength: 1, font_size: 0, edges: "subtle" };
   const look = { theme: DEFAULT_THEME, wallpaper: null, tuning };
   api.readAppearance.mockResolvedValue({ machine: { id: "fixture", name: "Desk [dev-local]" }, look, presets: [DEFAULT_THEME], active: null });
-  api.proposeAppearance.mockResolvedValue({ id: "proposal" });
+  api.proposeAppearance.mockImplementation(async (_target, proposed) => ({ id: "proposal", look: proposed }));
   api.changeAppearance.mockResolvedValue(undefined);
   const host = document.createElement("div");
   document.body.append(host);

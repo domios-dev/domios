@@ -32,19 +32,6 @@
   mask: var(--ct-wallpaper-mask, none);
   opacity: var(--ct-wallpaper-opacity, 0);
 }
-.ct-chat-wallpaper[data-enter] { animation: ct-chat-wallpaper-enter 200ms var(--ct-ease-decel) both; }
-.ct-chat-wallpaper[data-frozen] { animation-play-state: paused; }
-@keyframes ct-chat-wallpaper-enter { from { opacity: 0; } to { opacity: 1; } }
-.ct-wallpaper-transition-end { position: absolute; pointer-events: none; animation: ct-chat-wallpaper-enter 220ms; }
-[data-chat-wallpaper-shell][data-switching] {
-  transition: background-color 200ms var(--ct-ease-decel), color 200ms var(--ct-ease-decel),
-    border-color 200ms var(--ct-ease-decel), box-shadow 200ms var(--ct-ease-decel);
-}
-@media (prefers-reduced-motion: reduce) {
-  .ct-chat-wallpaper[data-enter] { animation: ct-chat-wallpaper-enter 1ms step-end both; }
-  .ct-wallpaper-transition-end { animation-duration: 1ms; }
-  [data-chat-wallpaper-shell][data-switching] { transition: none; }
-}
 @media print, (prefers-contrast: more), (forced-colors: active) {
   .ct-chat-wallpaper, .ct-chat-wallpaper-stack { display: none; }
 }

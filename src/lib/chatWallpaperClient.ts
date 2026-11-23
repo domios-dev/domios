@@ -35,10 +35,6 @@ export function readMachineAppearance(peerId: string | undefined, signal?: Abort
   return daemonTransportForPeer(peerId).json<MachineAppearance>("GET", LOOK_PATH, undefined, { signal });
 }
 
-export function saveMachineAppearance(peerId: string | undefined, appearance: MachineAppearance, expected: MachineAppearance) {
-  return daemonTransportForPeer(peerId).json("PUT", LOOK_PATH, { mutating: appearance, expected });
-}
-
 export async function saveWallpaper(peerId: string | undefined, wallpaper: ChatWallpaper | null, expectedWallpaper?: ChatWallpaper) {
   await daemonTransportForPeer(peerId).json("PUT", SETTING_PATH, { wallpaper, expected_wallpaper: expectedWallpaper });
 }

@@ -11,7 +11,7 @@ import { emitFeatureUsed } from "./lib/productAnalytics";
 import { localJson } from "./lib/webApi";
 import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
 import { useFrontendApp } from "./lib/frontendUpdate/useFrontendApp";
-import { memo, useState, useEffect, useCallback, useMemo, useRef, type ComponentProps } from "react";
+import { memo, useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef, type ComponentProps } from "react";
 import { invoke, IS_WEB } from "./lib/bridge";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { buildTeamActions } from "./lib/teamActions";
@@ -24,7 +24,7 @@ import { Sidebar } from "./components/Sidebar/Sidebar";
 import { SidebarDrawer } from "./components/Sidebar/SidebarDrawer";
 import { NewSessionPickerHost } from "./components/Terminal/NewSessionPickerHost";
 import { TabContent } from "./components/Terminal/TabContent";
-import { ChatWallpaperContext, useChatWallpaperBackdrop } from "./components/Terminal/ChatWallpaperBackdrop";
+import { ChatWallpaperContext, useChatWallpaperAssetLease } from "./components/Terminal/ChatWallpaperBackdrop";
 import { LiveTranscriptHost } from "./components/Terminal/LiveTranscriptPanel";
 import { useLiveTranscriptHost } from "./components/Terminal/useLiveTranscriptPanel";
 import { LocalRecordingCaptureStatus } from "./components/Terminal/voice/LocalRecordingCaptureStatus";
@@ -91,7 +91,7 @@ import { paletteTabTargets } from "./components/CommandPalette/paletteTabs";
 import { forwardTerminalFallback } from "./lib/terminalFallbackInput";
 import { writeTerminalInput } from "./hooks/terminal/terminalInputWrite";
 import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
-import { MachineAppearanceContext, useMachineAppearance, useWallpaperAsset } from "./lib/useMachineAppearance";
+import { MachineAppearanceContext, useMachineAppearance, useWallpaperAssetResult } from "./lib/useMachineAppearance";
 import { wallpaperRenderStyle } from "./lib/chatWallpaper";
 import { appearanceTokens } from "./lib/appearance";
 import { OPEN_APPEARANCE, type OpenAppearance } from "./lib/appearanceClient";
@@ -174,7 +174,10 @@ function AppInner() {
   const transcriptOwner = useLiveTranscriptHost()?.ownerId;
   const { config, updateConfig, ready: configReady, loading: configLoading } = useConfig();
   const machineAppearance = useMachineAppearance(config, configReady);
-  useAppearanceMotion(machineAppearance);
+  const nextWallpaperAsset = useWallpaperAssetResult(machineAppearance.peerId,
+    machineAppearance.ready ? machineAppearance.appearance.wallpaper?.asset : undefined);
+  const appliedAppearance = useAppearanceMotion(machineAppearance, nextWallpaperAsset);
+  useChatWallpaperAssetLease(appliedAppearance.asset);
   const locked = firstRunLocked(configLoading ? undefined : config.general_agent);
   const state = firstRunSelection(locked, backendState);
   const interfaceReady = !configLoading && (initialRouteReady(state.generation) || state.storageUnavailable);
@@ -254,11 +257,7 @@ function AppInner() {
       return open ? "extensions" : "workspace";
     });
   }, []);
-  const incomingTheme = useStableJsonValue(machineAppearance.appearance.theme);
-  const [previousTheme, setPreviousTheme] = useState(incomingTheme);
-  if (machineAppearance.ready && incomingTheme !== previousTheme) setPreviousTheme(incomingTheme);
-  const stableTheme = machineAppearance.ready ? incomingTheme : previousTheme;
-  const tuning = useStableJsonValue(machineAppearance.appearance.tuning);
+  const { theme: stableTheme, tuning } = appliedAppearance.look;
   const stableFontConfig = useStableJsonValue(config.font);
   const stableTerminalConfig = useStableJsonValue(config.terminal);
   const stableApiConfig = useStableJsonValue(config.api);
@@ -751,20 +750,18 @@ function AppInner() {
   }, []);
 
   const themeStyles = useMemo(() => ({ ...themeToCSS(stableTheme), ...appearanceTokens(tuning) }), [stableTheme, tuning]);
-  const wallpaper = useStableJsonValue(machineAppearance.appearance.wallpaper ?? undefined);
-  const wallAsset = useWallpaperAsset(machineAppearance.peerId, machineAppearance.ready ? wallpaper?.asset : undefined);
+  const wallpaper = appliedAppearance.look.wallpaper ?? undefined;
+  const wallAsset = appliedAppearance.asset;
   const identityColor = machineAppearance.identity?.color;
   const wallpaperStyle = useMemo(() => ({
     "--ct-bg": stableTheme.background,
     "--ct-fg": stableTheme.foreground,
     ...wallpaperRenderStyle(stableTheme, wallpaper, isLightColor(stableTheme.background), wallAsset?.url, identityColor),
   } as React.CSSProperties), [stableTheme, wallpaper, wallAsset?.url, identityColor]);
-  const backdrop = useChatWallpaperBackdrop(machineAppearance.peerId ?? "local", machineAppearance.ready, wallpaperStyle, wallAsset);
-  const backdropKey = backdrop.layers[backdrop.layers.length - 1].key;
   const isCRT = stableTheme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy";
 
   // Set color-scheme + theme vars on documentElement so portals (modals, popups rendered into document.body via createPortal) inherit them.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const isLight = isLightColor(stableTheme.background);
     document.documentElement.style.colorScheme = isLight ? "light" : "dark";
     document.documentElement.dataset.ctTheme = isLight ? "light" : "dark";
@@ -772,23 +769,20 @@ function AppInner() {
       document.documentElement.style.setProperty(k, v);
     }
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", stableTheme.background);
-    cacheThemeSnapshot(stableTheme, themeStyles);
     document.documentElement.style.fontSize = `${stableFontConfig.size + 2 + (tuning?.font_size ?? 0)}px`;
   }, [stableTheme.background, themeStyles, stableFontConfig.size, tuning?.font_size]);
+  useEffect(() => cacheThemeSnapshot(stableTheme, themeStyles), [stableTheme, themeStyles]);
 
   return (
     <GuideNavigationProvider sections={GUIDE_SECTIONS} onOpen={openGuide}>
     <ChatBlockHostProvider value={appChatBlockHost}>
     <MachineAppearanceContext.Provider value={machineAppearance}>
-    <ChatWallpaperContext.Provider value={backdrop}>
+    <ChatWallpaperContext.Provider value={wallpaperStyle}>
     <PluginConsentDialog />
     <div
-      className={`flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
-      data-chat-wallpaper-shell
-      data-switching={backdrop.switching || undefined}
+      className={`ct-appearance-content relative isolate flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
       style={{
         ...themeStyles,
-        backgroundColor: stableTheme.background,
         color: stableTheme.foreground,
         // covers iOS Safari, where the keyboard shrinks only the VISUAL viewport and dvh stays put (see useKeyboardInset).
         height: keyboardInset ? `calc(100% - ${keyboardInset}px)` : "100%",
@@ -798,9 +792,7 @@ function AppInner() {
           : "calc(0.5rem + var(--ct-safe-bottom, 0px))",
       } as React.CSSProperties}
     >
-      {backdrop.switching && <span aria-hidden="true" key={backdropKey}
-        className="ct-wallpaper-transition-end"
-        onAnimationEnd={() => backdrop.finishSwitch(backdropKey)} />}
+      <div className="ct-appearance-base" aria-hidden="true" />
       {/* Native + web mirror share one titlebar strip (parity decision A) — its
           own --ct-safe-top padding covers the web notch/status-bar inset. */}
       <Titlebar
