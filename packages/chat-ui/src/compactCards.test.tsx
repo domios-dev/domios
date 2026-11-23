@@ -177,7 +177,7 @@ describe("grouped edit run cards", () => {
     expect(host.querySelectorAll('[data-testid="chat-edit-run-file"]')).toHaveLength(5);
   });
 
-  it("discloses deduplicated successful detail/result once per operation when expanded without duplicating across multi-file diffs or inventing missing output", async () => {
+  it("keeps tool detail and result behind the group menu even with a file expanded", async () => {
     const notice = "ACP tool details were shortened to fit the display budget.";
     const members: ToolEvent[] = [
       editMember("multi-op", [modifyDiff("src/a.ts", "a1", "a2"), modifyDiff("src/b.ts", "b1", "b2")], {
@@ -197,34 +197,23 @@ describe("grouped edit run cards", () => {
     const collapsedButtons = [...host.querySelectorAll<HTMLButtonElement>('[data-testid="chat-edit-run-file"] > div > button')];
     expect(collapsedButtons).toHaveLength(3);
 
-    // Expanding file 0 of multi-op discloses its detail + result once; expanding file 1 does not duplicate them.
     await act(async () => collapsedButtons[0].click());
-    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(1);
-    expect(host.querySelector('[data-testid="toolcard-result"]')?.textContent).toContain(notice);
-    expect(host.querySelector('[data-testid="toolcard-result"]')?.textContent).toContain("multi-file edit succeeded");
-
+    expect(host.textContent).toContain("+a2");
+    expect(host.textContent).not.toContain(notice);
     await act(async () => collapsedButtons[1].click());
-    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(0);
+    expect(host.textContent).toContain("+b2");
+    expect(host.textContent).not.toContain("multi-file edit succeeded");
 
-    // A member with identical detail/result renders that text once.
-    await act(async () => collapsedButtons[2].click());
-    const dedupResults = host.querySelectorAll('[data-testid="toolcard-result"]');
-    expect(dedupResults).toHaveLength(1);
-    expect((dedupResults[0].textContent ?? "").split(notice).length - 1).toBe(1);
-
-    // Expanded group shows all 5 rows and discloses each member's detail/result once (never duplicating the inline-open member).
     await act(async () => root!.render(<Surface><ChatBlockHostProvider value={{ renderMenu: renderChatCardMenu, askAbout: () => {} }}><EditRunCard event={runEvent} expanded onToggle={() => {}} /></ChatBlockHostProvider></Surface>));
     const expandedButtons = [...host.querySelectorAll<HTMLButtonElement>('[data-testid="chat-edit-run-file"] > div > button')];
     expect(expandedButtons).toHaveLength(5);
-    const allText = [...host.querySelectorAll('[data-testid="toolcard-result"]')].map((node) => node.textContent ?? "").join("\n");
-    expect(allText.split("multi-file edit succeeded").length - 1).toBe(1);
-    expect(allText.split("permission refused").length - 1).toBe(1);
-    expect(allText.split(notice).length - 1).toBe(2);
-
-    // Opening empty-op (index 3) renders no inline toolcard-result box beside its diff.
-    await act(async () => expandedButtons[3].click());
-    const emptyRow = host.querySelectorAll('[data-testid="chat-edit-run-file"]')[3];
-    expect(emptyRow.querySelector('[data-testid="edit-run-diff"]')).not.toBeNull();
-    expect(emptyRow.querySelector('[data-testid="toolcard-result"]')).toBeNull();
+    expect(host.textContent).not.toContain("permission refused");
+    expect(await menu("Actions for Edited 5 files")).toContain("View raw");
+    await choose("View raw");
+    const raw = () => [...host.querySelectorAll('[data-testid="message-raw-content"]')].map((node) => node.textContent);
+    expect(raw()).toEqual([notice, "multi-file edit succeeded", notice, "permission refused"]);
+    await menu("Actions for Edited 5 files");
+    await choose("View raw");
+    expect(raw()).toEqual([]);
   });
 });

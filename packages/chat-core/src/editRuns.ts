@@ -1,4 +1,66 @@
 import type { TimelineItem, ToolEvent } from "./toolEvents";
+import type { FileDiff } from "./types";
+
+export function isTurnDiff(event: ToolEvent): boolean {
+  return event.kind === "edit" && event.phase === "call" && !event.toolId
+    && event.message.toolName === "turn_diff";
+}
+
+function changeKey(event: ToolEvent, diff: FileDiff): string {
+  return JSON.stringify([
+    event.message.sourceSessionId ?? "", event.flowId, diff.path.replace(/\\/g, "/"),
+    diff.movePath?.replace(/\\/g, "/"), diff.kind ?? "modify",
+  ]);
+}
+
+function sameChange(recorded: FileDiff, snapshot: FileDiff): boolean {
+  return recorded.additions === snapshot.additions && recorded.deletions === snapshot.deletions
+    && recorded.hunks.length === snapshot.hunks.length
+    && recorded.hunks.every((hunk, index) => {
+      const other = snapshot.hunks[index];
+      if (hunk.oldStart !== other.oldStart || hunk.newStart !== other.newStart
+        || hunk.oldLines !== other.oldLines || hunk.newLines !== other.newLines) return false;
+      const stripped = (lines: string[]) => lines.filter((line) => !line.startsWith("\\"));
+      const left = stripped(hunk.lines);
+      const right = stripped(other.lines);
+      return left.length === right.length && left.every((line, i) => line.replace(/\r$/, "") === right[i]);
+    });
+}
+
+/** A turn snapshot can echo a completed edit. Keep the snapshot's distinct changes and each actual call. */
+export function reconcileTurnDiffs(items: TimelineItem[]): Set<number> {
+  const suppressed = new Set<number>();
+  const snapshots = new Map<number, ToolEvent>();
+  items.forEach((item, index) => {
+    if (item.kind === "tool" && item.event.flowId && item.event.fileDiffs?.length && isTurnDiff(item.event)) {
+      snapshots.set(index, item.event);
+    }
+  });
+  if (!snapshots.size) return suppressed;
+
+  const recorded = new Map<string, FileDiff[]>();
+  for (const item of items) {
+    if (item.kind !== "tool") continue;
+    const { event } = item;
+    if (!event.flowId || event.phase !== "call" || event.status !== "success" || isTurnDiff(event)) continue;
+    for (const diff of event.fileDiffs ?? []) {
+      if (diff.binary || diff.truncated) continue;
+      const key = changeKey(event, diff);
+      const changes = recorded.get(key);
+      if (changes) changes.push(diff);
+      else recorded.set(key, [diff]);
+    }
+  }
+  for (const [index, event] of snapshots) {
+    const diffs = event.fileDiffs ?? [];
+    const remaining = diffs.filter((diff) => !recorded.get(changeKey(event, diff))?.some((change) => sameChange(change, diff)));
+    if (!remaining.length) suppressed.add(index);
+    else if (remaining.length !== diffs.length) {
+      items[index] = { kind: "tool", event: { ...event, fileDiffs: remaining, summary: remaining.map((diff) => diff.path).join("\n") } };
+    }
+  }
+  return suppressed;
+}
 
 /** A standalone structured edit that can sit in a run; streamed, batched and grouped events keep their own card. */
 function runKey(event: ToolEvent): string | undefined {
