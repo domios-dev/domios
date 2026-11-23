@@ -1,6 +1,6 @@
-import { useContext, useDeferredValue, useEffect, useId, useState, type FormEvent } from "react";
-import { Monitor, Palette, Sparkles, Undo2 } from "lucide-react";
-import { DEFAULT_APPEARANCE, PALETTE_CONTROLS, TERMINAL_COLOURS, applyContrastFix, paletteContrast, type AppearanceLook, type AppearanceProposal, type AppearanceTuning, type ContrastCheck, type CurrentAppearance } from "../../lib/appearance";
+import { useContext, useDeferredValue, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Check, Monitor, Sparkles, Undo2, X } from "lucide-react";
+import { DEFAULT_APPEARANCE, PALETTE_CONTROLS, TERMINAL_COLOURS, appearanceLookKey, applyContrastFix, paletteContrast, type AppearanceLook, type AppearanceProposal, type AppearanceTuning, type ContrastCheck, type CurrentAppearance } from "../../lib/appearance";
 import { APPEARANCE_CHANGED, appearanceError, changeAppearance, checkAppearanceContrast, proposeAppearance, readAppearance, readAppearanceProposal, type AppearanceTarget, type OpenAppearance } from "../../lib/appearanceClient";
 import { bindAppearancePress, clearAppearancePress, indicateAppearancePress } from "../../lib/appearanceMotion";
 import { focusTab, generalAgentTab } from "../../lib/generalAgent";
@@ -14,6 +14,7 @@ import { useAccountMachineNames, useMeshMachineChoices, useMeshPeerName } from "
 import { cleanMachineName } from "../../lib/machineIdentity";
 import type { AppConfig, ThemeConfig } from "../../lib/types";
 import { AppearancePreview } from "./AppearancePreview";
+import { appearanceLabChanges } from "./AppearanceLabChanges";
 import { ChatWallpaperPicker } from "./ChatWallpaperPicker";
 import { MachineAppearanceContext } from "../../lib/useMachineAppearance";
 import { MultiplexerActionsContext, usePairedWorkspaceInventory } from "../../store/multiplexer/context";
@@ -23,19 +24,22 @@ import "./appearance.css";
 
 const mainTab = (state: ExtendedState) => generalAgentTab(state)?.tabId;
 const mainWorkspace = (state: ExtendedState) => generalAgentTab(state)?.workspaceId;
-const PREFERRED_PRESET = "GitHub Dark";
 const LOCAL: AppearanceTarget = { machine: "local" };
+const APPLIED_TIME = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 type Compare = "before" | "after" | "side-by-side";
 
 interface Props {
   config: AppConfig;
   open?: OpenAppearance;
   showWallpaperOwn?: boolean;
+  back: ReactNode;
+  headingId?: string;
   onNavigate(): void;
 }
 
-export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Props) {
-  const heading = useId();
+export function AppearanceLab({ config, open, showWallpaperOwn, back, headingId, onNavigate }: Props) {
+  const localHeading = useId();
+  const heading = headingId ?? localHeading;
   const machineChoices = useMeshMachineChoices();
   const accountNames = useAccountMachineNames();
   const machineAppearance = useContext(MachineAppearanceContext);
@@ -44,7 +48,8 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
   const peerName = useMeshPeerName(target.peer);
   const [current, setCurrent] = useState<CurrentAppearance>();
   const [draft, setDraft] = useState<AppearanceLook>();
-  const [proposal, setProposal] = useState<AppearanceProposal>();
+  const [openedProposal, setOpenedProposal] = useState<AppearanceProposal>();
+  const wallpaperRevision = useRef(0);
   const [compare, setCompare] = useState<Compare>("after");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -80,7 +85,7 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
       if (!active) return;
       setCurrent(next);
       setDraft(stored?.look ?? next.look);
-      setProposal(stored ?? next.active ?? undefined);
+      setOpenedProposal(stored);
     }, (failure: unknown) => {
       if (active) setError(appearanceError(failure));
     });
@@ -91,9 +96,10 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
     const onChange = (event: Event) => {
       const detail = (event as CustomEvent<{ receipt: AppearanceProposal }>).detail;
       if (detail?.receipt.machine.id !== current?.machine.id) return;
-      setProposal(detail.receipt);
+      wallpaperRevision.current++;
+      setOpenedProposal(undefined);
       const look = detail.receipt.state === "undone" ? detail.receipt.previous : detail.receipt.look;
-      setCurrent(previous => previous && { ...previous, look });
+      setCurrent(previous => previous && { ...previous, look, active: detail.receipt.can_undo ? detail.receipt : null });
       setDraft(look);
     };
     window.addEventListener(APPEARANCE_CHANGED, onChange);
@@ -101,9 +107,10 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
   }, [current?.machine.id]);
 
   const changeMachine = (id: string) => {
+    wallpaperRevision.current++;
     setCurrent(undefined);
     setDraft(undefined);
-    setProposal(undefined);
+    setOpenedProposal(undefined);
     setError("");
     setTarget(id === "local" ? LOCAL : { machine: id, peer: id });
   };
@@ -112,19 +119,32 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
   const machine = target.peer ? peerName ?? currentName ?? "Machine" : localName ?? "this machine";
   const unavailable = Boolean(target.peer && machineChoices.peers?.find(peer => peer.instance_id === target.peer)?.online === false);
   const tuning = draft?.tuning ?? DEFAULT_APPEARANCE;
-  const dirty = Boolean(draft && current && JSON.stringify(draft) !== JSON.stringify(current.look));
+  const changes = current && draft ? appearanceLabChanges(current.look, draft, current.presets) : [];
+  const dirty = changes.length > 0;
+  const active = current?.active?.can_undo ? current.active : undefined;
+  const undoLabel = active && `Undo · back to ${active.previous.theme.name}`;
+  const appliedAt = active?.applied_at == null ? undefined : new Date(active.applied_at * 1000);
+  const wallpaperVersion = wallpaperRevision.current;
   const failures = contrast?.look === draft ? contrast?.checks.filter(check => check.ratio < check.floor) ?? [] : [];
-  const editTuning = (patch: Partial<AppearanceTuning>) => setDraft(value => value && { ...value, tuning: { ...tuning, ...patch } });
+  const editTuning = (patch: Partial<AppearanceTuning>) => setDraft(value => {
+    if (!value) return value;
+    const next = { ...value.tuning ?? DEFAULT_APPEARANCE, ...patch };
+    const baseline = current?.look.tuning ?? DEFAULT_APPEARANCE;
+    const matchesCurrent = (Object.keys(next) as (keyof AppearanceTuning)[]).every(key => next[key] === baseline[key]);
+    return { ...value, tuning: matchesCurrent ? current?.look.tuning ?? null : next };
+  });
   const editTheme = (key: keyof ThemeConfig, colour: string) => setDraft(value => value && { ...value, theme: { ...value.theme, [key]: colour } });
 
   const apply = async (button: HTMLButtonElement) => {
-    if (!draft || !current || busy) return;
+    if (!draft || !current || !dirty || busy || failures.length > 0) return;
     indicateAppearancePress(button);
     setBusy(true);
     setError("");
     try {
-      const next = proposal?.state !== "applied" && proposal && JSON.stringify(draft) === JSON.stringify(proposal.look)
-        ? proposal : await proposeAppearance(target, draft, current.look);
+      const next = openedProposal && openedProposal.state !== "applied"
+        && appearanceLookKey(draft) === appearanceLookKey(openedProposal.look)
+        && appearanceLookKey(current.look) === appearanceLookKey(openedProposal.previous)
+        ? openedProposal : await proposeAppearance(target, draft, current.look);
       bindAppearancePress(button, next.id, next.look, target.peer ?? relayTarget()?.id);
       await changeAppearance(target, next.id, "apply");
     } catch (failure) {
@@ -136,11 +156,11 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
   };
 
   const undo = async () => {
-    if (!proposal?.can_undo || busy) return;
+    if (!active || dirty || busy) return;
     setBusy(true);
     setError("");
     try {
-      await changeAppearance(target, proposal.id, "undo");
+      await changeAppearance(target, active.id, "undo");
     } catch (failure) {
       setError(appearanceError(failure));
     } finally {
@@ -176,37 +196,37 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
   const pickPreset = (theme: ThemeConfig) => setDraft(value => value && {
     ...value, theme: { ...theme, chat_background: value.theme.chat_background },
   });
-  const reset = () => {
-    const preset = current?.presets.find(value => value.name === PREFERRED_PRESET);
-    if (preset) setDraft({ theme: preset, tuning: DEFAULT_APPEARANCE, wallpaper: null });
+  const discard = () => {
+    wallpaperRevision.current++;
+    setDraft(current?.look);
+    setOpenedProposal(undefined);
+    setCompare("after");
+    setError("");
   };
 
   return (
     <section className="ct-appearance-lab" aria-labelledby={heading}>
       <header className="ct-appearance-lab__head">
-        <h2 id={heading} className="sr-only"><Palette size={19} aria-hidden="true" /> Appearance Lab</h2>
+        {back}
+        <h2 id={heading} data-testid="settings-header-title">Appearance Lab</h2>
         <label className="ct-appearance-machine"><Monitor size={15} aria-hidden="true" />
           <select aria-label="Appearance machine" value={target.peer ?? "local"} onChange={event => changeMachine(event.target.value)} disabled={busy}>
-            <option value="local">For {localName ?? "this machine"}</option>
-            {machineChoices.peers?.map(peer => <option key={peer.instance_id} value={peer.instance_id}>For {accountNames.peers.get(peer.instance_id) ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine"}{peer.online ? "" : " · offline"}</option>)}
+            <option value="local">{localName ? `This machine · ${localName}` : "This machine"}</option>
+            {machineChoices.peers?.map(peer => <option key={peer.instance_id} value={peer.instance_id}>{accountNames.peers.get(peer.instance_id) ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine"}{peer.online ? "" : " · offline"}</option>)}
           </select>
         </label>
-        <div className="ct-appearance-lab__actions">
-          <button type="button" disabled={!proposal?.can_undo || busy} onClick={() => void undo()}><Undo2 size={15} /> Undo</button>
-          <button type="button" disabled={!current || busy} onClick={reset}>Reset</button>
-          <button type="button" className="ct-appearance-primary" disabled={!generalTab || !current || busy} aria-expanded={ask} onClick={() => setAsk(value => !value)}><Sparkles size={15} /> Ask General</button>
-        </div>
+        <button type="button" className="ct-appearance-lab__ask" disabled={!generalTab || !current || busy} aria-expanded={ask} onClick={() => setAsk(value => !value)}><Sparkles size={15} aria-hidden="true" /> Ask General</button>
       </header>
       {ask && <form className="ct-appearance-ask" onSubmit={askGeneral}>
         <input className="ct-field ct-field-prominent" aria-label="Describe the look" value={prompt} maxLength={500} placeholder="Calm forest at night" onChange={event => setPrompt(event.target.value)} />
-        <button className="ct-appearance-primary" type="submit" disabled={!prompt.trim() || !current}>Send to General</button>
+        <button type="submit" disabled={!prompt.trim() || !current || busy}>Send to General</button>
       </form>}
       {unavailable && <p role="status">Offline. No changes applied to {machine}.</p>}
       {error && <p role="alert" className="ct-appearance-error">{error}</p>}
       {!draft && !unavailable && !error && <p role="status">Reading appearance…</p>}
       {current && draft && !unavailable && <>
         <div className="ct-appearance-lab__body">
-          <div className="ct-appearance-lab__controls">
+          <fieldset className="ct-appearance-lab__controls" disabled={busy} aria-label="Appearance controls">
             <SettingsCard title="Presets" headerRight={<small>{current.presets.length} looks</small>}>
               <div className="ct-appearance-presets">
                 {current.presets.map(theme => (
@@ -242,9 +262,11 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
                 </li>)}
               </ul>}
             </SettingsCard>
-            <ChatWallpaperPicker config={config} showOwnInitially={showWallpaperOwn} stage={{
+            <ChatWallpaperPicker key={wallpaperVersion} config={config} showOwnInitially={showWallpaperOwn && wallpaperVersion === 0} stage={{
               theme: draft.theme, wallpaper: draft.wallpaper, peerId: target.peer, ready: !busy,
-              update: wallpaper => setDraft(value => value && { ...value, wallpaper }),
+              update: wallpaper => {
+                if (wallpaperVersion === wallpaperRevision.current) setDraft(value => value && { ...value, wallpaper });
+              },
             }} />
             <SettingsCard title="Shape and depth">
               <label className="ct-appearance-knob">Corner roundness
@@ -273,7 +295,7 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
                 </div>
               </div>
             </SettingsCard>
-          </div>
+          </fieldset>
           <div className="ct-appearance-lab__preview">
             <div className="ct-appearance-preview__header"><strong>Live preview</strong>
               {dirty && <div className="ct-appearance-segment" role="group" aria-label="Compare appearance">
@@ -285,9 +307,38 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
               {compare !== "after" && <AppearancePreview look={current.look} peer={target.peer} />}
               {compare !== "before" && <AppearancePreview look={draft} peer={target.peer} />}
             </div>
-            <button type="button" className="ct-appearance-primary" disabled={!dirty || busy || failures.length > 0} onClick={event => void apply(event.currentTarget)}>Apply to {machine}</button>
           </div>
         </div>
+        <section className="ct-appearance-changes" aria-label="Changes">
+          <div className="ct-appearance-changes__status" role="status" aria-live="polite" data-state={dirty ? "staged" : active ? "applied" : "clean"}>
+            {dirty ? <>
+              <span className="ct-appearance-changes__dot" aria-hidden="true" />
+              <span>{changes.length} {changes.length === 1 ? "change" : "changes"}</span>
+            </> : <>
+              <Check size={15} aria-hidden="true" />
+              {active ? <span>Applied{appliedAt && <> · <time dateTime={appliedAt.toISOString()}>{APPLIED_TIME.format(appliedAt)}</time></>}</span>
+                : <span>No changes · showing {machine}’s current look, {current.look.theme.name}</span>}
+            </>}
+          </div>
+          {dirty && <>
+            <ul className="ct-appearance-changes__list" aria-label="Staged changes">
+              {changes.map(change => <li key={change.label}>
+                {change.label} <span>{change.before} → {change.after}</span>
+                <button type="button" aria-label={`Revert ${change.label}`} disabled={busy} onClick={() => setDraft(value => value && change.revert(value))}><X size={13} aria-hidden="true" /></button>
+              </li>)}
+            </ul>
+            <button type="button" className="ct-appearance-changes__discard" aria-label="Discard changes" disabled={busy} onClick={discard}>
+              <span className="ct-appearance-changes__wide">Discard changes</span><span className="ct-appearance-changes__short">Discard</span>
+            </button>
+          </>}
+          {!dirty && undoLabel
+            ? <button type="button" className="ct-appearance-changes__undo" aria-label={undoLabel} disabled={busy} onClick={() => void undo()}>
+              <Undo2 size={15} aria-hidden="true" /><span className="ct-appearance-changes__wide">{undoLabel}</span><span className="ct-appearance-changes__short">Undo</span>
+            </button>
+            : <button type="button" className="ct-appearance-primary ct-appearance-changes__apply" disabled={!dirty || busy || failures.length > 0} onClick={event => void apply(event.currentTarget)}>
+              <Check size={15} aria-hidden="true" />{target.peer ? `Apply to ${machine}` : "Apply"}
+            </button>}
+        </section>
       </>}
     </section>
   );
