@@ -560,8 +560,8 @@ function RoutingSettings({ owner, view, api, autoResume, onAutoResume, scoutUnav
   const savedConcierge = conciergeSelection(view.readiness, router, {});
   const conciergeChanged = !externalTab && (concierge.provider !== savedConcierge.provider || concierge.model !== savedConcierge.model);
   const reconnect = status?.concierge !== "ready" || Boolean(status?.lastRouteError);
-  const canApply = isConfigured && !needsSetup && status &&
-    (reconnect || target?.kind === "detached" || externalTab !== configuredTab || trigger !== status.trigger || conciergeChanged) &&
+  const canApply = !needsSetup && status &&
+    (!isConfigured || reconnect || target?.kind === "detached" || externalTab !== configuredTab || trigger !== status.trigger || conciergeChanged) &&
     !(scoutUnavailable && trigger === "scout_then_concierge") && (!externalTab || externalTabs.some(tab => tab.id === externalTab));
   const routeOptions: DropdownSelectOption[] = [
     { value: "", label: "Transcript Concierge", badge: "Built-in" },
