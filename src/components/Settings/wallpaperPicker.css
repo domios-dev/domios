@@ -74,6 +74,7 @@
   border-radius: 12px;
   background: color-mix(in srgb, var(--ct-fg) 2%, var(--ct-bg));
 }
+.ct-wallpaper-editor:not(:has(.ct-wallpaper-preview)) { grid-template-columns: minmax(0, 1fr); }
 .ct-wallpaper-edit, .ct-wallpaper-controls, .ct-wallpaper-fills, .ct-wallpaper-ask {
   display: grid;
   align-content: start;

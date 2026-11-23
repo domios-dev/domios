@@ -84,6 +84,10 @@ export function wallpaperSummary(theme: ThemeConfig, setting?: ChatWallpaper): s
   return [label, style, `${Number((intensity * 100).toFixed(1))}%`].filter(Boolean).join(" · ");
 }
 
+export function wallpaperThumbnailIntensity(light: boolean): number {
+  return light ? 1.6 : 1;
+}
+
 export function wallpaperRenderStyle(
   theme: ThemeConfig,
   setting: ChatWallpaper | undefined,

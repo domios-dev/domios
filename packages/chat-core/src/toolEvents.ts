@@ -1,6 +1,6 @@
 import { agentActivityOf, buildAgentTree, isAgentActivityMessage, type AgentActivityTree, type AgentNode } from "./agentActivity";
 import { groupCommandBatches } from "./commandBatches";
-import { groupEditRuns } from "./editRuns";
+import { groupEditRuns, isTurnDiff, reconcileTurnDiffs } from "./editRuns";
 import { wellFormedFileDiffs } from "./fileDiffs";
 import { parseUnifiedDiff } from "./unifiedDiff";
 import { assignedCommand, toolCommand, unwrapShellLauncher } from "./shellComposition";
@@ -299,10 +299,12 @@ function groupToolStreams(
   boundaryFlows: ReadonlySet<string>,
   thoughtKeys: ReadonlyMap<number, string>,
 ): TimelineItem[] {
+  const absorbed = reconcileTurnDiffs(items);
   const groups = new Map<string, { flow: string; run: number; indexes: number[] }>();
   // Any visible non-tool row (text, inbound, marker) closes the run; thoughts sit inside streams.
   let run = 0;
   items.forEach((item, index) => {
+    if (absorbed.has(index)) return;
     if (item.kind === "message") {
       if (item.message.type !== "thinking") run++;
       return;
@@ -322,7 +324,6 @@ function groupToolStreams(
   const thoughtsByKey = new Map<string, number[]>();
   for (const [index, key] of thoughtKeys) thoughtsByKey.set(key, [...(thoughtsByKey.get(key) ?? []), index]);
   const heads = new Map<number, ToolEvent>();
-  const absorbed = new Set<number>();
   for (const { flow: key, run: groupRun, indexes } of groups.values()) {
     const eventAt = (index: number) => (items[index] as { kind: "tool"; event: ToolEvent }).event;
     const firstByCall = new Map<string, number>();
@@ -356,7 +357,7 @@ function groupToolStreams(
     // An echo re-reports a command a member already shows, so a formed stream drops it.
     for (const index of [...indexes, ...thoughts]) if (index !== head) absorbed.add(index);
   }
-  if (heads.size === 0) return items;
+  if (heads.size === 0 && absorbed.size === 0) return items;
   return items.flatMap((item, index): TimelineItem[] => {
     if (absorbed.has(index)) return [];
     const head = heads.get(index);
@@ -523,7 +524,7 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
         const entries = sourceCalls.get(source) ?? [];
         entries.push({ item, event: resolved });
         sourceCalls.set(source, entries);
-      } else if (!event.callSourceId) {
+      } else if (!event.callSourceId && !isTurnDiff(event)) {
         positionalCalls.push(item);
       }
       continue;
