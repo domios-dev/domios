@@ -1,9 +1,10 @@
 import { useId, useRef, useState } from "react";
 import { Bot, ChevronDown, Square, SquareTerminal } from "lucide-react";
 import { useAgentInspection } from "@codeterm/chat-ui";
-import type { ComposerBackgroundWorkItem } from "./composerBackgroundWorkModel";
+import { isRunningWork, SUBAGENT_NAME, type ComposerBackgroundWorkItem } from "./composerBackgroundWorkModel";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { subagentTone } from "./childTranscriptViewModel";
+import type { BackgroundStopRequestStatus } from "../../lib/backgroundProcesses";
 
 const NO_LIVE_EVIDENCE = "No live evidence";
 
@@ -36,7 +37,7 @@ function SubagentRow({ item, internalAgentLabel }: { item: ComposerBackgroundWor
       <button type="button" className="ct-ctx-bubble__open" aria-label={`Open transcript for ${item.name}, ${internalAgentLabel}`} aria-description={describe(item)}
         disabled={!inspect || !item.transcriptThreadId} title={`${describe(item)} · ${internalAgentLabel}`} onClick={() => { if (item.transcriptThreadId) inspect?.(item.transcriptThreadId); }}>
         <Bot size={13} aria-hidden="true" />
-        <span className="ct-ctx-bubble__title">{item.name}</span>
+        <span className="ct-ctx-bubble__title">{item.name === SUBAGENT_NAME ? item.name : `${SUBAGENT_NAME} · ${item.name}`}</span>
         {item.ordinal && <span className="ct-work-bubble__ordinal" aria-hidden="true">{item.ordinal}</span>}
         <WorkState item={item} />
       </button>
@@ -55,57 +56,91 @@ function SubagentDetails({ items, internalAgentLabel }: { items: readonly Compos
   </ul>;
 }
 
-function WorkDetails({ item, onStop }: {
-  item: ComposerBackgroundWorkItem;
+type WorkActions = {
   onStop: (item: ComposerBackgroundWorkItem) => Promise<void>;
-}) {
-  const [busy, setBusy] = useState(false);
+  onViewOutput?: (item: ComposerBackgroundWorkItem) => Promise<string | undefined>;
+  onAskStop?: (item: ComposerBackgroundWorkItem) => Promise<BackgroundStopRequestStatus>;
+  agentName?: string;
+};
+
+const requestLabels: Record<BackgroundStopRequestStatus, string> = {
+  pending: "Stop request queued",
+  unconfirmed: "Stop request delivery unconfirmed",
+  written: "Stop request written",
+};
+
+function WorkDetails({ item, onStop, onViewOutput, onAskStop, agentName }: WorkActions & { item: ComposerBackgroundWorkItem }) {
+  const [busy, setBusy] = useState<"stop" | "output" | "ask" | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [output, setOutput] = useState<string>();
+  const [request, setRequest] = useState<BackgroundStopRequestStatus>();
   const detailsId = useId();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; operation: string } | null>(null);
   const inFlight = useRef(false);
-  const stop = async () => {
-    if (item.kind !== "terminal" || inFlight.current) return;
+  const live = isRunningWork(item);
+  const unknownKind = item.kind === "unknown";
+  const label = unknownKind ? "Background task" : "Background process";
+  const name = `${label} · ${item.name}`;
+  const run = async (action: Exclude<typeof busy, null>, operation: string, apply: () => Promise<void>) => {
+    if (inFlight.current) return;
     inFlight.current = true;
-    setBusy(true);
+    setBusy(action);
     setError(null);
     try {
-      await onStop(item);
+      await apply();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError({ message: reason instanceof Error ? reason.message : String(reason), operation });
     } finally {
       inFlight.current = false;
-      setBusy(false);
+      setBusy(null);
     }
+  };
+  const toggleOutput = () => {
+    setExpanded(!expanded);
+    if (!expanded) void run("output", "viewing background process output", async () => {
+      setOutput(onViewOutput ? await onViewOutput(item) : item.outputTail);
+    });
   };
 
   return <li className="ct-background-command">
-      <span className="ct-ctx-bubble ct-work-bubble" data-tone="active">
-        <button type="button" className="ct-ctx-bubble__open" aria-label={`Details for ${item.name}`} aria-description={`${item.kind === "shell" ? "Background shell command" : "Task"} ${item.name}, ${busy ? "stopping" : stateLabel(item)}`} aria-expanded={expanded} aria-controls={detailsId} title={item.command} onClick={() => setExpanded(!expanded)}>
+      <span className="ct-ctx-bubble ct-work-bubble" data-tone={subagentTone(item.status)}>
+        <span className="ct-ctx-bubble__open" title={item.command ?? name}>
           <SquareTerminal size={13} aria-hidden="true" />
-          <span className="ct-ctx-bubble__title">{item.name}</span>
-          <WorkState item={item} label={busy ? "stopping" : stateLabel(item)} />
-          <ChevronDown size={11} aria-hidden="true" />
-        </button>
-        {item.kind === "terminal" && <button type="button" className="ct-ctx-bubble__dismiss" aria-label={`Stop ${item.name}`} title={`Stop ${item.name}`} disabled={busy} aria-busy={busy || undefined} onClick={() => void stop()}><Square size={10} fill="currentColor" aria-hidden="true" /></button>}
+          <span className="ct-ctx-bubble__title">{name}</span>
+          <WorkState item={item} label={busy === "stop" ? "stopping" : stateLabel(item)} />
+        </span>
+        {item.kind === "terminal" && <button type="button" className="ct-ctx-bubble__dismiss" aria-label={`Stop ${item.name}`} title="Stop" disabled={!live || busy !== null} aria-busy={busy === "stop" || undefined}
+          onClick={() => void run("stop", "stopping the background process", () => onStop(item))}><Square size={10} fill="currentColor" aria-hidden="true" /></button>}
       </span>
-      {expanded && <div id={detailsId} role="region" aria-label={`Command details for ${item.name}`} className="ct-background-command__details">
-        <code>{item.command}</code>
-        {item.outputTail && <pre>{item.outputTail}</pre>}
+      {!unknownKind && <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--ct-muted-fg)]">
+        <button type="button" className="underline" aria-label={`${expanded ? "Hide" : "View"} output for ${item.name}`} aria-expanded={expanded} aria-controls={detailsId} disabled={busy !== null} onClick={toggleOutput}>
+          {expanded ? "Hide output" : "View output"}
+        </button>
+        {item.kind === "shell" && live && <>
+          <span>Stop unavailable</span>
+          {onAskStop && <button type="button" className="underline" disabled={busy !== null || request !== undefined}
+            onClick={() => void run("ask", "requesting a background process stop", async () => setRequest(await onAskStop(item)))}>
+            Ask {agentName || "agent"} to stop it
+          </button>}
+          {request && <span role="status">{requestLabels[request]}</span>}
+        </>}
       </div>}
-      {error && <div role="alert" className="mt-1"><InlineErrorNotice error={error} operation="stopping the background terminal" /></div>}
+      {expanded && <div id={detailsId} role="region" aria-label={`Output for ${item.name}`} className="ct-background-command__details" aria-busy={busy === "output" || undefined}>
+        {item.command && <code>{item.command}</code>}
+        {output ? <pre>{output}</pre> : busy !== "output" && !error && <p>No output captured yet</p>}
+      </div>}
+      {error && <div role="alert" className="mt-1"><InlineErrorNotice error={error.message} operation={error.operation} /></div>}
   </li>;
 }
 
-export function ComposerBackgroundWorkPanel({ items, onStop, internalAgentLabel }: {
+export function ComposerBackgroundWorkPanel({ items, internalAgentLabel, ...actions }: WorkActions & {
   items: readonly ComposerBackgroundWorkItem[];
   internalAgentLabel: string;
-  onStop: (item: ComposerBackgroundWorkItem) => Promise<void>;
 }) {
   return <div>
     <SubagentDetails items={items.filter(item => item.kind === "agent")} internalAgentLabel={internalAgentLabel} />
     <ul className="ct-background-commands">
-      {items.filter(item => item.kind !== "agent").map(item => <WorkDetails key={item.id} item={item} onStop={onStop} />)}
+      {items.filter(item => item.kind !== "agent").map(item => <WorkDetails key={item.id} item={item} {...actions} />)}
     </ul>
   </div>;
 }

@@ -21,6 +21,30 @@ pub fn open_pad_share_source(
     Ok((source.path, bytes))
 }
 
+pub fn read_text_tail_guarded(
+    path: &str,
+    guard: impl Fn(&std::path::Path, Option<&std::path::Path>) -> Result<(), String>,
+    limit: u64,
+) -> Result<LocalPreviewFile, String> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut source = PreviewSource::open(path, &guard)?;
+    source
+        .file
+        .seek(SeekFrom::Start(source.size.saturating_sub(limit)))
+        .map_err(|error| error.to_string())?;
+    let mut bytes = Vec::new();
+    source
+        .file
+        .take(limit)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    Ok(LocalPreviewFile {
+        data: String::from_utf8_lossy(&bytes).into_owned(),
+        media_type: "text/plain".into(),
+    })
+}
+
 const HTML_PREVIEW_FILE_LIMIT: u64 = 200_000;
 const DOCUMENT_PREVIEW_FILE_LIMIT: u64 = 1_000_000;
 const IMAGE_PREVIEW_FILE_LIMIT: u64 = 10 * 1024 * 1024;

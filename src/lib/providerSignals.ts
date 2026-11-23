@@ -13,4 +13,7 @@ const providerErrorLabels: Record<ProviderErrorKind, string> = {
 export function providerErrorReason(error: ProviderErrorKind | null | undefined): string | null {
   return error ? providerErrorLabels[error] : null;
 }
-export type ProviderSignals = Omit<import("../../gen/ProviderSignals").ProviderSignals, "background" | "capabilities"> & { background?: Omit<import("../../gen/BackgroundRoster").BackgroundRoster, "unknown" | "ended"> & Partial<Pick<import("../../gen/BackgroundRoster").BackgroundRoster, "unknown" | "ended">>; capabilities?: ProbeSnapshot | null };
+type BackgroundRoster = import("../../gen/BackgroundRoster").BackgroundRoster;
+type OptionalRosterFields = "unknown" | "ended" | "kinds";
+export type ProviderBackgroundRoster = Omit<BackgroundRoster, OptionalRosterFields> & Partial<Pick<BackgroundRoster, OptionalRosterFields>>;
+export type ProviderSignals = Omit<import("../../gen/ProviderSignals").ProviderSignals, "background" | "capabilities"> & { background?: ProviderBackgroundRoster; capabilities?: ProbeSnapshot | null };

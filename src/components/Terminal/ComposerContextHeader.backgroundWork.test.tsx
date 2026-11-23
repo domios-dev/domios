@@ -36,10 +36,10 @@ const adapter: AutomationGraphAdapter = {
   delete: async () => undefined,
 };
 
-function harness(messages: readonly NormalizedChatMessage[], onInspect: (threadId: string) => void, background?: { running: Record<string, string>; unknown?: Record<string, string>; ended?: Record<string, string> }, processes: BackgroundProcessSnapshot["processes"] = []) {
+function harness(messages: readonly NormalizedChatMessage[], onInspect: (threadId: string) => void, background?: { running: Record<string, string>; unknown?: Record<string, string>; ended?: Record<string, string>; kinds?: Record<string, "shell" | "subagent"> }, processes: BackgroundProcessSnapshot["processes"] = []) {
   let state = {
     workspaces: [],
-    tabs: { "tab-a": { provider_signals: { background }, agent_type: "codex", agent_session_id: authority.rootThreadId, session_binding_nonce: authority.bindingNonce, agent_runtime_state: { state:"loaded", epoch: authority.epoch, backgroundProcesses: snapshot(processes) } } },
+    tabs: { "tab-a": { provider_signals: { background }, title: "FixtureAgent", agent_type: "codex", agent_session_id: authority.rootThreadId, session_binding_nonce: authority.bindingNonce, agent_runtime_state: { state:"loaded", epoch: authority.epoch, backgroundProcesses: snapshot(processes) } } },
     teams: [], active_workspace_id: null, focused_tab_id: null, notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
   } as unknown as ExtendedState;
   const store = createMuxStateStore(() => state);
@@ -63,10 +63,15 @@ function harness(messages: readonly NormalizedChatMessage[], onInspect: (threadI
     state = { ...state, tabs: { ...state.tabs, "tab-a": tab } };
     store.notify();
   };
-  return { host, root, render, setProcesses };
+  const setProviderRoster = (background: NonNullable<ExtendedState["tabs"][string]["provider_signals"]>["background"]) => {
+    const tab = { ...state.tabs["tab-a"], provider_signals: { auth: null, api_error: null, permission_mode: null, background } };
+    state = { ...state, tabs: { ...state.tabs, "tab-a": tab } };
+    store.notify();
+  };
+  return { host, root, render, setProcesses, setProviderRoster };
 }
 
-it("labels a provider background shell by command kind and opens its command details", async () => {
+it("views provider process output and asks the bound agent to stop it until completion arrives", async () => {
   configureOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));
   setAgentDescriptors([{ id: "codex", display_name: "Fixture Harness" }] as ProviderDescriptor[]);
   const command: NormalizedChatMessage = {
@@ -77,21 +82,41 @@ it("labels a provider background shell by command kind and opens its command det
     id: "shell-result", type: "tool_result", content: "", sourceSessionId: "root",
     toolId: "call", toolCallSourceId: "source", toolPairing: "exact", toolBackgroundTaskId: "opaque-shell",
   };
-  const view = harness([command, result], vi.fn(), { running: { "opaque-shell": "" } });
+  const calls: unknown[] = [];
+  const { __setInvokeForTest } = await import("../../lib/bridge");
+  __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>) => {
+    calls.push([command, args]);
+    return (command === "agent_provider_background_output" ? { data: "fixture output" } : "written") as T;
+  });
+  const view = harness([command, result], vi.fn(), { running: { "opaque-shell": "" }, kinds: { "opaque-shell": "shell" } });
   try {
     await act(async () => view.render());
-    const chip = view.host.querySelector<HTMLButtonElement>('button[aria-label="1 background work, Background shell command"]');
+    const chip = view.host.querySelector<HTMLButtonElement>('button[aria-label="Background process · fixture.mjs"]');
     expect(chip).not.toBeNull();
-    expect(chip?.title).toContain("Background shell command");
     await act(async () => chip!.click());
-    const details = view.host.querySelector<HTMLButtonElement>('button[aria-label="Details for fixture.mjs"]');
-    expect(details?.getAttribute("aria-description")).toContain("Background shell command");
-    await act(async () => details!.click());
+    const output = view.host.querySelector<HTMLButtonElement>('button[aria-label="View output for fixture.mjs"]')!;
+    await act(async () => output.click());
     expect(view.host.querySelector("code")?.textContent).toBe("node fixture.mjs");
-    expect(view.host.querySelector('button[aria-label="Stop fixture.mjs"]')).toBeNull();
-    expect(view.host.querySelector('[aria-label="Subagents"]')).toBeNull();
+    expect(view.host.querySelector("pre")?.textContent).toBe("fixture output");
+    expect(view.host.textContent).toContain("Stop unavailable");
+    const ask = Array.from(view.host.querySelectorAll("button")).find(button => button.textContent === "Ask FixtureAgent to stop it");
+    expect(ask).toBeDefined();
+    await act(async () => { ask!.click(); ask!.click(); });
+    expect(view.host.textContent).toContain("Stop request written");
+    expect(view.host.contains(chip)).toBe(true);
+    const bound = { tabId: "tab-a", request: { sessionId: "root", bindingNonce: "nonce", taskId: "opaque-shell" } };
+    expect(calls).toEqual([
+      ["agent_provider_background_output", bound],
+      ["agent_provider_ask_stop_background_work", bound],
+    ]);
+    await act(async () => view.setProviderRoster({
+      running: {}, ended: { "opaque-shell": "" }, kinds: { "opaque-shell": "shell" },
+      overflow: false, history_incomplete: false, history_initialized: true,
+    }));
+    expect(view.host.querySelector('button[aria-label="Background process · fixture.mjs"]')).toBeNull();
   } finally {
     await act(async () => view.root.unmount());
+    __setInvokeForTest(null);
   }
 });
 
@@ -125,7 +150,7 @@ it.each(["stopped", "degraded"] as const)("stops a terminal once and renders the
     await act(async () => { view.render(); });
     await act(async () => { await Promise.resolve(); });
     const linked = view.host.querySelector('[role="group"][aria-label="Linked to this tab"]');
-    const bubble = view.host.querySelector<HTMLButtonElement>('button[aria-label="1 background work"]');
+    const bubble = view.host.querySelector<HTMLButtonElement>('button[aria-label="Background process · build.mjs"]');
     expect(linked).not.toBeNull();
     expect(bubble?.closest('[role="group"][aria-label="Linked to this tab"]')).toBe(linked);
     await act(async () => { bubble?.click(); });
@@ -137,11 +162,11 @@ it.each(["stopped", "degraded"] as const)("stops a terminal once and renders the
     expect(panelStyle.overscrollBehaviorY).toBe("contain");
     expect(panelStyle.touchAction).toBe("pan-y");
     expect(panel?.tabIndex).toBe(0);
-    expect(view.host.querySelectorAll('button[aria-label="Details for build.mjs"]')).toHaveLength(1);
+    expect(view.host.querySelectorAll('button[aria-label="View output for build.mjs"]')).toHaveLength(1);
     expect(panel?.querySelector("code,pre")).toBeNull();
     expect(view.host.querySelector('button[aria-label="Choose fixture model"]')).not.toBeNull();
     expect(view.host.querySelector('[data-testid="agent-state"]')?.textContent).not.toContain(process.command);
-    const details=panel!.querySelector<HTMLButtonElement>('button[aria-label="Details for build.mjs"]')!;
+    const details=panel!.querySelector<HTMLButtonElement>('button[aria-label="View output for build.mjs"]')!;
     await act(async()=>details.click());
     expect(details.getAttribute("aria-expanded")).toBe("true");
     expect(panel?.querySelector('[role="region"] code')?.textContent).toBe(process.command);
@@ -153,7 +178,7 @@ it.each(["stopped", "degraded"] as const)("stops a terminal once and renders the
     expect(stopCalls).toHaveLength(1);
     expect(stopCalls[0]).toMatchObject({ tabId: "tab-a", request: { ...authority, threadId: "root", processId: "process-1" } });
     await act(async () => view.setProcesses([]));
-    expect(view.host.querySelector('button[aria-label="1 background work"]')).toBeNull();
+    expect(view.host.querySelector('button[aria-label="Background process · build.mjs"]')).toBeNull();
     const result = view.host.querySelector('[role="alert"][aria-label="Background stop unconfirmed"]');
     if (status === "degraded") {
       expect(result?.textContent).toContain("Could not identify the OS processes for build.mjs.");
@@ -190,7 +215,7 @@ it("counts provider-declared subagents in the shared bubble and inspects every c
   try {
     await act(async () => { shown.render(); });
     const linked = shown.host.querySelector('[role="group"][aria-label="Linked to this tab"]');
-    const bubble = linked?.querySelector<HTMLButtonElement>('button[aria-label="1 background work, Internal agent of Fixture Harness"]');
+    const bubble = linked?.querySelector<HTMLButtonElement>('button[aria-label="1 background work, Sub-agent of Fixture Harness"]');
     expect(bubble).not.toBeNull();
     expect(shown.host.querySelectorAll('button[aria-label^="Open transcript for "]')).toHaveLength(0);
     await act(async () => { bubble?.click(); });
@@ -201,8 +226,8 @@ it("counts provider-declared subagents in the shared bubble and inspects every c
     expect(transcripts).toHaveLength(4);
     expect(shown.host.querySelectorAll('button[aria-label^="Open transcript for "]')).toHaveLength(4);
     for (const transcript of transcripts) {
-      expect(transcript.getAttribute("aria-label")).toContain("Internal agent of Fixture Harness");
-      expect(transcript.title).toContain("Internal agent of Fixture Harness");
+      expect(transcript.getAttribute("aria-label")).toContain("Sub-agent of Fixture Harness");
+      expect(transcript.title).toContain("Sub-agent of Fixture Harness");
       expect(transcript.disabled).toBe(false);
       await act(async () => { transcript.click(); });
     }
@@ -214,7 +239,7 @@ it("counts provider-declared subagents in the shared bubble and inspects every c
   }
 });
 
-it("keeps mixed background work distinct from harness-internal agents", async () => {
+it("keeps mixed background work distinct from provider sub-agents", async () => {
   const process = { threadId: "root", processId: "process-mixed", itemId: "mixed-terminal", command: "node mixed.mjs", cwd: "C:/work", osPid: 43 };
   const command: NormalizedChatMessage = { id: process.itemId, type: "tool_call", toolKind: "command", toolStatus: "running", content: "", timestamp: new Date(Date.now() - 20_000).toISOString(), sourceSessionId: "root" };
   const child = fixtureMessage("mixed-agent", { agent_id: "mixed-child", agent_parent_thread_id: "root", agent_state: "unknown", agent_description: "Child task" });
@@ -224,13 +249,13 @@ it("keeps mixed background work distinct from harness-internal agents", async ()
   const view = harness([command, child], inspect, undefined, [process]);
   try {
     await act(async () => { view.render(); });
-    const bubble = view.host.querySelector<HTMLButtonElement>('button[aria-label="1 background work"]');
+    const bubble = view.host.querySelector<HTMLButtonElement>('button[aria-label="Background process · mixed.mjs"]');
     expect(bubble).not.toBeNull();
-    expect(bubble!.title).toBe("Background work");
+    expect(bubble!.title).toContain("Background process · mixed.mjs");
     await act(async () => { bubble!.click(); });
     const panel = view.host.querySelector('[role="group"][aria-label="Background work"]');
-    expect(panel?.querySelector('button[aria-label="Details for mixed.mjs"]')).not.toBeNull();
-    const transcript = panel?.querySelector<HTMLButtonElement>('button[aria-label="Open transcript for Child task, Internal agent of Fixture Harness"]');
+    expect(panel?.querySelector('button[aria-label="View output for mixed.mjs"]')).not.toBeNull();
+    const transcript = panel?.querySelector<HTMLButtonElement>('button[aria-label="Open transcript for Child task, Sub-agent of Fixture Harness"]');
     expect(transcript).not.toBeNull();
     await act(async () => { transcript!.click(); });
     expect(inspect).toHaveBeenCalledExactlyOnceWith("mixed-child");
@@ -242,7 +267,7 @@ it("keeps mixed background work distinct from harness-internal agents", async ()
 it("shows no background row when nothing is running, even with dropped or ended tasks", async () => {
   configureOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));
   setAgentDescriptors([{ id: "codex", display_name: "Fixture Harness" }] as ProviderDescriptor[]);
-  const view = harness([], vi.fn(), { running: {}, unknown: { dropped: "Dropped task" }, ended: { completed: "Ended task" } });
+  const view = harness([], vi.fn(), { running: {}, unknown: { dropped: "Dropped task" }, ended: { completed: "Ended task" }, kinds: { bm76h90j0: "subagent", a2: "subagent", dropped: "subagent" } });
   try {
     await act(async () => { view.render(); });
     expect(view.host.querySelector('button[aria-label^="0 background work"]')).toBeNull();
@@ -255,20 +280,20 @@ it("shows no background row when nothing is running, even with dropped or ended 
 it("renders each live task as one bubble with its state inside and a readable name", async () => {
   configureOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));
   setAgentDescriptors([{ id: "codex", display_name: "Fixture Harness" }] as ProviderDescriptor[]);
-  const view = harness([], vi.fn(), { running: { bm76h90j0: "", a2: "Run the release gate" }, unknown: { dropped: "Dropped task" }, ended: { completed: "Ended task" } });
+  const view = harness([], vi.fn(), { running: { bm76h90j0: "", a2: "Run the release gate" }, unknown: { dropped: "Dropped task" }, ended: { completed: "Ended task" }, kinds: { bm76h90j0: "subagent", a2: "subagent", dropped: "subagent" } });
   try {
     await act(async () => { view.render(); });
-    const chip = view.host.querySelector<HTMLButtonElement>('button[aria-label="2 background work, Internal agent of Fixture Harness"]');
+    const chip = view.host.querySelector<HTMLButtonElement>('button[aria-label="2 background work, Sub-agent of Fixture Harness"]');
     expect(chip).not.toBeNull();
     await act(async () => { chip!.click(); });
     const panel = view.host.querySelector<HTMLElement>('[role="group"][aria-label="Background work"]')!;
     const bubbles = Array.from(panel.querySelectorAll<HTMLButtonElement>('button[aria-label^="Open transcript for "]'));
     expect(bubbles.map((bubble) => bubble.querySelector(".ct-work-state")?.getAttribute("data-state"))).toEqual(["running", "running", "unknown"]);
     expect(bubbles.every((bubble) => bubble.closest("li")?.querySelectorAll(".ct-ctx-bubble").length === 1)).toBe(true);
-    const internal = bubbles.find((bubble) => bubble.getAttribute("aria-label")?.startsWith("Open transcript for Internal agent"))!;
+    const internal = bubbles.find((bubble) => bubble.getAttribute("aria-label")?.startsWith("Open transcript for Sub-agent"))!;
     expect(internal.textContent).not.toContain("bm76h90j0");
     expect(internal.querySelector(".ct-work-bubble__ordinal")?.textContent).toBe("1");
-    expect(internal.getAttribute("aria-description")).toContain("Task Internal agent 1, running");
+    expect(internal.getAttribute("aria-description")).toContain("Task Sub-agent 1, running");
     expect(internal.getAttribute("aria-description")).toContain("id bm76h90j0");
     expect(panel.textContent).toContain("Run the release gate");
     expect(panel.querySelector('.ct-work-state[data-state="unknown"]')?.getAttribute("title")).toBe("No live evidence");
@@ -293,17 +318,17 @@ it("surfaces OS-observed runtime background commands above the composer on an id
   try {
     await act(async () => view.render());
     const linked = view.host.querySelector('[role="group"][aria-label="Linked to this tab"]');
-    const bubble = linked?.querySelector<HTMLButtonElement>('button[aria-label="1 background work"]');
+    const bubble = linked?.querySelector<HTMLButtonElement>('button[aria-label^="Background process ·"]');
     expect(bubble).not.toBeNull();
     await act(async () => bubble!.click());
     const panel = view.host.querySelector<HTMLElement>('[role="group"][aria-label="Background work"]');
     expect(panel).not.toBeNull();
-    const details = panel?.querySelector<HTMLButtonElement>('button[aria-label^="Details for "]');
+    const details = panel?.querySelector<HTMLButtonElement>('button[aria-label^="View output for "]');
     expect(details).not.toBeNull();
     await act(async () => details!.click());
     expect(panel?.querySelector("code")?.textContent).toBe(process.command);
     await act(async () => view.setProcesses([]));
-    expect(view.host.querySelector('button[aria-label="1 background work"]')).toBeNull();
+    expect(view.host.querySelector('button[aria-label^="Background process ·"]')).toBeNull();
   } finally {
     await act(async () => view.root.unmount());
   }

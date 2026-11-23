@@ -8,6 +8,9 @@ type BackgroundWork = ReturnType<typeof useComposerBackgroundWork>;
 const ComposerBackgroundWorkContext = createContext<BackgroundWork>({
   items: [],
   stop: async () => {},
+  viewOutput: async () => undefined,
+  askStop: async () => "pending",
+  agentName: undefined,
   stopWarning: undefined,
   dismissStopWarning: () => {},
 });

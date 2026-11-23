@@ -6,7 +6,7 @@ import { SYSTEM_ORIGIN_LABEL, type ChatSessionIntent } from "@codeterm/chat-core
 import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { memo, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { Activity, Bot, ChevronUp, CircleCheck, Clock3, HeartPulse, TriangleAlert, Infinity as InfinityIcon, Map, Plus, Timer, Target, Workflow, X } from "lucide-react";
+import { Activity, Bot, ChevronUp, CircleCheck, Clock3, HeartPulse, TriangleAlert, Infinity as InfinityIcon, Map, Plus, SquareTerminal, Timer, Target, Workflow, X } from "lucide-react";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
 import { deleteJobConfirmation, deleteMergedJob, stopMergedJob, type JobsActionAdapter } from "../Jobs/jobActions";
@@ -24,7 +24,8 @@ import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { goalVisible } from "./goalModel";
 import { ComposerBackgroundWorkPanel } from "./ComposerBackgroundWorkPanel";
 import { useComposerBackgroundWorkStatus } from "./ComposerBackgroundWorkContext";
-import { composerBackgroundWorkBubble } from "./composerBackgroundWorkModel";
+import { composerBackgroundWorkBubble, isRunningWork, SUBAGENT_NAME } from "./composerBackgroundWorkModel";
+import { backgroundProcessLabel } from "../../lib/tabActivity";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 export type ContextKind = "blueprints" | "crons" | "delayed" | "goal" | "background";
@@ -164,10 +165,17 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   const backgroundWork = useComposerBackgroundWorkStatus();
   const backgroundBubble = composerBackgroundWorkBubble(backgroundWork.items);
   const backgroundItems = backgroundBubble?.items ?? [];
-  const onlySubagents = backgroundItems.length > 0 && backgroundItems.every(item => item.kind === "agent");
-  const onlyShells = backgroundItems.length > 0 && backgroundItems.every(item => item.kind === "shell");
-  const internalAgentLabel = `Internal agent of ${descriptor?.display_name ?? "parent harness"}`;
-  const backgroundLabel = onlyShells ? "Background shell command" : onlySubagents ? internalAgentLabel : undefined;
+  const liveItems = backgroundItems.filter(isRunningWork);
+  const onlySubagents = liveItems.length > 0 && liveItems.every(item => item.kind === "agent");
+  const onlyProcesses = liveItems.length > 0 && liveItems.every(item => item.kind === "shell" || item.kind === "terminal");
+  const subagentLabel = `Sub-agent of ${descriptor?.display_name ?? "parent harness"}`;
+  const subagentChip = onlySubagents
+    ? liveItems.length === 1 ? SUBAGENT_NAME : `${liveItems.length} sub-agents`
+    : undefined;
+  const processLabel = onlyProcesses
+    ? liveItems.length === 1 ? `Background process · ${liveItems[0].name}` : backgroundProcessLabel(liveItems.length)
+    : undefined;
+  const backgroundLabel = processLabel ?? (onlySubagents ? subagentLabel : undefined);
   const { chips, byKey, blueprints, context, refresh } = useTabJobs(tabId, workspaceId, adapter, jobActionAdapter);
   const [requested, setRequested] = useState<ContextKind | null>(null);
   const goalTriggerRef = useRef<HTMLButtonElement>(null);
@@ -313,7 +321,9 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
         </button>
       </>
     ),
-    background: () => <ComposerBackgroundWorkPanel items={backgroundItems} onStop={backgroundWork.stop} internalAgentLabel={internalAgentLabel} />,
+    background: () => <ComposerBackgroundWorkPanel items={backgroundItems} onStop={backgroundWork.stop}
+      onViewOutput={backgroundWork.viewOutput} onAskStop={backgroundWork.askStop} agentName={backgroundWork.agentName}
+      internalAgentLabel={subagentLabel} />,
   };
 
   const fallbackTitle = () => {
@@ -367,7 +377,10 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
       <div id={linkedGroupId} hidden={phone && !unfolded} className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
         {hasPluginError && pluginError && <RemovedPluginBubble error={pluginError} />}
         {kinds.map((kind) => {
-          const Icon = kind === "background" && onlySubagents ? Bot : KIND_ICON[kind];
+          const Icon = kind === "background" && onlySubagents ? Bot
+            : kind === "background" && onlyProcesses ? SquareTerminal : KIND_ICON[kind];
+          const processChip = kind === "background" && Boolean(processLabel);
+          const label = kind === "background" ? processLabel ?? subagentChip : kind === "delayed" ? KIND_SHORT_LABEL[kind] : null;
           return (
             <ComposerContextChip
               key={kind}
@@ -375,13 +388,13 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
               kind={kind}
               open={open === kind}
               aria-pressed={open === kind}
-              aria-label={kind === "goal" ? KIND_LABEL.goal : `${kindCount(kind, counts[kind])}${kind === "delayed" && heartbeats.length > 0 ? ", system reminder" : ""}${alerts[kind] ? ", one needs you" : ""}${kind === "background" && backgroundLabel ? `, ${backgroundLabel}` : ""}`}
+              aria-label={processChip ? processLabel : kind === "goal" ? KIND_LABEL.goal : `${kindCount(kind, counts[kind])}${kind === "delayed" && heartbeats.length > 0 ? ", system reminder" : ""}${alerts[kind] ? ", one needs you" : ""}${kind === "background" && backgroundLabel ? `, ${backgroundLabel}` : ""}`}
               title={kind === "background" && backgroundLabel ? `${KIND_LABEL[kind]} · ${backgroundLabel}` : KIND_LABEL[kind]}
               onClick={() => toggle(kind)}
             >
               <Icon size={13} aria-hidden="true" />
-              {!phone && kind === "delayed" && <span className="ct-ctx-kind__label">{KIND_SHORT_LABEL[kind]}</span>}
-              {(phone || kind === "delayed" || kind === "background" || counts[kind] > 1) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
+              {!phone && label && <span className="ct-ctx-kind__label max-w-56 truncate">{label}</span>}
+              {(phone || kind === "delayed" || !label && (kind === "background" || counts[kind] > 1)) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
               {alerts[kind] && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
             </ComposerContextChip>
           );
