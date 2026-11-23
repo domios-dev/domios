@@ -214,7 +214,7 @@ impl ServiceContext {
         let Some(svc) = self.weak_self().upgrade() else {
             return;
         };
-        let Some(owners) = self.get_ext::<super::TranscriptOwners>() else {
+        let Some(owners) = self.try_ext::<super::TranscriptOwners>() else {
             return;
         };
         for (owner, store) in owners.stores_for_destination(router_tab_id) {
