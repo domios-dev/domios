@@ -298,8 +298,9 @@ function groupToolStreams(
   openFlows: ReadonlySet<string>,
   boundaryFlows: ReadonlySet<string>,
   thoughtKeys: ReadonlyMap<number, string>,
+  cwd: string | null | undefined,
 ): TimelineItem[] {
-  const absorbed = reconcileTurnDiffs(items);
+  const absorbed = reconcileTurnDiffs(items, cwd);
   const groups = new Map<string, { flow: string; run: number; indexes: number[] }>();
   // Any visible non-tool row (text, inbound, marker) closes the run; thoughts sit inside streams.
   let run = 0;
@@ -365,7 +366,7 @@ function groupToolStreams(
   });
 }
 
-export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineItem[] {
+export function reduceToolEvents(messages: NormalizedChatMessage[], cwd?: string | null): TimelineItem[] {
   const items: TimelineItem[] = [];
   const calls = new Map<string, { item: number; event: ToolEvent }>();
   const sourceCalls = new Map<string, Array<{ item: number; event: ToolEvent }>>();
@@ -579,5 +580,5 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       items[index] = { kind: "tool", event: { ...item.event, status: "unresolved" } };
     }
   }
-  return groupEditRuns(groupCommandBatches(groupToolStreams(items, openFlows, boundaryFlows, thoughtKeys)));
+  return groupEditRuns(groupCommandBatches(groupToolStreams(items, openFlows, boundaryFlows, thoughtKeys, cwd)));
 }

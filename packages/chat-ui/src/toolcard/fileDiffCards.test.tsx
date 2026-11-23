@@ -257,6 +257,33 @@ describe("file diff cards", () => {
     expect(all(host, "message-raw-content")).toHaveLength(0);
   });
 
+  it("renders the captured workspace-relative snapshot and absolute Windows creation as one +84 row", async () => {
+    const cwd = "C:\\Users\\User\\.domios-dev-w1221\\provisioned-workspaces\\veilfileqa-4851174b754b";
+    const messages = JSON.parse(readFileSync(
+      resolve(process.cwd(), "packages/chat-ui/src/toolcard/fixtures/relative-turn-diff.json"), "utf8",
+    )) as NormalizedChatMessage[];
+    const [created, snapshot] = messages;
+    const host = await mount(<Timeline items={reduceToolEvents(messages, cwd)} />);
+    expect(all(host, "chat-edit-run-file")).toHaveLength(0);
+    const cards = all(host, "file-diff-card");
+    expect(cards).toHaveLength(1);
+    expect(cards[0].getAttribute("aria-label")).toBe("Created veil-file-change-proof.txt +84");
+    await expandAll(host);
+    expect(all(cards[0], "file-diff-line")).toHaveLength(84);
+
+    expect(toolEvents(reduceToolEvents(messages, cwd.toUpperCase().replace(/\\/g, "/") + "/."))).toHaveLength(1);
+    expect(toolEvents(reduceToolEvents(messages, cwd + "\\another-workspace"))).toHaveLength(2);
+    const posix = [{ ...created, fileDiffs: created.fileDiffs?.map(diff => ({
+      ...diff, path: "/Workspace/veil-file-change-proof.txt",
+    })) }, snapshot];
+    expect(toolEvents(reduceToolEvents(posix, "/Workspace"))).toHaveLength(1);
+    expect(toolEvents(reduceToolEvents(posix, "/workspace"))).toHaveLength(2);
+    const rootSnapshot = { ...snapshot, toolResult: snapshot.toolResult?.replaceAll(
+      "veil-file-change-proof.txt", "Workspace/veil-file-change-proof.txt",
+    ) };
+    expect(toolEvents(reduceToolEvents([posix[0], rootSnapshot], "/"))).toHaveLength(1);
+  });
+
   it("keeps create and edit calls for the same path as separate file change rows", async () => {
     const path = "C:/Users/User/AppData/Local/Temp/domios-open131-1d8cadc0/cards-created.txt";
     const created: FileDiff = { path, kind: "add", additions: 1, deletions: 0, hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 1, lines: ["+PUBLIC_OPEN131_CREATED"] }] };

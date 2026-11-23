@@ -106,6 +106,7 @@ function batchRange(start: number | undefined, end: number | undefined, kind?: "
 
 export function useChatSession({
   tabId,
+  cwd,
   agentSessionId,
   sessionBindingNonce,
   onError,
@@ -122,6 +123,7 @@ export function useChatSession({
   hostRows,
 }: {
   tabId: string;
+  cwd?: string | null;
   agentSessionId: string | null;
   sessionBindingNonce: string | null | undefined;
   onError?: (msg: string) => void;
@@ -485,6 +487,7 @@ export function useChatSession({
 
   const view = useChatWindowView({
     hostRows,
+    cwd,
     queueSendsBehindTurn,
     localAttempt,
     tabId,

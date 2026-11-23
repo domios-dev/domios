@@ -6,10 +6,38 @@ export function isTurnDiff(event: ToolEvent): boolean {
     && event.message.toolName === "turn_diff";
 }
 
-function changeKey(event: ToolEvent, diff: FileDiff): string {
+const WINDOWS_ROOT = /^(?:[a-z]:\/|\/\/[^/]+\/[^/]+(?:\/|$))/i;
+
+function windowsSeparators(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\/\/\?\/UNC\//i, "//").replace(/^\/\/\?\//, "");
+}
+
+function comparablePath(path: string, cwd?: string | null): string {
+  const windowsPath = windowsSeparators(path);
+  const windowsCwd = cwd ? windowsSeparators(cwd) : "";
+  const windows = WINDOWS_ROOT.test(windowsPath) || WINDOWS_ROOT.test(windowsCwd);
+  const base = windows ? windowsCwd : cwd ?? "";
+  const normalized = windows || (!cwd && !path.startsWith("/")) ? windowsPath : path;
+  const absolute = normalized.startsWith("/") || WINDOWS_ROOT.test(normalized);
+  const absoluteBase = base.startsWith("/") || WINDOWS_ROOT.test(base);
+  const resolved = absolute || !absoluteBase || (windows && /^[a-z]:/i.test(normalized))
+    ? normalized : `${base.replace(/\/+$/, "")}/${normalized}`;
+  const root = WINDOWS_ROOT.exec(resolved)?.[0].replace(/\/$/, "")
+    ?? (resolved.startsWith("/") ? "" : undefined);
+  if (root === undefined) return windows ? resolved.toLowerCase() : resolved;
+  const segments: string[] = [];
+  for (const segment of resolved.slice(root.length).split("/")) {
+    if (segment === "..") segments.pop();
+    else if (segment && segment !== ".") segments.push(segment);
+  }
+  const identity = `${root}/${segments.join("/")}`;
+  return windows ? identity.toLowerCase() : identity;
+}
+
+function changeKey(event: ToolEvent, diff: FileDiff, cwd?: string | null): string {
   return JSON.stringify([
-    event.message.sourceSessionId ?? "", event.flowId, diff.path.replace(/\\/g, "/"),
-    diff.movePath?.replace(/\\/g, "/"), diff.kind ?? "modify",
+    event.message.sourceSessionId ?? "", event.flowId, comparablePath(diff.path, cwd),
+    diff.movePath === undefined ? undefined : comparablePath(diff.movePath, cwd), diff.kind ?? "modify",
   ]);
 }
 
@@ -28,7 +56,7 @@ function sameChange(recorded: FileDiff, snapshot: FileDiff): boolean {
 }
 
 /** A turn snapshot can echo a completed edit. Keep the snapshot's distinct changes and each actual call. */
-export function reconcileTurnDiffs(items: TimelineItem[]): Set<number> {
+export function reconcileTurnDiffs(items: TimelineItem[], cwd?: string | null): Set<number> {
   const suppressed = new Set<number>();
   const snapshots = new Map<number, ToolEvent>();
   items.forEach((item, index) => {
@@ -45,7 +73,7 @@ export function reconcileTurnDiffs(items: TimelineItem[]): Set<number> {
     if (!event.flowId || event.phase !== "call" || event.status !== "success" || isTurnDiff(event)) continue;
     for (const diff of event.fileDiffs ?? []) {
       if (diff.binary || diff.truncated) continue;
-      const key = changeKey(event, diff);
+      const key = changeKey(event, diff, cwd);
       const changes = recorded.get(key);
       if (changes) changes.push(diff);
       else recorded.set(key, [diff]);
@@ -53,7 +81,7 @@ export function reconcileTurnDiffs(items: TimelineItem[]): Set<number> {
   }
   for (const [index, event] of snapshots) {
     const diffs = event.fileDiffs ?? [];
-    const remaining = diffs.filter((diff) => !recorded.get(changeKey(event, diff))?.some((change) => sameChange(change, diff)));
+    const remaining = diffs.filter((diff) => !recorded.get(changeKey(event, diff, cwd))?.some((change) => sameChange(change, diff)));
     if (!remaining.length) suppressed.add(index);
     else if (remaining.length !== diffs.length) {
       items[index] = { kind: "tool", event: { ...event, fileDiffs: remaining, summary: remaining.map((diff) => diff.path).join("\n") } };
