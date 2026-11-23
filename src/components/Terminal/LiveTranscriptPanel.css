@@ -173,8 +173,18 @@
 }
 
 .ct-live-switch {
-  flex-shrink: 0;
+  flex: none;
+  align-self: center;
+  box-sizing: border-box;
   margin-inline: 2px;
+}
+
+/* Touch rules must not stretch the options past the fixed pill height (shift + bottom clip). */
+.ct-live-switch .ct-liquid-segmented__option {
+  box-sizing: border-box;
+  min-height: 0;
+  padding-block: 0;
+  line-height: 1;
 }
 
 /* The live dot: muted at rest, green with a slow breath while the microphone is open. */
