@@ -4,7 +4,7 @@ import type { ChatWallpaper } from "../../../gen/ChatWallpaper";
 import { formatBytes } from "../../lib/formatBytes";
 import { isLightColor, DEFAULT_THEME, themeToCSS } from "../../lib/themeCss";
 import { MachineAppearanceContext, useWallpaperAsset } from "../../lib/useMachineAppearance";
-import { effectiveWallpaper, WALLPAPER_PATTERNS, wallpaperRenderStyle } from "../../lib/chatWallpaper";
+import { effectiveWallpaper, WALLPAPER_PATTERNS, wallpaperRenderStyle, wallpaperThumbnailIntensity } from "../../lib/chatWallpaper";
 import { askGeneralForWallpaper, deleteWallpaperAsset, saveWallpaper, uploadWallpaper, WALLPAPER_FILE_TYPES } from "../../lib/chatWallpaperClient";
 import type { AppConfig, ThemeConfig } from "../../lib/types";
 import { UI_BUTTON, UI_INPUT } from "../shared/design";
@@ -25,7 +25,7 @@ interface StagedWallpaper {
 
 function thumbnailStyle(theme: ThemeConfig, wallpaper: ChatWallpaper, light: boolean, scale: number, assetUrl?: string) {
   const thumbnail = { ...wallpaper, background: { ...wallpaper.background, scale } };
-  return wallpaperRenderStyle(theme, thumbnail, light, assetUrl, undefined, light ? 1.6 : 1) as CSSProperties;
+  return wallpaperRenderStyle(theme, thumbnail, light, assetUrl, undefined, wallpaperThumbnailIntensity(light));
 }
 
 export function ChatWallpaperPicker({ config, showOwnInitially, stage }: { config: AppConfig; showOwnInitially?: boolean; stage?: StagedWallpaper }) {
@@ -224,7 +224,7 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
             background: { pattern: active.background.pattern, icon: active.background.icon, svg: active.background.svg } })} />}
         {error && !showOwn && <p className="ct-wallpaper-error" role="alert">{error.reason}</p>}
       </div>
-      <div className="ct-wallpaper-preview">
+      {!stage && <div className="ct-wallpaper-preview">
         <div className="ct-wallpaper-preview__head">
           <span>Preview</span>
           <div className="ct-wallpaper-segments" role="group" aria-label="Preview appearance">
@@ -244,7 +244,7 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
           </div>
           <div className="ct-wallpaper-preview__composer">Message</div>
         </div>
-      </div>
+      </div>}
     </div>
   </SettingsCard>;
 }
