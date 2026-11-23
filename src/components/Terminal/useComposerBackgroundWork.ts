@@ -27,7 +27,7 @@ function useBackgroundProcessState(tabId: string) {
         providerWork: tab?.provider_signals?.background,
         rootThreadId,
         bindingNonce,
-        agentName: tab?.title?.trim(),
+        agentName: tab?.title?.trim() || undefined,
         authority,
         terminals: runtimeBackgroundProcesses(tab),
       };
