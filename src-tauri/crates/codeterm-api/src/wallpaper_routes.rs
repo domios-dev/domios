@@ -12,7 +12,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use codeterm_service_core::service::chat_wallpaper::{
     AssetError, WallpaperStore, ASSET_LIMIT, UPLOAD_LIMIT,
 };
-use codeterm_types::config::schema::ChatWallpaper;
+use codeterm_types::{config::schema::ChatWallpaper, svg::SvgRefusal};
 use futures_util::StreamExt;
 use serde::Deserialize;
 use serde_json::json;
@@ -432,16 +432,17 @@ fn refusal(error: AssetError) -> Refusal {
     match error {
         AssetError::TooLarge => (
             StatusCode::PAYLOAD_TOO_LARGE,
-            "Wallpaper exceeds the size or dimension limit",
+            "The file is too large. Choose a smaller SVG or reduce the image's size or dimensions.",
         ),
         AssetError::Unsupported => (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            "Choose a PNG, JPEG, WebP, or SVG file",
+            "This file type is unsupported. Choose a PNG, JPEG, WebP, or SVG file.",
         ),
         AssetError::Invalid => (
             StatusCode::BAD_REQUEST,
-            "Choose a valid static image or an SVG with a viewBox and no scripts, styles, or links",
+            "The file could not be read as a supported static image. Export it again as PNG, JPEG, WebP, or SVG.",
         ),
+        AssetError::Svg(reason) => svg_refusal(reason),
         AssetError::Full => (
             StatusCode::CONFLICT,
             "Remove a saved wallpaper before uploading another",
@@ -455,6 +456,32 @@ fn refusal(error: AssetError) -> Refusal {
             )
         }
     }
+}
+
+fn svg_refusal(reason: SvgRefusal) -> Refusal {
+    let message = match reason {
+        SvgRefusal::TooLarge => return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "The SVG is too large. Choose an SVG up to 64 KB.",
+        ),
+        SvgRefusal::Empty => "The SVG is empty. Export a tile with shapes or paths.",
+        SvgRefusal::InvalidXml => "The SVG contains invalid XML. Export the tile again as SVG.",
+        SvgRefusal::InvalidStructure => "The SVG has an invalid structure. Export the tile with a single SVG root.",
+        SvgRefusal::Script => "It contains a script. Remove all script elements and save the SVG again.",
+        SvgRefusal::EventHandler => "It contains an event handler. Remove event attributes from the SVG.",
+        SvgRefusal::ExternalReference => "It contains an external reference. Remove links and embedded files.",
+        SvgRefusal::Reference => "It contains a reference to another element. Replace references with plain shapes.",
+        SvgRefusal::Style => "It contains styles. Apply strokes and fills directly to the shapes.",
+        SvgRefusal::UnsupportedElement => "It contains an unsupported SVG element. Use plain shapes and paths.",
+        SvgRefusal::UnsupportedAttribute => "It contains an unsupported SVG attribute. Export as a plain SVG.",
+        SvgRefusal::InvalidAttribute => "It contains an invalid SVG attribute value. Correct the value or export the SVG again.",
+        SvgRefusal::UnsupportedMarkup => "It contains unsupported text or XML markup. Export the tile as plain SVG with paths and shapes.",
+        SvgRefusal::MissingViewBox => "The SVG has no viewBox. Export it with a square viewBox.",
+        SvgRefusal::InvalidViewBox => "The SVG has an invalid viewBox. Use four numbers with positive width and height.",
+        SvgRefusal::NonSquare => "The SVG is not square. Export it with equal viewBox width and height.",
+        SvgRefusal::TooDeep => "The SVG has too many nested groups. Flatten the groups and export it again.",
+    };
+    (StatusCode::BAD_REQUEST, message)
 }
 
 fn worker_stopped() -> Refusal {

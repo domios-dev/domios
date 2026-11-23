@@ -21,19 +21,25 @@ fn png(width: u32) -> Vec<u8> {
 
 #[test]
 fn chat_wallpaper_refuses_active_svg_and_oversized_sources() {
-    for element in [
-        r#"<script/>"#,
-        r#"<foreignObject/>"#,
-        r#"<path href="https://example.invalid/file"/>"#,
-        r#"<path onclick="run()"/>"#,
-        r#"<path fill="url(#local)"/>"#,
-        r#"<path stroke="data:image/svg+xml,malformed"/>"#,
+    for (element, reason) in [
+        (r#"<script/>"#, SvgRefusal::Script),
+        (r#"<foreignObject/>"#, SvgRefusal::UnsupportedElement),
+        (
+            r#"<path href="https://example.invalid/file"/>"#,
+            SvgRefusal::ExternalReference,
+        ),
+        (r#"<path onclick="run()"/>"#, SvgRefusal::EventHandler),
+        (r#"<path fill="url(#local)"/>"#, SvgRefusal::Reference),
+        (
+            r#"<path stroke="data:image/svg+xml,malformed"/>"#,
+            SvgRefusal::ExternalReference,
+        ),
     ] {
         let fixture = format!(r#"<svg viewBox="0 0 32 32">{element}</svg>"#);
         assert!(
             matches!(
                 normalize("image/svg+xml", fixture.as_bytes()),
-                Err(AssetError::Invalid)
+                Err(AssetError::Svg(actual)) if actual == reason
             ),
             "{element}"
         );
@@ -50,6 +56,32 @@ fn chat_wallpaper_refuses_active_svg_and_oversized_sources() {
         normalize("image/png", &png(4097)),
         Err(AssetError::TooLarge)
     ));
+}
+
+#[test]
+fn chat_wallpaper_new_svg_upload_requires_square_view_box() {
+    for (svg, reason) in [
+        (br#"<svg/>"#.as_slice(), SvgRefusal::MissingViewBox),
+        (
+            br#"<svg viewBox="0 0 32 0"/>"#.as_slice(),
+            SvgRefusal::InvalidViewBox,
+        ),
+        (
+            br#"<svg viewBox="0 0 32 16"/>"#.as_slice(),
+            SvgRefusal::NonSquare,
+        ),
+    ] {
+        assert!(matches!(
+            normalize("image/svg+xml", svg),
+            Err(AssetError::Svg(actual)) if actual == reason
+        ));
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let store = WallpaperStore::new(dir.path().to_owned());
+    let saved = br#"<svg viewBox="0 0 32 16" xmlns="http://www.w3.org/2000/svg"/>"#;
+    let id = asset_name(Kind::Svg, saved);
+    store.copy(&id, saved).unwrap();
+    assert_eq!(store.read(&id).unwrap().1, saved);
 }
 
 #[test]

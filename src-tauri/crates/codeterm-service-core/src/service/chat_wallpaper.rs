@@ -1,6 +1,6 @@
 use codeterm_types::{
     config::schema::wallpaper_asset_format,
-    svg::{sanitize_svg, SvgUse, MAX_CHAT_TILE_BYTES},
+    svg::{sanitize_svg, sanitize_wallpaper_upload, SvgRefusal, SvgUse, MAX_CHAT_TILE_BYTES},
 };
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -23,6 +23,7 @@ pub enum AssetError {
     TooLarge,
     Unsupported,
     Invalid,
+    Svg(SvgRefusal),
     Full,
     Missing,
     Storage(io::Error),
@@ -63,9 +64,9 @@ fn normalize(media_type: &str, input: &[u8]) -> Result<(Kind, Vec<u8>), AssetErr
         return Err(AssetError::TooLarge);
     }
     match media_type {
-        "image/svg+xml" => sanitize_svg(input, SvgUse::ChatTile)
+        "image/svg+xml" => sanitize_wallpaper_upload(input)
             .map(|svg| (Kind::Svg, svg.into_bytes()))
-            .ok_or(AssetError::Invalid),
+            .map_err(AssetError::Svg),
         "image/png" | "image/jpeg" | "image/webp" => {
             raster::normalize(media_type, input).map(|png| (Kind::Png, png))
         }
@@ -111,7 +112,9 @@ impl WallpaperStore {
             return Err(AssetError::Invalid);
         }
         let clean = match kind {
-            Kind::Svg => normalize(kind.media_type(), input)?.1,
+            Kind::Svg => sanitize_svg(input, SvgUse::ChatTile)
+                .ok_or(AssetError::Invalid)?
+                .into_bytes(),
             Kind::Png => raster::normalize(kind.media_type(), input)?,
         };
         if clean != input {

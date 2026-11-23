@@ -15,6 +15,11 @@ const lightTheme: ThemeConfig = {
   ...DEFAULT_THEME, name: "github-light", background: "#f6f8fa", foreground: "#1f2328", blue: "#0969da",
 };
 
+function thumbnailStyle(theme: ThemeConfig, wallpaper: ChatWallpaper, light: boolean, scale: number, assetUrl?: string) {
+  const thumbnail = { ...wallpaper, background: { ...wallpaper.background, scale } };
+  return wallpaperRenderStyle(theme, thumbnail, light, assetUrl, undefined, light ? 1.6 : 1) as CSSProperties;
+}
+
 export function ChatWallpaperPicker({ config, showOwnInitially }: { config: AppConfig; showOwnInitially?: boolean }) {
   const selected = useContext(MachineAppearanceContext);
   const appearance = selected?.appearance ?? { theme: config.theme, wallpaper: config.chat_wallpaper ?? null };
@@ -49,6 +54,7 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
   const custom = active.background.pattern === "svg" || active.background.pattern === "image";
   const showOwn = ownOpen || custom;
   const asset = useWallpaperAsset(peerId, ready ? active.asset : undefined);
+  const hasOwnFile = custom && Boolean(active.asset);
   const pickerInput = useRef<HTMLInputElement>(null);
   const group = useId();
 
@@ -113,23 +119,29 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
           palette: "sample" in pattern && !themeIsLight ? pattern.sample : undefined,
           fill: "sample" in pattern && !themeIsLight ? { mode: "gradient", preset: "midnight" } : undefined,
         };
-        const thumbnail = { ...sample, background: { ...sample.background, scale: pattern.id === "dots" ? 20 : 180 } };
         return <label key={pattern.id} className="ct-wallpaper-tile" data-selected={selected || undefined}>
           <input type="radio" name={group} className="sr-only" checked={selected} disabled={busy || !ready}
             onChange={() => { setOwnOpen(false); change({ background: { pattern: pattern.id } }); }} />
           <span className="ct-chat-wallpaper" aria-hidden="true"
-            style={wallpaperRenderStyle(theme, thumbnail, themeIsLight) as CSSProperties} />
+            style={thumbnailStyle(theme, sample, themeIsLight, pattern.id === "dots" ? 20 : 180)} />
           {selected && mark}
           <span className="ct-wallpaper-tile__label">{pattern.label}</span>
         </label>;
       })}
-      <label className="ct-wallpaper-tile ct-wallpaper-tile--own" data-selected={showOwn || undefined}>
+      <label className={hasOwnFile ? "ct-wallpaper-tile" : "ct-wallpaper-tile ct-wallpaper-tile--own"}
+        data-selected={showOwn || undefined}>
         <input type="radio" name={group} aria-label="Your own wallpaper" className="sr-only"
           checked={showOwn} disabled={!ready} onChange={() => setOwnOpen(true)} />
         {showOwn && mark}
-        <Plus size={19} aria-hidden="true" />
-        <span>Your own…</span>
-        <small>SVG, image or ask an agent</small>
+        {hasOwnFile ? <>
+          {asset && <span className="ct-chat-wallpaper" aria-hidden="true"
+            style={thumbnailStyle(theme, active, themeIsLight, 80, asset.url)} />}
+          <span className="ct-wallpaper-tile__label">Your own</span>
+        </> : <>
+          <Plus size={19} aria-hidden="true" />
+          <span>Your own…</span>
+          <small>SVG, image or ask an agent</small>
+        </>}
       </label>
     </div>
     <div className="ct-wallpaper-editor">
@@ -140,9 +152,10 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
               chooseOwn(event.currentTarget.files?.[0]);
               event.currentTarget.value = "";
             }} />
-          {custom && active.asset ? <div className="ct-wallpaper-own-file">
-            <span className="ct-wallpaper-own-thumb" aria-hidden="true"><span className="ct-chat-wallpaper"
-              style={wallpaperRenderStyle(theme, active, themeIsLight, asset?.url) as CSSProperties} /></span>
+          {hasOwnFile ? <div className="ct-wallpaper-own-file">
+            <span className="ct-wallpaper-own-thumb" aria-hidden="true">
+              {asset && <span className="ct-chat-wallpaper" style={thumbnailStyle(theme, active, themeIsLight, 28, asset.url)} />}
+            </span>
             <div className="min-w-0 flex-1">
               <strong className="block truncate">{active.asset_label ?? "Uploaded wallpaper"}</strong>
               <small>{asset ? formatBytes(asset.size) + " · " : ""}saved for this machine{active.background.pattern === "svg" && " · lines follow the colour below"}</small>

@@ -47,7 +47,7 @@ export function WallpaperControls({ wallpaper, light, disabled, onDraft, onChang
   const swatches = (Object.keys(PALETTES) as WallpaperPalette[]);
   const presets = (Object.keys(FILLS) as WallpaperFillPreset[]);
   return <fieldset className="ct-wallpaper-controls" disabled={disabled} aria-label="Wallpaper controls">
-    {lines && <div className="ct-wallpaper-property">
+    {lines && <div className="ct-wallpaper-property ct-wallpaper-property--swatches">
       <span>Line colour</span>
       <div role="radiogroup" aria-label="Line colour" className="ct-wallpaper-swatches">
         {[undefined, ...swatches].map(key => <label key={key ?? "theme"} className="ct-wallpaper-swatch">
@@ -61,7 +61,7 @@ export function WallpaperControls({ wallpaper, light, disabled, onDraft, onChang
     {pattern !== "none" && slider("opacity", "Intensity", intensity, 0, photo ? 30 : 24, "%")}
     {pattern === "dots" && slider("scale", "Scale", Math.min(64, Math.max(8, background.scale ?? 20)), 8, 64, " px")}
     {lines && slider("scale", "Scale", Math.min(480, Math.max(240, background.scale ?? wallpaperDefaultScale(pattern))), 240, 480, " px")}
-    {!photo && pattern !== "dots" && <div className="ct-wallpaper-property">
+    {!photo && pattern !== "dots" && <div className="ct-wallpaper-property ct-wallpaper-property--swatches">
       <span>Background</span>
       <div className="ct-wallpaper-fills">
         <div className="ct-wallpaper-segments" role="group" aria-label="Background fill mode">

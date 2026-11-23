@@ -1,6 +1,7 @@
 import { type TransportClient } from "../transportClient";
 import { readPluginSnapshot } from "../pluginSnapshotRequest";
 import { relayTarget } from "../webApi";
+import type { AppConfig } from "../types";
 export type CapabilityArgs = Record<string, unknown>;
 export type CapabilityMapper = (args: CapabilityArgs) => Promise<unknown>;
 export type CapabilitiesClient = Pick<TransportClient, "json" | "localJson" | "currentToken" | "origin">;
@@ -213,7 +214,10 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
       });
       return resp.line ?? "";
     },
-    update_config: (a) => webJson("PATCH", "/api/config", a.config),
+    update_config: (a) => {
+      const { chat_wallpaper: _wallpaper, ...config } = a.config as Partial<AppConfig>;
+      return webJson("PATCH", "/api/config", config);
+    },
     usage_history: (a) => {
       const accountId = a.accountId ?? a.account_id;
       const limit = a.limit == null ? "" : `&limit=${enc(String(a.limit))}`;
