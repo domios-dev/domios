@@ -2,7 +2,7 @@ import type { TranscriptForward, TranscriptRow } from "../../lib/transport/liveT
 
 type Segment = { seq: number; text: string; atMs: number };
 type PassageState = "pending" | "sent" | "not_sent";
-type Marker = { kind: "paused" | "resumed"; id: string; atMs: number };
+type Marker = { kind: "paused" | "resumed"; id: string; atMs: number; resumedAtMs?: number };
 
 export type TranscriptPassage = {
   kind: "passage";
@@ -10,6 +10,7 @@ export type TranscriptPassage = {
   state: PassageState;
   segments: Segment[];
   forward?: TranscriptForward;
+  forwards?: TranscriptForward[];
   provisional?: string;
 };
 
@@ -18,6 +19,11 @@ type ThreadItem = TranscriptPassage | Marker | {
   id: string;
   passages: TranscriptPassage[];
 };
+
+function sameForwards(left: readonly TranscriptForward[] | undefined, right: readonly TranscriptForward[]) {
+  const a = left ?? [];
+  return a.length === right.length && a.every((item, index) => item.forwardId === right[index].forwardId);
+}
 
 function isNotSent(item: TranscriptPassage | Marker | undefined): item is TranscriptPassage & { state: "not_sent" } {
   return item?.kind === "passage" && item.state === "not_sent";
@@ -49,21 +55,30 @@ export function groupPassages(
   const items: (TranscriptPassage | Marker)[] = [];
   for (const { seq, atMs, content } of rows) {
     if (content.kind !== "speech") {
-      items.push({ kind: content.kind, id: `marker-${seq}`, atMs });
+      const previous = items[items.length - 1];
+      if (content.kind === "resumed" && previous?.kind === "paused" && previous.resumedAtMs == null) {
+        previous.resumedAtMs = atMs;
+      } else {
+        items.push({ kind: content.kind, id: `marker-${seq}`, atMs });
+      }
       continue;
     }
-    const forward = forwards?.find(({ range }) => range.fromSeq <= seq && seq <= range.toSeq);
+    const matching = forwards?.filter(({ range }) => range.fromSeq <= seq && seq <= range.toSeq) ?? [];
+    const forward = matching[0];
     const state = forward ? "sent" : ackedSeq != null && seq <= ackedSeq ? "not_sent" : "pending";
     const previous = items[items.length - 1];
     const last = previous?.kind === "passage" ? previous.segments[previous.segments.length - 1] : undefined;
     const crossedReview = state === "pending" && reviewingThroughSeq != null && last &&
       last.seq <= reviewingThroughSeq && seq > reviewingThroughSeq;
     const segment = { seq, text: content.text, atMs };
-    if (previous?.kind === "passage" && last && previous.state === state && previous.forward === forward &&
+    if (previous?.kind === "passage" && last && previous.state === state && sameForwards(previous.forwards, matching) &&
       (forward || atMs - last.atMs <= 8000) && !crossedReview) {
       previous.segments.push(segment);
     } else {
-      items.push({ kind: "passage", id: `speech-${seq}`, state, forward, segments: [segment] });
+      items.push({
+        kind: "passage", id: `speech-${seq}`, state, forward,
+        forwards: matching.length ? matching : undefined, segments: [segment],
+      });
     }
   }
 

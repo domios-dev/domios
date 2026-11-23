@@ -49,7 +49,12 @@ fn record(
     let _gate = store.inner.forward_gate.lock();
     let binding = store.binding();
     let state = store.routing_state()?;
-    let to_seq = state.attempted_through.max(store.committed_seq());
+    let committed = store.committed_seq();
+    let to_seq = if state.attempted_through > 0 {
+        state.attempted_through.min(committed)
+    } else {
+        committed
+    };
     if to_seq == 0 {
         return Ok(false);
     }

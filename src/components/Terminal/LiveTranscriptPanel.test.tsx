@@ -321,8 +321,42 @@ describe("Live Transcript panel", () => {
     await click("Thoughts ›");
     expect(sent?.querySelector('[aria-label="Thoughts inspector"]')).not.toBeNull();
     expect(api.epoch).toHaveBeenCalledExactlyOnceWith("receipt-epoch", 0, expect.any(AbortSignal));
-    await click("Details ›");
+    await click("Details ⌄");
     expect(sent?.querySelector('[aria-label="Thoughts inspector"]')).toBeNull();
+  });
+
+  it("renders stacked receipts for one passage with only one Details block open at a time", async () => {
+    const { api, status } = await mount();
+    api.overview.mockResolvedValue({
+      status,
+      cursor: { ackedSeq: 995, seenSeq: 995 },
+      forwards: [
+        {
+          forwardId: "sent-a", epochId: "ep-1", range: { fromSeq: 993, toSeq: 994 }, atMs: 1_000,
+          targetTabId: agent.id, targetTitle: "Main", sentText: "First payload", sentExcerpt: "First payload",
+        },
+        {
+          forwardId: "sent-b", epochId: "ep-1", range: { fromSeq: 993, toSeq: 994 }, atMs: 2_000,
+          targetTabId: "atlas-id", targetTitle: "Atlas", sentText: "Second payload", sentExcerpt: "Second payload",
+        },
+      ],
+    });
+    await click("Open active Transcript");
+    const sent = panel()?.querySelector('[data-seq="993"]')?.closest("article");
+    const buttons = () => Array.from(sent?.querySelectorAll("button") ?? []).filter(b => b.textContent?.startsWith("Details"));
+    expect(sent?.textContent).toContain("Sent to Agent");
+    expect(sent?.textContent).toContain("Sent to Atlas");
+    expect(buttons()).toHaveLength(2);
+    await act(async () => { buttons()[0].click(); });
+    expect(sent?.textContent).toContain("First payload");
+    expect(sent?.textContent).not.toContain("Second payload");
+    expect(buttons()[0].textContent).toBe("Details ⌄");
+    expect(buttons()[1].textContent).toBe("Details ›");
+    await act(async () => { buttons()[1].click(); });
+    expect(sent?.textContent).not.toContain("First payload");
+    expect(sent?.textContent).toContain("Second payload");
+    expect(buttons()[0].textContent).toBe("Details ›");
+    expect(buttons()[1].textContent).toBe("Details ⌄");
   });
 
   it("expands older not-sent remarks in place while keeping the latest run visible", async () => {

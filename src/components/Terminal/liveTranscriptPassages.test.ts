@@ -66,14 +66,29 @@ describe("groupPassages", () => {
     expect(extended[1]).toMatchObject({ state: "pending", segments: [{ seq: 3 }], provisional: "Draft" });
   });
 
-  it("breaks at pause and resume markers without merging short remarks across them", () => {
+  it("breaks at pause and resume markers, merging back-to-back pause/resume into one marker", () => {
     const rows: TranscriptRow[] = [
       speech(1, 0, "Uh."),
       { seq: 2, atMs: 100, content: { kind: "paused", reason: "manual" } },
       { seq: 3, atMs: 200, content: { kind: "resumed" } },
       speech(4, 300, "Okay."),
     ];
-    expect(segments(groupPassages(rows, [], 4))).toEqual([[1], "paused", "resumed", [4]]);
-    expect(segments(groupPassages(rows, [forward(1, 4)], 4))).toEqual([[1], "paused", "resumed", [4]]);
+    const items = groupPassages(rows, [], 4);
+    expect(segments(items)).toEqual([[1], "paused", [4]]);
+    expect(items[1]).toMatchObject({ kind: "paused", atMs: 100, resumedAtMs: 200 });
+    expect(segments(groupPassages(rows, [forward(1, 4)], 4))).toEqual([[1], "paused", [4]]);
+    const separated: TranscriptRow[] = [
+      { seq: 1, atMs: 100, content: { kind: "paused", reason: "manual" } },
+      speech(2, 150, "Mid speech."),
+      { seq: 3, atMs: 200, content: { kind: "resumed" } },
+    ];
+    expect(segments(groupPassages(separated, [], 3))).toEqual(["paused", [2], "resumed"]);
+  });
+
+  it("retains multiple forwards in send order when they share a passage range", () => {
+    const first = { ...forward(1, 2), forwardId: "fwd-1", targetTitle: "Main", sentText: "First send" };
+    const second = { ...forward(1, 2), forwardId: "fwd-2", targetTitle: "Atlas", sentText: "Second send" };
+    const items = groupPassages([speech(1, 0), speech(2, 1_000)], [first, second], 2);
+    expect(items).toMatchObject([{ kind: "passage", state: "sent", forwards: [first, second] }]);
   });
 });

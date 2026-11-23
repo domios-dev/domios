@@ -392,6 +392,17 @@
   color: var(--ct-red);
 }
 
+.ct-live-receipts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.ct-live-receipts .ct-live-receipt {
+  margin-top: 0;
+}
+
 .ct-live-receipt {
   display: flex;
   flex-wrap: wrap;

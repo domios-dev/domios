@@ -372,6 +372,7 @@ function TranscriptThread({ api, rows, forwards, acked, reviewingThroughSeq, pro
   retry?: () => void;
   busy: boolean;
 }) {
+  const [openDetails, setOpenDetails] = useState<string>();
   const [openThoughts, setOpenThoughts] = useState<string>();
   const items = useMemo(() => groupPassages(rows ?? [], forwards, acked, { reviewingThroughSeq, provisional }),
     [rows, forwards, acked, reviewingThroughSeq, provisional]);
@@ -383,11 +384,19 @@ function TranscriptThread({ api, rows, forwards, acked, reviewingThroughSeq, pro
     flow && <div className="ct-live-flow" role="status"><span aria-hidden>●</span> {flow}</div>;
 
   function renderPassage(passage: TranscriptPassage) {
-    const { forward } = passage;
+    const receipts = passage.forwards ?? (passage.forward ? [passage.forward] : []);
     return <Passage key={passage.id} passage={passage} selected={selected} onSelect={() => onSelect(passage.segments)}>
-      {forward && <ForwardReceipt key={forward.forwardId} api={api} forward={forward}
-        thoughtsOpen={openThoughts === passage.id}
-        onThoughts={open => setOpenThoughts(open ? passage.id : undefined)} />}
+      {receipts.length > 0 && <div className="ct-live-receipts">
+        {receipts.map(forward => <ForwardReceipt key={forward.forwardId} api={api} forward={forward}
+          expanded={openDetails === forward.forwardId}
+          onExpanded={open => {
+            setOpenDetails(open ? forward.forwardId : undefined);
+            if (!open && openThoughts === forward.forwardId) setOpenThoughts(undefined);
+            if (open && openThoughts && openThoughts !== forward.forwardId) setOpenThoughts(undefined);
+          }}
+          thoughtsOpen={openThoughts === forward.forwardId}
+          onThoughts={open => setOpenThoughts(open ? forward.forwardId : undefined)} />)}
+      </div>}
       {latestPending === passage && statusLine}
     </Passage>;
   }
@@ -397,7 +406,9 @@ function TranscriptThread({ api, rows, forwards, acked, reviewingThroughSeq, pro
       if (item.kind === "passage") return renderPassage(item);
       if (item.kind === "collapsed_not_sent") return <CollapsedRemarks key={item.id} passages={item.passages} renderPassage={renderPassage} />;
       return <div key={item.id} className="ct-live-marker">
-        <span>{item.kind === "paused" ? "Paused" : "Resumed"} · {threadTime(item.atMs)}</span>
+        <span>{item.kind === "paused" && item.resumedAtMs != null
+          ? `Paused ${threadTime(item.atMs)}–${threadTime(item.resumedAtMs)}`
+          : `${item.kind === "paused" ? "Paused" : "Resumed"} · ${threadTime(item.atMs)}`}</span>
       </div>;
     })}
     {!latestPending && routeError && statusLine}
@@ -460,7 +471,7 @@ function RouteError({ error, retry, busy }: { error: string; retry?: () => void;
       <span className="ct-live-not-delivered" role="status"><span aria-hidden>●</span> Not delivered</span>
       <button type="button" onClick={retry} disabled={busy || !retry}
         title={!retry ? "Retry is unavailable for this route" : undefined}>Retry</button>
-      <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>Details <span aria-hidden>›</span></button>
+      <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>Details <span aria-hidden>{expanded ? "⌄" : "›"}</span></button>
     </div>
     {expanded && <p className="ct-live-receipt-details" role="alert">{error}</p>}
   </div>;
@@ -493,17 +504,18 @@ function SentText({ text }: { text: string }) {
   </>;
 }
 
-function ForwardReceipt({ api, forward, thoughtsOpen, onThoughts }: {
+function ForwardReceipt({ api, forward, expanded, onExpanded, thoughtsOpen, onThoughts }: {
   api: LiveTranscriptApi;
   forward: TranscriptForward;
+  expanded: boolean;
+  onExpanded: (open: boolean) => void;
   thoughtsOpen: boolean;
   onThoughts: (open: boolean) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const store = useMuxStateStore();
   const tab = useMuxSelector(state => state.tabs[forward.targetTabId]);
   const title = tab && isSidebarTabVisible(tab) ? displayTitleForTab(tab) : forward.targetTitle;
-  return <>
+  return <div className="ct-live-receipt-item">
     <span className="sr-only">Sent to {title}</span>
     <div className="ct-live-receipt">
       <CornerDownRight size={13} aria-hidden />
@@ -512,10 +524,9 @@ function ForwardReceipt({ api, forward, thoughtsOpen, onThoughts }: {
       <span aria-hidden>·</span>
       <time dateTime={new Date(forward.atMs).toISOString()}>{threadTime(forward.atMs)}</time>
       <span aria-hidden>·</span>
-      <button type="button" aria-expanded={expanded} onClick={() => {
-        if (expanded && thoughtsOpen) onThoughts(false);
-        setExpanded(!expanded);
-      }}>Details <span aria-hidden>›</span></button>
+      <button type="button" aria-expanded={expanded} onClick={() => onExpanded(!expanded)}>
+        Details <span aria-hidden>{expanded ? "⌄" : "›"}</span>
+      </button>
     </div>
     {expanded && <div className="ct-live-receipt-details">
       <SentText text={forward.sentText} />
@@ -527,7 +538,7 @@ function ForwardReceipt({ api, forward, thoughtsOpen, onThoughts }: {
         {thoughtsOpen && <LiveTranscriptThoughts key={forward.epochId} api={api} epoch={forward.epochId} onClose={() => onThoughts(false)} />}
       </> : <span className="ct-live-muted">Reasoning unavailable</span>}
     </div>}
-  </>;
+  </div>;
 }
 
 function contiguousSpeechRange(rows: TranscriptRow[]) {
