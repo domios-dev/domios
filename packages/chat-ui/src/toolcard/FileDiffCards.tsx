@@ -12,7 +12,6 @@ import { FloatingTooltip } from "../FloatingTooltip";
 import { knownLanguageFromPath } from "../codeLanguage";
 import { DIFF_HIGHLIGHT_MAX_LINES } from "../MarkdownBody";
 import { SYNTAX_HIGHLIGHT_ROOT_CLASS, themeAwarePrismStyle } from "../syntaxTheme";
-import { ToolOutputContent } from "../ToolOutputContent";
 import { toolKindVisual } from "./toolKindVisual";
 import { toolOutcomeVisual } from "./toolVisualModel";
 import { rawToolPayload } from "./toolParsing";
@@ -156,9 +155,34 @@ export function uniqueToolTexts(event: Pick<ToolEvent, "detail" | "result">): st
   return texts;
 }
 
-function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkActions, rawCommand }: { event: ToolEvent; diff: FileDiff; showResult: boolean; initiallyExpanded: boolean; renderHunkActions?: HunkActions; rawCommand: boolean }) {
+export function useFileChangeRaw(events: readonly ToolEvent[], enabled = true) {
+  const [open, setOpen] = useState(false);
+  const hasInput = (event: ToolEvent) => event.message.toolInput && Object.keys(event.message.toolInput).length > 0;
+  const available = enabled && events.some((event) => hasInput(event)
+    || event.message.toolArgs?.trim() || event.detail?.trim() || event.result?.trim());
+  const item: ChatCardMenuItem | undefined = available ? {
+    label: "View raw", kind: "details", icon: <SquareTerminal size={14} aria-hidden />, checked: open,
+    onSelect: () => setOpen((value) => !value),
+  } : undefined;
+  const texts = available && open ? events.flatMap((event) => {
+    const input = hasInput(event) ? rawToolPayload(event) : event.message.toolArgs?.trim();
+    const details = uniqueToolTexts(event);
+    return input && !details.includes(input) ? [input, ...details] : details;
+  }) : [];
+  const body = texts.length > 0 && <div className="flex flex-col gap-1 px-3 pb-2">
+    {texts.map((text, index) => (
+      <BoundedMessageContent key={index} as="pre" data-testid="message-raw-content" collapsedHeight="12rem"
+        className="m-0 whitespace-pre-wrap break-words font-mono text-xs" style={{ color: "var(--ct-muted-fg)" }}>
+        {text}
+      </BoundedMessageContent>
+    ))}
+  </div>;
+  return { item, body };
+}
+
+function FileEditCard({ event, diff, initiallyExpanded, renderHunkActions, rawCommand }: { event: ToolEvent; diff: FileDiff; initiallyExpanded: boolean; renderHunkActions?: HunkActions; rawCommand: boolean }) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
-  const [technicalOpen, setTechnicalOpen] = useState(false);
+  const raw = useFileChangeRaw([event], rawCommand);
   const host = useChatBlockHost();
   const regionId = useId();
   const visual = toolKindVisual.edit;
@@ -168,7 +192,6 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
   const heading = diff.kind === "add" ? `Created ${basename} +${diff.additions}` : `Edited ${name} +${diff.additions} −${diff.deletions}`;
   const cardLabel = heading;
   const language = knownLanguageFromPath(diff.movePath ?? diff.path);
-  const textDetails = uniqueToolTexts(event);
   const outcome = toolOutcomeVisual[event.status];
   const OutcomeGlyph = outcome.glyph;
   const path = diff.movePath ?? diff.path;
@@ -180,8 +203,7 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
     menu.push({ label: "View changes", icon: <FileDiffIcon size={14} aria-hidden />, onSelect: () => open(path, "diff") });
     if (diff.kind !== "delete") menu.push({ label: "View file", icon: <FileText size={14} aria-hidden />, onSelect: () => open(path, "file") });
   }
-  if (rawCommand) menu.push({ label: "Details", kind: "details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
-    onSelect: () => { setTechnicalOpen((open) => !open); setExpanded(true); } });
+  if (raw.item) menu.push(raw.item);
   return (
     <ExpandableReader label={heading} openerPlacement="header" ownsMenu>{(fullscreen, opener, _openReader, readerItems) => (
     <section
@@ -231,15 +253,8 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
             <HunkLines hunk={hunk} language={language} />
           </div>
         ))}
-        {(expanded || fullscreen) && showResult && textDetails.length > 0 && (
-          <div data-testid="toolcard-result" className="flex flex-col gap-1 px-3 pt-1">
-            {textDetails.map((detail, index) => (
-              <ToolOutputContent key={`${index}-${detail.slice(0, 32)}`} text={detail} maxHeight="12rem" />
-            ))}
-          </div>
-        )}
-        {(expanded || fullscreen) && technicalOpen && rawCommand && <BoundedMessageContent as="pre" data-testid="message-raw-content" collapsedHeight="12rem" className="m-0 whitespace-pre-wrap break-words px-3 pt-1 font-mono text-xs" style={{ color: "var(--ct-muted-fg)" }}>{rawToolPayload(event)}</BoundedMessageContent>}
       </div>
+      {raw.body}
     </section>
     )}</ExpandableReader>
   );
@@ -251,8 +266,8 @@ export function FileDiffCards({ event, initiallyExpanded = false, renderHunkActi
   return (
     <div data-testid="file-diff-cards" className="mx-auto mb-1.5 flex w-full max-w-4xl min-w-0 flex-col gap-1">
       {diffs.length === 1
-        ? <FileEditCard event={event} diff={diffs[0]} showResult initiallyExpanded={initiallyExpanded} renderHunkActions={renderHunkActions} rawCommand={rawCommand} />
-        : <RowMenuIsolate>{diffs.map((diff, index) => <FileEditCard key={`${index}:${diff.path}`} event={event} diff={diff} showResult={index === 0} initiallyExpanded={initiallyExpanded} renderHunkActions={renderHunkActions} rawCommand={rawCommand} />)}</RowMenuIsolate>}
+        ? <FileEditCard event={event} diff={diffs[0]} initiallyExpanded={initiallyExpanded} renderHunkActions={renderHunkActions} rawCommand={rawCommand} />
+        : <RowMenuIsolate>{diffs.map((diff, index) => <FileEditCard key={`${index}:${diff.path}`} event={event} diff={diff} initiallyExpanded={initiallyExpanded} renderHunkActions={renderHunkActions} rawCommand={rawCommand} />)}</RowMenuIsolate>}
     </div>
   );
 }

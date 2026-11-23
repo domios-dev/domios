@@ -647,6 +647,7 @@ impl ServiceFixture {
             )),
             ready_user_send_tasks: Arc::new(TestReadySendTasks::default()),
             agent_pad_data_dir: data_dir.clone(),
+            pad_shares: Default::default(),
             mux,
             pty: Arc::new(TimedMutex::new(
                 "pty",

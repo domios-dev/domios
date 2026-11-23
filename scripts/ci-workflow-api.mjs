@@ -1,5 +1,6 @@
 import { RELEASE_BRANCH } from './release-version.mjs';
-import {verifyQualification, selectQualificationArtifact, retainQualificationEvidence, qualificationAttemptNumbers, selectReleasePushRun} from './ci-qualification.mjs';
+import {verifyQualification, selectQualificationArtifact, retainQualificationEvidence, qualificationEvidence,
+  selectReleasePushRun, assertCurrentQualificationRun} from './ci-qualification.mjs';
 import {readQualificationArchive} from './ci-qualification-archive.mjs';
 import {parseTestWaiver, testWaiverEvidence} from './release-test-waiver.mjs';
 export {readQualificationArchive} from './ci-qualification-archive.mjs';
@@ -51,20 +52,16 @@ export async function requireQualificationWithGithub(github, context, sha, {runI
   const artifact=selectQualificationArtifact(artifacts,sha,Date.now(),runId);
   const run=(await github.rest.actions.getWorkflowRun({...context.repo,run_id:artifact.workflow_run.id})).data;
   if(String(run.id)!==String(artifact.workflow_run.id))throw new Error('Foreign qualification artifact run');
-  const jobs=[];
-  for(let page=1;;page++){
-    // GitHub answers 502 for 100-job pages of large multi-attempt runs.
-    if(page>40)throw new Error('Qualification job inventory exceeds bound');
-    const batch=(await github.rest.actions.listJobsForWorkflowRun({...context.repo,run_id:run.id,filter:'all',per_page:50,page})).data;
-    jobs.push(...batch.jobs);if(jobs.length>=batch.total_count)break;
-    if(!batch.jobs.length)throw new Error('Incomplete qualification job inventory');
-  }
-  const attempts=[];
-  for(const number of qualificationAttemptNumbers(run)){
-    attempts.push((await github.rest.actions.getWorkflowRunAttempt({...context.repo,run_id:run.id,attempt_number:number})).data);
-  }
+  const repository = context.repo.owner + '/' + context.repo.repo;
+  const reader = qualificationEvidence(run, sha, repository);
+  let next = reader.next();
+  while (!next.done) next = reader.next((await github.request('GET /' + next.value)).data);
+  const { jobs, attempts, retained } = next.value;
   const archive=(await github.rest.actions.downloadArtifact({...context.repo,artifact_id:artifact.id,archive_format:'zip'})).data;
-  return retain({...verifyQualification(readArchive(archive),run,jobs,sha,context.repo.owner+'/'+context.repo.repo,attempts),
+  const verified = verifyQualification(readArchive(archive), run, jobs, sha, repository, attempts, retained);
+  const current = (await github.rest.actions.getWorkflowRun({...context.repo,run_id:run.id})).data;
+  assertCurrentQualificationRun(current, run, sha, repository);
+  return retain({...verified,
     verification_artifact:{id:artifact.id,expires_at:artifact.expires_at}});
 }
 

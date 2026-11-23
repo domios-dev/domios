@@ -267,7 +267,7 @@ pub(super) fn create_router_with_preview_admission(
         )
         .merge(plan_routes::router::router())
         .route("/api/app/restart", post(network_routes::restart_app))
-        .route("/api/serve-file", get(notification_routes::serve_file))
+        .merge(super::wallpaper_routes::routes())
         .route(
             "/api/notifications",
             get(notification_routes::list_notifications)

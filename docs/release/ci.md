@@ -70,7 +70,9 @@ The release push runs full qualification and dry-run packaging together from `gi
 Only owner pushes to `release/next` enter that graph. The exact source package.json sets the app version. Open or refresh the release
 PR after this push run is green. Its hosted read-only reader validates the current PR head and
 branch tip, selects the completed green tests.yml push run for the exact SHA, branch, repository
-and owner actors, then validates unexpired receipts from that run. Missing, failed, foreign,
+and owner actors, then validates unexpired receipts from that run. It pages the latest attempt's
+job inventory and reads an earlier job inventory only when it needs to prove a retained execution.
+Missing, failed, foreign,
 superseded or expired evidence fails; absence never passes. No PR event can call privileged jobs. Master promotion jobs are pinned to hosted Ubuntu,
 so the release-only runner-group allowlist needs no master workflow refs.
 
@@ -94,8 +96,8 @@ compares signatures, URLs and sha256 metadata with qualification, then HEAD-chec
 status and size, including Debian and the mirror. Issue closure requires that evidence and the
 same qualification identity. Payload signature verification remains in qualification.
 
-The release Orchestrator pins the reviewed runner-group payload once to `release/next` under
-standing owner permission. Read it back for each release.
+The release Orchestrator reads back the runner group for each release. Apply the reviewed payload
+under standing owner permission after the release owner reconciles any drift.
 See [the runner policy procedure](public-repo.md#runner-isolation-is-a-publicization-prerequisite).
 Require restricted_to_workflows=true and exact reviewed refs, selected repository access and no
 unrestricted repository runners. Preparing the payload changes no live policy. Hosted unsigned
@@ -120,18 +122,16 @@ Runner capacity switches (owner operation):
 | Repository variable | Value | Effect |
 | --- | --- | --- |
 | CI_LINUX_LIGHT_RUNNER | ubuntu-24.04 | Current private light labels per job |
-| CI_LINUX_RUST_COMPILE_RUNNER | unset or `private` | Clippy and CLI tests on hosted ubuntu-24.04 by default; `private` routes them to the ubunta linux-build runner |
-| CI_LINUX_RUST_FULL_RUNNER | unset or `hosted` | Full Rust suite on the ubunta linux-build runner by default; `hosted` routes it to ubuntu-24.04 |
+| CI_LINUX_RUST_FULL_RUNNER | unset, `hosted` or a JSON runner label array | The full Rust suite falls back to `ubuntu-24.04` when unset or `hosted`. An owner-approved array routes it to a qualifying private runner. |
+| RELEASE_LINUX_X64_RUNNER | JSON hosted image or runner label array | Linux x64 release packaging and credential preflight. The hosted image is `"ubuntu-24.04"`. |
 | CI_RELEASE_EVIDENCE_RUNNER | unset or `hosted` | Release evidence promotion; master always uses hosted ubuntu-24.04, with metadata-only admission and retained-byte fallback |
 | CI_MACOS_RUST_RUNNER | macos-15 | Air macOS platform tests |
 | CI_MACOS_EMBEDDINGS_RUNNER | macos-15 | Air embeddings after platform tests |
 
-Set only the literal hosted values listed above after repository visibility,
-Actions budgets and one authorized capacity qualification are ready. Leave a
-variable unset to retain the current private labels. No variable is changed by
-this patch. Hosted variants receive no repository/environment secrets, use the
-GitHub Actions sccache backend and cache only Cargo registry/git dependencies.
-They retain artifacts in GitHub rather than attempting private S3. Private
+The release owner approves routing changes and records the prior selector and its rollback.
+Private selectors must match the trusted runner group and physical-machine exclusions.
+Hosted Rust jobs use the GitHub Actions sccache backend, cache Cargo registry and Git dependencies,
+and retain artifacts in GitHub. Private
 runners keep their existing cache and receipt paths. The hosted macOS capacity
 must be measured for embeddings before enabling it; signing and notarization
 always remain on the private Macs. Pure TS/plugin jobs already use hosted
@@ -200,22 +200,24 @@ Catalogue selection runs during triage even after a previous failure. Commands
 run through ci-catalogue-command.mjs, which reports a named catalogue error for
 a missing/invalid selection instead of failing workflow expression expansion.
 
-Guards always run on secret-free ubuntu-24.04. The private full Rust suite,
-Clippy and CLI use the same host-ubunta linux-build executor; the Rust tier
-starts after the fast tier, preserving one compilation per host. BLACKSTAR WSL
-is retired from workflow routing. Windows remains on ROG and macOS on the Macs.
+Guards always run on secret-free `ubuntu-24.04`. Workspace Clippy checks all targets,
+including the app and CLI, on a separate hosted VM alongside the full suite.
+Rust test receipts require both jobs to succeed. If both the Linux full suite and x64
+packaging select ubunta, its single runner serializes them. Compare whole-run duration
+and queue time before keeping both jobs there. BLACKSTAR WSL is retired from workflow routing.
 
 ## Hosted switch prerequisites
 
-Linux compilation is hosted by default; signing stays private. Before moving more
+Linux compilation is hosted by default. Linux x64 packaging uses the configured release runner
+and receives signing credentials through the protected `release` environment. Before moving more
 work to hosted runners:
 
 - Install Linux GUI development dependencies (WebKitGTK 4.1, GTK, appindicator,
   OpenSSL, librsvg, xdo and bundle utilities) before workspace compilation.
 - Derive hosted mode from runner capability, rather than matching one label;
   validate the selected OS and architecture, secret suppression and cache backend.
-- Replace release self-hosted label arrays with a complete hosted bootstrap design.
-  Signing and notarization stay on private runners.
+- Replace release self-hosted label arrays with a complete hosted bootstrap design
+  that preserves the protected environment and credential checks.
 - Supply explicit public fixture client configuration for secret-free test builds,
   skip local secret lookup in CI and distinguish that coverage from configured releases.
 

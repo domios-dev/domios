@@ -8,6 +8,33 @@
   overflow-y: auto;
   overflow-wrap: anywhere;
 }
+.ct-chat-wallpaper-stack, .ct-chat-wallpaper {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ct-chat-wallpaper {
+  background-color: var(--ct-bg);
+  overflow: hidden;
+}
+.ct-chat-wallpaper::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--ct-wallpaper-fill, var(--ct-chat-backdrop, none));
+}
+.ct-chat-wallpaper::after {
+  content: "";
+  position: absolute;
+  inset: var(--ct-wallpaper-rotation-inset, 0px);
+  transform: rotate(var(--ct-wallpaper-rotation, 0deg));
+  background: var(--ct-wallpaper-ink, none);
+  mask: var(--ct-wallpaper-mask, none);
+  opacity: var(--ct-wallpaper-opacity, 0);
+}
+@media print, (prefers-contrast: more), (forced-colors: active) {
+  .ct-chat-wallpaper, .ct-chat-wallpaper-stack { display: none; }
+}
 .ct-chat-surface .ct-chat-message-row {
   max-width: var(--ct-chat-readable-width);
   margin-inline: auto;

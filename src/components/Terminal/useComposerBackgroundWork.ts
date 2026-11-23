@@ -9,7 +9,9 @@ import {
   type ComposerBackgroundWorkItem,
 } from "./composerBackgroundWorkModel";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
-import type { BackgroundProcessAuthority, BackgroundStopResult } from "../../lib/backgroundProcesses";
+import { runtimeBackgroundProcesses } from "../../lib/tabActivity";
+import type { BackgroundProcessAuthority, BackgroundStopRequestStatus, BackgroundStopResult } from "../../lib/backgroundProcesses";
+import type { LocalPreviewFile } from "../../../gen/LocalPreviewFile";
 
 function useBackgroundProcessState(tabId: string) {
   return useMuxSelector(
@@ -21,15 +23,13 @@ function useBackgroundProcessState(tabId: string) {
       const authority = rootThreadId && bindingNonce && runtime?.state === "loaded"
         ? { rootThreadId, bindingNonce, epoch: runtime.epoch }
         : null;
-      const roster = tab?.remote_channels && tab.remote_channels.control !== "available"
-        ? undefined
-        : runtime?.backgroundProcesses;
       return {
-        providerWork: tab?.provider_signals?.background?.running ?? {},
-        unknownWork: tab?.provider_signals?.background?.unknown ?? {},
+        providerWork: tab?.provider_signals?.background,
         rootThreadId,
+        bindingNonce,
+        agentName: tab?.title?.trim() || undefined,
         authority,
-        terminals: roster && authority && sameAuthority(roster, authority) ? roster.processes : [],
+        terminals: runtimeBackgroundProcesses(tab),
       };
     }, [tabId]),
     sameJson,
@@ -41,7 +41,7 @@ function sameAuthority(a: BackgroundProcessAuthority, b: BackgroundProcessAuthor
 }
 
 export function useComposerBackgroundWork(tabId: string, subagentsVisible: boolean, messages: readonly NormalizedChatMessage[]) {
-  const { authority, rootThreadId, terminals, providerWork, unknownWork } = useBackgroundProcessState(tabId);
+  const { authority, rootThreadId, bindingNonce, agentName, terminals, providerWork } = useBackgroundProcessState(tabId);
   const [warning, setWarning] = useState<{ tabId: string; authority: BackgroundProcessAuthority; message: string }>();
   const dismissStopWarning = useCallback(() => setWarning(undefined), []);
   const stop = useCallback(async (item: ComposerBackgroundWorkItem) => {
@@ -58,11 +58,29 @@ export function useComposerBackgroundWork(tabId: string, subagentsVisible: boole
     }
   }, [authority, tabId]);
 
+  const providerAction = useCallback(<T,>(command: string, item: ComposerBackgroundWorkItem) => {
+    if (item.kind !== "shell" || !item.rawId || !rootThreadId || !bindingNonce
+      || item.id !== `provider:${rootThreadId}:${item.rawId}`) {
+      return Promise.reject(new Error("Background process is unavailable in this session"));
+    }
+    return invoke<T>(command, {
+      tabId,
+      request: { sessionId: rootThreadId, bindingNonce, taskId: item.rawId },
+    });
+  }, [tabId, rootThreadId, bindingNonce]);
+  const viewOutput = useCallback(async (item: ComposerBackgroundWorkItem) => {
+    if (item.kind !== "shell") return item.outputTail;
+    const result = await providerAction<LocalPreviewFile>("agent_provider_background_output", item);
+    return result.data;
+  }, [providerAction]);
+  const askStop = useCallback((item: ComposerBackgroundWorkItem) =>
+    providerAction<BackgroundStopRequestStatus>("agent_provider_ask_stop_background_work", item), [providerAction]);
+
   const computed = withProviderBackgroundWork(
     composerBackgroundWorkItems(messages, terminals, Date.now(), {
       subagentsVisible, rootThreadId, authority: authority ?? undefined,
     }),
-    providerWork, rootThreadId, unknownWork, messages,
+    providerWork, rootThreadId, messages,
   );
   // The composer header consumes this through context; unchanged work must keep its identity across transcript renders.
   const itemsRef = useRef(computed);
@@ -71,5 +89,6 @@ export function useComposerBackgroundWork(tabId: string, subagentsVisible: boole
   const stopWarning = warning?.tabId === tabId && authority && sameAuthority(warning.authority, authority)
     ? warning.message
     : undefined;
-  return useMemo(() => ({ items, stop, stopWarning, dismissStopWarning }), [items, stop, stopWarning, dismissStopWarning]);
+  return useMemo(() => ({ items, stop, viewOutput, askStop, agentName, stopWarning, dismissStopWarning }),
+    [items, stop, viewOutput, askStop, agentName, stopWarning, dismissStopWarning]);
 }

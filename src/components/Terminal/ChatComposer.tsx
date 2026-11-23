@@ -100,6 +100,11 @@ declare global {
 
 const NO_SUGGESTIONS: SlashCommandSuggestion[] = [];
 
+export function composerHint(hasCommands: boolean, phone: boolean): string {
+  if (phone) return hasCommands ? "Ask anything · @ tab · / command" : "Ask anything · @ tab";
+  return hasCommands ? "Ask anything · @ to mention a tab · / for commands" : "Ask anything · @ to mention a tab";
+}
+
 const SlashPicker = memo(function SlashPicker({
   suggestions,
   highlighted,
@@ -905,7 +910,7 @@ function ChatComposerImpl({
           onSelect={(e) => { capsules.snapSelection(e.currentTarget); mentionTokens.snapSelection(e.currentTarget); mentionPicker.current?.syncSelection(e.currentTarget); }}
           placeholder={pendingPrompt
             ? "Answer the request above to continue."
-            : idlePlaceholder ?? "Message"}
+            : idlePlaceholder ?? composerHint(commands.length > 0, composerDevice === "phone")}
           enterKeyHint={composerDevice === "phone" ? "enter" : "send"}
           style={{
             color: capsulesActive ? "transparent" : "var(--ct-fg, #c9d1d9)",

@@ -1,7 +1,7 @@
 {"toolUseResult":{"backgroundTaskId":"dropped"}}
 {"type":"system","subtype":"compact_boundary"}
 {"toolUseResult":{"backgroundTaskId":"finished"}}
-{"message":{"content":"<task-notification><task-id>finished</task-id><status>completed</status></task-notification>"}}
+{"type":"attachment","sessionId":"opaque-own","attachment":{"type":"queued_command","commandMode":"task-notification","origin":{"kind":"task-notification","producer":"session-task"},"prompt":"<task-notification>\n<task-id>finished</task-id>\n<tool-use-id>opaque-call</tool-use-id>\n<output-file>/tmp/claude/opaque-project/opaque-own/tasks/finished.output</output-file>\n<status>failed</status>\n<summary>opaque summary</summary>\n</task-notification>"}}
 {"toolUseResult":{"backgroundTaskId":"live"}}
-{"type":"user","sessionId":"opaque-own","toolUseResult":{"stdout":"","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false,"backgroundTaskId":"opaque-stopped"},"message":{"role":"user","content":[{"tool_use_id":"opaque-start","type":"tool_result","content":"opaque-a","is_error":false}]}}
+{"type":"user","sessionId":"opaque-own","toolUseResult":{"stdout":"","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false,"backgroundTaskId":"opaque-stopped"},"message":{"role":"user","content":[{"tool_use_id":"opaque-start","type":"tool_result","content":"Command running in background with ID: opaque-stopped. Output is being written to: C:\\Fixture\\Temp\\claude\\opaque-project\\opaque-own\\tasks\\opaque-stopped.output. You will be notified when it completes.","is_error":false}]}}
 {"type":"user","sessionId":"opaque-own","toolUseResult":{"message":"opaque-b","task_id":"opaque-stopped","task_type":"local_bash","command":"opaque-c"},"message":{"role":"user","content":[{"tool_use_id":"opaque-stop","type":"tool_result","content":"opaque-d"}]}}

@@ -5,6 +5,16 @@ export const codexSelfUpdateCapability = {
   npmPackage: "@openai/codex",
   standaloneDirectory: "packages/standalone",
   standaloneArgs: ["update"],
+  macosAppBundle: {
+    bundleIdentifier: "com.openai.codex",
+    teamIdentifier: "2DC432GLL2",
+    executablePaths: [
+      "Contents/Resources/codex",
+      "Contents/Resources/codex-cli/bin/codex",
+      "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+    ],
+    updateGuidance: "This CLI comes with Codex Desktop. Open the desktop app and use its built-in update option.",
+  },
 };
 
 export function parseVersion(value: unknown): [number, number, number] | null {

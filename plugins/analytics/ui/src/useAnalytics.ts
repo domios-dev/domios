@@ -42,34 +42,43 @@ export function useAnalytics({ preset, groupBy, filters }: AnalyticsRequest): An
     nowMs: Date.now(),
     range: rangeFor(preset, new Date()),
   }));
-  const sequence = useRef(0);
   const gate = useRef<RefreshGate | null>(null);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
   const filtersKey = JSON.stringify(filters);
 
   useEffect(() => {
-    const id = ++sequence.current;
+    let cancelled = false;
     const now = new Date();
     const range = rangeFor(preset, now);
     const tz = localTimeZone();
     const current = filtersRef.current;
-    const groupBys = GROUP_BY_OPTIONS.map((option) => option.value);
     setRefreshing(true);
-    void Promise.all([
-      Promise.all(groupBys.map((group) => queryAnalytics(buildQuery(range, tz, group, NO_FILTERS)))),
-      activeFilterCount(current) > 0 ? queryAnalytics(buildQuery(range, tz, groupBy, current)) : Promise.resolve(null),
-    ]).then(([unfiltered, filtered]) => {
-      if (id !== sequence.current) return;
-      const catalog: Catalog = {};
-      groupBys.forEach((group, index) => {
-        const outcome = unfiltered[index];
-        if (outcome?.kind === "snapshot") catalog[group] = outcome.snapshot;
-      });
-      setLoaded({ outcome: filtered ?? unfiltered[groupBys.indexOf(groupBy)] ?? null, catalog, nowMs: now.getTime(), range });
+    const catalog: Catalog = {};
+    let selectionLoaded = false;
+    const unfiltered = new Map(GROUP_BY_OPTIONS.map(({ value: group }) => [
+      group,
+      queryAnalytics(buildQuery(range, tz, group, NO_FILTERS)).then((outcome) => {
+        if (!cancelled && outcome.kind === "snapshot") {
+          catalog[group] = outcome.snapshot;
+          if (selectionLoaded) setLoaded((current) => ({ ...current, catalog: { ...catalog } }));
+        }
+        return outcome;
+      }),
+    ]));
+    const selected = activeFilterCount(current) > 0
+      ? queryAnalytics(buildQuery(range, tz, groupBy, current))
+      : unfiltered.get(groupBy) ?? Promise.resolve({ kind: "unavailable" } as const);
+    void selected.then((outcome) => {
+      if (cancelled) return;
+      selectionLoaded = true;
+      setLoaded({ outcome, catalog: { ...catalog }, nowMs: now.getTime(), range });
       setRefreshing(false);
-      gate.current?.settled();
     });
+    void Promise.all([selected, ...unfiltered.values()]).then(() => {
+      if (!cancelled) gate.current?.settled();
+    });
+    return () => { cancelled = true; };
   }, [preset, groupBy, filtersKey, nonce]);
 
   const refresh = useCallback(() => setNonce((value) => value + 1), []);

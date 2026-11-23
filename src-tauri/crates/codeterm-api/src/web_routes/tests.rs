@@ -499,7 +499,8 @@ async fn newer_mux_generation_returns_body_and_new_validator() {
 
 #[tokio::test]
 async fn web_tab_close_refuses_a_protected_tab_with_a_typed_status() {
-    use axum::extract::{Path, State};
+    use crate::auth::{AgentHeaders, AuthenticatedOrigin, CallerIdentity};
+    use axum::extract::{Path, Query, State};
     use codeterm_service_core::multiplexer::state::MultiplexerState;
     use codeterm_service_core::service::test_fixture::ServiceFixture;
 
@@ -508,11 +509,18 @@ async fn web_tab_close_refuses_a_protected_tab_with_a_typed_status() {
     let workspace = mux.find_workspace_for_tab(&tab).unwrap();
     let fixture = ServiceFixture::new(mux);
     let state = crate::test_support::app_state(&fixture);
+    let owner = AgentHeaders::authenticated(
+        &CallerIdentity::Local,
+        AuthenticatedOrigin::Owner,
+        axum::http::HeaderMap::new(),
+    )
+    .unwrap();
 
     let refused = super::tab_close(
         State(state.clone()),
-        axum::http::HeaderMap::new(),
+        owner.clone(),
         Path((workspace.clone(), tab.clone())),
+        Query(Default::default()),
     )
     .await
     .unwrap_err();
@@ -523,8 +531,9 @@ async fn web_tab_close_refuses_a_protected_tab_with_a_typed_status() {
     let reservation = state.svc.mux.write().reserve_tab_close(&tab).unwrap();
     let locked = super::tab_close(
         State(state.clone()),
-        axum::http::HeaderMap::new(),
+        owner,
         Path((workspace, tab)),
+        Query(Default::default()),
     )
     .await
     .unwrap_err();

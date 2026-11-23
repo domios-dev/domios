@@ -544,8 +544,10 @@ export function SidebarWorkspaceTabs({
   return (
     <>
       <SortableContext items={unitItems} strategy={verticalListSortingStrategy}>
-        {rows}
-        {observedRows}
+        <div className="sidebar-session-list">
+          {rows}
+          {observedRows}
+        </div>
       </SortableContext>
       <div hidden={typeof filter === "object"} className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
         {onNewSession && !ws.cwd_missing && <CursorTooltip

@@ -23,6 +23,7 @@ use std::{
 
 mod accounts;
 mod credential_stamp;
+pub(super) use credential_stamp::changed as credentials_changed;
 mod retirement;
 use retirement::stop_session;
 pub use retirement::stop_switch_source_blocking;
@@ -877,6 +878,19 @@ pub async fn ensure_locked(
             "Restored runtime thread identity missing".into(),
         ));
     }
+    let implicit = fork.is_none()
+        && context.thread_id.is_none()
+        && svc.mux.read().get_tab(tab).is_some_and(|tab| {
+            tab.agent_requested_model.is_none()
+                && tab.restorable_launch.requested_model.is_none()
+                && tab.agent_planned_model.is_none()
+                && !tab.restored_from_snapshot
+        })
+        && crate::config::provider_config_from(&svc.configuration(), provider)
+            .default_model
+            .is_none();
+    super::model_unavailable::apply_remembered(svc, session, implicit).await?;
+    let context = session.context.lock().clone();
     let operation = match fork {
         Some((source_thread_id, turn_id)) => RuntimeOperation::ForkThread {
             source_thread_id: source_thread_id.clone(),
@@ -894,8 +908,14 @@ pub async fn ensure_locked(
             },
         },
     };
+    let fallback = super::model_unavailable::Fallback::new(implicit);
     session.state.lock().pending_load_notice = None;
-    let result = resume::load(svc, provider, session, &process, operation).await?;
+    let result = super::model_unavailable::FALLBACK
+        .scope(
+            fallback.clone(),
+            resume::load(svc, provider, session, &process, operation),
+        )
+        .await?;
     let context = session.context.lock().clone();
     let (thread_id, settings, load_notice) = match (fork, result) {
         (
@@ -1077,7 +1097,9 @@ pub async fn ensure_locked(
     session
         .thread_loaded
         .store(true, std::sync::atomic::Ordering::Release);
-    super::bootstrap::submit(svc, session, &process).await?;
+    super::model_unavailable::FALLBACK
+        .scope(fallback, super::bootstrap::submit(svc, session, &process))
+        .await?;
     super::owned_context::inject_abort_note(svc, session, &process, &thread_id).await;
     if !session.state.lock().load(context.epoch, &thread_id) {
         return Err(RuntimeFailure::Superseded);

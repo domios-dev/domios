@@ -2,12 +2,14 @@ import { Window } from "happy-dom";
 import {
   cacheThemeSnapshot,
   DEFAULT_THEME,
+  isLightColor,
   readCachedTheme,
   readCachedThemeVars,
   themeToCSS,
 } from "./themeCss";
 import type { ThemeConfig } from "./types";
 import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import { blendColor, parseHex } from "./colors";
 
 let passed = 0;
@@ -42,6 +44,71 @@ const lightTheme: ThemeConfig = {
 
 console.log("themeCss tests");
 
+for (const theme of [lightTheme, DEFAULT_THEME]) {
+  assert(`${theme.name}: the chat has no backdrop by default`, themeToCSS(theme)["--ct-chat-backdrop"] === "none");
+}
+
+for (const [theme, opacity] of [[lightTheme, 3.5], [DEFAULT_THEME, 2.8]] as const) {
+  const backdrop = themeToCSS({ ...theme, chat_background: { pattern: "dots" } })["--ct-chat-backdrop"];
+  assert(`${theme.name}: chosen dots tile one foreground-colored dot`,
+    backdrop === `radial-gradient(circle, color-mix(in srgb, var(--ct-fg) ${opacity}%, transparent) 0.75px, transparent 1.1px) 10px 10px / 20px 20px repeat`);
+}
+
+{
+  const theme = {
+    ...lightTheme,
+    chat_background: {
+      pattern: "icon",
+      icon: "cat",
+      scale: 48,
+      rotation: -12,
+      color: "#5359a8",
+      opacity: 1,
+      gradient: { kind: "linear", angle: 35, stops: ["#5359a8", "#419a80"] },
+    },
+  } satisfies ThemeConfig;
+  const backdrop = themeToCSS(theme)["--ct-chat-backdrop"];
+  const encodedTile = backdrop.match(/^url\("data:image\/svg\+xml,([^"]+)"\)/)?.[1] ?? "";
+  const decoded = decodeURIComponent(encodedTile);
+  assert("custom tile repeats at 48 px", backdrop.includes("/ 48px 48px repeat"));
+  assert("cat glyph respects the rotation, color and readability cap",
+    decoded.includes('<path d="M5 10')
+      && decoded.includes('rotate(-12 24 24)')
+      && decoded.includes('color="#5359a8"')
+      && decoded.includes('opacity="0.24"'));
+  assert("a subdued gradient paints below the tile", backdrop.startsWith('url("data:image/svg+xml,')
+    && backdrop.endsWith("linear-gradient(35deg, color-mix(in srgb, #5359a8 8%, transparent), color-mix(in srgb, #419a80 8%, transparent)) no-repeat"));
+
+  const none = themeToCSS({ ...theme, chat_background: { pattern: "none" } });
+  assert("none clears the previous background", none["--ct-chat-backdrop"] === "none");
+  const radial = themeToCSS({ ...theme, chat_background: {
+    pattern: "none",
+    gradient: { ...theme.chat_background.gradient, kind: "radial" },
+  } });
+  assert("gradient alone fills the transcript", radial["--ct-chat-backdrop"].startsWith("radial-gradient("));
+
+  const grid = themeToCSS({ ...theme, chat_background: { pattern: "grid", scale: 32, rotation: 20 } });
+  assert("grid repeats rotated perpendicular lines at the requested spacing",
+    grid["--ct-chat-backdrop"].includes("repeating-linear-gradient(20deg,")
+      && grid["--ct-chat-backdrop"].includes("repeating-linear-gradient(110deg,")
+      && grid["--ct-chat-backdrop"].includes("transparent 1px 32px"));
+}
+
+for (const [theme, opacity] of [[lightTheme, 0.06], [DEFAULT_THEME, 0.085]] as const) {
+  const painted: ThemeConfig = { ...theme, chat_background: { pattern: "doodles" } };
+  const vars = themeToCSS(painted);
+  const backdrop = vars["--ct-chat-backdrop"];
+  assert(`${theme.name}: doodles use the theme ink and a 360 px tile`,
+    backdrop.includes("/ 360px 360px repeat")
+      && backdrop.includes(`color%3D%22%23${theme.foreground.slice(1)}%22`)
+      && backdrop.includes(`opacity%3D%22${opacity}%22`));
+  cacheThemeSnapshot(painted, vars);
+  assert("first-paint cache excludes the doodle SVG and preserves theme colors",
+    readCachedTheme()?.chat_background === undefined
+      && readCachedThemeVars()?.["--ct-chat-backdrop"] === undefined
+      && readCachedThemeVars()?.["--ct-bg"] === theme.background);
+}
+
 {
   const vars = themeToCSS(lightTheme);
   assert("themeToCSS uses theme background", vars["--ct-bg"] === "#f6f8fa");
@@ -67,6 +134,43 @@ console.log("themeCss tests");
   const vars = readCachedThemeVars();
   assert("cached theme restores before backend config", cached?.name === "github-light");
   assert("cached vars restore before React render", vars?.["--ct-bg"] === "#f6f8fa");
+}
+
+{
+  const html = readFileSync("index.html", "utf8");
+  const bootstrap = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
+  for (const background of [lightTheme.background, DEFAULT_THEME.background, "#50ce50", "#c080c0"]) {
+    setupDom();
+    cacheThemeSnapshot({ ...lightTheme, background });
+    runInNewContext(bootstrap, { document: window.document, localStorage: window.localStorage });
+    const root = window.document.documentElement;
+    const expected = isLightColor(background) ? "light" : "dark";
+    assert(`first paint restores the app theme mode for ${background}`, root.dataset.ctTheme === expected && root.style.colorScheme === expected);
+    assert(`first paint restores the background variable for ${background}`, root.style.getPropertyValue("--ct-bg") === background);
+  }
+}
+
+{
+  setupDom();
+  const { document } = window;
+  const root = document.documentElement;
+  root.dataset.ctTheme = isLightColor(DEFAULT_THEME.background) ? "light" : "dark";
+  const tokens = document.createElement("style");
+  tokens.textContent = readFileSync("src/styles/tokens.css", "utf8");
+  document.head.append(tokens);
+
+  const expectedDarkShadows = {
+    "--ct-shadow-sm": "0 1px 2px rgb(0 0 0/.20), 0 1px 3px rgb(0 0 0/.10)",
+    "--ct-shadow-md": "0 1px 3px rgb(0 0 0/.20), 0 3px 10px rgb(0 0 0/.13), 0 0 0 1px rgb(255 255 255/.04)",
+    "--ct-shadow-lg": "0 3px 6px rgb(0 0 0/.20), 0 8px 24px rgb(0 0 0/.16), 0 0 0 1px rgb(255 255 255/.06)",
+    "--ct-shadow-xl": "0 6px 12px rgb(0 0 0/.23), 0 16px 44px rgb(0 0 0/.20), 0 0 0 1px rgb(255 255 255/.06)",
+    "--ct-shadow-capsule": "0 2px 6px rgb(0 0 0/.16), 0 8px 22px rgb(0 0 0/.13), 0 0 0 1px rgb(255 255 255/.06)",
+  };
+  const computed = window.getComputedStyle(root);
+  for (const [token, expected] of Object.entries(expectedDarkShadows)) {
+    const actual = computed.getPropertyValue(token).replace(/calc\((\.\d+) \* 1\)/g, "$1").replace(/\s+/g, " ").trim();
+    assert(`github-dark resolves ${token}`, actual === expected, `expected ${expected}, got ${actual}`);
+  }
 }
 
 for (const name of ["github-dark", "github-light", "dracula"]) {

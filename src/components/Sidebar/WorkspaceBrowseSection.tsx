@@ -77,7 +77,7 @@ export function WorkspaceBrowseSection({
         .map((child, index) => looseTree(child, index, visited))}
     </div>;
   };
-  return <>
+  return <div className="sidebar-session-list">
     {drag.units.map(({ key, kind }, index) => {
       if (kind === "tab") return looseTree(rowsById[key], index, new Set());
       const members = (membersByTeam.get(key) ?? []).filter(({ tab }) => !drag.attachedIds.has(tab.id));
@@ -128,5 +128,5 @@ export function WorkspaceBrowseSection({
           workingTerminalCount={working(terminals)} providers={[]} />
       </Fragment>;
     })}
-  </>;
+  </div>;
 }

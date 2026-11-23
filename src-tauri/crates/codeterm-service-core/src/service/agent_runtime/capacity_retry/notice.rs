@@ -4,6 +4,43 @@ use crate::service::ServiceContext;
 use codeterm_types::agent::AgentRole;
 
 pub(super) fn stopped(svc: &ServiceContext, tab_id: &str, nonce: &str, reason: &str) {
+    publish(
+        svc,
+        tab_id,
+        nonce,
+        reason,
+        "automatic-recovery-stopped",
+        "Automatic recovery stopped",
+        Some(format!("domios send --tab {tab_id} \"continue\"")),
+    );
+}
+
+pub(in crate::service::agent_runtime) fn model_unavailable(
+    svc: &ServiceContext,
+    tab_id: &str,
+    nonce: &str,
+    reason: &str,
+) {
+    publish(
+        svc,
+        tab_id,
+        nonce,
+        reason,
+        "model_unavailable",
+        "Agent model unavailable",
+        None,
+    );
+}
+
+fn publish(
+    svc: &ServiceContext,
+    tab_id: &str,
+    nonce: &str,
+    reason: &str,
+    event: &'static str,
+    title: &str,
+    recovery: Option<String>,
+) {
     let context = {
         let mux = svc.mux.read();
         let Some(tab) = mux
@@ -29,10 +66,10 @@ pub(super) fn stopped(svc: &ServiceContext, tab_id: &str, nonce: &str, reason: &
         .unwrap_or("none");
     let body = format!("Tab {tab_id}, task {task}, attempt {attempt}: {reason}");
     svc.events.publish_generic(
-        "automatic-recovery-stopped",
+        event,
         serde_json::json!({
             "tab_id":tab_id,"task_id":task,"attempt_id":attempt,"reason":reason,
-            "parent_tab_id":parent,"recovery":format!("domios send --tab {tab_id} \"continue\"")
+            "parent_tab_id":parent,"recovery":recovery
         }),
     );
     if let Some(parent) = parent
@@ -46,15 +83,10 @@ pub(super) fn stopped(svc: &ServiceContext, tab_id: &str, nonce: &str, reason: &
                 OutboundMessage {
                     target: parent,
                     body: MessageBody::Text { body },
-                    envelope: Some(MessageEnvelope::codeterm_reminder(
-                        "automatic-recovery-stopped",
-                    )),
+                    envelope: Some(MessageEnvelope::codeterm_reminder(event)),
                     class: DeliveryClass::SystemNotice,
                     origin: MessageOrigin::System,
-                    idempotency_key: Some(format!(
-                        "automatic-recovery-stopped:{}",
-                        uuid::Uuid::new_v4()
-                    )),
+                    idempotency_key: Some(format!("{event}:{}", uuid::Uuid::new_v4())),
                 },
             );
             if let Err(error) = result {
@@ -63,7 +95,7 @@ pub(super) fn stopped(svc: &ServiceContext, tab_id: &str, nonce: &str, reason: &
         });
     } else if parent.is_none() {
         svc.create_notification_actions_reported(
-            "Automatic recovery stopped".into(),
+            title.into(),
             Some(body),
             Some("error"),
             Default::default(),

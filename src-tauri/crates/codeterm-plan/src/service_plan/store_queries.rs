@@ -110,6 +110,14 @@ impl PlanStore {
         self.database.unclosed_attempt_bindings(tab_id)
     }
 
+    pub fn task_bindings_for_owner_tab_close(
+        &self,
+        tab_id: &str,
+    ) -> Result<Vec<(String, String)>, PlanError> {
+        self.database
+            .unclosed_attempt_bindings_with_terminal(tab_id, true)
+    }
+
     /// Assigned nonterminal tasks, including their names for authority diagnostics.
     pub fn task_bindings_with_name_for_tab(
         &self,

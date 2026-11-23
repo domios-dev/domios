@@ -58,6 +58,7 @@ import { CHAT_INITIAL_HISTORY_SCAN_BYTES, searchOlderChatHistory, type OlderChat
  *  and enriched rows. It reads both stores and never keeps a copy of either. */
 export function useChatWindowView({
   tabId,
+  cwd,
   agentSessionId = null,
   windowKey,
   transcript,
@@ -73,6 +74,7 @@ export function useChatWindowView({
   hostRows,
 }: {
   tabId: string;
+  cwd?: string | null;
   queueSendsBehindTurn?: boolean;
   hostRows?:readonly NormalizedChatMessage[];
   agentSessionId?: string | null;
@@ -154,11 +156,11 @@ export function useChatWindowView({
   // Both layers reuse prior objects for unchanged messages so MessageBubble
   // memo keeps skipping the ~220 untouched bubbles on every streamed chunk.
   const enrichmentCacheRef = useRef<EnrichmentCache>(new WeakMap());
-  const gaps = useChatHistoryGaps(windowKey, loadHistoryPage);
+  const gaps = useChatHistoryGaps(windowKey, loadHistoryPage, cwd);
   const baseEntries = useMemo(() => stableDeliveryEntries(
-    conversationEntries(allMessages, enrichmentCacheRef.current), liveSends, projection.echoes, deliveryMemory.current,
+    conversationEntries(allMessages, enrichmentCacheRef.current, cwd), liveSends, projection.echoes, deliveryMemory.current,
     projection.outside,
-  ), [allMessages, liveSends, projection.echoes, projection.outside, windowKey]);
+  ), [allMessages, cwd, liveSends, projection.echoes, projection.outside, windowKey]);
   const documentAttachmentNames = useMemo(() => new Map(
     baseEntries.flatMap(({ msg }) => msg.attachmentNames ? [[msg.sourceMessageId ?? msg.id, msg.attachmentNames] as const] : []),
   ), [baseEntries]);
@@ -278,7 +280,7 @@ export function useChatWindowView({
           return page;
         }, initial ? CHAT_INITIAL_HISTORY_SCAN_BYTES : undefined, page => {
         if (!page.messages) return page.rows >= CHAT_PAGE_SIZE;
-        const entries = conversationEntries(page.messages);
+        const entries = conversationEntries(page.messages, undefined, cwd);
         return firstKey == null ? entries.length >= CHAT_PAGE_SIZE
           : entries.findIndex(entry => entry.msg.id === firstKey) >= CHAT_PAGE_SIZE;
         });
@@ -296,7 +298,7 @@ export function useChatWindowView({
       }
     }
   }, [allTimelineItems, backfillCursor, canBackfillOlder, followTailRef, hiddenMessageCount,
-    canReadServer, gaps.load, leadingGap, loadOlderPage, revealOlder, updateWindowAnchor, windowRange]);
+    canReadServer, cwd, gaps.load, leadingGap, loadOlderPage, revealOlder, updateWindowAnchor, windowRange]);
 
   useLayoutEffect(() => {
     if (!pendingReveal || pendingReveal.aborted) return;

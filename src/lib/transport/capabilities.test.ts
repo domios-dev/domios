@@ -143,7 +143,9 @@ describe("capabilities HTTP transport", () => {
   it("uses PATCH for configuration and restores only the authenticated client's token", async () => {
     const { transport, calls } = fixture({ api: { token: "redacted", port: 7685 } });
     expect(await transport.get_config()).toEqual({ api: { token: "client-token", port: 7685 } });
-    await transport.update_config({ config: { theme: { name: "custom" } } });
+    await transport.update_config({
+      config: { theme: { name: "custom" }, chat_wallpaper: { background: { pattern: "dots" } } },
+    });
     expect(calls[1]).toEqual(["PATCH", "/api/config", { theme: { name: "custom" } }]);
   });
 

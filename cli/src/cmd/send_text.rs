@@ -498,6 +498,7 @@ fn send_text_to_targets(
     require_agent: bool,
     to_shell: bool,
     system_context: Option<String>,
+    pad_attachments: &(Vec<String>, bool),
 ) {
     let mut failures: Vec<(String, String)> = Vec::new();
     let mut held: Vec<(String, String)> = Vec::new();
@@ -507,7 +508,7 @@ fn send_text_to_targets(
     let mut pad_files: Vec<serde_json::Value> = Vec::new();
     let source_tab = crate::nonempty_env("CODETERM_TAB_ID");
     for tab_id in targets {
-        if !resolved_text.trim().is_empty() {
+        if !resolved_text.trim().is_empty() || !pad_attachments.0.is_empty() {
             let kind = match probe_tab_kind(client, tab_id) {
                 Ok(kind) => kind,
                 Err(error) => {
@@ -533,6 +534,7 @@ fn send_text_to_targets(
                     params["source_tab"] = serde_json::json!(my_tab);
                 }
                 params["system_context"] = serde_json::json!(system_context);
+                add_pad_attachments(&mut params, pad_attachments);
                 client.call("tab.send_text", Some(params))
             }
         };
@@ -633,6 +635,7 @@ pub fn handle_send_text(
     text: Option<String>,
     from_file: Option<String>,
     from_pad: Option<String>,
+    pad_attachments: (Vec<String>, bool),
     from_stdin: bool,
     actions: Option<String>,
     delay: Option<String>,
@@ -645,6 +648,9 @@ pub fn handle_send_text(
     system_context: Option<String>,
 ) {
     if let Some((peer, remote_tab)) = tab.as_deref().and_then(parse_remote_tab_id) {
+        if !pad_attachments.0.is_empty() {
+            emit_send_refusal(json, "--attach requires both tabs on the same machine");
+        }
         if require_agent {
             emit_send_refusal(
                 json,
@@ -697,8 +703,16 @@ pub fn handle_send_text(
         _ => None,
     };
     let mut stdin = std::io::stdin();
-    let (resolved_text, parsed_actions) =
-        resolve_and_validate_send(text, from_file, from_pad, from_stdin, actions, &mut stdin);
+    let (resolved_text, parsed_actions) = resolve_and_validate_send(
+        text,
+        from_file,
+        from_pad,
+        from_stdin,
+        actions,
+        !pad_attachments.0.is_empty(),
+        &mut stdin,
+    );
+    let require_agent = require_agent || !pad_attachments.0.is_empty();
     if let Some(targets) = multi_targets {
         send_text_to_targets(
             client,
@@ -709,11 +723,12 @@ pub fn handle_send_text(
             require_agent,
             to_shell,
             system_context,
+            &pad_attachments,
         );
         return;
     }
     let tab_id = resolve_tab(client, tab);
-    if !resolved_text.trim().is_empty() {
+    if !resolved_text.trim().is_empty() || !pad_attachments.0.is_empty() {
         let kind = probe_tab_kind(client, &tab_id)
             .unwrap_or_else(|error| crate::cmd::print::exit_with_cli_error(json, &error));
         if let SendEligibility::Refuse(msg) =
@@ -738,8 +753,17 @@ pub fn handle_send_text(
         }
     }
     params["system_context"] = serde_json::json!(system_context);
+    add_pad_attachments(&mut params, &pad_attachments);
     let result = client.call("tab.send_text", Some(params));
     handle_send_text_result(json, result, Some(&resolved_text));
+}
+
+fn add_pad_attachments(params: &mut serde_json::Value, options: &(Vec<String>, bool)) {
+    let (attach, copy) = options;
+    if !attach.is_empty() {
+        params["attach"] = serde_json::json!(attach);
+        params["copy"] = serde_json::json!(copy);
+    }
 }
 
 fn resolve_and_validate_send<R: std::io::Read>(
@@ -748,6 +772,7 @@ fn resolve_and_validate_send<R: std::io::Read>(
     from_pad: Option<String>,
     from_stdin: bool,
     actions: Option<String>,
+    has_pad_attachments: bool,
     stdin: &mut R,
 ) -> (String, Option<Vec<SendActionSpec>>) {
     let (resolved_text, source) =
@@ -765,7 +790,7 @@ fn resolve_and_validate_send<R: std::io::Read>(
         .unwrap_or_else(|e| {
             crate::cmd::print::fail(2, e.to_string());
         });
-    if is_empty && parsed_actions.is_none() {
+    if is_empty && parsed_actions.is_none() && !has_pad_attachments {
         crate::cmd::print::fail_with_hints(
             2,
             format!("send payload is empty (source: {})", source),
@@ -831,8 +856,9 @@ fn send_composite_over_mesh(
     system_context: Option<String>,
 ) {
     let mut stdin = std::io::stdin();
-    let (resolved_text, parsed_actions) =
-        resolve_and_validate_send(text, from_file, from_pad, from_stdin, actions, &mut stdin);
+    let (resolved_text, parsed_actions) = resolve_and_validate_send(
+        text, from_file, from_pad, from_stdin, actions, false, &mut stdin,
+    );
     if delay.is_some() || at.is_some() || every.is_some() || until.is_some() || count.is_some() {
         if parsed_actions.is_some() {
             crate::cmd::print::fail(2, "--actions cannot be queued with --delay/--at/--every");

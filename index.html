@@ -36,13 +36,14 @@
           if (typeof bg === "string") {
             var meta = document.querySelector('meta[name="theme-color"]');
             if (meta) meta.setAttribute("content", bg);
-            root.style.background = bg;
             var hex = bg.replace("#", "");
             if (hex.length === 6) {
               var r = parseInt(hex.slice(0, 2), 16);
               var g = parseInt(hex.slice(2, 4), 16);
               var b = parseInt(hex.slice(4, 6), 16);
-              root.style.colorScheme = (r + g + b) / 3 > 128 ? "light" : "dark";
+              var theme = (r * 299 + g * 587 + b * 114) / 1000 > 150 ? "light" : "dark";
+              root.dataset.ctTheme = theme;
+              root.style.colorScheme = theme;
             }
           }
         } catch (_) {

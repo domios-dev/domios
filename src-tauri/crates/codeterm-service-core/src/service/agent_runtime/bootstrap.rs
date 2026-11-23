@@ -103,6 +103,9 @@ pub(super) async fn submit(
             ),
         )
         .await;
+    if let Some(failure) = super::model_unavailable::take_launch_failure() {
+        return Err(failure);
+    }
     readiness_after_submit(result)
 }
 

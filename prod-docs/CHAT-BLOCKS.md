@@ -47,6 +47,7 @@ say a plugin is installed when its card shows otherwise.
 | `<ds-checklist id="getting-started" />` | Show a setup checklist whose steps tick themselves; `getting-started` for a new user. |
 | `<ds-tasks plan="pl_example" />` | Show plan tasks grouped by status, live from the plan. |
 | `<ds-canvas src="ABSOLUTE_PATH.canvas.json" />` | Show images, HTML cards and notes together on a board kept in a file that agents and the owner both edit. |
+| `<ds-appearance id="PROPOSAL_ID" machine="INSTALLATION_ID" />` | Show a saved Appearance Lab proposal with its preview, measured contrast and owner actions. |
 
 ## `ds-guide`
 
@@ -257,8 +258,15 @@ quoted attrs, comments, raw text and inner slash closes cannot terminate it.
 Nested ds-html containers are invalid; ds-looking elements inside HTML are inert.
 
 In any chat, a referenced PNG, JPEG, GIF, WebP or SVG can render directly
-from any local agent pad. Other file previews in agent pads require the
-viewing tab's own pad.
+from any local agent pad. A tab-to-tab send on one host shares file cards
+from the sender's own pad with the recipient's chat in the owner's UI,
+including over Mesh. A shared canvas can read its items from the sender's
+pad when they were named at send time. Shares allow preview reads until
+either tab closes.
+
+Use `domios send --tab ID --attach FILE` to add a pad-relative file card.
+Repeat `--attach` for several files. Add `--copy` to snapshot the attachments
+and their canvas items into the receiving tab's pad inbox.
 
 Paths belong to the machine authoring the message. A mesh tab send, delayed send
 or mesh-routed agent report transfers these files to the target tab's host
@@ -287,4 +295,4 @@ loads preserve your chosen view. Reset restores 100% scale. Focus the canvas to
 use arrow keys for gallery navigation or diagram pan, +/- to zoom, 0 for 100%,
 and Home to fit. Mermaid remains vector artwork at every zoom.
 
-<!-- revision: 13 -->
+<!-- revision: 15 -->

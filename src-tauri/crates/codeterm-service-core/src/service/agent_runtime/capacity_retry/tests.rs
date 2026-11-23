@@ -142,3 +142,23 @@ fn non_retryable_failure_stops_once_with_or_without_signal() {
         );
     }
 }
+
+#[test]
+fn model_unavailable_completes_without_retry_or_continue() {
+    let refusal = RuntimeFailure::ModelUnavailable {
+        model: "fixture".into(),
+        message: "opaque refusal".into(),
+    };
+    let mut state = RetryState {
+        unavailable_turn: Some(("refused".into(), refusal.clone())),
+        ..Default::default()
+    };
+    assert_eq!(
+        failure(&mut state, "refused", transient(), 100),
+        Decision::ModelUnavailable(refusal)
+    );
+    assert_eq!(
+        state.finish("refused", Some(&RuntimeTurnDetail::Failed), 100),
+        Decision::Ignore
+    );
+}

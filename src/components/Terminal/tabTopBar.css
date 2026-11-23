@@ -1,6 +1,7 @@
 :root {
   /* Height of the fade each header paints over the content below it. */
   --ct-top-bar-fade: 12px;
+  --ct-tab-top-bar-bg: color-mix(in srgb, var(--ct-bg) 80%, transparent);
 }
 
 .ct-tab-top-bar,
@@ -24,4 +25,13 @@
   background: linear-gradient(var(--ct-bg), transparent);
   content: "";
   pointer-events: none;
+}
+
+.ct-tab-top-bar {
+  background: var(--ct-tab-top-bar-bg);
+  backdrop-filter: blur(12px) saturate(1.1);
+}
+
+.ct-tab-top-bar::after {
+  background: linear-gradient(var(--ct-tab-top-bar-bg), transparent);
 }

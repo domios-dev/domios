@@ -5,7 +5,7 @@ use codeterm_plugin::agent_runtime::{
     RuntimeErrorSignal, RuntimeRetryableErrorKind, RuntimeTurnDetail, RuntimeTurnState,
 };
 
-mod notice;
+pub(super) mod notice;
 pub(crate) mod transcript;
 
 const MAX_ATTEMPTS: u8 = 10;
@@ -17,6 +17,7 @@ pub(super) struct RetryState {
     pending: Option<String>,
     cancelled: std::collections::HashSet<String>,
     error: Option<(String, RuntimeErrorSignal)>,
+    unavailable_turn: Option<(String, RuntimeFailure)>,
     output_continued: bool,
     stopped: bool,
     reason: Option<String>,
@@ -28,6 +29,7 @@ enum Decision {
     Ignore,
     Schedule { attempt: u8, at: u64 },
     Stopped,
+    ModelUnavailable(RuntimeFailure),
     Reset,
 }
 
@@ -37,6 +39,7 @@ impl RetryState {
         self.output_continued = false;
         self.stopped = false;
         self.error = None;
+        self.unavailable_turn = None;
         self.reason = None;
         self.last_failure = None;
     }
@@ -49,6 +52,14 @@ impl RetryState {
         if detail != Some(&RuntimeTurnDetail::Failed) {
             self.error = None;
             return Decision::Ignore;
+        }
+        if let Some((_, refusal)) = self
+            .unavailable_turn
+            .take_if(|(previous, _)| previous == turn)
+        {
+            self.error = None;
+            self.last_failure = Some(turn.into());
+            return Decision::ModelUnavailable(refusal);
         }
         if self.stopped {
             return Decision::Ignore;
@@ -171,6 +182,37 @@ pub(super) async fn observe(
     match event {
         RuntimeEvent::ItemUpdated { thread_id, item }
             if context.thread_id.as_ref() == Some(thread_id)
+                && item.system_subtype.as_deref() == Some(super::model_unavailable::SUBTYPE) =>
+        {
+            if let (Some(turn), Some(refusal)) = (
+                item.tool_flow_id.as_deref(),
+                item.tool_input.as_ref().and_then(|value| {
+                    serde_json::from_value::<super::model_unavailable::RefusedModel>(value.clone())
+                        .ok()
+                }),
+            ) {
+                if session.completions.lock().contains(thread_id, turn) {
+                    return Ok(());
+                }
+                {
+                    let mut retry = session.capacity_retry.lock();
+                    retry.unavailable_turn = Some((
+                        turn.into(),
+                        RuntimeFailure::ModelUnavailable {
+                            model: refusal.model.clone(),
+                            message: item.content.clone(),
+                        },
+                    ));
+                }
+                let process = session.process.lock().clone();
+                if let Some(process) = process {
+                    super::model_unavailable::remember(svc, session, &process, &refusal.model)
+                        .await;
+                }
+            }
+        }
+        RuntimeEvent::ItemUpdated { thread_id, item }
+            if context.thread_id.as_ref() == Some(thread_id)
                 && matches!(
                     item.system_subtype.as_deref(),
                     Some("api_error" | "provider_retry")
@@ -223,6 +265,10 @@ pub(super) async fn observe(
                 let mut retry = owned_session.capacity_retry.lock();
                 let decision = retry.finish(&turn, detail.as_ref(), at);
                 let stopped = decision == Decision::Stopped;
+                let unavailable = match &decision {
+                    Decision::ModelUnavailable(refusal) => Some(refusal.clone()),
+                    _ => None,
+                };
                 let line = apply_decision(
                     &service,
                     &context.tab_id,
@@ -230,6 +276,20 @@ pub(super) async fn observe(
                     &mut retry,
                     decision,
                 )?;
+                drop(retry);
+                if let Some(refusal) = unavailable {
+                    notice::model_unavailable(
+                        &service,
+                        &context.tab_id,
+                        &context.binding_nonce,
+                        &refusal.to_string(),
+                    );
+                    service.run_watcher.runtime_turn_failed(
+                        &service,
+                        &context,
+                        refusal.to_string(),
+                    );
+                }
                 Ok::<_, String>((line, stopped))
             })
             .await
@@ -263,6 +323,10 @@ fn apply_decision(
     match decision {
         Decision::Ignore => Ok(None),
         Decision::Reset => {
+            remove_pending(svc, tab, retry)?;
+            Ok(None)
+        }
+        Decision::ModelUnavailable(_) => {
             remove_pending(svc, tab, retry)?;
             Ok(None)
         }

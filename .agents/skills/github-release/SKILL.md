@@ -41,7 +41,7 @@ each failed run. An untested proposal must not become an established recipe.
 Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions.
 Only owner pushes to `release/next` qualify and package. Application publication has exactly one path:
 the master merge push of the owner release PR, approved in the `release` environment (branch policies
-`release/next` and `master`). Dispatches never publish an application: `release.yml` dispatches are
+`release/*` and `master`). Dispatches never publish an application: `release.yml` dispatches are
 dry runs of the dispatching release head and `release-publish.yml` only rehearses. Every PR uses
 hosted, secret-free checks. The trusted organization runner group must restrict every acquiring
 workflow to explicit reviewed release branch refs; unrestricted repository runners are forbidden.
@@ -168,6 +168,10 @@ then sync them here. Never hand-edit the bundled snapshot.
    its exact-SHA tests.yml push run to finish green, including full CI, qualification and the
    reusable release.yml dry run (`dry_run=true`, `mirror=false`). A newer push cancels the previous
    run through the release-push concurrency group. Only then open or refresh the PR into master.
+   For the same-repository owner full release PR from `release/next` to `master`, include
+   `[domios-full-release]` in the initial title, for example
+   `release: publish Domios 1.22.1 [domios-full-release]`. Use the marker exclusively for that route.
+   It skips CodeRabbit automatic review from opening. Create the PR with its complete body.
    Every PR uses hosted light checks (**PR result**); the master PR also requires **Release
    qualification**, a read-only `release-pr.yml` job that verifies the current head's owner push run
    and its unexpired receipts. Only a PR whose base is master emits that context, so a develop PR or
@@ -181,8 +185,8 @@ then sync them here. Never hand-edit the bundled snapshot.
    After publication, synchronize develop through an admin-owned merge PR; workflows
    never push master/develop with GITHUB_TOKEN.
    Fast checks own
-   frontend production/typechecking, static/plugin/TS suites, Clippy and the CLI suite.
-   The Rust tier owns the Linux full suite, native macOS/Windows subsets and embeddings.
+   frontend production/typechecking and static/plugin/TS suites. The Rust tier owns the Linux
+   full suite, native macOS/Windows subsets, embeddings and workspace Clippy, including the CLI.
    `scripts/ci-qualification.mjs check <40-hex-sha>` verifies a green trusted tests run,
    its current attempt, every required job and the executed Rust receipts. Missing, expired,
    skipped or foreign evidence refuses release preparation and publication. Qualification
@@ -196,7 +200,8 @@ then sync them here. Never hand-edit the bundled snapshot.
    completed Actions jobs do. Confirm the intended version is unpublished.
    **Initial setup or workflow-list change:** after the owner creates `release/next`, the release
    Orchestrator uses standing owner permission to apply the reviewed
-   [runner-group payload](../../../.github/admin/runner-group-policy.json) to `domios-trusted`.
+   [runner-group payload](../../../.github/admin/runner-group-policy.json) to `domios-trusted`
+   after the release owner reconciles any drift identified by the readback.
    GitHub requires the exact ref to exist when applying the PATCH. Before each release, read back
    the exact refs, selected repository grant, fleet and absence of repository runners using
    [the runner policy procedure](../../../docs/release/public-repo.md#runner-isolation-is-a-publicization-prerequisite).

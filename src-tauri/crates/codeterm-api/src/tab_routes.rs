@@ -546,7 +546,7 @@ pub async fn close_tab(
             .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     state
         .svc
-        .close_tab_async(&tab_id)
+        .close_tab_as_owner_async(&tab_id, true)
         .await
         .map_err(map_close_error)?;
     let mut result = serde_json::json!({ "ok": true });

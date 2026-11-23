@@ -70,6 +70,39 @@ impl Job {
         }
     }
 
+    pub fn terminate_and_wait(&self, timeout: std::time::Duration) -> Result<(), String> {
+        use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+        use std::time::Instant;
+
+        self.try_terminate()?;
+        let deadline = Instant::now() + timeout;
+        for pid in self.process_ids()? {
+            let raw = unsafe {
+                OpenProcess(
+                    PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+                    0,
+                    pid,
+                )
+            };
+            if raw.is_null() {
+                let error = std::io::Error::last_os_error();
+                if error.raw_os_error() == Some(ERROR_INVALID_PARAMETER as i32) {
+                    continue;
+                }
+                return Err(error.to_string());
+            }
+            let handle = unsafe { OwnedHandle::from_raw_handle(raw) };
+            if unsafe { self.contains_process(handle.as_raw_handle()) }? {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                let millis = remaining.as_millis().min(u128::from(u32::MAX - 1)) as u32;
+                if unsafe { WaitForSingleObject(handle.as_raw_handle(), millis) } != WAIT_OBJECT_0 {
+                    return Err("Owned Job exit was not confirmed".into());
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn process_ids(&self) -> Result<Vec<u32>, String> {
         #[repr(C)]
         struct ProcessIds {

@@ -79,8 +79,8 @@ fn parity_claude_background_work_and_fork_capabilities() {
         json!({"type":"system","subtype":"init"}),
         json!({"type":"system","subtype":"resume"}),
         json!({"toolUseResult":{"agentId":"agent","status":"async_launched"}}),
-        json!({"type":"user","message":{"content":"<task-notification><task-id>shell</task-id><status>completed</status></task-notification>"}}),
-        json!({"attachment":{"prompt":"<task-notification><task-id>agent</task-id><status>killed</status></task-notification>"}}),
+        json!({"type":"user","isMeta":true,"message":{"content":"<task-notification><task-id>shell</task-id><status>completed</status></task-notification>"}}),
+        json!({"type":"attachment","attachment":{"type":"queued_command","commandMode":"task-notification","prompt":"<task-notification><task-id>agent</task-id><status>killed</status></task-notification>"}}),
         json!({"toolUseResult":{"agentId":"agent","status":"opaque"}}),
     ] {
         assert_eq!(
@@ -114,6 +114,10 @@ fn parity_claude_background_work_and_fork_capabilities() {
     assert!(native_roster.unknown.contains_key("dropped"));
     assert!(native_roster.ended.contains_key("finished"));
     assert!(native_roster.ended.contains_key("opaque-stopped"));
+    assert_eq!(
+        native_roster.output_path("opaque-stopped"),
+        Some(r"C:\Fixture\Temp\claude\opaque-project\opaque-own\tasks\opaque-stopped.output")
+    );
     let stopped: serde_json::Value = serde_json::from_str(fixture.lines().last().unwrap()).unwrap();
     assert_eq!(
         native.parse_background_work(&stopped)[0].state,

@@ -1,6 +1,7 @@
 use axum::{
     extract::{Query, State as AxumState},
     http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     Extension, Json,
 };
 use codeterm_neighbors_service::prelude::*;
@@ -99,6 +100,10 @@ fn api_listener_value(
 }
 
 pub(crate) fn redact_rest_config(mut config: serde_json::Value) -> serde_json::Value {
+    if let Some(config) = config.as_object_mut() {
+        config.remove("appearance_proposals");
+        config.remove("appearance_active");
+    }
     if let Some(api) = config
         .get_mut("api")
         .and_then(serde_json::Value::as_object_mut)
@@ -179,6 +184,36 @@ pub async fn patch_config_api(
     Extension(origin): Extension<crate::auth::AuthenticatedOrigin>,
     headers: HeaderMap,
     Json(body): Json<PatchConfigBody>,
+) -> Response {
+    if body
+        .key
+        .iter()
+        .chain(body.partial.keys())
+        .any(|key| key.split('.').next() == Some("chat_wallpaper"))
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": {
+                    "code": "wallpaper_route_required",
+                    "message": "Use PUT /api/chat-wallpaper to change the chat wallpaper.",
+                    "method": "PUT",
+                    "path": "/api/chat-wallpaper",
+                }
+            })),
+        )
+            .into_response();
+    }
+    apply_config_patch(state, origin, headers, body)
+        .await
+        .into_response()
+}
+
+async fn apply_config_patch(
+    state: AppState,
+    origin: crate::auth::AuthenticatedOrigin,
+    headers: HeaderMap,
+    body: PatchConfigBody,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     use codeterm_service_core::config::{
         browser_blueprint_origins, browser_blueprint_profiles, valid_browser_blueprint_origin,
@@ -217,6 +252,12 @@ pub async fn patch_config_api(
     let mut new_cfg: codeterm_service_core::config::schema::AppConfig =
         serde_json::from_value(cfg_json)
             .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+    if new_cfg.chat_wallpaper != cfg.chat_wallpaper || new_cfg.appearance != cfg.appearance {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Use the Appearance Lab or domios appearance propose and apply to change machine appearance settings".into(),
+        ));
+    }
     if new_cfg.browser_upload_folders != cfg.browser_upload_folders
         && origin != crate::auth::AuthenticatedOrigin::Owner
     {
@@ -335,6 +376,11 @@ pub async fn patch_config_api(
         }
     } else {
         codeterm_service_core::config::resolve_theme(&mut new_cfg);
+    }
+    if new_cfg.theme != cfg.theme {
+        let mut look = codeterm_service_core::config::schema::AppearanceLook::from_config(&new_cfg);
+        look.wallpaper = cfg.chat_wallpaper.clone();
+        super::appearance_routes::validate(&look)?;
     }
 
     // Detect rename so can sync mesh state + push the new name to peers. Mirror of the same logic in the Tauri update_config command.

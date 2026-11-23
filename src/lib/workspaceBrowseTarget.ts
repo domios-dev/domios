@@ -7,6 +7,7 @@ export interface WorkspaceBrowseTarget {
 
 let target: WorkspaceBrowseTarget | null = null;
 let revision = 0;
+let switchOrigin: { x: number; y: number } | undefined;
 const listeners = new Set<() => void>();
 
 export function workspaceBrowseTarget() {
@@ -17,8 +18,21 @@ export function workspaceBrowseRevision() {
   return revision;
 }
 
-export function setWorkspaceBrowseTarget(next: WorkspaceBrowseTarget | null) {
+export function workspaceSwitchOrigin() {
+  return switchOrigin;
+}
+
+export function clearWorkspaceSwitchOrigin() {
+  switchOrigin = undefined;
+}
+
+export function discardWorkspaceSwitchOrigin(failed: WorkspaceBrowseTarget) {
+  if (target === failed) switchOrigin = undefined;
+}
+
+export function setWorkspaceBrowseTarget(next: WorkspaceBrowseTarget | null, origin?: { x: number; y: number }) {
   if (target?.id === next?.id && target?.name === next?.name) return;
+  switchOrigin = target?.id !== next?.id ? origin : undefined;
   target = next;
   revision++;
   for (const listener of listeners) listener();

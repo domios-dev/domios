@@ -3,6 +3,7 @@ fn event(id: &str, state: BackgroundWorkState) -> BackgroundWorkObservation {
     BackgroundWorkObservation {
         id: id.into(),
         state,
+        ..Default::default()
     }
 }
 #[test]

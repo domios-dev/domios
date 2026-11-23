@@ -19,13 +19,13 @@
 }
 
 .ct-menu {
-  --ct-menu-row-radius: 9px;
+  --ct-menu-row-radius: calc(9px * var(--ct-roundness, 1));
   min-width: 11rem;
   padding: 5px;
-  border: 1px solid color-mix(in srgb, var(--ct-fg) 9%, transparent);
-  border-radius: 14px;
+  border: 1px solid var(--ct-decorative-edge, color-mix(in srgb, var(--ct-fg) 9%, transparent));
+  border-radius: calc(14px * var(--ct-roundness, 1));
   background: var(--ct-glass-sheen), var(--ct-glass-bg);
-  box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-lg);
   backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
   transform-origin: var(--ct-menu-origin, top left);
   animation: ct-menu-in var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
@@ -57,7 +57,7 @@
   max-height: var(--ct-menu-sheet-max-height, calc(var(--ct-visual-height, 100dvh) - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
   overflow-y: auto;
   overscroll-behavior: contain;
-  border-radius: 16px;
+  border-radius: calc(16px * var(--ct-roundness, 1));
 }
 
 .ct-menu-page {
@@ -116,16 +116,13 @@
 }
 
 .ct-menu-row[aria-checked="true"],
-.ct-menu-row[aria-selected="true"],
-.ct-machine-menu-row[aria-current="true"] {
+.ct-menu-row[aria-selected="true"] {
   background: color-mix(in srgb, var(--ct-accent) 13%, transparent);
 }
 
 .ct-menu-row[aria-checked="true"]:hover,
 .ct-menu-row[aria-checked="true"]:focus-visible,
-.ct-menu-row[aria-selected="true"]:hover,
-.ct-machine-menu-row[aria-current="true"]:hover,
-.ct-machine-menu-row[aria-current="true"]:focus-visible {
+.ct-menu-row[aria-selected="true"]:hover {
   background: color-mix(in srgb, var(--ct-accent) 18%, transparent);
 }
 
@@ -279,7 +276,7 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-fg) 7%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 8%, transparent);
   color: var(--ct-fg);
@@ -330,7 +327,7 @@
 .ct-neutral-badge {
   --ct-plan-tone: var(--ct-muted-fg);
   border: 1px solid color-mix(in srgb, var(--ct-plan-tone) 34%, transparent);
-  border-radius: 999px;
+  border-radius: calc(999px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-plan-tone) 14%, transparent);
   color: color-mix(in srgb, var(--ct-plan-tone) 78%, var(--ct-fg));
 }
@@ -362,7 +359,7 @@
   gap: 4px;
   margin: 0 2px 2px;
   padding: 3px 3px 3px 8px;
-  border-radius: 8px;
+  border-radius: calc(8px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-fg) 4%, transparent);
 }
 
@@ -385,7 +382,7 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 7px;
+  border-radius: calc(7px * var(--ct-roundness, 1));
   background: transparent;
   color: var(--ct-muted-fg);
   cursor: pointer;

@@ -124,7 +124,7 @@ Session backups use Storage projections. Restore adds missing workspaces/tabs wi
 
 Closed attempts cannot become ready/reactivate; recover through Plan owner. Closed tabs or fenced exited Workers holding `in_progress` tasks emit one `[worker lost: <task>]` owner notice and bus `worker-lost` per plan/task/attempt: `plan_id`, `task_id`, `worker_tab_id`, `orchestrator_tab_id`, `worktree_path`, `branch`, `lane` state, `cause`, `recovery`, `delivery`.
 
-No live owner agent: withhold (`delivery: withheld_no_agent`), alert user once with affected tasks, deliver once when owner ready; never type into shell. Attributed `tab close` of such Workers refuses (`409`, `busy worker close refused`) unless `--force`; human close returns `warnings`. `plan doctor`: `in_progress_tab_gone` is error.
+No live owner agent: withhold (`delivery: withheld_no_agent`), alert user once with affected tasks, deliver once when owner ready; never type into shell. Attributed `tab close` of such Workers refuses (`409`, `busy worker close refused`) unless `--force`. The owner's window asks for confirmation once for in-progress work. An owner CLI close returns `warnings` for unfinished work. Owner close preserves the task state, worktree and branch and retires the attempt, including when the launch nonce is unreported. `plan doctor`: `in_progress_tab_gone` is error.
 
 ## Not in scope
 
@@ -171,4 +171,4 @@ Working tabs continue. Success: idle tabs (General included) `agent restart` as 
 
 Summary counts restarted/pending/failed restarts and updates in place as pending tabs finish. Supporter journals update runs, safe prompt answers and individual restart outcomes.
 
-<!-- revision: 67 -->
+<!-- revision: 68 -->

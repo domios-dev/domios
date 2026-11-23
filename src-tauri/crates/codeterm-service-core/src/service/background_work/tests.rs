@@ -14,6 +14,7 @@ fn background_roster_uses_provider_agent_description() {
         background_work: vec![BackgroundWorkObservation {
             id: "opaque-id".into(),
             state: BackgroundWorkState::Running,
+            ..Default::default()
         }],
         ..Default::default()
     };
@@ -36,12 +37,14 @@ fn restart_guard_refuses_named_work_and_allows_explicit_force() {
 #[test]
 fn background_record_compute_keeps_fork_and_session_filters_and_completion_dedupe() {
     use crate::agent::chat_types::RichMessage;
-    use codeterm_types::agent::background_work::BackgroundRoster;
+    use codeterm_types::agent::background_work::{BackgroundRoster, BackgroundWorkKind};
     let record = |session: Option<&str>, state| RichMessage {
         provider_session_id: session.map(str::to_string),
         background_work: vec![BackgroundWorkObservation {
             id: "work".into(),
             state,
+            kind: Some(BackgroundWorkKind::Shell),
+            output_path: (state == BackgroundWorkState::Running).then(|| "opaque-log".into()),
         }],
         ..Default::default()
     };
@@ -58,7 +61,16 @@ fn background_record_compute_keeps_fork_and_session_filters_and_completion_dedup
     );
     let running = observe_background_records(&before, false, "own", &[unbound], true);
     assert_eq!(running.running.len(), 1);
+    assert_eq!(running.output_path("work"), None);
     assert!(before.running.is_empty());
+    let running = observe_background_records(
+        &running,
+        false,
+        "own",
+        &[record(Some("own"), BackgroundWorkState::Running)],
+        true,
+    );
+    assert_eq!(running.output_path("work"), Some("opaque-log"));
     assert_eq!(
         observe_background_records(
             &running,
@@ -99,6 +111,7 @@ fn background_history_is_unknown_and_live_append_is_running() {
         background_work: vec![BackgroundWorkObservation {
             id: "task".into(),
             state: BackgroundWorkState::Running,
+            ..Default::default()
         }],
         ..Default::default()
     };
@@ -118,6 +131,7 @@ fn background_history_is_unknown_and_live_append_is_running() {
         background_work: vec![BackgroundWorkObservation {
             id: String::new(),
             state: BackgroundWorkState::SessionBoundary,
+            ..Default::default()
         }],
         ..Default::default()
     };
@@ -135,6 +149,7 @@ fn background_historical_boundary_cannot_invalidate_newer_live_work() {
         &BackgroundWorkObservation {
             id: "live".into(),
             state: BackgroundWorkState::Running,
+            ..Default::default()
         },
         "",
     );
@@ -143,6 +158,7 @@ fn background_historical_boundary_cannot_invalidate_newer_live_work() {
         background_work: vec![BackgroundWorkObservation {
             id: String::new(),
             state: BackgroundWorkState::SessionBoundary,
+            ..Default::default()
         }],
         ..Default::default()
     };

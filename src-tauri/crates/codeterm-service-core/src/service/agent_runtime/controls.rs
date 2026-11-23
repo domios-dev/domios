@@ -234,6 +234,9 @@ pub fn switch(
     };
     let refused =
         |reason: RuntimeFailure| ModelSwitchError::RuntimeControlRefused(reason.to_string());
+    if let Some(outcome) = recover_unavailable_launch(svc, tab, model, effort) {
+        return outcome.map_err(refused);
+    }
     crate::async_runtime::block_on(async {
         let session = engine::ensure(svc, tab).await.map_err(refused)?;
         let Ok(permit) = tokio::time::timeout(GATE_WAIT, session.gate.acquire()).await else {
@@ -244,6 +247,75 @@ pub fn switch(
             .await
             .map_err(refused)
     })
+}
+
+fn recover_unavailable_launch(
+    svc: &ServiceContext,
+    tab: &str,
+    model: &str,
+    effort: Option<&str>,
+) -> Option<Result<ModelSwitchOutcome, RuntimeFailure>> {
+    let (nonce, previous_model) = {
+        let mut mux = svc.mux.write();
+        let target = mux.get_tab_mut(tab)?;
+        let state = target.agent_runtime_state.as_mut()?;
+        if state["state"] != "degraded"
+            || state["failureCode"]
+                != serde_json::json!(
+                    codeterm_plugin::agent_runtime::RuntimeFailureCode::ModelUnavailable
+                )
+        {
+            return None;
+        }
+        let nonce = target.session_binding_nonce.clone()?;
+        let config = target.agent_runtime_config.as_mut()?.as_object_mut()?;
+        let previous = config
+            .get("model")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        if model.is_empty() || previous.as_deref() == Some(model) {
+            return Some(Err(RuntimeFailure::Refused(
+                "Choose another model for this account".into(),
+            )));
+        }
+        state.as_object_mut()?.remove("failureCode");
+        config.insert("model".into(), serde_json::json!(model));
+        config.insert("effort".into(), serde_json::json!(effort));
+        target.agent_requested_model = Some(model.into());
+        target.restorable_launch.requested_model = Some(model.into());
+        (nonce, previous)
+    };
+    Some(crate::async_runtime::block_on(async {
+        let session = engine::ensure(svc, tab).await?;
+        let context = session.context.lock().clone();
+        if context.binding_nonce != nonce {
+            return Err(RuntimeFailure::Superseded);
+        }
+        let session_id = context.thread_id.ok_or(RuntimeFailure::Superseded)?;
+        let actual = context
+            .settings
+            .model
+            .filter(|actual| actual == model)
+            .ok_or_else(|| RuntimeFailure::Refused("Runtime model confirmation absent".into()))?;
+        svc.emit_boot_stage(tab, crate::service::boot_stage::BootStage::AgentReady, None);
+        Ok(ModelSwitchOutcome {
+            tab_id: tab.into(),
+            provider: session.provider.clone(),
+            session_id,
+            restart: None,
+            mechanism: crate::agent::provider::ModelSwitchMode::Live,
+            fallback_reason: None,
+            control_changes: Default::default(),
+            previous_model,
+            requested_model: model.into(),
+            launched_model: actual.clone(),
+            confirmation_detail: None,
+            confirmation: ModelSwitchConfirmation::Observed {
+                model: actual,
+                evidence: ModelSwitchEvidence::LiveSessionRecord,
+            },
+        })
+    }))
 }
 
 async fn switch_inner(

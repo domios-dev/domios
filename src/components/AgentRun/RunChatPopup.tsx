@@ -141,7 +141,7 @@ export function RunChatPopup({
           {loaded && !error && messages.length === 0 && (
             <div className="text-[var(--ct-muted-fg)] text-[11px]">No transcript for this run.</div>
           )}
-          {reduceToolEvents(messages).map((item) => {
+          {reduceToolEvents(messages, cwd).map((item) => {
             const m = item.kind === "message" ? item.message : item.event.message;
             return <MessageBubble key={m.id} message={m} item={item.kind === "tool" ? item : undefined} />;
           })}

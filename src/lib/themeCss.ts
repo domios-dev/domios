@@ -1,5 +1,6 @@
 import type { ThemeConfig } from "./types";
 import { blendColor, deriveColor, parseHex } from "./colors";
+import { chatBackgroundToCSS } from "./chatBackgroundCss";
 
 const THEME_CACHE_KEY = "codeterm-theme-v1";
 const THEME_VARS_CACHE_KEY = "codeterm-theme-css-v1";
@@ -10,6 +11,12 @@ function luminance(hex: string): number {
     return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
   });
   return .2126 * r + .7152 * g + .0722 * b;
+}
+
+export function contrastRatio(a: string, b: string): number {
+  const first = luminance(a);
+  const second = luminance(b);
+  return (Math.max(first, second) + .05) / (Math.min(first, second) + .05);
 }
 
 function mentionTextColor(theme: ThemeConfig, light: boolean): string {
@@ -49,7 +56,7 @@ export const DEFAULT_THEME: ThemeConfig = {
   magenta: "#bc8cff",
   cyan: "#39d353",
   white: "#c9d1d9",
-  bright_black: "#484f58",
+  bright_black: "#545d67",
   bright_red: "#ffa198",
   bright_green: "#56d364",
   bright_yellow: "#e3b341",
@@ -68,6 +75,7 @@ export function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-fg": theme.foreground,
     "--ct-cursor": theme.cursor,
     "--ct-selection": theme.selection,
+    "--ct-chat-backdrop": chatBackgroundToCSS(theme, isLight),
     "--ct-sidebar-bg": chromeBg,
     "--ct-titlebar-bg": deriveColor(theme.background, 4),
     "--ct-tray-divider": isLight
@@ -86,6 +94,7 @@ export function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-border-default": blendColor(theme.background, theme.bright_black, 0.38),
     "--ct-muted": theme.bright_black,
     "--ct-muted-fg": blendColor(theme.bright_black, theme.foreground, 0.45),
+    "--ct-control-border": theme.foreground,
     "--ct-accent": theme.blue,
     "--ct-mention-text": mentionTextColor(theme, isLight),
     "--ct-red": theme.red,
@@ -155,11 +164,15 @@ function syntaxColors(theme: ThemeConfig, isLight: boolean) {
   };
 }
 
-export function cacheThemeSnapshot(theme: ThemeConfig) {
+export function cacheThemeSnapshot(theme: ThemeConfig, themeVars = themeToCSS(theme)) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(THEME_CACHE_KEY, JSON.stringify(theme));
-    window.localStorage.setItem(THEME_VARS_CACHE_KEY, JSON.stringify(themeToCSS(theme)));
+    const palette = { ...theme };
+    const paletteVars = { ...themeVars };
+    delete palette.chat_background;
+    delete paletteVars["--ct-chat-backdrop"];
+    window.localStorage.setItem(THEME_CACHE_KEY, JSON.stringify(palette));
+    window.localStorage.setItem(THEME_VARS_CACHE_KEY, JSON.stringify(paletteVars));
   } catch {
     /* best-effort first-paint cache */
   }
