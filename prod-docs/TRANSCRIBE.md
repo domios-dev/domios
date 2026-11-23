@@ -152,9 +152,30 @@ processed sequences. Ordinary chat transcript commands keep their own group.
 General can query `GET /api/live-transcript/readiness` for setup readiness
 without obtaining tab history or bindings.
 
-The default Scout sends bounded request indicators to the configured Supporter
-model. If Scout is unavailable, choose `wake_word`, `direct_batch` or `manual`
-explicitly in `attach`. Use `--mode-only` to change the trigger in place.
+Initial Concierge Setup persists these preferences on the machine.
+
+```toml
+[live_transcript]
+configured = false
+provider = ""
+model = ""
+trigger = ""
+default_mic_tap = false
+```
+
+`configured` records completion of setup. Empty provider and model values use
+the available provider and its model defaults. `trigger` accepts
+`scout_then_concierge`, `direct_batch`, `wake_word`, or `manual`. Scout sends
+bounded request indicators to the configured Supporter model. If Scout is
+unavailable, setup defaults to `direct_batch`. The microphone tap defaults to
+off and can be saved independently of the router binding.
+
+Readiness exposes these setup defaults and the eligible Concierge providers
+with their available models. Status and overview include Concierge activity
+and the most recent route error. A turn becomes stuck after 45 seconds and
+reattaching the built-in Concierge replaces that epoch.
+
+Use `--mode-only` to change the trigger in place.
 The wake phrase is “Hey Domios”. An owner can use `--external-tab` to select a
 tab with a separate cursor. The owner can inspect route events and the
 corresponding authorized epoch. Raw history access follows the active binding.
@@ -182,4 +203,4 @@ corresponding authorized epoch. Raw history access follows the active binding.
 | POST | `/api/live-transcript/capture/{lease}/pause/{sequence}` | Flush and record an explicit owner pause marker on the lease |
 | POST | `/api/live-transcript/capture/{lease}/cancel` | Cancel an active capture lease |
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

@@ -166,7 +166,7 @@ async fn readiness(
     State(state): State<AppState>,
     Extension(caller): Extension<CallerIdentity>,
 ) -> Response {
-    let (scout, concierge) = tokio::task::spawn_blocking({
+    let mut readiness = tokio::task::spawn_blocking({
         let svc = state.svc.clone();
         move || {
             let allowed = match caller {
@@ -195,9 +195,8 @@ async fn readiness(
             "Transcript worker stopped",
         )
     })??;
-    Ok(Json(
-        json!({ "asr": state.svc.live_capture_readiness().await, "scout": scout, "concierge": concierge }),
-    ))
+    readiness["asr"] = json!(state.svc.live_capture_readiness().await);
+    Ok(Json(readiness))
 }
 
 #[derive(Deserialize)]
@@ -284,7 +283,7 @@ async fn advance_cursor(
     ack: bool,
 ) -> Response {
     blocking(move || {
-        with_consumer(
+        let cursor = with_consumer(
             &state.svc,
             caller,
             &tab,
@@ -301,7 +300,9 @@ async fn advance_cursor(
                 };
                 Ok(cursor)
             },
-        )
+        )?;
+        state.svc.live_transcript_cursor_changed(&tab, ack);
+        Ok(cursor)
     })
     .await
 }
@@ -418,6 +419,10 @@ struct Attach {
     external_tab: Option<String>,
     trigger: Option<TranscriptTrigger>,
     start: Option<CursorStart>,
+    provider: Option<String>,
+    model: Option<String>,
+    configure: Option<bool>,
+    default_mic_tap: Option<bool>,
     #[serde(default)]
     mode_only: bool,
 }
@@ -428,26 +433,36 @@ async fn attach(
     Json(request): Json<Attach>,
 ) -> Response {
     blocking(move || {
+        if request.mode_only
+            && (request.external_tab.is_some()
+                || request.start.is_some()
+                || (request.trigger.is_none() && request.default_mic_tap.is_none()))
+        {
+            return Err(refuse(
+                StatusCode::BAD_REQUEST,
+                "Mode-only changes require a trigger or microphone default",
+            ));
+        }
+        state
+            .svc
+            .configure_live_transcript(
+                &tab,
+                request.configure.unwrap_or(false),
+                request.provider,
+                request.model,
+                request.trigger,
+                request.default_mic_tap,
+            )
+            .map_err(conflict)?;
         if request.mode_only {
-            let trigger = request
-                .trigger
-                .filter(|_| request.external_tab.is_none() && request.start.is_none())
-                .ok_or_else(|| {
-                    refuse(
-                        StatusCode::BAD_REQUEST,
-                        "Mode-only changes require a trigger",
-                    )
-                })?;
-            state
-                .svc
-                .set_live_transcript_trigger(&tab, trigger)
-                .map_err(conflict)?;
-            Ok(json!(state
-                .svc
-                .live_transcript_status(&tab)
-                .map_err(conflict)?))
+            if let Some(trigger) = request.trigger {
+                state
+                    .svc
+                    .set_live_transcript_trigger(&tab, trigger)
+                    .map_err(conflict)?;
+            }
         } else {
-            Ok(json!(state
+            state
                 .svc
                 .update_live_transcript_binding(
                     &tab,
@@ -455,8 +470,15 @@ async fn attach(
                     request.start.unwrap_or(CursorStart::Latest),
                     request.trigger,
                 )
-                .map_err(conflict)?))
+                .map_err(conflict)?;
         }
+        let mut status = json!(state.svc.live_transcript_status(&tab).map_err(conflict)?);
+        if !request.mode_only {
+            for field in ["ownerTabId", "revision", "target"] {
+                status[field] = status["binding"][field].clone();
+            }
+        }
+        Ok(status)
     })
     .await
 }

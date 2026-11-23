@@ -76,6 +76,7 @@ export function defaultConfig(): AppConfig {
       mesh_tailnet_host: null,
     },
     agents: {},
+    live_transcript: { configured: false, provider: "", model: "", trigger: "", default_mic_tap: false },
     general_agent: {
       capability_hints: true,
       model: null,

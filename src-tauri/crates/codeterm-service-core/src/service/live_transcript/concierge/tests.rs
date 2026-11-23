@@ -43,6 +43,88 @@ fn fixture() -> (ServiceFixture, Arc<ServiceContext>, String, String) {
 }
 
 #[test]
+fn setup_uses_saved_trigger_and_mic_default_and_falls_back_without_scout() {
+    let (_fixture, svc, owner, _) = fixture();
+    let initial = svc.live_transcript_setup();
+    assert_eq!(initial["configured"], false);
+    assert_eq!(initial["defaultMicTap"], false);
+    assert_eq!(initial["defaultTrigger"], "direct_batch");
+    {
+        let mut config = svc.ext::<crate::config::ConfigState>().lock();
+        config.live_transcript.configured = true;
+        config.live_transcript.default_mic_tap = true;
+        config.live_transcript.trigger = "manual".into();
+    }
+    let setup = svc.live_transcript_setup();
+    assert_eq!(setup["defaultTrigger"], "manual");
+    let status = svc.live_transcript_status(&owner).unwrap();
+    assert!(status.configured);
+    assert!(status.default_mic_tap);
+    assert_eq!(
+        default_trigger("scout_then_concierge", ScoutStatus::Unavailable),
+        TranscriptTrigger::DirectBatch,
+    );
+    assert_eq!(
+        default_trigger("invalid", ScoutStatus::Ready),
+        TranscriptTrigger::ScoutThenConcierge,
+    );
+}
+
+#[test]
+fn route_failure_is_visible_until_acknowledgement_and_emits_owner_change() {
+    let (_fixture, svc, owner, _) = fixture();
+    let store = svc.open_live_transcript(&owner).unwrap();
+    svc.set_live_transcript_trigger(&owner, TranscriptTrigger::Manual)
+        .unwrap();
+    store
+        .append(
+            &owner,
+            TranscriptInput {
+                at_ms: 1,
+                content: TranscriptContent::Speech {
+                    text: "opaque".into(),
+                },
+            },
+        )
+        .unwrap();
+    let mut events = svc.events.subscribe();
+    let error = svc
+        .route_live_transcript_manually(
+            &owner,
+            TranscriptRange {
+                from_seq: 1,
+                to_seq: 1,
+            },
+        )
+        .unwrap_err();
+    assert_eq!(
+        svc.live_transcript_status(&owner).unwrap().last_route_error,
+        Some(error)
+    );
+    svc.live_transcript_cursor_changed(&owner, false);
+    assert!(svc
+        .live_transcript_status(&owner)
+        .unwrap()
+        .last_route_error
+        .is_some());
+    svc.live_transcript_cursor_changed(&owner, true);
+    assert!(svc
+        .live_transcript_status(&owner)
+        .unwrap()
+        .last_route_error
+        .is_none());
+    let mut changes = 0;
+    while let Ok(event) = events.try_recv() {
+        if let codeterm_events::SystemEvent::Generic { event_type, data } = &event.event {
+            if event_type == "live-transcript-changed" && data["ownerTabId"] == owner {
+                changes += 1;
+            }
+        }
+    }
+    assert!(changes >= 4);
+}
+
+#[test]
 fn default_scout_is_unavailable_and_external_scope_needs_exact_revision_and_nonce() {
     let (_fixture, svc, owner, other) = fixture();
     let initial = svc.live_transcript_status(&owner).unwrap();

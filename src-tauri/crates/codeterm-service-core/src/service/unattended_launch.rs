@@ -157,17 +157,13 @@ pub fn preflight(registry: &AgentRegistry, launch: &UnattendedLaunch<'_>) -> Res
         && (launch.role.is_some()
             || launch.role_profile.is_some()
             || launch.has_task
-            || launch.full_access
             || !registry
                 .with_provider(launch.provider_id, |provider| {
                     provider.agent_runtime().is_some()
                 })
                 .unwrap_or(false))
     {
-        return Err(
-            "A transcript router requires a roleless local chat runtime without permission bypass"
-                .into(),
-        );
+        return Err("A transcript router requires a roleless local chat runtime".into());
     }
     let Some(mode) = model_mode(registry, launch) else {
         return Ok(());
