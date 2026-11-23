@@ -86,6 +86,7 @@ import { useTabActivity } from "../../lib/useTabActivity";
 import { ComposerBackgroundWorkProvider } from "./ComposerBackgroundWorkContext";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
+import { useChatWorkspace } from "./useChatWorkspace";
 import { chatProjectionMonitor, chatResponsivenessTrace, scheduleAfterPaint } from "./chatProjectionDiagnostics";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
@@ -227,9 +228,7 @@ function TabSessionChatBody({
   const remoteChat = useRemoteChatNotice(tabId, tab, deliverySends, remoteConnection);
   const tabLock = useTabLock(tab);
   const readOnly = isInputBlockedTab(tab, tabLock);
-  const workspaceSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => s.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? s.tabs[tabId]?.workspace_id ?? null, [tabId]);
-  const workspaceId = useMuxSelector(workspaceSelector);
-  const workspaceCwd = useMuxSelector((s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.cwd);
+  const { workspaceId, cwd } = useChatWorkspace(tabId);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
   const tabCommunicationNames = useMuxSelector(selectTabCommunicationNameMap, tabTitleMapEqual);
   const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
@@ -303,7 +302,7 @@ function TabSessionChatBody({
   } = useChatSession({
     hostRows:hostAccountRows,
     tabId,
-    cwd: tab?.cwd ?? workspaceCwd,
+    cwd,
     agentSessionId,
     sessionBindingNonce: tab?.session_binding_nonce,
     onError,
