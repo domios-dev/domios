@@ -19,6 +19,7 @@ import { isReadOnlyTab } from "../../lib/tabInputPolicy";
 import { chatLaunchFailureDescription } from "./chatSetupModel";
 import { LaunchProviderQuestion } from "./LaunchProviderQuestion";
 import { openNeighborPage } from "../Neighbors/neighborFocus";
+import { ModelUnavailableCard } from "./ModelUnavailableCard";
 
 export { chatSetupView } from "./chatSetupModel";
 
@@ -87,6 +88,11 @@ export function ChatSetupState({
   if (tab?.boot_stage === "awaiting_owner_prompt" && tab.pending_prompt_kind === "provider" && tab.pending_prompt) {
     return visible ? <LaunchProviderQuestion key={JSON.stringify(tab.pending_prompt)} tabId={tab.id}
       prompt={tab.pending_prompt} readOnly={isReadOnlyTab(tab)} onOpenTerminal={onOpenTerminal} /> : null;
+  }
+  if (tab?.agent_runtime_state?.failureCode === "model_unavailable") {
+    return <ModelUnavailableCard tab={tab}
+      model={tab.agent_requested_model ?? tab.agent_provider_resolved_model ?? undefined}
+      detail={tab.agent_runtime_state.reason} />;
   }
   const accessReason = [
     tab?.boot_stage === "spawn_failed" ? tab.boot_failure_reason : null,

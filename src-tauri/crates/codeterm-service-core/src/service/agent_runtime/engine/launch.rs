@@ -1,9 +1,21 @@
-use super::{RuntimeFailure, RuntimeSettings, ServiceContext};
+use super::{RuntimeFailure, RuntimeFailureCode, RuntimeSettings, ServiceContext};
 
 pub(super) fn refused_start(
     thread: Option<&str>,
     state: Option<&serde_json::Value>,
 ) -> Result<(), RuntimeFailure> {
+    if let Some(state) = state.filter(|state| {
+        state["state"] == "degraded"
+            && state["failureCode"] == serde_json::json!(RuntimeFailureCode::ModelUnavailable)
+    }) {
+        return Err(RuntimeFailure::ModelUnavailable {
+            model: state["controls"]["model"]
+                .as_str()
+                .unwrap_or_default()
+                .into(),
+            message: state["reason"].as_str().unwrap_or_default().into(),
+        });
+    }
     if let Some(state) = state.filter(|state| {
         state["state"] == "degraded"
             && (state["failureCode"] == "provider_refused"

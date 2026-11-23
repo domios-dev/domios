@@ -1,0 +1,8 @@
+{
+  "provider": "codex",
+  "model": "gpt-6.2-sol",
+  "rejection": {
+    "code": -32600,
+    "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-6.2-sol' model is not supported when using Codex with a ChatGPT account.\",\"code\":\"model_not_found\"}}"
+  }
+}

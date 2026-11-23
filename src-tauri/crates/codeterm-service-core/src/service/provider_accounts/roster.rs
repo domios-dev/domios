@@ -42,6 +42,8 @@ pub struct AccountRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     plan: Option<String>,
     status: AccountStatus,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    unavailable_models: Vec<String>,
     tabs_in_use: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     probe_failure_reason: Option<String>,
@@ -192,7 +194,7 @@ fn project(
     let state = svc.ext_or_init::<State>(State::default);
     let availability = super::scheduler::availability(svc, provider, &policy.order);
     let observations = state.observations.lock();
-    let accounts = policy
+    let mut accounts: Vec<_> = policy
         .order
         .iter()
         .map(|id| {
@@ -205,6 +207,7 @@ fn project(
                 .map(|removal| removal.error.clone());
             AccountRow {
                 id: id.clone(),
+                unavailable_models: Vec::new(),
                 name: if id == IMPLICIT_ACCOUNT {
                     policy.default_name.clone()
                 } else {
@@ -265,6 +268,20 @@ fn project(
             }
         })
         .collect();
+    drop(observations);
+    for account in &mut accounts {
+        if !matches!(
+            account.status,
+            AccountStatus::Removing | AccountStatus::SigningIn
+        ) {
+            if let Ok(invocation) = super::invocation(svc, provider, Some(&account.id)) {
+                account.unavailable_models =
+                    codeterm_plugin::provider_account::with_context(invocation, || {
+                        codeterm_plugin::model_catalog::unavailable_models(provider)
+                    });
+            }
+        }
+    }
     Ok(Snapshot {
         provider_id: provider.into(),
         revision: super::policy::revision(policy)?,

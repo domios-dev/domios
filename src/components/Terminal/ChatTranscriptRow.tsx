@@ -6,6 +6,7 @@ import type { ChatOrigin } from "../../lib/chatPrefixes";
 import { ChatAskCard } from "../Notifications/ChatAskCard";
 import { ChatWindowRow } from "./ChatWindowRow";
 import { AccountContinuationNoticeCard } from "./AccountContinuationNoticeCard";
+import { TabModelUnavailableCard } from "./ModelUnavailableCard";
 import { ChatMessageRow, type MessageRowHandlers } from "./ChatMessageRow";
 import { ChatDeliveryState } from "./ChatDeliveryState";
 import { DroppedUploadNotice } from "./DroppedUploadNotice";
@@ -145,6 +146,11 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
   const message = useMemo(() => context.promptAnswers ? msg : { ...msg, interactive: [] }, [msg, context.promptAnswers]);
   const turnId = messageTurnId(msg);
   if(msg.systemSubtype==="account_transition")return <ChatWindowRow message={msg}><ChatDaySeparator label={daySeparator}/><AccountContinuationNoticeCard message={msg}/></ChatWindowRow>;
+  if (msg.systemSubtype === "model_unavailable") {
+    const refusal = msg.toolInput as { model?: unknown } | undefined;
+    const model = typeof refusal?.model === "string" ? refusal.model : undefined;
+    return <ChatWindowRow message={msg}><ChatDaySeparator label={daySeparator} /><TabModelUnavailableCard tabId={context.tabId} model={model} detail={msg.content} /></ChatWindowRow>;
+  }
   return (
     <ChatWindowRow message={msg} liveActivityLabel={liveActivityLabel}>
       <ChatDaySeparator label={daySeparator} />
