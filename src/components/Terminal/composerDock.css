@@ -173,6 +173,9 @@
 .ct-composer-control { width: var(--ct-composer-control-size); height: var(--ct-composer-control-size); }
 .ct-composer-inner-control { width: var(--ct-composer-inner-control-size); height: var(--ct-composer-inner-control-size); }
 .ct-composer-row { min-height: calc(var(--ct-composer-control-size) - 2 * var(--ct-composer-card-border)); }
+.ct-composer-row [data-capsule-start] > .ct-capsule__plate {
+  height: min(1.2em, calc(1lh - var(--ct-composer-inner-inset)));
+}
 .ct-composer-inner-actions {
   align-self: flex-end;
   margin-block-end: calc((var(--ct-composer-control-size) - 2 * var(--ct-composer-card-border) - var(--ct-composer-inner-control-size)) / 2);
