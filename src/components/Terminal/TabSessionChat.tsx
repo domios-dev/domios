@@ -176,7 +176,6 @@ function rowReports(own: readonly OutboundReportEntry[] | undefined, following: 
 }
 const NO_ASKS: readonly Notification[] = [];
 
-
 export function TabSessionChat(props: Props) {
   return parseCompositeTabId(props.tabId)
     ? <RemoteTabSessionChat {...props} />
@@ -230,6 +229,7 @@ function TabSessionChatBody({
   const readOnly = isInputBlockedTab(tab, tabLock);
   const workspaceSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => s.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? s.tabs[tabId]?.workspace_id ?? null, [tabId]);
   const workspaceId = useMuxSelector(workspaceSelector);
+  const workspaceCwd = useMuxSelector((s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.cwd);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
   const tabCommunicationNames = useMuxSelector(selectTabCommunicationNameMap, tabTitleMapEqual);
   const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
@@ -303,6 +303,7 @@ function TabSessionChatBody({
   } = useChatSession({
     hostRows:hostAccountRows,
     tabId,
+    cwd: tab?.cwd ?? workspaceCwd,
     agentSessionId,
     sessionBindingNonce: tab?.session_binding_nonce,
     onError,
