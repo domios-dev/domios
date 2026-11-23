@@ -48,6 +48,7 @@ pub struct AppendReceipt {
 )]
 pub enum BindingTarget {
     Attached { epoch_id: String },
+    Local,
     External { tab_id: String },
     Detached,
 }

@@ -67,6 +67,7 @@ fn forward_receipts_persist_and_return_the_latest_fifty_in_time_order() {
         sent_text: "Please send this".into(),
         sent_excerpt: "Please send this".into(),
         rationale: None,
+        feedback: None,
     };
     for at_ms in (1..=55).rev() {
         store.record_forward(forward(at_ms)).unwrap();

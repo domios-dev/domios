@@ -38,6 +38,8 @@ pub(crate) fn router() -> Router<AppState> {
         .route("/api/live-transcript/{tab}/pause", post(pause))
         .route("/api/live-transcript/{tab}/resume", post(resume))
         .route("/api/live-transcript/{tab}/route", post(route))
+        .route("/api/live-transcript/{tab}/feedback", post(feedback))
+        .route("/api/live-transcript/{tab}/training-log", get(training_log))
         .route_layer(middleware::from_fn(owner_only));
     Router::new()
         .merge(owner)
@@ -290,7 +292,10 @@ async fn advance_cursor(
             Some(advance.revision),
             |store, binding| {
                 let cursor = if ack {
-                    let cursor = store.ack(binding, advance.through_seq).map_err(conflict)?;
+                    let cursor = state
+                        .svc
+                        .ack_transcript_and_log(store, binding, &tab, advance.through_seq)
+                        .map_err(conflict)?;
                     state.svc.schedule_live_transcript_retention(store.clone());
                     cursor
                 } else {
@@ -303,6 +308,55 @@ async fn advance_cursor(
         )?;
         state.svc.live_transcript_cursor_changed(&tab, ack);
         Ok(cursor)
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ForwardFeedback {
+    forward_id: String,
+    verdict: String,
+    note: Option<String>,
+}
+
+async fn feedback(
+    State(state): State<AppState>,
+    Path(tab): Path<String>,
+    Json(body): Json<ForwardFeedback>,
+) -> Response {
+    blocking(move || {
+        state
+            .svc
+            .record_live_transcript_feedback(&tab, &body.forward_id, &body.verdict, body.note)
+            .map_err(|error| match error.kind() {
+                std::io::ErrorKind::InvalidInput => {
+                    refuse(StatusCode::BAD_REQUEST, error.to_string())
+                }
+                std::io::ErrorKind::NotFound => refuse(StatusCode::NOT_FOUND, error.to_string()),
+                _ => conflict(error),
+            })
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct TrainingLogQuery {
+    limit: Option<usize>,
+}
+
+async fn training_log(
+    State(state): State<AppState>,
+    Path(tab): Path<String>,
+    Query(query): Query<TrainingLogQuery>,
+) -> Response {
+    blocking(move || {
+        state
+            .svc
+            .open_live_transcript(&tab)
+            .map_err(conflict)?
+            .training_log_summary(query.limit.unwrap_or(50))
+            .map_err(conflict)
     })
     .await
 }

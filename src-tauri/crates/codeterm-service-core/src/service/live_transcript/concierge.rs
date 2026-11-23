@@ -27,6 +27,8 @@ use crate::service::{
 
 mod delivery;
 mod forward;
+mod local;
+mod training_log;
 pub(in crate::service) use delivery::{external_handoff, is_transcript_delivery_token};
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -156,7 +158,14 @@ impl ServiceContext {
         if awaiting_delivery && state.pending.is_none() {
             self.emit_live_transcript_changed(owner);
         }
+        let binding = store.binding();
+        let local_endpoint = if binding.target == super::BindingTarget::Local {
+            local::endpoint(self)
+        } else {
+            None
+        };
         let scout = match trigger {
+            _ if binding.target == super::BindingTarget::Local => ScoutStatus::Disabled,
             TranscriptTrigger::ScoutThenConcierge
                 if !unavailable && scout_model(self).is_some() =>
             {
@@ -165,7 +174,6 @@ impl ServiceContext {
             TranscriptTrigger::ScoutThenConcierge => ScoutStatus::Unavailable,
             _ => ScoutStatus::Disabled,
         };
-        let binding = store.binding();
         let epoch = match &binding.target {
             super::BindingTarget::Attached { epoch_id } => store
                 .epoch(epoch_id)
@@ -174,7 +182,9 @@ impl ServiceContext {
             _ => None,
         };
         let attaching = running && matches!(&binding.target, super::BindingTarget::Detached);
-        let router = if let Some(epoch) = &epoch {
+        let router = if matches!(binding.target, super::BindingTarget::Local) {
+            Some(local::router_info(self, local_endpoint.as_ref(), running))
+        } else if let Some(epoch) = &epoch {
             let mut info = TranscriptRouterInfo::new(epoch.provider.clone(), epoch.model.clone());
             info.active_turn_ms = transcript_router_turn_ms(epoch);
             info.activity = router_activity(
@@ -204,6 +214,7 @@ impl ServiceContext {
             .filter(|info| info.activity == RouterActivity::Reviewing)
             .map(|_| state.attempted_through);
         let concierge = match &binding.target {
+            super::BindingTarget::Local if local_endpoint.is_some() => ConciergeStatus::Ready,
             super::BindingTarget::Attached { .. }
                 if epoch.is_some()
                     && router
@@ -285,90 +296,6 @@ impl ServiceContext {
                 })
     }
 
-    pub(in crate::service) fn transcript_router_selection(
-        &self,
-        previous: Option<&ConciergeEpoch>,
-    ) -> Result<(String, Option<String>), String> {
-        let config = self.configuration();
-        let setup = config.live_transcript;
-        let provider = [
-            setup.provider.as_str(),
-            previous.map_or("", |epoch| epoch.provider.as_str()),
-            &config.general_agent.agent_provider,
-        ]
-        .into_iter()
-        .find(|id| self.transcript_router_eligible(id))
-        .map(str::to_owned)
-        .or_else(|| {
-            self.agent_registry
-                .provider_ids()
-                .into_iter()
-                .filter(|id| self.transcript_router_eligible(id))
-                .min()
-        })
-        .ok_or("No local chat backend declares transcript router launch capabilities")?;
-        let model = if !setup.model.is_empty()
-            && (setup.provider.is_empty() || setup.provider == provider)
-        {
-            Some(setup.model)
-        } else {
-            previous
-                .filter(|epoch| epoch.provider == provider)
-                .and_then(|epoch| epoch.model.clone())
-        };
-        Ok((provider, model))
-    }
-
-    fn transcript_router_preview(&self) -> Option<TranscriptRouterInfo> {
-        let (provider, model) = self.transcript_router_selection(None).ok()?;
-        let model = model.or_else(|| {
-            self.agent_registry
-                .with_provider(&provider, |p| p.default_model())
-                .flatten()
-        });
-        Some(TranscriptRouterInfo::new(provider, model))
-    }
-
-    pub fn live_transcript_setup(&self) -> serde_json::Value {
-        let scout = if scout_model(self).is_some() {
-            ScoutStatus::Ready
-        } else {
-            ScoutStatus::Unavailable
-        };
-        let router = self.transcript_router_preview().map(|router| {
-            let mut ids = self.agent_registry.provider_ids();
-            ids.sort();
-            let providers: Vec<_> = ids.into_iter()
-                .filter(|id| self.transcript_router_eligible(id))
-                .filter_map(|id| self.agent_registry.provider_arc(&id).map(|provider| {
-                    let default_model = provider.default_model();
-                    let mut models: Vec<_> = provider.available_models().into_iter()
-                        .filter(|model| model.available != Some(false))
-                        .map(|model| model.id).collect();
-                    if models.is_empty() {
-                        models.extend(default_model.clone());
-                    }
-                    json!({"id": id, "displayName": provider.display_name(), "defaultModel": default_model, "models": models})
-                }))
-                .collect();
-            json!({"provider": router.provider, "model": router.model, "cap": router.cap, "providers": providers})
-        });
-        let concierge = if router.is_some() {
-            ConciergeStatus::NeedsAttachment
-        } else {
-            ConciergeStatus::Unavailable
-        };
-        let setup = self.configuration().live_transcript;
-        json!({
-            "scout": scout,
-            "concierge": concierge,
-            "configured": setup.configured,
-            "defaultMicTap": setup.default_mic_tap,
-            "defaultTrigger": default_trigger(&setup.trigger, scout),
-            "router": router,
-        })
-    }
-
     pub fn configure_live_transcript(
         &self,
         owner: &str,
@@ -422,20 +349,6 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub fn live_transcript_cursor_changed(&self, owner: &str, ack: bool) {
-        if ack {
-            if let Some(entry) = self
-                .ext_or_init(Dispatch::default)
-                .owners
-                .lock()
-                .get_mut(owner)
-            {
-                entry.last_route_error = None;
-            }
-        }
-        self.emit_live_transcript_changed(owner);
-    }
-
     fn emit_live_transcript_changed(&self, owner: &str) {
         self.events
             .publish_generic("live-transcript-changed", json!({"ownerTabId": owner}));
@@ -475,7 +388,7 @@ impl ServiceContext {
                         && tab.transcript_router_owner() == Some(owner)
                 })
             }
-            super::BindingTarget::Detached => false,
+            super::BindingTarget::Local | super::BindingTarget::Detached => false,
         };
         if !authorized || mux.get_tab(owner).is_none() {
             return Err(refused());
@@ -506,6 +419,18 @@ impl ServiceContext {
                 enqueue(&svc, &store, &owner, committed);
             }
         }
+    }
+
+    pub fn set_transcript_external_override(
+        &self,
+        owner: &str,
+        external: Option<&str>,
+        start: super::CursorStart,
+    ) -> Result<super::TranscriptBinding, String> {
+        let target = external.map_or(super::BindingTarget::Detached, |id| {
+            super::BindingTarget::External { tab_id: id.into() }
+        });
+        self.replace_transcript_binding(owner, target, start)
     }
 
     pub fn update_live_transcript_binding(
@@ -540,8 +465,10 @@ impl ServiceContext {
         entry.running = true;
         drop(entries);
         let result = (|| {
+            let previous_target = store.binding().target;
             let binding = match external {
                 Some(tab) => self.set_transcript_external_override(owner, Some(tab), start)?,
+                None if local::selected(self, &store) => local::bind(self, owner)?,
                 None => {
                     if matches!(
                         store.binding().target,
@@ -554,8 +481,18 @@ impl ServiceContext {
                         .clone()
                 }
             };
+            let entering_local = binding.target == super::BindingTarget::Local
+                && previous_target != super::BindingTarget::Local;
+            if entering_local {
+                state.attempted_through = store
+                    .cursor(&binding)
+                    .map_err(|error| error.to_string())?
+                    .acked_seq;
+            }
             if let Some(trigger) = trigger {
                 state.trigger = trigger;
+            }
+            if entering_local || trigger.is_some() {
                 store.save_routing_state(&state)?;
             }
             Ok(binding)
@@ -607,15 +544,23 @@ impl ServiceContext {
         entry.running = true;
         drop(entries);
         self.emit_live_transcript_changed(owner);
-        let result = delivery::route(
-            self,
-            &store,
-            owner,
-            &store.binding(),
-            range,
-            "Owner requested this transcript range",
-            &mut state,
-        );
+        let binding = store.binding();
+        let result = if matches!(binding.target, super::BindingTarget::Local)
+            || matches!(binding.target, super::BindingTarget::Detached)
+                && local::selected(self, &store)
+        {
+            local::route_range(self, &store, owner, binding, range, &mut state, false).map(|_| ())
+        } else {
+            delivery::route(
+                self,
+                &store,
+                owner,
+                &binding,
+                range,
+                "Owner requested this transcript range",
+                &mut state,
+            )
+        };
         if let Some(entry) = dispatch.owners.lock().get_mut(owner) {
             entry.running = false;
             entry.settle_route(result.clone());
@@ -1004,7 +949,37 @@ fn process(
         return Ok(false);
     }
     let observed_binding = store.binding();
-    let mut from_seq = state.attempted_through.saturating_add(1);
+    let local = matches!(observed_binding.target, super::BindingTarget::Local)
+        || matches!(observed_binding.target, super::BindingTarget::Detached)
+            && local::selected(svc, store);
+    let attempted = if local {
+        state.attempted_through.max(
+            store
+                .attached_cursor()
+                .map_err(|error| error.to_string())?
+                .acked_seq,
+        )
+    } else {
+        state.attempted_through
+    };
+    let mut from_seq = attempted.saturating_add(1);
+    if from_seq > range.to_seq {
+        return Ok(false);
+    }
+    if local {
+        return local::route_range(
+            svc,
+            store,
+            owner,
+            observed_binding,
+            TranscriptRange {
+                from_seq,
+                to_seq: range.to_seq,
+            },
+            &mut state,
+            true,
+        );
+    }
     let speech_owned: Vec<(u64, String)> = loop {
         let page = store
             .history(from_seq, 16)
@@ -1158,5 +1133,7 @@ fn classify(svc: &ServiceContext, speech: &[(u64, &str)]) -> Result<Option<bool>
 
 #[cfg(test)]
 mod load_tests;
+#[cfg(test)]
+mod local_tests;
 #[cfg(test)]
 mod tests;

@@ -633,8 +633,7 @@ impl ServiceContext {
     ) -> Result<TranscriptCursor, String> {
         let cursor =
             self.with_active_transcript_epoch(authorized_owner_tab_id, epoch, |store, binding| {
-                store
-                    .ack(binding, through)
+                self.ack_transcript_and_log(store, binding, authorized_owner_tab_id, through)
                     .map_err(|error| error.to_string())
             })?;
         self.live_transcript_cursor_changed(authorized_owner_tab_id, true);
@@ -654,10 +653,10 @@ impl ServiceContext {
         })
     }
 
-    pub fn set_transcript_external_override(
+    pub(in crate::service) fn replace_transcript_binding(
         &self,
         owner: &str,
-        external_tab_id: Option<&str>,
+        target: BindingTarget,
         start: CursorStart,
     ) -> Result<TranscriptBinding, String> {
         let store = self.open_live_transcript(owner)?;
@@ -666,13 +665,10 @@ impl ServiceContext {
             .gate(&store.binding().owner_tab_id)
             .try_lock_owned()
             .map_err(|_| "Transcript binding change is held")?;
+        if let BindingTarget::External { tab_id } = &target {
+            self.require_transcript_owner_tab(tab_id)?;
+        }
         let current = store.binding();
-        let target = if let Some(id) = external_tab_id {
-            self.require_transcript_owner_tab(id)?;
-            BindingTarget::External { tab_id: id.into() }
-        } else {
-            BindingTarget::Detached
-        };
         let current = if matches!(current.target, BindingTarget::Attached { .. }) {
             store
                 .suspend_attached_epoch(&current)
@@ -924,6 +920,9 @@ impl ServiceContext {
         bootstrap: &str,
     ) -> Result<SpawnTabSpec, String> {
         let (provider, model) = self.transcript_router_selection(previous)?;
+        if !self.transcript_router_eligible(&provider) {
+            return Err("Selected Concierge provider does not launch a router tab".into());
+        }
         let workspace_id = self.require_transcript_owner_tab(owner)?;
         let cwd = self.transcript_router_cwd(owner);
         std::fs::create_dir_all(&cwd)
