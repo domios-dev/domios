@@ -6,12 +6,13 @@ import { DEFAULT_THEME } from "./themeCss";
 import { setWorkspaceBrowseTarget } from "./workspaceBrowseTarget";
 import type { AppConfig } from "./types";
 import type { MachineAppearance } from "./chatWallpaperClient";
+import type { AppearanceCommit } from "./appearanceClient";
 import { useAppearanceMotion } from "../hooks/useAppearanceMotion";
 
 const { read, subscribe, listenCommit } = vi.hoisted(() => ({
   read: vi.fn(),
   subscribe: vi.fn((_path: string, _receive: (event: string, value: unknown) => void) => () => {}),
-  listenCommit: vi.fn(async () => () => {}),
+  listenCommit: vi.fn(async (_receive: (commit: AppearanceCommit) => void) => () => {}),
 }));
 vi.mock("./chatWallpaperClient", () => ({ readMachineAppearance: read, readWallpaperAsset: vi.fn() }));
 vi.mock("./daemonBootstrap", () => ({ daemonTransportForPeer: () => ({ subscribe }) }));
@@ -73,7 +74,9 @@ it("applies a config update and an explicit machine switch inside one transition
   function Fixture() {
     const selected = useMachineAppearance(config, true);
     const { look } = useAppearanceMotion(selected);
-    return <output>{look.theme.name} · {look.wallpaper?.background.pattern ?? "none"}</output>;
+    return <div className="ct-chat-surface">
+      <output data-appearance-proposal="proposal">{look.theme.name} · {look.wallpaper?.background.pattern ?? "none"}</output>
+    </div>;
   }
   try {
     subscribe.mockClear();
@@ -81,10 +84,19 @@ it("applies a config update and an explicit machine switch inside one transition
     await act(async () => setWorkspaceBrowseTarget({ id: "initial", name: "Initial" }));
     expect(start).not.toHaveBeenCalled();
 
+    const surface = rootNode.querySelector(".ct-chat-surface")!;
+    const card = rootNode.querySelector("[data-appearance-proposal]")!;
+    vi.spyOn(surface, "getBoundingClientRect").mockReturnValue(new DOMRect(100, 100, 200, 200));
+    vi.spyOn(card, "getBoundingClientRect").mockReturnValue(new DOMRect(110, 110, 100, 50));
     const [, receive] = subscribe.mock.calls[subscribe.mock.calls.length - 1];
-    await act(async () => receive("config-changed", { theme }));
+    const [receiveCommit] = listenCommit.mock.calls[listenCommit.mock.calls.length - 1];
+    await act(async () => {
+      receiveCommit({ event: "cli-event", machine: "initial", proposal: "proposal", undo: false, look: { ...base, theme } });
+      receive("config-changed", { theme });
+    });
     expect(start).toHaveBeenCalledTimes(1);
     expect(motion()).toBe("wave");
+    expect(origin()).toBe("200px 200px");
     expect(document.documentElement.hasAttribute("data-appearance-content-fade")).toBe(true);
     expect(rootNode.textContent).toBe(`${DEFAULT_THEME.name} · none`);
     await act(async () => {

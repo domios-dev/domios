@@ -69,8 +69,7 @@ export function animateAppearance(motion: Motion, apply: (sync: boolean) => void
   const base = visibleElement(".ct-appearance-base");
   const wallpaperSelector = ".ct-chat-wallpaper-stack > .ct-chat-wallpaper";
   const viewport = new DOMRect(0, 0, innerWidth, innerHeight);
-  const origin = motion.origin ?? center(card?.getBoundingClientRect()
-    ?? visibleElement(".ct-chat-surface")?.getBoundingClientRect() ?? viewport);
+  const origin = motion.origin ?? center(visibleElement(".ct-chat-surface")?.getBoundingClientRect() ?? viewport);
   let transition: ViewTransition | undefined;
   const wallpaper = fade ? undefined : visibleElement(wallpaperSelector);
   let stopDrawing: (() => void) | undefined;
