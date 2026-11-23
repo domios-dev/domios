@@ -156,7 +156,7 @@
   .ct-composer-expand span { opacity: 1; }
 }
 .ct-composer-card {
-  border: var(--ct-composer-card-border) solid var(--ct-accessible-edge, var(--ct-border));
+  border: var(--ct-composer-card-border) solid var(--ct-panel-edge);
   border-radius: var(--ct-composer-radius);
   background: var(--ct-bg-elev, var(--ct-surface));
   box-shadow: var(--ct-shadow-capsule);
@@ -164,6 +164,10 @@
   transition: border-radius var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
     box-shadow var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
     border-color var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+.ct-composer-card:focus-within {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: 2px;
 }
 .ct-composer-card[data-dictating] {
   border-color: color-mix(in srgb, var(--ct-accent) 46%, var(--ct-border));
