@@ -37,6 +37,8 @@ import { MachineProvenance } from "../shared/MachineProvenance";
 import { useRemoteViewerConnection } from "./useRemoteViewerConnection";
 import { remoteViewerStatusLabel } from "./remoteViewerStatus";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { directTranscriptAvailable } from "../../lib/transport/liveTranscript";
+import { useLiveTranscriptHost } from "./useLiveTranscriptPanel";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
 export { TAB_BAR_CONTROL_H };
@@ -137,6 +139,7 @@ export function TabTopBar({
   const [renaming, setRenaming] = useState(false);
   const [closeBlueprints, setCloseBlueprints] = useState<string[] | null>(null);
   const { upsertToast, detachRemoteTab } = useMultiplexer();
+  const liveTranscript = useLiveTranscriptHost();
   const menuTab = tabMenu?.tab ?? null;
   const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(menuTab);
   const onRename = tabMenu?.onRename;
@@ -219,6 +222,7 @@ export function TabTopBar({
       surface: "header",
       canRename: Boolean(tabMenu.onRename),
       canClose: Boolean(tabMenu.onClose),
+      canOpenLiveTranscript: Boolean(liveTranscript && directTranscriptAvailable()),
       pluginTabMenu,
       telegramThread: telegramThread.state,
       busy: { reconnecting, restarting },
@@ -226,6 +230,10 @@ export function TabTopBar({
     : [];
 
   const runMenuAction = (action: TabMenuAction) => {
+    if (action.type === "openLiveTranscript") {
+      liveTranscript?.open(tabId);
+      return;
+    }
     if (action.type === "reconnect") {
       void reconnect();
       return;

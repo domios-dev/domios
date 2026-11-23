@@ -705,6 +705,8 @@ pub async fn send_text(
                         let source_tab = mux.get_tab(&resolved);
                         let from_agent = source_tab
                             .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
+                        let from_transcript_router =
+                            source_tab.is_some_and(|tab| tab.is_transcript_router());
                         let model = source_tab.and_then(|tab| tab.agent_session_model_label());
                         let purpose = source_tab.and_then(utility_shell_purpose);
                         Some(
@@ -713,7 +715,8 @@ pub async fn send_text(
                             )
                             .model(model)
                             .purpose(purpose)
-                            .from_agent(Some(from_agent)),
+                            .from_agent(Some(from_agent))
+                            .from_transcript_router(from_transcript_router),
                         )
                     }
                 }
