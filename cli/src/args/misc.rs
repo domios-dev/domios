@@ -618,6 +618,17 @@ pub enum AppearanceAction {
         #[arg(long, default_value = "local")]
         machine: String,
     },
+    /// Apply tuning controls immediately from this machine's bound General Main session
+    Tweak {
+        #[arg(long, default_value = "local")]
+        machine: String,
+        /// Revision returned by appearance current
+        #[arg(long)]
+        revision: String,
+        /// Tuning-only TOML in your Agent Pad
+        #[arg(long, value_name = "PATH")]
+        from_pad: String,
+    },
     /// Validate and store a complete look for review
     Propose {
         #[arg(long, default_value = "local")]

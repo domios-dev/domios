@@ -6,7 +6,8 @@ import { APPEARANCE_CHANGED, OPEN_APPEARANCE, appearanceError, changeAppearance,
 import { bindAppearancePress, clearAppearancePress, indicateAppearancePress } from "../../lib/appearanceMotion";
 import { useAccountMachineNames, useMeshMachineChoices, useMeshPeerName } from "../../lib/useMeshMachineIdentities";
 import { cleanMachineName } from "../../lib/machineIdentity";
-import { effectiveWallpaper, WALLPAPER_PATTERNS, wallpaperSummary } from "../../lib/chatWallpaper";
+import { effectiveWallpaper, WALLPAPER_PATTERNS, wallpaperDefaultOpacity, wallpaperSummary } from "../../lib/chatWallpaper";
+import { isLightColor } from "../../lib/themeCss";
 import { relayTarget } from "../../lib/webApi";
 import { Button } from "../shared/Button";
 import { AppearancePreview } from "./AppearancePreview";
@@ -28,6 +29,27 @@ function changes(proposal: AppearanceProposal, wallpaperLabel: string | null): s
     strength !== previousStrength ? `Background ${Math.round(strength * 100)}%` : null,
     after.font_size !== before.font_size ? `Interface text ${after.font_size > 0 ? "+" : ""}${after.font_size}px` : null,
   ].filter((value): value is string => value !== null);
+}
+
+function tweakChanges({ previous, look }: AppearanceProposal): string[] {
+  const before = previous.tuning ?? DEFAULT_APPEARANCE;
+  const after = look.tuning ?? DEFAULT_APPEARANCE;
+  const intensity = ({ theme, wallpaper }: AppearanceProposal["look"]) => {
+    const { background, palette } = effectiveWallpaper(theme, wallpaper ?? undefined);
+    const painted = Boolean(palette || background.color || background.colors?.length);
+    return background.opacity ?? wallpaperDefaultOpacity(background.pattern, isLightColor(theme.background), painted);
+  };
+  const percent = (value: number) => `${Number((value * 100).toFixed(2))}%`;
+  const pixels = (value: number) => `${value > 0 ? "+" : ""}${value}px`;
+  const controls = [
+    ["Wallpaper", percent(intensity(previous)), percent(intensity(look))],
+    ["Background", percent(previous.wallpaper?.fill_strength ?? 1), percent(look.wallpaper?.fill_strength ?? 1)],
+    ["Roundness", percent(before.roundness), percent(after.roundness)],
+    ["Shadow", percent(before.shadow_strength), percent(after.shadow_strength)],
+    ["Edges", before.edges, after.edges],
+    ["Interface text", pixels(before.font_size), pixels(after.font_size)],
+  ];
+  return controls.flatMap(([label, from, to]) => from === to ? [] : [`${label} ${from} → ${to}`]);
 }
 
 function AppearanceCard({ id, machine }: { id: string; machine: string }) {
@@ -75,7 +97,7 @@ function AppearanceCard({ id, machine }: { id: string; machine: string }) {
   const appliedTime = record.applied_at === null ? "" : new Date(record.applied_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const stateText = state === "proposed" ? (peer ? `For ${name}` : "Proposal") : state === "applied"
     ? `✓ Applied${peer ? ` to ${name}` : ""}${appliedTime ? ` · ${appliedTime}` : ""}`
-    : `↶ Undone · back to ${record.previous.theme.name}`;
+    : record.tweak ? "↶ Undone" : `↶ Undone · back to ${record.previous.theme.name}`;
   const themeWallpaperName = themeWallpaper?.pattern === "none" ? undefined
     : WALLPAPER_PATTERNS.find(pattern => pattern.id === themeWallpaper?.pattern)?.label
       ?? (themeWallpaper?.pattern === "svg" ? "SVG" : themeWallpaper?.pattern);
@@ -108,7 +130,7 @@ function AppearanceCard({ id, machine }: { id: string; machine: string }) {
   const openLab = () => window.dispatchEvent(new CustomEvent<OpenAppearance>(OPEN_APPEARANCE, { detail: { ...target, proposal: id } }));
   return (
     <section role="group" aria-label={`Appearance ${state}: ${theme.name}`} className="ct-appearance-card" data-state={state} data-appearance-proposal={id}>
-      <div className="ct-appearance-card__body">
+      {!record.tweak && <div className="ct-appearance-card__body">
         <div className="ct-appearance-card__detail">
           <div>
             <h3><Palette size={14} aria-hidden="true" />{theme.name}</h3>
@@ -126,8 +148,8 @@ function AppearanceCard({ id, machine }: { id: string; machine: string }) {
           </div>
         </div>
         <div className="ct-appearance-card__preview"><AppearancePreview compact look={look} peer={target.peer} /></div>
-      </div>
-      {hidesThemeWallpaper && <div className="ct-appearance-card__wallpaper">
+      </div>}
+      {!record.tweak && hidesThemeWallpaper && <div className="ct-appearance-card__wallpaper">
         <Info size={13} aria-hidden="true" />
         <p>This look includes {themeWallpaperName ? `${themeWallpaperName} wallpaper` : "a theme wallpaper"}, but the machine’s wallpaper ({overrideWallpaper}) stays on top.{" "}
           <button type="button" className="ct-appearance-card__wallpaper-link" disabled={busy || (state === "applied" && !record.can_undo)}
@@ -136,8 +158,11 @@ function AppearanceCard({ id, machine }: { id: string; machine: string }) {
       </div>}
       {error && <p className="ct-appearance-error" role="alert">{error}</p>}
       <footer>
+        {record.tweak && <div className="ct-appearance-card__changes">
+          {tweakChanges(record).map(change => <span key={change}>{change}</span>)}
+        </div>}
         {state === "applied" ? <Button variant="outline" disabled={busy || !record.can_undo} onClick={event => void run("undo", event.currentTarget)}>Undo</Button>
-          : <Button variant={state === "undone" ? "outline" : "primary"} disabled={busy} onClick={event => void run("apply", event.currentTarget)}>{applyLabel}</Button>}
+          : !record.tweak && <Button variant={state === "undone" ? "outline" : "primary"} disabled={busy} onClick={event => void run("apply", event.currentTarget)}>{applyLabel}</Button>}
         <Button variant="ghost" onClick={openLab}><FlaskConical size={13} aria-hidden="true" /> Open in Lab</Button>
         <small className="ct-appearance-card__state" role="status">{stateText}</small>
       </footer>

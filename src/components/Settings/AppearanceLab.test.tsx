@@ -157,3 +157,32 @@ it.each([
     host.remove();
   }
 });
+
+it("shows an applied tweak with its changed value and Undo", async () => {
+  const previous = { theme: DEFAULT_THEME, wallpaper: { background: { pattern: "dots", opacity: 0.08 } }, tuning: null };
+  const look = { ...previous, wallpaper: { background: { pattern: "dots", opacity: 0.05 } } };
+  const receipt = {
+    id: "tweak", machine: { id: "fixture", name: "Fixture" }, rationale: "", tweak: true,
+    look, previous, state: "applied", contrast: [], can_undo: true, applied_at: null,
+  };
+  api.readAppearanceProposal.mockResolvedValue(receipt);
+  api.changeAppearance.mockResolvedValueOnce({ ...receipt, state: "undone", can_undo: false });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const buttonNames = () => [...host.querySelectorAll("button")].map(button => button.textContent?.trim());
+  const status = () => host.querySelector('[role="status"]')?.textContent;
+  try {
+    await act(async () => root.render(renderAppearanceCard("tweak", "fixture")));
+    expect(host.textContent).toContain("Wallpaper 8% → 5%");
+    expect(status()).toBe("✓ Applied");
+    expect(buttonNames()).toEqual(["Undo", "Open in Lab"]);
+    await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+    expect(api.changeAppearance).toHaveBeenLastCalledWith({ machine: "fixture" }, "tweak", "undo");
+    expect(status()).toBe("↶ Undone");
+    expect(buttonNames()).toEqual(["Open in Lab"]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

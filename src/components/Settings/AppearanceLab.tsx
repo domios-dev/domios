@@ -159,7 +159,7 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onNavigate }: Pr
       wallpaper: current.look.wallpaper && { ...current.look.wallpaper, background },
     };
     const name = machine.replace(/\s+/g, " ");
-    const request = `Make me a new look for ${name}: ${text}\n\n<context>\nAppearance Lab · for ${name}\nInstallation: ${current.machine.id}\nCurrent look: ${JSON.stringify(look)}\nSee domios docs APPEARANCE for the full wallpaper and proposal workflow.\n</context>`;
+    const request = `Appearance request for ${name}: ${text}\n\n<context>\nAppearance Lab · for ${name}\nInstallation: ${current.machine.id}\nCurrent look: ${JSON.stringify(look)}\nSee domios docs APPEARANCE for tweaks and proposals.\n</context>`;
     setClientTabUiMode(generalTab, "chat");
     const id = uid();
     addChatSend(generalTab, { id, correlationId: id, content: request, sentAtMs: Date.now() });

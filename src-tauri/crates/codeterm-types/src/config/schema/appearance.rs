@@ -118,6 +118,8 @@ pub enum AppearanceState {
 pub struct AppearanceProposal {
     pub id: String,
     pub rationale: String,
+    #[serde(default)]
+    pub tweak: bool,
     pub look: AppearanceLook,
     pub previous: AppearanceLook,
     #[serde(default, skip_serializing_if = "Option::is_none")]
