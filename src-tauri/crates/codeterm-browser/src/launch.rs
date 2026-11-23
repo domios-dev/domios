@@ -94,6 +94,8 @@ pub fn launch_args(spec: &LaunchSpec<'_>) -> Vec<String> {
         "--disable-features=Translate,CalculateNativeWinOcclusion".into(),
         "--disable-blink-features=AutomationControlled".into(),
         format!("--window-size={},{}", spec.width.max(1), spec.height.max(1)),
+        // Screencast frames cap at the native density; emulated viewer DPRs up to the max render crisply.
+        format!("--force-device-scale-factor={}", crate::viewport::MAX_DPR),
         if spec.initial_url.is_empty() {
             "about:blank".into()
         } else {

@@ -149,9 +149,6 @@ impl CdpConnection for FakeConnection {
             "Page.getLayoutMetrics" => Ok(
                 json!({"cssLayoutViewport":{"pageX":0,"pageY":0,"clientWidth":390,"clientHeight":844},"cssContentSize":{"x":0,"y":0,"width":400,"height":1000}}),
             ),
-            "Runtime.evaluate" if params["expression"] == "window.devicePixelRatio" => {
-                Ok(json!({"result":{"type":"number","value":1.0}}))
-            }
             "Page.captureScreenshot" => {
                 Ok(json!({ "data": if session == Some("ST1") { "QQ==" } else { "Qg==" } }))
             }
@@ -416,8 +413,7 @@ async fn temporary_mobile_capture_restores_previous_metrics_after_success_and_fa
         assert_eq!(metrics[metrics.len() - 2]["mobile"], true);
         assert_eq!(
             metrics.last().unwrap(),
-            &json!({"width":1600,"height":900,"deviceScaleFactor":1.0,"mobile":false,
-                "viewport":{"x":0,"y":0,"width":1600,"height":900,"scale":1}})
+            &json!({"width":1600,"height":900,"deviceScaleFactor":1.0,"mobile":false})
         );
         assert_eq!(host.viewport(), Viewport::default());
         assert_eq!(
@@ -549,7 +545,7 @@ async fn ordinary_owned_captures_resolve_css_bounds_but_attached_captures_pass_t
 }
 
 #[tokio::test]
-async fn owned_scaled_compositor_keeps_still_and_live_frames_in_css_coordinates() {
+async fn owned_hidpi_emulation_follows_scroll_and_keeps_frames_in_css_coordinates() {
     let root = tempfile::tempdir().unwrap();
     let connection = FakeConnection::new();
     let lease = acquire(
@@ -578,7 +574,7 @@ async fn owned_scaled_compositor_keeps_still_and_live_frames_in_css_coordinates(
         .unwrap();
     let page = runtime.page.clone();
     host.install(runtime);
-    for dpr in [1.25, 1.5] {
+    for dpr in [1.25, 1.5, 2.0] {
         if viewport.dpr != dpr {
             viewport.dpr = dpr;
             host.set_viewport(crate::ViewportRequest {
@@ -601,10 +597,11 @@ async fn owned_scaled_compositor_keeps_still_and_live_frames_in_css_coordinates(
             ),
             (1320.0, 996.0)
         );
+        // Chrome 157 reports CSS-pixel metadata at any emulated density once the viewport is unpinned.
         for ack in 1..=3 {
             connection.emit("Page.screencastFrame", Some(page.session_id()), json!({
                 "sessionId": ack, "data": "TA==",
-                "metadata": { "deviceWidth": 1320.0 * dpr, "deviceHeight": 996.0 * dpr, "scrollOffsetY": 222.0 }
+                "metadata": { "deviceWidth": 1320.0, "deviceHeight": 996.0, "scrollOffsetY": 4000.0 }
             }));
             let live = tokio::time::timeout(Duration::from_secs(1), viewer.next())
                 .await
@@ -619,7 +616,7 @@ async fn owned_scaled_compositor_keeps_still_and_live_frames_in_css_coordinates(
                 ),
                 (1320.0, 996.0)
             );
-            assert_eq!(live.frame.metadata.scroll_offset_y, 222.0);
+            assert_eq!(live.frame.metadata.scroll_offset_y, 4000.0);
         }
         let requests = connection.state.lock().requests.clone();
         let metrics = requests
@@ -628,9 +625,9 @@ async fn owned_scaled_compositor_keeps_still_and_live_frames_in_css_coordinates(
             .find(|(_, method, _)| method == "Emulation.setDeviceMetricsOverride")
             .unwrap();
         assert_eq!(metrics.2["deviceScaleFactor"], dpr);
-        assert_eq!(
-            metrics.2["viewport"],
-            json!({"x":0,"y":0,"width":1320,"height":996,"scale":1})
+        assert!(
+            metrics.2.get("viewport").is_none(),
+            "a pinned viewport rect blanks the page past one scroll height"
         );
         let start = requests
             .iter()

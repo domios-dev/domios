@@ -152,21 +152,6 @@ impl ScreencastParams {
             "everyNthFrame": 1,
         })
     }
-
-    fn frame_metadata(
-        &self,
-        mut metadata: FrameMetadata,
-        native_dpr: Option<f64>,
-    ) -> FrameMetadata {
-        if let Some(native_dpr) = native_dpr {
-            // CSS viewports are whole pixels; rounding removes float drift from the DPR division.
-            let scale = self.viewport.dpr / native_dpr;
-            metadata.device_width = (metadata.device_width / scale).round();
-            metadata.device_height = (metadata.device_height / scale).round();
-            metadata.offset_top = (metadata.offset_top / scale * 1000.0).round() / 1000.0;
-        }
-        metadata
-    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -346,14 +331,15 @@ impl FrameHub {
         base64: Option<Arc<str>>,
         metadata: FrameMetadata,
         still: bool,
-        only_if_seq: Option<u64>,
+        only_if: Option<(u64, ScreencastParams)>,
     ) -> bool {
         let frame = {
             let mut state = self.state.lock();
             if state.closed || state.generation != generation {
                 return false;
             }
-            if only_if_seq.is_some_and(|expected| state.seq != expected) {
+            // A still for superseded params would flash the previous viewport after a restart.
+            if only_if.is_some_and(|(seq, params)| state.seq != seq || state.params != params) {
                 return false;
             }
             if state.captures > 0 && !still && off_viewport(&metadata, state.params.viewport) {
@@ -464,16 +450,10 @@ pub struct ScreencastDriver {
 }
 
 impl ScreencastDriver {
-    pub fn spawn(page: PageChannel, hub: Arc<FrameHub>, native_dpr: Option<f64>) -> Self {
+    pub fn spawn(page: PageChannel, hub: Arc<FrameHub>) -> Self {
         let (commands, receiver) = mpsc::unbounded_channel();
         let generation = hub.bind(commands);
-        tokio::spawn(run_driver(
-            page,
-            hub.clone(),
-            generation,
-            receiver,
-            native_dpr,
-        ));
+        tokio::spawn(run_driver(page, hub.clone(), generation, receiver));
         Self { hub, generation }
     }
 }
@@ -489,31 +469,30 @@ async fn run_driver(
     hub: Arc<FrameHub>,
     generation: u64,
     mut commands: mpsc::UnboundedReceiver<DriverCommand>,
-    native_dpr: Option<f64>,
 ) {
     let mut frames = page.subscribe_session(&["Page.screencastFrame"]);
-    let mut casting = None;
+    let mut casting = false;
     loop {
         tokio::select! {
             command = commands.recv() => {
                 let Some(command) = command else { break };
                 log::debug!("[browser-screencast] generation {generation}, command {command:?}");
                 match command {
-                    DriverCommand::Start(params) if casting.is_none() => {
-                        casting = start_cast(&page, &hub, generation, params).await.then_some(params);
+                    DriverCommand::Start(params) if !casting => {
+                        casting = start_cast(&page, &hub, generation, params).await;
                     }
                     DriverCommand::Start(_) => {}
                     DriverCommand::Restart(params) => {
-                        if casting.is_some() {
+                        if casting {
                             stop_cast(&page).await;
                         }
-                        casting = start_cast(&page, &hub, generation, params).await.then_some(params);
+                        casting = start_cast(&page, &hub, generation, params).await;
                     }
                     DriverCommand::Stop => {
-                        if casting.is_some() {
+                        if casting {
                             stop_cast(&page).await;
                         }
-                        casting = None;
+                        casting = false;
                     }
                 }
             }
@@ -526,16 +505,16 @@ async fn run_driver(
                         continue;
                     }
                 };
-                let Some(params) = casting else {
+                if !casting {
                     continue;
-                };
+                }
                 match base64::engine::general_purpose::STANDARD.decode(raw.data.as_bytes()) {
                     Ok(jpeg) => {
                         hub.publish_encoded(
                             generation,
                             jpeg,
                             Some(Arc::from(raw.data)),
-                            params.frame_metadata(raw.metadata, native_dpr),
+                            raw.metadata,
                             false,
                             None,
                         );
@@ -621,7 +600,7 @@ async fn push_still(
         Some(Arc::from(raw_base64)),
         FrameMetadata::still(params.viewport, unix_now_secs()),
         true,
-        Some(seq_before),
+        Some((seq_before, params)),
     );
 }
 

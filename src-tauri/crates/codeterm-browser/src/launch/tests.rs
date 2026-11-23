@@ -127,6 +127,7 @@ fn browser_launch_args_carry_hygiene_flags_and_profile() {
         "--disable-features=Translate,CalculateNativeWinOcclusion",
         "--disable-blink-features=AutomationControlled",
         "--window-size=1600,900",
+        "--force-device-scale-factor=3",
     ] {
         assert!(args.iter().any(|arg| arg == flag), "missing {flag}");
     }
