@@ -1,15 +1,37 @@
 use axum::{
     body::Bytes,
-    extract::{Path, State},
+    extract::{DefaultBodyLimit, Path, State},
     http::{header, HeaderMap, StatusCode},
-    Json,
+    middleware, Json, Router,
 };
 use codeterm_service_core::service::dictation::DictationSessions;
-use codeterm_types::dictation::{DictationStart, DictationStartResult, DictationUpdate};
+use codeterm_types::dictation::{
+    DictationStart, DictationStartResult, DictationUpdate, MAX_PCM_BYTES,
+};
 
+use super::live_transcript_capture::require_direct_secure_owner;
+use crate::plugin_host_action_routes::owner_post;
 use crate::routes::AppState;
 
 type Refusal = (StatusCode, String);
+
+pub(crate) fn router() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/api/dictation/start",
+            owner_post(start).layer(DefaultBodyLimit::max(1024)),
+        )
+        .route(
+            "/api/dictation/{session}/frame/{sequence}",
+            owner_post(frame).layer(DefaultBodyLimit::max(MAX_PCM_BYTES)),
+        )
+        .route(
+            "/api/dictation/{session}/finish/{sequence}",
+            owner_post(finish),
+        )
+        .route("/api/dictation/{session}/cancel", owner_post(cancel))
+        .route_layer(middleware::from_fn(require_direct_secure_owner))
+}
 
 fn client(headers: &HeaderMap, session: &str) -> Result<String, Refusal> {
     let valid = |input: &str| {
@@ -27,7 +49,7 @@ fn client(headers: &HeaderMap, session: &str) -> Result<String, Refusal> {
     }
 }
 
-pub async fn start(
+async fn start(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(request): Json<DictationStart>,
@@ -36,7 +58,7 @@ pub async fn start(
     Ok(Json(state.svc.start_dictation(&client, request).await))
 }
 
-pub async fn frame(
+async fn frame(
     State(state): State<AppState>,
     Path((session, sequence)): Path<(String, u32)>,
     headers: HeaderMap,
@@ -55,7 +77,7 @@ pub async fn frame(
     submit(&state, &headers, &session, sequence, audio.to_vec(), false).await
 }
 
-pub async fn finish(
+async fn finish(
     State(state): State<AppState>,
     Path((session, sequence)): Path<(String, u32)>,
     headers: HeaderMap,
@@ -81,7 +103,7 @@ async fn submit(
         .map_err(|reason| (StatusCode::CONFLICT, reason))
 }
 
-pub async fn cancel(
+async fn cancel(
     State(state): State<AppState>,
     Path(session): Path<String>,
     headers: HeaderMap,

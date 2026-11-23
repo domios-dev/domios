@@ -50,14 +50,16 @@ class Worklet {
 }
 
 class Audio {
+  static instances: Audio[] = [];
   readonly sampleRate = 16_000;
   readonly destination = {};
   readonly audioWorklet = { addModule: async () => {} };
   createMediaStreamSource() {
     return { connect: (node: Worklet) => node, disconnect: vi.fn() };
   }
-  async resume() {}
-  async close() {}
+  resume = vi.fn(async () => {});
+  close = vi.fn(async () => {});
+  constructor() { Audio.instances.push(this); }
 }
 
 let hasFocus: boolean;
@@ -68,6 +70,7 @@ const previousAct = (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_RE
 beforeEach(() => {
   resetCaptureOwnershipForTest();
   vi.resetAllMocks();
+  Audio.instances = [];
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("AudioWorkletNode", Worklet);
   vi.stubGlobal("AudioContext", Audio);
@@ -218,6 +221,29 @@ describe("live transcript microphone ownership", () => {
       expect(getUserMedia).toHaveBeenCalledTimes(2);
       expect(transport.start).toHaveBeenLastCalledWith(true, expect.any(AbortSignal));
       expect(harness.render().phase).toBe("recording");
+    } finally {
+      await harness.unmount();
+    }
+  });
+
+  it("unlocks audio inside the gesture before admission and closes it when admission is refused", async () => {
+    const admission = deferred<LiveCaptureAdmission>();
+    transport.start.mockReturnValueOnce(admission.promise);
+    const harness = await mount();
+    try {
+      let starting!: Promise<void>;
+      act(() => { starting = harness.render().start(); });
+      expect(Audio.instances).toHaveLength(1);
+      expect(Audio.instances[0].resume).toHaveBeenCalledOnce();
+      await act(async () => {
+        admission.fulfill({ state: "unavailable", reason: "Transcriber is offline." });
+        await starting;
+      });
+      expect(Audio.instances[0].close).toHaveBeenCalledOnce();
+      expect(getUserMedia).not.toHaveBeenCalled();
+      expect(harness.render().error).toBe("Transcriber is offline.");
+      expect(claimCaptureOwnership("manual")).toBe(true);
+      releaseCaptureOwnership("manual");
     } finally {
       await harness.unmount();
     }

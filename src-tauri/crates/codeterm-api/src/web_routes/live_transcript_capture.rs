@@ -44,7 +44,8 @@ pub(crate) fn router() -> Router<AppState> {
         .route_layer(middleware::from_fn(require_direct_secure_owner))
 }
 
-async fn require_direct_secure_owner(request: Request, next: Next) -> Response {
+/// Microphone audio is accepted only from loopback or a same-origin HTTPS owner window.
+pub(crate) async fn require_direct_secure_owner(request: Request, next: Next) -> Response {
     let owner = matches!(
         request.extensions().get::<CallerIdentity>(),
         Some(CallerIdentity::Local)
@@ -55,7 +56,7 @@ async fn require_direct_secure_owner(request: Request, next: Next) -> Response {
     if !owner || !secure_capture_origin(&request) {
         return (
             StatusCode::FORBIDDEN,
-            "Live capture needs a direct secure owner session.",
+            "Live audio needs a direct secure (HTTPS) owner session.",
         )
             .into_response();
     }

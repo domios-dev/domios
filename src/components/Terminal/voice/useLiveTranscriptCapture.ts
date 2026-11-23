@@ -8,14 +8,18 @@ import {
 } from "../../../lib/transport/liveTranscriptCapture";
 import { microphoneErrorMessage } from "./audio";
 import { claimCaptureOwnership, releaseCaptureOwnership } from "./localRecordingCaptureModel";
+import { openCaptureContext, PCM_RESAMPLER_SOURCE, PCM_SAMPLE_RATE } from "./pcmCapture";
 
 const QUEUE_LIMIT = 24;
 const WORKLET = `
+${PCM_RESAMPLER_SOURCE}
 class LiveTranscriptMicrophone extends AudioWorkletProcessor {
   constructor() {
     super();
     this.active = true;
     this.pending = 0;
+    this.resampler = new PcmResampler(sampleRate, ${PCM_SAMPLE_RATE});
+    this.write = this.write.bind(this);
     this.reset();
     this.port.onmessage = ({ data }) => {
       if (data === "ack") this.pending--;
@@ -40,16 +44,18 @@ class LiveTranscriptMicrophone extends AudioWorkletProcessor {
     this.pending++;
     this.port.postMessage(frame, [frame]);
   }
+  write(sample) {
+    if (!this.active) return;
+    this.view.setInt16(this.length++ * 2, Math.round(Math.max(-1, Math.min(1, sample)) * 32767), true);
+    if (this.length * 2 === this.buffer.byteLength) {
+      this.send(this.buffer);
+      if (this.active) this.reset();
+    }
+  }
   process(inputs) {
     if (!this.active) return true;
-    for (const sample of inputs[0]?.[0] ?? []) {
-      this.view.setInt16(this.length++ * 2, Math.round(Math.max(-1, Math.min(1, sample)) * 32767), true);
-      if (this.length * 2 === this.buffer.byteLength) {
-        this.send(this.buffer);
-        if (!this.active) break;
-        this.reset();
-      }
-    }
+    const audio = inputs[0]?.[0];
+    if (audio) this.resampler.push(audio, this.write);
     return true;
   }
 }
@@ -129,9 +135,8 @@ function sealWorklet(recording: Recording): Promise<void> {
 }
 
 async function openWorklet(recording: Recording): Promise<AudioContext | undefined> {
-  const audio = new AudioContext({ sampleRate: 16_000 });
-  recording.audio = audio;
-  if (audio.sampleRate !== 16_000) throw new Error("The microphone cannot capture at 16 kHz.");
+  const audio = recording.audio;
+  if (!audio) return undefined;
   const script = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
   try { await audio.audioWorklet.addModule(script); }
   finally { URL.revokeObjectURL(script); }
@@ -157,10 +162,13 @@ export function useLiveTranscriptCapture(options: CaptureOptions) {
     setError(null);
     setProvisional("");
     let transport: Transport;
+    let audio: AudioContext;
     try {
       transport = createLiveTranscriptCaptureTransport(tabId);
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone access needs a secure Domios window.");
       if (!claimCaptureOwnership("manual")) throw new Error("Another microphone recording is already active.");
+      try { audio = openCaptureContext(); }
+      catch (failure) { releaseCaptureOwnership("manual"); throw failure; }
     } catch (failure) {
       setPhase("error");
       setError(microphoneErrorMessage(failure));
@@ -171,7 +179,7 @@ export function useLiveTranscriptCapture(options: CaptureOptions) {
     const recording: Recording = {
       tabId, identity, transport, io,
       admission: transport.start(resume ?? isSameTab(resumable.current), AbortSignal.timeout(40_000)),
-      microphoneClaimed: true, permissionPending: false,
+      microphoneClaimed: true, permissionPending: false, audio,
       sequence: 0, queueSize: 0, tail: Promise.resolve(),
     };
     owned.current = recording;
@@ -210,12 +218,12 @@ export function useLiveTranscriptCapture(options: CaptureOptions) {
           void pause("microphoneLost");
         }, { once: true });
       }
-      const audio = await openWorklet(recording);
-      if (!audio || owned.current !== recording || recording.pauseReason) return;
+      const context = await openWorklet(recording);
+      if (!context || owned.current !== recording || recording.pauseReason) return;
       if (!eligible() || !isSameTab(recording)) { await pause("tabChanged"); return; }
       transport.assertCurrent();
-      attachAudio(recording, audio, stream, result.lease);
-      await audio.resume();
+      attachAudio(recording, context, stream, result.lease);
+      await context.resume();
       if (owned.current === recording && !recording.pauseReason) transport.assertCurrent();
       if (owned.current === recording && !recording.pauseReason && mounted.current) setPhase("recording");
     } catch (failure) {
