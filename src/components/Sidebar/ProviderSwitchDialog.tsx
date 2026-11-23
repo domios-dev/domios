@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import type { Tab } from "../../lib/types";
 import { isProviderSelectable } from "../../lib/providerAvailability";
@@ -13,6 +13,9 @@ import { BusySpinner } from "../shared/BusyState";
 import { describeError } from "../../lib/describeError";
 import { providerSwitchStatusView } from "./providerSwitchStatusModel";
 
+/** The website film renders this dialog read-only; it closes itself once the demo switch completes. */
+export const ProviderSwitchPreviewContext = createContext(false);
+
 export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab: Tab; initialProviderId: string; onClose(): void }) {
   const titleId = useId();
   const descriptionId = useId();
@@ -22,6 +25,14 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
   const navigation = usePickerNavigation();
   const [installError, setInstallError] = useState<string | null>(null);
   const locked = phase !== "choosing";
+  const preview = useContext(ProviderSwitchPreviewContext);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    if (!preview || phase !== "complete") return;
+    const timer = window.setTimeout(() => closeRef.current(), 720);
+    return () => window.clearTimeout(timer);
+  }, [preview, phase]);
   // Same order as Start a session: launch-profile providers follow the direct ones.
   const ordered = [...providers.filter((candidate) => !candidate.agent_runtime?.launchProfiles), ...providers.filter((candidate) => candidate.agent_runtime?.launchProfiles)];
   const unavailableIds = useMemo(() => new Set(providers.filter((candidate) => !isProviderSelectable(candidate)).map((candidate) => candidate.id)), [providers]);

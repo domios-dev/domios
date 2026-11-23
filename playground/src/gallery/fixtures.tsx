@@ -3,6 +3,10 @@ import claudeManifest from "../../../plugins/provider-claude/plugin.json";
 import claudeIcon from "../../../plugins/provider-claude/icon.svg?raw";
 import codexManifest from "../../../plugins/provider-codex/plugin.json";
 import codexIcon from "../../../plugins/provider-codex/icon.svg?raw";
+import opencodeManifest from "../../../plugins/provider-opencode/plugin.json";
+import opencodeIcon from "../../../plugins/provider-opencode/icon.svg?raw";
+import cursorManifest from "../../../plugins/provider-cursor/plugin.json";
+import cursorIcon from "../../../plugins/provider-cursor/icon.svg?raw";
 import { defaultConfig } from "../../../src/hooks/useConfig";
 import { setAgentDescriptors } from "../../../src/lib/agentDescriptorCache";
 import type { ApiConfig, AppConfig, ModelSwitchMode, ProviderDescriptor, Tab, TabStatus, Team } from "../../../src/lib/types";
@@ -52,9 +56,23 @@ function descriptorFromManifest(manifest: Manifest, iconSvg: string): ProviderDe
 
 export const CLAUDE = descriptorFromManifest(claudeManifest as unknown as Manifest, claudeIcon);
 export const CODEX = descriptorFromManifest(codexManifest as unknown as Manifest, codexIcon);
+export const CURSOR = descriptorFromManifest(cursorManifest as unknown as Manifest, cursorIcon);
+const opencode = descriptorFromManifest(opencodeManifest as unknown as Manifest, opencodeIcon);
+export const OPENCODE: ProviderDescriptor = {
+  ...opencode,
+  available_models: [
+    ...opencode.available_models,
+    { id: "opencode/gemini-3-flash", display_name: "OpenCode Zen Gemini 3 Flash", group: "OpenCode Zen" },
+    { id: "opencode/kimi-k2.7-code", display_name: "OpenCode Zen Kimi K2.7 Code", group: "OpenCode Zen" },
+    { id: "opencode/qwen3.6-plus", display_name: "OpenCode Zen Qwen3.6 Plus", group: "OpenCode Zen" },
+    { id: "deepseek/deepseek-v4-pro", display_name: "DeepSeek V4 Pro", group: "DeepSeek" },
+  ],
+};
+/** The website film's provider roster. */
+export const DEMO_PROVIDERS = [CLAUDE, CODEX, OPENCODE, CURSOR];
 
-setAgentDescriptors([CLAUDE, CODEX]);
-mockCommand("list_agent_providers", () => [CLAUDE, CODEX]);
+setAgentDescriptors(DEMO_PROVIDERS);
+mockCommand("list_agent_providers", () => DEMO_PROVIDERS);
 mockCommand("plugin_tab_menu", () => ({ items: [], receiverTargets: {} }));
 mockCommand("bridge_thread_state", () => ({ bridge_active: false, topics: "unavailable", bound: false }));
 
@@ -135,12 +153,18 @@ export function muxState(tabs: Tab[], statuses: Record<string, TabStatus> = {}, 
 
 const actions = new Proxy({}, { get: () => async () => undefined }) as MultiplexerActionsContextType;
 
-export function ProductProviders({ tabs = [], plans = false, workspaceId, children }: { tabs?: Tab[]; plans?: boolean; workspaceId?: string; children: ReactNode }) {
+export function ProductProviders({ tabs = [], plans = false, workspaceId, children, overrides }: {
+  tabs?: Tab[]; plans?: boolean; workspaceId?: string; children: ReactNode;
+  overrides?: Partial<MultiplexerActionsContextType>;
+}) {
   const store = useMemo(() => {
     const state = muxState(tabs, {}, workspaceId);
     return createMuxStateStore(() => state);
   }, [tabs, workspaceId]);
-  return <MultiplexerActionsContext.Provider value={actions}>
+  const port = useMemo(() => overrides ? new Proxy(overrides, {
+    get: (target, key: keyof MultiplexerActionsContextType) => target[key] ?? actions[key],
+  }) as MultiplexerActionsContextType : actions, [overrides]);
+  return <MultiplexerActionsContext.Provider value={port}>
     <MuxStateStoreContext.Provider value={store}>
       {plans ? <PlansProvider api={API}>{children}</PlansProvider> : children}
     </MuxStateStoreContext.Provider>

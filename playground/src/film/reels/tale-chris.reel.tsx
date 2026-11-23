@@ -1,0 +1,3 @@
+import { voiced } from "./voiced";
+
+export default voiced({"name": "tale-chris", "cuts": [{"id": "opener-dots", "duration": 3}, {"id": "memory-graph", "duration": 8.621}, {"id": "mesh-hero", "duration": 8.364}, {"id": "mesh-reach", "duration": 6.201}, {"id": "mesh-memory", "duration": 8.186}, {"id": "team-glimpse", "duration": 2.788}, {"id": "team-return", "duration": 10.176}, {"id": "plan-board", "duration": 6.0}, {"id": "jobs", "duration": 3.36}, {"id": "chat-automation", "duration": 5.84}, {"id": "browser", "duration": 1.98}, {"id": "plugins", "duration": 7.02}, {"id": "theme-repaint", "duration": 3.419}, {"id": "end-card", "duration": 3.954}]});

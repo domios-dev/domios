@@ -1,0 +1,22 @@
+{
+  "answered_by": {
+    "instance_id": "85faac20-95d6-4c28-8161-4490d1a20af7",
+    "instance_name": "rollacodebot"
+  },
+  "by_kind": {
+    "conversation": 1,
+    "daily": 56,
+    "document": 1,
+    "fact": 238,
+    "learning": 1,
+    "note": 46,
+    "peer": 5,
+    "preference": 6,
+    "rule": 17,
+    "skill": 102
+  },
+  "total_entities": 2298,
+  "total_items": 473,
+  "total_relations": 17543,
+  "total_vectors": 3488
+}

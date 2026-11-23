@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Film embed isolation test</title>
+    <style>
+      /* A hostile host: same --ct-* names, global resets, a 10px rem and loud inherited text styles. */
+      :root {
+        --ct-bg: #fff4d6;
+        --ct-fg: #7a1f00;
+        --ct-accent: #ff00aa;
+        --ct-border: #00aa55;
+        --ct-font-ui: "Georgia", serif;
+        --ct-font-mono: "Courier New", monospace;
+        --spacing: 7px;
+        --tw-shadow: 0 0 0 9px lime;
+        --domios-film-max-height: 80svh;
+        font-size: 10px;
+      }
+      *, *::before, *::after { box-sizing: content-box; margin: 0; letter-spacing: 0.06em; }
+      html, body { background: var(--ct-bg); }
+      body { font-family: Georgia, serif; font-size: 1.8rem; line-height: 2.1; color: var(--ct-fg); text-align: center; text-transform: uppercase; }
+      div { border-color: red; }
+      button { background: var(--ct-accent); color: #fff; border: 3px dashed #000; border-radius: 0; font: inherit; padding: 0.4em 0.8em; }
+      svg { width: 120px; height: 120px; }
+      input[type="range"] { accent-color: lime; }
+      section { padding: 6rem 2rem; }
+      .tall { min-height: 120vh; }
+      #film-slot { max-width: 1096px; margin: 0 auto; }
+      #probe { position: fixed; right: 8px; bottom: 8px; z-index: 10; max-width: 420px; padding: 8px 10px; font: 12px/1.45 "Courier New", monospace; text-transform: none; text-align: left; letter-spacing: 0; color: #111; background: rgba(255, 255, 255, 0.92); border: 2px solid var(--ct-accent); }
+      #probe button { padding: 2px 6px; margin: 2px; font-size: 12px; }
+      #probe pre { margin: 4px 0 0; white-space: pre-wrap; max-height: 40vh; overflow: auto; }
+      @media (max-width: 600px) { #probe { left: 8px; max-width: none; } section { padding: 4rem 16px; } }
+    </style>
+    <script type="module" src="/src/film/embed/demo/page.js"></script>
+  </head>
+  <body>
+    <section class="tall">
+      <h1>Host page</h1>
+      <p>Georgia, uppercase, cream background and its own --ct-* palette. Scroll down: the film module loads only when its slot is near view.</p>
+    </section>
+    <section>
+      <div id="film-slot" aria-label="Film slot"></div>
+    </section>
+    <section class="tall">
+      <p>After the film. Space here scrolls the page unless the film has focus.</p>
+    </section>
+    <aside id="probe" aria-label="Isolation probe">
+      <div>
+        <button type="button" data-action="dark">dark</button>
+        <button type="button" data-action="light">light</button>
+        <button type="button" data-action="landscape">landscape</button>
+        <button type="button" data-action="portrait">portrait</button>
+        <button type="button" data-action="pause">pause</button>
+        <button type="button" data-action="destroy">destroy</button>
+        <button type="button" data-action="mount">mount</button>
+      </div>
+      <pre id="probe-log"></pre>
+    </aside>
+  </body>
+</html>

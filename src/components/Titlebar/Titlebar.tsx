@@ -29,6 +29,7 @@ interface TitlebarProps {
   api?: ApiConfig;
   onToggleSidebar?: () => void;
   showSidebarToggle?: boolean;
+  showBuildIdentity?: boolean;
   onNewTab?: () => void;
   theme: ThemeConfig;
   onOpenExtensions?: () => void;
@@ -55,6 +56,7 @@ export function Titlebar({
   locked = false,
   onToggleSidebar,
   showSidebarToggle = false,
+  showBuildIdentity = true,
   theme: _theme,
   onOpenExtensions,
   analyticsOpen = false,
@@ -128,7 +130,7 @@ export function Titlebar({
         className="hidden h-full shrink-0 items-center gap-2 pl-3 pr-2 min-[430px]:flex"
         data-tauri-drag-region
       >
-        {buildLabel && <DevBuildDot label={buildLabel} version={__APP_VERSION__} />}
+        {showBuildIdentity && buildLabel && <DevBuildDot label={buildLabel} version={__APP_VERSION__} />}
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">

@@ -1,7 +1,7 @@
 import { createNoticePublisher } from "../../lib/notices";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { launchProviderInstaller } from "../../lib/providerInstall";
-import type { AppConfig } from "../../lib/types";
+import type { AppConfig, ProviderDescriptor } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useSpawnAccounts } from "../../hooks/useAccountSelectors";
 import { SpawnAccountButton } from "./SpawnAccountButton";
@@ -78,6 +78,8 @@ export function NewSessionPicker({
   agentsConfig,
   initialProviderId,
   section = "workspace",
+  additionalOptions,
+  providerCatalogue,
   onClose,
 }: {
   workspaceId: string;
@@ -85,9 +87,14 @@ export function NewSessionPicker({
   agentsConfig?: AppConfig["agents"];
   initialProviderId?: string;
   section?: NewSessionSection;
+  additionalOptions?: ReactNode;
+  providerCatalogue?: ProviderDescriptor[];
   onClose: () => void;
 }) {
-  const { providers, loading: providersLoading, refetch: refreshProviders } = useAgentProviders();
+  const catalogue = useAgentProviders();
+  const providers = providerCatalogue ?? catalogue.providers;
+  const providersLoading = providerCatalogue ? false : catalogue.loading;
+  const refreshProviders = catalogue.refetch;
   const { spawnAgentTab, createOrchestrationPair, selectTabByTab, upsertToast } = useMultiplexer();
   const state = useMuxState();
   const machineInventory = useMachinePlacementInventory();
@@ -217,6 +224,7 @@ export function NewSessionPicker({
   }, [presets, presetsLoading, presetsError]);
 
   useEffect(() => {
+    if (providerCatalogue) return;
     let cancelled = false;
     const probe = () => {
       void probeProviderInstallMap(visibleProviders).then((map) => {
@@ -230,7 +238,7 @@ export function NewSessionPicker({
       cancelled = true;
       window.removeEventListener("focus", probe);
     };
-  }, [visibleProviders]);
+  }, [providerCatalogue, visibleProviders]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -514,6 +522,7 @@ export function NewSessionPicker({
           <ModeCards mode={choice.mode} allowedModes={allowedModes} onSelect={handleModeSelect} teamDescription={teamDescription} />
         </div>
 
+        {additionalOptions}
         <div ref={modeFrameRef} className="picker-mode-frame relative" data-step={templateStep ? "template" : undefined}
           style={teamForm ? { minHeight: 0, flexShrink: 1, overflowY: "auto", overflowX: "hidden" } : undefined}>
           <div ref={modeContentRef} className={teamForm ? "pb-4" : undefined}>

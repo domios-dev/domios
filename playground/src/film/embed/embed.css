@@ -1,0 +1,625 @@
+/* Film chrome. Lives in the film's shadow root; :root/html/body selectors are rewritten to .domios-film-root at build. */
+:host {
+  display: block;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  overflow: visible;
+  isolation: isolate;
+  background: #0d1117;
+}
+
+:host([data-layout="portrait"]) {
+  aspect-ratio: 9 / 16;
+  width: min(100%, calc(var(--domios-film-max-height, 100svh) * 9 / 16));
+  margin-inline: auto;
+}
+
+/* The workspace fills the slot the page sizes; without a height it falls back to the window's own ratio. */
+:host(.domios-film-workspace) {
+  height: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+:host(.domios-film-workspace[data-layout="portrait"]) {
+  aspect-ratio: 9 / 16;
+}
+
+@container domios-film-stage (max-width: 480px) {
+  .film-workspace .ct-card:has([data-testid="inbound-show-tab"]) :is(.ct-card__chip, [data-testid="toolcard-summary"]) {
+    display: none;
+  }
+
+  .film-workspace .ct-card:has([data-testid="inbound-show-tab"]) button[aria-expanded] > span:nth-child(2) > span:first-child {
+    max-width: 100%;
+  }
+
+  .film-workspace .ct-card:has([data-testid="inbound-show-tab"]) [data-testid="toolcard-status"] {
+    flex: none;
+  }
+}
+
+:host(.domios-film-workspace) .domios-film-root {
+  /* Fixed overlays from app dialogs use this frame as their containing block. */
+  transform: translateZ(0);
+  isolation: isolate;
+}
+
+.film-workspace .ct-dev-dot { display: none; }
+:host(.domios-film-workspace[data-layout="landscape"]) .film-workspace {
+  --sidebar-section-header-h: 28px;
+}
+:host(.domios-film-workspace[data-layout="landscape"]) .film-workspace .sidebar-team-member .sidebar-tab {
+  padding-block: 2px;
+}
+:host(.domios-film-workspace[data-layout="landscape"]) .film-workspace .sidebar-team-workers-toggle {
+  margin-top: 2px;
+  padding-block: 2px;
+  line-height: 18px;
+}
+.film-workspace [data-film-portal-host] > * { pointer-events: auto; }
+.film-workspace .demo-voice-button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  flex: none;
+  align-self: center;
+  border: 1px solid var(--ct-border);
+  border-radius: 50%;
+  background: var(--ct-surface);
+}
+.film-workspace .demo-voice-button:hover { background: var(--ct-hover); }
+
+.demo-neighborhood { display: flex; height: 100%; flex-direction: column; background: var(--ct-bg); }
+.demo-neighborhood-stage {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  place-items: center;
+  overflow: auto;
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--ct-fg) 12%, transparent) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+.demo-neighborhood-map { position: relative; width: min(100%, 680px); height: min(100%, 510px); min-height: 280px; }
+.demo-neighborhood-links { position: absolute; width: 100%; height: 100%; inset: 0; pointer-events: none; stroke: var(--ct-border); stroke-width: 1; }
+.demo-neighborhood-links .demo-neighborhood-link--dashed { stroke: var(--ct-accent); stroke-dasharray: 4 5; opacity: .6; }
+.demo-neighborhood-node {
+  position: absolute;
+  transform: translate(-50%, -35%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  color: var(--ct-fg);
+  font-size: 12px;
+}
+.demo-neighborhood-avatar {
+  width: 50px;
+  height: 50px;
+  display: grid;
+  place-items: center;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 1px solid var(--ct-border);
+  background: var(--ct-surface);
+}
+.demo-neighborhood-self { width: 62px; height: 62px; border-color: var(--ct-accent); color: var(--ct-accent); font-size: 18px; }
+.demo-neighborhood-state { display: flex; align-items: center; gap: 5px; color: var(--ct-muted-fg); }
+.demo-neighborhood-state i { width: 5px; height: 5px; border-radius: 50%; background: var(--ct-green); }
+.demo-neighborhood-add .demo-neighborhood-avatar { border-style: dashed; border-color: var(--ct-accent); }
+.demo-neighborhood-add, .demo-neighborhood-invite { color: var(--ct-accent); }
+.demo-neighborhood-node:is(button):hover .demo-neighborhood-avatar { border-color: var(--ct-accent); }
+.demo-neighborhood-node strong, .demo-neighborhood-state { background: var(--ct-bg); }
+.demo-neighborhood-privacy { display: flex; gap: 8px; align-items: center; justify-content: center; padding: 10px; font-size: 11px; color: var(--ct-muted-fg); }
+
+.film-workspace {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  container-name: domios-film-stage;
+  container-type: size;
+  background: var(--ct-bg);
+  color: var(--ct-fg);
+}
+
+.domios-film-root {
+  position: absolute;
+  inset: 0;
+  display: block;
+  border-radius: inherit;
+  /* The product's body rule stops scroll chaining; inside a page the wheel has to reach it. */
+  overscroll-behavior: auto !important;
+  overflow: visible !important;
+  --film-bar-fg: #f0f3f6;
+  --film-bar-bg: rgba(8, 10, 14, 0.72);
+  --film-accent: #2f81f7;
+  --film-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.domios-film-root[hidden] {
+  display: none;
+}
+
+.film-box {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  /* The host's corners, so a page can show the film square-edged (edge to edge on a phone). */
+  border-radius: inherit;
+  background: var(--ct-bg);
+  outline: none;
+}
+
+.film-box:focus-visible {
+  box-shadow: inset 0 0 0 3px var(--film-accent);
+}
+
+.film-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  cursor: pointer;
+}
+
+.film-breakout {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.film-stage-inner {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  container-type: size;
+}
+
+.film-clip {
+  position: absolute;
+  inset: 0;
+  display: block;
+  object-fit: cover;
+}
+
+.film-poster-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at center, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.42));
+  color: #fff;
+  font: 600 15px/1.2 var(--ct-font-ui);
+  cursor: pointer;
+}
+
+.film-poster-disc {
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--film-accent);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  transition: transform 180ms var(--film-ease);
+}
+
+.film-poster-play:hover .film-poster-disc,
+.film-poster-play:focus-visible .film-poster-disc {
+  transform: scale(1.06);
+}
+
+.film-poster-play:focus-visible {
+  outline: none;
+}
+
+.film-poster-play:focus-visible .film-poster-disc {
+  box-shadow: 0 0 0 4px #fff, 0 10px 40px rgba(0, 0, 0, 0.35);
+}
+
+.film-poster-time {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(8, 10, 14, 0.6);
+  font-variant-numeric: tabular-nums;
+}
+
+.film-bar {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  background: var(--film-bar-bg);
+  color: var(--film-bar-fg);
+  font: 500 13px/1 var(--ct-font-ui);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  transition: opacity 220ms var(--film-ease), transform 220ms var(--film-ease);
+}
+
+.film-box[data-chrome-hidden] .film-bar {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+
+.film-box[data-reduced-motion] .film-bar,
+.film-box[data-reduced-motion] .film-poster-disc {
+  transition: none;
+}
+
+.film-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 32px;
+  min-width: 32px;
+  padding: 0 7px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.film-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.film-button:focus-visible {
+  outline: 2px solid var(--film-accent);
+  outline-offset: 1px;
+}
+
+.film-button[aria-pressed="false"] {
+  opacity: 0.55;
+}
+
+.film-volume {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+.film-bar .film-volume input.film-volume-range {
+  flex: none;
+  width: 72px;
+  margin-right: 6px;
+}
+
+:host([data-layout="portrait"]) .film-bar .film-volume input.film-volume-range {
+  display: none;
+}
+
+.film-time {
+  flex: none;
+  min-width: 78px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+
+.film-track {
+  position: relative;
+  flex: 1;
+  min-width: 60px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+}
+
+:is(.film-track, .film-volume) input {
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+:is(.film-track, .film-volume) input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--film-accent) var(--film-progress), rgba(255, 255, 255, 0.28) var(--film-progress));
+}
+
+:is(.film-track, .film-volume) input::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--film-accent) var(--film-progress), rgba(255, 255, 255, 0.28) var(--film-progress));
+}
+
+:is(.film-track, .film-volume) input::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+:is(.film-track, .film-volume) input::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+}
+
+:is(.film-track, .film-volume) input:focus-visible {
+  outline: 2px solid var(--film-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.film-tick {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 8px;
+  margin: -4px 0 0 -1px;
+  border-radius: 1px;
+  background: rgba(8, 10, 14, 0.9);
+  pointer-events: none;
+}
+
+
+.film-menu {
+  position: absolute;
+  right: 0;
+  bottom: 52px;
+  min-width: 220px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border-radius: 12px;
+  background: rgba(8, 10, 14, 0.9);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.film-menu button {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--film-bar-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.film-menu button:hover,
+.film-menu button:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.film-menu button[aria-current] {
+  color: #fff;
+  box-shadow: inset 2px 0 0 var(--film-accent);
+}
+
+.film-menu-time {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+:host([data-layout="portrait"]) .film-time {
+  min-width: 0;
+}
+
+
+.film-hint-ring {
+  position: absolute;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--film-accent) 85%, transparent), 0 0 24px color-mix(in srgb, var(--film-accent) 35%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms var(--film-ease);
+}
+
+.film-hint {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: 240px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--film-bar-bg);
+  color: var(--film-bar-fg);
+  font: 400 12px/1.35 var(--ct-font-ui);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms var(--film-ease);
+}
+
+.film-hint b {
+  display: block;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.film-hint span:empty {
+  display: none;
+}
+
+.film-hint[data-on],
+.film-hint-ring[data-on] {
+  opacity: 1;
+}
+
+.film-box[data-chrome-hidden] .film-hint,
+.film-box[data-chrome-hidden] .film-hint-ring {
+  opacity: 0;
+}
+
+
+.film-box[data-ended] .film-stage {
+  cursor: auto;
+}
+
+
+.film-end {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.film-end > * {
+  pointer-events: auto;
+}
+
+/* Under the end card's wordmark: real links, rising in once the last wave has left the frame. */
+.film-end-actions {
+  position: absolute;
+  left: 50%;
+  top: 79%;
+  display: flex;
+  gap: 14px;
+  translate: -50% -50%;
+}
+
+:host([data-layout="portrait"]) .film-end-actions {
+  top: 61%;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 56%;
+}
+
+/* The site's hero pair: a primary rect button with its platform detail, and the secondary GitHub link. */
+.film-end-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 12px 23px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid var(--ct-border);
+  background: color-mix(in srgb, var(--ct-surface) 65%, var(--ct-bg));
+  color: var(--ct-fg);
+  font: 600 14px/1.25 var(--ct-font-ui);
+  text-decoration: none;
+  animation: film-action-in 620ms var(--film-ease) both;
+  transition: transform 180ms var(--film-ease), border-color 180ms var(--film-ease);
+}
+
+.film-end-action[data-primary] {
+  border-color: var(--ct-accent);
+  background: var(--ct-accent);
+  color: #fff;
+}
+
+.film-end-action:hover {
+  transform: translateY(-2px) scale(1.035, 1.02);
+  border-color: color-mix(in srgb, var(--ct-accent) 50%, var(--ct-border));
+}
+
+.film-end-action[data-primary]:hover {
+  border-color: var(--ct-accent);
+}
+
+.film-end-action:active {
+  transform: scale(0.965, 0.95);
+}
+
+.film-end-label {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.film-end-label small {
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.film-end-action:focus-visible {
+  outline: 2px solid var(--film-accent);
+  outline-offset: 3px;
+}
+
+@keyframes film-action-in {
+  from { opacity: 0; transform: translateY(14px); filter: blur(4px); }
+}
+
+.film-replay {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--film-bar-bg);
+  color: var(--film-bar-fg);
+  font: 500 13px/1 var(--ct-font-ui);
+  cursor: pointer;
+  animation: film-action-in 500ms var(--film-ease) 0.6s both;
+}
+
+.film-replay:hover {
+  background: color-mix(in srgb, var(--film-bar-bg) 70%, var(--film-accent));
+}
+
+.film-replay:focus-visible {
+  outline: 2px solid var(--film-accent);
+  outline-offset: 2px;
+}
+
+.film-box[data-reduced-motion] .film-end-action,
+.film-box[data-reduced-motion] .film-replay {
+  animation: none;
+}
+
+
+
+
+.film-card-stage {
+  cursor: default;
+}
+
+/* Owner direction for the website demo: on a phone the machine pill gets air above and below in the title bar. */
+.film-workspace .ct-titlebar--phone {
+  height: auto !important;
+  min-height: 60px;
+  padding-block: 8px;
+}

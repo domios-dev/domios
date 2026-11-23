@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { createContext, useContext, useEffect, useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import type { FloatingPlacement } from "./floatingPosition";
 import { useAnchoredPopoverPosition, type PopoverAnchor } from "./useAnchoredPopoverPosition";
@@ -27,6 +27,9 @@ export interface AnchoredPopoverProps {
   portalContainer?: Element | null;
 }
 
+/** An embedded app can constrain its popovers to its own positioned surface. */
+export const AnchoredPopoverHost = createContext<HTMLElement | null>(null);
+
 function inAnyPopover(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest("[data-anchored-popover]") !== null;
 }
@@ -53,7 +56,8 @@ export function AnchoredPopover({
   const viewer = useFullscreenViewer();
   const ownRef = useRef<HTMLDivElement>(null);
   const contentRef = floatingRef ?? ownRef;
-  const position = useAnchoredPopoverPosition(open && !bottomSheet, positionAnchor ?? anchor, contentRef, placement, { gap, keepSide });
+  const host = useContext(AnchoredPopoverHost);
+  const position = useAnchoredPopoverPosition(open && !bottomSheet, positionAnchor ?? anchor, contentRef, placement, { gap, keepSide }, host);
   const anchorElement = "current" in anchor ? anchor : null;
 
   // Capture phase: triggers often sit in containers that stop pointer and key propagation.
@@ -66,7 +70,8 @@ export function AnchoredPopover({
     };
     const escape = (event: KeyboardEvent) => {
       if (inAnyPopover(event.target)) return;
-      const active = document.activeElement;
+      const root = host?.getRootNode();
+      const active = root instanceof ShadowRoot ? root.activeElement : document.activeElement;
       const returnFocus = !active || active === document.body || Boolean(contentRef.current?.contains(active));
       if (dismissOnEscape(event, onClose) && returnFocus) anchorElement?.current?.focus({ preventScroll: true });
     };
@@ -76,7 +81,7 @@ export function AnchoredPopover({
       document.removeEventListener("pointerdown", outside, true);
       document.removeEventListener("keydown", escape, true);
     };
-  }, [open, onClose, anchorElement, contentRef]);
+  }, [open, onClose, anchorElement, contentRef, host]);
 
   if (!open) return null;
   const vertical = position?.side === "top" ? "bottom" : "top";
@@ -93,9 +98,12 @@ export function AnchoredPopover({
       onPointerLeave={onPointerLeave}
       className={`ct-anchored-popover ${bottomSheet ? "ct-menu-sheet " : ""}${className}`.trim()}
       style={bottomSheet ? style : {
+        position: host ? "absolute" : undefined,
         top: position?.top ?? 0,
         left: position?.left ?? 0,
-        width: width === "anchor" ? anchorElement?.current?.getBoundingClientRect().width : width ?? "max-content",
+        width: width === "anchor"
+          ? (host ? anchorElement?.current?.offsetWidth : anchorElement?.current?.getBoundingClientRect().width)
+          : width ?? "max-content",
         maxWidth: position?.maxWidth,
         maxHeight: position?.maxHeight,
         opacity: position ? undefined : 0,
@@ -106,6 +114,6 @@ export function AnchoredPopover({
     >
       {children}
     </div>,
-    portalContainer ?? viewer?.current ?? document.fullscreenElement ?? document.body,
+    portalContainer ?? host ?? viewer?.current ?? document.fullscreenElement ?? document.body,
   );
 }

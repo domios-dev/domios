@@ -12,6 +12,7 @@ export function ComposerInputShell({
   footer,
   actions,
   overlay,
+  preview,
 }: {
   voiceUi: ComposerVoiceHandle;
   dictationPhase?: "idle" | "starting" | "listening" | "finishing";
@@ -20,6 +21,8 @@ export function ComposerInputShell({
   footer?: ReactNode;
   actions?: ReactNode;
   overlay?: ReactNode;
+  /** The website film's read-only composer: the editor is inert and an optional overlay shows the scripted text. */
+  preview?: { inputOverlay?: ReactNode } | null;
 }) {
   const {
     voice,
@@ -44,6 +47,7 @@ export function ComposerInputShell({
       footer={!hideEditor && footer ? <div className="flex flex-wrap items-center gap-1">{footer}</div> : undefined}
       actions={!hideEditor && actions && <div className="ct-composer-inner-actions flex shrink-0 items-center gap-1">{actions}</div>}
     >
+      {preview?.inputOverlay && <div className="absolute inset-1 z-10 flex items-center px-1.5">{preview.inputOverlay}</div>}
       {composerHidden && (
         <div className="absolute inset-1 z-10 flex items-center px-1.5">
           {isPreview && voice.preview ? (
@@ -69,9 +73,9 @@ export function ComposerInputShell({
           {overlay}
         </div>
       )}
-      <div
+      <div inert={!!preview} aria-hidden={preview ? true : undefined}
         className={
-          hideEditor
+          hideEditor || !!preview?.inputOverlay
             ? "relative flex min-w-0 flex-1 items-center opacity-0 pointer-events-none"
             : "relative flex min-w-0 flex-1 items-center"
         }

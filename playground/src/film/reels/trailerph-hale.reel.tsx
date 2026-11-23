@@ -1,0 +1,3 @@
+import { voiced } from "./voiced";
+
+export default voiced({"name": "trailerph-hale", "cuts": [{"id": "full-interface", "duration": 8.974, "from": 2.0}, {"id": "team-return", "duration": 8.661}, {"id": "plan-board", "duration": 4.821}, {"id": "memory-graph", "duration": 6.728}, {"id": "neighbors", "duration": 9.5, "from": 15.2}, {"id": "blueprint", "duration": 8.556}, {"id": "lab-night-shift", "duration": 6.0}, {"id": "browser-site", "duration": 3.06, "from": 5.0}, {"id": "plugins", "duration": 3.44}, {"id": "full-interface", "duration": 5.343, "from": 4.0}, {"id": "end-card", "duration": 4.894}]});

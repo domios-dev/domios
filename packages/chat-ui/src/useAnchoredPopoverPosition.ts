@@ -37,6 +37,7 @@ export function useAnchoredPopoverPosition(
   floatingRef: RefObject<HTMLElement | null>,
   placement: FloatingPlacement,
   spacing: FloatingSpacing = {},
+  host: HTMLElement | null = null,
 ): FloatingPosition | null {
   const [position, setPosition] = useState<FloatingPosition | null>(null);
   const anchorRef = "current" in anchor ? anchor : null;
@@ -53,12 +54,29 @@ export function useAnchoredPopoverPosition(
       const element = anchorRef?.current;
       const rect = element ? element.getBoundingClientRect() : pointX !== null && pointY !== null ? pointAnchor(pointX, pointY) : null;
       if (!floating || !rect) return;
-      const next = anchoredPopoverPosition(rect, naturalSize(floating), visualViewportBounds(), placement, { margin, gap, keepSide });
+      let viewport = visualViewportBounds();
+      let anchorRect = rect;
+      if (host) {
+        const bounds = host.getBoundingClientRect();
+        const { clientWidth: width, clientHeight: height } = host;
+        if (!width || !height || !bounds.width || !bounds.height) return;
+        const scaleX = width / bounds.width;
+        const scaleY = height / bounds.height;
+        anchorRect = {
+          left: (rect.left - bounds.left) * scaleX,
+          right: (rect.right - bounds.left) * scaleX,
+          top: (rect.top - bounds.top) * scaleY,
+          bottom: (rect.bottom - bounds.top) * scaleY,
+        };
+        viewport = { width, height };
+      }
+      const next = anchoredPopoverPosition(anchorRect, naturalSize(floating), viewport, placement, { margin, gap, keepSide });
       setPosition((current) => (samePosition(current, next) ? current : next));
     };
     update();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
     if (anchorRef?.current) observer?.observe(anchorRef.current);
+    if (host) observer?.observe(host);
     // A child capped by the popover's own max-height never resizes as content arrives, so content changes re-measure too.
     const content = typeof MutationObserver === "undefined" ? null : new MutationObserver(update);
     if (floatingRef.current) {
@@ -79,6 +97,6 @@ export function useAnchoredPopoverPosition(
       visual?.removeEventListener("resize", update);
       visual?.removeEventListener("scroll", update);
     };
-  }, [open, anchorRef, pointX, pointY, floatingRef, placement, margin, gap, keepSide]);
+  }, [open, anchorRef, pointX, pointY, floatingRef, placement, margin, gap, keepSide, host]);
   return open ? position : null;
 }

@@ -31,6 +31,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const focusOnOpen = useRef(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -84,19 +85,20 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
 
   const closeMenu = useCallback(() => {
     setOpen(false);
-    triggerRef.current?.focus();
+    if (focusOnOpen.current) triggerRef.current?.focus({ preventScroll: true });
   }, []);
   const dismissMenu = useCallback(() => setOpen(false), []);
 
   // An explicitly opened menu takes focus so arrows and Escape reach it.
   useEffect(() => {
-    if (open) menuItems()[0]?.focus();
+    if (open && focusOnOpen.current) menuItems()[0]?.focus({ preventScroll: true });
   }, [open, menuItems]);
 
   const onMenuKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
       const items = menuItems();
-      const action = menuKeyAction(event.key, items.indexOf(document.activeElement as HTMLElement), items.length);
+      const root = event.currentTarget.getRootNode() as Document | ShadowRoot;
+      const action = menuKeyAction(event.key, items.indexOf(root.activeElement as HTMLElement), items.length);
       if (!action) return;
       event.preventDefault();
       if (action.kind === "close") closeMenu();
@@ -133,7 +135,12 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         aria-label={`Filter sidebar by machine, ${pillLabel}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => (open ? closeMenu() : setOpen(true))}
+        onClick={(event) => {
+          if (open) { closeMenu(); return; }
+          // The website film opens this menu with scripted clicks; only a person's click moves focus into it.
+          focusOnOpen.current = event.nativeEvent.isTrusted || !(event.currentTarget.getRootNode() instanceof ShadowRoot);
+          setOpen(true);
+        }}
         data-filtered={!showAll || undefined}
         className={`ct-bar-pill ct-machine-switcher ${compact ? "min-w-0 max-w-[min(10rem,40vw)] sm:max-w-none" : ""}`}
         title="Filter sidebar by machine"

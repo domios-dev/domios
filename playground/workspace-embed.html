@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Workspace embed test</title>
+    <style>
+      /* A host with its own --ct-* names and a 10px rem: none of it may reach the workspace. */
+      :root { --ct-bg: #fff4d6; --ct-fg: #7a1f00; --ct-accent: #ff00aa; font-size: 10px; }
+      body { margin: 0; padding: 24px 16px; font: 14px/1.5 system-ui, sans-serif; background: #e9ecef; color: #111; }
+      body[data-theme="dark"] { background: #05070a; color: #e6edf3; }
+      #controls { display: flex; flex-wrap: wrap; gap: 6px; max-width: 1200px; margin: 0 auto 12px; }
+      #controls button { font: inherit; padding: 4px 10px; border: 1px solid #888; border-radius: 6px; background: transparent; color: inherit; }
+      #controls button[aria-current="true"] { background: #2f81f7; color: #fff; border-color: #2f81f7; }
+      #slot { max-width: 1200px; height: 750px; margin: 0 auto; border-radius: 24px; overflow: hidden; border: 1px solid #8884; }
+      body[data-layout="portrait"] #slot { max-width: 390px; height: 760px; }
+      #log { max-width: 1200px; margin: 12px auto 0; font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; }
+    </style>
+    <script type="module" src="/src/film/embed/demo/workspace.js"></script>
+  </head>
+  <body>
+    <div id="controls"></div>
+    <div id="slot"></div>
+    <pre id="log"></pre>
+  </body>
+</html>

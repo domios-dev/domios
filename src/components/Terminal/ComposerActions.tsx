@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from "react";
+import { createContext, useContext, useRef, type ReactNode } from "react";
 import { ComposerActionButton } from "./ComposerActionButton";
 import { ComposerAttachButton } from "./ComposerAttachButton";
 import { ComposerInputShell } from "./ComposerInputShell";
@@ -10,6 +10,9 @@ import { DictationPresence } from "./voice/DictationStatus";
 import type { LiveDictation } from "./voice/useLiveDictation";
 
 export { storeBrowserFiles, useWebFileDrop } from "./composerFiles";
+
+/** A read-only composer preview can render one local action in the standard action slot. */
+export const ComposerPreviewContext = createContext<{ action: ReactNode; inputOverlay?: ReactNode } | null>(null);
 
 interface Props {
   expanded?: boolean;
@@ -67,6 +70,7 @@ function ComposerActionsBody({
   spaceArming = false,
   spacePop = false,
 }: Props) {
+  const preview = useContext(ComposerPreviewContext);
   const fileRef = useRef<HTMLInputElement>(null);
   const uploads = useAttachmentUploads(onAttach);
   const voiceUploads = useAttachmentUploads(onSendWithAttachments);
@@ -87,7 +91,7 @@ function ComposerActionsBody({
 
   return (
     <>
-      {canAttach && <input
+      {canAttach && !preview && <input
         ref={fileRef}
         type="file"
         multiple
@@ -104,9 +108,9 @@ function ComposerActionsBody({
       {uploads.status}
       {voiceUploads.status}
       <div className={expanded ? "ct-expanded-composer__actions relative grid w-full items-end gap-2" : "relative flex w-full items-end gap-1.5"}>
-        {attachButton}
-        <ComposerInputShell voiceUi={voiceUi} dictationPhase={dictation?.phase} header={cardHeader} footer={cardFooter} overlay={inputOverlay}
-          actions={!expanded
+        {preview ? <div inert aria-hidden="true">{attachButton}</div> : attachButton}
+        <ComposerInputShell voiceUi={voiceUi} dictationPhase={dictation?.phase} header={cardHeader} footer={cardFooter} overlay={inputOverlay} preview={preview}
+          actions={!preview && !expanded
             ? (dictationActive && dictation
               ? <DictationPresence dictation={dictation} />
               : (scheduleVisible && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />))
@@ -119,7 +123,7 @@ function ComposerActionsBody({
           </div>
         )}
         {expanded && scheduleVisible && onSchedule && <div className="ct-expanded-composer__schedule"><ComposerScheduleButton onSchedule={onSchedule} /></div>}
-        {!voiceUi.isPreview && !hideActionButton && (
+        {preview ? preview.action : !voiceUi.isPreview && !hideActionButton && (
           <ComposerActionButton
             voiceUi={voiceUi}
             dictation={dictation}
