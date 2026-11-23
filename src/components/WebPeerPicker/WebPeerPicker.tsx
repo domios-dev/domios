@@ -56,7 +56,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await localJson<MeshPeers>("GET", "/api/mesh/peers");
+      const res = await localJson<MeshPeersResponse>("GET", "/api/mesh/peers");
       const paired = res.paired ?? [];
       setLocalName(rememberLocalInstanceName(res.local_instance_name));
       setPeers(rankPeersByLastActive(paired));

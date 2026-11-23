@@ -81,10 +81,11 @@ it("applies a config update and an explicit machine switch inside one transition
     await act(async () => setWorkspaceBrowseTarget({ id: "initial", name: "Initial" }));
     expect(start).not.toHaveBeenCalled();
 
-    const [, receive] = subscribe.mock.calls.at(-1)!;
+    const [, receive] = subscribe.mock.calls[subscribe.mock.calls.length - 1];
     await act(async () => receive("config-changed", { theme }));
     expect(start).toHaveBeenCalledTimes(1);
     expect(motion()).toBe("wave");
+    expect(document.documentElement.hasAttribute("data-appearance-content-fade")).toBe(true);
     expect(rootNode.textContent).toBe(`${DEFAULT_THEME.name} · none`);
     await act(async () => {
       transitions[0].update();
@@ -97,6 +98,7 @@ it("applies a config update and an explicit machine switch inside one transition
     await act(async () => setWorkspaceBrowseTarget({ id: "different", name: "Different" }, { x: 28, y: 90 }));
     expect(start).toHaveBeenCalledTimes(2);
     expect(origin()).toBe("28px 90px");
+    expect(document.documentElement.hasAttribute("data-appearance-content-fade")).toBe(false);
     expect(rootNode.textContent).toBe("External theme · none");
     await act(async () => {
       transitions[1].update();

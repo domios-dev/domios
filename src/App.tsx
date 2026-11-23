@@ -780,10 +780,9 @@ function AppInner() {
     <ChatWallpaperContext.Provider value={wallpaperStyle}>
     <PluginConsentDialog />
     <div
-      className={`flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
+      className={`ct-appearance-content relative isolate flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
       style={{
         ...themeStyles,
-        backgroundColor: stableTheme.background,
         color: stableTheme.foreground,
         // covers iOS Safari, where the keyboard shrinks only the VISUAL viewport and dvh stays put (see useKeyboardInset).
         height: keyboardInset ? `calc(100% - ${keyboardInset}px)` : "100%",
@@ -793,6 +792,7 @@ function AppInner() {
           : "calc(0.5rem + var(--ct-safe-bottom, 0px))",
       } as React.CSSProperties}
     >
+      <div className="ct-appearance-base" aria-hidden="true" />
       {/* Native + web mirror share one titlebar strip (parity decision A) — its
           own --ct-safe-top padding covers the web notch/status-bar inset. */}
       <Titlebar

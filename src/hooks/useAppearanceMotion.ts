@@ -19,6 +19,10 @@ function isNewDoodlePattern(before: AppearanceLook, after: AppearanceLook) {
     && effectiveWallpaper(after.theme, after.wallpaper ?? undefined).background.pattern === "doodles";
 }
 
+function palette({ chat_background: _wallpaper, name: _name, ...colors }: AppearanceLook["theme"]) {
+  return JSON.stringify(colors);
+}
+
 export function useAppearanceMotion({ ready, appearance: { theme, wallpaper: background, tuning }, peerId }: SelectedMachineAppearance,
   wallpaper?: { asset?: WallpaperAsset; ready: boolean }): AppliedLook {
   const nextLook = useMemo(() => {
@@ -87,6 +91,7 @@ export function useAppearanceMotion({ ready, appearance: { theme, wallpaper: bac
     const undo = !switching && (matched?.commit.undo ?? false);
     const origin = switching ? switchOrigin : pressed?.origin;
     return animateAppearance({ look: incoming.look, proposal, undo, origin,
+      fadeContent: palette(before.look.theme) !== palette(incoming.look.theme),
       drawDoodles: isNewDoodlePattern(before.look, incoming.look) }, apply);
   }, [incoming, ready, assetReady, asset, peerId]);
 
