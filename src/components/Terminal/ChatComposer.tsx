@@ -1,6 +1,8 @@
+import { AudioLines } from "lucide-react";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { composerAttachmentError } from "./composerAttachmentAdmission";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
+import { useConfig } from "../../hooks/useConfig";
 import { formatAttachmentMarker, type ChatSessionIntent } from "@codeterm/chat-core";
 import { canSendDelayedMessage, sendCurrentDelayedMessage } from "./delayedMessageModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvents";
@@ -78,6 +80,7 @@ import { createSpaceDictationHold, SPACE_DICTATION_POP_MS } from "./voice/spaceD
 import { DICTATION_ACTION } from "../../lib/mentionSources/actions";
 import { canonicalMentionSlice, replaceMentionRange } from "./composerMentionTokens";
 import type { ComposerMention, MentionQuery } from "../../lib/composerMentions";
+import { LIVE_TRANSCRIPT_FILES, useLiveTranscriptHost, type LiveTranscriptFiles } from "./useLiveTranscriptPanel";
 
 const VOICE_TRANSCRIBE_ERROR = "Voice transcription failed";
 
@@ -224,6 +227,11 @@ function ChatComposerImpl({
   contextSlot?: HTMLElement | null;
 }) {
   recordComposerRender(tabId);
+  const transcript = useLiveTranscriptHost();
+  const { config } = useConfig(Boolean(transcript));
+  const liveTranscriptDefaultMicTap = Boolean((config as { live_transcript?: { default_mic_tap?: boolean } } | null)?.live_transcript?.default_mic_tap);
+  const transcriptOwner = transcript?.ownerId === tabId;
+  const liveLocked = transcriptOwner && transcript?.locked === true;
   const sendPolicy = useStartupSend(tabId);
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
@@ -250,7 +258,7 @@ function ChatComposerImpl({
     const tab = state.tabs[tabId];
     return JSON.stringify([tabId, tab?.pty_id, tab?.agent_session_id, tab?.session_binding_nonce]);
   }, [tabId]));
-  const dictation = useLiveDictation(tabId, dictationIdentity, isActive && !replacement, {
+  const dictation = useLiveDictation(tabId, dictationIdentity, isActive && !replacement && !liveLocked, {
     prepare(session) {
       const editor = textareaRef.current;
       if (!editor || editor.value !== displayInput) return false;
@@ -296,7 +304,7 @@ function ChatComposerImpl({
     if (dictation.phase === "idle") spaceHold.current?.resetIfDictationEnded();
   }, [dictation.phase]);
   useEffect(() => {
-    if (!isActive || replacement) {
+    if (!isActive || replacement || liveLocked) {
       spaceHold.current?.dispose();
       if (spacePopTimerRef.current !== null) { clearTimeout(spacePopTimerRef.current); spacePopTimerRef.current = null; }
       setSpacePop(false);
@@ -314,7 +322,7 @@ function ChatComposerImpl({
       spaceHold.current?.dispose();
       if (spacePopTimerRef.current !== null) { clearTimeout(spacePopTimerRef.current); spacePopTimerRef.current = null; }
     };
-  }, [isActive, replacement]);
+  }, [isActive, replacement, liveLocked]);
   const shellRef = useRef<HTMLDivElement>(null);
   const { layout: composerLayout, measure: measureComposer } = useComposerLayout(input, textareaRef, shellRef, compositionGate, !replacement, expandedEditor);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
@@ -338,7 +346,22 @@ function ChatComposerImpl({
   const provider = useAgentDescriptor(tabProvider);
   const keepReplyInline = Boolean(tabProvider && provider?.attachments && !provider.attachments.filePaths && provider.attachments.inlineText);
   const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError,
-    keepTextInline: Boolean(tabProvider && !provider?.attachments?.filePaths) });
+    keepTextInline: Boolean(tabProvider && !provider?.attachments?.filePaths), focusAttachments: !transcriptOwner });
+  const addLiveFiles = useLatestCallback((event: Event) => {
+    const detail = (event as CustomEvent<LiveTranscriptFiles>).detail;
+    if (detail?.ownerId !== tabId || !textareaRef.current) return;
+    if ("blob" in detail) {
+      detail.upload ??= capsules.uploads.add(detail.blob, detail.name);
+    } else if (!detail.accepted) {
+      detail.accepted = true;
+      capsules.insert(detail.items);
+    }
+  }, [tabId]);
+  useEffect(() => {
+    if (!transcriptOwner || replacement) return;
+    window.addEventListener(LIVE_TRANSCRIPT_FILES, addLiveFiles);
+    return () => window.removeEventListener(LIVE_TRANSCRIPT_FILES, addLiveFiles);
+  }, [addLiveFiles, replacement, transcriptOwner]);
   useChatDeliveryComposer(tabId, text => {
     const existing = input;
     setInput(capsules.fromPortable([existing, text].filter(Boolean).join("\n")));
@@ -658,6 +681,17 @@ function ChatComposerImpl({
     else void send([], dictationDraft.current());
   }
 
+  const openLiveTranscript = useLatestCallback(() => {
+    if (!transcript || liveLocked) return;
+    if (dictation.active()) {
+      void Promise.resolve(dictation.cancel()).finally(() => {
+        transcript.open(tabId, { autostart: true });
+      });
+      return;
+    }
+    transcript.open(tabId, { autostart: true });
+  }, [liveLocked, tabId, transcript]);
+
   if (replacement) return <ComposerDock mode={composerLayout.mode} ref={shellRef}>{replacement}</ComposerDock>;
 
   const composerActions = (
@@ -667,15 +701,30 @@ function ChatComposerImpl({
       onAttach={(paths) => void attachInline(paths)}
       uploadFiles={capsules.uploads.addFiles}
       onSend={sendFromComposer}
-      onSchedule={dictation.phase === "idle" ? () => { setExpandedEditor(false); openScheduleModal(); } : undefined}
+      onSchedule={!liveLocked && dictation.phase === "idle" ? () => { setExpandedEditor(false); openScheduleModal(); } : undefined}
       onSendWithAttachments={(paths) => void send(paths)}
       onError={flagComposerError}
-      sendDisabled={!sendPolicy.allowed || (!input.trim() && attachments.length === 0 && !reply.reply)}
+      sendDisabled={liveLocked || !sendPolicy.allowed || (!input.trim() && attachments.length === 0 && !reply.reply)}
       sendUnavailableReason={sendUnavailableReason}
-      dictation={dictation}
+      dictation={liveLocked ? undefined : dictation}
+      onOpenLiveTranscript={transcript && !liveLocked ? openLiveTranscript : undefined}
+      liveTranscriptOnTap={liveTranscriptDefaultMicTap && !liveLocked && Boolean(transcript?.canOpen(tabId))}
+      hideActionButton={liveLocked}
+      inputOverlay={liveLocked && transcript ? (
+        <div className="ct-live-lock" data-testid="live-transcript-composer-lock">
+          <span className="ct-live-lock-label">
+            <span className="ct-live-dot" data-live="true" aria-hidden="true" />
+            <span className="ct-live-lock-title">Live Transcript is listening</span>
+            <span className="ct-live-lock-hint hidden sm:inline">Drop or paste files here</span>
+          </span>
+          <button type="button" className="ct-live-lock-open" onClick={() => transcript.open(tabId)}>
+            <AudioLines size={13} aria-hidden="true" />Open Transcript
+          </button>
+        </div>
+      ) : undefined}
       spaceArming={spaceArming}
       spacePop={spacePop}
-      hasText={input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
+      hasText={liveLocked || input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
       cardHeader={(reply.reply || attachments.length > 0) && <>
         {reply.reply && <ReplyQuote label={reply.reply.label} excerpt={reply.reply.excerpt} onRemove={() => { reply.clear(); refocusComposer(); }} />}
         {attachments.length > 0 && <ComposerBubbleRow attachments={attachments} onRemove={removeAttachment} />}
@@ -683,14 +732,14 @@ function ChatComposerImpl({
     >
       {transcriptionFailure && <TranscriberSetupAction reason={transcriptionFailure} />}
       <SlashPicker
-        suggestions={pickerOpen ? suggestions : NO_SUGGESTIONS}
+        suggestions={!liveLocked && pickerOpen ? suggestions : NO_SUGGESTIONS}
         highlighted={pickerHighlight}
         triggerRef={textareaRef}
         onHighlight={setPickerHighlight}
         onPick={pickSlashCommand}
       />
-      <ComposerMentions ref={mentionPicker} tabId={tabId} input={displayInput} setInput={mentionTokens.change} onInsert={pickMention} tokens={mentionTokens.draft.tokens}
-        onPicked={refocusComposer} textareaRef={textareaRef} anchorRef={shellRef} />
+      {!liveLocked && <ComposerMentions ref={mentionPicker} tabId={tabId} input={displayInput} setInput={mentionTokens.change} onInsert={pickMention} tokens={mentionTokens.draft.tokens}
+        onPicked={refocusComposer} textareaRef={textareaRef} anchorRef={shellRef} />}
       {plansSink}
       {!sendPolicy.allowed && <span role="status">Connecting to chat — sending is unavailable</span>}
       <ComposerCapsuleField
@@ -704,13 +753,13 @@ function ChatComposerImpl({
         uploads={capsules.uploads.uploads}
         onRetry={(id) => { void capsules.uploads.retry(id); }}
       >
-        <ComposerMentionHighlight draft={mentionTokens.draft} textarea={textareaRef} marginPx={composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? 8 : 0} />
         <span role="status" aria-live="polite" className="sr-only">{mentionTokens.announcement}</span>
         <ComposerTextInput
           data-testid="chat-composer"
           data-tab-id={tabId}
           data-dictating={dictation.phase === "listening" ? "true" : undefined}
           aria-label="Message composer"
+          readOnly={liveLocked}
           aria-invalid={composerInvalid}
           ref={textareaRef}
           value={displayInput}
@@ -726,6 +775,7 @@ function ChatComposerImpl({
             if (!e.defaultPrevented) dictationDraft.noteSelection(mentionTokens.draft, e.nativeEvent.inputType || "");
           }}
           onKeyDown={(e) => {
+            if (liveLocked) return;
             recordComposerIgnoredKey(e.key);
             if (isImeKeyEvent(compositionGate, e.nativeEvent.isComposing, e.nativeEvent.keyCode)) return;
             if (e.code === "Escape" && dictation.active()) {
@@ -831,6 +881,11 @@ function ChatComposerImpl({
             if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("end");
           }}
           onPaste={(e) => {
+            if (liveLocked) {
+              e.preventDefault();
+              void handlePasteEvent(e.nativeEvent);
+              return;
+            }
             if (mentionTokens.handlePaste(e, capsules.fromPortable)) return;
             if (capsules.handlePaste(e)) return;
             const data = e.clipboardData;
@@ -843,7 +898,7 @@ function ChatComposerImpl({
             void handlePasteEvent(e.nativeEvent);
           }}
           onCopy={(e) => { capsules.snapSelection(e.currentTarget); if (!mentionTokens.handleCopy(e, false, capsules.toPortable)) capsules.handleCopy(e, false); }}
-          onCut={(e) => { capsules.snapSelection(e.currentTarget); if (!mentionTokens.handleCopy(e, true, capsules.toPortable)) capsules.handleCopy(e, true); }}
+          onCut={(e) => { if (liveLocked) { e.preventDefault(); return; } capsules.snapSelection(e.currentTarget); if (!mentionTokens.handleCopy(e, true, capsules.toPortable)) capsules.handleCopy(e, true); }}
           onSelect={(e) => { capsules.snapSelection(e.currentTarget); mentionTokens.snapSelection(e.currentTarget); mentionPicker.current?.syncSelection(e.currentTarget); }}
           placeholder={pendingPrompt
             ? "Answer the request above to continue."
@@ -856,6 +911,7 @@ function ChatComposerImpl({
             margin: composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? "8px 0" : 0,
           }}
         />
+        <ComposerMentionHighlight draft={mentionTokens.draft} textarea={textareaRef} marginPx={composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? 8 : 0} />
       </ComposerCapsuleField>
     </ComposerActions>
   );

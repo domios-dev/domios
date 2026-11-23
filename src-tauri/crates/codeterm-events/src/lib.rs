@@ -305,6 +305,7 @@ pub struct EventBroadcaster {
     boot_id: String,
     ring: Mutex<ReplayRing>,
     delivery: webhooks::DeliveryOwner,
+    private_chat_tabs: Mutex<std::collections::HashSet<String>>,
 }
 
 impl EventBroadcaster {
@@ -314,6 +315,7 @@ impl EventBroadcaster {
         Self {
             webhooks: Arc::new(Mutex::new(HashMap::new())),
             delivery: webhooks::DeliveryOwner::default(),
+            private_chat_tabs: Mutex::default(),
             system_bus,
             boot_id: boot_id.clone(),
             ring: Mutex::new(ReplayRing {
@@ -384,10 +386,36 @@ impl EventBroadcaster {
     /// clients see it. The generic counterpart of `publish()`; `emit_everywhere`
     /// routes through here after firing the native `app.emit`.
     pub fn publish_generic(&self, event_type: &str, data: serde_json::Value) {
+        if let Some(tab) = event_type.strip_prefix("tab-chat-msg-") {
+            if self.private_chat_tabs.lock().contains(tab) {
+                return;
+            }
+        }
+        if matches!(event_type, "chat-send-status" | "chat-send-queue-changed")
+            && data["tab_id"]
+                .as_str()
+                .is_some_and(|tab| self.private_chat_tabs.lock().contains(tab))
+        {
+            if event_type == "chat-send-status" {
+                self.publish_internal(
+                    event_type,
+                    serde_json::json!({
+                        "tab_id": data["tab_id"],
+                        "send_id": data["send_id"],
+                        "state": data["state"],
+                    }),
+                );
+            }
+            return;
+        }
         self.send_bus(SystemEvent::Generic {
             event_type: event_type.to_string(),
             data,
         });
+    }
+
+    pub fn protect_private_chat_tab(&self, tab_id: &str) {
+        self.private_chat_tabs.lock().insert(tab_id.to_owned());
     }
 
     /// Service-only signals share ordering and replay, without exposing native payloads to SSE or webhooks.

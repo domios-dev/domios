@@ -22,6 +22,7 @@ export interface StreamHandlers {
   frame(frame: StreamFrame): void;
   state(state: SurfaceState): void;
   notice(notice: SurfaceNotice): void;
+  cursor?(cursor: string): void;
   open(): void;
 }
 

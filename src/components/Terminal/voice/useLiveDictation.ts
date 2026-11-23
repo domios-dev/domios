@@ -7,12 +7,14 @@ import type { DictationUpdate } from "./dictationSessionModel";
 import { clearDictationSetupHandoff } from "./DictationSetupPrompt";
 import { createDictationLevelChannel } from "./dictationLevelModel";
 import { microphoneErrorMessage } from "./audio";
+import { openCaptureContext, PCM_RESAMPLER_SOURCE, PCM_SAMPLE_RATE } from "./pcmCapture";
 
 const QUEUE_LIMIT = 12;
 const LEVEL_SAMPLES = 1120;
 const WORKLET = `
 const FRAME_BYTES = ${DICTATION_PCM_BYTES};
 const LEVEL_SAMPLES = ${LEVEL_SAMPLES};
+${PCM_RESAMPLER_SOURCE}
 class DictationCapture extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -23,6 +25,8 @@ class DictationCapture extends AudioWorkletProcessor {
     this.levelSum = 0;
     this.levelCount = 0;
     this.active = true;
+    this.resampler = new PcmResampler(sampleRate, ${PCM_SAMPLE_RATE});
+    this.write = this.write.bind(this);
     this.port.onmessage = ({data}) => {
       if (data === "ack") this.sent--;
       if (data === "finish") {
@@ -41,26 +45,27 @@ class DictationCapture extends AudioWorkletProcessor {
     this.sent++;
     this.port.postMessage(frame, [frame]);
   }
+  write(sample) {
+    if (!this.active) return;
+    this.levelSum += sample * sample;
+    if (++this.levelCount >= LEVEL_SAMPLES) {
+      this.port.postMessage(Math.sqrt(this.levelSum / this.levelCount));
+      this.levelSum = 0;
+      this.levelCount = 0;
+    }
+    this.samples.setInt16(this.length++ * 2, Math.round(Math.max(-1, Math.min(1, sample)) * 32767), true);
+    if (this.length * 2 === this.frame.byteLength) {
+      this.send(this.frame);
+      if (!this.active) return;
+      this.frame = new ArrayBuffer(FRAME_BYTES);
+      this.samples = new DataView(this.frame);
+      this.length = 0;
+    }
+  }
   process(inputs) {
     if (!this.active) return true;
     const audio = inputs[0]?.[0];
-    if (!audio) return true;
-    for (const sample of audio) {
-      this.levelSum += sample * sample;
-      if (++this.levelCount >= LEVEL_SAMPLES) {
-        this.port.postMessage(Math.sqrt(this.levelSum / this.levelCount));
-        this.levelSum = 0;
-        this.levelCount = 0;
-      }
-      this.samples.setInt16(this.length++ * 2, Math.round(Math.max(-1, Math.min(1, sample)) * 32767), true);
-      if (this.length * 2 === this.frame.byteLength) {
-        this.send(this.frame);
-        if (!this.active) break;
-        this.frame = new ArrayBuffer(FRAME_BYTES);
-        this.samples = new DataView(this.frame);
-        this.length = 0;
-      }
-    }
+    if (audio) this.resampler.push(audio, this.write);
     return true;
   }
 }
@@ -88,6 +93,7 @@ interface Capture {
   permissionPending: boolean;
   claimed: boolean;
   stopping: boolean;
+  startupDone: Promise<void>;
   finish: (() => void) | null;
   tail: Promise<void>;
   waiting: number;
@@ -139,13 +145,13 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     afterComposition.current = undefined;
     if (enabledRef.current && after?.identity === identityRef.current) after.callback();
   };
-  const discard = useLatestCallback((capture: Capture, reason?: string) => {
-    if (owned.current !== capture) return;
+  const discard = useLatestCallback((capture: Capture, reason?: string): Promise<void> => {
+    if (owned.current !== capture) return Promise.resolve();
     owned.current = null;
     capture.controller.abort();
     capture.finish?.();
     release(capture);
-    void capture.transport.cancel().catch(() => {});
+    const cancelled = capture.transport.cancel().catch(() => {});
     updates.current = [];
     deferredIdentity.current = null;
     afterComposition.current = undefined;
@@ -154,6 +160,7 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     levelChannel.reset();
     setPhase("idle");
     if (reason) setError(reason);
+    return Promise.all([cancelled, capture.startupDone]).then(() => undefined);
   }, []);
   function fail(capture: Capture, failure: unknown) {
     discard(capture, microphoneErrorMessage(failure));
@@ -225,19 +232,24 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     if (!enabledRef.current || owned.current || pending.current || updates.current.length || rollback.current || port.current.composing()) return;
     const session = uid();
     let transport: Transport;
+    let audio: AudioContext;
     setError(null);
     setSetup(null);
-    try { transport = createDictationTransport(session, tabId); }
-    catch (failure) { setError(String(failure instanceof Error ? failure.message : failure)); return; }
-    if (!prepare(session)) return;
+    try {
+      transport = createDictationTransport(session, tabId);
+      audio = openCaptureContext();
+    } catch (failure) { setError(microphoneErrorMessage(failure)); return; }
+    if (!prepare(session)) { void audio.close().catch(() => {}); return; }
+    let resolveStartup!: () => void;
+    const startupDone = new Promise<void>(resolve => { resolveStartup = resolve; });
     const capture: Capture = { identity, transport, controller: new AbortController(), permissionPending: false, claimed: false,
-      stopping: false, finish: null, tail: Promise.resolve(), waiting: 0, sequence: 0 };
+      stopping: false, startupDone, finish: null, tail: Promise.resolve(), waiting: 0, sequence: 0, audio };
     owned.current = capture;
     pending.current = true;
     setPhase("starting");
     try {
       const result = await transport.start();
-      if (owned.current !== capture) { if (result.state === "ready") void transport.cancel().catch(() => {}); return; }
+      if (owned.current !== capture) { if (result.state === "ready") await transport.cancel().catch(() => {}); return; }
       if (!enabledRef.current || identityRef.current !== capture.identity) { discard(capture); return; }
       if (result.state !== "ready") {
         discard(capture);
@@ -246,7 +258,7 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
         return;
       }
       clearDictationSetupHandoff();
-      if (capture.stopping) { await finalize(capture); return; }
+      if (capture.stopping) { release(capture); await finalize(capture); return; }
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone access needs a secure Domios window.");
       if (!claimCaptureOwnership("manual")) throw new Error("Another voice capture is already active.");
       capture.claimed = true;
@@ -261,8 +273,7 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
       for (const track of capture.stream.getAudioTracks()) track.addEventListener("ended", () => {
         fail(capture, new Error("Microphone access was lost."));
       }, { once: true });
-      const audio = new AudioContext({ sampleRate: 16_000 });
-      capture.audio = audio;
+      if (capture.audio !== audio) return;
       const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
       try { await audio.audioWorklet.addModule(url); }
       finally { URL.revokeObjectURL(url); }
@@ -301,7 +312,10 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     } catch (failure) {
       if (owned.current !== capture) release(capture);
       else fail(capture, failure);
-    } finally { pending.current = false; }
+    } finally {
+      pending.current = false;
+      resolveStartup();
+    }
   }
 
   return { phase, error, setup, start, stop, compositionEnded,
@@ -314,7 +328,7 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
       void stop();
     },
     active: () => owned.current !== null || updates.current.length > 0 || rollback.current,
-    cancel: () => { if (owned.current) discard(owned.current); },
+    cancel: (): void | Promise<void> => (owned.current ? discard(owned.current) : undefined),
     dismissSetup: () => setSetup(null),
     dismissError: () => setError(null),
   };

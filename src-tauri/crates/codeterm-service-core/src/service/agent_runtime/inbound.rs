@@ -57,6 +57,10 @@ fn foldable(record: &UserSendRecord, text: &str) -> bool {
     !text.starts_with('/')
         && !record.capture_required
         && record.typed_follow_up.is_none()
+        && !record
+            .client_token
+            .as_deref()
+            .is_some_and(crate::service::live_transcript::is_transcript_delivery_token)
         && record.input_provenance.is_local()
         && user_delivery::restore_input(record, text)
             .map_err(|reason| reason.to_string())
@@ -172,10 +176,13 @@ fn claimed_row(session: &Session, thread: &str, send_id: &str) -> Option<ChatMsg
         .routed_input(send_id, thread)
         .unwrap_or_else(|| ChatMsg {
             kind: "user".into(),
-            content: claim.input.text.clone(),
             ..Default::default()
         });
     item.id = super::events::RuntimeMaps::written_input_id(thread, send_id);
+    // The evidence validator sees the claimed input; publication restores the routed body.
+    item.content = claim.input.text;
+    item.timestamp
+        .get_or_insert_with(|| chrono::Utc::now().to_rfc3339());
     item.attachments =
         (!claim.input.attachments.is_empty()).then(|| claim.input.attachments.clone());
     Some(item)
@@ -191,17 +198,19 @@ pub(super) async fn publish_delivered(
     send_id: &str,
 ) {
     let mut events = Vec::with_capacity(2);
-    if let Some(item) = claimed_row(session, thread, send_id) {
+    let item_id = claimed_row(session, thread, send_id).map(|item| {
+        let id = item.id.clone();
         events.push(AgentRuntimeEvent::ChatItem {
             thread_id: thread.into(),
             item,
         });
-    }
+        id
+    });
     events.push(AgentRuntimeEvent::SendEvidence {
         thread_id: thread.into(),
         send_id: send_id.into(),
         turn_id: turn.into(),
-        item_id: None,
+        item_id,
     });
     if let Err(reason) = subscriber::publish_events(svc, session, epoch, events, now()).await {
         log::warn!("[inbound] send_id={send_id} delivery publication failed: {reason}");
@@ -277,6 +286,7 @@ impl ServiceContext {
         if entries.is_empty() {
             return Ok(None);
         }
+        session.maps.lock().sync_active_turn(&context);
         for (record, text) in &entries {
             crate::flow_trace::record(
                 &record.send_id,
@@ -291,7 +301,6 @@ impl ServiceContext {
             };
             if let AgentInput::Framed(frame) = &input {
                 let mut maps = session.maps.lock();
-                maps.sync_active_turn(&context);
                 if let Err(reason) = maps.remember_routed_input(&record.send_id, &thread, frame) {
                     log::warn!(
                         "[inbound] tab={tab} send_id={} row unavailable: {reason}",
@@ -544,7 +553,7 @@ pub(super) struct Digest {
 }
 
 fn own_row(record: &UserSendRecord, text: &str) -> Option<ChatMsg> {
-    match user_delivery::restore_input(record, text).ok()? {
+    let mut item = match user_delivery::restore_input(record, text).ok()? {
         AgentInput::Framed(frame) => frame.chat_message(record.send_id.clone()),
         _ => Some(ChatMsg {
             id: record.send_id.clone(),
@@ -552,7 +561,10 @@ fn own_row(record: &UserSendRecord, text: &str) -> Option<ChatMsg> {
             content: text.into(),
             ..Default::default()
         }),
-    }
+    }?;
+    item.timestamp
+        .get_or_insert_with(|| chrono::Utc::now().to_rfc3339());
+    Some(item)
 }
 
 /// Folds the sends queued behind an already claimed head into one prompt, so a finished turn costs
@@ -631,18 +643,11 @@ pub(super) fn begin_digest(
             None,
         );
     }
-    let row = own_row(head, head_text);
-    {
+    if let Some(row) = own_row(head, head_text) {
         let mut maps = session.maps.lock();
-        if let Some(row) = row {
-            if let Err(reason) = maps.remember_routed_row(&head.send_id, &thread, row) {
-                log::warn!("[inbound] tab={tab} digest head row unavailable: {reason}");
-            }
+        if let Err(reason) = maps.remember_routed_row(&head.send_id, &thread, row) {
+            log::warn!("[inbound] tab={tab} digest head row unavailable: {reason}");
         }
-        maps.remember_digest(
-            &head.send_id,
-            members.iter().map(|(m, _)| m.send_id.clone()).collect(),
-        );
     }
     let mut entries = Vec::with_capacity(members.len() + 1);
     entries.push((head.clone(), head_text.to_owned()));
@@ -684,7 +689,6 @@ pub(super) fn finish_digest(
 ) {
     let store = &svc.pending_delivery_payloads.user_sends;
     if zero_write {
-        session.maps.lock().take_digest(&digest.head);
         let binding = SendLiveBinding {
             session_id: Some(digest.thread.clone()),
             binding_nonce: Some(digest.nonce.clone()),
@@ -751,18 +755,36 @@ pub(super) fn finish_digest(
         outcome.is_ok(),
         digest.started.elapsed().as_micros()
     );
-    if let Err(reason) = crate::async_runtime::block_on(subscriber::publish_events(
-        svc,
-        session,
-        digest.epoch,
-        rows,
-        now(),
-    )) {
-        log::warn!(
-            "[inbound] tab={tab} head={} member rows unavailable: {reason}",
-            digest.head
-        );
-    }
+    crate::async_runtime::block_on(async {
+        if let Err(reason) =
+            subscriber::publish_events(svc, session, digest.epoch, rows, now()).await
+        {
+            log::warn!(
+                "[inbound] tab={tab} head={} member rows unavailable: {reason}",
+                digest.head
+            );
+        }
+        let context = {
+            let context = session.context.lock();
+            if context.epoch != digest.epoch
+                || context.binding_nonce != digest.nonce
+                || context.thread_id.as_ref() != Some(&digest.thread)
+            {
+                return;
+            }
+            session.maps.lock().remember_digest(
+                &digest.head,
+                digest
+                    .members
+                    .into_iter()
+                    .map(|(member, _)| member.send_id)
+                    .collect(),
+            );
+            context.clone()
+        };
+        // The head may have been confirmed while its member rows were still being published.
+        confirm_digest_members(svc, session, &context, &digest.head).await;
+    });
 }
 
 /// Exact evidence for the digest prompt is evidence for everything that travelled inside it.
@@ -792,12 +814,18 @@ pub(super) async fn confirm_digest_members(
                 &session.provider,
             );
         }
+        let written_id = super::events::RuntimeMaps::written_input_id(thread, &member);
+        let has_row = session
+            .cache
+            .lock()
+            .get(&written_id)
+            .is_some_and(|item| item.kind == "user");
         if let Some(status) = svc.chat_send_ledger.confirm_rpc_send(
             &context.tab_id,
             thread,
             &context.binding_nonce,
             &member,
-            None,
+            has_row.then_some(written_id.as_str()),
         ) {
             emit_status(svc, status);
             log::debug!(

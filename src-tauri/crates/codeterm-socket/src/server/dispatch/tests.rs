@@ -63,7 +63,7 @@ fn cron_settle_service_rpc_closes_completed_tab() {
     assert!(fixture.service.set_ext(cron).is_ok());
     assert!(fixture
         .service
-        .set_ext::<codeterm_service_core::CronWake>(Arc::new(std::sync::Condvar::new()))
+        .set_ext(codeterm_service_core::CronWake::default())
         .is_ok());
     fixture
         .service

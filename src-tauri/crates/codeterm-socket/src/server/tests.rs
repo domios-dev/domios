@@ -127,7 +127,7 @@ fn cron_settle_cron_complete_closes_after_response_flush() {
             .unwrap();
 
         let cron: codeterm_service_core::CronState = Arc::new(parking_lot::Mutex::new(store));
-        let wake = Arc::new(std::sync::Condvar::new());
+        let wake = codeterm_service_core::CronWake::default();
         assert!(fixture.service.set_ext(cron.clone()).is_ok());
         assert!(fixture
             .service

@@ -17,7 +17,7 @@ pub(super) fn app_state(
                 fixture.temp.path().join("prompt-resolution-crons.json"),
             ),
         )),
-        cron_wake: Arc::new(std::sync::Condvar::new()),
+        cron_wake: Default::default(),
         api_port: 0,
         update_state: Arc::new(parking_lot::Mutex::new(
             codeterm_update::update_state::UpdateState {

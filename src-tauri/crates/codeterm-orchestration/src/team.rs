@@ -475,9 +475,13 @@ async fn close_team_inner(
         (commit, mux.take_closed_history_batch())
     };
     if let Some(batch) = history_batch {
-        tokio::task::spawn_blocking(move || batch.persist())
-            .await
-            .map_err(|error| format!("closed history persistence task failed: {error}"))?;
+        let service = svc.clone();
+        tokio::task::spawn_blocking(move || {
+            let evicted = batch.persist_on_blocking_thread_collect_evicted();
+            service.retire_evicted_transcript_owners(&evicted);
+        })
+        .await
+        .map_err(|error| format!("closed history persistence task failed: {error}"))?;
     }
     let (team, cleanup) = match commit {
         Ok(closed) => closed,
@@ -519,6 +523,9 @@ async fn close_team_inner(
         service.kill_ptys(&pty_ids);
         for tab_id in &member_tab_ids {
             service.flag_bound_tasks_for_gone_tab(tab_id, 0);
+            if let Err(error) = service.settle_closed_live_transcript(tab_id, None) {
+                log::warn!("[live-transcript] Team member {tab_id} close settlement held: {error}");
+            }
         }
         codeterm_service_core::service::launch_artifacts::release_closed_tabs(
             &service.agent_registry,

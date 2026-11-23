@@ -917,6 +917,7 @@ export function useChatSession({
     loadOlder: view.loadOlder,
     loadHistoryGap: view.loadHistoryGap,
     showLatest: view.showLatest,
+    revealNewer: view.revealNewer,
     prepareMessage: view.prepareMessage,
     setHistoryReading: view.setHistoryReading,
     addOptimistic: view.addOptimistic,

@@ -39,7 +39,7 @@ fn install_team_close_ports(
         )
         .unwrap(),
     ));
-    let wake: CronWake = std::sync::Arc::new(std::sync::Condvar::new());
+    let wake = CronWake::default();
     assert!(fixture.service.set_ext(cron).is_ok());
     assert!(fixture.service.set_ext(wake).is_ok());
     let handle = codeterm_sentinel_host::scheduler::fixture_handle_with_ui(

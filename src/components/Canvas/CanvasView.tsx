@@ -227,7 +227,7 @@ export function CanvasViewInner({
     onPaint: t => onPaintImpl.current(t),
   });
   const { camera, size } = stage;
-  const { transform, handlers, fitToView, animateTo, animateToView, setTransform, isDragging, containerRef, layerRef, transformRef } = camera;
+  const { transform, handlers, fitToView, animateTo, animateToView, setTransform, isDragging, isSpaceHeld, containerRef, layerRef, transformRef } = camera;
   const zoomBy = stage.zoom;
   onPaintImpl.current = (t) => {
     bumpCanvasChurn("cameraPaints");
@@ -702,13 +702,14 @@ export function CanvasViewInner({
         ref={containerRef}
         {...stage.interactions}
         tabIndex={0}
+        data-canvas-pan={isDragging ? "active" : isSpaceHeld ? "ready" : undefined}
         className="relative h-full w-full overflow-hidden"
         onMouseDown={handlers.onMouseDown}
         onClick={onCanvasClick}
         onMouseMove={onCanvasPointerMove}
         onDoubleClick={onWorldDoubleClick}
         style={{
-          cursor: isDragging ? "grabbing" : "default",
+          cursor: isDragging ? "grabbing" : isSpaceHeld ? "grab" : hoveredNodeId ? "pointer" : "default",
           userSelect: "none",
           touchAction: "none",
           background: "radial-gradient(ellipse at center, var(--ct-titlebar-bg) 0%, var(--ct-bg) 100%)",

@@ -51,6 +51,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub general_agent: GeneralAgentConfig,
     #[serde(default)]
+    pub live_transcript: LiveTranscriptConfig,
+    #[serde(default)]
     pub memory: MemoryConfig,
     #[serde(default)]
     pub supporter: SupporterConfig,
@@ -97,6 +99,7 @@ impl Default for AppConfig {
             agents: HashMap::new(),
             plugins: HashMap::new(),
             general_agent: GeneralAgentConfig::default(),
+            live_transcript: LiveTranscriptConfig::default(),
             memory: MemoryConfig::default(),
             supporter: SupporterConfig::default(),
             orchestration: OrchestrationConfig::default(),
@@ -111,6 +114,16 @@ impl Default for AppConfig {
             model_defaults: ModelDefaultsConfig::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[serde(default)]
+pub struct LiveTranscriptConfig {
+    pub configured: bool,
+    pub provider: String,
+    pub model: String,
+    pub trigger: String,
+    pub default_mic_tap: bool,
 }
 
 /// Orchestration-economics KPI event ledger. On by default: the choke-point counters

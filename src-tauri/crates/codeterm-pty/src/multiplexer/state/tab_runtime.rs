@@ -171,10 +171,19 @@ impl MultiplexerState {
         self.tabs.remove(id)
     }
 
-    pub fn set_focused_tab(&mut self, id: &str) -> Result<(), String> {
-        if !self.tabs.contains_key(id) {
-            return Err(format!("Tab not found: {}", id));
+    pub fn require_focusable_tab(&self, id: &str) -> Result<(), String> {
+        let tab = self
+            .tabs
+            .get(id)
+            .ok_or_else(|| format!("Tab not found: {id}"))?;
+        if tab.is_transcript_router() {
+            return Err("Attached transcript routers cannot be focused".into());
         }
+        Ok(())
+    }
+
+    pub fn set_focused_tab(&mut self, id: &str) -> Result<(), String> {
+        self.require_focusable_tab(id)?;
         self.focused_tab_id = Some(id.to_string());
         Ok(())
     }
@@ -193,7 +202,7 @@ impl MultiplexerState {
     pub fn fallback_focus_to_general(&mut self) -> Option<String> {
         // the state layer; if the alias name ever changes, update both.
         let target = self.resolve_tab_id("general")?;
-        self.focused_tab_id = Some(target.clone());
+        self.set_focused_tab(&target).ok()?;
         Some(target)
     }
 
@@ -266,6 +275,9 @@ impl MultiplexerState {
 
     /// Returns whether the highlight changed; an unknown tab changes nothing.
     pub fn set_tab_focus_requested(&mut self, tab_id: &str, requested: bool) -> bool {
+        if self.require_focusable_tab(tab_id).is_err() {
+            return false;
+        }
         match self.tabs.get_mut(tab_id) {
             Some(tab) if tab.focus_requested != requested => {
                 tab.focus_requested = requested;
@@ -474,7 +486,7 @@ impl MultiplexerState {
                 .as_deref()
                 .and_then(|workspace_id| self.get_workspace(workspace_id))
                 .and_then(|workspace| workspace.active_tab_id.as_deref())
-                .filter(|active_tab_id| self.tabs.contains_key(*active_tab_id))
+                .filter(|active_tab_id| self.require_focusable_tab(active_tab_id).is_ok())
                 .map(str::to_string);
             if self.focused_tab_id.is_none() {
                 self.fallback_focus_to_general();
@@ -537,10 +549,15 @@ impl MultiplexerState {
                 let closed_tab_id = ws.tabs[idx].clone();
                 ws.tabs.remove(idx);
                 if ws.active_tab_id.as_deref() == Some(&closed_tab_id) {
-                    ws.active_tab_id = ws.tabs.get(idx).cloned().or_else(|| {
-                        idx.checked_sub(1)
-                            .and_then(|previous| ws.tabs.get(previous).cloned())
-                    });
+                    ws.active_tab_id = ws.tabs[idx..]
+                        .iter()
+                        .chain(ws.tabs[..idx].iter().rev())
+                        .find(|id| {
+                            self.tabs
+                                .get(*id)
+                                .is_some_and(|tab| !tab.is_transcript_router())
+                        })
+                        .cloned();
                 }
                 return Ok(());
             }

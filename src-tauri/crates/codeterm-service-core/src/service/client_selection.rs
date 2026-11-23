@@ -35,6 +35,9 @@ impl ServiceContext {
         };
         let (switched, cwd, workspace_id, highlight_cleared) = {
             let mut mux = self.mux.write();
+            if let Some(tab) = tab_id.as_deref() {
+                mux.require_focusable_tab(tab)?;
+            }
             let workspace_id = match (workspace_id, tab_id.as_deref()) {
                 (Some(id), _) => Some(id.to_string()),
                 (None, Some(tab)) => mux.find_workspace_for_tab(tab),
@@ -92,6 +95,7 @@ impl ServiceContext {
             let tab_id = mux
                 .resolve_tab_id(tab_id)
                 .ok_or_else(|| format!("Tab not found: {tab_id}"))?;
+            mux.require_focusable_tab(&tab_id)?;
             mux.set_tab_focus_requested(&tab_id, true)
         };
         if changed {

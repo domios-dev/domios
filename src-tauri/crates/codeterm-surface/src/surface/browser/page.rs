@@ -12,9 +12,11 @@ use codeterm_browser::snapshot::{resolve_target, ResolvedTarget, Snapshot};
 use codeterm_browser::{EventStream, PageChannel};
 
 const ATTACHED_PROFILE: &str = "attached";
+pub(super) const CURSOR_BINDING: &str = "__domiosCursor";
 
 pub(super) const PAGE_EVENTS: &[&str] = &[
     "Runtime.consoleAPICalled",
+    "Runtime.bindingCalled",
     "Network.requestWillBeSent",
     "Network.responseReceived",
     "Page.frameNavigated",
@@ -23,6 +25,48 @@ pub(super) const PAGE_EVENTS: &[&str] = &[
     "Page.javascriptDialogOpening",
     "Page.javascriptDialogClosed",
 ];
+
+pub(super) fn sanitize_cursor(raw: &str) -> &'static str {
+    match raw.trim() {
+        "auto" => "auto",
+        "default" => "default",
+        "none" => "none",
+        "context-menu" => "context-menu",
+        "help" => "help",
+        "pointer" => "pointer",
+        "progress" => "progress",
+        "wait" => "wait",
+        "cell" => "cell",
+        "crosshair" => "crosshair",
+        "text" => "text",
+        "vertical-text" => "vertical-text",
+        "alias" => "alias",
+        "copy" => "copy",
+        "move" => "move",
+        "no-drop" => "no-drop",
+        "not-allowed" => "not-allowed",
+        "grab" => "grab",
+        "grabbing" => "grabbing",
+        "all-scroll" => "all-scroll",
+        "col-resize" => "col-resize",
+        "row-resize" => "row-resize",
+        "n-resize" => "n-resize",
+        "e-resize" => "e-resize",
+        "s-resize" => "s-resize",
+        "w-resize" => "w-resize",
+        "ne-resize" => "ne-resize",
+        "nw-resize" => "nw-resize",
+        "se-resize" => "se-resize",
+        "sw-resize" => "sw-resize",
+        "ew-resize" => "ew-resize",
+        "ns-resize" => "ns-resize",
+        "nesw-resize" => "nesw-resize",
+        "nwse-resize" => "nwse-resize",
+        "zoom-in" => "zoom-in",
+        "zoom-out" => "zoom-out",
+        _ => "default",
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum PageUpdate {
@@ -90,6 +134,7 @@ pub(super) struct PageShared {
     state: watch::Sender<SurfaceState>,
     notices: broadcast::Sender<SurfaceNotice>,
     resume: watch::Sender<SurfaceResume>,
+    cursor: watch::Sender<String>,
     session: Mutex<PageSession>,
 }
 
@@ -168,8 +213,25 @@ impl PageShared {
             state: watch::channel(state).0,
             notices: broadcast::channel(16).0,
             resume: watch::channel(SurfaceResume::default()).0,
+            cursor: watch::channel("default".to_string()).0,
             session: Mutex::new(PageSession::default()),
         })
+    }
+
+    pub(super) fn subscribe_cursor(&self) -> watch::Receiver<String> {
+        self.cursor.subscribe()
+    }
+
+    pub(super) fn set_cursor(&self, raw: &str) {
+        let next = sanitize_cursor(raw);
+        self.cursor.send_if_modified(|current| {
+            if current == next {
+                return false;
+            }
+            current.clear();
+            current.push_str(next);
+            true
+        });
     }
 
     pub(super) fn seed_resume(&self, resume: SurfaceResume) {
@@ -307,6 +369,9 @@ impl PageShared {
             }
             session.dialog
         };
+        if matches!(&update, PageUpdate::Navigated { .. }) {
+            self.set_cursor("default");
+        }
         if let PageUpdate::Navigated { url } | PageUpdate::SameDocument { url } = &update {
             self.remember_url(url);
         }
@@ -388,6 +453,14 @@ async fn listen(
     while let Some(event) = events.recv().await {
         let event: &CdpEvent = &event;
         if event.session_id.as_deref() == Some(session_id.as_str()) {
+            if event.method == "Runtime.bindingCalled"
+                && event.params.get("name").and_then(Value::as_str) == Some(CURSOR_BINDING)
+            {
+                if let Some(payload) = event.params.get("payload").and_then(Value::as_str) {
+                    shared.set_cursor(payload);
+                }
+                continue;
+            }
             if let Some(entry) = super::diagnostics::record(&event.method, &event.params) {
                 let mut session = shared.session.lock();
                 if session.bound_session.as_deref() == Some(session_id.as_str()) {

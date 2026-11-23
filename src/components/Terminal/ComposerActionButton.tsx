@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
-import { ChevronUp, Lock, Mic, Square, X } from "lucide-react";
+import { AudioLines, ChevronUp, Lock, Mic, Square, X } from "lucide-react";
 import { bubblePoseFromPointer, type BubblePose } from "./composerBubble";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 import type { LiveDictation } from "./voice/useLiveDictation";
@@ -24,6 +24,8 @@ interface DictationGesture {
   ptrX: number;
   ptrY: number;
   at: number;
+  transcriptOnTap: boolean;
+  started: boolean;
   locked: boolean;
   cancelArmed: boolean;
   holdVisual: boolean;
@@ -32,6 +34,8 @@ interface DictationGesture {
 export function ComposerActionButton({
   voiceUi,
   dictation,
+  onOpenLiveTranscript,
+  liveTranscriptOnTap,
   spaceArming = false,
   spacePop = false,
   sendDisabled,
@@ -41,6 +45,8 @@ export function ComposerActionButton({
 }: {
   voiceUi: ComposerVoiceHandle;
   dictation?: LiveDictation;
+  onOpenLiveTranscript?: () => void;
+  liveTranscriptOnTap?: boolean;
   spaceArming?: boolean;
   spacePop?: boolean;
   sendDisabled: boolean;
@@ -75,6 +81,7 @@ export function ComposerActionButton({
   const useDictation = Boolean(dictation && !voiceActive);
   const dictationActive = Boolean(useDictation && dictation!.phase !== "idle");
   const dictationFinishing = Boolean(useDictation && dictation!.phase === "finishing");
+  const transcriptOnTap = Boolean(liveTranscriptOnTap && onOpenLiveTranscript);
 
   function clearHoldTimer() {
     if (holdTimerRef.current !== null) {
@@ -112,11 +119,15 @@ export function ComposerActionButton({
       : dictationActive
         ? (dictationFinishing ? "Finishing dictation" : "Stop dictation")
         : useDictation
-          ? "Dictation · tap, hold, or slide up to lock"
+          ? transcriptOnTap
+            ? "Live Transcript · tap to start, hold to dictate"
+            : onOpenLiveTranscript
+              ? "Dictation · tap, hold, or slide up for Live Transcript"
+              : "Dictation · tap, hold, or slide up to lock"
           : mainTitle
   );
   const effectiveAriaLabel = !effectiveSend && useDictation
-    ? (dictationActive ? (dictationFinishing ? "Finishing dictation" : "Stop dictation") : "Start dictation")
+    ? (dictationActive ? (dictationFinishing ? "Finishing dictation" : "Stop dictation") : transcriptOnTap ? "Start Live Transcript" : "Start dictation")
     : undefined;
 
   function handleDictationPointerDown(e: PointerEvent<HTMLButtonElement>) {
@@ -135,6 +146,8 @@ export function ComposerActionButton({
       ptrX: e.clientX,
       ptrY: e.clientY,
       at: e.timeStamp,
+      transcriptOnTap,
+      started: !transcriptOnTap,
       locked: false,
       cancelArmed: false,
       holdVisual: false,
@@ -146,18 +159,24 @@ export function ComposerActionButton({
       holdTimerRef.current = null;
       const current = gestureRef.current;
       if (!current || current.id !== next.id || current.locked || current.holdVisual) return;
-      const engaged = { ...current, holdVisual: true };
+      const engaged = { ...current, holdVisual: true, started: true };
       gestureRef.current = engaged;
       setDictationGesture(engaged);
-    }, HOLD_VISUAL_DELAY_MS);
-    void dictation.start();
+      if (!current.started) void dictation.start();
+    }, transcriptOnTap ? TAP_MS : HOLD_VISUAL_DELAY_MS);
+    if (next.started) void dictation.start();
   }
 
   function handleDictationPointerMove(e: PointerEvent<HTMLButtonElement>) {
     const gesture = gestureRef.current;
-    if (!gesture || gesture.id !== e.pointerId || gesture.locked) return;
+    if (!dictation || !gesture || gesture.id !== e.pointerId || gesture.locked) return;
     const locked = isDragUpGesture(gesture.startX, gesture.startY, e.clientX, e.clientY);
     if (locked) {
+      if (onOpenLiveTranscript) {
+        clearDictationGesture();
+        openFromGesture(gesture);
+        return;
+      }
       clearHoldTimer();
       const next = { ...gesture, ptrX: e.clientX, ptrY: e.clientY, locked: true, cancelArmed: false, holdVisual: false };
       gestureRef.current = next;
@@ -168,19 +187,37 @@ export function ComposerActionButton({
     const moved = Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY) >= HOLD_DRAG_PX;
     const holdVisual = gesture.holdVisual || moved || cancel;
     if (holdVisual) clearHoldTimer();
-    const next = { ...gesture, ptrX: e.clientX, ptrY: e.clientY, cancelArmed: cancel, holdVisual };
+    const next = { ...gesture, ptrX: e.clientX, ptrY: e.clientY, cancelArmed: cancel, holdVisual, started: gesture.started || holdVisual };
     gestureRef.current = next;
     if (holdVisual || gesture.holdVisual) setDictationGesture(next);
+    if (next.started && !gesture.started) void dictation.start();
+  }
+
+  function openFromGesture(gesture: DictationGesture) {
+    if (!onOpenLiveTranscript) return;
+    if (gesture.transcriptOnTap && gesture.started && dictation) {
+      void Promise.resolve(dictation.cancel()).finally(onOpenLiveTranscript);
+    } else {
+      onOpenLiveTranscript();
+    }
   }
 
   function handleDictationPointerUp(e: PointerEvent<HTMLButtonElement>) {
     const gesture = gestureRef.current;
     if (!dictation || !gesture || gesture.id !== e.pointerId) return;
     clearDictationGesture();
-    if (gesture.locked || isDragUpGesture(gesture.startX, gesture.startY, e.clientX, e.clientY)) return;
+    if (gesture.locked) return;
+    if (isDragUpGesture(gesture.startX, gesture.startY, e.clientX, e.clientY)) {
+      openFromGesture(gesture);
+      return;
+    }
+    const tap = e.timeStamp - gesture.at <= TAP_MS;
     if (gesture.cancelArmed || isCancelGesture(gesture.startX, e.clientX, false)) {
-      dictation.cancel();
-    } else if (e.timeStamp - gesture.at > TAP_MS) {
+      if (gesture.started) void dictation.cancel();
+    } else if (gesture.transcriptOnTap && !gesture.started && tap &&
+      Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY) < HOLD_DRAG_PX) {
+      onOpenLiveTranscript?.();
+    } else if (gesture.started && (!tap || gesture.transcriptOnTap)) {
       void dictation.stop();
     }
   }
@@ -188,14 +225,13 @@ export function ComposerActionButton({
   function handleDictationPointerAbort(e: PointerEvent<HTMLButtonElement>) {
     const gesture = gestureRef.current;
     if (!dictation || !gesture || gesture.id !== e.pointerId) return;
-    const locked = gesture.locked;
     clearDictationGesture();
-    if (!locked) dictation.cancel();
+    if (!gesture.locked && gesture.started) void dictation.cancel();
   }
 
   return (
     <div className="ct-composer-action-shell ct-composer-control relative shrink-0">
-      {effectiveHold && <VoiceLockPill />}
+      {effectiveHold && <VoiceLockPill liveTranscript={!voiceActive && Boolean(onOpenLiveTranscript)} />}
       {!effectiveHold && !voiceActive && dictation?.setup && (
         <DictationSetupPrompt reason={dictation.setup} onDismiss={dictation.dismissSetup} anchor={buttonRef} />
       )}
@@ -281,6 +317,7 @@ export function ComposerActionButton({
             onSend();
           } else if (useDictation && dictation && !dictationFinishing) {
             if (dictation.active()) void dictation.stop();
+            else if (transcriptOnTap) onOpenLiveTranscript?.();
             else void dictation.start();
           }
         }}
@@ -307,17 +344,24 @@ export function ComposerActionButton({
   );
 }
 
-function VoiceLockPill() {
+function VoiceLockPill({ liveTranscript = false }: { liveTranscript?: boolean }) {
   return (
     <div
       data-testid="composer-voice-lock-pill"
-      className="ct-voice-lock-pill absolute bottom-full left-1/2 mb-7 flex -translate-x-1/2 flex-col items-center gap-1 rounded-full border px-2 py-2.5 text-[var(--ct-muted-fg)] shadow-[0_6px_20px_rgba(0,0,0,0.35)]"
-      style={{
+      className={`ct-voice-lock-pill absolute bottom-full left-1/2 mb-7 flex flex-col items-center gap-1.5 rounded-full border px-2 py-2.5 text-[var(--ct-muted-fg)] shadow-[0_6px_20px_rgba(0,0,0,0.35)]${liveTranscript ? " ct-voice-lock-pill--live" : ""}`}
+      style={liveTranscript ? undefined : {
         background: "var(--ct-surface, #161b22)",
         borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 26%, transparent)",
       }}
     >
-      <Lock size={14} strokeWidth={2.2} />
+      {liveTranscript ? (
+        <>
+          <AudioLines size={14} strokeWidth={2.2} className="ct-live-try-icon" />
+          <span className="ct-voice-lock-label">Live</span>
+        </>
+      ) : (
+        <Lock size={14} strokeWidth={2.2} />
+      )}
       <ChevronUp size={13} className="ct-voice-chevron-bounce" />
     </div>
   );

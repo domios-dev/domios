@@ -1,0 +1,475 @@
+{
+  "name": "long-session",
+  "tabs": [
+    {
+      "id": "relay",
+      "title": "Relay",
+      "purpose": "Infrastructure, release operations and incident follow-up"
+    },
+    {
+      "id": "canvas",
+      "title": "Canvas",
+      "purpose": "Design feedback and interface work"
+    },
+    {
+      "id": "notes",
+      "title": "Notes",
+      "purpose": "Meeting notes and handoff summaries"
+    },
+    {
+      "id": "qa",
+      "title": "QA",
+      "purpose": "Verification requests and reproduction details"
+    }
+  ],
+  "corpus": [],
+  "turns": [
+    {
+      "at_seconds": 0,
+      "rows": [
+        { "text": "Morning. The heater is making that ticking sound again. I think it does that when it starts up." }
+      ]
+    },
+    {
+      "at_seconds": 98,
+      "rows": [
+        { "text": "I'm looking out at the courtyard. The pavement still has that wet stripe where the sun hasn't reached." }
+      ]
+    },
+    {
+      "at_seconds": 212,
+      "rows": [
+        { "text": "Send Relay a reminder to rotate the staging logs before noon." }
+      ],
+      "routes": [
+        {
+          "target": "relay",
+          "payload": "Rotate the staging logs before noon.",
+          "intent": [
+            "rotate|rotation",
+            "staging",
+            "logs",
+            "noon|12:00"
+          ]
+        }
+      ]
+    },
+    {
+      "at_seconds": 344,
+      "rows": [
+        { "text": "Hang on, I need a different cable. This one never stays seated." }
+      ]
+    },
+    {
+      "at_seconds": 442,
+      "rows": [
+        { "text": "Put this into the standup document as two bullets: the invoice import is complete, and the receipts export is blocked on sample data." }
+      ],
+      "patch": {
+        "heading": "Standup",
+        "prose": "",
+        "bullets": [
+          "Invoice import is complete.",
+          "Receipts export is blocked on sample data."
+        ]
+      }
+    },
+    {
+      "at_seconds": 537,
+      "rows": [
+        { "text": "I keep picking the mug up and forgetting to drink. It's a little too hot still." }
+      ]
+    },
+    {
+      "at_seconds": 616,
+      "rows": [
+        { "text": "What was that noise? Oh, it's the upstairs door. Nothing going on down here." }
+      ]
+    },
+    {
+      "at_seconds": 727,
+      "rows": [
+        { "text": "Send QA a request to check keyboard focus on the export dialog, and tell Canvas the button label should read Download receipts." }
+      ],
+      "routes": [
+        {
+          "target": "qa",
+          "payload": "Check keyboard focus on the export dialog.",
+          "intent": [
+            "keyboard",
+            "focus",
+            "export",
+            "dialog"
+          ]
+        },
+        {
+          "target": "canvas",
+          "payload": "Change the button label to Download receipts.",
+          "intent": [
+            "button",
+            "label",
+            "download receipts"
+          ]
+        }
+      ]
+    },
+    {
+      "at_seconds": 804,
+      "rows": [
+        { "text": "That espresso is stronger than usual. I may have grabbed the wrong bag." }
+      ],
+      "switchTo": "canvas"
+    },
+    {
+      "at_seconds": 918,
+      "rows": [
+        { "text": "For Canvas, about the spacing around the confirmation card, could you—" }
+      ],
+      "hold": true
+    },
+    {
+      "at_seconds": 946,
+      "rows": [
+        { "text": "Wait, here's the screenshot." },
+        {
+          "text": "Screenshot dropped",
+          "attachments": [
+            {
+              "id": "shot-confirmation",
+              "name": "confirmation.png",
+              "mime": "image/png"
+            }
+          ]
+        },
+        { "text": "Ask them to add eight pixels of padding on each side of that card and include the screenshot." }
+      ],
+      "routes": [
+        {
+          "target": "canvas",
+          "payload": "Add eight pixels of padding to each side of the confirmation card. See shot-confirmation.",
+          "intent": [
+            "eight|8",
+            "padding",
+            "each side|all sides",
+            "confirmation",
+            "card"
+          ],
+          "attachments": [
+            "shot-confirmation"
+          ]
+        }
+      ],
+      "epochProbe": true,
+      "resumeSeen": true
+    },
+    {
+      "at_seconds": 1109,
+      "rows": [
+        { "text": "The radiator has gone quiet. I can hear somebody moving chairs now." }
+      ]
+    },
+    {
+      "at_seconds": 1211,
+      "rows": [
+        { "text": "Please tell Relay to keep the temporary backup until Friday's validation is complete." }
+      ],
+      "routes": [
+        {
+          "target": "relay",
+          "payload": "Keep the temporary backup until Friday's validation is complete.",
+          "intent": [
+            "backup",
+            "friday",
+            "validation",
+            "keep|retain"
+          ]
+        }
+      ],
+      "restartAfter": "committed"
+    },
+    {
+      "at_seconds": 1356,
+      "rows": [
+        { "text": "It smells like rain again. Maybe somebody opened the downstairs window." }
+      ]
+    },
+    {
+      "at_seconds": 1460,
+      "rows": [
+        { "text": "Add that there too — to Notes, please. I mean the same instruction I just sent to Relay." }
+      ],
+      "priorRouteTab": "relay",
+      "routes": [
+        {
+          "target": "notes",
+          "payload": "Keep the temporary backup until Friday's validation is complete.",
+          "intent": [
+            "backup",
+            "friday",
+            "validation",
+            "keep|retain"
+          ]
+        }
+      ]
+    },
+    {
+      "at_seconds": 1565,
+      "rows": [
+        { "text": "Remember that the staging rehearsal is always scheduled on Thursday mornings." }
+      ],
+      "fact": "The staging rehearsal is always scheduled on Thursday mornings.",
+      "factTerms": [
+        "staging rehearsal",
+        "thursday",
+        "mornings?"
+      ]
+    },
+    {
+      "at_seconds": 1668,
+      "rows": [
+        { "text": "The neighbor's dog is making the rounds again. It's very determined about that one tree." }
+      ]
+    },
+    {
+      "at_seconds": 1764,
+      "rows": [
+        { "text": "Add a paragraph to the standup document: the sample receipts arrived, so the export check can resume as soon as the reviewer has time." }
+      ],
+      "patch": {
+        "heading": "Standup",
+        "prose": "The sample receipts arrived. The export check can resume when the reviewer is available.",
+        "bullets": []
+      }
+    },
+    {
+      "at_seconds": 1845,
+      "rows": [
+        { "text": "That's the wrong playlist. I had something quieter on a few minutes ago." }
+      ],
+      "switchTo": "qa"
+    },
+    {
+      "at_seconds": 1940,
+      "rows": [
+        { "text": "Send QA a request to validate CSV headers against the April template, especially the tax amount column." }
+      ],
+      "routes": [
+        {
+          "target": "qa",
+          "payload": "Validate CSV headers against the April template, especially the tax amount column.",
+          "intent": [
+            "csv",
+            "headers?",
+            "april",
+            "template",
+            "tax amount"
+          ]
+        }
+      ]
+    },
+    {
+      "at_seconds": 2022,
+      "rows": [
+        { "text": "Add that there too. By there I mean Notes, so they can see the QA request." }
+      ],
+      "priorRouteTab": "qa",
+      "routes": [
+        {
+          "target": "notes",
+          "payload": "Validate CSV headers against the April template, especially the tax amount column.",
+          "intent": [
+            "csv",
+            "headers?",
+            "april",
+            "template",
+            "tax amount"
+          ]
+        }
+      ],
+      "epochProbe": true
+    },
+    {
+      "at_seconds": 2114,
+      "rows": [
+        { "text": "The charging light just blinked twice. I think the cable is finally sitting properly." }
+      ]
+    },
+    {
+      "at_seconds": 2218,
+      "rows": [
+        { "text": "For the incident notes, make a new Follow-up section with a bullet to check the certificate expiry after deployment." }
+      ],
+      "patch": {
+        "heading": "Follow-up",
+        "prose": "",
+        "bullets": [
+          "Check certificate expiry after deployment."
+        ]
+      }
+    },
+    {
+      "at_seconds": 2320,
+      "rows": [
+        { "text": "No, the umbrella's probably still in the hall. I haven't been outside since lunch." }
+      ]
+    },
+    {
+      "at_seconds": 2430,
+      "rows": [
+        { "text": "Let Relay know that the sandbox refresh can begin after the load test finishes." }
+      ],
+      "routes": [
+        {
+          "target": "relay",
+          "payload": "Begin the sandbox refresh after the load test finishes.",
+          "intent": [
+            "sandbox",
+            "refresh",
+            "after",
+            "load test"
+          ]
+        }
+      ]
+    },
+    {
+      "at_seconds": 2510,
+      "rows": [
+        { "text": "One of the desk drawers is sticking. It was doing the same thing yesterday." }
+      ]
+    },
+    {
+      "at_seconds": 2623,
+      "rows": [
+        { "text": "I'm reading the weather forecast. It says sunny, but the sky looks gray all the way across." }
+      ]
+    },
+    {
+      "at_seconds": 2731,
+      "rows": [
+        { "text": "Ask Canvas to compare the new empty state with the previous version before the review." }
+      ],
+      "routes": [
+        {
+          "target": "canvas",
+          "payload": "Compare the new empty state with the previous version before the review.",
+          "intent": [
+            "compare",
+            "empty state",
+            "previous|prior",
+            "review"
+          ]
+        }
+      ]
+    },
+    {
+      "at_seconds": 2840,
+      "rows": [
+        { "text": "Put the export issue somewhere sensible, I was thinking—" }
+      ],
+      "hold": true,
+      "restartAfter": "held"
+    },
+    {
+      "at_seconds": 2943,
+      "rows": [
+        { "text": "One second, the export capture is still loading." },
+        {
+          "text": "Screenshot dropped",
+          "attachments": [
+            {
+              "id": "shot-export",
+              "name": "export.png",
+              "mime": "image/png"
+            }
+          ]
+        },
+        { "text": "The window over here is finally open. There's a breeze now." }
+      ],
+      "hold": true
+    },
+    {
+      "at_seconds": 2987,
+      "rows": [
+        { "text": "Right, send QA that screenshot and ask them to reproduce the export dialog freeze when clicking Cancel twice." }
+      ],
+      "routes": [
+        {
+          "target": "qa",
+          "payload": "Reproduce the export dialog freeze when clicking Cancel twice. See shot-export.",
+          "intent": [
+            "export",
+            "dialog",
+            "freeze|hang",
+            "cancel",
+            "twice|two"
+          ],
+          "attachments": [
+            "shot-export"
+          ]
+        }
+      ],
+      "epochProbe": true,
+      "resumeSeen": true
+    },
+    {
+      "at_seconds": 3133,
+      "rows": [
+        { "text": "The other chair is much lower than I remember. Everything feels a little off when I sit in it." }
+      ],
+      "switchTo": "notes"
+    },
+    {
+      "at_seconds": 3245,
+      "rows": [
+        { "text": "Tell Notes the trial review moved to Tuesday at ten, and tell Relay that the performance sample is ready for inspection." }
+      ],
+      "routes": [
+        {
+          "target": "notes",
+          "payload": "The trial review moved to Tuesday at ten.",
+          "intent": [
+            "trial",
+            "review",
+            "tuesday",
+            "ten|10"
+          ]
+        },
+        {
+          "target": "relay",
+          "payload": "The performance sample is ready for inspection.",
+          "intent": [
+            "performance",
+            "sample",
+            "ready",
+            "inspect(?:ion)?|review"
+          ]
+        }
+      ]
+    },
+    {
+      "at_seconds": 3395,
+      "rows": [
+        { "text": "The desk lamp is showing dust I didn't notice before. I can deal with it this weekend." }
+      ]
+    },
+    {
+      "at_seconds": 3501,
+      "rows": [
+        { "text": "Add a final bullet under Follow-up in the document: verify the accessibility checklist before the handoff." }
+      ],
+      "patch": {
+        "heading": "Follow-up",
+        "prose": "",
+        "bullets": [
+          "Verify the accessibility checklist before handoff."
+        ]
+      }
+    },
+    {
+      "at_seconds": 3660,
+      "rows": [
+        { "text": "There's the bell from across the street. Must be close to the hour again." }
+      ]
+    }
+  ]
+}

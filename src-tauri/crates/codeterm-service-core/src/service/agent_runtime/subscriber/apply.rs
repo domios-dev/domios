@@ -400,6 +400,9 @@ fn apply(
                 }
             }
             let item = session.cache.lock().reconcile_live(item, at);
+            if svc.require_public_transcript_tab(&context.tab_id).is_err() {
+                return;
+            }
             crate::flow_trace::SourceCursor::rpc(
                 &context.tab_id,
                 &session.provider,

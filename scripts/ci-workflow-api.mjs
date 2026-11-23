@@ -53,8 +53,9 @@ export async function requireQualificationWithGithub(github, context, sha, {runI
   if(String(run.id)!==String(artifact.workflow_run.id))throw new Error('Foreign qualification artifact run');
   const jobs=[];
   for(let page=1;;page++){
-    if(page>20)throw new Error('Qualification job inventory exceeds bound');
-    const batch=(await github.rest.actions.listJobsForWorkflowRun({...context.repo,run_id:run.id,filter:'all',per_page:100,page})).data;
+    // GitHub answers 502 for 100-job pages of large multi-attempt runs.
+    if(page>40)throw new Error('Qualification job inventory exceeds bound');
+    const batch=(await github.rest.actions.listJobsForWorkflowRun({...context.repo,run_id:run.id,filter:'all',per_page:50,page})).data;
     jobs.push(...batch.jobs);if(jobs.length>=batch.total_count)break;
     if(!batch.jobs.length)throw new Error('Incomplete qualification job inventory');
   }

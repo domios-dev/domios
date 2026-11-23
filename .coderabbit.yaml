@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "en-US"
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  collapse_walkthrough: true
+  path_filters:
+    - "!generated/**"
+    - "!**/Cargo.lock"
+    - "!pnpm-lock.yaml"
+    - "!essences/map.jsonl"
+  auto_review:
+    enabled: true
+    drafts: false
+    ignore_usernames:
+      - "dependabot[bot]"
+      - "github-actions[bot]"
+    ignore_title_keywords:
+      - "sync master into develop"
+    base_branches:
+      - "develop"
+      - "integ/.*"
+
+chat:
+  auto_reply: true

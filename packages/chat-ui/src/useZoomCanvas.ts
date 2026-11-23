@@ -5,7 +5,7 @@ import { type InitialCanvasFit } from "./imageCanvasCamera";
 import { useCanvasStage } from "./useCanvasStage";
 import { canvasGrid } from "./canvasGrid";
 import { nextCameraRest, type CameraRest, type CameraRestEvent } from "./canvasRest";
-import { canvasPanDecision } from "./canvasPanModel";
+import { canvasPanDecision, canvasPanMode } from "./canvasPanModel";
 
 export interface CanvasFocus { request: number; bounds: ViewportBox }
 type ViewMode = "fit" | "focus" | "custom" | "natural";
@@ -67,17 +67,31 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
   const mouseStart = useRef<{ x: number; y: number } | null>(null);
   const handledTap = useRef<{ x: number; y: number; time: number } | null>(null);
   const spaceHeld = useRef(false);
+  const [spaceReady, setSpaceReady] = useState(false);
   const activePan = useRef<{ pointerId: number; x: number; y: number; tx: number; ty: number; target: HTMLDivElement } | null>(null);
   const panClick = useRef(false);
   const [panning, setPanning] = useState(false);
+  const hasTypingFocus = () => {
+    const active = document.activeElement;
+    return active instanceof Element && (Boolean(active.closest("textarea, input, select, [contenteditable='true']")) || active.tagName === "IFRAME" && Boolean(active.closest("[data-canvas-item]")));
+  };
   useEffect(() => {
-    const down = (event: KeyboardEvent) => { if (event.code === "Space") spaceHeld.current = true; };
-    const up = (event: KeyboardEvent) => { if (event.code === "Space") spaceHeld.current = false; };
-    const blur = () => { spaceHeld.current = false; };
+    const down = (event: KeyboardEvent) => {
+      if (event.code !== "Space") return;
+      const typing = hasTypingFocus();
+      spaceHeld.current = !typing;
+      setSpaceReady(!typing);
+    };
+    const release = () => {
+      if (!spaceHeld.current) return;
+      spaceHeld.current = false;
+      setSpaceReady(false);
+    };
+    const up = (event: KeyboardEvent) => { if (event.code === "Space") release(); };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
-    window.addEventListener("blur", blur);
-    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", blur); };
+    window.addEventListener("blur", release);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", release); };
   }, []);
   const changeMode = (next: ViewMode) => { stage.takeControl(); setMode(next); };
   const fit = () => {
@@ -100,8 +114,7 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
     if (!panGestures || activePan.current) return;
     panClick.current = false;
     const target = event.target instanceof Element ? event.target : null;
-    const active = document.activeElement;
-    const typingFocus = active instanceof Element && (Boolean(active.closest("textarea, input, select, [contenteditable='true']")) || active.tagName === "IFRAME" && Boolean(active.closest("[data-canvas-item]")));
+    const typingFocus = hasTypingFocus();
     const decision = canvasPanDecision({ button: event.button, spaceHeld: spaceHeld.current, overItem: Boolean(target?.closest("[data-canvas-item]")), typingFocus });
     if (decision !== "pan") return;
     event.preventDefault();
@@ -179,5 +192,6 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
     },
     onKeyDown: stage.interactions.onKeyDown,
   };
-  return { camera, mode, rest, scaleOutput, interactions, fit, zoom, natural, panning };
+  const panMode = canvasPanMode({ panning: panning || camera.isDragging, spaceHeld: spaceReady, typingFocus: false });
+  return { camera, mode, rest, scaleOutput, interactions, fit, zoom, natural, panning, panMode };
 }

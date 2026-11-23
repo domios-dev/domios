@@ -17,4 +17,21 @@ const tail = collapsed.querySelector('[data-testid="toolcard-result-tail"]');
 if (tail?.textContent !== "→ last output" || tail.textContent.includes("first line")) throw new Error("command result tail regression");
 const empty = await render(<CommandCard event={event({ kind: "command", result: "  \n", phase: "result", status: "success" })} expanded={false} onToggle={() => {}} />);
 if (empty.querySelector('[data-testid="toolcard-result-tail"]')) throw new Error("empty command result tail should be absent");
+const matchingTitle = await render(
+  <CommandCard
+    event={event({
+      kind: "command",
+      title: "git status -sb",
+      phase: "result",
+      status: "success",
+      message: { id: "m-cmd", role: "tool", content: "", toolInput: { CommandLine: "git status -sb" }, toolTitle: "git status -sb" },
+    })}
+    expanded={false}
+    onToggle={() => {}}
+  />,
+);
+const matchingSummary = matchingTitle.querySelector('[data-testid="toolcard-summary"]');
+if (!matchingSummary || matchingSummary.className.includes("hidden") || matchingSummary.textContent !== "git status -sb") {
+  throw new Error("inline command card must keep summary visible when title equals CommandLine");
+}
 console.log("command card tests: passed");

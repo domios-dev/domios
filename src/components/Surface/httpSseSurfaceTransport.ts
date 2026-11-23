@@ -78,6 +78,7 @@ async function readStream(body: ReadableStream<Uint8Array>, handlers: StreamHand
         delivered = true;
         if (event.type === "state") handlers.state(event.state);
         else if (event.type === "frame") handlers.frame(event.frame);
+        else if (event.type === "cursor") handlers.cursor?.(event.cursor);
         else handlers.notice(event.notice);
       }
       if (done) return delivered;
@@ -143,6 +144,7 @@ class StreamSession {
         delivered = true;
         if (event.type === "state") this.handlers.state(event.state);
         else if (event.type === "frame") this.handlers.frame(event.frame);
+        else if (event.type === "cursor") this.handlers.cursor?.(event.cursor);
         else this.handlers.notice(event.notice);
       }, {
         signal: controller.signal,

@@ -547,10 +547,7 @@ fn dead_cron_run_is_reaped_on_process_exit() {
         crate::cron::store::CronStore::new_with_path(fixture.temp.path().join("crons.json")),
     ));
     assert!(fixture.service.set_ext(cron.clone()).is_ok());
-    assert!(fixture
-        .service
-        .set_ext::<crate::CronWake>(std::sync::Arc::new(std::sync::Condvar::new()))
-        .is_ok());
+    assert!(fixture.service.set_ext(crate::CronWake::default()).is_ok());
     let run_id = "process-exit-run";
     let job_id = {
         let mut store = cron.lock();

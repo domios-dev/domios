@@ -10,7 +10,11 @@ import type { ExtendedState } from "../../../store/multiplexer/tree";
 import { useMuxStateStore } from "../../../store/multiplexer/selectorStore";
 
 const DICTATION_SETUP_REQUEST =
-  "Help me set up local live composer dictation in Domios. Use the official Transcriber plugin and its Russian-capable Parakeet default. Explain the model download size, permissions, progress, and any failure. Use the plugin's supported installation and configuration controls. Keep the existing voice-note transcription settings and my draft intact.";
+  "Install local live dictation automatically now (clicking Set up with General is my explicit consent to download the ~487 MB Parakeet TDT 0.6B v3 model and its local Python runtime — do not ask again or send me to Extensions). Skip `mem search`, `domios docs`, `--help`, `channel list/diff`, and `plugin get`; run only these exact commands (note: plugin verbs do not take `--json`):\n" +
+  "1. `domios plugin channel refresh codeterm-plugins` then `domios plugin update transcriber` (if not installed or refused as a local install, run `domios plugin install transcriber --channel codeterm-plugins`).\n" +
+  "2. `domios plugin transcriber dictation-status` — if `ready: true`, skip to step 4.\n" +
+  "3. `domios plugin transcriber dictation-install parakeet-tdt-0.6b-v3-int8 --consent`, check `domios plugin transcriber dictation-progress` until completed, then `domios plugin transcriber dictation-select parakeet-tdt-0.6b-v3-int8` and `domios plugin transcriber dictation-test parakeet-tdt-0.6b-v3-int8`.\n" +
+  "4. Reply in one short friendly line once ready (or the exact error if a step failed). Never touch voice-note settings or my draft.";
 
 interface GeneralAuthority {
   tabId: string;
@@ -214,7 +218,7 @@ export function DictationSetupPrompt({
             <X size={14} strokeWidth={2.2} aria-hidden="true" />
           </button>
         </div>
-        <p className="ct-dictation-bubble__body">{reason} General can guide the local model download.</p>
+        <p className="ct-dictation-bubble__body">{reason} General will install the plugin and local model automatically.</p>
         <div className="ct-dictation-bubble__actions">
           <Button type="button" variant="primary" size="sm" loading={pending} disabled={pending} onClick={() => void install()}>
             Set up with General

@@ -147,6 +147,10 @@ Repair a moved Plan project without its old folder: `domios plan set-project <pl
 
 Voice notes arrive as `<domios type="attachment" kind="voice" path="<file>" label="voice" />` plus `<transcript>…</transcript>`: the transcript is the message, the path its audio. `status="untranscribed"` carries a failure note instead. Older notes (bare text after the frame, or `-=-codeterm:voice file=<path>-=-`) are read-only legacy.
 
+Live microphone history uses `domios live-transcript`. If a delivery provides
+an owner tab, binding revision and sequence range, use those exact values in
+`read` and `ack`. Use owner-scoped `status` for transcriber and Scout setup.
+
 For cold replacement, `domios app quit --exact --json` must confirm cleanup and pinned process exits.
 
 The plan defaults to Curator mode. Inspect it with `domios plan control-loop show <plan>` or request a round now with `domios plan control-loop run <plan>`. Only the owner changes Curator, heartbeat or Off in the Team dashboard settings. Agent outcomes defer the next round by at most two hours. A Curator mirrors its Orchestrator's model, receives a bounded digest, and may ask one message with up to three questions. Its grants are limited to the active round and session; see `domios docs ORCHESTRATION-OPERATIONS`.

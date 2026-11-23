@@ -157,47 +157,67 @@ async fn run_inner(
     operation: RuntimeOperation,
     handed_off: &AtomicBool,
 ) -> Result<RuntimeResult, RuntimeFailure> {
+    let tab_id = session.context.lock().tab_id.clone();
+    let transcript_handoff = match &operation {
+        RuntimeOperation::SubmitTurn { send_id, .. } => {
+            svc.require_transcript_handoff(&tab_id, send_id)?
+        }
+        _ => None,
+    };
+    let external_transcript_handoff = match &operation {
+        RuntimeOperation::SubmitTurn { send_id, .. } => {
+            crate::service::live_transcript::external_handoff(svc, &tab_id, send_id)?
+        }
+        _ => None,
+    };
     let switch_authority = match &operation {
         RuntimeOperation::SubmitTurn { send_id, .. } => {
             crate::service::messenger::switch_handoff::for_send(svc, send_id)
         }
         _ => None,
     };
-    let launch_authority = crate::service::messenger::switch_handoff::launch_authority(
-        svc,
-        &session.context.lock().tab_id,
-    );
-    let switch_guard: Option<rpc::PrewriteGuard> =
-        (switch_authority.is_some() || launch_authority.is_some()).then(|| {
-            let authority = switch_authority.clone();
-            let launch = launch_authority.clone();
-            let owner = svc.clone();
-            let runtime = session.clone();
-            let epoch = runtime.context.lock().epoch;
-            Arc::new(move || {
-                if runtime.context.lock().epoch != epoch {
-                    return Err(
-                        if authority
-                            .as_ref()
-                            .is_some_and(|authority| authority.was_claimed())
-                        {
-                            RuntimeFailure::WrittenAwaitingEvidence
-                        } else {
-                            RuntimeFailure::Superseded
-                        },
-                    );
-                }
-                if let Some(launch) = &launch {
-                    launch
-                        .validate(&owner)
-                        .map_err(|_| RuntimeFailure::Superseded)?;
-                }
-                if let Some(authority) = &authority {
-                    authority.claim(&owner)?;
-                }
-                Ok(())
-            }) as rpc::PrewriteGuard
-        });
+    let launch_authority =
+        crate::service::messenger::switch_handoff::launch_authority(svc, &tab_id);
+    let switch_guard: Option<rpc::PrewriteGuard> = (switch_authority.is_some()
+        || launch_authority.is_some()
+        || transcript_handoff.is_some()
+        || external_transcript_handoff.is_some())
+    .then(|| {
+        let authority = switch_authority.clone();
+        let launch = launch_authority.clone();
+        let owner = svc.clone();
+        let runtime = session.clone();
+        let epoch = runtime.context.lock().epoch;
+        Arc::new(move || {
+            if runtime.context.lock().epoch != epoch {
+                return Err(
+                    if authority
+                        .as_ref()
+                        .is_some_and(|authority| authority.was_claimed())
+                    {
+                        RuntimeFailure::WrittenAwaitingEvidence
+                    } else {
+                        RuntimeFailure::Superseded
+                    },
+                );
+            }
+            if let Some(launch) = &launch {
+                launch
+                    .validate(&owner)
+                    .map_err(|_| RuntimeFailure::Superseded)?;
+            }
+            if let Some(authority) = &authority {
+                authority.claim(&owner)?;
+            }
+            if let Some(handoff) = &transcript_handoff {
+                handoff.claim(&owner)?;
+            }
+            if let Some(handoff) = &external_transcript_handoff {
+                handoff.claim(&owner)?;
+            }
+            Ok(())
+        }) as rpc::PrewriteGuard
+    });
     let mut context = session.context.lock().clone();
     #[cfg(debug_assertions)]
     let submit_stages = {

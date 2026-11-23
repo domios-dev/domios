@@ -59,7 +59,11 @@ export function useComposerMentions(input: string, setInput: (next: string) => v
     const controller = new AbortController();
     const isCurrent = () => !controller.signal.aborted && latest.current.key === key && latest.current.registry === registry;
     setResult((previous) => ({ session, key, registry, rows: previous?.session === session && previous.registry === registry ? previous.rows : [], loading: true }));
-    void registry.search(partial, { scope: scopeRef.current, signal: controller.signal }).then((rows) => {
+    void registry.search(partial, {
+      scope: scopeRef.current,
+      signal: controller.signal,
+      onUpdate: (rows) => { if (isCurrent()) setResult({ session, key, registry, rows, loading: true }); },
+    }).then((rows) => {
       if (isCurrent()) setResult({ session, key, registry, rows });
     }).catch(() => { if (isCurrent()) setResult({ session, key, registry, rows: [], error: true }); });
     return () => controller.abort();

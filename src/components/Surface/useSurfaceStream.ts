@@ -14,6 +14,7 @@ export interface SurfaceStream {
   paused: SurfaceNotice | null;
   unavailable: SurfaceNotice | null;
   frames: FrameFeed;
+  subscribeCursor(listener: (cursor: string) => void): () => void;
   setNotice(notice: SurfaceNotice | null): void;
   onViewport(viewport: StreamViewport): void;
   onHidden(): void;
@@ -36,6 +37,14 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
   const connection = useRef<Connection>({ disconnect: null, sent: null, latest: null });
   const [viewer] = useState(() => crypto.randomUUID());
   const [feed] = useState(() => createFrameFeed());
+  const cursorState = useRef<{ value: string; listeners: Set<(cursor: string) => void> }>({ value: "default", listeners: new Set() });
+
+  const subscribeCursor = useCallback((listener: (cursor: string) => void) => {
+    const store = cursorState.current;
+    store.listeners.add(listener);
+    listener(store.value);
+    return () => { store.listeners.delete(listener); };
+  }, []);
 
   const connect = useCallback((viewport: StreamViewport) => {
     const current = connection.current;
@@ -53,6 +62,12 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
         }
       },
       state: setState,
+      cursor: (next: string) => {
+        const store = cursorState.current;
+        if (store.value === next) return;
+        store.value = next;
+        for (const listener of store.listeners) listener(next);
+      },
       notice: (next: SurfaceNotice) => {
         if (next.kind === NOTICE_KIND.unavailable) {
           unavailableRef.current = true;
@@ -116,5 +131,5 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
       .catch((error: unknown) => publishNotice({ kind: "debug", severity: "Warning", title: "Surface viewport claim failed", detail: String(error) }));
   }, [transport, viewer, visible]);
 
-  return { state, notice, paused, unavailable, frames: feed, setNotice, onViewport, onHidden, takeControl };
+  return { state, notice, paused, unavailable, frames: feed, subscribeCursor, setNotice, onViewport, onHidden, takeControl };
 }

@@ -293,6 +293,7 @@ body {
 }
 
 .ct-voice-lock-pill {
+  transform: translate(-50%, 0);
   animation: ct-voice-lock-pop var(--ct-duration-normal) var(--ct-ease-squash-jump) both;
 }
 @keyframes ct-voice-lock-pop {
@@ -354,7 +355,6 @@ body {
 
   .ct-voice-lock-pill {
     opacity: 1;
-    transform: translate(-50%, 0);
   }
 
   .ct-voice-control,
@@ -5860,3 +5860,13 @@ button.plan-recent-activity-item:hover .plan-recent-activity-task {
 .ct-skeleton { animation: ct-skeleton-breathe 1.6s ease-in-out infinite; }
 @keyframes ct-skeleton-breathe { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ct-skeleton { animation: none; } }
+
+/* Space-held and active canvas panning override item cursors so pan mode is unmistakable. */
+[data-canvas-pan="ready"],
+[data-canvas-pan="ready"] * {
+  cursor: grab !important;
+}
+[data-canvas-pan="active"],
+[data-canvas-pan="active"] * {
+  cursor: grabbing !important;
+}

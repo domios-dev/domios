@@ -3,7 +3,7 @@
 //! row per close action, one `closed_tab` row per tab, keyed by `workspace_id`.
 
 use parking_lot::{Condvar, Mutex, RwLock};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -215,6 +215,12 @@ impl ClosedTabsStore {
         let version = Self::user_version(conn)?;
         Self::migrate(conn, version)?;
         Self::init_structures(conn)?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS reopened_transcript_owner (
+                live_tab_id TEXT PRIMARY KEY, tab_id TEXT NOT NULL,
+                group_id TEXT NOT NULL, closed_at INTEGER NOT NULL
+            );",
+        )?;
         Self::init_transcripts(conn)
     }
 
@@ -609,16 +615,27 @@ impl ClosedTabsStore {
     /// Delete a single tab row by id, then prune any now-empty group. `Err` if the
     /// delete removed no row — else a silently-failed reopen-delete duplicates on retry.
     pub fn delete_tab_row(&self, row_id: i64) -> Result<(), String> {
-        let conn = self.conn.lock();
+        self.delete_tab_row_with_lineage(row_id, &[])
+    }
+
+    pub(super) fn delete_tab_row_with_lineage(
+        &self,
+        row_id: i64,
+        lineage: &[super::ReopenedTranscriptOwner],
+    ) -> Result<(), String> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction().map_err(|error| error.to_string())?;
         let affected =
-            Self::delete_tab(&conn, row_id).map_err(|e| format!("delete closed Tab row: {e}"))?;
-        Self::prune_empty_groups(&conn).ok();
-        self.refresh_snapshot_views_from(&conn);
+            Self::delete_tab(&tx, row_id).map_err(|e| format!("delete closed Tab row: {e}"))?;
         if affected == 0 {
             return Err(format!(
                 "closed Tab row {row_id} was already gone (no row deleted)"
             ));
         }
+        Self::record_reopen_lineage(&tx, lineage)?;
+        Self::prune_empty_groups(&tx).ok();
+        tx.commit().map_err(|error| error.to_string())?;
+        self.refresh_snapshot_views_from(&conn);
         Ok(())
     }
 
@@ -658,6 +675,59 @@ impl ClosedTabsStore {
             |r| Ok((r.get::<_, i64>(0)?, Self::tab_from_row_offset(r, 1))),
         )
         .ok()
+    }
+
+    pub(super) fn transcript_owner_at_row(
+        &self,
+        row_id: i64,
+    ) -> Result<codeterm_types::live_transcript::ClosedTranscriptOwner, String> {
+        self.conn
+            .lock()
+            .query_row(
+                "SELECT tab_id, group_id, closed_at FROM closed_tab WHERE id = ?1",
+                params![row_id],
+                |row| {
+                    Ok(codeterm_types::live_transcript::ClosedTranscriptOwner {
+                        tab_id: row.get(0)?,
+                        group_id: row.get(1)?,
+                        closed_at_ms: row.get::<_, i64>(2)? as u64,
+                    })
+                },
+            )
+            .map_err(|error| error.to_string())
+    }
+
+    pub(super) fn committed_transcript_owner(
+        &self,
+        tab_id: &str,
+    ) -> Result<Option<codeterm_types::live_transcript::ClosedTranscriptOwner>, String> {
+        let conn = self.conn.lock();
+        let captured = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM closed_structure, json_each(payload, '$.tabs') AS item
+               WHERE state = 'captured' AND json_extract(item.value, '$.tab.id') = ?1)",
+                params![tab_id],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if captured {
+            return Ok(None);
+        }
+        conn.query_row(
+            "SELECT group_id, closed_at FROM (
+                SELECT group_id, closed_at FROM closed_tab WHERE tab_id = ?1
+                UNION ALL
+                SELECT closed_structure.id, closed_structure.closed_at
+                  FROM closed_structure, json_each(payload, '$.tabs') AS item
+                 WHERE state IN ('closed', 'restoring') AND json_extract(item.value, '$.tab.id') = ?1
+            ) ORDER BY closed_at DESC LIMIT 1",
+            params![tab_id],
+            |row| Ok(codeterm_types::live_transcript::ClosedTranscriptOwner {
+                tab_id: tab_id.into(),
+                group_id: row.get(0)?,
+                closed_at_ms: row.get::<_, i64>(1)? as u64,
+            }),
+        ).optional().map_err(|error| error.to_string())
     }
 
     /// Take a whole group in its captured tab order.
@@ -713,10 +783,35 @@ impl ClosedTabsStore {
 
     /// Delete a whole group (tabs + meta) in one transaction.
     pub fn delete_group(&self, group_id: &str) -> Result<(), String> {
+        self.delete_group_with_lineage(group_id, &[])
+    }
+
+    pub(super) fn delete_group_with_lineage(
+        &self,
+        group_id: &str,
+        lineage: &[super::ReopenedTranscriptOwner],
+    ) -> Result<(), String> {
         let mut conn = self.conn.lock();
         let tx = conn
             .transaction()
             .map_err(|e| format!("delete group tx: {e}"))?;
+        for entry in lineage {
+            let exists = tx
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM closed_tab
+                    WHERE group_id = ?1 AND tab_id = ?2 AND closed_at = ?3)",
+                    params![
+                        group_id,
+                        entry.closed.tab_id,
+                        entry.closed.closed_at_ms as i64
+                    ],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(|error| error.to_string())?;
+            if !exists {
+                return Err("Closed group changed during reopen".into());
+            }
+        }
         tx.execute(
             "DELETE FROM closed_tab WHERE group_id = ?1",
             params![group_id],
@@ -727,10 +822,76 @@ impl ClosedTabsStore {
             params![group_id],
         )
         .map_err(|e| format!("delete group meta: {e}"))?;
+        Self::record_reopen_lineage(&tx, lineage)?;
         tx.commit()
             .map_err(|e| format!("delete group commit: {e}"))?;
         self.refresh_snapshot_views_from(&conn);
         Ok(())
+    }
+
+    fn record_reopen_lineage(
+        conn: &Connection,
+        lineage: &[super::ReopenedTranscriptOwner],
+    ) -> Result<(), String> {
+        for entry in lineage {
+            conn.execute(
+                "INSERT INTO reopened_transcript_owner (live_tab_id, tab_id, group_id, closed_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    entry.live_tab_id,
+                    entry.closed.tab_id,
+                    entry.closed.group_id,
+                    entry.closed.closed_at_ms as i64
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn reopened_transcript_owner(
+        &self,
+        live_tab_id: &str,
+    ) -> Result<Option<codeterm_types::live_transcript::ClosedTranscriptOwner>, String> {
+        self.conn.lock().query_row(
+            "SELECT tab_id, group_id, closed_at FROM reopened_transcript_owner WHERE live_tab_id = ?1",
+            params![live_tab_id],
+            |row| Ok(codeterm_types::live_transcript::ClosedTranscriptOwner {
+                tab_id: row.get(0)?,
+                group_id: row.get(1)?,
+                closed_at_ms: row.get::<_, i64>(2)? as u64,
+            }),
+        ).optional().map_err(|error| error.to_string())
+    }
+
+    pub(super) fn forget_reopened_transcript_owner(&self, live_tab_id: &str) -> Result<(), String> {
+        self.conn
+            .lock()
+            .execute(
+                "DELETE FROM reopened_transcript_owner WHERE live_tab_id = ?1",
+                params![live_tab_id],
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    pub(super) fn has_transcript_reopen(
+        &self,
+        identity: &codeterm_types::live_transcript::ClosedTranscriptOwner,
+    ) -> Result<bool, String> {
+        self.conn
+            .lock()
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM reopened_transcript_owner
+                WHERE tab_id = ?1 AND group_id = ?2 AND closed_at = ?3)",
+                params![
+                    identity.tab_id,
+                    identity.group_id,
+                    identity.closed_at_ms as i64
+                ],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())
     }
 
     fn delete_tab(conn: &Connection, row_id: i64) -> rusqlite::Result<usize> {

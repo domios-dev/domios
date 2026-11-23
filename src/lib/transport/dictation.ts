@@ -1,5 +1,5 @@
 import { baseDaemonTransport } from "../daemonBootstrap";
-import { assertWebRequestContext, relayTarget, webRequestContext } from "../webApi";
+import { assertWebRequestContext, IS_WEB, relayTarget, webRequestContext } from "../webApi";
 import { createTransportClient, decodeTransportResponse } from "../transportClient";
 import type { DictationStartResult } from "../../../gen/DictationStartResult";
 import type { DictationUpdate } from "../../../gen/DictationUpdate";
@@ -12,9 +12,8 @@ export function createDictationTransport(session: string, tabId: string) {
   const generation = webRequestContext();
   const token = owner.currentToken();
   const origin = owner.origin();
-  const host = new URL(origin).hostname;
-  if (relayTarget() || !["127.0.0.1", "localhost", "[::1]"].includes(host)) {
-    throw new Error("Live dictation is available in the local Domios app.");
+  if (!token || relayTarget() || (IS_WEB && (!window.isSecureContext || window.location.origin !== origin))) {
+    throw new Error("Live dictation needs a direct secure (HTTPS) Domios owner window.");
   }
   // Keep redirect and unload semantics intact by using the direct daemon client.
   const client = createTransportClient({ origin, token: () => owner.currentToken() === token ? token : null });

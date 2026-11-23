@@ -345,6 +345,7 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
         picking={picking}
         snipping={snipping}
         frames={stream.frames}
+        subscribeCursor={stream.subscribeCursor}
         decode={decode}
         onViewport={stream.onViewport}
         onHidden={stream.onHidden}

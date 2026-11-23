@@ -12,6 +12,38 @@ fn acceptance_seed_titles_count_unicode_and_record_truncation() {
 }
 
 #[test]
+fn acceptance_seed_strips_newlines_and_controls_before_storage_validation() {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::AgentRole;
+    use crate::service::test_fixture::ServiceFixture;
+
+    let (title, truncated) = bounded_title("Line one\r\n\tLine two\x07\nLine three");
+    assert_eq!(title, "Line one Line two Line three");
+    assert!(!truncated);
+    assert!(!title.chars().any(char::is_control));
+
+    let (mut mux, parent_id) = MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let worker_id = mux.create_tab(&workspace_id).unwrap();
+    mux.set_orchestrator_role(&parent_id).unwrap();
+    mux.set_tab_role_kind(&worker_id, AgentRole::Worker, None, Some(&parent_id))
+        .unwrap();
+    let fixture = ServiceFixture::new(mux);
+    fixture.install_seeded_storage_desk();
+
+    let multiline = format!("First line\nSecond line\t{}\r\nThird line", "x".repeat(140));
+    let seeded = crate::async_runtime::block_on(fixture.service.tab_todo_seed_from_acceptance(
+        &worker_id,
+        &parent_id,
+        &[multiline],
+    ))
+    .unwrap();
+    assert_eq!(seeded.items.len(), 1);
+    assert_eq!(seeded.items[0].title.chars().count(), 120);
+    assert!(!seeded.items[0].title.chars().any(char::is_control));
+}
+
+#[test]
 fn recitation_payload_is_bounded_and_contains_no_more_than_three_titles() {
     let recitation = TabTodoRecitation {
         tab_id: "tab".into(),

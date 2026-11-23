@@ -152,3 +152,30 @@ fn shared_report_inspection_retains_the_watch_and_detects_an_amend() {
         (reported.clone(), Some(reported), "amend")
     );
 }
+
+#[test]
+fn linked_lane_worktree_at_older_commit_does_not_flag_shared_commits_lost() {
+    let (root, store, _plan, _task, _reported) = reported_shared_commit();
+    let lane_dir = tempfile::tempdir().unwrap();
+    let lane_path = lane_dir.path().join("lane");
+    git(
+        root.path(),
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            lane_path.to_str().unwrap(),
+            "HEAD~1",
+        ],
+    );
+    let lane = lane_path.to_str().unwrap();
+    let incidents = store.detect_lost_shared_commits(lane, 4).unwrap();
+    assert!(
+        incidents.is_empty(),
+        "older linked worktree must not trigger lost-commit incidents against primary checkout: {incidents:?}"
+    );
+    git(
+        root.path(),
+        &["worktree", "remove", "--force", lane_path.to_str().unwrap()],
+    );
+}

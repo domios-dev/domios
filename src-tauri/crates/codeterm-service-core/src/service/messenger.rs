@@ -25,6 +25,7 @@ pub struct MessageEnvelope {
     pub from_label: String,
     pub from_tab: String,
     pub from_agent: Option<bool>,
+    pub from_transcript_router: bool,
     pub relay_hops: u8,
     pub relay_notice: bool,
     pub from_model: Option<String>,
@@ -195,6 +196,11 @@ impl MessageEnvelope {
         self
     }
 
+    pub fn from_transcript_router(mut self, from_transcript_router: bool) -> Self {
+        self.from_transcript_router = from_transcript_router;
+        self
+    }
+
     pub fn peer(mut self, peer: Option<String>) -> Self {
         self.peer = peer.filter(|p| !p.trim().is_empty());
         self
@@ -257,6 +263,8 @@ impl Messenger {
     pub const AGENT_REPLY_HINT_PREFIX: &'static str = "[to reply, run: ";
     pub const AGENT_REPLY_COMMAND: &'static str = "domios send";
     const SHELL_REPLY_HINT: &'static str = "[sender is a shell; reply here]";
+    const TRANSCRIPT_ROUTER_REPLY_HINT: &'static str =
+        "[routed from owner Live Transcript; answer the owner directly here]";
     pub fn message(from_name: impl Into<String>, from_tab: impl Into<String>) -> Self {
         MessageEnvelope::tab(from_name, from_tab).into()
     }
@@ -945,6 +953,9 @@ impl Messenger {
         let tab = short_id(&self.envelope.from_tab);
         if !safe_reply_token(tab) {
             return None;
+        }
+        if self.envelope.from_transcript_router {
+            return Some(Self::TRANSCRIPT_ROUTER_REPLY_HINT.to_string());
         }
         if self.envelope.from_agent == Some(false) {
             return Some(Self::SHELL_REPLY_HINT.to_string());

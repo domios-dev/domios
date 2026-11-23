@@ -12,6 +12,7 @@ pub mod delayed;
 pub mod effort;
 pub mod essence_map;
 pub mod integration;
+pub mod live_transcript;
 pub mod mcp;
 pub mod mem;
 pub mod misc;

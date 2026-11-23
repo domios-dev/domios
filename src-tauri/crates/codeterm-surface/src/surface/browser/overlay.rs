@@ -33,6 +33,13 @@ impl BrowserRuntime {
             return Ok(());
         }
         let target = serde_json::to_string(page.target_id()).map_err(|error| error.to_string())?;
+        let _ = self
+            .send(
+                page,
+                "Runtime.addBinding",
+                json!({"name": super::page::CURSOR_BINDING}),
+            )
+            .await;
         let script = format!("Object.defineProperty(globalThis, Symbol.for('domios.browser.target'), {{value:{target}, configurable:true}});{SCRIPT}");
         self.send(
             page,

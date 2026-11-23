@@ -957,7 +957,7 @@ mod consumers {
         let fixture = ServiceFixture::new(mux);
         let path = fixture.temp.path().join("crons.json");
         let cron: CronState = Arc::new(Mutex::new(CronStore::new_with_path(path)));
-        (fixture, cron, Arc::new(std::sync::Condvar::new()))
+        (fixture, cron, crate::CronWake::default())
     }
 
     #[test]
