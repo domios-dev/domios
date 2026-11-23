@@ -66,6 +66,8 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             tab,
             from_file,
             from_pad,
+            attach: _,
+            copy: _,
             stdin: use_stdin,
             actions,
             delay,

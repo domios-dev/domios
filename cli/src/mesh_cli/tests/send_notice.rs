@@ -1,4 +1,5 @@
 use super::*;
+use crate::mesh_cli::api_map::UNSUPPORTED_OVER_MESH;
 
 #[test]
 fn send_text_is_fire_and_forget_on_mesh() {
@@ -7,6 +8,8 @@ fn send_text_is_fire_and_forget_on_mesh() {
         tab: Some("abc123".into()),
         from_file: None,
         from_pad: None,
+        attach: Vec::new(),
+        copy: false,
         stdin: false,
         actions: None,
         delay: None,
@@ -28,4 +31,27 @@ fn send_text_is_fire_and_forget_on_mesh() {
         body.get("verify").is_none(),
         "send must never carry verify — the flag has been removed (#101)"
     );
+}
+
+#[test]
+fn pad_attachment_send_is_local_only() {
+    use clap::Parser;
+
+    let command = crate::Cli::try_parse_from([
+        "domios",
+        "--mesh",
+        "peer",
+        "send",
+        "--tab",
+        "recipient",
+        "--attach",
+        "board.canvas.json",
+        "--copy",
+    ])
+    .unwrap()
+    .command;
+    let (method, reason, body) = cli_command_to_api(&command);
+    assert_eq!(method, UNSUPPORTED_OVER_MESH);
+    assert_eq!(reason, "--attach requires both tabs on the same machine");
+    assert!(body.is_none());
 }

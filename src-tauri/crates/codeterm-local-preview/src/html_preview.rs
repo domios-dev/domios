@@ -7,7 +7,19 @@ pub use canvas_file::{
     is_canvas_file, probe_canvas_file, write_canvas_file, CanvasWrite, CANVAS_FILE_LIMIT,
 };
 pub use file::checked_path;
+mod pad_inbox;
 use file::PreviewSource;
+pub use pad_inbox::write_pad_inbox;
+
+pub fn open_pad_share_source(
+    raw: &str,
+    guard: impl Fn(&std::path::Path, Option<&std::path::Path>) -> Result<(), String>,
+    limit: Option<u64>,
+) -> Result<(std::path::PathBuf, Option<Vec<u8>>), String> {
+    let mut source = PreviewSource::open(raw, &guard)?;
+    let bytes = limit.map(|limit| source.read(limit)).transpose()?;
+    Ok((source.path, bytes))
+}
 
 const HTML_PREVIEW_FILE_LIMIT: u64 = 200_000;
 const DOCUMENT_PREVIEW_FILE_LIMIT: u64 = 1_000_000;

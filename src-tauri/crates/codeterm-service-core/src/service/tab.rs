@@ -190,6 +190,7 @@ impl ServiceContext {
             log::warn!("[live-transcript] router {tab_id} close settlement held: {error}");
         }
         self.revoke_tab_credential(tab_id);
+        super::local_preview::pad_shares::revoke(self, tab_id);
         super::supporter_tab_state::forget_observations(tab_id);
         self.release_managed_tabs(tab_id);
         self.ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()

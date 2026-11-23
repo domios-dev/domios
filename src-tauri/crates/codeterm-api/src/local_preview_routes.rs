@@ -14,7 +14,7 @@ use serde::Deserialize;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use super::routes::AppState;
-use crate::auth::CallerIdentity;
+use crate::auth::{AuthenticatedOrigin, CallerIdentity};
 
 const WINDOW: Duration = Duration::from_secs(60);
 const REQUESTS_PER_WINDOW: usize = 120;
@@ -156,6 +156,8 @@ pub(super) async fn read(
     State(state): State<AppState>,
     Path(tab): Path<String>,
     Extension(admission): Extension<Arc<Admission>>,
+    caller: Option<Extension<CallerIdentity>>,
+    origin: Option<Extension<AuthenticatedOrigin>>,
     Json(body): Json<ReadBody>,
 ) -> Response {
     let permit = match admission.admit((admission.clock)()).await {
@@ -164,7 +166,27 @@ pub(super) async fn read(
     };
     let result = crate::blocking_json::prepare(permit, move || {
         let configured = state.config.lock().api.preview_secret_paths.clone();
-        use codeterm_service_core::service::local_preview::{read as read_file, read_canvas_item};
+        use codeterm_service_core::service::local_preview::{
+            read as read_file, read_canvas_item, read_owner_share,
+        };
+        if matches!(
+            (caller.as_deref(), origin.as_deref()),
+            (
+                Some(CallerIdentity::Local | CallerIdentity::Peer { .. }),
+                Some(AuthenticatedOrigin::Owner)
+            )
+        ) {
+            if let Some(file) = read_owner_share(
+                &state.svc,
+                &tab,
+                &configured,
+                &body.path,
+                &body.kind,
+                body.canvas.as_deref(),
+            )? {
+                return Ok(Json(file));
+            }
+        }
         match &body.canvas {
             Some(canvas) => read_canvas_item(
                 &state.svc,

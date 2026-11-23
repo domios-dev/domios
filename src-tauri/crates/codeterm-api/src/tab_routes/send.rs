@@ -64,6 +64,13 @@ pub async fn chat_send_text(
     Json(body): Json<SendTextBody>,
 ) -> Result<Json<codeterm_service_core::service::agent_pad::ChatSendResult>, SendRejection> {
     validate_user_client_token(&id, body.client_token.as_deref())?;
+    if !body.pad_attachments.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Pad attachments require a tab-to-tab send",
+        )
+            .into());
+    }
     if body.startup_override_nonce.is_some() {
         return Err(SendRejection::from((
             StatusCode::FORBIDDEN,
@@ -352,6 +359,8 @@ pub(crate) fn prefixes_return_address(body: &str, prefix_source: bool) -> bool {
 #[derive(Deserialize)]
 pub struct SendTextBody {
     pub(crate) text: Option<String>,
+    #[serde(flatten)]
+    pad_attachments: codeterm_service_core::service::local_preview::PadAttachments,
     /// Terminal key/action sequence. Enter submits optional text through the
     /// acknowledged transaction; navigation keys and delays remain ordered.
     /// A plain text send always submits — use `actions` (no Enter) or `raw` to
@@ -534,6 +543,23 @@ pub async fn send_text(
             tab: raw_tab_id.clone(),
         })?;
     authority::bind_source(&state, &headers, &mut body, svc_token_match.is_some())?;
+    use crate::auth::{AuthenticatedOrigin, CallerIdentity};
+    let local_tab = matches!(
+        crate::auth::authenticated_request(&state, &headers),
+        Ok((CallerIdentity::Tab(_), AuthenticatedOrigin::Agent))
+            | Ok((CallerIdentity::Local, AuthenticatedOrigin::Owner))
+    ) && body.source_peer.is_none()
+        && body.system_context.is_none()
+        && body.actions.is_none()
+        && body.batch.is_none()
+        && !body.raw;
+    if !local_tab && !body.pad_attachments.is_empty() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Pad attachments require a local tab message",
+        )
+            .into());
+    }
     let owner = state.clone();
     let target = tab_id.clone();
     let source_tab = body.source_tab.clone();
@@ -982,6 +1008,7 @@ pub async fn send_text(
     let svc = state.svc.clone();
     let target = tab_id.clone();
     let payload = raw_text.clone();
+    let attachments = body.pad_attachments;
     let (delivery, pad_file, restored_send) = run_programmatic_delivery(&tab_id, move || {
         let class =
             if envelope.kind == codeterm_service_core::service::messenger::MessageKind::System {
@@ -990,8 +1017,14 @@ pub async fn send_text(
                 codeterm_service_core::service::message_gateway::DeliveryClass::AgentTraffic
             };
         let restored_send = svc.public_send_restores_agent(&target);
-        svc.gateway_deliver_with_pad_file(&target, envelope, &payload, class)
-            .map(|(delivery, pad)| (delivery, pad, restored_send))
+        svc.gateway_deliver_with_shares(
+            &target,
+            envelope,
+            &payload,
+            class,
+            local_tab.then_some(&attachments),
+        )
+        .map(|(delivery, pad)| (delivery, pad, restored_send))
     })
     .await?;
     record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);

@@ -2,6 +2,7 @@ use super::*;
 use axum::body::to_bytes;
 
 mod fixture;
+mod pad_shares;
 use fixture::{directory_link, Fixture};
 
 fn png() -> Vec<u8> {
