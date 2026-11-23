@@ -233,13 +233,13 @@ describe("Live Transcript panel", () => {
   });
 
   it("starts at a bounded tail, changes mode explicitly, excludes the hidden router and saves only selected speech", async () => {
-    const { api } = await mount();
+    const { api, status, emitChange } = await mount();
     await click("Open hidden Transcript");
     expect(createLiveTranscriptApi).not.toHaveBeenCalledWith(hidden.id);
     await click("Open active Transcript");
     expect(api.history).toHaveBeenLastCalledWith(1001 - TRANSCRIPT_PAGE_SIZE, TRANSCRIPT_PAGE_SIZE, expect.any(AbortSignal));
-    expect(panel()?.querySelectorAll('input[type="checkbox"]')).toHaveLength(TRANSCRIPT_PAGE_SIZE);
-    expect(panel()?.textContent).toContain("Acknowledged through 995");
+    expect(panel()?.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
+    expect(panel()?.textContent).not.toContain("Acknowledged through");
     expect(api.epoch).not.toHaveBeenCalled();
     expect(api.attach).not.toHaveBeenCalled();
     await click("Choose routing mode");
@@ -253,13 +253,104 @@ describe("Live Transcript panel", () => {
     await click("Apply routing");
     expect(api.attach).toHaveBeenCalledExactlyOnceWith({ trigger: "manual", provider: "fixture", model: "base", configure: true }, expect.any(AbortSignal));
     expect(Array.from(panel()?.querySelectorAll('input[type="checkbox"]') ?? []).every(el => !(el as HTMLInputElement).checked)).toBe(true);
-    const segment = panel()?.querySelector<HTMLInputElement>('input[aria-label$="(segment 1000)"]');
-    await act(async () => { segment?.click(); });
+    const passage = panel()?.querySelector<HTMLInputElement>('input[aria-label$="(segments 996–1000)"]');
+    expect(passage).not.toBeNull();
+    await act(async () => { passage?.click(); });
+    const selectedText = [996, 997, 998, 999, 1000].map(seq => `Committed speech ${seq}`).join("\n\n");
+    const exportUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:selection");
+    const download = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    vi.useFakeTimers();
+    try {
+      await click("Export");
+      expect(exportUrl).toHaveBeenCalledTimes(1);
+      const blob = exportUrl.mock.calls[0][0];
+      expect(blob).toBeInstanceOf(Blob);
+      expect(await (blob as Blob).text()).toBe(selectedText);
+      expect(download).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      exportUrl.mockRestore();
+      download.mockRestore();
+    }
     await click("Save to Memory");
-    expect(api.save).toHaveBeenCalledExactlyOnceWith("Live Transcript selection", "Committed speech 1000", expect.any(AbortSignal));
+    expect(api.save).toHaveBeenCalledExactlyOnceWith("Live Transcript selection", selectedText, expect.any(AbortSignal));
+    await click("Route selection");
+    expect(api.route).toHaveBeenCalledExactlyOnceWith({ fromSeq: 996, toSeq: 1000 }, expect.any(AbortSignal));
+    await click("Clear selection");
+    status.lastRouteError = "Routed speech was not delivered.";
+    await emitChange();
+    await click("Retry");
+    expect(api.route).toHaveBeenCalledTimes(2);
+    expect(api.route).toHaveBeenLastCalledWith({ fromSeq: 996, toSeq: 1000 }, expect.any(AbortSignal));
     await click("Earlier speech");
     expect(api.history).toHaveBeenLastCalledWith(1001 - 2 * TRANSCRIPT_PAGE_SIZE, TRANSCRIPT_PAGE_SIZE, expect.any(AbortSignal));
     expect(panel()?.textContent).not.toContain("Committed speech 1000");
+  });
+
+  it("shows a sent receipt with live target navigation and inline epoch details", async () => {
+    const { api, status } = await mount();
+    api.overview.mockResolvedValue({
+      status,
+      cursor: { ackedSeq: 995, seenSeq: 995 },
+      forwards: [{
+        forwardId: "sent-1", epochId: "receipt-epoch", range: { fromSeq: 993, toSeq: 994 }, atMs: 1_000,
+        targetTabId: agent.id, targetTitle: "Previous title", sentText: "Exact request sent", sentExcerpt: "Exact request",
+        rationale: "The request named a destination",
+      }],
+    });
+    await click("Open active Transcript");
+    const sent = panel()?.querySelector('[data-seq="993"]')?.closest("article");
+    expect(sent?.querySelector('[data-seq="994"]')).not.toBeNull();
+    expect(sent?.textContent).toContain("Sent to Agent");
+    expect(panel()?.textContent).not.toContain("Acknowledged through");
+    const focused = vi.fn();
+    window.addEventListener("codeterm:focus-tab", focused, { once: true });
+    try {
+      await click(agent.title);
+      expect(focused).toHaveBeenCalledWith(expect.objectContaining({ detail: { tabId: agent.id } }));
+    } finally {
+      window.removeEventListener("codeterm:focus-tab", focused);
+    }
+    expect(sent?.textContent).not.toContain("Exact request sent");
+    await click("Details ›");
+    expect(sent?.textContent).toContain("What was sent");
+    expect(sent?.textContent).toContain("Exact request sent");
+    expect(sent?.textContent).toContain("The request named a destination");
+    expect(api.epoch).not.toHaveBeenCalled();
+    await click("Thoughts ›");
+    expect(sent?.querySelector('[aria-label="Thoughts inspector"]')).not.toBeNull();
+    expect(api.epoch).toHaveBeenCalledExactlyOnceWith("receipt-epoch", 0, expect.any(AbortSignal));
+    await click("Details ›");
+    expect(sent?.querySelector('[aria-label="Thoughts inspector"]')).toBeNull();
+  });
+
+  it("expands older not-sent remarks in place while keeping the latest run visible", async () => {
+    const { api, status } = await mount();
+    api.history.mockResolvedValue({
+      rows: [993, 994, 995, 996, 997, 998, 999].map(seq => ({
+        ...row(seq), atMs: seq * 10_000, content: { kind: "speech", text: `Speech with sequence ${seq}` },
+      })),
+      gaps: [], nextFromSeq: null,
+    });
+    api.overview.mockResolvedValue({
+      status,
+      cursor: { ackedSeq: 999, seenSeq: 999 },
+      forwards: [{
+        forwardId: "sent-2", range: { fromSeq: 996, toSeq: 996 }, atMs: 1_000,
+        targetTabId: "closed", targetTitle: "Saved title", sentText: "Request", sentExcerpt: "Request",
+      }],
+    });
+    await click("Open active Transcript");
+    const disclosure = control("3 remarks not sent ›");
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(panel()?.textContent).not.toContain("Speech with sequence 993");
+    expect(panel()?.textContent).toContain("Speech with sequence 999");
+    expect(control("Saved title")).toBeDefined();
+    await click("3 remarks not sent ›");
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    expect(panel()?.textContent).toContain("Speech with sequence 993");
+    expect(panel()?.textContent).toContain("Speech with sequence 995");
   });
 
   it("reads only the chosen epoch while Thoughts are open and discards closed and peer-stale results", async () => {
@@ -394,6 +485,10 @@ describe("Live Transcript panel", () => {
     status.lastRouteError = "The Concierge turn timed out.";
     await emitChange();
     expect(bar?.textContent).toContain("Stalled");
+    expect(panel()?.textContent).toContain("Not delivered");
+    expect(control("Retry").disabled).toBe(true);
+    expect(panel()?.querySelector('[role="alert"]')).toBeNull();
+    await click("Details ›");
     expect(panel()?.querySelector('[role="alert"]')?.textContent).toBe("The Concierge turn timed out.");
 
     await click("Concierge · fixture / base · Scout then Concierge");
@@ -402,6 +497,18 @@ describe("Live Transcript panel", () => {
     expect(panel()?.querySelector('[aria-label="Routing timeline"]')).not.toBeNull();
     expect(panel()?.querySelector('[aria-label="Thoughts inspector"]')).not.toBeNull();
     expect(api.epoch).toHaveBeenCalledWith("current", 0, expect.any(AbortSignal));
+  });
+
+  it("keeps recording and Concierge status visible through an epoch rotation", async () => {
+    const { status, emitChange } = await mount();
+    await click("Autostart active Transcript");
+    expect(panel()?.textContent).toContain("Listening");
+    status.concierge = "needs_attachment";
+    status.binding = { ...status.binding, target: { kind: "detached" } };
+    await emitChange();
+    expect(panel()?.querySelector('[aria-label="Live Transcript setup"]')).toBeNull();
+    expect(panel()?.querySelector('[data-testid="live-transcript-concierge-bar"]')).not.toBeNull();
+    expect(control("Pause")).toBeDefined();
   });
 
   it("persists the mic tap preference through the mode-only attach", async () => {

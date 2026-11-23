@@ -40,6 +40,18 @@ export interface TranscriptReadiness {
 
 export type RouterActivity = "idle" | "reviewing" | "stuck" | "unavailable";
 
+export interface TranscriptForward {
+  forwardId: string;
+  epochId?: string | null;
+  range: TranscriptRange;
+  atMs: number;
+  targetTabId: string;
+  targetTitle: string;
+  sentText: string;
+  sentExcerpt: string;
+  rationale?: string | null;
+}
+
 export interface TranscriptOverview {
   status: {
     committedSeq: number;
@@ -47,6 +59,7 @@ export interface TranscriptOverview {
     trigger: Trigger;
     scout: Scout;
     awaitingDelivery?: boolean;
+    reviewingThroughSeq?: number | null;
     concierge: Concierge;
     configured?: boolean;
     defaultMicTap?: boolean;
@@ -60,6 +73,7 @@ export interface TranscriptOverview {
     lastRouteError?: string | null;
   };
   cursor: { ackedSeq: number; seenSeq: number } | null;
+  forwards?: TranscriptForward[];
 }
 
 export interface TranscriptRow {

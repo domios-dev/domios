@@ -1,6 +1,6 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { AudioLines, ChevronDown, ChevronUp, ChevronsDown, Download, GripVertical, Mic, Minus, Pause, RefreshCw, Settings2, X } from "lucide-react";
+import { AudioLines, ChevronDown, ChevronUp, ChevronsDown, CornerDownRight, Download, GripVertical, Mic, Minus, Pause, RefreshCw, Settings2, X } from "lucide-react";
 import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
 import { LiquidToggle } from "../shared/LiquidToggle";
 import { Segmented, type SegmentedOption } from "../shared/Segmented";
@@ -10,10 +10,11 @@ import { useMuxSelector, useMuxStateStore } from "../../store/multiplexer/select
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { isSidebarTabVisible } from "../Sidebar/workspaceTabs";
 import { BusyState } from "../shared/BusyState";
-import { createLiveTranscriptApi, directTranscriptAvailable, TRANSCRIPT_PAGE_SIZE, type LiveTranscriptApi, type RoutedRecord, type RouterActivity, type TranscriptOverview, type TranscriptReadiness, type TranscriptRow, type Trigger } from "../../lib/transport/liveTranscript";
+import { createLiveTranscriptApi, directTranscriptAvailable, TRANSCRIPT_PAGE_SIZE, type LiveTranscriptApi, type RoutedRecord, type RouterActivity, type TranscriptForward, type TranscriptOverview, type TranscriptRange, type TranscriptReadiness, type TranscriptRow, type Trigger } from "../../lib/transport/liveTranscript";
 import { webRequestContext } from "../../lib/webApi";
 import { useLiveTranscriptCapture } from "./voice/useLiveTranscriptCapture";
 import { LiveTranscriptThoughts } from "./LiveTranscriptThoughts";
+import { groupPassages, type TranscriptPassage } from "./liveTranscriptPassages";
 import { LiveTranscriptContext, useLiveTranscriptAttachments, useLiveTranscriptGeometry, useLiveTranscriptPanel, type LiveTranscriptOpenOptions } from "./useLiveTranscriptPanel";
 import "./LiveTranscriptPanel.css";
 
@@ -109,6 +110,7 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
   const [settings, setSettings] = useState(false);
   const [thoughts, setThoughts] = useState<{ epoch: string; rationale?: string }>();
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  const [manualRoute, setManualRoute] = useState<{ range: TranscriptRange; bindingRevision: number }>();
   const [feedback, setFeedback] = useState<string>();
   const [pendingAutoStart, setPendingAutoStart] = useState(false);
   const attachments = useLiveTranscriptAttachments(owner.id, setFeedback);
@@ -132,7 +134,7 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
     (view.readiness?.concierge ?? status?.concierge) === "unavailable";
   const conciergeAttached = Boolean(status && status.binding.target.kind !== "detached");
   const conciergeReady = Boolean(view.loaded && isConfigured && !needsSetup && conciergeAttached && status?.concierge === "ready");
-  const needsConcierge = Boolean(view.loaded && !conciergeReady && (status || needsSetup || !isConfigured));
+  const needsConcierge = Boolean(view.loaded && !active && (!isConfigured || !conciergeReady));
   const routeRange = contiguousSpeechRange(chosen);
 
   function toggleSettings() {
@@ -178,11 +180,14 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
     setFeedback(undefined);
   }
 
-  function toggleRow(seq: number) {
+  function togglePassage(segments: TranscriptPassage["segments"]) {
     setSelected(previous => {
-      const next = new Set(chosen.map(row => row.seq));
-      if (previous.has(seq)) next.delete(seq);
-      else next.add(seq);
+      const next = new Set(previous);
+      const checked = segments.every(segment => previous.has(segment.seq));
+      for (const { seq } of segments) {
+        if (checked) next.delete(seq);
+        else next.add(seq);
+      }
       return next;
     });
     setFeedback(undefined);
@@ -203,6 +208,12 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
     }
   }
 
+  function routeSelection(range: TranscriptRange) {
+    if (status?.trigger !== "manual") return;
+    setManualRoute({ range, bindingRevision: status.binding.revision });
+    void view.mutate(signal => api.route(range, signal));
+  }
+
   if (collapsed) return <aside ref={attachments.container} className="ct-live-orb" aria-label="Collapsed Live Transcript"
     data-drag-over={attachments.webDragOver} data-live={active} style={{ left: geometry.bounds.left, top: geometry.bounds.top }}
     {...attachments.webDropHandlers} {...geometry.drag()} onPaste={event => void attachments.handlePasteEvent(event.nativeEvent)}>
@@ -213,6 +224,13 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
 
   const hasEarlier = (view.history?.from ?? 1) > 1;
   const hasLater = page?.nextFromSeq != null;
+  const routeError = status?.lastRouteError;
+  const reviewing = status?.router?.activity === "reviewing" || status?.awaitingDelivery;
+  const captureError = capture.error || (view.error !== routeError ? view.error : undefined);
+  const retryRange = status?.trigger === "manual" && status.concierge === "ready" && !reviewing &&
+    manualRoute?.bindingRevision === status.binding.revision && manualRoute.range.fromSeq > (acked ?? 0) &&
+    !view.overview?.forwards?.some(({ range }) => range.fromSeq <= manualRoute.range.toSeq && range.toSeq >= manualRoute.range.fromSeq)
+    ? manualRoute.range : undefined;
 
   return <aside ref={attachments.container} className="ct-live-panel" style={geometry.bounds} aria-label={`Live Transcript for ${ownerName}`}
     data-drag-over={attachments.webDragOver} {...attachments.webDropHandlers}
@@ -234,17 +252,13 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
       <button type="button" className="ct-live-icon" aria-label="Collapse Live Transcript" onClick={() => { setThoughts(undefined); setCollapsedAt(openCount); }}><Minus size={15} aria-hidden /></button>
       <button type="button" className="ct-live-icon" aria-label="Close Live Transcript" disabled={active} onClick={onClose}><X size={15} aria-hidden /></button>
     </header>
-    {conciergeAttached && status && <ConciergeStatusBar status={status} settings={settings} onSettings={toggleSettings}
+    {(conciergeAttached || active) && status && <ConciergeStatusBar status={status} settings={settings} onSettings={toggleSettings}
       thoughtsOpen={Boolean(log && thoughts?.epoch === ownEpoch && ownEpoch)}
       onThoughts={ownEpoch ? () => {
         switchView(true);
         if (!log || thoughts?.epoch !== ownEpoch) setThoughts({ epoch: ownEpoch });
       } : undefined} />}
-    {(settings || needsConcierge || scoutUnavailable || status?.lastRouteError || capture.error || view.error) && <div className="ct-live-controls">
-      {status?.lastRouteError && <div className="ct-live-callout ct-live-route-error">
-        <span role="alert">{status.lastRouteError}</span>
-        <button type="button" className="ct-live-ghost" onClick={() => { setSettings(true); view.refreshReadiness(); }}>Settings</button>
-      </div>}
+    {(settings || needsConcierge || scoutUnavailable || captureError) && <div className="ct-live-controls">
       {needsConcierge && !settings && <ConciergeSetupGate view={view} api={api} needsSetup={needsSetup}
         isConfigured={isConfigured} defaultTrigger={defaultTrigger} scoutUnavailable={scoutUnavailable}
         onSetup={setUpWithGeneral} onConnected={() => { setPendingAutoStart(true); setFeedback(undefined); }} />}
@@ -255,7 +269,7 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
         Scout is unavailable. Choose Wake word, Direct batch, or Manual to route speech.
         {!settings && <button type="button" onClick={() => setSettings(true)}>Choose routing mode</button>}
       </div>}
-      {(capture.error || view.error) && <p role="alert" className="ct-live-callout">{capture.error || view.error}</p>}
+      {captureError && <p role="alert" className="ct-live-callout">{captureError}</p>}
     </div>}
     <div ref={view.scrollRef} className="ct-live-document" onScroll={view.onScroll} tabIndex={0}
       data-selecting={chosen.length > 0} aria-label={log ? "Routing timeline" : "Transcript text"}>
@@ -266,22 +280,12 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
       </> : <>
         {page?.gaps.length ? <p className="ct-live-muted">Some earlier speech has been compacted.</p> : null}
         {page?.rows.length === 0 && !capture.provisional && <p className="ct-live-muted">Committed speech will appear here.</p>}
-        {page?.rows.map((row, index) => <div key={row.seq}>
-          {acked != null && row.seq > acked && (index === 0 || page.rows[index - 1].seq <= acked) &&
-            <div className="ct-live-marker">Acknowledged through {acked}</div>}
-          {row.content.kind === "speech" ? <label className="ct-live-speech" data-selected={selected.has(row.seq)}>
-            <input type="checkbox" checked={selected.has(row.seq)} onChange={() => toggleRow(row.seq)}
-              aria-label={`Select speech at ${clock(row.atMs)} (segment ${row.seq})`} />
-            <span className="ct-live-speech-text">{row.content.text}</span>
-            <time className="ct-live-speech-time" dateTime={new Date(row.atMs).toISOString()}>{clock(row.atMs)}</time>
-          </label> : <div className="ct-live-marker">
-            <span>{row.content.kind === "paused" ? "Capture paused" : "Capture resumed"} · {clock(row.atMs)}</span>
-          </div>}
-        </div>)}
-        {acked != null && page?.rows.length && acked >= page.rows[page.rows.length - 1].seq ?
-          <div className="ct-live-marker">Acknowledged through {acked}</div> : null}
-        {capture.provisional && page?.nextFromSeq == null &&
-          <p className="ct-live-draft"><span className="sr-only">Live draft </span>{capture.provisional}</p>}
+        <TranscriptThread api={api} rows={page?.rows} forwards={view.overview?.forwards} acked={acked}
+          reviewingThroughSeq={status?.reviewingThroughSeq} provisional={hasLater ? undefined : capture.provisional}
+          selected={selected} onSelect={togglePassage}
+          flow={hasLater ? undefined : reviewing ? "Reviewing" : active ? "Listening" : undefined}
+          routeError={hasLater ? undefined : routeError}
+          retry={retryRange ? () => routeSelection(retryRange) : undefined} busy={view.busy} />
       </>}
     </div>
     {log && <div className="ct-live-toolbar ct-live-paging">
@@ -313,7 +317,7 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
         if (await view.mutate(signal => api.save("Live Transcript selection", selectedText, signal))) setFeedback("Selection saved to Memory.");
       }}>Save to Memory</button>
       {status?.trigger === "manual" && <button type="button" className="ct-live-ghost" disabled={view.busy || !routeRange}
-        onClick={() => { if (routeRange) void view.mutate(signal => api.route(routeRange, signal)); }}>Route selection</button>}
+        onClick={() => { if (routeRange) routeSelection(routeRange); }}>Route selection</button>}
       <button type="button" className="ct-live-icon ct-live-selection-clear" aria-label="Clear selection"
         onClick={() => setSelected(new Set())}><X size={13} aria-hidden /></button>
     </div>}
@@ -346,6 +350,184 @@ function captureLabel(phase: PanelProps["capture"]["phase"]): string {
 
 function clock(milliseconds: number) {
   return new Date(milliseconds).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+}
+
+function threadTime(milliseconds: number, seconds = false) {
+  return new Date(milliseconds).toLocaleTimeString([], {
+    hour: "2-digit", minute: "2-digit", second: seconds ? "2-digit" : undefined, hourCycle: "h23",
+  });
+}
+
+function TranscriptThread({ api, rows, forwards, acked, reviewingThroughSeq, provisional, selected, onSelect, flow, routeError, retry, busy }: {
+  api: LiveTranscriptApi;
+  rows?: TranscriptRow[];
+  forwards?: TranscriptForward[];
+  acked?: number;
+  reviewingThroughSeq?: number | null;
+  provisional?: string;
+  selected: ReadonlySet<number>;
+  onSelect: (segments: TranscriptPassage["segments"]) => void;
+  flow?: "Listening" | "Reviewing";
+  routeError?: string | null;
+  retry?: () => void;
+  busy: boolean;
+}) {
+  const [openThoughts, setOpenThoughts] = useState<string>();
+  const items = useMemo(() => groupPassages(rows ?? [], forwards, acked, { reviewingThroughSeq, provisional }),
+    [rows, forwards, acked, reviewingThroughSeq, provisional]);
+  let latestPending: TranscriptPassage | undefined;
+  for (const item of items) {
+    if (item.kind === "passage" && item.state === "pending") latestPending = item;
+  }
+  const statusLine = routeError ? <RouteError error={routeError} retry={retry} busy={busy} /> :
+    flow && <div className="ct-live-flow" role="status"><span aria-hidden>●</span> {flow}</div>;
+
+  function renderPassage(passage: TranscriptPassage) {
+    const { forward } = passage;
+    return <Passage key={passage.id} passage={passage} selected={selected} onSelect={() => onSelect(passage.segments)}>
+      {forward && <ForwardReceipt key={forward.forwardId} api={api} forward={forward}
+        thoughtsOpen={openThoughts === passage.id}
+        onThoughts={open => setOpenThoughts(open ? passage.id : undefined)} />}
+      {latestPending === passage && statusLine}
+    </Passage>;
+  }
+
+  return <div className="ct-live-thread">
+    {items.map(item => {
+      if (item.kind === "passage") return renderPassage(item);
+      if (item.kind === "collapsed_not_sent") return <CollapsedRemarks key={item.id} passages={item.passages} renderPassage={renderPassage} />;
+      return <div key={item.id} className="ct-live-marker">
+        <span>{item.kind === "paused" ? "Paused" : "Resumed"} · {threadTime(item.atMs)}</span>
+      </div>;
+    })}
+    {!latestPending && routeError && statusLine}
+  </div>;
+}
+
+function CollapsedRemarks({ passages, renderPassage }: {
+  passages: TranscriptPassage[];
+  renderPassage: (passage: TranscriptPassage) => ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return <>
+    <button type="button" className="ct-live-remarks" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
+      {passages.length} remarks not sent <span aria-hidden>{expanded ? "⌄" : "›"}</span>
+    </button>
+    {expanded && passages.map(renderPassage)}
+  </>;
+}
+
+function Passage({ passage, selected, onSelect, children }: {
+  passage: TranscriptPassage;
+  selected: ReadonlySet<number>;
+  onSelect: () => void;
+  children: ReactNode;
+}) {
+  const { segments, state, provisional } = passage;
+  const first = segments[0];
+  const last = segments[segments.length - 1];
+  const anySelected = segments.some(({ seq }) => selected.has(seq));
+  const checked = anySelected && segments.every(({ seq }) => selected.has(seq));
+  const time = first && threadTime(first.atMs, true);
+  const label = first && `Select passage at ${time} (${first === last ? `segment ${first.seq}` : `segments ${first.seq}–${last.seq}`})`;
+  return <article className="ct-live-passage" data-state={state} data-selected={anySelected}>
+    {first && <input type="checkbox" checked={checked} onChange={onSelect} aria-label={label}
+      ref={node => { if (node) node.indeterminate = anySelected && !checked; }} />}
+    <div className="ct-live-passage-content">
+      <div className="ct-live-passage-body">
+        {first && <>
+          <time className="ct-live-passage-time" dateTime={new Date(first.atMs).toISOString()}>{time}</time>
+          <button type="button" className="ct-live-passage-time-button" onClick={onSelect}
+            aria-label={label} aria-pressed={checked}>{time}</button>
+        </>}
+        {state === "not_sent" && <span className="sr-only">Not sent</span>}
+        <p className="ct-live-passage-text">
+          {segments.map(({ seq, text }, index) => <Fragment key={seq}>
+            {index > 0 && " "}<span data-seq={seq}>{text}</span>
+          </Fragment>)}
+          {provisional && <>{first && " "}<span className="ct-live-draft"><span className="sr-only">Live draft </span>{provisional}</span></>}
+        </p>
+      </div>
+      {children}
+    </div>
+  </article>;
+}
+
+function RouteError({ error, retry, busy }: { error: string; retry?: () => void; busy: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  return <div className="ct-live-delivery">
+    <div className="ct-live-receipt">
+      <span className="ct-live-not-delivered" role="status"><span aria-hidden>●</span> Not delivered</span>
+      <button type="button" onClick={retry} disabled={busy || !retry}
+        title={!retry ? "Retry is unavailable for this route" : undefined}>Retry</button>
+      <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>Details <span aria-hidden>›</span></button>
+    </div>
+    {expanded && <p className="ct-live-receipt-details" role="alert">{error}</p>}
+  </div>;
+}
+
+function useClippedReceipt(text: string, expanded: boolean) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [clipped, setClipped] = useState(false);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || expanded) return;
+    const measure = () => setClipped(element.scrollHeight > element.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [text, expanded]);
+  return { ref, clipped };
+}
+
+function SentText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const { ref, clipped } = useClippedReceipt(text, expanded);
+  return <>
+    <strong>What was sent</strong>
+    <p ref={ref} className="ct-live-sent-text" data-expanded={expanded}>{text}</p>
+    {(clipped || expanded) && <button type="button" onClick={() => setExpanded(value => !value)} aria-expanded={expanded}>
+      {expanded ? "Show less" : "Show all"}
+    </button>}
+  </>;
+}
+
+function ForwardReceipt({ api, forward, thoughtsOpen, onThoughts }: {
+  api: LiveTranscriptApi;
+  forward: TranscriptForward;
+  thoughtsOpen: boolean;
+  onThoughts: (open: boolean) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const store = useMuxStateStore();
+  const tab = useMuxSelector(state => state.tabs[forward.targetTabId]);
+  const title = tab && isSidebarTabVisible(tab) ? displayTitleForTab(tab) : forward.targetTitle;
+  return <>
+    <span className="sr-only">Sent to {title}</span>
+    <div className="ct-live-receipt">
+      <CornerDownRight size={13} aria-hidden />
+      <span>Sent to <button type="button" className="ct-live-receipt-target"
+        onClick={() => focusTab(forward.targetTabId, workspaceOfTab(store.getState(), forward.targetTabId))}>{title}</button></span>
+      <span aria-hidden>·</span>
+      <time dateTime={new Date(forward.atMs).toISOString()}>{threadTime(forward.atMs)}</time>
+      <span aria-hidden>·</span>
+      <button type="button" aria-expanded={expanded} onClick={() => {
+        if (expanded && thoughtsOpen) onThoughts(false);
+        setExpanded(!expanded);
+      }}>Details <span aria-hidden>›</span></button>
+    </div>
+    {expanded && <div className="ct-live-receipt-details">
+      <SentText text={forward.sentText} />
+      {forward.rationale && <p className="ct-live-receipt-rationale">{forward.rationale}</p>}
+      {forward.epochId ? <>
+        <button type="button" aria-expanded={thoughtsOpen} onClick={() => onThoughts(!thoughtsOpen)}>
+          Thoughts <span aria-hidden>›</span>
+        </button>
+        {thoughtsOpen && <LiveTranscriptThoughts key={forward.epochId} api={api} epoch={forward.epochId} onClose={() => onThoughts(false)} />}
+      </> : <span className="ct-live-muted">Reasoning unavailable</span>}
+    </div>}
+  </>;
 }
 
 function contiguousSpeechRange(rows: TranscriptRow[]) {
