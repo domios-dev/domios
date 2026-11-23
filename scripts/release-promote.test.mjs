@@ -84,7 +84,7 @@ test('invalid concurrency refuses without starting work', async () => {
   }
 });
 
-import { QUALIFICATION_JOBS, verifyQualification, selectQualificationArtifact, selectReleasePushRun,
+import { QUALIFICATION_JOBS, RELEASE_CLIPPY_JOB, verifyQualification, selectQualificationArtifact, selectReleasePushRun,
   requireQualification } from './ci-qualification.mjs';
 import { isReleasePushRun, checkQualifiedRun, REQUIRED_JOBS } from './release-promote.mjs';
 import { requireQualificationWithGithub, requireReleasePrQualification } from './ci-workflow-api.mjs';
@@ -105,6 +105,8 @@ const qualifiedJobs = QUALIFICATION_JOBS.map((name, index) => ({ id: index + 1, 
   runner_name: 'builder', labels: ['hosted'], started_at: '2026-11-15T00:00:01Z',
   completed_at: '2026-11-15T00:00:03Z', steps: [{ name: 'Execute', number: 1,
     status: 'completed', conclusion: 'success', started_at: '2026-11-15T00:00:01Z', completed_at: '2026-11-15T00:00:03Z' }] }));
+const fullSuite = qualifiedJobs.find(job => job.name === 'Rust tests / rust tests (full suite)');
+fullSuite.steps.push({ ...fullSuite.steps[0], name: 'Clippy app release gate', number: 2 });
 const receipt = { version: 2, sha, run_id: run.id, run_attempt: 1, repository, workflow: run.path,
   results: { fast: 'success', rust: 'success', warnings: 'success' },
   rust: [['full', 'Linux'], ['embeddings', 'macOS'], ['platform', 'macOS'], ['platform', 'Windows']]
@@ -148,7 +150,10 @@ test('qualification preserves execution receipts, warnings, attempt and SHA guar
     assert.throws(() => verify({ ...receipt, ...changed }));
   for (const changed of [{ run_id: 999 }, { run_attempt: 2 }, { head_sha: 'b'.repeat(40) }, { conclusion: 'failure' }])
     assert.throws(() => verify(receipt, run, qualifiedJobs.map((job, i) => i === 0 ? { ...job, ...changed } : job)));
-  assert.throws(() => verify(receipt, { ...run, run_attempt: 2 }, qualifiedJobs, [run]), /attempt history/);
+  assert.throws(() => verify(receipt, { ...run, run_attempt: 2 }, qualifiedJobs, [run]), /Foreign or ambiguous qualification execution inventory/);
+  assert.throws(() => verify(receipt, run, qualifiedJobs, []), /attempt history/);
+  assert.throws(() => verify(receipt, run, qualifiedJobs.map(job => job === fullSuite
+    ? { ...job, steps: job.steps.slice(0, 1) } : job)), /Missing green release Clippy/);
 });
 
 const artifact = { id: 1, name: `qualification-${sha}`, expired: false, expires_at: '2099-01-01T00:00:00Z',
@@ -176,16 +181,16 @@ test('CLI qualification reader requests artifacts only from the pinned run', () 
 });
 
 const actions = { listWorkflowRunArtifacts: async () => ({ data: { artifacts: [artifact] } }),
-  getWorkflowRun: async () => ({ data: run }),
-  listJobsForWorkflowRun: async () => ({ data: { jobs: qualifiedJobs, total_count: qualifiedJobs.length } }),
-  getWorkflowRunAttempt: async () => ({ data: run }), downloadArtifact: async () => ({ data: receipt }) };
+  getWorkflowRun: async () => ({ data: run }), downloadArtifact: async () => ({ data: receipt }) };
 const context = { repo: { owner: 'domios-dev', repo: 'domios' }, eventName: 'pull_request',
   payload: { pull_request: { number: 7, state: 'open', base: { ref: 'master' }, user: { login: 'rollacode' },
     head: { sha, ref: branch, repo: { full_name: repository } } } } };
 
 test('GitHub qualification reader pins both artifact lookup and provenance to the requested run', async () => {
   let lookup;
-  const github = { rest: { actions: { ...actions,
+  const github = { request: async route => ({ data: route.includes('/jobs?')
+    ? { jobs: qualifiedJobs, total_count: qualifiedJobs.length } : run }),
+  rest: { actions: { ...actions,
     listWorkflowRunArtifacts: async args => { lookup = args; return { data: { artifacts: [artifact] } }; },
     listArtifactsForRepo: () => assert.fail('repository-wide lookup'),
   } } };
@@ -194,6 +199,80 @@ test('GitHub qualification reader pins both artifact lookup and provenance to th
   assert.equal(lookup.run_id, run.id);
   assert.equal(verified.run_id, run.id);
   await assert.rejects(requireQualificationWithGithub(github, context, sha, { runId: 999 }), /No unexpired/);
+});
+
+test('both qualification readers page the latest attempt and prove an inherited execution at its exact origin', async () => {
+  const full = { ...fullSuite, steps: fullSuite.steps.slice(0, 1) };
+  const intermediate = { ...run, run_attempt: 2, run_started_at: '2026-11-15T01:00:00Z' };
+  const currentRun = { ...run, run_attempt: 3, run_started_at: '2026-11-15T02:00:00Z' };
+  const latest = [...qualifiedJobs, { ...qualifiedJobs[0], name: RELEASE_CLIPPY_JOB }].map((job, index) => {
+    const row = { ...job, id: 100 + index, run_attempt: 3 };
+    if (job === fullSuite) return { ...row, steps: full.steps };
+    const started_at = '2026-11-15T02:00:01Z', completed_at = '2026-11-15T02:00:03Z';
+    return { ...row, started_at, completed_at, steps: job.steps.map(step => ({ ...step, started_at, completed_at })) };
+  });
+  for (let index = 0; index < 10; index++) {
+    latest.push({ ...latest[0], id: 200 + index, name: `additional job ${index}` });
+  }
+  const earlier = Array.from({ length: 20 }, (_, index) =>
+    ({ ...qualifiedJobs[0], id: 1000 + index, name: `earlier job ${index}` })).concat(full);
+  const rerunReceipt = { ...receipt, run_attempt: 3,
+    rust: receipt.rust.map(row => ({ ...row, run_attempt: row.mode === 'full' ? 1 : 3 })) };
+  const root = `repos/${repository}/actions/runs/${run.id}`;
+  const latestPages = [1, 2].map(page => `${root}/jobs?filter=latest&per_page=20&page=${page}`);
+  const originPages = [1, 2].map(page => `${root}/attempts/1/jobs?per_page=20&page=${page}`);
+  const request = (routes, { origin = earlier, current = latest, readback = currentRun } = {}) => {
+    let readRun = false;
+    return route => {
+      routes.push(route);
+      if (route.startsWith(`${root}/artifacts?`)) return { artifacts: [artifact] };
+      if (route === root) {
+        if (readRun) return readback;
+        readRun = true;
+        return currentRun;
+      }
+      if (route === `${root}/attempts/3`) return currentRun;
+      if (route === `${root}/attempts/2`) return intermediate;
+      if (route === `${root}/attempts/1`) return run;
+      for (const [pages, rows] of [[latestPages, current], [originPages, origin]]) {
+        const index = pages.indexOf(route);
+        if (index >= 0) return { jobs: rows.slice(index * 20, (index + 1) * 20), total_count: rows.length };
+      }
+      assert.fail(`Unexpected qualification request: ${route}`);
+    };
+  };
+  const cli = async (req, evidence) => requireQualification(sha, { repository, runId: run.id, request: req,
+    readArchive: value => value, retain: value => value, download: () => evidence });
+  const hosted = (req, evidence) => requireQualificationWithGithub({
+    request: async route => ({ data: req(route.slice('GET /'.length)) }),
+    rest: { actions: { ...actions, getWorkflowRun: async () => ({ data: req(root) }),
+      downloadArtifact: async () => ({ data: evidence }) } },
+  }, context, sha, { runId: run.id, readArchive: value => value, retain: value => value });
+
+  for (const reader of [cli, hosted]) {
+    const routes = [];
+    const verified = await reader(request(routes), rerunReceipt);
+    assert.equal(verified.verified_run_attempt, 3);
+    assert.equal(verified.verification_artifact.id, artifact.id);
+    const inherited = verified.verified_jobs.find(row => row.name === full.name);
+    assert.equal(inherited.run_attempt, 3);
+    assert.equal(inherited.execution_id, full.id);
+    assert.equal(inherited.execution_run_attempt, 1);
+    assert.equal(verified.verified_jobs.find(row => row.name === RELEASE_CLIPPY_JOB).execution_run_attempt, 3);
+    assert.deepEqual(routes.filter(route => route.includes('/jobs?')), [...latestPages, ...originPages]);
+
+    await assert.rejects(reader(request([]), { ...rerunReceipt, repository: 'fork/domios' }), /Foreign or stale/);
+    await assert.rejects(reader(request([]), { ...rerunReceipt, run_attempt: 2 }), /Stale qualification receipt/);
+    await assert.rejects(reader(request([], { origin: earlier.slice(0, -1) }), rerunReceipt), /Missing or ambiguous retained/);
+    await assert.rejects(reader(request([], { origin: [...earlier, { ...full, id: 900 }] }), rerunReceipt), /ambiguous qualification/);
+    await assert.rejects(reader(request([], { current: latest.map(row => ({ ...row, run_attempt: 2 })) }), rerunReceipt), /Foreign or ambiguous/);
+    await assert.rejects(reader(request([], { current: latest.filter(row => row.name !== RELEASE_CLIPPY_JOB) }),
+      rerunReceipt), /Missing green release Clippy/);
+    await assert.rejects(reader(request([], { readback: { ...currentRun, run_attempt: 4 } }), rerunReceipt), /Superseded qualification/);
+    const incomplete = request([]);
+    await assert.rejects(reader(route => route === latestPages[1] ? { jobs: [], total_count: latest.length }
+      : incomplete(route), rerunReceipt), /inventory exceeds bound or is incomplete/);
+  }
 });
 
 test('hosted PR reader checks current release head and delegates the exact selected push run', async () => {
@@ -288,7 +367,7 @@ test('explicit test waiver admits the failed exact run with six green builds and
 
 test('waivers refuse build/sign names, aggregate names, unknown names, duplicates, wrong runs and non-failing tests', () => {
   for (const name of ['Release packaging / Windows arm64 / build and sign', 'Fast checks / frontend producer',
-    'CI result', 'unknown test']) {
+    RELEASE_CLIPPY_JOB, 'CI result', 'unknown test']) {
     const input = waivedFixture();
     input.waiver.jobs = [name];
     assert.throws(() => verifyTestWaiver(input), /only exact test jobs/);
@@ -306,6 +385,7 @@ test('unnamed failures, incomplete builds, cancellation, foreign authority and m
     input => { input.jobs.find(job => job.name === 'Fast checks / ts vitest').conclusion = 'failure'; },
     input => { input.jobs.find(job => job.name.startsWith('Release packaging / Windows arm64')).conclusion = 'failure'; },
     input => { input.jobs.find(job => job.name.startsWith('Release packaging / macOS x64')).conclusion = 'skipped'; },
+    input => input.jobs.push({ ...qualifiedJobs[0], id: 900, name: RELEASE_CLIPPY_JOB, conclusion: 'skipped' }),
     input => { input.jobs = input.jobs.filter(job => !job.name.startsWith('Release packaging / Linux arm64')); },
     input => { input.jobs.find(job => job.name === 'CI result').steps[0].name = 'Checkout'; },
     input => { input.run.conclusion = 'cancelled'; },
