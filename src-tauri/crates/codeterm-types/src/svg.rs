@@ -2,7 +2,7 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::{Reader, Writer};
 
 pub const MAX_SVG_BYTES: usize = 8 * 1024;
-pub(crate) const MAX_CHAT_TILE_BYTES: usize = 64 * 1024;
+pub const MAX_CHAT_TILE_BYTES: usize = 64 * 1024;
 
 mod gradient;
 
@@ -143,6 +143,7 @@ fn sanitized_element(
         return None;
     }
     let mut has_view_box = false;
+    let mut has_namespace = false;
     for attribute in element.attributes().with_checks(true) {
         let attribute = attribute.ok()?;
         let key = std::str::from_utf8(attribute.key.as_ref())
@@ -154,15 +155,17 @@ fn sanitized_element(
         {
             value = value.replace(['\t', '\r', '\n'], " ");
         }
-        let valid = if usage == SvgUse::ChatTile && key == "transform" {
-            gradient::transform(&value)
-        } else {
-            allowed_attribute(name, &key)
-                && if gradient::definition(name) {
-                    gradient::attribute_value(&key, &value)
-                } else {
-                    allowed_attribute_value(&key, &value)
-                }
+        let valid = match (usage, key.as_str()) {
+            (SvgUse::ChatTile, "transform") => gradient::transform(&value),
+            (SvgUse::ChatTile, "stroke-dasharray") => valid_dash_array(&value),
+            _ => {
+                allowed_attribute(name, &key)
+                    && if gradient::definition(name) {
+                        gradient::attribute_value(&key, &value)
+                    } else {
+                        allowed_attribute_value(&key, &value)
+                    }
+            }
         };
         if !valid {
             return None;
@@ -175,12 +178,18 @@ fn sanitized_element(
                 continue;
             }
             has_view_box |= key == "viewBox";
+            has_namespace |= key == "xmlns";
         }
         references.observe(&key, &value)?;
         output.push_attribute((key.as_str(), value.as_str()));
     }
-    if usage == SvgUse::ChatTile && name == "svg" && !has_view_box {
-        return None;
+    if usage == SvgUse::ChatTile && name == "svg" {
+        if !has_view_box {
+            return None;
+        }
+        if !has_namespace {
+            output.push_attribute(("xmlns", "http://www.w3.org/2000/svg"));
+        }
     }
     Some(output)
 }
@@ -248,6 +257,22 @@ fn allowed_attribute_value(attribute: &str, value: &str) -> bool {
 
 fn finite_number(value: &str) -> bool {
     value.parse::<f64>().ok().is_some_and(f64::is_finite)
+}
+
+fn valid_dash_array(value: &str) -> bool {
+    let mut count = 0;
+    let mut positive = false;
+    for part in value.split([',', ' ']).filter(|part| !part.is_empty()) {
+        let Ok(length) = part.parse::<f64>() else {
+            return false;
+        };
+        count += 1;
+        if count > 32 || !(length == 0.0 || (0.25..=4096.0).contains(&length)) {
+            return false;
+        }
+        positive |= length > 0.0;
+    }
+    positive
 }
 
 fn nonnegative_number(value: &str) -> bool {

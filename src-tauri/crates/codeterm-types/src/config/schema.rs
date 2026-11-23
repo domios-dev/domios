@@ -1,8 +1,13 @@
 use ts_rs::TS;
 mod chat_background;
+mod chat_wallpaper;
 mod digests;
 
 pub use chat_background::{ChatBackground, ChatGradient, ChatGradientKind, ChatIcon, ChatPattern};
+pub use chat_wallpaper::{
+    wallpaper_asset_format, ChatWallpaper, WallpaperFill, WallpaperFillMode, WallpaperFillPreset,
+    WallpaperPalette,
+};
 pub use digests::{
     default_digest_rules, DigestCondition, DigestRuleConfig, OrchestrationDigestsConfig,
 };
@@ -29,6 +34,13 @@ pub struct AppConfig {
     pub account: serde_json::Value,
     pub billing: serde_json::Value,
     pub theme: ThemeConfig,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "chat_wallpaper::deserialize"
+    )]
+    #[ts(optional)]
+    pub chat_wallpaper: Option<ChatWallpaper>,
     pub font: FontConfig,
     pub terminal: TerminalConfig,
     pub utility_tabs: UtilityTabsConfig,
@@ -90,6 +102,7 @@ impl Default for AppConfig {
             account: serde_json::json!({}),
             billing: serde_json::json!({"provider": "cloud"}),
             theme: ThemeConfig::default(),
+            chat_wallpaper: None,
             font: FontConfig::default(),
             terminal: TerminalConfig::default(),
             utility_tabs: UtilityTabsConfig::default(),
@@ -218,7 +231,7 @@ impl Default for ApiConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct ThemeConfig {
     pub name: String,

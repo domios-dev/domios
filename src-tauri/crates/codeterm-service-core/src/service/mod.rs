@@ -25,6 +25,7 @@ pub mod agent_pad;
 pub mod agent_runtime;
 pub mod agent_transition;
 pub(crate) mod ai_helper_spawn;
+pub mod chat_wallpaper;
 mod image_attachments;
 pub mod lazy_restore;
 pub mod live_transcript;

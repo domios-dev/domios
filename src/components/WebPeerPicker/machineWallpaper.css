@@ -1,0 +1,73 @@
+.ct-machine-wallpaper-swatch {
+  position: relative;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 20px;
+  overflow: hidden;
+  border-radius: 5px;
+}
+.ct-machine-appearance-actions {
+  display: grid;
+  gap: 2px;
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--ct-border);
+}
+.ct-machine-appearance-confirm, .ct-machine-appearance-receipt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+.ct-machine-appearance-confirm span, .ct-machine-appearance-receipt span { flex-basis: 100%; }
+.ct-machine-appearance-actions button:is(:focus-visible, :hover) { color: var(--ct-accent); }
+.ct-machine-appearance-confirm button, .ct-machine-appearance-receipt button { color: var(--ct-accent); }
+.ct-machine-wallpaper-ask { gap: 6px; color: var(--ct-accent); }
+.ct-peer-menu[data-wallpaper-tint] {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--ct-wallpaper-identity) 7%, transparent), transparent 45%
+  );
+}
+.ct-machine-switch-notice {
+  position: fixed;
+  inset: calc(3.15rem + var(--ct-safe-top, 0px)) 50% auto auto;
+  z-index: 60;
+  translate: 50% 0;
+  padding: 7px 13px;
+  border: 1px solid var(--ct-border);
+  border-radius: 999px;
+  background: var(--ct-bg-elev);
+  color: var(--ct-fg);
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: var(--ct-shadow-capsule);
+  animation: ct-machine-notice 2660ms both;
+}
+.ct-machine-switch-notice:hover { animation-play-state: paused; }
+.ct-machine-copy-notice {
+  inset-block-start: calc(5.5rem + var(--ct-safe-top, 0px));
+  display: flex;
+  gap: 8px;
+  animation: ct-machine-notice-discrete 8s step-end both;
+}
+.ct-machine-copy-notice button { color: var(--ct-accent); }
+.ct-machine-copy-notice[data-busy] { animation-play-state: paused; }
+.ct-machine-label-transition {
+  position: absolute;
+  pointer-events: none;
+  animation: ct-machine-notice-discrete 100ms step-end both;
+}
+@keyframes ct-machine-notice {
+  0%, 4.51% { opacity: 0; transform: translateY(-6px); animation-timing-function: var(--ct-ease-decel); }
+  11.28% { opacity: 1; transform: translateY(0); }
+  93.98% { opacity: 1; transform: translateY(0); animation-timing-function: ease-in; }
+  100% { opacity: 0; transform: translateY(-4px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-machine-switch-notice { animation: ct-machine-notice-discrete 2500ms step-end both; }
+  .ct-machine-copy-notice { animation-duration: 8s; }
+  .ct-machine-label-transition { animation-duration: 1ms; }
+}
+@keyframes ct-machine-notice-discrete { from { opacity: 1; } to { opacity: 0; } }

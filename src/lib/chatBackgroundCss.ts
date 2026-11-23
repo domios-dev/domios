@@ -6,7 +6,7 @@ const DEFAULT_SCALE = 20;
 const DOODLE_SCALE = 360;
 const DEFAULT_OPACITY = { light: 0.035, dark: 0.028 };
 const DOODLE_OPACITY = { light: 0.09, dark: 0.085 };
-const MAX_OPACITY = 0.12;
+const MAX_OPACITY = 0.24;
 const GRADIENT_OPACITY = 0.08;
 const hexColor = /^#[0-9a-f]{6}$/i;
 
@@ -85,6 +85,21 @@ function svgTile(art: string, scale: number, color: string, opacity: number, ang
   const middle = scale / 2;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${scale} ${scale}"><g color="${color}" fill="${color}" opacity="${opacity}" transform="rotate(${angle} ${middle} ${middle})">${art}</g></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 0 0 / ${scale}px ${scale}px repeat`;
+}
+
+export function chatPatternTile(background: NonNullable<ThemeConfig["chat_background"]>, scale: number): string | undefined {
+  let art = background.svg;
+  if (background.pattern === "doodles") art = CHAT_DOODLES;
+  if (background.pattern === "icon") {
+    const glyph = glyphs[background.icon ?? "cat"];
+    if (typeof glyph !== "string") return undefined;
+    art = `<svg x="25%" y="25%" width="50%" height="50%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${glyph}</svg>`;
+  }
+  if (!art) return undefined;
+  const middle = scale / 2;
+  const angle = bounded(background.rotation, -360, 360, 0);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${scale} ${scale}"><g transform="rotate(${angle} ${middle} ${middle})">${art}</g></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
 function bounded(value: number | undefined, min: number, max: number, fallback: number): number {

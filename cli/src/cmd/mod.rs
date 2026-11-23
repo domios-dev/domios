@@ -99,6 +99,7 @@ pub mod todo;
 pub mod trace;
 pub mod update;
 pub mod usage;
+pub mod wallpaper;
 pub mod web;
 pub mod worker;
 mod workspace_map;

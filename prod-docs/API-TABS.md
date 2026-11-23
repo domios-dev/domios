@@ -158,6 +158,8 @@ Webhook events: `agent.permission_request`, `agent.task_complete`, `agent.report
 
 Custom themes are `.toml` files in `~/.domios/themes/` on every platform.
 
+Owner-authenticated `PUT /api/chat-wallpaper` sets the per-machine wallpaper with `{wallpaper}`. Pass `null` to restore the theme. `GET /api/chat-wallpaper/appearance` returns the current theme and wallpaper, and `PUT` at the same path applies `{mutating, expected}` atomically when the current look matches `expected`.
+
 #### Mesh Networking
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -230,4 +232,4 @@ Session changes retain caller and binding checks. Provider hook ingress methods:
 
 `POST /api/tabs` with `cmd` returns the created tab id and `command_submission`. `submitted` is backed by a shell command-start mark. Once bytes are queued, absent confirmation returns success with `submit_unconfirmed`, `bytes_written: true` and the exact PTY id; never replay it. Proven pre-write failure remains an error. Use `tab exec` for final completion and exit status.
 
-<!-- revision: 73 -->
+<!-- revision: 74 -->

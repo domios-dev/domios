@@ -13,6 +13,15 @@ pub enum ChatPattern {
     Icon,
     Svg,
     Doodles,
+    Domios,
+    Space,
+    Math,
+    Botanical,
+    Retro,
+    Geometry,
+    Sketch,
+    Circuits,
+    Image,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -36,6 +45,9 @@ pub struct ChatBackground {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub colors: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub rotation: Option<f64>,
@@ -73,14 +85,14 @@ pub(super) fn deserialize<'de, D: Deserializer<'de>>(
     Option::<ChatBackground>::deserialize(deserializer)
         .map_err(|error| D::Error::custom(format_args!("chat_background: {error}")))?
         .map(|mut background| {
-            background.validate().map_err(D::Error::custom)?;
+            background.validate(false).map_err(D::Error::custom)?;
             Ok(background)
         })
         .transpose()
 }
 
 impl ChatBackground {
-    fn validate(&mut self) -> Result<(), &'static str> {
+    pub(super) fn validate(&mut self, has_asset: bool) -> Result<(), &'static str> {
         if self.scale.is_some_and(|value| !(8..=512).contains(&value)) {
             return Err("chat_background.scale must be between 8 and 512 px");
         }
@@ -93,6 +105,11 @@ impl ChatBackground {
         if self.color.as_deref().is_some_and(|value| !hex_color(value)) {
             return Err("chat_background.color must be #rrggbb");
         }
+        if self.colors.as_ref().is_some_and(|stops| {
+            !(1..=3).contains(&stops.len()) || !stops.iter().all(|stop| hex_color(stop))
+        }) {
+            return Err("chat_background.colors must contain one to three #rrggbb colors");
+        }
         if self.rotation.is_some_and(|value| !valid_angle(value)) {
             return Err("chat_background.rotation must be between -360 and 360 degrees");
         }
@@ -100,17 +117,21 @@ impl ChatBackground {
             return Err("chat_background.icon requires pattern = 'icon'");
         }
         match (self.pattern, self.svg.as_deref()) {
-            (ChatPattern::Svg, Some(source)) => {
+            (ChatPattern::Svg, Some(source)) if !has_asset => {
                 self.svg =
                     Some(sanitize_svg(source.as_bytes(), SvgUse::ChatTile).ok_or(
                         "chat_background.svg must be a safe, static SVG tile with a viewBox",
                     )?);
             }
+            (ChatPattern::Svg, None) if has_asset => {}
             (ChatPattern::Svg, None) => {
                 return Err("chat_background.svg is required for pattern = 'svg'")
             }
             (_, Some(_)) => return Err("chat_background.svg requires pattern = 'svg'"),
             _ => {}
+        }
+        if self.pattern == ChatPattern::Image && !has_asset {
+            return Err("chat_background.image requires a stored wallpaper asset");
         }
         if let Some(gradient) = &self.gradient {
             gradient.validate()?;

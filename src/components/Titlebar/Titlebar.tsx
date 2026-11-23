@@ -121,7 +121,7 @@ export function Titlebar({
       )}
 
       <div className="ct-titlebar-machine flex h-full min-w-0 items-center px-1 sm:px-2">
-        <WebPeerPicker compact />
+        <WebPeerPicker compact onOpenWallpaper={onOpenSettings && !locked ? () => onOpenSettings("chat-wallpaper") : undefined} />
       </div>
 
       <div
