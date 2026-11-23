@@ -3,10 +3,6 @@
   gap: 12px;
 }
 
-.ct-machine-switcher[data-filtered] {
-  box-shadow: inset 0 0 0 1px var(--ct-accent);
-}
-
 .ct-peer-menu .ct-machine-menu-row {
   padding-inline: calc(var(--spacing) * 2);
 }
