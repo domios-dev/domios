@@ -571,6 +571,14 @@ Read a stored proposal and its measured contrast
 - `<id>`
 - `--machine`
 
+#### `domios appearance tweak`
+
+Apply tuning controls immediately from this machine's bound General Main session
+
+- `--from-pad` — Tuning-only TOML in your Agent Pad
+- `--machine`
+- `--revision` — Revision returned by appearance current
+
 #### `domios appearance undo`
 
 Restore the look that was active before applying this proposal
