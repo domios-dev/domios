@@ -76,6 +76,7 @@ export function wallpaperRenderStyle(
   light: boolean,
   assetUrl?: string,
   identity?: MachineColor,
+  intensityMultiplier = 1,
 ): Record<string, string> {
   if (setting?.asset && (!assetUrl || !assetUrl.startsWith("blob:"))) {
     return wallpaperRenderStyle(theme, undefined, light, undefined, identity);
@@ -93,7 +94,9 @@ export function wallpaperRenderStyle(
   if (pattern === "none") return backdrop(fillStyle);
 
   const painted = palette !== undefined || Boolean(background.colors?.length || background.color);
-  const opacity = bounded(background.opacity, 0, pattern === "image" ? 0.30 : 0.24, wallpaperDefaultOpacity(pattern, light, painted));
+  const opacity = Math.min(1, intensityMultiplier * bounded(
+    background.opacity, 0, pattern === "image" ? 0.30 : 0.24, wallpaperDefaultOpacity(pattern, light, painted),
+  ));
   if (pattern === "image" && assetUrl) {
     const scrim = `color-mix(in srgb, var(--ct-bg) ${Math.round((1 - opacity) * 100)}%, transparent)`;
     return backdrop(`linear-gradient(${scrim}, ${scrim}), url("${assetUrl}") center / cover no-repeat`);

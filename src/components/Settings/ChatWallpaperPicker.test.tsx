@@ -13,7 +13,8 @@ vi.mock("../../lib/chatWallpaperClient", () => ({
 
 it("persists the selected art and colours, and keeps the current wallpaper on upload refusal", async () => {
   client.saveWallpaper.mockResolvedValue(undefined);
-  client.uploadWallpaper.mockRejectedValue(new Error("Choose a valid static SVG."));
+  const refusal = "It contains a script. Remove all script elements and save the SVG again.";
+  client.uploadWallpaper.mockRejectedValue(new Error(refusal));
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -47,7 +48,9 @@ it("persists the selected art and colours, and keeps the current wallpaper on up
     const file = new File(["fixture"], "bad.svg", { type: "image/svg+xml" });
     Object.defineProperty(input, "files", { configurable: true, value: [file] });
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain("bad.svg wasn’t used");
+    const alert = host.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("bad.svg wasn’t used");
+    expect(alert?.textContent).toContain(refusal);
     expect(client.saveWallpaper).toHaveBeenCalledTimes(2);
   } finally {
     await act(async () => root.unmount());
