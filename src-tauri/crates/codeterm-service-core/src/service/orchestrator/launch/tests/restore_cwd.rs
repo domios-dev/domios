@@ -6,7 +6,7 @@ use crate::service::launch_readiness::LaunchAttempt;
 use crate::service::test_fixture::ServiceFixture;
 
 #[test]
-fn overlapping_claude_manager_restores_keep_their_launch_authority_at_the_first_prompt() {
+fn overlapping_manager_restores_keep_their_launch_authority_at_the_first_prompt() {
     let (mut mux, designer) = MultiplexerState::new();
     let workspace = mux.get_active_workspace().unwrap().id.clone();
     let coordinator = mux.create_tab(&workspace).unwrap();
@@ -36,7 +36,7 @@ fn overlapping_claude_manager_restores_keep_their_launch_authority_at_the_first_
     for (tab_id, pty, session, profile, team, parent, cwd, _) in managers {
         mux.link_pty(tab_id, pty.into());
         let tab = mux.get_tab_mut(tab_id).unwrap();
-        tab.agent_type = Some("claude".into());
+        tab.agent_type = Some("fixture-provider".into());
         tab.agent_session_id = Some(session.into());
         tab.restored_from_snapshot = true;
         tab.role = Some(AgentRole::Manager);
@@ -52,7 +52,7 @@ fn overlapping_claude_manager_restores_keep_their_launch_authority_at_the_first_
 
     let pending = managers.map(|(tab_id, pty, session, ..)| {
         let (account, nonce) =
-            account_supervision::prepare(svc, tab_id, "claude", Some(session)).unwrap();
+            account_supervision::prepare(svc, tab_id, "fixture-provider", Some(session)).unwrap();
         let mut launch = LaunchGeneration::begin(tab_id, pty.into());
         launch
             .capture_binding_nonce(
