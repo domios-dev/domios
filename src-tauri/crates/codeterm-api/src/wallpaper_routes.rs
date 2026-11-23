@@ -416,7 +416,7 @@ fn apply_setting(
     if changed && agent {
         crate::appearance_routes::emit_change(state, &config, None, false);
     }
-    publish_config(state, config);
+    publish_config(state, &config);
     Ok(())
 }
 
@@ -454,11 +454,11 @@ fn write_appearance(
             "Wallpaper setting could not be saved",
         )
     })?;
-    publish_config(state, config);
+    publish_config(state, &config);
     Ok(())
 }
 
-fn publish_config(state: &AppState, config: codeterm_types::config::schema::AppConfig) {
+pub(super) fn publish_config(state: &AppState, config: &codeterm_types::config::schema::AppConfig) {
     let payload = serde_json::to_value(config).unwrap_or_default();
     state.svc.ui.emit(
         "config-changed",

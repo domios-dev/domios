@@ -31,6 +31,7 @@ export interface AppearanceProposal {
   id: string;
   machine: AppearanceMachine;
   rationale: string;
+  tweak?: boolean;
   look: AppearanceLook;
   previous: AppearanceLook;
   state: "proposed" | "applied" | "undone";

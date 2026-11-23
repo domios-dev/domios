@@ -46,37 +46,43 @@ async fn body_json(response: Response) -> serde_json::Value {
     serde_json::from_slice(&to_bytes(response.into_body(), 1024).await.unwrap()).unwrap()
 }
 
-#[tokio::test]
-async fn appearance_keeps_proposals_separate_from_the_applied_look_and_undoes_all_fields() {
-    let (mut mux, tab) = MultiplexerState::new();
-    let workspace = mux.find_workspace_for_tab(&tab).unwrap();
+fn bind_general(mux: &mut MultiplexerState, tab: &str, primary: bool) -> String {
+    let workspace = mux.find_workspace_for_tab(tab).unwrap();
     let general = mux.create_tab(&workspace).unwrap();
-    mux.register_alias("general", &general);
+    if primary {
+        mux.register_alias("general", &general);
+    }
     let main = mux.get_tab_mut(&general).unwrap();
     main.agent_type = Some("fixture".into());
-    main.agent_session_id = Some("session-general".into());
-    main.session_binding_nonce = Some("nonce-general".into());
+    main.agent_session_id = Some(format!("session-{general}"));
+    main.session_binding_nonce = Some(format!("nonce-{general}"));
     main.reported_session_binding_nonce = main.session_binding_nonce.clone();
-    main.protected = true;
+    main.protected = primary;
     main.role = Some(codeterm_service_core::multiplexer::types::AgentRole::Manager);
     main.role_profile =
         Some(codeterm_service_core::service::general_agent::GENERAL_AGENT_KIND.into());
+    general
+}
+
+fn tab_token(state: &AppState, tab: &str) -> String {
+    state
+        .svc
+        .frontend_pty_env(Some(tab))
+        .unwrap()
+        .remove("CODETERM_API_TOKEN")
+        .unwrap()
+}
+
+#[tokio::test]
+async fn appearance_keeps_proposals_separate_from_the_applied_look_and_undoes_all_fields() {
+    let (mut mux, tab) = MultiplexerState::new();
+    let general = bind_general(&mut mux, &tab, true);
     let fixture = ServiceFixture::new(mux);
     let state = crate::test_support::app_state(&fixture);
     let owner = "owner-secret";
     state.config.lock().api.token = Some(owner.into());
-    let unprivileged = state
-        .svc
-        .frontend_pty_env(Some(&tab))
-        .unwrap()
-        .remove("CODETERM_API_TOKEN")
-        .unwrap();
-    let general = state
-        .svc
-        .frontend_pty_env(Some(&general))
-        .unwrap()
-        .remove("CODETERM_API_TOKEN")
-        .unwrap();
+    let unprivileged = tab_token(&state, &tab);
+    let general = tab_token(&state, &general);
     let before = codeterm_types::config::schema::AppearanceLook::from_config(&state.config.lock());
     let app = fixture_router(&fixture, state.clone());
     let path = "/api/appearance/local";
@@ -150,6 +156,183 @@ async fn appearance_keeps_proposals_separate_from_the_applied_look_and_undoes_al
         codeterm_types::config::schema::AppearanceLook::from_config(&read()),
         before
     );
+}
+
+async fn appearance_json(response: Response) -> serde_json::Value {
+    serde_json::from_slice(&to_bytes(response.into_body(), 256 * 1024).await.unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn appearance_tweak_requires_authenticated_main_and_rejects_other_fields() {
+    use codeterm_service_core::mesh::{
+        crown::{generate_peer_keypair, sign_request_with_origin},
+        types::{AccessLevel, PairedPeer, RELAY_PROTOCOL_VERSION},
+    };
+    use codeterm_service_core::multiplexer::types::AgentRole;
+
+    let (mut mux, tab) = MultiplexerState::new();
+    mux.get_tab_mut(&tab).unwrap().role = Some(AgentRole::Worker);
+    let main = bind_general(&mut mux, &tab, true);
+    let sibling = bind_general(&mut mux, &tab, false);
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    let owner = "owner-secret";
+    state.config.lock().api.token = Some(owner.into());
+    let (private_key, public_key) = generate_peer_keypair();
+    state.mesh.lock().insert_account_peer_for_test(PairedPeer {
+        instance_id: "peer".into(),
+        instance_name: "Peer".into(),
+        addresses: vec![],
+        api_port: 0,
+        public_key,
+        paired_at: "now".into(),
+        last_seen: None,
+        online: true,
+        is_primary: false,
+        access_level: AccessLevel::Full,
+        domios_version: None,
+        domios_build: None,
+        web_ui: None,
+        relay_protocol_version: RELAY_PROTOCOL_VERSION,
+        consecutive_misses: 0,
+        last_active_ms: None,
+    });
+    let peer = sign_request_with_origin(&private_key, "peer", AuthenticatedOrigin::Owner).unwrap();
+    let general = tab_token(&state, &main);
+    let app = fixture_router(&fixture, state.clone());
+    let current = json_call(&app, &general, "GET", "/api/appearance/local", json!(null)).await;
+    assert_eq!(current.status(), StatusCode::OK);
+    let revision = appearance_json(current).await["revision"].clone();
+    let path = "/api/appearance/local/tweak";
+    let valid = json!({"revision": revision, "toml": "[appearance]\nfont_size = 1"});
+
+    for caller in [
+        owner.to_owned(),
+        peer,
+        tab_token(&state, &tab),
+        tab_token(&state, &sibling),
+    ] {
+        let response = json_call(&app, &caller, "POST", path, valid.clone()).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            body_json(response).await["code"],
+            "appearance_main_required"
+        );
+    }
+    for toml in [
+        "[theme]\nname = 'Another theme'",
+        "[theme]\nblue = '#ffffff'",
+        "[chat_wallpaper.background]\npattern = 'dots'\nopacity = 0.05",
+        "[chat_wallpaper.background]\nsvg = '<svg/>'",
+        "[chat_wallpaper]\nasset = 'new.svg'",
+        "[appearance]\nfont_size = 1\nunrecognized = true",
+        "[chat_wallpaper.background]\nopacity = 0.05",
+    ] {
+        let request = json!({"revision": revision, "toml": toml});
+        let response = json_call(&app, &general, "POST", path, request).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{toml}");
+        let refusal = appearance_json(response).await;
+        assert_eq!(refusal["code"], "appearance_proposal_required", "{toml}");
+        assert!(refusal["message"]
+            .as_str()
+            .unwrap()
+            .contains("domios appearance propose"));
+    }
+    let config = state.config.lock();
+    assert!(config.appearance_proposals.is_empty());
+    assert!(config.appearance.is_none());
+    assert!(config.chat_wallpaper.is_none());
+}
+
+#[tokio::test]
+async fn appearance_tweak_checks_contrast_and_revision_and_undoes_exactly() {
+    use codeterm_types::config::schema::{AppConfig, AppearanceLook};
+
+    let (mut mux, tab) = MultiplexerState::new();
+    let main = bind_general(&mut mux, &tab, true);
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    state.config.lock().chat_wallpaper = Some(
+        serde_json::from_value(json!({
+            "background": {
+                "pattern": "dots", "opacity": 0.08,
+                "gradient": {"kind": "linear", "stops": ["#000000", "#ffffff"]}
+            },
+            "fill_strength": 0.04
+        }))
+        .unwrap(),
+    );
+    let owner = "owner-secret";
+    state.config.lock().api.token = Some(owner.into());
+    let general = tab_token(&state, &main);
+    let before = AppearanceLook::from_config(&state.config.lock());
+    let app = fixture_router(&fixture, state.clone());
+    let base = "/api/appearance/local";
+    let path = format!("{base}/tweak");
+    let current = json_call(&app, &general, "GET", base, json!(null)).await;
+    assert_eq!(current.status(), StatusCode::OK);
+    let revision = appearance_json(current).await["revision"].clone();
+
+    let too_bright = json!({"revision": revision, "toml": "[chat_wallpaper]\nfill_strength = 1.0"});
+    let refused = json_call(&app, &general, "POST", &path, too_bright).await;
+    assert_eq!(refused.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        appearance_json(refused).await["code"],
+        "appearance_contrast"
+    );
+    let settings = fixture.temp.path().join("wallpaper-settings.toml");
+    assert!(!settings.exists());
+    assert_eq!(AppearanceLook::from_config(&state.config.lock()), before);
+
+    let request = json!({"revision": revision, "toml": r#"
+[appearance]
+roundness = 0.4
+shadow_strength = 0.5
+edges = "defined"
+font_size = 1
+
+[chat_wallpaper]
+fill_strength = 0.02
+
+[chat_wallpaper.background]
+opacity = 0.05
+"#});
+    let response = json_call(&app, &general, "POST", &path, request.clone()).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let applied = appearance_json(response).await;
+    assert_eq!(applied["state"], "applied");
+    assert_eq!(applied["tweak"], true);
+    assert_eq!(applied["can_undo"], true);
+    assert_eq!(applied["previous"], serde_json::to_value(&before).unwrap());
+    let mut expected = serde_json::to_value(&before).unwrap();
+    expected["tuning"] =
+        json!({"roundness": 0.4, "shadow_strength": 0.5, "edges": "defined", "font_size": 1});
+    expected["wallpaper"]["fill_strength"] = json!(0.02);
+    expected["wallpaper"]["background"]["opacity"] = json!(0.05);
+    assert_eq!(applied["look"], expected);
+
+    let id = applied["id"].as_str().unwrap();
+    let read =
+        || -> AppConfig { toml::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap() };
+    let saved = read();
+    assert_eq!(saved.appearance_active.as_deref(), Some(id));
+    assert_eq!(
+        serde_json::to_value(AppearanceLook::from_config(&saved)).unwrap(),
+        expected
+    );
+    let stale = json_call(&app, &general, "POST", &path, request).await;
+    assert_eq!(stale.status(), StatusCode::CONFLICT);
+    assert_eq!(body_json(stale).await["code"], "appearance_changed");
+    assert_eq!(read().appearance_proposals.len(), 1);
+
+    let undo = format!("{base}/{id}/undo");
+    let undone = json_call(&app, owner, "POST", &undo, json!(null)).await;
+    assert_eq!(undone.status(), StatusCode::OK);
+    assert_eq!(appearance_json(undone).await["state"], "undone");
+    let restored = read();
+    assert_eq!(restored.appearance_active, None);
+    assert_eq!(AppearanceLook::from_config(&restored), before);
+    assert_eq!(AppearanceLook::from_config(&state.config.lock()), before);
 }
 
 #[tokio::test]
