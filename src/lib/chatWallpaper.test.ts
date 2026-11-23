@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import type { ChatWallpaper } from "../../gen/ChatWallpaper";
-import { effectiveWallpaper, WALLPAPER_PATTERNS, wallpaperRenderStyle } from "./chatWallpaper";
+import { effectiveWallpaper, WALLPAPER_PATTERNS, wallpaperDefaultOpacity, wallpaperRenderStyle } from "./chatWallpaper";
 import { DEFAULT_THEME } from "./themeCss";
+
+// Dots chosen in the picker use the same near-invisible intensity as theme dots.
+assert.equal(wallpaperDefaultOpacity("dots", true, false), 0.035);
+assert.equal(wallpaperDefaultOpacity("dots", false, false), 0.028);
 
 const theme = { ...DEFAULT_THEME, chat_background: { pattern: "grid" } } as const;
 const setting: ChatWallpaper = {
@@ -24,10 +28,6 @@ const unset = wallpaperRenderStyle(DEFAULT_THEME, undefined, false, undefined, "
 assert.equal(unset["--ct-wallpaper-fill"], "none");
 assert.equal(unset["--ct-wallpaper-mask"], "none");
 assert.doesNotMatch(Object.values(unset).join(" "), /ct-machine-/);
-
-const dots: ChatWallpaper = { background: { pattern: "dots" } };
-assert.equal(wallpaperRenderStyle(DEFAULT_THEME, dots, true)["--ct-wallpaper-opacity"], "0.035");
-assert.equal(wallpaperRenderStyle(DEFAULT_THEME, dots, false)["--ct-wallpaper-opacity"], "0.028");
 
 const uploaded: ChatWallpaper = { background: { pattern: "image" }, asset: "f".repeat(64) + ".png" };
 assert.doesNotMatch(wallpaperRenderStyle(theme, uploaded, true, "file:///example.png")["--ct-wallpaper-fill"], /file:/);

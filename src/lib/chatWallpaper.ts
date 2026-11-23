@@ -4,7 +4,7 @@ import type { ChatWallpaper } from "../../gen/ChatWallpaper";
 import type { WallpaperFill } from "../../gen/WallpaperFill";
 import type { WallpaperFillPreset } from "../../gen/WallpaperFillPreset";
 import type { WallpaperPalette } from "../../gen/WallpaperPalette";
-import { CHAT_BACKGROUND_DEFAULT_OPACITY, chatBackgroundToCSS, chatPatternTile } from "./chatBackgroundCss";
+import { chatBackgroundToCSS, chatPatternTile, DOT_OPACITY } from "./chatBackgroundCss";
 import type { MachineColor } from "./machineIdentity";
 import type { ThemeConfig } from "./types";
 
@@ -56,7 +56,7 @@ export function wallpaperPalette(palette: WallpaperPalette | undefined, light: b
 
 export function wallpaperDefaultOpacity(pattern: ChatPattern, light: boolean, painted: boolean): number {
   if (pattern === "image") return 0.30;
-  if (pattern === "dots") return CHAT_BACKGROUND_DEFAULT_OPACITY[light ? "light" : "dark"];
+  if (pattern === "dots") return DOT_OPACITY[light ? "light" : "dark"];
   if (pattern === "svg") return light ? 0.12 : 0.16;
   if (pattern === "grid" || pattern === "icon") return light ? 0.07 : 0.05;
   return painted ? (light ? 0.16 : 0.22) : (light ? 0.09 : 0.085);
