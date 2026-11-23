@@ -5,6 +5,7 @@ import type { AutomationGraph } from "../../components/Automation/types";
 import type { PlanTarget } from "../../components/Canvas/teamViewNavigation";
 import type { MuxStateStore } from "../../store/multiplexer/selectorStore";
 import { mentionScopeForTab, planInMentionScope } from "../mentionSources/scope";
+import type { PeerMentionTab } from "../mentionSources/peerTabs";
 import { blueprintInMentionScope } from "../mentionSources/blueprints";
 import type { MentionScope } from "../composerMentions";
 import type { ScopedPlanBlockRead } from "./scopedPlanBlockRead";
@@ -17,6 +18,8 @@ import { isBrowserSurface } from "../../components/Surface/surfaceIcon";
 export function createMentionHost(ports: {
   mux: Pick<MuxStateStore, "getState" | "subscribe">;
   plans: ValueFeed<readonly Plan[]>;
+  readPeerTab?(id: string): PeerMentionTab | undefined;
+  watchPeerTabs?(changed: () => void): () => void;
   taskReferences?: ScopedPlanBlockRead<ChatMentionValue | null>;
   readGraph(scope: MentionScope, signal: AbortSignal): Promise<AutomationGraph>;
   watchGraph?(scope: MentionScope, changed: () => void): Promise<() => void>;
@@ -44,18 +47,20 @@ export function createMentionHost(ports: {
     const state = ports.mux.getState();
     const scope = mentionScopeForTab(state, tabId);
     let value: ChatMentionValue | null = null;
-    if (scope.workspaceId && kind === "tab") {
-      const tab = state.tabs[id];
+    if ((scope.workspaceId || scope.peerId) && kind === "tab") {
+      const targetId = scope.peerId && !id.startsWith("mesh:") ? `mesh:${scope.peerId}/${id}` : id;
+      const peerTab = ports.readPeerTab?.(targetId);
+      const tab = peerTab?.tab ?? state.tabs[targetId];
       if (tab) {
-        const activity = tabActivity(tab, state.tabStatuses[id]);
+        const activity = tabActivity(tab, peerTab?.status ?? state.tabStatuses[targetId]);
         const surface = surfaceBacking(tab);
-        value = { title: tab.title, kind, id, tabKind: surface ? isBrowserSurface(surface) ? "browser" : "surface" : tab.agent_type ? "agent" : "shell",
+        value = { title: tab.title, kind, id: targetId, tabKind: surface ? isBrowserSurface(surface) ? "browser" : "surface" : tab.agent_type ? "agent" : "shell",
           providerId: tab.agent_type, providerName: ports.providerName?.(tab.agent_type), role: tab.role ?? undefined,
-          workspaceName: state.workspaces.find(ws => ws.id === tab.workspace_id || ws.tabs.includes(id))?.name,
+          workspaceName: peerTab?.workspaceName ?? state.workspaces.find(ws => ws.id === tab.workspace_id || ws.tabs.includes(targetId))?.name,
           activity: activity.kind === "working" ? "working" : activity.kind === "waiting-on-user" ? "waiting" : activity.kind === "failed" ? "error" : "idle" };
-        knownTabs.set(id, value);
+        knownTabs.set(targetId, value);
       } else {
-        const known = knownTabs.get(id);
+        const known = knownTabs.get(targetId);
         if (known) value = { ...known, state: "closed", activity: "idle" };
       }
     } else if (kind === "task" && ports.taskReferences) {
@@ -107,9 +112,10 @@ export function createMentionHost(ports: {
         listeners.add(listener);
         if (!stopSources) {
           const offReferences=ports.taskReferences?.subscribe(notify);
+          const offPeers = ports.watchPeerTabs?.(notify);
           const offMux = watchMentionState(ports.mux, notify, true);
           const offPlans = ports.plans.subscribe(() => { indexes.clear(); planSnapshot = ports.plans.get(); notify(); });
-          stopSources = () => { offMux(); offPlans(); offReferences?.(); };
+          stopSources = () => { offMux(); offPlans(); offReferences?.(); offPeers?.(); };
         }
         return () => {
           listeners.delete(listener);
@@ -149,7 +155,8 @@ export function createMentionHost(ports: {
       if (value.kind === "tab") {
         const tab = state.tabs[value.id];
         const workspace = state.workspaces.find((item) => item.id === tab?.workspace_id || item.tabs.includes(value.id));
-        if (workspace) ports.openTab(workspace.id, value.id);
+        const workspaceId = workspace?.id ?? ports.readPeerTab?.(value.id)?.workspaceId;
+        if (workspaceId) ports.openTab(workspaceId, value.id);
       } else if (value.kind === "blueprint" && scope.workspaceId) ports.openBlueprint(scope.workspaceId, value.teamId ?? null, value.id);
       else if (value.planId) ports.openPlan({ planId: value.planId, taskId: value.targetId, teamId: (value.teamId === undefined ? scope.teamId : value.teamId) ?? undefined });
     },

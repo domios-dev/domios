@@ -1,13 +1,22 @@
 import { baseDaemonTransport } from "../daemonBootstrap";
 import { assertWebRequestContext, IS_WEB, relayTarget, webRequestContext } from "../webApi";
 import { createTransportClient, decodeTransportResponse } from "../transportClient";
+import { classifyTabTarget } from "../remoteTabTransport";
 import type { DictationStartResult } from "../../../gen/DictationStartResult";
 import type { DictationUpdate } from "../../../gen/DictationUpdate";
 
 export const DICTATION_PCM_BYTES = 16_000;
 export const DICTATION_LIMIT_MS = 300_000;
 
+export function remoteDictationUnavailable(tabId?: string): string | null {
+  return classifyTabTarget(tabId).kind === "local" && !relayTarget()
+    ? null
+    : "Dictation is unavailable over Mesh. Open the composer directly on its host machine.";
+}
+
 export function createDictationTransport(session: string, tabId: string) {
+  const unavailable = remoteDictationUnavailable(tabId);
+  if (unavailable) throw new Error(unavailable);
   const owner = baseDaemonTransport();
   const generation = webRequestContext();
   const token = owner.currentToken();

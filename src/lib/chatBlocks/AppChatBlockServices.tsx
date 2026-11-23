@@ -10,7 +10,7 @@ import { useSidebarPlansOptional } from "../../components/Canvas/PlansProvider";
 import { usePlanTargetNavigation, type PlanTarget } from "../../components/Canvas/teamViewNavigation";
 import { requestOpenJob } from "../../components/Jobs/openJobEvent";
 import { fetchStats } from "../../components/MemoryPanel/memoryApi";
-import { useMultiplexer } from "../../store/multiplexer/context";
+import { useMultiplexer, usePairedWorkspaceInventory } from "../../store/multiplexer/context";
 import { useMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { getAgentDescriptor } from "../agentDescriptorCache";
 import { invoke, listen } from "../bridge";
@@ -29,6 +29,8 @@ import type { PlanRead } from "../../components/Canvas/planProjection";
 import { planRevision } from "../../components/Canvas/planProjection";
 import { webRequestContext } from "../webApi";
 import { mentionScopeForTab } from "../mentionSources/scope";
+import { peerMentionTabs, type MentionPeerInventory, type PeerMentionTab } from "../mentionSources/peerTabs";
+import { parseCompositeTabId } from "../remoteTabTransport";
 import { watchMentionState } from "../mentionSources/live";
 import { resolveTabRef } from "./agentBlockState";
 import { createScopedPlanBlockRead } from "./scopedPlanBlockRead";
@@ -60,21 +62,41 @@ function watchJobEvents(changed: () => void): () => void {
 /** Agent, job, checklist and task card services over the app's own stores; mounted inside the plans provider. */
 export function AppChatBlockServices({ api, children }: { api: ApiConfig; children: ReactNode }) {
   const mux = useMuxStateStore();
-  const { selectTabByTab } = useMultiplexer();
+  const { selectTabByTab, setActiveTab } = useMultiplexer();
+  const peerInventory = usePairedWorkspaceInventory();
   const { plans, loading } = useSidebarPlansOptional();
   const navigate = usePlanTargetNavigation();
-  const live = useRef({ navigate, api, selectTabByTab });
-  live.current = { navigate, api, selectTabByTab };
+  const live = useRef({ navigate, api, selectTabByTab, setActiveTab });
+  live.current = { navigate, api, selectTabByTab, setActiveTab };
 
   const plansFeed = useMemo(() => createValueFeed<PlansSnapshot>({ plans: [], loaded: false }), []);
   const plainPlans = useMemo(() => createValueFeed<PlansSnapshot["plans"]>([]), []);
+  const peerTabs = useMemo(() => createValueFeed<MentionPeerInventory>({ generals: [] }), []);
   useLayoutEffect(() => {
     plansFeed.set({ plans, loaded: !loading });
     plainPlans.set(plans);
   }, [plansFeed, plainPlans, plans, loading]);
+  useLayoutEffect(() => { peerTabs.set(peerInventory); }, [peerTabs, peerInventory]);
 
   const host = useMemo<ChatBlockHost>(() => {
     const muxSource = { get: mux.getState, getState: mux.getState, subscribe: mux.subscribe };
+    let indexedInventory: MentionPeerInventory | undefined;
+    const peerIndex = new Map<string, Map<string, PeerMentionTab>>();
+    const readPeerTab = (id: string) => {
+      const route = parseCompositeTabId(id);
+      if (!route) return undefined;
+      const inventory = peerTabs.get();
+      if (indexedInventory !== inventory) {
+        indexedInventory = inventory;
+        peerIndex.clear();
+      }
+      let tabs = peerIndex.get(route.peerId);
+      if (!tabs) {
+        tabs = peerMentionTabs(inventory, route.peerId);
+        peerIndex.set(route.peerId, tabs);
+      }
+      return tabs.get(id);
+    };
     const activeWorkspace = () => {
       const state = mux.getState();
       return state.workspaces.find((workspace) => workspace.id === state.active_workspace_id) ?? state.workspaces[0] ?? null;
@@ -116,7 +138,7 @@ export function AppChatBlockServices({ api, children }: { api: ApiConfig; childr
     return {
       interacted: (kind, action) => { void recordProductEvent({ event_type: "ds_block_interacted", event_properties: { kind, action } }); },
       mentions: createMentionHost({
-        mux, plans: plainPlans, taskReferences:references,
+        mux, plans: plainPlans, taskReferences:references, readPeerTab, watchPeerTabs: peerTabs.subscribe,
         providerName: (id) => getAgentDescriptor(id)?.display_name,
         renderAvatar: (value) => value.tabKind === "agent" ? <AgentIcon providerId={value.providerId} tab={mux.getState().tabs[value.id]} style={{ width: 12, height: 12 }} />
           : value.tabKind === "browser" && value.state === "closed" ? undefined
@@ -130,7 +152,10 @@ export function AppChatBlockServices({ api, children }: { api: ApiConfig; childr
           return () => stops.forEach((stop) => stop());
         },
         openPlan: (target) => live.current.navigate(target),
-        openTab: (workspaceId, tabId) => { void live.current.selectTabByTab(workspaceId, tabId); },
+        openTab: (workspaceId, tabId) => {
+          if (parseCompositeTabId(tabId)) live.current.setActiveTab(workspaceId, tabId);
+          else void live.current.selectTabByTab(workspaceId, tabId);
+        },
         openBlueprint: (workspaceId, teamId, blueprintId) => requestOpenJob({ workspaceId, target: { teamId, blueprintId } }),
       }),
       agents: createAgentBlockHost({
@@ -168,7 +193,7 @@ export function AppChatBlockServices({ api, children }: { api: ApiConfig; childr
       }),
       tasks: createTasksBlockHost(plansFeed, (target: PlanTarget) => live.current.navigate(target),tasks),
     };
-  }, [mux, plainPlans, plansFeed]);
+  }, [mux, peerTabs, plainPlans, plansFeed]);
 
   return <ChatBlockHostProvider value={host}>{children}</ChatBlockHostProvider>;
 }

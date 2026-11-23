@@ -22,6 +22,7 @@ import { BarTooltip, type BarHover } from "./BarTooltip";
 import { UsageGauge, type GaugeMarker } from "./UsageGauge";
 import { unreportedBillingLabel, visibleUsageMetrics } from "./metrics";
 import { staleBannerCopy } from "./staleBanner";
+import { useUsageMachine } from "../../hooks/usageMachine";
 
 interface UsageDetailProps {
   snapshot: UsageSnapshot;
@@ -50,15 +51,17 @@ function StaleBanner({ snapshot, now }: { snapshot: UsageSnapshot; now: number }
 }
 
 export function UsageDetail({ snapshot, accountCreditsLabel, onRefresh, onOpenHistory, resetSection }: UsageDetailProps) {
+  const peerId = useUsageMachine();
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
   // Open-count gating is centralized in config (bounded writes: stops at MAX)
   // so the intro hint fades out consistently across clients, not per-browser.
   const showIntroHints = useMemo(() => {
+    if (peerId) return false;
     const opens = (getCachedConfig()?.ui?.usage_intro_hint_opens as number | undefined) ?? 0;
     if (opens < INTRO_HINT_MAX_OPENS) void setUiSettings({ usage_intro_hint_opens: opens + 1 });
     return opens < INTRO_HINT_MAX_OPENS;
-  }, []);
+  }, [peerId]);
   const since = useMemo(() => Date.now() - EIGHT_DAYS_MS, []);
   const { rows } = useUsageHistory({
     provider: snapshot.provider,
@@ -89,6 +92,8 @@ export function UsageDetail({ snapshot, accountCreditsLabel, onRefresh, onOpenHi
       await onRefresh();
     } catch {
       setRefreshing(false);
+    } finally {
+      if (peerId) setRefreshing(false);
     }
   };
 

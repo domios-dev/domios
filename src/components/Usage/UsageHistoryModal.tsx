@@ -14,6 +14,7 @@ import {
   buildYearBuckets,
 } from "./cycle";
 import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
+import { scopedUsageArgs, useUsageMachine } from "../../hooks/usageMachine";
 
 interface UsageHistoryModalProps {
   provider: string;
@@ -30,13 +31,14 @@ const RANGE_MS: Record<Range, number> = {
 const REFRESH_TIMEOUT_MS = 12_000;
 
 export function UsageHistoryModal({ provider, accountId, onClose }: UsageHistoryModalProps) {
+  const peerId = useUsageMachine();
   const [range, setRange] = useState<Range>("week");
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
   const since = useMemo(() => Date.now() - RANGE_MS[range], [range]);
   const limit = range === "week" ? 500 : range === "month" ? 2000 : 8000;
-  const { rows } = useUsageHistory({ provider, accountId, sinceMs: since, limit });
-  const { projection } = useUsageProjection({ provider, accountId });
+  const { rows, refetch: readHistory } = useUsageHistory({ provider, accountId, sinceMs: since, limit });
+  const { projection, refetch: readProjection } = useUsageProjection({ provider, accountId });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -62,10 +64,13 @@ export function UsageHistoryModal({ provider, accountId, onClose }: UsageHistory
     refreshStartRef.current = Date.now();
     setRefreshing(true);
     try {
-      await invoke("usage_refresh", { provider, accountId: accountId ?? undefined });
+      if (peerId) await Promise.all([readHistory(), readProjection()]);
+      else await invoke("usage_refresh", { provider, accountId: accountId ?? undefined, ...scopedUsageArgs(peerId) });
     } catch (e) {
       console.warn("usage_refresh failed", e);
       setRefreshing(false);
+    } finally {
+      if (peerId) setRefreshing(false);
     }
   };
 

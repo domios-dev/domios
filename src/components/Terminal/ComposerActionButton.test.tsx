@@ -7,6 +7,7 @@ import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 import type { LiveDictation } from "./voice/useLiveDictation";
 import { QUIET_DICTATION_SAMPLE } from "./voice/dictationLevelModel";
+import { createDictationTransport, remoteDictationUnavailable } from "../../lib/transport/dictation";
 
 const roots: Root[] = [];
 
@@ -69,7 +70,7 @@ function dictationHandle(overrides: Partial<LiveDictation> = {}): LiveDictation 
 
 async function renderButton(
   voiceUi: ComposerVoiceHandle,
-  props: { dictation?: LiveDictation; onOpenLiveTranscript?: () => void; liveTranscriptOnTap?: boolean; spaceArming?: boolean; spacePop?: boolean; sendDisabled?: boolean; onSend?: () => void; onSchedule?: () => void } = {},
+  props: { dictation?: LiveDictation; dictationUnavailableReason?: string | null; onOpenLiveTranscript?: () => void; liveTranscriptOnTap?: boolean; spaceArming?: boolean; spacePop?: boolean; sendDisabled?: boolean; onSend?: () => void; onSchedule?: () => void } = {},
 ): Promise<{ button: HTMLButtonElement; host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -80,6 +81,7 @@ async function renderButton(
       <ComposerActionButton
         voiceUi={voiceUi}
         dictation={props.dictation}
+        dictationUnavailableReason={props.dictationUnavailableReason}
         onOpenLiveTranscript={props.onOpenLiveTranscript}
         liveTranscriptOnTap={props.liveTranscriptOnTap}
         spaceArming={props.spaceArming}
@@ -225,6 +227,26 @@ function pointerEvent(type: string, init: Record<string, unknown>, timeStamp: nu
   Object.defineProperty(event, "timeStamp", { value: timeStamp });
   return event;
 }
+
+test("remote dictation explains its host requirement and exposes no local microphone action", async () => {
+  const tabId = "mesh:blackstar/elgar";
+  const reason = remoteDictationUnavailable(tabId);
+  expect(reason).toContain("host machine");
+  expect(() => createDictationTransport("session", tabId)).toThrow("host machine");
+  let starts = 0;
+  const { button } = await renderButton(voiceHandle({ mainIsSend: false }), {
+    dictation: dictationHandle({ start: async () => { starts++; } }),
+    dictationUnavailableReason: reason,
+  });
+  assertEq(button.getAttribute("aria-label"), "Dictation unavailable", "remote mic label");
+  assertEq(button.getAttribute("aria-description"), reason, "remote mic explains its availability");
+  await act(async () => {
+    button.dispatchEvent(pointerEvent("pointerdown", {}, 1000));
+    button.dispatchEvent(pointerEvent("pointerup", {}, 1100));
+    button.click();
+  });
+  assertEq(starts, 0, "remote mic never starts dictation");
+});
 
 test("idle dictation button keeps round chrome, bloom glyphs, and tap-to-toggle without triggering send", async () => {
   const counts = { starts: 0, stops: 0, sends: 0 };

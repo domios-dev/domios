@@ -90,6 +90,28 @@ describe("capabilities HTTP transport", () => {
     ]);
   });
 
+  it("uses the exact machine and account for snapshot and model reads", async () => {
+    const { transport, calls } = fixture({ ok: true, data: { session_pct: 31 }, peer: { instance_id: "peer" } });
+    const scope = { peerId: "peer", accountId: "work account" };
+    await expect(transport.usage_latest({ provider: "claude", ...scope })).resolves.toEqual({ session_pct: 31 });
+    await transport.provider_model_usage({ providerId: "claude", ...scope });
+    await transport.usage_latest({ provider: "claude", ...scope, peerId: null });
+    await expect(transport.usage_latest({ provider: "claude", ...scope, peerId: "different" })).rejects.toThrow("different installation");
+    await expect(transport.usage_refresh({ provider: "claude", ...scope })).rejects.toThrow("owning machine");
+    expect(calls).toEqual([
+      ["local", "POST", "/api/mesh/relay-to", {
+        target_instance_id: "peer", method: "GET", path: "/api/usage/latest?provider=claude&account_id=work%20account", body: null,
+      }],
+      ["local", "POST", "/api/mesh/relay-to", {
+        target_instance_id: "peer", method: "GET", path: "/api/agents/providers/claude/model-usage?account_id=work%20account", body: null,
+      }],
+      ["local", "GET", "/api/usage/latest?provider=claude&account_id=work%20account", undefined],
+      ["local", "POST", "/api/mesh/relay-to", {
+        target_instance_id: "different", method: "GET", path: "/api/usage/latest?provider=claude&account_id=work%20account", body: null,
+      }],
+    ]);
+  });
+
   it("requires explicit integration consent and preserves provider identity", async () => {
     const { transport, calls } = fixture();
     await expect(transport.install_provider_integration({ provider_id: "drop-in" })).rejects.toThrow("requires consent");
