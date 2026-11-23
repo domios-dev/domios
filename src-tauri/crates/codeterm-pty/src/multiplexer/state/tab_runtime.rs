@@ -549,13 +549,23 @@ impl MultiplexerState {
                 let closed_tab_id = ws.tabs[idx].clone();
                 ws.tabs.remove(idx);
                 if ws.active_tab_id.as_deref() == Some(&closed_tab_id) {
-                    ws.active_tab_id = ws.tabs[idx..]
+                    let owner = self.tabs.get(&closed_tab_id).and_then(|tab| {
+                        tab.surface()?;
+                        let owner = tab.parent_tab_id.as_ref()?;
+                        ws.tabs.contains(owner).then_some(owner)
+                    });
+                    ws.active_tab_id = owner
                         .iter()
+                        .copied()
+                        .chain(ws.tabs[idx..].iter())
                         .chain(ws.tabs[..idx].iter().rev())
                         .find(|id| {
-                            self.tabs
-                                .get(*id)
-                                .is_some_and(|tab| !tab.is_transcript_router())
+                            self.tabs.get(*id).is_some_and(|tab| {
+                                tab.surface().is_none()
+                                    && !tab.is_transcript_router()
+                                    && !tab.hidden
+                                    && tab.show_in_tabbar
+                            })
                         })
                         .cloned();
                 }

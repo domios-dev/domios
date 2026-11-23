@@ -907,6 +907,43 @@ fn surface_child(state: &mut MultiplexerState, workspace_id: &str, owner_id: &st
 }
 
 #[test]
+fn close_selects_the_surface_owner_without_opening_a_sibling_surface() {
+    let (mut state, owner) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let first = surface_child(&mut state, &ws_id, &owner);
+    let second = surface_child(&mut state, &ws_id, &owner);
+    state.set_active_tab(&ws_id, &first).unwrap();
+
+    state.close_tab(&first).unwrap();
+
+    assert_eq!(
+        state
+            .get_workspace(&ws_id)
+            .unwrap()
+            .active_tab_id
+            .as_deref(),
+        Some(owner.as_str())
+    );
+    assert!(state.get_tab(&second).is_some());
+}
+
+#[test]
+fn closing_a_surface_leaves_selection_empty_if_only_surfaces_remain() {
+    let mut state = MultiplexerState::empty();
+    let ws_id = state.create_workspace("Browsers".into(), None).id;
+    let first = surface_child(&mut state, &ws_id, "unused");
+    let second = surface_child(&mut state, &ws_id, "unused");
+    state.get_tab_mut(&first).unwrap().parent_tab_id = None;
+    state.get_tab_mut(&second).unwrap().parent_tab_id = None;
+    state.set_active_tab(&ws_id, &first).unwrap();
+
+    state.close_tab(&first).unwrap();
+
+    assert_eq!(state.get_workspace(&ws_id).unwrap().active_tab_id, None);
+    assert!(state.get_tab(&second).is_some());
+}
+
+#[test]
 fn owner_close_closes_its_surfaces_and_orphans_other_children() {
     let (mut state, root_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
