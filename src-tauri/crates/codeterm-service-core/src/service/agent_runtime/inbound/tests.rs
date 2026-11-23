@@ -63,11 +63,22 @@ fn running_turn(svc: &ServiceContext, tab: &str) -> (Arc<Session>, String) {
 }
 
 fn admit(svc: &ServiceContext, tab: &str, text: &str) -> UserSendRecord {
+    admit_with_token(svc, tab, text, None)
+}
+
+fn admit_with_token(
+    svc: &ServiceContext,
+    tab: &str,
+    text: &str,
+    token: Option<&str>,
+) -> UserSendRecord {
     let store = &svc.pending_delivery_payloads.user_sends;
     let reservation = store
-        .reserve(svc.user_send_authority(tab).unwrap(), None, || {
-            svc.chat_send_ledger.reserve_identity()
-        })
+        .reserve(
+            svc.user_send_authority(tab).unwrap(),
+            token.map(str::to_owned),
+            || svc.chat_send_ledger.reserve_identity(),
+        )
         .unwrap();
     let record = store.admit(&reservation, text, text, None).unwrap();
     drop(reservation);
@@ -77,6 +88,33 @@ fn admit(svc: &ServiceContext, tab: &str, text: &str) -> UserSendRecord {
 
 fn state(svc: &ServiceContext, record: &UserSendRecord) -> ChatSendState {
     svc.chat_send_ledger.status(&record.send_id).unwrap().state
+}
+
+fn assert_delivered_row(
+    svc: &ServiceContext,
+    session: &Session,
+    record: &UserSendRecord,
+    content: &str,
+) {
+    use crate::service::chat_send_transaction::SourceRecord;
+
+    let thread = session.context.lock().thread_id.clone().unwrap();
+    let cache = session.cache.lock();
+    let item = cache.get(&record.send_id).expect("delivered user row");
+    assert_eq!(item.content, content);
+    assert!(chrono::DateTime::parse_from_rfc3339(item.timestamp.as_deref().unwrap()).is_ok());
+    let status = svc.chat_send_ledger.status(&record.send_id).unwrap();
+    assert_eq!(status.state, ChatSendState::Sent);
+    assert_eq!(status.correlation_id, record.client_token);
+    let source = status.matched_row.expect("exact delivered row").source;
+    assert_eq!(source.source_session_id, thread);
+    assert_eq!(
+        source.record,
+        SourceRecord::Structured {
+            thread_id: thread,
+            item_id: item.id.clone()
+        }
+    );
 }
 
 fn queued(svc: &ServiceContext, tab: &str) -> Vec<String> {
@@ -100,9 +138,12 @@ fn assert_nothing_written(peer: &mut BufReader<DuplexStream>) {
 fn a_tool_result_carries_held_messages_in_order_once_and_only_its_ack_delivers_them() {
     let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
     let svc = &fixture.service;
-    let (_session, nonce) = running_turn(svc, &tab);
+    let (session, nonce) = running_turn(svc, &tab);
     let first = admit(svc, &tab, "opaque first");
-    let second = admit(svc, &tab, "opaque second");
+    let frame = Messenger::from(MessageEnvelope::codeterm_reminder("fixture"))
+        .framed_delivery("opaque second")
+        .to_message();
+    let second = admit_with_token(svc, &tab, &frame, Some("runtime-envelope:fixture"));
 
     let text = svc
         .claim_inbound_tool_messages(&tab, &nonce, "claim")
@@ -132,9 +173,8 @@ fn a_tool_result_carries_held_messages_in_order_once_and_only_its_ack_delivers_t
 
     svc.settle_inbound_tool_messages(&tab, &nonce, "claim", true)
         .unwrap();
-    for record in [&first, &second] {
-        assert_eq!(state(svc, record), ChatSendState::Sent);
-    }
+    assert_delivered_row(svc, &session, &first, "opaque first");
+    assert_delivered_row(svc, &session, &second, "opaque second");
     svc.settle_inbound_tool_messages(&tab, &nonce, "claim", true)
         .unwrap();
     assert!(matches!(
@@ -392,9 +432,16 @@ fn messages_held_at_turn_end_go_out_as_one_framed_digest_in_order_and_settle_tog
         now(),
     ))
     .unwrap();
-    for record in &held {
-        assert_eq!(state(svc, record), ChatSendState::Sent);
-    }
+    let owner = svc.pending_delivery_payloads.user_sends.tab(&tab);
+    crate::async_runtime::block_on(async {
+        let _settled = tokio::time::timeout(Duration::from_secs(5), owner.runtime_drain.acquire())
+            .await
+            .expect("the digest drain finishes after head evidence")
+            .unwrap();
+    });
+    assert_eq!(state(svc, &held[0]), ChatSendState::Sent);
+    assert_delivered_row(svc, &session, &held[1], "opaque second");
+    assert_delivered_row(svc, &session, &held[2], "opaque third");
     assert!(queued(svc, &tab).is_empty());
     assert_nothing_written(&mut peer);
 }

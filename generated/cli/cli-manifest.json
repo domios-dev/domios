@@ -4871,6 +4871,381 @@
       ]
     },
     {
+      "name": "live-transcript",
+      "about": "Work with a tab's committed microphone transcript and routing",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "ack",
+          "about": "Acknowledge a fully consumed committed sequence",
+          "aliases": [],
+          "args": [
+            {
+              "name": "revision",
+              "positional": false,
+              "required": true,
+              "value_name": "REVISION",
+              "possible_values": [],
+              "default": null,
+              "help": "Active binding revision advertised by the owner or route",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Exact live transcript owner tab ID",
+              "aliases": []
+            },
+            {
+              "name": "through-seq",
+              "positional": false,
+              "required": true,
+              "value_name": "THROUGH_SEQ",
+              "possible_values": [],
+              "default": null,
+              "help": "Advance through this fully consumed sequence",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "attach",
+          "about": "Select the attached router, an external tab, or the routing mode (owner only)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "external-tab",
+              "positional": false,
+              "required": false,
+              "value_name": "EXTERNAL_TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Exact external destination tab ID, including the owner tab itself",
+              "aliases": []
+            },
+            {
+              "name": "from-beginning",
+              "positional": false,
+              "required": false,
+              "value_name": "FROM_BEGINNING",
+              "possible_values": [],
+              "default": null,
+              "help": "Start a newly selected external consumer from the beginning",
+              "aliases": []
+            },
+            {
+              "name": "mode-only",
+              "positional": false,
+              "required": false,
+              "value_name": "MODE_ONLY",
+              "possible_values": [],
+              "default": null,
+              "help": "Set the trigger without replacing the active binding",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Exact live transcript owner tab ID",
+              "aliases": []
+            },
+            {
+              "name": "trigger",
+              "positional": false,
+              "required": false,
+              "value_name": "TRIGGER",
+              "possible_values": [
+                "scout_then_concierge",
+                "wake_word",
+                "direct_batch",
+                "manual"
+              ],
+              "default": null,
+              "help": "Set a deliberate trigger mode",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "mark-seen",
+          "about": "Mark a sequence seen without acknowledging consumption",
+          "aliases": [],
+          "args": [
+            {
+              "name": "revision",
+              "positional": false,
+              "required": true,
+              "value_name": "REVISION",
+              "possible_values": [],
+              "default": null,
+              "help": "Active binding revision advertised by the owner or route",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Exact live transcript owner tab ID",
+              "aliases": []
+            },
+            {
+              "name": "through-seq",
+              "positional": false,
+              "required": true,
+              "value_name": "THROUGH_SEQ",
+              "possible_values": [],
+              "default": null,
+              "help": "Advance through this fully consumed sequence",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "overview",
+          "about": "Show the owner transcript's status, cursor and retained size",
+          "aliases": [],
+          "args": [
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Exact live transcript owner tab ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "pause",
+          "about": "Flush and pause an exact live capture lease (owner only)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "client",
+              "positional": false,
+              "required": true,
+              "value_name": "CLIENT",
+              "possible_values": [],
+              "default": null,
+              "help": "Capture client UUID",
+              "aliases": []
+            },
+            {
+              "name": "lease",
+              "positional": false,
+              "required": true,
+              "value_name": "LEASE",
+              "possible_values": [],
+              "default": null,
+              "help": "Capture lease UUID",
+              "aliases": []
+            },
+            {
+              "name": "sequence",
+              "positional": false,
+              "required": true,
+              "value_name": "SEQUENCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Next capture frame sequence",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Exact live transcript owner tab ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "read",
+          "about": "Read a page as the owner or the exact active consumer",
+          "aliases": [],
+          "args": [
+            {
+              "name": "char-offset",
+              "positional": false,
+              "required": false,
+              "value_name": "CHAR_OFFSET",
+              "possible_values": [],
+              "default": null,
+              "help": "Character offset from the previous Agent Format page",
+              "aliases": []
+            },
+            {
+              "name": "from-seq",
+              "positional": false,
+              "required": false,
+              "value_name": "FROM_SEQ",
+              "possible_values": [],
+              "default": null,
+              "help": "Sequence where the page starts",
+              "aliases": []
+            },
+            {
+              "name": "max-chars",
+              "positional": false,
+              "required": false,
+              "value_name": "MAX_CHARS",
+              "possible_values": [],
+              "default": null,
+              "help": "Character budget for an Agent Format page",
+              "aliases": []
+            },
+            {
+              "name": "revision",
+              "positional": false,
+              "required": false,
+              "value_name": "REVISION",
+              "possible_values": [],
+              "default": null,
+              "help": "Active binding revision, required for tab credentials",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Exact live transcript owner tab ID",
+              "aliases": []
+            },
+            {
+              "name": "through-seq",
+              "positional": false,
+              "required": false,
+              "value_name": "THROUGH_SEQ",
+              "possible_values": [],
+              "default": null,
+              "help": "Last sequence to return for a routed range",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "resume",
+          "about": "Admit a new capture lease in resume mode (owner only)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "client",
+              "positional": false,
+              "required": true,
+              "value_name": "CLIENT",
+              "possible_values": [],
+              "default": null,
+              "help": "Capture client UUID that will provide the microphone frames",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Exact live transcript owner tab ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "search",
+          "about": "Search retained speech and summaries (owner only)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from-seq",
+              "positional": false,
+              "required": false,
+              "value_name": "FROM_SEQ",
+              "possible_values": [],
+              "default": null,
+              "help": "Sequence where the search starts",
+              "aliases": []
+            },
+            {
+              "name": "limit",
+              "positional": false,
+              "required": false,
+              "value_name": "LIMIT",
+              "possible_values": [],
+              "default": null,
+              "help": "Maximum rows to scan",
+              "aliases": []
+            },
+            {
+              "name": "query",
+              "positional": true,
+              "required": true,
+              "value_name": "QUERY",
+              "possible_values": [],
+              "default": null,
+              "help": "Case-sensitive search text",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Exact live transcript owner tab ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show capture setup and routing readiness (owner only)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Exact live transcript owner tab ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "mcp",
       "about": "Tab-scoped MCP tools using inherited launch authority",
       "aliases": [],

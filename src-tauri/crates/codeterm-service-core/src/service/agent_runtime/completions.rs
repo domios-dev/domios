@@ -1,11 +1,20 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 #[derive(Default)]
 pub(super) struct Completions {
     sequence: u64,
     turns: VecDeque<(String, String)>,
+    transcript_turns: Option<(String, HashSet<String>)>,
 }
 impl Completions {
+    pub fn track_transcript_thread(&mut self, thread: &str) {
+        self.transcript_turns = Some((thread.into(), HashSet::new()));
+    }
+
+    pub fn transcript_count(&self, thread: &str) -> Option<usize> {
+        let (tracked, turns) = self.transcript_turns.as_ref()?;
+        (tracked == thread).then_some(turns.len())
+    }
     pub fn contains(&self, thread: &str, turn: &str) -> bool {
         self.turns
             .iter()
@@ -16,6 +25,11 @@ impl Completions {
     }
     pub fn record(&mut self, thread: &str, turn: &str) {
         self.sequence = self.sequence.saturating_add(1);
+        if let Some((tracked, turns)) = &mut self.transcript_turns {
+            if tracked == thread && turns.len() < 128 {
+                turns.insert(turn.into());
+            }
+        }
         if !self
             .turns
             .iter()

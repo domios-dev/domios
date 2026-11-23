@@ -577,7 +577,8 @@ impl ServiceContext {
     }
 
     /// Tabs close only once the cancellation is recorded; legacy JSON keeps its
-    /// in-memory cancellation even when the file save fails.
+    /// in-memory cancellation even when the file save fails. The count includes
+    /// retained owners from earlier runs that this exact cancellation released.
     pub fn cron_cancel_running(
         &self,
         cron: &CronState,
@@ -671,13 +672,21 @@ impl ServiceContext {
                 self.run_watcher.cancel_cron_finalizer(owner);
             }
         }
-        self.run_watcher
-            .adjudicate_cron_cancellation(self, cron, recovery, &owned)?;
+        let released = self
+            .run_watcher
+            .adjudicate_cron_cancellation(self, cron, recovery, &owned, &requested)?
+            .into_iter()
+            .filter(|run| {
+                !mappings
+                    .iter()
+                    .any(|(_, _, mapped)| mapped == run && cancelled.contains(run))
+            })
+            .count();
         if let Some(wake) = self.try_ext::<crate::CronWake>() {
             wake.notify_all();
         }
         self.emit_cron_changed();
-        Ok(count)
+        Ok(count + released)
     }
 
     pub fn cron_enable(

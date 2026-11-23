@@ -71,6 +71,11 @@ pub struct Cli {
     reason = "Clap command enums keep parsed options inline."
 )]
 pub enum Commands {
+    /// Work with a tab's committed microphone transcript and routing
+    LiveTranscript {
+        #[command(subcommand)]
+        action: super::live_transcript::LiveTranscriptAction,
+    },
     /// Tab-scoped MCP tools using inherited launch authority
     Mcp {
         #[command(subcommand)]

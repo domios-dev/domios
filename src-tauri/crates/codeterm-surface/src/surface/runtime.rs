@@ -26,6 +26,7 @@ pub enum SurfaceEvent {
     State(SurfaceState),
     Frame(Arc<ScreencastFrame>),
     Notice(SurfaceNotice),
+    Cursor(String),
 }
 
 /// Where a relaunched surface picks up: its last page and, for the browser, its profile.
@@ -181,13 +182,12 @@ pub async fn shutdown_all(
 
 /// The SSE event name and JSON `data` line for one stream event.
 pub fn sse_payload(event: &SurfaceEvent) -> (&'static str, String) {
-    use base64::Engine;
     match event {
         SurfaceEvent::State(state) => ("state", serde_json::to_string(state).unwrap_or_default()),
         SurfaceEvent::Frame(frame) => (
             "frame",
             serde_json::json!({
-                "data": base64::engine::general_purpose::STANDARD.encode(&frame.jpeg),
+                "data": frame.encoded_jpeg().as_ref(),
                 "metadata": frame.metadata,
             })
             .to_string(),
@@ -195,6 +195,10 @@ pub fn sse_payload(event: &SurfaceEvent) -> (&'static str, String) {
         SurfaceEvent::Notice(notice) => {
             ("notice", serde_json::to_string(notice).unwrap_or_default())
         }
+        SurfaceEvent::Cursor(cursor) => (
+            "cursor",
+            serde_json::json!({ "cursor": cursor }).to_string(),
+        ),
     }
 }
 

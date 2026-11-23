@@ -185,7 +185,10 @@ impl BrowserRuntime {
         let Some(url) = self.resume_url.lock().take() else {
             return;
         };
-        if let Err(error) = self.navigate(page, NavAction::Goto, Some(&url)).await {
+        if let Err(error) = self
+            .navigate_for_viewer(page, NavAction::Goto, Some(&url))
+            .await
+        {
             self.shared.notice(SurfaceNotice::error(format!(
                 "Could not reopen the last page: {error}"
             )));
@@ -263,6 +266,42 @@ impl BrowserRuntime {
         page.send_batch(input_commands(input)?)
             .await
             .map_err(cdp_error)?;
+        Ok(())
+    }
+
+    /// Human-initiated toolbar navigation returns as soon as Chromium starts navigating so
+    /// slow third-party resources never hold `action_gate` and freeze interactive input.
+    async fn navigate_for_viewer(
+        &self,
+        page: &PageChannel,
+        action: NavAction,
+        target: Option<&str>,
+    ) -> Result<(), String> {
+        self.shared.invalidate_snapshot();
+        self.shared.invalidate_action();
+        let (method, params) = match action {
+            NavAction::Reload => ("Page.reload", json!({})),
+            NavAction::Goto => {
+                let href = input::goto_href(target.unwrap_or(""))?;
+                ("Page.navigate", json!({"url":href}))
+            }
+            NavAction::Back | NavAction::Forward => {
+                let history = self
+                    .send(page, "Page.getNavigationHistory", json!({}))
+                    .await?;
+                match input::history_entry(&history, action == NavAction::Back) {
+                    Some(entry_id) => ("Page.navigateToHistoryEntry", json!({"entryId":entry_id})),
+                    None => return Ok(()),
+                }
+            }
+        };
+        let reply = self.send(page, method, params).await?;
+        if let Some(error) = reply["errorText"]
+            .as_str()
+            .filter(|error| !error.is_empty())
+        {
+            return Err(format!("navigation failed: {error}"));
+        }
         Ok(())
     }
 

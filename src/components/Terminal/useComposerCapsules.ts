@@ -61,12 +61,13 @@ function insertWithPadding(el: HTMLTextAreaElement, text: string, focus = true) 
   replaceTextareaRange(el, start, end, `${lead}${text}${trail}`, focus);
 }
 
-export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError, keepTextInline = false }: {
+export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError, keepTextInline = false, focusAttachments = true }: {
   tabId: string;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   sinkRef?: MutableRefObject<InlineAttachmentSink | null>;
   onError: (message: string) => void;
   keepTextInline?: boolean;
+  focusAttachments?: boolean;
 }) {
   const [raw, setRaw] = usePersistentDraft(`tab-session-chat-capsules:${tabId}`, onError);
   const [registry, setRegistry] = useState(() => decodeCapsuleRegistry(raw));
@@ -93,7 +94,7 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError, keep
   const uploads = useComposerUploads({
     registry: () => registryRef.current, commit,
     draft: () => textareaRef.current?.value,
-    insert: (capsule) => { const el = textareaRef.current; if (el) insertWithPadding(el, capsuleToken(capsule.label)); },
+    insert: (capsule) => { const el = textareaRef.current; if (el) insertWithPadding(el, capsuleToken(capsule.label), focusAttachments); },
   });
   const clear = () => { uploads.clear(); commit(EMPTY_CAPSULES); };
 
@@ -102,8 +103,8 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError, keep
     if (!el || items.length === 0) return;
     const added = capsulesForPaths(registryRef.current, items, el.value);
     commit(added.registry);
-    insertWithPadding(el, added.text);
-  }, [commit, textareaRef]);
+    insertWithPadding(el, added.text, focusAttachments);
+  }, [commit, focusAttachments, textareaRef]);
 
   const sink = useMemo(() => Object.assign(insert, { upload: uploads.add }), [insert, uploads.add]);
 

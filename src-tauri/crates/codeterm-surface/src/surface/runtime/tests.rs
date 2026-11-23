@@ -215,6 +215,7 @@ fn surface_sse_payload_names_events_and_base64s_frames() {
     let frame = Arc::new(ScreencastFrame {
         seq: 1,
         jpeg: b"jpg".to_vec(),
+        base64: None,
         metadata: FrameMetadata::still(Viewport::default(), 12.5),
         still: true,
     });
@@ -229,6 +230,8 @@ fn surface_sse_payload_names_events_and_base64s_frames() {
         (name, data.as_str()),
         ("notice", r#"{"text":"hi","tone":"info"}"#)
     );
+    let (name, data) = sse_payload(&SurfaceEvent::Cursor("pointer".into()));
+    assert_eq!((name, data.as_str()), ("cursor", r#"{"cursor":"pointer"}"#));
     let (name, _) = sse_payload(&SurfaceEvent::State(SurfaceState::default()));
     assert_eq!(name, "state");
 }

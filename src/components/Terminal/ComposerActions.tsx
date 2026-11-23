@@ -25,9 +25,13 @@ interface Props {
   children: ReactNode;
   cardHeader?: ReactNode;
   cardFooter?: ReactNode;
+  inputOverlay?: ReactNode;
+  hideActionButton?: boolean;
   canAttach?: boolean;
   uploadFiles?: (files: File[]) => Promise<void>;
   dictation?: LiveDictation;
+  onOpenLiveTranscript?: () => void;
+  liveTranscriptOnTap?: boolean;
   spaceArming?: boolean;
   spacePop?: boolean;
 }
@@ -53,9 +57,13 @@ function ComposerActionsBody({
   children,
   cardHeader,
   cardFooter,
+  inputOverlay,
+  hideActionButton = false,
   canAttach = true,
   uploadFiles,
   dictation,
+  onOpenLiveTranscript,
+  liveTranscriptOnTap,
   spaceArming = false,
   spacePop = false,
 }: Props) {
@@ -97,7 +105,7 @@ function ComposerActionsBody({
       {voiceUploads.status}
       <div className={expanded ? "ct-expanded-composer__actions relative grid w-full items-end gap-2" : "relative flex w-full items-end gap-1.5"}>
         {attachButton}
-        <ComposerInputShell voiceUi={voiceUi} dictationPhase={dictation?.phase} header={cardHeader} footer={cardFooter}
+        <ComposerInputShell voiceUi={voiceUi} dictationPhase={dictation?.phase} header={cardHeader} footer={cardFooter} overlay={inputOverlay}
           actions={!expanded
             ? (dictationActive && dictation
               ? <DictationPresence dictation={dictation} />
@@ -111,10 +119,12 @@ function ComposerActionsBody({
           </div>
         )}
         {expanded && scheduleVisible && onSchedule && <div className="ct-expanded-composer__schedule"><ComposerScheduleButton onSchedule={onSchedule} /></div>}
-        {!voiceUi.isPreview && (
+        {!voiceUi.isPreview && !hideActionButton && (
           <ComposerActionButton
             voiceUi={voiceUi}
             dictation={dictation}
+            onOpenLiveTranscript={onOpenLiveTranscript}
+            liveTranscriptOnTap={liveTranscriptOnTap}
             spaceArming={spaceArming}
             spacePop={spacePop}
             sendDisabled={sendDisabled}

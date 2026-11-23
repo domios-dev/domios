@@ -81,6 +81,7 @@ impl ServiceContext {
             // arrived before a later stage reset left the tab looking like it is still starting.
             self.reconcile_boot_stage_with_session_binding(&tab_id);
             self.schedule_agent_delivery_flush(&tab_id);
+            self.wake_live_transcript_on_router_idle(&tab_id);
         }
     }
 }

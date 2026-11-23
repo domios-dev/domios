@@ -114,7 +114,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
     ? locations.map((loc) => (loc.line !== undefined ? `${loc.path}:${loc.line}` : loc.path)).join(", ")
     : "";
   const duplicateSummary = typeof rawSummary === "string" && (
-    (rawSummary.trim() !== "" && rawSummary.trim() === labelText.trim())
+    (!inlineCommand && rawSummary.trim() !== "" && rawSummary.trim() === labelText.trim())
     || (Boolean(locations) && rawSummary.trim() === locationText)
   );
   const resolvedSummary = summary === "" || duplicateSummary

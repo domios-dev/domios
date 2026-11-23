@@ -17,6 +17,16 @@ export function earlierMessageLabel(loaded: number, canBackfill: boolean): strin
     : `Load previous ${count} ${count === 1 ? "message" : "messages"}`;
 }
 
+/** Extends a detached window over rows that arrived below it; its start holds until the reading cap. */
+export function revealNewerMessages(items: readonly TimelineItem[], anchor: string | null, size: number) {
+  if (anchor == null) return null;
+  const range = chatWindowRange(items, anchor, size);
+  const count = Math.min(CHAT_PAGE_SIZE, items.length - range.end);
+  if (count <= 0) return null;
+  const end = range.end + count;
+  return { anchor: timelineItemKey(items[end - 1]), size: Math.min(CHAT_READING_SIZE, range.end - range.start + count), count };
+}
+
 export function revealEarlierMessages(items: readonly TimelineItem[], anchor: string | null, size: number) {
   const range = chatWindowRange(items, anchor, size);
   const count = Math.min(CHAT_PAGE_SIZE, range.start);

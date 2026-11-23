@@ -174,6 +174,7 @@ jobs:
           if [ "$PUBLISH_MIRROR" = true ]; then
             GH_TOKEN="$MIRROR_TOKEN" gh release upload "$TAG" domios-latest.json domios-latest-deb.json latest.json latest-deb.json latest-rpm.json --repo "$MIRROR_REPO" --clobber
           fi
+          node scripts/release-promote.mjs checksums "$TAG" "$RUNNER_TEMP"
 
       - name: Sync full release notes to the source release
         env:
@@ -191,6 +192,7 @@ jobs:
       - name: Mark the source release published
         env:
           TAG: ${{ steps.release.outputs.tag }}
+          VER: ${{ steps.release.outputs.version }}
           MANIFEST: ${{ steps.channel.outputs.manifest }}
         shell: bash
         run: |
@@ -198,12 +200,16 @@ jobs:
           # Clients read releases/latest; only a stable release may become latest.
           latest=--latest=false
           [ "$MANIFEST" != domios-latest.json ] || latest=--latest
-          gh release edit "$TAG" --repo "$SOURCE_REPO" --draft=false "$latest"
+          gh release edit "$TAG" --repo "$SOURCE_REPO" --draft=false --prerelease=false --title "Domios $VER" "$latest"
+          if [ "$latest" = --latest ]; then
+            test "$(gh api "repos/$SOURCE_REPO/releases/latest" --jq .tag_name)" = "$TAG"
+          fi
 
       - name: Mark the 1.19 transition mirror release published
         if: inputs.mirror
         env:
           TAG: ${{ steps.release.outputs.tag }}
+          VER: ${{ steps.release.outputs.version }}
           MANIFEST: ${{ steps.channel.outputs.manifest }}
           GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
         shell: bash
@@ -211,7 +217,7 @@ jobs:
           set -euo pipefail
           latest=--latest=false
           [ "$MANIFEST" != domios-latest.json ] || latest=--latest
-          gh release edit "$TAG" --repo "$MIRROR_REPO" --draft=false "$latest"
+          gh release edit "$TAG" --repo "$MIRROR_REPO" --draft=false --title "Domios $VER" "$latest"
 
       - name: Verify the published source release
         env:
@@ -244,6 +250,15 @@ jobs:
           node scripts/legacy-updater-refusal.mjs verify "https://github.com/$MIRROR_REPO/releases/download/$TAG/latest.json" "$VER"
           mkdir -p "$RUNNER_TEMP/mirror-verification"
           node scripts/release-served-metadata.mjs verify "$RUNNER_TEMP/qualified-release.json" "$TAG" "$SOURCE_SHA" "$PROMOTE_RUN_ID" "$MIRROR_REPO" "$RUNNER_TEMP/mirror-verification"
+
+      # Published, so every hidden qualification draft of this or an older version is now unreachable.
+      - name: Remove superseded qualification drafts
+        if: steps.channel.outputs.manifest == 'domios-latest.json'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          PUBLISH_MIRROR: ${{ inputs.mirror }}
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+        run: node scripts/release-promote.mjs prune "$TAG"
 
       - name: Publish the verified core channel to the source repository
         env:

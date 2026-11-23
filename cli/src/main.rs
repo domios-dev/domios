@@ -597,6 +597,11 @@ fn main_impl() {
             return;
         }
 
+        Commands::LiveTranscript { action } => {
+            cmd::live_transcript::handle(client, cli.json, action);
+            return;
+        }
+
         Commands::ModelProvider { action } => {
             cmd::model_provider::handle(&mut client, cli.json, action);
             return;

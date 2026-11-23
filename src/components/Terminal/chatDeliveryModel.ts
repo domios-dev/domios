@@ -236,17 +236,19 @@ export function deliveryProjectionSends(
   return sends.filter((send) => send.dismissed || resetCutoffMs == null || deliveryState(send) !== "delivered" || send.sentAtMs >= resetCutoffMs)
     .map((send) => {
       const frame = send.status?.system_send ? parseDomiosMessage(send.content) : null;
+      const state = deliveryState(send);
       return {
         ...send,
         segments: send.status?.system_send?.segments?.length ? send.status.system_send.segments
           : frame ? [{ type: "frame" as const, kind: (frame.attrs.from === "cli" ? "system" : frame.attrs.from) as FrameKind, from: frame.attrs.from, attrs: frame.attrs, body: frame.body,
             tip: frame.content.slice(frame.body.length).match(/<tip>([\s\S]*?)<\/tip>/)?.[1] ?? null }] : send.segments,
-        echoEligible: deliveryState(send) !== "failed",
-        neverWritten: deliveryState(send) === "queued",
+        delivered: state === "delivered",
+        echoEligible: state !== "failed",
+        neverWritten: state === "queued",
         flowAtMs: send.sentAtMs,
         held: Boolean(send.draft?.recordedVoiceAttachments.length && !send.echo)
           || queuedIds.has(send.id)
-          || (deliveryState(send) !== "delivered" && send.status?.pending_reason === ACTIVE_TURN_HOLD),
+          || (state !== "delivered" && send.status?.pending_reason === ACTIVE_TURN_HOLD),
       };
     });
 }

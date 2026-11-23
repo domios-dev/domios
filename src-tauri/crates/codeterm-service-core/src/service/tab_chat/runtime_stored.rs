@@ -163,6 +163,9 @@ fn read(svc: &ServiceContext, tab_id: &str, before: Option<u64>) -> Result<Optio
         .get_tab(tab_id)
         .cloned()
         .ok_or("Tab not found")?;
+    if tab.is_transcript_router() {
+        return Err("Attached transcript history requires its exact owner".into());
+    }
     let Some(provider) = tab
         .agent_type
         .as_deref()

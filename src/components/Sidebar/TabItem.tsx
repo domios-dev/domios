@@ -17,6 +17,7 @@ import { useTabAccounts } from "../../hooks/useAccountSelectors";
 import { AccountAvatar } from "../shared/AccountAvatar";
 import { accountIdentity, tabAccountIndicator } from "../shared/accountChoices";
 import { TabMenu } from "../Terminal/TabMenu";
+import { useLiveTranscriptHost } from "../Terminal/useLiveTranscriptPanel";
 import { buildTabMenu, unavailableTabMenu, type TabMenuAction } from "../Terminal/tabMenuModel";
 import { performTabMenuAction } from "../Terminal/tabMenuActions";
 import { useProviderSwitchDialog } from "./ProviderSwitchDialog";
@@ -267,6 +268,8 @@ function TabItemInner({
   accounts,
 }: TabItemProps & { trailingSlot?: ReactNode; accounts?: ReturnType<typeof useTabAccounts> }) {
   const tab = useLiveRowTab(rowTab);
+  const transcript = useLiveTranscriptHost();
+  const liveInput = transcript?.locked && transcript.ownerId === tab.id;
   const machineFilter = useSidebarMachineFilter();
   const wholeTeam = useContext(SidebarWholeTeam);
   const wholeWorkspace = useContext(SidebarWholeWorkspace);
@@ -552,6 +555,7 @@ function TabItemInner({
           >
             {rowText.title}
           </span>
+          {liveInput && <span className="ct-live-sidebar-mark shrink-0" title="Live Input owner" aria-label="Live Input owner">●</span>}
           {showActivityMarkers && <TabAttentionMark title={accessibleTitle} attention={rowAttention} active={isActive} placement="title" remote={Boolean(remote)} />}
           {showActivityMarkers && hasAgent && (
             tabState.active

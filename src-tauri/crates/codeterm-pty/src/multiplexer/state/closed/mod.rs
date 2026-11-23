@@ -19,6 +19,7 @@ mod tests;
 
 use std::collections::{HashMap, HashSet};
 
+use codeterm_types::live_transcript::ClosedTranscriptOwner;
 use serde::Serialize;
 
 use super::MultiplexerState;
@@ -32,6 +33,12 @@ pub use store::{
 
 /// Cap on newest closed tabs carried in the hot snapshot; sqlite keeps far more.
 pub const RECENTLY_CLOSED_VIEW_LIMIT: usize = 100;
+
+#[derive(Debug)]
+pub struct ReopenedTranscriptOwner {
+    pub closed: ClosedTranscriptOwner,
+    pub live_tab_id: String,
+}
 
 fn now_millis() -> u64 {
     std::time::SystemTime::now()
@@ -176,7 +183,7 @@ impl MultiplexerState {
     fn build_closed_tab(&self, tab_id: &str, reason: TabCloseReason) -> Option<ClosedTab> {
         let tab = self.tabs.get(tab_id)?;
         // General setup validates concierge access; ordinary reopen cannot restore that authority.
-        if tab.neighbor_authority.is_some() {
+        if tab.neighbor_authority.is_some() || tab.is_transcript_router() {
             return None;
         }
         let policy_worker = reason == TabCloseReason::PolicyWorker && tab.worker_id.is_some();
@@ -443,6 +450,7 @@ impl MultiplexerState {
         let Some(record) = self
             .tabs
             .get(tab_id)
+            .filter(|tab| !tab.is_transcript_router())
             .and_then(|tab| ClosedTranscript::from_tab(tab, now_millis()))
         else {
             return;
@@ -581,6 +589,38 @@ impl MultiplexerState {
         workspace_id: &str,
         index: Option<usize>,
     ) -> Result<String, String> {
+        self.reopen_closed_tab_with_lineage(workspace_id, index)
+            .map(|lineage| lineage.live_tab_id)
+    }
+
+    pub fn committed_transcript_owner(
+        &self,
+        tab_id: &str,
+    ) -> Result<Option<ClosedTranscriptOwner>, String> {
+        self.closed_store.committed_transcript_owner(tab_id)
+    }
+
+    pub fn reopened_transcript_owner(
+        &self,
+        live_tab_id: &str,
+    ) -> Result<Option<ClosedTranscriptOwner>, String> {
+        self.closed_store.reopened_transcript_owner(live_tab_id)
+    }
+
+    pub fn forget_reopened_transcript_owner(&self, live_tab_id: &str) -> Result<(), String> {
+        self.closed_store
+            .forget_reopened_transcript_owner(live_tab_id)
+    }
+
+    pub fn has_transcript_reopen(&self, closed: &ClosedTranscriptOwner) -> Result<bool, String> {
+        self.closed_store.has_transcript_reopen(closed)
+    }
+
+    pub fn reopen_closed_tab_with_lineage(
+        &mut self,
+        workspace_id: &str,
+        index: Option<usize>,
+    ) -> Result<ReopenedTranscriptOwner, String> {
         if !self.workspaces.iter().any(|w| w.id == workspace_id) {
             return Err(format!("Workspace not found: {}", workspace_id));
         }
@@ -599,14 +639,20 @@ impl MultiplexerState {
             .closed_store
             .peek_in_workspace(workspace_id, idx)
             .ok_or("No recently closed Tab")?;
+        let closed = self.closed_store.transcript_owner_at_row(row_id)?;
         let mut transaction = self.begin_team_close_transaction();
         let res = transaction
             .state_mut()
             .materialize_closed_tab(workspace_id, &record)?;
         self.admit_restored_items(transaction.state_mut())?;
-        self.closed_store.delete_tab_row(row_id)?;
+        let lineage = ReopenedTranscriptOwner {
+            closed,
+            live_tab_id: res,
+        };
+        self.closed_store
+            .delete_tab_row_with_lineage(row_id, std::slice::from_ref(&lineage))?;
         transaction.commit(self, &[]);
-        Ok(res)
+        Ok(lineage)
     }
 
     /// Resolve the workspace a restore lands in: reuse a live workspace at the same
@@ -633,24 +679,46 @@ impl MultiplexerState {
     /// Reopen a tab whose original workspace was deleted, into a live or recreated
     /// workspace at the same path.
     pub fn reopen_orphaned_tab(&mut self, tab_id: &str) -> Result<(String, String), String> {
+        self.reopen_orphaned_tab_with_lineage(tab_id)
+            .map(|(workspace, lineage)| (workspace, lineage.live_tab_id))
+    }
+
+    pub fn reopen_orphaned_tab_with_lineage(
+        &mut self,
+        tab_id: &str,
+    ) -> Result<(String, ReopenedTranscriptOwner), String> {
         let (row_id, record) = self
             .closed_store
             .peek_by_tab_id(tab_id)
             .ok_or_else(|| format!("No orphaned entry for tab_id: {}", tab_id))?;
+        let closed = self.closed_store.transcript_owner_at_row(row_id)?;
         let mut transaction = self.begin_team_close_transaction();
         let staged = transaction.state_mut();
         let workspace_id =
             staged.restore_target_workspace(record.workspace_name.clone(), record.cwd.clone())?;
         let new_tab_id = staged.materialize_closed_tab(&workspace_id, &record)?;
         self.admit_restored_items(staged)?;
-        self.closed_store.delete_tab_row(row_id)?;
+        let lineage = ReopenedTranscriptOwner {
+            closed,
+            live_tab_id: new_tab_id,
+        };
+        self.closed_store
+            .delete_tab_row_with_lineage(row_id, std::slice::from_ref(&lineage))?;
         transaction.commit(self, &[]);
-        Ok((workspace_id, new_tab_id))
+        Ok((workspace_id, lineage))
     }
 
     /// Reopen a whole closed group, recreating its workspace if gone and relinking
     /// `parent_tab_id` across the new ids.
     pub fn reopen_closed_group(&mut self, group_id: &str) -> Result<(String, String), String> {
+        self.reopen_closed_group_with_lineage(group_id)
+            .map(|(placement, _)| placement)
+    }
+
+    pub fn reopen_closed_group_with_lineage(
+        &mut self,
+        group_id: &str,
+    ) -> Result<((String, String), Vec<ReopenedTranscriptOwner>), String> {
         self.reopen_closed_group_using(group_id, Self::materialize_closed_tab)
     }
 
@@ -658,7 +726,7 @@ impl MultiplexerState {
         &mut self,
         group_id: &str,
         mut materialize: impl FnMut(&mut Self, &str, &ClosedTab) -> Result<String, String>,
-    ) -> Result<(String, String), String> {
+    ) -> Result<((String, String), Vec<ReopenedTranscriptOwner>), String> {
         let (group, tabs) = self
             .closed_store
             .peek_group(group_id)
@@ -697,9 +765,23 @@ impl MultiplexerState {
             }
         }
         let tab_id = restored_ids[plan.active_index].clone();
+        let lineage: Vec<_> = plan
+            .tabs
+            .iter()
+            .zip(restored_ids)
+            .map(|(record, live_tab_id)| ReopenedTranscriptOwner {
+                closed: ClosedTranscriptOwner {
+                    tab_id: record.tab_id.clone(),
+                    group_id: group_id.into(),
+                    closed_at_ms: record.closed_at,
+                },
+                live_tab_id,
+            })
+            .collect();
         self.admit_restored_items(staged)?;
-        self.closed_store.delete_group(group_id)?;
+        self.closed_store
+            .delete_group_with_lineage(group_id, &lineage)?;
         transaction.commit(self, &[]);
-        Ok((workspace_id, tab_id))
+        Ok(((workspace_id, tab_id), lineage))
     }
 }

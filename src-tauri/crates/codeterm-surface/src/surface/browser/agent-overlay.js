@@ -139,6 +139,52 @@
   }
   window.addEventListener('pagehide', hide);
   reduced.addEventListener('change', () => { if (finish) finish(); });
+  // Forward effective CSS cursor changes to Domios so the live view mirrors native browser cursors.
+  let lastCursor = '';
+  const TEXT_INPUT_TYPES = new Set(['text', 'search', 'url', 'tel', 'email', 'password', 'number']);
+  function resolveCursor(target, x, y) {
+    let el = target instanceof Element ? target : (target && target.parentElement) || document.elementFromPoint(x, y);
+    while (el && el.shadowRoot) {
+      const inner = el.shadowRoot.elementFromPoint(x, y);
+      if (!inner || inner === el) break;
+      el = inner;
+    }
+    if (!el) return 'default';
+    let raw = getComputedStyle(el).cursor || 'auto';
+    if (raw.includes('url(')) {
+      const parts = raw.split(',');
+      raw = (parts[parts.length - 1] || 'auto').trim();
+    }
+    if (raw !== 'auto') return raw;
+    if (el.closest('a[href], area[href], summary')) return 'pointer';
+    if (el.tagName === 'TEXTAREA' || el.isContentEditable) return 'text';
+    if (el.tagName === 'INPUT' && TEXT_INPUT_TYPES.has((el.type || 'text').toLowerCase())) return 'text';
+    if (document.caretRangeFromPoint) {
+      try {
+        const range = document.caretRangeFromPoint(x, y);
+        if (range && range.startContainer && range.startContainer.nodeType === Node.TEXT_NODE) {
+          const text = range.startContainer.textContent;
+          if (text && text.trim().length > 0 && getComputedStyle(el).userSelect !== 'none') return 'text';
+        }
+      } catch {}
+    }
+    return 'default';
+  }
+  function reportCursor(next) {
+    if (next === lastCursor) return;
+    lastCursor = next;
+    const send = window.__domiosCursor;
+    if (typeof send === 'function') send(next);
+  }
+  const onPointerMove = (event) => {
+    if (!window.__domiosCursor) return;
+    reportCursor(resolveCursor(event.target, event.clientX, event.clientY));
+  };
+  window.addEventListener('pointermove', onPointerMove, { capture: true, passive: true });
+  window.addEventListener('mousemove', onPointerMove, { capture: true, passive: true });
+  window.addEventListener('pointerout', (event) => {
+    if (!event.relatedTarget) reportCursor('default');
+  }, { capture: true, passive: true });
   Object.defineProperty(window, key, {value:Object.freeze({
     present,
     hide,

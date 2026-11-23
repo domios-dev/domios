@@ -2,22 +2,37 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import type { ViewportTransform } from "./viewportModel";
 import type { PanButton } from "./useCanvasViewport";
 
+const isEditableTarget = (target: EventTarget | null) =>
+  target instanceof Element && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+
 export function useCanvasMouse(transformRef: RefObject<ViewportTransform>, cancelAnim: () => void, schedule: (next: ViewportTransform) => void, panButton: PanButton, ignoreSelector?: string) {
   const [isDragging, setIsDragging] = useState(false);
+  const [isSpaceHeld, setIsSpaceHeld] = useState(false);
   const spaceRef = useRef(false);
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Space") spaceRef.current = true;
+      if (e.code !== "Space" || isEditableTarget(e.target) || isEditableTarget(document.activeElement)) return;
+      if (!spaceRef.current) {
+        spaceRef.current = true;
+        setIsSpaceHeld(true);
+      }
+    };
+    const releaseSpace = () => {
+      if (!spaceRef.current) return;
+      spaceRef.current = false;
+      setIsSpaceHeld(false);
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      if (e.code === "Space") spaceRef.current = false;
+      if (e.code === "Space") releaseSpace();
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", releaseSpace);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", releaseSpace);
     };
   }, []);
 
@@ -59,5 +74,5 @@ export function useCanvasMouse(transformRef: RefObject<ViewportTransform>, cance
     };
   }, [isDragging, schedule]);
 
-  return { isDragging, onMouseDown };
+  return { isDragging, isSpaceHeld, onMouseDown };
 }

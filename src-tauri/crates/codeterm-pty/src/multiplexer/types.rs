@@ -478,6 +478,9 @@ pub enum TabAudience {
     User,
     Automation,
     UserOwnedAutomation,
+    #[serde(rename(serialize = "automation"), skip_deserializing)]
+    #[ts(skip)]
+    TranscriptRouter,
 }
 
 /// Rename-proof identity for a spawned agent tab. Captures the assignment a
@@ -940,6 +943,15 @@ impl Default for TitleLevel {
 }
 
 impl Tab {
+    pub fn is_transcript_router(&self) -> bool {
+        self.audience == TabAudience::TranscriptRouter
+    }
+
+    pub fn transcript_router_owner(&self) -> Option<&str> {
+        self.is_transcript_router()
+            .then_some(self.spawned_by_tab_id.as_deref())
+            .flatten()
+    }
     pub fn is_utility_shell(&self) -> bool {
         self.tab_type == TabType::Terminal
             && matches!(self.backing, TabBacking::Pty)

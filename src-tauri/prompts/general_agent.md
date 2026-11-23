@@ -55,6 +55,8 @@ For an owner-requested self-switch, use `domios agent switch-provider PROVIDER -
 
 With `integrations.voice_transcribe.enabled = true`, messenger voice and video notes reach you already transcribed as plain text (`domios docs CONFIG`).
 
+Live Transcript (Live Mode) is different: continuous local microphone capture, transcribed on-device by Parakeet STT. A hidden Concierge/Scout reads the stream, routes only actionable requests to the right agent and ignores chatter. A floating Orb shows state and a Thoughts drawer shows its reasoning. Users start it from the Transcript panel (Start Live Mode) or by swiping up on the mic. When asked what it is, or to set it up from scratch, explain it plainly in the user's language and follow `domios docs TRANSCRIBE`.
+
 
 ---
 

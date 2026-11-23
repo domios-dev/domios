@@ -293,7 +293,7 @@ function TabSessionChatBody({
     loadOlder,
     loadHistoryGap,
     historyGapLabel,
-    showLatest,
+    showLatest, revealNewer,
     prepareMessage,
     setHistoryReading,
     addOptimistic,
@@ -441,6 +441,7 @@ function TabSessionChatBody({
     prependVersion: enrichedMessages[0]?.msg.id ?? null,
     followTailRef: chatFollowTailRef,
     onModeChange: (mode) => setHistoryReading(mode === "detached"),
+    newerCount: newerMessageCount, onNewerEdge: revealNewer, journalTabId: tabId,
   });
   useChatMessageReveal({
     tabId,

@@ -404,13 +404,14 @@ pub(super) fn dispatch(
             let restored_send = writes_pty && svc.public_send_restores_agent(&resolved_target);
             let response = if source_tab.is_some() || target_has_agent || system_context.is_some() {
                 let src = source_tab.as_deref().unwrap_or("");
-                let (from_label, model, from_agent) = {
+                let (from_label, model, from_agent, from_transcript_router) = {
                     let m = mux.read();
                     let source = m.get_tab(src);
                     (
                         m.display_label_for_tab(src),
                         source.and_then(|tab| tab.agent_session_model_label()),
                         source.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting),
+                        source.is_some_and(|tab| tab.is_transcript_router()),
                     )
                 };
                 let envelope = codeterm_service_core::service::messenger::MessageEnvelope::tab(
@@ -418,8 +419,10 @@ pub(super) fn dispatch(
                     src.to_string(),
                 )
                 .model(model)
-                .from_agent(Some(from_agent));
+                .from_agent(Some(from_agent))
+                .from_transcript_router(from_transcript_router);
                 let envelope = signed_send_envelope(envelope, system_context);
+                let from_transcript_router = envelope.from_transcript_router;
                 let class = if envelope.kind
                     == codeterm_service_core::service::messenger::MessageKind::System
                 {
@@ -444,6 +447,15 @@ pub(super) fn dispatch(
                 } else {
                     svc.public_delivery_receipt(&resolved_target, delivery)
                 };
+                use codeterm_service_core::service::messenger::Delivery;
+                if from_transcript_router
+                    && matches!(
+                        delivery,
+                        Delivery::ChatBackend { .. } | Delivery::Pty { .. }
+                    )
+                {
+                    svc.record_live_transcript_forward(src, &resolved_target, &raw_text);
+                }
                 gateway_send_response(delivery, pad_file)
             } else {
                 let (text, pad_file) = svc

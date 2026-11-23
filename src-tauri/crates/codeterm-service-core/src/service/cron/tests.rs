@@ -82,7 +82,7 @@ fn fixture() -> (
         .register_provider(Box::new(tiered_provider()));
     let path = fixture.temp.path().join("crons.json");
     let cron = Arc::new(Mutex::new(CronStore::new_with_path(path.clone())));
-    let wake = Arc::new(std::sync::Condvar::new());
+    let wake = crate::CronWake::default();
     (fixture, cron, wake, path)
 }
 
@@ -206,7 +206,7 @@ fn cron_service_mutations_and_run_lifecycle_survive_storage_reopen() {
         .service
         .agent_registry
         .register_provider(Box::new(tiered_provider()));
-    let wake = Arc::new(std::sync::Condvar::new());
+    let wake = crate::CronWake::default();
     let instance = fixture.temp.path().join("cron-service-storage");
     let storage = Storage::open(&instance, StorageConfig::default()).expect("open storage");
     let cron = Arc::new(Mutex::new(
@@ -759,7 +759,7 @@ fn cron_complete_requires_run_owner() {
     let cron = Arc::new(Mutex::new(CronStore::new_with_path(
         fixture.temp.path().join("crons.json"),
     )));
-    let wake = Arc::new(std::sync::Condvar::new());
+    let wake = crate::CronWake::default();
     let run_id = "owner-run";
     let job_id = {
         let mut store = cron.lock();

@@ -46,6 +46,7 @@ export interface UseCanvasViewportResult {
   fitToView: (bounds: ViewportBox, options?: FitOptions) => void;
   zoomBy: (delta: number) => void;
   isDragging: boolean;
+  isSpaceHeld: boolean;
   containerRef: React.MutableRefObject<HTMLDivElement | null>;
   /** Attach to the transformed world layer for immediate pinch/pan paint. */
   layerRef: React.MutableRefObject<HTMLDivElement | null>;
@@ -201,7 +202,7 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
 
   useCanvasWheel(containerRef, transformRef, zoomAround, schedule, wheelBehavior);
 
-  const { isDragging, onMouseDown } = useCanvasMouse(transformRef, cancelAnim, schedule, panButton, ignoreSelector);
+  const { isDragging, isSpaceHeld, onMouseDown } = useCanvasMouse(transformRef, cancelAnim, schedule, panButton, ignoreSelector);
 
   useCanvasTouch(containerRef, transformRef, touch, cancelAnim, schedule, zoomFloor, maxScale);
 
@@ -218,6 +219,7 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
     fitToView,
     zoomBy,
     isDragging,
+    isSpaceHeld,
     containerRef,
     layerRef,
     transformRef,

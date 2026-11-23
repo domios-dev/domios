@@ -13,6 +13,7 @@ export interface StreamCanvasProps {
   picking: boolean;
   snipping?: boolean;
   frames: FrameFeed;
+  subscribeCursor?(listener: (cursor: string) => void): () => void;
   decode?: FrameDecoder;
   children?: ReactNode;
   onViewport(viewport: StreamViewport): void;
@@ -40,6 +41,7 @@ export function StreamCanvas({
   picking,
   snipping = false,
   frames,
+  subscribeCursor,
   decode = decodeJpegFrame,
   children,
   onViewport,
@@ -69,6 +71,18 @@ export function StreamCanvas({
   useEffect(() => {
     if (interactive) canvasRef.current?.focus();
   }, [interactive]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    if (!interactive || picking || snipping || !subscribeCursor) {
+      canvas.style.cursor = "";
+      return;
+    }
+    return subscribeCursor((cursor) => {
+      if (canvasRef.current) canvasRef.current.style.cursor = cursor;
+    });
+  }, [interactive, picking, snipping, subscribeCursor]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

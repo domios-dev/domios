@@ -2,6 +2,7 @@ import { CANVAS_ZOOM_STEP } from "./useCanvasStage";
 import type { ReactNode } from "react";
 import type { ViewportBox } from "@codeterm/canvas-camera";
 import { CanvasToolbar } from "./CanvasToolbar";
+import { canvasPanCursor } from "./canvasPanModel";
 import { CameraRestContext } from "./canvasRest";
 import { useZoomCanvas, type CanvasFocus } from "./useZoomCanvas";
 import type { InitialCanvasFit } from "./imageCanvasCamera";
@@ -22,16 +23,16 @@ export function ZoomCanvas({ bounds, focus, cameraKey, initialFit = "ready", chi
   fitLabel?: string;
   resetLabel?: string;
 }) {
-  const { camera, mode, rest, scaleOutput, interactions, fit, zoom, natural, panning } = useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehavior, onNavigate, onSelect, followContent, panGestures });
+  const { camera, mode, rest, scaleOutput, interactions, fit, zoom, natural, panMode } = useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehavior, onNavigate, onSelect, followContent, panGestures });
   const controls = <CanvasToolbar appearance={toolbar === "header" ? "inline" : "floating"} floating={toolbar !== "header"} label="Canvas zoom controls" fitLabel={fitLabel} actualSizeLabel={resetLabel} fitPressed={mode === "fit"} actualSizePressed={mode === "natural"}
       onFit={fit} onActualSize={natural} onZoomOut={() => zoom(-CANVAS_ZOOM_STEP)} onZoomIn={() => zoom(CANVAS_ZOOM_STEP)}
       extras={<output ref={scaleOutput} aria-live="polite" aria-label="Zoom level" className={toolbar === "header" ? "block w-[4ch] text-center text-xs tabular-nums" : "px-1 font-mono text-xs tabular-nums"}>{Math.round(camera.transformRef.current.scale * 100)}%</output>} />;
   return <>
     {toolbar === "header" && renderHeader?.(controls)}
     <div className="relative min-h-0 flex-1">
-    <div ref={camera.containerRef} {...camera.handlers} {...interactions} role="region" aria-label="Zoomable canvas" tabIndex={0} data-fullscreen-autofocus=""
+    <div ref={camera.containerRef} {...camera.handlers} {...interactions} role="region" aria-label="Zoomable canvas" tabIndex={0} data-fullscreen-autofocus="" data-canvas-pan={panMode}
       className="absolute inset-0 overflow-hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]"
-      style={{ touchAction: "none", overscrollBehavior: "none", cursor: panning || camera.isDragging ? "grabbing" : "grab",
+      style={{ touchAction: "none", overscrollBehavior: "none", cursor: canvasPanCursor(panMode),
         backgroundColor: "var(--ct-bg)",
         backgroundImage: "radial-gradient(circle, color-mix(in srgb, var(--ct-accent) 25%, transparent) var(--canvas-dot, 1px), transparent var(--canvas-dot, 1px))",
         backgroundSize: "var(--canvas-step, 24px) var(--canvas-step, 24px)",

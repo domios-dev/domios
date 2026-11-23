@@ -37,7 +37,7 @@ fn cron_for(
     )
     .expect("startup hydrates cron from Storage");
     let cron = Arc::new(Mutex::new(store));
-    let wake = Arc::new(std::sync::Condvar::new());
+    let wake = crate::CronWake::default();
     assert!(service.set_ext(cron.clone()).is_ok());
     assert!(service.set_ext(wake.clone()).is_ok());
     (cron, wake)

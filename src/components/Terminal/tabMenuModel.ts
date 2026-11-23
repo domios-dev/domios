@@ -45,6 +45,7 @@ export const TAB_MENU_LABELS = {
   replaceOrchestratorHint: "Starts a new Team owner without resuming this session.",
   providerHint: "Continues through a handoff on the target harness. Full history is not transferred.",
   plugins: "Plugins",
+  liveTranscript: "Live Transcript",
   closeSession: "Close session",
   closeTab: "Close Tab",
   detach: "Detach from this machine",
@@ -74,6 +75,7 @@ export type TabMenuAction =
   | { type: "copySessionId"; sessionId: string }
   | { type: "setAutoConfirm"; enabled: boolean }
   | { type: "runPlugin"; entry: PluginTabMenuEntry }
+  | { type: "openLiveTranscript" }
   | { type: "openTelegram" }
   | { type: "closeTelegram" }
   | { type: "removeMachineTabs" }
@@ -90,6 +92,7 @@ export type TabMenuGlyph =
   | "restart"
   | "autoConfirm"
   | "plugins"
+  | "liveTranscript"
   | "telegram"
   | "telegramClose"
   | "detach"
@@ -206,6 +209,7 @@ export interface TabMenuInput extends TabMenuContext {
   surface: TabMenuSurface;
   canRename: boolean;
   canClose: boolean;
+  canOpenLiveTranscript?: boolean;
   pluginTabMenu: PluginTabMenuState;
   telegramThread: TelegramThreadMenuState | null;
   busy?: { reconnecting: boolean; restarting: boolean };
@@ -445,6 +449,9 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
   }
   const plugins = pluginsSubmenu(input);
   if (plugins) entries.push(plugins);
+  if (input.canOpenLiveTranscript && !tab.remote_peer_id && !tab.ownership && !tab.neighbor_authority && !tab.locked) {
+    entries.push({ kind: "item", id: "live-transcript", testId: "tab-menu-live-transcript", label: TAB_MENU_LABELS.liveTranscript, icon: "liveTranscript", action: { type: "openLiveTranscript" } });
+  }
   if (tab.remote_peer_id) {
     entries.push({ kind: "item", id: "detach", testId: "tab-menu-detach", label: TAB_MENU_LABELS.detach, icon: "detach", action: { type: "detach" } });
   }

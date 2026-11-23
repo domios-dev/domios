@@ -196,5 +196,20 @@ test("dictation is an action and leaves the text beyond the caret outside its qu
   assert.deepEqual(composerActionQuery("hello@dictasuffix", 11, 11), { start: 5, end: 11, partial: "dicta" });
   assert.equal(composerActionQuery("hello@dictionary", 16, 16), null);
 });
+test("fast mention sources publish progressively via onUpdate while slower sources are pending", async () => {
+  let resolveSlow!: (rows: ComposerMention[]) => void;
+  const seen: string[][] = [];
+  const registry = createMentionRegistry([
+    { id: "fast", group: "Tabs", search: async () => [row("Pasteur", { match: 1 })] },
+    { id: "slow", group: "Plans", search: () => new Promise<ComposerMention[]>((resolve) => { resolveSlow = resolve; }) },
+  ]);
+  const pending = registry.search("pas", { ...ctx, onUpdate: (rows) => { seen.push(rows.map((r) => r.label)); } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(seen, [["Pasteur"]]);
+  resolveSlow([row("Pasteur Plan", { match: 1 })]);
+  const final = await pending;
+  assert.deepEqual(final.map((r) => r.label), ["Pasteur", "Pasteur Plan"]);
+});
 async function main() { for (const [name, fn] of tests) { await fn(); console.log(`PASS ${name}`); } console.log(`${tests.length} tests passed`); }
 void main().catch((error) => { console.error(error); process.exitCode = 1; });

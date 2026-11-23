@@ -53,6 +53,7 @@ where
 
 #[track_caller]
 pub fn block_on<F: Future>(task: F) -> F::Output {
+    crate::lock_hold::order::check_blocking_wait("async_runtime::block_on");
     #[cfg(debug_assertions)]
     if crate::paths::is_dev_instance() {
         log::debug!(

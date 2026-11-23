@@ -6,7 +6,7 @@ export interface MentionScope {
   cwd?: string | null;
   teamId: string | null;
 }
-export interface MentionContext { scope: MentionScope; signal: AbortSignal }
+export interface MentionContext { scope: MentionScope; signal: AbortSignal; onUpdate?: (rows: ComposerMention[]) => void }
 export interface ComposerMention {
   id: string;
   kind?: "tab" | "task" | "plan" | "blueprint" | "file" | "action";
@@ -73,19 +73,24 @@ export function createMentionRegistry(sources: readonly MentionSource[], lifecyc
     close: lifecycle.close,
     async search(query: string, ctx: MentionContext): Promise<ComposerMention[]> {
       ctx.signal.throwIfAborted();
-      const groups = await Promise.all(sources.map(async (source) => {
+      const needle = query.toLowerCase();
+      const results: ComposerMention[][] = sources.map(() => []);
+      const snapshot = () => results.flat().sort(compareMentionTitles);
+      await Promise.all(sources.map(async (source, index) => {
         try {
-          const needle = query.toLowerCase();
-          return (await source.search(query, ctx)).filter((row) => Number.isFinite(row.match)).map((row) => ({
+          const rows = (await source.search(query, ctx)).filter((row) => Number.isFinite(row.match)).map((row) => ({
             ...row,
             titlePrefix: !!needle && row.label.toLowerCase().startsWith(needle),
             titleSubstring: !!needle && row.label.toLowerCase().includes(needle),
           })).sort(compareMentions).slice(0, 50);
+          if (ctx.signal.aborted) return;
+          results[index] = rows;
+          if (rows.length > 0) ctx.onUpdate?.(snapshot());
         }
-        catch (error) { if (ctx.signal.aborted) throw error; return []; }
+        catch (error) { if (ctx.signal.aborted) throw error; }
       }));
       ctx.signal.throwIfAborted();
-      return groups.flat().sort(compareMentionTitles);
+      return snapshot();
     },
   };
 }
