@@ -2,12 +2,14 @@ import { Window } from "happy-dom";
 import {
   cacheThemeSnapshot,
   DEFAULT_THEME,
+  isLightColor,
   readCachedTheme,
   readCachedThemeVars,
   themeToCSS,
 } from "./themeCss";
 import type { ThemeConfig } from "./types";
 import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import { blendColor, parseHex } from "./colors";
 
 let passed = 0;
@@ -67,6 +69,20 @@ console.log("themeCss tests");
   const vars = readCachedThemeVars();
   assert("cached theme restores before backend config", cached?.name === "github-light");
   assert("cached vars restore before React render", vars?.["--ct-bg"] === "#f6f8fa");
+}
+
+{
+  const html = readFileSync("index.html", "utf8");
+  const bootstrap = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
+  for (const background of [lightTheme.background, DEFAULT_THEME.background, "#50ce50", "#c080c0"]) {
+    setupDom();
+    cacheThemeSnapshot({ ...lightTheme, background });
+    runInNewContext(bootstrap, { document: window.document, localStorage: window.localStorage });
+    const root = window.document.documentElement;
+    const expected = isLightColor(background) ? "light" : "dark";
+    assert(`first paint restores the app theme mode for ${background}`, root.dataset.ctTheme === expected && root.style.colorScheme === expected);
+    assert(`first paint restores the background variable for ${background}`, root.style.getPropertyValue("--ct-bg") === background);
+  }
 }
 
 for (const name of ["github-dark", "github-light", "dracula"]) {

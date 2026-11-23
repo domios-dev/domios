@@ -240,7 +240,7 @@ test("team header renders the live compact status tally", async () => {
   assert(!host.querySelector('[data-testid="team-done-count"]'), "header does not show a done/total progress fraction");
   const title = host.querySelector('[data-testid="team-name"]');
   const working = host.querySelector('[data-testid="team-working-indicator"]');
-  assert(title?.nextElementSibling === working, "working indicator follows the Team title");
+  assert(title && working && title.compareDocumentPosition(working) & Node.DOCUMENT_POSITION_FOLLOWING, "working indicator follows the Team title and machine");
   assert(working?.getAttribute("role") === "status", "working indicator is announced to assistive technology");
   assert(!host.textContent?.includes("Open effort"), "Team unit has no Open effort chrome");
   canvasFocusStore.closeWorkspace();

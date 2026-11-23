@@ -159,7 +159,7 @@
   border: var(--ct-composer-card-border) solid var(--ct-border);
   border-radius: var(--ct-composer-radius);
   background: var(--ct-bg-elev, var(--ct-surface));
-  box-shadow: 0 8px 24px rgb(0 0 0 / 16%);
+  box-shadow: var(--ct-shadow-capsule);
   overflow: visible;
   transition: border-radius var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
     box-shadow var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
@@ -168,7 +168,7 @@
 .ct-composer-card[data-dictating] {
   border-color: color-mix(in srgb, var(--ct-accent) 46%, var(--ct-border));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-accent) 18%, transparent),
-    0 8px 24px rgb(0 0 0 / 16%);
+    var(--ct-shadow-capsule);
 }
 .ct-composer-control { width: var(--ct-composer-control-size); height: var(--ct-composer-control-size); }
 .ct-composer-inner-control { width: var(--ct-composer-inner-control-size); height: var(--ct-composer-inner-control-size); }

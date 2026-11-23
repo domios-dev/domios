@@ -538,7 +538,7 @@ button {
   border: 1px solid color-mix(in srgb, var(--ct-accent) 35%, transparent);
   background: color-mix(in srgb, var(--ct-surface) 94%, var(--ct-accent));
   color: var(--ct-fg);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-lg);
   animation: ct-cursor-tip-in var(--ct-duration-liquid-press, 180ms) var(--ct-ease-hover-swell) both;
 }
 
@@ -854,9 +854,7 @@ button {
   color: var(--ct-fg);
   background: color-mix(in srgb, var(--ct-accent) 12%, var(--ct-surface));
   border: 1px solid color-mix(in srgb, var(--ct-accent) 34%, var(--ct-border));
-  box-shadow:
-    0 8px 24px color-mix(in srgb, var(--ct-bg) 72%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--ct-fg) 7%, transparent);
+  box-shadow: var(--ct-shadow-md);
   backdrop-filter: blur(12px);
 }
 
@@ -1081,7 +1079,7 @@ button {
   border-radius: 6px;
   background: color-mix(in srgb, var(--ct-surface) 88%, var(--ct-titlebar-bg));
   white-space: nowrap;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
+  box-shadow: var(--ct-shadow-md);
 }
 
 .ct-toast-inline-content {
@@ -2145,7 +2143,7 @@ button {
   background: color-mix(in srgb, var(--ct-accent) 7%, var(--ct-bg));
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 28%, transparent),
-    0 4px 14px rgb(0 0 0 / 22%);
+    var(--ct-shadow-md);
 }
 
 .sidebar-team-unit {
@@ -2160,7 +2158,7 @@ button {
   isolation: isolate;
   border-radius: 8px;
   background: var(--team-surface);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 4%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-border) var(--ct-team-card-edge), transparent);
   container-type: inline-size;
 }
 
@@ -2625,7 +2623,7 @@ button {
   border-radius: 8px;
   padding: 10px;
   background: var(--ct-surface);
-  box-shadow: 0 12px 32px rgb(0 0 0 / 32%);
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-lg);
 }
 
 .sidebar-workspace-card-popover-label {
@@ -2773,6 +2771,38 @@ button {
 
 .sidebar-team-title-row .sidebar-team-name {
   min-width: 0;
+  flex: 0 1 auto;
+}
+
+.sidebar-team-title-row .sidebar-team-name,
+.sidebar-team-machine-pill__label {
+  margin-block: -0.125em;
+  line-height: 1.25;
+}
+
+.sidebar-team-machine-pill {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 50%;
+  height: 16px;
+  flex: 0 0 auto;
+  align-items: center;
+  column-gap: 4px;
+  margin-inline-start: 1px;
+  padding: 0 6px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.sidebar-team-machine-pill[data-remote="true"] {
+  padding-inline-start: 5px;
+  background: color-mix(in srgb, var(--ct-plan-tone) 12%, transparent);
+}
+
+[data-ct-theme="light"] .sidebar-team-unit .sidebar-role-badge {
+  color: color-mix(in srgb, var(--ct-accent) 90%, var(--ct-fg));
 }
 
 .sidebar-team-title-row .activity-dots {
@@ -3947,7 +3977,7 @@ button {
   padding: 0.7rem 0.8rem;
   border-radius: var(--ct-radius-lg);
   background: color-mix(in srgb, var(--ct-surface) 55%, var(--ct-bg));
-  box-shadow: 0 14px 36px color-mix(in srgb, black 30%, transparent);
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-lg);
   color: var(--ct-fg);
   animation: plan-ask-in var(--ct-duration-liquid-press) var(--ct-ease-liquid-settle) both;
 }
@@ -4425,7 +4455,7 @@ button {
   font-size: 0.72rem;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 8px 24px -10px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--ct-shadow-md);
 }
 .ct-fly-to-active:hover,
 .ct-fly-to-active:focus-visible {
@@ -5377,7 +5407,7 @@ button.plan-peer-chip:focus-visible {
   border-radius: 0.45rem;
   border: 1px solid var(--ct-border);
   background: var(--ct-bg-elev, var(--ct-surface));
-  box-shadow: 0 6px 18px color-mix(in srgb, #000 28%, transparent);
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-lg);
 }
 .working-on-chip-info {
   color: color-mix(in srgb, var(--ct-fg) 70%, transparent);

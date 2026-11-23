@@ -68,7 +68,7 @@ async function main() {
     const { host, root } = await render(teamName);
     const found = labels(host);
     const section = host.querySelector('[data-testid="team-unit"]');
-    assert(section?.getAttribute("aria-label") === teamName, `team region is named "${teamName}"`);
+    assert(section?.getAttribute("aria-label") === `${teamName}, This machine`, "team region includes title and machine");
     for (const suffix of ["managers", "workers", "utility shells", "jobs"]) {
       assert(found.includes(`${teamName} ${suffix}`), `${suffix} group carries the team name`);
     }
@@ -79,7 +79,7 @@ async function main() {
   {
     const { host, root } = await render(null);
     const section = host.querySelector('[data-testid="team-unit"]');
-    assert(section?.getAttribute("aria-label") === "Team", "an unnamed team still gets a stable name");
+    assert(section?.getAttribute("aria-label") === "Team, This machine", "an unnamed team still gets a stable name");
     await act(async () => root.unmount());
     host.remove();
   }

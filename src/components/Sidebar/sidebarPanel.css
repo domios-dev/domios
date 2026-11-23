@@ -185,7 +185,7 @@
   border: 1px solid color-mix(in srgb, var(--ct-fg) 9%, transparent);
   border-radius: 14px;
   background: var(--ct-glass-sheen), var(--ct-glass-bg);
-  box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-lg);
   backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
   transform-origin: left center;
   animation: ct-compact-peek-in var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;

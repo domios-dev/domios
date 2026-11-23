@@ -59,7 +59,7 @@
 .ct-bar-pill[aria-expanded="true"],
 .ct-bar-pill.is-open {
   background: color-mix(in srgb, var(--ct-accent) 14%, var(--ct-bg));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 30%, transparent), 0 4px 14px rgb(0 0 0 / 28%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 30%, transparent), var(--ct-shadow-md);
   color: var(--ct-fg);
 }
 
