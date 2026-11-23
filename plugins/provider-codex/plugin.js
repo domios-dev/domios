@@ -2674,6 +2674,29 @@ function notificationAuth(value) {
   return { kind: "auth", state: "unknown" };
 }
 
+// plugins/provider-codex/src/modelRefusal.ts
+function httpError(message) {
+  const body = message?.startsWith("{") ? message : message?.match(/(?:^|unexpected status )400 Bad Request:\s*(\{.*\})(?:, url:|$)/s)?.[1];
+  if (!body) return null;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
+function modelRefusal(value, requestedModel) {
+  const failure2 = object2(value);
+  const diagnostic = text2(failure2.additionalDetails) ?? text2(failure2.message);
+  const data = object2(failure2.data);
+  const body = [failure2, data, object2(httpError(diagnostic))].map((candidate) => object2(candidate.error)).find((candidate) => candidate.code === "model_not_found" && candidate.type === "invalid_request_error");
+  const message = text2(body?.message) ?? diagnostic;
+  const namedModel = message?.match(/^The '([^'\s]+)' model is not supported when using Codex with a ChatGPT account\.$/)?.[1];
+  if (!body && !namedModel) return;
+  const model = namedModel ?? text2(body?.model) ?? requestedModel;
+  if (!model || !message) return;
+  return { model, message };
+}
+
 // plugins/provider-codex/src/runtimeBackground.ts
 var identifier = (value) => typeof value === "string" && value.length > 0 && value.length <= 4096 && !value.includes("\0");
 function invalid(message) {
@@ -3520,6 +3543,13 @@ function mapItem(state, method, params) {
   }
   return stamp(state, stampToolLifecycle(row3, previous, method, params), params);
 }
+function turnError(state, turnId, failure2, willRetry, model) {
+  const row3 = { id: `${turnId}:error`, seq: state.seq + 1, type: "system" };
+  const refusal = willRetry ? void 0 : modelRefusal(failure2, model);
+  if (refusal) return { ...row3, content: refusal.message, systemSubtype: "model_unavailable", toolInput: { model: refusal.model } };
+  const error = runtimeError(failure2, willRetry, state.rateLimitSnapshot);
+  return { ...row3, content: error.message, systemSubtype: willRetry ? "provider_retry" : "api_error", toolInput: error.metadata };
+}
 function runtimeReduce(ctx, raw, frames) {
   var _a;
   const state = initial(ctx, raw);
@@ -3623,8 +3653,7 @@ function runtimeReduce(ctx, raw, frames) {
         delete state.compacting;
         const failure2 = outputLimit(params.turn) ? object2(params.turn) : object2(object2(params.turn).error);
         if (Object.keys(failure2).length) {
-          const error = runtimeError(failure2, false, state.rateLimitSnapshot);
-          events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: "api_error", toolInput: error.metadata }, params) });
+          events.push({ kind: "chatItem", threadId, item: stamp(state, turnError(state, turnId, failure2, false, ctx.settings.model), params) });
         }
         const outcome2 = turnOutcome(params.turn);
         events.push({ kind: "turnState", threadId, turnId, state: "idle", ...outcome2 ? { detail: outcome2 } : {}, ...timing(params) });
@@ -3690,8 +3719,7 @@ function runtimeReduce(ctx, raw, frames) {
         break;
       }
       case "error": {
-        const error = runtimeError(params.error, params.willRetry === true, state.rateLimitSnapshot);
-        if (turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: params.willRetry === true ? "provider_retry" : "api_error", toolInput: error.metadata }, params) });
+        if (turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, turnError(state, turnId, params.error, params.willRetry === true, ctx.settings.model), params) });
         break;
       }
       default: {
@@ -3994,6 +4022,10 @@ function respondOperation(ctx, op, raw, reply) {
     return pagedHistoryResponse(op, state, reply);
   }
   if (reply.kind === "error") {
+    const model = op.kind === "openThread" && state.stage === "thread/start" || op.kind === "resumeThread" && state.stage === "thread/resume" || op.kind === "submitTurn" && state.stage === "turn/start" ? op.settings.model : void 0;
+    const refusal = model && modelRefusal(reply.error, model);
+    if (refusal && refusal.model === model)
+      return { kind: "refused", reason: { code: "model_unavailable", message: refusal.message }, beforeAcceptance: true };
     if ((op.kind === "openThread" && state.stage === "thread/start" || op.kind === "resumeThread" && state.stage === "thread/resume") && state.windowsSandbox === "mxc" && codexNeedsSplitWindowsRoots(ctx) && codexManagedMxcRefusal(reply.error))
       return continuation(threadPlan(ctx, op, void 0, state.unarchived === true));
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && missingRollout(reply.error, op.threadId))

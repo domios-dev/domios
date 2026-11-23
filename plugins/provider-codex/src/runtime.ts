@@ -14,6 +14,7 @@ import { loginFailureReason, loginPlan, loginResponse } from "./runtimeLogin";
 import { rateLimitEvents } from "./runtimeUsage";
 import {resetCredits, resetOutcome} from "./resetCredits";
 import { accountAuth } from "./runtimeAuth";
+import { modelRefusal } from "./modelRefusal";
 import {backgroundOwns, backgroundPlan, backgroundResponse} from "./runtimeBackground";
 import { interruptTargets } from "./runtimeInterrupt";
 import { descendantThread, historyThread } from "./runtimeBinding";
@@ -220,6 +221,12 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
     return pagedHistoryResponse(op,state,reply);
   }
   if (reply.kind === "error") {
+    const model = (op.kind === "openThread" && state.stage === "thread/start"
+      || op.kind === "resumeThread" && state.stage === "thread/resume"
+      || op.kind === "submitTurn" && state.stage === "turn/start") ? op.settings.model : undefined;
+    const refusal = model && modelRefusal(reply.error, model);
+    if (refusal && refusal.model === model)
+      return {kind:"refused",reason:{code:"model_unavailable",message:refusal.message},beforeAcceptance:true};
     if ((op.kind === "openThread" && state.stage === "thread/start" || op.kind === "resumeThread" && state.stage === "thread/resume")
       && state.windowsSandbox === "mxc" && codexNeedsSplitWindowsRoots(ctx) && codexManagedMxcRefusal(reply.error))
       return continuation(threadPlan(ctx,op,undefined,state.unarchived === true));

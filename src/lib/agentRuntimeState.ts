@@ -24,6 +24,7 @@ export interface AgentRuntimeState {
   epoch: number;
   reason?: string | null;
   failureCode?: import("@codeterm/plugin-sdk").RuntimeFailureCode;
+  unavailableModels?: string[];
   active_turn_started_at_ms?: number | null;
   last_turn_duration_ms?: number | null;
   history?: RuntimeHistoryState;

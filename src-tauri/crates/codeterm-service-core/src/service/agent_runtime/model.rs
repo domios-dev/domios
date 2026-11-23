@@ -60,6 +60,10 @@ pub enum RuntimeFailure {
     },
     SignInRequired,
     ConversationMissing,
+    ModelUnavailable {
+        model: String,
+        message: String,
+    },
     SessionLoadRefused(String),
     PrewriteRefused(String),
     WrittenAwaitingEvidence,
@@ -114,6 +118,7 @@ impl std::fmt::Display for RuntimeFailure {
             Self::ReplyRefused { status } => write!(formatter, "{REFUSED_PREFIX}HTTP prompt reply ({status})"),
             Self::SignInRequired => formatter.write_str("Sign-in required"),
             Self::ConversationMissing => formatter.write_str("ConversationMissing: The provider's saved conversation rollout is unavailable. Start a new conversation to continue."),
+            Self::ModelUnavailable { model, message } => write!(formatter, "Model '{model}' is unavailable for this account: {message}"),
             Self::SessionLoadRefused(reason) => formatter.write_str(reason),
             Self::PrewriteRefused(reason) => write!(formatter, "Input was not sent: {reason}"),
             Self::WrittenAwaitingEvidence => formatter.write_str("Input was written; awaiting own-session delivery evidence"),
@@ -162,6 +167,8 @@ pub struct RuntimeState {
     pub notice: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_failure: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable_models: Vec<String>,
     #[serde(skip)]
     pub pending_load_notice: Option<String>,
     /// Declared by this process at initialize: input may join its running turn.
@@ -183,6 +190,8 @@ pub struct RuntimeState {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RuntimeSnapshot {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable_models: Vec<String>,
     #[serde(
         default,
         rename = "failureCode",
@@ -252,6 +261,7 @@ impl RuntimeFailure {
             }
             Self::SignInRequired => Code::AuthenticationRequired,
             Self::ConversationMissing => Code::ThreadNotFound,
+            Self::ModelUnavailable { .. } => Code::ModelUnavailable,
             Self::SessionLoadRefused(_) => Code::SessionLoadRefused,
             Self::Superseded => Code::BindingMismatch,
         })
@@ -268,6 +278,7 @@ impl RuntimeState {
             RuntimePhase::Degraded { reason } => ("degraded", Some(reason.clone())),
         };
         RuntimeSnapshot {
+            unavailable_models: self.unavailable_models.clone(),
             failure_code: if matches!(
                 self.phase,
                 RuntimePhase::Degraded { .. } | RuntimePhase::Unloaded { .. }
@@ -296,6 +307,7 @@ impl RuntimeState {
     pub fn unloaded(thread_id: Option<String>) -> Self {
         Self {
             failure_code: None,
+            unavailable_models: Vec::new(),
             epoch: 0,
             binary_version: None,
             agent_name: None,

@@ -551,8 +551,22 @@ pub fn validate_runtime_step(
             validate_runtime_result(ctx, op, result)
         }
         RuntimeStep::Refused {
-            before_acceptance, ..
+            reason,
+            before_acceptance,
         } => {
+            if reason.code == RuntimeFailureCode::ModelUnavailable
+                && (!matches!(reply, RpcReply::Error { .. })
+                    || !matches!(
+                        op,
+                        RuntimeOperation::OpenThread { .. }
+                            | RuntimeOperation::ResumeThread { .. }
+                            | RuntimeOperation::SubmitTurn { .. }
+                    ))
+            {
+                return Err(mismatch(
+                    "model refusal requires a correlated model request error",
+                ));
+            }
             // Input offered to a running turn can be answered with a success that declines it.
             let prompt = matches!(
                 op,
