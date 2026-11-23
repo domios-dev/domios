@@ -314,12 +314,39 @@ fn inline_speech_is_bounded_and_remains_data_inside_the_route_frame() {
     assert!(non_adjacent.contains("&lt;speech&gt; &amp;"));
     assert!(non_adjacent.contains("[UNREAD]"));
     assert!(non_adjacent.contains("opaque second segment"));
+    store
+        .append(
+            "owner",
+            TranscriptInput {
+                at_ms: 3,
+                content: TranscriptContent::Paused {
+                    reason: "manual".into(),
+                },
+            },
+        )
+        .unwrap();
+    store.ack(&binding, 1).unwrap();
+    let adjacent_before_pause = delivery::route_body(
+        &store,
+        "owner",
+        &binding,
+        TranscriptRange {
+            from_seq: 2,
+            to_seq: 2,
+        },
+        true,
+        1,
+    );
+    assert!(adjacent_before_pause.contains("[CONTEXT]"));
+    assert!(adjacent_before_pause.contains("&lt;speech&gt; &amp;"));
+    assert!(adjacent_before_pause.contains("[UNREAD]"));
+    assert!(adjacent_before_pause.contains("opaque second segment"));
     append("opaque oversized ".repeat(130));
     let both = TranscriptRange {
         from_seq: 1,
-        to_seq: 3,
+        to_seq: 4,
     };
     let pointer = delivery::route_body(&store, "owner", &binding, both, true, 0);
-    assert!(pointer.contains("--revision 1 --from-seq 1 --through-seq 3"));
+    assert!(pointer.contains("--revision 1 --from-seq 1 --through-seq 4"));
     assert!(!pointer.contains("opaque"));
 }
