@@ -2,6 +2,7 @@ import type { ToolEvent } from "@codeterm/chat-core";
 import { toolCommandShape } from "../codeterm/commandShape";
 import { isSend } from "../codeterm/templates";
 import { ToolOutputContent } from "../ToolOutputContent";
+import { RowMenuIsolate } from "../messageMenu";
 import { CodetermActionDetail, type CodetermNavigationProps } from "./CodetermActionCard";
 import { CommandGroupDetail } from "./CommandGroupCard";
 import { FileDiffCards } from "./FileDiffCards";
@@ -9,7 +10,7 @@ import { ReadDetail } from "./ReadCard";
 import { SearchDetail } from "./SearchCard";
 
 export function StreamedCommandDetail({ event, ...navigation }: CodetermNavigationProps & { event: ToolEvent }) {
-  if (event.fileDiffs?.length) return <FileDiffCards event={event} initiallyExpanded rawCommand={false} />;
+  if (event.fileDiffs?.length) return <RowMenuIsolate><FileDiffCards event={event} initiallyExpanded /></RowMenuIsolate>;
   const shape = toolCommandShape(event);
   if (shape.kind === "group") return <CommandGroupDetail event={event} rows={shape.rows} {...navigation} />;
   if (shape.kind === "read") return <ReadDetail event={event} />;
