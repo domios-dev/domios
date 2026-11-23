@@ -16,7 +16,12 @@ async fn model_unavailable_round_trips_the_runtime_refusal() {
         ..Default::default()
     };
     let ctx = RuntimeContext {
+        epoch: 1,
+        tab_id: "tab".into(),
+        binding_nonce: "nonce".into(),
         thread_id: Some("own".into()),
+        cwd: "/fixture".into(),
+        host_version: "1.22.1".into(),
         settings: settings.clone(),
         ..Default::default()
     };

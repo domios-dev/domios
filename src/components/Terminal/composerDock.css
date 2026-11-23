@@ -4,13 +4,13 @@
   --ct-composer-radius: 1.215rem;
   --ct-composer-float-min-width: 30rem;
   --ct-composer-control-size: var(--ct-control-height);
-  --ct-composer-inner-control-size: 2rem;
   --ct-composer-card-border: 1px;
+  --ct-composer-inner-inset: 0.25rem;
+  --ct-composer-inner-control-size: calc(var(--ct-composer-control-size) - 2 * var(--ct-composer-card-border) - 2 * var(--ct-composer-inner-inset));
 }
 @media (pointer: coarse), (max-width: 768px) {
   :root {
     --ct-composer-control-size: 2.5rem;
-    --ct-composer-inner-control-size: 2rem;
   }
 }
 .ct-composer-dock {
@@ -176,7 +176,7 @@
 .ct-composer-inner-actions {
   align-self: flex-end;
   margin-block-end: calc((var(--ct-composer-control-size) - 2 * var(--ct-composer-card-border) - var(--ct-composer-inner-control-size)) / 2);
-  padding-inline-end: 0.25rem;
+  padding-inline-end: var(--ct-composer-inner-inset);
 }
 .ct-composer-dock[data-composer-mode="docked"] {
   padding: 0 0.5rem var(--ct-composer-bottom-padding, calc(0.375rem + var(--ct-safe-bottom, 0px)));
