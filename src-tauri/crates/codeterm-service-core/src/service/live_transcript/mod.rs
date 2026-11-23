@@ -119,6 +119,28 @@ impl TranscriptOwners {
         (epoch.runtime_tab_id == router).then_some((store, epoch))
     }
 
+    pub(super) fn stores_for_destination(
+        &self,
+        destination: &str,
+    ) -> Vec<(String, TranscriptStore)> {
+        let mut matched = Vec::new();
+        if let Some((store, _)) = self.attached_store_for_router(destination) {
+            matched.push((store.binding().owner_tab_id, store));
+        }
+        let stores = self.stores.lock().values().cloned().collect::<Vec<_>>();
+        for store in stores {
+            let binding = store.binding();
+            if matches!(&binding.target, BindingTarget::External { tab_id } if tab_id == destination)
+                && !matched
+                    .iter()
+                    .any(|(owner, _)| owner == &binding.owner_tab_id)
+            {
+                matched.push((binding.owner_tab_id, store));
+            }
+        }
+        matched
+    }
+
     pub(super) fn register_router(&self, router: &str, owner: &str) {
         self.routers.lock().insert(router.into(), owner.into());
     }

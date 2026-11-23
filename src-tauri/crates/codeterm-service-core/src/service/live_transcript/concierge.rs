@@ -206,9 +206,28 @@ impl ServiceContext {
         store
             .verify_live_binding(owner, &binding)
             .map_err(|_| refused())?;
-        let result = use_binding(&store, &binding);
         drop(mux);
-        Ok(result)
+        Ok(use_binding(&store, &binding))
+    }
+
+    pub(crate) fn wake_live_transcript_on_router_idle(&self, router_tab_id: &str) {
+        let Some(svc) = self.weak_self().upgrade() else {
+            return;
+        };
+        let Some(owners) = self.get_ext::<super::TranscriptOwners>() else {
+            return;
+        };
+        for (owner, store) in owners.stores_for_destination(router_tab_id) {
+            let committed = store.committed_seq();
+            if committed > 0
+                && store.routing_state().is_ok_and(|state| {
+                    state.trigger != TranscriptTrigger::Manual
+                        && committed > state.attempted_through
+                })
+            {
+                enqueue(&svc, &store, &owner, committed);
+            }
+        }
     }
 
     pub fn update_live_transcript_binding(
@@ -599,11 +618,12 @@ fn process(
     store: &TranscriptStore,
     owner: &str,
     range: TranscriptRange,
-) -> Result<(), &'static str> {
+) -> Result<(), String> {
     let mut state = store
         .routing_state()
-        .map_err(|_| "routing state unavailable")?;
-    delivery::settle(svc, store, &mut state).map_err(|_| "delivery proof unavailable")?;
+        .map_err(|error| format!("routing state unavailable: {error}"))?;
+    delivery::settle(svc, store, &mut state)
+        .map_err(|error| format!("delivery proof unavailable: {error}"))?;
     if state.trigger == TranscriptTrigger::Manual
         || state.pending.is_some()
         || range.to_seq <= state.attempted_through
@@ -611,22 +631,35 @@ fn process(
         return Ok(());
     }
     let observed_binding = store.binding();
-    let from_seq = state
-        .attempted_through
-        .saturating_add(1)
-        .max(range.to_seq.saturating_sub(7));
-    let page = store
-        .history(from_seq, 8)
-        .map_err(|_| "committed speech unavailable")?;
-    let speech: Vec<_> = page
-        .rows
+    let mut from_seq = state.attempted_through.saturating_add(1);
+    let speech_owned: Vec<(u64, String)> = loop {
+        let page = store
+            .history(from_seq, 16)
+            .map_err(|error| format!("committed speech unavailable: {error}"))?;
+        let batch: Vec<(u64, String)> = page
+            .rows
+            .iter()
+            .filter_map(|row| match &row.content {
+                TranscriptContent::Speech { text } if row.seq <= range.to_seq => {
+                    Some((row.seq, text.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        if !batch.is_empty() {
+            break batch;
+        }
+        let Some(last_seq) = page.rows.last().map(|row| row.seq) else {
+            return Ok(());
+        };
+        if last_seq >= range.to_seq {
+            return Ok(());
+        }
+        from_seq = last_seq.saturating_add(1);
+    };
+    let speech: Vec<(u64, &str)> = speech_owned
         .iter()
-        .filter_map(|row| match &row.content {
-            TranscriptContent::Speech { text } if row.seq <= range.to_seq => {
-                Some((row.seq, text.as_str()))
-            }
-            _ => None,
-        })
+        .map(|(seq, text)| (*seq, text.as_str()))
         .collect();
     let Some(&(to_seq, _)) = speech.last() else {
         return Ok(());
@@ -640,7 +673,7 @@ fn process(
             }
             let mut entries = svc.ext_or_init(Dispatch::default).owners.lock();
             entries.entry(owner.into()).or_default().scout_unavailable = decision.is_err();
-            if decision? != Some(true) {
+            if decision.map_err(str::to_string)? != Some(true) {
                 return Ok(());
             }
             "Scout identified an explicit request"
@@ -663,7 +696,6 @@ fn process(
         rationale,
         &mut state,
     )
-    .map_err(|_| "delivery held, refused or unconfirmed")
 }
 
 fn wake_word(text: &str) -> bool {
