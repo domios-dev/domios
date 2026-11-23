@@ -1,4 +1,6 @@
 .ct-wallpaper-picker { container-type: inline-size; }
+.ct-wallpaper-strength small { display: block; color: var(--ct-muted-fg); }
+.ct-wallpaper-strength input:disabled { opacity: .45; }
 .ct-wallpaper-picker .ct-settings-link, .ct-wallpaper-link {
   background: transparent;
   color: var(--ct-accent);

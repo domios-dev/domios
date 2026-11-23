@@ -38,7 +38,7 @@ export function useMachineAppearance(config: AppConfig, ready: boolean): Selecte
       if (name !== "config-changed" || !data || typeof data !== "object" || !("theme" in data)) return;
       const event = data as AppConfig;
       changed = true;
-      publish({ theme: event.theme, wallpaper: event.chat_wallpaper ?? null });
+      publish({ theme: event.theme, wallpaper: event.chat_wallpaper ?? null, tuning: event.appearance ?? null });
     }, { signal: controller.signal, onEnd: () => undefined });
     void readMachineAppearance(target.id, controller.signal).then(appearance => {
       if (!changed) publish(appearance);
@@ -49,7 +49,7 @@ export function useMachineAppearance(config: AppConfig, ready: boolean): Selecte
   const remote = target && target.id !== relay;
   const selected = remote && peer?.target === target ? peer.appearance : null;
   return {
-    appearance: selected ?? { theme: config.theme, wallpaper: config.chat_wallpaper ?? null },
+    appearance: selected ?? { theme: config.theme, wallpaper: config.chat_wallpaper ?? null, tuning: config.appearance ?? null },
     peerId,
     identity,
     ready: remote ? selected !== null : ready,

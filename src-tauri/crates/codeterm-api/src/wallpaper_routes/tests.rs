@@ -47,6 +47,140 @@ async fn body_json(response: Response) -> serde_json::Value {
 }
 
 #[tokio::test]
+async fn appearance_keeps_proposals_separate_from_the_applied_look_and_undoes_all_fields() {
+    let (mut mux, tab) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&tab).unwrap();
+    let general = mux.create_tab(&workspace).unwrap();
+    mux.register_alias("general", &general);
+    let main = mux.get_tab_mut(&general).unwrap();
+    main.agent_type = Some("fixture".into());
+    main.agent_session_id = Some("session-general".into());
+    main.session_binding_nonce = Some("nonce-general".into());
+    main.reported_session_binding_nonce = main.session_binding_nonce.clone();
+    main.protected = true;
+    main.role = Some(codeterm_service_core::multiplexer::types::AgentRole::Manager);
+    main.role_profile =
+        Some(codeterm_service_core::service::general_agent::GENERAL_AGENT_KIND.into());
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    let owner = "owner-secret";
+    state.config.lock().api.token = Some(owner.into());
+    let unprivileged = state
+        .svc
+        .frontend_pty_env(Some(&tab))
+        .unwrap()
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    let general = state
+        .svc
+        .frontend_pty_env(Some(&general))
+        .unwrap()
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    let before = codeterm_types::config::schema::AppearanceLook::from_config(&state.config.lock());
+    let app = fixture_router(&fixture, state.clone());
+    let path = "/api/appearance/local";
+    let mut draft = serde_json::to_value(&before).unwrap();
+    draft["theme"]["name"] = json!("Quiet Space");
+    draft["theme"]["chat_background"] = json!({"pattern": "svg", "svg": SVG, "scale": 32});
+    draft["wallpaper"] = json!({"background": {"pattern":"space", "opacity":0.04}, "fill":{"mode":"gradient","preset":"midnight"}, "fill_strength":0.4});
+    draft["tuning"] =
+        json!({"roundness":0.0, "shadow_strength":0.5, "edges":"defined", "font_size":1});
+    let proposed = json!({"look":draft, "rationale":"Analogous navy and cool blue"});
+    let refused = json_call(&app, &unprivileged, "POST", path, proposed.clone()).await;
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    let mut invalid = proposed.clone();
+    invalid["look"]["theme"]["bright_black"] = invalid["look"]["theme"]["background"].clone();
+    invalid["look"]["theme"]["foreground"] = invalid["look"]["theme"]["background"].clone();
+    let refused = json_call(&app, owner, "POST", path, invalid).await;
+    assert_eq!(refused.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let bytes = to_bytes(refused.into_body(), 65536).await.unwrap();
+    let refusal: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(refusal["code"], "appearance_contrast");
+    assert!(refusal["failures"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|pair| pair["fix"]["field"] == "theme.foreground"));
+
+    let response = json_call(&app, &general, "POST", path, proposed).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), 65536).await.unwrap();
+    let proposal: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let id = proposal["id"].as_str().unwrap();
+    assert_eq!(proposal["state"], "proposed");
+    assert_eq!(
+        codeterm_types::config::schema::AppearanceLook::from_config(&state.config.lock()),
+        before
+    );
+
+    let apply = format!("{path}/{id}/apply");
+    let undo = format!("{path}/{id}/undo");
+    let response = json_call(&app, owner, "POST", &apply, json!(null)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let settings = fixture.temp.path().join("wallpaper-settings.toml");
+    let read = || -> codeterm_types::config::schema::AppConfig {
+        toml::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap()
+    };
+    let applied = read();
+    assert_eq!(applied.appearance_active.as_deref(), Some(id));
+    assert_eq!(applied.appearance.unwrap().roundness, 0.0);
+    assert_eq!(applied.theme.name, "Quiet Space");
+    let paper = applied.chat_wallpaper.unwrap();
+    assert_eq!(
+        paper.background.pattern,
+        codeterm_types::config::schema::ChatPattern::Space
+    );
+    assert_eq!(paper.fill_strength, Some(0.4));
+    let use_theme = format!("{path}/{id}/use-theme-wallpaper");
+    let response = json_call(&app, &unprivileged, "POST", &use_theme, json!(null)).await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let response = json_call(&app, owner, "POST", &use_theme, json!(null)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let applied = read();
+    assert!(applied.chat_wallpaper.is_none());
+    assert_eq!(applied.appearance_active.as_deref(), Some(id));
+    assert_eq!(
+        applied.theme.chat_background.unwrap().pattern,
+        codeterm_types::config::schema::ChatPattern::Svg
+    );
+    let response = json_call(&app, owner, "POST", &undo, json!(null)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        codeterm_types::config::schema::AppearanceLook::from_config(&read()),
+        before
+    );
+}
+
+#[tokio::test]
+async fn chat_wallpaper_agent_write_refusals_point_to_the_native_proposal() {
+    let (mux, tab) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    let token = state
+        .svc
+        .frontend_pty_env(Some(&tab))
+        .unwrap()
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    let app = fixture_router(&fixture, state.clone());
+    for (method, path, body) in [
+        ("POST", "/api/chat-wallpaper/apply-svg", json!({"svg": SVG})),
+        ("PUT", "/api/chat-wallpaper", json!({"wallpaper": null})),
+    ] {
+        let response = json_call(&app, &token, method, path, body).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let error = body_json(response).await;
+        assert_eq!(error["code"], "wallpaper_owner_required");
+        let message = error["message"].as_str().unwrap();
+        assert!(message.contains("domios appearance propose"));
+        assert!(message.contains("<ds-appearance>"));
+        assert!(!message.contains("Settings"));
+    }
+    assert!(state.config.lock().chat_wallpaper.is_none());
+}
+
+#[tokio::test]
 async fn chat_wallpaper_assets_enforce_owner_authority_and_serve_only_committed_bytes() {
     let (mux, tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);

@@ -20,7 +20,7 @@ use tokio::sync::Semaphore;
 
 use crate::{auth::AuthenticatedOrigin, routes::AppState};
 
-type Refusal = (StatusCode, &'static str);
+pub(super) type Refusal = (StatusCode, &'static str);
 
 mod draft;
 mod look;
@@ -29,7 +29,7 @@ pub(super) struct WallpaperAssets {
     store: WallpaperStore,
     upload_slot: Arc<Semaphore>,
     read_slots: Arc<Semaphore>,
-    settings_writer: parking_lot::Mutex<()>,
+    pub(super) settings_writer: parking_lot::Mutex<()>,
     config_path: Result<PathBuf, String>,
     draft: parking_lot::Mutex<Option<draft::Draft>>,
 }
@@ -62,6 +62,7 @@ fn with_store(store: WallpaperStore, config_path: Result<PathBuf, String>) -> Ro
         .route("/api/chat-wallpaper", put(set))
         .merge(draft::routes())
         .merge(look::routes())
+        .merge(crate::appearance_routes::router())
         .route("/api/mesh/chat-wallpaper/assets/{peer}", post(relay_upload))
         .layer(Extension(assets))
 }
@@ -72,6 +73,17 @@ fn require_owner(origin: AuthenticatedOrigin) -> Result<(), Refusal> {
     } else {
         Err((StatusCode::FORBIDDEN, "Owner authorization required"))
     }
+}
+
+fn require_wallpaper_writer(
+    origin: AuthenticatedOrigin,
+) -> Result<(), crate::appearance_routes::ApiRefusal> {
+    require_owner(origin).map_err(|(status, _)| {
+        (status, Json(json!({
+            "code": "wallpaper_owner_required",
+            "message": "Have the owner apply this wallpaper from a native proposal card. Read domios docs APPEARANCE, run domios appearance propose, and return its <ds-appearance> block in this chat."
+        })))
+    })
 }
 
 impl WallpaperAssets {
@@ -323,17 +335,21 @@ async fn remove(
     require_owner(origin)?;
     tokio::task::spawn_blocking(move || {
         let _writer = assets.settings_writer.lock();
-        if state
-            .config
-            .lock()
-            .chat_wallpaper
-            .as_ref()
-            .and_then(|wallpaper| wallpaper.asset.as_deref())
-            == Some(id.as_str())
-        {
+        let in_use = {
+            let config = state.config.lock();
+            let matches = |paper: Option<&ChatWallpaper>| {
+                paper.and_then(|wallpaper| wallpaper.asset.as_deref()) == Some(id.as_str())
+            };
+            matches(config.chat_wallpaper.as_ref())
+                || config.appearance_proposals.iter().any(|proposal| {
+                    matches(proposal.look.wallpaper.as_ref())
+                        || matches(proposal.previous.wallpaper.as_ref())
+                })
+        };
+        if in_use {
             return Err((
                 StatusCode::CONFLICT,
-                "Switch wallpapers before removing the active asset",
+                "This wallpaper is still used by the current look or an Appearance Lab proposal",
             ));
         }
         assets.store.remove(&id).map_err(refusal)
@@ -355,14 +371,15 @@ async fn set(
     Extension(origin): Extension<AuthenticatedOrigin>,
     Extension(assets): Extension<Arc<WallpaperAssets>>,
     Json(setting): Json<Setting>,
-) -> Result<impl IntoResponse, Refusal> {
-    require_owner(origin)?;
+) -> Result<impl IntoResponse, crate::appearance_routes::ApiRefusal> {
+    require_wallpaper_writer(origin)?;
     tokio::task::spawn_blocking(move || {
         let _writer = assets.settings_writer.lock();
-        apply_setting(&state, &assets, setting)
+        apply_setting(&state, &assets, setting, false)
     })
     .await
-    .map_err(|_| worker_stopped())??;
+    .map_err(|_| typed_wallpaper_refusal(worker_stopped()))?
+    .map_err(crate::appearance_routes::typed_refusal)?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -370,23 +387,48 @@ fn apply_setting(
     state: &AppState,
     assets: &WallpaperAssets,
     mut setting: Setting,
-) -> Result<(), Refusal> {
-    validate_wallpaper(assets, &mut setting.wallpaper)?;
-    if let Some(expected) = &setting.expected_wallpaper {
-        if state.config.lock().chat_wallpaper.as_ref() != Some(expected) {
-            return Err((
-                StatusCode::CONFLICT,
-                "The wallpaper changed before this update",
-            ));
+    agent: bool,
+) -> Result<(), (StatusCode, String)> {
+    validate_wallpaper(assets, &mut setting.wallpaper).map_err(owned_refusal)?;
+    let mut failure = None;
+    let mut changed = false;
+    let config = update_appearance(state, assets, |config| {
+        if setting
+            .expected_wallpaper
+            .as_ref()
+            .is_some_and(|expected| config.chat_wallpaper.as_ref() != Some(expected))
+        {
+            let message = "The wallpaper changed before this update";
+            failure = Some((StatusCode::CONFLICT, message.to_owned()));
+            return Err(message.into());
         }
-    }
-    write_appearance(state, assets, |config| {
-        config.chat_wallpaper = setting.wallpaper;
+        let mut look = codeterm_types::config::schema::AppearanceLook::from_config(config);
+        changed = look.wallpaper != setting.wallpaper;
+        look.wallpaper = setting.wallpaper;
+        crate::appearance_routes::validate(&look).map_err(|(status, message)| {
+            failure = Some((status, message.clone()));
+            message
+        })?;
+        look.write_to(config);
         Ok(())
     })
+    .map_err(|error| failure.unwrap_or((StatusCode::INTERNAL_SERVER_ERROR, error)))?;
+    if changed && agent {
+        crate::appearance_routes::emit_change(state, &config, None, false);
+    }
+    publish_config(state, config);
+    Ok(())
 }
 
-fn validate_wallpaper(
+fn owned_refusal((status, message): Refusal) -> (StatusCode, String) {
+    (status, message.to_owned())
+}
+
+fn typed_wallpaper_refusal(refusal: Refusal) -> crate::appearance_routes::ApiRefusal {
+    crate::appearance_routes::typed_refusal(owned_refusal(refusal))
+}
+
+pub(super) fn validate_wallpaper(
     assets: &WallpaperAssets,
     wallpaper: &mut Option<ChatWallpaper>,
 ) -> Result<(), Refusal> {
@@ -406,26 +448,34 @@ fn write_appearance(
     assets: &WallpaperAssets,
     update: impl FnOnce(&mut codeterm_types::config::schema::AppConfig) -> Result<(), String>,
 ) -> Result<(), Refusal> {
-    let path = assets.config_path.as_ref().map_err(|_| {
+    let config = update_appearance(state, assets, update).map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Wallpaper settings path is unavailable",
+            "Wallpaper setting could not be saved",
         )
     })?;
-    let config =
-        codeterm_service_core::config::update_config_and_apply_at(path, &state.config, update)
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Wallpaper setting could not be saved",
-                )
-            })?;
+    publish_config(state, config);
+    Ok(())
+}
+
+fn publish_config(state: &AppState, config: codeterm_types::config::schema::AppConfig) {
     let payload = serde_json::to_value(config).unwrap_or_default();
     state.svc.ui.emit(
         "config-changed",
         super::config_routes::redact_rest_config(payload),
     );
-    Ok(())
+}
+
+pub(super) fn update_appearance(
+    state: &AppState,
+    assets: &WallpaperAssets,
+    update: impl FnOnce(&mut codeterm_types::config::schema::AppConfig) -> Result<(), String>,
+) -> Result<codeterm_types::config::schema::AppConfig, String> {
+    let path = assets
+        .config_path
+        .as_ref()
+        .map_err(|_| "Wallpaper settings path is unavailable".to_string())?;
+    codeterm_service_core::config::update_config_and_apply_at(path, &state.config, update)
 }
 
 fn refusal(error: AssetError) -> Refusal {

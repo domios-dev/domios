@@ -374,7 +374,9 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
       );
     })() : null;
 
-    const userContent = message.content;
+    const appearanceContext = !effectiveOrigin && message.content.startsWith("Make me a new look for ")
+      ? /\n\n<context>\nAppearance Lab · for ([^\n]+)\nInstallation: [^\n]+\nCurrent look: [^\n]*\nSee domios docs APPEARANCE[^\n]*\n<\/context>\s*$/.exec(message.content) : null;
+    const userContent = appearanceContext ? message.content.slice(0, appearanceContext.index) : message.content;
     const userAttachments = message.segments ? { text: userContent, images: attachments ?? [], files: [], inline: null, reply: null } : userMessageAttachments(userContent, attachments);
     const renderUserText = (content: string) => {
       if (effectiveOrigin?.kind === "neighbor") return <RichMarkdown text={content} sourceIdentity={sourceIdentity} streaming={streaming} interactivePreviews={false} localArtifacts={false} fontScale={fontScale} />;
@@ -427,6 +429,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           <div className="group flex w-full min-w-0">
             <div className="relative min-w-0 w-full">
               {originHeader}
+              {appearanceContext && <div className="ct-appearance-origin">from Appearance Lab · for {appearanceContext[1]}</div>}
               <div data-testid="user-bubble-row" className="ct-user-bubble-row relative ml-auto w-fit max-w-full min-w-0">
                 <BoundedMessageContent
                   collapsedHeight={`${LONG_ARTIFACT_PREVIEW_MAX_HEIGHT}px`}

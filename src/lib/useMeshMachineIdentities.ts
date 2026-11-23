@@ -49,6 +49,10 @@ export function useMeshMachineIdentities(): MeshIdentityProjection {
   return useSyncExternalStore(subscribe, read, read);
 }
 
+export function useMeshMachineChoices(): Snapshot {
+  return useSyncExternalStore(subscribe, read, read);
+}
+
 export function useMeshPeerName(peerId?: string | null): string | undefined {
   const readName = () => {
     if (!peerId) return undefined;

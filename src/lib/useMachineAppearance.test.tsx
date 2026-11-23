@@ -6,10 +6,17 @@ import { DEFAULT_THEME } from "./themeCss";
 import { setWorkspaceBrowseTarget } from "./workspaceBrowseTarget";
 import type { AppConfig } from "./types";
 import type { MachineAppearance } from "./chatWallpaperClient";
+import { useAppearanceMotion } from "../hooks/useAppearanceMotion";
 
-const { read } = vi.hoisted(() => ({ read: vi.fn() }));
+const { read, subscribe, animate, listenCommit } = vi.hoisted(() => ({
+  read: vi.fn(),
+  subscribe: vi.fn((_path: string, _receive: (event: string, value: unknown) => void) => () => {}),
+  animate: vi.fn(), listenCommit: vi.fn(async () => () => {}),
+}));
 vi.mock("./chatWallpaperClient", () => ({ readMachineAppearance: read, readWallpaperAsset: vi.fn() }));
-vi.mock("./daemonBootstrap", () => ({ daemonTransportForPeer: () => ({ subscribe: () => () => {} }) }));
+vi.mock("./daemonBootstrap", () => ({ daemonTransportForPeer: () => ({ subscribe }) }));
+vi.mock("./appearanceClient", () => ({ listenAppearanceCommit: listenCommit }));
+vi.mock("./appearanceMotion", () => ({ animateAppearance: animate, finishAppearanceMotion: vi.fn() }));
 
 it("keeps the newest requested machine when older responses arrive later", async () => {
   const queued = new Map<string, (look: MachineAppearance) => void>();
@@ -33,6 +40,38 @@ it("keeps the newest requested machine when older responses arrive later", async
     expect(rootNode.textContent).toBe("space");
     await act(async () => setWorkspaceBrowseTarget(null));
     expect(rootNode.textContent).toBe("dots");
+  } finally {
+    await act(async () => root.unmount());
+    setWorkspaceBrowseTarget(null);
+    rootNode.remove();
+  }
+});
+
+it("animates a config-driven look once without an appearance card or motion event", async () => {
+  read.mockResolvedValue({ theme: DEFAULT_THEME, wallpaper: null, tuning: null });
+  const rootNode = document.createElement("div");
+  document.body.append(rootNode);
+  const root = createRoot(rootNode);
+  const config = { theme: DEFAULT_THEME } as AppConfig;
+  const theme = { ...DEFAULT_THEME, name: "External theme", background: "#101a23" };
+  function Fixture() {
+    const selected = useMachineAppearance(config, true);
+    useAppearanceMotion(selected);
+    return <output>{selected.appearance.theme.name}</output>;
+  }
+  try {
+    animate.mockClear();
+    subscribe.mockClear();
+    await act(async () => root.render(<Fixture />));
+    await act(async () => setWorkspaceBrowseTarget({ id: "other", name: "Other" }));
+    expect(animate).not.toHaveBeenCalled();
+    const [, receive] = subscribe.mock.calls[subscribe.mock.calls.length - 1];
+    await act(async () => receive("config-changed", { theme }));
+    expect(rootNode.textContent).toBe("External theme");
+    expect(animate).toHaveBeenCalledExactlyOnceWith({ look: { theme, wallpaper: null, tuning: null }, proposal: null, undo: false });
+    await act(async () => receive("config-changed", { theme: { ...theme } }));
+    await act(async () => setWorkspaceBrowseTarget(null));
+    expect(animate).toHaveBeenCalledTimes(1);
   } finally {
     await act(async () => root.unmount());
     setWorkspaceBrowseTarget(null);

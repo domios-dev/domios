@@ -19,8 +19,8 @@ use super::essence_map::EssenceMapAction;
 use super::integration::IntegrationAction;
 use super::mem::MemAction;
 use super::misc::{
-    BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
-    WallpaperAction, WorkspaceAction,
+    AppearanceAction, BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction,
+    TabAction, ThemeAction, WallpaperAction, WorkspaceAction,
 };
 use super::orchestrator::OrchestratorAction;
 use super::pad::PadAction;
@@ -337,6 +337,12 @@ pub enum Commands {
     Wallpaper {
         #[command(subcommand)]
         action: WallpaperAction,
+    },
+
+    /// Propose, review, apply and undo a machine's appearance
+    Appearance {
+        #[command(subcommand)]
+        action: AppearanceAction,
     },
 
     /// Plugin surface tabs: app tabs whose content a plugin view renders

@@ -33,11 +33,19 @@ pub(crate) fn handle(json_output: bool, action: &WallpaperAction) {
         "POST" => http.post(path),
         _ => http.put(path),
     };
-    let result: Value = request
+    let response = request
         .json(&body)
         .send()
-        .and_then(|response| response.error_for_status())
-        .and_then(|response| response.json())
+        .unwrap_or_else(|error| super::print::fail(1, error.to_string()));
+    if !response.status().is_success() {
+        super::print::fail_http(
+            1,
+            response.status().as_u16(),
+            &response.text().unwrap_or_default(),
+        );
+    }
+    let result: Value = response
+        .json()
         .unwrap_or_else(|error| super::print::fail(1, error.to_string()));
     if json_output {
         super::print::print_json(&result);

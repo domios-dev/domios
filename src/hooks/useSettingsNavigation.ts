@@ -9,9 +9,13 @@ import { useViewerNavigation } from "./useViewerNavigation";
 export type SettingsRoute =
   | { kind: "root" }
   | { kind: "section"; id: SectionId; helpSection?: HelpSectionId; card?: SettingsCardAnchorId }
+  | { kind: "appearance-lab"; showOwn?: boolean }
   | { kind: "agent-provider"; providerId: string;card?:"provider-accounts" };
 
 function initialStack(link: SettingsLinkId | undefined, guide: GuideRequest | undefined): SettingsRoute[] {
+  if (link === "appearance-lab" || link === "chat-wallpaper") {
+    return [{ kind: "section", id: "general" }, { kind: "appearance-lab", showOwn: link === "chat-wallpaper" }];
+  }
   const route = resolveSettingsLink(link);
   if (route?.providerId) return [{ kind: "section", id: "agents" }, { kind: "agent-provider", providerId: route.providerId, card: "provider-accounts" }];
   return route ? [{ kind: "section", id: route.section, card: route.card, helpSection: route.section === "guide" ? guide?.section : undefined }] : [{ kind: "root" }];
@@ -28,6 +32,10 @@ export function settingsStack(value: unknown): SettingsRoute[] | undefined {
       const card = route.card === "supporter-agent" || route.card === "telegram-bridge" || route.card === "subscription-plans" || route.card === "team-channels" ? route.card : undefined;
       const helpSection = GUIDE_SECTIONS.find((section) => section.id === route.helpSection)?.id;
       stack.push({ kind: "section", id: route.id as SectionId, card, helpSection });
+    } else if (route?.kind === "appearance-lab") {
+      const parent = stack[stack.length - 1];
+      if (parent?.kind !== "section" || parent.id !== "general") break;
+      stack.push({ kind: "appearance-lab", showOwn: route.showOwn === true });
     } else if (route?.kind === "agent-provider" && navigationId(route.providerId)) {
       const parent = stack[stack.length - 1];
       if (parent?.kind !== "section" || parent.id !== "agents") break;
@@ -41,7 +49,7 @@ export function useSettingsNavigation(link: SettingsLinkId | undefined, guide: G
   const [stack, setStack] = useViewerNavigation<SettingsRoute[]>("settings", () => initialStack(link, guide), settingsStack, restore);
   const previous = useRef({ link, guide });
   const route = stack[stack.length - 1];
-  const section = route.kind === "section" ? route.id : route.kind === "agent-provider" ? "agent_provider" : "root";
+  const section = route.kind === "section" ? route.id : route.kind === "appearance-lab" ? "general" : route.kind === "agent-provider" ? "agent_provider" : "root";
   const viewedSection = useRef<string | null>(null);
   useEffect(() => {
     if (viewedSection.current === section) return;

@@ -15,8 +15,18 @@ const lightTheme: ThemeConfig = {
   ...DEFAULT_THEME, name: "github-light", background: "#f6f8fa", foreground: "#1f2328", blue: "#0969da",
 };
 
-export function ChatWallpaperPicker({ config, showOwnInitially }: { config: AppConfig; showOwnInitially?: boolean }) {
+interface StagedWallpaper {
+  theme: ThemeConfig;
+  wallpaper: ChatWallpaper | null;
+  peerId?: string;
+  ready: boolean;
+  update(wallpaper: ChatWallpaper | null): void;
+}
+
+export function ChatWallpaperPicker({ config, showOwnInitially, stage }: { config: AppConfig; showOwnInitially?: boolean; stage?: StagedWallpaper }) {
   const selected = useContext(MachineAppearanceContext);
+  if (stage) return <Picker key={stage.peerId ?? "local"} theme={stage.theme} installed={stage.wallpaper}
+    peerId={stage.peerId} ready={stage.ready} stage={stage.update} showOwnInitially={showOwnInitially} />;
   const appearance = selected?.appearance ?? { theme: config.theme, wallpaper: config.chat_wallpaper ?? null };
   return <Picker key={selected?.peerId ?? "local"} theme={appearance.theme} installed={appearance.wallpaper}
     machineColor={selected?.identity?.color} peerId={selected?.peerId} ready={selected?.ready ?? true}
@@ -31,9 +41,10 @@ interface PickerProps {
   ready: boolean;
   project?: (wallpaper: ChatWallpaper | null) => void;
   showOwnInitially?: boolean;
+  stage?: StagedWallpaper["update"];
 }
 
-function Picker({ theme, installed, machineColor, peerId, ready, project, showOwnInitially }: PickerProps) {
+function Picker({ theme, installed, machineColor, peerId, ready, project, showOwnInitially, stage }: PickerProps) {
   const themeIsLight = isLightColor(theme.background);
   const [lightOverride, setLightOverride] = useState<boolean>();
   const light = lightOverride ?? themeIsLight;
@@ -70,6 +81,10 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
 
   async function persist(next: ChatWallpaper | null, expected?: ChatWallpaper) {
     setEdit({ base: installed, value: next });
+    if (stage) {
+      stage(next);
+      return;
+    }
     await saveWallpaper(peerId, next, expected);
     project?.(next);
   }
@@ -79,7 +94,7 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
     void run(async () => {
       const next = await uploadWallpaper(peerId, file);
       await persist(next);
-      if (source?.asset && source.asset !== next.asset) await discardAsset(source.asset);
+      if (!stage && source?.asset && source.asset !== next.asset) await discardAsset(source.asset);
       setRequest(undefined);
     }, file.name);
   }
@@ -96,13 +111,16 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
     && installed.asset_label === "General’s wallpaper.svg";
   const displayedTheme = light === themeIsLight ? theme : light ? lightTheme : DEFAULT_THEME;
   const mark = <span className="ct-wallpaper-tile__check" aria-hidden="true"><Check size={13} /></span>;
-  const draft = (value: ChatWallpaper) => setEdit({ base: installed, value });
+  const draft = (value: ChatWallpaper) => {
+    setEdit({ base: installed, value });
+    stage?.(value);
+  };
   const change = (value: ChatWallpaper) => void run(() => persist(value));
   const restoreTheme = () => void run(async () => {
     await persist(null);
     setOwnOpen(false);
   });
-  return <SettingsCard icon={<Wallpaper size={16} />} title="Chat wallpaper" description="Applies to chats on this machine"
+  return <SettingsCard icon={<Wallpaper size={16} />} title={stage ? "Wallpaper" : "Chat wallpaper"} description={stage ? undefined : "Applies to chats on this machine"}
     className="ct-wallpaper-picker" headerRight={source && <button type="button" disabled={busy || !ready}
       className="ct-settings-link" onClick={restoreTheme}>Use theme wallpaper</button>}>
     <div role="radiogroup" aria-label="Chat wallpaper pattern" className="ct-wallpaper-gallery">
@@ -115,7 +133,7 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
         };
         const thumbnail = { ...sample, background: { ...sample.background, scale: pattern.id === "dots" ? 20 : 180 } };
         return <label key={pattern.id} className="ct-wallpaper-tile" data-selected={selected || undefined}>
-          <input type="radio" name={group} className="sr-only" checked={selected} disabled={busy || !ready}
+          <input type="radio" data-appearance-field="chat_wallpaper.background.pattern" name={group} className="sr-only" checked={selected} disabled={busy || !ready}
             onChange={() => { setOwnOpen(false); change({ background: { pattern: pattern.id } }); }} />
           <span className="ct-chat-wallpaper" aria-hidden="true"
             style={wallpaperRenderStyle(theme, thumbnail, themeIsLight) as CSSProperties} />
@@ -135,7 +153,7 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
     <div className="ct-wallpaper-editor">
       <div className="ct-wallpaper-edit">
         {showOwn && <>
-          <input ref={pickerInput} className="sr-only" type="file" tabIndex={-1} aria-label="Upload wallpaper"
+          <input ref={pickerInput} className="sr-only" type="file" tabIndex={-1} aria-label="Upload wallpaper" data-appearance-field="chat_wallpaper.background.svg"
             accept={WALLPAPER_FILE_TYPES.join(",")} onChange={event => {
               chooseOwn(event.currentTarget.files?.[0]);
               event.currentTarget.value = "";
@@ -150,7 +168,7 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
             <button type="button" className={UI_BUTTON.ghost} disabled={busy} onClick={() => pickerInput.current?.click()}>Replace</button>
             <button type="button" className={UI_BUTTON.ghost} disabled={busy} onClick={() => void run(async () => {
               await persist(null, active);
-              if (active.asset) await discardAsset(active.asset);
+              if (!stage && active.asset) await discardAsset(active.asset);
               setRequest(undefined);
             })}>Remove</button>
           </div> : <div className="ct-wallpaper-drop" onDragOver={event => event.preventDefault()} onDrop={event => {
@@ -166,7 +184,7 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
             {error.file && <strong>{error.file} wasn’t used</strong>}
             <span>{error.reason}</span>
           </div>}
-          {undo ? <button type="button" className={UI_BUTTON.ghost} disabled={busy} onClick={() => void run(async () => {
+          {!stage && (undo ? <button type="button" className={UI_BUTTON.ghost} disabled={busy} onClick={() => void run(async () => {
             await persist(request.previous, installed);
             setRequest(undefined);
           })}>Undo</button> : <form className="ct-wallpaper-ask" onSubmit={event => {
@@ -186,10 +204,10 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
               <button type="submit" disabled={busy || !description.trim()} className={UI_BUTTON.primary}>Ask General</button>
             </div>
             <small>{request ? "General is drawing your wallpaper." : "General draws a seamless tile for this machine and applies it here. You can undo it from this page."}</small>
-          </form>}
+          </form>)}
         </>}
         {(!showOwn || custom) && <WallpaperControls wallpaper={active} light={themeIsLight} disabled={!ready || busy}
-          onDraft={draft} onChange={change} onReset={() => change({ ...active, palette: undefined, fill: undefined,
+          onDraft={draft} onChange={change} onReset={() => change({ ...active, palette: undefined, fill: undefined, fill_strength: undefined,
             background: { pattern: active.background.pattern, icon: active.background.icon, svg: active.background.svg } })} />}
         {error && !showOwn && <p className="ct-wallpaper-error" role="alert">{error.reason}</p>}
       </div>

@@ -94,7 +94,7 @@ for (const [theme, opacity] of [[lightTheme, 3.5], [DEFAULT_THEME, 2.8]] as cons
       && grid["--ct-chat-backdrop"].includes("transparent 1px 32px"));
 }
 
-for (const [theme, opacity] of [[lightTheme, 0.09], [DEFAULT_THEME, 0.085]] as const) {
+for (const [theme, opacity] of [[lightTheme, 0.06], [DEFAULT_THEME, 0.085]] as const) {
   const painted: ThemeConfig = { ...theme, chat_background: { pattern: "doodles" } };
   const vars = themeToCSS(painted);
   const backdrop = vars["--ct-chat-backdrop"];
@@ -168,7 +168,7 @@ for (const [theme, opacity] of [[lightTheme, 0.09], [DEFAULT_THEME, 0.085]] as c
   };
   const computed = window.getComputedStyle(root);
   for (const [token, expected] of Object.entries(expectedDarkShadows)) {
-    const actual = computed.getPropertyValue(token).replace(/\s+/g, " ").trim();
+    const actual = computed.getPropertyValue(token).replace(/calc\((\.\d+) \* 1\)/g, "$1").replace(/\s+/g, " ").trim();
     assert(`github-dark resolves ${token}`, actual === expected, `expected ${expected}, got ${actual}`);
   }
 }

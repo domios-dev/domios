@@ -48,6 +48,17 @@
 @import "../components/Terminal/tabPanel/tabPanel.css";
 @import "../components/brand/BrandState.css";
 
+@theme inline {
+  --radius-xs: calc(.125rem * var(--ct-roundness, 1));
+  --radius-sm: calc(.25rem * var(--ct-roundness, 1));
+  --radius-md: calc(.375rem * var(--ct-roundness, 1));
+  --radius-lg: calc(.5rem * var(--ct-roundness, 1));
+  --radius-xl: calc(.75rem * var(--ct-roundness, 1));
+  --radius-2xl: calc(1rem * var(--ct-roundness, 1));
+  --radius-3xl: calc(1.5rem * var(--ct-roundness, 1));
+  --radius-4xl: calc(2rem * var(--ct-roundness, 1));
+}
+
 /* The app shell's one responsive boundary, px so the terminal font size cannot move it.
    Mirrors SHELL_NARROW_QUERY / SHELL_WIDE_QUERY in src/lib/shellBreakpoint.ts. */
 @custom-variant shell-narrow (@media (max-width: 640px));

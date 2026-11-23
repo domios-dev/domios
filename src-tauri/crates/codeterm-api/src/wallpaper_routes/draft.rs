@@ -78,8 +78,8 @@ async fn apply_svg(
     Extension(origin): Extension<AuthenticatedOrigin>,
     Extension(assets): Extension<Arc<WallpaperAssets>>,
     Json(body): Json<SvgBody>,
-) -> Result<impl IntoResponse, Refusal> {
-    require_owner(origin)?;
+) -> Result<impl IntoResponse, crate::appearance_routes::ApiRefusal> {
+    require_wallpaper_writer(origin)?;
     apply(state, assets, body.svg, None).await
 }
 
@@ -90,12 +90,12 @@ async fn submit(
     Extension(assets): Extension<Arc<WallpaperAssets>>,
     Path(request): Path<Uuid>,
     Json(body): Json<SvgBody>,
-) -> Result<impl IntoResponse, Refusal> {
+) -> Result<impl IntoResponse, crate::appearance_routes::ApiRefusal> {
     let CallerIdentity::Tab(caller) = identity else {
-        return Err(invalid_draft());
+        return Err(typed_wallpaper_refusal(invalid_draft()));
     };
     if origin != AuthenticatedOrigin::Agent {
-        return Err(invalid_draft());
+        return Err(typed_wallpaper_refusal(invalid_draft()));
     }
     apply(state, assets, body.svg, Some((request, caller))).await
 }
@@ -105,8 +105,8 @@ async fn apply(
     assets: Arc<WallpaperAssets>,
     svg: String,
     request: Option<(Uuid, TabCaller)>,
-) -> Result<impl IntoResponse, Refusal> {
-    let permit = try_upload(&assets)?;
+) -> Result<impl IntoResponse, crate::appearance_routes::ApiRefusal> {
+    let permit = try_upload(&assets).map_err(typed_wallpaper_refusal)?;
     let id = tokio::task::spawn_blocking(move || {
         let _permit = permit;
         let _writer = assets.settings_writer.lock();
@@ -117,21 +117,21 @@ async fn apply(
                 .filter(|draft| {
                     draft.id == *id && draft.caller == *caller && draft.expires > Instant::now()
                 })
-                .ok_or_else(invalid_draft)?;
+                .ok_or_else(|| owned_refusal(invalid_draft()))?;
             if bound_general(&state).as_ref() != Some(caller) {
-                return Err(invalid_draft());
+                return Err(owned_refusal(invalid_draft()));
             }
             if state.config.lock().chat_wallpaper != draft.previous {
                 return Err((
                     StatusCode::CONFLICT,
-                    "The wallpaper changed while General was drawing",
+                    "The wallpaper changed while General was drawing".to_owned(),
                 ));
             }
         }
         let id = assets
             .store
             .save("image/svg+xml", svg.as_bytes())
-            .map_err(refusal)?;
+            .map_err(|error| owned_refusal(refusal(error)))?;
         let wallpaper = ChatWallpaper {
             background: ChatBackground {
                 pattern: ChatPattern::Svg,
@@ -141,6 +141,7 @@ async fn apply(
             asset_label: Some("General’s wallpaper.svg".into()),
             palette: None,
             fill: None,
+            fill_strength: None,
         };
         apply_setting(
             &state,
@@ -149,12 +150,14 @@ async fn apply(
                 wallpaper: Some(wallpaper),
                 expected_wallpaper: None,
             },
+            request.is_some(),
         )?;
         *draft = None;
-        Ok::<_, Refusal>(id)
+        Ok::<_, (StatusCode, String)>(id)
     })
     .await
-    .map_err(|_| worker_stopped())??;
+    .map_err(|_| typed_wallpaper_refusal(worker_stopped()))?
+    .map_err(crate::appearance_routes::typed_refusal)?;
     Ok(Json(json!({ "id": id })))
 }
 

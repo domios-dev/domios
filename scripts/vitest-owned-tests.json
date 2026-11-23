@@ -327,6 +327,7 @@
   "src/components/Settings/generalAgentSettingsModel.test.ts",
   "src/components/Settings/GeneralAgentCard.test.tsx",
   "src/components/Settings/ChatWallpaperPicker.test.tsx",
+  "src/components/Settings/AppearanceLab.test.tsx",
   "src/lib/useMachineAppearance.test.tsx",
   "src/lib/copyMachineAppearance.test.ts",
   "src/components/Titlebar/AccountTray.test.tsx",

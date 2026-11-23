@@ -2355,6 +2355,154 @@
       ]
     },
     {
+      "name": "appearance",
+      "about": "Propose, review, apply and undo a machine's appearance",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "apply",
+          "about": "Apply a reviewed proposal on the selected machine",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "machine",
+              "positional": false,
+              "required": false,
+              "value_name": "MACHINE",
+              "possible_values": [],
+              "default": "local",
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "current",
+          "about": "Read the current look and available presets on one machine",
+          "aliases": [],
+          "args": [
+            {
+              "name": "machine",
+              "positional": false,
+              "required": false,
+              "value_name": "MACHINE",
+              "possible_values": [],
+              "default": "local",
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "propose",
+          "about": "Validate and store a complete look for review",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from-pad",
+              "positional": false,
+              "required": true,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "TOML in your Agent Pad with [theme], [appearance] and wallpaper",
+              "aliases": []
+            },
+            {
+              "name": "machine",
+              "positional": false,
+              "required": false,
+              "value_name": "MACHINE",
+              "possible_values": [],
+              "default": "local",
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "rationale",
+              "positional": false,
+              "required": true,
+              "value_name": "RATIONALE",
+              "possible_values": [],
+              "default": null,
+              "help": "One-line colour-harmony rationale",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Read a stored proposal and its measured contrast",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "machine",
+              "positional": false,
+              "required": false,
+              "value_name": "MACHINE",
+              "possible_values": [],
+              "default": "local",
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "undo",
+          "about": "Restore the look that was active before applying this proposal",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "machine",
+              "positional": false,
+              "required": false,
+              "value_name": "MACHINE",
+              "possible_values": [],
+              "default": "local",
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "blueprint",
       "about": "Cheap hash-gated watchers with closed-set routes",
       "aliases": [],

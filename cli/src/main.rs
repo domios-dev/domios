@@ -101,8 +101,8 @@ pub use args::mem::{
     MemGraphAction, MemSecretAction, MemSkillAction, MemWorkerAction,
 };
 pub use args::misc::{
-    BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
-    WallpaperAction, WebAction, WorkspaceAction,
+    AppearanceAction, BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction,
+    TabAction, ThemeAction, WallpaperAction, WebAction, WorkspaceAction,
 };
 pub use args::pad::PadAction;
 pub use args::plan::PlanAction;
@@ -657,6 +657,11 @@ fn main_impl() {
 
         Commands::Wallpaper { action } => {
             cmd::wallpaper::handle(cli.json, &action);
+            return;
+        }
+
+        Commands::Appearance { action } => {
+            cmd::appearance::handle(cli.json, &action);
             return;
         }
 

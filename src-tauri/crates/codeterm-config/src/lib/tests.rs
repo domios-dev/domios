@@ -372,6 +372,7 @@ fn chat_wallpaper_is_preserved_by_unrelated_config_saves() {
             asset_label: None,
             palette: None,
             fill: None,
+            fill_strength: None,
         }),
         ..stale.clone()
     };

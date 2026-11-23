@@ -3,4 +3,4 @@ import type { ChatBackground } from "./ChatBackground";
 import type { WallpaperFill } from "./WallpaperFill";
 import type { WallpaperPalette } from "./WallpaperPalette";
 
-export type ChatWallpaper = { background: ChatBackground, asset?: string, asset_label?: string, palette?: WallpaperPalette, fill?: WallpaperFill, };
+export type ChatWallpaper = { background: ChatBackground, asset?: string, asset_label?: string, palette?: WallpaperPalette, fill?: WallpaperFill, fill_strength?: number, };

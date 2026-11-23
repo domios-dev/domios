@@ -15,6 +15,7 @@
 }
 .ct-chat-wallpaper {
   background-color: var(--ct-bg);
+  overflow: hidden;
 }
 .ct-chat-wallpaper::before {
   content: "";
@@ -25,7 +26,8 @@
 .ct-chat-wallpaper::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: var(--ct-wallpaper-rotation-inset, 0px);
+  transform: rotate(var(--ct-wallpaper-rotation, 0deg));
   background: var(--ct-wallpaper-ink, none);
   mask: var(--ct-wallpaper-mask, none);
   opacity: var(--ct-wallpaper-opacity, 0);
