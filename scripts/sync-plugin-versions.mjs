@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { channelPlugins } from "./plugin-release-metadata.mjs";
+import { updateReadmeDownloads } from "./readme-downloads.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -28,6 +29,7 @@ const workspacePackages = [
 
 channelPlugins(repoRoot);
 
+updateText(path.join(repoRoot, "README.md"), (text) => updateReadmeDownloads(text, version));
 updateJsonVersion(rootPackagePath);
 updateJsonVersion(path.join(repoRoot, "src-tauri", "tauri.conf.json"));
 

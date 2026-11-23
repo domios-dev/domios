@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { promotionPlan, publishConcurrently, verifyAssetDigests } from './release-promote.mjs';
 
@@ -91,6 +95,7 @@ import { requireQualificationWithGithub, requireReleasePrQualification } from '.
 import { ciFailures } from './ci-result.mjs';
 import { classifyPluginDiff, directPluginId } from './plugin-release-scope.mjs';
 import { docsAssetLinks } from './release-docs-scope.mjs';
+import { updateReadmeDownloads } from './readme-downloads.mjs';
 
 const repository = 'domios-dev/domios';
 const sha = 'a'.repeat(40);
@@ -529,4 +534,61 @@ test('README asset check reads both picture variants and Markdown local image ta
     'docs/readme/dark.png', 'docs/readme/dark-2x.png', 'docs/readme/light.png',
     'docs/readme/plain.jpg', 'docs/readme/figure.webp',
   ]);
+});
+
+const installerLinks = (tagVersion, fileVersion) => [
+  `<a href="https://github.com/domios-dev/domios/releases/download/v${tagVersion}/Domios_${fileVersion}_aarch64.dmg">macOS</a>`,
+  `<a href="https://github.com/domios-dev/domios/releases/download/v${tagVersion}/Domios_${fileVersion}_x64-setup.exe">Windows</a>`,
+  `<a href="https://github.com/domios-dev/domios/releases/download/v${tagVersion}/Domios_${fileVersion}_amd64.deb">Debian</a>`,
+  `<a href="https://github.com/domios-dev/domios/releases/download/v${tagVersion}/Domios_${fileVersion}_amd64.AppImage">AppImage</a>`,
+];
+
+test('application version check refuses stale README tags and filenames until sync repairs them', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'domios-version-sync-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'scripts'));
+  for (const script of ['sync-plugin-versions.mjs', 'readme-downloads.mjs', 'plugin-release-metadata.mjs']) {
+    copyFileSync(new URL(script, import.meta.url), join(root, 'scripts', script));
+  }
+  const workspaceVersion = JSON.stringify({ version: '9.2.1' });
+  const files = {
+    'package.json': workspaceVersion,
+    'src-tauri/tauri.conf.json': workspaceVersion,
+    'src-tauri/Cargo.toml': '[package]\nversion = "9.2.1"\n',
+    'cli/Cargo.toml': '[package]\nversion = "9.2.1"\n',
+    'plugins/channel.json': '{"plugins":[]}',
+  };
+  for (const name of ['canvas-camera', 'chat-core', 'chat-ui', 'chat-engine', 'plugin-sdk']) {
+    files[`packages/${name}/package.json`] = workspaceVersion;
+  }
+  for (const [file, content] of Object.entries(files)) {
+    const target = join(root, file);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content);
+  }
+  const sync = (...args) => spawnSync(process.execPath, ['scripts/sync-plugin-versions.mjs', ...args], {
+    cwd: root, encoding: 'utf8',
+  });
+  const readmePath = join(root, 'README.md');
+  const latest = '<a href="https://github.com/domios-dev/domios/releases/latest">All installers</a>';
+  const current = [...installerLinks('9.2.1', '9.2.1'), latest].join(' · ');
+  for (const [tagVersion, fileVersion] of [['9.2.0', '9.2.1'], ['9.2.1', '9.2.0']]) {
+    const readme = [...installerLinks(tagVersion, fileVersion), latest].join(' · ');
+    writeFileSync(readmePath, readme);
+    const result = sync('--check');
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /not synced to 9\.2\.1:\s+README\.md/);
+    assert.equal(readFileSync(readmePath, 'utf8'), readme);
+  }
+  const update = sync();
+  assert.equal(update.status, 0, update.stderr);
+  assert.equal(readFileSync(readmePath, 'utf8'), current);
+  const check = sync('--check');
+  assert.equal(check.status, 0, check.stderr);
+});
+
+test('README version sync refuses a missing or duplicate installer link', () => {
+  const links = installerLinks('9.2.1', '9.2.1');
+  assert.throws(() => updateReadmeDownloads(links.slice(0, -1).join('\n'), '9.2.1'), /missing .*amd64\.AppImage/);
+  assert.throws(() => updateReadmeDownloads([...links, links[0]].join('\n'), '9.2.1'), /duplicate .*aarch64\.dmg/);
 });
