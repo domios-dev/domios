@@ -131,7 +131,7 @@ export function Titlebar({
         {buildLabel && <DevBuildDot label={buildLabel} version={__APP_VERSION__} />}
       </div>
 
-      <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-2 sm:gap-1 sm:pr-1.5">
+      <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
         <div className="relative flex items-center">
           {onDismissToast && <NotificationToastContainer toasts={toasts} onDismiss={onDismissToast} onMarkRead={onMarkNotificationRead} onNavigate={onNavigateToast} />}
           {showBell && onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (
@@ -270,7 +270,7 @@ function WindowsControls({
     <div className="flex items-center h-full" data-first-run-allowed="true">
       <button
         onClick={onMinimize}
-        className={`${UI_BUTTON.ghost} h-full w-12`} 
+        className={`${UI_BUTTON.ghost} h-full w-12 max-sm:w-8`}
         title="Minimize"
       >
         <svg width="10" height="1" viewBox="0 0 10 1" fill="currentColor">
@@ -279,7 +279,7 @@ function WindowsControls({
       </button>
       <button
         onClick={onMaximize}
-        className={`${UI_BUTTON.ghost} h-full w-12`}
+        className={`${UI_BUTTON.ghost} h-full w-12 max-sm:w-8`}
         title="Maximize"
       >
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
@@ -288,7 +288,7 @@ function WindowsControls({
       </button>
       <button
         onClick={onClose}
-        className={`${UI_BUTTON.base} h-full w-12 text-[var(--ct-muted)] hover:text-white hover:bg-[var(--ct-window-close-hover)] transition-colors`} 
+        className={`${UI_BUTTON.base} h-full w-12 max-sm:w-8 text-[var(--ct-muted)] hover:text-white hover:bg-[var(--ct-window-close-hover)] transition-colors`}
         title="Close"
       >
         <CloseXIcon />
