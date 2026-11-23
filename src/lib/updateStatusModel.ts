@@ -10,20 +10,22 @@ export function updateRestartDescription(row: Pick<UpdateRow, "group" | "state" 
 }
 
 /** A failed check is not an updater state: the indicator only knows offers and update runs. */
-export function updateIndicator(rows: readonly UpdateRow[], options: { busy: boolean; checking: boolean; failed: boolean; completed?: boolean }) {
+export function updateIndicator(rows: readonly UpdateRow[], options: { busy: boolean; checking: boolean; failed: boolean; appStaged: boolean }) {
   const offers = rows.some(row => !row.channelError && row.state === "available");
   const failed = options.failed || rows.some(row => row.state === "failed");
-  const active = options.busy || options.checking || rows.some(row => row.state === "active");
-  const completed = options.completed || rows.some(row => row.state === "completed");
+  const updating = options.busy || rows.some(row => row.state === "active");
+  const visible = offers || failed || updating || options.appStaged;
+  const active = updating || options.checking || options.appStaged;
   const restart = rows.some(row => !row.channelError && row.group === "App" && row.state !== "completed");
   const activeRow = rows.find(row => row.state === "active");
-  const state = failed ? "failed" : active ? "active" : offers ? "available" : completed ? "completed" : "idle";
+  const state = failed ? "failed" : active ? "active" : offers ? "available" : "idle";
   const description = failed ? "Update failed. Open updates for details."
-    : options.checking ? "Checking for updates."
-      : active ? activeRow ? `Updating ${activeRow.name}.` : "Updating components."
-        : offers ? `Updates available. ${restart ? "App update restarts Domios." : rows.some(row => row.group === "Interface" && row.state === "available") ? "Interface update needs no restart." : ""}`.trim()
-          : completed ? "Updates completed." : "Open updates.";
-  return { state, description, active, offers };
+    : options.appStaged ? "Restart required."
+      : options.checking ? "Checking for updates."
+        : active ? activeRow ? `Updating ${activeRow.name}.` : "Updating components."
+          : offers ? `Updates available. ${restart ? "App update restarts Domios." : rows.some(row => row.group === "Interface" && row.state === "available") ? "Interface update needs no restart." : ""}`.trim()
+            : "Open updates.";
+  return { state, description, active, offers, visible };
 }
 
 const CHANNEL_UNAVAILABLE_PREFIX = "Plugin channel unavailable: ";

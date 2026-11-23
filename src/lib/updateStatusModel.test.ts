@@ -50,7 +50,7 @@ console.log("update failure classification names channel causes: 7 cases passed"
 
 const interfaceRow: UpdateRow = { id: "frontend", name: "Interface", group: "Interface", currentVersion: "1.0.0", targetVersion: "1.0.1", state: "available", alreadyCurrent: false };
 const appRow: UpdateRow = { ...interfaceRow, id: "app", name: "Domios", group: "App" };
-const idle = { busy: false, checking: false, failed: false };
+const idle = { busy: false, checking: false, failed: false, appStaged: false };
 assert.equal(updateIndicator([interfaceRow], idle).description, "Updates available. Interface update needs no restart.");
 for (const rows of [[appRow], [interfaceRow, appRow]]) {
   assert.equal(updateIndicator(rows, idle).description, "Updates available. App update restarts Domios.");
@@ -58,9 +58,25 @@ for (const rows of [[appRow], [interfaceRow, appRow]]) {
 }
 assert.equal(updateIndicator([{ ...interfaceRow, state: "active" }], idle).state, "active");
 assert.equal(updateIndicator([{ ...interfaceRow, state: "failed" }], { ...idle, busy: true }).state, "failed");
-assert.equal(updateIndicator([], { ...idle, completed: true }).state, "completed");
 assert.equal(updateIndicator([], idle).state, "idle");
-console.log("unified update indicator: frontend, app, both, applying, failed and completed passed");
+console.log("unified update indicator: frontend, app, both, applying and failed passed");
+
+const visibilityCases: [string, UpdateRow[], Partial<typeof idle>, boolean][] = [
+  ["up to date", [], {}, false],
+  ["checking only", [], { checking: true }, false],
+  ["completed", [{ ...interfaceRow, state: "completed" }], {}, false],
+  ["unavailable channel", [{ ...interfaceRow, state: "last_known", channelError: "HTTP 504" }], {}, false],
+  ["available", [interfaceRow], {}, true],
+  ["active item", [{ ...interfaceRow, state: "active" }], {}, true],
+  ["update run", [], { busy: true }, true],
+  ["failed item", [{ ...interfaceRow, state: "failed" }], {}, true],
+  ["failed run", [], { failed: true }, true],
+  ["pending restart", [], { appStaged: true }, true],
+];
+for (const [name, rows, options, expected] of visibilityCases) {
+  assert.equal(updateIndicator(rows, { ...idle, ...options }).visible, expected, name);
+}
+console.log(`update tray visibility: ${visibilityCases.length} cases passed`);
 
 // The restart line follows a staged newer version, never a row's group alone.
 assert.equal(updateRestartDescription(appRow, true), "Restart required");
