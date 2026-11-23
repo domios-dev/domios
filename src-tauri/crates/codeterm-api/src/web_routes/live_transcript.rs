@@ -329,6 +329,7 @@ async fn feedback(
         state
             .svc
             .record_live_transcript_feedback(&tab, &body.forward_id, &body.verdict, body.note)
+            .map(|forward| json!({ "ok": true, "forward": forward }))
             .map_err(|error| match error.kind() {
                 std::io::ErrorKind::InvalidInput => {
                     refuse(StatusCode::BAD_REQUEST, error.to_string())
