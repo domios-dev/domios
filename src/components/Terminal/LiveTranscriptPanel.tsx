@@ -509,19 +509,20 @@ function SentText({ text }: { text: string }) {
 function useWrongSendFeedback(api: LiveTranscriptApi, forward: TranscriptForward) {
   const request = useRef<AbortController | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [marked, setMarked] = useState(false);
-  const markedWrong = marked || forward.feedback === "wrong_send";
+  const [override, setOverride] = useState<"wrong_send" | "good_send" | null>(null);
+  const markedWrong = (override ?? forward.feedback) === "wrong_send";
 
   useEffect(() => () => request.current?.abort(), []);
 
-  async function handleWrongSend() {
-    if (markedWrong || request.current) return;
+  async function toggleWrongSend() {
+    if (request.current) return;
+    const verdict = markedWrong ? "good_send" : "wrong_send";
     const controller = new AbortController();
     request.current = controller;
     setSubmitting(true);
     try {
-      const result = await api.feedback(forward.forwardId, "wrong_send", controller.signal);
-      if (!controller.signal.aborted && result.ok) setMarked(true);
+      const result = await api.feedback(forward.forwardId, verdict, controller.signal);
+      if (!controller.signal.aborted && result.ok) setOverride(verdict);
     } catch {
       // Keep the action available to retry.
     } finally {
@@ -530,7 +531,7 @@ function useWrongSendFeedback(api: LiveTranscriptApi, forward: TranscriptForward
     }
   }
 
-  return { markedWrong, submitting, handleWrongSend };
+  return { markedWrong, submitting, toggleWrongSend };
 }
 
 function ForwardReceipt({ api, forward, expanded, onExpanded, thoughtsOpen, onThoughts }: {
@@ -544,7 +545,7 @@ function ForwardReceipt({ api, forward, expanded, onExpanded, thoughtsOpen, onTh
   const store = useMuxStateStore();
   const tab = useMuxSelector(state => state.tabs[forward.targetTabId]);
   const title = tab && isSidebarTabVisible(tab) ? displayTitleForTab(tab) : forward.targetTitle;
-  const { markedWrong, submitting, handleWrongSend } = useWrongSendFeedback(api, forward);
+  const { markedWrong, submitting, toggleWrongSend } = useWrongSendFeedback(api, forward);
   return <div className="ct-live-receipt-item">
     <span className="sr-only">Sent to {title}</span>
     <div className="ct-live-receipt">
@@ -553,6 +554,10 @@ function ForwardReceipt({ api, forward, expanded, onExpanded, thoughtsOpen, onTh
         onClick={() => focusTab(forward.targetTabId, workspaceOfTab(store.getState(), forward.targetTabId))}>{title}</button></span>
       <span aria-hidden>·</span>
       <time dateTime={new Date(forward.atMs).toISOString()}>{threadTime(forward.atMs)}</time>
+      {markedWrong && <>
+        <span aria-hidden>·</span>
+        <span className="ct-live-feedback-marked" role="status">● Marked wrong</span>
+      </>}
       <span aria-hidden>·</span>
       <button type="button" className="ct-live-disclosure" aria-expanded={expanded} onClick={() => onExpanded(!expanded)}>
         Details {expanded ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />}
@@ -561,13 +566,13 @@ function ForwardReceipt({ api, forward, expanded, onExpanded, thoughtsOpen, onTh
     {expanded && <div className="ct-live-receipt-details">
       <SentText text={forward.sentText} />
       {forward.rationale && <p className="ct-live-receipt-rationale">{forward.rationale}</p>}
-      {!forward.epochId && !forward.rationale && <span className="ct-live-muted">Reasoning unavailable</span>}
       <div className="ct-live-receipt-footer">
         {forward.epochId && <button type="button" className="ct-live-disclosure" aria-expanded={thoughtsOpen} onClick={() => onThoughts(!thoughtsOpen)}>
           Thoughts {thoughtsOpen ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />}
         </button>}
-        {markedWrong ? <span className="ct-live-feedback-marked" role="status">Marked as wrong send</span>
-          : <button type="button" className="ct-live-feedback-btn" disabled={submitting} onClick={handleWrongSend}>Wrong send</button>}
+        <button type="button" className="ct-live-disclosure ct-live-feedback-btn" disabled={submitting} onClick={toggleWrongSend}>
+          {markedWrong ? "Undo" : "Mark as wrong send"}
+        </button>
       </div>
       {forward.epochId && thoughtsOpen && <LiveTranscriptThoughts key={forward.epochId} api={api} epoch={forward.epochId} onClose={() => onThoughts(false)} />}
     </div>}

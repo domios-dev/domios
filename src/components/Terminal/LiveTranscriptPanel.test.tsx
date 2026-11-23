@@ -316,16 +316,22 @@ describe("Live Transcript panel", () => {
     api.feedback.mockReturnValue(new Promise(resolve => { resolveFeedback = resolve; }));
 
     await click("Open active Transcript");
-    expect(panel()?.textContent).not.toContain("Wrong send");
+    expect(panel()?.textContent).not.toContain("Mark as wrong send");
     await click("Details");
     expect(panel()?.textContent).toContain(forward.rationale);
     expect(panel()?.textContent).not.toContain("Reasoning unavailable");
-    await click("Wrong send");
+    await click("Mark as wrong send");
     expect(api.feedback).toHaveBeenCalledExactlyOnceWith(forward.forwardId, "wrong_send", expect.any(AbortSignal));
-    expect(control("Wrong send").disabled).toBe(true);
+    expect(control("Mark as wrong send").disabled).toBe(true);
     await act(async () => resolveFeedback({ ok: true, forward: { ...forward, feedback: "wrong_send" } }));
-    expect(panel()?.textContent).toContain("Marked as wrong send");
-    expect(panel()?.textContent).not.toContain("Wrong send");
+    expect(panel()?.textContent).toContain("● Marked wrong");
+    expect(control("Undo")).toBeTruthy();
+
+    api.feedback.mockResolvedValueOnce({ ok: true, forward: { ...forward, feedback: "good_send" } });
+    await click("Undo");
+    expect(api.feedback).toHaveBeenLastCalledWith(forward.forwardId, "good_send", expect.any(AbortSignal));
+    expect(panel()?.textContent).not.toContain("● Marked wrong");
+    expect(control("Mark as wrong send")).toBeTruthy();
   });
 
   it("shows a sent receipt with live target navigation and inline epoch details", async () => {

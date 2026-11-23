@@ -460,24 +460,17 @@
   margin-top: 2px;
 }
 
-.ct-live-panel .ct-live-receipt-footer .ct-live-disclosure,
-.ct-live-panel .ct-live-feedback-btn,
-.ct-live-feedback-marked {
+.ct-live-panel .ct-live-receipt-footer .ct-live-disclosure {
+  padding-inline: 0;
   color: var(--ct-muted-fg);
 }
 
-.ct-live-panel .ct-live-feedback-btn {
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.ct-live-panel .ct-live-feedback-btn:hover:not(:disabled) {
+.ct-live-panel .ct-live-receipt-footer .ct-live-disclosure:hover:not(:disabled) {
   color: var(--ct-accent);
 }
 
 .ct-live-feedback-marked {
-  font-size: 11px;
-  font-style: italic;
+  color: var(--ct-muted-fg);
 }
 
 .ct-live-receipt-details .ct-live-thoughts {
