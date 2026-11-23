@@ -69,6 +69,13 @@ pub fn user_themes_dir() -> Option<std::path::PathBuf> {
 
 /// Load a custom theme from the user themes directory.
 pub fn get_custom_theme(name: &str) -> Option<ThemeConfig> {
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return None;
+    }
     let dir = user_themes_dir()?;
     let path = dir.join(format!("{}.toml", name));
     let file = std::fs::File::open(path).ok()?;

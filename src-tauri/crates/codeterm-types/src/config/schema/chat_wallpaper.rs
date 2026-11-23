@@ -19,6 +19,9 @@ pub struct ChatWallpaper {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub fill: Option<WallpaperFill>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub fill_strength: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -69,6 +72,12 @@ pub(super) fn deserialize<'de, D: Deserializer<'de>>(
 
 impl ChatWallpaper {
     pub fn validate(&mut self) -> Result<(), &'static str> {
+        if self
+            .fill_strength
+            .is_some_and(|value| !(0.0..=1.0).contains(&value))
+        {
+            return Err("Wallpaper background strength must be between 0 and 1");
+        }
         if let Some(asset) = &self.asset {
             match (self.background.pattern, wallpaper_asset_format(asset)) {
                 (ChatPattern::Image, Some("png")) | (ChatPattern::Svg, Some("svg")) => {}

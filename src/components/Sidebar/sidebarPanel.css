@@ -52,7 +52,7 @@
   width: calc(100% - 0.5rem) !important;
   height: calc(100% - 1rem);
   margin: 0.5rem 0 0.5rem 0.5rem;
-  border-radius: 1.25rem;
+  border-radius: calc(1.25rem * var(--ct-roundness, 1));
   box-shadow: var(--ct-shadow-capsule);
 }
 
@@ -120,7 +120,7 @@
   justify-content: center;
   padding: 0;
   border: 0;
-  border-radius: 12px;
+  border-radius: calc(12px * var(--ct-roundness, 1));
   background: transparent;
   color: var(--ct-muted-fg);
   cursor: pointer;
@@ -189,7 +189,7 @@
   width: 15rem;
   padding: 4px;
   border: 1px solid color-mix(in srgb, var(--ct-fg) 9%, transparent);
-  border-radius: 14px;
+  border-radius: calc(14px * var(--ct-roundness, 1));
   background: var(--ct-glass-sheen), var(--ct-glass-bg);
   box-shadow: var(--ct-glass-edge), var(--ct-shadow-lg);
   backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
@@ -198,7 +198,7 @@
 }
 
 .ct-compact-peek .sidebar-tab {
-  border-radius: 10px;
+  border-radius: calc(10px * var(--ct-roundness, 1));
 }
 
 .ct-compact-peek > * {
@@ -295,7 +295,7 @@
   left: 0;
   width: 5px;
   height: 44px;
-  border-radius: 0 999px 999px 0;
+  border-radius: 0 calc(999px * var(--ct-roundness, 1)) calc(999px * var(--ct-roundness, 1)) 0;
   background: color-mix(in srgb, var(--ct-accent) 38%, var(--ct-bg));
   box-shadow: 0 0 8px color-mix(in srgb, var(--ct-accent) 18%, transparent);
   pointer-events: none;
@@ -333,7 +333,7 @@
   left: 50%;
   width: 2px;
   height: 2.5rem;
-  border-radius: 99px;
+  border-radius: calc(99px * var(--ct-roundness, 1));
   background: var(--ct-scrollbar-thumb);
   content: "";
   opacity: 0;

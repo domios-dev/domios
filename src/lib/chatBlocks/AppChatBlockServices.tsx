@@ -114,7 +114,9 @@ export function AppChatBlockServices({ api, children }: { api: ApiConfig; childr
       },
     });
     return {
-      interacted: (kind, action) => { void recordProductEvent({ event_type: "ds_block_interacted", event_properties: { kind, action } }); },
+      interacted: (kind, action) => {
+        if (kind !== "appearance") void recordProductEvent({ event_type: "ds_block_interacted", event_properties: { kind, action } });
+      },
       mentions: createMentionHost({
         mux, plans: plainPlans, taskReferences:references,
         providerName: (id) => getAgentDescriptor(id)?.display_name,

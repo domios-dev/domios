@@ -133,6 +133,7 @@ export interface ChatBlockHost {
   jobs?: JobBlockHost;
   checklists?: ChecklistBlockHost;
   tasks?: TasksBlockHost;
+  renderAppearance?(id: string, machine: string): React.ReactNode;
 }
 
 export function observeBlockInteraction(host: ChatBlockHost, kind: string, action: "open" | "submit") {

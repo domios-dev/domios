@@ -47,6 +47,7 @@ say a plugin is installed when its card shows otherwise.
 | `<ds-checklist id="getting-started" />` | Show a setup checklist whose steps tick themselves; `getting-started` for a new user. |
 | `<ds-tasks plan="pl_example" />` | Show plan tasks grouped by status, live from the plan. |
 | `<ds-canvas src="ABSOLUTE_PATH.canvas.json" />` | Show images, HTML cards and notes together on a board kept in a file that agents and the owner both edit. |
+| `<ds-appearance id="PROPOSAL_ID" machine="INSTALLATION_ID" />` | Show a saved Appearance Lab proposal with its preview, measured contrast and owner actions. |
 
 ## `ds-guide`
 
@@ -294,4 +295,4 @@ loads preserve your chosen view. Reset restores 100% scale. Focus the canvas to
 use arrow keys for gallery navigation or diagram pan, +/- to zoom, 0 for 100%,
 and Home to fit. Mermaid remains vector artwork at every zoom.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

@@ -5,6 +5,7 @@ pub(crate) mod agent_restart;
 pub mod agent_runtime;
 mod agent_spawn;
 pub mod analytics;
+pub mod appearance;
 pub mod blueprint;
 pub mod bridge;
 pub mod capabilities;

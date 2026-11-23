@@ -33,9 +33,9 @@ A custom theme is a TOML file with `name` plus 20 color fields: `background`, `f
 
 ### Chat background
 
-Settings > General > Chat wallpaper applies to chats on the current machine. The machine's saved wallpaper takes precedence over the active theme's optional `[chat_background]` table. With neither set, chat shows faint foreground-colored dots. The terminal, composer and sidebar keep their own surfaces. High-contrast and print modes show a solid transcript background.
+Open Settings › General › Appearance Lab for the complete wallpaper editor. General also offers quick wallpaper picks for the current machine. The machine's saved wallpaper takes precedence over the active theme's optional `[chat_background]` table. With neither set, chat shows the plain theme background. The terminal, composer and sidebar keep their own surfaces. High-contrast and print modes show a solid transcript background. See `domios docs APPEARANCE` for complete look proposals and background strength.
 
-Use `domios wallpaper clear` to restore the active theme's wallpaper. An owner can apply static SVG from a pad with `domios wallpaper set --from-pad tile.svg`, or use `--from-pad -` to read SVG from stdin. During an Ask General request, use the supplied request ID from the target machine's General session:
+The owner can run `domios wallpaper clear` to restore the theme wallpaper and `domios wallpaper set --from-pad tile.svg` to apply a static SVG. Use `--from-pad -` to read SVG from stdin. For an ordinary chat request or an owner-only write refusal, read `domios docs APPEARANCE`, create the wallpaper proposal, and return its native `<ds-appearance>` card in the same chat for the owner to apply. For a wallpaper draft with a one-time request ID, the destination General session can run:
 
 ```sh
 domios wallpaper set --request REQUEST_ID --from-pad tile.svg
@@ -45,9 +45,9 @@ The request applies one sanitized tile to that machine, provided its wallpaper s
 
 | Field | Values |
 |---|---|
-| `pattern` | `dots` (default), `none`, `grid`, `icon`, `svg`, or the bundled patterns `domios`, `doodles`, `space`, `math`, `botanical`, `retro`, `geometry`, `sketch`, and `circuits` |
+| `pattern` | `none` (default), `dots`, `grid`, `icon`, `svg`, or the bundled patterns `domios`, `doodles`, `space`, `math`, `botanical`, `retro`, `geometry`, `sketch`, and `circuits` |
 | `scale` | Tile spacing in whole pixels, from 8 to 512. Defaults to 20 for dots and 360 for bundled artwork |
-| `opacity` | Pattern opacity from 0 to 1. Dots default to 0.07 in light themes and 0.05 in dark themes. Domios displays pattern opacity up to 0.24 |
+| `opacity` | Pattern opacity from 0 to 1. Dots use 0.035 in light themes and 0.028 in dark themes when chosen without an intensity. Domios displays pattern opacity up to 0.24 |
 | `color` | `"#rrggbb"` color, derived from the theme foreground when omitted |
 | `colors` | One to three `"#rrggbb"` stroke colors, used in place of `color` when supplied |
 | `rotation` | Artwork or grid rotation from −360 to 360 degrees |
@@ -282,4 +282,4 @@ librarian_enabled = true
 
 There is no per-session config: each provider owns where its sessions live. The `domios sessions` commands and `/api/sessions/*` find and resume them; `domios docs API-STATE` has the contract.
 
-<!-- revision: 37 -->
+<!-- revision: 39 -->

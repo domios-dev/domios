@@ -2,13 +2,13 @@ use super::*;
 use crate::config::schema::{AppConfig, ThemeConfig};
 
 #[test]
-fn chat_background_is_optional_and_defaults_to_dots() {
+fn chat_background_is_optional_and_defaults_to_none() {
     assert!(toml::from_str::<ThemeConfig>("name = 'minimal'")
         .unwrap()
         .chat_background
         .is_none());
     let theme: ThemeConfig = toml::from_str("[chat_background]").unwrap();
-    assert_eq!(theme.chat_background.unwrap().pattern, ChatPattern::Dots);
+    assert_eq!(theme.chat_background.unwrap().pattern, ChatPattern::None);
     let theme: ThemeConfig = toml::from_str("[chat_background]\npattern = 'doodles'").unwrap();
     assert_eq!(theme.chat_background.unwrap().pattern, ChatPattern::Doodles);
 }

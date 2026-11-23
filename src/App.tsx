@@ -62,6 +62,7 @@ import { jobsEntryFilter, jobsOpenEntry, type JobsOpenScope } from "./components
 import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
 import { PageDataProvider } from "./hooks/PageDataProvider";
 import { useConfig } from "./hooks/useConfig";
+import { useAppearanceMotion } from "./hooks/useAppearanceMotion";
 import { useNotificationSound } from "./hooks/useNotificationSound";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useSidebarViewport } from "./hooks/useSidebarViewport";
@@ -92,6 +93,8 @@ import { writeTerminalInput } from "./hooks/terminal/terminalInputWrite";
 import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
 import { MachineAppearanceContext, useMachineAppearance, useWallpaperAsset } from "./lib/useMachineAppearance";
 import { wallpaperRenderStyle } from "./lib/chatWallpaper";
+import { appearanceTokens } from "./lib/appearance";
+import { OPEN_APPEARANCE, type OpenAppearance } from "./lib/appearanceClient";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 import { DEV_BUILD } from "./lib/devBuild";
 import { FreeLimitPlansModal } from "./components/billing/FreeLimitPlansModal";
@@ -171,6 +174,7 @@ function AppInner() {
   const transcriptOwner = useLiveTranscriptHost()?.ownerId;
   const { config, updateConfig, ready: configReady, loading: configLoading } = useConfig();
   const machineAppearance = useMachineAppearance(config, configReady);
+  useAppearanceMotion(machineAppearance);
   const locked = firstRunLocked(configLoading ? undefined : config.general_agent);
   const state = firstRunSelection(locked, backendState);
   const interfaceReady = !configLoading && (initialRouteReady(state.generation) || state.storageUnavailable);
@@ -184,7 +188,7 @@ function AppInner() {
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
-  const [settingsVisit, setSettingsVisit] = useState<{ id: number; section?: SettingsLinkId; guide?: GuideRequest } | null>(null);
+  const [settingsVisit, setSettingsVisit] = useState<{ id: number; section?: SettingsLinkId; guide?: GuideRequest; appearance?: OpenAppearance } | null>(null);
   const [firstRunSettings, setFirstRunSettings] = useState(false);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
@@ -216,13 +220,18 @@ function AppInner() {
     analyticsButtonRef.current?.focus();
   }, [setMainView]);
   useBackDismissal(mainView === "analytics" && analyticsAvailable, closeAnalytics);
-  const openSettings = useCallback((section?: SettingsLinkId, guide?: GuideRequest) => {
+  const openSettings = useCallback((section?: SettingsLinkId, guide?: GuideRequest, appearance?: OpenAppearance) => {
     if (lockedRef.current) return;
-    setSettingsVisit((visit) => ({ id: (visit?.id ?? 0) + 1, section, guide }));
+    setSettingsVisit((visit) => ({ id: (visit?.id ?? 0) + 1, section, guide, appearance }));
     openSettingsView();
   }, [openSettingsView]);
   const openAgentsSettings = useCallback(() => openSettings("agents"), [openSettings]);
   const openGuide = (sectionId: string) => openSettings("guide", guideRequest(sectionId));
+  useEffect(() => {
+    const open = (event: Event) => openSettings("appearance-lab", undefined, (event as CustomEvent<OpenAppearance>).detail);
+    window.addEventListener(OPEN_APPEARANCE, open);
+    return () => window.removeEventListener(OPEN_APPEARANCE, open);
+  }, [openSettings]);
   const setMemoryOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
       const wasOpen = cur === "memory";
@@ -249,10 +258,11 @@ function AppInner() {
   const [previousTheme, setPreviousTheme] = useState(incomingTheme);
   if (machineAppearance.ready && incomingTheme !== previousTheme) setPreviousTheme(incomingTheme);
   const stableTheme = machineAppearance.ready ? incomingTheme : previousTheme;
+  const tuning = useStableJsonValue(machineAppearance.appearance.tuning);
   const stableFontConfig = useStableJsonValue(config.font);
   const stableTerminalConfig = useStableJsonValue(config.terminal);
   const stableApiConfig = useStableJsonValue(config.api);
-  const uiFontScale = fontSizeToUiFontScale(stableFontConfig.size);
+  const uiFontScale = fontSizeToUiFontScale(stableFontConfig.size + (tuning?.font_size ?? 0));
   useNotificationSound(
     Boolean(config.notifications?.sound),
     config.notifications?.agent_levels ?? EMPTY_LEVELS,
@@ -740,7 +750,7 @@ function AppInner() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const themeStyles = useMemo(() => themeToCSS(stableTheme), [stableTheme]);
+  const themeStyles = useMemo(() => ({ ...themeToCSS(stableTheme), ...appearanceTokens(tuning) }), [stableTheme, tuning]);
   const wallpaper = useStableJsonValue(machineAppearance.appearance.wallpaper ?? undefined);
   const wallAsset = useWallpaperAsset(machineAppearance.peerId, machineAppearance.ready ? wallpaper?.asset : undefined);
   const identityColor = machineAppearance.identity?.color;
@@ -763,8 +773,8 @@ function AppInner() {
     }
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", stableTheme.background);
     cacheThemeSnapshot(stableTheme, themeStyles);
-    document.documentElement.style.fontSize = `${stableFontConfig.size + 2}px`;
-  }, [stableTheme.background, themeStyles, stableFontConfig.size]);
+    document.documentElement.style.fontSize = `${stableFontConfig.size + 2 + (tuning?.font_size ?? 0)}px`;
+  }, [stableTheme.background, themeStyles, stableFontConfig.size, tuning?.font_size]);
 
   return (
     <GuideNavigationProvider sections={GUIDE_SECTIONS} onOpen={openGuide}>
@@ -883,6 +893,7 @@ function AppInner() {
                 onClose={closeSettingsView}
                 initialSection={settingsVisit?.section}
                 guideRequest={settingsVisit?.guide}
+                appearanceRequest={settingsVisit?.appearance}
                 restoreNavigation={settingsVisit === null}
               />
             </div>

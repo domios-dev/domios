@@ -6,6 +6,7 @@ import type { WallpaperFillPreset } from "../../gen/WallpaperFillPreset";
 import type { WallpaperPalette } from "../../gen/WallpaperPalette";
 import { chatBackgroundToCSS, chatPatternTile, DOT_OPACITY } from "./chatBackgroundCss";
 import type { MachineColor } from "./machineIdentity";
+import { isLightColor } from "./themeCss";
 import type { ThemeConfig } from "./types";
 
 export const WALLPAPER_PATTERNS = [
@@ -41,9 +42,12 @@ export const FILLS = {
 
 const hexColor = /^#[0-9a-f]{6}$/i;
 
-export function wallpaperFill(fill: WallpaperFill | undefined, light: boolean): string {
+const blendFillStop = (color: string, strength: number) => strength === 1 ? color
+  : `color-mix(in srgb, ${color} ${Number((strength * 100).toFixed(3))}%, var(--ct-bg))`;
+
+export function wallpaperFill(fill: WallpaperFill | undefined, light: boolean, strength = 1): string {
   if (!fill || !hasOwn(FILLS, fill.preset)) return "none";
-  const [first, second] = FILLS[fill.preset][light ? "light" : "dark"];
+  const [first, second] = FILLS[fill.preset][light ? "light" : "dark"].map(color => blendFillStop(color, strength));
   return fill.mode === "gradient" ? `linear-gradient(160deg, ${first}, ${second})` : first;
 }
 
@@ -57,9 +61,9 @@ export function wallpaperPalette(palette: WallpaperPalette | undefined, light: b
 export function wallpaperDefaultOpacity(pattern: ChatPattern, light: boolean, painted: boolean): number {
   if (pattern === "image") return 0.30;
   if (pattern === "dots") return DOT_OPACITY[light ? "light" : "dark"];
-  if (pattern === "svg") return light ? 0.12 : 0.16;
-  if (pattern === "grid" || pattern === "icon") return light ? 0.07 : 0.05;
-  return painted ? (light ? 0.16 : 0.22) : (light ? 0.09 : 0.085);
+  if (pattern === "svg") return light ? 0.06 : 0.12;
+  if (pattern === "grid" || pattern === "icon") return light ? 0.06 : 0.05;
+  return painted ? (light ? 0.16 : 0.22) : (light ? 0.06 : 0.085);
 }
 
 export function wallpaperDefaultScale(pattern: ChatPattern): number {
@@ -68,6 +72,16 @@ export function wallpaperDefaultScale(pattern: ChatPattern): number {
 
 export function effectiveWallpaper(theme: ThemeConfig, setting?: ChatWallpaper): ChatWallpaper {
   return setting ?? { background: theme.chat_background ?? { pattern: "none" } };
+}
+
+export function wallpaperSummary(theme: ThemeConfig, setting?: ChatWallpaper): string {
+  const { background, palette, fill, asset_label } = effectiveWallpaper(theme, setting);
+  if (background.pattern === "none" && !fill && !background.gradient) return "None · plain background";
+  if (background.pattern === "dots" && background.opacity === undefined && !palette && !fill) return "Dots";
+  const label = asset_label ?? WALLPAPER_PATTERNS.find(value => value.id === background.pattern)?.label ?? background.pattern;
+  const style = [palette && PALETTES[palette].label, fill && FILLS[fill.preset].label].filter(Boolean).join(" on ");
+  const intensity = background.opacity ?? wallpaperDefaultOpacity(background.pattern, isLightColor(theme.background), Boolean(palette));
+  return [label, style, `${Number((intensity * 100).toFixed(1))}%`].filter(Boolean).join(" · ");
 }
 
 export function wallpaperRenderStyle(
@@ -90,7 +104,8 @@ export function wallpaperRenderStyle(
   if (!setting && (!art || pattern === "doodles") && !background.colors) {
     return backdrop(chatBackgroundToCSS(theme, light));
   }
-  const fillStyle = fill ? wallpaperFill(fill, light) : gradientFill(theme, background, light);
+  const strength = bounded(wallpaper.fill_strength, 0, 1, 1);
+  const fillStyle = fill ? wallpaperFill(fill, light, strength) : gradientFill(theme, background, light, setting ? strength : undefined);
   if (pattern === "none") return backdrop(fillStyle);
 
   const painted = palette !== undefined || Boolean(background.colors?.length || background.color);
@@ -112,10 +127,20 @@ export function wallpaperRenderStyle(
     const tile = art ?? assetUrl ?? chatPatternTile(background, scale);
     if (tile) mask = `url("${tile}") 0 0 / ${scale}px ${scale}px repeat`;
   }
-  return backdrop(fillStyle, mask, inkGradient(inkStops(background, palette, light)), opacity);
+  const rotation = mask && (art || assetUrl) ? bounded(background.rotation, -360, 360, 0) : 0;
+  return {
+    ...backdrop(fillStyle, mask, inkGradient(inkStops(background, palette, light)), opacity),
+    "--ct-wallpaper-rotation": `${rotation}deg`,
+    "--ct-wallpaper-rotation-inset": rotation === 0 ? "0px" : "-100vmax",
+  };
 }
 
-function gradientFill(theme: ThemeConfig, background: ChatBackground, light: boolean): string {
+function gradientFill(theme: ThemeConfig, background: ChatBackground, light: boolean, strength?: number): string {
+  if (strength !== undefined && background.gradient) {
+    const gradient = background.gradient;
+    const stops = gradient.stops.map(color => blendFillStop(color, strength)).join(", ");
+    return gradient.kind === "linear" ? `linear-gradient(${gradient.angle ?? 135}deg, ${stops})` : `radial-gradient(ellipse at center, ${stops})`;
+  }
   return background.gradient
     ? chatBackgroundToCSS({ ...theme, chat_background: { pattern: "none", gradient: background.gradient } }, light)
     : "none";

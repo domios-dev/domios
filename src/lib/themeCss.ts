@@ -13,6 +13,12 @@ function luminance(hex: string): number {
   return .2126 * r + .7152 * g + .0722 * b;
 }
 
+export function contrastRatio(a: string, b: string): number {
+  const first = luminance(a);
+  const second = luminance(b);
+  return (Math.max(first, second) + .05) / (Math.min(first, second) + .05);
+}
+
 function mentionTextColor(theme: ThemeConfig, light: boolean): string {
   const bubble = blendColor(deriveColor(theme.background, 10), theme.blue, .08);
   const surface = luminance(blendColor(bubble, theme.blue, .18));
@@ -50,7 +56,7 @@ export const DEFAULT_THEME: ThemeConfig = {
   magenta: "#bc8cff",
   cyan: "#39d353",
   white: "#c9d1d9",
-  bright_black: "#484f58",
+  bright_black: "#545d67",
   bright_red: "#ffa198",
   bright_green: "#56d364",
   bright_yellow: "#e3b341",
@@ -88,6 +94,7 @@ export function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-border-default": blendColor(theme.background, theme.bright_black, 0.38),
     "--ct-muted": theme.bright_black,
     "--ct-muted-fg": blendColor(theme.bright_black, theme.foreground, 0.45),
+    "--ct-control-border": theme.foreground,
     "--ct-accent": theme.blue,
     "--ct-mention-text": mentionTextColor(theme, isLight),
     "--ct-red": theme.red,

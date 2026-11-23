@@ -27,6 +27,7 @@ pub(crate) mod agent_provider_switch_routes;
 pub(crate) mod agent_restart_routes;
 pub mod agent_routes;
 pub mod ai_helper_routes;
+mod appearance_routes;
 pub mod bridge_routes;
 pub mod chat_history_routes;
 pub(crate) mod cli_rpc_routes;

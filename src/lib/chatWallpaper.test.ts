@@ -24,10 +24,17 @@ assert.match(dark["--ct-wallpaper-mask"], /domios-domios\.svg.*360px 360px repea
 assert.equal(dark["--ct-wallpaper-fill"], "linear-gradient(160deg, var(--ct-bg), #141b33)");
 assert.equal(wallpaperRenderStyle(theme, setting, true)["--ct-wallpaper-ink"],
   "linear-gradient(180deg, #0a7ea4, #2b8a3e, #6d48c8)");
+assert.equal(wallpaperRenderStyle(theme, setting, true, undefined, undefined, 1.6)["--ct-wallpaper-opacity"], "0.384");
 const unset = wallpaperRenderStyle(DEFAULT_THEME, undefined, false, undefined, "blue");
 assert.equal(unset["--ct-wallpaper-fill"], "none");
 assert.equal(unset["--ct-wallpaper-mask"], "none");
 assert.doesNotMatch(Object.values(unset).join(" "), /ct-machine-/);
+for (const [light, opacity] of [[true, "0.035"], [false, "0.028"]] as const) {
+  const dots = wallpaperRenderStyle(DEFAULT_THEME, { background: { pattern: "dots" } }, light);
+  assert.equal(dots["--ct-wallpaper-opacity"], opacity);
+}
+assert.equal(wallpaperRenderStyle(theme, { ...setting, fill_strength: 0.4 }, false)["--ct-wallpaper-fill"],
+  "linear-gradient(160deg, color-mix(in srgb, var(--ct-bg) 40%, var(--ct-bg)), color-mix(in srgb, #141b33 40%, var(--ct-bg)))");
 
 const uploaded: ChatWallpaper = { background: { pattern: "image" }, asset: "f".repeat(64) + ".png" };
 assert.doesNotMatch(wallpaperRenderStyle(theme, uploaded, true, "file:///example.png")["--ct-wallpaper-fill"], /file:/);

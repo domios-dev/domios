@@ -335,6 +335,9 @@ fn default_mesh_instance_name() -> String {
 /// Resolve theme: if config has a named theme, load its colors as a base,
 /// then apply any user-specified color overrides on top.
 pub fn resolve_theme(config: &mut AppConfig) {
+    if config.appearance_active.is_some() {
+        return;
+    }
     let theme_name = config.theme.name.clone();
     if let Some(base) = schema::get_any_theme(&theme_name) {
         // For each color field, if the user didn't set it (empty or serde default), use the built-in theme color.
@@ -451,6 +454,13 @@ fn commit_config(
     let writer = CONFIG_WRITER.lock();
     {
         let current = state.lock();
+        config.appearance_proposals = current.appearance_proposals.clone();
+        config.appearance = current.appearance;
+        config.appearance_active = if config.theme == current.theme {
+            current.appearance_active.clone()
+        } else {
+            None
+        };
         if let Some(expected) = owner_expected {
             if current.browser_upload_folders != expected.browser_upload_folders {
                 return Err(ConfigCommitError::StaleUploadFolders);

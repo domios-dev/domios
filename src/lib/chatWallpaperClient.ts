@@ -3,6 +3,7 @@ import { invoke } from "./bridge";
 import { baseDaemonTransport, daemonTransportForPeer } from "./daemonBootstrap";
 import { browserFetch } from "./transportClient";
 import type { ThemeConfig } from "./types";
+import type { AppearanceTuning } from "./appearance";
 
 export const WALLPAPER_FILE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"] as const;
 export const WALLPAPER_RASTER_BYTES = 2 * 1024 * 1024;
@@ -15,6 +16,7 @@ const LOOK_PATH = "/api/chat-wallpaper/appearance";
 export interface MachineAppearance {
   theme: ThemeConfig;
   wallpaper: ChatWallpaper | null;
+  tuning?: AppearanceTuning | null;
 }
 
 function checkedId(value: unknown): string {

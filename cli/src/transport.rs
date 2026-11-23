@@ -151,7 +151,7 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::LiveTranscript { .. } => socket_unsupported(
             "live transcript requires a local owner or active consumer credential",
         ),
-        Commands::Theme { .. } => socket_rest(),
+        Commands::Theme { .. } | Commands::Appearance { .. } => socket_rest(),
         Commands::Wallpaper { action: crate::WallpaperAction::Set { request: Some(_), .. } } =>
             socket_unsupported("An owner-requested wallpaper must be submitted from the target machine's General Agent"),
         Commands::Wallpaper { .. } => socket_rest(),

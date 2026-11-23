@@ -71,7 +71,7 @@ export interface SettingsCardRoute {
 }
 
 /** Links straight to one card inside a section. */
-export type CardLinkId = "messengers" | "plans" | "team-channels" | "chat-wallpaper";
+export type CardLinkId = "messengers" | "plans" | "team-channels" | "chat-wallpaper" | "appearance-lab";
 export type SettingsLinkId = SectionId | CardLinkId | `accounts:${string}`;
 
 export interface SettingsLinkRoute {
@@ -85,6 +85,7 @@ const CARD_ROUTES: Record<CardLinkId, SettingsLinkRoute> = {
   plans: { section: "account", card: "subscription-plans" },
   "team-channels": { section: "agents", card: "team-channels" },
   "chat-wallpaper": { section: "general", card: "chat-wallpaper" },
+  "appearance-lab": { section: "general" },
 };
 
 const own = (record: object, key: string) => Object.prototype.hasOwnProperty.call(record, key);

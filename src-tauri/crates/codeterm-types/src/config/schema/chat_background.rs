@@ -6,8 +6,8 @@ use crate::svg::{sanitize_svg, SvgUse};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatPattern {
-    None,
     #[default]
+    None,
     Dots,
     Grid,
     Icon,

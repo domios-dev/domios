@@ -1,0 +1,23 @@
+.ct-appearance-moment {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.ct-appearance-moment > div,
+.ct-appearance-moment__chrome > div,
+.ct-appearance-moment__doodles { position: absolute; }
+.ct-appearance-moment__frame {
+  inset: 0;
+  box-shadow: inset 0 0 0 1px var(--ct-border);
+}
+.ct-appearance-moment__chat { background: var(--ct-bg); }
+.ct-appearance-moment__sidebar { background: var(--ct-sidebar-bg); }
+.ct-appearance-moment__chrome { inset: 0; }
+.ct-appearance-moment__titlebar { background: var(--ct-titlebar-bg); }
+.ct-appearance-moment__composer { background: var(--ct-surface); border-radius: var(--ct-radius-lg); }
+.ct-appearance-moment__doodles { inset: 0; width: 100%; height: 100%; }
+@media (prefers-contrast: more), (forced-colors: active) {
+  .ct-appearance-moment__chat { background-image: none; }
+}

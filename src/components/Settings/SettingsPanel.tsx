@@ -1,7 +1,7 @@
 import { DropdownSelect } from "../shared/DropdownMenu";
 import { useSettingsNavigation, type SettingsRoute as Route } from "../../hooks/useSettingsNavigation";
 import { nativeBridge } from "../../lib/nativeBridge";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useContext, useRef } from "react";
 import { invoke } from "../../lib/bridge";
 import { pushBackDismissal } from "../../lib/backDismissal";
 import type { AppConfig } from "../../lib/types";
@@ -25,12 +25,16 @@ import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
 import { ShellProfilesCard } from "./ShellProfilesCard";
 import { BrowserUploadFolders } from "./BrowserUploadFolders";
-import { ChatWallpaperPicker } from "./ChatWallpaperPicker";
 import { EmbedderCard } from "./embedder/EmbedderCard";
 import { GeneralAgentCard } from "./GeneralAgentCard";
 import { NotificationsOverview } from "./NotificationsTab";
 import { MessengersCard } from "./MessengersCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
+import { AppearanceLab } from "./AppearanceLab";
+import { QuickWallpaper } from "./QuickWallpaper";
+import { appearanceError, type OpenAppearance } from "../../lib/appearanceClient";
+import { MachineAppearanceContext } from "../../lib/useMachineAppearance";
+import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import { AccountTab } from "./AccountTab";
 import { NetworkTab as MeshSettings } from "../MeshPanel/NetworkTab";
 import { AnalyticsToggle } from "./AnalyticsToggle";
@@ -54,6 +58,7 @@ interface SettingsPanelProps {
   onClose: () => void;
   initialSection?: SettingsLinkId;
   guideRequest?: GuideRequest;
+  appearanceRequest?: OpenAppearance;
   restoreNavigation?: boolean;
 }
 
@@ -75,6 +80,7 @@ const SETTINGS_TITLE_ID = "codeterm-settings-title";
 
 function routeTitle(route: Route): string {
   if (route.kind === "section") return sectionTitle(route.id);
+  if (route.kind === "appearance-lab") return "Appearance Lab";
   return route.kind === "agent-provider" ? "Harness" : "Settings";
 }
 
@@ -84,6 +90,7 @@ export function SettingsPanel({
   onClose,
   initialSection,
   guideRequest,
+  appearanceRequest,
   restoreNavigation,
 }: SettingsPanelProps) {
   const [stack, setStack] = useSettingsNavigation(initialSection, guideRequest, restoreNavigation);
@@ -95,6 +102,20 @@ export function SettingsPanel({
     [setStack],
   );
   const back = parent ? pop : onClose;
+  const body = useRef<HTMLDivElement>(null);
+  const returnScroll = useRef<number | undefined>(undefined);
+  const openLab = useCallback(() => {
+    returnScroll.current = body.current?.scrollTop ?? 0;
+    push({ kind: "appearance-lab" });
+  }, [push]);
+  useLayoutEffect(() => {
+    if (!body.current) return;
+    if (top.kind === "appearance-lab") body.current.scrollTop = 0;
+    else if (top.kind === "section" && top.id === "general" && returnScroll.current !== undefined) {
+      body.current.scrollTop = returnScroll.current;
+      returnScroll.current = undefined;
+    }
+  }, [top]);
   useEffect(() => pushBackDismissal(back), [back, top]);
 
   // Settings is a full-view modal — Esc closes it (matching the close button).
@@ -111,10 +132,22 @@ export function SettingsPanel({
   const draftRef = useRef(draft);
   draftRef.current = draft.save === onUpdateConfig ? draft : { config, save: onUpdateConfig };
   const [themes, setThemes] = useState<string[]>([]);
+  const machineAppearance = useContext(MachineAppearanceContext);
+  const theme = machineAppearance?.appearance.theme ?? localConfig.theme;
+  const [themeError, setThemeError] = useState("");
   const [themesDir, setThemesDir] = useState<string>("");
   const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
 
   const builtinThemes = ["github-dark", "dracula", "catppuccin-mocha", "one-dark", "nord", "github-light", "solarized-light", "pip-boy"];
+  const themeIds = machineAppearance?.peerId ? builtinThemes : themes;
+  const chooseTheme = async (name: string) => {
+    setThemeError("");
+    try {
+      await daemonTransportForPeer(machineAppearance?.peerId).json("POST", "/api/themes/apply", { name });
+    } catch (failure) {
+      setThemeError(appearanceError(failure));
+    }
+  };
 
   const refreshThemes = useCallback(() => {
     invoke<string[]>("list_themes").then(setThemes).catch(() => setThemes(builtinThemes));
@@ -199,7 +232,7 @@ export function SettingsPanel({
 
         {/* Body */}
         <div className="flex flex-1 min-h-0 relative z-10">
-          <div className="flex-1 overflow-y-auto px-5 py-5" data-testid="settings-body">
+          <div ref={body} className="flex-1 overflow-y-auto px-5 py-5" data-testid="settings-body">
             {top.kind === "root" && (
               <div role="navigation" aria-label="Settings sections" className="ct-settings-nav">
                 {SETTINGS_SECTIONS.map((s) => {
@@ -226,6 +259,9 @@ export function SettingsPanel({
 
             {top.kind === "section" && top.id === "account" && <AccountTab focusCard={top.card} />}
             {top.kind === "section" && top.id === "mesh" && <MeshSettings />}
+            {top.kind === "appearance-lab" && <SettingsPage title="Appearance Lab">
+              <AppearanceLab config={localConfig} open={appearanceRequest} showWallpaperOwn={top.showOwn} onNavigate={onClose} />
+            </SettingsPage>}
 
             {top.kind === "section" && top.id === "general" && (
               <SettingsPage title="General">
@@ -249,30 +285,37 @@ export function SettingsPanel({
                   />
                 </SettingsCard>
 
-                <SettingsCard icon={<Palette size={16} />} title="Appearance">
+                <GeneralAgentCard config={localConfig} onUpdate={update} onSwitchProvider={switchGeneralProvider} onOpenGuide={(helpSection) => push({ kind: "section", id: "guide", helpSection })} />
+
+                <SettingsCard icon={<Palette size={16} />} title="Appearance" description="Theme and wallpaper for this machine"
+                  headerRight={<button type="button" className="ct-appearance-lab-link ct-settings-link" onClick={openLab}>Open Appearance Lab ›</button>}>
                   <label className="ct-settings-toggle">
                     <span>Theme</span>
                     <div className="w-56 min-w-0">
                       <DropdownSelect
                         data-testid="settings-theme-select"
                         aria-label="Theme"
-                        value={localConfig.theme.name}
-                        onChange={(name) => update("theme", { name })}
-                        options={themes.map((name) => ({ value: name, label: name, group: builtinThemes.includes(name) ? "Built-in" : "Custom" }))}
+                        value={theme.name}
+                        onChange={(name) => void chooseTheme(name)}
+                        options={[...new Set([...themeIds, theme.name])].map((name) => ({
+                          value: name,
+                          label: name,
+                          group: builtinThemes.includes(name) ? "Built-in" : themeIds.includes(name) ? "Custom" : "Current look",
+                        }))}
                       />
                     </div>
                   </label>
                   <div className="flex items-center gap-2">
                     <div className="flex gap-1 flex-1">
                       {[
-                        localConfig.theme.background,
-                        localConfig.theme.foreground,
-                        localConfig.theme.red,
-                        localConfig.theme.green,
-                        localConfig.theme.yellow,
-                        localConfig.theme.blue,
-                        localConfig.theme.magenta,
-                        localConfig.theme.cyan,
+                        theme.background,
+                        theme.foreground,
+                        theme.red,
+                        theme.green,
+                        theme.yellow,
+                        theme.blue,
+                        theme.magenta,
+                        theme.cyan,
                       ].map((color, i) => (
                         <div
                           key={i}
@@ -283,7 +326,7 @@ export function SettingsPanel({
                         />
                       ))}
                     </div>
-                    {themesDir && nativeBridge.window && (
+                    {themesDir && nativeBridge.window && !machineAppearance?.peerId && (
                       <button
                         type="button"
                         data-testid="settings-open-themes-folder"
@@ -294,13 +337,13 @@ export function SettingsPanel({
                         Themes folder
                       </button>
                     )}
-                    {!builtinThemes.includes(localConfig.theme.name) && (
+                    {!machineAppearance?.peerId && themes.includes(theme.name) && !builtinThemes.includes(theme.name) && (
                       <button
                         type="button"
                         data-testid="settings-delete-custom-theme"
                         onClick={async () => {
-                          await invoke("delete_custom_theme", { themeId: localConfig.theme.name });
-                          update("theme", { name: "github-dark" });
+                          await invoke("delete_custom_theme", { themeId: theme.name });
+                          await chooseTheme("github-dark");
                           refreshThemes();
                         }}
                         className="ct-bar-pill ct-settings-link text-[var(--ct-red)]"
@@ -309,6 +352,7 @@ export function SettingsPanel({
                       </button>
                     )}
                   </div>
+                  {themeError && <p role="alert" className="ct-appearance-error">{themeError}</p>}
                   <label className="ct-settings-toggle">
                     <span>Font</span>
                     <input
@@ -336,12 +380,8 @@ export function SettingsPanel({
                     checked={localConfig.font.ligatures}
                     onChange={(v) => update("font", { ligatures: v })}
                   />
+                  <QuickWallpaper config={localConfig} onOpenLab={openLab} />
                 </SettingsCard>
-
-                <SettingsCardAnchor id="chat-wallpaper" focused={top.card === "chat-wallpaper"}>
-                  <ChatWallpaperPicker config={localConfig} showOwnInitially={top.card === "chat-wallpaper"} />
-                </SettingsCardAnchor>
-                <GeneralAgentCard config={localConfig} onUpdate={update} onSwitchProvider={switchGeneralProvider} onOpenGuide={(helpSection) => push({ kind: "section", id: "guide", helpSection })} />
 
                 <SettingsCardAnchor id="telegram-bridge" focused={top.card === "telegram-bridge"}>
                   <MessengersCard config={localConfig} onUpdate={update} />

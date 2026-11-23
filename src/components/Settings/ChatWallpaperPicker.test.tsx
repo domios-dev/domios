@@ -3,13 +3,38 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import type { AppConfig } from "../../lib/types";
 import { DEFAULT_THEME } from "../../lib/themeCss";
+import { MachineAppearanceContext } from "../../lib/useMachineAppearance";
 import { ChatWallpaperPicker } from "./ChatWallpaperPicker";
+import { QuickWallpaper } from "./QuickWallpaper";
 
 const client = vi.hoisted(() => ({ saveWallpaper: vi.fn(), uploadWallpaper: vi.fn() }));
 vi.mock("../../lib/chatWallpaperClient", () => ({
   ...client, deleteWallpaperAsset: vi.fn(), askGeneralForWallpaper: vi.fn(),
   WALLPAPER_FILE_TYPES: ["image/png", "image/svg+xml"],
 }));
+
+it("shows None when the selected peer has no wallpaper and the local machine has Dots", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const config = { theme: DEFAULT_THEME, chat_wallpaper: { background: { pattern: "dots" } } } as AppConfig;
+  try {
+    await act(async () => root.render(
+      <MachineAppearanceContext.Provider value={{
+        peerId: "peer", appearance: { theme: DEFAULT_THEME, wallpaper: null }, ready: true,
+        projectWallpaper: vi.fn(),
+      }}>
+        <QuickWallpaper config={config} onOpenLab={() => {}} />
+      </MachineAppearanceContext.Provider>,
+    ));
+    const choice = host.querySelector('[role="radiogroup"] input:checked');
+    expect(choice?.getAttribute("aria-label")).toBe("None");
+    expect(host.textContent).toContain("None · plain background");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
 
 it("persists the selected art and colours, and keeps the current wallpaper on upload refusal", async () => {
   client.saveWallpaper.mockResolvedValue(undefined);

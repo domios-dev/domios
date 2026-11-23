@@ -539,6 +539,45 @@ Quit the exact local application after successful server cleanup and observed ex
 
 - `--exact`
 
+#### `domios appearance`
+
+Propose, review, apply and undo a machine's appearance
+
+#### `domios appearance apply`
+
+Apply a reviewed proposal on the selected machine
+
+- `<id>`
+- `--machine`
+
+#### `domios appearance current`
+
+Read the current look and available presets on one machine
+
+- `--machine`
+
+#### `domios appearance propose`
+
+Validate and store a complete look for review
+
+- `--from-pad` — TOML in your Agent Pad with [theme], [appearance] and wallpaper
+- `--machine`
+- `--rationale` — One-line colour-harmony rationale
+
+#### `domios appearance show`
+
+Read a stored proposal and its measured contrast
+
+- `<id>`
+- `--machine`
+
+#### `domios appearance undo`
+
+Restore the look that was active before applying this proposal
+
+- `<id>`
+- `--machine`
+
 #### `domios blueprint`
 
 Cheap hash-gated watchers with closed-set routes

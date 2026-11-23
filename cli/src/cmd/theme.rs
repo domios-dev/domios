@@ -7,6 +7,7 @@ use crate::ThemeAction;
 enum ThemeOutcome {
     Ok(Value),
     Failed(String),
+    Rejected(crate::cmd::print::CliError),
 }
 
 #[derive(Debug, PartialEq)]
@@ -16,6 +17,10 @@ enum LeafOutput {
     Failure {
         earned: Vec<String>,
         message: String,
+    },
+    Rejected {
+        earned: Vec<String>,
+        error: crate::cmd::print::CliError,
     },
 }
 
@@ -77,6 +82,13 @@ pub fn handle_theme(json: bool, action: ThemeAction) {
 // opt-in that turns a 4xx/5xx into a real failure.
 fn classify(result: Result<LocalApiResponse, LocalApiError>) -> ThemeOutcome {
     match result {
+        Ok(response) if response.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY => {
+            let status = response.status().as_u16();
+            ThemeOutcome::Rejected(crate::cmd::print::CliError::http(
+                status,
+                &response.text().unwrap_or_default(),
+            ))
+        }
         Ok(response) => match response.error_for_status() {
             Ok(response) => ThemeOutcome::Ok(response.json().unwrap_or_default()),
             Err(error) => ThemeOutcome::Failed(error.to_string()),
@@ -91,6 +103,10 @@ fn body(outcome: ThemeOutcome) -> Result<Value, LeafOutput> {
         ThemeOutcome::Failed(message) => Err(LeafOutput::Failure {
             earned: Vec::new(),
             message,
+        }),
+        ThemeOutcome::Rejected(error) => Err(LeafOutput::Rejected {
+            earned: Vec::new(),
+            error,
         }),
     }
 }
@@ -188,11 +204,20 @@ fn save_output(
         earned.push(format!("Theme saved: {path}"));
     }
     if apply {
-        if let ThemeOutcome::Failed(message) = apply_theme() {
-            return LeafOutput::Failure {
-                earned,
-                message: format!("theme saved to {path} but apply failed: {message}"),
-            };
+        match apply_theme() {
+            ThemeOutcome::Failed(message) => {
+                return LeafOutput::Failure {
+                    earned,
+                    message: format!("theme saved to {path} but apply failed: {message}"),
+                }
+            }
+            ThemeOutcome::Rejected(mut error) => {
+                if let Some(data) = error.data.as_mut() {
+                    data["saved_path"] = serde_json::json!(path);
+                }
+                return LeafOutput::Rejected { earned, error };
+            }
+            ThemeOutcome::Ok(_) => {}
         }
         if !json {
             earned.push(format!("Theme applied: {id}"));
@@ -222,6 +247,14 @@ fn emit(json: bool, output: LeafOutput) {
                 }
             }
             crate::cmd::print::fail(1, message);
+        }
+        LeafOutput::Rejected { earned, error } => {
+            if !json {
+                for line in earned {
+                    println!("{line}");
+                }
+            }
+            crate::cmd::print::exit_with_cli_error(json, &error);
         }
     }
 }

@@ -808,6 +808,10 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             let (method, path, body) = crate::cmd::wallpaper::request(action);
             (method.into(), path, Some(body.to_string()))
         }
+        Commands::Appearance { action } => {
+            let (method, path, body) = crate::cmd::appearance::request(action);
+            (method.into(), path, body.map(|value| value.to_string()))
+        }
         Commands::Mem { action } => mem_to_api(action),
         Commands::Sessions { action } => match action {
             crate::SessionsAction::Search {

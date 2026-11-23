@@ -1,7 +1,7 @@
 :root {
   --ct-composer-gutter-x: 0.75rem;
   --ct-composer-gutter-b: var(--ct-composer-bottom-padding, calc(0.5rem + var(--ct-safe-bottom, 0px)));
-  --ct-composer-radius: 1.215rem;
+  --ct-composer-radius: calc(1.215rem * var(--ct-roundness, 1));
   --ct-composer-float-min-width: 30rem;
   --ct-composer-control-size: var(--ct-control-height);
   --ct-composer-card-border: 1px;
@@ -35,7 +35,7 @@
   gap: 8px;
   transform: translateX(-50%);
   border: 0;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--ct-roundness, 1));
   background: transparent;
   color: color-mix(in srgb, var(--ct-muted-fg) 55%, transparent);
   cursor: pointer;
@@ -114,7 +114,7 @@
   max-height: 100%;
   overflow: hidden;
   border: 1px solid var(--ct-border);
-  border-radius: 12px;
+  border-radius: calc(12px * var(--ct-roundness, 1));
   background: var(--ct-bg);
   box-shadow: none;
   --tw-ring-shadow: 0 0 transparent;
@@ -145,7 +145,7 @@
   width: 28px;
   height: 28px;
   border: 0;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--ct-roundness, 1));
   background: transparent;
   color: var(--ct-muted-fg);
   cursor: pointer;
@@ -156,7 +156,7 @@
   .ct-composer-expand span { opacity: 1; }
 }
 .ct-composer-card {
-  border: var(--ct-composer-card-border) solid var(--ct-border);
+  border: var(--ct-composer-card-border) solid var(--ct-accessible-edge, var(--ct-border));
   border-radius: var(--ct-composer-radius);
   background: var(--ct-bg-elev, var(--ct-surface));
   box-shadow: var(--ct-shadow-capsule);
@@ -243,7 +243,7 @@
   position: relative;
   margin: 0 max(0.5rem, calc((100% - var(--ct-chat-readable-width) - 2rem) / 2)) 0.5rem;
   padding-block: 0.5rem 0.375rem;
-  border-radius: 1.575rem;
+  border-radius: calc(1.575rem * var(--ct-roundness, 1));
   background-color: var(--ct-bg);
   box-shadow: var(--ct-shadow-capsule);
   transition: margin var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
@@ -272,8 +272,8 @@
   width: min(19rem, calc(100vw - 2rem));
   padding: 12px 14px;
   border: 1px solid var(--ct-border);
-  border-radius: 14px;
-  border-bottom-right-radius: var(--ct-bubble-tail-radius, 6px);
+  border-radius: calc(14px * var(--ct-roundness, 1));
+  border-bottom-right-radius: var(--ct-bubble-tail-radius, calc(6px * var(--ct-roundness, 1)));
   background: var(--ct-glass-sheen), var(--ct-glass-bg);
   box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
   backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
@@ -285,8 +285,8 @@
 }
 
 .ct-anchored-popover[data-side="bottom"] .ct-dictation-bubble {
-  border-bottom-right-radius: 14px;
-  border-top-right-radius: var(--ct-bubble-tail-radius, 6px);
+  border-bottom-right-radius: calc(14px * var(--ct-roundness, 1));
+  border-top-right-radius: var(--ct-bubble-tail-radius, calc(6px * var(--ct-roundness, 1)));
   transform-origin: calc(100% - 1rem) 0%;
 }
 
@@ -323,7 +323,7 @@
   margin: -3px -4px 0 0;
   flex: none;
   border: 0;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--ct-roundness, 1));
   background: transparent;
   color: var(--ct-muted-fg);
   cursor: pointer;
@@ -379,7 +379,7 @@
 .ct-dictation-bar {
   width: 2.5px;
   height: 100%;
-  border-radius: 999px;
+  border-radius: calc(999px * var(--ct-roundness, 1));
   background: var(--ct-accent);
   transform-origin: center;
   transition: transform 75ms linear, opacity var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
