@@ -48,7 +48,7 @@ it.each([true, false])("opens Board over a remembered Plan view, active plan: %s
   }
 });
 
-it("puts the cleaned execution machine inside its remote Team before the title", async () => {
+it("names local and remote Team cards with the machine shown after the title", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -60,13 +60,13 @@ it("puts the cleaned execution machine inside its remote Team before the title",
       <TeamUnit {...props} team={{ ...team, id: "local-team", name: "Local research" }} />
       <TeamUnit {...props} team={{ ...team, remote_peer_id: "remote-peer", remote_peer_name: "Desk [dev-qa]" }} />
     </>));
-    const local = host.querySelector('section[aria-label="Local research"]')!;
-    const remote = host.querySelector('section[aria-label="Remote research"]')!;
-    expect(local.textContent).not.toContain("Desk");
+    const local = host.querySelector('section[aria-label="Local research, This machine"]')!;
+    const remote = host.querySelector('section[aria-label="Remote research, Desk"]')!;
+    expect(local.querySelector('[title="This machine"]')?.textContent).toBe("This machine");
     const title = remote.querySelector('[data-testid="team-name"]')!;
-    const label = [...remote.querySelectorAll("span")].find(span => span.textContent === "Runs on Desk")!;
-    expect(label).toBeTruthy();
-    expect(label.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const machine = remote.querySelector('[title="Desk"]')!;
+    expect(machine.textContent).toBe("Desk");
+    expect(title.nextElementSibling).toBe(machine);
   } finally {
     await act(async () => root.unmount());
     host.remove();

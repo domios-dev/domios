@@ -24,6 +24,6 @@ function DragSnapshot({ id }: { id: string }) {
     return () => container.replaceChildren();
   }, [id]);
   return <div ref={host} aria-hidden="true" inert style={{
-    pointerEvents: "none", background: "var(--ct-bg)", borderRadius: 6, boxShadow: "0 3px 8px rgb(0 0 0 / 18%)",
+    pointerEvents: "none", background: "var(--ct-bg)", borderRadius: 6, boxShadow: "var(--ct-shadow-md)",
   }} />;
 }

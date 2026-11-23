@@ -71,6 +71,7 @@
   --ct-text-tertiary-opacity: 0.32;
 
   /* Layered shadows */
+  --ct-team-card-edge: 70%;
   --ct-shadow-sm:
     0 1px 2px rgba(0, 0, 0, 0.3),
     0 1px 3px rgba(0, 0, 0, 0.15);
@@ -151,6 +152,26 @@
   --ct-machine-pink: #b8327e;
   --ct-machine-violet: #6d48c8;
   --ct-machine-graphite: #5c6670;
+  --ct-team-card-edge: 55%;
+  --ct-shadow-sm:
+    0 1px 2px color-mix(in srgb, var(--ct-fg) 8%, transparent),
+    0 1px 3px color-mix(in srgb, var(--ct-fg) 5%, transparent);
+  --ct-shadow-md:
+    0 1px 4px color-mix(in srgb, var(--ct-fg) 8%, transparent),
+    0 6px 16px color-mix(in srgb, var(--ct-fg) 8%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--ct-fg) 6%, transparent);
+  --ct-shadow-lg:
+    0 2px 6px color-mix(in srgb, var(--ct-fg) 8%, transparent),
+    0 12px 36px color-mix(in srgb, var(--ct-fg) 10%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--ct-fg) 7%, transparent);
+  --ct-shadow-xl:
+    0 4px 12px color-mix(in srgb, var(--ct-fg) 10%, transparent),
+    0 24px 64px color-mix(in srgb, var(--ct-fg) 14%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--ct-fg) 8%, transparent);
+  --ct-shadow-capsule:
+    0 2px 6px color-mix(in srgb, var(--ct-fg) 6%, transparent),
+    0 10px 32px color-mix(in srgb, var(--ct-fg) 8%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--ct-fg) 7%, transparent);
 }
 
 /* Reduced motion */
