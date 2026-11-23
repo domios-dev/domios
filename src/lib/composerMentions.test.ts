@@ -138,8 +138,9 @@ test("colliding Vela names and tab ids follow the composing machine", async () =
   const remoteComposer = projectAttachedRemoteTab(composer, host, "ws1");
   const competing = projectAttachedRemoteTab({ ...vela, title: "Vel", team_id: "dev" },
     { peer_id: "mac", peer_name: "DomiosMac" }, "ws1");
+  const scopedTabs: Record<string, Tab> = { ...tabs, [vela.id]: vela, [remoteVela.id]: remoteVela, [remoteComposer.id]: remoteComposer, [competing.id]: competing };
   const state = {
-    tabs: { ...tabs, [vela.id]: vela, [remoteVela.id]: remoteVela, [remoteComposer.id]: remoteComposer, [competing.id]: competing },
+    tabs: scopedTabs,
     workspaces,
     peerWorkspaces: [{
       peerId: host.peer_id,
