@@ -64,6 +64,10 @@
   border-radius: 50%;
 }
 
+.ct-machine-constellation[data-single] > i {
+  width: 9px;
+}
+
 .ct-machine-constellation > [data-offline] {
   filter: saturate(.2);
 }
