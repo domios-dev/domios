@@ -6,7 +6,6 @@ import type { LiveDictation } from "./voice/useLiveDictation";
 import { DictationSetupPrompt } from "./voice/DictationSetupPrompt";
 import { DictationStatus } from "./voice/DictationStatus";
 import { isCancelGesture, isDragUpGesture } from "./voice/voiceFsm";
-import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { SendIcon } from "../Icons";
 import { COMPOSER_BUTTON_BASE } from "./composerButton";
 
@@ -230,31 +229,9 @@ export function ComposerActionButton({
     if (!gesture.locked && gesture.started) void dictation.cancel();
   }
 
-  const showLiveTranscriptBubble = Boolean(
-    dictationActive && !dictationFinishing && !effectiveHold && !voiceActive && !dictation?.setup && !dictation?.error && onOpenLiveTranscript,
-  );
-
   return (
     <div className="ct-composer-action-shell ct-composer-control relative shrink-0">
       {effectiveHold && <VoiceLockPill liveTranscript={!voiceActive && Boolean(onOpenLiveTranscript)} />}
-      {showLiveTranscriptBubble && onOpenLiveTranscript && (
-        <AnchoredPopover open anchor={buttonRef} placement="top-end" gap={10}>
-          <button
-            type="button"
-            data-testid="try-live-transcript-pill"
-            onPointerDown={(e) => e.preventDefault()}
-            onClick={() => {
-              clearDictationGesture();
-              onOpenLiveTranscript();
-            }}
-            className="ct-live-try-pill"
-          >
-            <AudioLines size={14} strokeWidth={2.2} className="ct-live-try-icon" aria-hidden="true" />
-            <span>Try Live Transcript</span>
-            <ChevronUp size={13} className="ct-live-try-chevron" aria-hidden="true" />
-          </button>
-        </AnchoredPopover>
-      )}
       {!effectiveHold && !voiceActive && dictation?.setup && (
         <DictationSetupPrompt reason={dictation.setup} onDismiss={dictation.dismissSetup} anchor={buttonRef} />
       )}

@@ -928,44 +928,7 @@
   outline-offset: 2px;
 }
 
-/* Mic entry pills. */
-.ct-live-try-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 32px;
-  padding: 0 12px 0 10px;
-  color: var(--ct-fg);
-  font: inherit;
-  font-size: var(--ct-font-size-meta);
-  font-weight: 600;
-  white-space: nowrap;
-  background-color: var(--ct-bg);
-  background-image: var(--ct-glass-sheen), linear-gradient(var(--ct-surface), var(--ct-surface));
-  border: 1px solid color-mix(in srgb, var(--ct-accent) 32%, transparent);
-  border-radius: 999px;
-  box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
-  cursor: pointer;
-  animation: ct-live-pop var(--ct-duration-normal) var(--ct-ease-out-back) both;
-  transition: border-color var(--ct-duration-fast) var(--ct-ease-decel), transform var(--ct-duration-fast) var(--ct-ease-decel);
-}
-
-.ct-live-try-pill:hover {
-  border-color: color-mix(in srgb, var(--ct-accent) 60%, transparent);
-}
-
-.ct-live-try-pill:active {
-  transform: scale(.97);
-}
-
-.ct-live-try-pill .ct-live-try-icon {
-  color: var(--ct-accent);
-}
-
-.ct-live-try-pill .ct-live-try-chevron {
-  color: var(--ct-muted-fg);
-}
-
+/* Mic entry lock pill. */
 .ct-voice-lock-pill.ct-voice-lock-pill--live {
   background-color: var(--ct-bg);
   background-image: var(--ct-glass-sheen), linear-gradient(var(--ct-surface), var(--ct-surface));
@@ -1099,7 +1062,6 @@
   .ct-live-orb,
   .ct-live-gate,
   .ct-live-selection,
-  .ct-live-try-pill,
   .ct-live-concierge-bar[data-activity="reviewing"] .ct-live-dot {
     animation: none;
   }

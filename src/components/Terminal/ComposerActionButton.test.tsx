@@ -317,16 +317,14 @@ test("space-hold arming and ignition pop classes apply on the round mic button",
   assert(popBtn.dataset.spacePop === "true", "ignition pop data attribute missing");
 });
 
-test("active dictation shows Try Live Transcript bubble and drag-up promotes to Live Transcript", async () => {
+test("active dictation hides Try Live Transcript bubble while drag-up promotes to Live Transcript", async () => {
   let opened = 0;
   const { root } = await renderButton(voiceHandle({ mainIsSend: false }), {
     dictation: dictationHandle({ phase: "listening", active: () => true }),
     onOpenLiveTranscript: () => { opened++; },
   });
-  const pill = document.querySelector('[data-testid="try-live-transcript-pill"]') as HTMLButtonElement | null;
-  assert(pill, "Try Live Transcript bubble missing while dictating");
-  await act(async () => { pill.click(); });
-  assertEq(opened, 1, "clicking Try Live Transcript bubble must invoke onOpenLiveTranscript");
+  const pill = document.querySelector('[data-testid="try-live-transcript-pill"]');
+  assert(!pill, "Try Live Transcript bubble must not render while dictating");
   await act(async () => { root.unmount(); });
 
   const { button, root: dragRoot } = await renderButton(voiceHandle({ mainIsSend: false }), {
@@ -338,7 +336,7 @@ test("active dictation shows Try Live Transcript bubble and drag-up promotes to 
     button.dispatchEvent(pointerEvent("pointermove", { clientX: 100, clientY: 30 }, 4150));
     button.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 30 }, 4250));
   });
-  assertEq(opened, 2, "dragging up on dictation mic must promote directly to Live Transcript");
+  assertEq(opened, 1, "dragging up on dictation mic must promote directly to Live Transcript");
   await act(async () => { dragRoot.unmount(); });
 });
 
