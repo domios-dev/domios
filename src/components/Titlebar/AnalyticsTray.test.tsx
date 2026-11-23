@@ -1,22 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PluginSnapshotStoreState } from "../../lib/pluginSnapshotStore";
-
-const store: { plugins: Array<{ id: string; capabilities?: { view?: boolean } }> } = { plugins: [] };
-
-const ensurePluginSnapshot = vi.fn(
-  (_options?: { force?: boolean; background?: boolean }) => Promise.resolve(),
-);
-
-vi.mock("../../lib/pluginSnapshotStore", () => ({
-  usePluginSnapshotStore: (): Partial<PluginSnapshotStoreState> => ({
-    snapshot: { plugins: store.plugins, channels: [], diff: [] },
-  }),
-  ensurePluginSnapshot: (options?: { force?: boolean; background?: boolean }) =>
-    ensurePluginSnapshot(options),
-}));
-
 import { AnalyticsTray } from "./AnalyticsTray";
 import { ANALYTICS_PLUGIN_ID, isAnalyticsAvailable } from "./analyticsTrayLogic";
 
@@ -38,7 +22,6 @@ afterEach(async () => {
   host?.remove();
   root = null;
   host = null;
-  store.plugins = [];
 });
 
 describe("analytics titlebar entry", () => {
@@ -49,13 +32,7 @@ describe("analytics titlebar entry", () => {
     expect(isAnalyticsAvailable([{ id: "git", capabilities: { view: true } }])).toBe(false);
   });
 
-  it("renders nothing when the plugin is absent, so it never opens an empty view", async () => {
-    const { host } = await render(false);
-    expect(host.querySelector('[data-testid="titlebar-analytics"]')).toBeNull();
-  });
-
   it("is a named keyboard button that marks the open view and toggles it", async () => {
-    store.plugins = [{ id: ANALYTICS_PLUGIN_ID, capabilities: { view: true } }];
     const { host, onToggle } = await render(true);
     const button = host.querySelector<HTMLButtonElement>('[data-testid="titlebar-analytics"]');
     expect(button?.tagName).toBe("BUTTON");
@@ -68,7 +45,6 @@ describe("analytics titlebar entry", () => {
   });
 
   it("drops the open marker when the view is closed", async () => {
-    store.plugins = [{ id: ANALYTICS_PLUGIN_ID, capabilities: { view: true } }];
     const { host } = await render(false);
     expect(host.querySelector('[data-testid="titlebar-analytics"]')?.hasAttribute("aria-current")).toBe(false);
   });

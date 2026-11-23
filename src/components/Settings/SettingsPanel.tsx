@@ -3,6 +3,7 @@ import { useSettingsNavigation, type SettingsRoute as Route } from "../../hooks/
 import { nativeBridge } from "../../lib/nativeBridge";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "../../lib/bridge";
+import { pushBackDismissal } from "../../lib/backDismissal";
 import type { AppConfig } from "../../lib/types";
 import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { HYDRATED_GENERATION } from "../../store/multiplexer/initialState";
@@ -42,7 +43,6 @@ import {
   SECTION_ICONS,
   SETTINGS_SECTIONS,
   sectionTitle,
-  resolveSettingsLink,
   settingsRouteForHelpTarget,
   type SettingsLinkId,
 } from "./sections";
@@ -53,6 +53,7 @@ interface SettingsPanelProps {
   onClose: () => void;
   initialSection?: SettingsLinkId;
   guideRequest?: GuideRequest;
+  restoreNavigation?: boolean;
 }
 
 const selectWorkspaces = (state: ExtendedState) => state.workspaces;
@@ -60,7 +61,6 @@ const selectTabs = (state: ExtendedState) => state.tabs;
 const selectTeams = (state: ExtendedState) => state.teams;
 const selectNavigationReady = (state: ExtendedState) => state.generation > HYDRATED_GENERATION;
 
-/** The settings panel stays mounted while hidden; only its Jobs page follows workspace and tab changes. */
 function MachineJobsView({ onClose }: { onClose: () => void }) {
   const workspaces = useMuxSelector(selectWorkspaces);
   const tabs = useMuxSelector(selectTabs);
@@ -72,20 +72,29 @@ function MachineJobsView({ onClose }: { onClose: () => void }) {
 /** Names the settings dialog from its live header — one panel is mounted at a time. */
 const SETTINGS_TITLE_ID = "codeterm-settings-title";
 
+function routeTitle(route: Route): string {
+  if (route.kind === "section") return sectionTitle(route.id);
+  return route.kind === "agent-provider" ? "Harness" : "Settings";
+}
+
 export function SettingsPanel({
   config,
   onUpdateConfig,
   onClose,
   initialSection,
   guideRequest,
+  restoreNavigation,
 }: SettingsPanelProps) {
-  const [stack, setStack] = useSettingsNavigation(initialSection, guideRequest);
+  const [stack, setStack] = useSettingsNavigation(initialSection, guideRequest, restoreNavigation);
   const top = stack[stack.length - 1];
-  const push = useCallback((r: Route) => setStack((s) => [...s, r]), []);
+  const parent = stack[stack.length - 2];
+  const push = useCallback((r: Route) => setStack((s) => [...s, r]), [setStack]);
   const pop = useCallback(
     () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)),
-    [],
+    [setStack],
   );
+  const back = parent ? pop : onClose;
+  useEffect(() => pushBackDismissal(back), [back, top]);
 
   // Settings is a full-view modal — Esc closes it (matching the close button).
   useEffect(() => {
@@ -161,19 +170,8 @@ export function SettingsPanel({
     if (next.general_agent.enabled !== false) await invoke("restart_general_agent");
   }, [onUpdateConfig]);
 
-  const headerTitle =
-    top.kind === "root"
-      ? "Settings"
-      : top.kind === "section"
-      ? sectionTitle(top.id)
-      : "Harness";
-
-  // to the root grid is handled by closing — the titlebar menu is the entry point.
+  const headerTitle = routeTitle(top);
   const jobsPage = top.kind === "section" && top.id === "jobs";
-  // Jobs owns its header; opened straight onto it, Back leaves Settings instead of landing on the grid.
-  const leaveJobs = stack.length <= 2 && resolveSettingsLink(initialSection)?.section === "jobs" ? onClose : pop;
-  const parent = stack.length >= 2 ? stack[stack.length - 2] : undefined;
-  const parentSection = parent?.kind === "section" ? parent : undefined;
 
   return (
     <div
@@ -189,9 +187,9 @@ export function SettingsPanel({
           <h2 id={SETTINGS_TITLE_ID} className="sr-only" data-testid="settings-header-title">{headerTitle}</h2>
         ) : (
           <div className="ct-jobs-header ct-settings-head">
-            {parentSection
-              ? <BackPill label={sectionTitle(parentSection.id)} onBack={pop} testId="settings-back" />
-              : <BackPill ariaLabel="Close settings" onBack={onClose} testId="settings-close" />}
+            {parent
+              ? <BackPill label={routeTitle(parent)} onBack={back} testId="settings-back" />
+              : <BackPill ariaLabel="Close settings" onBack={back} testId="settings-close" />}
             <h2 id={SETTINGS_TITLE_ID} className="ct-settings-head__title" data-testid="settings-header-title">
               {headerTitle}
             </h2>
@@ -464,7 +462,7 @@ export function SettingsPanel({
 
             {top.kind === "section" && top.id === "jobs" && (
               <div className="-mx-5 -my-5 h-[calc(100%+2.5rem)] min-h-[420px]" data-settings-page="jobs">
-                <MachineJobsView onClose={leaveJobs} />
+                <MachineJobsView onClose={back} />
               </div>
             )}
 

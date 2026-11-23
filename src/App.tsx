@@ -40,7 +40,8 @@ import type { MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { PluginConsentDialog } from "./components/Extensions/PluginConsentDialog";
 import { PluginView } from "./components/Extensions/PluginView";
 import { ANALYTICS_PLUGIN_ID, isAnalyticsAvailable } from "./components/Titlebar/analyticsTrayLogic";
-import { usePluginSnapshotStore } from "./lib/pluginSnapshotStore";
+import { ensurePluginSnapshot, usePluginSnapshotStore } from "./lib/pluginSnapshotStore";
+import { useBackDismissal } from "./lib/backDismissal";
 import { pluginViewBelongsToActiveTab, pluginViewScope, type PluginViewScope } from "./components/Extensions/pluginViewScope";
 import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
@@ -171,60 +172,52 @@ function AppInner() {
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
   const { providers: firstRunProviders, loading: firstRunProvidersLoading, error: firstRunProvidersError } = useAgentProviders();
-  const { navigationReady, mainView: savedMainView, setMainView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId, neighborChat, setNeighborChat } = useAppNavigation(state.generation, state.focused_tab_id, state.workspaces);
+  const { navigationReady, mainView: savedMainView, setMainView, openSettingsView, closeSettingsView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId, neighborChat, setNeighborChat } = useAppNavigation(state.generation, state.focused_tab_id, state.workspaces);
   const mainView = locked ? "workspace" : savedMainView;
   const automationOpener = useRef<HTMLElement | null>(null);
   const [jobsTarget, setJobsTarget] = useState<(JobsTarget & { request: number; returnTo?: ReturnTo }) | null>(null);
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
-  const [settingsSection, setSettingsSection] = useState<SettingsLinkId | undefined>(undefined);
+  const [settingsVisit, setSettingsVisit] = useState<{ id: number; section?: SettingsLinkId; guide?: GuideRequest } | null>(null);
   const [firstRunSettings, setFirstRunSettings] = useState(false);
-  const [requestedGuide, setRequestedGuide] = useState<GuideRequest | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
-  const [mountedSettings, setMountedSettings] = useState(false);
   const [mountedMemory, setMountedMemory] = useState(false);
   const [mountedMesh, setMountedMesh] = useState(false);
   const [mountedNeighbors, setMountedNeighbors] = useState(false);
   const [mountedExtensions, setMountedExtensions] = useState(false);
-  const [mountedAnalytics, setMountedAnalytics] = useState(false);
   useEffect(() => {
-    if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
     if (mainView === "mesh") setMountedMesh(true);
     if (mainView === "neighbors") setMountedNeighbors(true);
     if (mainView === "extensions") setMountedExtensions(true);
-    if (mainView === "analytics") setMountedAnalytics(true);
   }, [mainView]);
   const analyticsButtonRef = useRef<HTMLButtonElement>(null);
   const { snapshot: pluginSnapshot, hasLoaded: pluginSnapshotLoaded } = usePluginSnapshotStore();
   const analyticsAvailable = isAnalyticsAvailable(pluginSnapshot.plugins);
   useEffect(() => {
+    const controller = new AbortController();
+    void ensurePluginSnapshot({ background: true, signal: controller.signal }).catch(() => {});
+    return () => controller.abort();
+  }, []);
+  useEffect(() => {
     if (pluginSnapshotLoaded && !analyticsAvailable) {
       setMainView((cur) => (cur === "analytics" ? "workspace" : cur));
     }
-  }, [analyticsAvailable, pluginSnapshotLoaded]);
+  }, [analyticsAvailable, pluginSnapshotLoaded, setMainView]);
   const closeAnalytics = useCallback(() => {
     setMainView((cur) => (cur === "analytics" ? "workspace" : cur));
     analyticsButtonRef.current?.focus();
-  }, []);
-  const setSettingsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
-    setMainView((cur) => {
-      const wasOpen = cur === "settings";
-      const open = typeof next === "function" ? next(wasOpen) : next;
-      return open ? "settings" : "workspace";
-    });
-  }, []);
-  const openAgentsSettings = useCallback(() => {
-    setSettingsSection("agents");
-    setSettingsOpen(true);
-  }, [setSettingsOpen]);
-  const openGuide = (sectionId: string) => {
-    setRequestedGuide(guideRequest(sectionId));
-    setSettingsSection("guide");
-    setSettingsOpen(true);
-  };
+  }, [setMainView]);
+  useBackDismissal(mainView === "analytics" && analyticsAvailable, closeAnalytics);
+  const openSettings = useCallback((section?: SettingsLinkId, guide?: GuideRequest) => {
+    if (lockedRef.current) return;
+    setSettingsVisit((visit) => ({ id: (visit?.id ?? 0) + 1, section, guide }));
+    openSettingsView();
+  }, [openSettingsView]);
+  const openAgentsSettings = useCallback(() => openSettings("agents"), [openSettings]);
+  const openGuide = (sectionId: string) => openSettings("guide", guideRequest(sectionId));
   const setMemoryOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
       const wasOpen = cur === "memory";
@@ -415,8 +408,7 @@ function AppInner() {
       } else if (panel === "extensions") {
         setExtensionsOpen(true);
       } else if (panel?.startsWith("settings:") && isSettingsLinkId(panel.slice("settings:".length))) {
-        setSettingsSection(panel.slice("settings:".length) as SettingsLinkId);
-        setSettingsOpen(true);
+        openSettings(panel.slice("settings:".length) as SettingsLinkId);
       } else if (panel === "mesh") {
         setMeshInventoryRequest(request => request + 1);
         setMeshOpen(true);
@@ -435,7 +427,7 @@ function AppInner() {
     };
     window.addEventListener("codeterm:open-panel", onOpenPanel);
     return () => window.removeEventListener("codeterm:open-panel", onOpenPanel);
-  }, [closeSidebarOnMobile, setExtensionsOpen, setMeshOpen]);
+  }, [closeSidebarOnMobile, openSettings, setExtensionsOpen, setMainView, setMeshOpen, setNeighborChat]);
 
   // dismiss any covering Extensions/glance overlay and focus the new tab.
   useEffect(() => {
@@ -467,7 +459,6 @@ function AppInner() {
     navigationStore.clear();
   }, []);
 
-  const closeSettings = useCallback(() => { setSettingsSection(undefined); setSettingsOpen(false); }, [setSettingsOpen]);
   const closeMemory = useCallback(() => { setMemoryOpen(false); setMemoryInitial(undefined); }, [setMemoryOpen]);
   const closeMesh = useCallback(() => setMeshOpen(false), [setMeshOpen]);
   const closeCanvasFocus = useCallback(() => canvasFocusStore.close(), []);
@@ -503,9 +494,13 @@ function AppInner() {
     }
   }, [activePluginViewScope, closePluginView, pluginViewId, pluginViewOwner]);
   const toggleAnalytics = useCallback(() => {
+    if (mainView === "analytics") {
+      closeAnalytics();
+      return;
+    }
     closePluginView();
-    setMainView((cur) => (cur === "analytics" ? "workspace" : "analytics"));
-  }, [closePluginView]);
+    setMainView("analytics");
+  }, [closeAnalytics, closePluginView, mainView, setMainView]);
   const prewarmBackendTab = useCallback(async (tabId: string) => {
     const current = stateRef.current;
     const tab = current.tabs[tabId];
@@ -632,11 +627,6 @@ function AppInner() {
     const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
     await createWorkspace(basename, folder);
   }, [pickFolder, createWorkspace]);
-  const openSettings = useCallback((section?: SettingsLinkId) => {
-    if (lockedRef.current) return;
-    setSettingsSection(section);
-    setSettingsOpen(true);
-  }, [setSettingsOpen]);
   const showRevokedSignIn = useCallback(() => openSettings("account"), [openSettings]);
   useSessionRevocationScreen(showRevokedSignIn);
   const showBell = config.notifications?.show_bell !== false;
@@ -785,10 +775,10 @@ function AppInner() {
         showSidebarToggle={phoneViewport || !sidebarOpen || sidebarRailCollapsed}
         onNewTab={handleNewTab}
         theme={stableTheme}
-        onOpenSettings={(section) => { if (locked) return; setSettingsSection(section); setSettingsOpen(true); }}
+        onOpenSettings={openSettings}
         onOpenExtensions={() => { setExtensionsOpen(true); }}
         analyticsOpen={mainView === "analytics"}
-        onToggleAnalytics={toggleAnalytics}
+        onToggleAnalytics={analyticsAvailable ? toggleAnalytics : undefined}
         analyticsButtonRef={analyticsButtonRef}
         notifications={state.notifications}
         notificationsLoaded={state.notificationsLoaded ?? false}
@@ -858,22 +848,17 @@ function AppInner() {
               <Loader label="Restoring workspace" deferred={false} />
             </DeferredPresence>
           ) : <>
-          {/* All panels stay mounted — switching mainView only changes visibility.
-              Unmounting the workspace would tear down xterm + re-run get_tab_text
-              on return, blocking the main thread with MB of escape codes. */}
-          {mountedSettings && (
-            <div
-              className="absolute inset-0"
-              style={viewLayerStyle(mainView === "settings")}
-              aria-hidden={mainView !== "settings"}
-              inert={mainView !== "settings" || undefined}
-            >
+          {/* Keep the workspace mounted so returning does not replay xterm history. */}
+          {mainView === "settings" && (
+            <div className="absolute inset-0" style={viewLayerStyle(true)}>
               <SettingsPanel
+                key={settingsVisit?.id}
                 config={config}
                 onUpdateConfig={updateConfig}
-                onClose={closeSettings}
-                initialSection={settingsSection}
-                guideRequest={requestedGuide}
+                onClose={closeSettingsView}
+                initialSection={settingsVisit?.section}
+                guideRequest={settingsVisit?.guide}
+                restoreNavigation={settingsVisit === null}
               />
             </div>
           )}
@@ -940,19 +925,16 @@ function AppInner() {
               />
             </div>
           )}
-          {mountedAnalytics && analyticsAvailable && (
+          {mainView === "analytics" && analyticsAvailable && (
             <div
               data-testid="analytics-view"
               className="absolute inset-0 flex flex-col"
-              style={viewLayerStyle(mainView === "analytics")}
-              aria-hidden={mainView !== "analytics"}
-              inert={mainView !== "analytics" || undefined}
+              style={viewLayerStyle(true)}
             >
               <div className="relative min-h-0 flex-1">
                 <PluginView
                   pluginId={ANALYTICS_PLUGIN_ID}
                   api={stableApiConfig}
-                  active={mainView === "analytics"}
                   focusOnActive
                   kpiNotices
                   onClose={closeAnalytics}
