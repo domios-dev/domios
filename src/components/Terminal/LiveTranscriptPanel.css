@@ -187,6 +187,58 @@
   line-height: 1;
 }
 
+.ct-live-concierge-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  font-size: var(--ct-font-size-meta);
+  background: var(--ct-glass-sheen), var(--ct-live-soft);
+  border-bottom: 1px solid var(--ct-live-hairline);
+}
+
+.ct-live-panel .ct-live-concierge-identity {
+  flex: 1;
+  justify-content: flex-start;
+  min-width: 0;
+  padding-inline: 5px;
+  font-weight: 500;
+}
+
+.ct-live-concierge-identity > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ct-live-concierge-activity {
+  flex: none;
+  color: var(--ct-muted-fg);
+}
+
+.ct-live-concierge-bar[data-activity="idle"] .ct-live-dot {
+  background: var(--ct-green);
+}
+
+.ct-live-concierge-bar[data-activity="reviewing"] .ct-live-dot {
+  background: var(--ct-accent);
+  animation: ct-live-review 1.2s ease-in-out infinite alternate;
+}
+
+.ct-live-concierge-bar[data-activity="stuck"] :is(.ct-live-dot, .ct-live-concierge-activity) {
+  color: var(--ct-yellow);
+}
+
+.ct-live-concierge-bar[data-activity="stuck"] .ct-live-dot {
+  background: currentColor;
+}
+
+@keyframes ct-live-review {
+  from { opacity: .45; }
+  to { opacity: 1; }
+}
+
 /* The live dot: muted at rest, green with a slow breath while the microphone is open. */
 .ct-live-dot {
   position: relative;
@@ -409,6 +461,10 @@
   margin-inline-start: auto;
 }
 
+.ct-live-route-error {
+  border-color: color-mix(in srgb, var(--ct-red) 42%, transparent);
+}
+
 .ct-live-route > div {
   display: flex;
   align-items: baseline;
@@ -437,10 +493,6 @@
   font-size: var(--ct-font-size-meta);
 }
 
-.ct-live-router {
-  margin-top: 8px;
-}
-
 .ct-live-toggle-row {
   display: flex;
   align-items: center;
@@ -450,6 +502,13 @@
   padding-top: 10px;
   border-top: 1px solid var(--ct-live-hairline);
   font-size: var(--ct-font-size-meta);
+}
+
+.ct-live-toggle-row small {
+  display: block;
+  margin-top: 3px;
+  color: var(--ct-muted-fg);
+  font-size: inherit;
 }
 
 .ct-live-settings-actions {
@@ -503,6 +562,25 @@
 
 .ct-live-gate .ct-live-primary {
   min-width: 180px;
+}
+
+.ct-live-gate > .ct-live-ghost {
+  margin-top: 8px;
+}
+
+.ct-live-manual {
+  align-self: stretch;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ct-live-hairline);
+}
+
+.ct-live-manual .ct-live-field {
+  text-align: start;
+}
+
+.ct-live-manual > button {
+  margin-top: 12px;
 }
 
 /* Thoughts inspector. */
@@ -813,7 +891,8 @@
   .ct-live-orb,
   .ct-live-gate,
   .ct-live-selection,
-  .ct-live-try-pill {
+  .ct-live-try-pill,
+  .ct-live-concierge-bar[data-activity="reviewing"] .ct-live-dot {
     animation: none;
   }
 

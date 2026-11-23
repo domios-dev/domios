@@ -293,6 +293,7 @@ body {
 }
 
 .ct-voice-lock-pill {
+  transform: translate(-50%, 0);
   animation: ct-voice-lock-pop var(--ct-duration-normal) var(--ct-ease-squash-jump) both;
 }
 @keyframes ct-voice-lock-pop {
@@ -354,7 +355,6 @@ body {
 
   .ct-voice-lock-pill {
     opacity: 1;
-    transform: translate(-50%, 0);
   }
 
   .ct-voice-control,

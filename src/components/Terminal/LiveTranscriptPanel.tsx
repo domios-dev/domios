@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AudioLines, ChevronDown, ChevronUp, ChevronsDown, Download, GripVertical, Mic, Minus, Pause, RefreshCw, Settings2, X } from "lucide-react";
 import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
@@ -10,7 +10,7 @@ import { useMuxSelector, useMuxStateStore } from "../../store/multiplexer/select
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { isSidebarTabVisible } from "../Sidebar/workspaceTabs";
 import { BusyState } from "../shared/BusyState";
-import { createLiveTranscriptApi, directTranscriptAvailable, TRANSCRIPT_PAGE_SIZE, type LiveTranscriptApi, type RoutedRecord, type TranscriptRow, type Trigger } from "../../lib/transport/liveTranscript";
+import { createLiveTranscriptApi, directTranscriptAvailable, TRANSCRIPT_PAGE_SIZE, type LiveTranscriptApi, type RoutedRecord, type RouterActivity, type TranscriptOverview, type TranscriptReadiness, type TranscriptRow, type Trigger } from "../../lib/transport/liveTranscript";
 import { webRequestContext } from "../../lib/webApi";
 import { useLiveTranscriptCapture } from "./voice/useLiveTranscriptCapture";
 import { LiveTranscriptThoughts } from "./LiveTranscriptThoughts";
@@ -43,23 +43,29 @@ export function LiveTranscriptHost({ children }: { children: ReactNode }) {
   const store = useMuxStateStore();
   const [session, setSession] = useState<{ ownerId: string; identity: number }>();
   const [locked, setLocked] = useState(false);
-  const [openCount, setOpenCount] = useState(0);
-  const [autoStartCount, setAutoStartCount] = useState(0);
+  const [{ openCount, autoStartCount }, setOpening] = useState({ openCount: 0, autoStartCount: 0 });
   const tab = useMuxSelector(state => session ? state.tabs[session.ownerId] : undefined);
   const identity = useMuxSelector(webRequestContext);
   const active = tab && usableTab(tab) && session?.identity === identity && directTranscriptAvailable() ? session : undefined;
-  const context = useMemo(() => ({
-    ownerId: active?.ownerId ?? null,
-    locked: Boolean(active && locked),
-    open(tabId: string, options?: LiveTranscriptOpenOptions) {
-      if (!directTranscriptAvailable()) return;
+  const context = useMemo(() => {
+    function canOpen(tabId: string) {
       const target = store.getState().tabs[tabId];
-      if (!target || !usableTab(target)) return;
-      if (!active || active.ownerId !== tabId && !locked) setSession({ ownerId: tabId, identity: webRequestContext() });
-      setOpenCount(count => count + 1);
-      if (options?.autostart) setAutoStartCount(count => count + 1);
-    },
-  }), [active, locked, store]);
+      return Boolean(target && usableTab(target) && directTranscriptAvailable());
+    }
+    return {
+      ownerId: active?.ownerId ?? null,
+      locked: Boolean(active && locked),
+      canOpen,
+      open(tabId: string, options?: LiveTranscriptOpenOptions) {
+        if (!canOpen(tabId)) return;
+        if (!active || active.ownerId !== tabId && !locked) setSession({ ownerId: tabId, identity: webRequestContext() });
+        setOpening(({ openCount }) => {
+          const next = openCount + 1;
+          return { openCount: next, autoStartCount: options?.autostart ? next : 0 };
+        });
+      },
+    };
+  }, [active, locked, store]);
   return <LiveTranscriptContext.Provider value={context}>
     {children}
     {active && tab && <LiveTranscriptSession key={`${active.identity}:${active.ownerId}`} tab={tab}
@@ -104,8 +110,7 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
   const [thoughts, setThoughts] = useState<{ epoch: string; rationale?: string }>();
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const [feedback, setFeedback] = useState<string>();
-  const lastAutoStart = useRef(0);
-  const pendingAutoStart = useRef(false);
+  const [pendingAutoStart, setPendingAutoStart] = useState(false);
   const attachments = useLiveTranscriptAttachments(owner.id, setFeedback);
   const view = useLiveTranscriptPanel({ api, show: !collapsed, log, captureRevision: capture.revision, capturePhase: capture.phase });
   const ownerName = displayTitleForTab(owner);
@@ -119,15 +124,21 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
   const chosen = page?.rows.filter(row => row.content.kind === "speech" && selected.has(row.seq)) ?? [];
   const selectedText = chosen.flatMap(row => row.content.kind === "speech" ? [row.content.text] : []).join("\n\n");
   const ownEpoch = status?.binding.target.kind === "attached" ? status.binding.target.epochId : undefined;
-  const scoutUnavailable = status?.scout === "unavailable" || view.readiness?.scout === "unavailable";
+  const scoutUnavailable = (view.readiness?.scout ?? status?.scout) === "unavailable";
+  const isConfigured = view.readiness?.configured ?? status?.configured ?? true;
+  const defaultTrigger = view.readiness?.defaultTrigger ?? (scoutUnavailable ? "direct_batch" : "scout_then_concierge");
+  const defaultMicTap = status?.defaultMicTap ?? view.readiness?.defaultMicTap ?? false;
+  const needsSetup = phase === "setup" || view.readiness?.asr.state === "unavailable" ||
+    (view.readiness?.concierge ?? status?.concierge) === "unavailable";
   const conciergeAttached = Boolean(status && status.binding.target.kind !== "detached");
-  const conciergeReady = Boolean(view.loaded && conciergeAttached && status?.concierge === "ready");
-  const needsConcierge = Boolean(view.loaded && !conciergeReady);
-  const useGeneral = capture.phase === "setup" || view.readiness?.asr.state === "unavailable" ||
-    view.readiness?.concierge === "unavailable" || scoutUnavailable;
+  const conciergeReady = Boolean(view.loaded && isConfigured && !needsSetup && conciergeAttached && status?.concierge === "ready");
+  const needsConcierge = Boolean(view.loaded && !conciergeReady && (status || needsSetup || !isConfigured));
   const routeRange = contiguousSpeechRange(chosen);
-  const needsSetup = capture.phase === "setup" || view.readiness?.asr.state === "unavailable" ||
-    view.readiness?.concierge === "unavailable";
+
+  function toggleSettings() {
+    setSettings(value => !value);
+    if (!settings) view.refreshReadiness();
+  }
 
   function setUpWithGeneral() {
     const state = store.getState();
@@ -141,17 +152,25 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
   }
 
   useEffect(() => {
-    if (autoStartCount > 0 && autoStartCount !== lastAutoStart.current) {
-      lastAutoStart.current = autoStartCount;
-      pendingAutoStart.current = true;
-    }
-    if (!pendingAutoStart.current || !view.loaded) return;
-    if (!conciergeReady) return;
-    pendingAutoStart.current = false;
+    if (autoStartCount > 0) setPendingAutoStart(true);
+  }, [autoStartCount]);
+
+  useEffect(() => {
+    if (!pendingAutoStart || !conciergeReady) return;
+    setPendingAutoStart(false);
     if (capture.phase === "idle" || capture.phase === "paused") {
       void capture.start(canResume);
     }
-  }, [autoStartCount, view.loaded, conciergeReady, capture.phase, capture.start, canResume]);
+  }, [pendingAutoStart, conciergeReady, capture.phase, capture.start, canResume]);
+
+  const lastAutoAttach = useRef(0);
+  const autoAttach = view.loaded && !needsSetup && isConfigured && defaultMicTap && status?.binding.target.kind === "detached";
+  const { busy, mutate } = view;
+  useEffect(() => {
+    if (!autoAttach || busy || !autoStartCount || lastAutoAttach.current === autoStartCount || !pendingAutoStart) return;
+    lastAutoAttach.current = autoStartCount;
+    void mutate(signal => api.attach({ trigger: defaultTrigger }, signal));
+  }, [api, autoAttach, autoStartCount, busy, defaultTrigger, mutate, pendingAutoStart]);
 
   function switchView(toLog: boolean) {
     setLog(toLog);
@@ -209,21 +228,29 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
       </button>
       <Segmented className="ct-live-switch" aria-label="Transcript view" height={26} value={log ? "log" : "text"}
         options={VIEW_OPTIONS} onChange={value => switchView(value === "log")} />
-      <button type="button" className="ct-live-icon" aria-label="Transcript settings" aria-expanded={settings} onClick={() => { setSettings(value => !value); void view.refreshReadiness(); }}>
+      <button type="button" className="ct-live-icon" aria-label="Transcript settings" aria-expanded={settings} onClick={toggleSettings}>
         <Settings2 size={15} aria-hidden />
       </button>
       <button type="button" className="ct-live-icon" aria-label="Collapse Live Transcript" onClick={() => { setThoughts(undefined); setCollapsedAt(openCount); }}><Minus size={15} aria-hidden /></button>
       <button type="button" className="ct-live-icon" aria-label="Close Live Transcript" disabled={active} onClick={onClose}><X size={15} aria-hidden /></button>
     </header>
-    {(settings || needsConcierge || useGeneral || scoutUnavailable || capture.error || view.error) && <div className="ct-live-controls">
-      {needsConcierge && !settings && <ConciergeSetupGate view={view} api={api} needsSetup={needsSetup}
-        onSetup={setUpWithGeneral} onConnected={() => { pendingAutoStart.current = true; setFeedback(undefined); }} />}
-      {settings && <RoutingSettings owner={owner.id} view={view} api={api} autoResume={autoResume}
-        onAutoResume={onAutoResume} scoutUnavailable={scoutUnavailable} />}
-      {useGeneral && !needsConcierge && <div className="ct-live-callout">
-        <span>Live Transcript needs a little setup.</span>
-        <button type="button" className="ct-live-ghost" disabled={view.busy} onClick={setUpWithGeneral}>Set up with General</button>
+    {conciergeAttached && status && <ConciergeStatusBar status={status} settings={settings} onSettings={toggleSettings}
+      thoughtsOpen={Boolean(log && thoughts?.epoch === ownEpoch && ownEpoch)}
+      onThoughts={ownEpoch ? () => {
+        switchView(true);
+        if (!log || thoughts?.epoch !== ownEpoch) setThoughts({ epoch: ownEpoch });
+      } : undefined} />}
+    {(settings || needsConcierge || scoutUnavailable || status?.lastRouteError || capture.error || view.error) && <div className="ct-live-controls">
+      {status?.lastRouteError && <div className="ct-live-callout ct-live-route-error">
+        <span role="alert">{status.lastRouteError}</span>
+        <button type="button" className="ct-live-ghost" onClick={() => { setSettings(true); view.refreshReadiness(); }}>Settings</button>
       </div>}
+      {needsConcierge && !settings && <ConciergeSetupGate view={view} api={api} needsSetup={needsSetup}
+        isConfigured={isConfigured} defaultTrigger={defaultTrigger} scoutUnavailable={scoutUnavailable}
+        onSetup={setUpWithGeneral} onConnected={() => { setPendingAutoStart(true); setFeedback(undefined); }} />}
+      {settings && <RoutingSettings owner={owner.id} view={view} api={api} autoResume={autoResume}
+        onAutoResume={onAutoResume} scoutUnavailable={scoutUnavailable} defaultTrigger={defaultTrigger}
+        defaultMicTap={defaultMicTap} isConfigured={isConfigured} needsSetup={needsSetup} />}
       {scoutUnavailable && !needsConcierge && <div className="ct-live-callout" role="status">
         Scout is unavailable. Choose Wake word, Direct batch, or Manual to route speech.
         {!settings && <button type="button" onClick={() => setSettings(true)}>Choose routing mode</button>}
@@ -293,7 +320,7 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
     <footer className="ct-live-footer">
       <span role="status" className="ct-live-status"><span className="ct-live-dot" data-live={active} />
         {feedback ?? (needsConcierge && !active ? "Connect a Concierge to start" : captureLabel(phase))}</span>
-      <button type="button" className="ct-live-icon" aria-label="Refresh transcript" title="Refresh transcript" onClick={() => { void view.refresh(); void view.refreshReadiness(); }}>
+      <button type="button" className="ct-live-icon" aria-label="Refresh transcript" title="Refresh transcript" onClick={view.refreshReadiness}>
         <RefreshCw size={13} aria-hidden />
       </button>
       {active ? <button type="button" className="ct-live-cta" data-variant="pause" disabled={phase === "pausing"} onClick={() => void capture.pause()}>
@@ -368,54 +395,173 @@ function LogEpochPicker({ current, records, open, onOpen }: {
   </>;
 }
 
-/** One Live Mode: either everything is installed and one button attaches the default Concierge and starts,
- *  or General sets it up. Routing choices live only behind the settings gear. */
-function ConciergeSetupGate({ view, api, needsSetup, onSetup, onConnected }: {
+function conciergeSummary(router: TranscriptReadiness["router"], trigger: Trigger) {
+  const identity = [router?.provider, router?.model].filter(Boolean).join(" / ");
+  return [identity, MODES[trigger]].filter(Boolean).join(" · ");
+}
+
+const ACTIVITY: Record<RouterActivity, string> = {
+  idle: "Watching",
+  reviewing: "Reviewing…",
+  stuck: "Stalled",
+  unavailable: "Unavailable",
+};
+
+function ConciergeStatusBar({ status, settings, onSettings, thoughtsOpen, onThoughts }: {
+  status: TranscriptOverview["status"];
+  settings: boolean;
+  onSettings: () => void;
+  thoughtsOpen: boolean;
+  onThoughts?: () => void;
+}) {
+  const target = status.binding.target;
+  const external = useMuxSelector(state => target.kind === "external" ? state.tabs[target.tabId] : undefined);
+  const identity = target.kind === "external"
+    ? `${external && isSidebarTabVisible(external) ? displayTitleForTab(external) : "External tab"} · ${MODES[status.trigger]}`
+    : `Concierge · ${conciergeSummary(status.router, status.trigger)}`;
+  const activity = status.router?.activity ?? (status.concierge === "unavailable" ? "unavailable" : "idle");
+  const visibleActivity = status.awaitingDelivery && activity === "idle" ? "reviewing" : activity;
+  return <div className="ct-live-concierge-bar" data-testid="live-transcript-concierge-bar" data-activity={visibleActivity}>
+    <button type="button" className="ct-live-concierge-identity" title={identity} aria-expanded={settings} onClick={onSettings}>
+      <span className="ct-live-dot" aria-hidden /><span>{identity}</span>
+    </button>
+    <span role="status" className="ct-live-concierge-activity">{ACTIVITY[visibleActivity]}</span>
+    {onThoughts && <button type="button" className="ct-live-ghost" aria-label="Open current Concierge thoughts"
+      aria-expanded={thoughtsOpen} onClick={onThoughts}>Thoughts</button>}
+  </div>;
+}
+
+function ConciergeSetupGate({ view, api, needsSetup, isConfigured, defaultTrigger, scoutUnavailable, onSetup, onConnected }: {
   view: ReturnType<typeof useLiveTranscriptPanel>;
   api: LiveTranscriptApi;
   needsSetup: boolean;
+  isConfigured: boolean;
+  defaultTrigger: Trigger;
+  scoutUnavailable: boolean;
   onSetup: () => void;
   onConnected: () => void;
 }) {
-  const status = view.overview?.status;
+  const [manual, setManual] = useState(false);
+  const [mode, setMode] = useState<Trigger>();
+  const trigger = mode ?? defaultTrigger;
+  const router = view.readiness?.router ?? view.overview?.status.router;
+  const [choice, setChoice] = useState<ConciergeChoice>({});
+  const selection = conciergeSelection(view.readiness, router, choice);
+  const needsGeneral = needsSetup || !isConfigured;
   return <section className="ct-live-gate" aria-label="Live Transcript setup" data-testid="live-transcript-concierge-gate">
     <span className="ct-live-gate-mark" aria-hidden><AudioLines size={20} /></span>
-    <h2 className="ct-live-gate-title">{needsSetup ? "Set up Live Transcript" : "Live Mode is ready"}</h2>
+    <h2 className="ct-live-gate-title">{needsGeneral ? "Set up Live Transcript" : "Concierge ready"}</h2>
     <p className="ct-live-gate-lead">
       {needsSetup
-        ? "General installs local speech recognition and a Concierge that sends what you say to the right tab. It asks before any download."
-        : "Speak naturally. The Concierge picks up requests and sends them to the right tab."}
+        ? "General helps install Parakeet speech recognition and connect Scout and Concierge."
+        : !isConfigured
+          ? "General sets up your lightweight Concierge (local LM Studio/Ollama Scout or cloud) so it filters chatter and routes only real requests."
+          : conciergeSummary(router, defaultTrigger)}
     </p>
-    {needsSetup
+    {needsGeneral
       ? <button type="button" className="ct-live-primary" disabled={view.busy} onClick={onSetup}>Set up with General</button>
-      : <button type="button" className="ct-live-primary" disabled={!status || view.busy} onClick={async () => {
-        if (await view.mutate(signal => api.attach({ trigger: "direct_batch" }, signal))) onConnected();
+      : <button type="button" className="ct-live-primary" disabled={view.busy} onClick={async () => {
+        if (await view.mutate(signal => api.attach({ trigger: defaultTrigger }, signal))) onConnected();
       }}><Mic size={14} aria-hidden />{view.busy ? "Starting…" : "Start Live Mode"}</button>}
+    {!needsSetup && !isConfigured && <>
+      <button type="button" className="ct-live-ghost" aria-expanded={manual} onClick={() => setManual(value => !value)}>
+        Or connect manually <ChevronDown size={13} aria-hidden />
+      </button>
+      {manual && <div className="ct-live-manual">
+        <div className="ct-live-fields">
+          <ConciergePickers selection={selection} onChange={setChoice} />
+          <RoutingModePicker trigger={trigger} scoutUnavailable={scoutUnavailable} onChange={setMode} />
+        </div>
+        <button type="button" className="ct-live-ghost" disabled={view.busy || !selection.provider || (scoutUnavailable && trigger === "scout_then_concierge")}
+          onClick={async () => {
+            if (await view.mutate(signal => api.attach({
+              trigger, provider: selection.provider, model: selection.model || undefined, configure: true,
+            }, signal))) onConnected();
+          }}>Connect Concierge &amp; Start</button>
+      </div>}
+    </>}
   </section>;
 }
 
-const GENERAL_SETUP_PROMPT = "Set up Live Transcript for me (clicking Set up with General is my consent to install what dictation needs). Keep it fast: skip `mem search`, `domios docs`, `--help`, `channel list/diff`, `plugin get`, `domios model-provider`, and `domios live-transcript status` (live-transcript status is owner-only); plugin verbs take no `--json`.\n" +
+const GENERAL_SETUP_PROMPT = "Set up Live Transcript for me (clicking Set up with General is my consent to install what dictation needs). Keep it fast: skip `mem search`, `domios docs`, `--help`, `channel list/diff`, `plugin get`, and `domios live-transcript status` (live-transcript status is owner-only); plugin verbs take no `--json`.\n" +
   "1. Speech: `domios plugin channel refresh codeterm-plugins`, then `domios plugin update transcriber` (if it is missing or local, `domios plugin install transcriber --channel codeterm-plugins`). Transcriber must be 0.5.1 or newer. Then `domios plugin transcriber dictation-status`; if it is not ready, run `domios plugin transcriber dictation-install parakeet-tdt-0.6b-v3-int8 --consent`, follow `domios plugin transcriber dictation-progress` until it completes, then `domios plugin transcriber dictation-select parakeet-tdt-0.6b-v3-int8` and `domios plugin transcriber dictation-test parakeet-tdt-0.6b-v3-int8`.\n" +
-  "2. Concierge: once dictation-test succeeds, built-in Live Mode is ready to connect directly from the Transcript panel. If I ask for a local Scout/Concierge model (LM Studio or Ollama), warn me of the model size and that Live Mode loads it automatically; if I prefer cloud (e.g. Groq), warn plainly that cloud routing costs more than a local model.\n" +
+  "2. Routing: after checking ASR with dictation-test, help me choose, configure, and verify a Scout (local LM Studio/Ollama or cloud) and a Concierge provider/model. Explain the model size for local routing and any costs for cloud routing. Save my chosen `live_transcript.trigger`, `live_transcript.provider`, and `live_transcript.model` if customized. Once ASR and the chosen routing are ready, run `domios config set live_transcript.configured true`.\n" +
   "3. Reply concisely in my language: confirm Live Mode is ready (or give the exact error if a step failed), then explain in a few sentences what Live Transcript is and how to use it: open Transcript and click Start Live Mode (or swipe up on the mic); it listens locally, ignores chatter and routes only actionable requests; a floating Orb shows its state; a local Scout model is private but needs disk space, a cloud one costs more. Never touch voice-note settings or existing drafts.";
 
-function RoutingSettings({ owner, view, api, autoResume, onAutoResume, scoutUnavailable }: {
+type ConciergeChoice = { provider?: string; model?: string };
+
+function conciergeSelection(readiness: TranscriptReadiness | undefined, router: TranscriptReadiness["router"], choice: ConciergeChoice) {
+  const providers = readiness?.router?.providers ?? [];
+  const provider = choice.provider ?? router?.provider ?? providers[0]?.id ?? "";
+  const catalog = providers.find(option => option.id === provider);
+  const model = choice.model ?? (provider === router?.provider ? router.model : undefined) ?? catalog?.defaultModel ?? "";
+  const providerOptions = providers.map(option => ({ value: option.id, label: option.displayName }));
+  if (provider && !catalog) providerOptions.unshift({ value: provider, label: provider });
+  const models = new Set(catalog?.models);
+  if (catalog?.defaultModel) models.add(catalog.defaultModel);
+  if (model) models.add(model);
+  const modelOptions = [{ value: "", label: "Provider default" }, ...Array.from(models, value => ({ value, label: value }))];
+  return { provider, model, providerOptions, modelOptions };
+}
+
+function ConciergePickers({ selection, onChange }: {
+  selection: ReturnType<typeof conciergeSelection>;
+  onChange: (choice: ConciergeChoice) => void;
+}) {
+  return <>
+    <div className="ct-live-field"><span aria-hidden>Concierge provider</span>
+      <DropdownSelect aria-label="Concierge provider" data-testid="live-transcript-concierge-provider" selectionIndicator="highlight"
+        options={selection.providerOptions} value={selection.provider} placeholder="No providers available"
+        disabled={!selection.providerOptions.length} onChange={provider => onChange({ provider })} />
+    </div>
+    <div className="ct-live-field"><span aria-hidden>Concierge model</span>
+      <DropdownSelect aria-label="Concierge model" data-testid="live-transcript-concierge-model" selectionIndicator="highlight"
+        options={selection.modelOptions} value={selection.model} disabled={!selection.provider}
+        onChange={model => onChange({ provider: selection.provider, model })} />
+    </div>
+  </>;
+}
+
+function RoutingModePicker({ trigger, scoutUnavailable, onChange }: {
+  trigger: Trigger;
+  scoutUnavailable: boolean;
+  onChange: (trigger: Trigger) => void;
+}) {
+  return <div className="ct-live-field"><span aria-hidden>Routing mode</span>
+    <DropdownSelect aria-label="Routing mode" data-testid="live-transcript-routing-mode" selectionIndicator="highlight"
+      options={modeOptions(scoutUnavailable)} value={trigger} onChange={value => onChange(value as Trigger)} />
+  </div>;
+}
+
+function RoutingSettings({ owner, view, api, autoResume, onAutoResume, scoutUnavailable, defaultTrigger, defaultMicTap, isConfigured, needsSetup }: {
   owner: string;
   view: ReturnType<typeof useLiveTranscriptPanel>;
   api: LiveTranscriptApi;
   autoResume: boolean;
   onAutoResume: (value: boolean) => void;
   scoutUnavailable: boolean;
+  defaultTrigger: Trigger;
+  defaultMicTap: boolean;
+  isConfigured: boolean;
+  needsSetup: boolean;
 }) {
   const tabs = useMuxSelector(state => state.tabs);
   const status = view.overview?.status;
   const target = status?.binding.target;
   const configuredTab = target?.kind === "external" ? target.tabId : "";
   const [choice, setChoice] = useState<{ trigger?: Trigger; externalTab?: string }>({});
-  const trigger = choice.trigger ?? status?.trigger ?? "scout_then_concierge";
+  const [conciergeChoice, setConciergeChoice] = useState<ConciergeChoice>({});
+  const micHint = useId();
+  const trigger = choice.trigger ?? (target?.kind !== "detached" ? status?.trigger : undefined) ?? defaultTrigger;
   const externalTab = choice.externalTab ?? configuredTab;
   const externalTabs = Object.values(tabs).filter(tab => tab.id !== owner && usableTab(tab) && tab.agent_type);
-  const canApply = status && (target?.kind === "detached" || externalTab !== configuredTab || trigger !== status.trigger) &&
+  const router = (!configuredTab ? status?.router : null) ?? view.readiness?.router;
+  const concierge = conciergeSelection(view.readiness, router, conciergeChoice);
+  const savedConcierge = conciergeSelection(view.readiness, router, {});
+  const conciergeChanged = !externalTab && (concierge.provider !== savedConcierge.provider || concierge.model !== savedConcierge.model);
+  const reconnect = status?.concierge !== "ready" || Boolean(status?.lastRouteError);
+  const canApply = isConfigured && !needsSetup && status &&
+    (reconnect || target?.kind === "detached" || externalTab !== configuredTab || trigger !== status.trigger || conciergeChanged) &&
     !(scoutUnavailable && trigger === "scout_then_concierge") && (!externalTab || externalTabs.some(tab => tab.id === externalTab));
   const routeOptions: DropdownSelectOption[] = [
     { value: "", label: "Transcript Concierge", badge: "Built-in" },
@@ -425,26 +571,33 @@ function RoutingSettings({ owner, view, api, autoResume, onAutoResume, scoutUnav
   ];
   return <section className="ct-live-settings" aria-label="Routing settings">
     <div className="ct-live-fields">
-      <div className="ct-live-field"><span aria-hidden>Routing mode</span>
-        <DropdownSelect aria-label="Routing mode" data-testid="live-transcript-routing-mode" selectionIndicator="highlight"
-          options={modeOptions(scoutUnavailable)} value={trigger}
-          onChange={value => setChoice(choice => ({ ...choice, trigger: value as Trigger }))} />
-      </div>
+      <RoutingModePicker trigger={trigger} scoutUnavailable={scoutUnavailable}
+        onChange={value => setChoice(choice => ({ ...choice, trigger: value }))} />
       <div className="ct-live-field"><span aria-hidden>Route to</span>
         <DropdownSelect aria-label="Route to" data-testid="live-transcript-route-to" selectionIndicator="highlight"
           options={routeOptions} value={externalTab} menuMaxHeight={260}
           onChange={value => setChoice(choice => ({ ...choice, externalTab: value }))} />
       </div>
+      {!externalTab && <ConciergePickers selection={concierge} onChange={setConciergeChoice} />}
     </div>
-    {!externalTab && <p className="ct-live-muted ct-live-router">{status?.router?.provider ?? "Daemon default provider"} · {status?.router?.model ?? "default model"} · turn cap {status?.router?.cap ?? "default"}</p>}
+    {isConfigured && <div className="ct-live-toggle-row">
+      <div><span>Tap mic starts Live Transcript</span>
+        <small id={micHint}>Hold mic still records a regular voice note. Slide up locks Live Transcript.</small>
+      </div>
+      <LiquidToggle aria-label="Tap mic starts Live Transcript" aria-describedby={micHint} checked={defaultMicTap}
+        disabled={!status || view.busy} onCheckedChange={next => {
+          if (status) void view.mutate(signal => api.attach({ modeOnly: true, trigger: status.trigger, defaultMicTap: next }, signal));
+        }} />
+    </div>}
     <div className="ct-live-toggle-row">
       <span>Pause when this window loses focus, resume on return</span>
       <LiquidToggle aria-label="Pause when this window loses focus and resume on return" checked={autoResume} onCheckedChange={onAutoResume} />
     </div>
     <div className="ct-live-settings-actions">
       <button type="button" className="ct-live-primary ct-live-primary--compact" disabled={!canApply || view.busy} onClick={() => {
-        void view.mutate(signal => api.attach(target?.kind !== "detached" && externalTab === configuredTab
-          ? { modeOnly: true, trigger } : { trigger, ...(externalTab ? { externalTab } : {}) }, signal));
+        void view.mutate(signal => api.attach(externalTab
+          ? externalTab === configuredTab && !reconnect ? { modeOnly: true, trigger } : { trigger, externalTab }
+          : { trigger, provider: concierge.provider || undefined, model: concierge.model || undefined, configure: true }, signal));
       }}>Apply routing</button>
     </div>
   </section>;
