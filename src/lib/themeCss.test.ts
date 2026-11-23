@@ -44,7 +44,7 @@ const lightTheme: ThemeConfig = {
 
 console.log("themeCss tests");
 
-for (const [theme, opacity] of [[lightTheme, 7], [DEFAULT_THEME, 5]] as const) {
+for (const [theme, opacity] of [[lightTheme, 3.5], [DEFAULT_THEME, 2.8]] as const) {
   const backdrop = themeToCSS(theme)["--ct-chat-backdrop"];
   assert(`${theme.name}: default backdrop tiles one foreground-colored dot`,
     backdrop === `radial-gradient(circle, color-mix(in srgb, var(--ct-fg) ${opacity}%, transparent) 0.75px, transparent 1.1px) 10px 10px / 20px 20px repeat`);
