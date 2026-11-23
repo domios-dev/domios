@@ -5673,7 +5673,17 @@ function* checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseIn
 var codexSelfUpdateCapability = {
   npmPackage: "@openai/codex",
   standaloneDirectory: "packages/standalone",
-  standaloneArgs: ["update"]
+  standaloneArgs: ["update"],
+  macosAppBundle: {
+    bundleIdentifier: "com.openai.codex",
+    teamIdentifier: "2DC432GLL2",
+    executablePaths: [
+      "Contents/Resources/codex",
+      "Contents/Resources/codex-cli/bin/codex",
+      "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
+    ],
+    updateGuidance: "This CLI comes with Codex Desktop. Open the desktop app and use its built-in update option."
+  }
 };
 function* checkCodexUpdate(host2) {
   return yield* checkProviderUpdate(host2, "codex", `https://registry.npmjs.org/${encodeURIComponent(codexSelfUpdateCapability.npmPackage)}/latest`, void 0, installedVersion);

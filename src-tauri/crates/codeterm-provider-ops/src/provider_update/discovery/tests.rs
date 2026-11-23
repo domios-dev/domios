@@ -50,6 +50,7 @@ impl AgentProvider for Provider {
             npm_package: "@fixture/agent".into(),
             standalone_directory: "standalone".into(),
             standalone_args: vec!["update".into()],
+            macos_app_bundle: None,
         })
     }
     fn check_for_update(&self) -> Option<ProviderUpdateAvailability> {

@@ -1,5 +1,8 @@
 use std::path::{Path, PathBuf};
 
+mod macos_app;
+pub use macos_app::MacosAppBundle;
+
 fn small_text(path: &Path) -> Option<String> {
     let metadata = std::fs::metadata(path).ok()?;
     if !metadata.is_file() || metadata.len() > 64 * 1024 {
@@ -14,12 +17,15 @@ pub struct ProviderSelfUpdateCapability {
     pub npm_package: String,
     pub standalone_directory: String,
     pub standalone_args: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub macos_app_bundle: Option<MacosAppBundle>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Installation {
     Npm { prefix: PathBuf },
     Standalone,
+    AppManaged { guidance: String },
 }
 
 pub fn classify_installation(
@@ -68,7 +74,27 @@ pub fn detect_installation(
     resolved: &Path,
     platform: &str,
 ) -> Option<Installation> {
+    detect_installation_with(capability, resolved, platform, macos_app::verify_signature)
+}
+
+fn detect_installation_with(
+    capability: &ProviderSelfUpdateCapability,
+    resolved: &Path,
+    platform: &str,
+    verify_app: impl FnOnce(&Path, &MacosAppBundle) -> bool,
+) -> Option<Installation> {
     let executable = resolved.canonicalize().ok()?;
+    if let Some(owner) = capability
+        .macos_app_bundle
+        .as_ref()
+        .filter(|_| platform == "macos")
+    {
+        if let Some(app) = owner.enclosing_app(&executable) {
+            return verify_app(app, owner).then(|| Installation::AppManaged {
+                guidance: owner.update_guidance.clone(),
+            });
+        }
+    }
     for root in executable.ancestors().take(10) {
         if let Some(metadata) = small_text(&root.join("package.json")) {
             if let Some(installation) =
@@ -132,6 +158,7 @@ pub fn update_command(
                 invocation
             })
         }
+        Installation::AppManaged { .. } => None,
     }
 }
 

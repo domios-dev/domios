@@ -200,7 +200,7 @@ impl ProviderRegistry {
         )
     }
 
-    fn compute_cli_status(
+    pub(crate) fn compute_cli_status(
         &self,
         id: &str,
         platform: &str,
@@ -217,21 +217,22 @@ impl ProviderRegistry {
             }
             Some(ProviderTransport::Pty | ProviderTransport::ChatBackend) => {
                 let metadata_started = std::time::Instant::now();
-                let (binary, installer, updater, compatibility) = self
+                let provider = self
                     .agents
                     .provider_arc(id)
-                    .map(|p| {
-                        (
-                            p.cli_binary()
-                                .map(str::to_owned)
-                                .or_else(|| p.agent_runtime().map(|runtime| runtime.command.binary))
-                                .unwrap_or_else(|| p.binary_name().to_owned()),
-                            p.install_command(platform),
-                            p.update_command(platform),
-                            p.cli_compatibility(),
-                        )
-                    })
                     .ok_or_else(|| format!("Unknown provider: {id}"))?;
+                let binary = provider
+                    .cli_binary()
+                    .map(str::to_owned)
+                    .or_else(|| {
+                        provider
+                            .agent_runtime()
+                            .map(|runtime| runtime.command.binary)
+                    })
+                    .unwrap_or_else(|| provider.binary_name().to_owned());
+                let installer = provider.install_command(platform);
+                let updater = provider.update_command(platform);
+                let compatibility = provider.cli_compatibility();
                 let metadata_us = metadata_started.elapsed().as_micros();
                 let observe_started = std::time::Instant::now();
                 let mut status = codeterm_plugin::provider_cli::observe_cli_with_compatibility(
@@ -243,37 +244,14 @@ impl ProviderRegistry {
                 let observe_us = observe_started.elapsed().as_micros();
                 let update_started = std::time::Instant::now();
                 status.update_summary = crate::service::provider_update::status_summary(id);
-                status.display_name = self
-                    .agents
-                    .provider_arc(id)
-                    .map(|p| p.display_name().to_owned());
+                status.display_name = Some(provider.display_name().to_owned());
                 status.update_job = crate::service::provider_cli_actions::update_job(id);
                 status.latest_version = crate::service::provider_update::newer_target(
                     crate::service::provider_update::available_version(id),
                 )
                 .map(|version| version.latest_version);
-                if let Some(capability) = self
-                    .agents
-                    .provider_arc(id)
-                    .and_then(|provider| provider.provider_self_update_capability())
-                {
-                    status.updater = status.resolved_path.as_ref().and_then(|path| {
-                        let installation =
-                            codeterm_plugin::provider_self_update::detect_installation(
-                                &capability,
-                                path,
-                                platform,
-                            )?;
-                        codeterm_plugin::provider_self_update::update_command(
-                            &capability,
-                            path,
-                            &installation,
-                            platform,
-                        )
-                    });
-                    if status.installed == Some(true) && status.updater.is_none() {
-                        status.update_refusal = Some("Installation method is unknown or unsupported. Update with the installer that owns this binary.".into());
-                    }
+                if let Some(capability) = provider.provider_self_update_capability() {
+                    status.apply_self_update(&capability, platform);
                 }
                 log::debug!(
                     "[providers.cli_observe] provider={} metadata_us={} observe_us={} update_us={}",

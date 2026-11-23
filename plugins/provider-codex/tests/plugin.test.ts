@@ -11,6 +11,7 @@ import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
+import { codexSelfUpdateCapability } from "../src/update";
 import "./prompt.test";
 import "./restore-resume.test";
 import "./manifest-capabilities.test";
@@ -234,6 +235,7 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
   ].sort();
   eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin exposes the supported API surface");
   eq(loadHostPlugin().sessionResume(), { exact: true }, "exact session resume is explicitly declared");
+  eq(loadHostPlugin().providerSelfUpdateCapability(), codexSelfUpdateCapability, "bundle exposes the source installation ownership declaration");
 }
 
 console.log("\n--- detect ---\n");
