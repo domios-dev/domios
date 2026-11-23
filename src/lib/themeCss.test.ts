@@ -85,6 +85,29 @@ console.log("themeCss tests");
   }
 }
 
+{
+  setupDom();
+  const { document } = window;
+  const root = document.documentElement;
+  root.dataset.ctTheme = isLightColor(DEFAULT_THEME.background) ? "light" : "dark";
+  const tokens = document.createElement("style");
+  tokens.textContent = readFileSync("src/styles/tokens.css", "utf8");
+  document.head.append(tokens);
+
+  const expectedDarkShadows = {
+    "--ct-shadow-sm": "0 1px 2px rgb(0 0 0/.20), 0 1px 3px rgb(0 0 0/.10)",
+    "--ct-shadow-md": "0 1px 3px rgb(0 0 0/.20), 0 3px 10px rgb(0 0 0/.13), 0 0 0 1px rgb(255 255 255/.04)",
+    "--ct-shadow-lg": "0 3px 6px rgb(0 0 0/.20), 0 8px 24px rgb(0 0 0/.16), 0 0 0 1px rgb(255 255 255/.06)",
+    "--ct-shadow-xl": "0 6px 12px rgb(0 0 0/.23), 0 16px 44px rgb(0 0 0/.20), 0 0 0 1px rgb(255 255 255/.06)",
+    "--ct-shadow-capsule": "0 2px 6px rgb(0 0 0/.16), 0 8px 22px rgb(0 0 0/.13), 0 0 0 1px rgb(255 255 255/.06)",
+  };
+  const computed = window.getComputedStyle(root);
+  for (const [token, expected] of Object.entries(expectedDarkShadows)) {
+    const actual = computed.getPropertyValue(token).replace(/\s+/g, " ").trim();
+    assert(`github-dark resolves ${token}`, actual === expected, `expected ${expected}, got ${actual}`);
+  }
+}
+
 for (const name of ["github-dark", "github-light", "dracula"]) {
   const values = Object.fromEntries([...readFileSync(`src-tauri/themes/${name}.toml`, "utf8").matchAll(/^(\w+) = "([^"]+)"/gm)].map(match => [match[1], match[2]])) as unknown as ThemeConfig;
   const vars = themeToCSS(values);
