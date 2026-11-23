@@ -92,7 +92,7 @@ fn chat_background_sanitizes_static_svg_and_refuses_active_svg() {
     let clean = parse(valid).unwrap().chat_background.unwrap().svg.unwrap();
     assert_eq!(
         clean,
-        r#"<svg viewBox="0 0 24 24"><g fill="currentColor"><circle cx="12" cy="12" r="4"/></g></svg>"#
+        r#"<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><g fill="currentColor"><circle cx="12" cy="12" r="4"/></g></svg>"#
     );
     for body in [
         "<script/>",
@@ -102,6 +102,8 @@ fn chat_background_sanitizes_static_svg_and_refuses_active_svg() {
         "<image href=\"https://example.test/image.png\"/>",
         "<path onclick=\"void(0)\"/>",
         "<path fill=\"url(#local)\"/>",
+        "<path stroke-dasharray=\"url(#local)\"/>",
+        "<path stroke-dasharray=\"0.000001 0.000001\"/>",
         "<path stroke=\"&#117;rl(#local)\"/>",
         "<path xmlns:x=\"http://www.w3.org/1999/xlink\"/>",
         "<?xml-stylesheet href=\"data:text/css,\"?>",

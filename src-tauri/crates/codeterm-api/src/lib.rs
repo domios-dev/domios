@@ -97,6 +97,7 @@ pub mod transport_orchestration;
 pub mod transport_tabs;
 pub mod updater_routes;
 pub mod usage_routes;
+mod wallpaper_routes;
 pub mod web_plugin_routes;
 pub mod web_routes;
 pub mod webhook_routes;

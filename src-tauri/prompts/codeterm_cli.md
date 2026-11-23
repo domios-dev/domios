@@ -70,6 +70,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Spinal Cord (Supporter Agent): explain, connect, verify, disconnect | `supporter --help` (`spinal-cord` alias) | `domios docs SPINAL-CORD` |
 | Past chats | `sessions search` / `get` / `resume`; read-only `sessions backups export latest --sanitize --out <file>` captures a desk | — |
 | Config | `config get [key]`, `config set` | `docs CONFIG` |
+| Chat wallpaper | `wallpaper set --request REQUEST_ID --from-pad tile.svg` from the General session when the owner uses Ask General | `docs RUNTIME-CONFIG` |
 | Resolving an answered question | `notify resolve <id>` (asking tab only) after an answer elsewhere; owner chat leaves questions open | `docs NOTIFICATIONS` |
 | Notifying the user | `notify send "title" --from-pad PATH --level verbose\|action_needed\|failure` | `docs CONFIG` |
 | Plugins, provider CLIs | `plugin list` / `install` / `update` (the running daemon owns installs and updates; minimum host requirements fail closed offline), `agent cli status <provider>` | `docs API-CLI` |

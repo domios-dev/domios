@@ -17,6 +17,8 @@
 @import "../components/Terminal/composerContext.css";
 @import "../components/Terminal/childTranscript.css";
 @import "../components/Terminal/chatLayout.css";
+@import "../components/Settings/wallpaperPicker.css";
+@import "../components/WebPeerPicker/machineWallpaper.css";
 @import "../components/Terminal/RestoreStatePanel.css";
 @import "../components/shared/dropdownMenu.css";
 @import "../components/Sidebar/sidebarPanel.css";

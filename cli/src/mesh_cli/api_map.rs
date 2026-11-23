@@ -804,6 +804,10 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             crate::ThemeAction::List => ("GET".into(), "/api/themes".into(), None),
             _ => ("GET".into(), "/api/themes".into(), None),
         },
+        Commands::Wallpaper { action } => {
+            let (method, path, body) = crate::cmd::wallpaper::request(action);
+            (method.into(), path, Some(body.to_string()))
+        }
         Commands::Mem { action } => mem_to_api(action),
         Commands::Sessions { action } => match action {
             crate::SessionsAction::Search {
