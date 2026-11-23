@@ -67,7 +67,7 @@ export function wallpaperDefaultScale(pattern: ChatPattern): number {
 }
 
 export function effectiveWallpaper(theme: ThemeConfig, setting?: ChatWallpaper): ChatWallpaper {
-  return setting ?? { background: theme.chat_background ?? { pattern: "dots" } };
+  return setting ?? { background: theme.chat_background ?? { pattern: "none" } };
 }
 
 export function wallpaperRenderStyle(

@@ -10,7 +10,7 @@ const setting: ChatWallpaper = {
   fill: { mode: "gradient", preset: "midnight" },
 };
 assert.equal(effectiveWallpaper(theme).background.pattern, "grid");
-assert.equal(effectiveWallpaper(DEFAULT_THEME).background.pattern, "dots");
+assert.equal(effectiveWallpaper(DEFAULT_THEME).background.pattern, "none");
 assert.equal(effectiveWallpaper(theme, setting).background.pattern, "domios");
 assert.equal(WALLPAPER_PATTERNS[2].id, "domios");
 const dark = wallpaperRenderStyle(theme, setting, false);

@@ -18,7 +18,7 @@ const glyphs: Record<ChatIcon, string> = {
 
 export function chatBackgroundToCSS(theme: ThemeConfig, light: boolean): string {
   const background = theme.chat_background;
-  const pattern = background?.pattern ?? "dots";
+  const pattern = background?.pattern ?? "none";
   const isDoodles = pattern === "doodles";
   const scale = bounded(background?.scale, 8, 512, isDoodles ? DOODLE_SCALE : DEFAULT_SCALE);
   const angle = bounded(background?.rotation, -360, 360, 0);
