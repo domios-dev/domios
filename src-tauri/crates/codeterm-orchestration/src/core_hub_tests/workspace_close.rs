@@ -75,7 +75,7 @@ async fn human_force_close_of_team_workspace_tears_down_team_via_close_team() {
     let cron = Arc::new(Mutex::new(CronStore::new_with_path(
         fixture.temp.path().join("crons.json"),
     )));
-    let cron_wake = Arc::new(std::sync::Condvar::new());
+    let cron_wake = codeterm_service_core::CronWake::default();
     cron.lock()
         .create(CronCreateParams {
             name: "Team cadence".into(),

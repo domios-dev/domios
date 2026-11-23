@@ -3,6 +3,8 @@ use crate::agent::status::TabStatus;
 use crate::service::MuxEmitCause;
 
 pub(crate) mod delivery_readiness;
+#[cfg(test)]
+mod load_tests;
 
 impl ServiceContext {
     #[cfg(debug_assertions)]

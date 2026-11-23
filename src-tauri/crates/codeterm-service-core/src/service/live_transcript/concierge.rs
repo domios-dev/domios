@@ -460,18 +460,19 @@ pub(super) fn wake_when_idle(
     destination: String,
     session: Arc<crate::service::agent_runtime::engine::Session>,
 ) {
-    {
-        let mut owners = svc.ext_or_init(Dispatch::default).owners.lock();
-        let entry = owners.entry(owner.into()).or_default();
-        if entry.waiting_for_idle {
-            return;
-        }
-        entry.waiting_for_idle = true;
-    }
     let mut events = svc.events.subscribe();
     let svc = svc.weak_self();
     let owner = owner.to_owned();
+    // Settlement calls this while holding the dispatch lock, so the claim runs on the task.
     crate::async_runtime::spawn(async move {
+        let claimed = svc.upgrade().is_some_and(|svc| {
+            let mut owners = svc.ext_or_init(Dispatch::default).owners.lock();
+            let entry = owners.entry(owner.clone()).or_default();
+            !std::mem::replace(&mut entry.waiting_for_idle, true)
+        });
+        if !claimed {
+            return;
+        }
         let wait_idle = async {
             loop {
                 let permit = session.gate.acquire().await;
@@ -749,5 +750,7 @@ fn classify(svc: &ServiceContext, speech: &[(u64, &str)]) -> Result<Option<bool>
     ))
 }
 
+#[cfg(test)]
+mod load_tests;
 #[cfg(test)]
 mod tests;

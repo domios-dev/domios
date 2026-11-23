@@ -47,7 +47,7 @@ impl StorageCron {
         .expect("hydrate cron storage");
         Self {
             cron: Arc::new(Mutex::new(store)),
-            wake: Arc::new(std::sync::Condvar::new()),
+            wake: Default::default(),
             storage,
             _temp: temp,
         }

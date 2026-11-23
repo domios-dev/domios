@@ -1,6 +1,8 @@
 use super::*;
 use tokio::net::TcpListener;
 
+mod load;
+
 struct FakeChrome {
     endpoint: String,
     inbound: mpsc::UnboundedReceiver<Value>,

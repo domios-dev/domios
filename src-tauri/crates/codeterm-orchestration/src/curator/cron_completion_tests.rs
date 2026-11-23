@@ -60,7 +60,7 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
     );
     let store = CronStore::new_with_path(fixture.temp.path().join("crons.json"));
     let cron: codeterm_service_core::CronState = Arc::new(Mutex::new(store));
-    let wake: codeterm_service_core::CronWake = Arc::new(std::sync::Condvar::new());
+    let wake = codeterm_service_core::CronWake::default();
     assert!(fixture.service.set_ext(cron.clone()).is_ok());
     assert!(fixture.service.set_ext(wake.clone()).is_ok());
     let job = cron
