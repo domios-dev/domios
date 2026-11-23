@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import type { ChatWallpaper } from "../../gen/ChatWallpaper";
-import { effectiveWallpaper, WALLPAPER_PATTERNS, wallpaperRenderStyle } from "./chatWallpaper";
+import { effectiveWallpaper, WALLPAPER_PATTERNS, wallpaperDefaultOpacity, wallpaperRenderStyle } from "./chatWallpaper";
 import { DEFAULT_THEME } from "./themeCss";
+
+// Dots chosen in the picker use the same near-invisible intensity as theme dots.
+assert.equal(wallpaperDefaultOpacity("dots", true, false), 0.035);
+assert.equal(wallpaperDefaultOpacity("dots", false, false), 0.028);
 
 const theme = { ...DEFAULT_THEME, chat_background: { pattern: "grid" } } as const;
 const setting: ChatWallpaper = {
@@ -12,7 +16,7 @@ const setting: ChatWallpaper = {
 assert.equal(effectiveWallpaper(theme).background.pattern, "grid");
 assert.equal(effectiveWallpaper(DEFAULT_THEME).background.pattern, "none");
 assert.equal(effectiveWallpaper(theme, setting).background.pattern, "domios");
-assert.equal(WALLPAPER_PATTERNS[2].id, "domios");
+assert.deepEqual(WALLPAPER_PATTERNS.slice(0, 3).map(pattern => pattern.id), ["none", "dots", "domios"]);
 const dark = wallpaperRenderStyle(theme, setting, false);
 assert.equal(dark["--ct-wallpaper-ink"], "linear-gradient(180deg, #7ee8fa, #80ff9a, #b49bff)");
 assert.equal(dark["--ct-wallpaper-opacity"], "0.24");
@@ -20,10 +24,11 @@ assert.match(dark["--ct-wallpaper-mask"], /domios-domios\.svg.*360px 360px repea
 assert.equal(dark["--ct-wallpaper-fill"], "linear-gradient(160deg, var(--ct-bg), #141b33)");
 assert.equal(wallpaperRenderStyle(theme, setting, true)["--ct-wallpaper-ink"],
   "linear-gradient(180deg, #0a7ea4, #2b8a3e, #6d48c8)");
-// An unset machine keeps the plain background regardless of identity colour.
+assert.equal(wallpaperRenderStyle(theme, setting, true, undefined, undefined, 1.6)["--ct-wallpaper-opacity"], "0.384");
 const unset = wallpaperRenderStyle(DEFAULT_THEME, undefined, false, undefined, "blue");
-assert.doesNotMatch(Object.values(unset).join(" "), /ct-machine-/);
+assert.equal(unset["--ct-wallpaper-fill"], "none");
 assert.equal(unset["--ct-wallpaper-mask"], "none");
+assert.doesNotMatch(Object.values(unset).join(" "), /ct-machine-/);
 for (const [light, opacity] of [[true, "0.035"], [false, "0.028"]] as const) {
   const dots = wallpaperRenderStyle(DEFAULT_THEME, { background: { pattern: "dots" } }, light);
   assert.equal(dots["--ct-wallpaper-opacity"], opacity);

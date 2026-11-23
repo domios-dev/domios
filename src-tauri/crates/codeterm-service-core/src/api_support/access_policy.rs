@@ -243,7 +243,8 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
                         | "shell-commands"
                         | "chat-send"
                         | "chat-send/queue"
-                        | "chat-send/dismissals",
+                        | "chat-send/dismissals"
+                        | "agent/background-work",
                     ) => ReadOutput,
                     (
                         &Method::GET,
@@ -272,7 +273,8 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
                         | "attachments"
                         | "chat-send"
                         | "chat-send/queue"
-                        | "chat-send/dismissals",
+                        | "chat-send/dismissals"
+                        | "agent/background-work",
                     ) => SendInput,
                     (
                         &Method::POST,

@@ -87,7 +87,8 @@ async function upload(peerId: string | undefined, bytes: Blob, type: string, cop
   if (!peerId && copyId) return copyId;
   const reply = await response.json();
   if (peerId && !reply.ok) {
-    throw new Error(typeof reply.error === "string" ? reply.error : "The target machine refused the upload");
+    const reason = typeof reply.data === "string" ? reply.data : reply.error;
+    throw new Error(typeof reason === "string" ? reason : "The target machine refused the upload");
   }
   return checkedId(peerId ? reply.data?.id : reply.id);
 }
@@ -95,11 +96,13 @@ async function upload(peerId: string | undefined, bytes: Blob, type: string, cop
 export async function uploadWallpaper(peerId: string | undefined, file: File): Promise<ChatWallpaper> {
   const type = inputType(file);
   if (!(WALLPAPER_FILE_TYPES as readonly string[]).includes(type)) {
-    throw new Error("Choose a PNG, JPEG, WebP, or SVG file.");
+    throw new Error("This file type is unsupported. Choose a PNG, JPEG, WebP, or SVG file.");
   }
   const svg = type === "image/svg+xml";
   if (file.size > (svg ? WALLPAPER_SVG_BYTES : WALLPAPER_RASTER_BYTES)) {
-    throw new Error(svg ? "Choose an SVG up to 64 KB." : "Choose an image up to 2 MB.");
+    throw new Error(svg
+      ? "The SVG is too large. Choose an SVG up to 64 KB."
+      : "The image is too large. Choose an image up to 2 MB.");
   }
   const id = await upload(peerId, file, type);
   const label = file.name.replace(/[\u0000-\u001f\u007f/\\]/g, "").trim();

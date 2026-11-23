@@ -219,6 +219,19 @@ async fn chat_wallpaper_assets_enforce_owner_authority_and_serve_only_committed_
     .await
     .unwrap();
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let response = send(
+        "POST",
+        upload_path.clone(),
+        "owner-secret".into(),
+        Body::from(r#"<svg viewBox="0 0 8 8"><script/></svg>"#),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
+        b"It contains a script. Remove all script elements and save the SVG again."
+    );
     let response = send("POST", upload_path, "owner-secret".into(), Body::from(SVG))
         .await
         .unwrap();

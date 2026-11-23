@@ -92,7 +92,13 @@
 .ct-wallpaper-property:has(output) { grid-template-columns: minmax(65px, .5fr) minmax(0, 1.5fr) 41px; }
 .ct-wallpaper-property input[type="range"] { width: 100%; accent-color: var(--ct-accent); }
 .ct-wallpaper-property output { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.ct-wallpaper-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.ct-wallpaper-property--swatches { grid-template-columns: minmax(0, 1fr); }
+.ct-wallpaper-swatches {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(28px, max-content));
+  gap: 8px;
+}
+.ct-wallpaper-swatches--fill { grid-template-columns: repeat(6, minmax(28px, max-content)); }
 .ct-wallpaper-swatch { display: grid; justify-items: center; gap: 4px; color: var(--ct-muted-fg); font-size: 10px; cursor: pointer; }
 .ct-wallpaper-swatch__mark {
   width: 28px;
@@ -100,7 +106,7 @@
   border: 1px solid var(--ct-border);
   border-radius: 50%;
 }
-.ct-wallpaper-swatches--fill .ct-wallpaper-swatch__mark { width: 32px; height: 24px; border-radius: 7px; }
+.ct-wallpaper-swatches--fill .ct-wallpaper-swatch__mark { border-radius: 7px; }
 .ct-wallpaper-swatch__mark[data-empty] {
   background: linear-gradient(135deg, transparent 45%, var(--ct-red) 45% 55%, transparent 55%);
 }
@@ -174,7 +180,7 @@
   font-size: 12px;
 }
 .ct-wallpaper-own-file { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.ct-wallpaper-own-thumb { position: relative; display: block; width: 40px; height: 28px; overflow: hidden; border-radius: 6px; }
+.ct-wallpaper-own-thumb { position: relative; display: block; flex: 0 0 40px; height: 28px; overflow: hidden; border-radius: 6px; }
 .ct-wallpaper-drop {
   display: grid;
   justify-items: center;
@@ -199,12 +205,14 @@
   .ct-wallpaper-gallery { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ct-wallpaper-editor { grid-template-columns: minmax(0, 1fr); }
 }
+@container (max-width: 420px) {
+  .ct-wallpaper-swatches { grid-template-columns: repeat(4, minmax(28px, max-content)); }
+  .ct-wallpaper-swatches--fill { grid-template-columns: repeat(3, minmax(28px, max-content)); }
+}
 @container (max-width: 355px) {
   .ct-wallpaper-picker .ct-settings-link { max-width: 76px; }
   .ct-wallpaper-editor { padding: 10px; }
-  .ct-wallpaper-property { grid-template-columns: 66px minmax(0, 1fr); }
   .ct-wallpaper-property:has(output) { grid-template-columns: 66px minmax(0, 1fr) 37px; }
-  .ct-wallpaper-swatches { gap: 7px; }
   .ct-wallpaper-tile { padding: 6px; font-size: 11px; }
   .ct-wallpaper-tile--own { gap: 5px; }
 }

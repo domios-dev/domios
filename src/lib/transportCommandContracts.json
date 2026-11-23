@@ -49,7 +49,7 @@
       "kind": "blueprint"
     },
     "config": {},
-    "request": {"rootThreadId":"root","bindingNonce":"nonce","epoch":4,"threadId":"child","processId":"process"},
+    "request": {"rootThreadId":"root","bindingNonce":"nonce","epoch":4,"threadId":"child","processId":"process","sessionId":"session","taskId":"task"},
     "input": {},
     "patch": {},
     "url": "url",
@@ -1267,6 +1267,12 @@
     ],
     "agent_runtime_stop_background_process": [
       ["POST", "/api/tabs/tab/agent/runtime/background-processes"]
+    ],
+    "agent_provider_background_output": [
+      ["GET", "/api/tabs/tab/agent/background-work?sessionId=session&bindingNonce=nonce&taskId=task"]
+    ],
+    "agent_provider_ask_stop_background_work": [
+      ["POST", "/api/tabs/tab/agent/background-work"]
     ],
     "agent_runtime_answer_question": [
       [

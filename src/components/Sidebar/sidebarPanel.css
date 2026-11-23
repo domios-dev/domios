@@ -167,6 +167,12 @@
   animation: ct-compact-rail-pulse 1.6s var(--ct-ease-liquid-breathe) infinite;
 }
 
+.ct-compact-rail__status[data-background-work="true"] {
+  background: var(--ct-muted-fg);
+  opacity: 0.7;
+  transform: scale(1);
+}
+
 .ct-compact-rail__tab[data-activity="waiting-on-user"] .ct-compact-rail__status {
   background: var(--ct-yellow);
   opacity: 1;

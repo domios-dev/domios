@@ -2,6 +2,9 @@ use super::ServiceContext;
 use crate::service::MuxEmitCause;
 use codeterm_types::agent::background_work::{BackgroundWorkObservation, BackgroundWorkState};
 
+mod actions;
+pub use actions::{ask_stop, read_output, BackgroundWorkTarget};
+
 pub fn restart_guard(
     items: Vec<String>,
     force: bool,
@@ -161,6 +164,7 @@ fn observe_background_records(
                     &BackgroundWorkObservation {
                         id: id.into(),
                         state: BackgroundWorkState::Unknown,
+                        ..Default::default()
                     },
                     label,
                 );
@@ -191,6 +195,9 @@ fn observe_background_records(
                 })
                 .unwrap_or("");
             let mut observation = observation.clone();
+            if record.provider_session_id.as_deref() != Some(session) {
+                observation.output_path = None;
+            }
             if !live && observation.state == BackgroundWorkState::Running {
                 observation.state = BackgroundWorkState::Unknown;
             }

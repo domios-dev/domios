@@ -1,4 +1,4 @@
-import { backgroundWorkLabel, tabActivity, type TabActivity } from "../../lib/tabActivity";
+import { idleBackgroundLabel, tabActivity, type TabActivity } from "../../lib/tabActivity";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
@@ -6,7 +6,7 @@ import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, 
 import { MultiplexerActionsContext, MuxStateStoreContext } from "../../store/multiplexer/context";
 import { createPortal } from "react-dom";
 import { ConfirmDialog } from "../Extensions/ConfirmDialog";
-import { Globe, TriangleAlert } from "lucide-react";
+import { Globe, SquareTerminal, TriangleAlert } from "lucide-react";
 import { surfaceBacking, tabRowLabel } from "../../lib/surfaceTab";
 import { SurfaceIcon } from "../Surface/surfaceIcon";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
@@ -191,17 +191,16 @@ function TabWorkingActivity({ activity, label }: { activity: TabActivity; label?
   );
 }
 
-function TabBackgroundActivity({ count, label }: { count: number; label: string }) {
-  if (count <= 0) return null;
+function TabBackgroundActivity({ label }: { label: string }) {
   return (
     <span
       data-testid="tab-background-activity"
       role="img"
       aria-label={label}
       title={label}
-      className="inline-flex items-center shrink-0"
+      className="inline-flex items-center shrink-0 text-[var(--ct-muted-fg)]"
     >
-      <ActivityDots size="small" tone="accent" rhythm="work" active />
+      <SquareTerminal size={12} aria-hidden="true" />
     </span>
   );
 }
@@ -342,14 +341,14 @@ function TabItemInner({
   const accessibleRowLabel = remoteLabel ?? accessibleTitle;
   const showActivityMarkers = !remoteStateLabel;
   const rowAttention = attention ?? tabAttention(tab, status, [], isActive);
-  const backgroundActive = Boolean(hasAgent) && tabState.kind === "idle" && tabState.backgroundTasks > 0;
-  const backgroundLabel = backgroundActive ? backgroundWorkLabel(tabState.backgroundTasks) : null;
+  const backgroundLabel = hasAgent && showActivityMarkers ? idleBackgroundLabel(tabState) : null;
+  const backgroundActive = Boolean(backgroundLabel);
   // A Team worker reads as name and role label; its description stays in the row's tooltip.
   const labelledWorker = tab.role === "Worker" && Boolean(tab.role_label?.trim());
   const activityDescription = hasAgent && tabState.phase === "compacting"
     ? tabState.label
     : backgroundLabel
-      ? backgroundLabel
+      ? `Idle · ${backgroundLabel}`
       : labelledWorker ? null : description;
   const rowText = tabRowText({ title: displayTitle, description: activityDescription, typeLabel: generalMachine ? accessibleTitle : roleShield });
   const isSubTab =
@@ -560,7 +559,7 @@ function TabItemInner({
           {showActivityMarkers && hasAgent && (
             tabState.active
               ? <TabWorkingActivity activity={tabState} label={tabState.label} />
-              : backgroundLabel && <TabBackgroundActivity count={tabState.backgroundTasks} label={backgroundLabel} />
+              : backgroundLabel && <TabBackgroundActivity label={backgroundLabel} />
           )}
           {showActivityMarkers && shellRunning && <TabWorkingActivity activity={tabState} label={`${displayTitle} working`} />}
         </span>
@@ -613,9 +612,9 @@ function TabItemInner({
         role="status"
         aria-live="polite"
         aria-atomic="true"
-        aria-label={`${accessibleTitle} tab status ${tabState.phase === "compacting" ? tabState.label : backgroundLabel ?? tabState.status}`}
+        aria-label={`${accessibleTitle} tab status ${tabState.phase === "compacting" ? tabState.label : tabState.status}${backgroundLabel ? `, ${backgroundLabel}` : ""}`}
       >
-        {accessibleTitle} tab status {tabState.phase === "compacting" ? tabState.label : backgroundLabel ?? tabState.status}
+        {accessibleTitle} tab status {tabState.phase === "compacting" ? tabState.label : tabState.status}{backgroundLabel && `, ${backgroundLabel}`}
       </span>}
       <div className={`shrink-0 relative z-[1] flex items-center justify-end ${touchMode ? "" : `sidebar-tab-end ${tabText}`}`}>
         {checklistToggle && <ChecklistToggleButton toggle={checklistToggle} title={displayTitle} />}
