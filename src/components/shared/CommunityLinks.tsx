@@ -29,7 +29,7 @@ export function CommunityKeysNotice({ compact = false }: { compact?: boolean }) 
   const titleId = useId();
   const links = [...community].sort((a, b) => a.name.localeCompare(b.name));
   return <section aria-labelledby={titleId} data-testid="community-keys-notice"
-    className={`flex items-start gap-3 rounded-lg border border-[color-mix(in_srgb,var(--ct-accent)_22%,var(--ct-border))] bg-[color-mix(in_srgb,var(--ct-accent)_6%,var(--ct-bg))] ${compact ? "px-3 py-2.5" : "px-4 py-3.5"}`}>
+    className={`flex items-start gap-3 rounded-lg border border-[color-mix(in_srgb,var(--ct-accent)_22%,var(--ct-semantic-edge-base))] bg-[color-mix(in_srgb,var(--ct-accent)_6%,var(--ct-bg))] ${compact ? "px-3 py-2.5" : "px-4 py-3.5"}`}>
     {!compact && <span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--ct-accent)_14%,transparent)] text-[var(--ct-accent)]">
       <Gift size={16} strokeWidth={1.75} />
     </span>}

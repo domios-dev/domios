@@ -268,7 +268,7 @@
   border-radius: 999px;
   color: var(--ct-muted-fg, #8b949e);
   background: transparent;
-  border: 1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent);
+  border: 1px solid var(--ct-panel-edge);
   cursor: pointer;
   transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
@@ -314,7 +314,7 @@
 .ct-agent-cancel {
   color: var(--ct-muted-fg, #8b949e);
   background: transparent;
-  border: 1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent);
+  border: 1px solid var(--ct-panel-edge);
   cursor: pointer;
   transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }

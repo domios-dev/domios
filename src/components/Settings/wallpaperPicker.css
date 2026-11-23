@@ -21,7 +21,7 @@
   aspect-ratio: 2 / 3;
   padding: 8px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--ct-fg) 6%, transparent);
+  border: 1px solid var(--ct-border-subtle);
   border-radius: 12px;
   color: var(--ct-fg);
   font-size: 12px;
@@ -195,7 +195,7 @@
   display: grid;
   gap: 4px;
   overflow-wrap: anywhere;
-  border-color: color-mix(in srgb, var(--ct-red) 40%, var(--ct-border));
+  border-color: color-mix(in srgb, var(--ct-red) 40%, var(--ct-semantic-edge-base));
   background: color-mix(in srgb, var(--ct-red) 8%, var(--ct-bg));
 }
 .ct-wallpaper-ask { font-size: 12px; }

@@ -75,7 +75,7 @@ export function BoardTaskCard({ card, onOpen, planId, onDeleteTask }: BoardTaskC
       onKeyDown={interactive ? onKeyDown : undefined}
       style={{
         borderColor: card.focusMatch
-          ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 45%, var(--ct-border, #30363d))"
+          ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 45%, var(--ct-semantic-edge-base, #30363d))"
           : undefined,
       }}
     >

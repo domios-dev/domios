@@ -91,7 +91,7 @@ async fn appearance_keeps_proposals_separate_from_the_applied_look_and_undoes_al
     draft["theme"]["chat_background"] = json!({"pattern": "svg", "svg": SVG, "scale": 32});
     draft["wallpaper"] = json!({"background": {"pattern":"space", "opacity":0.04}, "fill":{"mode":"gradient","preset":"midnight"}, "fill_strength":0.4});
     draft["tuning"] =
-        json!({"roundness":0.0, "shadow_strength":0.5, "edges":"defined", "font_size":1});
+        json!({"roundness":0.0, "shadow_strength":0.5, "border_strength":1.0, "font_size":1});
     let proposed = json!({"look":draft, "rationale":"Analogous navy and cool blue"});
     let refused = json_call(&app, &unprivileged, "POST", path, proposed.clone()).await;
     assert_eq!(refused.status(), StatusCode::FORBIDDEN);
@@ -226,6 +226,7 @@ async fn appearance_tweak_requires_authenticated_main_and_rejects_other_fields()
         "[chat_wallpaper.background]\nsvg = '<svg/>'",
         "[chat_wallpaper]\nasset = 'new.svg'",
         "[appearance]\nfont_size = 1\nunrecognized = true",
+        "[appearance]\nedges = 'defined'",
         "[chat_wallpaper.background]\nopacity = 0.05",
     ] {
         let request = json!({"revision": revision, "toml": toml});
@@ -284,11 +285,30 @@ async fn appearance_tweak_checks_contrast_and_revision_and_undoes_exactly() {
     assert!(!settings.exists());
     assert_eq!(AppearanceLook::from_config(&state.config.lock()), before);
 
+    for strength in ["-0.01", "1.01", "nan"] {
+        let toml = format!("[appearance]\nborder_strength = {strength}");
+        let response = json_call(
+            &app,
+            &general,
+            "POST",
+            &path,
+            json!({"revision": revision, "toml": toml}),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{strength}");
+        assert!(body_json(response).await["message"]
+            .as_str()
+            .unwrap()
+            .contains("appearance.border_strength must be between 0 and 1"));
+    }
+    assert!(!settings.exists());
+    assert_eq!(AppearanceLook::from_config(&state.config.lock()), before);
+
     let request = json!({"revision": revision, "toml": r#"
 [appearance]
 roundness = 0.4
 shadow_strength = 0.5
-edges = "defined"
+border_strength = 0.72
 font_size = 1
 
 [chat_wallpaper]
@@ -306,7 +326,7 @@ opacity = 0.05
     assert_eq!(applied["previous"], serde_json::to_value(&before).unwrap());
     let mut expected = serde_json::to_value(&before).unwrap();
     expected["tuning"] =
-        json!({"roundness": 0.4, "shadow_strength": 0.5, "edges": "defined", "font_size": 1});
+        json!({"roundness": 0.4, "shadow_strength": 0.5, "border_strength": 0.72, "font_size": 1});
     expected["wallpaper"]["fill_strength"] = json!(0.02);
     expected["wallpaper"]["background"]["opacity"] = json!(0.05);
     assert_eq!(applied["look"], expected);

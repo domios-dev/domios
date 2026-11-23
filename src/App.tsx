@@ -749,7 +749,10 @@ function AppInner() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const themeStyles = useMemo(() => ({ ...themeToCSS(stableTheme), ...appearanceTokens(tuning) }), [stableTheme, tuning]);
+  const themeStyles = useMemo(() => ({
+    ...themeToCSS(stableTheme, tuning?.border_strength),
+    ...appearanceTokens(tuning),
+  }), [stableTheme, tuning]);
   const wallpaper = appliedAppearance.look.wallpaper ?? undefined;
   const wallAsset = appliedAppearance.asset;
   const identityColor = machineAppearance.identity?.color;

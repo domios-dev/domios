@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
-import { DEFAULT_THEME } from "../../lib/themeCss";
+import { DEFAULT_THEME, themeToCSS } from "../../lib/themeCss";
+import { DEFAULT_APPEARANCE } from "../../lib/appearance";
 import type { AppConfig, MeshPeersResponse } from "../../lib/types";
 import { UNKNOWN_MACHINE } from "../../lib/machineIdentity";
 import { rememberAccountMachineNames, rememberMachineIdentities } from "../../lib/useMeshMachineIdentities";
@@ -40,7 +41,7 @@ const rememberNames = () => rememberAccountMachineNames(snapshot({
 }));
 
 it("documents each Lab and wallpaper control and stages one complete proposal", async () => {
-  const tuning = { roundness: 1, shadow_strength: 1, font_size: 0, edges: "subtle" };
+  const tuning = DEFAULT_APPEARANCE;
   const look = { theme: DEFAULT_THEME, wallpaper: null, tuning };
   api.readAppearance.mockResolvedValue({ machine: { id: "fixture", name: "Desk [dev-local]" }, look, presets: [DEFAULT_THEME], active: null });
   api.proposeAppearance.mockImplementation(async (_target, proposed) => ({ id: "proposal", look: proposed }));
@@ -65,8 +66,15 @@ it("documents each Lab and wallpaper control and stages one complete proposal", 
     collect();
     await act(async () => select("Botanical").click());
     collect();
-    const defined = [...host.querySelectorAll("button")].find(button => button.textContent === "Defined")!;
-    await act(async () => defined.click());
+    const slider = host.querySelector<HTMLInputElement>('input[type="range"][aria-label="Border brightness"]')!;
+    expect(slider.valueAsNumber).toBe(tuning.border_strength);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(slider, "0.72");
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(slider.valueAsNumber).toBe(0.72);
+    const preview = host.querySelector<HTMLElement>('[role="img"][aria-label="Appearance preview"]')!;
+    expect(preview.style.getPropertyValue("--ct-panel-edge")).toBe(themeToCSS(DEFAULT_THEME, 0.72)["--ct-panel-edge"]);
     const apply = [...host.querySelectorAll("button")].find(button => button.textContent === "Apply to Desk #1")!;
     await act(async () => apply.click());
 
@@ -75,7 +83,7 @@ it("documents each Lab and wallpaper control and stages one complete proposal", 
     for (const field of fields) expect(guide, field).toContain(`\`${field}\``);
     expect(api.proposeAppearance).toHaveBeenCalledWith({ machine: "local" }, {
       theme: DEFAULT_THEME, wallpaper: { background: { pattern: "botanical" } },
-      tuning: { ...tuning, edges: "defined" },
+      tuning: { ...tuning, border_strength: 0.72 },
     }, look);
     expect(api.changeAppearance).toHaveBeenCalledWith({ machine: "local" }, "proposal", "apply");
   } finally {
@@ -160,7 +168,7 @@ it.each([
 
 it("shows an applied tweak with its changed value and Undo", async () => {
   const previous = { theme: DEFAULT_THEME, wallpaper: { background: { pattern: "dots", opacity: 0.08 } }, tuning: null };
-  const look = { ...previous, wallpaper: { background: { pattern: "dots", opacity: 0.05 } } };
+  const look = { ...previous, wallpaper: { background: { pattern: "dots", opacity: 0.05 } }, tuning: { ...DEFAULT_APPEARANCE, border_strength: 0.5 } };
   const receipt = {
     id: "tweak", machine: { id: "fixture", name: "Fixture" }, rationale: "", tweak: true,
     look, previous, state: "applied", contrast: [], can_undo: true, applied_at: null,
@@ -175,6 +183,7 @@ it("shows an applied tweak with its changed value and Undo", async () => {
   try {
     await act(async () => root.render(renderAppearanceCard("tweak", "fixture")));
     expect(host.textContent).toContain("Wallpaper 8% → 5%");
+    expect(host.textContent).toContain("Border brightness 25% → 50%");
     expect(status()).toBe("✓ Applied");
     expect(buttonNames()).toEqual(["Undo", "Open in Lab"]);
     await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());

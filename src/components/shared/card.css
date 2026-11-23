@@ -1,7 +1,7 @@
 .ct-card {
   --ct-card-tone: var(--ct-accent);
   min-width: 0;
-  border: 1px solid var(--ct-decorative-edge, color-mix(in srgb, var(--ct-fg) 8%, transparent));
+  border: 1px solid var(--ct-decorative-edge, var(--ct-panel-edge));
   border-radius: calc(14px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-fg) 2.5%, var(--ct-bg));
   color: var(--ct-fg);
@@ -396,7 +396,7 @@ button.ct-card__head {
 .ct-card.ct-communication-card:hover,
 .ct-card.ct-communication-card:focus-within {
   background: transparent;
-  border-color: color-mix(in srgb, var(--ct-fg) 16%, transparent);
+  border-color: var(--ct-panel-edge);
 }
 .ct-communication-card .ct-card__icon {
   background: transparent;

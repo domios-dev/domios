@@ -167,10 +167,9 @@
 }
 .ct-composer-card:focus-within {
   border-color: color-mix(in srgb, var(--ct-accent) 35%, transparent);
-  box-shadow: var(--ct-shadow-capsule);
 }
 .ct-composer-card[data-dictating] {
-  border-color: color-mix(in srgb, var(--ct-accent) 46%, var(--ct-border));
+  border-color: color-mix(in srgb, var(--ct-accent) 46%, var(--ct-semantic-edge-base));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-accent) 18%, transparent),
     var(--ct-shadow-capsule);
 }
@@ -428,7 +427,7 @@ textarea[data-dictating="true"] {
 }
 
 .ct-voice-space-arming {
-  border-color: color-mix(in srgb, var(--ct-accent) 65%, var(--ct-border)) !important;
+  border-color: color-mix(in srgb, var(--ct-accent) 65%, var(--ct-semantic-edge-base)) !important;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ct-accent) 18%, transparent);
   animation: ct-voice-space-charge 300ms linear both;
 }

@@ -6,7 +6,7 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.625rem 0.875rem;
-  border: 1px dashed color-mix(in srgb, var(--ct-fg) 18%, transparent);
+  border: 1px dashed var(--ct-panel-edge);
   border-radius: var(--ct-radius-md, 10px);
   background: color-mix(in srgb, var(--ct-fg) 2%, transparent);
   color: var(--ct-muted-fg);

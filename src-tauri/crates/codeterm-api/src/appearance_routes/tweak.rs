@@ -2,7 +2,6 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use axum::extract::rejection::JsonRejection;
 use codeterm_service_core::service::general_agent::session_contract::owns_main;
-use codeterm_types::config::schema::AppearanceEdges;
 use serde_json::json;
 
 use super::*;
@@ -28,7 +27,7 @@ struct Patch {
 struct Tuning {
     roundness: Option<f64>,
     shadow_strength: Option<f64>,
-    edges: Option<AppearanceEdges>,
+    border_strength: Option<f64>,
     font_size: Option<i8>,
 }
 
@@ -52,7 +51,7 @@ impl Patch {
             let previous = next;
             next.roundness = tuning.roundness.unwrap_or(next.roundness);
             next.shadow_strength = tuning.shadow_strength.unwrap_or(next.shadow_strength);
-            next.edges = tuning.edges.unwrap_or(next.edges);
+            next.border_strength = tuning.border_strength.unwrap_or(next.border_strength);
             next.font_size = tuning.font_size.unwrap_or(next.font_size);
             if next != previous {
                 look.tuning = Some(next);
