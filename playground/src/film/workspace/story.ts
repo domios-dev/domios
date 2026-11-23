@@ -281,7 +281,7 @@ const HELM_STEPS: Step[] = [
   { kind: "type", id: "helm-ask", text: DRAFT },
   { kind: "think", seconds: 0.9 },
   { kind: "tool", call: tool("helm-plan", "command", "Bash", { command: `domios plan show ${PLAN_ID}` }, `domios plan show ${PLAN_ID}`), seconds: 1.1, exitCode: 0,
-    result: "Release 2.4: offline sync · active · 3 done\nGoal: Fieldnote works fully offline; edits made on any device sync later and never overwrite each other." },
+    result: "Offline sync · active · 3 done\nGoal: Fieldnote works fully offline; edits made on any device sync later and never overwrite each other." },
   { kind: "say", id: "helm-1", text: "Asking Atlas to split the gate into tasks." },
   { kind: "think", seconds: 1.2 },
   { kind: "arrive", message: ATLAS_SPLIT },

@@ -66,7 +66,7 @@ export const TASKS: Task[] = [
 ];
 
 export const PLAN: Plan = {
-  id: PLAN_ID, title: "Release 2.4: offline sync", sections: SECTIONS, status: "active", mode: "execution", team_id: TEAM_ID,
+  id: PLAN_ID, title: "Offline sync", sections: SECTIONS, status: "active", mode: "execution", team_id: TEAM_ID,
   owner: { tab_id: HELM, session_id: null, title: null }, project_path: "C:/Developer/fieldnote", created_at: ago(26 * 60), updated_at: FILM_NOW,
   milestone_kinds: [], loops: [], elements: [], canvas: { viewport: null }, owner_history: [],
   goal: { vector: "Fieldnote works fully offline: edits made on any device sync later and never overwrite each other." },
