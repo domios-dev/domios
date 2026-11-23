@@ -10,6 +10,19 @@ pub(crate) fn request(action: &AppearanceAction) -> (&'static str, String, Optio
         |machine: &str, id: &str| format!("{}/{}", endpoint(machine), urlencoding::encode(id));
     match action {
         AppearanceAction::Current { machine } => ("GET", endpoint(machine), None),
+        AppearanceAction::Tweak {
+            machine,
+            revision,
+            from_pad,
+        } => {
+            let toml = super::payload_source::read_bounded_from_pad(from_pad, 4096)
+                .unwrap_or_else(|error| fail(1, error));
+            (
+                "POST",
+                format!("{}/tweak", endpoint(machine)),
+                Some(json!({ "revision": revision, "toml": toml })),
+            )
+        }
         AppearanceAction::Propose {
             machine,
             from_pad,

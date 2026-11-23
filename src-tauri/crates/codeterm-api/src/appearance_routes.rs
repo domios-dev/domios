@@ -8,7 +8,8 @@ use axum::{
 };
 use codeterm_neighbors_service::NeighborsNeighborsRuntime1Ext;
 use codeterm_service_core::config::schema::{
-    AppearanceLook, AppearanceProposal, AppearanceState, ChatPattern, ChatWallpaper, ThemeConfig,
+    AppConfig, AppearanceLook, AppearanceProposal, AppearanceState, ChatPattern, ChatWallpaper,
+    ThemeConfig,
 };
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +21,7 @@ use crate::{
 
 mod contrast;
 mod presets;
+mod tweak;
 use contrast::{measure, ContrastCheck};
 
 const PROPOSAL_LIMIT: usize = 12;
@@ -36,6 +38,7 @@ pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/api/appearance/{machine}", get(read).post(propose))
         .route("/api/appearance/{machine}/validate", post(diagnose))
+        .route("/api/appearance/{machine}/tweak", post(tweak::apply))
         .route("/api/appearance/{machine}/{id}", get(show))
         .route("/api/appearance/{machine}/{id}/apply", post(apply))
         .route("/api/appearance/{machine}/{id}/undo", post(undo))
@@ -63,6 +66,10 @@ fn target(state: &AppState, headers: &HeaderMap, selection: &str) -> Result<Mach
     if !authorized {
         return Err((StatusCode::FORBIDDEN, "Owner authorization required".into()));
     }
+    local_machine(state, selection)
+}
+
+fn local_machine(state: &AppState, selection: &str) -> Result<Machine, Refusal> {
     let mesh = state.mesh.lock();
     let id = &mesh.ident.identity.instance_id;
     let name = &mesh.ident.instance_name;
@@ -88,6 +95,7 @@ pub(crate) struct Machine {
 struct Current {
     machine: Machine,
     look: AppearanceLook,
+    revision: String,
     presets: Vec<ThemeConfig>,
     active: Option<Receipt>,
 }
@@ -136,6 +144,7 @@ async fn read(
             .filter(|record| record.can_undo);
         Ok(Json(Current {
             machine,
+            revision: tweak::revision(&look, config.appearance_active.as_deref())?,
             look,
             presets: presets::all(),
             active,
@@ -228,23 +237,17 @@ async fn propose(
                     "Appearance changed. Reload the Lab before applying.",
                 );
             }
-            let history = &mut config.appearance_proposals;
-            if history.len() >= PROPOSAL_LIMIT {
-                let oldest = history
-                    .iter()
-                    .position(|item| config.appearance_active.as_ref() != Some(&item.id))
-                    .unwrap_or(0);
-                history.remove(oldest);
-            }
-            history.push(AppearanceProposal {
+            let proposal = AppearanceProposal {
                 id: id.clone(),
                 rationale,
+                tweak: false,
                 look,
                 previous,
                 previous_active: config.appearance_active.clone(),
                 state: AppearanceState::Proposed,
                 applied_at: None,
-            });
+            };
+            retain_proposal(config, proposal);
             Ok(())
         })
         .map_err(|error| refused.unwrap_or((StatusCode::INTERNAL_SERVER_ERROR, error)))?;
@@ -253,6 +256,30 @@ async fn propose(
     })
     .await
     .map_err(typed_refusal)
+}
+
+fn retain_proposal(config: &mut AppConfig, proposal: AppearanceProposal) {
+    let history = &mut config.appearance_proposals;
+    if history.len() >= PROPOSAL_LIMIT {
+        let oldest = history
+            .iter()
+            .position(|item| proposal.previous_active.as_ref() != Some(&item.id))
+            .unwrap_or(0);
+        history.remove(oldest);
+    }
+    history.push(proposal);
+}
+
+fn apply_proposal(
+    config: &mut AppConfig,
+    proposal: &mut AppearanceProposal,
+) -> Result<(), Refusal> {
+    validate(&proposal.look)?;
+    proposal.look.write_to(config);
+    config.appearance_active = Some(proposal.id.clone());
+    proposal.applied_at = Some(unix_seconds());
+    proposal.state = AppearanceState::Applied;
+    Ok(())
 }
 
 async fn show(
@@ -355,6 +382,9 @@ async fn transition(
             })?;
             let current = AppearanceLook::from_config(config);
             let is_current = current == proposal.look && config.appearance_active.as_deref() == Some(id.as_str());
+            if use_theme_wallpaper && proposal.tweak {
+                return reject(&mut refused, StatusCode::CONFLICT, "Use a proposal card to change the wallpaper.");
+            }
             match (proposal.state, next) {
                 (AppearanceState::Applied, AppearanceState::Undone) if is_current => {
                     proposal.previous.write_to(config);
@@ -376,13 +406,10 @@ async fn transition(
                         return reject(&mut refused, StatusCode::CONFLICT, "This proposal has no theme wallpaper hidden by a machine override.");
                     }
                 }
-                validate(&proposal.look).map_err(|(status, message)| {
+                apply_proposal(config, &mut proposal).map_err(|(status, message)| {
                     refused = Some((status, message.clone()));
                     message
                 })?;
-                proposal.look.write_to(config);
-                config.appearance_active = Some(id.clone());
-                proposal.applied_at = Some(unix_seconds());
             }
             proposal.state = next;
             changed = true;
@@ -393,11 +420,15 @@ async fn transition(
         }).map_err(|error| refused.unwrap_or((StatusCode::INTERNAL_SERVER_ERROR, error)))?;
         let proposal = find(&config.appearance_proposals, &id)?.clone();
         if changed {
-            emit_change(state, &config, Some(&id), next == AppearanceState::Undone);
-            state.svc.ui.emit("config-changed", crate::config_routes::redact_rest_config(serde_json::to_value(&config).unwrap_or_default()));
+            publish_change(state, &config, &id, next == AppearanceState::Undone);
         }
         receipt(machine, proposal, &config).map(Json)
     }).await
+}
+
+fn publish_change(state: &AppState, config: &AppConfig, id: &str, undo: bool) {
+    emit_change(state, config, Some(id), undo);
+    crate::wallpaper_routes::publish_config(state, config);
 }
 
 pub(crate) fn emit_change(

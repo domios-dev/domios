@@ -1,6 +1,28 @@
 # Appearance Lab
 
-Open Settings › General › Appearance Lab to preview a palette, wallpaper, and tuning on one machine. Ask General opens Main with the selected machine and look attached. To make a look for that request, read the current settings, prepare and validate a proposal, then show the stored proposal using the native chat card.
+Open Settings › General › Appearance Lab to preview a palette, wallpaper, and tuning on one machine. Ask General opens that machine's Main session with the selected look attached. General can apply small adjustments immediately from Main and prepare proposals for new looks.
+
+## Apply small adjustments immediately
+
+When the owner asks for weaker wallpaper, a softer background fill, less roundness, different shadows or edges, or bigger text, use `appearance tweak`. Read the latest look and take its `revision` from the response. Write only the requested controls to a TOML file in your Agent Pad and apply it on the same machine.
+
+```sh
+domios appearance current --machine local --json
+domios appearance tweak --machine local --revision REVISION --from-pad tweak.toml
+```
+
+For example, a request to lower the pattern intensity to 5% uses this file.
+
+```toml
+[chat_wallpaper.background]
+opacity = 0.05
+```
+
+The tweak accepts `chat_wallpaper.background.opacity`, `chat_wallpaper.fill_strength`, and the four `appearance` tuning fields in the table below. Wallpaper controls apply to an existing machine wallpaper. For a softer fill send `fill_strength` under `[chat_wallpaper]`. For a fainter pattern send `opacity` under `[chat_wallpaper.background]`. Based on the current look, choose the control for the visible background the owner describes. A palette, theme name, wallpaper pattern, SVG or asset belongs in a proposal.
+
+Only the authenticated Main session on the destination can apply a tweak. A stale revision returns `appearance_changed`. Read the latest look before choosing new values. The same contrast floors apply to tweaks. If a fix would change additional controls or the palette, return a proposal for the owner to review.
+
+Return the exact standalone `<ds-appearance id="PROPOSAL_ID" machine="INSTALLATION_ID" />` from the successful command in the same chat. It shows the changed values, Applied, Undo and Open in Lab. Undo restores the previous look. The equivalent REST request is `POST /api/appearance/{machine}/tweak` with `{ "revision": "…", "toml": "…" }`.
 
 ## Read, propose, apply and undo
 
@@ -14,7 +36,7 @@ domios appearance undo PROPOSAL_ID --machine local --json
 
 `--machine` accepts the destination installation ID, its exact name, or `local` for the addressed daemon. Use the installation ID when names collide. An owner can address a paired Full-access daemon with `--mesh PEER`. An offline machine is left unchanged.
 
-The proposal carries its previous look and contrast measurements. The owner and the authenticated local General Agent can store, show, apply, and undo proposals. General uses Apply and Undo when the owner requests the change. The card can also make the change through a native owner action. If a newer edit changed the destination, reload and review the current look before applying or undoing. The daemon retains a bounded history of recent proposals.
+The proposal carries its previous look and contrast measurements. The owner and the authenticated local General Agent can store, show, apply, and undo proposals. General returns the proposal card for the owner to review and apply a new look. If a newer edit changed the destination, reload and review the current look before applying or undoing. The daemon retains a bounded history of recent proposals.
 
 Return one sentence naming the look and a standalone `<ds-appearance id="PROPOSAL_ID" machine="INSTALLATION_ID" />` with the exact values from the proposal response. The card reads its colours, wallpaper, state, and actions from the stored proposal. Use Apply for the reviewed look, Undo for its previous look, or Open in Lab to compare both.
 
@@ -92,4 +114,4 @@ For Forest Night, pair green-black `#0f1a16` with warm ink `#d5e2d8` and a coole
 
 A technical look can start with roundness 0–0.35, defined edges, and shadows 0.3–0.6. A softer look can keep default roundness and gentle depth. For easier reading, start with font size +1. Keep the current palette and tuning when the request targets a single control.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
