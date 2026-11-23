@@ -126,11 +126,12 @@ function jsonEquals<T>(a: T, b: T): boolean {
 }
 
 function useStableJsonValue<T>(value: T): T {
-  const ref = useRef(value);
-  if (!jsonEquals(ref.current, value)) {
-    ref.current = value;
+  const ref = useRef({ input: value, stable: value });
+  if (!Object.is(ref.current.input, value)) {
+    const stable = jsonEquals(ref.current.stable, value) ? ref.current.stable : value;
+    ref.current = { input: value, stable };
   }
-  return ref.current;
+  return ref.current.stable;
 }
 
 const selectWholeState = (state: ExtendedState) => state;
@@ -744,7 +745,7 @@ function AppInner() {
       document.documentElement.style.setProperty(k, v);
     }
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", stableTheme.background);
-    cacheThemeSnapshot(stableTheme);
+    cacheThemeSnapshot(stableTheme, themeStyles);
     document.documentElement.style.fontSize = `${stableFontConfig.size + 2}px`;
   }, [stableTheme.background, themeStyles, stableFontConfig.size]);
 

@@ -1,7 +1,7 @@
 use super::ThemeConfig;
 use std::io::Read;
 
-pub const MAX_THEME_BYTES: usize = 64 * 1024;
+pub const MAX_THEME_BYTES: usize = 96 * 1024;
 
 /// Built-in theme definitions loaded at compile time.
 pub struct BuiltinTheme {
@@ -45,8 +45,8 @@ pub const BUILTIN_THEMES: &[BuiltinTheme] = &[
 ];
 
 /// Parse a built-in theme TOML string into a ThemeConfig.
-pub fn parse_builtin_theme(toml_str: &str) -> Result<ThemeConfig, String> {
-    toml::from_str(toml_str).map_err(|e| format!("Failed to parse theme: {}", e))
+pub fn parse_builtin_theme(toml_str: &str) -> Result<ThemeConfig, toml::de::Error> {
+    toml::from_str(toml_str)
 }
 
 /// Get a built-in theme by name. Returns None if not found.

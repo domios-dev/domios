@@ -2,11 +2,15 @@
   min-width: 0;
 }
 .ct-chat-surface {
+  background: var(--ct-chat-backdrop, none);
   padding-left: var(--ct-chat-content-inset, 1.25rem);
   padding-right: var(--ct-chat-composer-inset, 1.25rem);
   overflow-x: hidden;
   overflow-y: auto;
   overflow-wrap: anywhere;
+}
+@media print, (prefers-contrast: more), (forced-colors: active) {
+  .ct-chat-surface { background-image: none; }
 }
 .ct-chat-surface .ct-chat-message-row {
   max-width: var(--ct-chat-readable-width);

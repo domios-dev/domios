@@ -1,5 +1,6 @@
 import type { ThemeConfig } from "./types";
 import { blendColor, deriveColor, parseHex } from "./colors";
+import { chatBackgroundToCSS } from "./chatBackgroundCss";
 
 const THEME_CACHE_KEY = "codeterm-theme-v1";
 const THEME_VARS_CACHE_KEY = "codeterm-theme-css-v1";
@@ -68,6 +69,7 @@ export function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-fg": theme.foreground,
     "--ct-cursor": theme.cursor,
     "--ct-selection": theme.selection,
+    "--ct-chat-backdrop": chatBackgroundToCSS(theme, isLight),
     "--ct-sidebar-bg": chromeBg,
     "--ct-titlebar-bg": deriveColor(theme.background, 4),
     "--ct-tray-divider": isLight
@@ -155,11 +157,15 @@ function syntaxColors(theme: ThemeConfig, isLight: boolean) {
   };
 }
 
-export function cacheThemeSnapshot(theme: ThemeConfig) {
+export function cacheThemeSnapshot(theme: ThemeConfig, themeVars = themeToCSS(theme)) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(THEME_CACHE_KEY, JSON.stringify(theme));
-    window.localStorage.setItem(THEME_VARS_CACHE_KEY, JSON.stringify(themeToCSS(theme)));
+    const palette = { ...theme };
+    const paletteVars = { ...themeVars };
+    delete palette.chat_background;
+    delete paletteVars["--ct-chat-backdrop"];
+    window.localStorage.setItem(THEME_CACHE_KEY, JSON.stringify(palette));
+    window.localStorage.setItem(THEME_VARS_CACHE_KEY, JSON.stringify(paletteVars));
   } catch {
     /* best-effort first-paint cache */
   }

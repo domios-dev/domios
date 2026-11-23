@@ -39,33 +39,48 @@ pub async fn save_theme_api(
     AxumState(_state): AxumState<AppState>,
     _headers: HeaderMap,
     Json(body): Json<SaveThemeBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     tokio::task::spawn_blocking(move || {
         if !valid_theme_id(&body.id) {
-            return Err((StatusCode::BAD_REQUEST, "Invalid theme identity"));
+            return Err(theme_save_error(
+                StatusCode::BAD_REQUEST,
+                "invalid_theme_id",
+                "Invalid theme identity",
+            ));
         }
         if body.toml.len() > MAX_THEME_BYTES {
-            return Err((
+            return Err(theme_save_error(
                 StatusCode::PAYLOAD_TOO_LARGE,
+                "theme_too_large",
                 "Theme exceeds the size limit",
             ));
         }
-        codeterm_service_core::config::schema::parse_builtin_theme(&body.toml)
-            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid theme TOML"))?;
-        let dir = codeterm_service_core::config::schema::user_themes_dir().ok_or((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Cannot determine themes directory",
-        ))?;
-        std::fs::create_dir_all(&dir).map_err(|_| {
-            (
+        codeterm_service_core::config::schema::parse_builtin_theme(&body.toml).map_err(
+            |error| {
+                let message = error.message();
+                if message.starts_with("chat_background") {
+                    theme_save_error(StatusCode::BAD_REQUEST, "invalid_chat_background", message)
+                } else {
+                    theme_save_error(
+                        StatusCode::BAD_REQUEST,
+                        "invalid_theme_toml",
+                        "Invalid theme TOML",
+                    )
+                }
+            },
+        )?;
+        let dir = codeterm_service_core::config::schema::user_themes_dir().ok_or_else(|| {
+            theme_save_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to create themes dir",
+                "theme_storage_failed",
+                "Cannot determine themes directory",
             )
         })?;
         let path = dir.join(format!("{}.toml", body.id));
-        std::fs::write(&path, &body.toml).map_err(|_| {
-            (
+        codeterm_util::atomic_write::write_atomic(&path, body.toml.as_bytes()).map_err(|_| {
+            theme_save_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
+                "theme_storage_failed",
                 "Failed to write theme file",
             )
         })?;
@@ -74,7 +89,24 @@ pub async fn save_theme_api(
         ))
     })
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Theme operation failed"))?
+    .map_err(|_| {
+        theme_save_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "theme_storage_failed",
+            "Theme operation failed",
+        )
+    })?
+}
+
+fn theme_save_error(
+    status: StatusCode,
+    code: &'static str,
+    message: &str,
+) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        status,
+        Json(serde_json::json!({ "code": code, "message": message })),
+    )
 }
 
 pub async fn delete_theme_api(

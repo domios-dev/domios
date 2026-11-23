@@ -368,6 +368,7 @@ fn apply_theme_with_overrides(
 
     ThemeConfig {
         name: user.name.clone(),
+        chat_background: pick!(chat_background),
         background: pick!(background),
         foreground: pick!(foreground),
         cursor: pick!(cursor),

@@ -1,5 +1,8 @@
 use ts_rs::TS;
+mod chat_background;
 mod digests;
+
+pub use chat_background::{ChatBackground, ChatGradient, ChatGradientKind, ChatIcon, ChatPattern};
 pub use digests::{
     default_digest_rules, DigestCondition, DigestRuleConfig, OrchestrationDigestsConfig,
 };
@@ -239,6 +242,12 @@ pub struct ThemeConfig {
     pub bright_magenta: String,
     pub bright_cyan: String,
     pub bright_white: String,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "chat_background::deserialize"
+    )]
+    #[ts(optional)]
+    pub chat_background: Option<ChatBackground>,
 }
 
 impl Default for ThemeConfig {
@@ -265,6 +274,7 @@ impl Default for ThemeConfig {
             bright_magenta: "#d2a8ff".to_string(),
             bright_cyan: "#56d364".to_string(),
             bright_white: "#f0f6fc".to_string(),
+            chat_background: None,
         }
     }
 }
