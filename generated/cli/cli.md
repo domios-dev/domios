@@ -4581,6 +4581,21 @@ Re-read usage from the provider's own quota-free source (never spends quota)
 - `--account-id`
 - `--provider`
 
+#### `domios wallpaper`
+
+Per-machine chat wallpaper
+
+#### `domios wallpaper clear`
+
+Restore the active theme's wallpaper on this machine
+
+#### `domios wallpaper set`
+
+Apply a static SVG to this machine or submit an owner-requested General draft
+
+- `--from-pad` — Read the SVG from your current agent pad, or use - for stdin
+- `--request` — Single-use request ID supplied to the target machine's General Agent
+
 #### `domios web`
 
 Web mirror helpers (share links, etc.)

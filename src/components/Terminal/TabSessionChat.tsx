@@ -9,6 +9,7 @@ import { accountNoticeRows } from "./accountNoticeRows";
 import { isConciergeTab, isInputBlockedTab } from "../../lib/tabInputPolicy";
 import { ConciergeChatHint } from "../Neighbors/ConciergeChatHint";
 import { ChatComposerSurface } from "./ChatComposerSurface";
+import { ChatWallpaperBackdrop } from "./ChatWallpaperBackdrop";
 import { useTabLock } from "../billing/useTabLock";
 import { ChildTranscriptScope } from "./ChildTranscriptScope";
 import { chatLayoutTokens } from "./chatLayoutTokens";
@@ -933,6 +934,7 @@ function TabSessionChatBody({
         </div>
       )}
       <div className="relative flex-1 min-h-0">
+      <ChatWallpaperBackdrop />
       {signInState && signIn === "center" && (
         <div className="absolute inset-0 z-10 flex items-center justify-center overflow-y-auto p-4" data-testid="chat-sign-in">
           <AccountRuntimeLoginActions tab={tab} key={`${tabId}:${signInState.epoch}`} variant="center" tabId={tabId} state={signInState}

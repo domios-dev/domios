@@ -25,6 +25,7 @@ import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
 import { ShellProfilesCard } from "./ShellProfilesCard";
 import { BrowserUploadFolders } from "./BrowserUploadFolders";
+import { ChatWallpaperPicker } from "./ChatWallpaperPicker";
 import { EmbedderCard } from "./embedder/EmbedderCard";
 import { GeneralAgentCard } from "./GeneralAgentCard";
 import { NotificationsOverview } from "./NotificationsTab";
@@ -337,6 +338,9 @@ export function SettingsPanel({
                   />
                 </SettingsCard>
 
+                <SettingsCardAnchor id="chat-wallpaper" focused={top.card === "chat-wallpaper"}>
+                  <ChatWallpaperPicker config={localConfig} showOwnInitially={top.card === "chat-wallpaper"} />
+                </SettingsCardAnchor>
                 <GeneralAgentCard config={localConfig} onUpdate={update} onSwitchProvider={switchGeneralProvider} onOpenGuide={(helpSection) => push({ kind: "section", id: "guide", helpSection })} />
 
                 <SettingsCardAnchor id="telegram-bridge" focused={top.card === "telegram-bridge"}>

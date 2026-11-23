@@ -33,14 +33,23 @@ A custom theme is a TOML file with `name` plus 20 color fields: `background`, `f
 
 ### Chat background
 
-Every theme uses faint foreground-colored dots behind the transcript by default. Add an optional `[chat_background]` table to customize the backdrop. The terminal, composer and sidebar keep their own surfaces. High-contrast and print modes show a solid transcript background.
+Settings > General > Chat wallpaper applies to chats on the current machine. The machine's saved wallpaper takes precedence over the active theme's optional `[chat_background]` table. With neither set, chat shows faint foreground-colored dots. The terminal, composer and sidebar keep their own surfaces. High-contrast and print modes show a solid transcript background.
+
+Use `domios wallpaper clear` to restore the active theme's wallpaper. An owner can apply static SVG from a pad with `domios wallpaper set --from-pad tile.svg`, or use `--from-pad -` to read SVG from stdin. During an Ask General request, use the supplied request ID from the target machine's General session:
+
+```sh
+domios wallpaper set --request REQUEST_ID --from-pad tile.svg
+```
+
+The request applies one sanitized tile to that machine, provided its wallpaper setting has stayed the same. Undo in the picker restores the previous wallpaper. To author a complete theme, continue to use `domios theme save`.
 
 | Field | Values |
 |---|---|
-| `pattern` | `dots` (default), `none`, `grid`, `icon`, `svg`, or the bundled Domios `doodles` |
-| `scale` | Tile spacing in whole pixels, from 8 to 512. Defaults to 20, or 360 for `doodles` |
-| `opacity` | Pattern opacity from 0 to 1. Defaults are 0.07 in light themes and 0.05 in dark themes, or 0.09 and 0.085 for `doodles`. Domios displays up to 0.12 to keep the transcript readable |
+| `pattern` | `dots` (default), `none`, `grid`, `icon`, `svg`, or the bundled patterns `domios`, `doodles`, `space`, `math`, `botanical`, `retro`, `geometry`, `sketch`, and `circuits` |
+| `scale` | Tile spacing in whole pixels, from 8 to 512. Defaults to 20 for dots and 360 for bundled artwork |
+| `opacity` | Pattern opacity from 0 to 1. Dots default to 0.07 in light themes and 0.05 in dark themes. Domios displays pattern opacity up to 0.24 |
 | `color` | `"#rrggbb"` color, derived from the theme foreground when omitted |
+| `colors` | One to three `"#rrggbb"` stroke colors, used in place of `color` when supplied |
 | `rotation` | Artwork or grid rotation from −360 to 360 degrees |
 | `icon` | `cat` (default), `diamond`, or `star` when using `pattern = "icon"` |
 | `svg` | Inline SVG string when using `pattern = "svg"`. Use a `viewBox`, static shapes or paths, and optional static transforms. SVG is limited to 64 KiB before and after sanitization and rejects scripts, styles, animation, external references and `url()` |
@@ -273,4 +282,4 @@ librarian_enabled = true
 
 There is no per-session config: each provider owns where its sessions live. The `domios sessions` commands and `/api/sessions/*` find and resume them; `domios docs API-STATE` has the contract.
 
-<!-- revision: 36 -->
+<!-- revision: 37 -->

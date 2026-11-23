@@ -20,7 +20,7 @@ use super::integration::IntegrationAction;
 use super::mem::MemAction;
 use super::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
-    WorkspaceAction,
+    WallpaperAction, WorkspaceAction,
 };
 use super::orchestrator::OrchestratorAction;
 use super::pad::PadAction;
@@ -331,6 +331,12 @@ pub enum Commands {
     Theme {
         #[command(subcommand)]
         action: ThemeAction,
+    },
+
+    /// Per-machine chat wallpaper
+    Wallpaper {
+        #[command(subcommand)]
+        action: WallpaperAction,
     },
 
     /// Plugin surface tabs: app tabs whose content a plugin view renders

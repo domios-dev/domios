@@ -71,7 +71,7 @@ for (const [theme, opacity] of [[lightTheme, 7], [DEFAULT_THEME, 5]] as const) {
     decoded.includes('<path d="M5 10')
       && decoded.includes('rotate(-12 24 24)')
       && decoded.includes('color="#5359a8"')
-      && decoded.includes('opacity="0.12"'));
+      && decoded.includes('opacity="0.24"'));
   assert("a subdued gradient paints below the tile", backdrop.startsWith('url("data:image/svg+xml,')
     && backdrop.endsWith("linear-gradient(35deg, color-mix(in srgb, #5359a8 8%, transparent), color-mix(in srgb, #419a80 8%, transparent)) no-repeat"));
 

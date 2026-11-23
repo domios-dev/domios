@@ -24,6 +24,7 @@ import { Sidebar } from "./components/Sidebar/Sidebar";
 import { SidebarDrawer } from "./components/Sidebar/SidebarDrawer";
 import { NewSessionPickerHost } from "./components/Terminal/NewSessionPickerHost";
 import { TabContent } from "./components/Terminal/TabContent";
+import { ChatWallpaperContext, useChatWallpaperBackdrop } from "./components/Terminal/ChatWallpaperBackdrop";
 import { LiveTranscriptHost } from "./components/Terminal/LiveTranscriptPanel";
 import { useLiveTranscriptHost } from "./components/Terminal/useLiveTranscriptPanel";
 import { LocalRecordingCaptureStatus } from "./components/Terminal/voice/LocalRecordingCaptureStatus";
@@ -89,6 +90,8 @@ import { paletteTabTargets } from "./components/CommandPalette/paletteTabs";
 import { forwardTerminalFallback } from "./lib/terminalFallbackInput";
 import { writeTerminalInput } from "./hooks/terminal/terminalInputWrite";
 import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
+import { MachineAppearanceContext, useMachineAppearance, useWallpaperAsset } from "./lib/useMachineAppearance";
+import { wallpaperRenderStyle } from "./lib/chatWallpaper";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 import { DEV_BUILD } from "./lib/devBuild";
 import { FreeLimitPlansModal } from "./components/billing/FreeLimitPlansModal";
@@ -166,7 +169,8 @@ function AppInner() {
   const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
   const backendState = useMuxSelector(selectWholeState, appShellStateEqual);
   const transcriptOwner = useLiveTranscriptHost()?.ownerId;
-  const { config, updateConfig, theme, loading: configLoading } = useConfig();
+  const { config, updateConfig, ready: configReady, loading: configLoading } = useConfig();
+  const machineAppearance = useMachineAppearance(config, configReady);
   const locked = firstRunLocked(configLoading ? undefined : config.general_agent);
   const state = firstRunSelection(locked, backendState);
   const interfaceReady = !configLoading && (initialRouteReady(state.generation) || state.storageUnavailable);
@@ -241,7 +245,10 @@ function AppInner() {
       return open ? "extensions" : "workspace";
     });
   }, []);
-  const stableTheme = useStableJsonValue(theme);
+  const incomingTheme = useStableJsonValue(machineAppearance.appearance.theme);
+  const [previousTheme, setPreviousTheme] = useState(incomingTheme);
+  if (machineAppearance.ready && incomingTheme !== previousTheme) setPreviousTheme(incomingTheme);
+  const stableTheme = machineAppearance.ready ? incomingTheme : previousTheme;
   const stableFontConfig = useStableJsonValue(config.font);
   const stableTerminalConfig = useStableJsonValue(config.terminal);
   const stableApiConfig = useStableJsonValue(config.api);
@@ -734,6 +741,16 @@ function AppInner() {
   }, []);
 
   const themeStyles = useMemo(() => themeToCSS(stableTheme), [stableTheme]);
+  const wallpaper = useStableJsonValue(machineAppearance.appearance.wallpaper ?? undefined);
+  const wallAsset = useWallpaperAsset(machineAppearance.peerId, machineAppearance.ready ? wallpaper?.asset : undefined);
+  const identityColor = machineAppearance.identity?.color;
+  const wallpaperStyle = useMemo(() => ({
+    "--ct-bg": stableTheme.background,
+    "--ct-fg": stableTheme.foreground,
+    ...wallpaperRenderStyle(stableTheme, wallpaper, isLightColor(stableTheme.background), wallAsset?.url, identityColor),
+  } as React.CSSProperties), [stableTheme, wallpaper, wallAsset?.url, identityColor]);
+  const backdrop = useChatWallpaperBackdrop(machineAppearance.peerId ?? "local", machineAppearance.ready, wallpaperStyle, wallAsset);
+  const backdropKey = backdrop.layers[backdrop.layers.length - 1].key;
   const isCRT = stableTheme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy";
 
   // Set color-scheme + theme vars on documentElement so portals (modals, popups rendered into document.body via createPortal) inherit them.
@@ -752,9 +769,13 @@ function AppInner() {
   return (
     <GuideNavigationProvider sections={GUIDE_SECTIONS} onOpen={openGuide}>
     <ChatBlockHostProvider value={appChatBlockHost}>
+    <MachineAppearanceContext.Provider value={machineAppearance}>
+    <ChatWallpaperContext.Provider value={backdrop}>
     <PluginConsentDialog />
     <div
       className={`flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
+      data-chat-wallpaper-shell
+      data-switching={backdrop.switching || undefined}
       style={{
         ...themeStyles,
         backgroundColor: stableTheme.background,
@@ -767,6 +788,9 @@ function AppInner() {
           : "calc(0.5rem + var(--ct-safe-bottom, 0px))",
       } as React.CSSProperties}
     >
+      {backdrop.switching && <span aria-hidden="true" key={backdropKey}
+        className="ct-wallpaper-transition-end"
+        onAnimationEnd={() => backdrop.finishSwitch(backdropKey)} />}
       {/* Native + web mirror share one titlebar strip (parity decision A) — its
           own --ct-safe-top padding covers the web notch/status-bar inset. */}
       <Titlebar
@@ -1062,6 +1086,8 @@ function AppInner() {
       <UpdateProgressLayer />
       <FreeLimitPlansModal />
     </div>
+    </ChatWallpaperContext.Provider>
+    </MachineAppearanceContext.Provider>
     </ChatBlockHostProvider>
     </GuideNavigationProvider>
   );

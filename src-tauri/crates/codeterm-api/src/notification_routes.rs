@@ -274,15 +274,24 @@ async fn blocking_answer(
 
 #[derive(Deserialize)]
 pub struct ServeFileQuery {
-    path: String,
+    path: Option<String>,
+    wallpaper: Option<String>,
+    #[serde(default)]
+    encoded: bool,
 }
 
-pub async fn serve_file(
+pub(super) async fn serve_file(
     AxumState(_state): AxumState<AppState>,
-    _headers: HeaderMap,
+    Extension(origin): Extension<crate::auth::AuthenticatedOrigin>,
+    Extension(wallpapers): Extension<std::sync::Arc<super::wallpaper_routes::WallpaperAssets>>,
     Query(query): Query<ServeFileQuery>,
 ) -> Result<axum::response::Response, (StatusCode, &'static str)> {
-    tokio::task::spawn_blocking(move || serve_file_blocking(query))
+    let path = match (query.path, query.wallpaper) {
+        (None, Some(id)) => return wallpapers.serve(origin, id, query.encoded).await,
+        (Some(path), None) if !query.encoded => path,
+        _ => return Err((StatusCode::BAD_REQUEST, "Specify one file source")),
+    };
+    tokio::task::spawn_blocking(move || serve_file_blocking(&path))
         .await
         .map_err(|_| {
             (
@@ -292,16 +301,19 @@ pub async fn serve_file(
         })?
 }
 
-fn serve_file_blocking(
-    query: ServeFileQuery,
-) -> Result<axum::response::Response, (StatusCode, &'static str)> {
+fn serve_file_blocking(path: &str) -> Result<axum::response::Response, (StatusCode, &'static str)> {
     // path, so comparing against the plain data_dir() always failed the prefix check (every request 403'd).
-    let requested = std::path::Path::new(&query.path)
+    let requested = std::path::Path::new(path)
         .canonicalize()
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid path"))?;
     let data_dir = codeterm_service_core::paths::data_dir();
     let allowed_prefix = data_dir.canonicalize().unwrap_or(data_dir);
-    if !requested.starts_with(&allowed_prefix) {
+    if !requested.starts_with(&allowed_prefix)
+        || codeterm_service_core::service::chat_wallpaper::is_wallpaper_asset_path(
+            &allowed_prefix,
+            &requested,
+        )
+    {
         return Err((StatusCode::FORBIDDEN, "Path not allowed"));
     }
 

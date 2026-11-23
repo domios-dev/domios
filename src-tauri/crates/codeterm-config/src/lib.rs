@@ -465,6 +465,7 @@ fn commit_config(
             preserve_browser_blueprint_grants(&mut config, &current);
         }
         config.api.token = current.api.token.clone();
+        config.chat_wallpaper = current.chat_wallpaper.clone();
         // Account actions own this policy; an unrelated stale settings snapshot cannot restore it.
         for (provider, incoming) in &mut config.agents {
             incoming.accounts = current

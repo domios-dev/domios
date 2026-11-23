@@ -74,6 +74,34 @@ fn read_file_or_stdin_with(
 }
 
 pub(crate) fn read_from_pad_root(root: &Path, relative: &str) -> Result<String, String> {
+    fs::read_to_string(pad_file(root, relative)?)
+        .map_err(|e| format!("read --from-pad as UTF-8: {e}"))
+}
+
+pub(crate) fn read_bounded_from_pad(relative: &str, limit: usize) -> Result<String, String> {
+    let mut bytes = Vec::new();
+    let read = |reader: &mut dyn Read, bytes: &mut Vec<u8>| {
+        reader
+            .take(limit as u64 + 1)
+            .read_to_end(bytes)
+            .map_err(|e| format!("read --from-pad: {e}"))
+    };
+    if relative == "-" {
+        read(&mut std::io::stdin().lock(), &mut bytes)?;
+    } else {
+        let file = pad_file(&current_pad()?, relative)?;
+        read(
+            &mut fs::File::open(file).map_err(|e| format!("open --from-pad: {e}"))?,
+            &mut bytes,
+        )?;
+    }
+    if bytes.len() > limit {
+        return Err(format!("--from-pad content exceeds {limit} bytes"));
+    }
+    String::from_utf8(bytes).map_err(|e| format!("read --from-pad as UTF-8: {e}"))
+}
+
+fn pad_file(root: &Path, relative: &str) -> Result<PathBuf, String> {
     let relative = Path::new(relative);
     if relative.as_os_str().is_empty()
         || relative
@@ -102,7 +130,7 @@ pub(crate) fn read_from_pad_root(root: &Path, relative: &str) -> Result<String, 
     {
         return Err("--from-pad source must be a regular file".into());
     }
-    fs::read_to_string(file).map_err(|e| format!("read --from-pad as UTF-8: {e}"))
+    Ok(file)
 }
 
 /// Pre-flight for an argv report body, run before the first socket call so a

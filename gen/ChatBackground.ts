@@ -3,4 +3,4 @@ import type { ChatGradient } from "./ChatGradient";
 import type { ChatIcon } from "./ChatIcon";
 import type { ChatPattern } from "./ChatPattern";
 
-export type ChatBackground = { pattern: ChatPattern, scale?: number, opacity?: number, color?: string, rotation?: number, icon?: ChatIcon, svg?: string, gradient?: ChatGradient, };
+export type ChatBackground = { pattern: ChatPattern, scale?: number, opacity?: number, color?: string, colors?: Array<string>, rotation?: number, icon?: ChatIcon, svg?: string, gradient?: ChatGradient, };

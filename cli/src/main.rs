@@ -102,7 +102,7 @@ pub use args::mem::{
 };
 pub use args::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
-    WebAction, WorkspaceAction,
+    WallpaperAction, WebAction, WorkspaceAction,
 };
 pub use args::pad::PadAction;
 pub use args::plan::PlanAction;
@@ -652,6 +652,11 @@ fn main_impl() {
 
         Commands::Theme { action } => {
             cmd::theme::handle_theme(cli.json, action);
+            return;
+        }
+
+        Commands::Wallpaper { action } => {
+            cmd::wallpaper::handle(cli.json, &action);
             return;
         }
 

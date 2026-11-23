@@ -597,6 +597,21 @@ pub enum ThemeAction {
 }
 
 #[derive(Subcommand)]
+pub enum WallpaperAction {
+    /// Apply a static SVG to this machine or submit an owner-requested General draft
+    Set {
+        /// Read the SVG from your current agent pad, or use - for stdin
+        #[arg(long, value_name = "PATH")]
+        from_pad: String,
+        /// Single-use request ID supplied to the target machine's General Agent
+        #[arg(long, value_name = "ID")]
+        request: Option<uuid::Uuid>,
+    },
+    /// Restore the active theme's wallpaper on this machine
+    Clear,
+}
+
+#[derive(Subcommand)]
 pub enum BridgeAction {
     /// Start or restart messaging bridge (Telegram, etc.)
     Restart,
