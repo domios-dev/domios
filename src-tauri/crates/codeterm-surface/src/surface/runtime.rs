@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,6 +12,7 @@ use serde_json::Value;
 use super::model::SurfaceError;
 use codeterm_browser::screencast::ScreencastFrame;
 use codeterm_browser::viewport::ViewportRequest;
+use codeterm_browser::BrowserStatus;
 
 pub use codeterm_wire::api_contracts::SurfaceState;
 
@@ -142,6 +144,10 @@ pub trait SurfaceRuntime: Send + Sync {
     fn resume_updates(&self) -> Option<tokio::sync::watch::Receiver<SurfaceResume>> {
         None
     }
+    fn browser_status(&self) -> BrowserStatus {
+        BrowserStatus::Closed
+    }
+    fn retire(&self) {}
     async fn dispose(&self);
     async fn close(&self) -> Result<(), SurfaceError> {
         self.dispose().await;
@@ -222,6 +228,7 @@ pub struct SurfaceRuntimeRegistry {
     factories: HashMap<String, Arc<dyn SurfaceRuntimeFactory>>,
     instances: Mutex<HashMap<String, Instance>>,
     browser: Option<Arc<super::browser::BrowserRuntimeFactory>>,
+    stopping: AtomicBool,
 }
 
 impl SurfaceRuntimeRegistry {
@@ -230,6 +237,7 @@ impl SurfaceRuntimeRegistry {
             factories,
             instances: Mutex::new(HashMap::new()),
             browser: None,
+            stopping: AtomicBool::new(false),
         }
     }
 
@@ -249,6 +257,20 @@ impl SurfaceRuntimeRegistry {
     ) -> Result<super::NamedPageResult, String> {
         let browser = self.browser.as_ref().ok_or("Browser runtime unavailable")?;
         Ok(browser.read_named_page(read).await)
+    }
+
+    pub async fn sweep_browsers(&self) {
+        if let Some(browser) = &self.browser {
+            browser.sweep().await;
+        }
+    }
+
+    pub fn browser_status(&self, tab_id: &str) -> BrowserStatus {
+        self.instances
+            .lock()
+            .get(tab_id)
+            .map(|instance| instance.runtime.browser_status())
+            .unwrap_or(BrowserStatus::Closed)
     }
 
     pub fn runtime_names(&self) -> Vec<String> {
@@ -271,6 +293,11 @@ impl SurfaceRuntimeRegistry {
             .get(runtime_name)
             .ok_or_else(|| SurfaceError::RuntimeUnavailable(runtime_name.to_string()))?;
         let mut instances = self.instances.lock();
+        if self.stopping.load(Ordering::Acquire) {
+            return Err(SurfaceError::Placement(
+                "surface runtimes are stopping".into(),
+            ));
+        }
         if let Some(instance) = instances
             .get(tab_id)
             .filter(|instance| instance.runtime_name == runtime_name)
@@ -290,10 +317,14 @@ impl SurfaceRuntimeRegistry {
 
     /// Removes every instance; the caller disposes what it gets back.
     pub fn take_all(&self) -> Vec<Arc<dyn SurfaceRuntime>> {
+        self.stopping.store(true, Ordering::Release);
         self.instances
             .lock()
             .drain()
-            .map(|(_, instance)| instance.runtime)
+            .map(|(_, instance)| {
+                instance.runtime.retire();
+                instance.runtime
+            })
             .collect()
     }
 
@@ -307,7 +338,10 @@ impl SurfaceRuntimeRegistry {
         let mut instances = self.instances.lock();
         dead.iter()
             .filter_map(|id| instances.remove(id))
-            .map(|instance| instance.runtime)
+            .map(|instance| {
+                instance.runtime.retire();
+                instance.runtime
+            })
             .collect()
     }
 }

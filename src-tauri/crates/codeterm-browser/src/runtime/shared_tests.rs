@@ -309,6 +309,53 @@ async fn two_surfaces_share_connection_with_distinct_targets_frames_and_input() 
 }
 
 #[tokio::test]
+async fn already_closed_target_does_not_stop_another_owners_browser() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("profile");
+    let connection = FakeConnection::new();
+    let launches = Arc::new(AtomicUsize::new(0));
+    let first = acquire(dir.clone(), connection.clone(), launches.clone()).await;
+    let second = acquire(dir, connection.clone(), launches).await;
+    let first = Arc::new(from_lease(first, Viewport::default(), hub()).await.unwrap());
+    let second = Arc::new(
+        from_lease(second, Viewport::default(), hub())
+            .await
+            .unwrap(),
+    );
+    assert!(connection
+        .state
+        .lock()
+        .targets
+        .remove(first.page.target_id()));
+    stop(first).await;
+    assert_eq!(connection.count("Browser.close"), 0);
+    assert!(second.is_alive());
+    stop(second).await;
+    assert_eq!(connection.count("Browser.close"), 1);
+}
+
+#[tokio::test]
+async fn browser_status_observes_connection_loss_with_its_reason() {
+    let root = tempfile::tempdir().unwrap();
+    let connection = FakeConnection::new();
+    let lease = acquire(
+        root.path().join("profile"),
+        connection.clone(),
+        Arc::new(AtomicUsize::new(0)),
+    )
+    .await;
+    let host = crate::BrowserHost::new(crate::BrowserHostConfig::under_data_dir(root.path()));
+    host.install(from_lease(lease, Viewport::default(), hub()).await.unwrap());
+    assert_eq!(host.status(), crate::BrowserStatus::Running);
+    connection.close("fixture Chromium connection ended");
+    assert_eq!(
+        host.status(),
+        crate::BrowserStatus::Error("fixture Chromium connection ended".into())
+    );
+    host.close().await;
+}
+
+#[tokio::test]
 async fn crash_retires_all_old_leases_and_relaunch_survives_stale_close() {
     let dir = PathBuf::from(format!("/fake-profile/{}", uuid::Uuid::new_v4()));
     let dead = FakeConnection::new();

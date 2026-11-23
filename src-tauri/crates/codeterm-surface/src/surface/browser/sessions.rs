@@ -59,6 +59,7 @@ pub(super) fn parse(args: &[String]) -> Result<SessionArgs, String> {
 impl BrowserRuntime {
     pub(super) async fn open_session(&self, args: &[String]) -> Result<String, String> {
         let args = parse(args)?;
+        super::sweep_browsers(&self.swept, self.layout.clone()).await;
         if let Some(build) = &args.build {
             check_build(&args.origin, build).await?;
         }

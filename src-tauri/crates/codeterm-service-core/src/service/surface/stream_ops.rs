@@ -55,6 +55,11 @@ pub(crate) fn stream_binding(
         .then(|| super::resume::backing_resume(surface))
         .flatten();
     let owner_tab_id = tab.parent_tab_id.clone();
+    if let Some(owner) = owner_tab_id.as_deref() {
+        if mux.get_tab(owner).is_none() {
+            return Err(SurfaceError::OwnerNotFound(owner.to_string()));
+        }
+    }
     let owner_name = owner_tab_id
         .as_deref()
         .and_then(|owner| mux.get_tab(owner))
@@ -94,30 +99,31 @@ impl ServiceContext {
         &self,
         raw_tab_id: &str,
     ) -> Result<(Arc<dyn SurfaceRuntime>, StreamBinding), SurfaceError> {
-        let binding = {
+        let (binding, runtime, created) = {
             let mux = self.mux.read();
-            stream_binding(&mux, raw_tab_id, |plugin_id| {
+            let binding = stream_binding(&mux, raw_tab_id, |plugin_id| {
                 self.ext::<codeterm_plugin::surfaces::SurfaceRegistryHandle>()
                     .get(plugin_id)
                     .map(|declared| declared.to_vec())
-            })?
+            })?;
+            let owner_scope = binding.owner_tab_id.clone().unwrap_or_else(|| {
+                format!(
+                    "workspace_{}",
+                    mux.find_workspace_for_tab(&binding.tab_id)
+                        .unwrap_or_default()
+                )
+            });
+            let (runtime, created) = self
+                .ext::<Arc<crate::service::surface::SurfaceRuntimeRegistry>>()
+                .get_or_create(
+                    &binding.tab_id,
+                    &binding.runtime,
+                    &binding.owner_name,
+                    &owner_scope,
+                    binding.resume.clone(),
+                )?;
+            (binding, runtime, created)
         };
-        let (runtime, created) = self
-            .ext::<Arc<crate::service::surface::SurfaceRuntimeRegistry>>()
-            .get_or_create(
-                &binding.tab_id,
-                &binding.runtime,
-                &binding.owner_name,
-                &binding.owner_tab_id.clone().unwrap_or_else(|| {
-                    let mux = self.mux.read();
-                    format!(
-                        "workspace_{}",
-                        mux.find_workspace_for_tab(&binding.tab_id)
-                            .unwrap_or_default()
-                    )
-                }),
-                binding.resume.clone(),
-            )?;
         runtime.set_owner_name(&binding.owner_name);
         if created && binding.relaunch {
             if let Some(updates) = runtime.resume_updates() {
