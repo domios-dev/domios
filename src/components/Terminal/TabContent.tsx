@@ -40,8 +40,6 @@ import { usePanelInputBoundary } from "./usePanelInputBoundary";
 import { useTabLock } from "../billing/useTabLock";
 import { LockBadge, LockedOverlay } from "../billing/LockBadge";
 import { openLockedPlans } from "../billing/freeLimitGate";
-import { useLiveTranscriptHost } from "./useLiveTranscriptPanel";
-import { directTranscriptAvailable } from "../../lib/transport/liveTranscript";
 
 interface TabContentProps {
   tab: Tab | undefined;
@@ -74,7 +72,6 @@ export function TabContent({
   isVisible,
   api,
 }: TabContentProps) {
-  const transcript = useLiveTranscriptHost();
   if (tab?.remote_peer_id) configureRemoteTabTransport(api);
   const lock = useTabLock(tab);
   const uiMode = useCurrentTabUiMode(tab?.id);
@@ -202,9 +199,6 @@ export function TabContent({
           watcherLastStatus={tab.watcher?.last_status ?? null}
           tabMenu={headerTabMenu ?? undefined}
           isActive={isVisible}
-          onOpenTranscript={transcript && isVisible && !tab.hidden && tab.show_in_tabbar !== false &&
-            !tab.locked && !tab.remote_peer_id && !tab.ownership && !tab.neighbor_authority && directTranscriptAvailable()
-            ? () => transcript.open(tab.id) : undefined}
         />
         <div className="relative flex min-h-0 flex-1 flex-col" style={{ background: theme.background }}>
           <div data-testid="session-status-row" className="flex max-h-[40%] shrink-0 flex-col overflow-y-auto">
