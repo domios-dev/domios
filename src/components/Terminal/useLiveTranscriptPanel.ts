@@ -151,12 +151,12 @@ export function useLiveTranscriptPanel({ api, show, log, captureRevision, captur
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (el && follow.current && !log) el.scrollTop = el.scrollHeight;
-  }, [history, log, show, captureRevision]);
+  }, [history, overview, log, show, captureRevision]);
 
   function onScroll() {
     const el = scrollRef.current;
     if (!el || log) return;
-    const following = el.scrollHeight - el.clientHeight - el.scrollTop < 24;
+    const following = el.scrollHeight - el.clientHeight - el.scrollTop <= 1;
     if (following === follow.current) return;
     follow.current = following;
     if (following) {
