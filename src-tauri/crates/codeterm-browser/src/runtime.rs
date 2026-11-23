@@ -349,7 +349,11 @@ async fn prepare_target(
             while let Some(event) = attached.recv().await {
                 if event.params.get("sessionId").and_then(Value::as_str) == Some(page.session_id())
                 {
-                    return Ok(());
+                    return if event.params["targetInfo"]["targetId"].as_str() == Some(target_id) {
+                        Ok(())
+                    } else {
+                        Err("CDP session was attached to a different target")
+                    };
                 }
             }
             Err("CDP closed before target attachment was observed")

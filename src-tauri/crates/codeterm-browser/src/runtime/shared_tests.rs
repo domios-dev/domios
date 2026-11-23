@@ -18,6 +18,7 @@ struct FakeConnection {
     state: Mutex<FakeState>,
     closed: watch::Sender<Option<String>>,
     fail_metrics: std::sync::atomic::AtomicBool,
+    attach_to: Mutex<Option<String>>,
 }
 
 impl FakeConnection {
@@ -26,6 +27,7 @@ impl FakeConnection {
             state: Mutex::new(FakeState::default()),
             closed: watch::channel(None).0,
             fail_metrics: std::sync::atomic::AtomicBool::new(false),
+            attach_to: Mutex::new(None),
         })
     }
 
@@ -124,14 +126,19 @@ impl CdpConnection for FakeConnection {
             "Target.attachToTarget" => {
                 let target = params["targetId"].as_str().unwrap();
                 let session = format!("S{target}");
+                let attached = self
+                    .attach_to
+                    .lock()
+                    .take()
+                    .unwrap_or_else(|| target.into());
                 self.state
                     .lock()
                     .sessions
-                    .insert(session.clone(), target.into());
+                    .insert(session.clone(), attached.clone());
                 self.emit(
                     "Target.attachedToTarget",
                     None,
-                    json!({ "sessionId": session, "targetInfo": { "targetId": target } }),
+                    json!({ "sessionId": session, "targetInfo": { "targetId": attached } }),
                 );
                 Ok(json!({ "sessionId": session }))
             }
@@ -306,6 +313,37 @@ async fn two_surfaces_share_connection_with_distinct_targets_frames_and_input() 
         assert!(connection.closed.borrow().is_some());
         assert!(!ProfileLease::leased_dirs().contains(&dir));
     }
+}
+
+#[tokio::test]
+async fn mismatched_attachment_cannot_stream_another_surfaces_target() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("profile");
+    let connection = FakeConnection::new();
+    let launches = Arc::new(AtomicUsize::new(0));
+    let first = acquire(dir.clone(), connection.clone(), launches.clone()).await;
+    let first = Arc::new(from_lease(first, Viewport::default(), hub()).await.unwrap());
+    let second = acquire(dir, connection.clone(), launches).await;
+    *connection.attach_to.lock() = Some(first.page.target_id().to_string());
+    let other_frames = hub();
+
+    let refused = from_lease(second, Viewport::default(), other_frames.clone()).await;
+
+    assert_eq!(
+        refused.err().as_deref(),
+        Some("CDP session was attached to a different target")
+    );
+    assert!(other_frames.latest().is_none());
+    assert_eq!(
+        connection.params("Target.closeTarget"),
+        vec![json!({ "targetId": "T2" })]
+    );
+    first
+        .page
+        .send("Page.getNavigationHistory", json!({}))
+        .await
+        .unwrap();
+    stop(first).await;
 }
 
 #[tokio::test]

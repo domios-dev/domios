@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { isWorkspaceTabActive } from "../../components/Sidebar/sidebarSelection";
+import type { MultiplexerState, Tab } from "../../lib/types";
+import { buildInitialState } from "./initialState";
+import { reducer } from "./reducer";
+import type { ExtendedState } from "./tree";
 import { acceptsPageFocus, initialPageSelection, initialRouteReady, reconcilePageSelection } from "./pageSelection";
 import { mountedChatWindow } from "../../components/Terminal/chatMountedWindow";
 
@@ -74,5 +79,85 @@ describe("page selection during daemon updates", () => {
       .toEqual({ ...incoming, focused_tab_id: "shell" });
     expect(reconcilePageSelection(previous, incoming, workspaces, false)).toBe(incoming);
     expect(acceptsPageFocus(previous, "audit", false)).toBe(true);
+  });
+});
+
+function tab(id: string): Tab {
+  return { id, title: id, pty_id: null, cwd: null, tab_type: "Terminal" };
+}
+
+function surface(id: string, parent_tab_id: string | null): Tab {
+  return {
+    ...tab(id),
+    parent_tab_id,
+    backing: { kind: "surface", plugin_id: "browser", surface_id: "browser", instance_id: id, owner_label: true },
+  };
+}
+
+function fixture(owner: Tab | null): MultiplexerState {
+  const tabs = { ...(owner ? { [owner.id]: owner } : {}), a: surface("a", owner?.id ?? null), b: surface("b", null) };
+  return {
+    generation: 1,
+    active_workspace_id: "w",
+    focused_tab_id: "a",
+    workspaces: [{ id: "w", name: "W", tabs: Object.keys(tabs), active_tab_id: "a", cwd: null }],
+    tabs,
+  };
+}
+
+function start(snapshot: MultiplexerState): ExtendedState {
+  return reducer(buildInitialState(), { type: "SET_STATE", state: snapshot, pageOwnedSelection: true });
+}
+
+function close(state: ExtendedState, tabId: string): ExtendedState {
+  return reducer(state, { type: "CLOSE_TAB", workspaceId: "w", tabId, removedTabIds: [tabId] });
+}
+
+function acknowledge(state: ExtendedState, activeTabId: string | null): ExtendedState {
+  const { a: _closed, ...tabs } = state.tabs;
+  return reducer(state, {
+    type: "SET_STATE",
+    pageOwnedSelection: true,
+    state: {
+      generation: 2,
+      active_workspace_id: "w",
+      focused_tab_id: activeTabId,
+      tabs,
+      workspaces: [{ ...state.workspaces[0], active_tab_id: activeTabId, tabs: Object.keys(tabs) }],
+    },
+  });
+}
+
+function expectSelection(state: ExtendedState, tabId: string | undefined) {
+  const active = state.activeTabIds.w;
+  const sidebar = state.workspaces[0].tabs.filter((id) => isWorkspaceTabActive(true, false, id, active));
+  expect(active).toBe(tabId);
+  expect(sidebar).toEqual(tabId ? [tabId] : []);
+  expect(state.tabs.b?.backing?.kind).toBe("surface");
+}
+
+describe("browser selection after close", () => {
+  it("selects the live owner at optimistic close and keeps it at acknowledgement", () => {
+    const closed = close(start(fixture(tab("owner"))), "a");
+    expectSelection(closed, "owner");
+    expectSelection(acknowledge(closed, "owner"), "owner");
+  });
+
+  it("uses the local survivor when another page was focused on a different browser", () => {
+    expectSelection(acknowledge(start(fixture(tab("owner"))), "b"), "owner");
+  });
+
+  it("keeps the selection empty when only another surface remains", () => {
+    const closed = close(start(fixture(null)), "a");
+    expectSelection(closed, undefined);
+    const acknowledged = acknowledge(closed, null);
+    expectSelection(acknowledged, undefined);
+    expect(initialPageSelection(acknowledged).activeTabIds.w).toBeUndefined();
+  });
+
+  it("keeps an explicitly selected browser when an inactive surface closes", () => {
+    const state = start(fixture(tab("owner")));
+    const selected = reducer(state, { type: "SET_ACTIVE_TAB", workspaceId: "w", tabId: "b", source: "user" });
+    expectSelection(close(selected, "a"), "b");
   });
 });
