@@ -623,3 +623,6 @@
   min-height: 60px;
   padding-block: 8px;
 }
+
+/* Owner: a local Team needs no "This machine" pill; only Teams on another machine name it. */
+.sidebar-team-machine-pill:not([data-remote]) { display: none !important; }

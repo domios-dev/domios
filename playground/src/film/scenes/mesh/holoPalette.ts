@@ -1,0 +1,70 @@
+// The film's own palette for its WebGL and canvas memory renderers. It keeps the edge-alpha model these
+// renderers were drawn with; 1.22 reduced the app's MemoryGraphPalette to Sigma's needs (labels and edge colours),
+// and the film never redraws the app's own graph with this.
+export interface MemoryGraphPalette {
+  edgeRgb: string;
+  labelColor: string;
+  clusterEdgeAlpha: number;
+  egoEdgeAlpha: number;
+  realEdgeAlpha: (confidence: number) => number;
+  edgeColor: (alpha: number) => string;
+}
+
+export function deriveMemoryGraphPalette(background: string, foreground: string): MemoryGraphPalette {
+  const bg = parseCssRgb(background) ?? [13, 17, 23];
+  const fg = parseCssRgb(foreground) ?? [201, 209, 217];
+  const light = brightness(bg) > 180;
+
+  return {
+    edgeRgb: fg.join(","),
+    edgeColor: (alpha: number) => premultipliedRgba(fg, alpha),
+    labelColor: foreground,
+    clusterEdgeAlpha: light ? 0.16 : 0.18,
+    egoEdgeAlpha: light ? 0.35 : 0.55,
+    realEdgeAlpha: (confidence: number) => {
+      const conf = Math.max(0, Math.min(1, confidence));
+      return light ? 0.1 + conf * 0.11 : 0.035 + conf * 0.055;
+    },
+  };
+}
+
+export function readMemoryGraphPalette(root: HTMLElement = document.documentElement): MemoryGraphPalette {
+  const style = getComputedStyle(root);
+  return deriveMemoryGraphPalette(
+    style.getPropertyValue("--ct-bg").trim() || "#0d1117",
+    style.getPropertyValue("--ct-fg").trim() || "#c9d1d9",
+  );
+}
+
+// Sigma blends with ONE, ONE_MINUS_SRC_ALPHA, so a straight rgba() draws at full brightness.
+function premultipliedRgba([r, g, b]: [number, number, number], alpha: number): string {
+  const a = Math.max(0, Math.min(1, alpha));
+  return `rgba(${Math.round(r * a)},${Math.round(g * a)},${Math.round(b * a)},${a})`;
+}
+
+function parseCssRgb(color: string): [number, number, number] | null {
+  const c = color.trim();
+  const hex = c.match(/^#([0-9a-f]{6})$/i);
+  if (hex) {
+    const raw = hex[1];
+    return [
+      parseInt(raw.slice(0, 2), 16),
+      parseInt(raw.slice(2, 4), 16),
+      parseInt(raw.slice(4, 6), 16),
+    ];
+  }
+
+  const rgb = c.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (rgb) {
+    return [
+      Number(rgb[1]),
+      Number(rgb[2]),
+      Number(rgb[3]),
+    ];
+  }
+  return null;
+}
+
+function brightness([r, g, b]: [number, number, number]): number {
+  return (r * 299 + g * 587 + b * 114) / 1000;
+}

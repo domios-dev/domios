@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { readMemoryGraphPalette } from "../../../../../src/components/MemoryPanel/memoryGraphTheme";
+import { readMemoryGraphPalette } from "../mesh/holoPalette";
 import topology from "../../data/memory-topology.json";
 import { range, useStage, type Scene } from "../../engine";
 import { accent, Frame, muted, Rule, Slam, Slug } from "./craft";

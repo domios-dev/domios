@@ -89,6 +89,44 @@ export function registerWorkspaceRoutes(
   filmRoute("GET", "/api/mesh/peers", () => ({ ...PEERS, paired: peers }));
   // The app's mesh projection fills the machine-identity store; the film has no multiplexer, so it seeds the same store.
   rememberMachineIdentities({ ...PEERS, paired: peers, installations: [] } as unknown as Parameters<typeof rememberMachineIdentities>[0]);
+  // The account side of Mesh (1.22): this computer and the two sample peers as one account's machines, in the
+  // daemon's GET /api/account/mesh shape. Sample installations and keys only; the demo signs nothing in.
+  const nowSeconds = Math.floor(FILM_NOW / 1000);
+  const sampleKey = (seed: string) => seed.repeat(64).slice(0, 64);
+  const accountMachine = (installation: string, name: string, ip: string, presence: "present" | "absent" = "present") => ({
+    installation_id: installation, key_id: sampleKey(installation.slice(-1)), key_generation: 1, slot_revision: 3, active: true, presence,
+    admitted_at: nowSeconds - 40 * 24 * 3600, authenticated_at: nowSeconds - 60, display_name: name, metadata_revision: 2,
+    publication: "complete", membership_expires_at: nowSeconds + 1800, eligibility: "eligible",
+    endpoint: { tailnet_ip: ip, api_port: 7685, expires_at: nowSeconds + 600 },
+  });
+  const accountRows = [
+    accountMachine("peer-this", PEERS.local_instance_name, "100.86.12.5"),
+    ...peers.map((peer) => accountMachine(peer.instance_id, peer.instance_name, peer.addresses[0]?.ip ?? "100.86.12.60")),
+  ];
+  const self = accountRows[0];
+  filmRoute("GET", "/api/account/mesh", () => ({
+    local_installation_id: self.installation_id, account_epoch: 1, binding: "current", traffic: "open", cleanup: "none",
+    self: { installation_id: self.installation_id, key_id: self.key_id, key_generation: self.key_generation, slot_revision: self.slot_revision,
+      metadata_revision: self.metadata_revision, display_name: self.display_name },
+    registry: { observed_at: nowSeconds, rows: accountRows }, registry_names: accountRows, registry_failure: null,
+    enrollment: "enrolled", last_refusal: null,
+    pairs: peers.map((peer) => ({ instance_id: peer.instance_id, installation_id: peer.instance_id, admission: "account", online: true, name: peer.instance_name })),
+  }));
+  filmRoute("POST", "/api/account/mesh/list", () => ({ ok: true }));
+  // Mesh UI: this computer's web UI as Tailscale Serve would publish it. The address is a sample (.example), not a link anyone reaches.
+  const sampleWebUrl = "https://this-computer.tailnet.example";
+  filmRoute("GET", "/api/network", () => ({ local_ip: "192.168.1.24", tailscale_ip: "100.86.12.5", tailscale_https_url: sampleWebUrl, api_port: 7685, web_listener: null }));
+  filmRoute("GET", "/api/network/serve/status", () => ({
+    installed: true, active: true, https_url: sampleWebUrl, self_dns: "this-computer.tailnet.example", platform: "windows",
+    snapshot: {
+      state: "ready", url: sampleWebUrl, api_port: 7685, desired_https_port: 443, chosen_https_port: 443,
+      operator_bootstrap_required: false, bootstrap_command: null,
+      binary: { installed: true, path: null, cli_version: "1.90.6", daemon_version: "1.90.6", version_skew: false, version_output: null, error: null },
+      route: { host: "this-computer.tailnet.example", https_port: 443, proxy: "http://127.0.0.1:7685", ownership: "owned" },
+      routes: [], conflict: null,
+      health: { checked_url: sampleWebUrl, ok: true, status: 200, daemon_build: null, expected_build: null, build_matches: null, error: null },
+    },
+  }));
   // A remote Team's reads come wrapped for its peer; the sample peers answer from the same sample routes.
   filmRoute("POST", "/api/mesh/relay-to", async (_url, body) => {
     const request = body as { method: string; path: string; body?: unknown };

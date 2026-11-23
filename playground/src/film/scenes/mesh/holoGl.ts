@@ -16,7 +16,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from "three";
-import { readMemoryGraphPalette } from "../../../../../src/components/MemoryPanel/memoryGraphTheme";
+import { readMemoryGraphPalette } from "./holoPalette";
 import { EDGES, egoAlpha, hash, HUB, NODES, rankFrom } from "../lab/labGraph";
 import { sampleHoloTopology, type HoloBudget } from "./holoBudget";
 import { centreOf, DEPTH, FOV, isTurned, TAN, volumeOf } from "./holoVolume";

@@ -42,6 +42,8 @@ function sitePublic(): Plugin {
 }
 
 export default mergeConfig(base, {
+  // Emitted files resolve next to the bundle (public/film/assets), wherever the site serves it from.
+  experimental: { renderBuiltUrl: () => ({ relative: true }) },
   plugins: [directDaemonTransport(), scopeGlobals(), fileAssets(), shadowCss("film.css"), sitePublic()],
   publicDir: false,
   resolve: {
@@ -51,7 +53,8 @@ export default mergeConfig(base, {
     ],
   },
   // A public build: no development-build dot in the titlebar, no development diagnostics.
-  define: { "process.env.NODE_ENV": JSON.stringify("production"), __CODETERM_DEV__: "false" },
+  // The product version the film renders, instead of the gallery's placeholder ("Domios gallery" on the Mesh card).
+  define: { "process.env.NODE_ENV": JSON.stringify("production"), __CODETERM_DEV__: "false", __APP_VERSION__: JSON.stringify("1.22.1"), __BUILD_HASH__: JSON.stringify("") },
   build: {
     outDir,
     emptyOutDir: true,

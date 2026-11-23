@@ -19,10 +19,13 @@ export function JobsPane() {
   );
 }
 
+// The daemon's layout spirals new nodes at sqrt(n) * COORD_RANGE * 0.025 (codeterm-mem graph_layout/placement.rs);
+// since 1.22 the graph sizes nodes against those coordinates, so the sample spiral uses the same unit.
+const LAYOUT_UNIT = 1000 * 0.025;
 const MEMORIES = new Map(MEMORY_NODES.map((node) => [node.id, node]));
 const GRAPH: NodeIndex = {
   byId: new Map([...MEMORIES.values()].map((node, index) => [node.id, {
-    id: node.id, x: Math.sqrt(index) * Math.cos(index * 2.4), y: Math.sqrt(index) * Math.sin(index * 2.4), kind: node.kind,
+    id: node.id, x: Math.sqrt(index) * LAYOUT_UNIT * Math.cos(index * 2.4), y: Math.sqrt(index) * LAYOUT_UNIT * Math.sin(index * 2.4), kind: node.kind,
     importance: node.importance ?? 4, cluster_id: 0, has_vector: true, pinned: false,
   }])),
   clusters: [], clusterEdges: [], layoutVersion: 1, seq: 1, computedAt: "",

@@ -1,4 +1,4 @@
-import { readMemoryGraphPalette } from "../../../../../src/components/MemoryPanel/memoryGraphTheme";
+import { readMemoryGraphPalette } from "./holoPalette";
 import topology from "../../data/memory-topology.json";
 
 // The memory graph's palette everywhere it is drawn, flat or as the hologram, plus what the hologram scene needs without

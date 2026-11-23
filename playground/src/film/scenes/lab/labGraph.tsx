@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { SpillSurface } from "../../breakout";
-import { readMemoryGraphPalette, type MemoryGraphPalette } from "../../../../../src/components/MemoryPanel/memoryGraphTheme";
+import { readMemoryGraphPalette, type MemoryGraphPalette } from "../mesh/holoPalette";
 import topology from "../../data/memory-topology.json";
 import { useStage } from "../../engine";
 import { holoColor, holoPalette, holoRgb, LIGHT_BOOST, themeIsLight } from "../mesh/holoTheme";
