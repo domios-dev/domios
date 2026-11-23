@@ -191,11 +191,13 @@ corresponding authorized epoch. Raw history access follows the active binding.
 | GET | `/api/live-transcript/{tab}/search` | Paged search over committed owner transcript |
 | GET | `/api/live-transcript/{tab}/events` | Paged routing ledger events for the owner tab |
 | GET | `/api/live-transcript/{tab}/epochs/{epoch}` | Scoped provider-published thinking and tool records for one exact epoch |
+| GET | `/api/live-transcript/{tab}/training-log` | Owner routing training log summary and recent samples (`?limit=N`, default 50, max 200) |
 | GET | `/api/live-transcript/{tab}/read` | Consumer read of committed speech at the active binding revision |
 | POST | `/api/live-transcript/{tab}/attach` | Owner attach or update hidden router, external tab, or trigger mode |
 | POST | `/api/live-transcript/{tab}/pause` | Owner explicit capture pause and speech flush |
 | POST | `/api/live-transcript/{tab}/resume` | Owner resume capture admission |
 | POST | `/api/live-transcript/{tab}/route` | Owner manual route of an exact sequence range |
+| POST | `/api/live-transcript/{tab}/feedback` | Owner feedback verdict (`good_send` or `wrong_send`) on a routed forward (`{forwardId, verdict, note?}`) |
 | POST | `/api/live-transcript/{tab}/ack` | Active consumer acknowledgement through a processed sequence |
 | POST | `/api/live-transcript/{tab}/mark-seen` | Active consumer seen-cursor update at the current revision |
 | POST | `/api/live-transcript/capture/start` | Direct secure owner start of a live microphone capture lease |
@@ -203,4 +205,4 @@ corresponding authorized epoch. Raw history access follows the active binding.
 | POST | `/api/live-transcript/capture/{lease}/pause/{sequence}` | Flush and record an explicit owner pause marker on the lease |
 | POST | `/api/live-transcript/capture/{lease}/cancel` | Cancel an active capture lease |
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

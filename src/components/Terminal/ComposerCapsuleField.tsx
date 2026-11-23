@@ -43,12 +43,14 @@ export function capsuleMirrorBox(style: Pick<CSSStyleDeclaration, "getPropertyVa
  * inner editor); computed style cannot see it, so an empty, zero-width, unpadded, unwrapped probe exposes it as overflow.
  */
 export function textareaInnerInset(textarea: HTMLTextAreaElement): number {
+  const style = textarea.ownerDocument?.defaultView?.getComputedStyle?.(textarea);
+  if (!style) return 0;
   const probe = textarea.ownerDocument.createElement("textarea");
   probe.wrap = "off";
   probe.tabIndex = -1;
   probe.setAttribute("aria-hidden", "true");
   probe.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;width:0;height:0;min-width:0;min-height:0;margin:0;padding:0;border:0;overflow:hidden;resize:none";
-  probe.style.font = getComputedStyle(textarea).font;
+  probe.style.font = style.font;
   textarea.after(probe);
   try {
     return probe.scrollWidth / 2;
@@ -70,7 +72,11 @@ export function useComposerMirror(
     let font: string | undefined;
     let innerInset = 0;
     const layout = (content?: DOMRectReadOnly) => {
-      const style = getComputedStyle(editor);
+      const style = editor.ownerDocument?.defaultView?.getComputedStyle?.(editor);
+      if (!style) {
+        syncMirrorScroll(editor, mirror);
+        return;
+      }
       if (style.font !== font) {
         font = style.font;
         innerInset = textareaInnerInset(editor);

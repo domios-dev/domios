@@ -228,7 +228,7 @@ function ChatComposerImpl({
 }) {
   recordComposerRender(tabId);
   const transcript = useLiveTranscriptHost();
-  const { config } = useConfig();
+  const { config } = useConfig(Boolean(transcript));
   const liveTranscriptDefaultMicTap = Boolean((config as { live_transcript?: { default_mic_tap?: boolean } } | null)?.live_transcript?.default_mic_tap);
   const transcriptOwner = transcript?.ownerId === tabId;
   const liveLocked = transcriptOwner && transcript?.locked === true;

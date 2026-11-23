@@ -373,16 +373,17 @@ test("a folded structured row uses its exact delivery receipt without losing its
   assert.equal(deliveryPresentation(deliverySendForRow([first, second], { ...row, sourceSessionId: "other" })!), "queued");
 });
 
-test("held input becomes uncertain when a current ledger snapshot omits it", () => {
+test("held input remains queued when a current ledger snapshot omits it", () => {
   const held = applyDeliveryStatus(send(), { ...status("held", 1), pending_reason: "held_active_turn" });
   const restored = JSON.parse(JSON.stringify(held)) as DeliverySend;
   const updated = applyDeliveryStatus(restored, { ...held.status!, sequence: 2 });
   assert.equal(reconcileDeliveryStatusesModel([updated], [], [restored])[0], updated);
 
   const reconciled = reconcileDeliveryStatusesModel([restored], [])[0];
-  assert.equal(reconciled.status?.state, "submit_unconfirmed");
-  assert.equal(reconciled.status?.pending_reason, undefined);
-  assert.equal(deliveryPresentation(reconciled), "uncertain");
+  assert.equal(reconciled, restored);
+  assert.equal(reconciled.status?.state, "held");
+  assert.equal(deliveryState(reconciled), "queued");
+  assert.equal(deliveryPresentation(reconciled), "queued");
   assert.equal(canRetryChatSend(reconciled), false);
   const delivered = reconcileDeliveryStatusesModel([reconciled], [status("delivered", 2)])[0];
   assert.equal(deliveryPresentation(delivered), "delivered");

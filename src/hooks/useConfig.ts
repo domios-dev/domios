@@ -160,9 +160,9 @@ export function mergeConfigEvent(previous: AppConfig, incoming: AppConfig): AppC
   return { ...incoming, api: { ...incoming.api, token: previous.api.token } };
 }
 
-export function useConfig() {
+export function useConfig(enabled = true) {
   const page = useContext(PageDataContext);
-  const local = useConfigLoader(!page);
+  const local = useConfigLoader(enabled && !page);
   return page?.config ?? local;
 }
 
