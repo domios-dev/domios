@@ -9,6 +9,7 @@ export type Trigger = "scout_then_concierge" | "wake_word" | "direct_batch" | "m
 export type TranscriptTarget =
   | { kind: "detached" }
   | { kind: "attached"; epochId: string }
+  | { kind: "local" }
   | { kind: "external"; tabId: string };
 export type TranscriptRange = { fromSeq: number; toSeq: number };
 type Binding = { ownerTabId: string; revision: number; target: TranscriptTarget };
@@ -50,6 +51,7 @@ export interface TranscriptForward {
   sentText: string;
   sentExcerpt: string;
   rationale?: string | null;
+  feedback?: "wrong_send" | "good_send" | null;
 }
 
 export interface TranscriptOverview {
@@ -147,6 +149,8 @@ export function createLiveTranscriptApi(owner: string) {
       ),
     attach: (binding: TranscriptAttach, signal: AbortSignal) => request("POST", `${base}/attach`, signal, binding),
     route: (range: TranscriptRange, signal: AbortSignal) => request("POST", `${base}/route`, signal, range),
+    feedback: (forwardId: string, verdict: "wrong_send" | "good_send", signal: AbortSignal) =>
+      request<{ ok: boolean; forward: TranscriptForward }>("POST", `${base}/feedback`, signal, { forwardId, verdict }),
     save: (title: string, body: string, signal: AbortSignal) => request("POST", "/api/mem/items", signal, {
       kind: "fact", title, body, tags: ["live-transcript"], skip_extract: true,
     }),
