@@ -10,9 +10,10 @@ const MOTIF_LIMIT = 120;
 const MOTIF_RADIUS = 30;
 const DECEL = "cubic-bezier(.2,.7,.2,1)";
 
-export function drawAppearanceDoodles(chat: HTMLElement, look: AppearanceLook, origin: [number, number], width: number, height: number): Animation[] {
+export function drawAppearanceDoodles(chat: HTMLElement, look: AppearanceLook, origin: [number, number], width: number, height: number,
+  onFinish: () => void): (() => void) | undefined {
   const { background: wallpaper, palette } = effectiveWallpaper(look.theme, look.wallpaper ?? undefined);
-  if (wallpaper.pattern !== "doodles" || wallpaper.opacity === 0) return [];
+  if (wallpaper.pattern !== "doodles" || wallpaper.opacity === 0 || width <= 0 || height <= 0 || typeof Element.prototype.animate !== "function") return;
   const tile = wallpaper.scale ?? 360;
   const scale = tile / TILE_VIEWBOX;
   const angle = (wallpaper.rotation ?? 0) * Math.PI / 180;
@@ -32,7 +33,7 @@ export function drawAppearanceDoodles(chat: HTMLElement, look: AppearanceLook, o
   }
   svg.style.color = wallpaper.color ?? look.theme.foreground;
   svg.style.opacity = String(opacity);
-  svg.classList.add("ct-appearance-moment__doodles");
+  svg.classList.add("ct-appearance-doodles");
   chat.append(svg);
   const corner = Math.hypot(Math.max(Math.abs(origin[0]), Math.abs(width - origin[0])),
     Math.max(Math.abs(origin[1]), Math.abs(height - origin[1])));
@@ -68,7 +69,7 @@ export function drawAppearanceDoodles(chat: HTMLElement, look: AppearanceLook, o
         }
         group.append(item);
         const distance = Math.hypot(left + x - origin[0], top + y - origin[1]);
-        const delay = 380 + 600 * Math.min(1, distance / Math.max(corner, 1));
+        const delay = 300 * Math.min(1, distance / Math.max(corner, 1));
         animations.push(item.animate(
           paths.length ? [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }] : [{ opacity: 0 }, { opacity: 1 }],
           { duration: 400, delay, fill: "both", easing: DECEL },
@@ -76,5 +77,9 @@ export function drawAppearanceDoodles(chat: HTMLElement, look: AppearanceLook, o
       }
     }
   }
-  return animations;
+  void Promise.allSettled(animations.map(animation => animation.finished)).then(onFinish);
+  return () => {
+    for (const animation of animations) animation.cancel();
+    svg.remove();
+  };
 }

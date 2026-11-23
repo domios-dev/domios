@@ -1,59 +1,94 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
-import type { AppearanceLook } from "../lib/appearance";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { appearanceLookKey, type AppearanceLook } from "../lib/appearance";
 import { listenAppearanceCommit, type AppearanceCommit } from "../lib/appearanceClient";
-import { animateAppearance, finishAppearanceMotion } from "../lib/appearanceMotion";
-import type { SelectedMachineAppearance } from "../lib/useMachineAppearance";
+import { animateAppearance, finishAppearanceMotion, takeAppearancePress } from "../lib/appearanceMotion";
+import { effectiveWallpaper } from "../lib/chatWallpaper";
+import type { SelectedMachineAppearance, WallpaperAsset } from "../lib/useMachineAppearance";
+import { clearWorkspaceSwitchOrigin, workspaceSwitchOrigin } from "../lib/workspaceBrowseTarget";
 
-function key({ theme, wallpaper, tuning }: AppearanceLook): string {
-  return JSON.stringify([theme, wallpaper, tuning]);
+interface AppliedLook {
+  look: AppearanceLook;
+  peerId?: string;
+  asset?: WallpaperAsset;
 }
 
-export function useAppearanceMotion({ ready, appearance, peerId }: SelectedMachineAppearance): void {
-  const previous = useRef<{ peerId: string | undefined; key: string } | undefined>(undefined);
-  const intent = useRef<{ key: string; commit: AppearanceCommit } | undefined>(undefined);
+function isNewDoodlePattern(before: AppearanceLook, after: AppearanceLook) {
+  return JSON.stringify(before.wallpaper) !== JSON.stringify(after.wallpaper)
+    && effectiveWallpaper(before.theme, before.wallpaper ?? undefined).background.pattern !== "doodles"
+    && effectiveWallpaper(after.theme, after.wallpaper ?? undefined).background.pattern === "doodles";
+}
+
+export function useAppearanceMotion({ ready, appearance: { theme, wallpaper: background, tuning }, peerId }: SelectedMachineAppearance,
+  wallpaper?: { asset?: WallpaperAsset; ready: boolean }): AppliedLook {
+  const nextLook = useMemo(() => {
+    const look = { theme, wallpaper: background, tuning: tuning ?? null };
+    return { look, key: appearanceLookKey(look) };
+  }, [theme, background, tuning]);
+  const [incoming, setIncoming] = useState(nextLook);
+  if (incoming.key !== nextLook.key) setIncoming(nextLook);
+
+  const asset = wallpaper?.asset;
+  const assetReady = wallpaper?.ready ?? true;
+  const [applied, setApplied] = useState<AppliedLook>({ look: incoming.look, peerId, asset });
+  const current = useRef(applied);
+  const canAnimate = useRef(false);
+  const intent = useRef<{ peerId?: string; key: string; commit: AppearanceCommit } | undefined>(undefined);
 
   useEffect(() => {
-    if (!ready) return;
     let alive = true;
     let release: (() => void) | undefined;
-    void listenAppearanceCommit(commit => {
-      const next = key(commit.look);
-      if (alive && previous.current?.key !== next) intent.current = { key: next, commit };
+    if (ready) void listenAppearanceCommit(commit => {
+      const next = appearanceLookKey(commit.look);
+      if (alive && appearanceLookKey(current.current.look) !== next) intent.current = { peerId, key: next, commit };
     }, peerId).then(fn => { if (alive) release = fn; else fn(); }).catch(() => {});
+    return () => { alive = false; release?.(); };
+  }, [ready, peerId]);
+
+  useEffect(() => {
     const reset = () => {
-      previous.current = undefined;
+      canAnimate.current = false;
       intent.current = undefined;
+      clearWorkspaceSwitchOrigin();
       finishAppearanceMotion();
     };
     window.addEventListener("codeterm-peer-switch-reset", reset);
     return () => {
-      alive = false;
-      release?.();
       window.removeEventListener("codeterm-peer-switch-reset", reset);
+      finishAppearanceMotion();
     };
-  }, [ready, peerId]);
+  }, []);
 
-  useLayoutEffect(() => {
-    if (!ready) {
-      previous.current = undefined;
-      intent.current = undefined;
-      finishAppearanceMotion();
+  useEffect(() => {
+    const before = current.current;
+    const switching = before.peerId !== peerId;
+    if (!ready || !assetReady) {
+      if (!ready && !switching) canAnimate.current = false;
       return;
     }
-    const look = { theme: appearance.theme, wallpaper: appearance.wallpaper, tuning: appearance.tuning ?? null };
-    const next = key(look);
-    const before = previous.current;
-    previous.current = { peerId, key: next };
-    if (!before || before.peerId !== peerId) {
-      intent.current = undefined;
-      finishAppearanceMotion();
-      return;
-    }
-    if (before.key === next) return;
-    const commit = intent.current?.key === next ? intent.current.commit : undefined;
-    intent.current = undefined;
-    animateAppearance({ look, proposal: commit?.proposal ?? null, undo: commit?.undo ?? false });
-  }, [ready, peerId, appearance.theme, appearance.wallpaper, appearance.tuning]);
+    const switchOrigin = workspaceSwitchOrigin();
+    const changed = appearanceLookKey(before.look) !== incoming.key;
+    const next = { look: incoming.look, peerId, asset };
+    const animate = changed && canAnimate.current && (!switching || switchOrigin !== undefined);
+    const remembered = intent.current;
+    const matched = remembered?.peerId === peerId && remembered?.key === incoming.key ? remembered : undefined;
+    const apply = (sync: boolean) => {
+      canAnimate.current = true;
+      clearWorkspaceSwitchOrigin();
+      if (changed || switching) intent.current = undefined;
+      if (!changed && !switching && before.asset === asset) return;
+      current.current = next;
+      if (sync) flushSync(() => setApplied(next));
+      else setApplied(next);
+    };
+    const pressed = changed && !switching ? takeAppearancePress(incoming.key, peerId) : undefined;
+    if (!animate) { apply(false); return; }
+    const proposal = switching ? null : matched?.commit.proposal ?? pressed?.proposal ?? null;
+    const undo = !switching && (matched?.commit.undo ?? false);
+    const origin = switching ? switchOrigin : pressed?.origin;
+    return animateAppearance({ look: incoming.look, proposal, undo, origin,
+      drawDoodles: isNewDoodlePattern(before.look, incoming.look) }, apply);
+  }, [incoming, ready, assetReady, asset, peerId]);
 
-  useEffect(() => () => finishAppearanceMotion(), []);
+  return applied;
 }

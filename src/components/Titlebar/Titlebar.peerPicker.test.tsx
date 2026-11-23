@@ -115,7 +115,7 @@ function sidebarHandle() {
 
 async function openHosts() {
   await act(async () => pickerButton().click());
-  const menu = document.querySelector<HTMLDivElement>('[role="menu"]');
+  const menu = document.querySelector<HTMLDivElement>('[role="listbox"]');
   expect(menu).not.toBeNull();
   return menu!;
 }
@@ -195,7 +195,7 @@ describe("web host picker recovery", () => {
     if (failure !== "pending") await stateLoad;
     await renderShell(false);
     const menu = await openHosts();
-    expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(4);
+    expect(menu.querySelectorAll('[role="option"]')).toHaveLength(4);
     expect(fetchMock.mock.calls.some(([url]) => String(url) === `${selfHost()}/api/mesh/peers`)).toBe(true);
     const healthy = menu.querySelector<HTMLButtonElement>('[data-peer-name="Healthy"]')!;
     expect(healthy.disabled).toBe(false);
@@ -220,15 +220,15 @@ describe("web host picker recovery", () => {
     await renderShell(false);
     const trigger = pickerButton();
     expect(trigger.getAttribute("aria-label")).toContain("Gateway");
-    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+    expect(trigger.getAttribute("aria-haspopup")).toBe("listbox");
     const menu = await openHosts();
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    const items = menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
-    expect(document.activeElement).toBe(items[0]);
-    await act(async () => items[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    const items = menu.querySelectorAll<HTMLButtonElement>('[role="option"]');
     expect(document.activeElement).toBe(items[1]);
-    await act(async () => items[1].dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(document.querySelector('[role="menu"]')).toBeNull();
+    await act(async () => items[1].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    expect(document.activeElement).toBe(items[2]);
+    await act(async () => items[2].dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });

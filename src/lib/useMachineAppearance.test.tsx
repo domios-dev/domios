@@ -8,15 +8,14 @@ import type { AppConfig } from "./types";
 import type { MachineAppearance } from "./chatWallpaperClient";
 import { useAppearanceMotion } from "../hooks/useAppearanceMotion";
 
-const { read, subscribe, animate, listenCommit } = vi.hoisted(() => ({
+const { read, subscribe, listenCommit } = vi.hoisted(() => ({
   read: vi.fn(),
   subscribe: vi.fn((_path: string, _receive: (event: string, value: unknown) => void) => () => {}),
-  animate: vi.fn(), listenCommit: vi.fn(async () => () => {}),
+  listenCommit: vi.fn(async () => () => {}),
 }));
 vi.mock("./chatWallpaperClient", () => ({ readMachineAppearance: read, readWallpaperAsset: vi.fn() }));
 vi.mock("./daemonBootstrap", () => ({ daemonTransportForPeer: () => ({ subscribe }) }));
 vi.mock("./appearanceClient", () => ({ listenAppearanceCommit: listenCommit }));
-vi.mock("./appearanceMotion", () => ({ animateAppearance: animate, finishAppearanceMotion: vi.fn() }));
 
 it("keeps the newest requested machine when older responses arrive later", async () => {
   const queued = new Map<string, (look: MachineAppearance) => void>();
@@ -47,34 +46,90 @@ it("keeps the newest requested machine when older responses arrive later", async
   }
 });
 
-it("animates a config-driven look once without an appearance card or motion event", async () => {
-  read.mockResolvedValue({ theme: DEFAULT_THEME, wallpaper: null, tuning: null });
-  const rootNode = document.createElement("div");
+
+it("applies a config update and an explicit machine switch inside one transition each", async () => {
+  const base = { theme: DEFAULT_THEME, wallpaper: null, tuning: null };
+  const theme = { ...DEFAULT_THEME, name: "External theme", background: "#101a23" };
+  const peerWallpaper = { background: { pattern: "dots" as const } };
+  const peerLook = { ...base, theme, wallpaper: peerWallpaper };
+  read.mockImplementation(async (id: string) => id === "different" ? peerLook : base);
+  const rootNode = document.createElement("main");
   document.body.append(rootNode);
   const root = createRoot(rootNode);
   const config = { theme: DEFAULT_THEME } as AppConfig;
-  const theme = { ...DEFAULT_THEME, name: "External theme", background: "#101a23" };
+  const transitions: { update: () => void; finish: () => void; skip: ReturnType<typeof vi.fn> }[] = [];
+  const start = vi.fn((update: () => void) => {
+    let finish!: () => void;
+    const finished = new Promise<void>(resolve => { finish = resolve; });
+    const skip = vi.fn(finish);
+    transitions.push({ update, finish, skip });
+    return { ready: Promise.resolve(), finished, skipTransition: skip };
+  });
+  const oldStart = Object.getOwnPropertyDescriptor(document, "startViewTransition");
+  Object.defineProperty(document, "startViewTransition", { configurable: true, value: start });
+  const motionPreferences = vi.spyOn(window, "matchMedia");
+  const motion = () => document.documentElement.dataset.appearanceMotion;
+  const origin = () => document.documentElement.style.getPropertyValue("--ct-appearance-origin");
   function Fixture() {
     const selected = useMachineAppearance(config, true);
-    useAppearanceMotion(selected);
-    return <output>{selected.appearance.theme.name}</output>;
+    const { look } = useAppearanceMotion(selected);
+    return <output>{look.theme.name} · {look.wallpaper?.background.pattern ?? "none"}</output>;
   }
   try {
-    animate.mockClear();
     subscribe.mockClear();
     await act(async () => root.render(<Fixture />));
-    await act(async () => setWorkspaceBrowseTarget({ id: "other", name: "Other" }));
-    expect(animate).not.toHaveBeenCalled();
-    const [, receive] = subscribe.mock.calls[subscribe.mock.calls.length - 1];
+    await act(async () => setWorkspaceBrowseTarget({ id: "initial", name: "Initial" }));
+    expect(start).not.toHaveBeenCalled();
+
+    const [, receive] = subscribe.mock.calls.at(-1)!;
     await act(async () => receive("config-changed", { theme }));
-    expect(rootNode.textContent).toBe("External theme");
-    expect(animate).toHaveBeenCalledExactlyOnceWith({ look: { theme, wallpaper: null, tuning: null }, proposal: null, undo: false });
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(motion()).toBe("wave");
+    expect(rootNode.textContent).toBe(`${DEFAULT_THEME.name} · none`);
+    await act(async () => {
+      transitions[0].update();
+      expect(rootNode.textContent).toBe("External theme · none");
+      transitions[0].finish();
+    });
     await act(async () => receive("config-changed", { theme: { ...theme } }));
-    await act(async () => setWorkspaceBrowseTarget(null));
-    expect(animate).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledTimes(1);
+
+    await act(async () => setWorkspaceBrowseTarget({ id: "different", name: "Different" }, { x: 28, y: 90 }));
+    expect(start).toHaveBeenCalledTimes(2);
+    expect(origin()).toBe("28px 90px");
+    expect(rootNode.textContent).toBe("External theme · none");
+    await act(async () => {
+      transitions[1].update();
+      expect(rootNode.textContent).toBe("External theme · dots");
+      transitions[1].finish();
+    });
+
+    await act(async () => setWorkspaceBrowseTarget({ id: "same", name: "Same look" }));
+    expect(start).toHaveBeenCalledTimes(2);
+    await act(async () => setWorkspaceBrowseTarget(null, { x: 30, y: 20 }));
+    expect(start).toHaveBeenCalledTimes(2);
+    await act(async () => setWorkspaceBrowseTarget({ id: "different", name: "Different" }));
+    expect(start).toHaveBeenCalledTimes(2);
+
+    const preferences = window.matchMedia("(prefers-reduced-motion: reduce)");
+    motionPreferences.mockReturnValue({ ...preferences, matches: true });
+    await act(async () => setWorkspaceBrowseTarget(null, { x: 30, y: 20 }));
+    expect(start).toHaveBeenCalledTimes(3);
+    expect(motion()).toBe("fade");
+
+    await act(async () => {
+      transitions[2].update();
+      window.dispatchEvent(new Event("codeterm-peer-switch-reset"));
+    });
+    expect(transitions[2].skip).toHaveBeenCalledTimes(1);
+    expect(motion()).toBeUndefined();
+    expect(rootNode.textContent).toBe(`${DEFAULT_THEME.name} · none`);
   } finally {
     await act(async () => root.unmount());
     setWorkspaceBrowseTarget(null);
+    if (oldStart) Object.defineProperty(document, "startViewTransition", oldStart);
+    else Reflect.deleteProperty(document, "startViewTransition");
+    motionPreferences.mockRestore();
     rootNode.remove();
   }
 });

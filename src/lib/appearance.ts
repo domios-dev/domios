@@ -13,6 +13,10 @@ export interface AppearanceLook {
   tuning: AppearanceTuning | null;
 }
 
+export function appearanceLookKey({ theme, wallpaper, tuning }: AppearanceLook): string {
+  return JSON.stringify([theme, wallpaper, tuning]);
+}
+
 export interface AppearanceMachine { id: string; name: string }
 export interface ContrastCheck {
   name: string;
