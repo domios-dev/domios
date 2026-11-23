@@ -11,7 +11,7 @@
 
 <p><a href="https://domios.dev/#try"><strong>Interactive demo</strong></a> · <a href="https://domios.dev">Website</a> · <a href="#installation">Install</a> · <a href="https://github.com/domios-dev/domios/blob/master/generated/cli/cli.md">Docs</a> · <a href="https://t.me/domi_os">Telegram</a></p>
 
-<p><a href="https://github.com/domios-dev/domios/releases/download/v1.20.3/Domios_1.20.3_aarch64.dmg">macOS Apple Silicon .dmg</a> · <a href="https://github.com/domios-dev/domios/releases/download/v1.20.3/Domios_1.20.3_x64-setup.exe">Windows x64 -setup.exe</a> · <a href="https://github.com/domios-dev/domios/releases/download/v1.20.3/Domios_1.20.3_amd64.deb">Linux x64 .deb</a> · <a href="https://github.com/domios-dev/domios/releases/download/v1.20.3/Domios_1.20.3_amd64.AppImage">Linux x64 .AppImage</a> · <a href="https://github.com/domios-dev/domios/releases/latest">All installers</a></p>
+<p><a href="https://github.com/domios-dev/domios/releases/download/v1.22.0/Domios_1.22.0_aarch64.dmg">macOS Apple Silicon .dmg</a> · <a href="https://github.com/domios-dev/domios/releases/download/v1.22.0/Domios_1.22.0_x64-setup.exe">Windows x64 -setup.exe</a> · <a href="https://github.com/domios-dev/domios/releases/download/v1.22.0/Domios_1.22.0_amd64.deb">Linux x64 .deb</a> · <a href="https://github.com/domios-dev/domios/releases/download/v1.22.0/Domios_1.22.0_amd64.AppImage">Linux x64 .AppImage</a> · <a href="https://github.com/domios-dev/domios/releases/latest">All installers</a></p>
 
 </div>
 
