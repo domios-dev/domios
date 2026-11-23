@@ -7,6 +7,24 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
+## [1.22.0]
+
+### Highlights
+
+- Live Transcript v2: a floating transcript panel with flowing passages, pause markers and a phone-size bottom sheet. It filters silence hallucinations in English and Russian, and forwards remarks addressed to an agent with a visible receipt.
+- A local Concierge for Live Transcript can run on LM Studio or Ollama on this machine, with no hidden agent tabs. You can mark a wrong send and undo it, and those decisions are kept privately for training.
+
+### Fixed
+
+- Chat messages no longer stick or reappear after delivery during a running turn.
+- The machine name in the title bar no longer overlaps its icons in narrow windows.
+- The built-in browser reports the real screen width, so sites lay out for the actual window.
+- Removed the "Try Live Transcript" bubble from the composer microphone; swipe-up lock and the tab menu entry remain.
+
+### Known issues
+
+- Local Concierge needs a running LM Studio or Ollama server; without one, Live Transcript uses the cloud Concierge.
+
 ## [1.21.1]
 
 ### Fixed
