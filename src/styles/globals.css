@@ -2770,15 +2770,18 @@ button {
 }
 
 .sidebar-team-title-row .sidebar-team-name {
-  min-width: 5ch;
-  flex-shrink: 3;
+  min-width: 0;
+  flex: 0 1 auto;
+  margin-block: -0.125em;
+  line-height: 1.25;
 }
 
 .sidebar-team-machine-pill {
   display: inline-flex;
-  min-width: 46px;
+  min-width: 0;
   max-width: 50%;
   height: 16px;
+  flex: 0 0 auto;
   align-items: center;
   column-gap: 4px;
   margin-inline-start: 1px;
