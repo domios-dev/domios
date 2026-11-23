@@ -241,6 +241,40 @@ it("typing after a chip appends normally over an inert mirror", async () => {
   expect(mirror()?.querySelectorAll("button, a, input, [tabindex]")).toHaveLength(0);
 });
 
+it("keeps both mirrors and the caret on the same draft through multiline image drops", async () => {
+  const { textarea, sink, calls } = await renderComposer("capsule-mixed");
+  const first = "Русский и English wrap together";
+  const second = "Before Keyboard after the line break";
+  await setValue(textarea, `${first}\n${second}\n`, first.length + 1);
+  await act(async () => textarea.dispatchEvent(new CustomEvent("domios-insert-tab-mention", {
+    detail: { id: "capsule-mixed" },
+  })));
+  await act(async () => sink.current!([
+    { path: "/src/report.md", kind: "file" },
+    { path: "/skills/review/SKILL.md", kind: "file", label: "$review" },
+  ]));
+  textarea.setSelectionRange(first.length + 1, first.length + 1);
+  await act(async () => sink.current!([{ path: SHOT_1, kind: "image" }, { path: SHOT_2, kind: "image" }]));
+  textarea.setSelectionRange(first.length, first.length);
+  await act(async () => sink.current!([{ path: "/images/three.png", kind: "image" }]));
+  const midWord = textarea.value.indexOf("Keyboard") + 3;
+  textarea.setSelectionRange(midWord, midWord);
+  await act(async () => sink.current!([{ path: "/images/four.png", kind: "image" }]));
+
+  const expected = `${first} ${capsuleToken("image3")}\n${capsuleToken("image1")} ${capsuleToken("image2")} @Composer ${capsuleToken("report.md")} ${capsuleToken("$review")} Before Key ${capsuleToken("image4")} board after the line break\n`;
+  const highlight = host!.querySelector('[data-testid="composer-mention-highlight"]');
+  expect(textarea.value).toBe(expected);
+  expect(textarea.selectionStart).toBe(expected.indexOf("board"));
+  expect(textarea.selectionEnd).toBe(textarea.selectionStart);
+  expect(mirror()?.textContent).toBe(expected + " ");
+  expect(highlight?.textContent).toBe(expected + " ");
+  expect(highlight?.querySelector("span")?.textContent).toBe("@Composer");
+  expect([...mirror()!.querySelectorAll("[data-capsule-start]")].map(element => element.getAttribute("title"))).toEqual([
+    "/images/three.png", SHOT_1, SHOT_2, "/src/report.md", "/skills/review/SKILL.md", "/images/four.png",
+  ]);
+  expect(calls.some(call => call.command === "chat_send_text")).toBe(false);
+});
+
 it("keeps a deferred paste in its receiving composer after switching to another mounted tab", async () => {
   const first = await renderComposer("paste-owner");
   const firstRoot = root!;

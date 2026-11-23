@@ -24,14 +24,16 @@ interface Hover {
   y: number;
 }
 
-const MIRRORED_TYPOGRAPHY = [
+const MIRRORED_TEXT_STYLES = [
   "font-family", "font-size", "font-weight", "font-style", "font-stretch", "font-variant", "font-feature-settings", "font-variation-settings",
   "font-kerning", "letter-spacing", "word-spacing", "line-height", "text-indent", "text-transform", "tab-size", "text-rendering",
+  "white-space", "overflow-wrap", "word-break", "line-break", "hyphens", "direction", "text-align", "-webkit-text-size-adjust",
+  "padding-top", "padding-bottom",
 ] as const;
 
 /** The mirror's text box taken from the textarea itself, so every glyph and wrap lands where the textarea puts its caret. */
 export function capsuleMirrorBox(style: Pick<CSSStyleDeclaration, "getPropertyValue">, clientWidth: number, innerInsetPx: number): Record<string, string> {
-  const box: Record<string, string> = Object.fromEntries(MIRRORED_TYPOGRAPHY.map((name) => [name, style.getPropertyValue(name)]));
+  const box: Record<string, string> = Object.fromEntries(MIRRORED_TEXT_STYLES.map((name) => [name, style.getPropertyValue(name)]));
   const padding = (side: "left" | "right") => `${(Number.parseFloat(style.getPropertyValue(`padding-${side}`)) || 0) + innerInsetPx}px`;
   return { ...box, "box-sizing": "border-box", width: `${clientWidth}px`, "padding-left": padding("left"), "padding-right": padding("right") };
 }
@@ -55,13 +57,64 @@ export function textareaInnerInset(textarea: HTMLTextAreaElement): number {
   }
 }
 
+export function useComposerMirror(
+  editorRef: RefObject<HTMLTextAreaElement | null>,
+  mirrorRef: RefObject<HTMLDivElement | null>,
+  text: string,
+  active = true,
+) {
+  useLayoutEffect(() => {
+    const editor = editorRef.current;
+    const mirror = mirrorRef.current;
+    if (!active || !editor || !mirror) return;
+    let font: string | undefined;
+    let innerInset = 0;
+    const layout = (content?: DOMRectReadOnly) => {
+      const style = getComputedStyle(editor);
+      if (style.font !== font) {
+        font = style.font;
+        innerInset = textareaInnerInset(editor);
+      }
+      // ResizeObserver preserves the fractional text width after the scrollbar takes its gutter.
+      const width = content
+        ? content.width + (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0)
+        : editor.clientWidth;
+      for (const [name, setting] of Object.entries(capsuleMirrorBox(style, width, innerInset))) {
+        mirror.style.setProperty(name, setting);
+      }
+      syncMirrorScroll(editor, mirror);
+    };
+    const scroll = () => syncMirrorScroll(editor, mirror);
+    layout();
+    editor.addEventListener("scroll", scroll);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(([entry]) => layout(entry.contentRect));
+    observer?.observe(editor);
+    return () => {
+      editor.removeEventListener("scroll", scroll);
+      observer?.disconnect();
+    };
+  }, [active, editorRef, mirrorRef]);
+
+  useLayoutEffect(() => {
+    if (active && editorRef.current && mirrorRef.current) syncMirrorScroll(editorRef.current, mirrorRef.current);
+  }, [active, editorRef, mirrorRef, text]);
+}
+
+function syncMirrorScroll(editor: HTMLTextAreaElement, mirror: HTMLDivElement) {
+  mirror.scrollTop = editor.scrollTop;
+  mirror.scrollLeft = editor.scrollLeft;
+}
+
 function PaintedCapsule({ span, capsule, hovered, upload }: { span: CapsuleSpan; capsule: ComposerCapsule | null; hovered: boolean; upload?: ComposerUpload }) {
   const { name, detail } = capsuleLabelParts(typedLabel(span.label));
   return (
     <AttachmentCapsule
       inert
       attachment={{ kind: capsule?.kind ?? "file", path: capsule?.path ?? "", label: capsule?.displayName ?? span.label }}
-      spanProps={{ "data-capsule-start": span.start, "data-unknown": capsule ? undefined : "", "data-hovered": hovered || undefined }}
+      spanProps={{
+        "data-capsule-start": span.start, "data-unknown": capsule ? undefined : "", "data-hovered": hovered || undefined,
+        style: { fontSize: "inherit", lineHeight: "inherit" },
+      }}
       decoration={upload ? <><span className="ct-capsule__plate" />{upload.state === "uploading"
         ? <span className="ct-capsule__icon"><BusyState inline hideLabel dotSize="small" label="Uploading" /></span>
         : <TriangleAlert aria-hidden className="ct-capsule__icon" style={{ color: "var(--ct-error, #f85149)" }} />}</> : undefined}
@@ -110,30 +163,7 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
   const cardRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<Hover | null>(null);
 
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-    const mirror = mirrorRef.current;
-    if (!active || !textarea || !mirror) return;
-    const scroll = () => { mirror.scrollTop = textarea.scrollTop; };
-    const layout = () => {
-      const box = capsuleMirrorBox(getComputedStyle(textarea), textarea.clientWidth, textareaInnerInset(textarea));
-      for (const [name, setting] of Object.entries(box)) mirror.style.setProperty(name, setting);
-      scroll();
-    };
-    layout();
-    textarea.addEventListener("scroll", scroll);
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(layout);
-    observer?.observe(textarea);
-    return () => {
-      textarea.removeEventListener("scroll", scroll);
-      observer?.disconnect();
-    };
-  }, [active, textareaRef]);
-
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-    if (active && textarea && mirrorRef.current) mirrorRef.current.scrollTop = textarea.scrollTop;
-  }, [active, textareaRef, value]);
+  useComposerMirror(textareaRef, mirrorRef, value, active);
 
   const track = (event: MouseEvent<HTMLDivElement>) => {
     if (!active || cardRef.current?.contains(event.target as Node)) return;
@@ -175,7 +205,7 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
           aria-hidden
           data-testid="composer-capsule-mirror"
           className="pointer-events-none absolute left-0 overflow-hidden"
-          style={{ top: marginPx, bottom: marginPx, whiteSpace: "pre-wrap", overflowWrap: "break-word", color: "var(--ct-fg, #c9d1d9)" }}
+          style={{ insetBlock: marginPx, color: "var(--ct-fg, #c9d1d9)" }}
         >
           {segments.map((segment) => ("text" in segment
             ? segment.text

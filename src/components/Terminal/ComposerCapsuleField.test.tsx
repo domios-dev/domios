@@ -2,6 +2,7 @@ import { act, createRef } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
 import { ComposerCapsuleField, capsuleMirrorBox } from "./ComposerCapsuleField";
+import { ComposerMentionHighlight } from "./ComposerMentionHighlight";
 import { capsuleToken } from "./composerCapsules";
 import type { ComposerUpload } from "./composerUploadModel";
 
@@ -119,5 +120,50 @@ test("with two image capsules the mirror wraps inside the textarea's hidden inne
     scrollWidth.mockRestore();
     await act(async () => root.unmount());
     host.remove();
+  }
+});
+
+test("both mirrors follow the fractional visible text box and scroll position", async () => {
+  const observers: ResizeObserverCallback[] = [];
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(callback: ResizeObserverCallback) { observers.push(callback); }
+    observe() {}
+    disconnect() {}
+  });
+  const inset = vi.spyOn(HTMLTextAreaElement.prototype, "scrollWidth", "get").mockReturnValue(4);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const textarea = createRef<HTMLTextAreaElement>();
+  const text = `@Peer ${capsuleToken("image1")}\nwrapped content\n`;
+  try {
+    await act(async () => root.render(
+      <ComposerCapsuleField tabId="opaque" value={text} active registry={{}} textareaRef={textarea} marginPx={0} onRemove={() => {}}>
+        <textarea ref={textarea} defaultValue={text} style={{
+          padding: "2px 4px 3px 1px", whiteSpace: "pre-wrap", wordBreak: "break-all", overflowWrap: "anywhere",
+        }} />
+        <ComposerMentionHighlight draft={{ text, canonical: text, tokens: [] }} textarea={textarea} marginPx={0} />
+      </ComposerCapsuleField>,
+    ));
+    expect(observers).toHaveLength(2);
+    const contentRect = new DOMRectReadOnly(0, 0, 182.75, 74);
+    for (const callback of observers) callback([{ contentRect } as ResizeObserverEntry], {} as ResizeObserver);
+    const editor = textarea.current!;
+    editor.scrollTop = 21;
+    editor.scrollLeft = 6;
+    editor.dispatchEvent(new Event("scroll"));
+    for (const id of ["composer-capsule-mirror", "composer-mention-highlight"]) {
+      const layer = host.querySelector<HTMLDivElement>(`[data-testid="${id}"]`)!;
+      expect(layer.style).toMatchObject({
+        width: "187.75px", paddingLeft: "3px", paddingRight: "6px",
+        paddingTop: "2px", paddingBottom: "3px", whiteSpace: "pre-wrap", wordBreak: "break-all", overflowWrap: "anywhere",
+      });
+      expect([layer.scrollTop, layer.scrollLeft]).toEqual([21, 6]);
+    }
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    inset.mockRestore();
+    vi.unstubAllGlobals();
   }
 });

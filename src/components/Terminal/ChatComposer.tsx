@@ -749,7 +749,6 @@ function ChatComposerImpl({
         uploads={capsules.uploads.uploads}
         onRetry={(id) => { void capsules.uploads.retry(id); }}
       >
-        <ComposerMentionHighlight draft={mentionTokens.draft} textarea={textareaRef} marginPx={composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? 8 : 0} />
         <span role="status" aria-live="polite" className="sr-only">{mentionTokens.announcement}</span>
         <ComposerTextInput
           data-testid="chat-composer"
@@ -908,6 +907,7 @@ function ChatComposerImpl({
             margin: composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? "8px 0" : 0,
           }}
         />
+        <ComposerMentionHighlight draft={mentionTokens.draft} textarea={textareaRef} marginPx={composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? 8 : 0} />
       </ComposerCapsuleField>
     </ComposerActions>
   );
