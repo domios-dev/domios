@@ -27,7 +27,9 @@ it("persists the selected art and colours, and keeps the current wallpaper on up
   };
   try {
     await act(async () => root.render(<ChatWallpaperPicker config={{ theme: DEFAULT_THEME } as AppConfig} />));
-    expect(radio("Default dots").checked).toBe(true);
+    expect(radio("None").checked).toBe(true);
+    await act(async () => radio("Dots").click());
+    expect(client.saveWallpaper).toHaveBeenLastCalledWith(undefined, { background: { pattern: "dots" } }, undefined);
     const dotScale = [...host.querySelectorAll<HTMLInputElement>('input[type="range"]')]
       .find(control => [...(control.labels ?? [])].some(label => label.textContent?.startsWith("Scale")));
     expect(dotScale?.min).toBe("8");
@@ -42,7 +44,7 @@ it("persists the selected art and colours, and keeps the current wallpaper on up
     const light = [...host.querySelectorAll("button")].find(button => button.textContent === "Light")!;
     await act(async () => light.click());
     expect(light.getAttribute("aria-pressed")).toBe("true");
-    expect(client.saveWallpaper).toHaveBeenCalledTimes(2);
+    expect(client.saveWallpaper).toHaveBeenCalledTimes(3);
     await act(async () => radio("Your own wallpaper").click());
     const input = host.querySelector<HTMLInputElement>('input[type="file"]')!;
     const file = new File(["fixture"], "bad.svg", { type: "image/svg+xml" });
@@ -51,7 +53,7 @@ it("persists the selected art and colours, and keeps the current wallpaper on up
     const alert = host.querySelector('[role="alert"]');
     expect(alert?.textContent).toContain("bad.svg wasn’t used");
     expect(alert?.textContent).toContain(refusal);
-    expect(client.saveWallpaper).toHaveBeenCalledTimes(2);
+    expect(client.saveWallpaper).toHaveBeenCalledTimes(3);
   } finally {
     await act(async () => root.unmount());
     host.remove();

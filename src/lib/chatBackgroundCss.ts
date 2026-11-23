@@ -4,7 +4,7 @@ import type { ThemeConfig } from "./types";
 
 const DEFAULT_SCALE = 20;
 const DOODLE_SCALE = 360;
-const DEFAULT_OPACITY = { light: 0.035, dark: 0.028 };
+export const CHAT_BACKGROUND_DEFAULT_OPACITY = { light: 0.035, dark: 0.028 } as const;
 const DOODLE_OPACITY = { light: 0.09, dark: 0.085 };
 const MAX_OPACITY = 0.24;
 const GRADIENT_OPACITY = 0.08;
@@ -22,7 +22,7 @@ export function chatBackgroundToCSS(theme: ThemeConfig, light: boolean): string 
   const isDoodles = pattern === "doodles";
   const scale = bounded(background?.scale, 8, 512, isDoodles ? DOODLE_SCALE : DEFAULT_SCALE);
   const angle = bounded(background?.rotation, -360, 360, 0);
-  const defaultOpacity = (isDoodles ? DOODLE_OPACITY : DEFAULT_OPACITY)[light ? "light" : "dark"];
+  const defaultOpacity = (isDoodles ? DOODLE_OPACITY : CHAT_BACKGROUND_DEFAULT_OPACITY)[light ? "light" : "dark"];
   const opacity = bounded(background?.opacity, 0, MAX_OPACITY, defaultOpacity);
   const foreground = hexColor.test(theme.foreground) ? theme.foreground : (light ? "#1f2328" : "#c9d1d9");
   const customColor = background?.color && hexColor.test(background.color) ? background.color : undefined;
