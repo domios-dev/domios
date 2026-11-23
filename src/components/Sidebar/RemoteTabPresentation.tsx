@@ -85,6 +85,6 @@ export function TeamMachinePill({ id, name, identity }: { id: string; name: stri
     style={identity ? { "--ct-plan-tone": `var(--ct-machine-${machineColor(identity.color)})` } as CSSProperties : undefined}
   >
     {identity && <MachineGlyph {...identity} />}
-    <span className="min-w-0 truncate">{name}</span>
+    <span className="sidebar-team-machine-pill__label min-w-0 truncate">{name}</span>
   </span>;
 }

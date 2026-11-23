@@ -2772,6 +2772,10 @@ button {
 .sidebar-team-title-row .sidebar-team-name {
   min-width: 0;
   flex: 0 1 auto;
+}
+
+.sidebar-team-title-row .sidebar-team-name,
+.sidebar-team-machine-pill__label {
   margin-block: -0.125em;
   line-height: 1.25;
 }
