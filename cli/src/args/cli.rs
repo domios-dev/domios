@@ -223,7 +223,7 @@ pub enum Commands {
         from_pad: Option<String>,
 
         /// Share a relative file from the current tab's pad in the recipient's chat. Repeat to share several files.
-        #[arg(long, value_name = "PATH", conflicts_with_all = ["actions", "delay", "at", "every", "until", "count", "system_context", "to_shell", "mesh"])]
+        #[arg(long, value_name = "PATH", conflicts_with_all = ["actions", "delay", "at", "every", "until", "count", "system_context", "to_shell"])]
         attach: Vec<String>,
 
         /// Put a snapshot of each attachment in the receiving tab's pad inbox.
