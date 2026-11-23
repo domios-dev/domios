@@ -247,6 +247,43 @@ test("failed closeTab restores the tab from authoritative state", async () => {
   h.clear();
 });
 
+test("an unfinished Worker prompts once and closes only after confirmation", async () => {
+  for (const accepted of [false, true]) {
+    const tabs = [{ id: "tab-A", title: "A" }, { id: "worker", title: "Worker" }];
+    const backend: BackendWs[] = [{ id: "w1", tabs }];
+    const requests: boolean[] = [];
+    let prompts = 0;
+    let gen = 10;
+    const invokeMock = async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
+      if (cmd === "mux_get_state") return makeSnapshot(backend, ++gen) as T;
+      if (cmd === "list_notifications") return [] as T;
+      if (cmd !== "mux_close_tab") return {} as T;
+      assert(args?.tabId === "worker", "close targets the Worker");
+      const force = args.force === true;
+      requests.push(force);
+      if (!force) return { ok: false, confirmation_required: true } as T;
+      backend[0].tabs = tabs.filter((tab) => tab.id !== "worker");
+      return { ok: true } as T;
+    };
+    const h = await renderHarness(invokeMock);
+    window.confirm = () => { prompts++; return accepted; };
+    try {
+      await h.act(async () => {
+        h.actions().closeTab("w1", "worker");
+        await drain();
+      });
+      assert(prompts === 1, "one prompt per close request");
+      assert(requests[0] === false && requests.length === (accepted ? 2 : 1), "only an accepted prompt submits a second request");
+      if (accepted) assert(requests[1] === true, "the second request carries confirmation");
+      assert(hasTab(h.state(), "worker") === !accepted, "cancelling keeps the tab and confirming closes it");
+      assert(h.state().toasts.length === 0, "confirmation does not look like a refusal");
+    } finally {
+      await h.act(async () => h.root.unmount());
+      h.clear();
+    }
+  }
+});
+
 test("failed closeWorkspace restores the workspace from authoritative state", async () => {
   const backend: BackendWs[] = [
     { id: "w1", tabs: [{ id: "tab-A", title: "A" }] },
