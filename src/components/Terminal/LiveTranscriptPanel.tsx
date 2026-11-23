@@ -506,6 +506,33 @@ function SentText({ text }: { text: string }) {
   </>;
 }
 
+function useWrongSendFeedback(api: LiveTranscriptApi, forward: TranscriptForward) {
+  const request = useRef<AbortController | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [marked, setMarked] = useState(false);
+  const markedWrong = marked || forward.feedback === "wrong_send";
+
+  useEffect(() => () => request.current?.abort(), []);
+
+  async function handleWrongSend() {
+    if (markedWrong || request.current) return;
+    const controller = new AbortController();
+    request.current = controller;
+    setSubmitting(true);
+    try {
+      const result = await api.feedback(forward.forwardId, "wrong_send", controller.signal);
+      if (!controller.signal.aborted && result.ok) setMarked(true);
+    } catch {
+      // Keep the action available to retry.
+    } finally {
+      request.current = null;
+      if (!controller.signal.aborted) setSubmitting(false);
+    }
+  }
+
+  return { markedWrong, submitting, handleWrongSend };
+}
+
 function ForwardReceipt({ api, forward, expanded, onExpanded, thoughtsOpen, onThoughts }: {
   api: LiveTranscriptApi;
   forward: TranscriptForward;
@@ -517,6 +544,7 @@ function ForwardReceipt({ api, forward, expanded, onExpanded, thoughtsOpen, onTh
   const store = useMuxStateStore();
   const tab = useMuxSelector(state => state.tabs[forward.targetTabId]);
   const title = tab && isSidebarTabVisible(tab) ? displayTitleForTab(tab) : forward.targetTitle;
+  const { markedWrong, submitting, handleWrongSend } = useWrongSendFeedback(api, forward);
   return <div className="ct-live-receipt-item">
     <span className="sr-only">Sent to {title}</span>
     <div className="ct-live-receipt">
@@ -533,12 +561,15 @@ function ForwardReceipt({ api, forward, expanded, onExpanded, thoughtsOpen, onTh
     {expanded && <div className="ct-live-receipt-details">
       <SentText text={forward.sentText} />
       {forward.rationale && <p className="ct-live-receipt-rationale">{forward.rationale}</p>}
-      {forward.epochId ? <>
-        <button type="button" className="ct-live-disclosure" aria-expanded={thoughtsOpen} onClick={() => onThoughts(!thoughtsOpen)}>
+      {!forward.epochId && !forward.rationale && <span className="ct-live-muted">Reasoning unavailable</span>}
+      <div className="ct-live-receipt-footer">
+        {forward.epochId && <button type="button" className="ct-live-disclosure" aria-expanded={thoughtsOpen} onClick={() => onThoughts(!thoughtsOpen)}>
           Thoughts {thoughtsOpen ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />}
-        </button>
-        {thoughtsOpen && <LiveTranscriptThoughts key={forward.epochId} api={api} epoch={forward.epochId} onClose={() => onThoughts(false)} />}
-      </> : <span className="ct-live-muted">Reasoning unavailable</span>}
+        </button>}
+        {markedWrong ? <span className="ct-live-feedback-marked" role="status">Marked as wrong send</span>
+          : <button type="button" className="ct-live-feedback-btn" disabled={submitting} onClick={handleWrongSend}>Wrong send</button>}
+      </div>
+      {forward.epochId && thoughtsOpen && <LiveTranscriptThoughts key={forward.epochId} api={api} epoch={forward.epochId} onClose={() => onThoughts(false)} />}
     </div>}
   </div>;
 }
@@ -553,7 +584,7 @@ function RouteCard({ record }: { record: RoutedRecord }) {
   const { action, binding } = record;
   const { fromSeq, toSeq } = action.range;
   const target = useMuxSelector(state => binding.target.kind === "external" ? state.tabs[binding.target.tabId] : undefined);
-  const destination = binding.target.kind === "attached" ? "Transcript Concierge"
+  const destination = binding.target.kind === "attached" || binding.target.kind === "local" ? "Transcript Concierge"
     : target && isSidebarTabVisible(target) ? displayTitleForTab(target) : binding.target.kind === "external" ? "External tab" : action.destination;
   return <article className="ct-live-route" aria-label={`Routed speech to ${destination}`}>
     <div><strong>{fromSeq === toSeq ? `Speech ${fromSeq}` : `Speech ${fromSeq}–${toSeq}`}</strong>
@@ -574,7 +605,7 @@ function LogEpochPicker({ current, records, open, onOpen }: {
   const epoch = record ? record.binding.target.kind === "attached" ? record.binding.target.epochId : undefined : current;
   const options: DropdownSelectOption[] = [{ value: "", label: "Current epoch" }, ...records.map(item => ({
     value: item.action.actionId,
-    label: `${clock(item.action.atMs)} · Speech ${item.action.range.fromSeq}${item.binding.target.kind !== "attached" ? " · External" : ""}`,
+    label: `${clock(item.action.atMs)} · Speech ${item.action.range.fromSeq}${item.binding.target.kind === "external" ? " · External" : ""}`,
   }))];
   return <>
     <span className="ct-live-select ct-live-select--inline">
@@ -591,7 +622,8 @@ function LogEpochPicker({ current, records, open, onOpen }: {
 }
 
 function conciergeSummary(router: TranscriptReadiness["router"], trigger: Trigger) {
-  const identity = [router?.provider, router?.model].filter(Boolean).join(" / ");
+  const provider = router?.provider === "local" ? "Local" : router?.provider;
+  const identity = [provider, router?.model].filter(Boolean).join(" / ");
   return [identity, MODES[trigger]].filter(Boolean).join(" · ");
 }
 

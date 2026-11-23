@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMsg } from "@codeterm/chat-core";
 import type { Tab } from "../../lib/types";
-import { createLiveTranscriptApi, THOUGHTS_PAGE_SIZE, TRANSCRIPT_PAGE_SIZE, type LiveTranscriptApi, type RoutedRecord, type TranscriptOverview, type TranscriptReadiness } from "../../lib/transport/liveTranscript";
+import { createLiveTranscriptApi, THOUGHTS_PAGE_SIZE, TRANSCRIPT_PAGE_SIZE, type LiveTranscriptApi, type RoutedRecord, type TranscriptForward, type TranscriptOverview, type TranscriptReadiness } from "../../lib/transport/liveTranscript";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
@@ -106,6 +106,7 @@ function makeApi() {
     }),
     save: vi.fn<LiveTranscriptApi["save"]>().mockResolvedValue({ id: "saved" }),
     route: vi.fn<LiveTranscriptApi["route"]>().mockResolvedValue({ accepted: true }),
+    feedback: vi.fn<LiveTranscriptApi["feedback"]>(),
   };
   vi.mocked(createLiveTranscriptApi).mockReturnValue(api);
   return { api, readiness, status, async emitChange() { await act(async () => { invalidated?.(); }); } };
@@ -286,6 +287,45 @@ describe("Live Transcript panel", () => {
     await click("Earlier speech");
     expect(api.history).toHaveBeenLastCalledWith(1001 - 2 * TRANSCRIPT_PAGE_SIZE, TRANSCRIPT_PAGE_SIZE, expect.any(AbortSignal));
     expect(panel()?.textContent).not.toContain("Committed speech 1000");
+  });
+
+  it("shows a ready Local Concierge without current thoughts", async () => {
+    const { status, readiness } = await mount();
+    status.binding.target = { kind: "local" };
+    status.router = { provider: "local", model: "qwen/qwen3-4b", activity: "idle" };
+    status.trigger = "direct_batch";
+    status.scout = readiness.scout = "ready";
+
+    await click("Open active Transcript");
+    expect(control("Concierge · Local / qwen/qwen3-4b · Direct batch")).toBeTruthy();
+    expect(panel()?.querySelector('[aria-label="Live Transcript setup"]')).toBeNull();
+    expect(panel()?.querySelector('[aria-label="Open current Concierge thoughts"]')).toBeNull();
+    expect(panel()?.textContent).not.toContain("Scout is unavailable");
+  });
+
+  it("marks a forward with local rationale as a wrong send from its Details", async () => {
+    const { api, status } = await mount();
+    status.binding.target = { kind: "local" };
+    const forward: TranscriptForward = {
+      forwardId: "local-forward", epochId: null, range: { fromSeq: 993, toSeq: 994 }, atMs: 1_000,
+      targetTabId: agent.id, targetTitle: agent.title, sentText: "Inspect logs", sentExcerpt: "Inspect logs",
+      rationale: "Explicitly asked Main to inspect logs.",
+    };
+    api.overview.mockResolvedValue({ status, cursor: null, forwards: [forward] });
+    let resolveFeedback!: (value: Awaited<ReturnType<LiveTranscriptApi["feedback"]>>) => void;
+    api.feedback.mockReturnValue(new Promise(resolve => { resolveFeedback = resolve; }));
+
+    await click("Open active Transcript");
+    expect(panel()?.textContent).not.toContain("Wrong send");
+    await click("Details");
+    expect(panel()?.textContent).toContain(forward.rationale);
+    expect(panel()?.textContent).not.toContain("Reasoning unavailable");
+    await click("Wrong send");
+    expect(api.feedback).toHaveBeenCalledExactlyOnceWith(forward.forwardId, "wrong_send", expect.any(AbortSignal));
+    expect(control("Wrong send").disabled).toBe(true);
+    await act(async () => resolveFeedback({ ok: true, forward: { ...forward, feedback: "wrong_send" } }));
+    expect(panel()?.textContent).toContain("Marked as wrong send");
+    expect(panel()?.textContent).not.toContain("Wrong send");
   });
 
   it("shows a sent receipt with live target navigation and inline epoch details", async () => {
