@@ -91,6 +91,30 @@ test("the mirror takes the textarea's own typography and text box", () => {
   expect(box).toMatchObject({ "font-family": "OpaqueFace", "font-size": "16px", "line-height": "20px", "letter-spacing": "0.25px", width: "287px", "box-sizing": "border-box", "padding-left": "5px", "padding-right": "7px" });
 });
 
+test("the textarea reserves the gap between the attachment and adjacent text", async () => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const textareaRef = createRef<HTMLTextAreaElement>();
+  const name = "report.html";
+  const token = capsuleToken(name);
+  const existingToken = "\u2068\u2007\u2007\u00A0report.html\u00A0\u2069";
+  const value = `${existingToken}\n${token}following text`;
+  try {
+    await act(async () => root.render(
+      <ComposerCapsuleField tabId="opaque" value={value} active registry={{ [name]: { label: name, kind: "file", path: `/tmp/${name}` } }} textareaRef={textareaRef} marginPx={0} onRemove={() => {}}>
+        <textarea ref={textareaRef} aria-label="Message" defaultValue={value} />
+      </ComposerCapsuleField>,
+    ));
+    const mirror = host.querySelector('[data-testid="composer-capsule-mirror"]')!;
+    const [existingCapsule, capsule] = mirror.querySelectorAll("[data-capsule-start]");
+    expect(mirror.textContent).toBe(textareaRef.current!.value);
+    expect(existingCapsule.nextSibling?.textContent).toBe("\n");
+    expect(capsule.nextSibling?.textContent).toBe("\u2005\u200B");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("with two image capsules the mirror wraps inside the textarea's hidden inner inset", async () => {
   const host = document.createElement("div");
   document.body.append(host);
