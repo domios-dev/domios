@@ -11,6 +11,7 @@ export interface LiveTranscriptOpenOptions {
 export interface LiveTranscriptHostState {
   ownerId: string | null;
   locked: boolean;
+  canOpen: (tabId: string) => boolean;
   open: (tabId: string, options?: LiveTranscriptOpenOptions) => void;
 }
 
@@ -68,6 +69,7 @@ export function useLiveTranscriptPanel({ api, show, log, captureRevision, captur
   const historyLoaded = useRef<HistoryView | undefined>(undefined);
   const session = useRef<AbortController | null>(null);
   const pending = useRef(false);
+  const readinessPending = useRef(true);
   const refreshing = useRef<AbortController | null>(null);
   const mutation = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -81,9 +83,19 @@ export function useLiveTranscriptPanel({ api, show, log, captureRevision, captur
     const request = new AbortController();
     refreshing.current = request;
     const signal = AbortSignal.any([request.signal, lifetime.signal]);
+    const readReadiness = readinessPending.current;
+    readinessPending.current = false;
     try {
-      const next = await api.overview(signal);
+      const [overviewResult, readinessResult] = await Promise.allSettled([
+        api.overview(signal),
+        readReadiness ? api.readiness(signal) : undefined,
+      ]);
       if (signal.aborted) return;
+      if (readinessResult.status === "fulfilled" && readinessResult.value) setReadiness(readinessResult.value);
+      if (overviewResult.status === "rejected") throw overviewResult.reason;
+      const next = overviewResult.value;
+      setOverview(next);
+      setLoaded(true);
       const through = next.status.committedSeq;
       const from = historyPosition.current ?? Math.max(1, through - TRANSCRIPT_PAGE_SIZE + 1);
       const cached = historyLoaded.current;
@@ -93,50 +105,44 @@ export function useLiveTranscriptPanel({ api, show, log, captureRevision, captur
         log ? api.events(logPosition.current, signal) : undefined,
       ]);
       if (signal.aborted) return;
-      setOverview(next);
       if (page) {
         const view = { from, through, page };
         historyLoaded.current = view;
         setHistory(view);
       }
       if (routes) setEvents({ after: logPosition.current, page: routes });
-      setError(undefined);
+      setError(readinessResult.status === "rejected" ? errorText(readinessResult.reason) : undefined);
     } catch (failure) {
       if (!signal.aborted) setError(errorText(failure));
     } finally {
       if (refreshing.current === request) {
         refreshing.current = null;
+        if (readReadiness && request.signal.aborted) readinessPending.current = true;
         if (!signal.aborted) setLoaded(true);
         if (pending.current) { pending.current = false; void refresh(); }
       }
     }
   }, [api, show]);
 
-  const refreshReadiness = useLatestCallback(async () => {
-    const signal = session.current?.signal;
-    if (!signal || signal.aborted) return;
-    try {
-      const next = await api.readiness(signal);
-      if (!signal.aborted) setReadiness(next);
-    } catch (failure) {
-      if (!signal.aborted) setError(errorText(failure));
-    }
-  }, [api]);
+  const refreshReadiness = useLatestCallback(() => {
+    readinessPending.current = true;
+    void refresh();
+  }, [refresh]);
 
   useEffect(() => {
     if (!show) return;
     const lifetime = new AbortController();
     session.current = lifetime;
-    const unsubscribe = subscribeChanges?.(refresh);
-    void refreshReadiness();
+    readinessPending.current = true;
+    const unsubscribe = subscribeChanges(refreshReadiness);
     return () => {
       lifetime.abort();
-      unsubscribe?.();
+      unsubscribe();
       refreshing.current = null;
       pending.current = false;
       session.current = null;
     };
-  }, [show, refresh, refreshReadiness, subscribeChanges]);
+  }, [show, refreshReadiness, subscribeChanges]);
 
   useEffect(() => { void refresh(); }, [refresh, log, captureRevision, capturePhase]);
 
@@ -181,7 +187,7 @@ export function useLiveTranscriptPanel({ api, show, log, captureRevision, captur
     void refresh();
   }
 
-  async function mutate(action: (signal: AbortSignal) => Promise<unknown>) {
+  const mutate = useLatestCallback(async (action: (signal: AbortSignal) => Promise<unknown>) => {
     if (mutation.current) return false;
     const request = new AbortController();
     mutation.current = request;
@@ -189,7 +195,7 @@ export function useLiveTranscriptPanel({ api, show, log, captureRevision, captur
     try {
       await action(request.signal);
       if (request.signal.aborted) return false;
-      void refresh();
+      refreshReadiness();
       return true;
     } catch (failure) {
       if (!request.signal.aborted) setError(errorText(failure));
@@ -198,7 +204,7 @@ export function useLiveTranscriptPanel({ api, show, log, captureRevision, captur
       mutation.current = null;
       if (!request.signal.aborted) setBusy(false);
     }
-  }
+  }, [refreshReadiness]);
 
   return { overview, readiness, history, events, error, loaded, busy, refresh, refreshReadiness, mutate,
     scrollRef, onScroll, moveHistory, moveLog };

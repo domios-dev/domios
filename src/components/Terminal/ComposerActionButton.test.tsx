@@ -1,8 +1,6 @@
-// Run: npx tsx src/components/Terminal/ComposerActionButton.test.tsx
-
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { Window } from "happy-dom";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ComposerActionButton } from "./ComposerActionButton";
 import { ComposerAttachButton } from "./ComposerAttachButton";
 import { ComposerScheduleButton } from "./ComposerScheduleButton";
@@ -10,9 +8,8 @@ import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 import type { LiveDictation } from "./voice/useLiveDictation";
 import { QUIET_DICTATION_SAMPLE } from "./voice/dictationLevelModel";
 
-type TestFn = () => void | Promise<void>;
-const tests: Array<[string, TestFn]> = [];
-function test(name: string, fn: TestFn) { tests.push([name, fn]); }
+const roots: Root[] = [];
+
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
@@ -20,18 +17,13 @@ function assertEq<T>(actual: T, expected: T, message: string): void {
   if (actual !== expected) throw new Error(`${message} (got ${String(actual)}, expected ${String(expected)})`);
 }
 
-function setupDom() {
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const window = new Window({ url: "http://localhost/composer" });
-  Object.defineProperty(globalThis, "window", { value: window, configurable: true });
-  Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
-  Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
-  Object.defineProperty(globalThis, "SVGElement", { value: window.SVGElement, configurable: true });
-  Object.defineProperty(globalThis, "Element", { value: window.Element, configurable: true });
-  Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
-  Object.defineProperty(globalThis, "PointerEvent", { value: window.PointerEvent, configurable: true });
-  Object.defineProperty(globalThis, "MouseEvent", { value: window.MouseEvent, configurable: true });
-}
+beforeEach(() => vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true));
+afterEach(async () => {
+  await act(async () => { for (const root of roots.splice(0)) root.unmount(); });
+  document.body.replaceChildren();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 function voiceHandle(overrides: Partial<ComposerVoiceHandle> = {}): ComposerVoiceHandle {
   return {
@@ -77,17 +69,19 @@ function dictationHandle(overrides: Partial<LiveDictation> = {}): LiveDictation 
 
 async function renderButton(
   voiceUi: ComposerVoiceHandle,
-  props: { dictation?: LiveDictation; onOpenLiveTranscript?: () => void; spaceArming?: boolean; spacePop?: boolean; sendDisabled?: boolean; onSend?: () => void; onSchedule?: () => void } = {},
+  props: { dictation?: LiveDictation; onOpenLiveTranscript?: () => void; liveTranscriptOnTap?: boolean; spaceArming?: boolean; spacePop?: boolean; sendDisabled?: boolean; onSend?: () => void; onSchedule?: () => void } = {},
 ): Promise<{ button: HTMLButtonElement; host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
+  roots.push(root);
   await act(async () => {
     root.render(
       <ComposerActionButton
         voiceUi={voiceUi}
         dictation={props.dictation}
         onOpenLiveTranscript={props.onOpenLiveTranscript}
+        liveTranscriptOnTap={props.liveTranscriptOnTap}
         spaceArming={props.spaceArming}
         spacePop={props.spacePop}
         sendDisabled={props.sendDisabled ?? false}
@@ -103,6 +97,7 @@ async function renderAttachButton(props: { uploading?: boolean; onClick?: () => 
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
+  roots.push(root);
   await act(async () => {
     root.render(<ComposerAttachButton uploading={props.uploading ?? false} onClick={props.onClick ?? (() => undefined)} />);
   });
@@ -113,6 +108,7 @@ async function renderScheduleButton(onSchedule: () => void): Promise<{ button: H
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
+  roots.push(root);
   await act(async () => {
     root.render(
       <ComposerScheduleButton onSchedule={onSchedule} />,
@@ -189,6 +185,7 @@ test("voice hold starts recording and exposes lock affordance", async () => {
   assert(button.dataset.testid === "composer-voice-button", "voice test id changed");
   const lockPill = document.querySelector('[data-testid="composer-voice-lock-pill"]');
   assert(lockPill, "hold lock affordance missing");
+  expect(lockPill.classList.contains("-translate-x-1/2")).toBe(false);
   await act(async () => button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
   assert(starts === 1, "voice start callback did not fire");
 });
@@ -345,20 +342,58 @@ test("active dictation shows Try Live Transcript bubble and drag-up promotes to 
   await act(async () => { dragRoot.unmount(); });
 });
 
-async function main() {
-  setupDom();
-  let failed = 0;
-  for (const [name, fn] of tests) {
-    try {
-      await fn();
-      console.log(`  ✓ ${name}`);
-    } catch (error) {
-      failed++;
-      console.error(`  ✗ ${name}: ${error instanceof Error ? error.message : error}`);
-    }
-  }
-  if (failed > 0) process.exit(1);
-  console.log(`\n✓ all ${tests.length} ComposerActionButton tests green`);
-}
+test("Live Transcript preference opens on short tap without starting dictation", async () => {
+  vi.useFakeTimers();
+  const start = vi.fn(async () => undefined);
+  const open = vi.fn();
+  const { button } = await renderButton(voiceHandle({ mainIsSend: false }), {
+    dictation: dictationHandle({ start }), onOpenLiveTranscript: open, liveTranscriptOnTap: true,
+  });
+  await act(async () => {
+    button.dispatchEvent(pointerEvent("pointerdown", { clientX: 100, clientY: 100 }, 1000));
+    vi.advanceTimersByTime(190);
+  });
+  expect(start).not.toHaveBeenCalled();
+  expect(open).not.toHaveBeenCalled();
+  await act(async () => {
+    button.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 100 }, 1190));
+    vi.advanceTimersByTime(250);
+  });
+  expect(open).toHaveBeenCalledOnce();
+  expect(start).not.toHaveBeenCalled();
+});
 
-void main();
+test("Live Transcript preference still dictates on hold and cancels before promoting on swipe up", async () => {
+  vi.useFakeTimers();
+  const start = vi.fn(async () => undefined);
+  const stop = vi.fn(async () => undefined);
+  let finishCancellation!: () => void;
+  const cancel = vi.fn(() => new Promise<void>(resolve => { finishCancellation = resolve; }));
+  const open = vi.fn();
+  const { button, host } = await renderButton(voiceHandle({ mainIsSend: false }), {
+    dictation: dictationHandle({ start, stop, cancel }), onOpenLiveTranscript: open, liveTranscriptOnTap: true,
+  });
+  const atMic = { clientX: 100, clientY: 100 };
+  await act(async () => {
+    button.dispatchEvent(pointerEvent("pointerdown", atMic, 1000));
+    vi.advanceTimersByTime(250);
+  });
+  expect(start).toHaveBeenCalledOnce();
+  expect(host.querySelector('[data-testid="composer-voice-lock-pill"]')).not.toBeNull();
+  await act(async () => { button.dispatchEvent(pointerEvent("pointerup", atMic, 1250)); });
+  expect(stop).toHaveBeenCalledOnce();
+  expect(open).not.toHaveBeenCalled();
+
+  await act(async () => {
+    button.dispatchEvent(pointerEvent("pointerdown", atMic, 2000));
+    vi.advanceTimersByTime(250);
+    button.dispatchEvent(pointerEvent("pointermove", { clientX: 100, clientY: 30 }, 2260));
+    button.dispatchEvent(pointerEvent("pointerup", { clientX: 100, clientY: 30 }, 2270));
+  });
+  expect(start).toHaveBeenCalledTimes(2);
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(open).not.toHaveBeenCalled();
+  await act(async () => { finishCancellation(); });
+  expect(open).toHaveBeenCalledOnce();
+  expect(stop).toHaveBeenCalledOnce();
+});

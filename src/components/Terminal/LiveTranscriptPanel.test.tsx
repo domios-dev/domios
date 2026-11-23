@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMsg } from "@codeterm/chat-core";
 import type { Tab } from "../../lib/types";
-import { createLiveTranscriptApi, THOUGHTS_PAGE_SIZE, TRANSCRIPT_PAGE_SIZE, type LiveTranscriptApi, type RoutedRecord, type TranscriptOverview } from "../../lib/transport/liveTranscript";
+import { createLiveTranscriptApi, THOUGHTS_PAGE_SIZE, TRANSCRIPT_PAGE_SIZE, type LiveTranscriptApi, type RoutedRecord, type TranscriptOverview, type TranscriptReadiness } from "../../lib/transport/liveTranscript";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
@@ -12,6 +12,11 @@ import { LIVE_TRANSCRIPT_FILES, useLiveTranscriptHost, type LiveTranscriptFiles 
 import type { useLiveTranscriptCapture } from "./voice/useLiveTranscriptCapture";
 
 const connection = vi.hoisted(() => ({ id: 1, relayed: false }));
+const listen = vi.hoisted(() => vi.fn<(event: string, handler: (event: { payload: { ownerTabId?: string } }) => void) => Promise<() => void>>());
+vi.mock("../../lib/bridge", async importOriginal => ({
+  ...await importOriginal<typeof import("../../lib/bridge")>(),
+  listen,
+}));
 vi.mock("../../lib/webApi", async importOriginal => ({
   ...await importOriginal<typeof import("../../lib/webApi")>(),
   webRequestContext: () => connection.id,
@@ -53,15 +58,34 @@ function receipt(epoch: string, seq: number): RoutedRecord {
 }
 
 function makeApi() {
+  let invalidated: (() => void) | undefined;
+  const readiness: TranscriptReadiness = {
+    asr: { state: "ready" },
+    concierge: "ready",
+    scout: "unavailable",
+    router: {
+      provider: "fixture",
+      model: "base",
+      providers: [
+        { id: "fixture", displayName: "Fixture", defaultModel: "base", models: ["base"] },
+        { id: "local", displayName: "Local", defaultModel: "small", models: ["small", "large"] },
+      ],
+    },
+  };
   const status: TranscriptOverview["status"] = {
     committedSeq: 1000,
     trigger: "scout_then_concierge",
     scout: "unavailable",
     concierge: "ready",
     binding: { ownerTabId: shell.id, revision: 2, target: { kind: "attached", epochId: "current" } },
+    router: { provider: "fixture", model: "base", activity: "idle" },
   };
   const api = {
-    readiness: vi.fn<LiveTranscriptApi["readiness"]>().mockResolvedValue({ asr: { state: "ready" }, scout: "unavailable", concierge: "ready" }),
+    subscribeChanges: vi.fn<LiveTranscriptApi["subscribeChanges"]>().mockImplementation(refresh => {
+      invalidated = refresh;
+      return () => { invalidated = undefined; };
+    }),
+    readiness: vi.fn<LiveTranscriptApi["readiness"]>().mockImplementation(async () => ({ ...readiness })),
     overview: vi.fn<LiveTranscriptApi["overview"]>().mockImplementation(async () => ({ status: { ...status }, cursor: { ackedSeq: 995, seenSeq: 995 } })),
     history: vi.fn<LiveTranscriptApi["history"]>().mockImplementation(async (from, limit) => ({
       rows: Array.from({ length: Math.min(limit, status.committedSeq - from + 1) }, (_, index) => row(from + index)),
@@ -70,18 +94,27 @@ function makeApi() {
     })),
     events: vi.fn<LiveTranscriptApi["events"]>().mockResolvedValue({ actions: [receipt("archived", 1), receipt("current", 2)], nextAfterSeq: null }),
     epoch: vi.fn<LiveTranscriptApi["epoch"]>().mockResolvedValue({ rows: [], nextOffset: null }),
-    attach: vi.fn<LiveTranscriptApi["attach"]>().mockImplementation(async binding => { status.trigger = binding.trigger; }),
+    attach: vi.fn<LiveTranscriptApi["attach"]>().mockImplementation(async binding => {
+      if (binding.trigger) status.trigger = binding.trigger;
+      if (binding.defaultMicTap !== undefined) status.defaultMicTap = readiness.defaultMicTap = binding.defaultMicTap;
+      if ("configure" in binding && binding.configure) status.configured = readiness.configured = true;
+      if (!("modeOnly" in binding)) {
+        status.concierge = "ready";
+        status.binding.target = { kind: "attached", epochId: "current" };
+        if (binding.provider) status.router = { provider: binding.provider, model: binding.model, activity: "idle" };
+      }
+    }),
     save: vi.fn<LiveTranscriptApi["save"]>().mockResolvedValue({ id: "saved" }),
     route: vi.fn<LiveTranscriptApi["route"]>().mockResolvedValue({ accepted: true }),
   };
   vi.mocked(createLiveTranscriptApi).mockReturnValue(api);
-  return api;
+  return { api, readiness, status, async emitChange() { await act(async () => { invalidated?.(); }); } };
 }
 
 let fixture: { root: Root; host: HTMLDivElement } | undefined;
 
 async function mount() {
-  const api = makeApi();
+  const transcript = makeApi();
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -103,7 +136,7 @@ async function mount() {
     <LiveTranscriptHost><Navigation /></LiveTranscriptHost>
   </MuxStateStoreContext.Provider>); });
   return {
-    api,
+    ...transcript,
     async switchPeer() {
       await act(async () => {
         connection.id++;
@@ -218,7 +251,7 @@ describe("Live Transcript panel", () => {
     expect(control("Apply routing").disabled).toBe(true);
     await choose("Routing mode", "manual");
     await click("Apply routing");
-    expect(api.attach).toHaveBeenCalledExactlyOnceWith({ trigger: "manual", modeOnly: true }, expect.any(AbortSignal));
+    expect(api.attach).toHaveBeenCalledExactlyOnceWith({ trigger: "manual", provider: "fixture", model: "base", configure: true }, expect.any(AbortSignal));
     expect(Array.from(panel()?.querySelectorAll('input[type="checkbox"]') ?? []).every(el => !(el as HTMLInputElement).checked)).toBe(true);
     const segment = panel()?.querySelector<HTMLInputElement>('input[aria-label$="(segment 1000)"]');
     await act(async () => { segment?.click(); });
@@ -275,25 +308,20 @@ describe("Live Transcript panel", () => {
     await click("Autostart active Transcript");
     expect(panel()?.textContent).toContain("Uncommitted words");
     expect(document.querySelector('[aria-label="Owner lock"]')?.textContent).toBe(shell.id);
+    await click("Pause");
+    await click("Switch active tab");
+    await click("Open active Transcript");
+    expect(document.querySelector('aside[aria-label="Live Transcript for Agent"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Owner lock"]')?.textContent).toBe("unlocked");
   });
 
   it("blocks capture until Concierge is connected and starts after Start Live Mode", async () => {
-    const { api } = await mount();
-    let attached = false;
-    api.history.mockResolvedValue({ rows: [], gaps: [], nextFromSeq: null });
-    api.overview.mockImplementation(async () => ({
-      status: {
-        committedSeq: 0,
-        trigger: attached ? "direct_batch" : "scout_then_concierge",
-        scout: "ready",
-        concierge: attached ? "ready" : "needs_attachment",
-        binding: attached
-          ? { ownerTabId: shell.id, revision: 1, target: { kind: "attached", epochId: "current" } }
-          : { ownerTabId: shell.id, revision: 0, target: { kind: "detached" } },
-      },
-      cursor: attached ? { ackedSeq: 0, seenSeq: 0 } : null,
-    }));
-    api.attach.mockImplementation(async () => { attached = true; });
+    const { api, readiness, status } = await mount();
+    status.committedSeq = 0;
+    status.binding.target = { kind: "detached" };
+    status.concierge = "needs_attachment";
+    status.scout = readiness.scout = "ready";
+    status.configured = readiness.configured = true;
 
     await click("Autostart active Transcript");
     expect(panel()?.querySelector('[data-testid="live-transcript-concierge-gate"]')).not.toBeNull();
@@ -301,9 +329,113 @@ describe("Live Transcript panel", () => {
     expect(document.querySelector('[aria-label="Owner lock"]')?.textContent).toBe("unlocked");
 
     await click("Start Live Mode");
-    expect(api.attach).toHaveBeenCalledExactlyOnceWith({ trigger: "direct_batch" }, expect.any(AbortSignal));
+    expect(api.attach).toHaveBeenCalledExactlyOnceWith({ trigger: "scout_then_concierge" }, expect.any(AbortSignal));
     expect(panel()?.querySelector('[data-testid="live-transcript-concierge-gate"]')).toBeNull();
     expect(panel()?.textContent).toContain("Uncommitted words");
     expect(document.querySelector('[aria-label="Owner lock"]')?.textContent).toBe(shell.id);
   });
+
+  it("requires explicit first-time setup and offers manual connection with Scout as the default", async () => {
+    const { api, readiness, status } = await mount();
+    readiness.configured = false;
+    status.scout = readiness.scout = "ready";
+    status.binding.target = { kind: "detached" };
+    status.defaultMicTap = true;
+
+    await click("Autostart active Transcript");
+    expect(panel()?.querySelector("h2")?.textContent).toBe("Set up Live Transcript");
+    expect(control("Set up with General").disabled).toBe(false);
+    expect(api.attach).not.toHaveBeenCalled();
+    expect(document.querySelector('[aria-label="Owner lock"]')?.textContent).toBe("unlocked");
+
+    await click("Or connect manually");
+    await choose("Concierge provider", "local");
+    await choose("Concierge model", "large");
+    await click("Connect Concierge & Start");
+    expect(api.attach).toHaveBeenCalledExactlyOnceWith({
+      trigger: "scout_then_concierge", provider: "local", model: "large", configure: true,
+    }, expect.any(AbortSignal));
+    expect(document.querySelector('[aria-label="Owner lock"]')?.textContent).toBe(shell.id);
+  });
+
+  it("keeps setup with General when readiness reports missing ASR and overview is unavailable", async () => {
+    const { api, readiness } = await mount();
+    readiness.asr = { state: "unavailable" };
+    readiness.configured = false;
+    api.overview.mockRejectedValue(new Error("Transcript overview is unavailable."));
+    await click("Autostart active Transcript");
+    expect(control("Set up with General").disabled).toBe(false);
+    expect(panel()?.textContent).not.toContain("Or connect manually");
+    expect(api.attach).not.toHaveBeenCalled();
+  });
+
+  it("starts directly on autostart with mic tap enabled and a configured, detached Concierge", async () => {
+    const { api, readiness, status } = await mount();
+    status.binding.target = { kind: "detached" };
+    readiness.configured = true;
+    readiness.defaultMicTap = true;
+    readiness.defaultTrigger = "wake_word";
+    await click("Autostart active Transcript");
+    expect(api.attach).toHaveBeenCalledExactlyOnceWith({ trigger: "wake_word" }, expect.any(AbortSignal));
+    expect(document.querySelector('[aria-label="Owner lock"]')?.textContent).toBe(shell.id);
+  });
+
+  it("updates Concierge activity and route errors from change events and keeps Thoughts and settings accessible", async () => {
+    const { api, status, emitChange } = await mount();
+    await click("Open active Transcript");
+    const bar = panel()?.querySelector('[data-testid="live-transcript-concierge-bar"]');
+    expect(bar?.textContent).toContain("Concierge · fixture / base · Scout then Concierge");
+    expect(bar?.textContent).toContain("Watching");
+
+    status.awaitingDelivery = true;
+    await emitChange();
+    expect(bar?.textContent).toContain("Reviewing…");
+    status.router = { ...status.router, activity: "stuck" };
+    status.lastRouteError = "The Concierge turn timed out.";
+    await emitChange();
+    expect(bar?.textContent).toContain("Stalled");
+    expect(panel()?.querySelector('[role="alert"]')?.textContent).toBe("The Concierge turn timed out.");
+
+    await click("Concierge · fixture / base · Scout then Concierge");
+    expect(panel()?.querySelector('[aria-label="Routing settings"]')).not.toBeNull();
+    await click("Open current Concierge thoughts");
+    expect(panel()?.querySelector('[aria-label="Routing timeline"]')).not.toBeNull();
+    expect(panel()?.querySelector('[aria-label="Thoughts inspector"]')).not.toBeNull();
+    expect(api.epoch).toHaveBeenCalledWith("current", 0, expect.any(AbortSignal));
+  });
+
+  it("persists the mic tap preference through the mode-only attach", async () => {
+    const { api } = await mount();
+    await click("Open active Transcript");
+    await click("Transcript settings");
+    const toggle = control("Tap mic starts Live Transcript");
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    await click("Tap mic starts Live Transcript");
+    expect(api.attach).toHaveBeenCalledExactlyOnceWith({
+      modeOnly: true, trigger: "scout_then_concierge", defaultMicTap: true,
+    }, expect.any(AbortSignal));
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+  });
+});
+
+it("filters bridge changes by owner and disposes a late subscription", async () => {
+  const { createLiveTranscriptApi: createApi } = await vi.importActual<typeof import("../../lib/transport/liveTranscript")>("../../lib/transport/liveTranscript");
+  let finishListen!: (unlisten: () => void) => void;
+  const unlisten = vi.fn();
+  listen.mockImplementationOnce(() => new Promise(resolve => { finishListen = resolve; }));
+  const refresh = vi.fn();
+  const dispose = createApi("shell").subscribeChanges(refresh);
+  expect(listen).toHaveBeenCalledWith("live-transcript-changed", expect.any(Function));
+  const onChange = listen.mock.lastCall![1];
+  onChange({ payload: { ownerTabId: "other" } });
+  expect(refresh).not.toHaveBeenCalled();
+  onChange({ payload: { ownerTabId: "shell" } });
+  onChange({ payload: {} });
+  expect(refresh).toHaveBeenCalledTimes(2);
+  dispose();
+  onChange({ payload: {} });
+  expect(refresh).toHaveBeenCalledTimes(2);
+  finishListen(unlisten);
+  await Promise.resolve();
+  expect(unlisten).toHaveBeenCalledOnce();
 });

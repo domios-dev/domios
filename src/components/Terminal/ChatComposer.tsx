@@ -2,6 +2,7 @@ import { AudioLines } from "lucide-react";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { composerAttachmentError } from "./composerAttachmentAdmission";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
+import { useConfig } from "../../hooks/useConfig";
 import { formatAttachmentMarker, type ChatSessionIntent } from "@codeterm/chat-core";
 import { canSendDelayedMessage, sendCurrentDelayedMessage } from "./delayedMessageModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvents";
@@ -227,6 +228,8 @@ function ChatComposerImpl({
 }) {
   recordComposerRender(tabId);
   const transcript = useLiveTranscriptHost();
+  const { config } = useConfig();
+  const liveTranscriptDefaultMicTap = Boolean((config as { live_transcript?: { default_mic_tap?: boolean } } | null)?.live_transcript?.default_mic_tap);
   const transcriptOwner = transcript?.ownerId === tabId;
   const liveLocked = transcriptOwner && transcript?.locked === true;
   const sendPolicy = useStartupSend(tabId);
@@ -705,6 +708,7 @@ function ChatComposerImpl({
       sendUnavailableReason={sendUnavailableReason}
       dictation={liveLocked ? undefined : dictation}
       onOpenLiveTranscript={transcript && !liveLocked ? openLiveTranscript : undefined}
+      liveTranscriptOnTap={liveTranscriptDefaultMicTap && !liveLocked && Boolean(transcript?.canOpen(tabId))}
       hideActionButton={liveLocked}
       inputOverlay={liveLocked && transcript ? (
         <div className="ct-live-lock" data-testid="live-transcript-composer-lock">

@@ -1,4 +1,5 @@
 import type { ChatMsg } from "@codeterm/chat-core";
+import { listen } from "../bridge";
 import { IS_WEB, relayTarget, webJson } from "../webApi";
 
 export const TRANSCRIPT_PAGE_SIZE = 24;
@@ -15,11 +16,29 @@ type Asr = { state: "ready" | "loading" | "unloaded" | "unavailable"; reason?: s
 type Scout = "ready" | "unavailable" | "disabled";
 type Concierge = "ready" | "needs_attachment" | "unavailable";
 
+export interface TranscriptRouterProviderOption {
+  id: string;
+  displayName: string;
+  defaultModel?: string | null;
+  models: string[];
+}
+
 export interface TranscriptReadiness {
   asr: Asr;
   scout: Scout;
   concierge: Concierge;
+  configured?: boolean;
+  defaultMicTap?: boolean;
+  defaultTrigger?: Trigger;
+  router?: {
+    provider?: string;
+    model?: string | null;
+    cap?: number;
+    providers?: TranscriptRouterProviderOption[];
+  } | null;
 }
+
+export type RouterActivity = "idle" | "reviewing" | "stuck" | "unavailable";
 
 export interface TranscriptOverview {
   status: {
@@ -27,8 +46,18 @@ export interface TranscriptOverview {
     binding: Binding;
     trigger: Trigger;
     scout: Scout;
+    awaitingDelivery?: boolean;
     concierge: Concierge;
-    router?: { provider?: string; model?: string; cap?: number };
+    configured?: boolean;
+    defaultMicTap?: boolean;
+    router?: {
+      provider?: string;
+      model?: string | null;
+      cap?: number;
+      activity?: RouterActivity;
+      activeTurnMs?: number | null;
+    } | null;
+    lastRouteError?: string | null;
   };
   cursor: { ackedSeq: number; seenSeq: number } | null;
 }
@@ -63,8 +92,8 @@ export interface RoutedPage {
 }
 
 export type TranscriptAttach =
-  | { modeOnly: true; trigger: Trigger }
-  | { trigger: Trigger; externalTab?: string };
+  | { modeOnly: true; trigger?: Trigger; defaultMicTap?: boolean }
+  | { trigger: Trigger; externalTab?: string; provider?: string; model?: string; configure?: boolean; defaultMicTap?: boolean };
 
 export function directTranscriptAvailable(): boolean {
   return !relayTarget() && (!IS_WEB || window.isSecureContext);
@@ -78,6 +107,20 @@ export function createLiveTranscriptApi(owner: string) {
 
   const base = `/api/live-transcript/${encodeURIComponent(owner)}`;
   return {
+    subscribeChanges(refresh: () => void) {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen<{ ownerTabId?: string }>("live-transcript-changed", event => {
+        if (!disposed && (!event.payload?.ownerTabId || event.payload.ownerTabId === owner)) refresh();
+      }).then(cleanup => {
+        if (disposed) cleanup();
+        else unlisten = cleanup;
+      }).catch(() => undefined);
+      return () => {
+        disposed = true;
+        unlisten?.();
+      };
+    },
     readiness: (signal: AbortSignal) => request<TranscriptReadiness>("GET", "/api/live-transcript/readiness", signal),
     overview: (signal: AbortSignal) => request<TranscriptOverview>("GET", `${base}/overview`, signal),
     history: (from: number, limit: number, signal: AbortSignal) =>
@@ -96,6 +139,4 @@ export function createLiveTranscriptApi(owner: string) {
   };
 }
 
-export type LiveTranscriptApi = ReturnType<typeof createLiveTranscriptApi> & {
-  subscribeChanges?: (refresh: () => void) => () => void;
-};
+export type LiveTranscriptApi = ReturnType<typeof createLiveTranscriptApi>;
