@@ -7,6 +7,34 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
+## [1.22.1]
+
+### Highlights
+
+- Appearance Lab "Try it": preview palettes, wallpapers, roundness, shadows, border brightness and text size live on the real app, then Apply or Discard. Every change shows exactly what it will look like, and Undo names the look it returns to.
+- Chat wallpapers: a gallery of patterns, colours and fills, your own SVG or image, per-machine looks. Chats have no backdrop by default.
+- Ask General for a look: it proposes a themed card with live contrast readings and Apply, and small tweaks ("make the background weaker") apply right away with Undo.
+- Appearance changes play a smooth reveal over the real interface, without the text flickering.
+
+### Changed
+
+- Calmer interface: softer shadows, a quieter selected tab, even border brightness, a subtler focused composer, more air between sidebar rows.
+- The machine menu only switches machines, with each machine's colour and live status.
+- When the selected tab is scrolled out of the sidebar, a small "Name ↓" cue brings it back into view.
+- File changes in chat show one row per file with the diff; raw tool data is under View raw.
+- Background processes and sub-agents are labelled as such.
+- The Updates button hides when everything is up to date.
+
+### Fixed
+
+- Closing a worker tab always works, even while its task is in review.
+- A browser pane never shows another browser's page after one closes, and agent browsers close with their agent.
+- Claude Managers restore after an update instead of landing at a shell.
+- Usage, @mentions, boards and images in a chat viewed from another machine come from that machine.
+- Typing into rich web editors (for example X) through the browser tool registers the text.
+- Settings Back and Analytics behave predictably; the macOS sidebar no longer jumps on hover.
+- Lower server CPU under agent and mesh-viewer load.
+
 ## [1.22.0]
 
 ### Highlights
